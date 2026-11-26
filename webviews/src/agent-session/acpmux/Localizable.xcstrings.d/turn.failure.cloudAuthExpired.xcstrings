@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "turn.failure.cloudAuthExpired" : {
+      "comment" : "Agent pane: Cloud provider auth failure with an expired or revoked credential; do not reveal machine host.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness}’s provider credential has expired or been revoked on this Cloud machine. Set it up again to continue."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "انتهت صلاحية بيانات اعتماد مزوّد {harness} أو أُبطلت على جهاز Cloud هذا. أعد إعدادها للمتابعة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vjerodajnice provajdera {harness} na ovom Cloud računaru su istekle ili opozvane. Ponovo ih postavite."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Udbyderlegitimationsoplysningerne for {harness} på denne Cloud-maskine er udløbet eller tilbagekaldt. Konfigurer dem igen."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Anmeldedaten für {harness} auf diesem Cloud-Computer sind abgelaufen oder wurden widerrufen. Richte sie erneut ein."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Las credenciales del proveedor para {harness} en esta máquina de Cloud han caducado o se han revocado. Configúralas de nuevo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les identifiants fournisseur de {harness} sur cette machine Cloud ont expiré ou ont été révoqués. Configurez-les à nouveau."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le credenziali del provider per {harness} su questa macchina Cloud sono scadute o revocate. Configurale di nuovo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この Cloud マシンの {harness} のプロバイダー認証情報は期限切れまたは取り消されています。再設定してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ព័ត៌មានសម្គាល់អ្នកផ្តល់សេវាសម្រាប់ {harness} នៅលើម៉ាស៊ីន Cloud នេះបានផុតកំណត់ ឬត្រូវបានដកហូត។ សូមរៀបចំវាម្តងទៀត។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 Cloud 머신의 {harness} 제공업체 자격 증명이 만료되었거나 취소되었습니다. 다시 설정하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Leverandørlegitimasjonen for {harness} på denne Cloud-maskinen har utløpt eller blitt tilbakekalt. Konfigurer den på nytt."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dane logowania dostawcy dla {harness} na tej maszynie Cloud wygasły lub zostały unieważnione. Skonfiguruj je ponownie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "As credenciais do provedor para {harness} nesta máquina Cloud expiraram ou foram revogadas. Configure-as novamente."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Учётные данные провайдера для {harness} на этой машине Cloud истекли или отозваны. Настройте их заново."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ข้อมูลรับรองผู้ให้บริการสำหรับ {harness} บนเครื่อง Cloud นี้หมดอายุหรือถูกเพิกถอนแล้ว ตั้งค่าใหม่อีกครั้ง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu Cloud makinesindeki {harness} sağlayıcı kimlik bilgileri süresi dolmuş veya iptal edilmiş. Yeniden kurun."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Термін дії облікових даних провайдера для {harness} на цій хмарній машині минув або їх відкликано. Налаштуйте їх знову."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Thông tin xác thực của nhà cung cấp cho {harness} trên máy Cloud này đã hết hạn hoặc bị thu hồi. Hãy thiết lập lại."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这台 Cloud 机器上的 {harness} 提供商凭据已过期或被撤销。请重新设置。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "這台 Cloud 機器上的 {harness} 提供者憑證已過期或遭撤銷。請重新設定。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

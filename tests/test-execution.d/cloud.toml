@@ -13,13 +13,15 @@ reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Run python3 
 
 [[test]]
 path = "tests/test_cloud_chat_proof.py"
-lane = "manual"
-reason = "Run by hand when cloud-chat-proof.py changes, as its failure-evidence sibling is: python3 tests/test_cloud_chat_proof.py (mocked launcher, auth and Cloud API; no app, no machine)."
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cloud_chat_proof_failure_evidence.py"
-lane = "manual"
-reason = "Run by hand when cloud-chat-proof.py changes: python3 tests/test_cloud_chat_proof_failure_evidence.py (fake app CLI and log tool, no app)."
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cloud_composer_journey.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cloud_display_catalog.py"
@@ -38,13 +40,3 @@ reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Guardrails o
 [[test]]
 path = "tests/test_cloud_vm_attach_retry_script.py"
 lane = "legacy"
-
-[[test]]
-path = "tests/test_pair_e2e_build_space.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_pair_e2e_build_space.py"
-
-[[test]]
-path = "tests/test_pair_e2e_signin_session.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_pair_e2e_signin_session.py"

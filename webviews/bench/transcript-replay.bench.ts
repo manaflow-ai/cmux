@@ -64,6 +64,7 @@ import {
   type ReplayLog,
 } from "./replayLogs";
 import { cpuSession } from "./stability";
+import { sharedPaneDir } from "./support/sharedBuilds";
 
 const argv = process.argv.slice(2);
 const flag = (name: string) => {
@@ -1071,21 +1072,31 @@ if (import.meta.main) {
       releases.push(() => server.stop(true));
       return daemon;
     });
-    const out = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "transcript-replay-bench-"));
+    // Under bench/web-ui-suite.ts, the suite's one pane build of the run (bench/support/sharedBuilds.ts).
+    // PROFILE_BUILD keeps the build it made, so it makes its own.
+    const variant = Boolean(PROFILE || process.env.PROFILE_BUILD);
+    const shared = sharedPaneDir({ variant });
+    const out = shared ?? fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "transcript-replay-bench-"));
     // PROFILE_BUILD=DIR keeps the pane's build there: a profile's `file:line` read against it names an anonymous function.
-    releases.push(() =>
-      process.env.PROFILE_BUILD
-        ? fs.renameSync(out, process.env.PROFILE_BUILD)
-        : fs.rmSync(out, { recursive: true, force: true }),
-    );
+    if (!shared)
+      releases.push(() =>
+        process.env.PROFILE_BUILD
+          ? fs.renameSync(out, process.env.PROFILE_BUILD)
+          : fs.rmSync(out, { recursive: true, force: true }),
+      );
     const builtAt = performance.now();
     const { build } = await import("vite");
-    await build({
-      configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-      build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false } : {}) },
-      logLevel: "error",
-    });
-    console.log(`transcript-replay: pane built in ${((performance.now() - builtAt) / 1000).toFixed(0)} s`);
+    if (!shared)
+      await build({
+        configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+        build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false } : {}) },
+        logLevel: "error",
+      });
+    console.log(
+      shared
+        ? `transcript-replay: the suite's pane build (${shared})`
+        : `transcript-replay: pane built in ${((performance.now() - builtAt) / 1000).toFixed(0)} s`,
+    );
     const statics = Bun.serve({
       port: 0,
       hostname: "127.0.0.1",

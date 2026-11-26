@@ -79,7 +79,7 @@ fn plan_picks_checks_by_language() {
         matches!(&checks[0], Check::Cargo { package, files, .. } if package == "cc" && files.len() == 2)
     );
     assert_eq!(checks.len(), 6);
-    assert!(checks.iter().any(|c| matches!(c, Check::NodeCheck { .. })));
+    assert!(checks.iter().any(|c| matches!(c, Check::Node { .. })));
     assert!(!checks.iter().any(|c| c.key().contains("swift")));
     std::fs::remove_dir_all(&dir).ok();
 }

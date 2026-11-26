@@ -32,7 +32,7 @@ enum PaletteSourcesBridge {
             let assigned = services?.settings?.snapshot.paletteScopePrefixes.assigned ?? [:]
             return Dictionary(uniqueKeysWithValues: assigned.map { (PaletteScopeID($0.key), $0.value) })
         }
-        // cmux.json `palette.aliases` and `palette.pins`, read on every open.
+        // cmux.json `palette.aliases`, `palette.pins` and the palette's `experiments.*`, read on every open.
         sources.rankSettings = { [weak services] in
             guard let services else { return PaletteRankSettings() }
             let setting = PaletteRankingSetting(services.settings?.fileRoot ?? .object([:]))
@@ -42,7 +42,7 @@ enum PaletteSourcesBridge {
             for (id, words) in setting.aliases { aliases[canonical(id), default: []] += words }
             var seen = Set<String>()
             return PaletteRankSettings(aliases: aliases, pins: setting.pins.map(canonical).filter { seen.insert($0).inserted },
-                                       remembersSearches: setting.remembersSearches)
+                                       remembersSearches: setting.remembersSearches, experiments: PaletteExperiments(look: PaletteV2Look(setting: setting.paletteV2), preview: setting.palettePreview))
         }
         // Theme rows draw the theme's swatch strip (R98), from the catalog's
         // cache (read off the main thread at launch).
@@ -173,7 +173,7 @@ enum PaletteSourcesBridge {
                                         groupName: groupNames[workspace.id], machineName: services.otherMachineName(daemon),
                                         agentID: agentID,
                                         keywords: (lone ?? repeating).map { PaletteWorkspace.loneTabWords(title: resolver.title($0), url: $0.url, session: $0.agentSession?.session) } ?? [],
-                                        sidebarRank: ranks[workspace.id], lastUsed: tabs.compactMap { lastActive[$0.id] }.max()) // latest tab focus
+                                        sidebarRank: ranks[workspace.id], lastUsed: tabs.compactMap { lastActive[$0.id] }.max(), tabCount: live.count) // latest tab focus
             }
         }
 

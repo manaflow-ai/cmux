@@ -29,7 +29,7 @@ pub const HOOKS_KEY: &str = "chief.turnHooks";
 pub const SKILLS_KEY: &str = "chief.turnSkills";
 
 /// The non-empty strings of an array at `key` in the user's settings document.
-fn named(doc: Option<&Value>, key: &str) -> Vec<String> {
+pub(crate) fn named(doc: Option<&Value>, key: &str) -> Vec<String> {
     match doc.and_then(|d| crate::agent_memory::settings::value(d, key)) {
         Some(Value::Array(items)) => items
             .iter()
@@ -42,7 +42,7 @@ fn named(doc: Option<&Value>, key: &str) -> Vec<String> {
 }
 
 /// The user's settings document (cmux.json), against `$HOME`.
-fn document() -> Option<Value> {
+pub(crate) fn document() -> Option<Value> {
     let home = std::env::var_os("HOME")?;
     crate::agent_memory::settings::document(Path::new(&home))
 }

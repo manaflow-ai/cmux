@@ -40,13 +40,21 @@ fn fill(chat: &optchat_host::OptChat, n: usize) {
 }
 
 /// A turn's input without its trailing clock line (`Now: ...`, the
-/// person's local time, which every turn ends with and which changes by the
-/// minute); panics when it is missing.
+/// person's local time, which changes by the minute) and the turn checks
+/// every main turn ends with (#54039); panics when either is missing or the
+/// checks are not last.
 fn sans_now(blocks: &[Value]) -> Vec<Value> {
+    let checks = format!(
+        "\n\n<turn-checks>\n{}\n</turn-checks>",
+        chief_kernel::TURN_CHECKS.trim()
+    );
     let last = blocks
         .last()
         .and_then(|b| b["text"].as_str())
         .unwrap_or_default();
+    let last = last
+        .strip_suffix(checks.as_str())
+        .unwrap_or_else(|| panic!("the turn checks are not last: {last:?}"));
     let (head, tail) = last
         .split_once("Now: ")
         .unwrap_or_else(|| panic!("no clock line: {last:?}"));

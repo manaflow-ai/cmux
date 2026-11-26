@@ -394,6 +394,7 @@ pub unsafe extern "C" fn cmux_rd_session_stats(
                 frames_lost: s.frames_lost,
                 acked_frame: s.acked_frame,
                 need_recovery: s.need_recovery,
+                frames_skipped: s.frames_skipped,
             };
             // SAFETY: checked non-NULL; writable by contract.
             unsafe { out.write(value) };

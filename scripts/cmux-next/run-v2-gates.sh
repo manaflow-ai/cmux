@@ -21,6 +21,11 @@ run_group() {
 # A filter that fails having written none is named here: the home can only say
 # its rows "did not report a measure", and this line says which command it was.
 run() {
+  # A group's build step runs its runner with a filter no test matches: the build alone.
+  if [[ -n $build_only ]]; then
+    "$@"
+    return
+  fi
   local before=0 after=0
   [[ -f $V2_GATE_OUT ]] && before=$(wc -l <"$V2_GATE_OUT")
   if ! "$@"; then
@@ -112,12 +117,27 @@ read_gates() {
 }
 read_gates || exit 2
 
+# A group builds its test target once, then each of its filters runs against that build.
+# A group that does not build runs none of its gates and says so in one line: before, each
+# filter rebuilt it and failed again, so one acpmux compile error spent the nightly's whole
+# gate budget (run 45413199195, 75 minutes) and the v2 home step never wrote its rows.
+build_only=
 run_gates() {
-  local runner line
+  local runner line filters="" built=0
   runner=$(gate_runner "$1")
   for line in ${gate_lines[@]+"${gate_lines[@]}"}; do
-    if [[ ${line%% *} == "$1" ]]; then "$runner" "${line#* }"; fi
+    if [[ ${line%% *} == "$1" ]]; then filters="$filters ${line#* }"; fi
   done
+  [[ -n $filters ]] || return 0
+  build_only=1
+  "$runner" v2_gates_build_only_no_test_matches && built=1
+  build_only=
+  if ((!built)); then
+    failed=1
+    printf 'v2 gates: group %s does not build; its gates did not run:%s\n' "$1" "$filters" >&2
+    return
+  fi
+  for line in $filters; do "$runner" "$line"; done
 }
 
 # cmux-tui-core links libghostty-vt (ghostty-vt-sys): its build needs the ghostty-next

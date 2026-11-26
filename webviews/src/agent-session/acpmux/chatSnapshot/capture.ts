@@ -15,6 +15,8 @@ import { usedNames, usedRules, type UsedNames } from "./usedRules";
 
 /// The transcript's rows: absolutely placed, so leaving one out moves no other.
 const ROW_SELECTOR = ".acpmux-row";
+/// The transcript's scroller (VirtualTranscript), which the live page keeps at its latest row.
+const TRANSCRIPT_SCROLL_SELECTOR = ".acpmux-scroll";
 /// What a copy never carries: script, frames, and the page's own media (a copy cannot play it).
 const DROPPED = "script, iframe, object, embed, frame, frameset, video, audio, canvas";
 
@@ -68,12 +70,17 @@ function planFor(element: Element, viewHeight: number): Plan | undefined {
     const rect = element.getBoundingClientRect();
     if (rect.bottom < 0 || rect.top > viewHeight) return { drop: true };
   }
-  if (element.scrollTop > 0 || element.scrollLeft > 0) {
+  const scrolled = element.scrollTop > 0 || element.scrollLeft > 0;
+  // A transcript that fit its window is at its end at offset 0, and is marked so too: a window a tab
+  // row shorter overflows it, the live page opens it at its latest row, and a copy left at 0 drew every
+  // row that far from there.
+  if (scrolled || element.matches(TRANSCRIPT_SCROLL_SELECTOR)) {
     const atEnd = element.scrollHeight - element.clientHeight - element.scrollTop <= 1;
-    plan = {
-      drop: false,
-      scroll: `${Math.round(element.scrollTop)},${Math.round(element.scrollLeft)}${atEnd ? ",end" : ""}`,
-    };
+    if (scrolled || atEnd)
+      plan = {
+        drop: false,
+        scroll: `${Math.round(element.scrollTop)},${Math.round(element.scrollLeft)}${atEnd ? ",end" : ""}`,
+      };
   }
   // By tag, not `instanceof`: the page's realm is not always this module's (a test's window).
   const tag = element.tagName;

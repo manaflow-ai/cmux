@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures (public-safe sample app data), not shipped UI.
 import { appsPageEntry, type AppsPageVariant } from "../../gallery/format";
-import { manyStoreApps, sampleApps, storeApps } from "./mockProvider";
+import { sampleApps, manyStoreApps, storeApps } from "./mockProvider";
 
 const base = sampleApps();
 const empty = { details: {}, installed: {}, grants: {} } satisfies AppsPageVariant["data"];
@@ -54,6 +54,22 @@ deployedInstalled.installed["manaflow-ai/hello-deploy"] = {
     state: "running",
     url: "http://127.0.0.1:49153",
   },
+};
+
+// An app installed from a git repo: its page links the repo at the pinned commit.
+const fromGit = structuredClone(base);
+fromGit.details["sample-org/standup"] = {
+  ...structuredClone(template),
+  id: "sample-org/standup",
+  name: "Standup",
+  description: "A public-safe sample app installed from a git repo subdirectory, pinned to a tagged commit.",
+  publisher: "sample-org",
+  publisher_verified: false,
+  tier: "unverified",
+  repository: "https://github.com/sample-org/cmux-apps",
+  path: "apps/standup",
+  commit: "3f9c2a1b7d4e5f60718293a4b5c6d7e8f9012345",
+  tag: "v1.2.0",
 };
 
 // The curated store (Leo, 2026-11-16: "idk if we want to ship THOSE as standard apps"): Discover
@@ -192,6 +208,7 @@ export default appsPageEntry({
   covers: [
     "page:cmux.apps",
     "pages/apps/AppsPage.tsx",
+    "pages/apps/FeaturesView.tsx",
     "pages/apps/CloudFeature.tsx",
     "pages/apps/AppDetailView.tsx",
     "pages/apps/InstalledView.tsx",
@@ -199,8 +216,24 @@ export default appsPageEntry({
     "pages/apps/GrantsPanel.tsx",
     "pages/apps/parts.tsx",
     "pages/apps/items.tsx",
+    "pages/apps/SourceLink.tsx",
   ],
   variants: {
+    "features-list": {
+      note: "Chosen Features tab (features=list, the default; Leo 10-21, ask-36ade8776b): every built-in feature as a switch on its own setting, grouped like Settings. The managed row cannot change.",
+      hash: "#/features",
+      data: store,
+    },
+    "features-tiles": {
+      note: "Variant (DEV, features=tiles): a card per feature, on ones tinted.",
+      hash: "#/features?features=tiles",
+      data: store,
+    },
+    "features-chips": {
+      note: "Variant (DEV, features=chips): one toggle chip per feature, the densest.",
+      hash: "#/features?features=chips",
+      data: store,
+    },
     "browse-hero-rows": {
       note: "Chosen Discover (browse=hero, the default): Cloud and CodeRouter each as a hero with a screenshot; a small store needs no shelves.",
       hash: "#/discover?layout=grid",
@@ -331,6 +364,11 @@ export default appsPageEntry({
       note: "A deployed app's listing: Runs on names the kinds of machine its server accepts.",
       hash: "#/discover?layout=split&app=manaflow-ai/hello-deploy",
       data: deployed,
+    },
+    "detail-git": {
+      note: "An app installed from git: Repository links github.com/OWNER/REPO/PATH @ the short commit, pinned to that commit.",
+      hash: "#/discover?layout=split&app=sample-org/standup",
+      data: fromGit,
     },
     "installed-deploy": {
       note: "Installed with a deployed app: its row says where the instance runs.",

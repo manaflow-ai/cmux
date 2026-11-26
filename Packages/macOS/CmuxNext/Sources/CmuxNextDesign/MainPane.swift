@@ -190,12 +190,14 @@ extension Metrics {
     /// 0 at a contrast of 1 or more, 1 at a contrast of 0 (Leo, 2026-11-12: "THERE IS THE DIVIDER"). Every tab row
     /// line reads it: the window's (`MainPaneChromeShadeView`) and a lower strip's in-card one.
     public static var tabRowDividerStrength: CGFloat {
+        // A look's `appearance.metrics.headerDivider` (Claude's hairline under its header) sets it outright.
+        if let look = DesignSettings.shared.overrides[.headerDivider] { return look }
         guard ChromeTunables.tabRowDivider.value else { return 0 }
         return min(1, max(0, 1 - titleAreaShadeScale))
     }
 
     /// The share of ``mainPaneChromeShadeBase(isDark:)`` the chrome draws. On the default flush corner's frame
-    /// (``CornerFlush``) `appearance.titleAreaTone` decides it: 0 under One Color (the default, Lawrence's single
+    /// (``CornerFlush``) `appearance.titleAreaTone` decides it (Subtle Tone under gooey tabs, ``DesignSettings/effectiveTitleAreaTone``): 0 under One Color (the default, Lawrence's single
     /// colour), ``TitleAreaTone/subtleShare`` × `appearance.titleAreaContrast` under Subtle Tone. Every other
     /// chrome style (floating, blocks, card and the explicit two-tone style) keeps its own shade, scaled by the
     /// contrast alone, so the default tone never flattens a look the user picked. Leo, 2026-11-12: "since lawrence
@@ -205,8 +207,8 @@ extension Metrics {
         let design = DesignSettings.shared
         guard CornerFlush.current.isOn else { return design.titleAreaContrast }
         // `flush-goo` is two tones, the strip's and the pane's (Leo, 2026-11-18: "the two tone thing"): the goo needs
-        // the frame's shade to show at all, so it tones the frame under One Color too.
-        let toned = design.titleAreaTone != .oneColor || CornerFlush.current == .goo
+        // the frame's shade to show at all, so it tones the frame under One Color too. Gooey tabs resolve to Subtle Tone.
+        let toned = design.effectiveTitleAreaTone != .oneColor || CornerFlush.current == .goo
         return toned ? TitleAreaTone.subtleShare * design.titleAreaContrast : 0
     }
 

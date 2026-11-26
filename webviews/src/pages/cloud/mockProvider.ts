@@ -18,13 +18,16 @@ import {
   NATIVE_ACTIONS,
   type CloudMachine,
   type CloudPlan,
+  type CloudUsage,
   type CloudRetention,
   type CloudSnapshot,
-  type CloudSurge,
   type MachineEvent,
   type MachineResult,
   type TransferChanged,
+  type CloudSurge,
 } from "./ops";
+
+import { parseSpendLimit, SPEND_LIMIT_SET, type PoolStanding } from "./pool";
 
 export { sampleMachines } from "./mockData";
 
@@ -160,6 +163,10 @@ export class MockCloudProvider implements PageClient {
    * create answers `spend_cap_reached`. Unset: a server without the cap.
    */
   spendCap?: NonNullable<CloudPlan["spend_cap"]>;
+  /** The plan's hours and the spend limit past them as `cloud.plan.get` answers them (RFD 0081, pool.ts). */
+  pool?: PoolStanding;
+  /** The spend limit's setter answers `spend_limit_forbidden` (the caller is not a team admin). */
+  spendLimitForbidden = false;
   /** The member's own monthly budget is spent: a start or create answers `member_budget_reached`. */
   memberBudget?: { spent_usd: number; limit_usd: number };
   /**
@@ -167,6 +174,13 @@ export class MockCloudProvider implements PageClient {
    * true answers `{payment_past_due: true}`; `"fail"` makes the read fail.
    */
   paymentPastDue: boolean | "fail" = false;
+  /**
+   * This month's usage (`cloud.usage.current`): a record answers it, `"fail"` makes the read fail, `"hold"`
+   * never answers (the loading state). Unset: a server that does not serve it.
+   */
+  usage?: CloudUsage | "fail" | "hold";
+  /** Checkout answers `cloud.billing.off` (payments not open yet). */
+  billingOff = false;
   /** How many times Manage Billing (`billing.openPortal`) ran. */
   billingPortalOpens = 0;
   holdTransfers: boolean;
@@ -216,6 +230,13 @@ export class MockCloudProvider implements PageClient {
     if (op === ACTION_RUN && p.action === CloudActions.manageBilling)
       return ((this.billingPortalOpens += 1), { ran: true }) as R;
     if (op === ACTION_RUN) return this.runAction(p) as R;
+    if (op === CloudOps.usageCurrent) {
+      if (this.usage === undefined) throw pageError("cmux.cloud.unknown_op", `${op} is not a Cloud op`);
+      if (this.usage === "fail")
+        throw pageError("cmux.cloud.upstream_error", "The Cloud service did not answer.", true);
+      if (this.usage === "hold") return new Promise<R>(() => {});
+      return structuredClone(this.usage) as R;
+    }
     if (op === CloudOps.billingStatus) {
       if (this.unsupported.has(op)) throw pageError("cmux.cloud.unknown_op", `${op} is not a Cloud op`);
       if (this.paymentPastDue === "fail") throw pageError("cmux.cloud.unavailable", "cmux.com did not answer", true);
@@ -276,7 +297,8 @@ export class MockCloudProvider implements PageClient {
       },
       ...(this.retention ? { retention: structuredClone(this.retention) } : {}),
       ...(this.spendCap ? { spend_cap: this.spendCap } : {}),
-    };
+      ...(this.pool ? { pool: { ...this.pool } } : {}),
+    } as CloudPlan;
   }
 
   /** The archives taken by archive and delete are ready: each machine is removed, its archive listed. */
@@ -683,7 +705,8 @@ export class MockCloudProvider implements PageClient {
         return this.plan;
       case CloudOps.billingCheckout:
         only(p, ["plan"]);
-        return { url: `https://checkout.example.test/c/${String(p.plan)}` };
+        if (this.billingOff) throw pageError("cmux.cloud.billing_off", "payments are not open yet");
+        return { url: `https://checkout.example.test/c/${p.plan === undefined ? "card" : String(p.plan)}` };
       case CloudOps.migrationStatus:
         only(p, []);
         return { ...a.migration };
@@ -713,9 +736,26 @@ export class MockCloudProvider implements PageClient {
     return this.fs.serve(op, p, machine.id);
   }
 
+  /**
+   * The spend limit's setter, as the platform answers it: an admin's, parsed like PoolLimit.ts, `{pool}`. With no pool
+   * the server's switch is off (`cloud.spend_limit.off`).
+   */
+  private setSpendLimit(args: Params): unknown {
+    if (!this.pool) throw pageError("cmux.cloud.spend_limit_off", "the spend limit is not on for this server");
+    if (this.spendLimitForbidden)
+      throw pageError("cmux.cloud.spend_limit_forbidden", "only a team admin sets the spend limit");
+    const limit = parseSpendLimit(String(args.spend_limit_usd));
+    if (limit === null) throw pageError("cmux.cloud.spend_limit_invalid", "spend_limit_usd must be 0 to 10000");
+    const pool = this.pool;
+    const mayRun = pool.percent < 100 || pool.overage_usd < limit;
+    this.pool = { ...pool, spend_limit_usd: limit, may_run: mayRun };
+    return { confirmed: true, pool: this.pool };
+  }
+
   /** The host's native confirmation: on yes it runs the op as origin user and answers its result. */
   private runAction(p: Params): unknown {
     const action = String(p.action);
+    if (action === SPEND_LIMIT_SET) return this.setSpendLimit((p.args ?? {}) as Params);
     if (action === HostActions.browserTabOpen) {
       if (this.unsupported.has(action)) throw pageError("cmux.app.unknown_action", action);
       if (this.tabError) throw pageError(this.tabError, "the browser refused the proxied tab");

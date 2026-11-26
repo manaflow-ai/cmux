@@ -50,8 +50,11 @@
 //!   will run within seconds: the early wake; the Cloud reads any phase but `model-wait` as
 //!   awake, so a sleep never starts under it and a resume can start before the call lands);
 //!   else `pinned` while processes the agent left running (a
-//!   background shell or task) or a background subagent or sub-session work, or while it is at
-//!   work with no turn; else `person` while a permission or question waits; else `model-wait`.
+//!   background shell or task) or a background subagent or sub-session work; else `timer` while
+//!   no turn runs and a timer its agent set has not fired (`hub/agent_timer.rs`: a /loop's wakeup
+//!   or cron, with `wake_at`, its next due time in Unix ms, where known); else `pinned` while it
+//!   is at work with no turn; else `person` while a permission or question waits; else
+//!   `model-wait`.
 //! - `since`: when this daemon first saw it in that phase (Unix ms).
 //! - `processes`: how many processes it left running; `attached`: an attached client shows it.
 //! - `relayed`: whether every turn's model stream ends outside this machine. No relay exists
@@ -65,6 +68,16 @@
 //! host that outlived the last daemon still runs), so every session at work until its startup
 //! settles, and at the first look after, is `unknown` too ([`Tracker::startup`]): a pause never
 //! lands under a tool this daemon did not see start (wake kind 5, cmuxterm-hq RFD 0017).
+//!
+//! Each line also carries `"turn_end": 1` (version [`TURN_END_VERSION`], capability
+//! `activity-turn-end`): this daemon's promise that `turns` 0 means nothing is pending. No turn
+//! runs or is queued, no permission or question waits, no continuation is pending, and no
+//! background task, process, subagent or sub-session is at work (the count is
+//! [`crate::hub::Hub::sessions_at_work`], which covers each). So a pause right when the count
+//! drops to 0 loses nothing, and the Cloud may pause at turn end instead of after its 60 s
+//! window, on the machines whose pause policy asks for it (cmux-platform `turn_end`). A daemon
+//! older than this field sends no `turn_end`, and the agent then advertises no capability, so
+//! the Cloud keeps its usual window.
 //!
 //! A machine without the agent's socket (every machine that is not a Cloud machine) sends nothing.
 
@@ -80,6 +93,8 @@ use tokio::io::AsyncWriteExt;
 /// How often a line goes in any case. The agent keeps a count for 90 s
 /// (cmux-host `cloud/wire.rs` `ACP_ACTIVITY_TTL_MS`), so two lines can be lost before it forgets.
 pub(super) const RENEW: Duration = Duration::from_secs(20);
+/// The `turn_end` field's version: 1 promises that a count of 0 means nothing pending (module doc).
+pub(super) const TURN_END_VERSION: u64 = 1;
 /// A line must not hold this loop on a dead socket.
 const SEND_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -113,8 +128,11 @@ pub(super) struct Tracker {
     /// Each session at work's phase and since when, once [`Self::observe`] ran.
     phases: Option<BTreeMap<String, TurnPhase>>,
     /// The phases the agent last got, by session: (phase, since).
-    sent_phases: Option<Vec<(String, &'static str, u64)>>,
+    sent_phases: Option<Vec<PhaseKey>>,
 }
+
+/// A session's phase as the agent got it: by session id, phase, since and wake time.
+type PhaseKey = (String, &'static str, u64, Option<u64>);
 
 /// What one session at work waits on (the module doc's `phases`).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -123,6 +141,8 @@ pub(super) struct TurnPhase {
     pub since: u64,
     pub processes: usize,
     pub attached: bool,
+    /// A `timer` phase's next due time (Unix ms), where known.
+    pub wake_at: Option<u64>,
 }
 
 impl Tracker {
@@ -228,7 +248,11 @@ impl Tracker {
                 "tool"
             } else if self.starting.contains_key(&s.id) {
                 "tool-starting"
-            } else if s.processes > 0 || s.below || !s.turn {
+            } else if s.processes > 0 || s.below {
+                "pinned"
+            } else if !s.turn && s.timer.is_some() {
+                "timer"
+            } else if !s.turn {
                 "pinned"
             } else if s.person {
                 "person"
@@ -236,16 +260,18 @@ impl Tracker {
                 "model-wait"
             };
             let since = before.get(&s.id).filter(|p| p.phase == phase).map_or(now_ms, |p| p.since);
-            let entry = TurnPhase { phase, since, processes: s.processes, attached: s.shown };
+            let wake_at = s.timer.and_then(|t| t.wake_at).filter(|_| phase == "timer");
+            let entry =
+                TurnPhase { phase, since, processes: s.processes, attached: s.shown, wake_at };
             phases.insert(s.id.clone(), entry);
         }
         self.phases = Some(phases);
     }
 
-    /// The phases as the agent gets them: by session id, phase and since.
-    fn phase_key(&self) -> Option<Vec<(String, &'static str, u64)>> {
+    /// The phases as the agent gets them: by session id, phase, since and wake time.
+    fn phase_key(&self) -> Option<Vec<PhaseKey>> {
         let phases = self.phases.as_ref()?;
-        Some(phases.iter().map(|(id, p)| (id.clone(), p.phase, p.since)).collect())
+        Some(phases.iter().map(|(id, p)| (id.clone(), p.phase, p.since, p.wake_at)).collect())
     }
 
     /// The line to send with `turns` sessions at work observed at `now_ms`, or None: on a
@@ -273,7 +299,7 @@ impl Tracker {
         self.sent = Some((turns, self.last_action));
         self.sent_phases = phases;
         self.sent_person_prompt = self.person_prompt;
-        let mut activity = json!({"turns": turns});
+        let mut activity = json!({"turns": turns, "turn_end": TURN_END_VERSION});
         if let Some(at) = self.last_action {
             activity.set("last_agent_action_at", json!(at));
         }
@@ -287,8 +313,12 @@ impl Tracker {
             let turns: Vec<Value> = phases
                 .values()
                 .map(|p| {
-                    json!({"phase": p.phase, "since": p.since, "processes": p.processes,
-                        "attached": p.attached})
+                    let mut turn = json!({"phase": p.phase, "since": p.since,
+                        "processes": p.processes, "attached": p.attached});
+                    if let Some(at) = p.wake_at {
+                        turn.set("wake_at", json!(at));
+                    }
+                    turn
                 })
                 .collect();
             activity.set("phases", json!({"relayed": false, "turns": turns}));
@@ -362,6 +392,16 @@ async fn agent_socket_appears(path: &Path) {
     }
 }
 
+/// Auto mode's machine side (`auto_session/machine.rs`), once the agent's Auto mode socket is
+/// there (an agent older than Auto mode has none). It waits for the store to assign this
+/// machine a chat; until then it changes nothing.
+async fn auto_mode(hub: Arc<Hub>) {
+    use crate::auto_session::machine;
+    let cloud = machine::MachineCloud::here();
+    agent_socket_appears(cloud.socket()).await;
+    machine::serve(hub, Arc::new(cloud), machine::chats_root()).await
+}
+
 /// Follows this daemon's own sessions and reports how many are at work while the Cloud agent's
 /// socket is there.
 pub(super) async fn activity_loop(hub: Arc<Hub>) {
@@ -369,6 +409,19 @@ pub(super) async fn activity_loop(hub: Arc<Hub>) {
     // Off a Cloud machine nothing reads the report: no renew tick and no resume subscription (it
     // keeps the hub's resume tick running) until the agent's socket appears (cmux-ad m9).
     agent_socket_appears(&path).await;
+    // The agent is here. On a Cloud machine, Auto mode's side starts with it.
+    if crate::cloud_host::is_cloud_vm() {
+        hub.scope.spawn_until_cancelled("auto-mode-machine", auto_mode(hub.clone()));
+        // ~/README.md: what this machine is and how to get more capacity (`cloud_readme.rs`).
+        if let Some(home) = std::env::var_os("HOME").filter(|h| !h.is_empty()) {
+            let home = std::path::PathBuf::from(home);
+            tokio::task::spawn_blocking(move || {
+                if let Err(e) = crate::cloud_readme::ensure(&home) {
+                    tracing::warn!(error = %e, "cloud README not written");
+                }
+            });
+        }
+    }
     let mut events = hub.subscribe();
     let mut resumes = hub.subscribe_resumes();
     let mut person_prompts = hub.subscribe_person_prompts();
@@ -511,3 +564,21 @@ async fn send(path: &Path, line: &Value) -> bool {
 #[cfg(test)]
 #[path = "cloud_activity_tests.rs"]
 mod tests;
+
+/// The report a fresh daemon sends for `at_work` at `now_ms`, for scenarios outside this module
+/// (`hub/agent_timer_tests.rs`).
+#[cfg(test)]
+pub(crate) mod probe {
+    use super::*;
+
+    pub(crate) fn line(at_work: &[SessionAtWork], now_ms: u64) -> Value {
+        let mut tracker = Tracker::new("/probe.sock".into());
+        tracker.observe(at_work, now_ms);
+        tracker.line(at_work.len() as u64, true, now_ms).expect("a renewal always sends")
+    }
+
+    /// Whether the Cloud may pause the machine on `line` (no session at work).
+    pub(crate) fn pausable(line: &Value) -> bool {
+        flushes_before(line)
+    }
+}

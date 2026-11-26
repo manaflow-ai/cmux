@@ -12,7 +12,8 @@
 //! minute before `expires_at` or until the hub answers 401, then the command runs again.
 
 use crate::mesh::{
-    Ack, Heartbeat, HeartbeatReply, HubError, InMessage, MeshHub, OutMessage, Receipt, TeamPage,
+    Ack, Heartbeat, HeartbeatReply, HubError, InMessage, Listen, Listens, MeshHub, OutMessage,
+    Receipt, TeamPage,
 };
 use futures::future::BoxFuture;
 use serde::Deserialize;
@@ -382,28 +383,18 @@ fn rotated_since(sent: &str, now: Option<&str>) -> bool {
     now.is_some_and(|now| now != sent)
 }
 
-/// The hub's error codes this client acts on or names in a log (the contract leaves `code` a free
-/// string): any other code is dropped, since a free string could carry anything.
-const KNOWN_CODES: &[&str] = &[
-    "machine.revoked",
-    "mesh.unauthorized",
-    "mesh.forbidden",
-    "mesh.bad_request",
-    "mesh.unknown_recipient",
-    "mesh.ambiguous",
-    "mesh.conflict",
-    "mesh.idempotency_conflict",
-    "mesh.rate_limited",
-    "mesh.too_large",
-    "mesh.unavailable",
-    "mesh.not_found",
-    "mesh.carrier_unconfigured",
-    "machine.not_found",
-    "team.messaging_disabled",
-    "team.forbidden",
-    "team.unknown_recipient",
-    "team.invalid_address",
-];
+/// Whether `code` is a hub error code this client may keep and name in a log (the contract leaves
+/// `code` a free string): a known family (`mesh.`, `machine.`, `team.`, `carrier.`) and one short
+/// snake_case word. That shape cannot carry a token or reflected request text, yet a code the hub
+/// adds later (`mesh.queue_full`, a schema refusal) still reaches the person instead of a bare
+/// status: a list of known codes hid both the 400 that refused every relay send with no session
+/// (2026-11-24 04:58Z) and the `mesh.queue_full` 429 that made a busy host unreadable.
+fn hub_code(code: &str) -> bool {
+    let Some((family, word)) = code.split_once('.') else { return false };
+    matches!(family, "mesh" | "machine" | "team" | "carrier")
+        && (1..=48).contains(&word.len())
+        && word.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
+}
 
 /// The hub's answer as a value, or the error it names.
 fn answer(status: u16, bytes: &[u8]) -> Result<Value, HubError> {
@@ -411,13 +402,9 @@ fn answer(status: u16, bytes: &[u8]) -> Result<Value, HubError> {
     if (200..300).contains(&status) {
         return Ok(body);
     }
-    // Only the status, and a code the contract names: anything else the hub (or a proxy) says
+    // Only the status, and a code of the hub's shape (`hub_code`): anything else the hub (or a proxy) says
     // could reflect the request, token included, and errors are logged.
-    let code = body
-        .get("code")
-        .and_then(Value::as_str)
-        .filter(|c| KNOWN_CODES.contains(c))
-        .map(str::to_owned);
+    let code = body.get("code").and_then(Value::as_str).filter(|c| hub_code(c)).map(str::to_owned);
     let mut error = HubError::refused(
         format!("the hub answered {status} {}", code.as_deref().unwrap_or("")).trim().to_owned(),
     )
@@ -480,6 +467,46 @@ impl MeshHub for HttpHub {
 
     fn acknowledge<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
         Box::pin(self.team_receipt(id, "acknowledge"))
+    }
+
+    fn listen_open<'a>(
+        &'a self,
+        team_address: &'a str,
+        ttl_seconds: Option<u64>,
+    ) -> BoxFuture<'a, Result<Listen, HubError>> {
+        Box::pin(async move {
+            let body = match ttl_seconds {
+                Some(ttl) => json!({"teamAddress": team_address, "ttlSeconds": ttl}),
+                None => json!({"teamAddress": team_address}),
+            };
+            decode(
+                self.call(reqwest::Method::POST, "/v1/mesh/listens", Some(&body), CALL_WAIT)
+                    .await?,
+            )
+        })
+    }
+
+    fn listens(&self) -> BoxFuture<'_, Result<Listens, HubError>> {
+        Box::pin(async move {
+            decode(self.call(reqwest::Method::GET, "/v1/mesh/listens", None, CALL_WAIT).await?)
+        })
+    }
+
+    fn listen_close<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Listens, HubError>> {
+        Box::pin(async move {
+            if !crate::mesh::is_listen_id(id) {
+                return Err(HubError::refused("the listen id is not valid"));
+            }
+            decode(
+                self.call(
+                    reqwest::Method::DELETE,
+                    &format!("/v1/mesh/listens/{id}"),
+                    None,
+                    CALL_WAIT,
+                )
+                .await?,
+            )
+        })
     }
 
     fn ack<'a>(&'a self, id: &'a str, ack: &'a Ack) -> BoxFuture<'a, Result<(), HubError>> {
@@ -757,7 +784,9 @@ mod tests {
     #[test]
     fn same_user_allows_only_the_hub_stamped_person_this_machine_recorded() {
         let entry: MeshControlFrom = serde_json::from_value(json!({"sameUser": true})).unwrap();
-        assert_eq!(entry, MeshControlFrom::same_user());
+        // What a join wrote before `maxPolicy`: the same grant, held to `ask`.
+        assert!(entry.is_unmarked_join_entry());
+        assert_eq!(entry, MeshControlFrom { max_policy: None, ..MeshControlFrom::same_user() });
         // Same person, any of its daemons: allowed for every lifecycle op.
         for op in ["start", "resume", "stop"] {
             assert!(entry.allows(&from(Some("d9"), Some("u1")), Some("u1"), op), "{op}");
@@ -787,8 +816,36 @@ mod tests {
         assert!(!off.allows(&from(Some("d9"), Some("u1")), Some("u1"), "start"));
         assert_eq!(
             serde_json::to_value(MeshControlFrom::same_user()).unwrap(),
-            json!({"sameUser": true, "ops": ["start", "resume", "stop"]})
+            json!({"sameUser": true, "ops": ["start", "resume", "stop"], "maxPolicy": "approve-all"})
         );
+    }
+
+    #[test]
+    fn a_controls_policy_cap_is_the_widest_its_granting_entries_name_and_ask_by_default() {
+        use crate::config::PermissionPolicy as P;
+        use crate::mesh_relay_config::control_cap;
+        let entry = |v: serde_json::Value| serde_json::from_value::<MeshControlFrom>(v).unwrap();
+        let by_daemon = entry(json!({"daemonId": "d9"}));
+        assert_eq!(by_daemon.policy_cap(), P::Ask, "omitted is ask");
+        let sender = from(Some("d9"), Some("u1"));
+        assert_eq!(
+            control_cap(std::slice::from_ref(&by_daemon), &sender, Some("u1"), "start"),
+            Some(P::Ask)
+        );
+        let edits = entry(json!({"daemonId": "d9", "maxPolicy": "approve-edits"}));
+        let entries = [by_daemon.clone(), edits, MeshControlFrom::same_user()];
+        assert_eq!(control_cap(&entries, &sender, Some("u1"), "start"), Some(P::ApproveAll));
+        // Only entries that grant the op to this sender count.
+        assert_eq!(control_cap(&entries, &sender, Some("u2"), "start"), Some(P::ApproveEdits));
+        assert_eq!(control_cap(&entries, &from(Some("d8"), Some("u2")), Some("u1"), "start"), None);
+        // A value this build does not know reads as ask.
+        assert_eq!(entry(json!({"daemonId": "d9", "maxPolicy": "rocket"})).policy_cap(), P::Ask);
+        // `yolo` is approve-all's alias, not an unknown value.
+        assert_eq!(
+            entry(json!({"daemonId": "d9", "maxPolicy": "yolo"})).policy_cap(),
+            P::ApproveAll
+        );
+        assert!(!MeshControlFrom::same_user().is_unmarked_join_entry());
     }
 
     #[test]
@@ -804,11 +861,31 @@ mod tests {
             .unwrap_err();
         assert!(!e.to_string().contains("abc.def"), "{e}");
         assert_eq!(e.code.as_deref(), Some("mesh.bad_request"));
-        // A code the contract does not name is dropped, however tidy: it could be a token.
+        // A code outside the hub's families or shape is dropped: it could be a token.
         let e = answer(400, br#"{"code": "eyJhbGciOi.abc.def"}"#).unwrap_err();
         assert!(!e.to_string().contains("abc.def") && e.code.is_none(), "{e}");
         let e = answer(400, br#"{"code": "Bearer abc.def ghi"}"#).unwrap_err();
         assert!(!e.to_string().contains("abc.def") && e.code.is_none(), "{e}");
+    }
+
+    #[test]
+    fn a_hub_code_this_client_never_listed_still_reaches_the_person() {
+        // The 429 a full inbox answers, and any code the hub adds later, name themselves instead of
+        // a bare status (both hid behind a list of known codes on 2026-11-24).
+        let e = answer(429, br#"{"code": "mesh.queue_full"}"#).unwrap_err();
+        assert_eq!(e.code.as_deref(), Some("mesh.queue_full"));
+        assert!(e.to_string().contains("the hub answered 429 mesh.queue_full"), "{e}");
+        assert!(!e.refused, "a full queue is worth retrying");
+        assert_eq!(
+            answer(400, br#"{"code": "mesh.schema_refused"}"#).unwrap_err().code.as_deref(),
+            Some("mesh.schema_refused")
+        );
+        for bad in ["mesh.", "mesh.Queue", "mesh.a.b", "other.queue_full", "mesh.queue-full"] {
+            let body = format!(r#"{{"code": "{bad}"}}"#);
+            assert!(answer(400, body.as_bytes()).unwrap_err().code.is_none(), "{bad}");
+        }
+        let long = format!(r#"{{"code": "mesh.{}"}}"#, "a".repeat(49));
+        assert!(answer(400, long.as_bytes()).unwrap_err().code.is_none());
     }
 
     #[test]

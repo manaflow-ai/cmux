@@ -15,6 +15,14 @@
 //!   `.example`, `.invalid`, `.local`), which never reach a third party by
 //!   name.
 //!
+//! - a host a server's answer handed this process for one transfer (a
+//!   presigned object URL): the code holds [`allow_session`]'s guard for the
+//!   transfer, and only an answer from a host that passes counts.
+//!
+//! A proxy (`HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, less `NO_PROXY`) is
+//! chosen by the gate too: the request's own host is checked before the proxy
+//! is picked, so a proxy never carries a request the gate would refuse.
+//!
 //! [`Mode::Enforce`] refuses the rest; [`Mode::Log`] only reports it. The mode
 //! is `CMUX_EGRESS` (`enforce`, `log` or `off`) when set, else enforce in a
 //! debug build and log in a release build; the app sets `CMUX_EGRESS=enforce`
@@ -27,7 +35,10 @@
 
 #![forbid(unsafe_code)]
 
-use std::collections::BTreeSet;
+#[cfg(feature = "capture")]
+pub mod capture;
+
+use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
 use std::net::IpAddr;
@@ -114,6 +125,8 @@ pub enum Verdict {
     Listed,
     /// The person named it in a setting ([`allow_named`]).
     Named,
+    /// A server's answer handed it for a transfer still running ([`allow_session`]).
+    Session,
     /// Loopback, an IP literal or a reserved name.
     Local,
     /// None of the above.
@@ -137,6 +150,11 @@ fn named() -> &'static Mutex<BTreeSet<String>> {
     NAMED.get_or_init(Mutex::default)
 }
 
+fn session() -> &'static Mutex<BTreeMap<String, usize>> {
+    static SESSION: OnceLock<Mutex<BTreeMap<String, usize>>> = OnceLock::new();
+    SESSION.get_or_init(Mutex::default)
+}
+
 fn unlisted_log() -> &'static Mutex<BTreeSet<(String, &'static str)>> {
     static SEEN: OnceLock<Mutex<BTreeSet<(String, &'static str)>>> = OnceLock::new();
     SEEN.get_or_init(Mutex::default)
@@ -152,6 +170,50 @@ pub fn allow_named(host_or_url: &str) {
     {
         set.insert(host);
     }
+}
+
+/// A host [`allow_session`] lets through while this guard lives.
+#[must_use = "the host passes only while the guard lives"]
+#[derive(Debug)]
+pub struct SessionHost {
+    host: Option<String>,
+}
+
+impl SessionHost {
+    /// Whether the answer's origin passed, so the host was let through.
+    pub fn granted(&self) -> bool {
+        self.host.is_some()
+    }
+}
+
+impl Drop for SessionHost {
+    fn drop(&mut self) {
+        if let Some(host) = self.host.take()
+            && let Ok(mut map) = session().lock()
+            && let Some(count) = map.get_mut(&host)
+        {
+            *count -= 1;
+            if *count == 0 {
+                map.remove(&host);
+            }
+        }
+    }
+}
+
+/// Lets `host_or_url` through while the returned guard lives: a server at
+/// `answered_by` (a URL or host the gate already passes, such as the cloud API
+/// or a self-hosted server the person named) handed it for one transfer (a
+/// presigned object URL). An answer from a host that does not pass grants
+/// nothing. Never call it with a host from the code or a file.
+pub fn allow_session(host_or_url: &str, answered_by: &str) -> SessionHost {
+    let host = host_of(host_or_url);
+    if host.is_empty() || verdict(answered_by) == Verdict::Unlisted {
+        return SessionHost { host: None };
+    }
+    if let Ok(mut map) = session().lock() {
+        *map.entry(host.clone()).or_default() += 1;
+    }
+    SessionHost { host: Some(host) }
 }
 
 /// The lower-cased host of a URL or bare host name, without port or trailing dot.
@@ -187,12 +249,26 @@ fn label_matches(pattern: &str, label: &str) -> bool {
     glob(pattern.as_bytes(), label.as_bytes())
 }
 
+/// A host that never reaches a third party by name: an IP literal, a dotless name (resolved by
+/// the person's own search domains), a reserved suffix, or a private-network suffix (tailnet,
+/// `.internal`, `.lan`).
 fn is_local(host: &str) -> bool {
     host.parse::<IpAddr>().is_ok()
         || host == "localhost"
-        || [".localhost", ".test", ".example", ".invalid", ".local", ".home.arpa"]
-            .iter()
-            .any(|suffix| host.ends_with(suffix))
+        || (!host.is_empty() && !host.contains('.'))
+        || [
+            ".localhost",
+            ".test",
+            ".example",
+            ".invalid",
+            ".local",
+            ".home.arpa",
+            ".ts.net",
+            ".internal",
+            ".lan",
+        ]
+        .iter()
+        .any(|suffix| host.ends_with(suffix))
         || host == "example.com"
         || host.ends_with(".example.com")
 }
@@ -213,6 +289,9 @@ pub fn verdict(host_or_url: &str) -> Verdict {
     }
     if named().lock().is_ok_and(|set| set.contains(&host)) {
         return Verdict::Named;
+    }
+    if session().lock().is_ok_and(|map| map.contains_key(&host)) {
+        return Verdict::Session;
     }
     Verdict::Unlisted
 }
@@ -283,8 +362,17 @@ impl Gate {
 
 impl Resolve for Gate {
     fn resolve(&self, name: Name) -> Resolving {
+        if name.as_str() == REFUSED_PROXY_HOST {
+            // The proxy [`gated_proxy`] picks for a refused request: refuse it here.
+            let refused = Refused { host: REFUSED_PROXY_HOST.to_owned(), site: self.site };
+            return Box::pin(async move { Err(Box::new(refused) as Box<dyn Error + Send + Sync>) });
+        }
         if let Err(refused) = check(name.as_str(), self.site) {
             return Box::pin(async move { Err(Box::new(refused) as Box<dyn Error + Send + Sync>) });
+        }
+        #[cfg(feature = "capture")]
+        if let Some(addr) = capture::redirect(name.as_str()) {
+            return Box::pin(async move { Ok(Box::new(std::iter::once(addr)) as Addrs) });
         }
         if let Some(inner) = &self.inner {
             return inner.resolve(name);
@@ -297,17 +385,104 @@ impl Resolve for Gate {
     }
 }
 
+/// Whether the seeded-secret capture is on (feature `capture`): a caller that
+/// sets its own TLS configuration keeps the builder's capture CA instead.
+pub fn capturing() -> bool {
+    #[cfg(feature = "capture")]
+    if capture::root().is_some() {
+        return true;
+    }
+    false
+}
+
+/// A builder with the capture CA trusted when capture is on (feature `capture`).
+fn trusting_capture(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+    #[cfg(feature = "capture")]
+    if let Some(root) = capture::root() {
+        return builder.add_root_certificate(root);
+    }
+    builder
+}
+
+/// The host of the proxy a refused request is sent to: [`Gate`] refuses it, so
+/// the request fails before a packet leaves even when another proxy is set.
+const REFUSED_PROXY_HOST: &str = "egress-refused.cmux.invalid";
+
+/// Reads one environment variable (the process's, or a test's).
+type Env = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
+
+fn process_env() -> Env {
+    Arc::new(|name| std::env::var(name).ok())
+}
+
+/// The proxy the environment names for `scheme` (`HTTPS_PROXY` for https,
+/// `HTTP_PROXY` for http, else `ALL_PROXY`; either case).
+fn env_proxy(scheme: &str, env: &Env) -> Option<reqwest::Url> {
+    let names: [&str; 4] = if scheme == "https" {
+        ["HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"]
+    } else {
+        ["HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"]
+    };
+    let raw = names
+        .iter()
+        .find_map(|name| env(name).map(|v| v.trim().to_owned()).filter(|v| !v.is_empty()))?;
+    reqwest::Url::parse(&raw)
+        .ok()
+        .filter(|url| url.has_host())
+        .or_else(|| reqwest::Url::parse(&format!("http://{raw}")).ok())
+}
+
+/// Whether `NO_PROXY` (either case) sends `host` direct: `*`, the host, or a
+/// parent domain (`example.com` and `.example.com` both cover `a.example.com`).
+fn no_proxy_covers(host: &str, env: &Env) -> bool {
+    let list = env("NO_PROXY").or_else(|| env("no_proxy")).unwrap_or_default();
+    list.split(',').map(str::trim).filter(|entry| !entry.is_empty()).any(|entry| {
+        if entry == "*" {
+            return true;
+        }
+        let entry = host_of(entry);
+        let domain = entry.trim_start_matches('.');
+        !domain.is_empty() && (host == domain || host.ends_with(&format!(".{domain}")))
+    })
+}
+
+/// The proxy for one request to `url` made for `site`: a refused host gets
+/// [`REFUSED_PROXY_HOST`] (whatever proxy is set), a passing one the
+/// environment's proxy unless `NO_PROXY` covers it, else none (direct, and
+/// the resolver checks the host again).
+fn gated_proxy(url: &reqwest::Url, site: &'static str, env: &Env) -> Option<reqwest::Url> {
+    let host = host_of(url.host_str()?);
+    if check(&host, site).is_err() {
+        return reqwest::Url::parse(&format!("http://{REFUSED_PROXY_HOST}:9")).ok();
+    }
+    if no_proxy_covers(&host, env) {
+        return None;
+    }
+    env_proxy(url.scheme(), env)
+}
+
+/// reqwest's proxy for a gated client, in place of its own reading of the
+/// environment: [`gated_proxy`] for each connection.
+fn gated_proxy_matcher(site: &'static str, env: Env) -> reqwest::Proxy {
+    reqwest::Proxy::custom(move |url| gated_proxy(url, site, &env))
+}
+
 fn install_crypto_provider() {
     // reqwest is built without a default rustls provider; a client built before one is installed panics.
     let _ = rustls::crypto::ring::default_provider().install_default();
 }
 
 /// A reqwest client builder whose every connection passes the gate. `site`
-/// names the caller (`"cmux_cloud_api::http"`) for the refusal line. A proxy
-/// set on the builder is resolved (and checked) in place of the target.
+/// names the caller (`"cmux_cloud_api::http"`) for the refusal line. The
+/// environment's proxy is picked by the gate after the target host passes; a
+/// proxy the caller adds comes after it, so it too sees only passing hosts.
 pub fn client_builder(site: &'static str) -> reqwest::ClientBuilder {
     install_crypto_provider();
-    reqwest::Client::builder().dns_resolver(Arc::new(Gate::new(site)))
+    trusting_capture(
+        reqwest::Client::builder()
+            .dns_resolver(Arc::new(Gate::new(site)))
+            .proxy(gated_proxy_matcher(site, process_env())),
+    )
 }
 
 /// [`client_builder`] with the gate in front of `resolver` instead of the
@@ -317,14 +492,25 @@ pub fn client_builder_with(
     resolver: impl Resolve + 'static,
 ) -> reqwest::ClientBuilder {
     install_crypto_provider();
-    reqwest::Client::builder().dns_resolver(Arc::new(Gate::wrapping(site, resolver)))
+    trusting_capture(
+        reqwest::Client::builder()
+            .dns_resolver(Arc::new(Gate::wrapping(site, resolver)))
+            .proxy(gated_proxy_matcher(site, process_env())),
+    )
 }
 
 /// [`client_builder`] for reqwest's blocking client (feature `blocking`).
 #[cfg(feature = "blocking")]
 pub fn blocking_client_builder(site: &'static str) -> reqwest::blocking::ClientBuilder {
     install_crypto_provider();
-    reqwest::blocking::Client::builder().dns_resolver(Arc::new(Gate::new(site)))
+    let builder = reqwest::blocking::Client::builder()
+        .dns_resolver(Arc::new(Gate::new(site)))
+        .proxy(gated_proxy_matcher(site, process_env()));
+    #[cfg(feature = "capture")]
+    if let Some(root) = capture::root() {
+        return builder.add_root_certificate(root);
+    }
+    builder
 }
 
 /// A gated `reqwest::Client::new()`: a client with reqwest's defaults whose
@@ -375,7 +561,7 @@ pub mod ws {
         request: R,
         site: &'static str,
     ) -> Connected {
-        tokio_tungstenite::connect_async(checked(request, site)?).await
+        connect(checked(request, site)?, None, false, None).await
     }
 
     /// A gated `tokio_tungstenite::connect_async_with_config`.
@@ -385,8 +571,7 @@ pub mod ws {
         disable_nagle: bool,
         site: &'static str,
     ) -> Connected {
-        tokio_tungstenite::connect_async_with_config(checked(request, site)?, config, disable_nagle)
-            .await
+        connect(checked(request, site)?, config, disable_nagle, None).await
     }
 
     /// A gated `tokio_tungstenite::connect_async_tls_with_config`.
@@ -397,13 +582,34 @@ pub mod ws {
         connector: Option<Connector>,
         site: &'static str,
     ) -> Connected {
-        tokio_tungstenite::connect_async_tls_with_config(
-            checked(request, site)?,
-            config,
-            disable_nagle,
-            connector,
-        )
-        .await
+        connect(checked(request, site)?, config, disable_nagle, connector).await
+    }
+
+    /// The connect of a checked request. With capture on (feature `capture`), a
+    /// `wss://` upgrade to a listed or person-named host goes to the capture
+    /// server, which keeps the upgrade request (its target and headers) and
+    /// answers `200`, so the connect fails after the request was seen.
+    async fn connect(
+        request: Request,
+        config: Option<WebSocketConfig>,
+        disable_nagle: bool,
+        connector: Option<Connector>,
+    ) -> Connected {
+        #[cfg(feature = "capture")]
+        if request.uri().scheme_str() == Some("wss")
+            && let Some((addr, tls)) = request.uri().host().and_then(crate::capture::ws_redirect)
+        {
+            let stream = TcpStream::connect(addr).await.map_err(WsError::Io)?;
+            return tokio_tungstenite::client_async_tls_with_config(
+                request,
+                stream,
+                config,
+                Some(Connector::Rustls(tls)),
+            )
+            .await;
+        }
+        tokio_tungstenite::connect_async_tls_with_config(request, config, disable_nagle, connector)
+            .await
     }
 }
 
@@ -420,6 +626,7 @@ mod tests {
         assert_eq!(verdict("a.b.atlassian.net"), Verdict::Unlisted);
         assert_eq!(verdict("cmux-api-preview-42.debussy.workers.dev"), Verdict::Listed);
         assert_eq!(verdict("other-42.debussy.workers.dev"), Verdict::Unlisted);
+        assert_eq!(verdict("ts.net.evil-gate-test.org"), Verdict::Unlisted);
     }
 
     #[test]
@@ -431,6 +638,11 @@ mod tests {
             "app.localhost",
             "x.test",
             "example.com",
+            "mac-mini",
+            "http://devbox:3000/",
+            "mac.tail1234.ts.net",
+            "git.corp.internal",
+            "nas.lan",
         ] {
             assert_eq!(verdict(host), Verdict::Local, "{host}");
         }
@@ -493,6 +705,92 @@ mod tests {
         assert_eq!(asked.load(Ordering::SeqCst), 0);
         let _ = client.get("https://cloud-api.cmux.dev/").send().await;
         assert_eq!(asked.load(Ordering::SeqCst), 1);
+    }
+
+    fn test_env(pairs: &[(&str, &str)]) -> Env {
+        let pairs: Vec<(String, String)> =
+            pairs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
+        Arc::new(move |name| pairs.iter().find(|(k, _)| k == name).map(|(_, v)| v.clone()))
+    }
+
+    #[test]
+    fn the_proxy_is_picked_only_for_passing_hosts() {
+        set_mode(Mode::Enforce);
+        let env = test_env(&[
+            ("HTTPS_PROXY", "http://proxy.corp-gate-test.org:3128"),
+            ("http_proxy", "proxy.corp-gate-test.org:8080"),
+            ("NO_PROXY", "localhost, .cmux.dev ,example.com"),
+        ]);
+        let site = "cmux_egress::tests";
+        let url = |u: &str| reqwest::Url::parse(u).unwrap();
+        let refused = gated_proxy(&url("https://refused-proxy-test.org/x"), site, &env).unwrap();
+        assert_eq!(refused.host_str(), Some(REFUSED_PROXY_HOST));
+        let picked = gated_proxy(&url("https://api.github.com/x"), site, &env).unwrap();
+        assert_eq!(picked.as_str(), "http://proxy.corp-gate-test.org:3128/");
+        let picked = gated_proxy(&url("http://api.github.com/x"), site, &env).unwrap();
+        assert_eq!(picked.port(), Some(8080));
+        assert_eq!(gated_proxy(&url("https://cloud-api.cmux.dev/"), site, &env), None);
+        assert_eq!(gated_proxy(&url("http://example.com/"), site, &env), None);
+        assert_eq!(gated_proxy(&url("https://api.github.com/"), site, &test_env(&[])), None);
+        // NO_PROXY never sends a refused host direct.
+        let star = test_env(&[("NO_PROXY", "*"), ("ALL_PROXY", "socks5://127.0.0.1:1080")]);
+        let refused = gated_proxy(&url("https://refused-proxy-test.org/"), site, &star).unwrap();
+        assert_eq!(refused.host_str(), Some(REFUSED_PROXY_HOST));
+    }
+
+    #[tokio::test]
+    async fn a_proxied_client_never_sends_a_refused_request_to_the_proxy() {
+        use std::sync::atomic::AtomicUsize;
+        set_mode(Mode::Enforce);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let proxy = format!("http://{}", listener.local_addr().unwrap());
+        let accepted = Arc::new(AtomicUsize::new(0));
+        let counter = accepted.clone();
+        tokio::spawn(async move {
+            while let Ok((stream, _)) = listener.accept().await {
+                counter.fetch_add(1, Ordering::SeqCst);
+                drop(stream);
+            }
+        });
+        let site = "cmux_egress::tests";
+        let env = test_env(&[("HTTPS_PROXY", &proxy)]);
+        // A proxy the caller adds after the gate's must not see the refused host either.
+        let client = reqwest::Client::builder()
+            .dns_resolver(Arc::new(Gate::new(site)))
+            .proxy(gated_proxy_matcher(site, env.clone()))
+            .proxy(reqwest::Proxy::all(&proxy).unwrap())
+            .build()
+            .unwrap();
+        let err = client.get("https://refused-proxied-test.org/").send().await.unwrap_err();
+        let mut source: Option<&(dyn Error + 'static)> = Some(&err);
+        let mut found = false;
+        while let Some(e) = source {
+            found |= e.downcast_ref::<Refused>().is_some();
+            source = e.source();
+        }
+        assert!(found, "{err:?}");
+        assert_eq!(accepted.load(Ordering::SeqCst), 0);
+        // A listed host does go to the proxy (which hangs up).
+        let _ = client.get("https://api.github.com/").send().await;
+        assert!(accepted.load(Ordering::SeqCst) >= 1);
+    }
+
+    #[test]
+    fn a_session_host_passes_only_while_its_guard_lives() {
+        let presigned = "https://bucket.minio.session-gate-test.org/obj?X-Amz-Signature=s";
+        assert_eq!(verdict(presigned), Verdict::Unlisted);
+        let guard = allow_session(presigned, "https://cloud-api.cmux.dev");
+        assert!(guard.granted());
+        let again = allow_session("bucket.minio.session-gate-test.org", "cloud-api.cmux.dev");
+        assert_eq!(verdict(presigned), Verdict::Session);
+        drop(guard);
+        assert_eq!(verdict(presigned), Verdict::Session);
+        drop(again);
+        assert_eq!(verdict(presigned), Verdict::Unlisted);
+        // An answer from a host the gate refuses grants nothing.
+        let forged = allow_session(presigned, "https://evil-session-test.org");
+        assert!(!forged.granted());
+        assert_eq!(verdict(presigned), Verdict::Unlisted);
     }
 
     #[tokio::test]

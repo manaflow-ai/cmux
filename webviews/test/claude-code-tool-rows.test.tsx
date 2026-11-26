@@ -46,8 +46,14 @@ test("a running MCP call reads Using <server>: <tool>", () => {
 test("a finished command and a read read verb then subject", () => {
   const command: Tool = { id: "c1", title: "git status", kind: "execute", status: "completed", command: "git status" };
   expect(toolLabel(command, "", ran)).toBe("Checked git status");
-  const unknown: Tool = { id: "c2", title: "make", kind: "execute", status: "completed", command: "make lint" };
-  expect(toolLabel(unknown, "", ran)).toBe("Ran make lint");
+  const unknown: Tool = {
+    id: "c2",
+    title: "task-fixture",
+    kind: "execute",
+    status: "completed",
+    command: "task-fixture lint",
+  };
+  expect(toolLabel(unknown, "", ran)).toBe("Ran task-fixture lint");
   const read: Tool = {
     id: "r1",
     title: "Read App.tsx",
@@ -114,7 +120,7 @@ test("the live line's action is in full ink and the rest of its words muted", ()
     '<span class="cv-shimmer__base"><span class="cv-worked__lead">Using repo</span>: repo grep</span>',
   );
   expect(liveLine({ doing: "git status", doingShell: true })).toContain(
-    '<span class="cv-shimmer__base"><span class="cv-worked__lead">Running</span> git status</span>',
+    '<span class="cv-shimmer__base"><span class="cv-worked__lead">git</span> status</span>',
   );
   expect(liveLine({ sendTo: "coord", doing: "acpmux send coord hi", doingShell: true })).toContain(
     '<span class="cv-shimmer__base"><span class="cv-worked__lead">Sending</span> message to coord</span>',
@@ -134,7 +140,7 @@ test("the legacy split arm cannot restore live token amounts", () => {
 });
 
 // A verb says what a command did (commandActions.ts), so a merge a hook blocked never reads "Merged
-// PR #101": the row reads as its line, and its failure stays on the row as its status word.
+// PR #101". Its label names the attempt, and the status word explains the failure.
 test("a hook-blocked merge row draws no success verb and keeps its failure", async () => {
   const { CommandRow } = await import("../src/agent-session/acpmux/conversation/CommandRow");
   const tool: Tool = {
@@ -147,7 +153,8 @@ test("a hook-blocked merge row draws no success verb and keeps its failure", asy
   };
   const html = renderToStaticMarkup(<CommandRow item={{ kind: "tool", text: "Bash", tool }} />);
   expect(html).not.toContain("Merged");
-  expect(html).toContain("gh pr merge 101");
+  expect(html).toContain(t("commandRules.merging", { target: "#101" }));
+  expect(html).not.toContain("gh pr merge 101");
   expect(html).toContain(t("tools.blockedByHook"));
   const rejected = renderToStaticMarkup(
     <CommandRow
@@ -159,6 +166,7 @@ test("a hook-blocked merge row draws no success verb and keeps its failure", asy
     />,
   );
   expect(rejected).not.toContain("Pushed");
-  expect(rejected).toContain("git push origin main");
+  expect(rejected).toContain(t("commandRules.pushingBranch", { branch: "main" }));
+  expect(rejected).not.toContain("git push origin main");
   expect(rejected).toContain("Exit 1");
 });

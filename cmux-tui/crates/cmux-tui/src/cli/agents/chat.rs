@@ -522,18 +522,10 @@ pub(in crate::cli) fn page_of_events(
     page
 }
 
-/// The transcript items of `target` after `after`, each whole (no per-item cut) and masked as a
-/// read masks them: the turn `cmux chat --wait` waited on (turn.rs), read from its prompt on.
-pub(in crate::cli) fn turn_items(
-    global: &GlobalArgs,
-    target: &str,
-    after: u64,
-) -> Result<Vec<Value>, CallFailure> {
-    turn_items_of(&scoped_chat(global, target)?, after)
-}
-
-/// [`turn_items`] of a chat already found (and scope-checked) with [`scoped_chat`]: `cmux chat
-/// --wait` finds its chat once and reads it with no second lookup (turn.rs).
+/// The transcript items of a chat already found (and scope-checked) with [`scoped_chat`] after
+/// `after`, each whole (no per-item cut) and masked as a read masks them: the turn `cmux chat
+/// --wait` waited on, read from its prompt on. It finds its chat once and reads it with no second
+/// lookup (turn.rs).
 pub(in crate::cli) fn turn_items_of(found: &Chat, after: u64) -> Result<Vec<Value>, CallFailure> {
     let chat = &found.id;
     // Every event from the turn's prompt on, not a read's page: the turn's end must be in it,

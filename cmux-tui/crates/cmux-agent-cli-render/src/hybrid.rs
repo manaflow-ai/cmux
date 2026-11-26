@@ -9,7 +9,9 @@
 //! cells to show as the real ones, and spans whose override goes because the records now draw
 //! them right. Each delta names the record seq it was computed against.
 
-use crate::{Cell, Color, Grid, Style};
+use std::hash::{Hash, Hasher};
+
+use crate::{Cell, Color, Grid, INVERSE, Style};
 
 /// One change to an [`Overlay`] row.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,7 +90,7 @@ impl Overlay {
         let mut spans = Vec::new();
         for (y, row) in self.cells.iter().enumerate() {
             let Ok(row_no) = u16::try_from(y) else { break };
-            let mut changes: Vec<Change> = row
+            let changes: Vec<Change> = row
                 .iter()
                 .enumerate()
                 .map(|(x, over)| {
@@ -104,73 +106,7 @@ impl Overlay {
                     }
                 })
                 .collect();
-            // A glyph that is not one ASCII character and the empty cell right of it (the right
-            // half of a wide glyph): a blank written or erased over the right half erases the
-            // glyph in the viewer's terminal (a right half that looks blank, as one with only a
-            // foreground does, would otherwise go as a clear). So a right half that changes goes
-            // as a set, and its glyph is set with it. A glyph set over a right half that already
-            // looks right needs nothing more.
-            // The right half of a wide glyph has the glyph's style when the daemon's grid gives
-            // it, so the two go in one span. A right half of another style (a blank right of a
-            // narrow glyph, or a wide glyph's spacer the grid left plain) goes as its own span
-            // before the glyph's, so the glyph is written over it and stays.
-            let mut right_half = vec![false; changes.len()];
-            for x in 0..changes.len().saturating_sub(1) {
-                let (Some(glyph), Some(right)) = (cell_at(real, y, x), cell_at(real, y, x + 1))
-                else {
-                    break;
-                };
-                let paired = right.text.is_empty()
-                    && !glyph.text.is_empty()
-                    && !matches!(glyph.text.as_bytes(), [b] if (0x20..=0x7e).contains(b));
-                if paired
-                    && let [this, next, ..] = changes.get_mut(x..).unwrap_or_default()
-                    && !matches!(next, Change::Keep)
-                {
-                    *this = Change::Set(glyph.clone());
-                    *next = Change::Set(right.clone());
-                    if let [_, half, ..] = right_half.get_mut(x..).unwrap_or_default() {
-                        *half = true;
-                    }
-                }
-            }
-            let mut open: Option<Span> = None;
-            for (x, change) in changes.into_iter().enumerate() {
-                let Ok(col) = u16::try_from(x) else { break };
-                if let (Change::Set(cell), Some(Span::Set { cells, .. })) = (&change, &mut open)
-                    && right_half.get(x).copied().unwrap_or(false)
-                    && cells.first().is_some_and(|first| first.style != cell.style)
-                {
-                    let glyph: Vec<Cell> = cells.pop().into_iter().collect();
-                    if !cells.is_empty() {
-                        spans.extend(open.take());
-                    }
-                    spans.push(Span::Set { row: row_no, col, cells: vec![cell.clone()] });
-                    // The glyph's span ends here: it starts left of this cell, so the next cell
-                    // cannot join it.
-                    spans.push(Span::Set { row: row_no, col: col.saturating_sub(1), cells: glyph });
-                    continue;
-                }
-                match (change, &mut open) {
-                    (Change::Clear, Some(Span::Clear { len, .. })) => *len += 1,
-                    (Change::Set(cell), Some(Span::Set { cells, .. }))
-                        if cells.first().is_some_and(|first| first.style == cell.style) =>
-                    {
-                        cells.push(cell);
-                    }
-                    (change, open) => {
-                        spans.extend(open.take());
-                        *open = match change {
-                            Change::Keep => None,
-                            Change::Clear => Some(Span::Clear { row: row_no, col, len: 1 }),
-                            Change::Set(cell) => {
-                                Some(Span::Set { row: row_no, col, cells: vec![cell] })
-                            }
-                        };
-                    }
-                }
-            }
-            spans.extend(open);
+            row_spans(real, y, row_no, changes, &mut spans);
         }
         spans
     }
@@ -220,6 +156,139 @@ impl Overlay {
         best
     }
 
+    /// [`Overlay::scroll`] over a blank drawn screen. An override there never looks blank (a
+    /// diff over blank sets only cells that do not), so the rows just move: no compose, no
+    /// clone of a cell.
+    pub fn scroll_over_blank(&mut self, by: i16) {
+        let rows = self.cells.len();
+        let n = usize::from(by.unsigned_abs()).min(rows);
+        if n == 0 {
+            return;
+        }
+        let incoming = if by > 0 {
+            self.cells.rotate_left(n);
+            rows - n..rows
+        } else {
+            self.cells.rotate_right(n);
+            0..n
+        };
+        for row in self.cells.get_mut(incoming).into_iter().flatten() {
+            row.fill(None);
+        }
+    }
+
+    /// [`Overlay::apply_delta`] over a blank drawn screen.
+    pub fn apply_delta_over_blank(&mut self, delta: &Delta) {
+        self.scroll_over_blank(delta.shift);
+        self.apply(&delta.spans);
+    }
+
+    /// Each row's [`row_hash`] as shown over a blank drawn screen, into `out`.
+    pub fn row_hashes_over_blank(&self, out: &mut Vec<u64>) {
+        let blank = Cell::default();
+        out.clear();
+        out.extend(
+            self.cells
+                .iter()
+                .map(|row| row_hash(row.iter().map(|over| over.as_ref().unwrap_or(&blank)))),
+        );
+    }
+
+    /// [`Overlay::delta`] over a blank drawn screen, from the rows that changed. `shown` are the
+    /// overlay's row hashes, `real` `real`'s ([`row_hash`]); a row whose hash matches after a
+    /// shift is not diffed. Shifts are ranked by how many rows they line up, and only the best
+    /// `SHIFT_TRIES` are diffed and encoded, against no shift; the smallest wins, as in
+    /// [`Overlay::delta`]. `None`: the screen already shows `real`.
+    pub fn delta_over_blank(
+        &self,
+        real: &Grid,
+        shown: &[u64],
+        real_hashes: &[u64],
+        seq: u64,
+        at_ms: u64,
+        scratch: &mut Vec<u8>,
+    ) -> Option<Delta> {
+        if shown == real_hashes {
+            return None;
+        }
+        let rows = shown.len();
+        let blank_row = row_hash((0..self.cols).map(|_| &BLANK));
+        let from = |by: i16, y: usize| -> Option<usize> {
+            let n = usize::from(by.unsigned_abs());
+            if by >= 0 { y.checked_add(n).filter(|from| *from < rows) } else { y.checked_sub(n) }
+        };
+        let shifted = |by: i16, y: usize| from(by, y).and_then(|y| shown.get(y)).copied();
+        let lined_up = |by: i16| {
+            real_hashes
+                .iter()
+                .enumerate()
+                .filter(|(y, want)| shifted(by, *y).unwrap_or(blank_row) == **want)
+                .count()
+        };
+        let mut tries = [(0i16, lined_up(0)); SHIFT_TRIES + 1];
+        let limit = i16::try_from(self.rows).unwrap_or(i16::MAX);
+        for by in (-(limit / 4)..limit).filter(|by| *by != 0) {
+            let score = lined_up(by);
+            // Kept best first; a later shift needs strictly more rows to displace one.
+            let Some((_, kept)) = tries.split_first_mut() else { continue };
+            let Some(at) = kept.iter().position(|(_, best)| score > *best) else { continue };
+            if let Some(tail) = kept.get_mut(at..) {
+                tail.rotate_right(1);
+                if let Some(slot) = tail.first_mut() {
+                    *slot = (by, score);
+                }
+            }
+        }
+        let mut best: Option<(Delta, usize)> = None;
+        for (by, score) in tries {
+            if best.is_some() && score <= tries[0].1 {
+                continue;
+            }
+            let mut spans = Vec::new();
+            for (y, want) in real_hashes.iter().enumerate() {
+                if shifted(by, y).unwrap_or(blank_row) == *want {
+                    continue;
+                }
+                let source = from(by, y).and_then(|y| self.cells.get(y));
+                self.diff_row_over_blank(y, source, real, &mut spans);
+            }
+            let candidate = Delta { seq, at_ms, shift: by, spans };
+            scratch.clear();
+            candidate.encode_into(scratch);
+            if best.as_ref().is_none_or(|(_, len)| scratch.len() < *len) {
+                best = Some((candidate, scratch.len()));
+            }
+        }
+        best.map(|(delta, _)| delta)
+    }
+
+    /// [`Overlay::diff`]'s spans for row `y`, its overrides `source` (a shifted row, `None`
+    /// for a row scrolled in blank), over a blank drawn screen.
+    fn diff_row_over_blank(
+        &self,
+        y: usize,
+        source: Option<&Vec<Option<Cell>>>,
+        real: &Grid,
+        spans: &mut Vec<Span>,
+    ) {
+        let Ok(row_no) = u16::try_from(y) else { return };
+        let changes: Vec<Change> = (0..usize::from(self.cols))
+            .map(|x| {
+                let want = cell_at(real, y, x).unwrap_or(&BLANK);
+                let shown =
+                    source.and_then(|row| row.get(x)).and_then(Option::as_ref).unwrap_or(&BLANK);
+                if shown.looks_same(want) {
+                    Change::Keep
+                } else if BLANK.looks_same(want) {
+                    Change::Clear
+                } else {
+                    Change::Set(want.clone())
+                }
+            })
+            .collect();
+        row_spans(real, y, row_no, changes, spans);
+    }
+
     /// Apply a delta: its scroll, then its spans.
     pub fn apply_delta(&mut self, delta: &Delta, drawn: &Grid) {
         self.scroll(drawn, delta.shift);
@@ -248,6 +317,115 @@ impl Overlay {
             }
         }
     }
+}
+
+/// One row's spans from its per-cell `changes` against `real`: a wide glyph's right half that
+/// changes goes as its own set, ahead of the glyph's, and runs of one style are one span.
+fn row_spans(real: &Grid, y: usize, row_no: u16, mut changes: Vec<Change>, spans: &mut Vec<Span>) {
+    // A glyph that is not one ASCII character and the empty cell right of it (the right
+    // half of a wide glyph): a blank written or erased over the right half erases the
+    // glyph in the viewer's terminal (a right half that looks blank, as one with only a
+    // foreground does, would otherwise go as a clear). So a right half that changes goes
+    // as a set, and its glyph is set with it. A glyph set over a right half that already
+    // looks right needs nothing more.
+    // The right half of a wide glyph has the glyph's style when the daemon's grid gives
+    // it, so the two go in one span. A right half of another style (a blank right of a
+    // narrow glyph, or a wide glyph's spacer the grid left plain) goes as its own span
+    // before the glyph's, so the glyph is written over it and stays.
+    let mut right_half = vec![false; changes.len()];
+    for x in 0..changes.len().saturating_sub(1) {
+        let (Some(glyph), Some(right)) = (cell_at(real, y, x), cell_at(real, y, x + 1)) else {
+            break;
+        };
+        let paired = right.text.is_empty()
+            && !glyph.text.is_empty()
+            && !matches!(glyph.text.as_bytes(), [b] if (0x20..=0x7e).contains(b));
+        if paired
+            && let [this, next, ..] = changes.get_mut(x..).unwrap_or_default()
+            && !matches!(next, Change::Keep)
+        {
+            *this = Change::Set(glyph.clone());
+            *next = Change::Set(right.clone());
+            if let [_, half, ..] = right_half.get_mut(x..).unwrap_or_default() {
+                *half = true;
+            }
+        }
+    }
+    let mut open: Option<Span> = None;
+    for (x, change) in changes.into_iter().enumerate() {
+        let Ok(col) = u16::try_from(x) else { break };
+        if let (Change::Set(cell), Some(Span::Set { cells, .. })) = (&change, &mut open)
+            && right_half.get(x).copied().unwrap_or(false)
+            && cells.first().is_some_and(|first| first.style != cell.style)
+        {
+            let glyph: Vec<Cell> = cells.pop().into_iter().collect();
+            if cells.is_empty() {
+                // The glyph was the span's only cell: nothing is left of it to send.
+                open = None;
+            } else {
+                spans.extend(open.take());
+            }
+            spans.push(Span::Set { row: row_no, col, cells: vec![cell.clone()] });
+            // The glyph's span ends here: it starts left of this cell, so the next cell
+            // cannot join it.
+            spans.push(Span::Set { row: row_no, col: col.saturating_sub(1), cells: glyph });
+            continue;
+        }
+        match (change, &mut open) {
+            (Change::Clear, Some(Span::Clear { len, .. })) => *len += 1,
+            (Change::Set(cell), Some(Span::Set { cells, .. }))
+                if cells.first().is_some_and(|first| first.style == cell.style) =>
+            {
+                cells.push(cell);
+            }
+            (change, open) => {
+                spans.extend(open.take());
+                *open = match change {
+                    Change::Keep => None,
+                    Change::Clear => Some(Span::Clear { row: row_no, col, len: 1 }),
+                    Change::Set(cell) => Some(Span::Set { row: row_no, col, cells: vec![cell] }),
+                };
+            }
+        }
+    }
+    spans.extend(open);
+}
+
+/// How many shifts besides none [`Overlay::delta_over_blank`] diffs and encodes.
+const SHIFT_TRIES: usize = 2;
+
+static BLANK: Cell = Cell { text: String::new(), style: Style::PLAIN };
+
+/// A row's hash, equal for rows whose cells [`Cell::looks_same`]: a cell that draws no glyph
+/// hashes as one blank, its foreground only under inverse.
+pub fn row_hash<'a>(cells: impl Iterator<Item = &'a Cell>) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for cell in cells {
+        let style = cell.style;
+        if cell.is_blank() {
+            0u8.hash(&mut hasher);
+            if style.attrs & INVERSE != 0 {
+                style.fg.hash(&mut hasher);
+            }
+        } else {
+            1u8.hash(&mut hasher);
+            cell.text.hash(&mut hasher);
+            style.fg.hash(&mut hasher);
+        }
+        style.bg.hash(&mut hasher);
+        style.attrs.hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+/// [`row_hash`] of each of `grid`'s rows, `cols` cells each (a missing cell is blank), into `out`.
+pub fn grid_row_hashes(grid: &Grid, cols: u16, rows: u16, out: &mut Vec<u64>) {
+    out.clear();
+    out.extend(
+        (0..usize::from(rows)).map(|y| {
+            row_hash((0..usize::from(cols)).map(|x| cell_at(grid, y, x).unwrap_or(&BLANK)))
+        }),
+    );
 }
 
 fn put(out: &mut Vec<u8>, mut value: u64) {
@@ -352,34 +530,39 @@ impl Delta {
     /// The delta on the wire: varints for numbers, a span's style once, then its cells' text.
     pub fn encode(&self) -> Vec<u8> {
         let mut out = Vec::new();
-        put(&mut out, self.seq);
-        put(&mut out, self.at_ms);
+        self.encode_into(&mut out);
+        out
+    }
+
+    /// [`Delta::encode`], appended to `out`.
+    pub fn encode_into(&self, out: &mut Vec<u8>) {
+        put(out, self.seq);
+        put(out, self.at_ms);
         // Zigzag, so a small scroll either way is one byte.
         let shift = i32::from(self.shift);
-        put(&mut out, ((shift << 1) ^ (shift >> 31)) as u64);
-        put(&mut out, self.spans.len() as u64);
+        put(out, ((shift << 1) ^ (shift >> 31)) as u64);
+        put(out, self.spans.len() as u64);
         for span in &self.spans {
             match span {
                 Span::Set { row, col, cells } => {
-                    put(&mut out, u64::from(*row));
-                    put(&mut out, u64::from(*col));
-                    put(&mut out, ((cells.len() as u64) << 1) | 1);
+                    put(out, u64::from(*row));
+                    put(out, u64::from(*col));
+                    put(out, ((cells.len() as u64) << 1) | 1);
                     let style = cells.first().map(|cell| cell.style).unwrap_or_default();
-                    put_color(&mut out, style.fg);
-                    put_color(&mut out, style.bg);
-                    put(&mut out, u64::from(style.attrs));
+                    put_color(out, style.fg);
+                    put_color(out, style.bg);
+                    put(out, u64::from(style.attrs));
                     for cell in cells {
-                        put_text(&mut out, &cell.text);
+                        put_text(out, &cell.text);
                     }
                 }
                 Span::Clear { row, col, len } => {
-                    put(&mut out, u64::from(*row));
-                    put(&mut out, u64::from(*col));
-                    put(&mut out, u64::from(*len) << 1);
+                    put(out, u64::from(*row));
+                    put(out, u64::from(*col));
+                    put(out, u64::from(*len) << 1);
                 }
             }
         }
-        out
     }
 
     /// A delta [`Delta::encode`] wrote, or `None` when the bytes aren't one.

@@ -135,6 +135,10 @@ public enum AgentSessionEvent: Hashable, Sendable {
     /// A prompt's attachments are on their way to the Mac (``AgentUploadProgress``): the chat
     /// shows the message at once, with how far its upload is, until the Mac's echo of it.
     case promptUploading(promptID: String, AgentUploadProgress)
+    /// The prompts on their way that draw a row (the Rust outbox's `pending_sends`, shown ones
+    /// only), in send order, each with what the person can do to it: Stop and Delete always,
+    /// Send now when offered. A text prompt that goes at once never appears here.
+    case pendingSends([AgentPendingSend])
     /// `_meta.acpmux.subagents`: a subagent started or changed state.
     case subagent(AgentSubagentChange)
     /// An update from a subagent's own session (`_meta.acpmux.subagent`).
@@ -176,6 +180,31 @@ public enum AgentClientIntent: Hashable, Sendable {
     case resumeQueue
     /// Stop sending a message whose attachments are still uploading: it comes back to the composer.
     case cancelSend(promptID: String)
+    /// Delete a message on its way: it is taken back (off the Mac's queue if it may be there)
+    /// and nothing comes back to the composer.
+    case deleteSend(promptID: String)
+    /// Send now: a message waiting on a retry goes at once (the outbox's `retry_now`).
+    case retrySend(promptID: String)
+}
+
+/// A message on its way that the chat draws a row for (``AgentSessionEvent/pendingSends(_:)``).
+public struct AgentPendingSend: Hashable, Sendable {
+    public var promptID: String
+    public var text: String
+    /// Not gone yet past the quiet threshold (the link, a backoff, a "not now").
+    public var waiting: Bool
+    /// Send now is offered.
+    public var canSendNow: Bool
+    /// Stopped after it may have reached the Mac: its removal is awaited.
+    public var stopping: Bool
+
+    public init(promptID: String, text: String, waiting: Bool, canSendNow: Bool, stopping: Bool) {
+        self.promptID = promptID
+        self.text = text
+        self.waiting = waiting
+        self.canSendNow = canSendNow
+        self.stopping = stopping
+    }
 }
 
 public struct AgentAttachment: Hashable, Sendable, Codable, Identifiable {
@@ -260,6 +289,10 @@ public protocol AgentSessionSource: AnyObject {
     var summary: AgentSessionSummary { get }
     /// Every record from the start of the session (history replay), then live records.
     func events() -> AsyncStream<AgentSessionEvent>
+    /// ``events()`` split into what the source already holds (a kept transcript read from
+    /// disk), which the store applies before the chat's first frame, and the stream of
+    /// everything after it. The head is not yielded again on the stream.
+    func eventsWithHead() -> (head: [AgentSessionEvent], rest: AsyncStream<AgentSessionEvent>)
     func send(_ intent: AgentClientIntent)
 
     // ACP parity (web UI acpmux/checkpoints and acpmux/handoff). Sources
@@ -287,6 +320,10 @@ public protocol AgentSessionSource: AnyObject {
     /// The bytes of an attachment a recorded prompt names but this phone does not hold (an
     /// image another device or an earlier launch sent), or nil when the source can't read it.
     func attachmentData(_ attachment: AgentAttachment) async -> Data?
+    /// The composer's attachments now, on every change: a source that uploads files at Send may
+    /// start them now, while the message is typed, and stop those taken off. Sources that send
+    /// nothing ahead do nothing.
+    func prestageAttachments(_ attachments: [AgentAttachment])
     /// The whole record of a tool call output the Mac sent cut (``ACPToolOutputCut``), as the
     /// update it made, or nil when the source can't read it (the person opens it again to retry).
     func fullToolOutput(_ cut: ACPToolOutputCut) async -> ACPToolCallUpdate?
@@ -333,7 +370,11 @@ public protocol AgentSessionSource: AnyObject {
 }
 
 extension AgentSessionSource {
+    public func eventsWithHead() -> (head: [AgentSessionEvent], rest: AsyncStream<AgentSessionEvent>) {
+        ([], events())
+    }
     public func attachmentData(_ attachment: AgentAttachment) async -> Data? { nil }
+    public func prestageAttachments(_ attachments: [AgentAttachment]) {}
     public func fullToolOutput(_ cut: ACPToolOutputCut) async -> ACPToolCallUpdate? { nil }
     public func loadEarlierHistory() {}
     public var loadsHistory: Bool { false }

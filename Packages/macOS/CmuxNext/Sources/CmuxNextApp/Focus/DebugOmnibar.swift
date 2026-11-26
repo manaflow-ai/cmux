@@ -43,7 +43,8 @@ enum DebugOmnibar {
             "rows": .array(snapshot.rows.map(JSONValue.string)),
             "highlighted": snapshot.highlighted.map { .number(Double($0)) } ?? .null,
             "copy_text": snapshot.copyText.map(JSONValue.string) ?? .null, "preload": .object(bar.debugPreloadReport(pageTiming: params["page_timing"]?.boolValue == true).mapValues(JSONValue.string)),
-            "profile_badge": bar.profileBadgeName.map(JSONValue.string) ?? .null,
+            // The tab's profile as the toolbar's profile button draws it (the avatar left the address bar).
+            "profile_badge": entry(params, services: services)?.state.profileBadge.map { JSONValue.string($0.name) } ?? .null,
             // The page notice on screen (a fallback, a profile move, "runs on this Mac").
             "notice": entry(params, services: services)?.chrome?.noticeText.map(JSONValue.string) ?? .null,
             // Where it draws: `overlay_host` is above Chromium page windows (cx-whr7).

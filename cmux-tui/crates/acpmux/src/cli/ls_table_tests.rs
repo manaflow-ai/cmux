@@ -75,6 +75,27 @@ fn stuck_says_why_in_a_few_words() {
         (json!({"state": "stuck", "stuckReason": "capacity"}), "stuck", "capacity"),
         (json!({"state": "stuck", "stuckReason": "harness_unavailable"}), "stuck", "harness down"),
         (json!({"state": "idle", "lane": {"state": "failed"}}), "idle", "failed turn"),
+        // Paused: acpmux continues it by itself, and says when (`hub/pause_state.rs`).
+        (
+            json!({"state": "idle", "lane": {"state": "failed"},
+                   "lastTurn": {"status": "failed", "errorText": "API Error: Repeated 529 Overloaded errors"},
+                   "retry": {"attempt": 2, "of": 4, "reason": "capacity", "nextAt": 1_795_560_060_000_u64,
+                             "promptId": "p", "turnId": "t"}}),
+            "idle",
+            "paused: capacity, resumes 22:41Z",
+        ),
+        (
+            json!({"rateLimitedUntil": 1_795_560_060_000_u64}),
+            "running",
+            "paused: rate limit, resumes 22:41Z",
+        ),
+        // Stranded: failed, and nothing will continue it.
+        (
+            json!({"state": "idle", "status": "idle", "lane": {"state": "failed"},
+                   "lastTurn": {"status": "failed", "errorText": "No space left on device (os error 28)"}}),
+            "idle",
+            "stranded: disk",
+        ),
         (
             json!({"harnessSandboxFailed": NOW - 60_000, "harnessSandboxFailing": true}),
             "running",
@@ -212,10 +233,9 @@ fn warn_is_one_word_and_shows_only_while_a_row_has_one() {
     // Warnings as the daemon decides them (`hub/usage_warnings.rs`), for a row named `big`.
     let stats = json!({"autocompact": "none", "contextTokens": 955_000, "subagents1h": 90});
     let summary = json!({"name": "big", "status": "idle", "family": "claude", "usageStats": stats});
-    let warnings = crate::hub::usage_warnings::usage_warnings(
-        &summary,
-        &crate::config::UsageLimits::default(),
-    );
+    // The no-cap rule is opt-in (`usageWarnings.autocompactCap`); turned on here to draw all three.
+    let limits = crate::config::UsageLimits { autocompact_cap: true, ..Default::default() };
+    let warnings = crate::hub::usage_warnings::usage_warnings(&summary, &limits);
     let warned = with(lane("big"), json!({"usageWarnings": warnings}));
     let out = compact(&[lane("a"), warned.clone()]);
     assert!(out.lines().next().unwrap().ends_with("WARN"), "{out}");

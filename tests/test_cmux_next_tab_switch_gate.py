@@ -278,11 +278,19 @@ class FramesAdmissionTests(unittest.TestCase):
         self.assertIn("not measured", out)
 
     def test_short_queue_submits_with_the_queue_wait(self):
-        step_exit, submitted, _, _ = self.run_frames(self.hosts(queued=1, running=2))
+        step_exit, submitted, _, tmp = self.run_frames(self.hosts(queued=1, running=2))
         self.assertEqual(step_exit, "75")
         self.assertEqual(len(submitted), 1)
-        self.assertIn("--background", submitted[0])
+        # The client refuses --background with --measurement (run 45563103560 failed on it), so the step is idle
+        # priority, and the job cancels it when it stops waiting (exit 75) so it gives its queue place back.
+        self.assertNotIn("--background", submitted[0])
+        self.assertIn("--measurement", submitted[0])
+        self.assertIn("--priority idle", submitted[0])
         self.assertIn("--queue-timeout 1200", submitted[0])
+        with open(os.path.join(tmp, "calls")) as handle:
+            cancels = [line for line in handle.read().splitlines() if line.startswith("cancel ")]
+        self.assertEqual(len(cancels), 1)
+        self.assertTrue(cancels[0].startswith("cancel 0123456789abcdef01234567 "), cancels)
 
     def test_empty_queue_submits_with_nothing_running(self):
         _, submitted, _, _ = self.run_frames(self.hosts(queued=0, running=0))

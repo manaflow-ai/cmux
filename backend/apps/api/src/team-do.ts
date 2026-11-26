@@ -17,6 +17,7 @@ import { noOwnerOf, StackTeamSync, type StackEvent, type StackSyncReply } from "
 import { domainExternal, recheckDomains as recheckDue, type DomainReply, type Http } from "./team-domain-external.ts"
 import { nextRecheckAt } from "./domains/team-domains.ts"
 import { ssoExternal } from "./team-sso-external.ts"
+import { platformSsoJoin, type SsoJoin } from "./team-sso-join.ts"
 import { ssoCallback, ssoMaxAgeMs, ssoSessionConnection, ssoRedeem, ssoStart, type LoginDeps } from "./team-sso-login.ts"
 import { mintHandoff, redeemHandoff, type HandoffDeps, type Minter, type RedeemAsk } from "./auth-handoff.ts"
 import { stackLowReadPace, stackReadPace, stackServer, type StackServer } from "./stack-server.ts"
@@ -814,6 +815,8 @@ export class TeamDO extends OwnerDO<TeamState> {
   carryTo: ((personalTeam: string, fromTeam: string, vmPlan: string) => Promise<void>) | undefined = undefined
   stack: StackServer | undefined = undefined; stackPace: (() => Promise<boolean>) | undefined = undefined; stackLowPace: (() => Promise<boolean>) | undefined = undefined
 
+  /** Tests only: replaces the JIT join on cmux-platform after an SSO sign-in (team-sso-join.ts). */
+  ssoJoin: ((team: string, accessToken: string) => Promise<SsoJoin>) | undefined = undefined
   private loginDeps(entity: string): LoginDeps {
     const engine = this.bind(entity)
     return {
@@ -824,7 +827,8 @@ export class TeamDO extends OwnerDO<TeamState> {
       kek: this.env.INTEGRATIONS_KEK,
       stack: this.stack ?? stackServer(this.env),
       now: Date.now(),
-      submitSystem: (op, params, key) => this.submitSystem(op, params, key)
+      submitSystem: (op, params, key) => this.submitSystem(op, params, key),
+      join: (accessToken) => (this.ssoJoin ?? ((t, a) => platformSsoJoin(this.env.PLATFORM, this.env.CLOUD_API_ORIGIN ?? "https://platform", t, a)))(entity, accessToken)
     }
   }
 

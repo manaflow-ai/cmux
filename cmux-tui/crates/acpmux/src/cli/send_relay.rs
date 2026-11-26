@@ -41,8 +41,10 @@ use tokio::time::Instant;
 
 pub use crate::config::SendRelay;
 
-/// How long a relay listing may take before `ls` goes on without it.
-pub(crate) const LS_DEADLINE: std::time::Duration = std::time::Duration::from_secs(20);
+/// How long a relay listing may take before `ls` goes on without it. Shorter than the `ls` it
+/// runs inside (`cli/run/ls.rs` `LS_TOTAL_DEADLINE`, asserted there), so a slow relay ends as
+/// "the relay listing" timing out, not as the whole `ls` stalling (RFD 0050 rule 5).
+pub(crate) const LS_DEADLINE: std::time::Duration = std::time::Duration::from_secs(12);
 
 /// The directories under `$HOME` a relay program is looked for in when it is a bare name the
 /// PATH lacks, as `native.rs` looks for `opencode`: `lane-gh` lives in `~/.local/bin`, on a

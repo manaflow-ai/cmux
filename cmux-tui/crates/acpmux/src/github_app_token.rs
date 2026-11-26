@@ -391,14 +391,40 @@ async fn bounded_json(mut res: reqwest::Response) -> Value {
 /// A token for `r.repo` alone, with `permissions(r.action)`; checked to be an App installation
 /// token for that repository before anything uses it.
 async fn mint(lent: &Lent, r: &GithubActionParams) -> Result<String, RpcError> {
-    mint_in(lent, r, cmux_build_space::process().map(|space| space.cloned())).await
+    let space = cmux_build_space::process().map(|space| space.cloned());
+    let label = if r.action == GithubAction::Token { PEER_TOKEN_LABEL } else { LABEL };
+    mint_in(lent, &r.repo, &asked_permissions(r), label, space).await
+}
+
+/// The label the Cloud ledger shows for the Mac app's own GitHub calls (`github_rest_op.rs`).
+const REST_LABEL: &str = "acpmux-github-rest";
+
+/// A token for `repo` with `permissions` and no more, minted with the sign-in lent now, for the
+/// Mac app's own GitHub calls (`github_rest_op.rs`); None when no sign-in is lent. Use it only
+/// inside [`while_lent`]'s check, as an action does.
+pub async fn mint_for(
+    app: &AppLease,
+    repo: &str,
+    permissions: &Value,
+) -> Option<Result<Source, RpcError>> {
+    let (seq, lent) = app.current(crate::store::now_ms)?;
+    let space = cmux_build_space::process().map(|space| space.cloned());
+    Some(mint_in(&lent, repo, permissions, REST_LABEL, space).await.map(|t| Source::App(t, seq)))
+}
+
+/// Whether the sign-in a token was minted with (`source`) is still the one lent: checked again
+/// right before each HTTP call it makes (a call cannot hold the lease's lock across its wait).
+pub fn still_lent(source: &Source, app: &AppLease) -> Result<(), RpcError> {
+    while_lent(source, Some(app), || Ok(()))
 }
 
 /// [`mint`] in `space`: the lent sign-in is an install token of the app's build space, which
 /// Cloud refuses (401) without that space's `x-cmux-build-space`.
 async fn mint_in(
     lent: &Lent,
-    r: &GithubActionParams,
+    repo: &str,
+    asked: &Value,
+    label: &str,
     space: cmux_build_space::Resolved,
 ) -> Result<String, RpcError> {
     let space = space.map_err(|e| {
@@ -413,9 +439,7 @@ async fn mint_in(
         .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|e| RpcError::internal(format!("no HTTP client: {e}")))?;
-    let asked = asked_permissions(r);
-    let label = if r.action == GithubAction::Token { PEER_TOKEN_LABEL } else { LABEL };
-    let body = json!({"team": lent.team, "repo": r.repo, "permissions": asked, "label": label});
+    let body = json!({"team": lent.team, "repo": repo, "permissions": asked, "label": label});
     let res = client
         .post(format!("{}/v1/integrations/github/token", lent.origin))
         .bearer_auth(&lent.bearer)
@@ -433,10 +457,10 @@ async fn mint_in(
         return Err(app_error(code.unwrap_or("unknown")));
     }
     let token = answer.get("token").and_then(Value::as_str).unwrap_or("");
-    let repo = answer.get("repo").and_then(Value::as_str).unwrap_or("");
+    let answered = answer.get("repo").and_then(Value::as_str).unwrap_or("");
     if !crate::github_broker::installation_token(token)
-        || !repo.eq_ignore_ascii_case(&r.repo)
-        || !within(answer.get("permissions"), &asked)
+        || !answered.eq_ignore_ascii_case(repo)
+        || !within(answer.get("permissions"), asked)
     {
         return Err(app_error("invalid_reply"));
     }
@@ -462,7 +486,7 @@ mod tests {
             json!({"action": "comment", "repo": "o/r", "issue": 1, "body": "b"}),
         )
         .unwrap();
-        let minted = mint_in(&lent, &r, space).await;
+        let minted = mint_in(&lent, &r.repo, &permissions(r.action), LABEL, space).await;
         heads.wait_for(1).await;
         (heads.spaces(), minted)
     }

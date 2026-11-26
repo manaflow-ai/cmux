@@ -52,26 +52,6 @@ mod shared_value;
 mod text_index;
 pub use shared_value::{SharedRows, SharedText, SharedValue};
 
-/// A chat's rolling summary (`hub/rolling_summary.rs`): one short line on where it stands and
-/// the next action, kept current after each turn a person started (or one that ended on a
-/// `wrap_up`). The sidebar and the chat header draw it.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct RollingSummary {
-    /// Where the chat stands, one or two short sentences.
-    pub text: String,
-    /// The next action, for the person or the agent; absent when there is none.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(default)]
-    pub next: Option<String>,
-    /// Who wrote it: `wrap_up` (the agent's own recap and ask, no model call) or `model`.
-    pub source: String,
-    /// The chat's turn count it covers.
-    pub turn: u64,
-    /// When it was written, Unix ms.
-    pub at: u64,
-}
-
 /// The plan the person last approved in a chat (`hub/plan_build.rs` `approved_plan`): Claude
 /// Code's ExitPlanMode, or a Grok, Cursor or Gemini plan approval, answered with an allow. The
 /// pane keeps it in sight while the agent builds it (Leo's feature map, 2026-11-23: "plan pane
@@ -271,12 +251,43 @@ pub struct ForkBefore {
     pub ready: bool,
 }
 
-/// Reserved before creating a child; retained even if the child is purged.
+/// Reserved before creating a child; retained even if the child is purged. A plain fork's
+/// (`session/fork` with a `requestId` and no boundary, `hub/fork_request.rs`) has no `prompt_id`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ForkRequest {
+    #[serde(default)]
     pub prompt_id: String,
     pub child_id: String,
+}
+
+/// How a fork's agent gets its chat's conversation at its first start, kept until that start (or
+/// its first prompt) took it, so a daemon restart in between resumes it (`hub/fork_start.rs`):
+/// it was in memory only, and a fork restarted before its agent started began a fresh
+/// conversation under the copied turns (cmux#50096).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ForkStart {
+    /// The fork is whole: its history and `forked` record are in. A fork a restart cut off
+    /// before then is closed at the next start, never shown as a copy.
+    #[serde(default)]
+    pub made: bool,
+    /// Claude's `--resume <this> --fork-session`: the chat's agent session it forks from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume_from: Option<String>,
+    /// Its first prompt carries the chat's transcript (a fork onto another harness, or one its
+    /// agent could not fork mid-turn), under `note` when set.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub rehydrate: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+impl ForkStart {
+    /// Nothing left to keep: a whole fork whose agent took its conversation.
+    pub fn settled(&self) -> bool {
+        self.made && self.resume_from.is_none() && !self.rehydrate
+    }
 }
 
 /// A person's return to a chat that kept working (`hub/seen.rs`): the log seq they had seen when
@@ -305,6 +316,15 @@ pub struct AwayRecap {
     pub dismissed: bool,
 }
 
+/// A chat's model switch for a sustained overload (`SessionMeta::capacity_fallback`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CapacityFallback {
+    /// The chat's own model, as it named it.
+    pub from: String,
+    /// The smaller model it runs meanwhile.
+    pub to: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionMeta {
@@ -327,6 +347,16 @@ pub struct SessionMeta {
     /// name still arrives. At most `former_names::KEPT`; no other session keeps the same one.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub former_names: Vec<String>,
+    /// The sessions it took over (`acpmux succeed`), as `HOST/NAME` (or a bare NAME on this
+    /// host), each with the former names its predecessor listed. They go out in its heartbeat
+    /// row's `formerNames`, so the hub sends a message for a dead predecessor here
+    /// (plans/cmux-next/message-delivery-successors.md).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub succeeds: Vec<String>,
+    /// The role addresses (`goal:SLUG`, `area:NAME`, `topic:NAME`) it claimed (`acpmux role
+    /// claim`): a send to the address reaches it, here and through the hub.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub roles: Vec<crate::mesh::RoleClaim>,
     /// `agent` in a chat stored before the agent-to-harness rename (e857185a58).
     #[serde(alias = "agent")]
     pub harness: String,
@@ -359,6 +389,11 @@ pub struct SessionMeta {
     /// effort wins after that.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort_request: Option<String>,
+    /// The chat runs a smaller model because its own stayed overloaded
+    /// (`hub/auto_resume/capacity_failover.rs`): `from` comes back once a turn on `to` ends well.
+    /// Saved with the meta, so a daemon restart still puts it back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capacity_fallback: Option<CapacityFallback>,
     pub cwd: PathBuf,
     /// Folders the chat sees beside `cwd` (ACP `session/new` `additionalDirectories`, its
     /// Sources): every start of its harness gets them (`hub/additional_dirs.rs`). Absolute,
@@ -434,6 +469,9 @@ pub struct SessionMeta {
     pub history_kept_through: Option<u64>,
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub fork_requests: std::collections::BTreeMap<String, ForkRequest>,
+    /// A fork whose agent has not taken the chat's conversation yet ([`ForkStart`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fork_start: Option<ForkStart>,
     /// Whether this daemon verified the local parent link when the fork was made. Imported
     /// metadata is explicitly unverified, even when an old bundle happened to carry parent ids.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -539,10 +577,6 @@ pub struct SessionMeta {
         skip_serializing_if = "Option::is_none"
     )]
     pub goal: Option<GoalState>,
-    /// What is done and next across the chat's turns (`task_list.rs`): its harness's latest plan,
-    /// or the list its agent or Chief keeps. None until one is written.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub task_list: Option<crate::task_list::TaskList>,
     /// Per-session permission rules layered above the policy (see hub/rules.rs).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permission_rules: Option<Value>,
@@ -570,10 +604,6 @@ pub struct SessionMeta {
     /// None until the first recap.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub away_recap: Option<AwayRecap>,
-    /// The chat's rolling summary and next action (`hub/rolling_summary.rs`); None until the
-    /// first turn that makes one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub rolling_summary: Option<RollingSummary>,
     /// The plan the person last approved (`hub/plan_build.rs` `approved_plan`); None until one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub approved_plan: Option<ApprovedPlan>,
@@ -712,6 +742,10 @@ pub struct SessionMeta {
     /// Unsent composer text owned by this acpmux session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub composer_draft: Option<String>,
+    /// A person pinned the chat to the top of their list (`_acpmux/pin`), synced to their other
+    /// replicas as `pin/<id>` (`hub/synced.rs`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub pinned: bool,
     /// The session took its mode from the person's approval of its preset
     /// (`hub/person.rs` (b)): the approved contents' digest. A spawn from
     /// other contents leaves that mode (`hub/start_gate/preset_bind.rs`).
@@ -746,6 +780,10 @@ pub struct SessionMeta {
     /// `total_cost_usd`), which the next turn's cost is measured from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub harness_cost_usd: Option<f64>,
+    /// What this session's tasks cost so far, model and compute (`hub/turn_cost.rs`): the
+    /// `sessionCostUsd` its last priced turn carried. A fork starts its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_cost_usd: Option<f64>,
     /// The pull requests this session's `gh pr create` calls printed (`hub/pull_requests.rs`),
     /// once each, oldest first. A fork starts with none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -817,10 +855,20 @@ pub struct SessionMeta {
     /// chat list shows of it without opening the archive. Cleared when the log comes back.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cold: Option<ColdPreview>,
+    /// The chat's Auto mode (`auto_session/record.rs`): whether it is on, whether this machine
+    /// held the chat last, and changes kept aside. Never copied to a fork.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_session: Option<crate::auto_session::record::AutoRecord>,
     /// The subagent of chat `parent_id` this fork holds the conversation of, not the chat's own
     /// (`hub/fork_subagent.rs`). The info view's `forkOf`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fork_of_subagent: Option<SubagentForkOf>,
+    /// The chat's place mode as the place menu set it (`place_mode.rs`): its pin. It is part of
+    /// the chat's metadata, so it moves with the chat. None: never picked, which reads as Auto
+    /// once this machine's one-time migration pinned every older chat to it (`place_pin.rs`,
+    /// `hub/place_migrate.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub place_mode: Option<crate::place_mode::PlaceMode>,
 }
 
 /// A fork of a chat's subagent: the chat, and the subagent as its `_meta.acpmux.subagents`
@@ -1827,6 +1875,11 @@ pub trait Store: Send + Sync {
     /// Called with a chat's id when its log seals a segment (rolls over to the next), under the
     /// store's writers' lock: it may only note the id and wake a worker. Set once.
     fn on_segment_sealed(&self, _hook: SealHook) {}
+    /// Called with a chat's id each time its log grows past another [`GROWN_EVERY`] bytes
+    /// (`hub/pack_as_it_grows.rs`), on the appending thread after the write, outside the store's
+    /// writers' and segment's locks (the caller's append lock may be held): it may only note the
+    /// id and wake a worker. Set once.
+    fn on_log_grown(&self, _hook: SealHook) {}
     fn delete(&self, id: &str) -> Result<()>;
     fn session_dir(&self, _id: &str) -> Option<PathBuf> {
         None
@@ -1959,6 +2012,7 @@ pub(crate) use journal_store::open_with_journal;
 pub(crate) use journal_store::{DISK_RESERVE, set_test_free};
 mod log_sync;
 mod segment_writer;
+pub use segment_writer::GROWN_EVERY;
 use segment_writer::SegmentWriter;
 pub mod open_logs;
 #[cfg(test)]
@@ -2016,6 +2070,8 @@ pub struct LocalStore {
     rehydrate_hook: std::sync::OnceLock<RehydrateHook>,
     /// [`Store::on_segment_sealed`].
     seal_hook: std::sync::OnceLock<SealHook>,
+    /// [`Store::on_log_grown`].
+    grow_hook: std::sync::OnceLock<SealHook>,
     /// The parts files written or read (`store/meta_parts.rs`).
     parts: meta_parts::PartsMemo,
     /// The segments' record heads a keyed scan read (`store/kind_heads.rs`).
@@ -2062,6 +2118,7 @@ impl LocalStore {
             cold_tag: format!("{}x{}", std::process::id(), uuid::Uuid::now_v7().simple()),
             rehydrate_hook: Default::default(),
             seal_hook: Default::default(),
+            grow_hook: Default::default(),
             parts: Default::default(),
             kind_heads: Default::default(),
             kind_index_checks: Default::default(),
@@ -3013,6 +3070,10 @@ impl Store for LocalStore {
         let _ = self.seal_hook.set(hook);
     }
 
+    fn on_log_grown(&self, hook: SealHook) {
+        let _ = self.grow_hook.set(hook);
+    }
+
     fn seal(&self) {
         *self.sealed.write().unwrap_or_else(std::sync::PoisonError::into_inner) = true;
     }
@@ -3224,6 +3285,8 @@ fn is_zero(v: &u64) -> bool {
 
 #[cfg(test)]
 mod head_tests;
+#[cfg(test)]
+mod no_rolling_summary_tests;
 
 #[cfg(all(test, unix))]
 mod journal_meta_tests;

@@ -212,7 +212,7 @@ fn c_abi_runs_the_check_corpus() {
 /// only a click passes it.
 #[test]
 fn c_abi_a_click_only_answer_passes_on_a_click_only() {
-    assert_eq!(cmux_agent_pane_policy_abi_version(), 3);
+    assert_eq!(cmux_agent_pane_policy_abi_version(), 4);
     let pane = new();
     call(pane.0, "add", json!({"session": "s1"})).unwrap();
     let frames = [
@@ -220,6 +220,7 @@ fn c_abi_a_click_only_answer_passes_on_a_click_only() {
         r#"{"jsonrpc":"2.0","id":5,"method":"_acpmux/plan/build","params":{"sessionId":"s1","permissionId":"p1","target":"compare"}}"#,
         r#"{"jsonrpc":"2.0","id":5,"method":"_acpmux/permission_respond","params":{"sessionId":"s1","permissionId":"p1","optionId":"yes"}}"#,
         r#"{"jsonrpc":"2.0","id":5,"method":"_acpmux/permission_group_respond","params":{"sessionId":"s1","groupId":"g1","revision":1,"decisionKey":"k","decision":"allow_once"}}"#,
+        r#"{"jsonrpc":"2.0","id":5,"method":"_acpmux/customize_run","params":{"run":{"customize":"keep"}}}"#,
     ];
     for frame in frames {
         let old = check(&pane, frame, false, false, None, None);
@@ -241,6 +242,7 @@ fn c_abi_a_click_only_answer_passes_on_a_click_only() {
     assert_eq!(
         p["click_only"],
         json!([
+            "_acpmux/customize_run",
             "_acpmux/permission_group_respond",
             "_acpmux/permission_respond",
             "_acpmux/plan/build",
@@ -411,6 +413,22 @@ fn c_abi_runs_the_pick_corpus() {
         json!({"digest": null})
     );
     assert_eq!(call(none, "canonical_digest", json!({})), Err(ERR_INVALID));
+    // The text canonical_digest hashes: keys in UTF-8 byte order, no
+    // whitespace, only quote, backslash and control characters escaped.
+    assert_eq!(
+        call(
+            none,
+            "canonical_json",
+            json!({"value": {"é": "\u{1}", "Which one?": "B", "a/b": [1, 2.0, true, null]}})
+        )
+        .unwrap(),
+        json!({"json": "{\"Which one?\":\"B\",\"a/b\":[1,2,true,null],\"é\":\"\\u0001\"}"})
+    );
+    assert_eq!(
+        call(none, "canonical_json", json!({"value": {"q": 1.5}})).unwrap(),
+        json!({"json": null})
+    );
+    assert_eq!(call(none, "canonical_json", json!({})), Err(ERR_INVALID));
     assert_eq!(call(none, "pick", json!({"method": 1})), Err(ERR_INVALID));
     assert_eq!(call(none, "pick", json!({"method": "m", "params": []})), Err(ERR_INVALID));
 }
