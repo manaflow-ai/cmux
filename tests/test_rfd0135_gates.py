@@ -46,6 +46,21 @@ class Rfd0135GatesTest(unittest.TestCase):
         self.assertEqual(gates.gate_line(out, "lid-close"), {"runs": 2, "passed": 2})
         self.assertIsNone(gates.gate_line("nothing", "lid-close"))
 
+    def test_gate_tests_run_as_modules_of_the_it_binary(self) -> None:
+        # cmux-tui's tests are one binary, `it` (#56677); `--test lid_close_gate` named no target
+        # and the nightly lid-close gate failed with "no test target named `lid_close_gate`".
+        tui = Path(gates.__file__).resolve().parents[2] / "cmux-tui" / "crates" / "cmux-tui"
+        manifest = (tui / "Cargo.toml").read_text()
+        for test, name in (("lid_close_gate", "lid_close_gate"), ("move_kill_drill", "move_kill_drill_matrix")):
+            self.assertTrue((tui / "tests" / f"{test}.rs").is_file(), test)
+            self.assertNotIn(f'name = "{test}"', manifest, f"{test} has its own [[test]]; run it by that name")
+            with mock.patch.object(gates.subprocess, "run") as run:
+                gates.cargo_test(test, name, {})
+            cmd = run.call_args.args[0]
+            self.assertEqual(cmd[cmd.index("--test") + 1], "it")
+            self.assertEqual(cmd[-1], f"{test}::{name}")
+            self.assertIn("--exact", cmd)
+
     def test_p95(self) -> None:
         self.assertIsNone(gates.p95([]))
         self.assertEqual(gates.p95(list(range(1, 21))), 19)

@@ -50,8 +50,10 @@ P95_BUDGET_MS = 10_000
 
 
 def cargo_test(test: str, name: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
-    cmd = ["cargo", "test", "-p", "cmux-tui", "--test", test, "--", "--ignored", "--nocapture",
-           "--test-threads", "1", name]
+    """Runs `name` in `tests/<test>.rs`: a module of cmux-tui's one test binary `it` (#56677),
+    so its full name starts with the file's, and `--exact` keeps the filter to that one test."""
+    cmd = ["cargo", "test", "-p", "cmux-tui", "--test", "it", "--", "--ignored", "--nocapture",
+           "--test-threads", "1", "--exact", f"{test}::{name}"]
     return subprocess.run(cmd, cwd=TUI, env={**os.environ, **env}, text=True, capture_output=True)
 
 
