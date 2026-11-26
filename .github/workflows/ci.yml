@@ -1806,12 +1806,14 @@ jobs:
   # A red web check on a pull request into feat-cmux-next gets one "red: <check>" comment (the
   # checks stay advisory there; chief 2026-10-12). cmux-next-guards.yml calls the same workflow
   # after its own-change-checks job (the CmuxNextApp size cap among its steps); both update one comment.
-  # This call is the one that runs green: on every new head (it writes the `ran` line and clears a superseded
-  # head's red), and on a label event only when changes' red_line read found a red to recompute. The other two
-  # callers run only on their own red, a re-run or a label event (2026-11-25: 3 calls per event, ~800 jobs/h).
+  # It starts only when `web` ran: after a skipped `web` this call has no red of its own to add, and the guards
+  # call on every head writes the `ran` line and clears an older head's red. On 11-25 03Z..11Z about 86% of
+  # 1,897 calls followed a skipped `web`, about 1.3 min each (about 6.4k runner-min a day).
+  # On a label event it also needs a red to recompute: its own red, a re-run, or a red on the status comment's
+  # checks line (changes' red_line read); a green call with no red line changed nothing (2026-11-25).
   pr-red-checks:
     needs: [changes, web]
-    if: ${{ (always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","dev-build","ready-to-land"]'), github.event.label.name)) && (github.event.action != 'labeled' && github.event.action != 'unlabeled' || github.run_attempt > 1 || contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || needs.changes.outputs.red_line != 'false') }}
+    if: ${{ (always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && needs.web.result != 'skipped') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","dev-build","ready-to-land"]'), github.event.label.name)) && (github.event.action != 'labeled' && github.event.action != 'unlabeled' || github.run_attempt > 1 || contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || needs.changes.outputs.red_line != 'false') }}
     permissions:
       actions: read
       checks: read
@@ -1820,6 +1822,7 @@ jobs:
     uses: ./.github/workflows/pr-red-checks-comment.yml
     with:
       own_checks_green: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+      writer: true
 
   ci-timing:
     # The run's timing readout in the job summary: the chain of jobs that set
@@ -1852,7 +1855,9 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          sparse-checkout: scripts/ci/ci_timing_readout.py
+          sparse-checkout: |
+            scripts/ci/ci_timing_readout.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Write the timing readout
