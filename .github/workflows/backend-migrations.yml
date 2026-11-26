@@ -103,6 +103,7 @@ jobs:
             clients/ts/
             workers/cmux-vm/sdk/
             scripts/cmux-next/release/bun.lock
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Changed files and head migrations
         id: files
