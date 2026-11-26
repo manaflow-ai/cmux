@@ -10,10 +10,10 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
+use super::fork_runs::fork_children;
 use super::http::{base_url, vm_error};
 use super::owner::{
-    fork_children, github_app_state, github_repo_list, handoff_turn, harness_login_copy,
-    is_handoff_id,
+    github_app_state, github_repo_list, handoff_turn, harness_login_copy, is_handoff_id,
 };
 use super::*;
 
@@ -1447,6 +1447,10 @@ fn a_chat_grant_call_is_refused_before_any_request_on_stack_or_a_bad_id() {
     assert!(seen.lock().unwrap().is_empty());
 }
 
+// MARK: Auto mode's store, as the owner (auto_sessions.rs)
+
+mod auto_sessions;
+
 // MARK: turn checkpoints ("back to before this turn")
 
 mod turn_checkpoints {
@@ -1913,3 +1917,6 @@ mod turn_checkpoints {
         assert_eq!(turns::wait(&header_only, fast()), Duration::from_secs(120));
     }
 }
+
+mod fork_runs;
+mod machine_fork;

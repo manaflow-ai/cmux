@@ -1,3 +1,4 @@
+import { StartRecovery } from "../StartRecovery";
 import { useT } from "../i18n";
 import { ErrorDetails } from "../conversation/ErrorDetails";
 import { startFailureView } from "../startFailure";
@@ -46,6 +47,15 @@ export function StartFailure({
   // One line, as every notice over the box is (BrowseFailure): the box below never moves for it.
   return (
     <output className="acpmux-switch-notice acpmux-folder-choice acpmux-start-failure" aria-live="polite">
+      {install && (
+        <StartRecovery
+          key={`${failure.harness ?? ""}:${failure.code ?? ""}:${failure.error}`}
+          kind="install"
+          sentence={view.sentence}
+          label={t("switch.action.install")}
+          onAction={install}
+        />
+      )}
       <span role="alert">{view.sentence}</span>{" "}
       {install && (
         <>
@@ -67,7 +77,7 @@ export function StartFailure({
       {view.detail && (
         <>
           {" "}
-          <ErrorDetails text={view.detail} className="acpmux-start-failure-details" />
+          <ErrorDetails text={view.detail} className="acpmux-start-failure-details" chipChevron />
         </>
       )}
     </output>

@@ -9,11 +9,12 @@ import { nativePopupHost } from "../../ui/popupHost";
 import { installNativeMenu } from "../../ui/nativeMenu";
 import { postNative } from "./native";
 import { pageHostFlickerSend, startFlickerLog } from "./flickerLog";
-import { pageHostClient } from "./pageHost";
+import { pageHostClient } from "./pageHostClient";
 import { appPopupHost } from "../../pages/shared/pagePopupHost";
 import { installMessageMenuReporter } from "./conversation/messageMenu";
 import { installDragOut } from "./conversation/dragOut";
 import { installPageKey } from "./pageKey";
+import { installAppLanguage } from "../../pages/shared/appLanguage";
 import { installRevealSettle } from "../shared/pageReveal";
 import { setHarnessSymbolHost } from "../shared/harnessIcons";
 import { experimentArm } from "../../experiments/experiment";
@@ -66,6 +67,8 @@ setHarnessSymbolHost((name) =>
   ),
 );
 export function mountAcpmux(initialChat?: InitialChat): void {
+  // Settings > General > Language: the host switches the pane's strings live (appLanguage.ts).
+  installAppLanguage();
   const root = document.getElementById("root")!;
   // A menu with no room in the pane goes past the window's edge through the native host (cx-6k6cg):
   // the shared page host's popup ops, else the legacy bridge's.
@@ -88,11 +91,22 @@ export function mountAcpmux(initialChat?: InitialChat): void {
   // shared page host its batches are the `diag.flicker` op, on the old host the pane's own WebKit
   // handler takes them.
   startFlickerLog(window, pageHostClient() ? pageHostFlickerSend() : undefined);
-  createRoot(root).render(
-    <UiProvider container={root} popupHost={popupHost}>
-      <PaneBoundary onRetry={() => window.location.reload()}>
-        <AcpmuxApp initialChat={initialChat} />
-      </PaneBoundary>
-    </UiProvider>,
-  );
+  // `?mounts=N` (dev host only, with `#sessions=`): N panes in this one document, each its own chat, so a bench can
+  // measure what a hidden chat costs as a view in a shared document (bench/chat-pages-memory.bench.ts SHARED=1).
+  const mounts = Math.max(1, Math.min(64, Number(new URLSearchParams(location.search).get("mounts")) || 1));
+  for (let index = 0; index < mounts; index += 1) {
+    let container = root;
+    if (mounts > 1) {
+      container = document.createElement("div");
+      container.dataset.paneMount = String(index);
+      root.append(container);
+    }
+    createRoot(container).render(
+      <UiProvider container={container} popupHost={popupHost}>
+        <PaneBoundary onRetry={() => window.location.reload()}>
+          <AcpmuxApp initialChat={initialChat} />
+        </PaneBoundary>
+      </UiProvider>,
+    );
+  }
 }

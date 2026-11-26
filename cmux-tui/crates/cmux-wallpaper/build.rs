@@ -46,11 +46,11 @@ fn struct_size(wgsl: &str, file: &str, name: &str) -> Option<u32> {
         .map(|(h, _)| layouter[h].size)
 }
 
-/// The prelude's `Frame` is 160 bytes (src/frame.rs packs 40 floats).
+/// The prelude's `Frame` is 432 bytes (src/frame.rs packs 108 floats).
 fn check_frame_layout() {
     let size = struct_size(program::PRELUDE, "src/prelude.wgsl", "Frame");
-    if size != Some(160) {
-        fail(&format!("src/prelude.wgsl: Frame is {size:?} bytes, not 160 (src/frame.rs)"));
+    if size != Some(432) {
+        fail(&format!("src/prelude.wgsl: Frame is {size:?} bytes, not 432 (src/frame.rs)"));
     }
 }
 

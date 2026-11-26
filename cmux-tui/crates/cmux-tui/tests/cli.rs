@@ -19,8 +19,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::platform::transport;
 
-#[path = "support/private_state.rs"]
-mod private_state;
+use crate::private_state;
 
 struct HeadlessServer {
     child: Child,
@@ -3045,6 +3044,10 @@ mod apps_store;
 mod apps_external_server;
 
 #[cfg(unix)]
+#[path = "cli/apps_store_sections.rs"]
+mod apps_store_sections;
+
+#[cfg(unix)]
 #[path = "cli/stop_start_lock.rs"]
 mod stop_start_lock;
 
@@ -3787,6 +3790,9 @@ mod conversation_person_credentials;
 #[path = "cli/conversation_runs.rs"]
 mod conversation_runs;
 #[cfg(unix)]
+#[path = "cli/conversation_scheduled.rs"]
+mod conversation_scheduled;
+#[cfg(unix)]
 #[path = "cli/conversation_thread_objects.rs"]
 mod conversation_thread_objects;
 #[cfg(unix)]
@@ -3808,11 +3814,16 @@ mod feed_local;
 mod frontend_browser_status;
 #[path = "cli/git_branches.rs"]
 mod git_branches;
+#[path = "cli/git_review.rs"]
+mod git_review;
 #[path = "cli/git_write.rs"]
 mod git_write;
 #[cfg(unix)]
 #[path = "cli/home_inbox.rs"]
 mod home_inbox;
+#[cfg(unix)]
+#[path = "cli/hub.rs"]
+mod hub;
 #[path = "cli/icon_assets.rs"]
 mod icon_assets;
 #[path = "cli/launch_credential.rs"]

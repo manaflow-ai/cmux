@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import runpy
+import signal
 import subprocess
 import sys
 import tempfile
@@ -27,8 +28,8 @@ import claude_login_cache  # noqa: E402
 class CloudChatProofTests(unittest.TestCase):
     def run_proof(self, *, backend_name="staging", backend=None, environment=None, wrong_bundle=False,
                   signed_in=True, reply="CLOUD_BROWSER_PROOF_OK title=Example Domain h1=Example Domain", cleanup_exit=0, app_exits=True,
-                  from_folder=False, folder_reply=True, grant=False, login="", agent="claude",
-                  cache=False, secret_exit=0):
+                  from_folder=False, folder_reply=True, cut_off_chat=False, grant=False, login="", agent="claude",
+                  cache=False, secret_exit=0, cli_takes_login=True, shipped=False):
         calls = []
         stored = {}
         folders = []
@@ -51,6 +52,12 @@ class CloudChatProofTests(unittest.TestCase):
             # Both backend proofs must launch the exact same installed bundle.
             app = Path("/Applications/Cloud Proof.app")
             evidence_path = Path(temporary) / "evidence.json"
+            if shipped:
+                # The published cmux NIGHTLY: a real bundle whose Info.plist names the shipped bundle id.
+                app = Path(temporary).resolve() / "cmux NIGHTLY.app"
+                (app / "Contents").mkdir(parents=True)
+                import plistlib
+                (app / "Contents/Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "com.cmuxterm.app.nightly"}))
 
             def run(command, *, env, capture_output, text, timeout, input=None):
                 nonlocal clock, auth_reads
@@ -80,11 +87,16 @@ class CloudChatProofTests(unittest.TestCase):
                 if words == ["app", "identify", "--json"]:
                     value = {"pid": 200, "app_bundle_path": "/Applications/Other.app" if wrong_bundle else str(app)}
                 elif words == ["app", "call", "auth.status", "--json"]:
+                    if shipped:
+                        self.fail("a shipped build refuses app call (app.call_debug_only)")
                     auth_reads += 1
                     # The launched app can answer while its session is still restoring.
                     value = {"signed_in": signed_in and auth_reads > 1,
                              "backend": backend, "cloud_environment": environment,
                              "user_id": "stack-user-1", "team_id": "team-1"}
+                elif words[:2] == ["setup", "trust"]:
+                    # A --from-folder proof trusts its own new folder first (the start refuses an untrusted one).
+                    value = {"trusted": True}
                 elif words[:3] == ["cloud", "secret", "set"]:
                     code = secret_exit
                     stored[words[3]] = json.loads(input)
@@ -92,8 +104,28 @@ class CloudChatProofTests(unittest.TestCase):
                 elif words[:3] == ["cloud", "secret", "rm"]:
                     stored.pop(words[3], None)
                     value = {"removed": True}
+                elif words[:3] == ["cloud", "connect", "claude"]:
+                    # The token reaches `connect` on stdin only; the gate needs this connection (not the cache).
+                    self.assertIn("--token-stdin", words)
+                    self.assertEqual(input, FAKE_TOKEN)
+                    value = {"connection": {"id": "conn-proof", "serves_cloud": True},
+                             "keychain": {"service": "cmux-model-key", "account": "claude-token-0a1b2c3d"}}
+                elif words[:3] == ["cloud", "connections", "--remove"]:
+                    self.assertEqual(words[3:], ["conn-proof", "--keychain-account", "claude-token-0a1b2c3d"])
+                    value = {"removed": "conn-proof"}
                 elif words == ["vm", "token", "create", "--ttl", "30m", "--json"]:
                     value = {"stored": True}
+                elif words == ["cloud", "start-chat", "--help"]:
+                    # The Rust start-chat (#55501) lists no --login; an older app's CLI does.
+                    value = "usage: cmux cloud start-chat [--prompt TEXT]" + (" [--login MODE]" if cli_takes_login else "")
+                elif words[:2] == ["cloud", "start-chat"] and cut_off_chat:
+                    # A cancel stops the proof while its chat waits: the proof's own handler runs, as on SIGTERM.
+                    signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+                    self.fail("the cut-off handler must end the proof")
+                elif words == ["cloud", "list-machines", "--json"]:
+                    value = {"loaded": True, "machines": [
+                        {"machine_id": "machine-proof", "title": "proof-test"},
+                        {"machine_id": "machine-other", "title": "another-run"}]}
                 elif words[:2] == ["cloud", "start-chat"]:
                     self.assertEqual(words[0:3], ["cloud", "start-chat", "--prompt"])
                     self.assertIn("https://example.com/?cmux_browser_proof=", words[3])
@@ -113,7 +145,7 @@ class CloudChatProofTests(unittest.TestCase):
                             answer = f"{reply} folder={word}"
                         rest = rest[:2] + rest[4:]
                     # `--login` goes to a Claude chat only, after any --from-folder.
-                    chosen = ["--login", login] if login and agent == "claude" else []
+                    chosen = ["--login", login] if login and agent == "claude" and cli_takes_login else []
                     self.assertEqual(rest, ["--agent", agent, *chosen, "--name", "proof-test", "--wait",
                                             "--timeout", "600", "--json"])
                     value = {"machine_id": "machine-proof", "session_id": "session-proof",
@@ -132,6 +164,9 @@ class CloudChatProofTests(unittest.TestCase):
                                "--confirm", "--json"]:
                     code = cleanup_exit
                     value = {"deleted": code == 0}
+                elif words == ["cloud", "kill-machine", "--target", "machine:machine-proof",
+                               "--json", "--confirm"]:
+                    value = {"deleted": True}
                 elif words == ["app", "quit", "--json"]:
                     value = {"quitting": True}
                 else:
@@ -146,6 +181,8 @@ class CloudChatProofTests(unittest.TestCase):
                 + (["--grant-claude-login"] if grant else []) + (["--login", login] if login else []) \
                 + (["--cache-claude-login"] if cache else [])
             token_env = {claude_login_cache.TOKEN_ENV: FAKE_TOKEN} if cache else {}
+            handlers = {each: signal.getsignal(each) for each in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
+            self.addCleanup(lambda: [signal.signal(each, handler) for each, handler in handlers.items()])
             with patch.object(sys, "argv", argv), patch("subprocess.run", side_effect=run), \
                     patch.dict(os.environ, token_env), \
                     patch("subprocess.Popen", return_value=launcher) as launch, \
@@ -164,6 +201,9 @@ class CloudChatProofTests(unittest.TestCase):
             self.assertEqual(launch_kwargs["stdout"], subprocess.DEVNULL)
             self.assertEqual(launch_kwargs["stderr"], subprocess.DEVNULL)
             self.assertNotIn(claude_login_cache.TOKEN_ENV, launch_kwargs["env"], "The launcher never inherits the Claude token")
+            # `open` hands the app the launcher's environment: CMUX_SOCKET_PATH there marks another cmux and the
+            # app drops CMUX_NEXT_SOCKET_PATH (the daily proof's app.unreachable from 11-17).
+            self.assertNotIn("CMUX_SOCKET_PATH", launch_kwargs["env"], "The launched app never inherits a cmux marker")
             launcher.wait.assert_called_once_with(timeout=60)
             self.assertTrue(evidence_path.is_file(), "Every terminal outcome must write its evidence")
             for folder in folders:
@@ -207,6 +247,15 @@ class CloudChatProofTests(unittest.TestCase):
                 self.assertFalse(any(words[:2] == ["cloud", "env"] for words in calls))
                 self.assertEqual(evidence["claude_login"], {"consent_granted": False, "login": None, "cached": False})
 
+    def test_a_shipped_nightly_is_read_signed_in_from_its_machine_list_not_app_call(self):
+        code, evidence, calls = self.run_proof(backend_name="prod", shipped=True)
+        self.assertEqual(code, 0)
+        self.assertEqual(evidence["result"], "pass")
+        self.assertEqual(evidence["api_origin"], "https://cloud-api.cmux.dev")
+        self.assertFalse(any(words[:2] == ["app", "call"] for words in calls))
+        steps = {step["step"]: step for step in evidence["steps"]}
+        self.assertEqual(steps["selected backend active and signed in"]["exit"], 0)
+
     def test_grant_claude_login_gives_the_launch_its_consent_and_the_chat_its_login(self):
         # CI's unattended Claude chat on either backend: the consent a Release build's headless start waits for,
         # in the launched app's own cmux.json, and `--login none` (the machine's team gateway), which a DEV
@@ -216,7 +265,7 @@ class CloudChatProofTests(unittest.TestCase):
                 code, evidence, calls = self.run_proof(backend_name=backend_name, grant=True, login="none")
                 self.assertEqual(code, 0, evidence)
                 self.assertEqual(evidence["claude_login"], {"consent_granted": True, "login": "none", "cached": False})
-                start = next(words for words in calls if words[:2] == ["cloud", "start-chat"])
+                start = next(words for words in calls if words[:3] == ["cloud", "start-chat", "--prompt"])
                 self.assertEqual(start[start.index("--login") + 1], "none")
 
     def test_cache_claude_login_gives_the_account_its_cached_login_and_the_chat_copies_it(self):
@@ -226,17 +275,20 @@ class CloudChatProofTests(unittest.TestCase):
             with self.subTest(backend=backend_name):
                 code, evidence, calls = self.run_proof(backend_name=backend_name, grant=True, login="pass", cache=True)
                 self.assertEqual(code, 0, evidence)
-                self.assertEqual(evidence["claude_login"], {"consent_granted": True, "login": "pass", "cached": True})
+                self.assertEqual(evidence["claude_login"], {"consent_granted": True, "login": "pass", "cached": True,
+                                                             "connection": True})
                 entries = [claude_login_cache.name("stack-user-1", "team-1"),
                            claude_login_cache.name("stack-user-1", None)]
                 self.assertEqual([words[3] for words in calls if words[:3] == ["cloud", "secret", "set"]], entries)
                 self.assertEqual(sorted(words[3] for words in calls if words[:3] == ["cloud", "secret", "rm"]),
                                  sorted(entries))
-                chat = next(index for index, words in enumerate(calls) if words[:2] == ["cloud", "start-chat"])
+                chat = next(index for index, words in enumerate(calls) if words[:3] == ["cloud", "start-chat", "--prompt"])
                 last_set = max(index for index, words in enumerate(calls) if words[:3] == ["cloud", "secret", "set"])
                 self.assertLess(last_set, chat, "the login is cached before the start reads it")
                 self.assertEqual(calls[chat][calls[chat].index("--login") + 1], "pass")
                 self.assertNotIn(FAKE_TOKEN, json.dumps(evidence))
+                self.assertEqual(sum(words[:3] == ["cloud", "connections", "--remove"] for words in calls), 1,
+                                 "the run's connection and its Keychain item go at the end")
 
     def test_a_failed_cache_fails_before_any_machine_and_still_removes_it(self):
         code, evidence, calls = self.run_proof(grant=True, login="pass", cache=True, secret_exit=1)
@@ -278,6 +330,15 @@ class CloudChatProofTests(unittest.TestCase):
         self.assertEqual(code, 0, evidence)
         self.assertEqual(evidence["claude_login"], {"consent_granted": True, "login": None, "cached": False})
         start = next(words for words in calls if words[:2] == ["cloud", "start-chat"])
+        self.assertNotIn("--login", start)
+
+    def test_login_is_dropped_when_the_cli_no_longer_takes_it(self):
+        # cloud-chat-proof run 45643891279: the tagged app's Rust start-chat refused `--login` (usage.invalid) on
+        # staging and prod, so the proof never reached its chat. A CLI without the word gets no --login.
+        code, evidence, calls = self.run_proof(grant=True, login="pass", cache=True, cli_takes_login=False)
+        self.assertEqual(code, 0, evidence)
+        self.assertIsNone(evidence["claude_login"]["login"])
+        start = next(words for words in calls if words[:3] == ["cloud", "start-chat", "--prompt"])
         self.assertNotIn("--login", start)
 
     def test_from_folder_reply_must_hold_the_word_only_the_folder_has(self):
@@ -336,6 +397,20 @@ class CloudChatProofTests(unittest.TestCase):
         self.assertEqual(evidence["result"], "fail: the chat replied but its machine was not killed")
         cleanup = next(step for step in evidence["steps"] if step["step"] == "cloud kill-machine")
         self.assertEqual(cleanup["exit"], 1)
+
+    def test_pass_records_its_machine_killed(self):
+        code, evidence, _ = self.run_proof()
+        self.assertEqual(code, 0)
+        self.assertEqual(evidence["machine_cleanup"], "killed")
+
+    def test_a_cut_off_proof_kills_only_the_machines_named_after_its_run(self):
+        code, evidence, calls = self.run_proof(cut_off_chat=True)
+        self.assertEqual(code, 1)
+        self.assertEqual(evidence["result"], "fail: cut off by SIGTERM")
+        self.assertEqual(evidence["machine_cleanup"], "killed")
+        kills = [words for words in calls if words[:2] == ["cloud", "kill-machine"]]
+        self.assertEqual(kills, [["cloud", "kill-machine", "--target", "machine:machine-proof", "--json", "--confirm"]])
+        self.assertEqual(signal.getsignal(signal.SIGINT), signal.SIG_IGN, "a second signal does not cut the cleanup short")
 
     def test_reply_does_not_pass_until_own_launch_helper_confirms_app_exit(self):
         code, evidence, _ = self.run_proof(app_exits=False)

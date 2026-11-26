@@ -85,6 +85,7 @@ class FakeGitHub:
         self.calls: list[str] = []
         self.pr_commits: list[str] = [HEAD]
         self.listed: list[dict] = [run_record()]
+        self.commit_dates: dict[str, str] = {}
 
     def __call__(self, path: str) -> bytes:
         self.calls.append(path)
@@ -95,9 +96,11 @@ class FakeGitHub:
         if path == f"repos/{REPO}/actions/jobs/{JOB_ID}/logs":
             return self.log.encode()
         if path.startswith(f"repos/{REPO}/pulls/"):
-            return json.dumps([{"sha": sha} for sha in self.pr_commits]).encode()
+            return json.dumps([{"sha": sha, "commit": {"committer": {"date": self.commit_dates.get(sha, "2026-11-19T07:00:00Z")}}}
+                               for sha in self.pr_commits]).encode()
         if path.startswith(f"repos/{REPO}/actions/workflows/fast-checks.yml/runs?"):
-            return json.dumps({"workflow_runs": self.listed}).encode()
+            page = int(path.split("&page=", 1)[1].split("&", 1)[0])
+            return json.dumps({"workflow_runs": self.listed[(page - 1) * 100:page * 100]}).encode()
         if path.startswith(f"repos/{REPO}/compare/"):
             return json.dumps({"status": self.compare, "files": [{"filename": f} for f in self.files]}).encode()
         raise ci_receipt.Rejected(f"GitHub answered 404 for {path}")
@@ -169,6 +172,30 @@ class Verify(unittest.TestCase):
                        run_record(display_title=f"Fast checks {SOURCE} tests other/repo@{HEAD}"),
                        run_record(display_title="Fast checks " + SOURCE)]
         self.assertRejected(verify(fake, body="", pr=7), "no passing Fast checks run")
+
+    def test_discovery_reads_only_the_runs_since_the_oldest_commit(self):
+        # On 2026-11-21 main held about 1,240 passing receipt dispatches from two days, so every search read all five
+        # pages (about 240 GITHUB_TOKEN calls an hour from this job alone). A run cannot test a commit made after it
+        # started, so the search starts at the pull request's oldest commit (less a margin for clock skew).
+        import datetime
+        older = "7" * 40
+        fake = FakeGitHub()
+        fake.pr_commits = [older, HEAD]
+        fake.commit_dates = {older: "2026-11-21T23:40:00Z", HEAD: "2026-11-22T00:10:00Z"}
+        fake.listed = [run_record(display_title=f"Fast checks {SOURCE} tests {REPO}@{'8' * 40}")] * 99 + [run_record()]
+        found = ci_receipt.discover(fake, REPO, 7, HEAD, now=datetime.datetime(2026, 11, 22, 1, 0, tzinfo=datetime.timezone.utc))
+        self.assertEqual(found, [RUN])
+        (listing,) = [c for c in fake.calls if "workflows/fast-checks.yml/runs" in c][:1]
+        self.assertIn("created=%3E%3D2026-11-21T23:10:00Z", listing)
+        self.assertNotIn("created=%3E%3D2026-11-20", listing)
+
+    def test_discovery_without_commit_dates_keeps_the_two_day_window(self):
+        import datetime
+        fake = FakeGitHub()
+        fake.commit_dates = {HEAD: "not a date"}
+        ci_receipt.discover(fake, REPO, 7, HEAD, now=datetime.datetime(2026, 11, 22, 1, 0, tzinfo=datetime.timezone.utc))
+        listing = [c for c in fake.calls if "workflows/fast-checks.yml/runs" in c][0]
+        self.assertIn("created=%3E%3D2026-11-20", listing)
 
     def test_a_pointer_beats_discovery(self):
         fake = FakeGitHub()
@@ -294,7 +321,7 @@ class Verify(unittest.TestCase):
         self.assertEqual(run(["webviews/src/App.tsx", "docs/x.md"])["valid"], "true")
         self.assertEqual(run(["webviews/src/App.tsx"])["base"], OLD_BASE)
         for changed in ("cmux-tui/crates/acpmux/src/lib.rs", "webviews/native/build.rs", "Cargo.lock",
-                        "coderouter/README.md", "ghostty-next", ".github/rust-workspaces.toml",
+                        "Native/DiffSidecar/README.md", "ghostty-next", ".github/rust-workspaces.toml",
                         "cmux-tui/rust-toolchain.toml", ".github/actions/setup-cmux-tui-rust/action.yml"):
             with self.subTest(changed=changed):
                 self.assertRejected(run(["docs/x.md", changed]), "changed Rust inputs")

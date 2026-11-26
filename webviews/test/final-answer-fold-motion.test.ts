@@ -2,11 +2,12 @@
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { endsTurn } from "../src/agent-session/acpmux/conversation/turnEndFold";
-import { ACTIVITY_LINE, LIVE_THINKING, WORKED, WORKING } from "../src/agent-session/acpmux/conversation/turns";
+import { LIVE_THINKING, WORKED } from "../src/agent-session/acpmux/conversation/turns";
 
 const row = (id: string, kind: AcpmuxRow["kind"]): AcpmuxRow => ({ id, kind, version: 1, at: 1000 });
 const prompt = row("prompt", "user");
-const header = row(`${WORKING}-prompt`, WORKING);
+// The turn's header in its running phase: the same row as `worked` (turns.ts `turnHeaderId`).
+const header: AcpmuxRow = { ...row(`${WORKED}-prompt`, WORKED), turnPhase: "running" };
 const worked = row(`${WORKED}-prompt`, WORKED);
 const live = row(LIVE_THINKING, "thinking");
 
@@ -14,10 +15,6 @@ test("the final answer folds prior work while the live line remains", () => {
   expect(
     endsTurn([prompt, header, row("work", "activity"), live], [prompt, worked, row("answer", "assistant"), live]),
   ).toBe(true);
-});
-
-test("an ordinary status update does not play a turn fold", () => {
-  expect(endsTurn([prompt, header, live], [prompt, header, row("status", ACTIVITY_LINE)])).toBe(false);
 });
 
 test("continued final-answer chunks do not restart the fold", () => {

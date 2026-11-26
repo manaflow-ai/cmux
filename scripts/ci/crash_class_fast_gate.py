@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The crash-class rules (cmux-next-crash-class.yml) as a cmux-next fast gate: red only for what the PR adds.
 
-Usage: crash_class_fast_gate.py --base BASE_DIR
+Usage: crash_class_fast_gate.py --base BASE_DIR [--base-rev BASE]
 Run in the merge checkout (HEAD: the pull request merged into BASE, BASE its first parent);
 BASE_DIR is BASE's exported tree (cmux_next_fast_gates.py's export_tree: Packages,
 cmux-tui/crates, scripts/cmux-next).
@@ -14,6 +14,13 @@ cmux-tui/crates, scripts/cmux-next).
                 merge's copy runs again with --root BASE_DIR, and only the failures the merge adds
                 fail the gate. A failure is keyed by its text without line numbers, so code that
                 moved is not new, and a second copy of a base failure is.
+
+With --base-rev (BASE as a commit), a whole-tree check whose inputs (INPUTS: its script, its data files, the Swift
+sources it scans, and this gate) the merge leaves as BASE had them is skipped: it would read the same files on the
+merge as on BASE, so the merge cannot add a failure. 2026-11-23T18..11-24T18 this gate was the fast gates'
+critical path in every sampled job (47 to 186 s), the selectors check ran twice on each (red on the base, so its
+base run followed), and 32 of the last 40 feat-cmux-next merges changed none of these inputs. A diff that cannot be
+read runs every check, as without --base-rev.
 
 Every check runs even after one fails. A check that ends with neither its ok exit nor a failure
 line (a traceback) is red: nothing can be compared. Exit 0 = green, 1 = red.
@@ -34,6 +41,31 @@ WHOLE_TREE = (
     ("CEF contract", "scripts/cmux-next/check-cef-objc-contract.py", "cef-objc-contract: "),
 )
 LINE_NUMBER = re.compile(r":\d+:")
+# What each whole-tree check reads (path prefixes): its script and data files (check-objc-selectors.py TABLE,
+# check-cef-objc-contract.py CONTRACT and MANIFEST), the sources both scan (DEFAULT_SOURCES, SOURCES), and this gate.
+SOURCES = "Packages/macOS/CmuxNext/Sources/"
+SELF = "scripts/ci/crash_class_fast_gate.py"
+INPUTS = {
+    "selectors": (SOURCES, SELF, "scripts/cmux-next/check-objc-selectors.py",
+                  "scripts/cmux-next/objc-selector-table.json"),
+    "CEF contract": (SOURCES, SELF, "scripts/cmux-next/check-cef-objc-contract.py",
+                     "scripts/cmux-next/chromium-objc-contract.json", "scripts/cmux-next/cef-manifest.json"),
+}
+
+
+def changed_files(base_rev: str | None) -> list[str] | None:
+    """BASE..HEAD's changed paths, or None when there is no BASE or the diff cannot be read (every check runs)."""
+    if not base_rev:
+        return None
+    done = subprocess.run(["git", "diff", "--no-renames", "--name-only", base_rev, "HEAD"], capture_output=True,
+                          text=True)
+    return done.stdout.splitlines() if done.returncode == 0 else None
+
+
+def inputs_changed(name: str, changed: list[str] | None) -> bool:
+    if changed is None:
+        return True
+    return any(path.startswith(root) for path in changed for root in INPUTS[name])
 
 
 def run_check(script: str, prefix: str, root: Path) -> tuple[str, collections.Counter, str]:
@@ -78,10 +110,18 @@ def whole_tree(name: str, script: str, prefix: str, base: Path) -> bool:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--base", required=True, type=Path, help="BASE's exported tree")
-    base = parser.parse_args(argv).base.resolve()
+    parser.add_argument("--base-rev", help="BASE as a commit: a whole-tree check whose inputs BASE..HEAD leaves as "
+                                           "they were is skipped")
+    args = parser.parse_args(argv)
+    base = args.base.resolve()
+    changed = changed_files(args.base_rev)
     ok = subprocess.run(["bash", CONCURRENCY, "--pr"]).returncode == 0
     print(f"crash-class rules (concurrency): {'ok' if ok else 'red for files this change touches'}")
     for name, script, prefix in WHOLE_TREE:
+        if not inputs_changed(name, changed):
+            print(f"crash-class rules ({name}): skipped, the merge changes none of its inputs over the base "
+                  f"({', '.join(INPUTS[name][:3])} ...), so it can add no failure")
+            continue
         ok = whole_tree(name, script, prefix, base) and ok
     return 0 if ok else 1
 

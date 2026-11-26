@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Writes the app symbol map of a Mach-O image before the release strip.
 
-    scripts/write-app-symbol-map.py IMAGE OUT
+    scripts/write-app-symbol-map.py [--reader BINARY] IMAGE OUT
+
+--reader names the binary that reads OUT; OUT takes the first format unless it
+holds the CMXSYM2 magic (a client built before CMXSYM2 reads only CMXSYM1).
 
 IMAGE is the binary that holds cmux NEXT's code: CmuxNextApp.framework behind
 a stub executable (CMUX-629), or the executable of a static (live code) build;
@@ -14,10 +17,19 @@ as dladdr names them (without the leading underscore), then one entry with
 an empty name at the end of __TEXT,__text: addresses past it (__stubs,
 __objc_stubs) name no function.
 
-Format, little-endian: b"CMXSYM1\\0", u32 slice count, then per slice the
+Format, little-endian: b"CMXSYM2\\0", u32 slice count, then per slice the
 16-byte UUID, u32 payload size and the payload as raw DEFLATE (what
 Foundation's `.zlib` decompression reads): u32 symbol count, one unsigned
-LEB128 offset delta per symbol, then the names joined by NUL.
+LEB128 offset delta per symbol, one byte per symbol (how many leading bytes
+the name shares with the one before it, at most 255), then each name's
+remaining bytes, each ending in NUL. A Rust legacy name's trailing
+`17h<16 hex digits>E` hash (a `_ZN` name's last path component) is stored as
+the single byte 0x01 and read back as `17h0000000000000000E` (the demangler prints no hash; the hashes were 4 MB of
+bytes that do not compress). A name holding a 0x01 byte makes the whole file
+the first format. The first format, b"CMXSYM1\\0", stored the names
+whole, joined by NUL; the readers still take it. Shared prefixes and no
+hashes make the map 1.9 MB where the whole names took 5.7 (cmux-tui) and 4.2
+MB where they took 4.8 (the app), CMUX-570.
 
 A second strip pass over the stripped executable leaves OUT as it is: OUT
 already holds a map for every slice UUID (stripping keeps the UUID), and the
@@ -28,12 +40,14 @@ An executable with no such symbols also leaves OUT alone.
 from __future__ import annotations
 
 import os
+import re
 import struct
 import sys
 import tempfile
 import zlib
 
 MH_MAGIC_64 = 0xFEEDFACF
+V1, V2 = b"CMXSYM1\0", b"CMXSYM2\0"
 FAT_MAGICS = {0xCAFEBABE: 20, 0xCAFEBABF: 32}  # fat_arch, fat_arch_64 sizes
 LC_SEGMENT_64, LC_SYMTAB, LC_UUID = 0x19, 0x2, 0x1B
 N_STAB, N_TYPE, N_SECT = 0xE0, 0x0E, 0x0E
@@ -127,7 +141,7 @@ def mapped_uuids(path: str) -> set[bytes]:
             blob = f.read()
     except OSError:
         return set()
-    if blob[:8] != b"CMXSYM1\0" or len(blob) < 12:
+    if blob[:8] not in (V1, V2) or len(blob) < 12:
         return set()
     (count,) = struct.unpack_from("<I", blob, 8)
     uuids, at = set(), 12
@@ -140,7 +154,69 @@ def mapped_uuids(path: str) -> set[bytes]:
     return uuids
 
 
-def payload(symbols: list[tuple[int, str]]) -> bytes:
+HASH_MARK = b"\x01"
+HASH = re.compile(rb"h[0-9a-f]{16}")
+
+
+def rust_hash_at(name: bytes) -> int | None:
+    """Where the `17h<16 hex>E` tail of a Rust legacy-mangled name starts, else None.
+
+    Only `_ZN` (`__ZN` in a Mach-O string table) names whose last path component, right before
+    the closing `E`, is the hash: a C++ name such as `_Z3fooN1A17h0123456789abcdefE` can hold
+    the same bytes inside a parameter type, and is kept whole.
+    """
+    at = 3 if name.startswith(b"_ZN") else 4 if name.startswith(b"__ZN") else None
+    while at is not None and at < len(name) and name[at:at + 1].isdigit():
+        digits = at
+        while name[digits:digits + 1].isdigit():
+            digits += 1
+        end = digits + int(name[at:digits])
+        if end == len(name) - 1 and name[end:] == b"E":
+            return at if name[at:digits] == b"17" and HASH.fullmatch(name[digits:end]) else None
+        at = end
+    return None
+
+
+def names_block(names: list[bytes]) -> bytes:
+    """The shared-prefix byte of every name, then every name's rest and a NUL.
+
+    The caller writes the first format for names holding a NUL or the hash mark (v2_names)."""
+    shared, rests, previous = bytearray(), bytearray(), b""
+    for name in names:
+        cut = rust_hash_at(name)
+        if cut is not None:
+            name = name[:cut] + HASH_MARK
+        n = 0
+        limit = min(len(name), len(previous), 255)
+        while n < limit and name[n] == previous[n]:
+            n += 1
+        shared.append(n)
+        rests += name[n:] + b"\0"
+        previous = name
+    return bytes(shared) + bytes(rests)
+
+
+def v2_names(tables: list[tuple[bytes, list[tuple[int, str]]]]) -> bool:
+    """Whether CMXSYM2 holds every name: one with a 0x01 byte (the hash mark) would read
+    back changed, so the whole file takes the first format instead (cmux#52364 F4)."""
+    return not any("\x01" in name or "\0" in name for _, symbols in tables for _, name in symbols)
+
+
+def reads_v2(reader: str | None) -> bool:
+    """Whether the binary that reads the map knows CMXSYM2: its reader keeps the magic's bytes
+    in the binary (cmux-panic-log symbol_map.rs). The nightly can bundle a fallback cmux-tui
+    client built before CMXSYM2 (app-bundle-cmux-tui-client.sh, TREE_FALLBACK); its map is
+    written in the first format, which every reader takes."""
+    if reader is None:
+        return True
+    try:
+        with open(reader, "rb") as f:
+            return V2 in f.read()
+    except OSError:
+        return False
+
+
+def payload(symbols: list[tuple[int, str]], v2: bool) -> bytes:
     body = bytearray(struct.pack("<I", len(symbols)))
     previous = 0
     for offset, _ in symbols:
@@ -151,13 +227,18 @@ def payload(symbols: list[tuple[int, str]]) -> bytes:
             body.append(byte | (0x80 if delta else 0))
             if not delta:
                 break
-    body += "\0".join(name for _, name in symbols).encode()
+    names = [name.encode() for _, name in symbols]
+    body += names_block(names) if v2 else b"\0".join(names)
     compressor = zlib.compressobj(9, zlib.DEFLATED, -15)
     return compressor.compress(bytes(body)) + compressor.flush()
 
 
 def main() -> int:
-    executable, out = sys.argv[1], sys.argv[2]
+    args = sys.argv[1:]
+    reader = None
+    if args[:1] == ["--reader"]:
+        reader, args = args[1], args[2:]
+    executable, out = args[0], args[1]
     with open(executable, "rb") as f:
         data = f.read()
     found = [t for t in (functions(s) for s in slices(data)) if t]
@@ -168,10 +249,11 @@ def main() -> int:
     if not tables:
         print(f"app symbol map: no function names in {executable}; {out} unchanged")
         return 0
-    blob = bytearray(b"CMXSYM1\0" + struct.pack("<I", len(tables)))
+    v2 = v2_names(tables) and reads_v2(reader)
+    blob = bytearray((V2 if v2 else V1) + struct.pack("<I", len(tables)))
     count = 0
     for uuid, symbols in tables:
-        packed = payload(symbols)
+        packed = payload(symbols, v2)
         blob += uuid + struct.pack("<I", len(packed)) + packed
         count += len(symbols) - 1  # not the end-of-__text entry
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(out) or ".", prefix=".cmux-symbols-")
@@ -179,7 +261,7 @@ def main() -> int:
         f.write(blob)
     os.chmod(tmp, 0o644)
     os.replace(tmp, out)
-    print(f"app symbol map: {count} functions in {len(tables)} slice(s), {len(blob) / 1048576:.2f} MiB -> {out}")
+    print(f"app symbol map: {count} functions in {len(tables)} slice(s), {len(blob) / 1048576:.2f} MiB ({blob[:7].decode()}) -> {out}")
     return 0
 
 

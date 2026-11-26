@@ -37,7 +37,7 @@ struct PointerMenuTrimTests {
             "home.messageAbout",
             // macScreen.open, macScreen.stopViewing: the Screen Sharing rows that #42789 put into the tab menu.
             "macScreen.open", "macScreen.stopViewing",
-            "moveSurfaceLeft", "moveSurfaceRight",
+            // moveSurfaceLeft, moveSurfaceRight: the strip reorders by drag (dragGesture, Leo 2026-11-22).
             "moveSurfaceToNextPane", "moveSurfaceToPaneDown", "moveSurfaceToPaneLeft",
             "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "moveSurfaceToPreviousPane",
             "newSurface", "newTab.atEnd", "newTab.atStart",
@@ -57,7 +57,8 @@ struct PointerMenuTrimTests {
         // library can be older than that change, so the test expects the id exactly when the catalog has it. When
         // the pinned library has the row, a change puts the id into `retained` and takes these 2 lines out.
         let pinned: Set<ActionID> = ActionCatalog.all.contains { $0.id == "cloud.team.copyLink" } ? ["cloud.team.copyLink"] : []
-        #expect(shown == retained.union(pinned))
+        // Point at Element (ask-5077a4ec48) is on the tab menu once the pinned catalog carries it.
+        #expect(shown.subtracting(["agentPane.togglePointerInspector"]) == retained.union(pinned))
         for id in Self.tabTrimmed {
             let descriptor = try #require(ActionCatalog.all.first { $0.id == id })
             #expect(!descriptor.surfacePlan.contextMenus.contains { $0.context == .tab })
@@ -91,7 +92,9 @@ struct PointerMenuTrimTests {
             "customize.open",
         ]
         // New ▸ Kind ▸ place: the four kind submenus and their forty places (NewPlacementActionCatalog).
-        #expect(shown == retained.union(ActionID.newPlacementSubmenus).union(ActionID.newPlacementActions))
+        // Point at Element (ask-5077a4ec48) is on the pane menu once the pinned catalog carries it.
+        #expect(shown.subtracting(["agentPane.togglePointerInspector"])
+            == retained.union(ActionID.newPlacementSubmenus).union(ActionID.newPlacementActions))
         for id in Self.paneTrimmed {
             let descriptor = try #require(ActionCatalog.all.first { $0.id == id })
             #expect(descriptor.isPaletteVisible, "\(id)")

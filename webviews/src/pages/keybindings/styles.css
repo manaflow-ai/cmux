@@ -255,15 +255,6 @@
   max-width: 100%;
 }
 
-.keys-cap {
-  font: 12px var(--font-ui);
-  padding: 1px 6px;
-  border-radius: 4px;
-  border: 1px solid var(--page-separator);
-  border-bottom-width: 2px;
-  color: var(--page-text);
-}
-
 /* The keys are the control that records new ones: a hover box like the when cell's, and the
    pressed look while it records. */
 .keys-key-button {
@@ -553,7 +544,7 @@
    out, as glass.css leaves out its own: the tint is opaque there, so the popup is the same. */
 @media not (prefers-reduced-transparency: reduce) {
   @supports not (-webkit-backdrop-filter: none) {
-    :root:not([data-glass-lens], [data-reduce-transparency]) .ui-popup.ui-glass.keys-recorder {
+    :root:not([data-glass-lens], [data-reduce-transparency], [data-glass="off"]) .ui-popup.ui-glass.keys-recorder {
       background:
         linear-gradient(var(--glass-tint), var(--glass-tint)),
         color-mix(in srgb, var(--glass-surface) var(--glass-underlay), transparent);
@@ -583,24 +574,9 @@
   color: color-mix(in srgb, var(--ui-fg) 75%, transparent);
 }
 
-.keys-recorder-hint-cap {
-  display: inline-block;
-  margin: 0 4px;
-  padding: 0 4px;
-  border-radius: 4px;
-  font: inherit;
-  color: var(--ui-fg);
-  box-shadow: inset 0 0 0 0.5px var(--ui-line);
-}
-
-/* "Press ⌫ to delete" reads as one line of text: the glyph in the text's own size and ink, no
-   keycap box, as a native menu writes a key. */
-.keys-recorder-hint > .keys-recorder-hint-cap {
-  margin: 0;
-  padding: 0;
-  border-radius: 0;
-  box-shadow: none;
-  color: inherit;
+/* A key inside a recorder line or button ("Close esc return") keeps a space from its words. */
+.keys-recorder-button .ui-key-hint {
+  margin-inline: 4px;
 }
 
 .keys-recorder-keys {
@@ -690,7 +666,7 @@
   color: inherit;
   background: var(--ui-hover);
   box-shadow:
-    inset 0 0 0 0.5px var(--ui-line),
+    inset 0 0 0 var(--cmux-hairline, 0.5px) var(--ui-line),
     inset 0 -1px 0 var(--ui-line);
     letter-spacing: var(--text-body--letter-spacing);
 }

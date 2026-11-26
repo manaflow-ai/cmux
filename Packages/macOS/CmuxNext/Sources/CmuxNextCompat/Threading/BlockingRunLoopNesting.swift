@@ -1,4 +1,4 @@
-#if DEBUG || CMUX_BLOCKING_CHECKS
+#if (DEBUG || CMUX_BLOCKING_CHECKS) && canImport(Darwin)
 internal import CoreFoundation
 
 /// Sees nested runs of the main run loop while an ``allowBlocking(_:_:)`` scope is open: one

@@ -62,6 +62,8 @@ public final class BackdropLiveView: NSView {
     private var lastActivity: CFTimeInterval = 0
     private var lastPointerMove: CFTimeInterval = -.infinity
     private var pointer = CmuxWallpaperPointer()
+    /// The pointer's recent path (`Frame.trail`), in backing pixels like ``pointer``.
+    private var trail = CmuxWallpaperTrail()
     private var colors: LiveWallpaperColors?
     private let seed = Float.random(in: 0..<1)
     private var keyMonitor: Any?
@@ -118,6 +120,7 @@ public final class BackdropLiveView: NSView {
         isHidden = true
         setAccessibilityElement(false)
         cmux_wallpaper_pointer_reset(&pointer)
+        cmux_wallpaper_trail_reset(&trail)
     }
 
     @available(*, unavailable)
@@ -131,7 +134,7 @@ public final class BackdropLiveView: NSView {
 
     /// Shows `wallpaper` (nil: none). The same wallpaper keeps its program, time and frame.
     public func show(_ wallpaper: LiveWallpaper?) {
-        guard wallpaper != self.wallpaper else { return update() }
+        guard wallpaper != self.wallpaper else { update(); return }
         stopLink()
         pipelineLoad?.cancel()
         pipelineLoad = nil
@@ -143,6 +146,7 @@ public final class BackdropLiveView: NSView {
         scale = wallpaper?.scale ?? 1
         lastActivity = CACurrentMediaTime()
         cmux_wallpaper_pointer_reset(&pointer)
+        cmux_wallpaper_trail_reset(&trail)
         // A scene gets a player of its own (a fresh physics world); the badge is drawn again for it.
         scene = wallpaper?.makeScenePlayer()
         sceneBlock = []
@@ -247,6 +251,7 @@ public final class BackdropLiveView: NSView {
         // The master switch, `ui.animations.panes` or speed "off".
         input.animations_off = !Motion.panes.isEnabled
         input.interactive = wallpaper.interactive
+        input.idle_after_s = wallpaper.idleAfter
         input.has_frame = hasFrame
         // A scene with nothing moving holds at rest; a press wakes it (``feedScene(press:)``).
         input.at_rest = scene?.atRest ?? false
@@ -301,7 +306,7 @@ public final class BackdropLiveView: NSView {
             sceneInputs = LiveWallpaperSceneInputs(block: sceneBlock, image: badgeImage)
         }
         let size = CGSize(width: CGFloat(frame.width), height: CGFloat(frame.height))
-        let drawn = renderer.draw(frame.packed(), scene: sceneInputs, pipeline: pipeline, drawableSize: size) { [weak self] milliseconds in
+        let drawn = renderer.draw(frame.packed(trail: trail, at: now, scale: scale), scene: sceneInputs, pipeline: pipeline, drawableSize: size) { [weak self] milliseconds in
             MainDelivery().run { self?.frameCompleted(milliseconds) }
         }
         // The last frame is still on the GPU: this tick draws nothing, and time does not move.
@@ -408,7 +413,9 @@ public final class BackdropLiveView: NSView {
         let point = convert(event.locationInWindow, from: nil)
         let backing = Float(window.backingScaleFactor)
         let now = CACurrentMediaTime()
-        cmux_wallpaper_pointer_update(&pointer, Float(point.x) * backing, Float(bounds.height - point.y) * backing, now)
+        let (x, y) = (Float(point.x) * backing, Float(bounds.height - point.y) * backing)
+        cmux_wallpaper_pointer_update(&pointer, x, y, now)
+        cmux_wallpaper_trail_update(&trail, x, y, now)
         lastPointerMove = now
         feedScene(press: press)
         if link == nil, wallpaper.interactive || press { update() }

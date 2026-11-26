@@ -26,7 +26,8 @@
 #     takes feat-cmux-next with the try mode) and the report says so. A cold build waits in the
 #     simulator queue (13+ min behind 30 steps on 2026-11-21); --urgent puts it first (cmux-ci run
 #     --urgent, logged with a reason): only for the person waiting on their phone.
-#  3. On every connected iPhone (scripts/lib/iphone-review-targets.sh; --device-id for one): signs a
+#  3. On every connected iPhone of this Mac's person (scripts/lib/iphone-review-targets.sh: an
+#     unknown Wi-Fi-only phone is skipped; --device-id for one): signs a
 #     copy with this Mac's Apple Development identity (sign_device_app.py: the team wildcard
 #     profile covers dev.cmux.mobile.dev), installs it through the sanctioned install and launches
 #     it. --sign-in launches it signed in with the `personal` profile (the first install needs it
@@ -87,6 +88,11 @@ try_resolve() {
 # The fleet step for SHA: try (cmux Dev, device only), else handoff tag=dev for an older script.
 try_fleet() {
   local mode="$1" args
+  # The fallback's phone sits in dev:dev. That is no tagged build's space only while every tag entry point
+  # (scripts/lib/mobile-attach.sh cmux_attach_validate_dev_tag: reload.sh, review.sh, the simulator handoff)
+  # refuses the tag dev; were it a usable tag, a Mac tagged dev would take this phone for its own.
+  [[ "$mode" != handoff ]] || cmux_attach_tag_reserved dev ||
+    try_die "the handoff fallback builds cmux Dev in build space dev:dev, which only stays apart while tag dev is reserved (CMUX_ATTACH_RESERVED_TAGS in scripts/lib/mobile-attach.sh)"
   args=(run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref "$SHA" --artifact artifacts/ios-sim/evidence.zip
     --no-supersede --key "cnx-ios-try-$mode-${SHA:0:12}$(try_attempt_suffix "$mode")")
   # Through the controller's shots form until it lists the modes (cmux-next-ios-sim.sh header).
@@ -112,13 +118,35 @@ try_bump_attempt() {
 
 # Which fleet mode SHA's cmux-next-ios-sim.sh has: try, or handoff for a commit from before it. An older
 # script would read `shots try=dev` as a screenshot scene and build no device app, so it is read first:
-# from this clone when it has the commit, else GitHub's contents API. Unknown reads as try.
+# from this clone when it has the commit, else GitHub's contents API. Neither read: unknown, which fails clearly
+# (guessing try would queue a step an older script turns into screenshots).
 try_script_mode() {
   local text=""
   text="$(git -C "$REPO_ROOT" show "$SHA:scripts/ci/cmux-next-ios-sim.sh" 2>/dev/null)" ||
     text="$(gh api -H 'Accept: application/vnd.github.raw' \
       "repos/$TRY_REPO/contents/scripts/ci/cmux-next-ios-sim.sh?ref=$SHA" 2>/dev/null)" || text=""
-  if [[ -n "$text" && "$text" != *'try=dev'* ]]; then echo handoff; else echo try; fi
+  if [[ -z "$text" ]]; then echo unknown
+  elif [[ "$text" != *'try=dev'* ]]; then echo handoff
+  else echo try; fi
+}
+
+# One run per commit on this Mac: \$STATE (device.part, ios.zip, phone-*) is shared, so a second run for the
+# same commit waits up to TRY_LOCK_WAIT seconds, then stops with the holder's pid. A holder that died is taken over.
+try_lock() {
+  local lock="$STATE.lock" waited=0 holder
+  while ! mkdir "$lock" 2>/dev/null; do
+    holder="$(cat "$lock/pid" 2>/dev/null || true)"
+    if [[ "$holder" =~ ^[0-9]+$ ]] && ! kill -0 "$holder" 2>/dev/null; then
+      rm -rf "$lock"; continue
+    fi
+    if (( waited >= ${TRY_LOCK_WAIT:-900} )); then
+      try_die "another try.sh for $SHA is running on this Mac (pid ${holder:-unknown}, $lock); rerun when it ends"
+    fi
+    (( waited == 0 )) && echo "try.sh: another try.sh for $SHA is running (pid ${holder:-unknown}); waiting for it" >&2
+    sleep 5; waited=$((waited + 5))
+  done
+  printf '%s\n' "$$" >"$lock/pid"
+  trap 'rm -rf "$STATE.lock"' EXIT
 }
 
 # The unsigned cmux Dev app for SHA at $STATE/device/CmuxMobileApp.app (cached per commit).
@@ -129,6 +157,10 @@ try_get_app() {
   fi
   local mode step zip
   mode="$(try_script_mode)"
+  if [[ "$mode" == unknown ]]; then
+    TRY_FAIL="could not read $SHA's scripts/ci/cmux-next-ios-sim.sh (not in this clone, and GitHub's contents API did not answer), so its fleet mode is unknown; git fetch origin, or check gh auth, then rerun"
+    return 1
+  fi
   if [[ "$mode" == handoff ]]; then
     TRY_NOTE="built by the handoff mode (this commit's cmux-next-ios-sim.sh predates the try mode): cloud build space dev:dev, not your real data, until the PR takes feat-cmux-next"
   fi
@@ -268,6 +300,7 @@ try_main() {
     unset CMUX_UITEST_STACK_EMAIL CMUX_UITEST_STACK_PASSWORD
   fi
   mkdir -p "$STATE"
+  try_lock
   local default_file
   default_file="$(dirname "$REVIEW_PHONES_FILE")/iphone-device-id"
   DEFAULT_DEVICE_ID="$(head -n 1 "$default_file" 2>/dev/null | tr -d '[:space:]' || true)"

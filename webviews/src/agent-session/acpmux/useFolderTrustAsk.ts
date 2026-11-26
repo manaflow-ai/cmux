@@ -10,7 +10,7 @@ import {
   type TrustSource,
 } from "./folderTrust";
 import type { StringKey } from "./i18n";
-import { trustRefusal } from "./direct";
+import { trustRefusal } from "./trustRefusal";
 import { knownRefusalText } from "./transportErrors";
 
 /// The chat's trust question: "ask" while the folder reads as unknown for the chat's agent, then
@@ -83,6 +83,22 @@ function retryKey(chat: string | undefined, visit: unknown): string {
 /// Why Send is off; an empty block only reports a trust read in flight. `shownAbove`: the
 /// question over the card already says it, so the card draws no caption (Send's tooltip keeps it).
 export type SendBlock = { reason?: StringKey; shownAbove?: boolean };
+
+/// Each block once, so a render of the pane hands the composer the same object while the block
+/// holds: a new `{}` per render drew the composer again on every pane render while a read ran, and a
+/// reconnect reads every folder again.
+const READING: SendBlock = Object.freeze({});
+const ANSWER_FIRST: SendBlock = Object.freeze({ reason: "trust.answerFirst", shownAbove: true });
+const REMOTE: SendBlock = Object.freeze({ reason: "trust.remote" });
+const NOT_TRUSTED: SendBlock = Object.freeze({ reason: "trust.notTrustedNoPrompts" });
+
+/// The block the composer is handed (App.tsx): the trust question holds Send only for a remote chat and
+/// Start Agent (`holds`); otherwise no block. A read in flight holds nothing and the composer draws
+/// nothing for it, so it is no block either: a reconnect's reads leave the composer be.
+export function composerTrustBlock(holds: boolean, blocked: SendBlock | undefined): SendBlock | undefined {
+  if (!blocked?.reason) return undefined;
+  return holds ? blocked : undefined;
+}
 
 /// The last answer read for each folder, kept for the next chat there (another tab, workspace, or
 /// a new page from the pool): a switch draws the folder's known trust from its first render, and
@@ -627,13 +643,13 @@ export function useFolderTrustAsk(
   }, [ask, trusted, blockSend, sessionId, cwd, family, sameAuthority, sameVisit, visitValue]);
 
   const blocked: SendBlock | undefined = reading
-    ? {}
+    ? READING
     : ask?.state === "ask" || ask?.state === "failed"
-      ? { reason: "trust.answerFirst", shownAbove: true }
+      ? ANSWER_FIRST
       : ask?.state === "remote"
-        ? { reason: "trust.remote" }
+        ? REMOTE
         : ask?.state === "decided" && ask.level === "untrusted"
-          ? { reason: "trust.notTrustedNoPrompts" }
+          ? NOT_TRUSTED
           : undefined;
 
   return {

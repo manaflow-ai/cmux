@@ -1018,7 +1018,7 @@ impl<'a> Cx<'a> {
                 "rp" => self.refuse(ip, "rp repeater", "repeaters have no scene equivalent"),
                 "mm" => self.refuse(ip, "mm merge", "merge paths have no scene equivalent"),
                 other => {
-                    self.refuse(ip, other, format!("shape item {other:?} has no scene equivalent"))
+                    self.refuse(ip, other, format!("shape item {other:?} has no scene equivalent"));
                 }
             }
         }

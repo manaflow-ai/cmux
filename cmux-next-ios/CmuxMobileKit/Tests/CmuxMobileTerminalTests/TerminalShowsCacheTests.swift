@@ -36,6 +36,10 @@ import UIKit
         #expect(TerminalConnectingView.content(hasLastFrame: true, showsPlaceholder: false) == .lastFrame)
         #expect(TerminalConnectingView.content(hasLastFrame: false, showsPlaceholder: true) == .skeleton)
         #expect(TerminalConnectingView.content(hasLastFrame: false, showsPlaceholder: false) == .nothing)
+        // The Mac's pushed screen text stands in for the skeleton, never over a frame or live rows.
+        #expect(TerminalConnectingView.content(hasLastFrame: false, showsPlaceholder: true, hasScreenText: true) == .screenText)
+        #expect(TerminalConnectingView.content(hasLastFrame: true, showsPlaceholder: true, hasScreenText: true) == .lastFrame)
+        #expect(TerminalConnectingView.content(hasLastFrame: false, showsPlaceholder: false, hasScreenText: true) == .nothing)
     }
 
     /// Connection changes keep the cached frame (only drawn live rows replace it).

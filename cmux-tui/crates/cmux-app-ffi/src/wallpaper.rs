@@ -2,7 +2,8 @@
 //! live wallpapers (plans/cmux-next/live-wallpapers.md). The first-party set
 //! with its Metal translated at build time (the library links no shader
 //! compiler), the manifest check, the
-//! draw scheduler, the `Frame` uniform packer and the pointer's smoothing.
+//! draw scheduler, the `Frame` uniform packer, the pointer's smoothing and
+//! its trail.
 //! The app's `BackdropLiveView` keeps only the Metal layer, the display link
 //! and the events; every rule and every number lives once, in cmux-wallpaper.
 //! Motion scenes (plans/cmux-next/motion-scenes.md) add a scene player handle
@@ -15,14 +16,27 @@
 
 use cmux_wallpaper::frame::{ActivityState, FrameInput, PointerState};
 use cmux_wallpaper::schedule::{Decision, ScheduleInput};
-use cmux_wallpaper::{FRAME_FLOATS, Manifest, Player, SCENE_FLOATS};
+use cmux_wallpaper::{Manifest, Player, SCENE_FLOATS, TrailPoint, TrailState};
 use std::ffi::{CString, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-/// Bumped on any change to a type or function in the header. 4: motion
+/// Bumped on any change to a type or function in the header. 6: motion
 /// scenes (`cmux_wallpaper_scene_*`), the scheduler's `at_rest` input and hold
 /// reason 13.
-const ABI_VERSION: u32 = 4;
+const ABI_VERSION: u32 = 6;
+
+/// Floats in the Frame uniform (`cmux_wallpaper_frame_pack` writes this
+/// many; 4 bytes each). Size the uniform buffer from this, never a literal.
+pub const CMUX_WALLPAPER_FRAME_FLOATS: usize = 108;
+/// Points in a `CmuxWallpaperTrail`, and rows in `Frame.trail`.
+pub const CMUX_WALLPAPER_TRAIL_POINTS: usize = 16;
+/// Floats `cmux_wallpaper_trail_rows` writes: 4 per point (x, y, age, valid).
+pub const CMUX_WALLPAPER_TRAIL_FLOATS: usize = 64;
+
+// The header's numbers are cmux-wallpaper's: a mismatch does not compile.
+const _: () = assert!(CMUX_WALLPAPER_FRAME_FLOATS == cmux_wallpaper::FRAME_FLOATS);
+const _: () = assert!(CMUX_WALLPAPER_TRAIL_POINTS == cmux_wallpaper::TRAIL_POINTS);
+const _: () = assert!(CMUX_WALLPAPER_TRAIL_FLOATS == CMUX_WALLPAPER_TRAIL_POINTS * 4);
 
 /// The result of `cmux_wallpaper_validate_manifest`; free it with
 /// `cmux_wallpaper_manifest_result_free`. On success `json` is the manifest
@@ -76,6 +90,8 @@ pub struct CmuxWallpaperScheduleInput {
     pub agents: bool,
     /// The view has drawn at least one frame.
     pub has_frame: bool,
+    /// The manifest's `idle_after` in seconds; 0 means the default (20).
+    pub idle_after_s: f64,
     /// A motion scene at rest (`cmux_wallpaper_scene_at_rest`); false for a
     /// program wallpaper.
     pub at_rest: bool,
@@ -103,10 +119,10 @@ pub struct CmuxWallpaperDecision {
 }
 
 /// One frame's values by name (`FrameInput`); `cmux_wallpaper_frame_pack`
-/// writes the 40 floats of the 160-byte Frame uniform. Colors are linear
+/// writes the `CMUX_WALLPAPER_FRAME_FLOATS` floats of the Frame uniform. Colors are linear
 /// RGB (`cmux_wallpaper_srgb_to_linear`). NaN or infinite values become 0.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CmuxWallpaperFrameInput {
     /// Seconds since shown (continues across holds).
     pub time: f32,
@@ -135,6 +151,9 @@ pub struct CmuxWallpaperFrameInput {
     pub since_agent_event: f32,
     /// `CmuxWallpaperActivity.count`.
     pub agent_events: f32,
+    /// The tritone grade over the program's colors, 0 (off) ..1 (`appearance.liveWallpaperGrade`):
+    /// lightness mapped from the darker of paper and ink, through accent, to the lighter.
+    pub grade: f32,
     pub ink: [f32; 3],
     pub paper: [f32; 3],
     pub accent: [f32; 3],
@@ -145,6 +164,84 @@ pub struct CmuxWallpaperFrameInput {
     pub button_down: bool,
     /// Dark appearance.
     pub dark: bool,
+    /// The pointer's trail, `CMUX_WALLPAPER_TRAIL_POINTS` rows of (x, y, age,
+    /// valid), newest first: `cmux_wallpaper_trail_rows` fills it. Zeros: no trail.
+    pub trail: [f32; CMUX_WALLPAPER_TRAIL_FLOATS],
+}
+
+impl Default for CmuxWallpaperFrameInput {
+    fn default() -> Self {
+        Self {
+            time: 0.0,
+            delta: 0.0,
+            frame_number: 0.0,
+            width: 0.0,
+            height: 0.0,
+            backing_scale: 0.0,
+            seed: 0.0,
+            pointer_x: 0.0,
+            pointer_y: 0.0,
+            velocity_x: 0.0,
+            velocity_y: 0.0,
+            presence: 0.0,
+            since_moved: 0.0,
+            activity: 0.0,
+            since_agent_event: 0.0,
+            agent_events: 0.0,
+            grade: 0.0,
+            ink: [0.0; 3],
+            paper: [0.0; 3],
+            accent: [0.0; 3],
+            params: [0.0; 8],
+            still: false,
+            button_down: false,
+            dark: false,
+            trail: [0.0; CMUX_WALLPAPER_TRAIL_FLOATS],
+        }
+    }
+}
+
+/// The pointer's recent path (`TrailState`): a ring of points, newest first,
+/// `len` of them set. Zero it (or call `cmux_wallpaper_trail_reset`) once;
+/// then `update` on each pointer move, with the same position and time as
+/// `cmux_wallpaper_pointer_update`, and `rows` once per drawn frame into
+/// `CmuxWallpaperFrameInput.trail`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct CmuxWallpaperTrail {
+    /// Seconds, the host's monotonic clock.
+    pub t: [f64; CMUX_WALLPAPER_TRAIL_POINTS],
+    pub x: [f32; CMUX_WALLPAPER_TRAIL_POINTS],
+    pub y: [f32; CMUX_WALLPAPER_TRAIL_POINTS],
+    /// Points set, 0..=`CMUX_WALLPAPER_TRAIL_POINTS`.
+    pub len: u32,
+}
+
+impl From<&CmuxWallpaperTrail> for TrailState {
+    fn from(c: &CmuxWallpaperTrail) -> Self {
+        let mut s = Self {
+            len: usize::try_from(c.len).unwrap_or(usize::MAX).min(CMUX_WALLPAPER_TRAIL_POINTS),
+            ..Self::default()
+        };
+        for (i, p) in s.points.iter_mut().enumerate() {
+            let (Some(&t), Some(&x), Some(&y)) = (c.t.get(i), c.x.get(i), c.y.get(i)) else {
+                continue;
+            };
+            *p = TrailPoint { x, y, t };
+        }
+        s
+    }
+}
+
+impl From<&TrailState> for CmuxWallpaperTrail {
+    fn from(s: &TrailState) -> Self {
+        Self {
+            t: s.points.map(|p| p.t),
+            x: s.points.map(|p| p.x),
+            y: s.points.map(|p| p.y),
+            len: u32::try_from(s.len.min(CMUX_WALLPAPER_TRAIL_POINTS)).unwrap_or(0),
+        }
+    }
 }
 
 /// The pointer's smoothing state (`PointerState`). Zero it (or call
@@ -218,12 +315,17 @@ impl From<&CmuxWallpaperFrameInput> for FrameInput {
             activity: i.activity,
             since_agent_event: i.since_agent_event,
             agent_events: i.agent_events,
+            grade: i.grade,
             button_down: i.button_down,
             dark: i.dark,
             ink: i.ink,
             paper: i.paper,
             accent: i.accent,
             params: i.params,
+            trail: std::array::from_fn(|r| {
+                let at = |c: usize| i.trail.get(r * 4 + c).copied().unwrap_or(0.0);
+                [at(0), at(1), at(2), at(3)]
+            }),
         }
     }
 }
@@ -251,6 +353,7 @@ impl From<&CmuxWallpaperScheduleInput> for ScheduleInput {
             gpu_strikes: i.gpu_strikes,
             scale: i.scale,
             has_frame: i.has_frame,
+            idle_after_s: i.idle_after_s,
             at_rest: i.at_rest,
         }
     }
@@ -334,7 +437,8 @@ pub unsafe extern "C" fn cmux_wallpaper_first_party_source(
 /// First-party wallpaper `index`'s program in Metal Shading Language 2.1,
 /// translated when the library was built (the library has no shader
 /// compiler): `vertex vs_main` (a full-screen triangle, 3 vertices) and
-/// `fragment fs_main`, the 160-byte Frame uniform at buffer index 0 in both.
+/// `fragment fs_main`, the Frame uniform (`CMUX_WALLPAPER_FRAME_FLOATS`
+/// floats) at buffer index 0 in both.
 /// Static UTF-8 bytes as above.
 ///
 /// # Safety
@@ -449,19 +553,20 @@ pub extern "C" fn cmux_wallpaper_gpu_strikes(strikes: u32, gpu_ms: f32) -> u32 {
 }
 
 /// The floats in the Frame uniform (`cmux_wallpaper_frame_pack` writes this
-/// many): the host sizes its buffer from this, never from a number of its
-/// own, so a Frame that grows cannot overrun it.
+/// many, `CMUX_WALLPAPER_FRAME_FLOATS`): the host sizes its buffer from this,
+/// never from a number of its own, so a Frame that grows cannot overrun it.
 #[unsafe(no_mangle)]
 pub extern "C" fn cmux_wallpaper_frame_floats() -> usize {
-    FRAME_FLOATS
+    CMUX_WALLPAPER_FRAME_FLOATS
 }
 
-/// Writes the 40 floats (160 bytes) of the Frame uniform for `input` to
-/// `out`. False, and nothing written, when either is null.
+/// Writes the `CMUX_WALLPAPER_FRAME_FLOATS` floats (4 bytes each) of the
+/// Frame uniform for `input` to `out`. False, and nothing written, when
+/// either is null.
 ///
 /// # Safety
 /// `input` is null or points to a valid `CmuxWallpaperFrameInput`; `out` is
-/// null or points to `cmux_wallpaper_frame_floats()` writable floats.
+/// null or points to `CMUX_WALLPAPER_FRAME_FLOATS` writable floats.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_wallpaper_frame_pack(
     input: *const CmuxWallpaperFrameInput,
@@ -471,9 +576,10 @@ pub unsafe extern "C" fn cmux_wallpaper_frame_pack(
         return false;
     }
     // SAFETY: non-null and valid per this function's contract.
-    let floats = cmux_wallpaper::pack_frame(&FrameInput::from(unsafe { &*input }));
-    // SAFETY: `out` has room for FRAME_FLOATS floats per this function's contract.
-    unsafe { std::ptr::copy_nonoverlapping(floats.as_ptr(), out, FRAME_FLOATS) };
+    let floats: [f32; CMUX_WALLPAPER_FRAME_FLOATS] =
+        cmux_wallpaper::pack_frame(&FrameInput::from(unsafe { &*input }));
+    // SAFETY: `out` has room for CMUX_WALLPAPER_FRAME_FLOATS floats per this function's contract.
+    unsafe { std::ptr::copy_nonoverlapping(floats.as_ptr(), out, CMUX_WALLPAPER_FRAME_FLOATS) };
     true
 }
 
@@ -573,6 +679,74 @@ pub unsafe extern "C" fn cmux_wallpaper_pointer_settled(
     }
     // SAFETY: non-null and valid per this function's contract.
     PointerState::from(unsafe { *state }).settled()
+}
+
+/// Sets `state` to its start (no points).
+///
+/// # Safety
+/// `state` is null or points to a writable `CmuxWallpaperTrail`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_wallpaper_trail_reset(state: *mut CmuxWallpaperTrail) {
+    if state.is_null() {
+        return;
+    }
+    // SAFETY: non-null and writable per this function's contract.
+    unsafe { state.write(CmuxWallpaperTrail::default()) };
+}
+
+/// A pointer move to (`x`, `y`) at time `t` seconds (the values given to
+/// `cmux_wallpaper_pointer_update`): the head follows the pointer, and a move
+/// 50 ms or more after the newest committed point commits a new one. NaN or
+/// infinite values are ignored.
+///
+/// # Safety
+/// `state` is null or points to a valid, writable `CmuxWallpaperTrail`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_wallpaper_trail_update(
+    state: *mut CmuxWallpaperTrail,
+    x: f32,
+    y: f32,
+    t: f64,
+) {
+    if state.is_null() {
+        return;
+    }
+    // SAFETY: non-null, valid and writable per this function's contract.
+    let s = unsafe { &mut *state };
+    let mut trail = TrailState::from(&*s);
+    trail.moved(x, y, t);
+    *s = CmuxWallpaperTrail::from(&trail);
+}
+
+/// Writes `Frame.trail` at time `now` to `out`: `CMUX_WALLPAPER_TRAIL_POINTS`
+/// rows of (x, y, age seconds, valid 0/1), newest first, x and y times
+/// `scale` (the update's units to the Frame's rendered pixels; 1 when they
+/// already are). A point older than 1 s or not set is all zeros. False, and
+/// nothing written, when either pointer is null.
+///
+/// # Safety
+/// `state` is null or points to a valid `CmuxWallpaperTrail`; `out` is null or
+/// points to `CMUX_WALLPAPER_TRAIL_FLOATS` writable floats
+/// (`CmuxWallpaperFrameInput.trail`).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_wallpaper_trail_rows(
+    state: *const CmuxWallpaperTrail,
+    now: f64,
+    scale: f32,
+    out: *mut f32,
+) -> bool {
+    if state.is_null() || out.is_null() {
+        return false;
+    }
+    // SAFETY: non-null and valid per this function's contract.
+    let rows = TrailState::from(unsafe { &*state }).rows(now, scale);
+    let mut flat = [0.0f32; CMUX_WALLPAPER_TRAIL_FLOATS];
+    for (slot, v) in flat.iter_mut().zip(rows.iter().flatten()) {
+        *slot = *v;
+    }
+    // SAFETY: `out` has room for CMUX_WALLPAPER_TRAIL_FLOATS floats per this function's contract.
+    unsafe { std::ptr::copy_nonoverlapping(flat.as_ptr(), out, CMUX_WALLPAPER_TRAIL_FLOATS) };
+    true
 }
 
 /// The agents' activity in a window (`ActivityState`). Zero it (or call
@@ -889,476 +1063,4 @@ pub unsafe extern "C" fn cmux_wallpaper_scene_engine_msl(len: *mut usize) -> *co
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::ffi::CStr;
-
-    fn text(p: *const c_char) -> Option<String> {
-        // SAFETY: test pointers come from `owned` and are still alive.
-        (!p.is_null()).then(|| unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned())
-    }
-
-    fn static_bytes(
-        f: unsafe extern "C" fn(usize, *mut usize) -> *const u8,
-        i: usize,
-    ) -> Option<String> {
-        let mut len = 99;
-        // SAFETY: `len` is writable.
-        let p = unsafe { f(i, &mut len) };
-        if p.is_null() {
-            assert_eq!(len, 0);
-            return None;
-        }
-        // SAFETY: the library returned `len` bytes at `p`.
-        Some(String::from_utf8(unsafe { std::slice::from_raw_parts(p, len) }.to_vec()).unwrap())
-    }
-
-    #[test]
-    fn abi_version_is_four() {
-        assert_eq!(cmux_wallpaper_abi_version(), 4);
-    }
-
-    const SCENE_MANIFEST: &str = r#"{"id": "scene-test", "name": "Scene test",
-        "description": "A test scene.", "scene": "scene.json", "fps": 30, "scale": 1,
-        "interactive": true, "params": [], "still": {"time": 0, "pointer": [0.5, 0.5]},
-        "variants": [{"name": "Plain"}]}"#;
-
-    /// Makes a scene from `manifest` and `scene`, or the error text.
-    fn new_scene(manifest: &str, scene: &str) -> Result<*mut CmuxWallpaperScene, String> {
-        let mut error: *mut c_char = std::ptr::dangling_mut();
-        // SAFETY: valid bytes; `error` is writable.
-        let s = unsafe {
-            cmux_wallpaper_scene_new(
-                manifest.as_ptr(),
-                manifest.len(),
-                scene.as_ptr(),
-                scene.len(),
-                &mut error,
-            )
-        };
-        if s.is_null() {
-            let why = text(error).expect("an error with a null scene");
-            // SAFETY: `error` came from this library and is freed once.
-            unsafe { cmux_wallpaper_string_free(error) };
-            Err(why)
-        } else {
-            assert!(error.is_null());
-            Ok(s)
-        }
-    }
-
-    #[test]
-    fn a_scene_packs_its_block_and_rests() {
-        assert_eq!(cmux_wallpaper_scene_floats(), 512);
-        let still = r##"{"field": {"points": [
-            {"at": [0, 0], "color": "#FF0000"}, {"at": [1, 0], "color": "paper"},
-            {"at": [1, 1], "color": "accent"}, {"at": [0, 1], "color": "ink"}]},
-            "shapes": [{"kind": "circle", "size": [0.4, 0.4]}],
-            "image": {"slot": "badge"}}"##;
-        let moving = r#"{"shapes": [{"kind": "ring",
-            "at": {"keys": [[0, [0.2, 0.5]], [2, [0.8, 0.5]]]}, "size": [0.3, 0.3]}]}"#;
-        let input = CmuxWallpaperFrameInput {
-            time: 1.0,
-            width: 800.0,
-            height: 400.0,
-            backing_scale: 2.0,
-            presence: 1.0,
-            ..Default::default()
-        };
-        let s = new_scene(SCENE_MANIFEST, still).unwrap();
-        let m = new_scene(SCENE_MANIFEST, moving).unwrap();
-        // SAFETY: live handles; `out` has 512 floats; null is allowed.
-        unsafe {
-            let mut out = [7.0_f32; 512];
-            assert!(cmux_wallpaper_scene_evaluate(s, &input, 1.0, out.as_mut_ptr(), out.len()));
-            // Header: one shape, no guides, no ropes.
-            assert_eq!(&out[0..4], &[1.0, 0.0, 0.0, 0.0]);
-            // Grain row: image shown.
-            assert_eq!(out[7], 1.0);
-            // Shape 0 (row 12): a circle at the center, in rendered pixels.
-            assert_eq!(&out[48..51], &[1.0, 400.0, 200.0]);
-            assert!(cmux_wallpaper_scene_at_rest(s));
-            assert!(cmux_wallpaper_scene_has_image(s));
-
-            assert!(cmux_wallpaper_scene_evaluate(m, &input, 1.0, out.as_mut_ptr(), out.len()));
-            assert_eq!(out[48], 8.0);
-            assert!(!cmux_wallpaper_scene_at_rest(m));
-            assert!(!cmux_wallpaper_scene_has_image(m));
-
-            // Too short a buffer or a null: false, nothing written.
-            let mut short = [7.0_f32; 511];
-            assert!(!cmux_wallpaper_scene_evaluate(
-                s,
-                &input,
-                1.0,
-                short.as_mut_ptr(),
-                short.len()
-            ));
-            assert!(short.iter().all(|x| *x == 7.0));
-            assert!(!cmux_wallpaper_scene_evaluate(
-                std::ptr::null_mut(),
-                &input,
-                1.0,
-                out.as_mut_ptr(),
-                512
-            ));
-            assert!(!cmux_wallpaper_scene_evaluate(
-                s,
-                std::ptr::null(),
-                1.0,
-                out.as_mut_ptr(),
-                512
-            ));
-            assert!(!cmux_wallpaper_scene_evaluate(s, &input, 1.0, std::ptr::null_mut(), 512));
-            assert!(cmux_wallpaper_scene_at_rest(std::ptr::null()));
-            assert!(!cmux_wallpaper_scene_has_image(std::ptr::null()));
-
-            cmux_wallpaper_scene_free(s);
-            cmux_wallpaper_scene_free(m);
-            cmux_wallpaper_scene_free(std::ptr::null_mut());
-            cmux_wallpaper_string_free(std::ptr::null_mut());
-        }
-    }
-
-    /// The hold end to end: a hanging card settles and the scene is at rest
-    /// (the scheduler holds it, reason 13); a pointer move alone keeps it at
-    /// rest; a press on the card wakes it, and the scheduler runs it.
-    #[test]
-    fn a_press_on_the_card_wakes_a_resting_scene() {
-        let lanyard = r#"{
-            "physics": {
-                "bodies": [{"id": "card", "at": [0.5, 0.6], "size": [0.2, 0.28], "draggable": true, "damping": 0.6}],
-                "ropes": [{"id": "strap", "anchor": [0.5, -0.02], "to": "card", "toAt": [0, -0.5],
-                           "length": 0.45, "segments": 6, "width": 0.012, "color": "accent"}]
-            },
-            "shapes": [{"kind": "roundRect", "size": [0.2, 0.28], "body": "card"}],
-            "image": {"slot": "badge", "body": "card", "inset": 0.02}
-        }"#;
-        let s = new_scene(SCENE_MANIFEST, lanyard).unwrap();
-        let mut input = CmuxWallpaperFrameInput {
-            width: 800.0,
-            height: 400.0,
-            backing_scale: 1.0,
-            pointer_x: 10.0,
-            pointer_y: 390.0,
-            ..Default::default()
-        };
-        let mut out = [0.0_f32; 512];
-        let mut schedule = CmuxWallpaperScheduleInput {
-            seconds_since_activity: 0.0,
-            seconds_since_pointer: 0.0,
-            seconds_since_agent_event: f64::INFINITY,
-            settings_fps_cap: 30,
-            manifest_fps: 30,
-            gpu_strikes: 0,
-            scale: 1.0,
-            visible: true,
-            coverage_resting: false,
-            minimized: false,
-            app_hidden: false,
-            screens_asleep: false,
-            session_inactive: false,
-            low_power: false,
-            thermal_serious: false,
-            reduce_motion: false,
-            animations_off: false,
-            interactive: true,
-            agents: false,
-            has_frame: true,
-            at_rest: false,
-        };
-        // SAFETY: a live handle; `out` has 512 floats; `schedule` is valid.
-        unsafe {
-            let mut now = 1000.0_f64;
-            let mut frames = 0;
-            while !cmux_wallpaper_scene_at_rest(s) {
-                assert!(frames < 60 * 60, "the card never settled");
-                now += 1.0 / 60.0;
-                frames += 1;
-                assert!(cmux_wallpaper_scene_evaluate(s, &input, now, out.as_mut_ptr(), out.len()));
-            }
-            schedule.at_rest = cmux_wallpaper_scene_at_rest(s);
-            assert_eq!(cmux_wallpaper_schedule(&schedule).hold_reason, 13);
-            // The card's center, from the image row (126).
-            let (cx, cy) = (out[126 * 4], out[126 * 4 + 1]);
-            assert!(cx > 0.0 && cy > 0.0, "no card pose: {cx} {cy}");
-
-            // A move over the card, no button: still at rest.
-            (input.pointer_x, input.pointer_y) = (cx, cy);
-            now += 1.0 / 60.0;
-            assert!(cmux_wallpaper_scene_evaluate(s, &input, now, out.as_mut_ptr(), out.len()));
-            assert!(cmux_wallpaper_scene_at_rest(s));
-
-            // A press away from the card: still at rest.
-            (input.pointer_x, input.pointer_y, input.button_down) = (10.0, 390.0, true);
-            assert!(cmux_wallpaper_scene_evaluate(s, &input, now, out.as_mut_ptr(), out.len()));
-            assert!(cmux_wallpaper_scene_at_rest(s));
-            input.button_down = false;
-            assert!(cmux_wallpaper_scene_evaluate(s, &input, now, out.as_mut_ptr(), out.len()));
-
-            // A press on the card wakes it, and the scheduler runs.
-            (input.pointer_x, input.pointer_y, input.button_down) = (cx, cy, true);
-            assert!(cmux_wallpaper_scene_evaluate(s, &input, now, out.as_mut_ptr(), out.len()));
-            assert!(!cmux_wallpaper_scene_at_rest(s));
-            schedule.at_rest = cmux_wallpaper_scene_at_rest(s);
-            assert!(cmux_wallpaper_schedule(&schedule).run);
-            cmux_wallpaper_scene_free(s);
-        }
-    }
-
-    #[test]
-    fn a_refused_scene_says_where() {
-        // A program wallpaper is not a scene.
-        let smoke = cmux_wallpaper::smoke().unwrap().manifest_json;
-        assert!(new_scene(smoke, "{}").unwrap_err().contains("no scene"));
-        // A bad manifest names its pointer.
-        assert!(new_scene(r#"{"id": "Bad"}"#, "{}").unwrap_err().starts_with("/id: "));
-        // A bad scene names its pointer.
-        let why = new_scene(SCENE_MANIFEST, r#"{"shapes": [{"kind": "star", "size": [1, 1]}]}"#)
-            .unwrap_err();
-        assert!(why.starts_with("/shapes/0/kind: scene: "), "{why}");
-        assert!(new_scene(SCENE_MANIFEST, "not json").is_err());
-        // A null error pointer is allowed.
-        // SAFETY: valid bytes; a null `error` is allowed.
-        let s = unsafe {
-            cmux_wallpaper_scene_new(
-                SCENE_MANIFEST.as_ptr(),
-                SCENE_MANIFEST.len(),
-                b"{".as_ptr(),
-                1,
-                std::ptr::null_mut(),
-            )
-        };
-        assert!(s.is_null());
-    }
-
-    #[test]
-    fn first_party_scenes_load_and_programs_are_not_scenes() {
-        let mut engine_len = 99;
-        // SAFETY: `engine_len` is writable.
-        let engine = unsafe { cmux_wallpaper_scene_engine_msl(&mut engine_len) };
-        assert!(!engine.is_null() && engine_len > 0);
-        // SAFETY: the library returned `engine_len` bytes at `engine`.
-        let msl =
-            std::str::from_utf8(unsafe { std::slice::from_raw_parts(engine, engine_len) }).unwrap();
-        // The engine's entry points and the Frame uniform at buffer 0, as every program's.
-        assert!(
-            msl.contains("vs_main") && msl.contains("fs_main") && msl.contains("[[buffer(0)]]")
-        );
-        // The host binds the Scene block at fragment buffer 1, the image at texture 0, its sampler at 0.
-        assert!(msl.contains("[[buffer(1)]]"), "the Scene block is not at buffer 1");
-        assert!(msl.contains("[[texture(0)]]"), "the image is not at texture 0");
-        assert!(msl.contains("[[sampler(0)]]"), "the sampler is not at sampler 0");
-        for (i, w) in cmux_wallpaper::first_party().iter().enumerate() {
-            let m = Manifest::parse(w.manifest_json.as_bytes()).unwrap();
-            let s = cmux_wallpaper_scene_new_first_party(i);
-            if m.scene.is_some() || m.lottie.is_some() {
-                assert!(!s.is_null(), "{} does not load", w.folder);
-                // Its program is the engine's.
-                assert_eq!(static_bytes(cmux_wallpaper_first_party_msl, i).as_deref(), Some(msl));
-            } else {
-                assert!(s.is_null(), "{} is a program, not a scene", w.folder);
-            }
-            // SAFETY: null or a live handle, freed once.
-            unsafe { cmux_wallpaper_scene_free(s) };
-        }
-        assert!(cmux_wallpaper_scene_new_first_party(usize::MAX).is_null());
-    }
-
-    #[test]
-    fn manifest_round_trips() {
-        let smoke = cmux_wallpaper::smoke().unwrap().manifest_json;
-        // SAFETY: valid bytes; the result is freed once.
-        unsafe {
-            let r = cmux_wallpaper_validate_manifest(smoke.as_ptr(), smoke.len());
-            assert!((*r).ok);
-            let json: serde_json::Value = serde_json::from_str(&text((*r).json).unwrap()).unwrap();
-            assert_eq!(json["id"], "smoke");
-            assert_eq!(json["variants"][0]["themes"], serde_json::json!(["dark", "light"]));
-            cmux_wallpaper_manifest_result_free(r);
-
-            let bad = br#"{"id": "Bad"}"#;
-            let r = cmux_wallpaper_validate_manifest(bad.as_ptr(), bad.len());
-            assert!(!(*r).ok);
-            assert_eq!(text((*r).pointer).as_deref(), Some("/id"));
-            assert!((*r).json.is_null());
-            cmux_wallpaper_manifest_result_free(r);
-            cmux_wallpaper_manifest_result_free(std::ptr::null_mut());
-        }
-    }
-
-    #[test]
-    fn first_party_lists_every_shipped_wallpaper() {
-        let n = cmux_wallpaper_first_party_count();
-        for i in 0..n {
-            let json = static_bytes(cmux_wallpaper_first_party_manifest_json, i).unwrap();
-            assert!(!json.contains("\"smoke\""));
-            assert!(static_bytes(cmux_wallpaper_first_party_source, i).is_some());
-            let msl = static_bytes(cmux_wallpaper_first_party_msl, i).unwrap();
-            assert!(
-                msl.contains("vs_main") && msl.contains("fs_main") && msl.contains("[[buffer(0)]]")
-            );
-        }
-        assert_eq!(static_bytes(cmux_wallpaper_first_party_manifest_json, n), None);
-        assert_eq!(static_bytes(cmux_wallpaper_first_party_msl, n), None);
-    }
-
-    #[test]
-    fn schedule_round_trips() {
-        let mut input = CmuxWallpaperScheduleInput {
-            seconds_since_activity: 0.0,
-            seconds_since_pointer: f64::INFINITY,
-            seconds_since_agent_event: f64::INFINITY,
-            settings_fps_cap: 30,
-            manifest_fps: 60,
-            gpu_strikes: 0,
-            scale: 0.5,
-            visible: true,
-            coverage_resting: false,
-            minimized: false,
-            app_hidden: false,
-            screens_asleep: false,
-            session_inactive: false,
-            low_power: false,
-            thermal_serious: false,
-            reduce_motion: false,
-            animations_off: false,
-            interactive: true,
-            agents: false,
-            has_frame: true,
-            at_rest: false,
-        };
-        // SAFETY: `input` is valid.
-        let d = unsafe { cmux_wallpaper_schedule(&input) };
-        assert!(d.run);
-        assert_eq!((d.fps, d.scale, d.hold_reason), (30, 0.5, 0));
-        input.low_power = true;
-        input.has_frame = false;
-        // SAFETY: `input` is valid.
-        let d = unsafe { cmux_wallpaper_schedule(&input) };
-        assert_eq!((d.run, d.hold_reason, d.draw_one), (false, 7, true));
-        input.low_power = false;
-        input.at_rest = true;
-        // SAFETY: `input` is valid.
-        let d = unsafe { cmux_wallpaper_schedule(&input) };
-        assert_eq!((d.run, d.hold_reason, d.draw_one), (false, 13, true));
-        input.at_rest = false;
-        input.gpu_strikes = cmux_wallpaper_gpu_strikes(
-            cmux_wallpaper_gpu_strikes(cmux_wallpaper_gpu_strikes(0, 5.0), 5.0),
-            5.0,
-        );
-        input.scale = 0.25;
-        // SAFETY: `input` is valid.
-        let d = unsafe { cmux_wallpaper_schedule(&input) };
-        assert_eq!((d.run, d.hold_reason), (false, 11));
-        // SAFETY: null is allowed.
-        assert_eq!(unsafe { cmux_wallpaper_schedule(std::ptr::null()) }.hold_reason, 1);
-    }
-
-    #[test]
-    fn reset_initializes_uninitialized_storage() {
-        // The C contract: `CmuxWallpaperPointer p; cmux_wallpaper_pointer_reset(&p);` with no zeroing first.
-        let mut slot = std::mem::MaybeUninit::<CmuxWallpaperPointer>::uninit();
-        // SAFETY: `slot` is writable storage for one CmuxWallpaperPointer; reset only writes it.
-        let p = unsafe {
-            cmux_wallpaper_pointer_reset(slot.as_mut_ptr());
-            slot.assume_init()
-        };
-        assert_eq!(p, CmuxWallpaperPointer::from(PointerState::default()));
-        // SAFETY: null is allowed.
-        unsafe { cmux_wallpaper_pointer_reset(std::ptr::null_mut()) };
-    }
-
-    #[test]
-    fn frame_and_pointer_round_trip() {
-        let mut p = CmuxWallpaperPointer::default();
-        // SAFETY: `p` is valid and writable; `out` has 40 floats.
-        unsafe {
-            cmux_wallpaper_pointer_reset(&mut p);
-            cmux_wallpaper_pointer_update(&mut p, 10.0, 20.0, 1.0);
-            cmux_wallpaper_pointer_update(&mut p, 20.0, 20.0, 1.0 + 1.0 / 60.0);
-            cmux_wallpaper_pointer_advance(&mut p, 1.0 + 1.0 / 60.0);
-            assert!(p.vx > 0.0 && p.inside && p.presence > 0.0);
-            assert!(!cmux_wallpaper_pointer_settled(&p));
-            assert!((cmux_wallpaper_pointer_since_moved(&p, 2.0 + 1.0 / 60.0) - 1.0).abs() < 1e-4);
-            cmux_wallpaper_pointer_leave(&mut p);
-            assert!(!p.inside);
-
-            let input = CmuxWallpaperFrameInput {
-                time: 3.0,
-                pointer_x: p.x,
-                presence: p.presence,
-                accent: [0.1, 0.2, 0.3],
-                params: [1.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                dark: true,
-                ..Default::default()
-            };
-            let mut out = [7.0f32; 40];
-            assert!(cmux_wallpaper_frame_pack(&input, out.as_mut_ptr()));
-            assert_eq!(out[0], 3.0);
-            assert_eq!(out[8], 20.0);
-            assert_eq!(out[15], 1.0);
-            assert_eq!(&out[24..28], &[0.1, 0.2, 0.3, 1.0]);
-            assert_eq!(&out[28..30], &[1.0, 2.0]);
-            assert!(!cmux_wallpaper_frame_pack(std::ptr::null(), out.as_mut_ptr()));
-            assert!(!cmux_wallpaper_frame_pack(&input, std::ptr::null_mut()));
-        }
-        assert!((cmux_wallpaper_srgb_to_linear(1.0) - 1.0).abs() < 1e-6);
-    }
-
-    #[test]
-    fn activity_round_trips_into_the_frame_and_the_schedule() {
-        let mut a = CmuxWallpaperActivity::default();
-        // SAFETY: `a` is valid and writable; `out` has 40 floats; null is allowed.
-        unsafe {
-            cmux_wallpaper_activity_reset(&mut a);
-            assert!(cmux_wallpaper_activity_settled(&a, 0.0));
-            cmux_wallpaper_activity_event(&mut a, 5.0);
-            cmux_wallpaper_activity_event(&mut a, 5.1);
-            cmux_wallpaper_activity_advance(&mut a, 5.5);
-            assert_eq!(a.count, 1);
-            assert!(a.level > 0.0);
-            assert!(!cmux_wallpaper_activity_settled(&a, 6.0));
-            let since = cmux_wallpaper_activity_since_event(&a, 6.0);
-            assert!((since - 1.0).abs() < 1e-6);
-            assert_eq!(cmux_wallpaper_activity_since_event(std::ptr::null(), 6.0), 1.0e4);
-
-            let input = CmuxWallpaperFrameInput {
-                activity: a.level,
-                since_agent_event: since,
-                agent_events: f32::from(a.count),
-                ..Default::default()
-            };
-            let mut out = [7.0f32; 40];
-            assert!(cmux_wallpaper_frame_pack(&input, out.as_mut_ptr()));
-            assert_eq!(&out[36..40], &[a.level, 1.0, 1.0, 0.0]);
-
-            let mut s = CmuxWallpaperScheduleInput {
-                seconds_since_activity: 100.0,
-                seconds_since_pointer: f64::INFINITY,
-                seconds_since_agent_event: f64::from(since),
-                settings_fps_cap: 30,
-                manifest_fps: 30,
-                gpu_strikes: 0,
-                scale: 1.0,
-                visible: true,
-                coverage_resting: false,
-                minimized: false,
-                app_hidden: false,
-                screens_asleep: false,
-                session_inactive: false,
-                low_power: false,
-                thermal_serious: false,
-                reduce_motion: false,
-                animations_off: false,
-                interactive: true,
-                agents: true,
-                has_frame: true,
-                at_rest: false,
-            };
-            assert!(cmux_wallpaper_schedule(&s).run);
-            s.agents = false;
-            assert_eq!(cmux_wallpaper_schedule(&s).hold_reason, 12);
-        }
-    }
-}
+mod tests;

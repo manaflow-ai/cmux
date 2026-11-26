@@ -100,7 +100,7 @@ final class ConversationPhotoGridView: UIView, UICollectionViewDataSource, UICol
         } else if selection.count < PhotoDrawerGeometry.selectionLimit(iOS27: ConversationComposerView.isIOS27) {
             selection.append(asset.localIdentifier)
         }
-        UISelectionFeedbackGenerator().selectionChanged()
+        ConversationHaptics.selectionChanged()
         refreshBadges()
         onSelection?(selection)
     }

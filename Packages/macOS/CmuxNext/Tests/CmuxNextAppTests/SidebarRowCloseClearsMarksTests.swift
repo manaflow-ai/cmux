@@ -37,9 +37,10 @@ struct SidebarRowCloseClearsMarksTests {
 
     static func sidebar(_ marks: Marks, style: SidebarRowBadgeStyle) -> (SidebarView, NSWindow) {
         _ = NSApplication.shared
+        let row = marks.workspace
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: [
-            .workspace(SidebarWorkspace(id: other, title: "Release notes")), .workspace(marks.workspace),
+            .workspace(SidebarWorkspace(id: other, title: "Release notes")), .workspace(row),
         ])], activeWorkspaceID: other)
         model.rowBadgeStyle = style
         let design = DesignSettings()
@@ -61,8 +62,8 @@ struct SidebarRowCloseClearsMarksTests {
     static func drawn(in row: WorkspaceRowView, meeting rect: NSRect) -> [String] {
         let marks: [(String, NSView?)] = [
             ("pullRequests", row.pullRequests), ("prText", row.prBadge), ("unread", row.badge), ("rowBadge", row.rowBadge),
-            ("activity", row.activity), ("agentMark", row.agentMark), ("muted", row.mutedMark), ("cloud", row.cloudMark),
-            ("usageWarning", row.usageWarningMark), ("tabCount", row.tabCount), ("keycap", row.keycap), ("rollUp", row.rollUp),
+            ("activity", row.activity), ("agentMark", row.agentMark), ("muted", row.mutedMark),
+            ("tabCount", row.tabCount), ("keycap", row.keycap), ("rollUp", row.rollUp),
             ("time", row.timeLabel), ("presence", row.presenceDots), ("drive", row.driveIndicator),
             ("treeFold", row.treeFoldSlot.made), ("audio", row.audioSlot.made),
         ]
@@ -92,6 +93,9 @@ struct SidebarRowCloseClearsMarksTests {
                 if marks.pullRequests { try #require(!row.pullRequests.isHidden, "the row draws no pull request badge") }
                 row.isHovered = true
                 row.layoutSubtreeIfNeeded()
+                // The hover repaints the row's fill: the display pass (`updateLayer`) runs after the layout, as in the
+                // app. It had put the unread dot and the error mark back under the ✕ (the needs-you glow's mark reset).
+                row.updateLayer()
                 let close = row.closeButton
                 try #require(!close.isHidden && close.alphaValue > 0, "\(spot): no ✕ on the hovered row")
                 let more = row.moreButton
@@ -111,8 +115,17 @@ struct SidebarRowCloseClearsMarksTests {
                 }
                 row.isHovered = false
                 row.layoutSubtreeIfNeeded()
+                row.updateLayer()
                 if marks.pullRequests {
                     #expect(!row.pullRequests.isHidden && row.pullRequests.alphaValue > 0, "\(spot): the badge stayed hidden after the hover")
+                }
+                // The unread dot or the error mark comes back when the hover ends (the layout restores it; the
+                // display pass no longer does).
+                if marks.workspace.unread != .none || marks.workspace.activity == .error {
+                    let back = ([row.badge, row.rowBadge, row.activity] as [NSView]).contains {
+                        !$0.isHidden && $0.frame.width > 0 && SidebarTrailingColumnTests.drawnAlpha($0, below: row) > 0.01
+                    }
+                    #expect(back, "\(spot), \(style), \(marks): no unread or error mark after the hover")
                 }
             }
         }

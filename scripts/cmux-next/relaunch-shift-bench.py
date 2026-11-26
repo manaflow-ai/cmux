@@ -25,7 +25,9 @@ sys.path.insert(0, HERE)
 from bench_launch import BenchApp  # noqa: E402  the one launch path
 import launch_shift  # noqa: E402
 
-KEYS = ["first_paint_ms", "last_paint_ms", "blank_first", "geometry_frames", "pixel_frames", "blank_frames",
+# The perceived numbers first: the headline (launch_shift.py's PERCEIVED line).
+PERCEIVED = ["settled_match_ms", "shift_score", "tti_ms", "first_frame_is_final", "alpha_changes"]
+KEYS = PERCEIVED + ["first_paint_ms", "last_paint_ms", "blank_first", "geometry_frames", "pixel_frames", "blank_frames",
         "layout_passes", "window_moves", "last_change_ms", "closed_while_recorded"]
 
 
@@ -33,7 +35,17 @@ def median_of(rounds):
     out = {}
     for key in KEYS:
         values = [r["total"].get(key) for r in rounds if isinstance(r.get("total", {}).get(key), (int, float))]
+        if key == "first_frame_is_final":
+            # A bool per round: the median says whether most relaunches were final at their first frame, and
+            # `first_frame_final_rounds` how many.
+            flags = [r["total"][key] for r in rounds if isinstance(r.get("total", {}).get(key), bool)]
+            out[key] = (sum(flags) * 2 > len(flags)) if flags else None
+            out["first_frame_final_rounds"] = f"{sum(flags)}/{len(flags)}"
+            continue
         out[key] = statistics.median(values) if values else None
+    marks = [r["total"].get("tti_mark") for r in rounds if r.get("total", {}).get("tti_mark")]
+    out["tti_mark"] = max(set(marks), key=marks.count) if marks else None
+    out["shift_score_approx"] = any(r.get("total", {}).get("shift_score_approx") for r in rounds)
     chats = [r.get("chat") or {} for r in rounds if "first_content_ms" in (r.get("chat") or {})]
     for key, read in (("chat_shifts", lambda c: len(c.get("shifts") or [])), ("chat_scroll_jumps", lambda c: len(c.get("scroll_jumps") or [])),
                       ("chat_appeared", lambda c: len(c.get("appeared") or [])), ("chat_first_rows", lambda c: c.get("first_rows") or 0)):
@@ -69,11 +81,15 @@ def main():
     args = parser.parse_args()
     out = os.path.abspath(args.out)
     os.makedirs(out, exist_ok=True)
-    # No test window frame: the relaunch must restore each window's own saved frame, not move it to a fixed one.
+    # No test window placement: the relaunch must restore each window's own saved frame, not move it to a fixed one.
+    # Not the frame and not the screen either: any CMUX_NEXT_TEST_WINDOW_* turns the placement on, which puts every
+    # window it makes at 1100x720, cascaded (WindowManager `makeController`), over its saved frame. With BenchApp's
+    # default screen "0" the first relaunch moved the seeded windows to that size, and the long chat's pane, written
+    # at 528x512 at the quit, opened at 868x712: its saved copy was refused on size and the chat filled in and shifted.
     # The journey seeds agent chats on the tag's own acpmux with its fake agent (configure_fake): BenchApp's mock agent
     # pane (no acpmux at all) and its agent-launch kill switch (no agent process, the fake one included) are off here.
     # Every harness the journey configures runs the fake agent, as on a capture slot.
-    app = BenchApp(args.app, out=out, window=None, env={"CMUX_NEXT_AGENT_PANE_MOCK": None, "ACPMUX_AGENT_LAUNCH": None})
+    app = BenchApp(args.app, out=out, window=None, screen=None, env={"CMUX_NEXT_AGENT_PANE_MOCK": None, "ACPMUX_AGENT_LAUNCH": None})
     app.launch()
     # The journey quits and relaunches this app: reap the first process when it ends, so it is not left a zombie that
     # still answers kill(pid, 0) and looks alive to the journey.
@@ -106,7 +122,7 @@ def main():
               "journey": [r for r in rows if r.get("area") in ("launch frames", "layout") or "long chat" in str(r.get("item")) or (r.get("area") == "seed" and not r.get("ok"))]}
     with open(os.path.join(out, "report.json"), "w") as f:
         json.dump(report, f, indent=1, default=str)
-    text = markdown(rounds, median)
+    text = launch_shift.headline(median) + "\n\n" + markdown(rounds, median)
     # The long chat's own rows (made, shown, the tab shown at each quit): whether the chat numbers measured a chat.
     longs = [r for r in report["journey"] if "long chat" in str(r.get("item")) or r.get("area") == "seed"]
     if longs:
@@ -122,6 +138,7 @@ def main():
     with open(os.path.join(out, "report.md"), "w") as f:
         f.write(text + "\n")
     print(text)
+    print(launch_shift.headline(median))
     print("RELAUNCH-SHIFT " + json.dumps(median))
     return 0 if rounds else 1
 

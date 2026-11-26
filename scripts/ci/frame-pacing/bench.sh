@@ -40,7 +40,9 @@ stop_app() {
 teardown() {
   stop_app
   pkill -f "$work/VDisplay.app/" 2>/dev/null || true
-  sleep 1
+  # Wait (best effort, 10 s) for the virtual display's process to exit before reading the main display.
+  for _ in $(seq 100); do pgrep -f "$work/VDisplay.app/" >/dev/null 2>&1 || break; sleep 0.1; done
+  pgrep -f "$work/VDisplay.app/" >/dev/null 2>&1 && echo "warning: VDisplay still running 10 s after the signal" >&2
   system_profiler SPDisplaysDataType 2>/dev/null | grep -m1 'UI Looks like' | sed 's/^ */main display after teardown: /' || true
 }
 trap teardown EXIT

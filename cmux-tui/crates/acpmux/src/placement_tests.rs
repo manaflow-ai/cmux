@@ -604,9 +604,11 @@ fn a_peer_whose_link_is_not_up_is_passed_over_with_why() {
         assert_eq!(peer_down(&row(false, state)), Some(format!("not connected ({state})")));
     }
     assert_eq!(peer_down(&json!({"name": "vm"})), Some("not connected (down)".into()));
-    // A machine only the hub lists reads as connected, but no session can start there from here.
+    // A machine only the hub lists is a candidate (its start goes through the hub), but no
+    // direct link reaches it.
     let hub = json!({"name": "swarm-01", "connected": true, "state": "connected", "via": "hub"});
-    let why = peer_down(&hub).expect("a hub-only machine is no candidate");
+    assert_eq!(peer_down(&hub), None);
+    let why = link_down(&hub).expect("a hub-only machine has no link");
     assert!(why.starts_with("only the mesh hub reaches it"), "{why}");
     assert!(why.contains("`acpmux machine add swarm-01`"), "{why}");
 
@@ -615,6 +617,12 @@ fn a_peer_whose_link_is_not_up_is_passed_over_with_why() {
     assert_eq!(v["pick"], "small", "{v:#}");
     assert_eq!(host(&v, "vm")["ok"], false, "{v:#}");
     assert_eq!(host(&v, "vm")["refused"], "not connected (reconnecting)", "{v:#}");
+}
+
+#[test]
+fn an_outdated_peer_is_passed_over_as_a_stale_disk_copy() {
+    let row = json!({"name": "vm", "connected": true, "state": "connected", "outdated": true});
+    assert_eq!(peer_down(&row), Some("outdated peer build (stale disk copy)".into()));
 }
 
 #[test]
@@ -666,6 +674,7 @@ fn an_unknown_hosts_line_says_why_and_what_to_do() {
     assert!(old.contains("`acpmux machine update big`"), "{old}");
     let hub = why(Candidate { via_hub: true, ..c("big", Value::Null) });
     assert!(hub.contains("only the mesh hub reaches it"), "{hub}");
+    assert!(hub.contains("health read through the hub"), "{hub}");
     assert!(!hub.contains("build"), "a hub machine's build is not the reason: {hub}");
     let fresh = why(c("big", Value::Null));
     assert!(fresh.contains("no health reading yet"), "{fresh}");

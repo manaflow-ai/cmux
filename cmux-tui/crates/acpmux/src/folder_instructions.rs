@@ -689,6 +689,32 @@ mod tests {
     }
 
     #[test]
+    fn a_cached_claude_folder_does_not_build_a_folder_context_block() {
+        let dir = folder(&[
+            ("AGENTS.md", "duplicate system prompt"),
+            (
+                ".claude/CLAUDE.md",
+                "Your instructions are your system prompt. This folder's AGENTS.md holds the same text for other harnesses.\n",
+            ),
+        ]);
+        let meta: crate::store::SessionMeta = serde_json::from_value(serde_json::json!({
+            "schema": "acpmux.session.v1", "id": "s", "name": "s", "harness": "claude",
+            "cwd": dir.path(), "status": "idle", "createdAt": 0, "updatedAt": 0,
+        }))
+        .unwrap();
+        let parts =
+            crate::context_inventory::snapshot_session(&meta, &crate::config::Config::default());
+        let mut blocks = Vec::new();
+        crate::context_inventory::append_snapshot(Some(&parts), &mut blocks);
+        let text: Vec<&str> = blocks.iter().filter_map(|b| b["text"].as_str()).collect();
+        assert!(
+            text.iter().all(|t| !t.starts_with("<cmux-folder-context>")),
+            "the cached preset must not receive a duplicate folder block: {text:?}"
+        );
+        assert!(!text.iter().any(|t| t.contains("duplicate system prompt")));
+    }
+
+    #[test]
     fn codex_and_gemini_get_another_harness_file() {
         let dir = folder(&[("CLAUDE.md", "from claude")]);
         assert!(part("codex", dir.path()).unwrap().text.unwrap().contains("from claude"));

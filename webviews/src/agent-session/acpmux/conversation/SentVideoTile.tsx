@@ -19,7 +19,7 @@
 // square with its play glyph (Leo, 2026-11-06: "how come this didn't give a preview and only has
 // file name?"). Its length is one line in the tile's bottom-right corner, or not drawn where a narrow
 // bubble leaves it no room clear of the play glyph (composer/videoLengthFit.ts).
-import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useT } from "../i18n";
 import { callChipHost, tryChipHost } from "../chips/host";
 import { lengthOf } from "../composer/videoPrompt";
@@ -30,16 +30,18 @@ import { loadPlayableMedia } from "../chips/replyMediaModel";
 import { PlayTriangle } from "./icons";
 import { useStableImage } from "./imageEntries";
 import { TurnActionsContext } from "./turnActions";
-import type { SentVideo } from "./sentVideos";
+import { noteVideoSize, type SentVideo } from "./sentVideos";
+import { sentVideoSize } from "./userBubbleModel";
 import { AttachmentPreviewBoundary } from "../composer/AttachmentPreviewBoundary";
 import { FileAttachment } from "../FileAttachment";
 
 /// Where a granted video plays: in place in the bubble, or large over the pane.
 type Shown = { src: string; expanded: boolean };
 
-/// `width` and `height`: the tile's, at a sent image's height (UserBubble.tsx `sentImageWidth`). The
-/// poster fills it, cropped, loaded or still loading.
-type SentVideoTileProps = { video: SentVideo; width: number; height: number };
+/// `width` and `height`: the tile's box, by default its video's own shape under a sent image's rule
+/// (userBubbleModel.ts `sentVideoSize`), which the row's estimate reads too. The poster fills it
+/// whole, loaded or still loading: the box is the picture's shape, so it has no bands and no crop.
+type SentVideoTileProps = { video: SentVideo; width?: number; height?: number };
 
 /// A sent video's tile. One whose preview throws while it draws is the video's file chip instead
 /// (composer/AttachmentPreviewBoundary.tsx): the message and the pane stay.
@@ -58,9 +60,12 @@ export function SentVideoTile(props: SentVideoTileProps) {
   );
 }
 
-function SentVideoTilePreview({ video: sent, width, height }: SentVideoTileProps) {
+function SentVideoTilePreview({ video: sent, ...box }: SentVideoTileProps) {
   const t = useT();
   const video = useReadVideo(sent);
+  const own = sentVideoSize(video);
+  const width = box.width ?? own.width;
+  const height = box.height ?? own.height;
   const [shown, setShown] = useState<Shown>();
   /// Nothing could play it: the pane's player was refused it and Quick Look too.
   const [unplayable, setUnplayable] = useState(false);
@@ -121,7 +126,8 @@ function SentVideoTilePreview({ video: sent, width, height }: SentVideoTileProps
         aria-label={
           video.length ? t("composer.playVideo", { name: video.name, length: video.length }) : t("media.play")
         }
-        style={{ width }}
+        // Its shape, so a short wide tile draws a smaller play glyph (conversation.css).
+        style={{ width, "--sent-video-ratio": String(width / height) } as CSSProperties}
         onClick={() => open(false)}
         onDoubleClick={() => open(true)}
       >
@@ -174,10 +180,18 @@ function readVideo(path: string): Promise<VideoInfo | undefined> {
   let read = reads.get(path);
   if (!read) {
     // A refusal is not kept: a host not ready yet (a reload, a reconnect) is asked again by the next tile.
-    read = callChipHost("video.info", { src: path }).then(parseVideoInfo, () => {
-      reads.delete(path);
-      return undefined;
-    });
+    read = callChipHost("video.info", { src: path }).then(
+      (answer) => {
+        const info = parseVideoInfo(answer);
+        // A tile drawn again, and its row's estimate, take this box from the first frame.
+        if (info) noteVideoSize(path, info);
+        return info;
+      },
+      () => {
+        reads.delete(path);
+        return undefined;
+      },
+    );
     reads.set(path, read);
     if (reads.size > READS_KEPT) reads.delete(reads.keys().next().value!);
   }
@@ -205,6 +219,8 @@ function useReadVideo(video: SentVideo): SentVideo {
         ? {
             ...video,
             length: video.length ?? lengthOf(read.durationMs),
+            // Its own shape once read, when the row knew neither its size nor its chip's shape.
+            ...((video.width && video.height) || video.shape ? {} : { width: read.width, height: read.height }),
             poster: { id: `${video.path}:poster`, mimeType: "image/jpeg", src: read.poster },
           }
         : video,
@@ -217,6 +233,8 @@ function Poster({ video, width, height }: { video: SentVideo; width: number; hei
   const { promptImage } = useContext(TurnActionsContext);
   const image = video.poster!;
   const shown = useStableImage(image.src ? { src: image.src } : { id: image.id, read: promptImage }, video);
+  // A poster never read (imageEntries.ts IMAGE_READ_MS) leaves the tile its plain slot with the play
+  // glyph: the video still plays; only its picture is missing.
   if (shown.src === undefined)
     return (
       <span

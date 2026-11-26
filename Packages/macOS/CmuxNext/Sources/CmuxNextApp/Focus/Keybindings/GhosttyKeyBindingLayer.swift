@@ -73,8 +73,8 @@ struct GhosttyKeyBindingLayer {
     /// Whether `event`'s chord is the user's own Ghostty keybind: a key their
     /// config claims from a cmux default (`ghosttyClaims`) or a `.ghostty`
     /// entry, never a `.ghosttyFallback` default.
-    static func isUsersKeybind(_ event: NSEvent, layers: KeyBindingLayers) -> Bool {
-        ActionRegistry.shortcuts(for: event).contains { key in
+    static func isUsersKeybind(_ event: NSEvent, layers: KeyBindingLayers, qwerty: Bool) -> Bool {
+        ActionRegistry.shortcuts(for: event, qwerty: qwerty).contains { key in
             layers.ghosttyClaims.contains(key) || layers.ghostty.contains { $0.source == .ghostty && $0.keys == [key] }
         }
     }

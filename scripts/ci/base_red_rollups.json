@@ -45,6 +45,10 @@
   "run": {
     "ci-status": {
       "job": "ci-status",
+      "reports": [
+        "Check platform workflow routing",
+        "Check routed CI jobs"
+      ],
       "under": {
         "browser": {
           "exact": [],
@@ -94,12 +98,6 @@
           ],
           "prefixes": []
         },
-        "portable-placement": {
-          "exact": [
-            "portable light placement"
-          ],
-          "prefixes": []
-        },
         "remote-daemon": {
           "exact": [],
           "prefixes": [
@@ -123,6 +121,9 @@
     },
     "ios-e2e-status": {
       "job": "ios-e2e-status",
+      "reports": [
+        "Aggregate"
+      ],
       "under": {
         "backend": {
           "exact": [
@@ -147,6 +148,9 @@
     },
     "web / Web status": {
       "job": "web-status",
+      "reports": [
+        "Check routed web jobs"
+      ],
       "under": {
         "agent-pane-real-acpmux": {
           "exact": [
@@ -226,6 +230,12 @@
         "web-typecheck": {
           "exact": [
             "web / web-typecheck"
+          ],
+          "prefixes": []
+        },
+        "webviews-typecheck": {
+          "exact": [
+            "web / webviews-typecheck"
           ],
           "prefixes": []
         }

@@ -228,7 +228,7 @@ fn fill(
             return Back::Failed { code: "sync_failed".into(), error: format!("{error:#}") };
         }
     };
-    let fresh = Manifest { version: 1, files: BTreeMap::new(), git: base, links: BTreeMap::new() };
+    let fresh = Manifest { version: 1, files: BTreeMap::new(), git: base, ..Manifest::default() };
     match pull::pull_fresh(socket, local, remote_root, keep_new, fresh, adopt) {
         Ok(Pulled::Done(mut summary)) => {
             cmux_json::JsonSet::set(
