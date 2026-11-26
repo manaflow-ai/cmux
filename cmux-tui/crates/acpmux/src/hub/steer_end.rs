@@ -351,7 +351,9 @@ impl Hub {
             // message, so one message sent in pieces reads and carries as one (`steer_batch.rs`).
             // Keyed by its author: two people of a shared chat never share a line.
             let author = crate::author::of_provenance(opts.provenance.as_ref()).unwrap_or("");
-            params["_meta"]["batch"] = json!({"person": author});
+            if let Some(meta) = params.get_mut("_meta").and_then(Value::as_object_mut) {
+                meta.insert("batch".to_owned(), json!({"person": author}));
+            }
         }
         // Counted in the turn before the agent can read it (`lane_reports.rs`).
         let count = self.lane_steer_in(session, opts.provenance.as_ref());
@@ -424,6 +426,11 @@ impl Hub {
                 self.question_reply_in_turn(session, &prompt_id, turn_id);
                 if inbox_notice {
                     self.inbox_prompt_written(session, &prompt_id);
+                }
+                // A blocker that sits unread behind a step that never ends stops the step
+                // (`urgent_steer.rs`).
+                if inbox_notice && super::urgent_steer::carries_blocker(opts.provenance.as_ref()) {
+                    self.watch_urgent_steer(session, &prompt_id, turn_id);
                 }
             },
         );

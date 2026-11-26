@@ -311,6 +311,22 @@ for (const [name, savedByB] of [
     expect(localStorage.getItem(SESSION_INFO_INDEX_KEY)).toContain('"chat-x"');
   });
 
+test("a chat saved with Also working here's fold (removed 2026-11-25) keeps its other folds", async () => {
+  localStorage.setItem(
+    `${PREFIX}chat-also`,
+    JSON.stringify({
+      open: true,
+      width: 340,
+      sections: { tasks: false, outputs: false, alsoHere: false, v: 5 },
+      at: Date.now(),
+    }),
+  );
+  const state = (await page("chat-also")).sessionInfoState();
+  expect(state.width).toBe(340);
+  expect(state.sections).toMatchObject({ tasks: false, outputs: false });
+  expect("alsoHere" in state.sections).toBe(false);
+});
+
 test("Context starts folded to its line, even in a chat saved open before that, and an unfold made since stays", async () => {
   // Lucas, 2026-11-06: Context is one line, its meter and tokens; a click unfolds the breakdown. Every
   // chat saved its whole state, Context open by default (versions 2 to 4), before the change; that
