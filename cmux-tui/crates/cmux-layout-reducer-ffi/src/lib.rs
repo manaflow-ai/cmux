@@ -277,6 +277,13 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 cmux_layout_reducer::sidebar_bridge::respond(&request).map_err(|_| ERR_INVALID)?
             }
+            b"sidebar_hover_card_rules" => {
+                use cmux_layout_reducer::sidebar_hover_card_rules;
+                let request: sidebar_hover_card_rules::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_hover_card_rules::respond(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
             b"sidebar_launch_order" => {
                 use cmux_layout_reducer::sidebar_launch_order;
                 let request: sidebar_launch_order::Request =
@@ -289,13 +296,6 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: sidebar_row_layout::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&sidebar_row_layout::respond(&request))
-                    .map_err(|_| ERR_INVALID)?
-            }
-            b"sidebar_hover_card_rules" => {
-                use cmux_layout_reducer::sidebar_hover_card_rules;
-                let request: sidebar_hover_card_rules::Request =
-                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                serde_json::to_vec(&sidebar_hover_card_rules::respond(&request))
                     .map_err(|_| ERR_INVALID)?
             }
             b"sidebar_nav" => {
