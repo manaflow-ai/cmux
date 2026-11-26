@@ -19,8 +19,30 @@ import { http as journeyHttp, socketDropped } from "./cloud-journey";
 import { sameSurgeSlots, surgeMachineIds, SURGE_PROOF_REQUEST } from "./cloud-journey";
 import { idleHeldBy, idlePauseDeadlineMs, machineIdleSeconds } from "./cloud-journey";
 import { parseClaimedMarkers, parseWarmHomeAnswer } from "./cloud-journey";
+import { platformVerdict, waitRunning } from "./cloud-journey";
 
 describe("cloud journey", () => {
+  test("a create stuck provisioning with no host waits for the platform's verdict and names it", async () => {
+    // Prod journey 45767907054: the journey deleted the machine at 300 s, before the platform's never_bound sweep
+    // probed the guest, so no run said why. The rows below are what cloud.machine.get answers, one per read.
+    const reads = (rows: unknown[]) => {
+      let i = 0;
+      return { read: async () => rows[Math.min(i++, rows.length - 1)] } as unknown as Api;
+    };
+    const stuck = { status: "provisioning", host: null };
+    const failed = { status: "failed", host: null, error: { code: "cloud.machine.never_bound" } };
+    await expect(waitRunning(reads([stuck, stuck, stuck, failed]), "vm_x", 20, 5_000, 1)).rejects
+      .toThrow(/last status provisioning host null; platform verdict cloud\.machine\.never_bound$/);
+    await expect(waitRunning(reads([stuck]), "vm_x", 20, 50, 5)).rejects.toThrow(/platform verdict none within \d+ s$/);
+    expect(await platformVerdict(reads([stuck, { status: "failed", error: "cloud.machine.create_overdue" }]), "vm_x", 5_000, 1))
+      .toBe("cloud.machine.create_overdue");
+    expect(await platformVerdict(reads([{ status: "running", host: "h" }]), "vm_x", 5_000, 1)).toBeNull();
+    // A machine that has a host but never got to running is not this case: its timeout stands as it was.
+    await expect(waitRunning(reads([{ status: "starting", host: "h1" }]), "vm_x", 20, 5_000, 1)).rejects
+      .toThrow(/^timed out after 20 ms; last status starting host h1$/);
+    expect(await waitRunning(reads([{ status: "running", host: "h2" }]), "vm_x", 5_000, 0)).toEqual({ status: "running", host: "h2" });
+  });
+
   test("a missed idle pause names what held the machine", async () => {
     const api = (row: unknown) => ({ read: async () => row }) as unknown as Api;
     expect(await idleHeldBy(api({ status: "running", last_active_at: null, idle_policy: { idle_seconds: 120 } }), "vm_x", 1_000_000))

@@ -143,6 +143,11 @@ if [[ "\$1 \$2" == "run list" ]]; then
   [[ -f "$TMP/gh-runs" ]] || exit 1
   cat "$TMP/gh-runs"; exit 0
 fi
+# The backfill's last-dispatch read: $TMP/gh-last-dispatch (a created_at), else no dispatch yet.
+if [[ "\$1" == api && "\$2" == repos/*/actions/workflows/cmux-tui-artifacts.yml/runs\?branch=feat-cmux-next\&event=workflow_dispatch\&per_page=1 ]]; then
+  [[ -f "$TMP/gh-last-dispatch" ]] && cat "$TMP/gh-last-dispatch"
+  exit 0
+fi
 # The starved-run read (queued runs of one event for one commit): the ids of the
 # "<id> <head_sha> <event>" lines of $TMP/gh-starved that match, else none. A
 # run's jobs: $TMP/gh-jobs-<id> (the first job's created_at when it waits with no
@@ -625,6 +630,17 @@ RUN_ID=11 request --sha "$other" --release-compile-green
 RUN_ID=11 request --sha "$other" --release-compile-green
 ! backfilled && grep -q "already dispatched in this job" <<<"$out" \
   || fail "the backfill must dispatch at most once per job:" "$out" "$(cat "$TMP/gh.log")"
+# At most one backfill an hour: every tick and Release compile calls it from its own job, so the
+# per-job stamp alone let 51 dispatches through in 31 h (ci-min-per-pr-14).
+date -u -d '-10 minutes' +%Y-%m-%dT%H:%M:%SZ > "$TMP/gh-last-dispatch"
+RUN_ID=13 request --sha "$other" --release-compile-green
+[[ "$status" == 0 ]] && ! backfilled && grep -q "min ago (gap 60 min)" <<<"$out" \
+  || fail "no backfill within an hour of the last dispatch:" "$out" "$(cat "$TMP/gh.log")"
+date -u -d '-61 minutes' +%Y-%m-%dT%H:%M:%SZ > "$TMP/gh-last-dispatch"
+RUN_ID=14 request --sha "$other" --release-compile-green
+[[ "$status" == 0 ]] && backfilled \
+  || fail "a backfill an hour after the last dispatch must dispatch:" "$out" "$(cat "$TMP/gh.log")"
+rm -f "$TMP/gh-last-dispatch"
 echo 2 > "$TMP/gh-runs"
 RUN_ID=12 request --sha "$other" --release-compile-green
 ! backfilled && grep -q "queued or running" <<<"$out" \
