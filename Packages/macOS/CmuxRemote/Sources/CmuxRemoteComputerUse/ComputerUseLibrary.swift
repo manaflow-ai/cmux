@@ -25,13 +25,11 @@ final class ComputerUseLibrary: @unchecked Sendable { // crash-allow: immutable 
                                         UnsafeMutablePointer<CmuxCuBuffer>?) -> UnsafeMutableRawPointer?
     /// `void cmux_cu_serve_stop(void *handle)`: stops serving and frees the handle.
     typealias ServeStopFn = @convention(c) (UnsafeMutableRawPointer?) -> Void
-    /// cmux_cu_engine_preview_frame(engine, window, len, generation, jpeg, len) and
-    /// cmux_cu_engine_preview_closed(engine, window, len, generation): the live preview's frames back to the
-    /// engine. Optional: an older library has neither, and then no preview streams start.
-    typealias PreviewFrameFn = @convention(c) (OpaquePointer?, UnsafePointer<UInt8>?, Int, UInt64,
+    /// Legacy v1 callbacks, retained for older hosts and libraries.
+    typealias PreviewFrameFn = @convention(c) (OpaquePointer?, UnsafePointer<UInt8>?, Int,
                                                 UnsafePointer<UInt8>?, Int) -> Void
-    typealias PreviewClosedFn = @convention(c) (OpaquePointer?, UnsafePointer<UInt8>?, Int, UInt64) -> Void
-    /// Generation-fenced variants used by the current preview stream owner.
+    typealias PreviewClosedFn = @convention(c) (OpaquePointer?, UnsafePointer<UInt8>?, Int) -> Void
+    /// Generation-fenced callbacks used by the current preview stream owner.
     typealias PreviewFrameForGenerationFn = @convention(c) (OpaquePointer?, UnsafePointer<UInt8>?, Int, UInt64,
                                                             UnsafePointer<UInt8>?, Int) -> Void
     typealias PreviewClosedForGenerationFn = @convention(c) (OpaquePointer?, UnsafePointer<UInt8>?, Int, UInt64) -> Void
