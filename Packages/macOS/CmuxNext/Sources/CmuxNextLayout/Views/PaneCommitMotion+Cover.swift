@@ -216,7 +216,9 @@ extension PaneCommitMotion {
     /// parts then have a move that the cut gave it in an act of which this pane has no animation on its layer: a
     /// move for the other pane's hole, and a copy for this pane would add to a hole that is not this pane's hole.
     /// So a mask that is used again under another pane is as on the base branch alone: each copy for a pane that is
-    /// not this act's one pane comes off its part here, and the mask gets no copy for this pane.
+    /// not this act's one pane comes off its part here, and the mask gets no copy for this pane. That holds only
+    /// while such a move is on a part: a move leaves its part at its end, and in an act after the moves for the other
+    /// pane's hole have ended the mask gets this pane's copies, as each other mask does.
     ///
     /// The limit that stays: a mask whose parts have moves of that act gets nothing. A mask that the same pane cut in
     /// that act has them from there (a zoom, then its unzoom). A mask that is used again under another pane keeps the

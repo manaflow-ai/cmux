@@ -38,6 +38,10 @@ extension PaneCommitMotionTests {
     /// animation at its own time (``rectByOwnTime(of:since:)``): its clip in its layer's rect, as far as the mask on
     /// that clip leaves it. Each part of the mask is where its own animations put it. A pane that is hidden or has
     /// the opacity 0 shows in no part. A window on the pane's own layer is not read.
+    ///
+    /// A mask on the pane's own layer is not read: only the mask on its clip is. The spring of an animation is the
+    /// test's form of the framework's spring (``spent(of:after:)``): from rest, by the time since the frame of its
+    /// act. It reads no `beginTime` and no first speed of the animation.
     static func keptByOwnTime(_ host: PaneHostView, on screen: ScreenContentView, since: (Int) -> Double) -> Kept {
         let rect = host.layer.map { Self.rectByOwnTime(of: $0, since: since) } ?? host.frame
         let dx = rect.minX - host.frame.minX, dy = rect.minY - host.frame.minY
@@ -74,7 +78,8 @@ extension PaneCommitMotionTests {
     /// 2. No part of that pane that shows is inside the rect of the pane that grows.
     /// 3. By its clip and the mask on that clip, that pane shows in each part of its place outside that rect.
     /// 4. No part of another pane that shows is inside the rect of the pane that grows; the pane of the first close
-    ///    is not in this check.
+    ///    is not in this check. This check reads only the panes that are never under the pane that grows: each pane
+    ///    that stays in the layout, but not the pane that grows. The pane of the second close has checks 2 and 3.
     ///
     /// THE PANE OF THE FIRST CLOSE IS NOT CHECKED. It is under the 2 panes that move, one after the other. Its mask
     /// of the first close is used again for the second close, and the hole's move of the first close stays on that
@@ -170,6 +175,9 @@ extension PaneCommitMotionTests {
     /// 3. In that frame and in each later frame no part of another pane that shows is inside the rect of the pane
     ///    that grows.
     /// 4. After the frames of the close's move no pane host has an animation of the motion or a mask on its clip.
+    ///
+    /// Check 1 is what the product does today for a zoom in a close's move: a limit, and not the rule. A later mend
+    /// that makes that zoom move changes check 1, and keeps checks 2, 3 and 4.
     ///
     /// The row reads as many frames after the zoom as a move can take. If the zoom moves, checks 2 and 3 read each
     /// frame of its move, with each animation at its own time.
