@@ -100,9 +100,9 @@ shape() { # PCT: netem delay and loss on both ends (replace, so levels change in
 }
 
 for i in "${!arms[@]}"; do # an unshaped smoke dial per arm: a rig that cannot dial at all stops here, not as rows
-  "${sudo[@]}" ip netns exec "$c" "${bins[$i]}" braid-peer 7443 1 2>&1 | grep -q '^dial 0:' \
-    || { echo "braid-dial-loss.sh: ${arms[$i]} arm cannot dial braid-peer unshaped:" >&2
-         "${sudo[@]}" ip netns exec "$c" "${bins[$i]}" braid-peer 7443 1 >&2 || true; exit 1; }
+  smoke=$("${sudo[@]}" ip netns exec "$c" "${bins[$i]}" braid-peer 7443 1 2>&1 || true) # whole output (grep -q + pipefail = SIGPIPE)
+  [[ "$smoke" =~ (^|$'\n')'dial 0: '[0-9] ]] \
+    || { echo "braid-dial-loss.sh: ${arms[$i]} arm cannot dial braid-peer unshaped:" >&2; echo "$smoke" >&2; exit 1; }
 done
 
 IFS=, read -ra levels <<<"$loss"
