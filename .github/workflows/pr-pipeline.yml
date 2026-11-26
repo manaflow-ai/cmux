@@ -37,10 +37,10 @@ jobs:
     if: ${{ inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'linux') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # Above setup (10 min), the tool downloads (3 min), the waves of the slowest step (6 min; steps two at
-    # once on 2 CPUs) and the `alone` steps (ci-artifact-worker, coderouter, web-production-build and the four web test
-    # shards 6 min each, the cmux_next_ daemon tests 65 min, the iOS matrix protocol 45 min, the acpmux instruction
-    # counts 40 min): 337 min with 33 shared steps (17 waves), plus room for the checkout, so a slow step is reported
-    # by the runner, not cut here.
+    # once on 2 CPUs) and the `alone` steps (ci-artifact-worker, web-production-build, the package conventions gate
+    # and the four web test shards 6 min each, the cmux_next_ daemon tests 65 min, the iOS matrix protocol 45 min,
+    # the acpmux instruction counts 40 min, the compile canary 30 min): 349 min with 37 shared steps (19 waves),
+    # plus room for the checkout, so a slow step is reported by the runner, not cut here.
     timeout-minutes: 355
     permissions:
       contents: read
@@ -441,23 +441,21 @@ jobs:
           fi
           bash scripts/ci/ios-sim-pool.sh pack
           echo "packed=1" >> "$GITHUB_OUTPUT"
+      # The products go to the fleet pool's own store (for this run's pool step only), not to an artifact here.
       - name: Fleet pool, upload the products
+        id: sim-pool-upload
         if: ${{ steps.sim-pool.outputs.packed == '1' }}
         continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: kit-sim-products-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/sim-pool/products/
-          retention-days: 1
-          compression-level: 0
-          if-no-files-found: error
+        timeout-minutes: 10
+        env:
+          CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+        run: bash scripts/ci/ios-sim-pool.sh upload
       - name: Fleet pool, submit
-        if: ${{ steps.sim-pool.outputs.packed == '1' }}
+        if: ${{ steps.sim-pool.outputs.packed == '1' && steps.sim-pool-upload.outcome == 'success' }}
         continue-on-error: true
         env:
           CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PRODUCTS: ${{ github.run_id }}/kit-sim-products-${{ github.run_id }}-${{ github.run_attempt }}
         run: bash scripts/ci/ios-sim-pool.sh submit
       - name: Run the routed ios steps (ci/steps.toml)
         env:
