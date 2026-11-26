@@ -723,6 +723,9 @@ class Workflow(unittest.TestCase):
         feed = "<rss><channel>" + item(10, APP) + item(12, OTHER, "cmux-next-dev") + item(11, HEAD) + "</channel></rss>"
         self.assertEqual(hv.nightly_commit(feed), HEAD)
         self.assertEqual(hv.nightly_commit("<rss/>"), "")
+        # The writer (publish-nightly-next-r2.py add_source) binds cmux: inline on the tag itself.
+        inline = feed.replace("<cmux:sourceCommit>", '<cmux:sourceCommit xmlns:cmux="https://cmux.com/xml-namespaces/cmux">')
+        self.assertEqual(hv.nightly_commit(inline), HEAD)
         plan = "\n".join(self.job_block("plan"))
         self.assertIn('"$tool" nightly-commit', plan)
         self.assertIn('${base[@]+"${base[@]}"}', plan)
