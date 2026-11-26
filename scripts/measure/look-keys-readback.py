@@ -15,14 +15,16 @@ the app's own theme file watcher applies it, with no relaunch and no settings wr
   1. setup: its `setup` actions (`action.run`), then a window and a desktop shot (before/)
   2. every `theme` key read before (`settings.get`: the effective settings, theme file applied)
   3. the case's files written: `theme` as the theme file, `agent_pane_css` as DIR/agent-pane/theme.css
-     (`:root { --token: value; }`, the chat stylesheet the app pushes to open chats on save), `files` as is
+     (`:root { --token: value; }`, the chat stylesheet the app pushes to open chats on save), `files` as is;
+     `settings` keys are written with `settings.set` into the copy's own cmux-next.json (for a key no theme file
+     may set) and read back the same way as `theme` keys
   4. every `theme` key read until it equals the case's value (15 s), then the after/ shots. A value is any JSON
      (string, number, boolean, object); numbers match by value, booleans only booleans. A key passes only when its
      before value differs, so a case sets a value off the default (e.g. `"appearance.metrics.spacingScale": 1.5`)
   5. `expect_color`: the shots before and after are probed for that color (each channel within `tolerance`,
      default 24); the case passes the probe when the before shot has fewer than `min_pixels` (default 400) and an
      after shot at least that many. This is how a value no socket method reads (a CSS token) is read back.
-  6. the files it wrote are removed and the theme file emptied again (`keep: true` leaves them for the next case)
+  6. the files it wrote are removed, the theme file emptied again and `settings` keys reset (`keep: true` leaves them for the next case)
 
 The cases file (JSON):
 
@@ -299,7 +301,9 @@ def run_case(sock: str, pid: int, config: Path, out: Path, case: dict) -> dict:
     result: dict = {"name": name, "pr": case.get("pr")}
     result["steps"] = run_steps(sock, case.get("setup") or [])
     theme = case.get("theme") or {}
-    result["readback"] = {key: {"want": value, "before": read_key(sock, key)} for key, value in theme.items()}
+    settings = case.get("settings") or {}
+    result["readback"] = {key: {"want": value, "before": read_key(sock, key), "via": via}
+                          for via, keys in (("theme", theme), ("settings", settings)) for key, value in keys.items()}
     result["shots"] = {"before": shoot(pid, folder, "before")}
     written = []
     if theme:
@@ -318,6 +322,9 @@ def run_case(sock: str, pid: int, config: Path, out: Path, case: dict) -> dict:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text)
         written.append(str(path))
+    for key, value in settings.items():
+        reply = rpc(sock, "settings.set", {"path": key, "value": value}, timeout=30)
+        result["readback"][key]["set"] = reply.get("error") or "ok"
     result["written"] = written
     started = time.monotonic()
     for key, row in result["readback"].items():
@@ -359,6 +366,8 @@ def run_case(sock: str, pid: int, config: Path, out: Path, case: dict) -> dict:
                 theme_path(config).write_text("{}\n")
             else:
                 Path(path).unlink(missing_ok=True)
+        for key in settings:
+            rpc(sock, "settings.reset", {"path": key}, timeout=30)
     say(f"case {name}: ok={result['ok']} readback={json.dumps(result['readback'])} "
         f"color={json.dumps(result.get('color'))}")
     return result

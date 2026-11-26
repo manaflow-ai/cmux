@@ -1793,7 +1793,7 @@ def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: boo
     # Sparkle would otherwise download a newer nightly into the bundle under
     # test mid-run (and its installer counts as the bundle's process).
     with open(env["CMUX_NEXT_CONFIG_FILE"], "w") as handle:
-        json.dump(merged({"updates": {"checkAutomatically": False, "downloadAutomatically": False}}, config), handle)
+        json.dump(merged({"updates": {"automatic": "off"}}, config), handle)
     log_path = os.path.join(scratch, "app.log")
     launched_at = time.time()
     if direct:
