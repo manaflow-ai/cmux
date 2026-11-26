@@ -125,6 +125,8 @@ BUILD_SECONDS = 15 * 60
 SHOOT_SECONDS = 180
 INSTALL_SECONDS = 15 * 60
 GALLERY_UP_SECONDS = 180
+# The gallery's ranker of touched entries; a tree without it (a branch off main) has no gallery to shoot.
+GALLERY_RANKER = "webviews/scripts/gallery/touched.ts"
 SEND_SECONDS = 60
 PREFETCH_SECONDS = 300
 # The VM's own mirror of manaflow-ai/cmux (repo-mirrors.timer, about every 15 min): the clone borrows its objects
@@ -575,6 +577,12 @@ class Worker:
         return subprocess.run(["git", "-C", str(self.clone), "cat-file", "-e", f"{sha}^{{commit}}"],
                               capture_output=True, env=NO_LAZY).returncode == 0
 
+    def has_gallery(self, sha: str) -> bool:
+        """SHA's tree holds the gallery's ranker (GALLERY_RANKER): a branch off main, which has none, has no web look
+        to take (every one failed "Module not found scripts/gallery/touched.ts" and counted as a miss)."""
+        return subprocess.run(["git", "-C", str(self.clone), "cat-file", "-e", f"{sha}:{GALLERY_RANKER}"],
+                              capture_output=True, env=NO_LAZY).returncode == 0
+
     def is_ancestor(self, sha: str, tip: str) -> bool:
         return subprocess.run(["git", "-C", str(self.clone), "merge-base", "--is-ancestor", sha, tip],
                               capture_output=True, env=NO_LAZY).returncode == 0
@@ -968,6 +976,12 @@ class Worker:
             if not self.on_branch_tip_or_landed(head, req.get("branch")):
                 raise LookError(f"{head[:12]} is neither {req.get('branch')}'s tip on {CMUX_REPO} nor on "
                                 f"{BASE_BRANCH}: no look at a commit that is not the repo's own")
+            if planned["web"] and not self.has_gallery(head):
+                planned = {**planned, "web": False, "no_gallery": True}
+                receipt["plan"] = planned
+                if not planned["swift"]:
+                    raise LookError(f"no scene shows these files: {head[:12]} has no {GALLERY_RANKER} "
+                                    f"(a branch off main, not {BASE_BRANCH})")
         pairs: list[tuple[str, str, Path | None, Path | None]] = []  # (kind, scene, before, after)
         errors = []
         if planned["needs_build"]:

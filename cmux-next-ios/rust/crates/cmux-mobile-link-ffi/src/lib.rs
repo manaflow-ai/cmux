@@ -42,10 +42,12 @@ mod row_layout;
 mod screen;
 mod share_approval;
 mod tabs;
+mod task_composer;
 mod terminal_chat;
 mod terminal_fit;
 mod terminal_prediction;
 mod terminal_projection;
+mod vnc;
 mod window_layout;
 mod workspace_groups;
 
@@ -81,6 +83,10 @@ pub use pane_filter::{
 pub use read_store::{PhoneReadKey, PhoneReadStore, PhoneReadStoreError};
 pub use share_approval::{ShareApprovalDraft, ShareAsk, share_approval_draft, share_approval_signed};
 pub use tabs::{TabsEvent, TabsMirror, TabsRow, TabsViewport};
+pub use task_composer::{
+    TaskPickChange, TaskPickToggle, TaskTerminalLaunch, task_image_mime_type, task_pick_toggle,
+    task_terminal_line,
+};
 pub use terminal_chat::{
     TabFace, TerminalChatCandidate, TerminalChatFaces, TerminalChatFacts, TerminalChatSwap,
 };
@@ -89,6 +95,7 @@ pub use terminal_fit::{
 };
 pub use terminal_prediction::{PredictedGlyph, PredictionLayout, TerminalPrediction};
 pub use terminal_projection::{ProjectionSegment, ProjectionStats, TerminalProjection};
+pub use vnc::{VncJsonError, vnc_json};
 pub use window_layout::{WindowLayout, overview_columns, window_layout};
 pub use workspace_groups::{
     GROUP_EDIT_CONFIRM_WINDOW, GROUP_EDIT_UNANSWERED_WINDOW, GroupEditStep, PendingGroupEdit,
