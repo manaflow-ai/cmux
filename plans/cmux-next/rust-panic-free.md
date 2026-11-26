@@ -321,3 +321,16 @@ went down by 972: acpmux 1021 to 697, cmux-tui 1141 to 833, cmux-tui-core
 cmux-host 1 to 0, and 1 to 3 each in 8 small crates. Use `v.set("key", x)`
 for new writes; the rest of these counts are reads (`v["key"]`, which
 return `Null`) and slice indexing.
+
+Rows for 21 new crates 2026-11-26 (the base's red, recorded). These crates
+joined the workspace with no baseline row while clippy-changed skipped the
+ratchet after a base red, so every run that linted one of them was over
+the baseline and linted the base again. Their counts are the base's, from the
+workspace ratchet run of job b1a0f9f0fd7d36cece162cf7 (cmux#59365 at
+b8174facd9f1, base 686168ff1d61; its "(base red)" lines): acpmux-book,
+acpmux-tui, cmux-apps, cmux-braid-class, cmux-cas, cmux-cloud-disk,
+cmux-computer-use, cmux-customize, cmux-git-cache, cmux-hub-host,
+cmux-mobile-host-core, cmux-no-checkout, cmux-pool-pod, cmux-projection,
+cmux-rd-screen, cmux-relay-snapshot, cmux-repro, cmux-screenshots,
+cmux-session-cloud, cmux-sync, cmux-terminal-find (acpmux-tui the largest:
+indexing_slicing 110). Lower them with `--update-baseline` as they are fixed.

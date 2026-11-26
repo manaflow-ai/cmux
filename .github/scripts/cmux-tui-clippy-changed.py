@@ -92,7 +92,29 @@ WHOLE_WORKSPACE = frozenset({
 RATCHET = "scripts/cmux-next/rust_panic_ratchet.py"
 # Every lint is a warning, whatever level a crate or a Cargo [lints] table gives it; only compile errors fail.
 CAP_LINTS = ["--cap-lints", "warn"]
-LINT_ARGS = ["--all-targets", "--message-format=json", "--", *CAP_LINTS]
+
+
+def lint_args(flags: list[str]) -> list[str]:
+    """The clippy step's arguments: --all-targets with the panic ratchet's lint flags. The ratchet's own run is
+    `--lib --bins` with the same flags, so on the same target directory its units are fresh and cargo replays their
+    cached diagnostics: the ratchet reads them instead of checking every crate again (clippy-driver tracks its
+    arguments, so different flags rechecked each crate: about 245 s on 90% of ~4,780 runs a day,
+    goal ci-min-per-pr-30). The ratchet's lints are warnings like every other, and its own judge reports them."""
+    return ["--all-targets", "--message-format=json", "--", *flags, *CAP_LINTS]
+
+
+def ratchet_flags(repo: Path) -> list[str]:
+    """The panic ratchet's clippy flags (`-W clippy::LINT` each), or none when the ratchet is missing."""
+    ratchet = repo / RATCHET
+    if not ratchet.is_file():
+        return []
+    return subprocess.run([sys.executable, str(ratchet), "--flags"], check=True,
+                          stdout=subprocess.PIPE, text=True).stdout.split()
+
+
+def ratchet_lints(flags: list[str]) -> frozenset[str]:
+    """The lint names FLAGS turns on (`clippy::indexing_slicing`, ...)."""
+    return frozenset(flag for flag in flags if flag.startswith("clippy::"))
 # rustc's own error codes; a lint's code is its name (`clippy::needless_return`, `dead_code`).
 COMPILE_ERROR_CODE = re.compile(r"^E\d{4}$")
 # cargo's and rustc's closing lines after errors: they say how many, not what, so they never decide the verdict.
@@ -190,10 +212,13 @@ def main(argv: list[str] | None = None) -> int:
             ratchet_inputs_changed = any(path in WHOLE_WORKSPACE for path in all_changed)
         except subprocess.CalledProcessError:
             ratchet_inputs_changed = True
+    flags = ratchet_flags(repo)
+    lint_flags = lint_args(flags)
+    quiet = ratchet_lints(flags)
     if paths is None or ratchet_inputs_changed or any(path in WHOLE_WORKSPACE for path in paths):
         if args.panic_ratchet:
             return panic_ratchet(repo, ["--workspace"], True, "the whole cmux-tui workspace", args.panic_ratchet, compare)
-        command = ["cargo", "clippy", "--locked", "--keep-going", "--workspace", *LINT_ARGS]
+        command = ["cargo", "clippy", "--locked", "--keep-going", "--workspace", *lint_flags]
         scope = "the whole cmux-tui workspace"
     else:
         touched = fmt_changed.touched(paths, known, fmt_changed.manifest_dirs(repo, base))
@@ -210,14 +235,14 @@ def main(argv: list[str] | None = None) -> int:
         if args.panic_ratchet:
             return panic_ratchet(repo, packages, any(name in libs for name in selected), ", ".join(selected),
                                  args.panic_ratchet, compare)
-        command = ["cargo", "clippy", "--locked", "--keep-going", *packages, *LINT_ARGS]
+        command = ["cargo", "clippy", "--locked", "--keep-going", *packages, *lint_flags]
         scope = ", ".join(selected)
     print(f"cmux-tui-clippy-changed: linting {scope}", flush=True)
     print(" ".join(command), flush=True)
     # From cmux-tui/ so rustup uses its rust-toolchain.toml pin and cargo its workspace.
     text: list[str] = []
     result = run_clippy(warnings_soft(command, repo), repo / ROOT, repo, text)
-    report_lints(result.lints, scope)
+    report_lints([lint for lint in result.lints if lint["code"] not in quiet], scope)
     if result.rc and not result.lock and args.autofixed_ok and paths is not None and autofixed(
             repo, command, paths, workspace, args.autofixed_ok):
         return 0
@@ -238,7 +263,7 @@ def main(argv: list[str] | None = None) -> int:
             print(" ".join(argv), flush=True)
             out: list[str] = []
             run = run_clippy(warnings_soft(argv, repo), repo / ROOT, repo, out)
-            report_lints(run.lints, scope)
+            report_lints([lint for lint in run.lints if lint["code"] not in quiet], scope)
             red_files = run.red_files
             lints_only = run.rc and not run.lock and not run.compile_errors and run.lint_errors
             return (0 if lints_only else run.rc), "".join(out)
@@ -456,6 +481,8 @@ def name_base_reds(repo: Path, base: str, red_files: list[str]) -> None:
               f"through an API it changed, is this change's to fix)")
     if outside and len(outside) == len(red_files):
         print("cmux-tui-clippy-changed: every clippy error is in a file this change does not touch: likely a base red")
+        if verdict := os.environ.get("CMUX_CLIPPY_BASE_RED_FILE"):
+            Path(verdict).write_text("base red\n", encoding="utf-8")
 
 
 def panic_ratchet(repo: Path, packages: list[str], has_lib: bool, scope: str, out: Path, compare: str = "") -> int:
@@ -476,8 +503,7 @@ def panic_ratchet(repo: Path, packages: list[str], has_lib: bool, scope: str, ou
             print("cmux-tui-clippy-changed: no package left for the panic ratchet", flush=True)
             return 0
     ratchet = repo / RATCHET
-    flags = subprocess.run([sys.executable, str(ratchet), "--flags"], check=True,
-                           stdout=subprocess.PIPE, text=True).stdout.split()
+    flags = ratchet_flags(repo)
     targets = ["--lib", "--bins"] if has_lib else ["--bins"]
     command = ["cargo", "clippy", "--locked", *packages, *targets, "--message-format=json", "--", *flags, *CAP_LINTS]
     out.parent.mkdir(parents=True, exist_ok=True)
