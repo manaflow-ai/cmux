@@ -454,6 +454,16 @@ pub(super) fn app_machines(global: &GlobalArgs) -> Result<Value, Value> {
 /// One app Cloud verb run as this binary's own `--json` step: its `result`, or its error object
 /// (`cmux vm exec dev -- CMD` reads `exit_code`, `stdout` and `stderr` from it).
 pub(super) fn app_step(global: &GlobalArgs, args: &[String]) -> Result<Value, Value> {
+    app_step_with_options(global, args, false)
+}
+
+/// Runs one app verb, optionally asking `action.run` to join an existing keyed run without
+/// claiming a missing key.
+pub(super) fn app_step_with_options(
+    global: &GlobalArgs,
+    args: &[String],
+    join_only: bool,
+) -> Result<Value, Value> {
     let mut globals = forwarded_globals(global);
     // One step, so the caller's key is this step's: a retry with it does not run it twice.
     if let Some(key) = &global.idempotency_key {
@@ -461,6 +471,9 @@ pub(super) fn app_step(global: &GlobalArgs, args: &[String]) -> Result<Value, Va
     }
     let mut runner = SelfRunner { globals, ..SelfRunner::new(global) };
     let mut args = args.to_vec();
+    if join_only {
+        args.push("--join-only".to_owned());
+    }
     args.push("--json".to_owned());
     step_result(&runner.cmux(&args))
 }
@@ -751,6 +764,19 @@ pub(super) trait Runner {
         let _ = until;
         self.cmux(args)
     }
+    /// [`Runner::cmux_by`], whose `until` may move: when it comes with the child still running, `later` is asked
+    /// (with this runner, for steps of its own), and a later instant it names is the child's new end, asked again
+    /// when that one comes ([`fresh::Boot`]: a new machine still booting is waited on). A runner that cannot keep a
+    /// child running while it asks runs it as [`Runner::cmux_by`].
+    fn cmux_by_unless(
+        &mut self,
+        args: &[String],
+        until: Instant,
+        later: &mut dyn FnMut(&mut dyn Runner) -> Option<Instant>,
+    ) -> Ran {
+        let _ = later;
+        self.cmux_by(args, until)
+    }
     /// One line of progress while the run goes on (on stderr: never part of the answer), so a start that gives up a
     /// machine and tries another is never a silent wait.
     fn say(&mut self, _line: &str) {}
@@ -878,6 +904,22 @@ impl Runner for SelfRunner {
             ),
             Err(ran) => ran,
         }
+    }
+
+    fn cmux_by_unless(
+        &mut self,
+        args: &[String],
+        until: Instant,
+        later: &mut dyn FnMut(&mut dyn Runner) -> Option<Instant>,
+    ) -> Ran {
+        let command = match self.step(args) {
+            Ok(command) => command,
+            Err(ran) => return ran,
+        };
+        // Never past the runner's own deadline, however far `later` moves it.
+        let own = self.until;
+        let cap = move |at: Instant| own.map_or(at, |own| own.min(at));
+        internal::bounded::output_by_unless(command, cap(until), &mut || later(self).map(cap))
     }
 
     fn say(&mut self, line: &str) {
@@ -1308,10 +1350,10 @@ impl Progress {
 pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     let began = runner.now();
     let outcome = run_once(runner, request);
-    // A new machine this run made that never came up is deleted and the start runs on a fresh one (fresh.rs).
-    let outcome = fresh::replace_stuck(runner, request, began, outcome);
-    let outcome =
-        if request.make_room { make_room(runner, request, began, outcome) } else { outcome };
+    // Every failure goes through the one recovery table (recover.rs): a new machine this run made that never came
+    // up starts on a fresh one (fresh.rs), a machine still starting is started on again within the deadline, and
+    // `--make-room` frees a machine at a cap. A class with no action is the person's, unchanged.
+    let outcome = recover::recover(runner, request, began, outcome);
     explain_account_limit(outcome, &request.agent)
 }
 
@@ -1394,12 +1436,12 @@ fn make_room(
             1,
         );
     }
-    // The rerun makes a new machine too: one that never comes up is replaced the same way (fresh.rs).
-    // The rerun keeps the run's one deadline: `--timeout` counts from the command's start, not from here.
+    // The rerun makes a new machine too: one that never comes up is replaced the same way, by the recovery table
+    // that called this (recover.rs). The rerun keeps the run's one deadline: `--timeout` counts from the command's
+    // start, not from here.
     let until = request.until.or(Deadline::of(request, began).0);
     let again = Request { make_room: false, until, ..request.clone() };
-    let outcome = run_once(runner, &again);
-    fresh::replace_stuck(runner, &again, began, outcome)
+    run_once(runner, &again)
 }
 
 fn run_once(runner: &mut dyn Runner, request: &Request) -> Outcome {
@@ -1541,6 +1583,18 @@ impl Runner for Timed<'_> {
     fn cmux_by(&mut self, args: &[String], until: Instant) -> Ran {
         let from = self.inner.now();
         let ran = self.inner.cmux_by(args, until);
+        self.record(args, from, &ran);
+        ran
+    }
+
+    fn cmux_by_unless(
+        &mut self,
+        args: &[String],
+        until: Instant,
+        later: &mut dyn FnMut(&mut dyn Runner) -> Option<Instant>,
+    ) -> Ran {
+        let from = self.inner.now();
+        let ran = self.inner.cmux_by_unless(args, until, later);
         self.record(args, from, &ran);
         ran
     }
@@ -1781,16 +1835,20 @@ fn steps(
     start.push("--json".to_owned());
     // On a machine this run makes for itself, the start is bounded and a stuck machine is given up (fresh.rs); a
     // `--from-folder` start's copy runs inside the step, so only the app's own stuck answer counts there.
-    let bound = fresh
+    // A machine still booting at the bound (a cold create: no spare) is waited on while it boots (fresh::Boot).
+    let mut boot = fresh
         .as_ref()
         .filter(|_| request.from_folder.is_none())
-        .map(|_| fresh::start_until(runner, deadline));
-    let ran = match bound {
-        Some(until) => runner.cmux_by(&start, until),
+        .map(|name| fresh::Boot::new(runner, name, deadline));
+    let ran = match &mut boot {
+        Some(boot) => {
+            let until = boot.until;
+            runner.cmux_by_unless(&start, until, &mut |runner| boot.later(runner))
+        }
         None => runner.cmux(&start),
     };
     if let Some(name) = &fresh
-        && let Some(stuck) = fresh::stuck(runner, &ran, bound, name, deadline)
+        && let Some(stuck) = fresh::stuck(runner, &ran, boot.as_ref(), name, deadline)
     {
         return stuck;
     }
@@ -3594,6 +3652,7 @@ mod fault;
 mod folder;
 mod fresh;
 mod internal;
+mod recover;
 use folder::local_folder;
 use internal::link_wait;
 mod support;
