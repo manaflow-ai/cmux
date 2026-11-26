@@ -9,7 +9,7 @@ extension ChiefHome {
         guard let chief else { return muxHome }
         struct Request: Encodable { let muxHome: String; let chief: String? }
         struct Reply: Decodable { let brainHome: String }
-        guard let reply: Reply = try? ChiefHomeRules.call("brain_home", Request(muxHome: muxHome.path, chief: chief)) else {
+        guard let reply: Reply = try? ChiefHomeRules().call("brain_home", Request(muxHome: muxHome.path, chief: chief)) else {
             return muxHome.appendingPathComponent("c", isDirectory: true)
                 .appendingPathComponent(String(chief.suffix(8)).lowercased(), isDirectory: true)
         }
@@ -24,6 +24,6 @@ extension ChiefHome {
         struct Request: Encodable { let participants: [Member] }
         struct Reply: Decodable { let chief: String? }
         let request = Request(participants: participants.map { Member(id: $0.id.rawValue, isChief: $0.isChief) })
-        return ((try? ChiefHomeRules.call("named_chief", request)) as Reply?)?.chief
+        return ((try? ChiefHomeRules().call("named_chief", request)) as Reply?)?.chief
     }
 }

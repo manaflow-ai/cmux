@@ -27,26 +27,34 @@ public nonisolated struct HomeChiefRecord: Hashable, Sendable {
         self.placed = placed
     }
 
-    /// The Chiefs of a `chief.list` value that are not archived.
+    /// The Chiefs of a `chief.list` value that are not archived (Rust `chief_home.record_list`).
     public static func list(from value: Any?) -> [HomeChiefRecord] {
-        ((value as? [String: Any])?["chiefs"] as? [[String: Any]] ?? []).compactMap(parse)
+        struct Reply: Decodable { let chiefs: [Wire] }
+        return ((try? ChiefHomeRules().call("record_list", value: value)) as Reply?)?.chiefs.map(\.record) ?? []
     }
 
-    /// The agent ids of a `chief.list` value's archived and deleted Chiefs.
+    /// The agent ids of a `chief.list` value's archived and deleted Chiefs (Rust `chief_home.archived_ids`).
     public static func archivedIDs(from value: Any?) -> Set<String> {
-        let list = (value as? [String: Any])?["chiefs"] as? [[String: Any]] ?? []
-        // A deleted Chief, and one archived past its restore window, is only a tombstone.
-        let tombstones = (value as? [String: Any])?["tombstones"] as? [[String: Any]] ?? []
-        return Set(list.compactMap { $0["archived_at"] is String ? $0["id"] as? String : nil })
-            .union(tombstones.compactMap { $0["id"] as? String })
+        struct Reply: Decodable { let ids: [String] }
+        return Set(((try? ChiefHomeRules().call("archived_ids", value: value)) as Reply?)?.ids ?? [])
     }
 
     /// One `HomeChief` value; nil when it has no id or is archived.
     public static func parse(_ value: Any?) -> HomeChiefRecord? {
-        guard let object = value as? [String: Any], let id = object["id"] as? String,
-              (object["archived_at"] as? String) == nil else { return nil }
-        return HomeChiefRecord(id: id, name: object["display_name"] as? String ?? "", isDefault: object["is_default"] as? Bool ?? false,
-                               rev: (object["rev"] as? NSNumber)?.intValue ?? 0, mainConversation: object["main_conversation"] as? String,
-                               placed: object["brain_place"] is [String: Any])
+        list(from: ["chiefs": [value ?? NSNull()]]).first
+    }
+
+    /// A record as Rust replies it.
+    private struct Wire: Decodable {
+        let id: String
+        let name: String
+        let isDefault: Bool
+        let rev: Int
+        let mainConversation: String?
+        let placed: Bool
+
+        var record: HomeChiefRecord {
+            HomeChiefRecord(id: id, name: name, isDefault: isDefault, rev: rev, mainConversation: mainConversation, placed: placed)
+        }
     }
 }

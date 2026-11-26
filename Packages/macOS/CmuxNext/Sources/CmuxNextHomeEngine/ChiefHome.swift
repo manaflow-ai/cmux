@@ -67,7 +67,7 @@ public nonisolated struct ChiefHome: Sendable, Equatable {
     public static func hasOwnHome(bundleID: String?) -> Bool {
         struct Request: Encodable { let bundleID: String? }
         struct Reply: Decodable { let ownHome: Bool }
-        return ((try? ChiefHomeRules.call("has_own_home", Request(bundleID: bundleID))) as Reply?)?.ownHome ?? false
+        return ((try? ChiefHomeRules().call("has_own_home", Request(bundleID: bundleID))) as Reply?)?.ownHome ?? false
     }
 
     /// Whether this home may take in the old per-tag Chiefs (`ChiefMigration`):
@@ -114,12 +114,12 @@ public nonisolated struct ChiefHome: Sendable, Equatable {
     }
 
     static func ownAcpmux(_ environment: [String: String]) -> Bool {
-        let reply: AppAcpmuxReply? = try? ChiefHomeRules.call("uses_app_acpmux", AppAcpmuxRequest(environment: environment))
+        let reply: AppAcpmuxReply? = try? ChiefHomeRules().call("uses_app_acpmux", AppAcpmuxRequest(environment: environment))
         return reply?.ownAcpmux ?? false
     }
 
     static func usesAppAcpmux(isolated: Bool, buildID: String?, ownAcpmux: Bool) -> Bool {
-        let reply: AppAcpmuxReply? = try? ChiefHomeRules.call(
+        let reply: AppAcpmuxReply? = try? ChiefHomeRules().call(
             "uses_app_acpmux", AppAcpmuxRequest(isolated: isolated, buildID: buildID, ownAcpmux: ownAcpmux))
         return reply?.usesAppAcpmux ?? false
     }
@@ -135,7 +135,7 @@ public nonisolated struct ChiefHome: Sendable, Equatable {
     /// The home's rules as Rust derives them (`chief_home.describe`); nil when the call fails.
     private var described: Described? {
         struct Request: Encodable { let root: String; let isolated: Bool; let buildID: String? }
-        return try? ChiefHomeRules.call("describe", Request(root: root.path, isolated: isolated, buildID: buildID))
+        return try? ChiefHomeRules().call("describe", Request(root: root.path, isolated: isolated, buildID: buildID))
     }
 
     private struct Described: Decodable {
@@ -172,7 +172,7 @@ public nonisolated struct ChiefHome: Sendable, Equatable {
         let request = ResolveRequest(tag: tag, environment: environment, userHome: userHome.path, bundleID: bundleID,
                                      appBuild: identity.map { Build(bundleID: $0.bundleID, tag: $0.tag) },
                                      isDebugBuild: isDebugBuild)
-        guard let home: Described = try? ChiefHomeRules.call("resolve", request) else {
+        guard let home: Described = try? ChiefHomeRules().call("resolve", request) else {
             return ChiefHome(root: userHome.appendingPathComponent(".cmux/chief/isolated/untagged", isDirectory: true), isolated: true)
         }
         return ChiefHome(root: URL(fileURLWithPath: home.root, isDirectory: true), isolated: home.isolated, buildID: home.buildID)
@@ -184,7 +184,7 @@ public nonisolated struct ChiefHome: Sendable, Equatable {
                                  userHome: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
         struct Request: Encodable { let environment: [String: String]; let userHome: String }
         struct Reply: Decodable { let root: String }
-        guard let reply: Reply = try? ChiefHomeRules.call("chief_root", Request(environment: environment, userHome: userHome.path)) else {
+        guard let reply: Reply = try? ChiefHomeRules().call("chief_root", Request(environment: environment, userHome: userHome.path)) else {
             return userHome.appendingPathComponent(".cmux/chief", isDirectory: true)
         }
         return URL(fileURLWithPath: reply.root, isDirectory: true)
@@ -214,7 +214,7 @@ public nonisolated struct ChiefHome: Sendable, Equatable {
     /// it. The id is optchat-chief `paths::home_id`: FNV-1a 32 of the path bytes.
     public static func tabHost(muxHome: URL) -> String {
         struct Reply: Decodable { let tabHost: String }
-        let reply: Reply? = try? ChiefHomeRules.call("tab_host", PathRequest(path: muxHome.path))
+        let reply: Reply? = try? ChiefHomeRules().call("tab_host", PathRequest(path: muxHome.path))
         return reply?.tabHost ?? tabHostPrefix
     }
 
@@ -222,7 +222,7 @@ public nonisolated struct ChiefHome: Sendable, Equatable {
     /// enough for the socket path; the CLI derives the same name.
     static func sessionName(root: URL) -> String {
         struct Reply: Decodable { let session: String }
-        let reply: Reply? = try? ChiefHomeRules.call("session_name", PathRequest(path: root.path))
+        let reply: Reply? = try? ChiefHomeRules().call("session_name", PathRequest(path: root.path))
         return reply?.session ?? "cmux-chief-"
     }
 
@@ -231,14 +231,32 @@ public nonisolated struct ChiefHome: Sendable, Equatable {
     static func component(of raw: String) -> String? {
         struct Request: Encodable { let raw: String }
         struct Reply: Decodable { let component: String? }
-        let reply: Reply? = try? ChiefHomeRules.call("component", Request(raw: raw))
+        let reply: Reply? = try? ChiefHomeRules().call("component", Request(raw: raw))
         return reply?.component
     }
 }
 
 /// The `chief_home` area of the Rust home rules (cmux-home-rules `chief_home`), through ``HomeRules``.
-nonisolated enum ChiefHomeRules {
-    static func call<In: Encodable, Out: Decodable>(_ name: String, _ input: In) throws -> Out {
+/// `package`: CmuxNextHostedChief's thin callers use it too.
+package nonisolated struct ChiefHomeRules: Sendable {
+    package init() {}
+
+    package func call<In: Encodable, Out: Decodable>(_ name: String, _ input: In) throws -> Out {
         try HomeRules.call("chief_home." + name, input)
+    }
+
+    /// Runs `name` on `{"value": value}`, a JSON value the app decoded (`JSONSerialization`).
+    package func call<Out: Decodable>(_ name: String, value: Any?) throws -> Out {
+        let request: [String: Any] = ["value": value ?? NSNull()]
+        guard JSONSerialization.isValidJSONObject(request) else {
+            throw HomeRulesError(op: "chief_home." + name, code: .encode, detail: "not a JSON value")
+        }
+        let data = try JSONSerialization.data(withJSONObject: request)
+        let reply = try HomeRules.callJSON("chief_home." + name, String(decoding: data, as: UTF8.self))
+        do {
+            return try JSONDecoder().decode(Out.self, from: Data(reply.utf8))
+        } catch {
+            throw HomeRulesError(op: "chief_home." + name, code: .decode, detail: String(describing: error))
+        }
     }
 }
