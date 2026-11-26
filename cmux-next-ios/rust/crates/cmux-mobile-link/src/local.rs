@@ -281,6 +281,8 @@ pub fn hub_race_policy(addresses: usize) -> RacePolicy {
     RacePolicy {
         stagger: ATTEMPT_DELAY,
         attempt_timeout: HUB_CONNECT_WAIT,
+        // A LAN answers in milliseconds: the last address gets no longer than the rest.
+        last_attempt_timeout: HUB_CONNECT_WAIT,
         max_in_flight: addresses.max(1),
         max_attempts: addresses.max(1),
     }
