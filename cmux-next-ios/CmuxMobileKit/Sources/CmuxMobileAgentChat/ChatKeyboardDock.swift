@@ -211,17 +211,23 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// for wrapping text.)
     private static func measuring(_ view: AnyView, alignment: Alignment, report: @escaping (CGFloat) -> Void) -> AnyView {
         AnyView(
-            ProposedWidthLayout {
-                view.rowHeightProbe("root")
-            }
-                .fixedSize(horizontal: false, vertical: true)
-                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
-                    #if DEBUG
-                    if RowHeightProbe.isEnabled { RowHeightProbe.log("report \(height)") }
-                    #endif
-                    report(height)
+            DockMeasureProbe(name: "outer") {
+                ProposedWidthLayout {
+                    DockMeasureProbe(name: "inner") {
+                        view.rowHeightProbe("root")
+                    }
                 }
+                    .fixedSize(horizontal: false, vertical: true)
+                    .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(layoutShiftDockHostSpace)) }) { frame in
+                        #if DEBUG
+                        if RowHeightProbe.isEnabled { RowHeightProbe.log("report \(frame.height)") }
+                        #endif
+                        LayoutShiftProbe.shared?.note("dock.report", "y=\(DockMeasureProbe.pt(frame.minY)) h=\(DockMeasureProbe.pt(frame.height))")
+                        report(frame.height)
+                    }
+            }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
+                .coordinateSpace(.named(layoutShiftDockHostSpace))
                 // The composer's layout-shift count is measured in this host, which the keyboard
                 // and a push move whole (`layoutShiftTracked(inHost:)`).
                 .layoutShiftHost()
@@ -506,6 +512,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        noteDockLayout()
         if let frame = pendingTrackedKeyboardFrame, view.window != nil {
             pendingTrackedKeyboardFrame = nil
             applyReconciledKeyboardFrame(frame, layoutNow: false)
@@ -831,7 +838,18 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     private var motionProbe: UIView?
     #endif
 
+    /// cmux#59189's per-frame log (only with `-cmux-placeholder-markers`): where UIKit placed the
+    /// dock's host, the guide the transcript follows and the stack height it was given, in the
+    /// layout-shift JSON's `notes` beside the composer's `moves`.
+    private func noteDockLayout() {
+        guard let probe = LayoutShiftProbe.shared, let dock = dockContainer, let hosted = dockHost?.view else { return }
+        let pt = DockMeasureProbe.pt
+        let guide = dockGuide.layoutFrame
+        probe.note("dock.uikit", "host=\(pt(dock.frame.minY))/\(pt(dock.frame.height)) hosted=\(pt(hosted.frame.minY))/\(pt(hosted.frame.height)) guide=\(pt(guide.minY))/\(pt(guide.height)) stack=\(pt(stackHeight)) view=\(pt(view.bounds.height)) safe=\(pt(view.safeAreaInsets.bottom)) hostedSafe=\(pt(hosted.safeAreaInsets.bottom))")
+    }
+
     private func applyStackHeight(_ height: CGFloat) {
+        LayoutShiftProbe.shared?.note("dock.stackHeight", DockMeasureProbe.pt(height))
         stackHeight = height
         dockContainer?.interactiveHeight = height
         dockHeightConstraint?.constant = height
@@ -1590,3 +1608,36 @@ private final class BottomScrimView: UIView {
     }
 }
 #endif
+
+/// The coordinate space at the dock host's root, for cmux#59189's log (`DockMeasureProbe`).
+private let layoutShiftDockHostSpace = "cmux.dock.hostRoot"
+
+/// cmux#59189: logs, into the layout-shift probe's notes, the size the dock's SwiftUI root is
+/// proposed and answers (`fit`) and the bounds it is then placed in (`place`), at the hosted root
+/// (`outer`) and inside the width-proposing layout (`inner`). A gap between a measured and a placed
+/// height shows here. Passes its one subview through unchanged; no probe, no lines.
+struct DockMeasureProbe: Layout {
+    let name: String
+
+    nonisolated static func pt(_ value: CGFloat) -> String {
+        value.isFinite ? String(format: "%.1f", value) : "inf"
+    }
+
+    private nonisolated static func dim(_ value: CGFloat?) -> String { value.map(pt) ?? "nil" }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let size = subviews.first?.sizeThatFits(proposal) ?? .zero
+        let name = name
+        let line = "w=\(Self.dim(proposal.width)) h=\(Self.dim(proposal.height)) -> \(Self.pt(size.width))x\(Self.pt(size.height))"
+        MainActor.assumeIsolated { LayoutShiftProbe.shared?.note("dock.\(name).fit", line) }
+        return size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let name = name
+        let line = "y=\(Self.pt(bounds.minY)) \(Self.pt(bounds.width))x\(Self.pt(bounds.height))"
+        MainActor.assumeIsolated { LayoutShiftProbe.shared?.note("dock.\(name).place", line) }
+        // The proposal it was given, as is: the width-proposing layout places with no height.
+        subviews.first?.place(at: bounds.origin, proposal: proposal)
+    }
+}
