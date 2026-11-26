@@ -109,11 +109,8 @@ impl Hub {
             let _slot = slot;
             hub.search_local_history(&query, !include_peers)
         });
-        let peers = if include_peers {
-            self.peers.lock().unwrap_or_else(|e| e.into_inner()).values().cloned().collect()
-        } else {
-            Vec::new()
-        };
+        let peers =
+            if include_peers { self.peers.load().values().cloned().collect() } else { Vec::new() };
         let mut replies = stream::iter(peers)
             .map(|peer| {
                 let params = forward.clone();

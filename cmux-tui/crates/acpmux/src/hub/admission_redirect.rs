@@ -297,6 +297,7 @@ mod tests {
             auto: false,
             waiting: None,
             harness: None,
+            caller: None,
         }
     }
 

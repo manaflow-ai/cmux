@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.display.trayTucked.help" : {
+      "comment" : "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hides the running work bar. Hover the top of the composer to bring it back."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يخفي شريط العمل الجاري. مرّر المؤشر فوق أعلى مربع الكتابة لإظهاره مجددًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Skriva traku rada u toku. Pređite mišem preko vrha polja za pisanje da je vratite."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Skjuler bjælken med igangværende arbejde. Hold markøren over toppen af skrivefeltet for at vise den igen."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Blendet die Leiste mit laufender Arbeit aus. Zeige oben auf das Eingabefeld, um sie zurückzuholen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Oculta la barra de trabajo en curso. Pasa el puntero por la parte superior del campo de redacción para mostrarla de nuevo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Masque la barre du travail en cours. Survolez le haut de la zone de saisie pour la rétablir."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nasconde la barra del lavoro in corso. Passa il puntatore sulla parte alta del campo di scrittura per mostrarla di nuovo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "実行中の作業バーを隠します。入力欄の上端にポインタを置くと元に戻せます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "លាក់របារការងារកំពុងដំណើរការ។ ដាក់ទស្សន៍ទ្រនិចលើផ្នែកខាងលើនៃប្រអប់សរសេរ ដើម្បីបង្ហាញវាវិញ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "실행 중인 작업 막대를 숨깁니다. 입력창 위쪽에 포인터를 올리면 다시 표시됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Skjuler linjen med pågående arbeid. Hold pekeren over toppen av skrivefeltet for å hente den tilbake."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ukrywa pasek trwającej pracy. Najedź na górę pola tekstowego, aby go przywrócić."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Oculta a barra de trabalho em andamento. Passe o cursor no topo do campo de texto para trazê-la de volta."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Скрывает панель текущей работы. Наведите указатель на верхний край поля ввода, чтобы вернуть её."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ซ่อนแถบงานที่กำลังทำ วางเมาส์ที่ด้านบนของช่องพิมพ์เพื่อแสดงกลับมา"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Süren iş çubuğunu gizler. Geri getirmek için yazma alanının üstünün üzerine gelin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ховає панель поточної роботи. Наведіть вказівник на верхній край поля введення, щоб повернути її."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ẩn thanh công việc đang chạy. Di chuột vào cạnh trên của ô soạn thảo để hiện lại."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "隐藏正在运行的工作栏。将指针移到输入框顶部即可重新显示。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "隱藏進行中的工作列。將指標移到輸入框頂部即可重新顯示。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

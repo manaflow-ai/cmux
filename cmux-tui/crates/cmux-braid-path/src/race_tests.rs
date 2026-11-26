@@ -49,3 +49,26 @@ fn stagger_is_one_and_a_half_times_the_remembered_connect_within_the_bounds() {
     assert_eq!(RacePolicy::INTERNET.with_lead(Some(ms(80))).stagger, ms(120));
     assert_eq!(RacePolicy::INTERNET.with_lead(None), RacePolicy::INTERNET);
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_failure_starts_the_next_attempt_at_once_while_others_run() {
+    // "a" hangs, "b" starts at 400 ms and fails at 410 ms, "c" starts then (not at 800 ms)
+    // and connects in 30 ms.
+    let won = race(&["a", "b", "c"], RacePolicy::INTERNET, |target| async move {
+        match target {
+            "a" => std::future::pending().await,
+            "b" => {
+                tokio::time::sleep(ms(10)).await;
+                Err(io::Error::from(io::ErrorKind::ConnectionRefused))
+            }
+            _ => {
+                tokio::time::sleep(ms(30)).await;
+                Ok(target)
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!((won.value, won.attempt), ("c", 2));
+    assert_eq!(won.elapsed, ms(440));
+}

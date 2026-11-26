@@ -121,13 +121,7 @@ impl Hub {
         rest: &str,
         own: &str,
     ) -> Result<Option<Machine>, RpcError> {
-        let mut hosts: Vec<String> = self
-            .peers
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .keys()
-            .cloned()
-            .collect();
+        let mut hosts: Vec<String> = self.peers.load().keys().cloned().collect();
         hosts.extend(self.remote_sessions.read().values().map(|r| r.peer.clone()));
         hosts.sort();
         hosts.dedup();

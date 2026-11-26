@@ -44,8 +44,8 @@ import {
   type ShareSocketLike,
 } from "./shareSocket";
 
-/** What ended the page: the share's end, or a redeem the room refused for good. */
-export type GuestEnded = GuestEnd | "used";
+/** What ended the page: the share's end, or a redeem the room refused for good (spent, or this guest left). */
+export type GuestEnded = GuestEnd | "used" | "left";
 
 export type TranscriptModule = typeof import("./GuestTranscript");
 let transcriptChunk: Promise<TranscriptModule> | undefined;
@@ -103,7 +103,14 @@ const ENDED_TEXT = {
   closed: "guest.ended.revoked",
   kicked: "guest.ended.kicked",
   used: "guest.ended.used",
+  left: "guest.ended.left",
 } as const;
+
+/** The muted next step under an ended page's title: a spent or expired link takes a new one. */
+const ENDED_NEXT: Partial<Record<GuestEnded, "guest.ended.askNewLink">> = {
+  expired: "guest.ended.askNewLink",
+  used: "guest.ended.askNewLink",
+};
 
 /** A redeem error that ends the page, else undefined (the guest may try again). */
 export function endedBy(error: RedeemError): GuestEnded | undefined {
@@ -111,20 +118,28 @@ export function endedBy(error: RedeemError): GuestEnded | undefined {
   if (error === "share.revoked") return "revoked";
   if (error === "share.closed") return "closed";
   if (error === "share.kicked") return "kicked";
-  if (error === "share.used" || error === "share.left") return "used";
+  if (error === "share.used") return "used";
+  if (error === "share.left") return "left";
   return undefined;
 }
 
-export function EndedPage({ reason }: { reason: GuestEnded }) {
+export function EndedPage({ reason, invite = false }: { reason: GuestEnded; invite?: boolean }) {
   const t = useT();
+  // An account invite (`/i/<id>`) expires as an invite, and a new one comes from the owner too.
+  const title = invite && reason === "expired" ? "guest.ended.inviteExpired" : ENDED_TEXT[reason];
+  const next = invite && reason === "expired" ? "guest.ended.askNewInvite" : ENDED_NEXT[reason];
   return (
     <main className="guest-card" data-testid="guest-ended">
-      <h1 className="guest-card__title">{t(ENDED_TEXT[reason])}</h1>
+      <h1 className="guest-card__title">{t(title)}</h1>
+      {next && <p className="guest-card__detail">{t(next)}</p>}
     </main>
   );
 }
 
-/** What a failed join says: invites name the account's problem; else offline, or try again. */
+/**
+ * What a failed join says: invites name the account's problem; else offline, or try again. `signIn`
+ * is where to sign in (an invite's own address); a link's join signs in at its own page.
+ */
 function JoinError({ error, signIn }: { error: RedeemError; signIn?: string }) {
   const t = useT();
   if (error === "share.unauthorized" && signIn)
@@ -136,11 +151,37 @@ function JoinError({ error, signIn }: { error: RedeemError; signIn?: string }) {
         </a>
       </>
     );
-  if (error === "share.not_invited") return <>{t("guest.invite.notInvited")}</>;
+  // A link's signed-in join whose sign-in lapsed: not a connection problem; sign in on this page.
+  if (error === "share.unauthorized")
+    return (
+      <>
+        {t("guest.join.signInExpired")}{" "}
+        <a className="guest-card__link" href={signInHere()}>
+          {t("guest.join.signInAgain")}
+        </a>
+      </>
+    );
+  if (error === "share.not_invited")
+    return (
+      <>
+        {t("guest.invite.notInvited")}
+        {signIn && (
+          <>
+            {" "}
+            <a className="guest-card__link" href={signIn}>
+              {t("guest.invite.otherAccount")}
+            </a>
+          </>
+        )}
+      </>
+    );
   if (error === "share.unverified") return <>{t("guest.invite.unverified")}</>;
   if (error === "share.host_offline") return <>{t("guest.join.hostOffline")}</>;
   return <>{t("guest.join.failed")}</>;
 }
+
+/** This page's own address: signing in again comes back to the same link (secret fragment kept). */
+const signInHere = () => (typeof window === "undefined" ? "" : window.location.pathname + window.location.search);
 
 /** An invite's join: the room already signed this visitor in, so no name field, only Join. */
 export function InviteJoinPage({
@@ -227,7 +268,7 @@ export function JoinPage({
           value={typed}
           maxLength={64}
           autoComplete="name"
-          disabled={!hasSecret}
+          disabled={!hasSecret || joining}
           onChange={(event) => setTyped(event.target.value)}
         />
         <button className="guest-join__button" type="submit" disabled={!name || joining || !hasSecret}>
@@ -258,8 +299,18 @@ export function JoinPage({
  */
 export const linkSignIn = (shareId: string) => `/g/${encodeURIComponent(shareId)}?sign_in=1`;
 
-/** The signed-in account a link guest joins as: its name and picture from the room's `whoami`. */
-export type SignedIn = { name: string; avatarUrl?: string };
+/**
+ * The signed-in account a link guest joins as: its name and picture from the room's `whoami`, and
+ * the link's role when the room names it (`talk` may send, `view` watches).
+ */
+export type SignedIn = { name: string; avatarUrl?: string; linkRole?: GuestRole };
+
+/** The signed-in join's line, by the link's role; a room that names none keeps the hedged line. */
+const JOIN_AS_DETAIL = {
+  talk: "guest.join.asDetailTalk",
+  view: "guest.join.asDetailView",
+  unknown: "guest.invite.detail",
+} as const;
 
 /**
  * A link's join for a visitor signed in to cmux: "Join as <name>" with their picture, and a quiet
@@ -307,7 +358,7 @@ export function JoinAsPage({
   return (
     <main className="guest-card" data-testid="guest-join-as">
       <h1 className="guest-card__title">{t("guest.join.title")}</h1>
-      <p className="guest-card__detail">{t("guest.invite.detail")}</p>
+      <p className="guest-card__detail">{t(JOIN_AS_DETAIL[account.linkRole ?? "unknown"])}</p>
       <form className="guest-join" onSubmit={submit}>
         {editing ? (
           <>
@@ -321,6 +372,7 @@ export function JoinAsPage({
               value={typed}
               maxLength={64}
               autoComplete="name"
+              disabled={joining}
               ref={field}
               onChange={(event) => setTyped(event.target.value)}
             />
@@ -540,6 +592,11 @@ export function LiveChat({
     prompts.add(text);
     sendQueue.queued();
   };
+  // Try again on a refused message: back to sending with its own id, through the paced outbox.
+  const retry = (clientId: string) => {
+    prompts.retry(clientId);
+    sendQueue.queued();
+  };
   const viewing = people
     .filter((person) => person.viewing !== false && !isMe(person.id, guestId))
     .flatMap((person) => participant(person.id, person.name) ?? []);
@@ -599,7 +656,7 @@ export function LiveChat({
         )}
         <div className="guest-live__dock">
           <GuestQueue queue={waiting} owner={owner} />
-          <GuestMessages prompts={mine} me={me} owner={ownerName} />
+          <GuestMessages prompts={mine} me={me} owner={ownerName} onRetry={role === "talk" ? retry : undefined} />
           {/* Only a `talk` guest sends; no role (an answer that named none) or `view` watches. */}
           {role === "talk" ? (
             <GuestComposer
@@ -735,7 +792,7 @@ export function GuestPage({
     if (final) setEnded(final);
     return result.error;
   };
-  if (ended) return <EndedPage reason={ended} />;
+  if (ended) return <EndedPage reason={ended} invite={invite} />;
   if (!guestId && invite) return <InviteJoinPage signIn={`/i/${encodeURIComponent(shareId)}`} onJoin={acceptInvite} />;
   // Nothing until the room says who this is (at most WHOAMI_WAIT_MS), so the join never swaps.
   if (!guestId && !who) return <main className="guest-card" aria-busy="true" />;

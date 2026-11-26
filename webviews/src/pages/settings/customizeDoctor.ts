@@ -31,10 +31,17 @@ export function openFindings(report: DoctorReport | null | undefined): DoctorFin
   return (report?.findings ?? []).filter((finding) => !finding.dismissed);
 }
 
-/** Whether anything draws: a finding that is not dismissed. With none the card and the notice draw
- * nothing, so the end state is the start state. */
+/** The problems: warnings (they break something now) not dismissed. Info findings (an unknown key,
+ * a stray file) are listed under them but never counted (Leo, 2026-11-25, on "Customization Problems
+ * 50": "what is this and why is it so ugly"). */
+export function openProblems(report: DoctorReport | null | undefined): DoctorFinding[] {
+  return openFindings(report).filter((finding) => finding.level === "warning");
+}
+
+/** Whether anything draws: a problem. With none the card and the notice draw nothing, so nothing
+ * broken is the start state. */
 export function doctorShown(report: DoctorReport | null | undefined): boolean {
-  return openFindings(report).length > 0;
+  return openProblems(report).length > 0;
 }
 
 /** The card's order: what is not dismissed first (warnings, then info), dismissed ones last, muted. */
@@ -43,14 +50,13 @@ export function orderedFindings(report: DoctorReport): DoctorFinding[] {
   return [...report.findings].sort((a, b) => rank(a) - rank(b));
 }
 
-/** The fixes the page can run, in the CLI's order: `open` (the host opens the path), `off`, and
- * `follow-default` (runs at once: the CLI keeps a copy of the settings file), `remove` and `restore`
- * (both asked first). A kind this page does not know draws no button. */
+/** The fixes the page can run, in the CLI's order: `open` (the host opens the path) and `off` (run at
+ * once), `remove` and `restore` (both asked first). A kind this page does not know draws no button. */
 export function runnableFixes(finding: DoctorFinding): DoctorFix[] {
   return finding.fixes.filter((fix) => RUNNABLE.has(fix.kind));
 }
 
-const RUNNABLE: ReadonlySet<string> = new Set(["open", "off", "follow-default", "remove", "restore"]);
+const RUNNABLE: ReadonlySet<string> = new Set(["open", "off", "remove", "restore"]);
 
 /** Whether a fix asks first: every `remove` and `restore`, and any fix the CLI marks `confirm`. */
 export function asksFirst(fix: DoctorFix): boolean {

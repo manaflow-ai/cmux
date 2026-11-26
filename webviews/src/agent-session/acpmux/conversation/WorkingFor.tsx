@@ -102,18 +102,17 @@ export function WorkingFor({
           <span className="cv-worked__time">{formatDuration(Math.max(0, until - row.at))}</span>
         </>
       ) : (
+        // "Working for <1s" from the first frame (turns.ts `turnSpan`), never a bare "Working" that
+        // swaps to a time at its first second: the words keep one shape until "Worked for" (Leo,
+        // 2026-11-25: "i think it was replacing the "worked for" as it went").
         <span className="cv-worked__label">
-          {until - row.at < 1000 ? (
-            t("subsession.state.working")
-          ) : (
-            <TimedLabel
-              text={(time) => t("turn.working", { time })}
-              time={Math.max(0, until - row.at)}
-              // As the toggle, its chevron follows the time with no room between (#55615): the
-              // widest time's room goes after the chevron instead (`cv-worked__toggle-sizer`).
-              ticking={!held && !toggles}
-            />
-          )}
+          <TimedLabel
+            text={(time) => t("turn.working", { time })}
+            time={Math.max(0, until - row.at)}
+            // As the toggle, its chevron follows the time with no room between (#55615): the
+            // widest time's room goes after the chevron instead (`cv-worked__toggle-sizer`).
+            ticking={!held && !toggles}
+          />
         </span>
       )}
     </>

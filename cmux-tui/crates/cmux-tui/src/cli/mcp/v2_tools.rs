@@ -196,6 +196,7 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("theme.scheme.convert", THEME_SCHEME_REASON),
     ("theme.scheme.export", THEME_SCHEME_REASON),
     ("theme.scheme.from_image", THEME_SCHEME_REASON),
+    ("theme.slots.resolve", THEME_SCHEME_REASON),
     ("stash.create", STASH_REASON),
     ("stash.list", STASH_REASON),
     ("stash.restore", STASH_REASON),

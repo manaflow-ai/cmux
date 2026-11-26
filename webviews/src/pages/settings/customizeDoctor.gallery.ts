@@ -28,7 +28,7 @@ export default settingsPageEntry({
   anchors: [{ selector: '[data-card="customizeDoctor"]' }],
   variants: {
     "stale-layer-broken-file": variant({
-      note: "pr-45206 is still on, themes/night.json does not load (Restore last good) and the split divider opacity is 0 (Leo's case, Follow default): the card above the library with Recover…, its count and line in the card's header.",
+      note: "pr-45206 is still on, themes/night.json does not load (Restore last good) and an unknown key listed as info under them, not counted: the card above the library with Recover…, its count and line in the card's header.",
     }),
     "recover-confirm": variant({
       steps: [shown, { selector: '[data-card="customizeDoctor"] [data-doctor-action="recover"]', action: "click" }],
@@ -43,7 +43,7 @@ export default settingsPageEntry({
     }),
     override: variant({
       doctor: mockOverrideDoctor(),
-      note: "A file outside the usual settings that still changes cmux: info, Open only, and no Recover….",
+      note: "A theme set twice (the one warning, no Recover…) with a file outside the usual settings listed as info, Open only.",
     }),
     empty: variant({
       doctor: mockEmptyDoctor(),
@@ -52,11 +52,11 @@ export default settingsPageEntry({
     }),
     "all-kinds": variant({
       doctor: mockAllDoctor(),
-      note: "One finding of each of the eleven kinds (override and not-default among them), warnings first.",
+      note: "One finding of each of the ten kinds (override among them), warnings first; the count is the warnings.",
     }),
     dismissed: variant({
       doctor: mockDismissedDoctor(),
-      note: "The broken theme dismissed: it draws muted at the end, and the line counts the other two.",
+      note: "The broken theme dismissed: it draws muted at the end, and the line counts the one warning left.",
     }),
     "remove-confirm": variant({
       doctor: mockAllDoctor(),

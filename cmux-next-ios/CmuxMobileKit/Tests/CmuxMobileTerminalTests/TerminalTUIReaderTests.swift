@@ -19,10 +19,14 @@ import UIKit
         let projection = TerminalProjection(hostCols: 40, hostRows: 10)
         _ = projection.setViewport(cols: 40, rows: 10)
         _ = projection.feed(bytes: Data("\u{1b}[?1049h".utf8), paint: true)
+        // Each frame repaints its rows in place (`EL 2`), not after a page
+        // clear: an app that clears its page (`ED 2`) holds the whole page it
+        // cleared (cmux-terminal-projection held.rs), 40 rows here, not the 12
+        // that moved up (as the FFI's own test feeds it).
         for first in stride(from: 0, through: 12, by: 3) {
-            var frame = "\u{1b}[?2026h\u{1b}[H\u{1b}[2J"
-            for row in 0..<9 { frame += "\u{1b}[\(row + 1);1Hline \(String(format: "%03d", first + row))" }
-            frame += "\u{1b}[10;1H> status\u{1b}[?2026l"
+            var frame = "\u{1b}[?2026h"
+            for row in 0..<9 { frame += "\u{1b}[\(row + 1);1H\u{1b}[2Kline \(String(format: "%03d", first + row))" }
+            frame += "\u{1b}[10;1H\u{1b}[2K> status\u{1b}[?2026l"
             _ = projection.feed(bytes: Data(frame.utf8), paint: true)
         }
         return projection
