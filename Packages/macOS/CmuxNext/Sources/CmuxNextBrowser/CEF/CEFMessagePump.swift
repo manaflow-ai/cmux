@@ -92,6 +92,14 @@ final class CEFMessagePump {
         fire()
     }
 
+    /// `CMUX_NEXT_CEF_PUMP_AT_STEP=1` (off by default until measured): the pump also runs at the start of each live
+    /// resize step (``ResizeStepStart``).
+    nonisolated static let runsAtStep = ProcessInfo.processInfo.environment["CMUX_NEXT_CEF_PUMP_AT_STEP"] == "1"
+
+    /// The start of a live resize step, before its layout: one pass when work CEF already asked for is due. Returns
+    /// whether a pass ran.
+    func runIfDueAtStep() -> Bool { false }
+
     private func timerFired() {
         guard isRunning else { return }
         #if DEBUG || CMUX_BENCH_HOOKS
