@@ -3628,3 +3628,53 @@ describe("requestTimedOut", () => {
     expect(requestTimedOut(undefined)).toBe(false);
   });
 });
+
+describe("an install token that runs out mid-journey (cloudflare-relay run 45827065539: connect_info 401 at 11 min)", () => {
+  /** A local server that answers 401 auth.unauthenticated to any bearer but `good`, and `{ok:true}` to `good`. */
+  async function server<T>(good: string, run: (url: string, bearers: string[]) => Promise<T>): Promise<T> {
+    const bearers: string[] = [];
+    const s = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch(req) {
+        const b = (req.headers.get("authorization") ?? "").replace(/^Bearer /, "");
+        bearers.push(b);
+        if (b !== good) return Response.json({ _tag: "Unauthenticated", code: "auth.unauthenticated", message: "missing or invalid token" }, { status: 401 });
+        return Response.json({ ok: true, value: { host: "h", state: "running", epoch: 1 } });
+      },
+    });
+    try {
+      return await run(`http://127.0.0.1:${s.port}`, bearers);
+    } finally {
+      s.stop(true);
+    }
+  }
+
+  test("a read on an expired bearer mints a new one and asks once more", async () => {
+    await server("fresh", async (url, bearers) => {
+      const api = new Api(url);
+      api.bearer = "expired";
+      let minted = 0;
+      api.refresh = async () => { minted++; return "fresh"; };
+      expect(await api.read("cloud.machine.connect_info", { machine: "m" })).toEqual({ host: "h", state: "running", epoch: 1 });
+      expect(bearers).toEqual(["expired", "fresh"]);
+      expect(minted).toBe(1);
+      expect(api.bearer).toBe("fresh");
+      // The new bearer stays: the next call needs no mint.
+      await api.op("cloud.machine.stop", { machine: "m" });
+      expect(minted).toBe(1);
+    });
+  });
+
+  test("with no refresher, or a refresh that is no good either, the 401 still fails the call", async () => {
+    await server("fresh", async (url, bearers) => {
+      const api = new Api(url);
+      api.bearer = "expired";
+      await expect(api.read("cloud.machine.connect_info", {})).rejects.toThrow("HTTP 401");
+      expect(bearers).toEqual(["expired"]);
+      api.refresh = async () => "also-expired";
+      await expect(api.read("cloud.machine.connect_info", {})).rejects.toThrow("HTTP 401");
+      expect(bearers).toEqual(["expired", "expired", "also-expired"]);
+    });
+  });
+});
