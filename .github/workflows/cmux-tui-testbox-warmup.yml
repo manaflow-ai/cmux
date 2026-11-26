@@ -241,12 +241,10 @@ jobs:
           echo "CMUX_ZIG=$install_root/zig" >> "$GITHUB_ENV"
 
       - name: Fetch Ghostty Zig dependencies without compiling
-        working-directory: ghostty-next
         shell: bash
-        run: |
-          set -euo pipefail
-          # `--fetch` hydrates the package cache and exits before a build.
-          "$CMUX_ZIG" build --fetch
+        # From our mirror, with bounded retries; `--fetch=all` hydrates the
+        # package cache and exits before a build.
+        run: ZIG="$CMUX_ZIG" bash scripts/cmux-next/zig-fetch-all.sh ghostty-next
 
       - name: Set up repository-pinned cmux-tui Rust
         uses: ./.github/actions/setup-cmux-tui-rust
