@@ -17,6 +17,6 @@ export const ArrowUpIcon = () => (
     aria-hidden="true"
     focusable="false"
   >
-    <path d="M8 12.9V3.4M3.9 7.5 8 3.4l4.1 4.1" />
+    <path d="M8 14.1V1.9M2.9 7 8 1.9 13.1 7" />
   </svg>
 );
