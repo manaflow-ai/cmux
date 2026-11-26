@@ -587,6 +587,17 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(new, [], "give each step an App-token path: mint one and pass "
                          "`steps.<mint>.outputs.token || github.token`, or install gh_app_token.sh earlier in its job")
 
+    def test_the_failure_report_waits_through_a_rate_limit(self) -> None:
+        # Run 45776501690: report-nightly-failure's github-script died on "API rate limit exceeded", so the
+        # failed nightly opened no issue. Every github-script step of the job retries a rate-limited request.
+        scripts = [s for s in self.jobs["report-nightly-failure"]["steps"] if "github-script" in str(s.get("uses", ""))]
+        self.assertTrue(scripts)
+        for step in scripts:
+            script = step["with"]["script"]
+            self.assertIn("github.hook.wrap('request'", script, step.get("name"))
+            self.assertIn("x-ratelimit-reset", script, step.get("name"))
+            self.assertIn("deadline", script, step.get("name"))
+
     def test_the_shared_token_detector(self) -> None:
         mint = {"name": "Mint", "id": "mint", "uses": "actions/create-github-app-token@x"}
         jobs = {"j": {"steps": [
