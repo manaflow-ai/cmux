@@ -202,36 +202,6 @@
           ]
         },
         {
-          "key": "agentPane.display.pinnedPlan",
-          "note": "The running turn's task list pinned under its latest message (webviews conversation/turns.ts). Off by default: the composer's hat shows it (subagents/SubagentTray.tsx plan; Leo, 2026-11-03).",
-          "title": {
-            "key": "settings.agentPane.display.pinnedPlan",
-            "text": "Pin Task List in Chat"
-          },
-          "help": {
-            "key": "settings.agentPane.display.pinnedPlan.help",
-            "text": "Keeps the agent's task list under the latest message, not over the composer."
-          },
-          "kind": "toggle",
-          "default": false,
-          "keywords": [
-            "agent",
-            "chat",
-            "acp",
-            "display",
-            "reading",
-            "plan",
-            "task",
-            "tasks",
-            "todo",
-            "checklist",
-            "pin",
-            "pinned",
-            "list",
-            "progress"
-          ]
-        },
-        {
           "key": "agentPane.display.environmentCard",
           "note": "A floating card at the chat's top right (webviews session-info/EnvironmentCard.tsx), after the Codex app's Environment panel: the chat folder's changes (Session Info's Changes row, changeCounts.ts), its branch or worktree, Commit or push (the diff tab's Commit form and Push, as the palette's Commit opens it) and Create PR (git.pullRequest). Off by default: today's chat draws no card. A look turns it on (chameleon-codex).",
           "title": {
