@@ -41,7 +41,7 @@ impl Walker<'_> {
                 let ok = match ty["name"].as_str().unwrap() {
                     "string" => value.is_string(),
                     "boolean" => value.is_boolean(),
-                    "float64" => value.is_number(),
+                    "float32" | "float64" => value.is_number(),
                     "int32" | "int64" => value.is_i64() || value.is_u64(),
                     _ => value.is_u64(),
                 };
