@@ -1,48 +1,115 @@
-// The chat's presentation: Messages is the bottom rung of the chat's detail ladder (chatDetail.ts,
-// chatDetailChoice.ts), the bubble view with tool rows hidden; every other level is the Transcript.
-// The presentation only changes which rows are drawn; row components remain responsible for their
-// own content. This module keeps the old names for the callers that read or set one.
+// The chat's presentation, selectable per agent session. Transcript is the existing full view;
+// Messages is the compact, bubble-oriented presentation that hides tool rows. The presentation
+// only changes which rows are drawn; row components remain responsible for their own content.
+//
+// Each chat keeps its own choice in localStorage. A chat without an override follows the global
+// `agentPane.display.presentation` setting from chatDisplay.ts.
+import { useSyncExternalStore } from "react";
 import {
-  chatDetailOf,
-  hasOwnChatDetail,
-  makeChatDetailDefault,
-  resetChatDetails,
-  setChatDetail,
-  useChatDetail,
-} from "./chatDetailChoice";
-import { presentationOfDetail, type Presentation } from "../chatDetail";
-import { defaultChatDetail } from "../chatDisplay";
+  PRESENTATION_KEY,
+  defaultPresentation,
+  changeChatDisplay,
+  useDefaultPresentation,
+  type Presentation,
+} from "../chatDisplay";
 
-export { PRESENTATIONS, isPresentation, type Presentation } from "../chatDetail";
+export { PRESENTATIONS, isPresentation, type Presentation } from "../chatDisplay";
 
-/// The chat's presentation: Messages at the Messages level, else Transcript.
+const STORAGE_KEY = "cmux.acpmux.presentation";
+/// The chats whose own presentation is kept; the oldest choice goes first.
+const LIMIT = 200;
+
+let own: Map<string, Presentation> | undefined;
+const listeners = new Set<() => void>();
+
+/// The choices as stored now; undefined when storage cannot be read.
+function stored(): Map<string, Presentation> | undefined {
+  try {
+    const value = JSON.parse(globalThis.localStorage?.getItem(STORAGE_KEY) ?? "null") as unknown;
+    const presentations = new Map<string, Presentation>();
+    if (value && typeof value === "object")
+      for (const [sessionId, presentation] of Object.entries(value as Record<string, unknown>))
+        if (presentation === "transcript" || presentation === "messages") presentations.set(sessionId, presentation);
+    return presentations;
+  } catch {
+    // Private windows, test DOMs and full storage keep the choices for this page only.
+    return undefined;
+  }
+}
+
+function load(): Map<string, Presentation> {
+  own ??= stored() ?? new Map();
+  return own;
+}
+
+/// Writes one chat's choice (or its removal) over what storage holds now, not this page's copy:
+/// another pane's choices made since this page read them stay.
+function write(sessionId: string, presentation: Presentation | undefined): void {
+  const all = stored() ?? load();
+  all.delete(sessionId);
+  if (presentation) all.set(sessionId, presentation);
+  while (all.size > LIMIT) all.delete(all.keys().next().value!);
+  own = all;
+  try {
+    globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(Object.fromEntries(all)));
+  } catch {
+    // The in-memory choice still lasts for this page.
+  }
+}
+
+// Another pane (another page on the same origin) changed a chat's presentation: read it again.
+if (typeof globalThis.addEventListener === "function")
+  globalThis.addEventListener("storage", (event: StorageEvent) => {
+    if (event.key !== STORAGE_KEY && event.key !== null) return;
+    own = stored() ?? own;
+    for (const listener of listeners) listener();
+  });
+
+const subscribe = (listener: () => void) => {
+  listeners.add(listener);
+  return () => void listeners.delete(listener);
+};
+
+/// The chat's presentation: its own, else the global default setting.
 export const presentationOf = (sessionId: string | undefined): Presentation =>
-  presentationOfDetail(chatDetailOf(sessionId));
+  (sessionId ? load().get(sessionId) : undefined) ?? defaultPresentation();
 
-/// Whether the chat has a level of its own.
-export const hasOwnPresentation = hasOwnChatDetail;
+/// Whether the chat has a presentation of its own, even one equal to the default.
+export const hasOwnPresentation = (sessionId: string | undefined): boolean =>
+  sessionId !== undefined && load().has(sessionId);
 
 /// The chat's presentation as a hook.
-export const usePresentation = (sessionId: string | undefined): Presentation =>
-  presentationOfDetail(useChatDetail(sessionId));
-
-/// The level a presentation puts a chat at: Transcript keeps a transcript level, else the default's,
-/// else Normal.
-function levelOf(sessionId: string | undefined, presentation: Presentation) {
-  if (presentation === "messages") return "messages" as const;
-  const now = chatDetailOf(sessionId);
-  if (now !== "messages") return now;
-  const fallback = defaultChatDetail();
-  return fallback === "messages" ? "normal" : fallback;
+export function usePresentation(sessionId: string | undefined): Presentation {
+  const fallback = useDefaultPresentation();
+  const mine = useSyncExternalStore(
+    subscribe,
+    () => (sessionId ? load().get(sessionId) : undefined),
+    () => undefined,
+  );
+  return mine ?? fallback;
 }
 
 /// Set a presentation for this chat only.
-export const setPresentation = (sessionId: string, presentation: Presentation): void =>
-  setChatDetail(sessionId, levelOf(sessionId, presentation));
+export function setPresentation(sessionId: string, presentation: Presentation): void {
+  if (load().get(sessionId) === presentation && stored()?.get(sessionId) === presentation) return;
+  write(sessionId, presentation);
+  for (const listener of listeners) listener();
+}
 
-/// Make a presentation the global default and clear this chat's own level, if any.
-export const makePresentationDefault = (sessionId: string | undefined, presentation: Presentation): void =>
-  makeChatDetailDefault(sessionId, levelOf(sessionId, presentation));
+/// Make a presentation the global default and clear this chat's own override, if any.
+export function makePresentationDefault(sessionId: string | undefined, presentation: Presentation): void {
+  if (sessionId && load().has(sessionId)) write(sessionId, undefined);
+  changeChatDisplay(PRESENTATION_KEY, presentation === "transcript" ? null : presentation);
+  for (const listener of listeners) listener();
+}
 
 /// Test and gallery reset: every chat follows the global default again.
-export const resetPresentations = resetChatDetails;
+export function resetPresentations(): void {
+  own = new Map();
+  try {
+    globalThis.localStorage?.removeItem(STORAGE_KEY);
+  } catch {
+    // Nothing to persist.
+  }
+  for (const listener of listeners) listener();
+}

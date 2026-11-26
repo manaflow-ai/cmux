@@ -91,6 +91,7 @@ impl Terminal {
         let (top, bottom) = (start.1.min(end.1), start.1.max(end.1));
         let tag = sys::GHOSTTY_POINT_TAG_SCREEN;
         let selection = sys::GhosttySelection {
+            size: size_of::<sys::GhosttySelection>(),
             start: self.grid_ref(tag, left, top)?,
             end: self.grid_ref(tag, right, bottom)?,
             rectangle: true,
@@ -174,7 +175,8 @@ fn search_matches(search: &SearchHandle) -> Result<Vec<sys::GhosttySelection>> {
             return Ok(Vec::new());
         }
     };
-    let empty = sys::GhosttySelection::default();
+    let empty =
+        sys::GhosttySelection { size: size_of::<sys::GhosttySelection>(), ..Default::default() };
     let mut selections = vec![empty; needed];
     let mut buffer =
         sys::GhosttySelectionBuffer { ptr: selections.as_mut_ptr(), cap: selections.len(), len: 0 };
@@ -193,12 +195,16 @@ fn plain_selection_options(
     selection: &sys::GhosttySelection,
     unwrap: bool,
     trim: bool,
-) -> FormatterTerminalOptions {
-    FormatterTerminalOptions {
+) -> sys::GhosttyFormatterTerminalOptions {
+    sys::GhosttyFormatterTerminalOptions {
+        size: size_of::<sys::GhosttyFormatterTerminalOptions>(),
         emit: sys::GHOSTTY_FORMATTER_FORMAT_PLAIN,
         unwrap,
         trim,
-        extra: FormatterTerminalExtra { ..Default::default() },
+        extra: sys::GhosttyFormatterTerminalExtra {
+            size: size_of::<sys::GhosttyFormatterTerminalExtra>(),
+            ..Default::default()
+        },
         selection,
     }
 }

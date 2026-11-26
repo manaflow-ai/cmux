@@ -82,10 +82,7 @@ struct AgentPaneDisplaySettingTests {
             refused: [.string("on")]),
         Row(key: "agentPane.display.minimap", fallback: .string("compact"), accepted: [.string("off"), .string("full")],
             refused: [.bool(true), .string("left")]),
-        // The chat detail ladder (Messages, Normal, Thinking, Verbose) of a chat without its own level.
-        Row(key: "agentPane.display.detail", fallback: .string("normal"),
-            accepted: [.string("messages"), .string("thinking"), .string("verbose")], refused: [.string("loud"), .bool(true)]),
-        // The two keys the ladder replaced: off the page, still read.
+        // The transcript's view (Normal, Thinking, Verbose) of a chat without its own.
         Row(key: "agentPane.display.transcriptView", fallback: .string("normal"),
             accepted: [.string("thinking"), .string("verbose")], refused: [.string("loud"), .bool(true)]),
         Row(key: "agentPane.display.presentation", fallback: .string("transcript"),
@@ -238,7 +235,7 @@ struct AgentPaneDisplaySettingTests {
     @Test(arguments: [
         "agentPane.display.width", "agentPane.display.code.family", "agentPane.display.font.size",
         "agentPane.display.sessionInfo.placement", "agentPane.display.environment.placement",
-        "agentPane.display.minimap", "agentPane.display.detail", "agentPane.display.transcriptView", "agentPane.display.presentation", "agentPane.display.rail.side",
+        "agentPane.display.minimap", "agentPane.display.transcriptView", "agentPane.display.presentation", "agentPane.display.rail.side",
         "agentPane.display.statusVerbs.mode", "agentPane.display.statusVerbs.custom",
     ])
     func thePageMayWriteTheChatKeys(_ key: String) {

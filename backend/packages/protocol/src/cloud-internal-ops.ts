@@ -24,6 +24,9 @@ export const CloudDriverResultParams = Schema.Struct({
   snapshot_outcome: Schema.optionalKey(Schema.Literals(["deleted", "absent"])),
   /** create (and a failed resize): the VM's real resources read from the provider, so the record is honest. */
   resources: Schema.optionalKey(Schema.Struct({ cpu: Schema.Int, memory_mb: Schema.Int, disk_mb: Schema.Int })),
+  /** create: the image id the VM booted when it is not the one the machine's record named (that one was withdrawn, so
+   *  the create booted the image cmux-vm's list names now): the record takes it. */
+  image: Schema.optionalKey(Schema.String.check(isPattern(/^[a-z][a-z0-9-]{0,62}$/))),
   /** create: sha256 (hex) of the one-time bind token written into the VM; the token itself never enters an op. */
   bind_token_sha256: Schema.optionalKey(Schema.String.check(isPattern(/^[0-9a-f]{64}$/))),
   /** env_build: where a failed build stopped and its log tail, or a finished build's timings (ms). */
