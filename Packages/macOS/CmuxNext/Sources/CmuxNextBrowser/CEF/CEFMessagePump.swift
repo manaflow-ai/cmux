@@ -42,8 +42,10 @@ final class CEFMessagePump {
         timer: any CEFPumpTimer = CEFRunLoopPumpTimer(),
         clock: @escaping () -> TimeInterval = CEFMessagePump.uptime,
         ledger: WakeupLedger = .shared,
-        gate: CEFPumpCrossThreadGate = CEFPumpCrossThreadGate()
+        gate: CEFPumpCrossThreadGate = CEFPumpCrossThreadGate(),
+        defersToSteps: Bool = CEFMessagePump.runsOnlyAtSteps
     ) {
+        self.defersToSteps = defersToSteps
         self.work = work
         self.timer = timer
         self.clock = clock
@@ -94,7 +96,26 @@ final class CEFMessagePump {
 
     /// Lever 4e, `CMUX_NEXT_CEF_PUMP_AT_STEP=1` (a bench arm until measured; a `CMUX_NEXT_` launch knob, so the launch
     /// strip keeps it): the pump runs at the start of each resize step (``ResizeStepTimes/stepWillLayOut``).
-    nonisolated static let runsAtStep = ProcessInfo.processInfo.environment["CMUX_NEXT_CEF_PUMP_AT_STEP"] == "1"
+    nonisolated static let runsAtStep = ["1", "steps"].contains(ProcessInfo.processInfo.environment["CMUX_NEXT_CEF_PUMP_AT_STEP"])
+    /// Its steps-only form, `CMUX_NEXT_CEF_PUMP_AT_STEP=steps` (a bench arm): while a live resize steps, the timer's
+    /// passes also wait for the next step's start (at most ``stepDeferBound``), so Chromium's work never sits between a
+    /// pointer event and the step it starts. With every page drawing each size the pump ran about 36 times a second in
+    /// a corner drag, between the steps too, and an event waited longer for its step (input age p50 10 to 18-27 ms).
+    nonisolated static let runsOnlyAtSteps = ProcessInfo.processInfo.environment["CMUX_NEXT_CEF_PUMP_AT_STEP"] == "steps"
+    /// A live resize steps while its last step began this recently; a longer pause (or its end) lets the timer run.
+    static let liveStepWindow: TimeInterval = 0.1
+    /// The longest a due timer pass waits for the next step's start: a paused pointer never starves the pages or
+    /// Chromium's timers, and the resize's end runs what waited within this.
+    static let stepDeferBound: TimeInterval = 0.016
+    /// Whether this pump holds timer passes for a resize step's start (``runsOnlyAtSteps``; tests inject it).
+    let defersToSteps: Bool
+    /// A held pass that ran outside a step: at ``stepDeferBound`` because no step came (`bound`), or at the resize's end
+    /// (`end`). The step log's `cef_pump_late` line: the ms it waited, and why.
+    var onDeferredPassOutsideStep: ((Double, String) -> Void)?
+
+    /// A live resize ended (a window's, or a pane divider's drag): a pass held for a step runs now, once, and the timer
+    /// runs at its deadlines again.
+    func resizeEnded() {}
 
     /// The start of a resize step, before its layout: one pass when work CEF already asked for is due (a request whose
     /// deadline passed, or an immediate one still on its way from a Chromium thread). A live resize keeps the main
