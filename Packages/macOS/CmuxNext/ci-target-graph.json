@@ -2669,7 +2669,7 @@
     },
     "DaemonWireTypesPlugin": {
       "kind": "plugin",
-      "path": "Packages/macOS/CmuxNext/Sources/DaemonWireTypesPlugin",
+      "path": "Packages/macOS/CmuxNext/Plugins/DaemonWireTypesPlugin",
       "targets": [],
       "packages": []
     },
