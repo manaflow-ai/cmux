@@ -1871,6 +1871,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_tree_handoff.py
 
+      - name: Validate the hand-off of a tree owner that ended in startup_failure
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_tui_stranded_owner_sweep.py
+
       - name: Validate that recovery jobs run after a timeout
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_ci_recovery_runs_after_a_timeout.py
@@ -2547,7 +2551,9 @@ jobs:
     permissions:
       contents: read
     steps:
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-stall-step-bounds (a stalled runner fails in minutes)
       - name: Checkout
+        timeout-minutes: 6
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           # PR/merge-group synthetic commits need only HEAD + first parent.
@@ -2583,6 +2589,7 @@ jobs:
           echo "Package policy base: $base"
 
       - name: Set up Python 3.9
+        timeout-minutes: 5
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: "3.9"
