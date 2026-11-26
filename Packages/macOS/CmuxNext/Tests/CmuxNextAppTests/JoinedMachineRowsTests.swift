@@ -343,7 +343,7 @@ import CmuxNextWakeups
         #expect(!(await store.perform(.rotate, "m_1")))
         #expect(fake.rotated == ["m_1"])
         #expect(store.failed["m_1"] == .rotate)
-        // The row's caption says so: the page reads `failed` (webviews/src/pages/machines, joinedCaption).
+        // The row's caption reads `failed`.
     }
 
     @Test func joinedRowsFollowTheConnectedOnesAndCarryWhoMadeTheirLine() {
@@ -361,7 +361,7 @@ import CmuxNextWakeups
     static func registry(_ store: JoinedMachineStore, labs: @escaping @MainActor () -> Bool = { true },
                          ran: @escaping @MainActor (JoinedMachineAction, JoinedMachine, String) -> Void = { _, _, _ in }) -> ActionRegistry {
         let registry = ActionRegistry.standard()
-        MachineSectionHostView.bindJoinedActions(into: registry, store: { store }, labsOn: labs, perform: ran)
+        MachineRowActions.bindJoinedActions(into: registry, store: { store }, labsOn: labs, perform: ran)
         return registry
     }
 
@@ -378,13 +378,13 @@ import CmuxNextWakeups
         let store = fake.store()
         await store.refresh()
         let registry = Self.registry(store)
-        let menu = MachineSectionHostView.joinedMenu(store.machines[0], rowID: "joined:m_1", registry: registry)
+        let menu = MachineRowActions.joinedMenu(store.machines[0], rowID: "joined:m_1", registry: registry)
         #expect(Self.rows(menu).map { $0.title } == ["Check", "Rotate Credential", "Revoke…"])
         #expect(Self.rows(menu).map { $0.enabled } == [true, true, true])
-        let gone = MachineSectionHostView.joinedMenu(store.machines[1], rowID: "joined:m_2", registry: registry)
+        let gone = MachineRowActions.joinedMenu(store.machines[1], rowID: "joined:m_2", registry: registry)
         #expect(Self.rows(gone).map { $0.title } == ["Check"], "a revoked machine offers only Check")
         let offRegistry = Self.registry(store, labs: { false })
-        let off = MachineSectionHostView.joinedMenu(store.machines[0], rowID: "joined:m_1", registry: offRegistry)
+        let off = MachineRowActions.joinedMenu(store.machines[0], rowID: "joined:m_1", registry: offRegistry)
         #expect(Self.rows(off).map { $0.enabled } == [false, false, false], "nothing runs while labs.machineJoin is off")
     }
 
@@ -394,7 +394,7 @@ import CmuxNextWakeups
         await store.refresh()
         var ran: [(JoinedMachineAction, String, String)] = []
         let registry = Self.registry(store, ran: { ran.append(($0, $1.id, $2)) })
-        let menu = MachineSectionHostView.joinedMenu(store.machines[0], rowID: "ssh-1", registry: registry)
+        let menu = MachineRowActions.joinedMenu(store.machines[0], rowID: "ssh-1", registry: registry)
         let rotate = try #require(menu.items.first { $0.title == "Rotate Credential" })
         // A test process has no running NSApplication to dispatch the item: send its action to its
         // target as AppKit does.
@@ -417,7 +417,7 @@ import CmuxNextWakeups
         fake.rows = [Fake.machine("m_1", "lane-vm-3"), Fake.machine("m_2", "old-box", state: .revoked)]
         let store = fake.store()
         await store.refresh()
-        let ids = JoinedMachineAction.allCases.map(MachineSectionHostView.actionID)
+        let ids = JoinedMachineAction.allCases.map(MachineRowActions.actionID)
         var ran: [(JoinedMachineAction, String, String)] = []
         let registry = Self.registry(store, ran: { ran.append(($0, $1.id, $2)) })
         for id in ids {
@@ -510,7 +510,7 @@ import CmuxNextWakeups
         #expect(store.busy.contains("m_1"))
         // The menu target holds the registry weakly, as the app's long-lived one is: keep it here.
         let registry = Self.registry(store)
-        let busyMenu = MachineSectionHostView.joinedMenu(rows[0], rowID: "joined:m_1", registry: registry)
+        let busyMenu = MachineRowActions.joinedMenu(rows[0], rowID: "joined:m_1", registry: registry)
         #expect(Self.rows(busyMenu).map { $0.enabled } == [true, false, false], "Rotate and Revoke wait; Check can still run")
         #expect(!(await store.perform(.rotate, "m_1")), "a second change while the first is in flight is refused")
         gate.release()
