@@ -394,7 +394,8 @@ final class CEFLayerHosting {
     func pageViewResized() { // perf-hot: 0.05ms cef-geometry (each hosted page, each motion frame)
         guard inPaneDrag ? !fenceMissedInDrag : commitResizeOwed, page != nil, let browser,
               let resizeFence = fork?.resizeFence,
-              let view, let window = view.window, let layer = view.layer else { return }
+              let view, let window = view.window, let layer = view.layer,
+              resizeFences.admits(view, in: window) else { return }
         let start = CEFTrackerStats.now()
         defer { CEFHostView.trackerStats.resizeFenceJoinSeconds += CEFTrackerStats.now() - start }
         let refreshMs = (shortestIntervals().min() ?? 1.0 / 60) * 1_000
