@@ -349,8 +349,8 @@ pub fn masked(contact: &Contact) -> String {
             if !(11..=15).contains(&count) || !digits.chars().all(|c| c.is_ascii_digit()) {
                 return "***".to_owned();
             }
-            let country = &digits[..count - 10];
-            let last = &value[value.len() - 4..];
+            let country: String = digits.chars().take(count - 10).collect();
+            let last: String = digits.chars().skip(count - 4).collect();
             format!("+{country} *** *** {last}")
         }
     }
