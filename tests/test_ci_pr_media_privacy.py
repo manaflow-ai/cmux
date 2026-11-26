@@ -634,7 +634,7 @@ class WriterInventoryTests(unittest.TestCase):
     NOT_WRITERS = {"scripts/gallery-matrix/report.ts", "scripts/gallery-matrix/compare.test.ts",
                    "scripts/cmux-next/hot-verify-ci.py",
                    "scripts/cmux-next/release-notes.py",
-                   # Makes local clips and prints the privacy-check reminder; it uploads nothing (6d56bbc91ac2).
+                   # Names pr-media.py's GIF encoder and its upload check in help text; writes local files only.
                    "scripts/media/media_polish.py"}
     SKIP_SUFFIXES = (".md", ".json", ".xcstrings", ".txt", ".png", ".gif", ".mp4", ".webp", ".jpg", ".svg")
 
