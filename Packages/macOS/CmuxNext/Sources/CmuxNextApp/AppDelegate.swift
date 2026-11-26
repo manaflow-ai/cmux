@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextAgentIntegrations
 import CmuxNextAgentLanes
@@ -297,9 +298,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let webAuthWindows = WebAuthSessionWindows(host: services, logger: services.daemon.logger,
                                                    profiles: services.browserStores.offTheRecord, signInCallbacks: services.signInCallbacks,
                                                    contextMenus: services.contextMenus, activeLook: services.activeLook)
-        let webAuthHandler = WebAuthSessionHandler(broker: WebAuthSessionBroker(opener: webAuthWindows))
-        self.webAuthHandler = webAuthHandler
-        WebAuthSessionHandler.install(webAuthHandler)
+        // The same panel opens Connect GitHub's pages over the app's window; the app finishes GitHub's return itself.
+        webAuthHandler = GitHubInstallSheet.install(opener: webAuthWindows, auth: services.cloud.auth)
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURLEvent(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
         // A cmux tab's return to this app (GitHub's completion, the sign-in callback): same route, no prompt, its tab closes.
@@ -367,7 +367,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         UserOnlySettingConfirmation.install(settings, services: services)
         // Every palette-exposed schema setting in the palette (R93).
-        services.palette.sources.settings = SettingsPaletteSource(settings: settings, themes: services.themes.catalog) { [weak services] in
+        let openSetting: @MainActor (String) -> Void = { [weak registry] in // Show in Settings (openSettings setting:)
+            _ = registry?.perform("openSettings", invocation: ActionInvocation(arguments: ["setting": .string($0)], origin: .user))
+        }
+        services.palette.sources.settings = SettingsPaletteSource(settings: settings, themes: services.themes.catalog, openSetting: openSetting) { [weak services] in
             services?.windows.active.map { SettingsPaletteSource.themeColors($0.themeScope.tokens) } ?? []
         }
         services.history.startDaemonSync(settings: settings)
