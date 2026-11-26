@@ -27,9 +27,9 @@ import {
   highlightBubble,
   MOTION_SCROLL_EVENT,
   reducedMotion,
-  scrollRunning,
   settleScroll,
   stopScroll,
+  scrollRunning,
 } from "./scrollMotion";
 import { RAIL_SCROLLS_ATTRIBUTE } from "./railWheel";
 import { wheelPixels } from "../wheelPassThrough";
@@ -116,6 +116,8 @@ export const RAIL_SHOW_LABEL = {
 const STEP_PENDING_MS = STEP_MS + 150;
 /// A pointer that moves this far after pressing a row scrubs instead of clicking.
 const SCRUB_SLOP = 3;
+/// The most appended prompts whose ticks wait to enter once drawn (TickList); the oldest go first.
+const ENTRANCES_KEPT = 256;
 /// A fling, for the rail's list: FLING_MOVES band moves in a row while the wheel drives the chat (a
 /// wheel event, a trackpad's momentum ones included, within FLING_REST_MS), each with the transcript
 /// going at least FLING_SPEED px a ms (200 px a 60 Hz frame, past reading speed) and each within
@@ -2137,6 +2139,13 @@ const TickList = memo(function TickList({
     if (!initial && (after >= 0 || entrance!.ticks.length === 0)) {
       for (let index = Math.max(ticks.pendingCount, after + 1); index < ticks.length; index++)
         pending.add(ticks.at(index)!.key);
+    }
+    // Only the newest prompts not drawn yet keep their entrance: one never drawn stayed pending for good, so a chat
+    // whose prompts arrived off the rail's drawn rows held them all (19,774 keys of a 50,000-turn chat, chat-100k-flat
+    // grown_x1), and each new prompt copied them (the Set above).
+    for (const key of pending) {
+      if (pending.size <= ENTRANCES_KEPT) break;
+      pending.delete(key);
     }
     entrance = { sessionId, ticks, pending };
   }

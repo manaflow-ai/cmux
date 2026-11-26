@@ -25,6 +25,19 @@ export function transcriptRepositories(
   });
 }
 
+/** Rows past the cache's bound before it is cut back to the rows read (`keepOnly`). */
+const CACHE_SLACK = 256;
+
+/** Cuts `cache` back to the rows read now. A chat that sheds its old rows (a grown chat keeps its
+ *  newest few thousand) left each shed row's text in the cache: 100,000 entries and 8.4 MB of a
+ *  50,000-turn chat's page that its view no longer held (chat-100k-flat grown_x1, HEAP_RETAINERS).
+ *  Run once the cache is twice the rows, so its cost is O(1) per row added. */
+function keepOnly(cache: RepositoryCache, rows: readonly Pick<AcpmuxRow, "id">[]): void {
+  const ids = new Set<string>();
+  for (const row of rows) ids.add(row.id);
+  for (const id of cache.keys()) if (!ids.has(id)) cache.delete(id);
+}
+
 /** One reading of a transcript (`transcriptRepositoriesFrom`): the rows read, the fallback, and
  *  where the repository mentioned last changes (`marks`, by row index, in order). `at(index)` is the
  *  repository row `index` means. A mention changes seldom, so a reading holds a few marks, never a
@@ -68,6 +81,7 @@ export function transcriptRepositoriesFrom(
       }
     }
   }
+  if (cache.size > 2 * rows.length + CACHE_SLACK) keepOnly(cache, rows);
   // A read from the first row (the chat let go of its oldest rows, another chat, a new fallback) keeps only the rows
   // it read: the rows that left took their text with them. Kept for the page's life, the cache held every prompt and
   // reply a chat left open ever streamed (bench/transcript-replay.bench.ts god log: 20,994 entries and 2.3 MB of text
