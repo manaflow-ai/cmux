@@ -12,6 +12,12 @@
 //! - `race-dead-lan` (after, off the Wi-Fi or with Local Network denied): the race, with the LAN
 //!   address a black hole (a socket that never answers, the worst case: a denial that fails fast
 //!   is quicker), so what it costs over `relayed` is the race's own cost.
+//! - `relay-early` / `relay-old-hub` (PROTOCOL.md "Early relay ticket"): a phone whose only route
+//!   is cmux's HTTPS relay, its signaling and relay join both through the TCP shaper. With
+//!   `relay-early` the hub answers the `wg-init`'s `ticketEarly` with a `wg-ticket`, so the join
+//!   runs while the Mac answers (after); `relay-old-hub` is a hub that never does, so the phone
+//!   joins after `wg-resp` (before). `NETCOND_ANSWER_MS` delays each `wg-resp` (a Mac that
+//!   gathers slowly; default 0).
 //!
 //! Per profile and run (seed = run + `NETCOND_SEED_BASE`), each path gives:
 //! - `connect_ms`: from the dial's start to the link being up. For `relayed` this includes the
@@ -41,6 +47,7 @@
 //! - `NETCOND_STREAM_KB` (default 0: off): while each path dials and echoes, a streaming session
 //!   on its own relayed link through the same radio pushes this many KiB every 10 ms and drains
 //!   the echo (a long live agent stream on the same Mac and Wi-Fi: the duress case).
+//! - `NETCOND_ANSWER_MS` (default 0): see `relay-early`.
 //! - `NETCOND_STREAM_RADIO` (`shared` default, or `own`): `own` gives the stream its own radio
 //!   (its own shaper and source address), as a second socket behind a real NAT gets its own
 //!   mapping; the shaper is one mapping per radio (it answers "whichever spoke last").
@@ -55,6 +62,7 @@ use std::time::Duration;
 use bytes::Bytes;
 use cmux_fault::Trace;
 use cmux_fault::shaper::{Disruption, LinkProfile, ProfileFile, Shaper, UdpShaper};
+use cmux_mobile_link::dial::relay::RelayEndpoint;
 use cmux_mobile_link::dial::{self, Connected, SessionEvents};
 use cmux_mobile_link::lan::{self, LanEnrollRequest, LanHost, LanIdentity, LanMac};
 use cmux_mobile_link::testing::{FakeOptions, FakeSignaling, TestTurn};
@@ -117,13 +125,18 @@ struct Mac {
 }
 
 impl Mac {
-    async fn start() -> Self {
-        let signaling = FakeSignaling::start(FakeOptions::default()).await;
+    async fn start(fake: FakeOptions) -> Self {
+        let signaling = FakeSignaling::start(fake).await;
         let mac_id = uuid::Uuid::new_v4().to_string();
         let mac = SignalingClient::connect(&signaling.base_url, "user:alice", "team", &mac_id)
             .await
             .expect("Mac signaling");
-        let mac_options = DialOptions { include_loopback: true, timeout: WAIT, ..DialOptions::default() };
+        let mac_options = DialOptions {
+            include_loopback: true,
+            timeout: WAIT,
+            relay: Some(RelayEndpoint::with_token(signaling.base_url.clone(), None, &mac_id, "user:alice")),
+            ..DialOptions::default()
+        };
         tokio::spawn(async move {
             while let Some(session) = mac.next_session().await {
                 let events = SessionEvents {
@@ -234,6 +247,34 @@ async fn dial_relayed(mac: &Mac, radio: &Radio) -> Option<Up> {
     timeout(WAIT, attempt).await.ok().flatten()
 }
 
+/// The relay is the phone's only route: signaling and the relay join both ride the TCP
+/// shaper's internet path.
+async fn dial_https_relay(mac: &Mac, radio: &Radio) -> Option<Up> {
+    let attempt = async {
+        let phone_id = uuid::Uuid::new_v4().to_string();
+        let phone =
+            SignalingClient::connect(&radio.signaling_url, "user:alice", "team", &phone_id).await.ok()?;
+        let options = DialOptions {
+            include_loopback: true,
+            force_relay: true,
+            relay: Some(RelayEndpoint::with_token(
+                radio.signaling_url.clone(),
+                None,
+                &phone_id,
+                "user:alice",
+            )),
+            timeout: WAIT,
+            ..DialOptions::default()
+        };
+        let connected =
+            dial::connect(&phone, &mac.mac_id, TransportKind::WireGuard, &options, LinkConfig::default())
+                .await
+                .ok()?;
+        Some(Up { connected, _signaling: Some(phone) })
+    };
+    timeout(WAIT, attempt).await.ok().flatten()
+}
+
 async fn dial_lan(mac: &Mac, address: SocketAddr) -> Option<Up> {
     let timeline = Timeline::default();
     let attempt =
@@ -316,7 +357,12 @@ async fn first_echo(link: &Link, since: Instant) -> Option<f64> {
 
 async fn cold(profile: &LinkProfile, path: &str, run: u64, seed: u64, echo_count: u64, stream_kib: u64) {
     let trace = Trace::new();
-    let mac = Mac::start().await;
+    let fake = FakeOptions {
+        no_early_ticket: path == "relay-old-hub",
+        answer_delay: Duration::from_millis(env_u64("NETCOND_ANSWER_MS", 0)),
+        ..FakeOptions::default()
+    };
+    let mac = Mac::start(fake).await;
     let radio = Radio::start(&mac, profile, seed, &trace).await;
     let stream_mode = std::env::var("NETCOND_STREAM_RADIO").unwrap_or_default();
     let own_radio = stream_mode == "own";
@@ -348,6 +394,7 @@ async fn cold(profile: &LinkProfile, path: &str, run: u64, seed: u64, echo_count
         "lan" => dial_lan(&mac, radio.udp.addr()).await,
         "race" => first_up(dial_lan(&mac, radio.udp.addr()), dial_relayed(&mac, &radio)).await,
         "race-dead-lan" => first_up(dial_lan(&mac, hole_addr), dial_relayed(&mac, &radio)).await,
+        "relay-early" | "relay-old-hub" => dial_https_relay(&mac, &radio).await,
         _ => dial_relayed(&mac, &radio).await,
     };
     drop(hole);
@@ -371,7 +418,7 @@ async fn cold(profile: &LinkProfile, path: &str, run: u64, seed: u64, echo_count
 
 async fn fallback(profile: &LinkProfile, path: &str, run: u64, seed: u64) {
     let trace = Trace::new();
-    let mac = Mac::start().await;
+    let mac = Mac::start(FakeOptions::default()).await;
     let wifi = Radio::start(&mac, profile, seed, &trace).await;
     let lte_profile = ProfileFile::builtin().get("lte").cloned().expect("lte profile");
     let lte = Radio::start(&mac, &lte_profile, seed, &trace).await;

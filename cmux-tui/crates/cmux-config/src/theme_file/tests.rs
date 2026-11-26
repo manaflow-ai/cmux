@@ -998,3 +998,90 @@ fn a_theme_file_sets_the_home_card_style() {
         .expect("wobbly refused");
     assert!(refused.message.starts_with("expected one of"), "{}", refused.message);
 }
+
+#[test]
+fn a_theme_file_motion_block_is_read_clamped_and_checked_against_the_tokens() {
+    let file = overlay(
+        r#"{
+  "appearance.accent": "blue",
+  "motion": {
+    "presets": { "drawer": { "duration": 0.32, "bounce": 0.1 }, "smooth": { "duration": 0.2 } },
+    "springs": { "move": { "duration": 0.2 }, "appear": { "duration": 0.01, "bounce": 5 }, "wobble": { "duration": 0.2 } },
+    "fades": { "fadeIn": 0.16, "hoverOut": 0.12, "glow": 0.2 }
+  }
+}"#,
+    );
+    assert!(file.is_loaded);
+    // `motion` is no setting: the look still applies and the block is not refused as one.
+    assert_eq!(file.keys(), vec!["appearance.accent".to_string()]);
+    let motion = &file.motion;
+    assert_eq!(motion.presets.keys().collect::<Vec<_>>(), ["drawer"]);
+    assert_eq!(motion.presets["drawer"].damping_fraction(), 0.9);
+    assert_eq!(motion.springs["move"].response(), 0.2);
+    let appear = motion.springs["appear"];
+    assert_eq!(appear.duration, cmux_app_host::motion::TIME_RANGE.0);
+    assert_eq!(appear.bounce, cmux_app_host::motion_profile::BOUNCE_RANGE.1);
+    assert!(!motion.springs.contains_key("wobble"));
+    assert_eq!(motion.fades.get("fadeIn"), Some(&0.16));
+    assert_eq!(
+        motion.fades.get("hoverOut"),
+        Some(&0.12),
+        "a design-token fade cmux-motion does not use"
+    );
+    assert!(!motion.fades.contains_key("glow"));
+    let refused: Vec<&str> = file.diagnostics.iter().map(|d| d.path.as_str()).collect();
+    assert_eq!(refused, ["motion.presets.smooth", "motion.springs.wobble", "motion.fades.glow"]);
+    assert!(file.diagnostics.iter().all(|d| d.kind == ThemeDiagnosticKind::InvalidValue));
+    assert!(file.diagnostics[1].message.contains("move"), "{}", file.diagnostics[1].message);
+    assert_eq!(file.diagnostics[1].line, Some(5), "{:?}", file.diagnostics[1]);
+}
+
+#[test]
+fn no_motion_block_leaves_every_default() {
+    for text in [r#"{ "appearance.accent": "blue" }"#, r#"{ "motion": {} }"#, "{}"] {
+        let file = overlay(text);
+        assert!(file.motion.is_empty(), "{text}");
+        assert!(file.diagnostics.is_empty(), "{text}: {:?}", file.diagnostics);
+    }
+    // The look a file without the block applies is the look it applied before the block existed.
+    let plain = overlay(r#"{ "appearance.accent": "blue" }"#);
+    let with =
+        overlay(r#"{ "appearance.accent": "blue", "motion": { "fades": { "fadeIn": 0.2 } } }"#);
+    assert_eq!(plain.applied(&json!({}), &none()), with.applied(&json!({}), &none()));
+    let bad = overlay(r#"{ "motion": "bouncy" }"#);
+    assert!(bad.motion.is_empty());
+    assert_eq!(bad.diagnostics.iter().map(|d| d.path.as_str()).collect::<Vec<_>>(), ["motion"]);
+}
+
+#[test]
+fn a_motion_edit_reloads_and_a_half_saved_file_keeps_the_last_good_motion() {
+    let schema = Schema::embedded();
+    let domains = Domains::default();
+    let first = r#"{ "motion": { "fades": { "fadeIn": 0.16 } } }"#;
+    assert_eq!(overlay(first).motion.fades.get("fadeIn"), Some(&0.16));
+    let edited = overlay(r#"{ "motion": { "fades": { "fadeIn": 0.3 } } }"#);
+    assert_eq!(edited.motion.fades.get("fadeIn"), Some(&0.3));
+    let broken = overlay("{ \"motion\": { \"fades\": ");
+    assert!(broken.is_unparsable && broken.motion.is_empty());
+    let kept = broken.or_last_good(Some(first), &json!({}), None, schema, &domains);
+    assert_eq!(kept.motion.fades.get("fadeIn"), Some(&0.16));
+}
+
+#[test]
+fn the_theme_schema_names_the_motion_block_and_every_design_token() {
+    let (springs, fades) = motion::known();
+    assert!(springs.iter().any(|name| name == "move") && fades.iter().any(|name| name == "fadeIn"));
+    let schema = Schema::embedded().theme_file_json_schema(is_look);
+    let property = &schema["properties"]["motion"]["properties"];
+    for name in springs {
+        let bounce = &property["springs"]["properties"][name]["properties"]["bounce"]["maximum"];
+        assert_eq!(bounce, &json!(cmux_app_host::motion_profile::BOUNCE_RANGE.1), "{name}");
+    }
+    for name in fades {
+        assert!(property["fades"]["properties"][name].is_object(), "{name}");
+    }
+    assert_eq!(
+        property["presets"]["additionalProperties"]["properties"]["duration"]["maximum"],
+        json!(cmux_app_host::motion::TIME_RANGE.1)
+    );
+}

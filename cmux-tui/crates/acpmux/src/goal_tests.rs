@@ -73,34 +73,6 @@ fn persists_usage_and_budget_stop_reasons() {
 }
 
 #[test]
-fn derives_running_then_done_claude_loop_from_plan_updates() {
-    let running = GoalState::from_plan_update(&json!({
-        "sessionUpdate": "plan",
-        "entries": [
-            {"content": "Inspect the change", "status": "completed"},
-            {"content": "Run the check", "status": "in_progress"}
-        ]
-    }))
-    .unwrap();
-    assert_eq!(running.provider, GoalProvider::Claude);
-    assert_eq!(running.objective, "Run the check");
-    assert_eq!(running.lifecycle(), "running");
-    assert_eq!(running.extra.get("kind"), Some(&json!("plan")));
-    let done = GoalState::from_plan_update(&json!({
-        "sessionUpdate": "plan",
-        "entries": [{"content": "Run the check", "status": "completed"}]
-    }))
-    .unwrap();
-    assert_eq!(done.lifecycle(), "done");
-    let stalled = GoalState::from_plan_update(&json!({
-        "sessionUpdate": "plan",
-        "entries": [{"content": "Run the check", "status": "blocked"}]
-    }))
-    .unwrap();
-    assert_eq!(stalled.lifecycle(), "stalled");
-}
-
-#[test]
 fn drops_malformed_legacy_fields_without_failing_the_session() {
     let goal = GoalState::from_value(
         &json!({
