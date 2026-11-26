@@ -32,21 +32,31 @@ pub(super) fn cpu_loops(cores: usize) -> usize {
     (cores * HOLD_PCT as usize).div_ceil(100).max(1)
 }
 
+#[cfg(target_os = "linux")]
 fn meminfo(key: &str) -> Option<u64> {
     let text = std::fs::read_to_string("/proc/meminfo").ok()?;
     let line = text.lines().find(|l| l.starts_with(key) && l[key.len()..].starts_with(':'))?;
     Some(line.split_whitespace().nth(1)?.parse::<u64>().ok()? * 1024)
 }
 
+#[cfg(target_os = "linux")]
+fn memory() -> Option<(u64, u64)> {
+    Some((meminfo("MemTotal")?, meminfo("MemAvailable")?))
+}
+#[cfg(target_os = "macos")]
+pub(super) use super::macos::cpu_jiffies;
+#[cfg(target_os = "macos")]
+use super::macos::memory;
+
 /// Used memory as a percent of `MemTotal`.
 pub(super) fn mem_used_pct() -> Option<f64> {
-    let (total, avail) = (meminfo("MemTotal")?, meminfo("MemAvailable")?);
+    let (total, avail) = memory()?;
     Some(total.saturating_sub(avail) as f64 * 100.0 / total.max(1) as f64)
 }
 
 /// The hog's bytes: up to [`HOLD_PCT`] of `MemTotal` used, within `MemAvailable` less headroom.
 pub(super) fn hog_bytes() -> Option<u64> {
-    let (total, avail) = (meminfo("MemTotal")?, meminfo("MemAvailable")?);
+    let (total, avail) = memory()?;
     let used = total.saturating_sub(avail);
     let want = (total / 100 * HOLD_PCT).saturating_sub(used);
     Some(want.min(avail.saturating_sub(RAM_HEADROOM)))
@@ -54,6 +64,12 @@ pub(super) fn hog_bytes() -> Option<u64> {
 
 /// Holds `bytes` resident: touched a page at a time, then touched again every 2 s.
 pub(super) fn hog_script(bytes: u64) -> String {
+    // Random pages on Mac resist compression; repeated zero pages do not hold physical RAM.
+    #[cfg(target_os = "macos")]
+    return format!(
+        "exec python3 -c 'import os,time\nchunks=[]\nleft={bytes}\nwhile left>0:\n n=min(left,64<<20)\n chunks.append(bytearray(os.urandom(n)))\n left-=n\nwhile True:\n time.sleep(2)\n for b in chunks:\n  for i in range(0,len(b),4096): b[i] ^= 1\n'"
+    );
+    #[cfg(target_os = "linux")]
     format!(
         "exec python3 -c 'import time\nchunks=[]\nleft={bytes}\nwhile left>0:\n n=min(left,64<<20)\n \
          b=bytearray(n)\n b[::4096]=b\"\\x01\"*len(range(0,n,4096))\n chunks.append(b)\n left-=n\n\
@@ -62,6 +78,7 @@ pub(super) fn hog_script(bytes: u64) -> String {
 }
 
 /// `(busy, total)` jiffies of all CPUs from `/proc/stat`.
+#[cfg(target_os = "linux")]
 pub(super) fn cpu_jiffies() -> Option<(u64, u64)> {
     let text = std::fs::read_to_string("/proc/stat").ok()?;
     let v: Vec<u64> =

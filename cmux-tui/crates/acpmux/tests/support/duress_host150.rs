@@ -27,12 +27,13 @@ use super::*;
 use std::sync::atomic::AtomicUsize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+#[cfg(target_os = "linux")]
 #[path = "duress_starved.rs"]
 mod starved;
 
 /// Legs beside `ALL_LEGS` that a run names on purpose (`all` does not take them).
 pub(super) const EXTRA_LEGS: [&str; 5] =
-    ["host150", "peerscale", starved::LEG, BURST_LEG, super::rfd0050::LEG];
+    ["host150", "peerscale", "starved", BURST_LEG, super::rfd0050::LEG];
 /// All ready peer links cut in one instant, then let redial (`peer_burst`).
 pub(super) const BURST_LEG: &str = "peerburst";
 /// The peer counts of `peerscale`.
@@ -58,7 +59,7 @@ const HOG_MAX_BYTES: u64 = 16 << 30;
 
 pub(super) fn is_extra(leg: &str) -> bool {
     leg == "host150"
-        || leg == starved::LEG
+        || leg == "starved"
         || leg == BURST_LEG
         || leg == super::rfd0050::LEG
         || peerscale_n(leg).is_some()
@@ -85,7 +86,8 @@ fn peerscale_n(leg: &str) -> Option<usize> {
 pub(super) fn peers_for(leg: &str, knob: usize) -> usize {
     match leg {
         "host150" => knob.max(HOST150_PEERS),
-        starved::LEG => knob.max(starved::PEERS),
+        #[cfg(target_os = "linux")]
+        "starved" => knob.max(starved::PEERS),
         BURST_LEG => knob.max(HOST150_PEERS),
         _ => peerscale_n(leg).unwrap_or(knob),
     }
@@ -97,8 +99,15 @@ pub(super) fn extra_cap(leg: &str) -> Duration {
         RAMP_MAX
     } else if peerscale_n(leg).is_some() {
         QUIET
-    } else if leg == starved::LEG {
-        starved::SETTLE
+    } else if leg == "starved" {
+        #[cfg(target_os = "linux")]
+        {
+            starved::SETTLE
+        }
+        #[cfg(target_os = "macos")]
+        {
+            Duration::ZERO
+        }
     } else if leg == BURST_LEG {
         BURST_READY + BURST_WATCH
     } else if leg == super::rfd0050::LEG {
@@ -315,7 +324,10 @@ async fn copy_counting(
         wire.bytes.fetch_add(n as u64, Ordering::Relaxed);
         frames.feed(&buf[..n], &wire);
         // The starved leg's distance: delay, jitter, and the stall of every peer at once.
+        #[cfg(target_os = "linux")]
         let hold = starved::hold();
+        #[cfg(target_os = "macos")]
+        let hold = Duration::ZERO;
         if !hold.is_zero() {
             tokio::time::sleep(hold).await;
         }
@@ -327,7 +339,13 @@ async fn copy_counting(
 }
 
 // ---------------------------------------------------------------------------------------------
-// The host and the daemon, read from /proc.
+// Optional Linux-only counters remain null on Mac; supported counters use native APIs.
+#[cfg(target_os = "macos")]
+use super::macos::{cpu_secs, rss_kib};
+#[cfg(target_os = "macos")]
+fn daemon_links(_pid: u32, _ports: &BTreeSet<u16>) -> (Option<usize>, Option<usize>) {
+    (None, None)
+}
 
 /// `processes` in /proc/stat: forks since boot.
 fn forks() -> Option<u64> {
@@ -338,6 +356,7 @@ fn forks() -> Option<u64> {
 }
 
 /// A process's CPU time (user + system) in seconds.
+#[cfg(target_os = "linux")]
 fn cpu_secs(pid: u32) -> Option<f64> {
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
     let rest = &stat[stat.rfind(')')? + 2..];
@@ -349,6 +368,7 @@ fn cpu_secs(pid: u32) -> Option<f64> {
     Some(ticks as f64 / hz)
 }
 
+#[cfg(target_os = "linux")]
 fn rss_kib(pid: u32) -> Option<u64> {
     std::fs::read_to_string(format!("/proc/{pid}/status"))
         .ok()?
@@ -386,6 +406,7 @@ fn memory_pressure(dir: &Path) -> Option<f64> {
 }
 
 /// Socket inodes `pid` holds open.
+#[cfg(target_os = "linux")]
 fn socket_inodes(pid: u32) -> BTreeSet<u64> {
     let Ok(dir) = std::fs::read_dir(format!("/proc/{pid}/fd")) else { return BTreeSet::new() };
     dir.flatten()
@@ -397,7 +418,8 @@ fn socket_inodes(pid: u32) -> BTreeSet<u64> {
 }
 
 /// The daemon's sockets: all of them, and its established TCP connections to `ports`.
-fn daemon_links(pid: u32, ports: &BTreeSet<u16>) -> (usize, usize) {
+#[cfg(target_os = "linux")]
+fn daemon_links(pid: u32, ports: &BTreeSet<u16>) -> (Option<usize>, Option<usize>) {
     let mine = socket_inodes(pid);
     let mut to_proxies = 0;
     for table in ["tcp", "tcp6"] {
@@ -418,7 +440,7 @@ fn daemon_links(pid: u32, ports: &BTreeSet<u16>) -> (usize, usize) {
             }
         }
     }
-    (mine.len(), to_proxies)
+    (Some(mine.len()), Some(to_proxies))
 }
 
 /// Pids under `root` (its children, theirs, ...), from one read of /proc.
@@ -672,6 +694,7 @@ pub(super) struct Extras {
     swap_before_kib: Option<u64>,
     ramp_secs: Option<f64>,
     /// The starved leg's pinning, cgroup and network shaping.
+    #[cfg(target_os = "linux")]
     starved: Option<starved::Starved>,
 }
 
@@ -733,9 +756,11 @@ impl Extras {
             load_at_clock: None,
             swap_before_kib: None,
             ramp_secs: None,
+            #[cfg(target_os = "linux")]
             starved: None,
         };
-        if leg == starved::LEG {
+        #[cfg(target_os = "linux")]
+        if leg == "starved" {
             x.starved =
                 Some(starved::Starved::start(daemon_pid, cap, &mut x.stressors, &mut x.notes));
             return x;
@@ -834,6 +859,7 @@ impl Extras {
     pub(super) fn stop(&mut self) -> Vec<String> {
         let mut errs: Vec<String> =
             self.stressors.iter_mut().filter_map(|s| s.stop().err()).collect();
+        #[cfg(target_os = "linux")]
         if let Some(st) = self.starved.as_mut() {
             errs.extend(st.stop().1);
         }
@@ -945,6 +971,7 @@ pub(super) fn close(
         json!({"framesPerSec": per_s(1), "pingsPerSec": per_s(2), "pongsPerSec": per_s(3),
                "dataPerSec": per_s(4), "bytesPerSec": per_s(5), "quiet": x.quiet}),
     );
+    #[cfg(target_os = "linux")]
     if let Some(st) = &x.starved {
         f.insert("starved".into(), st.report());
     }
@@ -1028,8 +1055,7 @@ pub(super) fn close(
 /// calls without running a process, so this is the bench's stand-in for one.
 pub(super) fn tool_call(cwd: &Path) -> Ran {
     let mut cmd = Command::new("/bin/sh");
-    cmd.args(["-c", "ls -a . | head -n 5 >/dev/null && cat /proc/loadavg >/dev/null"])
-        .current_dir(cwd);
+    cmd.args(["-c", "ls -a . | head -n 5 >/dev/null && uptime >/dev/null"]).current_dir(cwd);
     run_command(cmd)
 }
 
