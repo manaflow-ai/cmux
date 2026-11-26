@@ -154,6 +154,18 @@ class Jobs(unittest.TestCase):
             self.assertIn("daemon.first_list_ms.cpu.x0.1", [r["name"] for r in rows])
             self.assertIn("| daemon | 0.1 | recovered | 101 |", (out / "summary.md").read_text())
 
+    def test_merge_runs_as_the_workflow_calls_it(self):
+        # The report job passes --out before the folder; a plain parse_args refused that.
+        with tempfile.TemporaryDirectory() as t:
+            t = Path(t)
+            (t / "jobs" / "chat-x0.02-idle").mkdir(parents=True)
+            (t / "jobs" / "chat-x0.02-idle" / "results.json").write_text(
+                json.dumps([{"part": "chat", "scale": 0.02, "load": "idle", "exit": 0}]))
+            run = subprocess.run([sys.executable, "-I", str(Path(lab.__file__)), "merge", "--out", str(t / "out"), str(t / "jobs")],
+                                 capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertTrue((t / "out" / "summary.md").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

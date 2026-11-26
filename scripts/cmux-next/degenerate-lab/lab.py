@@ -458,7 +458,7 @@ def main() -> int:
     ap.add_argument("--fixtures", default=os.environ.get("DEGENERATE_LAB_FIXTURES", "/tmp/degenerate-lab-fixtures"))
     ap.add_argument("--target-dir", default=os.environ.get("CARGO_TARGET_DIR"))
     ap.add_argument("--timeout", type=int, default=3600, help="seconds any one run may take")
-    args = ap.parse_args()
+    args = ap.parse_intermixed_args()
     # acpmux refuses a state folder under a group- or world-writable one, and tempfile folders take the umask.
     os.umask(0o022)
     preset = PRESETS[args.preset]
