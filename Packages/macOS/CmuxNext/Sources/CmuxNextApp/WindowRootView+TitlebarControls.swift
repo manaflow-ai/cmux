@@ -31,6 +31,13 @@ extension WindowRootView {
         return shown.compactMap(\.self).reduce(band) { $0.union($1) }
     }
 
+    /// As ``titlebarAccessoryFrame`` with the band at its fully open width (its hover reveal never
+    /// moves what keeps clear of this).
+    var titlebarAccessoryReserve: CGRect {
+        let frame = titlebarAccessoryFrame
+        return toolbarBandReserve.map { frame.union($0) } ?? frame
+    }
+
     /// After the band, the badge while `showsTitlebarBadge`, then the host
     /// pressure indicator while it shows, `space2` apart, centered on `midY`.
     func layoutTitlebarAccessories(midY: CGFloat) {
