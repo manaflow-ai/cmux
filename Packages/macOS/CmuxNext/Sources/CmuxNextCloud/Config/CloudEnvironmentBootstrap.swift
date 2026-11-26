@@ -96,7 +96,18 @@ public struct CloudEnvironmentBootstrap: Sendable {
                         "--params", String(decoding: params, as: UTF8.self)],
             environment: environment, timeout: .seconds(30), clock: ContinuousClock())
         guard result.status == 0 else {
-            throw DaemonError.launchFailed(String(decoding: result.stderr, as: UTF8.self))
+            throw CreateRefused(stderr: result.stderr)
+        }
+    }
+
+    /// `check-create` refused the create's options (a capability the backend does not advertise, such as
+    /// `machine_create.bootstrap` for a repository): the CLI's own sentence, which the create's failure shows.
+    public struct CreateRefused: LocalizedError, Equatable, Sendable {
+        public let message: String
+        public var errorDescription: String? { message }
+        public init(stderr: Data) {
+            let text = String(decoding: stderr, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            message = text.isEmpty ? "The Cloud backend refused this machine's options." : text
         }
     }
 

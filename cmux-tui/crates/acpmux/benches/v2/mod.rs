@@ -273,6 +273,9 @@ fn merge_for_report(
     (joined, refused, missing)
 }
 
+/// The reason a measured row reads `failed` when its gate wrote no line.
+const NO_MEASURE: &str = "the gate did not report a measure";
+
 /// The report, and whether it stops the run: a row the home refused, a line with no registered
 /// name, or a measured row with no measure. The report names each in its rows or `errors`.
 fn report_value(
@@ -294,7 +297,7 @@ fn report_value(
             measured_row(row, measure)
         } else if row.measured && measures_requested && missing_set.contains(row.name) {
             json!({ "name": row.name, "pr": row.pr, "done_when": row.done_when,
-                "status": "failed", "reason": "the gate did not report a measure",
+                "status": "failed", "reason": NO_MEASURE,
                 "small_p95": Value::Null, "god_p95": Value::Null })
         } else if row.measured {
             json!({ "name": row.name, "pr": row.pr, "done_when": row.done_when,
@@ -343,8 +346,14 @@ pub fn print_report(measure_files: &[PathBuf], output: Option<&Path>) -> Result<
     print_report_with_mode(measure_files, output, true)
 }
 
-/// Write the report, then fail if it holds a refused row, an unnamed line or a missing measure:
-/// no one line keeps the report from being written.
+/// Write the report, then fail if it holds a refused row or an unnamed line: no one line keeps the
+/// report from being written.
+///
+/// A gate that reported no measure is that gate's red, not the home's: its row reads `failed` with
+/// the reason, the line goes to stderr, and the exit stays 0. The quality report's last step fails
+/// the job on every `failed` row, and NOW counts a home that exits non-zero as blind
+/// (`quality.v2_home_blind_h`), so one red gate (v2.pr04.chat_stopped_reader, run 45590353660)
+/// must not hide every other row.
 pub fn print_report_with_mode(
     measure_files: &[PathBuf],
     output: Option<&Path>,
@@ -357,7 +366,26 @@ pub fn print_report_with_mode(
     } else {
         println!("{text}");
     }
-    if stops { Err(stop_reasons(&value)) } else { Ok(()) }
+    if !stops {
+        return Ok(());
+    }
+    if home_stops(&value) {
+        return Err(stop_reasons(&value));
+    }
+    eprintln!("v2 bench: wrote every row; red gates: {}", stop_reasons(&value));
+    Ok(())
+}
+
+/// Whether the report holds a stop of the home's own: an `errors` line, or a `failed` row for any
+/// reason but a gate that reported no measure.
+fn home_stops(value: &Value) -> bool {
+    let errors = value["errors"].as_array().is_some_and(|errors| !errors.is_empty());
+    errors
+        || value["rows"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|row| row["status"] == "failed" && row["reason"] != NO_MEASURE)
 }
 
 #[cfg(test)]
@@ -967,6 +995,111 @@ mod tests {
         );
     }
 
+    /// The lines of a source that are part of an assert statement (`assert!`, `assert_eq!`, a
+    /// `panic!`, or a call to a helper whose name starts `assert`), and the lines that start one.
+    /// A statement runs from its first line until its parentheses close.
+    fn assert_statements(lines: &[&str]) -> (Vec<bool>, Vec<bool>) {
+        let start =
+            regex::Regex::new(r"^\s*(?:[a-z_]+::)*(?:assert[a-z_]*!?|panic!)\s*\(").unwrap();
+        let (mut inside, mut starts) = (vec![false; lines.len()], vec![false; lines.len()]);
+        let mut at = 0;
+        while at < lines.len() {
+            if !start.is_match(lines[at]) {
+                at += 1;
+                continue;
+            }
+            starts[at] = true;
+            let mut depth = 0i64;
+            while at < lines.len() {
+                depth +=
+                    lines[at].matches('(').count() as i64 - lines[at].matches(')').count() as i64;
+                inside[at] = true;
+                at += 1;
+                if depth <= 0 {
+                    break;
+                }
+            }
+        }
+        (inside, starts)
+    }
+
+    /// For each function of `source` and each gate name it spells, an assert statement that
+    /// starts after the name's first mention outside an assert and before its last such
+    /// mention (the line written): the assert's line and the name.
+    fn asserts_before_writes(source: &Source) -> Vec<(usize, String)> {
+        let (inside, starts) = assert_statements(&source.lines);
+        let mut found = Vec::new();
+        for (_, first, last) in &source.functions {
+            let mut mentions: HashMap<&str, Vec<usize>> = HashMap::new();
+            for (at, name) in &source.names {
+                if first <= at && at <= last && !inside[*at] {
+                    mentions.entry(*name).or_default().push(*at);
+                }
+            }
+            for (name, ats) in mentions {
+                let (opens, writes) = (ats[0], ats[ats.len() - 1]);
+                if let Some(assert) = (opens + 1..writes).find(|at| starts[*at]) {
+                    found.push((assert + 1, name.to_owned()));
+                }
+            }
+        }
+        found.sort();
+        found
+    }
+
+    /// A gate test writes its row's line before it asserts anything about the measure: an
+    /// assert that fails first leaves the row with no line, the home reads it "the gate did not
+    /// report a measure" and exits 2, and the night's report carries none of the home's rows
+    /// (`v2.pr05.summary_change`'s 10 µs bound, 2026-11-22 to 11-24). Written first, the line
+    /// is kept and `run-v2-gates.sh` marks it `gate_failed`, so the row reads red with its
+    /// numbers. The check reads a row's first mention (its rounds report, a `let name =`) and
+    /// its last (the line written) in each function, skipping mentions inside assert messages.
+    #[test]
+    fn a_gate_writes_its_row_before_it_asserts() {
+        let mut early = Vec::new();
+        for (file, text) in gate_sources() {
+            let source = Source::read(&text);
+            for (line, name) in asserts_before_writes(&source) {
+                early.push(format!(
+                    "{}:{line} asserts before {name}'s line is written",
+                    file.display()
+                ));
+            }
+        }
+        assert!(
+            early.is_empty(),
+            "move each assert after the row's line is written (the home re-judges the bounds): {early:#?}"
+        );
+    }
+
+    #[test]
+    fn the_assert_check_reads_the_rows_first_and_last_mention() {
+        let text = [
+            "fn late() {",
+            "    gate_rounds::report(\"v2.pr99.late\", &rounds);",
+            "    assert!(",
+            "        god <= small,",
+            "        \"v2.pr99.late: {god}\"",
+            "    );",
+            "    gate(\"v2.pr99.late\", small, god);",
+            "}",
+            "fn written_first() {",
+            "    gate_rounds::report(\"v2.pr99.first\", &rounds);",
+            "    gate(\"v2.pr99.first\", small, god);",
+            "    assert!(god <= small, \"v2.pr99.first: {god}\");",
+            "}",
+            "fn named_in_a_helper_assert() {",
+            "    list_daemon::assert_fds_given_back(\"v2.pr99.helper\", fds);",
+            "    assert!(god <= small);",
+            "    let name = \"v2.pr99.helper\";",
+            "    emit(name, small, god);",
+            "}",
+        ]
+        .join("\n");
+        let source = Source::read(&text);
+        assert_eq!(asserts_before_writes(&source), [(3, "v2.pr99.late".to_owned())]);
+    }
+
     #[test]
     fn a_row_reports_its_rounds_through_the_functions_it_calls() {
         let text = [
@@ -1525,6 +1658,31 @@ mod unreadable_line_tests {
 
     fn status_of<'a>(value: &'a Value, name: &str) -> &'a Value {
         value["rows"].as_array().unwrap().iter().find(|row| row["name"] == name).unwrap()
+    }
+
+    /// A gate with no measure fails its row and the job's last step, but the home writes every row
+    /// and exits 0 (run 45590353660: one red gate read as a blind home).
+    #[test]
+    fn a_missing_measure_writes_every_row_and_exits_zero() {
+        let skip = GATE_ROWS.iter().find(|row| row.measured).unwrap();
+        let mut lines = String::new();
+        for row in GATE_ROWS.iter().filter(|row| row.measured && row.name != skip.name) {
+            lines.push_str(&format!("{}\n", in_bound_line(row)));
+        }
+        let measures = tempfile::NamedTempFile::new().unwrap();
+        fs::write(measures.path(), &lines).unwrap();
+        let output = tempfile::NamedTempFile::new().unwrap();
+        print_report_with_mode(&[measures.path().to_path_buf()], Some(output.path()), true)
+            .expect("a red gate is not the home's stop");
+        let value: Value = serde_json::from_str(&fs::read_to_string(output.path()).unwrap())
+            .expect("the report is written");
+        let row = status_of(&value, skip.name);
+        assert_eq!(row["status"], "failed");
+        assert_eq!(row["reason"], NO_MEASURE);
+        for other in GATE_ROWS.iter().filter(|row| row.measured && row.name != skip.name) {
+            assert_eq!(status_of(&value, other.name)["status"], "ok", "{}", other.name);
+        }
+        assert!(report(&[measures.path().to_path_buf()]).is_err(), "report() stays strict");
     }
 
     /// One malformed line, one that is not JSON and one with no registered name among good

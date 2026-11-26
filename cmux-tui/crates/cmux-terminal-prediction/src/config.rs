@@ -22,6 +22,10 @@ pub struct PredictionConfiguration {
     /// Predicting further than this ahead of the remote stops being a latency
     /// hint and starts being a second, wrong terminal.
     pub maximum_speculative_glyphs: usize,
+    /// Predict inside full-screen applications (the alternate screen: an
+    /// agent's TUI, an editor), confirming each glyph only when the
+    /// application prints it in its cell (`full_screen`). Off by default.
+    pub predict_in_full_screen_apps: bool,
 }
 
 impl Default for PredictionConfiguration {
@@ -34,6 +38,7 @@ impl Default for PredictionConfiguration {
             misprediction_window: Duration::from_secs(10),
             suspension: Duration::from_secs(30),
             maximum_speculative_glyphs: 40,
+            predict_in_full_screen_apps: false,
         }
     }
 }

@@ -2,8 +2,10 @@
 //! any writer (the Settings page, the palette, the `cmux` CLI, MCP agents,
 //! recipes, a hand edit), so a person or an agent can always get back
 //! (`settings.undo`, `settings.restore`). The owner appends one JSON line per
-//! change to `<state_dir>/settings-history.jsonl`; no state directory, no
-//! history.
+//! change to `<state_dir>/settings-history-<file>.jsonl`, where `<file>` names
+//! the settings file (a hash of its path): an owner opened on another
+//! settings file never undoes or restores this one's texts over it. No state
+//! directory, no history.
 //!
 //! The entry, the trimming and the undo pick are pure; [`HistoryLog`] does
 //! the file IO.
@@ -20,13 +22,29 @@ use crate::fsio::write_atomic;
 /// Entries kept: reads return at most this many, newest first.
 pub const HISTORY_CAPACITY: usize = 100;
 
-/// The file name inside the state directory.
-pub const HISTORY_FILE: &str = "settings-history.jsonl";
+/// The history's file name inside the state directory, for the settings
+/// file at `config_path`.
+pub fn history_file_name(config_path: &Path) -> String {
+    format!("settings-history-{}.jsonl", path_key(config_path))
+}
 
 /// The settings file's text as this owner last saw it parse, beside the
 /// history: a change made while no owner ran (or through a file that did not
 /// parse) is recorded against it, so an undo takes back only that change.
-pub const LAST_TEXT_FILE: &str = "settings-history.last";
+pub fn last_text_file_name(config_path: &Path) -> String {
+    format!("settings-history-{}.last", path_key(config_path))
+}
+
+/// 16 hex digits of FNV-1a over the path's bytes: stable across builds and
+/// runs (std's hasher is not), short enough for a file name.
+fn path_key(config_path: &Path) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in config_path.as_os_str().as_encoded_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
+    }
+    format!("{hash:016x}")
+}
 
 /// One published change of the settings file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -102,13 +120,19 @@ pub fn find(entries: &[HistoryEntry], revision: u64) -> Option<&HistoryEntry> {
 #[derive(Debug)]
 pub struct HistoryLog {
     path: PathBuf,
+    last_text_path: PathBuf,
     /// Lines in the file, counted on the first append.
     lines: Option<usize>,
 }
 
 impl HistoryLog {
-    pub fn new(state_dir: &Path) -> HistoryLog {
-        HistoryLog { path: state_dir.join(HISTORY_FILE), lines: None }
+    /// The history of the settings file at `config_path` (absolute).
+    pub fn new(state_dir: &Path, config_path: &Path) -> HistoryLog {
+        HistoryLog {
+            path: state_dir.join(history_file_name(config_path)),
+            last_text_path: state_dir.join(last_text_file_name(config_path)),
+            lines: None,
+        }
     }
 
     pub fn path(&self) -> &Path {
@@ -116,7 +140,7 @@ impl HistoryLog {
     }
 
     fn last_text_path(&self) -> PathBuf {
-        self.path.with_file_name(LAST_TEXT_FILE)
+        self.last_text_path.clone()
     }
 
     /// The newest revision the history holds, if any.
@@ -162,9 +186,16 @@ impl HistoryLog {
         }
         let count = match self.lines {
             Some(count) => count,
-            None => std::fs::read_to_string(&self.path)
-                .map(|text| text.lines().filter(|line| !line.trim().is_empty()).count())
-                .unwrap_or(0),
+            None => {
+                let text = std::fs::read_to_string(&self.path).unwrap_or_default();
+                // A line cut short (a crash, a failed write) ends the file
+                // without its newline: start on a line of our own, or both
+                // lines would be lost to `parse`.
+                if !text.is_empty() && !text.ends_with('\n') {
+                    line.insert(0, '\n');
+                }
+                text.lines().filter(|line| !line.trim().is_empty()).count()
+            }
         };
         let appended = private_options()
             .create(true)
@@ -289,6 +320,29 @@ mod tests {
         let entries = vec![entry(1, "a", None), entry(2, "same", None)];
         assert_eq!(undo_pick(&entries, "same").map(|entry| entry.revision), Some(1));
         assert_eq!(undo_pick(&[], "x"), None);
+    }
+
+    /// An append after a line cut short starts a line of its own.
+    #[test]
+    fn an_append_after_a_line_cut_short_is_kept() {
+        let dir = std::env::temp_dir().join(format!("cmux-history-cut-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut log = HistoryLog::new(&dir, Path::new("/x/cmux-next.json"));
+        std::fs::write(log.path(), "{\"revision\": 5, \"at\"").unwrap();
+        log.append(&entry(6, "a", None));
+        assert_eq!(log.read(), vec![entry(6, "a", None)]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Two settings files keep two histories; one path always names the same.
+    #[test]
+    fn each_settings_file_has_its_own_history() {
+        let a = history_file_name(Path::new("/home/a/cmux-next.json"));
+        let b = history_file_name(Path::new("/home/b/cmux-next.json"));
+        assert_ne!(a, b);
+        assert_eq!(a, history_file_name(Path::new("/home/a/cmux-next.json")));
+        assert_ne!(last_text_file_name(Path::new("/home/a/cmux-next.json")), a);
     }
 
     #[test]

@@ -59,6 +59,12 @@ cmux-tui/crates/**/*.rs merge=cmux-insertions-v1
 cmux-tui/crates/*/README.md merge=cmux-insertions-v1
 cmux-tui/Cargo.toml merge=cmux-insertions-v1
 cmux-tui/crates/*/Cargo.toml merge=cmux-insertions-v1
+# Lockfiles merge package by package (scripts/merge-cargo-lock.py): two branches
+# that each add a crate, or each add a dependency to one crate, no longer collide
+# on the neighbouring lines of cargo's sorted lists (27 of 198 cmux-tui/Cargo.lock
+# PRs in a 14-day replay, 2026-11-25), and the result is written in cargo's own
+# order, so `cargo build --locked` reads it as up to date.
+**/Cargo.lock merge=cmux-cargo-lock-v1
 tests/test-execution.d/*.toml merge=cmux-insertions-v1
 webviews/src/experiments/registry.ts merge=cmux-insertions-v1
 scripts/localization-allowed-omissions.json merge=cmux-insertions-v1
@@ -202,6 +208,9 @@ cmux-tui/crates/cmux-app-host/generated/** merge=cmux-generated-v1
 clients/ts/cloud/src/generated.ts merge=cmux-generated-v1
 clients/ts/cloud/src/automation-cmux.ts merge=cmux-generated-v1
 cmux-tui/crates/cmux-cloud-wire/src/generated/** merge=cmux-generated-v1
+# The iPhone app's uniffi Swift bindings (scripts/ios-ffi-bindings.sh, a host cargo build): every branch that
+# changes cmux-mobile-link-ffi rewrites it, so two of them always collided, or a merge picked one side.
+cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift merge=cmux-generated-v1
 plans/cmux-next/coordination/INDEX.md merge=cmux-generated-v1
 scripts/ghosttykit-checksums.txt merge=cmux-export-v1
 # The former bundle directories' placeholders are hand-written.

@@ -1,7 +1,6 @@
 import type { AcpmuxRow, PromptContentPart } from "../model";
 import { type FileAttachmentInfo } from "../FileAttachment";
 import { attachmentPath } from "../fileAttachmentModel";
-import { videoRatio } from "../composer/videoShape";
 
 /// The files a recorded prompt sent (its `inlineParts`: documents, audio, resource links), drawn
 /// as a sent prompt draws them; a file that is an image's companion, a video, or an image's
@@ -53,13 +52,19 @@ export const SENT_IMAGE_HEIGHT = 160;
 /// chat, conversation.css) scales it down further in a narrow chat.
 export const SENT_IMAGE_MAX_WIDTH = 480;
 
-/// A video tile's width at SENT_IMAGE_HEIGHT: the shape its composer chip had (`shape`,
-/// composer/videoShape.ts), else its size's within the same bounds; square only while neither is known.
-/// The composer's tile and the sent one are one box at two heights (Leo, 2026-11-10: "the preview
-/// placeholder boxes are incongruent between the initial load, then the second load, and the chat
-/// attachment itself").
-export function sentImageWidth(size: { width?: number; height?: number; shape?: number }): number {
-  return Math.round(SENT_IMAGE_HEIGHT * (size.shape ?? videoRatio(size)));
+/// A sent video's tile box: its whole picture in its own shape under a sent image's rule
+/// (`sentImageSize`: contain, at most SENT_IMAGE_HEIGHT tall and SENT_IMAGE_MAX_WIDTH wide), so a
+/// wide screen recording is a short wide tile, never a square with bands above and below its poster
+/// (Leo, 2026-11-22: "having this square is kinda strange"). Its size, from its frames note, its chip's
+/// host read or the size acpmux kept with it (sentVideos.ts), is known before the tile draws; one with
+/// only its chip's header shape (composer/videoShape.ts) takes that shape; square while neither is known.
+export function sentVideoSize(video: { width?: number; height?: number; shape?: number }): {
+  width: number;
+  height: number;
+} {
+  if (video.width && video.height) return sentImageSize(video);
+  if (video.shape) return sentImageSize({ width: 1000 * video.shape, height: 1000 });
+  return { width: SENT_IMAGE_HEIGHT, height: SENT_IMAGE_HEIGHT };
 }
 
 /// A sent image's thumbnail box for an image of `size`: the whole image in its own shape, at most

@@ -3,10 +3,10 @@
 # installs and feedback. Nothing is uploaded anywhere (no App Store, no TestFlight).
 #
 # usage: cmux-next-ios/scripts/demo-build.sh [--config Demo|Production] [--ref <git ref>]
-#          [--tag <tag>] [--install-device <udid>] [--skip-device] [--skip-mac]
+#          [--tag <tag>] [--install-device <udid>] [--skip-device] [--skip-mac] [--print-identity]
 #
 # Output: ~/cmux-mobile-builds/<UTC date>-<shortsha>[-<tag>]/
-#   ios-device/cmux-mobile-<tag>.ipa            Demo config, bundle dev.cmux.mobile.<tag>
+#   ios-device/cmux-mobile-<tag>.ipa            Demo config, bundle dev.cmux.mobile.demo[.<tag>]
 #   ios-simulator/cmux-mobile-<tag>-sim.app.zip `xcrun simctl install <udid> <unzipped .app>`
 #   cmux-mobile-host-macos-arm64/ (+ .tar.gz)   Mac side: bin/, run-host.sh, stop-host.sh, README.txt
 #   MANIFEST.md
@@ -15,6 +15,16 @@
 # surface: dev sign-in ("42" as the email), Settings → Developer (mock data,
 # scripted demos), the dev Worker. The source is `git archive` of the SHA, so
 # uncommitted changes never reach a demo build.
+#
+# A Demo build has no cloud build space (no CMUX_MOBILE_DEV_TAG, project.yml): it
+# shows the person's real data and pairs with their NIGHTLY Mac. So --tag only
+# names a side-by-side install, never a tag's build: the default is
+# dev.cmux.mobile.demo ("cmux mobile"), and --tag X is dev.cmux.mobile.demo.X
+# ("demo X"). A tagged dev build is dev.cmux.mobile.X ("cmux X", review.sh), and
+# the Mac reads that suffix as the phone's tag (IPhoneDevAutoApprove.phoneTag); a
+# Demo build's suffix has a dot, which no tag has, so it is never taken for tag
+# X's phone, nor installed over it. --print-identity prints the bundle id,
+# home-screen name and build space and exits.
 #
 # --config Production builds the "Production" configuration instead: -O, no
 # DEBUG (no dev sign-in, no Settings → Developer, no mock data or demo
@@ -33,7 +43,7 @@
 set -euo pipefail
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 
-ref=HEAD tag=demo install_device="" skip_device=0 skip_mac=0 build_config=Demo
+ref=HEAD tag=demo install_device="" skip_device=0 skip_mac=0 build_config=Demo print_identity=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --config) build_config=$2; shift 2 ;;
@@ -42,8 +52,9 @@ while [[ $# -gt 0 ]]; do
     --install-device) install_device=$2; shift 2 ;;
     --skip-device) skip_device=1; shift ;;
     --skip-mac) skip_mac=1; shift ;;
+    --print-identity) print_identity=1; shift ;;
     --strict) shift ;;  # accepted for old callers; it only made package drift fatal, and drift is gone
-    -h|--help) sed -n '2,39p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,42p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -52,11 +63,21 @@ case "$build_config" in
   Production) tag=prod ;;
   *) echo "error: --config must be Demo or Production" >&2; exit 2 ;;
 esac
-[[ "$tag" =~ ^[a-z0-9][a-z0-9-]{0,30}$ ]] || { echo "error: tag must be lowercase letters, digits, dashes" >&2; exit 2; }
+# Canonical, as every tag (scripts/lib/mobile-attach.sh): no two spellings name one install.
+[[ "$tag" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ && ${#tag} -le 31 ]] ||
+  { echo "error: tag must be lowercase letters, digits and single dashes inside (at most 31), got '$tag'" >&2; exit 2; }
 
 team=7WLXT3NR37
-bundle_id="dev.cmux.mobile.$tag"
-display_name="cmux mobile"; [[ "$tag" == demo || "$tag" == prod ]] || display_name="mobile $tag"
+# demo and prod keep their installs' names; any other tag is a Demo install beside them (see the header).
+mobile_tag=".$tag"; [[ "$tag" == demo || "$tag" == prod ]] || mobile_tag=".demo.$tag"
+bundle_id="dev.cmux.mobile$mobile_tag"
+display_name="cmux mobile"; [[ "$tag" == demo || "$tag" == prod ]] || display_name="demo $tag"
+# The label this build adds to the phone's name on the account (project.yml CMUX_MOBILE_INSTANCE_LABEL).
+instance_label="DEMO"; [[ "$tag" == demo ]] || instance_label="DEMO $tag"
+if [[ $print_identity == 1 ]]; then
+  printf 'bundle_id=%s\ndisplay_name=%s\nbuild_space=none\n' "$bundle_id" "$display_name"
+  exit 0
+fi
 jobs=${JOBS:-8}
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo=$(git -C "$script_dir" rev-parse --show-toplevel)
@@ -130,7 +151,7 @@ if [[ $config == Production ]]; then
 else
   # Refs from before the Demo configuration build Debug with the same overrides.
   grep -q '^  Demo: release' project.yml || { config=Debug; notes+=("This ref has no Demo configuration; built Debug (no Settings → Developer)."); }
-  common+=(CMUX_MOBILE_TAG=".$tag" "CMUX_MOBILE_DISPLAY_NAME=$display_name"
+  common+=(CMUX_MOBILE_TAG="$mobile_tag" "CMUX_MOBILE_DISPLAY_NAME=$display_name" "CMUX_MOBILE_INSTANCE_LABEL=$instance_label"
            # $(inherited) keeps each package's own conditions (swift-crypto needs them).
            'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) DEBUG CMUX_MOBILE_DEMO')
 fi

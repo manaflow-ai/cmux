@@ -164,12 +164,28 @@ def _pack_npm_packages(
                 raise PackageContractError(f"npm install did not create launcher: {launcher}")
             version_result = _run([str(launcher), "--version"], env=env)
             _require_release_version(version_result.stdout, version, "cmux --version")
+            autocloud_result = _run([str(launcher), "autocloud", "--help"], env=env)
+            _require_autocloud(autocloud_result.stdout, "cmux autocloud --help")
         if install_relay_package is not None:
             _smoke_relay_launcher(
                 install_dir,
                 env,
                 temp_root,
             )
+
+
+# What `cmux autocloud --help` must say: the AutoCloud chat (RFD 0139, cmux-autocloud) ships
+# inside the cmux binary these packages carry, so `npx cmux autocloud` and `uvx cmux autocloud`
+# start a chat on an AutoCloud machine with nothing else to install.
+AUTOCLOUD_HELP_MARKERS = ("An agent chat on any machine", "login")
+
+
+def _require_autocloud(output: str, label: str) -> None:
+    missing = [marker for marker in AUTOCLOUD_HELP_MARKERS if marker not in output]
+    if missing:
+        raise PackageContractError(
+            f"{label} must show the AutoCloud chat (RFD 0139): missing {missing!r} in {output[:400]!r}"
+        )
 
 
 def _require_release_version(output: str, version: str, label: str) -> None:

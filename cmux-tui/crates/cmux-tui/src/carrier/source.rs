@@ -284,7 +284,14 @@ pub(super) struct CarrierRoutes {
     /// A reconnect connected a route of this session ([`Self::connect`]): from then on the session's carrier is
     /// what the reconnect set, never the first dial's ([`Self::first_route`]). Held while `current` is set.
     moved: Mutex<bool>,
+    /// Told each failed [`ReconnectGroupSource::next_group`]: the connection
+    /// drops that error and resumes on the carrier it had, so this is the only
+    /// place it is seen ([`Self::reporting_discovery`]).
+    discovery: Option<DiscoveryReport>,
 }
+
+/// What [`CarrierRoutes`] tells of a next route it could not find.
+pub(super) type DiscoveryReport = Arc<dyn Fn(&ProviderError) + Send + Sync>;
 
 impl CarrierRoutes {
     /// The routes of a session that connected route `selected` on `group`,
@@ -311,7 +318,14 @@ impl CarrierRoutes {
             next: AtomicUsize::new(selected.saturating_add(1)),
             current,
             moved: Mutex::new(false),
+            discovery: None,
         }
+    }
+
+    /// These routes, telling `report` of every next route they could not find.
+    pub(super) fn reporting_discovery(mut self, report: DiscoveryReport) -> Self {
+        self.discovery = Some(report);
+        self
     }
 
     /// The first dial's route `name`, once its session opened: the session's carrier, unless a reconnect already
@@ -369,7 +383,7 @@ impl CarrierRoutes {
 #[async_trait]
 impl ReconnectGroupSource for CarrierRoutes {
     async fn next_group(&self) -> Result<Arc<dyn LinkGroup>, ProviderError> {
-        next_reconnect_route(
+        let next = next_reconnect_route(
             &self.next,
             &self.routes,
             None,
@@ -378,7 +392,11 @@ impl ReconnectGroupSource for CarrierRoutes {
             CARRIER_AUTH,
             self,
         )
-        .await
+        .await;
+        if let (Err(error), Some(report)) = (&next, &self.discovery) {
+            report(error);
+        }
+        next
     }
 }
 

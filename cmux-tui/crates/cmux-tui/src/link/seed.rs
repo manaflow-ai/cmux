@@ -12,6 +12,7 @@
 pub(crate) mod carry;
 mod git;
 mod github;
+pub(crate) mod lfs;
 pub(crate) mod plan;
 mod secrets;
 #[cfg(test)]

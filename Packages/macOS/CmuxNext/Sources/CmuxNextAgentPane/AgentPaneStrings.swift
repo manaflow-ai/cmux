@@ -26,6 +26,14 @@ extension AgentPaneModel {
         String(localized: "agentPane.error.capture", defaultValue: "The screen capture failed.", bundle: .localizedModule)
     }
 
+    /// A folder the person picked for a chat that no longer exists (a reboot wiped a temporary
+    /// folder, a worktree was removed): which one, and the way out.
+    static func folderMissingMessage(_ path: String) -> String {
+        String(format: String(localized: "agentPane.error.folderMissing",
+                              defaultValue: "The folder %@ no longer exists. Pick another folder.", bundle: .localizedModule),
+               path)
+    }
+
     /// The host's acpmux socket refused a page frame or could not connect (AgentPaneTransport).
     static var transportFailedMessage: String {
         String(localized: "agentPane.error.transport", defaultValue: "The app refused the agent connection.", bundle: .localizedModule)
@@ -95,9 +103,10 @@ extension AgentPaneView {
         String(localized: "agentPane.confirmMode.switch", defaultValue: "Switch Mode", bundle: .localizedModule)
     }
 
-    /// Shown when the pane's page crashed (it never reloads by itself; the notice offers Reload).
+    /// Shown while the pane's page keeps crashing; it still loads again by itself (``AgentPageCrashRetry``).
     static var crashedMessage: String {
-        String(localized: "agentPane.crashed.message", defaultValue: "The agent pane crashed.", bundle: .localizedModule)
+        String(localized: "agentPane.crashed.message", defaultValue: "The agent pane keeps crashing. cmux will load it again shortly.",
+               bundle: .localizedModule)
     }
 
     /// Shown when automation would open the inspector without an explicit focus request.
@@ -237,6 +246,7 @@ extension AgentPaneView {
             reason = String(localized: "agentPane.remoteApprovals.failure.notHeld",
                             defaultValue: "the agent daemon that answers does not hold this app's key", bundle: .localizedModule)
         case .daemonTooOld:
+            // retry-prompt-ok: an approval lets a tool run, and updating the machine replaces binaries
             reason = String(localized: "agentPane.remoteApprovals.failure.tooOld",
                             defaultValue: "the agent daemon there is too old for approvals from cmux. Update the machine, then try again",
                             bundle: .localizedModule)
@@ -259,10 +269,6 @@ extension AgentPaneView {
         String(localized: "agentPane.otherInstall.message",
                defaultValue: "This chat runs on another cmux install's agent service. Approve its requests in that app.",
                bundle: .localizedModule)
-    }
-
-    static var reloadTitle: String {
-        String(localized: "agentPane.crashed.reload", defaultValue: "Reload", bundle: .localizedModule)
     }
 }
 
@@ -292,6 +298,7 @@ extension AgentPaneHostError {
         case .chiefStarting:
             String(localized: "agentPane.error.chiefStarting", defaultValue: "The Chief is starting. This chat connects when it is up.", bundle: .localizedModule)
         case .daemonRefused(let holder?, _, _, _, _):
+            // retry-prompt-ok: quitting the other cmux build is the person's call; nothing connects while it holds the service
             String(format: String(localized: "agentPane.error.daemonHeldByOtherBuild", defaultValue: "%1$@ is using the agent service, so this cmux can't. Quit %1$@, then try again.", bundle: .localizedModule), holder)
         case .daemonRefused(_, _, _, _, _):
             String(localized: "agentPane.error.daemonRefused", defaultValue: "Another copy of cmux is using the agent service. This chat connects when it's free.", bundle: .localizedModule)
@@ -320,6 +327,7 @@ extension AgentPaneDictation {
         case .onDeviceRecognitionUnavailable:
             String(localized: "agentPane.dictation.languageUnavailable", defaultValue: "On-device dictation is not available for this language.", bundle: .localizedModule)
         case .modelDownloadFailed:
+            // retry-prompt-ok: downloads a speech model (a download the person started)
             String(localized: "agentPane.dictation.modelDownloadFailed", defaultValue: "The speech model could not be downloaded. Try again when you are online.", bundle: .localizedModule)
         case .audioCaptureFailed:
             String(localized: "agentPane.dictation.noMicrophone", defaultValue: "No microphone is available.", bundle: .localizedModule)
@@ -344,6 +352,7 @@ extension AgentPaneModel {
 
     /// A GitHub method that could not be answered (signed out, offline, or no App here).
     static var gitHubUnavailableMessage: String {
+        // retry-prompt-ok: answers a GitHub action the person started (checkout, connect, write)
         String(localized: "agentPane.github.unavailable", defaultValue: "GitHub is unavailable. Try again.", bundle: .localizedModule)
     }
 
@@ -359,12 +368,21 @@ extension AgentPaneModel {
 
     /// The folder menu's Connect GitHub for a connection the server marked `error`.
     static var gitHubConnectionErrorMessage: String {
+        // retry-prompt-ok: connecting GitHub is a sign-in
         String(localized: "agentPane.github.connectionError", defaultValue: "GitHub reported a problem with this connection. Try again later.", bundle: .localizedModule)
     }
 
     /// The folder menu's Connect GitHub after the API refused the link the person came back with (an expired state).
     static var gitHubLinkExpiredMessage: String {
         String(localized: "agentPane.github.linkExpired", defaultValue: "The link expired; connect again.", bundle: .localizedModule)
+    }
+
+    /// The folder menu after the person asked an organization's owners to install the App (GitHub's `setup_action=request`).
+    static func gitHubRequestedMessage(owner: String?) -> String {
+        guard let owner else {
+            return String(localized: "agentPane.github.requested", defaultValue: "Asked the organization's owners to approve cmux. Its repositories appear here once they do.", bundle: .localizedModule)
+        }
+        return String(localized: "agentPane.github.requestedOwner", defaultValue: "Asked the owners of \(owner) to approve cmux. Its repositories appear here once they do.", bundle: .localizedModule)
     }
 
     /// Connect GitHub with no cmux account signed in and no sign-in to start (`github.signed_out`).
@@ -395,6 +413,7 @@ extension AgentPaneModel {
 
     /// `github.repos.checkout` could not clone `repo` on this Mac (`github.clone_failed`).
     static func gitHubCloneFailedMessage(_ repo: String) -> String {
+        // retry-prompt-ok: cloning writes a repository to disk (a side effect the person started)
         String(format: String(localized: "agentPane.github.localCloneFailed",
                               defaultValue: "Couldn't clone %@ on this Mac. Check that GitHub can reach it, then try again.", bundle: .localizedModule), repo)
     }
@@ -414,11 +433,13 @@ extension AgentPaneModel {
 extension AgentPaneCloudRepositoryRefusal {
     /// A Cloud start's machine could not read the GitHub repository the chat starts in (`seed.needs_github`).
     nonisolated static func needsAccessMessage(_ repository: String) -> String {
+        // retry-prompt-ok: connecting GitHub is a sign-in
         String(format: String(localized: "agentPane.github.cloneNeedsAccess", defaultValue: "Connect GitHub so Cloud can clone %@, then retry.", bundle: .localizedModule), repository)
     }
 
     /// A Cloud start's clone of the GitHub repository the chat starts in did not finish.
     nonisolated static func failedMessage(_ repository: String) -> String {
+        // retry-prompt-ok: a Cloud start clones on a billed machine (a side effect the person started)
         String(format: String(localized: "agentPane.github.cloneFailed", defaultValue: "Cloud could not clone %@. Retry.", bundle: .localizedModule), repository)
     }
 }

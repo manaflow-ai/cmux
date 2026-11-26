@@ -581,7 +581,7 @@ impl Hub {
             && manifest.lines == p.manifest.lines
             && manifest.raw_bytes == p.manifest.raw_bytes
             && manifest.segments.len() == p.manifest.segments.len();
-        same.then(|| Prepacked { manifest, ..p })
+        same.then_some(Prepacked { manifest, ..p })
     }
 
     /// `_acpmux/transfer_history {sessionId, stageId}`: the staged history becomes the live

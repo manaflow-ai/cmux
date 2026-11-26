@@ -66,6 +66,8 @@ pub(super) fn apply_write(
         return Err(Refusal::RevisionConflict { expected, actual: state.revision });
     }
     let source = state.source.as_str();
+    // Undo and restore write a saved text back as it was: no background note.
+    let recovers = matches!(op, Op::Undo { .. } | Op::Restore { .. });
     let mut undoes = None;
     let (text, applied_edits) = match op {
         Op::Set { target, value, meta } => {
@@ -112,12 +114,16 @@ pub(super) fn apply_write(
         }
         next.recompute();
         // Once per write, so an edit batch records the background it started from.
-        let text = match record_background(state, &next, text)? {
-            Recorded::Same(text) => text,
-            Recorded::Changed(text) => {
-                next.read_file(super::FileRead::Text(text.clone()));
-                next.recompute();
-                text
+        let text = if recovers {
+            text
+        } else {
+            match record_background(state, &next, text)? {
+                Recorded::Same(text) => text,
+                Recorded::Changed(text) => {
+                    next.read_file(super::FileRead::Text(text.clone()));
+                    next.recompute();
+                    text
+                }
             }
         };
         next.revision = state.revision + 1;
@@ -246,8 +252,8 @@ fn reset_group_text(state: &State, group: &str, meta: &WriteMeta) -> Result<Stri
     let file = &state.file_root;
     let mut text = state.source.clone();
     for row in rows {
-        let replaced = replaced_by_row(&row.path)
-            .is_some_and(|replaced| value_at(file, &replaced.old).is_some());
+        let replaced =
+            replaced_by_row(&row.path).any(|replaced| value_at(file, &replaced.old).is_some());
         if value_at(file, &row.path).is_none() && !replaced {
             continue;
         }
@@ -456,15 +462,16 @@ fn record_background(state: &State, next: &State, text: String) -> Result<Record
     Ok(Recorded::Changed(jsonc::set(&text, &recents_path, &value).map_err(unreadable)?))
 }
 
-/// `text` without the retired key the row at `path` replaced, so the old key
-/// never applies behind a write or reset of the row (`schema::retired`).
-fn without_replaced(text: String, path: &[String]) -> Result<String, Refusal> {
-    let Some(replaced) = replaced_by_row(path) else { return Ok(text) };
-    let root = jsonc::parse(&text).map_err(unreadable)?;
-    if value_at(&root, &replaced.old).is_none() {
-        return Ok(text);
+/// `text` without the retired keys the row at `path` replaced, so no old key
+/// applies behind a write or reset of the row (`schema::retired`).
+fn without_replaced(mut text: String, path: &[String]) -> Result<String, Refusal> {
+    for replaced in replaced_by_row(path) {
+        let root = jsonc::parse(&text).map_err(unreadable)?;
+        if value_at(&root, &replaced.old).is_some() {
+            text = remove_pruning(text, &replaced.old)?;
+        }
     }
-    remove_pruning(text, &replaced.old)
+    Ok(text)
 }
 
 /// A non-row path may not hold or sit inside a row: writing an ancestor

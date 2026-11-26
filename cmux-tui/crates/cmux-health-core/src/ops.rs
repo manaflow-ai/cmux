@@ -201,7 +201,11 @@ pub fn call(health: &mut Health, op: &str, request: &Value) -> Result<Value, OpE
         "tick" => {
             let r: At = de(request)?;
             let actions = health.tick(r.now_ms);
-            return Ok(json!({ "actions": actions, "nextTickMs": health.next_tick_ms() }));
+            return Ok(json!({
+                "actions": actions,
+                "nextTickMs": health.next_tick_ms(),
+                "nextTickId": health.next_tick_id(),
+            }));
         }
         "repairResult" => {
             let r: RepairResult = de(request)?;
@@ -210,7 +214,11 @@ pub fn call(health: &mut Health, op: &str, request: &Value) -> Result<Value, OpE
         "repairNow" => {
             let r: At = de(request)?;
             let actions = health.repair_now(&r.id, r.now_ms);
-            return Ok(json!({ "actions": actions, "nextTickMs": health.next_tick_ms() }));
+            return Ok(json!({
+                "actions": actions,
+                "nextTickMs": health.next_tick_ms(),
+                "nextTickId": health.next_tick_id(),
+            }));
         }
         "snapshot" => {
             return serde_json::to_value(health.snapshot()).map_err(|_| OpError::Invalid);
@@ -224,5 +232,5 @@ pub fn call(health: &mut Health, op: &str, request: &Value) -> Result<Value, OpE
         "inject" => return Ok(json!({ "ok": true })),
         _ => return Err(OpError::Unknown),
     }
-    Ok(json!({ "nextTickMs": health.next_tick_ms() }))
+    Ok(json!({ "nextTickMs": health.next_tick_ms(), "nextTickId": health.next_tick_id() }))
 }

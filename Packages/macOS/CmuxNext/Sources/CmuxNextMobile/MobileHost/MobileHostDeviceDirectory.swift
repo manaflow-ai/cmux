@@ -1,3 +1,4 @@
+import CmuxEgress
 public import CMUXAuthCore
 public import Foundation
 
@@ -25,9 +26,9 @@ public struct MobileHostDeviceDirectory: Sendable {
         self.send = send
     }
 
-    /// `URLSession.shared`; the status is 0 when the response is not HTTP.
+    /// `CmuxEgress.shared(site: "CmuxNextMobile.MobileHostDeviceDirectory")`; the status is 0 when the response is not HTTP.
     public static let urlSession: Send = { request in
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await CmuxEgress.shared(site: "CmuxNextMobile.MobileHostDeviceDirectory").data(for: request)
         return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
     }
 

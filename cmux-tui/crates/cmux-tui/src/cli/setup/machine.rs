@@ -406,6 +406,9 @@ fn summary(peer: &Value) -> Value {
         "outdated": peer.get_bool("outdated") == Some(true),
         "remote_build": peer.get("remoteBuild"),
         "error": peer.get("error"),
+        // The fleet's add/drain state, when the daemon says (`acpmux::fleet_elastic`); an older
+        // daemon has none.
+        "elastic": acpmux::fleet_elastic::Elastic::from_row(peer),
     })
 }
 

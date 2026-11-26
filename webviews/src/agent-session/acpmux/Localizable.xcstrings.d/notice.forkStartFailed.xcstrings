@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "notice.forkStartFailed" : {
+      "comment" : "Agent pane: a fork whose agent did not start after Fork Conversation answered",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لم يبدأ وكيل هذا التفرع. سيبدأ مع رسالتك الأولى."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Agent ovog grananja se nije pokrenuo. Pokrenut će se s tvojom prvom porukom."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denne forgrenings agent startede ikke. Den starter med din første besked."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Der Agent dieses Zweigs ist nicht gestartet. Er startet mit deiner ersten Nachricht."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This fork's agent didn't start. It starts with your first message."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "El agente de esta bifurcación no se inició. Se iniciará con tu primer mensaje."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "L’agent de cette dérivation n’a pas démarré. Il démarrera avec ton premier message."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "L’agente di questa derivazione non si è avviato. Si avvierà con il tuo primo messaggio."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "この分岐のエージェントは起動しませんでした。最初のメッセージで起動します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ភ្នាក់ងាររបស់ការបំបែកនេះមិនបានចាប់ផ្ដើមទេ។ វានឹងចាប់ផ្ដើមជាមួយសាររបស់អ្នកដំបូង។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 분기의 에이전트가 시작되지 않았습니다. 첫 메시지와 함께 시작됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Agenten til denne forgreningen startet ikke. Den starter med din første melding."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Agent tego rozgałęzienia się nie uruchomił. Uruchomi się z twoją pierwszą wiadomością."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O agente desta bifurcação não iniciou. Ele inicia com sua primeira mensagem."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Агент этого ответвления не запустился. Он запустится с вашим первым сообщением."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เอเจนต์ของการแยกนี้ไม่ได้เริ่มทำงาน จะเริ่มเมื่อคุณส่งข้อความแรก"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu çatalın ajanı başlamadı. İlk mesajınla başlayacak."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Агент цього відгалуження не запустився. Він запуститься з вашим першим повідомленням."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tác tử của nhánh này chưa khởi động. Nó sẽ khởi động với tin nhắn đầu tiên của bạn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此分叉的代理未启动。它会在你发送第一条消息时启动。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此分叉的代理未啟動。它會在你傳送第一則訊息時啟動。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

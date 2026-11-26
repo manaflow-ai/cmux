@@ -146,12 +146,14 @@ impl NextTurn {
         let control = Control::from_recorded(record.get("control").and_then(Value::as_str));
         let (client, prompt) =
             (text("client").unwrap_or_default(), text("prompt").unwrap_or_default());
-        let mut next =
-            TurnInfo::prompted(&client, &prompt, &text("turnId")?, &text("promptId")?, control);
         // Its line as the turn showed it (`prompt_line.rs`); an older record has none.
-        if let Some(line) = text("promptLine") {
-            next.show(&line);
-        }
+        let (turn_id, prompt_id) = (text("turnId")?, text("promptId")?);
+        let mut next = match text("promptLine") {
+            Some(line) => {
+                TurnInfo::prompted_as(&client, &prompt, &turn_id, &prompt_id, control, &line)
+            }
+            None => TurnInfo::prompted(&client, &prompt, &turn_id, &prompt_id, control),
+        };
         let flag = |k: &str| record.get(k).and_then(Value::as_bool).unwrap_or(false);
         next.trigger = flag("trigger");
         let continues = Continues {
@@ -337,11 +339,16 @@ impl Hub {
         }
         self.recovered_floor(session, turn.control);
         self.set_status(session, NotWaiting::Running);
+        // An outage that cuts it after the restart is a cut like any other: it goes on by
+        // itself (`auto_resume.rs`), once, as a turn adopted across a restart does
+        // (`hosts.rs` `recover_work`). acpmux's own compactions are not continued.
+        let own_compaction = turn.prompt_id.starts_with("cache-compact-")
+            || turn.prompt_id.starts_with(super::cold_wake::COMPACT_ID_PREFIX);
+        let continues = (!own_compaction).then_some(continues);
         let (hub, session, child) = (self.clone(), session.clone(), child.clone());
-        // A recovered turn is not continued (`auto_resume.rs`).
         self.scope.spawn_named(
             "recovered-carried-turn",
-            Box::pin(async move { hub.run_carried(session, child, turn, None, None).await }),
+            Box::pin(async move { hub.run_carried(session, child, turn, continues, None).await }),
         );
     }
 
@@ -420,8 +427,8 @@ impl Hub {
         session: Arc<Session>,
         child: Arc<ChildAgent>,
         mut turn: TurnInfo,
-        // What a cut turn's continuation needs; `None` for a recovered turn, which is not
-        // continued (`auto_resume.rs`).
+        // What a cut turn's continuation needs; `None` for one that is not continued (acpmux's
+        // own compaction, `recover_carried`).
         mut continues: Option<Continues>,
         // The run slot the first turn held (`subsession_runs.rs`): the agent runs until the
         // last of these turns ends.

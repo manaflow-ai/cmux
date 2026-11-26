@@ -33,6 +33,13 @@ public final class FirstFrameGate {
         whenOpen { Self.runOnePerPass(steps[...], stop: stop) }
     }
 
+    /// ``afterOpen(stop:_:)`` with each step named: `mark("after_open.NAME_start")` before it and
+    /// `mark("after_open.NAME_done")` after it (launch_tti_check.py keeps after_open.* in each round).
+    public func afterOpen(stop: @escaping @MainActor () -> Bool = { false }, mark: @escaping @MainActor (String) -> Void,
+                          _ steps: KeyValuePairs<String, @MainActor () -> Void>) {
+        afterOpen(stop: stop, steps.map { name, step in { mark("after_open.\(name)_start"); step(); mark("after_open.\(name)_done") } })
+    }
+
     private static func runOnePerPass(_ steps: ArraySlice<@MainActor () -> Void>, stop: @escaping @MainActor () -> Bool) {
         guard let step = steps.first else { return }
         AfterFrameCommit().run {

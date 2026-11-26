@@ -13,20 +13,23 @@
 // as at ten thousand. Windowed rows carry aria-posinset/aria-setsize. Each row is a memoized
 // DrillRow with stable handlers: a highlight change re-renders the two rows it moved between.
 import {
-  memo,
   useCallback,
   useId,
-  useLayoutEffect,
   useRef,
-  useState,
   type KeyboardEvent,
-  type MouseEvent,
   type ReactNode,
+  memo,
+  useLayoutEffect,
+  useState,
+  type MouseEvent,
 } from "react";
 import { drillKeyAction } from "./drillKeys";
+import type { ListCommand } from "./keyStyle";
+import { useKeyStyleSettings, useListKeys } from "./useListKeys";
 import { useUiDirection } from "./UiProvider";
 import { cx } from "./cx";
 import { useScrollEdges } from "./scrollEdges";
+import { focusRoute } from "./focusRoute";
 
 export interface DrillSection<T> {
   id: string;
@@ -119,6 +122,65 @@ export function DrillList<T>(props: DrillListProps<T>) {
   const currentItem = current >= 0 ? drillItemAt(sections, current) : undefined;
   const levelEmpty = (sections.at(-1)?.items.length ?? 0) === 0;
   const optionId = (index: number) => `${id}-option-${index}`;
+  const field = useRef<HTMLInputElement | null>(null);
+  const autoFocus = props.autoFocus !== false; // focus-route: reads the prop; focusOnMount moves the keyboard
+  const attachField = useCallback(
+    (element: HTMLInputElement | null) => {
+      field.current = element;
+      if (autoFocus) focusOnMount(element);
+    },
+    [autoFocus],
+  );
+
+  const moveBy = (delta: number) => {
+    if (total) onHighlight(Math.max(0, Math.min(total - 1, (current < 0 && delta < 0 ? total : current) + delta)));
+  };
+  const highlighted = () => currentItem;
+  // `app.keyStyle`. In the field only Vim's Esc and Emacs' Ctrl-N/P/G reach here (the layer's
+  // inText rows); leaving the field gives the keyboard to the list. In the list, Vim's j/k, gg/G,
+  // Ctrl-D/U, l (enter), h (up), / (the field) and Esc (the field's Esc), and Emacs' alike.
+  const onListCommand = (command: ListCommand, inField: boolean): boolean | void => {
+    switch (command) {
+      case "list.next":
+        return moveBy(1);
+      case "list.previous":
+        return moveBy(-1);
+      case "list.pageDown":
+        return moveBy(10);
+      case "list.pageUp":
+        return moveBy(-10);
+      case "list.first":
+        return onHighlight(0);
+      case "list.last":
+        return onHighlight(Math.max(0, total - 1));
+      case "list.open":
+        return props.onEnter(highlighted());
+      case "list.back":
+        return props.onUp();
+      case "list.search":
+        return void focusRoute(field.current, "person", "key style list key", { preventScroll: true });
+      case "list.leave": {
+        // The field gives the keyboard to its list; the list does what the field's Esc does.
+        if (!inField) return props.onCancel();
+        const list = field.current?.ownerDocument.getElementById(listId);
+        if (!list) return false;
+        focusRoute(list, "person", "key style list key", { preventScroll: true });
+        return;
+      }
+    }
+  };
+  const fieldKeys = useListKeys({ onCommand: (command) => onListCommand(command, true) });
+  const listKeys = useListKeys({ onCommand: (command) => onListCommand(command, false) });
+  // Only a key style gives the list the keyboard; in Standard a press on its gaps never takes focus
+  // from the field.
+  const listTakesKeys = useKeyStyleSettings().keyStyle !== "standard";
+  const onListKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    listKeys(event);
+    if (event.defaultPrevented || event.key !== "Enter" || event.metaKey || event.ctrlKey || event.altKey) return;
+    // The list has the keyboard only after a key style's leave: Return still chooses.
+    event.preventDefault();
+    props.onChoose(highlighted());
+  };
 
   // The list's window: the scroller's offset and height, and a row's and a heading's height.
   const windowed = total > VIRTUAL_THRESHOLD;
@@ -187,6 +249,8 @@ export function DrillList<T>(props: DrillListProps<T>) {
   }, []);
 
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    fieldKeys(event);
+    if (event.defaultPrevented) return;
     const input = event.currentTarget;
     const action = drillKeyAction(event, {
       query,
@@ -200,11 +264,7 @@ export function DrillList<T>(props: DrillListProps<T>) {
     const item = currentItem;
     switch (action.kind) {
       case "move":
-        if (total)
-          onHighlight(
-            Math.max(0, Math.min(total - 1, (current < 0 && action.delta < 0 ? total : current) + action.delta)),
-          );
-        return;
+        return moveBy(action.delta);
       case "edge":
         onHighlight(action.to === "first" ? 0 : Math.max(0, total - 1));
         return;
@@ -243,6 +303,8 @@ export function DrillList<T>(props: DrillListProps<T>) {
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an inline listbox with rich rows; no native element fits.
       role="listbox"
       aria-label={props.listLabel}
+      tabIndex={listTakesKeys ? -1 : undefined}
+      onKeyDown={onListKeyDown}
       onScroll={windowed ? readView : undefined}
     >
       {sections.map((section, place) => {
@@ -298,7 +360,7 @@ export function DrillList<T>(props: DrillListProps<T>) {
   return (
     <>
       <input
-        ref={props.autoFocus === false ? undefined : focusOnMount}
+        ref={attachField}
         className={cx("ui-field", props.fieldClassName)}
         type="text"
         // oxlint-disable-next-line jsx-a11y/no-redundant-roles -- a text input is a textbox to the browser; the combobox role is what tells assistive tech about the list.

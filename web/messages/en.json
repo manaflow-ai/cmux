@@ -4320,12 +4320,14 @@
       "nextShortcuts": "Keyboard shortcuts",
       "nextCli": "CLI and MCP reference",
       "nextMcp": "MCP server",
+      "nextApiVersions": "API versions",
       "nextSpaces": "Spaces and columns",
       "nextPalette": "Command palette",
       "nextRemote": "Remote machines and Tailscale",
       "nextServer": "cmux server",
       "nextPlans": "Plans and credits",
       "nextSettings": "Settings reference",
+      "nextNetwork": "Network requirements",
       "nextArchitecture": "Architecture",
       "workspaceGroups": "Workspace Groups",
       "configuration": "Configuration",
@@ -7407,7 +7409,9 @@
     "errorInvalidTotp": "That two-factor code isn't valid.",
     "errorSignUpNotAllowed": "New accounts can't be created right now.",
     "errorPasskey": "Passkey sign-in didn't finish. Try again or use another method.",
-    "errorGeneric": "Something went wrong. Try again."
+    "errorGeneric": "Something went wrong. Try again.",
+    "errorRedirectNotAllowed": "This build's sign-in address isn't allowed on {backend}.",
+    "backendDevelopment": "the development backend"
   },
   "opsCloudVmHealth": {
     "eyebrow": "Staff · Operations",
@@ -7733,5 +7737,15 @@
       "chatMove": "to move a chat to another machine and get its answer there, one run",
       "note": "Test runs on our own accounts, not a promise. This pass includes up to {count} machines at once."
     }
+  },
+  "connected": {
+    "title": "You're signed in to {app}",
+    "titleGeneric": "You're signed in",
+    "errorTitle": "Couldn't sign in to {app}",
+    "errorTitleGeneric": "Sign-in didn't finish",
+    "body": "Head back to cmux to keep going.",
+    "errorBody": "Go back to cmux and try again.",
+    "button": "Back to cmux",
+    "closeHint": "You can close this tab."
   }
 }

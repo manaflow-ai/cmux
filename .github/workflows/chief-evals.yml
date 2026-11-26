@@ -7,24 +7,12 @@
 # and are reported in the job summary. When the model route is down they are
 # skipped with a warning, so a subrouter outage never reads as a Chief failure.
 #
-# A pull request into feat-cmux-next that touches Chief code runs it too, as an advisory check: no ruleset requires
-# it, and on a pull request the job is named "evals (advisory)", so land-judge and next-autoland neither wait on nor
-# refuse for it. A red there is a follow-up (ci-oops soft class), not a merge block. A pull request run whose tailnet
-# join is refused skips the model cases with the warning above; the deterministic cases still run.
+# CI cut 2026-11-24 (goal ci-runner-min-per-day-50k): pull requests no longer run this advisory check; it gated
+# nothing (no ruleset requires it, land-judge skips "(advisory)" names). Landings on feat-cmux-next and dispatch
+# still run it, so a red shows up on base. The "(advisory)" name and pull_request conditions below stay inert.
 name: chief-evals
 on:
   push:
-    branches: [feat-cmux-next]
-    paths:
-      - "Native/OptChat/**"
-      - "cmux-tui/crates/cmux-chief/**"
-      - "cmux-tui/crates/cmux-conversation/**"
-      - ".github/workflows/chief-evals.yml"
-      # A README or notes file alone starts nothing here (tests/test_ci_docs_only_prs.py); no build reads them.
-      - "!**/README.md"
-      - "!**/COORDINATION.md"
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
     branches: [feat-cmux-next]
     paths:
       - "Native/OptChat/**"
@@ -59,7 +47,7 @@ jobs:
     # A pull request joins the tailnet only once the Tailscale trust credential admits pull_request: set the repo
     # variable CHIEF_EVALS_PR_TAILNET=true then (tests/test_ci_workflow_tailnet_oidc_pr_gate.py, cmux#43753).
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && vars.CHIEF_EVALS_PR_TAILNET == 'true') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 30
     outputs:
       # fleet-ab runs the model cases on the fleet when this join is refused.
@@ -80,6 +68,9 @@ jobs:
         uses: ./.github/actions/runner-cargo-home
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # The lockfile and toolchain name the entry: with the environment hash off, a bare key never changed, so the first save
+          # was restored forever and its stale third-party crates rebuilt on every run (ci-min-per-pr-1500, 2026-11-25).
+          key: ${{ hashFiles('Native/OptChat/optchat-chief/Cargo.lock', '.cargo/config.toml') }}
           save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
           add-rust-environment-hash-key: false
@@ -187,7 +178,7 @@ jobs:
     name: model cases A/B on the fleet
     needs: evals
     if: ${{ !cancelled() && github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' && github.event_name == 'push' && needs.evals.outputs.tailnet != 'success' && github.event.before != '' && github.event.before != '0000000000000000000000000000000000000000' }}
-    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
     timeout-minutes: 120
     continue-on-error: true
     permissions:

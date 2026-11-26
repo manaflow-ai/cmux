@@ -7,6 +7,37 @@ system (cmuxterm-hq RFD 0034). A version moves when a token's Instrument value o
 Semver for a design system: a patch moves no pixel (a source, a note, a renamed path); a minor applies
 pending values (a default moves, the pending list shrinks); a major changes a seed or a rule.
 
+## 0.1.4 (2026-11-26)
+
+`ink.shortcut` follows the key hint to `webviews/src/ui/keyHint.css`. cmux#57918 drew every web shortcut through
+`ui/KeyHint` and removed `.acpmux-permission-action-shortcut` from `acpmux/styles.css`, the token's old source;
+the key hint's ink is `var(--instrument-ink-shortcut, 62%)`. A patch: no pixel moves (62% before and after).
+
+## 0.1.3 (2026-11-24)
+
+RFD 0116 section 9's space, elevation and ink tokens, each at the value the app draws today. A patch: no pixel
+moves.
+
+- `gap.turn` 32px, `gap.block` 24px and `gap.inner` 12px read layout-grid.json, the source of `--grid-gap-*`.
+- `elevation.low.*` and `elevation.high.*` (geometry, light and dark shadow ink) read design-scale.json's
+  `elevation`, the source of `--elevation-1` and `--elevation-2`.
+- `ink.tool-row` 58%, `ink.pill` 16%, `ink.shortcut` 62% and `ink.effort-label` 88% read the stylesheets
+  that draw them; each wired declaration is `var(--instrument-…, today's value)`.
+
+## 0.1.2 (2026-11-24)
+
+The second half of RFD 0116 section 9's type tokens, each at the value the app draws today. A patch: no pixel
+moves.
+
+- Faces: `type.chrome.family` (the system stack in `type-scale.json`, drawn as `--font-ui`) and
+  `type.chat.family` (`var(--font-ui)`, the transcript's `--cv-font`).
+- Tracking: `type.chat.tracking` 0px behind `--cv-tracking`; `type.<step>.tracking` for each chrome step as a
+  rule, 0em, because `check-ui-font.py` pins `--text-<step>--letter-spacing` to 0em and a token there would
+  change that pin.
+- `type.numerals`: tabular numerals as a role (`tabular-nums`), read by the 26 declarations in
+  `conversation.css` that draw them; the places that draw proportional numerals keep them.
+- `link.underline`: `underline`, the transcript link's decoration.
+
 ## 0.1.1 (2026-11-24)
 
 Type tokens from RFD 0116 section 9 ("What it cannot do yet"), each at the value the app draws today. A patch:

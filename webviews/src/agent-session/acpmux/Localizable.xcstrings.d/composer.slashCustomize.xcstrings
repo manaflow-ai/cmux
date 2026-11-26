@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "composer.slashCustomize" : {
+      "comment" : "Agent pane: the slash menu's description of /customize, which asks the chat's agent to change cmux itself as a live preview (customizeCommand.ts)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "خصّص cmux بالطلب: يتغيّر أمامك مباشرةً، ثم طبّق أو تجاهل"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prilagodite cmux tako što kažete šta želite: mijenja se uživo, zatim primijenite ili odbacite"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tilpas cmux ved at spørge: det ændres live, og du anvender eller kasserer bagefter"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux per Anfrage anpassen: Änderungen erscheinen live, dann anwenden oder verwerfen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Customize cmux by asking: it changes live, then you apply or discard"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Personaliza cmux pidiéndolo: cambia en vivo y luego aplicas o descartas"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Personnaliser cmux en le demandant : il change en direct, puis vous appliquez ou annulez"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Personalizza cmux chiedendolo: cambia dal vivo, poi applichi o annulli"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "頼むだけで cmux をカスタマイズ。その場で変わり、適用するか破棄するかを選べます"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ប្ដូរ cmux តាមចិត្តដោយគ្រាន់តែស្នើ៖ វាផ្លាស់ប្ដូរភ្លាមៗ រួចអ្នកអនុវត្ត ឬបោះបង់"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "요청해서 cmux를 사용자화: 바로 바뀌고, 적용하거나 취소할 수 있습니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tilpass cmux ved å spørre: det endres direkte, og så bruker eller forkaster du"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dostosuj cmux, prosząc o to: zmienia się na żywo, potem zastosuj lub odrzuć"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Personalize o cmux pedindo: ele muda ao vivo, depois você aplica ou descarta"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Настройте cmux, попросив: он меняется сразу, затем примените или отмените"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ปรับแต่ง cmux ด้วยการบอกสิ่งที่ต้องการ: เปลี่ยนให้เห็นทันที แล้วเลือกใช้หรือยกเลิก"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux'u isteyerek özelleştir: canlı değişir, sonra uygula ya da vazgeç"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Налаштуйте cmux, попросивши: він змінюється одразу, потім застосуйте або скасуйте"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tùy biến cmux bằng cách yêu cầu: thay đổi trực tiếp, rồi bạn áp dụng hoặc bỏ"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "说出想要的效果即可自定义 cmux：实时生效，然后应用或放弃"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "說出想要的效果即可自訂 cmux：即時生效，然後套用或捨棄"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

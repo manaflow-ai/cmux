@@ -42,10 +42,14 @@ public final class MobileHostProcess: Sendable {
             case .retry: return
             case .end:
                 handle.readabilityHandler = nil
+                try? handle.close()
                 queue.finish()
             }
         }
+        let reader = output.fileHandleForReading
         process.terminationHandler = { [weak self] finished in
+            // A helper hostd left running keeps its stdout's end of file from coming: close it after the drain grace.
+            ChildOutputEnds.closeAfterExit(reading: [reader]) { queue.finish() }
             let status = finished.terminationStatus
             let waiters = self?.state.withLock { state -> [CheckedContinuation<Int32, Never>] in
                 state.exitStatus = status
@@ -61,9 +65,11 @@ public final class MobileHostProcess: Sendable {
             $0.input = feed
         }
         do {
+            OpenDescriptors.noteBudgetSoon()  // every child launch: a leak shows in the log as it passes the bound
             try process.run()
         } catch {
-            output.fileHandleForReading.readabilityHandler = nil
+            process.terminationHandler = nil
+            ChildOutputEnds.closeNow(reading: [output.fileHandleForReading], writing: [output.fileHandleForWriting])
             queue.cancel()
             state.withLock {
                 $0.input?.close()

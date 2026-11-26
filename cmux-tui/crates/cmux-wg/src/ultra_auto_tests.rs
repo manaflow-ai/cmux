@@ -246,3 +246,39 @@ fn off_path_notes_round_trip_and_are_neither_probes_nor_hellos() {
     let hello = crate::ultra_hello::packet(local, remote, hello);
     assert!(decode_off_path(&hello).is_none());
 }
+
+#[test]
+fn a_periodic_burst_turns_auto_on_before_it_comes() {
+    use crate::ultra_period::LEAD;
+    let mut auto = UltraChoice::AUTO.auto().unwrap();
+    let start = Instant::now();
+    let period = Duration::from_secs(45);
+    for burst in 0..3u32 {
+        let onset = start + period * burst;
+        auto.observe(onset, sample(1, 0, 1, 10), 0);
+        assert!(auto.is_on(), "on at burst {burst}");
+        let clean = onset + HOLD + Duration::from_secs(1);
+        auto.observe(clean, sample(0, 0, 0, CLEAN_DATAGRAMS), 0);
+        assert!(!auto.is_on(), "off between bursts ({burst})");
+    }
+    assert_eq!(auto.loss_period(), Some(period));
+    let before = start + period * 3 - LEAD / 2;
+    assert!(auto.observe(before, sample(0, 0, 0, 10), 0), "on ahead of the fourth burst");
+    assert_eq!(auto.wanted().0, UltraMode::SETTING);
+    let after = start + period * 3 + Duration::from_secs(5);
+    assert!(auto.observe(after, sample(0, 0, 0, 10), 0), "off again past the window");
+    assert!(!auto.is_on());
+}
+
+#[test]
+fn reordering_teaches_no_period() {
+    let mut auto = UltraChoice::AUTO.auto().unwrap();
+    let start = Instant::now();
+    for burst in 0..4u32 {
+        let at = start + Duration::from_secs(20) * burst;
+        auto.observe(at, sample(1, 0, 0, 2), 0);
+        auto.observe(at, sample(0, 1, 0, 1), 0);
+        assert!(!auto.is_on(), "filled late: off ({burst})");
+    }
+    assert_eq!(auto.loss_period(), None);
+}

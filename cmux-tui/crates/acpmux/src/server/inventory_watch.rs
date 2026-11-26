@@ -29,7 +29,9 @@ pub(super) async fn send_latest(
 ) {
     let mut queue = conn.out.lock();
     let enabled = *conn.watch_inventory.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    if enabled {
+    // Asked for by the client's own `_acpmux/harness_inventory_watch {enabled: true}`, and
+    // gated on the feature naming that watch for a client that lists its features.
+    if enabled && conn.client_features.hears_any(&[FEATURE, "harnessInventory"]) {
         let value = snapshots.borrow_and_update().wire();
         match Message::notification(method::MUX_HARNESS_INVENTORY, value).bounded_line() {
             Ok(line) => {

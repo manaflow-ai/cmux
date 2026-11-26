@@ -52,6 +52,9 @@ public struct LinkMachine: Sendable {
         case blockUDP(Bool)
         case dialSucceeded(generation: Int, path: LinkPathKind)
         case dialFailed(generation: Int, reason: String)
+        /// The dial of `generation` found no way to the Mac on this network
+        /// (PROTOCOL.md "When no path works"); its `dialFailed` follows.
+        case networkBlocked(generation: Int, NetworkBlock)
         /// The link reported a new path or RTT.
         case linkUpdated(generation: Int, path: LinkPathKind, rttMillis: UInt32?)
         /// The WebRTC media session beside a WireGuard link changed.
@@ -161,6 +164,15 @@ public struct LinkMachine: Sendable {
     public private(set) var awakeHolds = 0
     /// The current link's WebRTC media session (browser video), `off` between links.
     public private(set) var media: VideoMediaState = .off
+    /// The last dial found no way to the Mac on this network (`network_blocked`):
+    /// what the status line says (once the quiet bound passed) while the quiet
+    /// retries go on, until a dial succeeds or the target or transport changes.
+    public private(set) var networkBlock: NetworkBlock?
+    /// The dial whose `networkBlocked` set ``networkBlock``: a later dial that
+    /// fails for another reason (no `networkBlocked` before its `dialFailed`,
+    /// say the Mac went to sleep) clears it, so the line never blames the
+    /// network for a failure it did not cause.
+    private var networkBlockGeneration: Int?
     /// Retry delays in seconds after the silent retries; the last one repeats.
     public var backoff: [Int] = [1, 2, 4, 8, 15, 30]
     /// A background shorter than this keeps the link: a quick probe, no redial.
@@ -267,6 +279,7 @@ public struct LinkMachine: Sendable {
             return effects
         case .target(let next):
             let sameMac = next?.macID == target?.macID
+            if !sameMac { networkBlock = nil }
             target = next
             guard let next else { return reset(to: .idle) }
             if !next.isOnline {
@@ -285,6 +298,7 @@ public struct LinkMachine: Sendable {
         case .transport(let next):
             guard next != transport else { return [] }
             transport = next
+            networkBlock = nil
             guard let target, target.isOnline else { return [] }
             return dial(attempt: 1, closing: true)
         case .relayOnly(let next):
@@ -300,6 +314,7 @@ public struct LinkMachine: Sendable {
             return dial(attempt: 1, closing: true)
         case .dialSucceeded(let gen, let path):
             guard gen == generation, case .connecting = phase else { return [] }
+            networkBlock = nil
             phase = .connected(transport, path, rttMillis: nil)
             // The new link is up: the old one beside it has nothing left to do.
             return dropStandby()
@@ -309,6 +324,7 @@ public struct LinkMachine: Sendable {
             switch phase {
             case .connecting, .waiting:
                 generation += 1
+                networkBlock = nil
                 phase = .connected(transport, path, rttMillis: rtt)
                 return [.promoteStandby(generation: generation)]
             default:
@@ -317,8 +333,14 @@ public struct LinkMachine: Sendable {
         case .standbyLost(let gen):
             guard gen == standby else { return [] }
             return dropStandby()
+        case .networkBlocked(let gen, let block):
+            guard gen == generation, case .connecting = phase else { return [] }
+            networkBlock = block
+            networkBlockGeneration = gen
+            return []
         case .dialFailed(let gen, let reason):
             guard gen == generation, case .connecting(_, let attempt) = phase else { return [] }
+            if networkBlockGeneration != gen { networkBlock = nil }
             // Presence said offline and a dial (``Event/open``) confirmed it:
             // offline now, no retry loop until presence brings the Mac back.
             if target?.isOnline == false {
@@ -470,9 +492,18 @@ extension LinkMachine.Phase {
     /// stays (the person signs in again); "Offline" is held by the caller
     /// until the link has been down for the shared quiet bound
     /// (`LiveCoordinator.statusLines`). Transport, path, latency, and daemon
-    /// failures remain available to diagnostics.
-    public func statusLine(macName _: String, media _: VideoMediaState = .off) -> String? {
-        switch self {
+    /// failures remain available to diagnostics. `block`: the network blocks
+    /// the link (``LinkMachine/networkBlock``): while it is down, the line
+    /// says so and what to do (held by the same quiet bound), and the quiet
+    /// retries go on beneath it.
+    public func statusLine(macName _: String, media _: VideoMediaState = .off, block: NetworkBlock? = nil) -> String? {
+        if let block {
+            switch self {
+            case .connecting, .waiting: return block.statusLine
+            default: break
+            }
+        }
+        return switch self {
         case .idle, .connecting, .connected: nil
         case .macOffline: "Offline"
         case .signedOut: "Signed out"
@@ -482,8 +513,14 @@ extension LinkMachine.Phase {
     }
 
     /// Technical detail for the explicit diagnostics disclosure only.
-    public func diagnosticLine(macName: String, media: VideoMediaState = .off) -> String? {
-        switch self {
+    public func diagnosticLine(macName: String, media: VideoMediaState = .off, block: NetworkBlock? = nil) -> String? {
+        if let block {
+            switch self {
+            case .connecting, .waiting: return block.sentence
+            default: break
+            }
+        }
+        return switch self {
         case .idle: nil
         case .macOffline: "\(macName) is offline"
         case .signedOut: "This device was signed out (the cmux service refused a fresh token)"
@@ -500,6 +537,15 @@ extension LinkMachine.Phase {
     public var isConnected: Bool {
         if case .connected = self { return true }
         return false
+    }
+
+    /// Connected on the same transport and path as `other`, with only the
+    /// measured round trip changed: a pong. Over LTE every pong's round trip
+    /// differs, so this is most phase changes on a link that is up.
+    public func differsOnlyInRoundTrip(from other: Self) -> Bool {
+        guard case .connected(let transport, let path, _) = self,
+              case .connected(let otherTransport, let otherPath, _) = other else { return false }
+        return transport == otherTransport && path == otherPath
     }
 }
 
@@ -521,6 +567,7 @@ extension LinkPathKind {
         case .direct: "direct"
         case .turn: "relay (TURN)"
         case .turnTLS: "relay (TURN over TLS)"
+        case .httpsRelay: "relay (cmux, HTTPS)"
         case .noPath: "no path"
         }
     }

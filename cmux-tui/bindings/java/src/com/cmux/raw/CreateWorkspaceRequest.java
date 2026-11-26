@@ -19,6 +19,8 @@ public final class CreateWorkspaceRequest implements WireValue {
     private final Field<String> key;
     private final Field<String> mutationId;
     private final Field<String> name;
+    /** user: name is exactly what the caller asked for (agents chat new --name), pinned like a rename at name_revision 1 so no automatic name or chat title replaces it. Absent or auto: a starting name the automatic namer may replace. */
+    private final Field<NameSource> nameSource;
     private final Field<String> origin;
 
     private CreateWorkspaceRequest(Builder builder) {
@@ -28,6 +30,7 @@ public final class CreateWorkspaceRequest implements WireValue {
         this.key = builder.key;
         this.mutationId = builder.mutationId;
         this.name = builder.name;
+        this.nameSource = builder.nameSource;
         this.origin = builder.origin;
     }
 
@@ -39,6 +42,7 @@ public final class CreateWorkspaceRequest implements WireValue {
     public Field<String> key() { return key; }
     public Field<String> mutationId() { return mutationId; }
     public Field<String> name() { return name; }
+    public Field<NameSource> nameSource() { return nameSource; }
     public Field<String> origin() { return origin; }
 
     public static CreateWorkspaceRequest fromWire(Object value) {
@@ -68,6 +72,10 @@ public final class CreateWorkspaceRequest implements WireValue {
         if (!Wire.isMissing(rawName)) {
             builder.name(rawName == null ? null : Wire.string(rawName, "CreateWorkspaceRequest.name"));
         }
+        Object rawNameSource = Wire.optional(object, "name_source");
+        if (!Wire.isMissing(rawNameSource)) {
+            builder.nameSource(rawNameSource == null ? null : NameSource.fromWire(rawNameSource));
+        }
         Object rawOrigin = Wire.optional(object, "origin");
         if (!Wire.isMissing(rawOrigin)) {
             builder.origin(rawOrigin == null ? null : Wire.string(rawOrigin, "CreateWorkspaceRequest.origin"));
@@ -84,6 +92,7 @@ public final class CreateWorkspaceRequest implements WireValue {
         Wire.put(object, "key", key);
         Wire.put(object, "mutation_id", mutationId);
         Wire.put(object, "name", name);
+        Wire.put(object, "name_source", nameSource);
         Wire.put(object, "origin", origin);
         return Collections.unmodifiableMap(object);
     }
@@ -91,11 +100,11 @@ public final class CreateWorkspaceRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof CreateWorkspaceRequest that)) return false;
-        return Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedRevision, that.expectedRevision) && Objects.equals(firstTab, that.firstTab) && Objects.equals(key, that.key) && Objects.equals(mutationId, that.mutationId) && Objects.equals(name, that.name) && Objects.equals(origin, that.origin);
+        return Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedRevision, that.expectedRevision) && Objects.equals(firstTab, that.firstTab) && Objects.equals(key, that.key) && Objects.equals(mutationId, that.mutationId) && Objects.equals(name, that.name) && Objects.equals(nameSource, that.nameSource) && Objects.equals(origin, that.origin);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(expectedGeneration, expectedRevision, firstTab, key, mutationId, name, origin); }
+    public int hashCode() { return Objects.hash(expectedGeneration, expectedRevision, firstTab, key, mutationId, name, nameSource, origin); }
 
     @Override
     public String toString() { return "CreateWorkspaceRequest" + toWire(); }
@@ -107,6 +116,7 @@ public final class CreateWorkspaceRequest implements WireValue {
         private Field<String> key = Field.omitted();
         private Field<String> mutationId = Field.omitted();
         private Field<String> name = Field.omitted();
+        private Field<NameSource> nameSource = Field.omitted();
         private Field<String> origin = Field.omitted();
 
         public Builder expectedGeneration(String value) {
@@ -131,6 +141,10 @@ public final class CreateWorkspaceRequest implements WireValue {
         }
         public Builder name(String value) {
             this.name = Field.ofNullable(value);
+            return this;
+        }
+        public Builder nameSource(NameSource value) {
+            this.nameSource = Field.ofNullable(value);
             return this;
         }
         public Builder origin(String value) {
