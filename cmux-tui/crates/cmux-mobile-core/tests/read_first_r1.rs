@@ -44,12 +44,14 @@ fn env_or(name: &str, default: &str) -> String {
 fn stored_page(chats: usize, prompt_bytes: usize) -> Vec<u8> {
     let rows: Vec<Value> = (0..chats.min(STORED_CHAT_LIMIT))
         .map(|i| {
+            let harness = ["claude", "codex", "opencode"][i % 3];
+            let status = if i % 4 == 0 { "running" } else { "idle" };
             json!({
                 "id": format!("chat-{i:06}-6f1c2b0e-9a4d-4c55-8d0e-{i:012}"),
                 "title": format!("Fix the reconnect toast pushing the transcript up #{i}"),
-                "harness": ["claude", "codex", "opencode"][i % 3],
+                "harness": harness,
                 "cwd": format!("/Users/someone/Projects/cmux/lane-{i}"),
-                "status": if i % 4 == 0 { "running" } else { "idle" },
+                "status": status,
                 "updatedAt": 1_795_000_000.0 + i as f64,
                 "archived": false,
                 "lastPrompt": "p".repeat(prompt_bytes),
