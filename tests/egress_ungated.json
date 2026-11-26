@@ -1,50 +1,7 @@
 {
  "about": "Outbound sites in cmux NEXT that do not go through the egress gate. Only shrinks; tests/test_egress_gate.py keeps it exact.",
- "ungated": 13,
- "file_count": 13,
- "by_language": {
-  "rs": 11,
-  "swift": 2
- },
- "files": {
-  "Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/CmxCredentialedHTTPSession.swift": {
-   "urlsession": 1
-  },
-  "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTransport/LocalLinkBrowser.swift": {
-   "nwconnection": 1
-  },
-  "cmux-next-ios/rust/crates/cmux-mobile-host/src/services.rs": {
-   "ws-connect": 1
-  },
-  "cmux-next-ios/rust/crates/cmux-mobile-link/src/egress/mod.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-next-ios/rust/crates/cmux-mobile-link/src/hub.rs": {
-   "ws-connect": 1
-  },
-  "cmux-tui/crates/acpmux/src/hub/forum_hosted.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/acpmux/src/send_trace.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-git-cache/src/server.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-tui-core/src/server/forum_routed.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-tui/src/cli/autocloud.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-tui/src/cli/automation_webhook_fire.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-tui/src/cli/mcp_servers.rs": {
-   "reqwest-client": 1
-  },
-  "cmux-tui/crates/cmux-tui/src/cli/runnable_link.rs": {
-   "reqwest-client": 1
-  }
- }
+ "ungated": 0,
+ "file_count": 0,
+ "by_language": {},
+ "files": {}
 }

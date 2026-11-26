@@ -1,5 +1,5 @@
-// The hosts docs/privacy.md lists as `connects` (the same set as cmux-tui/crates/cmux-egress/hosts.txt), sorted.
-// Hand-kept: tests/test_egress_gate.py fails when this list and the doc differ.
+// The egress allowlist's hosts (cmux-tui/crates/cmux-egress/hosts.txt, the source docs/privacy.md is generated from), sorted.
+// Hand-kept: tests/test_egress_gate.py fails when this list and hosts.txt differ.
 enum EgressHosts {
     static let patterns: [String] = [
         "*.*.wdev.cmux.dev",
@@ -19,6 +19,7 @@ enum EgressHosts {
         "api.open-meteo.com",
         "api.openai.com",
         "api.stack-auth.com",
+        "api.tailscale.com",
         "api.x.ai",
         "app.notion.com",
         "app.slack.com",
