@@ -60,7 +60,8 @@ GUARDED: dict[str, tuple[str, ...]] = {
         "cmux-next-pr-autofix.yml", "cmux-next-shell-integration.yml",
         "cmux-vm-clients.yml", "cmux-vm-cloud.yml", "cmux-vnc.yml", "ios-e2e.yml",
         "iroh-v2.yml", "measure-swift-typecheck.yml", "relay-tls.yml", "release-rails.yml",
-        "signing-keychain-macos.yml", "terminal-hang-diagnostics.yml", "test-ios.yml")},
+        "signing-keychain-macos.yml", "terminal-hang-diagnostics.yml", "test-ios.yml",
+        "rust-workspaces.yml", "cmux-tui-spec.yml")},
 }
 
 # GUARDED workflows whose label events arrive as pull_request_target.
