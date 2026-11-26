@@ -41,6 +41,8 @@ if str(ROOT / "scripts/ci") not in sys.path:
 os.environ["CMUX_GLAEDA_GH"] = ""
 import base_red_excuse as excuse  # noqa: E402
 import git_tree  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from cmux_next_step_text import step_run  # noqa: E402
 
 
 def tree_blob(tree):
@@ -3165,7 +3167,7 @@ class WorkflowRedStatusesHaveAReader(unittest.TestCase):
                 name = str(job.get("name") or job_id)
                 jobs.update(re.findall(r"'([^']+)'", name) if "${{" in name else [name])
                 for index, step in enumerate(job.get("steps") or []):
-                    text = str((step or {}).get("run") or "")
+                    text = step_run(step or {})
                     if not cls.POST.search(text) or not cls.RED_STATE.search(text):
                         continue
                     where = f"{path.name} {job_id} step {index} ({step.get('name') or 'unnamed'})"
@@ -8897,6 +8899,42 @@ class WsCheckPerTest(unittest.TestCase):
                 (f"1 of 77 steps failed: {own} (+1 base red discounted, main {'0' * 8})", {}),  # main
                 (f"1 of 77 steps failed (+1 base red discounted, main {main8}): {self.DEPLOY} [test_c.py]", {}),  # unit
                 (f"1 of 77 steps failed: {own} (+1 base red discounted, main {main8})", {"base_failed": False})):
+            with self.subTest(description=description, **kwargs):
+                self.discounted_red(description, **kwargs)
+                with self.assertRaisesRegex(excuse.Refused, "does not match run 1's WS_CHECK_RESULT"):
+                    self.judge()
+
+    def test_a_long_discounted_status_naming_its_first_unit_is_read(self):
+        # 2026-11-26: lw#11671's long form, "N failed after discounting K on main SHA8: UNIT", was refused "names no
+        # failed steps" (lw#12133 at fb44c444, lw#12080), so no per-test comparison ran. Read, a unit that passes on
+        # main is still the head's own red.
+        main8 = self.gh.TIP[:8]
+        for description in (f"1 failed after discounting 1 on main {main8}: test_b.py",
+                            f"1 failed after discounting 1 on main {main8}: test_b"):  # cut at 139
+            with self.subTest(description=description):
+                self.discounted_red(description)
+                with self.assertRaisesRegex(excuse.Refused, "test_b") as caught:
+                    self.judge()
+                self.assertNotIn("does not match", str(caught.exception))
+                self.assertNotIn("names no failed steps", str(caught.exception))
+
+    def test_a_long_discounted_status_is_excused_only_when_main_fails_its_unit_too(self):
+        main8 = self.gh.TIP[:8]
+        self.discounted_red(f"1 failed after discounting 1 on main {main8}: test_b.py")
+        # main's own ws-check verdict fails test_b.py's test_b too (the run's base pass saw it pass: a flaky unit).
+        self.gh.verdict(self.gh.TIP, 2, {self.DEPLOY: {"test_a.py": self.ws_deploy("test_a"),
+                                                       "test_b.py": self.ws_deploy("test_b")}})
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", self.judge()[0])
+
+    def test_a_long_discounted_status_that_the_log_does_not_bear_out_is_refused(self):
+        main8 = self.gh.TIP[:8]
+        for description, kwargs in (
+                (f"2 failed after discounting 1 on main {main8}: test_b.py", {}),  # own count
+                (f"1 failed after discounting 2 on main {main8}: test_b.py", {}),  # discount
+                (f"1 failed after discounting 1 on main {'0' * 8}: test_b.py", {}),  # main
+                (f"1 failed after discounting 1 on main {main8}: test_c.py", {}),  # unit
+                (f"1 failed after discounting 1 on main {main8}: ", {}),  # no unit
+                (f"1 failed after discounting 1 on main {main8}: test_b.py", {"base_failed": False})):
             with self.subTest(description=description, **kwargs):
                 self.discounted_red(description, **kwargs)
                 with self.assertRaisesRegex(excuse.Refused, "does not match run 1's WS_CHECK_RESULT"):

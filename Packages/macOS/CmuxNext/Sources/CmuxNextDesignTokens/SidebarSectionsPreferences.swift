@@ -199,6 +199,15 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// `sidebar.priorityView.shown`: the bell's state, whether the installed Priority view shows
     /// at the top of the sidebar. Off, the sidebar is unchanged.
     public var priorityViewShown = true
+    /// `sidebar.priorityView.filters`: All, Waiting, Unread and Running chips with counts under the
+    /// Priority header, and Mark All as Read (the Codex app's activity list). Off by default.
+    public var priorityViewFilters = false
+    /// `sidebar.priorityView.showIdle`: idle chats list under the others (default). Off, the view
+    /// lists only chats that need the person or run a turn, pinned and dragged ones aside.
+    public var priorityViewShowIdle = true
+    /// `sidebar.priorityView.statusWords`: each Priority row says its state in words ("Needs you",
+    /// "Done", "Working 5m"). Off by default: the status mark alone.
+    public var priorityViewStatusWords = false
     /// `sidebar.sessionTree` (Claude desktop's Code tab): a workspace started by another
     /// workspace's agent lists under it on a thin line, rows carry their pull requests, and the
     /// first rows their Command-number keycaps. Off by default: it changes the list's look.
