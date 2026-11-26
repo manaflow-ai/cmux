@@ -18,7 +18,7 @@ import { rowIconSize } from "../icons/iconSize";
 import { elapsed, SubagentHarnessContext, ticking, useNow } from "../subagents/subagentGroupModel";
 import { type Subagent } from "../subagents/subagentFold";
 
-import { retrying, retryWords, sessionRetry, sessionRetryKey } from "../subagents/retryState";
+import { retrying, retryLabel, sessionRetry, sessionRetryKey } from "../subagents/retryState";
 import { Spinner } from "../conversation/icons";
 import {
   SUBSESSION_STATE_LABEL,
@@ -207,7 +207,7 @@ function SubsessionStatusRow({ session, onOpen }: { session: SubsessionRow; onOp
   const phase = sessionRetry(session);
   const retry = phase.kind === "retrying" ? phase.retry : undefined;
   // Its words wait out the shared bound (retryState.ts ``retryWords``); the ring turns at once.
-  const retryText = retryWords(t, retry, sessionRetryKey(session.sessionId), useConnectionQuietKeys());
+  const retryLasting = useConnectionQuietKeys()(sessionRetryKey(session.sessionId), retry !== undefined);
   const status = retry ? SUBSESSION_STATUS.working : SUBSESSION_STATUS[session.state];
   // What a working one does now, or what one waiting on the person waits for.
   const line = session.waiting ? waitingLine(t, session.waiting) : session.doing;
@@ -237,9 +237,14 @@ function SubsessionStatusRow({ session, onOpen }: { session: SubsessionRow; onOp
       {session.queued ? (
         <span className="acpmux-summary-meta">{t("subsession.queued", { n: session.queued })}</span>
       ) : null}
-      <span className="acpmux-summary-meta acpmux-summary-agent__state">
-        {retry && <Spinner size={12} loading />}
-        {retryText ?? t(SUBSESSION_STATE_LABEL[session.state])}
+      <span
+        className="acpmux-summary-meta acpmux-summary-agent__state"
+        title={t(SUBSESSION_STATE_LABEL[session.state])}
+      >
+        {(retry || session.state === "working") && <Spinner size={12} loading />}
+        {/* Working is the spinner, no word (Leo, 2026-11-23: "\"running\" doesn't need text"). A retry
+            inside the shared bound reads as working too. */}
+        {retry ? (retryLasting ? retryLabel(t, retry) : null) : session.state === "working" ? null : t(SUBSESSION_STATE_LABEL[session.state])}
       </span>
     </button>
   );
