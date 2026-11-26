@@ -142,6 +142,13 @@ const variants: Record<string, { note: string; props: Props }> = {
     note: "Picked: three items, one dot at the worst level; the card lists them worst first.",
     props: { items: [offline, stuck, queuePaused], initial: "pinned" },
   },
+  "queue-paused-why": {
+    note: "Picked: a queue a failed turn paused says the turn's error and Resume in the dot (RFD 0128); the queue's own note defers to it.",
+    props: {
+      items: [{ ...queuePaused, words: "status.queuePaused.why", subject: "429 Too Many Requests: rate limited" }],
+      initial: "pinned",
+    },
+  },
   peek: {
     note: "Picked: a hover peeks the card; its key hint's line is kept empty so pinning never resizes it.",
     props: { items: [offline, rateLimited], initial: "peek" },
