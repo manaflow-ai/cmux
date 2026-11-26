@@ -343,7 +343,6 @@ function InboxThreadLine({
         )
       }
       unverified={sender.unverified === true}
-      claimed={name}
       detail={
         <>
           {/* A thread keyed by its sender (`declared:NAME`) is labeled with that name: said once. */}
