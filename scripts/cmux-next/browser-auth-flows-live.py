@@ -126,6 +126,11 @@ def rpc(method, params=None, timeout=20):
             buf += chunk
         conn.close()
         reply = json.loads(buf)
+        error = reply.get("error") if not reply.get("ok") else None
+        if isinstance(error, dict) and error.get("code") == "timeout" and (error.get("data") or {}).get("not_run"):
+            # A call that timed out before it ran: the main thread never got to it, the app is stalled though
+            # the socket answers (a download's first look into ~/Downloads waited on macOS's access prompt).
+            diagnose_hang(f"{method} never ran in the app: {error.get('message', '')}")
         return (reply.get("result") if reply.get("ok") else {"error": reply.get("error")}) or {}
     except socket.timeout as error:
         diagnose_hang(f"{method} got no answer in {timeout} s")
