@@ -348,11 +348,19 @@ pub struct FeedbackView {
 #[serde(tag = "action", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ReaderAction {
     /// The newest readable discussion thread.
-    DiscussInThread { target: String },
+    DiscussInThread {
+        target: String,
+    },
     /// No readable discussion yet: start a `feedback` thread linked to the RFD.
-    StartDiscussion { rfd: String },
-    OpenSession { target: String },
-    OpenRfd { target: String },
+    StartDiscussion {
+        rfd: String,
+    },
+    OpenSession {
+        target: String,
+    },
+    OpenRfd {
+        target: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -391,7 +399,12 @@ pub fn feedback_view(
     feedback_with(&ix, board, target, viewer)
 }
 
-fn feedback_with(ix: &Ix<'_>, board: &VoteBoard, target: &RefKey, viewer: &Principal) -> FeedbackView {
+fn feedback_with(
+    ix: &Ix<'_>,
+    board: &VoteBoard,
+    target: &RefKey,
+    viewer: &Principal,
+) -> FeedbackView {
     let summary = board.summary(target);
     // The agents' current votes, newest per agent, from the board's own current-vote rule.
     let mut agents: BTreeSet<&str> = BTreeSet::new();
@@ -440,7 +453,8 @@ impl Corpus {
         titles: &BTreeMap<String, String>,
     ) -> RfdReader {
         let ix = Ix::new(self);
-        let title_of = |k: &RefKey| titles.get(&k.canonical()).cloned().unwrap_or_else(|| k.id.clone());
+        let title_of =
+            |k: &RefKey| titles.get(&k.canonical()).cloned().unwrap_or_else(|| k.id.clone());
         let mut hidden = 0;
         let mut thread_ids: BTreeSet<&str> = BTreeSet::new();
         let mut sessions: Vec<RefRow> = Vec::new();
@@ -521,7 +535,8 @@ impl Corpus {
             return None;
         }
         let t = ix.thread_by.get(thread_id)?;
-        let title_of = |k: &RefKey| titles.get(&k.canonical()).cloned().unwrap_or_else(|| k.id.clone());
+        let title_of =
+            |k: &RefKey| titles.get(&k.canonical()).cloned().unwrap_or_else(|| k.id.clone());
         let me = thread_key(thread_id);
         let mut rfds: BTreeSet<RefKey> = BTreeSet::new();
         let mut sessions: BTreeSet<RefKey> = BTreeSet::new();
@@ -551,9 +566,20 @@ impl Corpus {
                 sessions.insert(k);
             }
         }
-        let rfds: Vec<RefRow> = rfds.into_iter().map(|k| { let t = title_of(&k); row(k, t) }).collect();
-        let sessions: Vec<RefRow> =
-            sessions.into_iter().map(|k| { let t = title_of(&k); row(k, t) }).collect();
+        let rfds: Vec<RefRow> = rfds
+            .into_iter()
+            .map(|k| {
+                let t = title_of(&k);
+                row(k, t)
+            })
+            .collect();
+        let sessions: Vec<RefRow> = sessions
+            .into_iter()
+            .map(|k| {
+                let t = title_of(&k);
+                row(k, t)
+            })
+            .collect();
         let mut actions = Vec::new();
         if let Some(r) = rfds.first() {
             actions.push(ReaderAction::OpenRfd { target: r.canonical.clone() });
@@ -639,7 +665,9 @@ impl Corpus {
                 score,
             });
         }
-        out.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.thread.key.id.cmp(&b.thread.key.id)));
+        out.sort_by(|a, b| {
+            b.score.cmp(&a.score).then_with(|| a.thread.key.id.cmp(&b.thread.key.id))
+        });
         out.truncate(limit);
         out
     }
