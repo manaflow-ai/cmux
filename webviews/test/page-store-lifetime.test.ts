@@ -2,8 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { AppsStore } from "../src/pages/apps/store";
 import { MockAppsProvider } from "../src/pages/apps/mockProvider";
 import { AppsOps } from "../src/pages/apps/types";
-import { CodeRouterStore } from "../src/pages/coderouter/store";
-import { MockCodeRouterProvider } from "../src/pages/coderouter/mockProvider";
 import { HistoryStore } from "../src/pages/history/store";
 import { MockHistoryProvider } from "../src/pages/history/mockProvider";
 import { HistoryOps } from "../src/pages/history/types";
@@ -88,12 +86,6 @@ const cases = [
     make: (client: PageClient) => new AppsStore(client),
     provider: () => new MockAppsProvider(),
     watch: AppsOps.watch,
-  },
-  {
-    name: "CodeRouter",
-    make: (client: PageClient) => new CodeRouterStore(client),
-    provider: () => new MockCodeRouterProvider(),
-    watch: undefined,
   },
 ];
 
