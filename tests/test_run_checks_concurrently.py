@@ -109,6 +109,22 @@ class RunChecksConcurrently(unittest.TestCase):
         self.assertEqual(commands[:4], parts)
         self.assertEqual([c for c in commands if "test_cmux_next_prepush_gate.py" in c], parts)
 
+    def test_a_command_that_deletes_the_workspace_repository_fails_by_name(self):
+        # Runs 45871176600 and 45884200942: a test ran a workflow step body with the job's environment, its
+        # `rm -rf "$GITHUB_WORKSPACE/.git"` deleted the checkout's repository mid-pool, and ~20 checks failed with
+        # "not a git repository" and nothing named the deleter. A command the repository was there for and is
+        # gone after fails and says so; one that leaves it is untouched, and one that starts without it is not blamed.
+        with tempfile.TemporaryDirectory() as workspace:
+            (Path(workspace) / ".git").mkdir()
+            env = {key: value for key, value in os.environ.items() if key != "CMUX_CI_CPU_BUDGET"}
+            env["GITHUB_WORKSPACE"] = workspace
+            result = subprocess.run(["bash", str(RUNNER), "--jobs", "1"], input='true\nrm -rf "$GITHUB_WORKSPACE/.git"\ntrue\n',
+                                    capture_output=True, text=True, timeout=60, cwd=ROOT, env=env)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn('::error title=check failed::rm -rf "$GITHUB_WORKSPACE/.git"', result.stdout)
+        self.assertIn(".git was deleted while this command ran", result.stdout)
+        self.assertIn("2 passed, 1 failed", result.stdout)
+
     def test_skips_blank_lines_and_comments(self):
         result = run("\n  # a note\n  echo only\n")
         self.assertEqual(result.returncode, 0, result.stderr)

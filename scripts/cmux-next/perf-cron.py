@@ -4531,6 +4531,18 @@ def webui_wakeup_lines(stdout, limit=40):
     return [line.strip()[:1200] for line in (stdout or "").splitlines() if WAKEUP_LINE_RE.search(line)][:limit]
 
 
+# sim-ladder.bench.ts's per-metric lines ("SIM-LADDER chats cpu_window_ms_per_s 105 / 126 / 97 | per item ... | ratio
+# 6.04 ...") and its per-rung summary: the rows carry only the ratio, so a red ladder row named no rung values.
+LADDER_LINE_RE = re.compile(r"SIM-LADDER(-SUMMARY)? (chats|tabs) ")
+
+
+def webui_ladder_lines(stdout, limit=40):
+    """The web UI suite's sim-ladder lines with each metric's rung values and each rung's summary (pure), at most
+    LIMIT."""
+    return [line.strip()[:600] for line in (stdout or "").splitlines()
+            if LADDER_LINE_RE.search(line) and "| ratio " in line or "SIM-LADDER-SUMMARY " in line][:limit]
+
+
 def cmd_run_linux_part(o):
     """One Linux part, in a checkout of the measured commit with the webviews packages installed. diff-viewer (Rust
     too): scripts/benchmark-diff-viewer.sh's two benches without their budget env, so they report instead of failing.
@@ -4567,6 +4579,8 @@ def cmd_run_linux_part(o):
             # (...); <sources>"): the report keeps only the counts, so the job log carries the callbacks behind a
             # nonzero rest_wakeups (goal idle-wakeups) instead of a rerun to find them.
             for line in webui_wakeup_lines(stdout):
+                print(f"perf-cron web-ui: {line}")
+            for line in webui_ladder_lines(stdout):
                 print(f"perf-cron web-ui: {line}")
             if isinstance(value, dict):
                 # The suite's report becomes the part's, keeping what ran before it: the web-ui-god part's paired
