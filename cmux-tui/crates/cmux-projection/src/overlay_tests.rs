@@ -1554,3 +1554,56 @@ fn warm_with_the_mac_away_stops_at_the_first_absence_and_pins_nothing() {
     assert_eq!(report.failed, 1);
     assert!(overlay.pins().is_empty());
 }
+
+#[test]
+fn bulk_copy_brings_the_whole_tree_local_in_path_order_and_a_second_run_asks_nothing() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let options = bulk::BulkOptions { pause: Duration::ZERO, ..Default::default() };
+    let stop = AtomicBool::new(false);
+    let report = overlay.bulk_copy(&options, &stop);
+    assert!(report.complete && !report.full && !report.away, "{report:?}");
+    // Five small files in batches (a big file flushes the run before it), each in id order, and
+    // the big one by chunk.
+    assert_eq!(report.files, 6);
+    let batches = fake.batches.lock().unwrap().clone();
+    assert_eq!(batches.iter().map(Vec::len).sum::<usize>(), 5);
+    let flat: Vec<u32> = batches.concat();
+    assert!(flat.windows(2).all(|pair| pair[0] < pair[1]));
+    let asked = fake.calls.load(Ordering::Relaxed);
+    // Every read now comes off the disk.
+    let big = path_ino(&overlay, "big.bin");
+    assert_eq!(overlay.read(big, 0, 64).unwrap(), big_bytes()[..64]);
+    let readme = path_ino(&overlay, "README.md");
+    assert_eq!(overlay.read(readme, 0, 100).unwrap(), b"readme");
+    assert_eq!(fake.calls.load(Ordering::Relaxed), asked);
+    let again = overlay.bulk_copy(&options, &stop);
+    assert!(again.complete);
+    assert_eq!((again.files, again.requests), (0, 0));
+    assert_eq!(fake.calls.load(Ordering::Relaxed), asked);
+}
+
+#[test]
+fn bulk_copy_stops_short_of_the_cache_cap_and_evicts_nothing() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake).with_cache_max(64);
+    let options = bulk::BulkOptions { pause: Duration::ZERO, ..Default::default() };
+    let report = overlay.bulk_copy(&options, &AtomicBool::new(false));
+    assert!(report.full && !report.complete, "{report:?}");
+    assert_eq!(overlay.cache_evicted(), 0);
+    assert!(overlay.cache_bytes() <= 64);
+}
+
+#[test]
+fn bulk_copy_stops_when_the_mac_is_away_and_when_told_to() {
+    let (state, manifest, fake) = setup(true);
+    let overlay = open(state.path(), &manifest, &fake);
+    let options = bulk::BulkOptions { pause: Duration::ZERO, ..Default::default() };
+    let report = overlay.bulk_copy(&options, &AtomicBool::new(false));
+    assert!(report.away && !report.complete, "{report:?}");
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let report = overlay.bulk_copy(&options, &AtomicBool::new(true));
+    assert_eq!(report, bulk::BulkReport::default());
+    assert_eq!(fake.calls.load(Ordering::Relaxed), 0);
+}
