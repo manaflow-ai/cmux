@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextSignposts
 
 /// Where each workspace row sits in a window's sections, so a row content
 /// change (agent status, OSC 7501 program status, title, unread, progress,
@@ -117,10 +118,13 @@ extension SidebarListView {
     /// height changes reloads the layout; nothing rebuilds the sections.
     func patchRows(_ patched: [SidebarWorkspace]) {
         SidebarPerfCounters.add(.rowPatches, patched.count)
+        let signpost = Signposter.stall.begin(.stallSidebarRows, "kind=patch")
+        defer { Signposter.stall.end(.stallSidebarRows, signpost) }
         // A height change lays the list out again (outside the timed patch: `reload` times itself), with no
         // motion unless the user asked for it, and not under the pointer (`showModelChange`, calm-sidebar-movement);
         // provisional rows swap in place, as on any reload (`SidebarView.animatesReload`).
-        // A changed height leaves the shown layout behind the model until that reload: no insert splices onto it.
+        // A changed height leaves the shown layout behind the model until that reload: no insert splices onto it. The
+        // reload moves the rows below the changed ones (`spliceHeights`), laying out none (cmuxterm-hq#13493).
         if SidebarPerfCounters.timed({ patchRowsNow(patched) }) { spliceBase = nil; showModelChange(animates: !model.sections.contains(where: \.hasProvisionalRows)) }
     }
 
@@ -167,11 +171,18 @@ extension SidebarListView {
                 }
             }
             if cardChanged, shownCard == ws.id { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(ws.id)) }
+            // An agent-started session that began or stopped waiting on the person shows or hides again
+            // (`SidebarSessionTreeState.hidesStarted`): the list lays out, whether it draws the row now or not.
+            if SidebarSessionTree.shared.drawn(keeping: model.selection)?.patchChangesHidden(from: previous, to: ws) == true {
+                heightChanged = true
+                continue
+            }
             guard let row = displayed.row(for: .workspace(ws.id)), let section = sections[row.section] else {
                 // A session a folded parent hides: the parent's roll-up counts its state, so the list lays out
                 // again when that state moves, not on each step or title it reports.
                 if SidebarSessionTree.shared.drawn?.patchChangesRollUp(from: previous, to: ws, lists: model.listsHolding(ws.id)) == true {
                     heightChanged = true
+                    pendingHeights = (nil, [:]) // the parent's row changes: no height splice shows it
                 }
                 continue
             }
@@ -183,8 +194,12 @@ extension SidebarListView {
             let m = metrics.resolved(for: o)
             guard m.height(for: content) == row.height else {
                 heightChanged = true
+                // The first height change since the last reload names the full layout it changes; a later one keeps it.
+                if pendingHeights == nil { pendingHeights = (spliceBase, [:]) }
+                pendingHeights?.rows[row.key] = content
                 continue
             }
+            pendingHeights?.rows[row.key] = nil // back to the height it shows: nothing left to move for it
             displayed.setContent(content, for: row.key)
             reconfigure(row.key)
         }
@@ -231,7 +246,7 @@ nonisolated extension SidebarLayout {
     /// group (``SidebarSection/drawsAsGroup``) has its group bar instead. The one rule for every header kind.
     static func keepsHeaderInOneList(_ section: SidebarSection) -> Bool {
         // A Cloud machine has no header of its own (2026-11-10: a Cloud chat's workspace is an ordinary row
-        // with a cloud mark by its name; the machine's name is never shown): only a remote group a person made.
+        // with no cloud mark, cmux#55668; the machine's name is never shown): only a remote group a person made.
         section.isHostGroup && !section.drawsAsGroup
     }
 
@@ -242,7 +257,7 @@ nonisolated extension SidebarLayout {
     static func machineLabel(_ section: SidebarSection, options o: SidebarLayoutOptions) -> String? {
         guard o.flattensMachines, let machine = section.machine, machine.kind != .local
         else { return nil }
-        // A Cloud row never names its machine: its cloud mark says where it runs, and only a status the person must act on is said.
+        // A Cloud row never names its machine (its chat's tab wears the cloud): only a status the person must act on is said.
         if machine.kind == .cloud { return o.machineStatusLabels[machine.id] }
         return o.machineStatusLabels[machine.id].map { machine.name + WorkspaceRowContent.separator + $0 } ?? machine.name
     }

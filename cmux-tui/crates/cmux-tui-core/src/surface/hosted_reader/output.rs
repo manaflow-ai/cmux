@@ -45,11 +45,30 @@ impl HostedReader {
             let (rewritten, notifications) = pty
                 .observe_terminal_output_rewriting_titles(self.shell_marks.titles_mut(), &output);
             terminal_notifications = notifications;
-            let normalized = crate::prompt_mode_reset::write_rewritten_output(
-                &mut term,
-                rewritten,
-                &mut self.shell_marks,
-            );
+            // G3, the early forward: a plain Output from a smart host goes
+            // to the viewers run by run before this mirror parses each run,
+            // still under the terminal lock (so a snapshot or a resync sees
+            // both or neither), so viewers parse alongside the mirror rather
+            // than after it. A colors frame carries the state after the
+            // parse, and a legacy host's Output can still fail the colors
+            // check below, so both broadcast after the parse as before.
+            let early_forward = colors.is_none() && self.smart_renderer;
+            let normalized = if early_forward {
+                crate::prompt_mode_reset::write_rewritten_output_forwarding(
+                    &mut term,
+                    rewritten,
+                    &mut self.shell_marks,
+                    |run| {
+                        pty.broadcast_attach_output(run);
+                    },
+                )
+            } else {
+                crate::prompt_mode_reset::write_rewritten_output(
+                    &mut term,
+                    rewritten,
+                    &mut self.shell_marks,
+                )
+            };
             finished_commands = pty.observe_shell_marks(&mut term, || {
                 mux.upgrade()
                     .map_or(crate::shell_history::Recording::Off, |mux| mux.shell_recording())
@@ -95,7 +114,7 @@ impl HostedReader {
             let after = terminal_scroll_position(&term);
             // The parser already contains the complete
             // coupled state before any attach observer can
-            // see the Output or ColorsChanged callback.
+            // see an OutputWithColors (or a legacy Output).
             let journal_output = if colors.is_some() {
                 let journal_output = journal_enabled.then(|| output.clone());
                 pty.broadcast_attach_frame(AttachFrame::OutputWithColors {
@@ -104,7 +123,9 @@ impl HostedReader {
                 });
                 journal_output
             } else {
-                pty.broadcast_attach_output(&output);
+                if !early_forward {
+                    pty.broadcast_attach_output(&output);
+                }
                 journal_enabled.then_some(output)
             };
             if self.title_changed.swap(false, Ordering::Relaxed) {

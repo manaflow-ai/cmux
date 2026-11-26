@@ -13,7 +13,8 @@
 //   cross-fade's middle, both texts faded, does not: that is the blank tear);
 // - overlap: two readable texts drawn over the same pixels (more than 2px of y);
 // - the line's box keeps its height;
-// - the change ends within the motion scale's micro step plus a frame's slack.
+// - the change ends within the text roll's clock (ui/motion/TextRoll.tsx, the move step) plus a
+//   frame's slack.
 //
 // Real gallery frames in Chromium and WebKit from Playwright; CI fails the file when it cannot launch
 // (requireBrowserLane).
@@ -251,9 +252,9 @@ await requireBrowserLane("status-swap-frames.test.ts", async () => {
             Math.max(...line.heights) - Math.min(...line.heights),
             `${which}: heights ${line.heights.join(", ")}`,
           ).toBeLessThanOrEqual(0.5);
-          // Each change ends within the micro step plus two frames of slack, at rest.
+          // Each change ends within the text roll's clock (180 ms) plus two frames of slack, at rest.
           if (!lagging)
-            for (const ms of line.swapMs) expect(ms, `${which}: change took ${ms}ms`).toBeLessThanOrEqual(160);
+            for (const ms of line.swapMs) expect(ms, `${which}: change took ${ms}ms`).toBeLessThanOrEqual(220);
         }
       });
 

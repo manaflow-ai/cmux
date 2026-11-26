@@ -18,9 +18,9 @@ public final nonisolated class FileFixPriorStore: ServerFixPriorStore, @unchecke
         self.url = url
     }
 
-    /// `/Library/Application Support/cmux/server-helper/<label>.json`.
+    /// `/Library/Application Support/cmux-next/server-helper/<label>.json`.
     public static func standard(label: String) -> FileFixPriorStore {
-        FileFixPriorStore(url: URL(filePath: "/Library/Application Support/cmux/server-helper").appending(path: "\(label).json"))
+        FileFixPriorStore(url: URL(filePath: "/Library/Application Support/cmux-next/server-helper").appending(path: "\(label).json"))
     }
 
     public func prior(_ fix: ServerFix) -> Int? {

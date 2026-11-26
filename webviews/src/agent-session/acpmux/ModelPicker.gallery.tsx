@@ -772,13 +772,13 @@ export default componentEntry<GalleryProps>({
     // line instead of ending in an ellipsis (Lawrence 2026-11-05: "cant see full model name").
     "quick-menu-dragged-narrow": {
       props: { ...quick, catalog: [...quick.catalog, ...openCode] },
-      play: (ctx) => openOpenCodeAt(ctx, 300),
-      note: "Dragged narrower (300px, ships): a name longer than the column wraps; nothing is clipped.",
+      play: (ctx) => openOpenCodeAt(ctx, 318),
+      note: "Dragged to the narrowest (318px, ships): a name longer than the column wraps; nothing is clipped.",
     },
     "quick-menu-dragged-narrow-ellipsis": {
       props: { ...quick, catalog: [...quick.catalog, ...openCode] },
       play: async (ctx) => {
-        await openOpenCodeAt(ctx, 300);
+        await openOpenCodeAt(ctx, 318);
         for (const name of ctx.document.querySelectorAll<HTMLElement>(".acpmux-cols-body .acpmux-cols-name"))
           Object.assign(name.style, { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" });
       },
@@ -834,6 +834,9 @@ export default componentEntry<GalleryProps>({
         );
       },
     },
+    // A rail with more harnesses than fit: it scrolls by wheel or trackpad and draws no scrollbar
+    // (Lucas 2026-11-22: "remove this scrollbar when hovering over it").
+    "quick-menu-rail-overflow": { props: { ...quick, catalog: manyHarnesses }, play: openColumns },
     // Search, version A (ships): a search field heads the list and has the keyboard as the menu
     // opens, so the menu says it can search (Lawrence: "needs search").
     "quick-search-field": {

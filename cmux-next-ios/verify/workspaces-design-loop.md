@@ -304,8 +304,10 @@ swipe.
 
 ### States
 
-- **Loading with cached data**: show the cached rows at full opacity. If the
-  refresh takes more than 1.5 s, the navigation subtitle reads "Updating…".
+- **Loading with cached data**: show the cached rows at full opacity and say nothing,
+  however long the refresh takes; rows change in place when the Mac's differ (Leo,
+  2026-11-24: "they dont need to know that it's updating before they KNOW it's updating").
+  Until then a 1.5 s refresh set the subtitle to "Updating…".
 - **Loading, no cache**: `SkeletonList` with two-line rows (title bar 45% ×
   14, subtitle 65% × 11, gutter empty) after 250 ms, 6 rows.
 - **Failed**: unchanged `EmptyState` "Couldn't load workspaces" + Retry.
@@ -435,8 +437,8 @@ prototypes and the `-cmux-mobile-wsproto` hook are kept for comparison.
 **Honest states (live)**: `AppStore.workspaceListSync` records which Mac's list is current
 (listed on the open link) or loading (the link's target before its first list), maintained
 by `LiveCoordinator`. Nil in mock mode. The list shows a skeleton instead of "No
-workspaces" while the linked Mac's first list is pending, keeps cached rows with
-"Updating…" after 1.5 s, and shows an online Mac the phone is not linked to (it links one
+workspaces" while the linked Mac's first list is pending, keeps cached rows
+(saying nothing while they refresh), and shows an online Mac the phone is not linked to (it links one
 Mac at a time) as "<Mac> · Not connected" (a tap links it) instead of stale rows; filtered
 to such a Mac: "<Mac> isn't connected" + Connect.
 

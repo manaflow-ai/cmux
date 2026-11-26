@@ -2,8 +2,8 @@
 // Lawrence 2026-11-20 (msg 42498): "for scrollbar, it is possible for me to hover close, and for the
 // width to change, but after i mousedown and drag, it fails to scroll. fix so we get it pixel
 // perfect". In a real engine (WebKit is the app's; Chromium too), column by column from a scroller's
-// trailing edge in, on its thumb and on its track: the pointer marks the scroller near (its thumb
-// widens) exactly where a press and a drag scroll it. The pure geometry is scroller-grab-zone.test.ts.
+// trailing edge in, on its thumb and on its track: the pointer marks the scroller near (its shown
+// thumb widens) exactly where a press and a drag scroll it. The pure geometry is scroller-grab-zone.test.ts.
 // Locally: CMUX_BROWSER_TESTS=1 and the file name, with the repo's test runner (never on a Mac).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
@@ -94,6 +94,10 @@ await requireBrowserLane("scroller-grab-zone-browser.test.ts", async () => {
               for (let column = 0; column < 32; column += 1) {
                 await page.mouse.move(40, 100);
                 await toTop(page);
+                // Show the thumb as a person does, by scrolling (a wheel up at the top moves nothing):
+                // the pointer near a hidden thumb marks nothing (Leo 2026-11-22).
+                await page.mouse.wheel(0, -100);
+                await page.waitForFunction(() => document.getElementById("list")!.hasAttribute("data-cmux-scrolling"));
                 // The pixel column's left edge: engines hit-test whole pixels, so a half-pixel point rounds over.
                 const x = 199 - column;
                 await page.mouse.move(x, y, { steps: 2 });

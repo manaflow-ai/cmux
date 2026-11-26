@@ -117,6 +117,35 @@ export function keyRows(state: KeysState | null | undefined, now: number): KeyRo
     );
 }
 
+/** `next` with each row equal to the one `previous` had for its id replaced by that one, so a memo
+ * row whose key did not change skips a new read of the list. */
+export function keepUnchangedKeys(previous: readonly KeyRow[], next: KeyRow[]): KeyRow[] {
+  const held = new Map(previous.map((row) => [row.id, row]));
+  return next.map((row) => {
+    const old = held.get(row.id);
+    return old && sameKey(old, row) ? old : row;
+  });
+}
+
+const sameList = (a: readonly string[], b: readonly string[]) =>
+  a.length === b.length && a.every((item, index) => item === b[index]);
+
+function sameKey(a: KeyRow, b: KeyRow): boolean {
+  return (
+    a.label === b.label &&
+    a.name === b.name &&
+    a.provider === b.provider &&
+    a.purpose === b.purpose &&
+    sameList(a.hosts, b.hosts) &&
+    sameList(a.places, b.places) &&
+    a.by === b.by &&
+    a.askedBy === b.askedBy &&
+    a.createdAt === b.createdAt &&
+    a.expiresAt === b.expiresAt &&
+    a.state === b.state
+  );
+}
+
 /** The waiting requests, oldest first (the one asked first is answered first). */
 export function keyRequestRows(state: KeysState | null | undefined): KeyRequestRow[] {
   return (state?.requests ?? [])

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# tooling-steps runs: scripts/ci/run-webviews-tests.sh scripts/ci/webviews_*.py
 # Runs every webviews test file in its own `bun test` process, run from webviews/.
 #
 # One `bun test` process for the whole suite stalled in a different file each run
@@ -667,7 +668,86 @@ base_red_skipped=0
 retry_breaker="${CMUX_WEB_TEST_RETRY_BREAKER:-0}"
 [[ "$retry_breaker" =~ ^[0-9]+$ ]] || retry_breaker=0
 breaker_skipped=0
+# CMUX_WEB_TEST_RETRY_POOL=W (0 or unset: off): before the alone retries, the red files due one run again W at a time
+# on the otherwise idle runner (the first pass ran 12 files at once). Each pooled retry then settles its file
+# (webviews_retry_pool.py): a pass is a retry pass; a FAIL naming exactly its first run's red tests stays red with no
+# alone retry (react-apps-base-check re-runs alone on the head any red it would charge to the change); anything else (a
+# timeout, no named test, a different set) still gets its alone retry below. In 14 pull request shard logs after #49329
+# (2026-11-22 08:57-09:40Z) the alone retries were 4,070 s of 12,992 s of test step, 121 retries one at a time, 8
+# passing; 108 of the 113 red again named exactly the tests of their first run. A dev server file pools only on its
+# config's warm cache (cold servers at once stall in the optimizer, above); one without goes alone as before. The pool
+# takes a file only while its whole limit, and the pool's longest makespan bound, fit before the retry deadline.
+retry_pool="${CMUX_WEB_TEST_RETRY_POOL:-0}"
+[[ "$retry_pool" =~ ^[0-9]+$ ]] || retry_pool=0
+pooled=0
+pool_kept=0
+: > "$results/pool-decided"
+if [ "$retry_pool" -gt 0 ] && [ "$retries" -ne 0 ] && grep -qv '^PASS ' "$first"; then
+  pool="$results/pool"
+  mkdir -p "$pool"
+  : > "$pool/list"
+  : > "$pool/summary"
+  pool_fails=0 pool_sum=0 pool_max=0 pool_index=0
+  while read -r result file log; do
+    [ "$result" != PASS ] || continue
+    if grep -qxF -- "$file" "$results/base-red"; then continue; fi
+    if [ "$result" != TIMEOUT ] && [ "$pool_fails" -ge "$retries" ]; then continue; fi
+    seed=""
+    if tr '\0' '\n' < "$results/serial" | grep -qxF -- "$file"; then
+      seed="$(sed -n "s/^$(vite_config "$file") //p" "$results/warmed")"
+      [ -n "$seed" ] || continue
+    fi
+    limit="$(file_limit "$file" "$timeout_seconds")"
+    sum=$((pool_sum + limit)) max=$((limit > pool_max ? limit : pool_max))
+    if [ $((sum / retry_pool + max)) -gt "$(deadline_left)" ]; then continue; fi
+    pool_sum=$sum pool_max=$max pool_index=$((pool_index + 1))
+    if [ "$result" != TIMEOUT ]; then pool_fails=$((pool_fails + 1)); fi
+    cache=""
+    if [ -n "$seed" ]; then cache="$vite/pool-retry-$pool_index"; fi
+    printf '%s\0%s\0%s\0' "$file" "$cache" "$seed" >> "$pool/list"
+  done < "$first"
+  if [ -s "$pool/list" ]; then
+    echo "RETRY POOL: $pool_index red files again, $retry_pool at a time (CMUX_WEB_TEST_RETRY_POOL)"
+    pool_started=$SECONDS
+    xargs -0 -n 3 -P "$retry_pool" bash "$self" --one-cached "$pool" "$timeout_seconds" < "$pool/list" || true
+    echo "retry pool: done in $((SECONDS - pool_started))s"
+    while read -r pool_result file pool_log; do
+      log="$(awk -v f="$file" '$2 == f { print $3; exit }' "$first")"
+      first_result="$(awk -v f="$file" '$2 == f { print $1; exit }' "$first")"
+      [ -n "$log" ] && [ -f "$log" ] || continue
+      decision="$(python3 "$(dirname "$self")/webviews_retry_pool.py" decide "$log" "$pool_result" "$pool_log" 2> /dev/null)" || decision=alone
+      pooled=$((pooled + 1))
+      # The marker line is the one every parser reads as "only the run after it counts" (webviews_test_results.py,
+      # test_reds.py); the line after it says this run had company.
+      { echo "--- first run: $first_result ---"; cat "$log"; echo "--- retry, alone ---"
+        echo "(this retry ran beside up to $((retry_pool - 1)) other retried files: CMUX_WEB_TEST_RETRY_POOL=$retry_pool)"
+        cat "$pool_log"; } > "$log.pooled"
+      case "$decision" in
+        pass)
+          mv "$log.pooled" "$log"
+          printf 'PASS %s %s\n' "$file" "$log" >> "$results/pool-decided"
+          echo "$file (first run: $first_result; passed beside other retries)" >> "$results/retry-passed"
+          ;;
+        red-again)
+          mv "$log.pooled" "$log"
+          pool_kept=$((pool_kept + 1))
+          printf '%s %s %s\n' "$pool_result" "$file" "$log" >> "$results/pool-decided"
+          echo "NO ALONE RETRY $pool_result $file: its pooled retry named the same red tests as its first run; react-apps-base-check judges it"
+          ;;
+        *)
+          # Its alone retry below keeps the pooled run in its log, ahead of the alone run that counts.
+          mv "$log.pooled" "$log"
+          ;;
+      esac
+    done < "$pool/summary"
+  fi
+fi
 while read -r result file log; do
+  decided="$(awk -v f="$file" '$2 == f' "$results/pool-decided")"
+  if [ -n "$decided" ]; then
+    printf '%s\n' "$decided" >> "$results/summary"
+    continue
+  fi
   if [ "$result" = PASS ] || [ "$retries" -eq 0 ] || { [ "$result" != TIMEOUT ] && [ "$retried" -ge "$retries" ]; }; then
     if [ "$result" != PASS ] && [ "$retries" -gt 0 ]; then printf '%s\n' "$file" >> "$results/retry-skipped"; fi
     printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
@@ -814,6 +894,9 @@ if [ -s "$results/not-run" ]; then
 fi
 if [ "$base_red_skipped" -gt 0 ]; then
   echo "red on the base's push too, so not retried (react-apps-base-check judges them): $base_red_skipped"
+fi
+if [ "$pooled" -gt 0 ]; then
+  echo "retried beside other retries (CMUX_WEB_TEST_RETRY_POOL=$retry_pool): $pooled; red again on the same tests, so not retried alone: $pool_kept"
 fi
 if [ "$breaker_skipped" -gt 0 ]; then
   breaker_line="alone retries skipped: $breaker_skipped, since the first $retry_breaker alone retries all failed again (not contention; react-apps-base-check judges them; CMUX_WEB_TEST_RETRY_BREAKER=0 retries every red file)"

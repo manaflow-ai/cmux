@@ -48,6 +48,24 @@ public final class CloudStartGate {
         return value
     }
 
+    /// Enters machine `machineID` from before its link connects (`body`: the connect and the route check), and on success
+    /// keeps it entered for the start's ``holding(_:entered:_:)``, which takes it over. RED before (cmux#55519, a warm spare in
+    /// a dev build, 2026-11-24): the composer's start entered only after its connect; the connect's handshake offered the
+    /// automatic update, which restarted the daemon under the start, about 21 s of a 34 s start.
+    public func entering<T>(_ machineID: String, _ body: () async throws -> T) async throws -> T {
+        enter(machineID)
+        do { return try await body() } catch { leave(machineID); throw error }
+    }
+
+    /// ``holding(_:_:)`` for a machine ``entering(_:_:)`` already entered: no gap between the two.
+    public func holding<T>(_ machineID: String, entered: Bool, _ body: () async throws -> T) async throws -> T {
+        guard entered else { return try await holding(machineID, body) }
+        defer { leave(machineID) }
+        let value = try await body()
+        started(machineID)
+        return value
+    }
+
     /// Whether a start is bringing machine `machineID` up now, or its first turn runs (``firstTurnHold``).
     public func contains(_ machineID: String) -> Bool {
         if starts[machineID] != nil { return true }

@@ -105,7 +105,7 @@ busy_check="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/blacksmith-testbox-bus
 [[ -f "$busy_check" ]] || printf 'warning: %s is missing; commands in the checkout do not count as use\n' "$busy_check" >&2
 last_activity="$(date +%s)"
 idle_timeout_seconds=$((idle_timeout_minutes * 60))
-# The owner ends a box with scripts/blacksmith-testbox-release.sh, which writes
+# The owner ends a box with a release helper (maintainer tooling), which writes
 # this marker. `blacksmith testbox stop` destroys the VM before any post step
 # runs, so the warm target dir sticky disk is never committed on that path. A
 # clean exit here lets the job succeed and the sticky disk post step commit.

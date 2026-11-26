@@ -39,26 +39,36 @@ import WebKit
         #expect(!tab.state.isUnresponsive)
     }
 
-    /// WebKit reports a hang once; after Wait, a page still hung shows the notice again, one that answers does not.
-    @Test func waitLooksAgainAndAPageStillHungShowsTheNoticeAgain() async throws {
+    /// A real hung page, end to end: its main thread spins, so it never answers the reload WebKit sent it, and
+    /// WebKit's responsiveness timer reports the hang (the notice). WebKit reports a hang once, so Wait looks
+    /// again after `hangRecheckDelay` and a page still hung shows the notice again rather than staying stuck.
+    /// Exit page is the person's end: the sad tab waits for their Reload, even under memory pressure, where
+    /// `BrowserExitRecovery` would otherwise reload the page that just hung.
+    @Test func aHungPageShowsTheNoticeAgainAfterWaitAndExitWaitsForReload() async throws {
         let engine = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory())
         let tab = engine.makeWebKitTab()
         defer { tab.close() }
         try await Self.load(tab)
         #expect(tab.webProcessIsResponsive, "a loaded page counted as hung")
-        tab.hangRecheckDelay = .milliseconds(20)
-        var hung = true
-        tab.webProcessIsResponsiveOverride = { !hung }
-        tab.webViewWebProcessDidBecomeUnresponsive(tab.webView)
-        tab.answerUnresponsivePage(terminate: false)
-        #expect(!tab.state.isUnresponsive)
-        for _ in 0..<400 where !tab.state.isUnresponsive { try await Task.sleep(for: .milliseconds(10)) }
-        #expect(tab.state.isUnresponsive, "Wait hid the notice of a page still hung for good")
+        tab.memoryPressure = { .critical }
+        tab.webView.evaluateJavaScript("for (;;) {}", completionHandler: nil)
+        tab.webView.reload()
+        for _ in 0..<800 where !tab.state.isUnresponsive { try await Task.sleep(for: .milliseconds(25)) }
+        try #require(tab.state.isUnresponsive, "WebKit never reported the hung page")
+        #expect(!tab.webProcessIsResponsive)
 
-        hung = false
         tab.answerUnresponsivePage(terminate: false)
-        try await Task.sleep(for: .milliseconds(200))
-        #expect(!tab.state.isUnresponsive, "the notice came back for a page that answers")
+        #expect(!tab.state.isUnresponsive, "Wait kept the notice")
+        let waited = ContinuousClock.now
+        for _ in 0..<800 where !tab.state.isUnresponsive { try await Task.sleep(for: .milliseconds(25)) }
+        #expect(tab.state.isUnresponsive, "Wait hid the notice of a page still hung for good")
+        #expect(ContinuousClock.now - waited >= WebKitTab.hangRecheckDelay - .milliseconds(100), "the notice came back before Wait's delay")
+
+        tab.answerUnresponsivePage(terminate: true)
+        for _ in 0..<600 where tab.state.processExit == nil { try await Task.sleep(for: .milliseconds(25)) }
+        try #require(tab.state.processExit != nil, "Exit page left the hung process running")
+        #expect(!tab.exitRecovery.isReloadOwed, "Exit page under memory pressure reloads the page that hung")
+        #expect(!tab.state.isUnresponsive)
     }
 
     @Test func anAnswerWithNoHangDoesNothing() async throws {

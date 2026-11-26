@@ -216,6 +216,12 @@ final class MacScreenApprovalPanel: CmuxFloatingDialogPanel {
     init(prompt: MacScreenApprovalPrompt) {
         self.prompt = prompt
         super.init(identifier: "macScreen.approval.panel")
+        // SECURITY: left out of every capture cmux makes and refused by Computer Use, as the join consent is: a shared
+        // screen or an agent's capture never shows the Allow it could aim a posted click at.
+        sharingType = .none
+        // It shows looking like a window, so it drags like one by its glass and words (Leo, on the screen share card:
+        // "it pops up looking like a window and you can't drag it around like one"). Its buttons keep their clicks.
+        isMovableByPerson = true
         personClick.isPersonEvent = prompt.isPersonEvent
         personClick.eventInHand = prompt.eventInHand
     }

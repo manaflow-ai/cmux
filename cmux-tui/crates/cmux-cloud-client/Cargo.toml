@@ -19,6 +19,7 @@ default = ["http"]
 http = ["dep:bytes", "dep:cmux-build-space", "dep:cmux-cloud-environment", "dep:futures", "dep:getrandom", "dep:progenitor-client", "dep:regress", "dep:reqwest", "dep:tokio", "dep:openapiv3", "dep:prettyplease", "dep:progenitor", "dep:syn"]
 
 [dependencies]
+cmux-egress.workspace = true
 url.workspace = true
 bytes = { workspace = true, optional = true }
 cmux-build-space = { workspace = true, optional = true }
@@ -47,6 +48,8 @@ serde_json.workspace = true
 syn = { version = "=3.0.6", features = ["full"], optional = true }
 
 [dev-dependencies]
+# Seeded-secret tests: gated clients send to a local capture server.
+cmux-egress = { workspace = true, features = ["capture"] }
 cmux-build-space = { workspace = true, features = ["testing"] }
 cmux-cloud-config.workspace = true
 rustls.workspace = true

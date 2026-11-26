@@ -297,7 +297,7 @@ final class MessageActionOverlay: UIView {
             if reaction == currentReaction { button.accessibilityTraits.insert(.selected) }
             button.accessibilityIdentifier = "conversation.tapback.\(reaction.rawValue)"
             button.addAction(UIAction { [weak self, weak button] _ in
-                UISelectionFeedbackGenerator().selectionChanged()
+                ConversationHaptics.selectionChanged()
                 // The pick turns blue at once, then the capsule folds away.
                 button?.backgroundColor = .systemBlue
                 self?.onReaction?(reaction)
@@ -336,7 +336,7 @@ final class MessageActionOverlay: UIView {
         thoughtClose.isHidden = true
         thoughtMidDot.isHidden = true
         emojiField.onEmoji = { [weak self] emoji in
-            UISelectionFeedbackGenerator().selectionChanged()
+            ConversationHaptics.selectionChanged()
             self?.onReaction?(.emoji(emoji))
         }
         addSubview(emojiField)
@@ -991,44 +991,7 @@ extension ConversationViewController {
         let source = cell.convert(contentFrame, to: view)
         let message = model.message
         let mine = message.reactions.first { $0.participantID == store.meID }?.reaction
-        var items: [MessageActionOverlay.MenuItem] = [
-            .init(title: String(localized: "conversation.menu.reply", defaultValue: "Reply", bundle: .module), symbol: "arrowshape.turn.up.left", handler: { [weak self] in
-                self?.enterReplyMode(for: message)
-            }, handoff: { [weak self] bubble in
-                self?.enterReplyMode(for: message, anchorStart: bubble)
-            }),
-            .init(title: String(localized: "conversation.menu.copy", defaultValue: "Copy", bundle: .module), symbol: "doc.on.doc") {
-                UIPasteboard.general.string = message.text
-            },
-        ]
-        items.insert(contentsOf: translateMenuItems(for: model, cell: cell), at: 2)
-        // "Select" selects the bubble's text in place; "More…" (below) is the
-        // multi-message select mode. Messages offers Select only for text.
-        if canSelectText(in: cell) {
-            items.append(.init(title: String(localized: "conversation.menu.select", defaultValue: "Select", bundle: .module), symbol: "selection.pin.in.out") { [weak self] in
-                self?.beginTextSelection(rowID: model.rowID)
-            })
-        }
-        if store.canEdit(message) {
-            items.insert(.init(title: String(localized: "conversation.menu.edit", defaultValue: "Edit", bundle: .module), symbol: "pencil") { [weak self] in
-                self?.enterEditMode(for: message)
-            }, at: 1)
-        }
-        if store.canUnsend(message) {
-            let editIndex = items.firstIndex { $0.symbol == "pencil" }.map { $0 + 1 } ?? 1
-            items.insert(.init(title: String(localized: "conversation.menu.undoSend", defaultValue: "Undo Send", bundle: .module), symbol: "arrow.uturn.backward.circle") { [weak self] in
-                self?.store.unsend(messageID: message.id)
-            }, at: editIndex)
-        }
-        if model.message.delivery?.isFailed == true {
-            items.insert(.init(title: String(localized: "conversation.retry.tryAgain", defaultValue: "Try Again", bundle: .module), symbol: "arrow.clockwise") { [weak self] in
-                self?.store.retry(rowID: model.rowID)
-            }, at: 1)
-        }
-        items += pollMenuItems(for: model)
-        items.append(.init(title: String(localized: "conversation.menu.more", defaultValue: "More…", bundle: .module), symbol: "ellipsis.circle") { [weak self] in
-            self?.setSelecting(true, initial: model.rowID)
-        })
+        let items = messageMenuItems(for: model, cell: cell, forSelection: false)
         let reactors = message.reactions.compactMap { mark -> (name: String, initials: String, reaction: ConversationReaction)? in
             guard let participant = store.info?.participant(mark.participantID) else { return nil }
             return (participant.isMe ? String(localized: "conversation.reaction.you", defaultValue: "You", bundle: .module) : participant.name, participant.initials, mark.reaction)
@@ -1077,6 +1040,53 @@ extension ConversationViewController {
             showActions(overlay)
         }
         return overlay
+    }
+
+    /// Actions available for this message, shared by the media menu and a text selection.
+    func messageMenuItems(for model: MessageRowModel, cell: MessageCell, forSelection: Bool) -> [MessageActionOverlay.MenuItem] {
+        let message = model.message
+        let copyTitle = forSelection
+            ? String(localized: "conversation.menu.copyMessage", defaultValue: "Copy Message", bundle: .module)
+            : String(localized: "conversation.menu.copy", defaultValue: "Copy", bundle: .module)
+        var items: [MessageActionOverlay.MenuItem] = [
+            .init(title: String(localized: "conversation.menu.reply", defaultValue: "Reply", bundle: .module), symbol: "arrowshape.turn.up.left", handler: { [weak self] in
+                self?.enterReplyMode(for: message)
+            }, handoff: { [weak self] bubble in
+                self?.enterReplyMode(for: message, anchorStart: bubble)
+            }),
+            .init(title: copyTitle, symbol: "doc.on.doc") {
+                UIPasteboard.general.string = message.text
+            },
+        ]
+        items.insert(contentsOf: translateMenuItems(for: model, forSelection: forSelection), at: 2)
+        // "Select" selects the bubble's text in place; "More…" (below) is the
+        // multi-message select mode. Messages offers Select only for text.
+        if !forSelection, canSelectText(in: cell) {
+            items.append(.init(title: String(localized: "conversation.menu.select", defaultValue: "Select", bundle: .module), symbol: "selection.pin.in.out") { [weak self] in
+                self?.beginTextSelection(rowID: model.rowID)
+            })
+        }
+        if store.canEdit(message) {
+            items.insert(.init(title: String(localized: "conversation.menu.edit", defaultValue: "Edit", bundle: .module), symbol: "pencil") { [weak self] in
+                self?.enterEditMode(for: message)
+            }, at: 1)
+        }
+        if store.canUnsend(message) {
+            let editIndex = items.firstIndex { $0.symbol == "pencil" }.map { $0 + 1 } ?? 1
+            items.insert(.init(title: String(localized: "conversation.menu.undoSend", defaultValue: "Undo Send", bundle: .module), symbol: "arrow.uturn.backward.circle") { [weak self] in
+                self?.store.unsend(messageID: message.id)
+            }, at: editIndex)
+        }
+        if model.message.delivery?.isFailed == true {
+            items.insert(.init(title: String(localized: "conversation.retry.tryAgain", defaultValue: "Try Again", bundle: .module), symbol: "arrow.clockwise") { [weak self] in
+                self?.store.retry(rowID: model.rowID)
+            }, at: 1)
+        }
+        items += pollMenuItems(for: model)
+        items.append(.init(title: String(localized: "conversation.menu.more", defaultValue: "More…", bundle: .module), symbol: "ellipsis.circle") { [weak self] in
+            self?.setSelecting(true, initial: model.rowID)
+        })
+        return items
     }
 
     /// The menu opens: selection, keyboard and Photos drawer give way (Messages

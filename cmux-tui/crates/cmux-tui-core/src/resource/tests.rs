@@ -427,18 +427,28 @@ fn operation_classes_keep_stream_and_connection_control_out_of_durable_idempoten
 }
 
 #[test]
-fn envelopes_reject_unknown_fields_and_non_string_request_ids() {
-    assert!(
-        serde_json::from_value::<RequestEnvelope>(json!({
-            "protocol": PROTOCOL,
-            "type": "request",
-            "id": "request",
-            "operation": "workspace.list",
-            "params": {},
-            "extra": true
-        }))
-        .is_err()
-    );
+fn envelopes_ignore_unknown_fields_and_reject_non_string_request_ids() {
+    // A peer one version newer may add envelope fields; they decode and are ignored.
+    let request = serde_json::from_value::<RequestEnvelope>(json!({
+        "protocol": PROTOCOL,
+        "type": "request",
+        "id": "request",
+        "operation": "workspace.list",
+        "params": {},
+        "extra": true
+    }))
+    .expect("an unknown request envelope field is ignored");
+    assert!(request.params.is_object());
+    let response = serde_json::from_value::<ResponseEnvelope>(json!({
+        "protocol": PROTOCOL,
+        "type": "response",
+        "id": "request",
+        "ok": true,
+        "result": {"value": 1},
+        "extra": true
+    }))
+    .expect("an unknown response envelope field is ignored");
+    assert!(response.ok);
     assert!(
         serde_json::from_value::<RequestEnvelope>(json!({
             "protocol": PROTOCOL,

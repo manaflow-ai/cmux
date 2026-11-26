@@ -19,6 +19,10 @@ const PR_BEFORE = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/2
 const PR_AFTER = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/24546/tray-after-dark.png";
 const WEB_IMAGE = "https://images.example.test/gallery/chart.png";
 const VIDEO = `${ROOT}/out/login-tests.mp4`;
+const VIDEO_BEFORE = `${ROOT}/out/palette-before.mp4`;
+const VIDEO_AFTER = `${ROOT}/out/palette-after.mp4`;
+const PALETTE = `${ROOT}/shots/palette-before-after-together.png`;
+const CLIP = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/49596/tool-burst-clean-send-x1.mp4";
 const AUDIO = `${ROOT}/out/notification.wav`;
 const REEL = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/nightly-next/3969193/reel.mp4";
 const MP4 = `data:video/mp4;base64,${LOGIN_TESTS_MP4}`;
@@ -56,6 +60,9 @@ const HOST: ChipHostFixture = {
     [AFTER]: { place: "root", folder: false },
     [SIDEBAR]: { place: "root", folder: false },
     [VIDEO]: { place: "root", folder: false },
+    [VIDEO_BEFORE]: { place: "root", folder: false },
+    [VIDEO_AFTER]: { place: "root", folder: false },
+    [PALETTE]: { place: "root", folder: false },
     [AUDIO]: { place: "root", folder: false },
   },
   images: {
@@ -66,8 +73,9 @@ const HOST: ChipHostFixture = {
     [PR_BEFORE]: svg(sampleChart()),
     [PR_AFTER]: svg(sampleGradient()),
     [WEB_IMAGE]: svg(sampleDiagram()),
+    [PALETTE]: svg(sampleChart()),
   },
-  media: { [VIDEO]: MP4, [REEL]: MP4, [AUDIO]: silentWav() },
+  media: { [VIDEO]: MP4, [VIDEO_BEFORE]: MP4, [VIDEO_AFTER]: MP4, [REEL]: MP4, [CLIP]: MP4, [AUDIO]: silentWav() },
   // As the host answers it: raw.githubusercontent.com loads without a click (AgentPaneSafeFetch.clickFreeImageHosts).
   policy: {
     outsideRoots: "confirm",
@@ -116,6 +124,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/chips/ReplyMedia.tsx#VideoThumbnail",
     "agent-session/acpmux/toolImages.ts",
     "agent-session/acpmux/conversation/icons.tsx#OpenTab",
+    "agent-session/acpmux/chips/VideoPlayback.tsx",
   ],
   variants: {
     "tool-audio": {
@@ -224,6 +233,77 @@ export default agentPaneEntry({
         await ctx.hover({ selector: ".cv-media__poster" });
         await ctx.waitFor(() => ctx.document.querySelector('.cv-media__frame[data-previewing="true"]'));
       },
+    },
+    // Leo, 2026-11-22: "is there a way we can just watch the .mp4s in the app? i want that. in-app video
+    // player." and "shouldn't these, like the in-app videos, and probably gifs, be rendered in the app?"
+    "video-in-sentence": {
+      note: "A PR clip's address and a local recording in a sentence stay links there; both play under the paragraph, the web one in its reserved 16:9 box with Load (images.remote = click).",
+      chipHost: HOST,
+      snapshot: reply(
+        "Did the burst send get smoother?",
+        `Yes: ${CLIP} is the clean send at 1x, and the local run is \`${VIDEO}\`.`,
+      ),
+    },
+    "video-pair": {
+      note: "A before/after pair of clips on their own lines: side by side, captioned, with Compare under them.",
+      chipHost: HOST,
+      snapshot: reply("Record the palette before and after", `**Before:** ${VIDEO_BEFORE}\n**After:** ${VIDEO_AFTER}`),
+    },
+    "video-compare": {
+      note: "Compare open: both clips over the pane on one clock, with play, scrub, the clock, 0.5x/1x/2x, frame step and loop.",
+      chipHost: HOST,
+      snapshot: reply("Record the palette before and after", `**Before:** ${VIDEO_BEFORE}\n**After:** ${VIDEO_AFTER}`),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cv-thumbs__compare" });
+        await ctx.waitFor(
+          () =>
+            (ctx.document.querySelector<HTMLVideoElement>(".cv-compare__clip:last-child video")?.readyState ?? 0) >= 2,
+        );
+      },
+    },
+    "video-compare-stacked": {
+      note: "Compare with Stacked: one clip above the other, for wide recordings.",
+      chipHost: HOST,
+      snapshot: reply("Record the palette before and after", `**Before:** ${VIDEO_BEFORE}\n**After:** ${VIDEO_AFTER}`),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cv-thumbs__compare" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-compare__stage"));
+        const stacked = [
+          ...ctx.document.querySelectorAll<HTMLButtonElement>(
+            ".cv-compare .acpmux-image-viewer-bar .cv-playback__button",
+          ),
+        ].at(-1)!;
+        stacked.click();
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-compare__stage.is-stack"));
+      },
+    },
+    "video-viewer-controls": {
+      note: "Expand: the large player with its speed (0.5x/1x/2x), frame step and loop row under the native bar.",
+      chipHost: HOST,
+      snapshot: recording,
+      play: async (ctx) => {
+        await ctx.waitFor(
+          () => (ctx.document.querySelector<HTMLVideoElement>(".cv-media.is-video video")?.readyState ?? 0) >= 2,
+        );
+        await ctx.click({ selector: ".cv-media.is-video .cv-media__expand" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-media-viewer__controls .cv-playback"));
+        await ctx.click({ selector: ".cv-media-viewer__controls .cv-playback__rate:nth-child(3)" });
+        await ctx.click({ selector: ".cv-media-viewer__controls .cv-playback__loop" });
+      },
+    },
+    "video-link-click": {
+      note: "A click on a PR clip's link chip plays it in the large player instead of a browser tab that would download it.",
+      chipHost: HOST,
+      snapshot: reply("Where is the clip?", `Here: [the clean send](${CLIP}).`),
+      play: async (ctx) => {
+        await ctx.click({ selector: `a.cv-link.is-web[href="${CLIP}"]` });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-media-viewer__controls .cv-playback"));
+      },
+    },
+    "image-in-code": {
+      note: "A screenshot path written as code (as agents often do) keeps its chip and draws its thumbnail under the paragraph.",
+      chipHost: HOST,
+      snapshot: reply("Show the palette", `Saved \`${PALETTE}\`; the hover row now uses the accent.`),
     },
     "web-video-thumbnail": {
       note: "A nightly reel link alone on its line with images.remote = always: the host's checked copy draws as the same thumbnail.",

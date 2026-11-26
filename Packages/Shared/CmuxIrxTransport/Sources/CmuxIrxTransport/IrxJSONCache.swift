@@ -1,5 +1,7 @@
 public import Foundation
+#if canImport(Security)
 import Security
+#endif
 
 /// Synchronous JSON cache seam behind the broker's persisted state
 /// (binding / trust / relay-credentials / grants). Synchronous by contract:
@@ -15,6 +17,7 @@ public protocol IrxJSONCache<Value>: Sendable {
 
 extension IrxDiskCache: IrxJSONCache {}
 
+#if canImport(Security)
 /// Keychain-backed JSON cache for Release builds.
 ///
 /// Mirrors ``CmxIrohKeychainCredentialStore``'s exact item shape (device-only
@@ -90,6 +93,7 @@ public struct IrxKeychainJSONCache<Value: Codable & Sendable>: IrxJSONCache {
         return query
     }
 }
+#endif
 
 /// One-way, idempotent file-to-primary migration: the first load that finds
 /// the primary empty but a legacy file present copies the value into the

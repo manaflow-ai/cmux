@@ -1,0 +1,21 @@
+/* Overdrive's chat: the prompt as a big round pill tinted with the accent and rimmed in a second,
+   brighter mix of it; cards as chunky rounded tiles with an accent ring; links in the accent.
+   Only cmux.agentPane.style/1 tokens (schemas/agent-pane/style-tokens.json), on :root: paint, so
+   nothing in the transcript moves when this applies or reloads. Every color is made from the
+   theme's own (--agent-text, --agent-accent), so it reads over Overdrive and Overdrive Daylight and
+   over any theme of your own. */
+:root {
+  --cv-user-bubble-tint: color-mix(in srgb, var(--agent-accent) 18%, transparent);
+  --cv-user-bubble-edge: color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  --cv-user-bubble-radius: 22px;
+  --cv-card-fill: color-mix(in srgb, var(--agent-accent) 6%, transparent);
+  --cv-card-ring: color-mix(in srgb, var(--agent-accent) 28%, transparent);
+  --cv-code-edge-fade: 24px;
+  --cv-text-muted: color-mix(in srgb, var(--agent-text) 76%, transparent);
+  /* Tool rows and "Worked for" draw --cv-activity-text (the stock 58% of the text): this look's muted
+     ink instead, so they hold 4.5:1 on its paper (golden-look-contrast-N.test.ts). */
+  --cv-activity-text: var(--cv-text-muted);
+  --cv-text-dim: color-mix(in srgb, var(--agent-text) 64%, transparent);
+  --cv-link: color-mix(in srgb, var(--agent-accent) 75%, var(--agent-text));
+  --agent-link: color-mix(in srgb, var(--agent-accent) 75%, var(--agent-text));
+}

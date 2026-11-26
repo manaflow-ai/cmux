@@ -69,7 +69,7 @@ import CmuxNextTestSupport
         try await Self.until("the posted video downloads") { intents.downloaded }
     }
 
-    /// A local .mp4 opened in a WebKit tab (the CEF tab hands it off here) plays, and does not end
+    /// A local .mp4 opened in a WebKit tab plays, and does not end
     /// in WebKit's "Plug-in handled load" error page. Fails on a tab that cancels the navigation.
     @Test func aLocalVideoPlaysInTheWebKitTab() async throws {
         let video = FileManager.default.temporaryDirectory
