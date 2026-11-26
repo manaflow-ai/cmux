@@ -722,9 +722,9 @@ fn successful_response(verb: &Verb, bytes: &[u8]) -> Result<Value, Failure> {
     let body: Value = serde_json::from_slice(bytes).map_err(|_| invalid())?;
     let valid = match verb {
         Verb::Create { .. } => text(&body, "token").is_some_and(|token| !token.trim().is_empty()),
-        Verb::List => body["tokens"].is_array(),
-        Verb::Uses { .. } => body["uses"].is_array(),
-        Verb::GithubList => body["rules"].is_array(),
+        Verb::List => body.get("tokens").is_some_and(Value::is_array),
+        Verb::Uses { .. } => body.get("uses").is_some_and(Value::is_array),
+        Verb::GithubList => body.get("rules").is_some_and(Value::is_array),
         Verb::GithubAllow { .. } => text(body.get("rule").unwrap_or(&body), "id").is_some(),
         Verb::Revoke { .. } | Verb::GithubRemove { .. } => body.is_object(),
         Verb::Help => false,
