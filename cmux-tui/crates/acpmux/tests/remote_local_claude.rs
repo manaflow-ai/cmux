@@ -447,3 +447,92 @@ async fn the_owners_phone_forks_a_chat_the_mac_started() {
     assert_eq!(reason(&r), "remote.local_claude_session", "{r}");
     let _ = std::fs::remove_dir_all(&d);
 }
+
+/// The Cloud VM's cmux link (`cmux-tui/src/link/phone_chat.rs`, RFD 0135 gate 4) admits a phone
+/// only after its owner check, then reaches this daemon over the owner-only local socket, its
+/// prompts marked `via: cloud-mobile` with the phone's id as `ownerPhone`. A local socket client
+/// sending that claim: what the owner's paired phone is under D13, never with Full access.
+fn cloud_phone(hub: &Arc<Hub>, origin: Origin) -> Client {
+    let mut c = Client::new(hub, origin);
+    c.3 = Some("cloud-mobile");
+    c
+}
+
+fn owner_claim(device: &str, full: bool) -> Value {
+    json!({"device": device, "fullAccess": full})
+}
+
+async fn claimed(c: &mut Client, m: &str, mut params: Value, claim: &Value) -> Value {
+    params["_meta"] = json!({"acpmux": {"ownerPhone": claim}});
+    c.call(m, params).await
+}
+
+async fn claimed_prompt(c: &mut Client, s: &str, text: &str, claim: &Value) -> Value {
+    let p = json!({"sessionId": s, "prompt": [{"type": "text", "text": text}]});
+    claimed(c, "session/prompt", p, claim).await
+}
+
+/// Accepted on the owner-checked path: the local socket, a Cloud mobile prompt, the claim.
+#[tokio::test]
+async fn the_owner_checked_cloud_phone_sends_to_a_claude_chat_the_vm_started() {
+    let d = dir("cloud-phone");
+    let hub = hub(&d);
+    let mut local = Client::new(&hub, Origin::Local);
+    let s = local.new_session(&d, "fclaude").await;
+    let r = local.call("session/set_mode", json!({"sessionId": s, "modeId": "default"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let mut phone = cloud_phone(&hub, Origin::Local);
+    let r = claimed_prompt(&mut phone, &s, "from the phone", &owner_claim("phone-1", false)).await;
+    assert!(r.get("error").is_none(), "{r}");
+    // The same Cloud mobile prompt with no claim (no owner check behind it) is refused.
+    let mut other = cloud_phone(&hub, Origin::Local);
+    let r = other.prompt(&s, "no claim").await;
+    assert_eq!(reason(&r), "remote.local_claude_session", "{r}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// The claim from anything but the local socket (or the owner's peer daemon, which vouches for
+/// its own paired phone) counts for nothing: a Web or dashboard client, a paired machine that
+/// is not a phone.
+#[tokio::test]
+async fn the_owner_phone_claim_from_a_non_local_connection_is_refused() {
+    let d = dir("cloud-phone-remote");
+    let hub = hub(&d);
+    let mut local = Client::new(&hub, Origin::Local);
+    let s = local.new_session(&d, "fclaude").await;
+    let r = local.call("session/set_mode", json!({"sessionId": s, "modeId": "default"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let laptop = hub.pairing.issue("laptop", Role::Client).unwrap().1;
+    let mut laptop = Client::device(&hub, &laptop, false);
+    laptop.3 = Some("cloud-mobile");
+    for (who, mut c) in [("web", cloud_phone(&hub, Origin::Web)), ("client machine", laptop)] {
+        let r = claimed_prompt(&mut c, &s, "hi", &owner_claim("phone-1", true)).await;
+        assert!(r.get("error").is_some(), "{who}: {r}");
+        assert_eq!(reason(&r), "remote.local_claude_session", "{who}: {r}");
+    }
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// The local socket's claim never carries Full access, whatever it says: a chat out of the Web's
+/// policy (the stand-in Claude runs `bypassPermissions`) is held at the asking rule, not run;
+/// its copy is refused; the peer-only Full-access notice is not this connection's to send.
+#[tokio::test]
+async fn the_cloud_phone_claim_grants_no_full_access() {
+    let d = dir("cloud-phone-full");
+    let hub = hub(&d);
+    let mut local = Client::new(&hub, Origin::Local);
+    let s = local.new_session(&d, "fakeclaude").await;
+    assert!(local.prompt(&s, "hello").await.get("error").is_none());
+    let mut phone = cloud_phone(&hub, Origin::Local);
+    let claim = owner_claim("phone-1", true);
+    let r = claimed_prompt(&mut phone, &s, "bypass", &claim).await;
+    assert!(r.get("error").is_some(), "{r}");
+    assert_ne!(reason(&r), "remote.local_claude_session", "D13 passed, Full access did not: {r}");
+    let p = json!({"sessionId": s, "cwd": d.join("work"), "mcpServers": []});
+    let r = claimed(&mut phone, "session/fork", p, &claim).await;
+    assert!(r.get("error").is_some(), "{r}");
+    let p = json!({"device": "phone-1", "fullAccess": true});
+    let r = claimed(&mut phone, "_acpmux/owner_phone_changed", p, &claim).await;
+    assert!(r.get("error").is_some(), "{r}");
+    let _ = std::fs::remove_dir_all(&d);
+}
