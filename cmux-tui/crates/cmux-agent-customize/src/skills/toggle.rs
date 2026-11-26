@@ -84,7 +84,7 @@ pub fn set_enabled(homes: &Homes, change: &SetEnabled) -> Result<Skill, ToggleEr
     };
     match skill.agent {
         Agent::Claude => claude(homes, &switch, &skill.name, change.enabled)?,
-        Agent::Codex => codex(homes, &switch, &skill.path, change.enabled)?,
+        Agent::Codex => codex(homes, &switch, &skill.path, &skill.name, change.enabled)?,
     }
     // As listed afterwards: a rule in another settings layer can still keep it as it was.
     Ok(find(&list(homes, &options).skills).unwrap_or(skill))
@@ -122,7 +122,15 @@ fn claude(homes: &Homes, file: &Path, name: &str, enabled: bool) -> Result<(), T
 }
 
 /// A `[[skills.config]]` rule for the skill's path: updated in place when one exists, else added.
-fn codex(homes: &Homes, file: &Path, skill: &Path, enabled: bool) -> Result<(), ToggleError> {
+/// Turning a skill back on removes its path rule when no name rule for it is left to override
+/// (as Codex's own `skills/config/write` does), so off then on leaves the file as it was.
+fn codex(
+    homes: &Homes,
+    file: &Path,
+    skill: &Path,
+    name: &str,
+    enabled: bool,
+) -> Result<(), ToggleError> {
     let _lock = cmux_tui_platform::codex_config_lock::lock(
         &homes.codex.join(cmux_tui_platform::codex_config_lock::LOCK_FILE),
     );
@@ -155,6 +163,22 @@ fn codex(homes: &Homes, file: &Path, skill: &Path, enabled: bool) -> Result<(), 
     let existing = rules
         .iter()
         .position(|rule| rule.get("path").and_then(|p| p.as_str()) == Some(path_text.as_str()));
+    let named = rules.iter().any(|rule| rule.get("name").and_then(|n| n.as_str()) == Some(name));
+    if enabled && !named {
+        if let Some(index) = existing {
+            rules.remove(index);
+            if rules.is_empty() {
+                skills.remove("config");
+            }
+            if skills.is_empty() {
+                doc.remove("skills");
+            }
+            return homes
+                .edits
+                .replace(file, &doc.to_string())
+                .map_err(|e| ToggleError::Write(file.to_path_buf(), e));
+        }
+    }
     match existing.and_then(|index| rules.get_mut(index)) {
         Some(rule) => {
             rule["enabled"] = toml_edit::value(enabled);
