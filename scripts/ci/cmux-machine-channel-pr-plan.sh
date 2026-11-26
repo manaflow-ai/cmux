@@ -24,7 +24,7 @@ for k in ("x86_64_target_set", "aarch64_target_set", "lto", "artifact_prefix"):
     print(f"{k}={p[k]}")' "$root/scripts/cmux-next/cmux-tui-build-profiles.json" >> "$GITHUB_OUTPUT"
 
 build=false
-mine="" base=""
+mine="" base="" head=""
 if [[ "${GITHUB_REPOSITORY:-}" == manaflow-ai/cmux && "${HEAD_REPO:-}" == "${GITHUB_REPOSITORY:-}" \
       && "${GITHUB_BASE_REF:-}" == feat-cmux-next ]]; then
   tk="$here/cmux_tui_tree_key.py"
@@ -35,6 +35,16 @@ if [[ "${GITHUB_REPOSITORY:-}" == manaflow-ai/cmux && "${HEAD_REPO:-}" == "${GIT
     echo "::warning title=machine channel PR head build::no v2 tree key (merge ${mine:-none}, base ${base:-none}): building"
   fi
   if [[ -z "$mine" || -z "$base" || "$mine" != "$base" ]]; then build=true; fi
+  # A head behind the base (its own key is not its merge's) squashes to another tree, so
+  # cmux_machine_channel_pr_head.py find never takes its build: skip it (#58380). The land queue's
+  # update-branch makes a new, up-to-date head, which builds.
+  if [[ "$build" == true && -n "$mine" ]]; then
+    head="$("$here/timeout.sh" 60 python3 "$tk" --version v2 HEAD^2 2>/dev/null)" || head=""
+    if [[ -n "$head" && "$head" != "$mine" ]]; then
+      echo "::notice title=machine channel PR head build::head key $head != merge key $mine: the head is behind the base, no merge can take this build"
+      build=false
+    fi
+  fi
 fi
-echo "::notice title=machine channel PR head build::build=$build (merge key ${mine:-none}, base key ${base:-none})"
+echo "::notice title=machine channel PR head build::build=$build (merge key ${mine:-none}, base key ${base:-none}, head key ${head:-none})"
 echo "build=$build" >> "$GITHUB_OUTPUT"

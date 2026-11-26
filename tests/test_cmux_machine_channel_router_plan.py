@@ -136,6 +136,24 @@ class PlanOnAFixtureRepo(unittest.TestCase):
         self.commit("webviews/app.ts")
         self.assertEqual(self.plan()["build"], "true")
 
+    def merge_ref(self, head_rel: str, base_rel: str) -> None:
+        """A pull request merge ref: HEAD^1 the base, HEAD^2 the head, as the route checkout has it."""
+        git(self.repo, "checkout", "-qb", "head")
+        self.commit(head_rel)
+        git(self.repo, "checkout", "-q", "feat-cmux-next")
+        if base_rel:
+            self.commit(base_rel)
+        git(self.repo, "merge", "-q", "--no-ff", "--no-edit", "head")
+
+    def test_an_up_to_date_head_that_changes_the_tree_builds(self) -> None:
+        self.merge_ref("webviews/app.ts", "")
+        self.assertEqual(self.plan()["build"], "true")
+
+    def test_a_head_behind_the_base_builds_nothing(self) -> None:
+        # The base moved a tree input after the head forked: the head's key is not the merge's.
+        self.merge_ref("webviews/app.ts", "cmux-tui/src/main.rs")
+        self.assertEqual(self.plan()["build"], "false")
+
     def test_a_fork_head_builds_nothing(self) -> None:
         self.commit("webviews/app.ts")
         self.assertEqual(self.plan("someone/cmux")["build"], "false")

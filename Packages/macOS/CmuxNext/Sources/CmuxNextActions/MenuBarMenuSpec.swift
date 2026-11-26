@@ -43,6 +43,8 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
         case computerUseResume(String)
         /// Rings the session's agent cursor where it is, so the person finds it.
         case computerUseShowCursor(String)
+        /// Shows (true) or hides (false) the floating live preview panel (`computerUse.floatingPreview`).
+        case computerUseFloatingPreview(Bool)
     }
 
     /// The most Computer Use sessions the row's submenu names.
@@ -169,7 +171,7 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
     /// the person takes over by using the mouse or keyboard (`computerUse.pauseOnTakeover`).
     private static func computerUse(_ state: MenuBarMenuState.ComputerUse) -> Item {
         guard let newest = state.session else {
-            return .computerUse(app: nil, bundleID: nil, items: [
+            return .computerUse(app: nil, bundleID: nil, items: floatingPreviewRows(state) + [
                 .action("agentActivity.open", title: nil, symbol: "cursorarrow.click.2"),
                 .action("palette.computerUse.setup", title: nil, symbol: "gear"),
             ])
@@ -183,9 +185,22 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
             .action("computerUseFocusCallingTerminal", title: nil, symbol: "terminal"),
             .action("computerUseStop", title: text("menu.menuBar.computerUse.stopAll", "Stop All Agents"), symbol: "stop.circle"),
             .separator,
-            .action("agentActivity.open", title: nil, symbol: "cursorarrow.click.2"),
         ]
+        items += floatingPreviewRows(state)
+        items.append(.action("agentActivity.open", title: nil, symbol: "cursorarrow.click.2"))
         return .computerUse(app: newest.appName, bundleID: newest.bundleID, items: items)
+    }
+
+    /// Show or Hide Floating Preview while `computerUse.floatingPreview` is on (user 2026-11-22:
+    /// "WHERE IS THE FUCKING PREVIEW OF THE FUCKING RUNNING SITUATION AND THE ABILITY TO DRAG IT
+    /// AROUND AND FUCKING HIDE IT"); nothing while it is off.
+    private static func floatingPreviewRows(_ state: MenuBarMenuState.ComputerUse) -> [Item] {
+        guard let shown = state.floatingPreview else { return [] }
+        return [shown
+            ? .command(.computerUseFloatingPreview(false), title: text("menu.menuBar.computerUse.floatingPreview.hide", "Hide Floating Preview"),
+                       symbol: "pip.remove")
+            : .command(.computerUseFloatingPreview(true), title: text("menu.menuBar.computerUse.floatingPreview.show", "Show Floating Preview"),
+                       symbol: "pip")]
     }
 
     /// One session's line and its rows: Stop or Resume, Show Cursor, Show Window.

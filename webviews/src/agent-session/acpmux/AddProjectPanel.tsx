@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Combobox } from "../../ui/Combobox";
 import { Dialog } from "../../ui/Dialog";
 import { KeyboardScope } from "../../ui/KeyboardScope";
+import { useAutoRetry } from "./autoRetry";
 import { browseFailureMessage } from "./browseFailureModel";
 import { useT } from "./i18n";
 import {
@@ -84,6 +85,11 @@ export function AddProjectPanel({
       setLoading(false);
     };
   }, [host, requested, step, retry]);
+
+  // A folder list that failed is read again on its own (autoRetry.ts): asking again is the only answer, so it is not
+  // the person's click. Only one that keeps failing says so, in one quiet line with no button.
+  const listFailed = step === "directory" && host.list !== undefined ? error : undefined;
+  const { stillTrying } = useAutoRetry(listFailed, () => setRetry((value) => value + 1), { busy: loading });
 
   const back = () => {
     browseRequest.current += 1;
@@ -234,17 +240,21 @@ export function AddProjectPanel({
           }}
           inline
         />
-        <output className="acpmux-add-project-status" role={error || revealError ? "alert" : undefined}>
+        <output
+          className="acpmux-add-project-status"
+          role={(error && !listFailed) || revealError ? "alert" : undefined}
+        >
           {loading || browsing ? (
             t("project.loading")
+          ) : listFailed ? (
+            stillTrying ? (
+              <span data-still-trying="">{t("project.stillLoading")}</span>
+            ) : null
           ) : error ? (
             <>
               <span>{error}</span>
-              <button
-                type="button"
-                disabled={browsing}
-                onClick={() => (host.list ? setRetry((value) => value + 1) : chooseFolder())}
-              >
+              <button type="button" disabled={browsing} onClick={() => chooseFolder()}>
+                {/* retry-prompt-ok: opens the native folder chooser again, a sheet the person must want. */}
                 {t("project.retry")}
               </button>
             </>
