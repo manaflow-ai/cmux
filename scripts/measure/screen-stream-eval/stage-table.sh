@@ -50,6 +50,10 @@ auth_file() {
 # host account's own cache folder (a guessed shared /tmp name could be another account's file or link).
 host_app_name="$(shasum -a 256 "$token_file" | cut -c1-16).host-app"
 host_app_file="$HOME/.cache/cmux-stage-table/$host_app_name"
+# The rig root both halves use (screen-share-vs.py run --root): the two steps run in different homes (a worker's
+# step home, the bench account's), so a home-relative root fails "different homes". Absolute, the same on both Macs,
+# per run by the secret token (no other account can claim it first), and space-free (the rig commands take it bare).
+rig_root="/tmp/cmux-stage-table-$(shasum -a 256 "$token_file" | cut -c17-32)"
 
 if [[ "$role" == host ]]; then
   echo "SCREEN-STREAM-EVAL-STAGE stage-table host serving $addr:$port"
@@ -170,7 +174,7 @@ echo "SCREEN-STREAM-EVAL-STAGE stage-table $host_name ($addr) -> $viewer_name ($
 python3 -I "$vs" run --host "$host_name" --viewer "$viewer_name" --local-mac "$viewer_name" --via peer \
   --peer-url "$url" --peer-token-file "$token_file" --host-ip "$addr" --viewer-ip "$self_ip" \
   --tools "$tools" --legs "$legs" --apple-viewer ${app_args[@]+"${app_args[@]}"} --vnc-user cmux --vnc-password-file "${login:-/nonexistent}" \
-  --out "$out/ledger.jsonl" 2>&1 | tee "$out/run.log"
+  --root "$rig_root" --out "$out/ledger.jsonl" 2>&1 | tee "$out/run.log"
 status=${PIPESTATUS[0]}
 python3 -I "$vs" table "$out/ledger.jsonl" | tee "$out/table.txt"
 # The host half ends now, not at its 2 h hold.
