@@ -307,23 +307,6 @@ import {
   prependOlderEventRecords,
   sessionUpdate,
 } from "./direct/records";
-
-export type ReplaySchedule = { seq: number; at: number; time: number }[];
-export type RecordedEvents = EventRecord[] & { replaySchedule?: ReplaySchedule };
-
-/** Reduce journal timestamps once into the replay clock used by the scrubber and recorder. */
-export function replaySchedule(events: readonly EventRecord[]): ReplaySchedule {
-  const ordered = [...events].sort((left, right) => left.seq - right.seq);
-  let previous: number | undefined;
-  let time = 0;
-  return ordered.map((event) => {
-    const at = Number.isFinite(event.at) ? event.at : (previous ?? 0);
-    if (previous !== undefined) time += Math.min(Math.max(at - previous, 0), 2_000);
-    previous = at;
-    return { seq: event.seq, at, time };
-  });
-}
-
 import {
   OLDER_PAGE_RECORDS,
   HELD_KEPT,
@@ -2500,7 +2483,7 @@ export class AcpmuxDirectClient {
   }
 
   /// Every recorded transcript event of a session, oldest first, for session replay.
-  async recordedEvents(sessionId: string): Promise<RecordedEvents> {
+  async recordedEvents(sessionId: string): Promise<EventRecord[]> {
     // Keep journal reads aligned with the Rust replay adapter's bounded page. The daemon's
     // cursor may repeat a boundary record while a page cache catches up, so merge by seq before
     // handing the replay reducer its source of truth.
@@ -2513,13 +2496,12 @@ export class AcpmuxDirectClient {
         kinds: ["transcript"],
       });
       const batch = records(page?.events);
-      for (const event of batch) if (event.seq > 0 && !events.has(event.seq)) events.set(event.seq, event);
-      const through = Math.max(page?.pageThrough ?? 0, ...batch.map((event) => event.seq), after);
-      if (!page?.hasMore) {
-        const ordered = [...events.values()].sort((a, b) => a.seq - b.seq) as RecordedEvents;
-        ordered.replaySchedule = replaySchedule(ordered);
-        return ordered;
+      let through = Math.max(after, page.pageThrough ?? 0);
+      for (const event of batch) {
+        if (event.seq > 0 && !events.has(event.seq)) events.set(event.seq, event);
+        through = Math.max(through, event.seq);
       }
+      if (!page.hasMore) return [...events.values()].sort((a, b) => a.seq - b.seq);
       if (through <= after) throw new Error("journal_replay_cursor_stalled");
       after = through;
     }

@@ -2,7 +2,6 @@
 // with every quiet gap longer than IDLE_GAP_MS shortened to it, so a chat left open overnight
 // still plays through in the time its work took.
 import type { EventRecord } from "../eventRecord";
-import type { ReplaySchedule } from "../direct";
 
 /// The longest pause replay keeps between two recorded events.
 export const IDLE_GAP_MS = 2_000;
@@ -23,18 +22,16 @@ export type ReplayTimeline = {
 /// Speeds the replay bar steps through, slowest first.
 export const REPLAY_SPEEDS = [0.5, 1, 2, 4, 8, 16] as const;
 
-export function replayTimeline(events: readonly EventRecord[], schedule?: ReplaySchedule): ReplayTimeline {
+export function replayTimeline(events: readonly EventRecord[]): ReplayTimeline {
   const steps: ReplayTimeline["steps"] = [];
   const tools: ReplayMark[] = [];
   const turnEnds: ReplayTimeline["turnEnds"] = [];
-  const scheduled = new Map(schedule?.map((step) => [step.seq, step.time]));
   let time = 0;
   let previous: number | undefined;
   for (const event of [...events].sort((a, b) => a.seq - b.seq)) {
     const at = Number.isFinite(event.at) ? event.at : (previous ?? 0);
-    if (previous !== undefined && !scheduled.has(event.seq)) time += Math.min(Math.max(at - previous, 0), IDLE_GAP_MS);
+    if (previous !== undefined) time += Math.min(Math.max(at - previous, 0), IDLE_GAP_MS);
     previous = at;
-    if (scheduled.has(event.seq)) time = scheduled.get(event.seq)!;
     steps.push({ seq: event.seq, time });
     const update = event.dir === "in" && event.msg?.method === "session/update" ? event.msg.params?.update : undefined;
     if (update?.sessionUpdate === "tool_call")

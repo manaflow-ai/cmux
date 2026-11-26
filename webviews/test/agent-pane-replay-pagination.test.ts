@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { directClientStub } from "./support/directClientStub";
-import { replaySchedule, type EventRecord } from "../src/agent-session/acpmux/direct";
+import type { EventRecord } from "../src/agent-session/acpmux/direct";
 
 const event = (seq: number, text: string): EventRecord => ({
   sessionId: "replay",
@@ -15,8 +15,7 @@ type Page = { events: EventRecord[]; hasMore: boolean; pageThrough?: number };
 
 function clientWithPages(pages: (after: number) => Page) {
   const requests: { afterSeq: number; limit: number }[] = [];
-  const client = directClientStub();
-  Object.assign(client as unknown as Record<string, unknown>, {
+  const client = directClientStub({
     typed: async (_method: string, params: { afterSeq: number; limit: number }) => {
       requests.push({ afterSeq: params.afterSeq, limit: params.limit });
       return pages(params.afterSeq);
@@ -72,15 +71,5 @@ describe("recorded replay pagination", () => {
     const { client } = clientWithPages(() => ({ events: [], hasMore: true, pageThrough: 0 }));
 
     await expect(client.recordedEvents("replay")).rejects.toThrow("journal_replay_cursor_stalled");
-  });
-
-  test("reduces the ordered journal into timestamped replay transitions once", () => {
-    const schedule = replaySchedule([event(3, 10_000), event(1, 100), event(2, 200)]);
-
-    expect(schedule).toEqual([
-      { seq: 1, at: 100, time: 0 },
-      { seq: 2, at: 200, time: 100 },
-      { seq: 3, at: 10_000, time: 2_100 },
-    ]);
   });
 });
