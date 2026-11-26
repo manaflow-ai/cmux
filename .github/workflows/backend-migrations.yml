@@ -58,8 +58,10 @@ jobs:
     # still plans and gates on every label it gets.
     if: ${{ !(github.event.pull_request.state == 'closed' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && startsWith(github.event.label.name, 'fix-cause:')) && !(github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next') && !(github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["backend:apply-migrations","full-ci"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_GATE_SKIP_FLEET != '1' && 'cmux-gcp-gate-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted tokens; the required-gate JIT label first, then CI_TRUSTED_RUNNER picks GitHub-hosted or Blacksmith
-    # Recent runs: 20s median, 51s max (GitHub API reads and a SQL lint).
-    timeout-minutes: 10
+    # Recent runs: 20s median, 51s max (GitHub API reads and a SQL lint). The ceiling fits the worst
+    # retried path: probe 3 x 60 s, base checkout 2 x 60 s, head fetch and blob read 3 x 90 s each,
+    # plus backoff (about 15 minutes); a healthy run never comes near it.
+    timeout-minutes: 16
     permissions:
       contents: read
       pull-requests: read
@@ -83,7 +85,29 @@ jobs:
           set -uo pipefail
           git init -q probe && cd probe || exit 0
           git remote add origin "https://github.com/$REPO.git"
-          if ! GIT_TERMINAL_PROMPT=0 timeout 60 git -c protocol.version=2 fetch -q --no-tags --depth=1 --filter=tree:0 origin "$BASE_SHA" "$HEAD_SHA"; then
+          # A dropped or stalled transfer from github.com ("Operation too slow", a reset, a 5xx, a hang) is
+          # tried again: 3 tries, 5 s then 15 s apart, each bounded. A refusal (a missing commit, 401/403/404)
+          # stops on its first try. The error names the tries. Job 139712437101 (cmux#55995, runner e1c-0251)
+          # failed on one "Operation too slow"; handbook transient-transport-failure-as-hard-error.
+          git_retry() {
+            local what=$1 limit=$2 try=1 tries=3 err status last; shift 2
+            while :; do
+              if err=$(GIT_TERMINAL_PROMPT=0 timeout "$limit" git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 "$@" 2>&1 >/dev/null); then return 0; else status=$?; fi
+              [ "$status" -ne 124 ] || err="${err:+$err
+          }hung past $limit s"
+              [ -z "$err" ] || printf '%s\n' "$err" >&2
+              last=$(printf '%s\n' "$err" | grep -v '^[[:space:]]*$' | tail -n 1 || true)
+              if printf '%s\n' "$err" | grep -qiE 'repository not found|not our ref|couldn.t find remote ref|authentication failed|could not read (username|password)|permission denied|returned error: (401|403|404)|invalid refspec|unknown revision|not a valid object name|bad revision|not a tree object|did not match any'; then
+                echo "::error::$what refused on try $try of $tries, not tried again (a refusal, not a transport failure; runner ${RUNNER_NAME:-unknown}): $last"; return 1
+              fi
+              if [ "$try" -ge "$tries" ]; then
+                echo "::error::$what failed on all $tries tries ($limit s each) on runner ${RUNNER_NAME:-unknown}; the last: $last"; return 1
+              fi
+              echo "::warning::$what failed on try $try of $tries, trying again: $last"
+              sleep $((try == 1 ? 5 : 15)); try=$((try + 1))
+            done
+          }
+          if ! git_retry "treeless fetch of the base and the head" 60 -c protocol.version=2 fetch -q --no-tags --depth=1 --filter=tree:0 origin "$BASE_SHA" "$HEAD_SHA"; then
             echo "treeless fetch failed: full plan"; exit 0
           fi
           base_tree=$(GIT_TERMINAL_PROMPT=0 timeout 60 git rev-parse --verify --quiet "$BASE_SHA:backend/db/migrations") || base_tree=""
@@ -152,7 +176,29 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          GIT_TERMINAL_PROMPT=0 timeout 90 git -C trusted fetch --quiet --no-tags --depth=1 origin "$HEAD_SHA" || { echo "::error::fetch of the head $HEAD_SHA failed or hung past 90 s on runner ${RUNNER_NAME:-unknown}"; exit 1; }
+          # A dropped or stalled transfer from github.com ("Operation too slow", a reset, a 5xx, a hang) is
+          # tried again: 3 tries, 5 s then 15 s apart, each bounded. A refusal (a missing commit, 401/403/404)
+          # stops on its first try. The error names the tries. Job 139712437101 (cmux#55995, runner e1c-0251)
+          # failed on one "Operation too slow"; handbook transient-transport-failure-as-hard-error.
+          git_retry() {
+            local what=$1 limit=$2 try=1 tries=3 err status last; shift 2
+            while :; do
+              if err=$(GIT_TERMINAL_PROMPT=0 timeout "$limit" git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 "$@" 2>&1 >/dev/null); then return 0; else status=$?; fi
+              [ "$status" -ne 124 ] || err="${err:+$err
+          }hung past $limit s"
+              [ -z "$err" ] || printf '%s\n' "$err" >&2
+              last=$(printf '%s\n' "$err" | grep -v '^[[:space:]]*$' | tail -n 1 || true)
+              if printf '%s\n' "$err" | grep -qiE 'repository not found|not our ref|couldn.t find remote ref|authentication failed|could not read (username|password)|permission denied|returned error: (401|403|404)|invalid refspec|unknown revision|not a valid object name|bad revision|not a tree object|did not match any'; then
+                echo "::error::$what refused on try $try of $tries, not tried again (a refusal, not a transport failure; runner ${RUNNER_NAME:-unknown}): $last"; return 1
+              fi
+              if [ "$try" -ge "$tries" ]; then
+                echo "::error::$what failed on all $tries tries ($limit s each) on runner ${RUNNER_NAME:-unknown}; the last: $last"; return 1
+              fi
+              echo "::warning::$what failed on try $try of $tries, trying again: $last"
+              sleep $((try == 1 ? 5 : 15)); try=$((try + 1))
+            done
+          }
+          git_retry "fetch of the head $HEAD_SHA" 90 -C trusted fetch --quiet --no-tags --depth=1 origin "$HEAD_SHA" || exit 1
           base_tree=$(git -C trusted rev-parse --verify --quiet "$BASE_SHA:backend/db/migrations" || echo none)
           head_tree=$(git -C trusted rev-parse --verify --quiet "$HEAD_SHA:backend/db/migrations" || echo none)
           if [ "$base_tree" = "$head_tree" ]; then echo "same=true" >> "$GITHUB_OUTPUT"; else echo "same=false" >> "$GITHUB_OUTPUT"; fi
@@ -183,13 +229,37 @@ jobs:
           BASE_REF: ${{ github.event.pull_request.base.ref || github.event.merge_group.base_ref }}
         run: |
           set -euo pipefail
+          # A dropped or stalled transfer from github.com ("Operation too slow", a reset, a 5xx, a hang) is
+          # tried again: 3 tries, 5 s then 15 s apart, each bounded. A refusal (a missing commit, 401/403/404)
+          # stops on its first try. The error names the tries. Job 139712437101 (cmux#55995, runner e1c-0251)
+          # failed on one "Operation too slow"; handbook transient-transport-failure-as-hard-error.
+          git_retry() {
+            local what=$1 limit=$2 try=1 tries=3 err status last; shift 2
+            while :; do
+              if err=$(GIT_TERMINAL_PROMPT=0 timeout "$limit" git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 "$@" 2>&1 >/dev/null); then return 0; else status=$?; fi
+              [ "$status" -ne 124 ] || err="${err:+$err
+          }hung past $limit s"
+              [ -z "$err" ] || printf '%s\n' "$err" >&2
+              last=$(printf '%s\n' "$err" | grep -v '^[[:space:]]*$' | tail -n 1 || true)
+              if printf '%s\n' "$err" | grep -qiE 'repository not found|not our ref|couldn.t find remote ref|authentication failed|could not read (username|password)|permission denied|returned error: (401|403|404)|invalid refspec|unknown revision|not a valid object name|bad revision|not a tree object|did not match any'; then
+                echo "::error::$what refused on try $try of $tries, not tried again (a refusal, not a transport failure; runner ${RUNNER_NAME:-unknown}): $last"; return 1
+              fi
+              if [ "$try" -ge "$tries" ]; then
+                echo "::error::$what failed on all $tries tries ($limit s each) on runner ${RUNNER_NAME:-unknown}; the last: $last"; return 1
+              fi
+              echo "::warning::$what failed on try $try of $tries, trying again: $last"
+              sleep $((try == 1 ? 5 : 15)); try=$((try + 1))
+            done
+          }
+          # The trees step above fetched the head already; fetch only a commit this clone lacks.
+          fetch_head() { git -C trusted cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null || git_retry "fetch of the head $HEAD_SHA" 90 -C trusted fetch --quiet --no-tags --depth=1 origin "$HEAD_SHA"; }
           case "$BASE_REF" in refs/heads/main|refs/heads/feat-cmux-next|main|feat-cmux-next) ;; *) echo "::error::unexpected base branch"; exit 1 ;; esac
           if [ "$EVENT" = pull_request_target ]; then
             # Most PRs never touch migrations: decide that from git before using the API. The
             # installation's API quota ran out under load and failed the plan on UI PRs (#17602).
             # The same backend/db/migrations tree as the base means no migration change; a
             # different one (the PR's change, or a base move it has not merged) is listed below.
-            GIT_TERMINAL_PROMPT=0 timeout 90 git -C trusted fetch --quiet --no-tags --depth=1 origin "$HEAD_SHA" || { echo "::error::fetch of the head $HEAD_SHA failed or hung past 90 s on runner ${RUNNER_NAME:-unknown}"; exit 1; }
+            fetch_head || exit 1
             base_tree=$(git -C trusted rev-parse --verify --quiet "$BASE_SHA:backend/db/migrations" || echo none)
             head_tree=$(git -C trusted rev-parse --verify --quiet "$HEAD_SHA:backend/db/migrations" || echo none)
             if [ "$base_tree" = "$head_tree" ]; then
@@ -212,9 +282,9 @@ jobs:
           fi
           # Head migration files only: fetched as blobs, never checked out or executed.
           mkdir -p head-migrations
-          GIT_TERMINAL_PROMPT=0 timeout 90 git -C trusted fetch --no-tags --depth=1 origin "$HEAD_SHA" || { echo "::error::fetch of the head $HEAD_SHA failed or hung past 90 s on runner ${RUNNER_NAME:-unknown}"; exit 1; }
-          # The base checkout is blobless, so archive fetches the head's migration blobs lazily: bound it too.
-          GIT_TERMINAL_PROMPT=0 timeout 90 git -C trusted archive -o head-migrations.tar "$HEAD_SHA" backend/db/migrations || { echo "::error::reading the head's migrations ($HEAD_SHA) failed or hung past 90 s on runner ${RUNNER_NAME:-unknown}"; exit 1; }
+          fetch_head || exit 1
+          # The base checkout is blobless, so archive fetches the head's migration blobs lazily: bound and retry it too.
+          git_retry "reading the head's migrations ($HEAD_SHA)" 90 -C trusted archive -o "$PWD/head-migrations.tar" "$HEAD_SHA" backend/db/migrations || exit 1
           tar -x -C head-migrations --strip-components=3 -f head-migrations.tar && rm -f head-migrations.tar
           # Data only: flat regular files with migration names. No symlinks, devices or subdirectories,
           # so no later job can be made to read anything outside these SQL texts.
@@ -352,7 +422,7 @@ jobs:
     name: ${{ github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next' && 'backend migrations metadata edit (ignored)' || github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["backend:apply-migrations","full-ci"]'), github.event.label.name) && 'backend migrations label (ignored)' || 'backend migrations applied' }}
     needs: [plan, apply-production]
     # This adds about 25 s on each real event, keeping the required check answerable without masking failures.
-    if: always() && !(github.event.pull_request.state == 'closed' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && startsWith(github.event.label.name, 'fix-cause:')) && !(github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next') && !(github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["backend:apply-migrations","full-ci"]'), github.event.label.name))
+    if: always() && !(github.event.pull_request.state == 'closed' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && startsWith(github.event.label.name, 'fix-cause:')) && !(github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next') && !(github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["backend:apply-migrations","full-ci"]'), github.event.label.name)) && !(needs.plan.result == 'success' && needs.plan.outputs.migrations == 'false')
     # merge_group runs this file from the queue commit (PR content), so it never gets an
     # environment or secrets (the environments allow only main and feat-cmux-next); the queue
     # only admits PRs whose pull_request_target gate passed. Fork PRs never get secrets here.
@@ -405,3 +475,23 @@ jobs:
             echo "::error::migrations are not applied (or the database has migrations this tree lacks). Merge the base, then add the label backend:apply-migrations; merging deploys."
             exit 1
           fi
+
+  # `backend migrations applied` when the plan succeeded and found no migration change: the gate's work is then one
+  # echo (no checkout, environment, token or secret), so it needs no one-job VM and takes cmux-linux, the persistent
+  # pool, like merge-group-policy-checks.yml's bridges. gate (above) skips on exactly this answer and keeps every other
+  # one: a plan that failed, was cancelled or skipped, or found migrations to verify with the databases' secrets. Both
+  # jobs carry the same expression name, so the one that skips publishes the unevaluated expression, never the required
+  # name. 2026-11-25 21:22-21:50Z: about 126 PR heads in 20 min each queued plan and gate on cmux-gcp-gate-jit-x64; 96
+  # of the 127 queued gate-label jobs were this echo, and gate jobs waited about 14 min for a VM.
+  gate-no-change:
+    name: ${{ github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next' && 'backend migrations metadata edit (ignored)' || github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["backend:apply-migrations","full-ci"]'), github.event.label.name) && 'backend migrations label (ignored)' || 'backend migrations applied' }}
+    needs: plan
+    if: ${{ !cancelled() && !(github.event.pull_request.state == 'closed' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && startsWith(github.event.label.name, 'fix-cause:')) && !(github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next') && !(github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["backend:apply-migrations","full-ci"]'), github.event.label.name)) && needs.plan.result == 'success' && needs.plan.outputs.migrations == 'false' }}
+    # The merge-group bridges' selector (#57252): cmux-linux behind only the fleet-wide overflow switch. test_ci_fork_runner_routing.py
+    # INERT_POOL_RUNNER_LINE admits this one line only for a job with no permissions and only literal echo steps.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Plan succeeded with no migration changes
+        run: echo "no migration changes (the plan succeeded and found none), or a merge group of PRs whose gate passed"
