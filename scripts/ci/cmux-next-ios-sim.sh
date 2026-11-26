@@ -1302,37 +1302,7 @@ if [[ ( "$mode" == test || "$mode" == all ) && $run_kit -eq 1 ]]; then
   # iPhone there, deleted by its UDID afterwards (never another step's device).
   test_udid="$(sim_create "cmux-next-ios-sim-test-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
   [[ $reduce_motion -eq 0 ]] || sim_boot_reduce_motion "$test_udid" "kit test"
-  # THROWAWAY PROOF (removed in the next commit): CmuxMobileShellTests does not compile; the kit workflow's two bench
-  # commands, as written there with CMUX_MOBILE_KIT_TEST_TARGETS, must still build and print INSTANTPERF lines.
   set +e
-  proof="$out/instant-perf-proof"; mkdir -p "$proof"; pdd="$dd_root/dd-proof"
-  echo "PROOF 1: whole package swift build --build-tests (expected to FAIL on the neighbour)"
-  swift build --package-path cmux-next-ios/CmuxMobileKit --build-tests > "$proof/p1.log" 2>&1; echo "PROOF 1 exit $?"
-  grep -m3 -E "error:" "$proof/p1.log"
-  echo "PROOF 2: macOS bench (CMUX_MOBILE_KIT_TEST_TARGETS=CmuxMobileInstantPerfTests swift test --filter CmuxMobileInstantPerfTests)"
-  CMUX_MOBILE_KIT_TEST_TARGETS=CmuxMobileInstantPerfTests CMUX_INSTANT_PERF_OUT="$proof/macos.jsonl" \
-    swift test --package-path cmux-next-ios/CmuxMobileKit --filter CmuxMobileInstantPerfTests > "$proof/macos.log" 2>&1
-  echo "PROOF 2 exit $?"; grep -m5 -E "error:|Executed|passed|failed" "$proof/macos.log"
-  echo "PROOF 3: whole scheme xcodebuild build-for-testing on the bench's derived data (expected to FAIL on the neighbour)"
-  (cd cmux-next-ios/CmuxMobileKit && xcodebuild build-for-testing -scheme CmuxMobileKit-Package -destination "id=$test_udid,arch=arm64" \
-    -enableCodeCoverage NO -derivedDataPath "$pdd" CODE_SIGNING_ALLOWED=NO -quiet) > "$proof/p3.log" 2>&1; echo "PROOF 3 exit $?"
-  grep -m3 -E "error:" "$proof/p3.log"
-  echo "PROOF 4: iOS simulator bench (CMUX_MOBILE_KIT_TEST_TARGETS, -only-testing:CmuxMobileInstantPerfTests), same derived data"
-  (cd cmux-next-ios/CmuxMobileKit && CMUX_MOBILE_KIT_TEST_TARGETS=CmuxMobileInstantPerfTests \
-    TEST_RUNNER_CMUX_INSTANT_PERF_OUT="$proof/ios-simulator.jsonl" xcodebuild test -scheme CmuxMobileKit-Package \
-    -destination "id=$test_udid,arch=arm64" -enableCodeCoverage NO -derivedDataPath "$pdd" CODE_SIGNING_ALLOWED=NO -quiet \
-    -only-testing:CmuxMobileInstantPerfTests -resultBundlePath "$work/proof.xcresult") > "$proof/ios.log" 2>&1
-  echo "PROOF 4 exit $?"; grep -m5 -E "error:|Executed|passed|failed" "$proof/ios.log"
-  if [[ ! -s "$proof/ios-simulator.jsonl" ]]; then
-    xcrun xcresulttool get log --path "$work/proof.xcresult" --type console 2>/dev/null |
-      sed -n 's/.*INSTANTPERF \({.*}\)$/\1/p' > "$proof/ios-simulator.jsonl"
-  fi
-  mac_n=$(grep -c '^INSTANTPERF {' "$proof/macos.log"); ios_n=$(grep -c '{' "$proof/ios-simulator.jsonl")
-  echo "PROOF macOS INSTANTPERF lines: $mac_n"; grep '^INSTANTPERF {' "$proof/macos.log" | head -3
-  echo "PROOF iOS simulator INSTANTPERF lines: $ios_n"; head -3 "$proof/ios-simulator.jsonl" | sed 's/^/INSTANTPERF(sim) /'
-  xcrun simctl shutdown "$test_udid" >/dev/null 2>&1; xcrun simctl delete "$test_udid" >/dev/null 2>&1; test_udid=""
-  if (( mac_n > 0 && ios_n > 0 )); then note "PROOF PASS: both benches printed INSTANTPERF with a neighbour broken ($mac_n macOS, $ios_n simulator)"; exit 0; fi
-  note "PROOF FAIL: macOS $mac_n, simulator $ios_n"; exit 1
   (cd cmux-next-ios/CmuxMobileKit && env ${kit_env[@]+"${kit_env[@]}"} xcodebuild test -scheme CmuxMobileKit-Package \
     -destination "id=$test_udid,arch=arm64" -enableCodeCoverage NO -derivedDataPath "$dd_root/dd-test" \
     -resultBundlePath "$work/kit.xcresult" CODE_SIGNING_ALLOWED=NO -quiet ${kit_only[@]+"${kit_only[@]}"}) >"$work/test.log" 2>&1
