@@ -12,6 +12,11 @@
 //! a loop. Claude's loops live in its process (session crons and the pending wakeup), so its exit
 //! clears the goal. Nothing can stop a loop from outside the turn (Claude Code has no control
 //! request for it), so the goal carries no command.
+//!
+//! The goal also lists every armed loop's timer (`timers`: `{"at", "recurring"}` each, `at` its
+//! next fire in Unix ms where Claude said one), not only the shown loop's: Claude holds them in
+//! its process, so its machine must be up when one is due (`hub/agent_timer.rs`, wake kind 4 of
+//! the pause-resume lane).
 
 use super::*;
 use crate::no_panic::JsonExt;
@@ -32,8 +37,23 @@ pub(super) struct Loops {
 }
 
 impl Loops {
+    /// The newest loop still armed, with every armed loop's timer (`timers`, module docs).
     fn shown(&self) -> Value {
-        self.armed.last().map(|(_, goal)| goal.clone()).unwrap_or(Value::Null)
+        let Some((_, goal)) = self.armed.last() else { return Value::Null };
+        let timers: Vec<Value> = self
+            .armed
+            .iter()
+            .map(|(key, goal)| {
+                let mut timer = json!({"recurring": key.starts_with("cron:")});
+                if let Some(at) = goal.get("nextRunAt").and_then(Value::as_u64) {
+                    timer.set("at", json!(at));
+                }
+                timer
+            })
+            .collect();
+        let mut goal = goal.clone();
+        goal.set("timers", json!(timers));
+        goal
     }
 
     fn arm(&mut self, key: String, goal: Value) {

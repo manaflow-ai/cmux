@@ -1,4 +1,4 @@
-import type { HTMLAttributes, MouseEvent, ReactNode, Ref } from "react";
+import type { HTMLAttributes, MouseEvent, PointerEvent, ReactNode, Ref } from "react";
 import type { SessionHoverTrigger } from "../started/useSessionHover";
 import { WithFacts } from "../chips/FactsHoverCard";
 import "./AgentTag.css";
@@ -58,6 +58,22 @@ export function AgentTag({
             data-interactive=""
             {...attributes}
             {...hover}
+            // The chip lights under the pointer only once the pointer has moved on it: one that
+            // appears under a resting pointer (a start line drawn where the pointer sits) is not
+            // pointed at, and lit it read as a stray outline (Leo, 2026-11-24: "this is pretty
+            // weird? it was collasped then expanded? idk"). Keyboard focus lights it as before.
+            onPointerMove={(event: PointerEvent<HTMLButtonElement>) => {
+              (hover?.onPointerMove ?? card.onPointerMove ?? trigger.onPointerMove)?.(event);
+              if (!event.currentTarget.hasAttribute("data-pointed"))
+                event.currentTarget.setAttribute("data-pointed", "");
+            }}
+            onPointerLeave={(event: PointerEvent<HTMLButtonElement>) => {
+              const leave = (hover?.onPointerLeave ?? card.onPointerLeave ?? trigger.onPointerLeave) as
+                | ((event: PointerEvent<HTMLButtonElement>) => void)
+                | undefined;
+              leave?.(event);
+              event.currentTarget.removeAttribute("data-pointed");
+            }}
             onClick={(event) => {
               // A hover card trigger's own click (it puts the card away) runs first.
               (trigger as { onClick?(event: MouseEvent<HTMLButtonElement>): void }).onClick?.(event);

@@ -367,6 +367,11 @@ const ATTACH_STREAM_MAX_BYTES: usize = 16 * 1024 * 1024;
 const VT_REPLAY_TEXT_HEADROOM_BYTES: usize = 2 * 1024 * 1024;
 pub(crate) const VT_REPLAY_MAX_BYTES: usize =
     ghostty_vt::KITTY_INFLIGHT_REPLAY_MAX_BYTES + VT_REPLAY_TEXT_HEADROOM_BYTES;
+/// The most replay bytes a respawned terminal is seeded with: the replay
+/// budget less room for the respawn's mode reset and marker line. Every
+/// replay on the restore path (snapshot, tail rebuild, full-mode rebuild,
+/// exit snapshot) is bounded by it, so none is too large to seed.
+pub(crate) const SEED_REPLAY_MAX_BYTES: usize = VT_REPLAY_MAX_BYTES - 64 * 1024;
 const VT_REPLAY_FRAME_METADATA_HEADROOM_BYTES: usize = 64 * 1024;
 const VT_REPLAY_ENCODED_TRANSPORT_MAX_BYTES: usize = 32 * 1024 * 1024;
 const _: () = assert!(
@@ -1075,7 +1080,12 @@ impl Surface {
     pub(crate) fn runs_on_holder(&self) -> bool {
         self.as_pty().is_some_and(|pty| {
             let runtime = pty.runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            matches!(&*runtime, PtyRuntime::Local { holder: Some(_), .. })
+            #[cfg(unix)]
+            let on_holder = matches!(&*runtime, PtyRuntime::Local { holder: Some(_), .. });
+            // Windows has no holder process: its terminals run in the daemon or a host.
+            #[cfg(not(unix))]
+            let on_holder = false;
+            on_holder
         })
     }
 

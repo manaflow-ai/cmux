@@ -23,9 +23,9 @@ async fn chat() -> (Arc<Hub>, Arc<Session>) {
 }
 
 async fn send(session: &Session, item: Inbound) {
-    session.inbound_tx.send(item).await.unwrap();
+    session.inbound_tx().send(item).await.unwrap();
     let (done, applied) = tokio::sync::oneshot::channel();
-    session.inbound_tx.send(Inbound::Barrier(done)).await.unwrap();
+    session.inbound_tx().send(Inbound::Barrier(done)).await.unwrap();
     applied.await.unwrap();
 }
 

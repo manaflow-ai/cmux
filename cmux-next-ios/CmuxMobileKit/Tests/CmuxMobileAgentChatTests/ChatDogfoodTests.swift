@@ -13,7 +13,6 @@ import Testing
         #expect([TurnRow]().needsWorkingIndicator)
         #expect([TurnRow.tool(call("a", .completed))].needsWorkingIndicator)
         #expect([TurnRow.toolGroup(id: "g", calls: [call("a", .completed), call("b", .failed)])].needsWorkingIndicator)
-        #expect([TurnRow.plan(id: "p", entries: [])].needsWorkingIndicator)
     }
 
     @Test func hiddenWhileTheLastRowShowsItsOwnProgress() {
@@ -91,6 +90,8 @@ extension ReplyInsteadTests {
         #expect(ComposerMention(text: "mail me@host") == nil)
         #expect(ComposerMention(text: "@done and more") == nil)
         #expect(ComposerMention(text: "code `x @y") == nil)
+        // Only the last word is read: a long draft before it changes nothing.
+        #expect(ComposerMention(text: String(repeating: "word `x` ", count: 4_000) + "@dia")?.query == "dia")
     }
 
     @Test func insertsThePathLikeTheMacComposer() throws {

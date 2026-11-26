@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use cmux_tui_core::backoff::Backoff;
+use cmux_tui_util::backoff::Backoff;
 use tokio::net::UnixListener;
 
 use crate::owner_lock::{OwnerFileLock, sibling_lock_path};
@@ -21,7 +21,7 @@ const ACCEPT_RETRY_INITIAL_DELAY: Duration = Duration::from_millis(10);
 const ACCEPT_RETRY_MAX_DELAY: Duration = Duration::from_millis(250);
 
 /// The spacing of a listener's `accept` retries
-/// ([`cmux_tui_core::backoff::accept_retry_delay`]): 10 ms doubling to 250 ms.
+/// ([`cmux_tui_util::backoff::accept_retry_delay`]): 10 ms doubling to 250 ms.
 pub fn accept_backoff() -> Backoff {
     Backoff::new(ACCEPT_RETRY_INITIAL_DELAY, ACCEPT_RETRY_MAX_DELAY).with_jitter(0.0)
 }

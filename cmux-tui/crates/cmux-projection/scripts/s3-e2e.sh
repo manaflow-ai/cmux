@@ -31,7 +31,9 @@ echo "repo: $(git -C "$W/full" ls-tree -r HEAD | wc -l) files, $(du -sh --exclud
 # The chain reads the bucket from these; s3-push writes to the same base with the same keys.
 export CMUX_PROJECTION_S3_ENDPOINT=http://127.0.0.1:$PORT CMUX_PROJECTION_S3_BUCKET=blobs
 export CMUX_PROJECTION_S3_PREFIX=objects CMUX_PROJECTION_S3_REGION=us-east-1
-BASE=$CMUX_PROJECTION_S3_ENDPOINT/blobs/objects
+# Every key sits under the tenant; rclone's server keeps no SSE, so the PUTs do not ask for it.
+export CMUX_PROJECTION_S3_TENANT=e2e CMUX_PROJECTION_S3_SSE=off
+BASE=$CMUX_PROJECTION_S3_ENDPOINT/blobs/objects/e2e
 echo "--- wrong key is refused"
 if AWS_ACCESS_KEY_ID=AKIDE2E AWS_SECRET_ACCESS_KEY=wrong "$BIN" s3-push --git-dir "$W/full/.git" --to "$BASE" --commit HEAD; then
   echo "FAIL: a wrong key pushed"; exit 1

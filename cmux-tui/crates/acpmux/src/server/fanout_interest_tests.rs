@@ -68,8 +68,8 @@ impl Client {
         client
     }
 
-    /// Sends a request and reads lines until its answer, which must not be an error.
-    async fn call(&mut self, m: &str, params: Value) {
+    /// Sends a request and reads lines until its answer, which must not be an error; returns its result.
+    async fn call(&mut self, m: &str, params: Value) -> Value {
         self.next_id += 1;
         let id = self.next_id;
         self.input.send(Message::request(id, m, params).to_line()).await.unwrap();
@@ -79,12 +79,12 @@ impl Client {
                 let reply: Value = serde_json::from_str(&out.recv().await.unwrap()).unwrap();
                 if reply["id"] == id {
                     assert!(reply.get("error").is_none(), "{m}: {reply}");
-                    return;
+                    return reply["result"].clone();
                 }
             }
         })
         .await
-        .unwrap_or_else(|_| panic!("{m} answers"));
+        .unwrap_or_else(|_| panic!("{m} answers"))
     }
 
     async fn attach(&mut self, id: &str) {
@@ -92,8 +92,8 @@ impl Client {
             .await;
     }
 
-    async fn watch(&mut self, on: bool) {
-        self.call(method::MUX_WATCH, json!({"enabled": on})).await;
+    async fn watch(&mut self, on: bool) -> Value {
+        self.call(method::MUX_WATCH, json!({"enabled": on})).await
     }
 
     /// Reads lines until one contains `needle`; returns the lines read before it, and it.
@@ -205,7 +205,9 @@ async fn a_watch_turned_off_stops_waking_for_other_chats_changes() {
     let mut page = Client::connect(&hub, "page").await;
     page.attach(&t).await;
     page.watch(true).await;
-    page.watch(false).await;
+    // The pause builds no list: the page keeps its rows and follows from its cursor when it turns
+    // the watch on again (webviews sessionPages.ts `pause`).
+    assert_eq!(page.watch(false).await, json!({}), "a paused watch answers without the list");
     let before = page.wakes();
     let busy = session(&hub, &s);
     for n in 0..CHANGES {

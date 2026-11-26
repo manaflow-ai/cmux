@@ -44,7 +44,7 @@ import { ChangePullRequest } from "./ChangePullRequest";
 import { getColorScheme, subscribeColorScheme } from "./colorScheme";
 import { Doodle, DoodleActions, DoodleHeadline } from "./doodle/UpdateDoodle";
 import { useDecoration } from "../../theme/decorations";
-import { distinctSummary, mergedView, readableUpdate, titleKey } from "./model";
+import { changeItems, distinctSummary, mergedView, readableChanges, readableUpdate, rowKind, titleKey } from "./model";
 import type { Strings } from "../shared/i18n";
 import type { ReleaseNotes } from "./types";
 import type {
@@ -53,12 +53,12 @@ import type {
   UpdateHighlights,
   UpdateSurfaceActions,
 } from "./updateHighlights";
-import { PREVIEW_CLOSE_MS, PreviewIntent, plainEntries, previewEntries } from "./updatedPreview";
+import { PREVIEW_CLOSE_MS, PreviewIntent, plainEntries, previewEntries, withoutGenericEntry } from "./updatedPreview";
 import { parsePreviewMode, type UpdatedPreviewMode } from "./updatedPreviewMode";
 import { pressCard, SHIPPED_DRAG_FEEL, type CardDragFeel, type CardDragHost, type CardRow } from "./updatedCardDrag";
 import { PREVIEW_MAX_PX, UpdatedCardPreview, type PreviewLayout, type PreviewTarget } from "./UpdatedCardPreview";
 export type { PreviewLayout } from "./UpdatedCardPreview";
-import { summarizeHighlights, summarizeUpdate, type SummaryRow } from "./updateSummary";
+import { hasCuratedChanges, summarizeHighlights, summarizeUpdate, type SummaryRow } from "./updateSummary";
 
 /** "1.0.0-nightly.3845050428001" reads "nightly 3845050", as the native Update Ready card
  * (UpdateChangelog.cardVersion): every nightly is 1.0.0. Any other version reads as itself. */
@@ -352,8 +352,10 @@ export function UpdatedCard({
       aria-label={strings.t("updates.card.dismiss")}
       onClick={actions.dismiss}
     >
-      <svg viewBox="0 0 10 10" aria-hidden="true">
-        <path d="M2 2l6 6M8 2l-6 6" />
+      {/* The app's one card x (ui/DismissButton.tsx): 12 by 12, a 6 px cross at 1.25 (Leo 2026-11-23:
+          "strange proportioned close symbol" for the old 8 px one at 1.4). */}
+      <svg viewBox="0 0 12 12" aria-hidden="true">
+        <path d="M3 3l6 6M9 3l-6 6" />
       </svg>
     </button>
   );
@@ -366,7 +368,6 @@ export function UpdatedCard({
       <p className="wn-card-note">
         <button type="button" className="wn-card-seenew" onClick={openWhatsNew}>
           {strings.t("updates.card.seeWhatsNew")}
-          <span aria-hidden="true"> ↗</span>
         </button>
       </p>
     ) : notesLoading ? (
@@ -376,7 +377,7 @@ export function UpdatedCard({
         {top ? (
           <>
             <span className="wn-card-area">{strings.format("updates.card.areaLabel", rowLabel(top, strings))}</span>{" "}
-            {top.phrases[0]}
+            {top.full[0] ?? top.phrases[0]}
           </>
         ) : (
           strings.t(span ? "changelog.page.maintenance" : "updates.card.whatsNewInBuild")
@@ -437,7 +438,6 @@ export function UpdatedCard({
           {placement === "top-right" && (
             <button type="button" className="wn-card-link" onClick={openWhatsNew}>
               {strings.t("changelog.page.title")}
-              <span aria-hidden="true"> ↗</span>
             </button>
           )}
         </div>
@@ -908,11 +908,13 @@ const SCROLL_KEYS: Record<string, number | "page" | "-page" | "start" | "end"> =
 /** The update with every change of the builds it spans (`span`, newest first, the page's notes):
  * the staged build's own items first, then each other build's readable changes once, so an
  * update across several nightlies lists all of them (Leo 2026-11-05: "i can't even scroll
- * through the changes from that preview!"). Without notes, the host's items as they are. */
+ * through the changes from that preview!"). A build with no reviewed entries lists its readable
+ * commits, and the generic "Fixes and improvements" entry stays out in every language, as the card's
+ * preview does (`previewEntries`). Without notes, the host's items as they are. */
 function withSpan(data: UpdateHighlights, span: ReleaseNotes[] | undefined, language: string): UpdateHighlights {
   if (!span || span.length === 0) return data;
-  const view = mergedView(span, language);
-  const spanned = [view.hero, ...view.groups.flatMap((group) => group.items)].flatMap((item) =>
+  const view = mergedView(span.map(withoutGenericEntry), language);
+  const spanned: UpdateHighlightItem[] = [view.hero, ...view.groups.flatMap((group) => group.items)].flatMap((item) =>
     item
       ? [
           {
@@ -926,6 +928,19 @@ function withSpan(data: UpdateHighlights, span: ReleaseNotes[] | undefined, lang
         ]
       : [],
   );
+  // mergedView lists reviewed entries alone: a build of commits only would add nothing.
+  for (const build of span) {
+    if (hasCuratedChanges(build)) continue;
+    readableChanges(changeItems(build)).changes.forEach((change, index) =>
+      spanned.push({
+        id: `span:${build.build}-${index}`,
+        title: change.title,
+        summary: change.description || null,
+        category: rowKind(change.title),
+        pr: null,
+      }),
+    );
+  }
   const seen = new Set([...data.items, ...(data.rest ?? [])].map((item) => titleKey(item.title)));
   const extra = spanned.filter((item) => {
     const key = titleKey(item.title);

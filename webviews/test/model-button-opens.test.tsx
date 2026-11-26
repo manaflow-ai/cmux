@@ -78,6 +78,7 @@ afterEach(() => {
   root = undefined;
   host.replaceChildren();
   dom.window.localStorage.clear();
+  for (const popup of dom.window.document.querySelectorAll(".acpmux-cols")) popup.remove();
 });
 
 afterAll(async () => {
@@ -164,7 +165,8 @@ async function mountLongChat() {
 }
 
 const modelButton = () => host.querySelector<HTMLButtonElement>('.acpmux-model button[data-menu="Model"]')!;
-const menu = () => dom.window.document.querySelector<HTMLElement>(".acpmux-quick-menu");
+// A started chat's model button opens the shared columns picker, as a New Tab's does (cmux#55750).
+const menu = () => dom.window.document.querySelector<HTMLElement>(".acpmux-cols");
 /// The next painted frame: Base UI's mousedown toggle lands in one.
 const nextFrame = () =>
   act(async () => {
@@ -197,7 +199,8 @@ test("the model button opens its menu in a long running chat, and the menu stays
   expect(modelButton().textContent).toContain("Opus 5.5");
   await click(modelButton());
   expect(modelButton().getAttribute("aria-expanded")).toBe("true");
-  expect(menu()?.querySelector(".ui-menu-group-label")).toBeNull();
+  expect(menu()).not.toBeNull();
+  expect(menu()!.querySelector(".ui-menu-group-label")).toBeNull();
   // Still open a frame later: nothing closes it behind the press.
   await nextFrame();
   expect(modelButton().getAttribute("aria-expanded")).toBe("true");

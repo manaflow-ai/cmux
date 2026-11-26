@@ -23,23 +23,17 @@
   "every_pr": {
     ".github/workflows/backend-migrations.yml": "produces `backend migrations applied`, required on main: a required context must report on every pull request (tests/test_ci_required_checks_have_no_path_filters.py; #17415 scoped it and every other PR went unmergeable)",
     ".github/workflows/ci-pr-closed-cancel.yml": "closed only: one run per pull request, not per head, cancelling the closed PR's queued CI",
-    ".github/workflows/cla-policy-guard.yml": "produces `CLA policy guard`, required on main; pull requests into main only",
-    ".github/workflows/cla.yml": "produces `CLA Assistant`, required on main; pull requests into main only",
     ".github/workflows/cmux-next-batch.yml": "the batch queue's debounce: every pull request event into feat-cmux-next feeds next_batch.py, whatever it changes",
     ".github/workflows/cmux-next-fast-gates.yml": "posts cmux-next/fast-gates, which merge_hold reads at every head; its path skip lives in its fast-check-route job (lane/fast-check-path-skips)",
     ".github/workflows/cmux-next-pr-autofix-closed-cancel.yml": "closed only: one run per pull request, not per head",
     ".github/workflows/cmux-next-pr-closed-cancel.yml": "closed only: one run per pull request, not per head",
     ".github/workflows/cmux-next-react-doctor.yml": "produces `React Doctor (changed React projects)`, required on feat-cmux-next: it must report on every head",
     ".github/workflows/cmux-tui-spec.yml": "produces `clippy (changed cmux-tui packages)`, required on feat-cmux-next: it must report on every head",
-    ".github/workflows/contributor-welcome.yml": "opened only, into main: one run per new pull request",
     ".github/workflows/docs-only-fallback.yml": "unfiltered by design (scripts/ci/docs_only_paths.py FALLBACK): its gate runs only for a pull request of more than 300 files or a full-ci/dev-build label, which `paths:` cannot see, and calls the filtered workflows that should have started",
     ".github/workflows/ios-e2e.yml": "builds the Mac and iOS apps, which read most of the tree; its route skips only prose and images, and docs paths-ignore belongs to the desktop lane",
     ".github/workflows/language-boundaries.yml": "judges the language of every added or changed source file anywhere in the tree",
     ".github/workflows/merge-freeze.yml": "`merge freeze` is a merge gate on feat-cmux-next: it reads open freeze issues for every pull request, whatever it changes",
-    ".github/workflows/merge-receipt.yml": "closed only, into main: one receipt per merged pull request",
     ".github/workflows/pr-body-checks.yml": "reads the pull request body and labels, which no paths filter sees",
-    ".github/workflows/pr-router.yml": "the router itself: it reads every changed path of each feat-cmux-next head to decide which workflows start, so it starts on every head",
-    ".github/workflows/risk-tier.yml": "`risk evidence` is a merge gate on feat-cmux-next and reads the risk label and body",
-    ".github/workflows/thunderdome-label.yml": "labels pull requests from their title and body"
+    ".github/workflows/pr-router.yml": "the router itself: it reads every changed path of each feat-cmux-next head to decide which workflows start, so it starts on every head"
   }
 }

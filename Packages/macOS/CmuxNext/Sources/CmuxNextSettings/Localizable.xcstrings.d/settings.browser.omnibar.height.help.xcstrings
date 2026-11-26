@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.browser.omnibar.height.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Match Density follows the density. The bar always grows to fit its text."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "مطابقة الكثافة تتبع الكثافة. يتسع الشريط دائمًا ليناسب نصه."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prema gustoći prati gustoću. Traka se uvijek povećava da stane njen tekst."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Følg tæthed følger tætheden. Linjen bliver altid høj nok til sin tekst."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wie Dichte folgt der Dichte. Die Leiste wächst immer, damit ihr Text passt."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Igual que la densidad sigue la densidad. La barra siempre crece para que quepa su texto."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Comme la densité suit la densité. La barre s’agrandit toujours pour contenir son texte."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Come la densità segue la densità. La barra si allarga sempre per contenere il testo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「密度に合わせる」は密度に従います。バーは常に文字が収まる高さまで広がります。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ដូចដង់ស៊ីតេ ធ្វើតាមដង់ស៊ីតេ។ របារតែងតែពង្រីកឱ្យសមនឹងអត្ថបទរបស់វា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "밀도에 맞춤은 밀도를 따릅니다. 표시줄은 항상 텍스트가 들어가도록 커집니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Følg tetthet følger tettheten. Feltet blir alltid høyt nok til teksten."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jak gęstość podąża za gęstością. Pasek zawsze rośnie, aby zmieścić tekst."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Igual à densidade segue a densidade. A barra sempre cresce para caber o texto."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«Как плотность» следует плотности. Строка всегда растёт, чтобы вместить текст."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ตามความหนาแน่นจะใช้ตามความหนาแน่น แถบจะขยายให้พอดีกับข้อความเสมอ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Yoğunluğa uy yoğunluğu izler. Çubuk her zaman metnine sığacak kadar büyür."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«Як щільність» відповідає щільності. Рядок завжди збільшується, щоб умістити текст."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Theo mật độ sẽ theo mật độ. Thanh luôn giãn ra cho vừa chữ."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "“匹配密度”跟随密度。地址栏总会增高以容纳文字。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "「符合密度」會跟隨密度。網址列一律會增高以容納文字。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

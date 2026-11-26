@@ -40,6 +40,12 @@ ALLOWED_LISTENERS = {
     (f"{ACPMUX}/launchSettle.ts", "visibilitychange"): "ends the launch settle watch when the page hides "
     "(no report: a hidden page draws no frames); it reads nothing",
     (f"{ACPMUX}/session-list/receiver.ts", "visibilitychange"): "one document-level signal paces the shared session-list driver; it posts shown state without rereading a view",
+    (f"{ACPMUX}/conversation/GitHubConnectCard.tsx", "visibilitychange"): "only while a Connect "
+    "GitHub card waits on GitHub's page: coming back sends the chat's Continue once; reads no data",
+    (f"{ACPMUX}/conversation/GitHubConnectCard.tsx", "focus"): "the Connect GitHub card's return, "
+    "as above",
+    (f"{ACPMUX}/conversation/GitHubConnectCard.tsx", "blur"): "the Connect GitHub card's leave, "
+    "as above",
     (f"{ACPMUX}/direct.ts", "visibilitychange"): "tells acpmux the chat is shown or hidden "
     "(`_acpmux/view`) so a turn ending while hidden stays unread; a state write, not a read",
     (f"{ACPMUX}/App.tsx", "visibilitychange"): "harness health re-reads only after a Log In ran "
@@ -86,6 +92,9 @@ ALLOWED_LISTENERS = {
     "holds back from its throttled store write when the page hides; a write, reads no data",
     (f"{ACPMUX}/newtab/listMotion.ts", "visibilitychange"): "cancels the list's own motion when "
     "the page hides; reads no data",
+    (f"{ACPMUX}/newtab/ExtensionWidgets.tsx", "visibilitychange"): "stops the placed app widgets' "
+    "client while the page is hidden and starts it again when shown (#40270), so a hidden New Tab "
+    "runs no app code; off-screen work dropped, not a re-read of the page's data",
     (f"{ACPMUX}/subagents/traySeen.ts", "visibilitychange"): "pauses the composer hat's linger "
     "clock while the page is hidden (trayLinger.ts); reads no data",
     (f"{ACPMUX}/subagents/traySeen.ts", "focus"): "pauses the composer hat's linger clock while "

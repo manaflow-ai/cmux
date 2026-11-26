@@ -7,6 +7,7 @@
 
   // Kanagawa Wave, with a deep pond-teal pane and a lily-pink accent.
   "appearance.theme": "Kanagawa Wave",
+  "appearance.appTheme": "followTerminal",
   "colors": { "background": "#15262a", "foreground": "#dcd7ba", "selection": "#6d8d90", "accent": "#e898b0" },
   "appearance.accent": "theme",
 

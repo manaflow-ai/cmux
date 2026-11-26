@@ -98,11 +98,11 @@ struct CloudMachineCreateFlow {
     /// instead of a plain `cloud.machine.create`; the same confirmation and approval.
     /// `approved`: the approval an earlier attempt with `key` answered; `onApproved` hears each new answer.
     /// `answering`: the approval an earlier attempt with `key` began answering; `onAnswering` hears each, before it goes out.
-    /// `madeRoom` hears the machine the server paused to make room at the cap (``CloudMachineCap/madeRoom(_:)``).
+    /// `madeRoom` hears the machine the server paused to make room at the cap (``CloudMachineCap/madeRoom(_:)``); `answered`, the whole answer (its spare report).
     func create(name: String?, startedByPerson: Bool, asksFirst: Bool = true, askedBy: String? = nil, key: String? = nil, approved: String? = nil,
                 onApproved: @MainActor (String) -> Void = { _ in }, answering: String? = nil, onAnswering: @MainActor (String) -> Void = { _ in },
                 gate: Gate = .allowed, environment: String? = nil, request: CloudMachineRequest? = nil,
-                madeRoom: @MainActor (JSONValue) -> Void = { _ in }) async throws -> JSONValue {
+                madeRoom: @MainActor (JSONValue) -> Void = { _ in }, answered: @MainActor (JSONValue) -> Void = { _ in }) async throws -> JSONValue {
         if case .upgrade(let need) = gate { throw Failure.upgradeRequired(need.reason) }
         let machine = Self.named(name, askedBy: askedBy)
         // A person's own gesture is the confirmation, so the backend's hold gets no second prompt.
@@ -133,7 +133,7 @@ struct CloudMachineCreateFlow {
                                             approved: key == nil ? nil : approved, onApproved: onApproved,
                                             answering: key == nil ? nil : answering, onAnswering: onAnswering) { _ in true }
         if let room = CloudMachineCap.madeRoom(answer) { madeRoom(room) }
-        return answer["machine"] ?? answer
+        answered(answer); return answer["machine"] ?? answer
     }
 
     /// Any other Cloud money or destructive op (`cloud.environment.build`, `.delete`) a person started

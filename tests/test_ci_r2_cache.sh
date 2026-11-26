@@ -119,6 +119,18 @@ grep -q '^cache-matched-key=family-tool-one$' <<<"$out" || fail "a prefix match 
 diff -r "$WORK/src" "$WORK/dst" >/dev/null || fail "prefix-restored contents differ"
 echo "PASS: a prefix restores the newest key without claiming an exact hit"
 
+# Workflows pass a home-relative path (`path: ~/.bun/install/cache`) that no
+# shell expanded: the save must read, and the restore write, the real directory.
+mkdir -p "$WORK/home/.cache/tool"
+echo tilde > "$WORK/home/.cache/tool/t.txt"
+HOME="$WORK/home" output_of save "~/.cache/tool" tilde-tool-one >/dev/null
+ls "$NS/objects/" | grep -q '^tilde-tool-one\.tar\.' || fail "a ~/ path must save its directory, log: $(cat "$WORK/log")"
+rm -rf "$WORK/home/.cache/tool"
+out="$(cd "$WORK" && HOME="$WORK/home" output_of restore "~/.cache/tool" tilde-tool-one)"
+grep -q '^cache-hit=true$' <<<"$out" || fail "a ~/ path must restore, got: $out"
+[[ -f "$WORK/home/.cache/tool/t.txt" && ! -e "$WORK/~" ]] || fail "a ~/ restore must land under HOME, not ./~"
+echo "PASS: a ~/ path saves and restores the home directory"
+
 # Extra tar padding must be consumed so a successful extraction cannot send
 # SIGPIPE to the decompressor under pipefail (notably with macOS bsdtar).
 if command -v zstd >/dev/null 2>&1; then

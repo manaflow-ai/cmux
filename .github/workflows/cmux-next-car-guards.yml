@@ -64,6 +64,7 @@ on:
         type: string
         default: "{}"
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
     branches: [feat-cmux-next]
     paths:
       - .github/workflows/cmux-next-car-guards.yml
@@ -81,7 +82,7 @@ permissions:
 # A pull request's newer push replaces its run; a train's car (called or dispatched) never
 # cancels another run's car of the same name.
 concurrency:
-  group: cmux-next-car-guards-${{ inputs.car && format('{0}-{1}', inputs.car, github.run_id) || github.ref }}
+  group: cmux-next-car-guards-${{ inputs.car && format('{0}-{1}', inputs.car, github.run_id) || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('-label-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:
@@ -90,8 +91,9 @@ env:
 
 jobs:
   plan:
+    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     name: car guards plan
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     outputs:
       base: ${{ steps.range.outputs.base }}
@@ -173,13 +175,13 @@ jobs:
 
   linux:
     needs: plan
-    if: ${{ needs.plan.outputs.linux == 'true' }}
+    if: ${{ (needs.plan.outputs.linux == 'true') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     name: car guards (portable)
     outputs:
       status: ${{ steps.guards.outputs.status }}
     # 32 vCPU: the guards and focused python tests run side by side (car_guards.py CHEAP)
     # and cargo test compiles the crates the car touches.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 45
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
@@ -219,12 +221,18 @@ jobs:
             PyYAML==6.0.3 bashlex==0.18
           echo "$RUNNER_TEMP/car-guard-venv/bin" >> "$GITHUB_PATH"
 
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: ${{ needs.plan.outputs.web == 'true' }}
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         if: ${{ needs.plan.outputs.web == 'true' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
       - name: Install the webviews dependencies
         if: ${{ needs.plan.outputs.web == 'true' }}
@@ -289,7 +297,7 @@ jobs:
 
   mac:
     needs: plan
-    if: ${{ needs.plan.outputs.mac == 'true' }}
+    if: ${{ (needs.plan.outputs.mac == 'true') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     name: car guards (mac)
     outputs:
       status: ${{ steps.guards.outputs.status }}

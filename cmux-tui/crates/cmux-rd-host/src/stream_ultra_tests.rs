@@ -18,10 +18,12 @@ fn session(profile: EncodeProfile) -> MediaSession {
     let cfg = SessionCfg {
         display: String::new(),
         display_pick: None,
+        window: None,
         max_fps: 60,
         encode_profile: profile,
         start_kbps: (START_BPS / 1000) as u32,
         max_kbps: 150_000,
+        pin_kbps: None,
         preset: String::new(),
         profile: String::new(),
         codec: String::new(),
