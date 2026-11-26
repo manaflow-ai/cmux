@@ -56,10 +56,11 @@ and the push removes no reserved entry. CMUX_NEXT_CHECKS_SKIP_REASON does not sk
 `Ghostty-defaults-OK: <the user's words>` trailer on a pushed commit does (Lawrence 2026-10-20).
 Also on every push: "Sidebar look owner" (plans/cmux-next/sidebar-owner.md): a commit that changes the
 sidebar package's code (CmuxNextSidebar/, not its strings, resources or mock) carries a `Sidebar-Look: <the user's words, or "no visual
-change">` trailer, and a visual change also edits plans/cmux-next/sidebar-owner.md in the same commit.
+change">` trailer, and a visual change also adds its entry under plans/cmux-next/sidebar-owner/ (one file per
+entry, scripts/ci/entry_logs.py; editing the frozen sidebar-owner.md still counts) in the same commit.
 233 sidebar commits in four days with no owner undid each other (Lawrence 2026-10-23: "why were there so
 many changes to sidebar?"). CMUX_NEXT_CHECKS_SKIP_REASON does not skip it. A commit the owner logged in
-that note (its 11-character sha) passes. CI also sweeps every commit since the check landed
+that note or an entry file (its 11-character sha) passes. CI also sweeps every commit since the check landed
 (`--only sidebar --commits`), so a push from an old hook copy or a cancelled CI run is still caught.
 Also on every push: "Chrome layer look" (schemas/theme/chrome-layer-colors.json): a commit that changes that
 file (the colours ChromeLayerColorTests reads off the sidebar, footer and titlebar in the default themes, plain
@@ -300,7 +301,9 @@ SCANNERS = (
       "scripts/cmux-next/concentric-containers-baseline.txt")),
     # Lawrence 2026-11-15: "for all buttons ... we only want to have different bg color on mousedown".
     ("Buttons change only their fill when pressed", ["python3", "-I", "{s}/check-pressed-state.py", "{root}"], (PKG + "/", "webviews/src/")),
-    ("No literal state roots (per-build isolation S7, cx-is1kf.8)", ["/bin/bash", "{s}/check-state-roots.sh", "{root}"], SCOPES),
+    ("No literal state roots (per-build isolation S7, cx-is1kf.8)", ["/bin/bash", "{s}/check-state-roots.sh", "{root}"],
+     # Also its Classic ids check (goal next-zero-classic-footprint-all-surfaces): every macOS package and the scripts.
+     SCOPES + ("Packages/macOS/", "scripts/cmux-next/")),
     ("No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)",
      ["python3", "-I", "{s}/check-no-process-scan.py", "{root}"], SCOPES),
     # Leo 2026-11-21: "i wonder if there's a script or some kinda tool we can build to simply get rid fo the prompt?"
@@ -463,6 +466,16 @@ SETTINGS_KEYS_HINT = ("A settings export lost a key its source declares, or has 
 CARGO_HINT = ("Fix the locks: run `scripts/cmux-next/cargo-locks.py fix` (it runs `cargo update --workspace` in each "
               "stale workspace, which rewrites only what the manifests now need), commit the Cargo.lock files, then "
               "push. A manifest change in one workspace can leave another workspace's lock stale (eb4f3eb1d94).")
+# cmux#55547: #51769 added 3 keys to a string catalog and its diff rewrote 281k lines: its base merges ran main's older
+# trusted merge driver, which put the branch's text and order back over the base's. Compared with the push's merge base
+# with feat-cmux-next, so a base merge's own changes never count. CI's fast gates run it on BASE..MERGE.
+XCSTRINGS_CHECK = "String catalogs edited in place (scripts/cmux-next/check-xcstrings-diff.py)"
+XCSTRINGS_SCRIPT = SCRIPTS + "/check-xcstrings-diff.py"
+XCSTRINGS_HINT = ("A string catalog was re-serialized, not edited: take the merge base's text back (git checkout "
+                  "$(git merge-base HEAD origin/feat-cmux-next) -- <catalog>) and add or remove keys in place with "
+                  "scripts/xcstrings-edit.py. After a base merge, rerun scripts/install-git-hooks.sh from a feat-cmux-next "
+                  "checkout (the clone's trusted merge driver may be main's older copy) and redo the merge. A deliberate "
+                  "reformat: an `Xcstrings-Reformat: <why>` commit trailer.")
 SIDEBAR_CHECK = "Sidebar look owner (plans/cmux-next/sidebar-owner.md)"
 SIDEBAR_VIEWS = "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/"
 # The sidebar package's code, not only Views/: a702 (9a2fceefbbb, 2026-10-25) changed the pinned section from tiles
@@ -472,6 +485,9 @@ SIDEBAR_EXEMPT = ("Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Resources/",
                   "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Mock/",
                   "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Strings")
 SIDEBAR_NOTE = "plans/cmux-next/sidebar-owner.md"
+# New entries, one file each (scripts/ci/entry_logs.py ENTRY_LOGS): two PRs adding entries never touch one line. The
+# frozen note had 47 GitHub conflicts among 96 PRs in the 14 days to 2026-11-25 (scripts/ci/conflict_hotspots.py).
+SIDEBAR_ENTRIES = "plans/cmux-next/sidebar-owner/"
 SIDEBAR_TRAILER = re.compile(r"^Sidebar-Look:[ \t]*(\S.*)$", re.MULTILINE)
 SIDEBAR_NO_VISUAL = re.compile(r"^no visual change\b", re.IGNORECASE)
 # The chrome layer (sidebar, footer, titlebar) keeps its colour unless Leo asks (#39984 laid a 20% black dim on the
@@ -528,6 +544,9 @@ RATCHET_BASELINES = {
     "process-scan-baseline.tsv": ((0,), 1),
     "keychain-no-prompt-baseline.tsv": ((0,), 1),
     "state-roots-baseline.tsv": ((0,), 1),
+    # check-state-roots.sh's Classic ids check: path, text, count. Left out, a push that removed a Classic site
+    # and deleted its row was refused (goal next-zero-classic-footprint-all-surfaces: 41 stale rows on base).
+    "classic-ids-baseline.tsv": ((0, 1), 2),
     "raw-spawn-baseline.tsv": ((0,), 1),
     "raw-flock-baseline.tsv": ((0,), 1),
     "spawn-owner-baseline.tsv": ((0,), 1),
@@ -749,7 +768,7 @@ def ratchet_row_files(repo: Path, base: str, head: str) -> list[str]:
     """Files whose RATCHET_BASELINES row the push adds or changes, present at both revs. The trees hold only changed
     files, so a row added for an untouched file (a base red's fix: a reviewed row for sites already on base) read 0
     sites against its row and was refused as "fewer than the baseline" (#37531, fast gates on the merge)."""
-    # Two batch reads, not a `git show` a file: each cost about 0.5 s on big-red's cmux mirror (2026-11-21: 11 s).
+    # Two batch reads, not a `git show` a file: each cost about 0.5 s on a Linux workstation's cmux mirror (2026-11-21: 11 s).
     try:
         blobs = git_batch.cat_file(repo, [f"{rev}:{SCRIPTS}/{name}" for name in RATCHET_BASELINES for rev in (base, head)])
     except git_batch.GitError as error:
@@ -2552,17 +2571,24 @@ def new_crate_versions(repo: Path, base: str, head: str, trusted_scripts: Path |
 def settings_export_keys(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
     """`<export>: ...` per settings export the range leaves without a key the base's export had and the head's sources
     declare, or with a key no head source declares (SETTINGS_KEYS_CHECK). Git objects only, and only when the range
-    changes a settings source or export."""
+    changes a settings source or export. Compared with HEAD's merge base with feat-cmux-next, like xcstrings_rewrites:
+    a base merge that takes the base's export (CI's generated-drift check demands that copy) brings back keys the
+    branch's previous push removed, and those are the base's, not this push's (cmux#55721)."""
     names = git(repo, "diff", "--name-only", "--no-renames", "-z", base, head).decode("utf-8", "surrogateescape")
     if not any(p.startswith(SETTINGS_KEYS_PATHS) for p in names.split("\0") if p):
         return []
+    # When BASE already descends from the merge base (no base merge in the range), BASE is closer.
+    fork = git(repo, "merge-base", head, DEFAULT_BASE_REFS[0], check=False).decode().strip()
+    if not fork or subprocess.run(["git", "-C", str(absolute(repo)), "merge-base", "--is-ancestor", fork, base],
+                                  capture_output=True).returncode == 0:
+        fork = base
     script = check_script(repo, head, SETTINGS_KEYS_SCRIPT, trusted_scripts, base)
     if script is None:
         return []  # a commit older than this check
     with tempfile.TemporaryDirectory(prefix="cmux-settings-keys-") as tmp:
         check = absolute(Path(tmp)) / "settings-export-key-drift.py"
         check.write_bytes(script)
-        code, out = run(["python3", "-I", str(check), "--repo", str(repo.resolve()), "--base", base, "--head", head],
+        code, out = run(["python3", "-I", str(check), "--repo", str(repo.resolve()), "--base", fork, "--head", head],
                         absolute(Path(tmp)), timeout=120)
     found = [line.removeprefix("drift: ") for line in out.splitlines() if line.startswith("drift: ")]
     stopped = no_verdict(code, out, (0, 1)) or ("exited 1 but named no export" if code == 1 and not found else None)
@@ -2570,6 +2596,36 @@ def settings_export_keys(repo: Path, base: str, head: str, trusted_scripts: Path
         return [NoVerdict(f"{SETTINGS_KEYS_SCRIPT} {stopped} instead of judging the exports, so the push is refused: "
                           f"{out_tail(out.splitlines())}", outside_cause(stopped))]
     return found
+
+
+def xcstrings_rewrites(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
+    """`<catalog>: ...` per string catalog the push re-serializes (moved keys, entries rewritten with no value change,
+    changed separators) instead of adding, removing or editing entries (XCSTRINGS_CHECK). Compared with HEAD's merge base
+    with feat-cmux-next, the diff a pull request shows. Git objects only, and only when the push changes a catalog."""
+    names = git(repo, "diff", "--name-only", "--no-renames", "-z", base, head, "--", "*.xcstrings").decode(
+        "utf-8", "surrogateescape")
+    if not any(names.split("\0")):
+        return []
+    # The push's merge base with feat-cmux-next, so a base merge's own changes never count. When BASE already
+    # descends from it (no base merge in the range; CI's BASE..MERGE with a stale or missing ref), BASE is closer.
+    fork = git(repo, "merge-base", head, DEFAULT_BASE_REFS[0], check=False).decode().strip()
+    if not fork or subprocess.run(["git", "-C", str(absolute(repo)), "merge-base", "--is-ancestor", fork, base],
+                                  capture_output=True).returncode == 0:
+        fork = base
+    script = check_script(repo, head, XCSTRINGS_SCRIPT, trusted_scripts, base)
+    if script is None:
+        return []  # a commit older than this check
+    with tempfile.TemporaryDirectory(prefix="cmux-xcstrings-") as tmp:
+        check = absolute(Path(tmp)) / "check-xcstrings-diff.py"
+        check.write_bytes(script)
+        code, out = run(["python3", "-I", str(check), "range", fork, head], repo, timeout=120)
+    lines = out.splitlines()
+    found = [line.strip() for line in lines if line.startswith("  ") and ".xcstrings: " in line]
+    stopped = no_verdict(code, out, (0, 1)) or ("exited 1 but named no catalog" if code == 1 and not found else None)
+    if stopped:
+        return [NoVerdict(f"{XCSTRINGS_SCRIPT} {stopped} instead of judging the catalogs, so the push is refused: "
+                          f"{out_tail(lines)}", outside_cause(stopped))]
+    return found if code == 1 else []
 
 
 def new_generated_files(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
@@ -3291,17 +3347,22 @@ def sidebar_owner_by_commit(repo: Path, base: str, head: str, ack_rev: str | Non
     """(sha, finding) for each pushed commit that changes the sidebar's drawing code without the owner's record.
 
     A commit touching the sidebar package's code (`SIDEBAR_CODE` but `SIDEBAR_EXEMPT`) needs a `Sidebar-Look:` trailer: the user's words that asked for the
-    look (a visual change, which must also edit `SIDEBAR_NOTE` in that commit) or `no visual change` (a
+    look (a visual change, which must also add or edit an entry under `SIDEBAR_ENTRIES`, or edit `SIDEBAR_NOTE`, in
+    that commit) or `no visual change` (a
     behavior or performance change; the sidebar look contract tests hold the look). Checked per commit, so a
     later commit cannot launder an earlier one.
 
-    A commit the owner has logged passes too: its 11-character sha in `SIDEBAR_NOTE` at `ack_rev` (default
+    A commit the owner has logged passes too: its 11-character sha in `SIDEBAR_NOTE` or an entry at `ack_rev` (default
     `head`). That is how a commit that reached the branch without a trailer (an old hook, a cancelled CI
     run; dcd4316ef5c, 2026-10-23) is reviewed once instead of failing every later sweep.
     """
     found: list[tuple[str, str]] = []
     note = subprocess.run(["git", "-C", str(repo), "show", f"{ack_rev or head}:{SIDEBAR_NOTE}"], capture_output=True)
     logged = note.stdout.decode(errors="replace") if note.returncode == 0 else ""
+    # Every entry file's lines in one call (`git grep` over the tree at that revision, names left off).
+    entries = subprocess.run(["git", "-C", str(repo), "grep", "-h", "-I", "-e", "", f"{ack_rev or head}", "--",
+                              SIDEBAR_ENTRIES], capture_output=True)
+    logged += entries.stdout.decode(errors="replace") if entries.returncode == 0 else ""
     # One `git log` for the whole range (a CI sweep reads every commit since the check landed): per commit a
     # record separator, the sha, the message, then the files it changes.
     out = git(repo, "log", "--reverse", "--no-merges", "--name-only", "--format=%x1e%H%x1f%B%x1f",
@@ -3316,11 +3377,12 @@ def sidebar_owner_by_commit(repo: Path, base: str, head: str, ack_rev: str | Non
         trailer = SIDEBAR_TRAILER.search(message)
         where = f"{sha[:11]} {subject[:70]} ({views[0]}{f' and {len(views) - 1} more' if len(views) > 1 else ''})"
         if trailer is None:
-            found.append((sha, f"{where}: no `Sidebar-Look:` trailer. Add `Sidebar-Look: <the user's words>` (and edit "
-                               f"{SIDEBAR_NOTE}) or `Sidebar-Look: no visual change`."))
-        elif not SIDEBAR_NO_VISUAL.match(trailer.group(1).strip()) and SIDEBAR_NOTE not in files:
-            found.append((sha, f"{where}: a visual change (`Sidebar-Look: {trailer.group(1).strip()[:60]}`) must update "
-                               f"{SIDEBAR_NOTE} in the same commit: the target look and the commit log."))
+            found.append((sha, f"{where}: no `Sidebar-Look:` trailer. Add `Sidebar-Look: <the user's words>` (and add "
+                               f"an entry file under {SIDEBAR_ENTRIES}) or `Sidebar-Look: no visual change`."))
+        elif (not SIDEBAR_NO_VISUAL.match(trailer.group(1).strip()) and SIDEBAR_NOTE not in files
+              and not any(f.startswith(SIDEBAR_ENTRIES) for f in files)):
+            found.append((sha, f"{where}: a visual change (`Sidebar-Look: {trailer.group(1).strip()[:60]}`) must add its "
+                               f"entry under {SIDEBAR_ENTRIES} in the same commit: the target look and the commit log."))
     return found
 
 
@@ -3529,6 +3591,10 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         frozen = window_freezes(repo, base, head)
         if frozen:
             reserved.append((FREEZE_CHECK, frozen))
+    if (only is None or "xcstrings" in only) and want(XCSTRINGS_CHECK):
+        rewritten = xcstrings_rewrites(repo, base, head, trusted_scripts)
+        if rewritten:
+            reserved.append((XCSTRINGS_CHECK, rewritten))
     if (only is None or "crash-allow" in only) and want(CRASH_ALLOW_CHECK):
         unreviewed = crash_allow_unreviewed(repo, base, head)
         if unreviewed:
@@ -4324,7 +4390,7 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,ui-font,conflicts,"
                                        "cargo-lock,sidebar,crash-allow,crash-ratchet,freeze,highlights,pictures,workflows,"
                                        "single-host-fallbacks,redefinitions,port-drift,new-crate-versions,"
-                                       "settings-export-keys,main-twin,job-bounds,generated-files,generated-fresh")
+                                       "settings-export-keys,main-twin,job-bounds,generated-files,generated-fresh,xcstrings")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--defer-ci-layers", action="store_true",
                         help="the hook on a loaded host: leave the checks the PR's fast-gates job runs (scanners, "
@@ -4362,11 +4428,11 @@ def _main(argv: list[str] | None = None) -> int:
         if fresh:
             print_findings([(SIDEBAR_CHECK, fresh)], "prepush-gate: sidebar commits without the owner's record:")
             print(f"::error title=Sidebar look owner::{len(fresh)} commit(s) change the sidebar's drawing code without "
-                  "a Sidebar-Look: trailer or an entry in plans/cmux-next/sidebar-owner.md")
+                  f"a Sidebar-Look: trailer or an entry under {SIDEBAR_ENTRIES}")
         for sha, finding in inherited:
             # The whole finding (one line); % escaped, as a workflow command reads %0A as a new line.
             text = (f"{finding} This commit is on the base, not in this pull request: the owner logs {sha[:11]} in "
-                    f"{SIDEBAR_NOTE}.").replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+                    f"an entry under {SIDEBAR_ENTRIES}.").replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
             print(f"::warning title=Sidebar look owner (base commit)::{text}")
         print(f"prepush-gate: sidebar sweep {base[:11]}..{tip[:11]}, {len(fresh)} finding(s)"
               + (f", {len(inherited)} on base commits (warnings)" if inherited else "")
@@ -4518,6 +4584,8 @@ def _main(argv: list[str] | None = None) -> int:
         print(NEW_VERSIONS_HINT)
     if any(name == SETTINGS_KEYS_CHECK for name, _ in found_any):
         print(SETTINGS_KEYS_HINT)
+    if any(name == XCSTRINGS_CHECK for name, _ in found_any):
+        print(XCSTRINGS_HINT)
     if any(name == FALLBACKS_CHECK for name, _ in found_any):
         print(FALLBACKS_HINT)
     if any(name == CRASH_RATCHET_CHECK for name, _ in found_any):

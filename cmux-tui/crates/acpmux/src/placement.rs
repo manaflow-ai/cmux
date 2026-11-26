@@ -46,7 +46,11 @@
 pub(crate) mod command_sampler;
 pub(crate) mod command_shadow;
 pub(crate) mod move_targets;
+pub mod run_vm;
 pub mod sub_fork;
+pub mod sub_fork_run;
+pub mod work_place;
+pub mod work_wire;
 
 /// AutoCloud's hidden settings key (RFD 0144), off unless the settings file says `true`.
 pub const AUTO_CLOUD_KEY: &str = "cloud.autoCloud";
@@ -356,7 +360,7 @@ pub fn last_resort(registry: Option<&Value>, name: &str) -> bool {
 }
 
 /// The registry's entry for `name`, by name or alias (`canonical`).
-fn machine<'a>(registry: Option<&'a Value>, name: &str) -> Option<&'a Value> {
+pub(crate) fn machine<'a>(registry: Option<&'a Value>, name: &str) -> Option<&'a Value> {
     let machines = registry?.get("machines")?.as_object()?;
     let want = canonical(name);
     machines.iter().find(|(n, m)| machine_names(n, m).contains(&want)).map(|(_, m)| m)
@@ -478,7 +482,7 @@ const STOPPED: [&str; 6] = ["idle-stopped", "stopped", "paused", "retired", "res
 /// moment says nothing about whether the VM stays up, and a start forwarded to it was refused
 /// with only an ssh hint. Deleting the status line, as the registry asks once it is started for
 /// good, lets it take work again.
-fn stopped(machine: &Value) -> Option<String> {
+pub(crate) fn stopped(machine: &Value) -> Option<String> {
     let status = machine.get("status")?.as_str()?.trim().to_ascii_lowercase();
     let word = STOPPED.iter().find(|w| status.starts_with(**w))?;
     Some(format!("{word} (its fleet-registry.json status)"))

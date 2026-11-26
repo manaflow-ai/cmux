@@ -219,3 +219,35 @@ export function planLimitRows(
   if (credits) rows.push({ id: "credits", name: t("planUsage.credits"), value: credits });
   return rows;
 }
+
+// The even-pace mark on each plan usage bar (Leo, 2026-11-23, usage per account: "Settings shows
+// each signed-in account's limits with even-pace marks"): where the bar would stand if the window
+// were spent evenly, so a share used ahead of the clock reads at a glance.
+
+/// A window's length in seconds: what the harness reported, else Claude's own by its id (5 hours,
+/// a week). Unset for a window of unknown length.
+function planWindowSeconds(limit: LimitWindow): number | undefined {
+  if (limit.windowMins !== undefined && limit.windowMins > 0) return limit.windowMins * 60;
+  if (limit.id === "session") return 300 * 60;
+  if (limit.id === "weekly" || limit.id.startsWith("weekly_")) return 10080 * 60;
+  return undefined;
+}
+
+/// The share of the window already elapsed at `nowMs` (0..1): the even-pace position. Unset with no
+/// reset time or no known length, so no mark is drawn that may be wrong.
+export function planEvenPace(limit: LimitWindow, nowMs: number = Date.now()): number | undefined {
+  if (limit.resetsAt === undefined) return undefined;
+  const length = planWindowSeconds(limit);
+  if (length === undefined || !Number.isFinite(nowMs)) return undefined;
+  const elapsed = (length - (limit.resetsAt - nowMs / 1000)) / length;
+  return Math.min(1, Math.max(0, elapsed));
+}
+
+/// How far past even pace (in percentage points) a window may run before its bar takes the warning
+/// color: a few points of slack so a window right on pace does not flicker.
+export const PLAN_PACE_MARGIN = 5;
+
+/// Whether the window is used ahead of even pace (past the margin). False with no pace.
+export function planAheadOfPace(limit: LimitWindow, pace: number | undefined): boolean {
+  return pace !== undefined && limit.usedPercent > pace * 100 + PLAN_PACE_MARGIN;
+}

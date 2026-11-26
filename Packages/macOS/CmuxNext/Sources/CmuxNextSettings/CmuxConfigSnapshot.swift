@@ -105,10 +105,12 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var pauseAgentMachines = CmuxConfigSnapshot.pauseAgentMachinesDefault
     /// `customize.fromTheApp`: the Customize Inspector (hold Option) and right-click Customize…; off when unset.
     public var customizeFromTheApp = CmuxConfigSnapshot.customizeFromTheAppDefault
-    /// `customize.doctorNotice`: the toast naming a file or layer that changes the setup (`CustomizeDoctorNotice`); on when unset.
+    /// `customize.doctorNotice`: the toast naming a file or layer that changes the setup (`CustomizeDoctorNotice`); off when unset (Leo 2026-11-25: "make it stop showing the customization not applied/reviewd and shit popup tosts"), Settings' doctor card lists the findings inline.
     public var customizeDoctorNotice = CmuxConfigSnapshot.customizeDoctorNoticeDefault
     /// `labs.agentCustomization`: Settings shows and edits Claude Code's and Codex's own MCP servers, skills and commands (`cmux agent-config`); off when unset.
     public var agentCustomization = CmuxConfigSnapshot.agentCustomizationDefault
+    /// `labs.commentThreads`: a browser design mode card and Comment… on a terminal selection send as comment threads (diff-comments-threads-v1) that show the agent's reply; off when unset (the card sends a chip, the terminal action stays unavailable).
+    public var commentThreads = CmuxConfigSnapshot.commentThreadsDefault
     /// `labs.hostsSidebar`: the Rex-style Hosts section projects the Machines catalog into the sidebar; off when unset.
     public var hostsSidebar = CmuxConfigSnapshot.hostsSidebarDefault
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`, `browser.freezeHiddenTabs`.
@@ -165,6 +167,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var layoutRows: Bool = ColumnLayoutSettings.rowsDefault
     /// `layout.focusFollowsMouse`: hovering or scrolling an unfocused pane focuses it (default off).
     public var focusFollowsMouse: Bool = ColumnLayoutSettings.focusFollowsMouseDefault
+    /// `layout.fadeInactivePanes`: panes without the focus fade until they take it (default off).
+    public var fadeInactivePanes: Bool = ColumnLayoutSettings.fadeInactivePanesDefault
     /// `layout.scrollAreas`: splits that cannot fit scroll instead of squashing (default off;
     /// plans/cmux-next/scroll-areas-DESIGN.md).
     public var layoutScrollAreas: Bool = ColumnLayoutSettings.scrollAreasDefault
@@ -205,6 +209,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var inactiveWindowDim = 0.0
     /// `appearance.wallpaperTint`: on unless set to false.
     public var wallpaperTint = WallpaperTintSetting.fallback
+    /// `appearance.wallpaperLighting`: off unless set to true.
+    public var wallpaperLighting = WallpaperLightingSetting.fallback
+    /// `appearance.liveWallpaperFrameRate`: a live wallpaper's frame cap, 15, 30 (the default) or 60.
+    public var liveWallpaperFrameRate = 30
     /// `appearance.backgroundPlacement`: where each picture lies; empty (every picture centered and
     /// filled) unless set.
     public var backgroundPlacements: [String: BackdropPlacement] = [:]
@@ -334,6 +342,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var commandRetentionDays = Int(CmuxConfigSnapshot.commandRetentionDefault)
     /// The rest of `notifications.*`: dismissal, banners, sounds, quiet hours, mutes.
     public var notifications = NotificationPreferences()
+    /// `app.keyStyle` and `app.shortcutLayout`: list keys and how shortcuts find their key.
+    public var keyboardStyle = KeyboardStyleSettings()
     /// `updates.*`: automatic update behavior (R114).
     public var updates = UpdatesSettings()
     /// `computerUse.*`: whether cmux starts the signed Computer Use helper.
@@ -400,6 +410,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(BrowserNewTabPage.parse(root), \.browserNewTabPage)
         snapshot.take(BookmarksBarSetting.parse(root), \.browserShowBookmarksBar)
         snapshot.take(BrowserVimKeysSetting().parse(root), \.browserVimKeys)
+        snapshot.keyboardStyle = KeyboardStyleSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        // The Vim key style turns the browser's vim page keys on too (design/keyboard-style.md).
+        if snapshot.keyboardStyle.keyStyle == .vim { snapshot.browserVimKeys = true }
         snapshot.take(BrowserLoadingBarSetting().parse(root), \.browserShowLoadingBar)
         snapshot.take(BrowserImportSetting.parse(root), \.browserImportEnabled)
         snapshot.take(BrowserCookieBannerSetting.parse(root), \.browserImportCookieBanner)
@@ -420,6 +433,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(Self.parseLabsToggle(root, path: customizeFromTheAppPath, fallback: customizeFromTheAppDefault), \.customizeFromTheApp)
         snapshot.take(Self.parseLabsToggle(root, path: customizeDoctorNoticePath, fallback: customizeDoctorNoticeDefault), \.customizeDoctorNotice)
         snapshot.take(Self.parseLabsToggle(root, path: agentCustomizationPath, fallback: agentCustomizationDefault), \.agentCustomization)
+        snapshot.take(Self.parseLabsToggle(root, path: commentThreadsPath, fallback: commentThreadsDefault), \.commentThreads)
         snapshot.take(Self.parseLabsToggle(root, path: hostsSidebarPath, fallback: hostsSidebarDefault), \.hostsSidebar)
         snapshot.take(BrowserHibernationSetting.parse(root), \.browserHibernation)
         snapshot.take(BrowserLinkClickSetting.parse(root), \.browserLinkClicks)
@@ -463,6 +477,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.windowBackground = WindowBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.inactiveWindowDim = WindowBackgroundSetting.parseInactiveDim(root, diagnostics: &snapshot.diagnostics)
         snapshot.wallpaperTint = WallpaperTintSetting().parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.wallpaperLighting = WallpaperLightingSetting().parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.liveWallpaperFrameRate = LiveWallpaperFrameRateSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.backgroundPlacements = BackdropPlacementSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.surfaceBackgrounds = SurfaceBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.surfaceBackgrounds.twoTone = TwoToneSetting.parse(root, diagnostics: &snapshot.diagnostics)
@@ -504,6 +520,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.plusButton = plusButton
         if let plusButtonDiagnostic { snapshot.diagnostics.append(plusButtonDiagnostic) }
         ChromePlacementSetting.parse(root, into: &snapshot)
+        _ = MenuLookSetting.parse(root, diagnostics: &snapshot.diagnostics) // applied from the root (`applyMenuLook`)
         let (paneBackgrounds, paneBackgroundsDiagnostic) = PaneBackgroundsSetting.parse(root)
         snapshot.paneBackgrounds = paneBackgrounds
         if let paneBackgroundsDiagnostic { snapshot.diagnostics.append(paneBackgroundsDiagnostic) }

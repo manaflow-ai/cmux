@@ -107,6 +107,11 @@ impl Schema {
                 "additionalProperties": false,
             }),
         );
+        root.insert(crate::theme_file::slots::KEY.into(), crate::theme_file::slots::json_schema());
+        root.insert(
+            crate::theme_file::motion::KEY.into(),
+            crate::theme_file::motion::json_schema(),
+        );
         root.insert(
             "fonts".into(),
             json!({
@@ -254,6 +259,21 @@ fn kind_schema(row: &Row) -> Value {
                 },
             });
             return json!({ "type": "array", "items": { "anyOf": [name, rule] } });
+        }
+        Validation::Domain(DomainKind::ParticlesDocument) => {
+            // The shape only; the limits and phase names are the validator's (cmux-app-host
+            // particles.rs, js/ABI.md "Particles choreography").
+            return json!({
+                "type": "object",
+                "required": ["$schema", "particle", "phases"],
+                "properties": {
+                    "$schema": { "const": cmux_app_host::particles::SCHEMA },
+                    "particle": { "type": "object" },
+                    "phases": { "type": "object", "minProperties": 1 },
+                    "formations": { "type": "object" },
+                    "triggers": { "type": "object" },
+                },
+            });
         }
         Validation::Domain(DomainKind::TranscriptTokens) => {
             // One property per token of schemas/transcript-look/transcript-look.json, so an editor

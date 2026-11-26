@@ -199,7 +199,8 @@ public final class ThinScroller: NSScroller {
     }
 
     /// The pointer moved over the scroll view to `point` (the scroll view's coordinates, the
-    /// scroller's frame's space), or left it (nil). In ``grabZone`` it reveals and widens the knob.
+    /// scroller's frame's space), or left it (nil). In ``grabZone`` it widens a knob that a scroll
+    /// already showed. A pointer over a hidden knob leaves it hidden.
     ///
     /// - Parameter point: The pointer in the scroll view's coordinates, or nil when it left the view.
     ///   The scroller's own tracking area calls it; a host that builds the scroller under the

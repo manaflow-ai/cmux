@@ -39,6 +39,10 @@ package final class BrowserPageFrames {
     private var saved: [String: Data]?
     /// Set at quit before its own writes: no write or removal posted earlier lands after them.
     private let stopped = StopFlag()
+    /// The tabs with a picture in the folder: the last run's the launch read, and each saved in this run (handed out
+    /// or not). The phones' tab overview sends each one's picture (``lastPicture(_:)``) for a tab whose page is not
+    /// made since the relaunch or was hibernated, so its card is never empty.
+    package private(set) var keys: Set<String> = []
 
     package init(directory: URL?, capacity: Int = capacity) {
         self.directory = directory
@@ -67,9 +71,15 @@ package final class BrowserPageFrames {
             let read = (try? await work.run(.userVisible, mayBlock: .files) { Self.readAll(in: directory, capacity: capacity) }) ?? [:]
             guard let self else { return }
             // A picture saved or removed in this run meanwhile is newer than the read's.
+            let removed = removedDuringRead
             saved = read.merging(saved ?? [:]) { _, current in current }.filter { !$0.value.isEmpty }
+            keys.formUnion(read.keys.filter { !removed.contains($0) })
+            removedDuringRead = []
         }
     }
+
+    /// Tabs removed before the launch read ended: the read's picture of each is gone.
+    private var removedDuringRead: Set<String> = []
 
     /// Whether `key` has a picture from the last run that was not handed out yet.
     package func hasPicture(_ key: String) -> Bool { saved?[key]?.isEmpty == false }
@@ -79,6 +89,20 @@ package final class BrowserPageFrames {
     package func take(_ key: String) -> CGImage? {
         guard let data = saved?[key], !data.isEmpty else { return nil }
         saved?[key] = nil
+        return Self.image(data)
+    }
+
+    /// `key`'s last picture without handing it out: the last run's while it was not handed out, else its file, read
+    /// off the main thread; nil when it has none. For the phones' tab overview, which needs a picture of a tab whose
+    /// page has none to give (not made since the relaunch, or its pictures in memory went).
+    package func lastPicture(_ key: String) async -> CGImage? {
+        if let data = saved?[key], !data.isEmpty { return Self.image(data) }
+        guard keys.contains(key), let directory, let work, LaunchFrameFiles.isFileSafe(key) else { return nil }
+        guard let data = try? await work.run(.bestEffort, mayBlock: .files, { Self.read(key, in: directory) }) else { return nil }
+        return Self.image(data)
+    }
+
+    private nonisolated static func image(_ data: Data) -> CGImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
         return CGImageSourceCreateImageAtIndex(source, 0, nil)
     }
@@ -88,6 +112,7 @@ package final class BrowserPageFrames {
     package func save(_ image: CGImage, for key: String, scale: Int = 2) {
         guard let directory, let work, LaunchFrameFiles.isFileSafe(key), !stopped.isSet else { return }
         saved?[key] = Data()
+        keys.insert(key)
         let capacity = capacity, stopped = stopped
         work.post(.bestEffort, mayBlock: .files) {
             guard let data = Self.encoded(image), !stopped.isSet else { return }
@@ -99,6 +124,8 @@ package final class BrowserPageFrames {
     package func remove(_ key: String) {
         guard let directory, let work, !stopped.isSet else { return }
         saved?[key] = nil
+        keys.remove(key)
+        if saved == nil { removedDuringRead.insert(key) }
         let stopped = stopped
         work.post(.bestEffort, mayBlock: .files) {
             guard !stopped.isSet else { return }
@@ -139,6 +166,12 @@ package final class BrowserPageFrames {
             total += data.count
         }
         return pictures
+    }
+
+    /// The bytes of `key`'s newest picture file in `directory`; nil when it has none or it is too large.
+    package nonisolated static func read(_ key: String, in directory: URL) -> Data? {
+        guard let file = files(in: directory).first(where: { $0.key == key }), file.size <= maximumBytes else { return nil }
+        return try? Data(blockingContentsOf: directory.appending(path: file.name))
     }
 
     /// Writes `key`'s picture, removes its others, then the least recently written pictures past `capacity`.

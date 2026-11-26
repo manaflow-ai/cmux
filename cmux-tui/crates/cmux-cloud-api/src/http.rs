@@ -218,8 +218,27 @@ impl Http {
         timeout: Duration,
         path: &str,
     ) -> Result<Reply, Failure> {
+        self.send_named(method, url, body, (idempotency_key, &[]), timeout, path).await
+    }
+
+    /// [`Http::send`] with `named` headers beside the auth's own: the idempotency key, and
+    /// headers that name the writer and hold no key (an Auto chat's chunk upload names its
+    /// holder and epoch, `auto_sessions.rs`). The rule below still holds: never a secret.
+    pub(crate) async fn send_named(
+        &self,
+        method: reqwest::Method,
+        url: reqwest::Url,
+        body: Option<Body>,
+        named: (Option<&str>, &[(&'static str, String)]),
+        timeout: Duration,
+        path: &str,
+    ) -> Result<Reply, Failure> {
+        let (idempotency_key, headers) = named;
         let mut builder =
             self.clients.fast.request(method, url).bearer_auth(&self.credential).timeout(timeout);
+        for (name, value) in headers {
+            builder = builder.header(*name, value);
+        }
         match self.auth {
             Auth::Stack => {
                 builder = builder

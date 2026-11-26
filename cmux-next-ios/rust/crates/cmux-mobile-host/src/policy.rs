@@ -1655,14 +1655,11 @@ mod tests {
         let swift_commands: HashSet<&str> = swift[start..end].split('"').skip(1).step_by(2).collect();
         // `notification-reply` is answered by hostd itself, never by the daemon, so
         // the Mac's own phone lane (an allowlist of daemon commands) leaves it out.
-        // `bind-conversation-tab-session` (#47551) is a hostd-only grant too: it passes
-        // only with `unbound_bind_refusal`'s checks, which the Swift lane (no splice since
-        // #44873) does not carry, so the Swift list leaves it out rather than pass it bare.
-        let rust_commands: HashSet<&str> = ALLOWED_COMMANDS
-            .iter()
-            .copied()
-            .filter(|command| !matches!(*command, "notification-reply" | "bind-conversation-tab-session"))
-            .collect();
+        // `bind-conversation-tab-session` (#47551) is listed on both sides: hostd passes
+        // it only with `unbound_bind_refusal`'s checks, and the Swift lane (no splice since
+        // #44873) lists it beside `new-conversation-tab` only to refuse it (#53827).
+        let rust_commands: HashSet<&str> =
+            ALLOWED_COMMANDS.iter().copied().filter(|command| *command != "notification-reply").collect();
         assert_eq!(swift_commands, rust_commands);
         let start = swift
             .find("allowedResourceOperations: [String: Set<String>] = [")
