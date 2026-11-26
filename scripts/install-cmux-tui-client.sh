@@ -17,6 +17,8 @@
 # cmux-tui-holder-<target> (the terminal holder, std and libc only) goes beside
 # bin/cmux as bin/cmux-holder: the daemon starts every terminal holder from a
 # content-addressed copy of it, else runs the holder built into cmux-tui-host.
+# cmux-tui-launch-preread-<target> (the optional login-time pre-read) goes beside
+# bin/cmux as bin/cmux-launch-preread. Older manifests without it install none.
 # cmux-tui-agent-screen-detection-<target> (the agent screen-detection plugin,
 # GPL-3.0-or-later AND Apache-2.0) goes beside bin/cmux as
 # bin/cmux-agent-screen-detection, the exact name the daemon runs by default
@@ -252,7 +254,7 @@ check_acpmux() {
 # The companions this bundle may carry: the browser host and the agent
 # screen-detection plugin only while their license notices are mapped (see the
 # header).
-COMPANIONS=(cmux-app-host cmux-cloud cmux-tui-host cmux-holder)
+COMPANIONS=(cmux-app-host cmux-cloud cmux-tui-host cmux-holder cmux-launch-preread)
 BUNDLE_MAP="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cmux-next/notices/bundle-map.json"
 bundle_map_has() { # <installed name>
   python3 -c 'import json,sys; sys.exit(0 if any(e.get("path") == "Contents/Resources/bin/" + sys.argv[2] for e in json.load(open(sys.argv[1]))["entries"]) else 1)' "$BUNDLE_MAP" "$1" 2>/dev/null
@@ -502,6 +504,7 @@ is_folded cmux-app-host || install_companion cmux-tui-app-host cmux-app-host
 install_companion cmux-tui-cloud-server cmux-cloud
 install_companion cmux-tui-host cmux-tui-host
 install_companion cmux-tui-holder cmux-holder
+install_companion cmux-tui-launch-preread cmux-launch-preread
 if [[ "$SHIP_BROWSER_HOST" == 1 ]]; then
   is_folded cmux-browser-host || install_companion cmux-tui-browser-host cmux-browser-host
 else
