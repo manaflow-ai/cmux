@@ -843,8 +843,8 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(set(wf.get("on", wf.get(True))), {"workflow_call"})
         self.assertEqual(wf["permissions"], {})
         job = wf["jobs"]["linux"]
-        self.assertEqual(job["permissions"], {"contents": "read", "id-token": "write"},
-                         "id-token mints the step-result store's OIDC token, nothing else")
+        self.assertEqual(job["permissions"], {"contents": "read", "id-token": "write", "actions": "read"},
+                         "id-token mints the step-result store's OIDC token; actions reads tooling-tests' base verdict")
         checkout = job["steps"][0]
         self.assertEqual(checkout["with"]["fetch-depth"], 2)
         self.assertIs(checkout["with"]["persist-credentials"], False)
@@ -870,7 +870,8 @@ class PipelineTest(unittest.TestCase):
         import pr_router
 
         callees = {"pr-pipeline.yml": pr_router.load_manifest()["pr-pipeline.yml"]}
-        self.assertEqual(callees["pr-pipeline.yml"]["table_jobs"], ["linux", "web-browser", "mac", "ios"])
+        # mac and ios run after merge (pr_router.json table_why, cmuxterm-hq docs/findings/2026-11-25-ci-value.md).
+        self.assertEqual(callees["pr-pipeline.yml"]["table_jobs"], ["linux", "web-browser"])
         self.assertIs(callees["pr-pipeline.yml"].get("draft"), True, "a fast-track (full-tier) head still runs it")
 
         def started(files, **pr):
@@ -932,12 +933,14 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(routed(callees, ["scripts/ci/notify-indexnow.py"]), ["linux"])
         self.assertEqual(routed(callees, ["web/app/page.tsx"]), ["linux", "web-browser"])
         self.assertEqual(routed(callees, ["docs/x.md"]), ["linux"])
-        # Unknown changes or an unreadable table run every job.
-        self.assertEqual(routed(callees, None), ["linux", "web-browser", "mac", "ios"])
-        self.assertEqual(routed(callees, ["docs/x.md"], ROOT / "no-such.toml"), ["linux", "web-browser", "mac", "ios"])
+        # Unknown changes or an unreadable table run every routed job. mac and ios are not routed on a pull
+        # request since 2026-11-26: their steps run after merge (cmuxterm-hq docs/findings/2026-11-25-ci-value.md).
+        self.assertEqual(routed(callees, None), ["linux", "web-browser"])
+        self.assertEqual(routed(callees, ["docs/x.md"], ROOT / "no-such.toml"), ["linux", "web-browser"])
         # Every job runs only on a full-tier head: a cheap head's change routes none of them.
         swift = ["Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionRegistry.swift"]
-        self.assertIn("mac", routed(callees, swift))
+        self.assertNotIn("mac", routed(callees, swift))
+        self.assertIn("linux", routed(callees, swift))
         self.assertEqual(routed(callees, swift, full=False), [])
         self.assertEqual(routed(callees, None, full=False), [])
         self.assertEqual(pr_router.FULL_TIER_JOBS, ("linux", "web-browser", "mac", "ios"))
@@ -1129,6 +1132,59 @@ class PipelineTest(unittest.TestCase):
         # One failed command does not stop the others, as the job's `!cancelled()` steps did.
         self.assertEqual(holes.run.count("|| status=1"), 4)
         self.assertIn('exit "$status"', holes.run)
+        guards = wf["jobs"]
+        # tooling-tests: on a feat-cmux-next pull request (not the fallback's call) the job keeps only the tt- steps the
+        # linux job cannot run; tooling-tests-1..5 carry every other tt- step's command, each behind the job's selection.
+        route = next(s for s in guards["tooling-tests"]["steps"] if s.get("id") == "setup-tooling-route")
+        staying = ("tt-remote-p10k", "tt-webviews-tests-per-file", "tt-web-lint-prepush", "tt-tailnet")
+        self.assertIn('[ "${GITHUB_BASE_REF:-}" = feat-cmux-next ] && [ "$GITHUB_WORKFLOW" != "docs-only fallback" ]',
+                      route["run"])
+        self.assertIn("for id in " + " ".join(staying) + "; do", route["run"])
+        shards = sorted((n for n in steps if re.fullmatch(r"tooling-tests-\d+", n)), key=lambda n: int(n.rsplit("-", 1)[1]))
+        self.assertEqual(shards, [f"tooling-tests-{i}" for i in range(1, len(shards) + 1)])
+        tooling = [steps[n] for n in shards]
+        carried = re.findall(r"^if want (tt-[\w-]+); then", "\n".join(s.run for s in tooling), re.M)
+        tt_ids = [s["id"] for s in guards["tooling-tests"]["steps"] if s.get("id", "").startswith("tt-")]
+        self.assertEqual(carried, [i for i in tt_ids if i not in staying])
+        for step in tooling:
+            with self.subTest(step=step.name):
+                self.assertEqual((step.job, step.inputs, step.alone), ("linux", ("**",), False))
+                self.assertLessEqual(step.timeout, 360)
+                self.assertIn("tooling_steps.py route --workflow .github/workflows/cmux-next-guards.yml --job tooling-tests",
+                              step.run)
+        # The job's base-red skip comes with them: while tooling-tests is red on the base, the linux job leaves
+        # tooling-tests-N out of its run (not passed, so no skip is stored as a pass), and fails open.
+        linux = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())["jobs"]["linux"]
+        decide = next(s for s in linux["steps"] if s.get("id") == "tooling-tests-base-red")
+        self.assertIn('scripts/ci/base_red_skip.py decide --workflow cmux-next-guards.yml --job "tooling-tests"',
+                      decide["run"])
+        self.assertIs(decide["continue-on-error"], True)
+        self.assertEqual(decide["env"], {"GH_TOKEN": "${{ github.token }}"})
+        for part in ("github.event_name == 'pull_request'", "format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0'",
+                     "!contains(github.event.pull_request.labels.*.name, 'full-ci')"):
+            self.assertIn(part, decide["if"])
+        run = next(s for s in linux["steps"] if s.get("id") == "run")
+        self.assertEqual(run["env"]["TOOLING_TESTS_BASE_RED"], "${{ steps.tooling-tests-base-red.outputs.base_red }}")
+        self.assertEqual(run["env"]["CI_TOOLING_TESTS_PR_SCOPE"], "${{ vars.CI_TOOLING_TESTS_PR_SCOPE || '1' }}")
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "ci").mkdir()
+            fake = Path(tmp) / "ci" / "run"
+            fake.write_text('#!/bin/sh\nif [ "$1" = route ]; then [ -n "$ROUTE" ] && printf %s "$ROUTE"; exit $?; fi\n'
+                            'echo "ran: $*"\n')
+            fake.chmod(0o755)
+
+            def ran(red: str, route: str) -> str:
+                env = dict(os.environ, TOOLING_TESTS_BASE_RED=red, ROUTE=route)
+                env.pop("PATHS_FILE", None)
+                return subprocess.run(["bash", "-e", "-c", run["run"]], cwd=tmp, env=env, capture_output=True,
+                                      text=True, check=True).stdout
+
+            routed = json.dumps({"linux": ["shellcheck", "tooling-tests-1", "web-tests-1", "tooling-tests-12"]})
+            self.assertIn("ran: run --job linux --only shellcheck web-tests-1\n", ran("true", routed))
+            self.assertEqual(ran("false", routed), "ran: run --job linux\n")
+            self.assertEqual(ran("", routed), "ran: run --job linux\n")
+            self.assertEqual(ran("true", ""), "ran: run --job linux\n", "an unread route runs every step")
+            self.assertNotIn("ran:", ran("true", json.dumps({"linux": ["tooling-tests-1"]})))
         # ci-web.yml's diff-sidecar-check keeps its route and runs as the table step on feat-cmux-next pull requests,
         # while docs-only fallback still runs the reusable job directly.
         diff_wf = yaml.safe_load((ROOT / ".github/workflows/ci-web.yml").read_text())
