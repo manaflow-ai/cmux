@@ -4,7 +4,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { FirstTextTiming, firstTextCommand, noReplyError, observeFirstText, probeRow, resolveBackend, transientMachineError, type Step } from "./cloud-journey";
+import { FirstTextTiming, firstTextCommand, noReplyError, observeFirstText, tailFacts, probeRow, resolveBackend, transientMachineError, type Step } from "./cloud-journey";
 
 const chunk = (kind = "agent_message_chunk", text = "hello") => ({
   kind,
@@ -81,6 +81,19 @@ describe("create to streamed first text", () => {
     expect(noReplyError(300_000, "", refused, 0)).toBe("no reply within 300 s; last: ; last exec without an acp wait answer: exit 1 the cmux API refused the command: 503 Service Unavailable vm_unavailable; the model stub logged 0 model request(s): the model was never asked");
     expect(noReplyError(300_000, "", undefined, 2)).toBe("no reply within 300 s; last: ; the model stub logged 2 model request(s)");
     expect(noReplyError(300_000, "", undefined, null)).toContain("the stub's request log could not be read");
+  });
+
+  test("the reply timeout names the session's records and why its turn made no text", () => {
+    const tail = [
+      JSON.stringify({ kind: "session_start", msg: {} }),
+      JSON.stringify({ kind: "claude.system.api_retry", msg: { attempt: 1, max_retries: 10, error: "rate_limit" } }),
+      JSON.stringify({ kind: "claude.system.api_retry", msg: { attempt: 2, max_retries: 10, error: "authentication_failed" } }),
+      "not json",
+      JSON.stringify({ kind: "stderr", msg: { text: "401 invalid x-api-key" } }),
+    ].join("\n");
+    expect(tailFacts(tail)).toBe("session records session_start=1 claude.system.api_retry=2 stderr=1; claude.system.api_retry: attempt 2/10 authentication_failed; stderr: 401 invalid x-api-key");
+    expect(tailFacts("")).toBe("the session's records could not be read");
+    expect(noReplyError(300_000, "", undefined, undefined, "session records turn_start=1")).toBe("no reply within 300 s; last: ; session records turn_start=1");
   });
 
   test("the guest's own times ride the marker into guest_ms; the old bare marker still counts", async () => {
