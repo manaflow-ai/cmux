@@ -105,6 +105,7 @@ on:
       - "Resources/theme-files/**"
       - "Resources/sidebar-looks/**"
       - "backend/catalog/cloud-operations.json"
+      - "backend/catalog/cloud-relay-operations.json"
       - "backend/packages/home-core/conformance/conversation-import-cases.json"
       - "design/agent-icons/manifest.json"
       - "docs/chief-setup-prompts.md"
@@ -290,6 +291,7 @@ on:
       - "Resources/theme-files/**"
       - "Resources/sidebar-looks/**"
       - "backend/catalog/cloud-operations.json"
+      - "backend/catalog/cloud-relay-operations.json"
       - "backend/packages/home-core/conformance/conversation-import-cases.json"
       - "design/agent-icons/manifest.json"
       - "docs/chief-setup-prompts.md"
@@ -459,15 +461,13 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
-          # Into feat-cmux-next, full-ci (the land tier's handoff) routes by the graph; into another base it runs every job.
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           base=""
           if [[ "$EVENT_NAME" == pull_request ]]; then
             base=$(git rev-parse HEAD^1 2>/dev/null || true)
           fi
           python3 scripts/ci/affected_jobs.py route --workflow .github/workflows/cmux-tui-sdks.yml \
-            --base "$base" --head HEAD --event "$EVENT_NAME" --labels "${LABELS:-[]}" --base-ref "$BASE_REF"
+            --base "$base" --head HEAD --event "$EVENT_NAME" --labels "${LABELS:-[]}" --full-ci-follows-graph
 
       # Its download can fail (GitHub answered 504 on 2026-11-08). Then the job takes a 3.12 from uv,
       # or else the runner's python3, in a venv (the runner's own Python refuses a pip install).
@@ -525,8 +525,8 @@ jobs:
       - name: Check public resource API boundary
         run: python3 cmux-tui/scripts/check-resource-api-boundary.py
 
-      - name: Test and check the seven SDK capability descriptors
-        run: python3 cmux-tui/bindings/rust/scripts/test_sync_resource_api.py
+      - name: Check SDK descriptors and schema hashes have one source
+        run: python3 cmux-tui/scripts/test_check_sdk_single_source.py
 
       - name: Test deterministic SDK generator
         env:

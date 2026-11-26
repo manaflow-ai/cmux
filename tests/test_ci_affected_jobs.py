@@ -3,6 +3,7 @@ everything on a push, the full-ci label, a router change or a path the graph can
 import importlib.util
 import json
 import posixpath
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -158,8 +159,7 @@ class Routes(unittest.TestCase):
         self.assertTrue(all(route([".github/workflows/w.yml"])[0].values()))
 
     def test_everything_runs_on_a_push_the_label_a_router_change_or_an_unknown_path(self):
-        for kwargs, changed in (({"event": "push"}, []), ({"labels": ["full-ci"], "base_ref": "main"}, []),
-                                ({"labels": [jobs.UNREADABLE_LABELS]}, []), ({}, None),
+        for kwargs, changed in (({"event": "push"}, []), ({"labels": ["full-ci"]}, []), ({}, None),
                                 ({}, ["scripts/ci/affected_jobs.py"]), ({}, ["scripts/ci/affected-jobs.json"]),
                                 ({}, ["cmux-tui/scripts/tool.sh"])):
             with self.subTest(kwargs=kwargs, changed=changed):
@@ -167,24 +167,31 @@ class Routes(unittest.TestCase):
                 self.assertTrue(all(run.values()), result.lines())
                 self.assertTrue(result.everything)
 
-    def test_full_ci_into_feat_cmux_next_routes_by_the_graph(self):
-        # land-judge adds full-ci to every lane land into feat-cmux-next as the land tier's handoff (cmux#55766).
-        # Routing every job there ran acpmux tests, sims and conformance on webviews-only lane PRs (2026-11-26).
-        # A job none of whose inputs the change touches still skips; one it touches still runs.
-        for base_ref in ("feat-cmux-next", "feat-cmux-next-ios"):
-            with self.subTest(base_ref=base_ref):
-                run, result = route(["webviews/src/App.tsx"], labels=["full-ci"], base_ref=base_ref)
-                self.assertFalse(any(run.values()), result.lines())
-                self.assertEqual(result.everything, "")
-                run, result = route(["scripts/run-app.sh"], labels=["full-ci", "ready-to-land"], base_ref=base_ref)
-                self.assertEqual(run, {"app-tests": True, "app-sim": False, "core-check": False}, result.lines())
-
-    def test_unreadable_labels_run_everything_on_any_base(self):
-        for base_ref in ("feat-cmux-next", "main"):
-            with self.subTest(base_ref=base_ref):
-                run, result = route(["webviews/src/App.tsx"], labels=[jobs.UNREADABLE_LABELS], base_ref=base_ref)
+    def test_full_ci_following_the_graph_runs_only_the_jobs_the_change_affects(self):
+        """--full-ci-follows-graph (cmux-tui-spec.yml): a full-ci head that touches no input of a job skips it, one
+        that touches an input runs it, and every fail-open case still runs every job."""
+        follows = {"labels": ["full-ci"], "full_ci_follows_graph": True}
+        run, result = route(["webviews/src/app.tsx"], **follows)
+        self.assertFalse(any(run.values()), result.lines())
+        self.assertFalse(result.everything)
+        run, _ = route(["scripts/run-app.sh"], **follows)
+        self.assertEqual(run, {"app-tests": True, "app-sim": False, "core-check": False})
+        for changed in (None, ["scripts/ci/affected_jobs.py"], ["cmux-tui/scripts/tool.sh"]):
+            with self.subTest(changed=changed):
+                run, result = route(changed, **follows)
                 self.assertTrue(all(run.values()), result.lines())
-                self.assertEqual(result.everything, "the labels cannot be read")
+        run, _ = route(["webviews/src/app.tsx"], event="push", full_ci_follows_graph=True)
+        self.assertTrue(all(run.values()))
+        run, _ = route(["webviews/src/app.tsx"], labels=["full-ci"])  # without the flag: every job, as before
+        self.assertTrue(all(run.values()))
+
+    def test_full_ci_following_the_graph_still_lifts_the_pull_request_skip(self):
+        skip = {"workflows": {".github/workflows/s.yml": {"heavy": "x"}}}
+        text = json.dumps({**json.loads(MAP), "pull_request_skip": skip})
+        with fake_tree(FILES) as tree:
+            result = jobs.route(tree, ["scripts/run-app.sh"], map_text=text, labels=["full-ci"],
+                                full_ci_follows_graph=True)
+        self.assertEqual(result.pr_skip, {(".github/workflows/s.yml", "heavy"): True})
 
     def test_a_markdown_file_no_crate_names_runs_nothing(self):
         self.assertFalse(any(route(["cmux-tui/README.md", "cmux-tui/docs/x.md"])[0].values()))
@@ -737,12 +744,44 @@ class TheRepository(unittest.TestCase):
             result = jobs.route(tree, outside, map_text=map_text, workflow=workflow)
             self.assertFalse(any(result.run.values()), result.lines())
         self.assertTrue(jobs.gate(ROOT, outside, workflow, event="push", map_text=map_text)[0])
-        self.assertTrue(jobs.gate(ROOT, outside, workflow, labels=[jobs.FULL_LABEL], map_text=map_text,
-                                  base_ref="main")[0])
-        # Into feat-cmux-next full-ci is the land tier's handoff: the gate still passes over a change outside it.
-        self.assertFalse(jobs.gate(ROOT, outside, workflow, labels=[jobs.FULL_LABEL], map_text=map_text)[0])
-        self.assertTrue(jobs.gate(ROOT, outside, workflow, labels=[jobs.UNREADABLE_LABELS], map_text=map_text)[0])
+        self.assertTrue(jobs.gate(ROOT, outside, workflow, labels=[jobs.FULL_LABEL], map_text=map_text)[0])
         self.assertTrue(jobs.gate(ROOT, None, workflow, map_text=map_text)[0])
+        follows = {"labels": [jobs.FULL_LABEL], "full_ci_follows_graph": True, "map_text": map_text}
+        self.assertFalse(jobs.gate(ROOT, outside, workflow, **follows)[0])
+        self.assertTrue(jobs.gate(ROOT, None, workflow, **follows)[0])
+        self.assertTrue(jobs.gate(ROOT, outside, workflow, event="push", **follows)[0])
+
+    def test_cmux_tui_spec_lets_full_ci_follow_the_graph_and_unreadable_labels_run_everything(self):
+        """cmux-tui-spec.yml's gate and route pass --full-ci-follows-graph (a full-ci head that touches no input of a
+        heavy job skips it: about 33,000 runner-minutes a day, 2026-11-26); labels that do not parse still run every
+        job."""
+        text = (ROOT / ".github/workflows/cmux-tui-spec.yml").read_text()
+        for command in ("gate", "route"):
+            with self.subTest(command=command):
+                call = re.search(rf"affected_jobs\.py {command} --workflow \.github/workflows/cmux-tui-spec\.yml "
+                                 r"\\\n([^\n]*)", text)
+                self.assertIsNotNone(call, command)
+                self.assertIn("--full-ci-follows-graph", call.group(1))
+        import contextlib
+        import io
+        import os
+        import subprocess
+        import tempfile
+        from unittest import mock
+        head = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "HEAD"], capture_output=True, text=True,
+                              check=True).stdout.strip()
+
+        def needed(labels):  # an empty change (HEAD..HEAD) with the full-ci label
+            with tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp) / "out"
+                with mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(out)}), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    jobs.main(["gate", "--workflow", ".github/workflows/cmux-tui-spec.yml", "--base", head,
+                               "--head", head, "--labels", labels, "--full-ci-follows-graph"])
+                return "needed=true" in out.read_text()
+
+        self.assertFalse(needed('["full-ci"]'))
+        self.assertTrue(needed("not json"))
 
     def test_fix_writes_a_missing_path_in_the_entry_style(self):
         text = 'on:\n  push:\n    paths:\n      - "a/**"\n      # c\n      - "b.txt"\n  pull_request:\n    paths:\n      - a/**\njobs:\n  x:\n'

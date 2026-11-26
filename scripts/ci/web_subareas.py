@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from functools import lru_cache
+import hashlib
 import importlib.util
 import os
 from pathlib import Path
@@ -382,6 +383,72 @@ def web_bundle_input_matcher(root: str):
         return key.pathspec_matcher(key.INPUTS)
 
 
+# The green-marker keys (ci500k, Leo: "de facto, im asking for 99% fewer minutes of ci time, period."). A pull
+# request whose merge tree and merge parent hold the same React inputs as a head that already passed
+# (a base merge, a label event, a push that touched no React input) has nothing new to prove: ci-web.yml looks the
+# key up in the Actions cache (reuse step) and skips the job, and the passing run saves it. Only the inputs
+# the router already names count, plus the scripts and actions the jobs run; a change to any of them is a new key.
+KEY_VERSION = "v1"
+KEY_COMMON_EXACT = {".github/workflows/ci-web.yml"}
+KEY_COMMON_PREFIXES = ("scripts/ci/", "scripts/cmux-next/", ".github/actions/")
+
+
+def _is_react_input(path: str, matcher) -> bool:
+    return path in REACT_EXACT or path.startswith(REACT_PREFIXES) or (matcher is not None and matcher(path))
+
+
+def _is_agent_pane_input(path: str, matcher, root: Path) -> bool:
+    # The same set routes() runs the lane on: a cmux-tui/ path counts only when acpmux's build reads it.
+    return (
+        path in AGENT_PANE_EXACT
+        or path.startswith(AGENT_PANE_PREFIXES)
+        or acpmux_build_input(path, root)
+        or _is_react_input(path, matcher)
+    )
+
+
+def tree_input_key(rev: str, root: Path, predicate) -> str | None:
+    """sha256 of the (path, blob) pairs of `rev`'s tree that `predicate` selects, or None when the tree is unreadable."""
+    listing = subprocess.run(["git", "ls-tree", "-r", "-z", rev], capture_output=True, cwd=root)
+    if listing.returncode != 0:
+        return None
+    digest = hashlib.sha256()
+    for entry in listing.stdout.split(b"\0"):
+        if not entry:
+            continue
+        meta, _, raw = entry.partition(b"\t")
+        path = os.fsdecode(raw)
+        if path in ALL_SUBAREA_INPUTS or path in KEY_COMMON_EXACT or path.startswith(KEY_COMMON_PREFIXES) or predicate(path):
+            digest.update(meta.split(b" ")[2] + b" " + raw + b"\n")
+    return digest.hexdigest()
+
+
+def green_key(kind: str, root: Path | None = None) -> str:
+    """`kind` is react or agent. The key of HEAD's inputs and its merge parent's, or "" (no reuse) when unreadable."""
+    root = Path.cwd() if root is None else root
+    matcher = web_bundle_input_matcher(str(root.resolve()))
+    if kind == "react":
+        predicate = lambda p: _is_react_input(p, matcher)  # noqa: E731
+    else:
+        predicate = lambda p: _is_agent_pane_input(p, matcher, root)  # noqa: E731
+    heads = [tree_input_key(rev, root, predicate) for rev in ("HEAD", "HEAD^1")]
+    if None in heads:
+        return ""
+    return hashlib.sha256(f"{KEY_VERSION} {kind} {heads[0]} {heads[1]}".encode()).hexdigest()[:40]
+
+
+def is_react_input(path: str, repo_root: Path) -> bool:
+    """True when a change to `path` runs react-apps-check: the one test classify_paths applies, so a content-addressed
+    key over these paths (react_shard_receipt.py) names exactly the files whose change the router already runs the
+    check for."""
+    if path in ALL_SUBAREA_INPUTS or path in REACT_EXACT or path.startswith(REACT_PREFIXES):
+        return True
+    matcher = web_bundle_input_matcher(str(repo_root.resolve()))
+    if matcher is None:
+        raise RuntimeError("web bundle inputs unavailable")
+    return bool(matcher(path))
+
+
 def classify_paths(paths: list[str], repo_root: Path | None = None) -> WebSubareas:
     root = Path.cwd() if repo_root is None else repo_root
     db = False
@@ -512,6 +579,10 @@ def route() -> int:
     ):
         areas = replace(areas, react_apps=True)
     areas.emit(output)
+    if os.environ.get("EVENT_NAME") == "pull_request" and not push_base:
+        with output.open("a", encoding="utf-8") as handle:
+            handle.write(f"react_key={green_key('react') if areas.react_apps else ''}\n")
+            handle.write(f"agent_key={green_key('agent') if areas.agent_pane else ''}\n")
     return 0
 
 
