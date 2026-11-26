@@ -239,6 +239,20 @@ test.each([false, true])(
   },
 );
 
+test("Cloud reauthentication of a disabled ChatGPT plan does not request turning it on", async () => {
+  const models = structuredClone(mockModels.chatgptForCloud);
+  const plan = models.personal.connections.find((connection) => connection.kind === "chatgpt-plan")!;
+  plan.enabled = false;
+  const rendered = await render(models, "/settings/cloud");
+  await chooseAction(rendered, plan.id, "signInAgain");
+  await click(action(panel()!, "connectChatGPTDevice")!);
+  await press(panel()!.querySelector("h2")!, "Escape");
+  expect(rendered.provider.modelRuns).toEqual([
+    { action: "connectChatGPTDevice", id: plan.id, openBrowser: true },
+    { action: "cancelChatGPTDevice" },
+  ]);
+});
+
 test("a sign-in from another build offers to reconnect the same row", async () => {
   const { personal } = mockModels.chatgptForCloud;
   const plan = personal.connections.find((connection) => connection.kind === "chatgpt-plan")!;
@@ -914,7 +928,9 @@ test("a legacy Claude row can reconnect with machine sign-in", async () => {
   const rendered = await render(mockModels.claudeTokenOnly, "/settings/cloud");
   expect(connectionIds(rendered)).toEqual(["claude-token"]);
   const row = document.querySelector<HTMLElement>('[data-connection="claude-token"]')!;
-  expect(row.querySelector(".models-connection-name")?.textContent).toBe("Claude Code");
+  expect(row.querySelector(".models-connection-name")?.textContent).toBe(
+    mockModels.claudeTokenOnly.personal.connections.find((connection) => connection.id === "claude-token")?.label,
+  );
   expect(row.querySelector(".models-row-detail")).toBeNull();
   expect(status(rendered, "claude-token")).toBeFalsy();
   const reconnect = row.querySelector<HTMLButtonElement>('[data-connection-action="reconnect"]')!;

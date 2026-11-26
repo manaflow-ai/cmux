@@ -1,4 +1,5 @@
 @testable import CmuxNextCloud
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextWakeupsTestSupport
 import Foundation
@@ -525,6 +526,37 @@ struct CloudAgentCredentialRefresherTests {
         credentials.credentialConnectionsChanged()
         await credentials.keySync?.value
         #expect(outcome.pushes == [[:], [:], first.env])
+    }
+
+    @Test(.timeLimit(.minutes(1))) func withdrawalAdmitsALegacyPersonalMachineWithALiveOwnerLink() async throws {
+        let machine = CloudMachine(id: "vm-legacy")
+        let link = CloudLinkSession(key: CloudLinkKey(machine: machine.id), resolver: WithdrawalLinkResolver())
+        #expect(CloudAgentCredentials.withdrawalOwnerLink(for: machine, user: "user-owner", appLink: link) == nil)
+
+        let (_, ownershipChanges) = ObservationStream.current { link.ownership.callerOwnsVM }
+        var ownership = ownershipChanges.makeAsyncIterator()
+        let ticket = try await link.connect(origin: .script)
+        #expect(await ownership.next() == true)
+        let ownerLink = try #require(CloudAgentCredentials.withdrawalOwnerLink(for: machine, user: "user-owner", appLink: link))
+        #expect(await ownerLink() == Int(truncatingIfNeeded: ticket.id))
+
+        var teamMachine = machine
+        teamMachine.team = "team-shared"
+        #expect(CloudAgentCredentials.withdrawalOwnerLink(for: teamMachine, user: "user-owner", appLink: link) == nil)
+        var otherMachine = machine
+        otherMachine.createdBy = "user-other"
+        #expect(CloudAgentCredentials.withdrawalOwnerLink(for: otherMachine, user: "user-owner", appLink: link) == nil)
+
+        await link.close()
+        #expect(await ownerLink() == nil)
+    }
+
+    private struct WithdrawalLinkResolver: CloudLinkResolver {
+        func open(_ key: CloudLinkKey, intent: String, origin: CloudLinkOrigin) async throws -> CloudLinkSocket {
+            CloudLinkSocket(key: key, path: "/tmp/withdrawal-test.sock", generation: 1, callerOwnsVM: true)
+        }
+
+        func close(_ key: CloudLinkKey) async {}
     }
 
     @Test func relaunchWithdrawsFromGuestsWithoutOpeningAnyChat() async throws {

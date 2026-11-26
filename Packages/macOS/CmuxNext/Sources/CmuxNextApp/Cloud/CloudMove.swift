@@ -199,7 +199,6 @@ struct CloudMove {
     private func run(tab: TabModel, in pane: PaneModel, record: AgentSessionRef, session: String, cli: CloudMoveCLI,
                      invocation: ActionInvocation, progress: CloudMoveProgress) async throws -> String {
         let workspace = services.machines.local.store.workspace(containing: pane.handle)
-        // The flow the chat's header draws (``CloudPlaceFlows``): each step below reports itself.
         let place = services.cloud.place
         var cargo = CloudPlaceFlows.Cargo.read(tab: tab, session: session, services: services, invocation: invocation)
         cargo.dirtyFiles = await CloudPlaceFlows.dirtyFiles(in: tab.cwd)
@@ -248,8 +247,9 @@ struct CloudMove {
         do {
             let sync = CloudMoveCLI.FrozenSync(pull: false, socket: machineSocket, local: folder.root, remote: remote.folder)
             moved = try await cli.agentMove(from: localSocket, surface: tab.surface.rawValue, to: machineSocket, cwd: remote.chat, sync: sync,
-                                            vmKind: owner.vmKind, toPID: owner.toPID, login: credential?.env,
-                                            loginConnection: credential.flatMap { $0.kind == "claude-token" || $0.kind == "api-key" ? credentials?.credentialBinding($0) : nil })
+                                            vmKind: owner.vmKind, toPID: owner.toPID, login: credential,
+                                            loginConnection: credential.flatMap { $0.kind == "claude-token" || $0.kind == "api-key" ? credentials?.credentialBinding($0) : nil },
+                                            loginSocket: credential == nil ? nil : QuitAgents.environment(services)?.socketPath)
         } catch {
             // Timed out or didn't run to its answer: the move may have committed, and a rerun resolves it.
             services.cloud.logger.error("cloud move: link agent move: \(String(describing: error), privacy: .public)")

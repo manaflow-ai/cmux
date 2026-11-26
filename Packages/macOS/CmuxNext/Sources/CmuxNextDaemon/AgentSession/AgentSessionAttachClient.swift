@@ -391,11 +391,12 @@ public actor AgentSessionAttachClient {
     /// of this tab will run, on the owner's own Cloud VM. The hint uses the start's launch inputs (``startParams``), so
     /// the machine's acpmux keys the warmed agent as that start's `session/new`. A start with different inputs starts cold.
     /// Binds nothing and answers whether acpmux took the hint.
-    /// Saved API keys go only to the bound start, which lets Cloud opt-out withdraw them.
+    /// Saved API keys and Claude setup tokens go only to the bound start so withdrawal can reach them.
     /// Only over the owner answer of the link (``ownedConnection(_:check:)``), as the start: never to a teammate's machine.
     public func prewarm(cwd: String?, harness: String?, ownerLink: @escaping OwnerLink, model: String? = nil, permissionMode: String? = nil,
                         startMode: String? = nil, credentials: [String: String]? = nil, launchEndpoint: LaunchEndpoint? = nil) async throws -> Bool {
-        guard mode == .attach, !Self.needsKeyWithdrawal(launchEndpoint, credentials) else { return false }
+        guard mode == .attach, !Self.needsKeyWithdrawal(launchEndpoint, credentials),
+              credentials?["ANTHROPIC_AUTH_TOKEN"] == nil, credentials?["CLAUDE_CODE_OAUTH_TOKEN"] == nil else { return false }
         let (transport, served, callerOwnsVM) = try await ownedConnection(ownerLink) { served in
             guard served.start, model == nil || served.model else {
                 throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not serve this start")

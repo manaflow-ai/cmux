@@ -343,13 +343,22 @@ impl Hub {
         meta.created_by = None;
         // Nor a race's authority or its resumption: its children stayed behind (`races.rs`).
         super::races::settle_imported(&mut meta.races);
-        if let Live::Moved(Some(credential)) = &live
-            && let Some(binding) = credential.connection()
-        {
-            meta.credential_connection = Some(binding.to_owned());
-            meta.credential_model = None;
-            meta.credential_withdrawn = false;
-            meta.claude_token_recovery = None;
+        if let Live::Moved(credential) = &live {
+            if let Some(binding) = credential.as_ref().and_then(|c| c.connection()) {
+                if meta.credential_connection.as_deref().is_some_and(|old| old != binding) {
+                    return Err(super::credentials::credential_needed());
+                }
+                meta.credential_connection = Some(binding.to_owned());
+                meta.credential_model = None;
+                meta.credential_withdrawn = false;
+                meta.claude_token_recovery = None;
+                meta.claude_login_restart_pending = None;
+            } else if meta.credential_connection.is_some() || meta.credential_withdrawn {
+                if credential.is_some() {
+                    return Err(super::credentials::credential_needed());
+                }
+                self.prepare_claude_move_without_credential(&mut meta).await?;
+            }
         }
         steps.step("meta");
         self.prepare_harness_state(&meta, replace_durable)
@@ -504,6 +513,60 @@ impl Hub {
             return Err(RpcError::internal(error.to_string()));
         }
         Ok(session)
+    }
+
+    /// A Claude binding held by the source cannot launch here. Restore the destination's
+    /// usual Claude launch only when its own configured route or login is ready.
+    async fn prepare_claude_move_without_credential(
+        &self,
+        meta: &mut SessionMeta,
+    ) -> Result<(), RpcError> {
+        let unavailable = super::credentials::credential_needed;
+        let (profile, defaults) = {
+            let config = self.config.read().await;
+            let profile = super::resolve::session_profile_checked(
+                &config,
+                &meta.harness,
+                &meta.cwd,
+                meta.remote_origin,
+            )
+            .map_err(|_| unavailable())?;
+            (profile, config.defaults_for(&meta.harness))
+        };
+        if crate::config::derive_family(&meta.harness, &profile) != "claude" {
+            return Err(unavailable());
+        }
+        meta.credential_connection = None;
+        meta.credential_model = None;
+        meta.credential_withdrawn = false;
+        meta.claude_token_recovery = None;
+        meta.claude_login_restart_pending = None;
+        let launch = self
+            .spawn_profile_with(meta, &profile, &defaults.env, None)
+            .await
+            .map_err(|_| unavailable())?;
+        let env = crate::agent::resolved_profile_env(&launch).map_err(|_| unavailable())?;
+        if ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]
+            .iter()
+            .any(|key| env.get(*key).is_some_and(|value| !value.trim().is_empty()))
+        {
+            return Ok(());
+        }
+        if !crate::claude_cloud_auth::launches_claude_itself(&launch.argv) {
+            return Err(unavailable());
+        }
+        let cli = crate::agent_login::Cli { program: launch.argv[0].clone(), globals: vec![], env };
+        let machine = crate::agent_login::Machine {
+            root: self.vm_marker_root(),
+            home: dirs::home_dir().unwrap_or_default(),
+        };
+        let status =
+            crate::agent_login::claude_status(&machine, &cli).await.map_err(|_| unavailable())?;
+        if status["signedIn"] == true || status["apiKey"] == true {
+            Ok(())
+        } else {
+            Err(unavailable())
+        }
     }
 
     fn harness_pi_session_optional(

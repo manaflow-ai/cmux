@@ -1142,6 +1142,7 @@ export function drawPaneComposer({
                       composerSnapshot.catalog.find((entry) => entry.id === cloudShownAgent.harness)?.family,
                       cloudShownAgent.harness ?? "",
                       cloudShownAgent.model,
+                      machinePick !== undefined,
                     ),
                     // The Mode chip holds its pick under the chat's own harness (none on a blank page): the send
                     // reads it there too, so a pick the chip shows is never dropped for the picker face's harness.

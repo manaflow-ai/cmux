@@ -388,6 +388,8 @@ struct Target {
     /// Serves `agent-transfer-credentials-v1` too.
     takes_credentials: bool,
     takes_bound_credentials: bool,
+    /// Withdraw the saved key as the frozen chat's bundle is copied.
+    turn_off_cloud: Option<PathBuf>,
     /// Every request's text, as the target read it.
     requests: Vec<String>,
     /// Receive-aborts still answered "cannot say yet" before the running finish lands the chat.
@@ -566,6 +568,11 @@ impl Target {
             return Reply::Error("agent_transfer.unknown_receive", "no receive".into());
         };
         self.writes += 1;
+        if let Some(dir) = self.turn_off_cloud.take() {
+            let mut file = acpmux::routes::find(Some(&dir), "move-key").unwrap().file;
+            file.cloud_enabled = Some(false);
+            acpmux::routes::add(Some(&dir), "move-key", &file, true).unwrap();
+        }
         if self.fail_write_at == Some(self.writes) {
             return refused("transfer.write: disk full");
         }
@@ -725,6 +732,40 @@ impl World {
         );
         assert_eq!(self.source.lock().unwrap().attached, 0, "the pump never attaches the chat");
         (output.status.code().unwrap(), serde_json::from_str(lines[0]).unwrap())
+    }
+
+    fn saved_move_key(&self, provider: &str) -> (PathBuf, Value) {
+        let dir = self._dir.path().join("routes");
+        let file = serde_json::from_value(json!({
+            "kind": "direct-api-key", "provider": provider, "secret": "env:CMUX_TEST_MOVE_KEY",
+            "cloud_enabled": true
+        }))
+        .unwrap();
+        let route = acpmux::routes::add(Some(&dir), "move-key", &file, false).unwrap();
+        let socket = self._dir.path().join("acp.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let route_path = route.path;
+        std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut writer = stream.try_clone().unwrap();
+            for line in BufReader::new(stream).lines() {
+                let request: Value = serde_json::from_str(&line.unwrap()).unwrap();
+                let Some(id) = request.get("id") else { continue };
+                let result = match request["method"].as_str() {
+                    Some("initialize") => json!({"protocolVersion": 1}),
+                    Some("_acpmux/route/show") => {
+                        assert_eq!(request["params"]["id"], "move-key");
+                        json!({"path": route_path})
+                    }
+                    other => panic!("unexpected method {other:?}"),
+                };
+                writeln!(writer, "{}", json!({"jsonrpc": "2.0", "id": id, "result": result}))
+                    .unwrap();
+            }
+        });
+        let consent = json!({"socket": socket, "id": "move-key",
+                            "instance": route.file.credential_instance.unwrap()});
+        (dir, consent)
     }
 
     fn calls(&self) -> Vec<String> {
@@ -1165,13 +1206,17 @@ mod agent_move {
 
     #[test]
     fn a_bound_login_needs_guest_withdrawal_before_the_source_freezes() {
-        let token = "sk-ant-oat01-bound-fixture";
-        let credentials = json!({"env":{"ANTHROPIC_AUTH_TOKEN":token},
-            "connection":format!("claude-token:{}", "a".repeat(64))});
-        let stdin = credentials.to_string();
+        let token = "sk-ant-api03-bound-fixture";
+        let credentials = json!({"env":{"ANTHROPIC_API_KEY":token},
+            "connection":format!("move-key:{}", "a".repeat(64))});
+        let input = |world: &World| {
+            let mut input = credentials.clone();
+            input["consent"] = world.saved_move_key("anthropic").1;
+            input.to_string()
+        };
         let args = ["--vm-kind", "owner", "--login-stdin"];
         let older = World::new(Target { takes_credentials: true, ..Target::default() });
-        let (code, refused) = older.run_move_stdin(&args, stdin.as_bytes());
+        let (code, refused) = older.run_move_stdin(&args, input(&older).as_bytes());
         assert_eq!(code, 1);
         assert_eq!(refused["error_code"], "machine_outdated");
         assert_eq!(refused["side"], "target");
@@ -1179,7 +1224,7 @@ mod agent_move {
         assert!(!refused.to_string().contains(token));
 
         let current = World::new(Target { takes_bound_credentials: true, ..Target::default() });
-        let (code, reply) = current.run_move_stdin(&args, stdin.as_bytes());
+        let (code, reply) = current.run_move_stdin(&args, input(&current).as_bytes());
         assert_eq!(code, 0, "{reply}");
         assert!(!reply.to_string().contains(token));
         let target = current.target.lock().unwrap();
@@ -1190,6 +1235,37 @@ mod agent_move {
             .find(|request| request["cmd"] == "agent-transfer-finish")
             .unwrap();
         assert_eq!(finish["credentials"], credentials);
+    }
+
+    #[test]
+    fn a_key_turned_off_during_the_copy_never_reaches_finish() {
+        for (provider, variable) in
+            [("anthropic", "ANTHROPIC_API_KEY"), ("openai", "OPENAI_API_KEY")]
+        {
+            let world = World::new(Target { takes_bound_credentials: true, ..Target::default() });
+            let (dir, consent) = world.saved_move_key(provider);
+            world.target.lock().unwrap().turn_off_cloud = Some(dir);
+            let key = "sk-fixture-cloud-move";
+            let input = json!({
+                "env": {(variable): key},
+                "connection": format!("move-key:{}", "a".repeat(64)),
+                "consent": consent,
+            });
+            let (code, reply) = world.run_move_stdin(
+                &["--vm-kind", "owner", "--login-stdin"],
+                input.to_string().as_bytes(),
+            );
+            assert_eq!(code, 1, "{reply}");
+            assert_eq!(reply["error_code"], "connections.not_cloud", "{reply}");
+            assert!(world.count("target:agent-transfer-write") > 0);
+            assert_eq!(world.count("target:agent-transfer-finish"), 0);
+            assert_eq!(world.count("source:agent-transfer-abort"), 1);
+            let source = world.source.lock().unwrap();
+            assert!(source.moving.is_none() && source.committed.is_none());
+            let target = world.target.lock().unwrap();
+            assert!(target.landed.is_empty());
+            assert!(target.requests.iter().all(|request| !request.contains(key)));
+        }
     }
 
     /// `--to-pid`: the owner word belongs to the link process the caller read

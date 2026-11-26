@@ -288,6 +288,13 @@ impl Failed {
         Self::new("bad_answer", error)
     }
 
+    fn move_connection(code: &'static str) -> Self {
+        Self::new(
+            code,
+            crate::localization::catalog().cli_connection.cloud_move_connection_unavailable,
+        )
+    }
+
     fn state(error: &anyhow::Error) -> Self {
         Self::new("state_unavailable", format!("{error:#}"))
     }
@@ -652,7 +659,7 @@ fn fresh(
         }
     }
     let vm_kind = target_vm_kind(args).and_then(|kind| {
-        login.as_ref().map_or(Ok(()), |login| login_gate(args, login)).map(|()| kind)
+        login.as_ref().map_or(Ok(()), |(login, _)| login_gate(args, login)).map(|()| kind)
     });
     clock.lap("gate");
     let vm_kind = vm_kind?;
@@ -728,6 +735,9 @@ fn fresh(
     let begun = match begun {
         Ok(begun) => begun,
         Err(CallError::Refused { code, message, details }) => {
+            if message.contains("transfer.account:") {
+                return Err(Failed::move_connection("connections.move_unsupported"));
+            }
             let Some(moving) = details["transfer_id"].as_str().filter(|id| !id.is_empty()) else {
                 return Err(Failed::new(code, message));
             };
@@ -794,7 +804,7 @@ fn fresh(
     let staged = staged.filter(|_| begun["staged"] == json!(true));
     let stage_id = staged.as_ref().map(|staged| staged.stage_id.as_str());
     let owes_history = staged.is_some() && begun["history_later"] == json!(true);
-    let (mut target, bytes) = match up_to_finish(
+    let (mut target, bytes, consent_guard) = match up_to_finish(
         args,
         &mut source,
         records,
@@ -802,7 +812,12 @@ fn fresh(
         (manifest, stage_id),
         &vm_kind,
         clock,
-    ) {
+    )
+    .and_then(|(target, bytes)| {
+        let consent = login.as_ref().and_then(|(_, consent)| consent.as_ref());
+        let guard = consent.map(MoveConsent::recheck).transpose()?;
+        Ok((target, bytes, guard))
+    }) {
         Ok(copied) => copied,
         Err(failed) => {
             // No finish was sent: the target cannot have the chat.
@@ -821,10 +836,11 @@ fn fresh(
         finish.set("vm_kind", json!(kind));
     }
     // Only the finish carries the login; the record and every phase never do.
-    if let Some(login) = &login {
+    if let Some((login, _)) = &login {
         finish.set("credentials", login.wire());
     }
-    let finished = target.call("agent-transfer-finish", finish, FINISH_TIMEOUT);
+    let finished =
+        target.call_with_send_guard("agent-transfer-finish", finish, FINISH_TIMEOUT, consent_guard);
     clock.lap("finish");
     let (landed, finish_error) = match finished {
         Ok(answer) => {
@@ -1046,8 +1062,46 @@ fn new_begin_token() -> Option<String> {
     Some(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
-/// `--login-stdin`'s login, read before the chat freezes; none without the flag.
-fn read_login(args: &Args, stdin: &mut dyn std::io::Read) -> Result<Option<Login>, Failed> {
+/// The saved connection the Mac app selected. Only the local daemon sees this check.
+#[derive(serde::Deserialize)]
+struct MoveConsent {
+    socket: PathBuf,
+    id: String,
+    instance: Option<String>,
+}
+
+impl MoveConsent {
+    fn recheck(&self) -> Result<cmux_file_lock::FileLock, Failed> {
+        let failed = || Failed::move_connection("connections.not_cloud");
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|_| failed())?;
+        let route = runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                let daemon = acpmux::client::Client::connect_without_caller(&self.socket).await?;
+                daemon.request(acpmux::rpc::method::MUX_ROUTE_SHOW, json!({"id": self.id})).await
+            })
+            .await
+        });
+        let route = route.map_err(|_| failed())?.map_err(|_| failed())?;
+        let path = route["path"].as_str().map(std::path::Path::new).ok_or_else(failed)?;
+        acpmux::routes::lock_cloud_move_connection(path, &self.id, self.instance.as_deref())
+            .map_err(|_| failed())
+    }
+}
+
+/// `--login-stdin`'s login and optional saved connection, read before the chat freezes.
+fn read_login(
+    args: &Args,
+    stdin: &mut dyn std::io::Read,
+) -> Result<Option<(Login, Option<MoveConsent>)>, Failed> {
+    #[derive(serde::Deserialize)]
+    struct Selection {
+        consent: Option<MoveConsent>,
+        connection: Option<String>,
+    }
+
     use std::io::Read as _;
     if !args.login_stdin {
         return Ok(None);
@@ -1055,8 +1109,19 @@ fn read_login(args: &Args, stdin: &mut dyn std::io::Read) -> Result<Option<Login
     let mut bytes = Vec::new();
     let limit = u64::try_from(login::MAX_STDIN_BYTES).unwrap_or(u64::MAX).saturating_add(1);
     let read = stdin.take(limit).read_to_end(&mut bytes);
-    let login = read.map_err(|_| login::Refusal::Unreadable).and_then(|_| login::read(&bytes));
-    login.map(Some).map_err(refused_login)
+    let unreadable = || refused_login(login::Refusal::Unreadable);
+    read.map_err(|_| unreadable())?;
+    let login = login::read(&bytes).map_err(refused_login)?;
+    let selection: Selection = serde_json::from_slice(&bytes).map_err(|_| unreadable())?;
+    if let Some(binding) = &selection.connection
+        && !selection.consent.as_ref().is_some_and(|consent| {
+            consent.instance.is_some()
+                && binding.split_once(':').is_some_and(|(id, _)| id == consent.id)
+        })
+    {
+        return Err(unreadable());
+    }
+    Ok(Some((login, selection.consent)))
 }
 
 /// Whether the target takes the login (module docs): the Cloud API said `owner`, and its daemon

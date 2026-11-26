@@ -337,6 +337,95 @@ async fn local_chatgpt_refresh_resumes_the_chat_before_the_next_turn() {
 }
 
 #[tokio::test]
+async fn a_local_chatgpt_fork_does_not_copy_history_to_the_codex_cli_login() {
+    let root = tempfile::tempdir().unwrap();
+    let (hub, _) = fixture(root.path());
+    routes::set_binding(root.path(), "family:codex", None).unwrap();
+    save_chatgpt(root.path(), "fixture-plan");
+    let codex_home = root.path().join("codex-home");
+    let rollouts = codex_home.join("sessions");
+    std::fs::create_dir_all(&rollouts).unwrap();
+    std::fs::write(codex_home.join("auth.json"), r#"{"tokens":{"access_token":"fixture-cli"}}"#)
+        .unwrap();
+    assert!(routes::codex_signed_in(Some(&codex_home)));
+    let session = hub
+        .new_session(NewRequest {
+            cwd: Some(root.path().to_owned()),
+            route: Some(ROUTE.into()),
+            ..NewRequest::default()
+        })
+        .await
+        .unwrap();
+    hub.prompt(
+        &session,
+        vec![json!({"type": "text", "text": "plan-backed history"})],
+        "test",
+        false,
+    )
+    .await
+    .unwrap();
+    let sid = session.meta().agent_session_id.unwrap();
+    let id = json!({"type": "session_meta", "payload": {"id": sid}});
+    let turn = json!({"type": "event_msg", "payload": {"type": "task_started"}});
+    std::fs::write(
+        rollouts.join(format!("rollout-fixture-{sid}.jsonl")),
+        format!("{id}\n{turn}\n"),
+    )
+    .unwrap();
+    let fork = hub.fork(&session, None, None, Default::default(), None, None, true).await;
+    let error = fork.err().expect("the fork must not copy plan-backed history");
+    assert_eq!(error.data.unwrap()["reason"], "credentials.needed");
+    assert_eq!(std::fs::read_dir(&rollouts).unwrap().count(), 1);
+    assert!(hub.sessions().iter().all(|chat| chat.id == session.id));
+    hub.shutdown_all().await;
+}
+
+#[tokio::test]
+async fn switching_local_chatgpt_plans_waits_for_background_work() {
+    let root = tempfile::tempdir().unwrap();
+    let (hub, _) = fixture(root.path());
+    save_chatgpt(root.path(), "fixture-first-plan");
+    let second = "chatgpt-second";
+    let (dir, _) = routes::places(&*hub.config.read().await);
+    let route = routes::find(dir.as_deref(), ROUTE).unwrap();
+    routes::add(dir.as_deref(), second, &route.file, false).unwrap();
+    let mut record = chatgpt::store::read(root.path(), ROUTE).unwrap().unwrap();
+    record.sub = "fixture-second-account".into();
+    record.access_token = "fixture-second-plan".into();
+    chatgpt::store::write(root.path(), second, &record).unwrap();
+
+    let session = hub
+        .new_session(NewRequest { cwd: Some(root.path().to_owned()), ..NewRequest::default() })
+        .await
+        .unwrap();
+    let prompt = || vec![json!({"type": "text", "text": "hello"})];
+    hub.prompt(&session, prompt(), "test", false).await.unwrap();
+    let child = hub.child_for(&session).await.unwrap();
+    let sid = session.meta().agent_session_id.unwrap();
+    let process = |state: &str| {
+        let update = json!({"params": {"update": {"sessionUpdate": "background_task_update",
+            "toolCallId": "worker", "taskId": "worker", "state": state, "command": "serve"}}});
+        let event = hub.append(&session, "in", "background_task_update", update);
+        hub.note_process(&session, &event, None);
+    };
+    process("running");
+    assert!(session.turn().is_none() && hub.holds_work_below(&session));
+    let reply = hub.set_chat_route(&session, Some(second.into()), false).await.unwrap();
+    assert_eq!(reply["applied"], "after-turn");
+    assert!(Arc::ptr_eq(&child, &hub.child_for(&session).await.unwrap()));
+
+    process("completed");
+    hub.prompt(&session, prompt(), "test", false).await.unwrap();
+    assert!(!Arc::ptr_eq(&child, &hub.child_for(&session).await.unwrap()));
+    assert_eq!(session.meta().agent_session_id.as_deref(), Some(sid.as_str()));
+    assert_eq!(
+        session.launch_env.lock().unwrap().as_ref().unwrap()[CHATGPT_TOKEN],
+        "fixture-second-plan"
+    );
+    hub.shutdown_all().await;
+}
+
+#[tokio::test]
 async fn a_local_chatgpt_plan_does_not_auto_fall_back_to_a_signed_in_codex_cli() {
     let root = tempfile::tempdir().unwrap();
     let (hub, _) = fixture(root.path());
@@ -361,6 +450,52 @@ async fn a_local_chatgpt_plan_does_not_auto_fall_back_to_a_signed_in_codex_cli()
     assert!(failure.get("fallback").is_none());
     assert_eq!(routes::bindings(root.path()).chats[&session.id], ROUTE);
     assert!(!session.route_switch.load(Ordering::SeqCst));
+    hub.shutdown_all().await;
+}
+
+#[tokio::test]
+async fn a_move_leaves_a_local_codex_chat_on_its_selected_chatgpt_plan() {
+    let root = tempfile::tempdir().unwrap();
+    let (hub, _) = fixture(root.path());
+    save_chatgpt(root.path(), "fixture-plan-a");
+    let (dir, _) = routes::places(&*hub.config.read().await);
+    let plan = routes::find(dir.as_deref(), ROUTE).unwrap();
+    routes::add(dir.as_deref(), "plan-b", &plan.file, false).unwrap();
+    chatgpt::store::write(
+        root.path(),
+        "plan-b",
+        &chatgpt::store::Record {
+            client_id: chatgpt::CODEX_CLIENT_ID.into(),
+            sub: "fixture-account-b".into(),
+            access_token: "fixture-plan-b".into(),
+            refresh_token: "fixture-refresh-b".into(),
+            expires_at: chatgpt::now_unix() + 3600,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    routes::update_bindings(root.path(), |bindings| {
+        bindings.connection_order = vec!["plan-b".into(), ROUTE.into()];
+    })
+    .unwrap();
+    let session = hub
+        .new_session(NewRequest {
+            cwd: Some(root.path().to_owned()),
+            route: Some(ROUTE.into()),
+            ..NewRequest::default()
+        })
+        .await
+        .unwrap();
+    let prompt = || vec![json!({"type": "text", "text": "hello"})];
+    hub.prompt(&session, prompt(), "test", false).await.unwrap();
+
+    let result =
+        hub.transfer_request("_acpmux/transfer_begin", &json!({"sessionId": session.id})).await;
+    assert!(result.is_err_and(|error| error.message.starts_with("transfer.account:")));
+    assert!(session.moving().is_none());
+    assert!(session.meta().moved_to.is_none());
+    assert_eq!(routes::bindings(root.path()).chats[&session.id], ROUTE);
+    hub.prompt(&session, prompt(), "test", false).await.unwrap();
     hub.shutdown_all().await;
 }
 

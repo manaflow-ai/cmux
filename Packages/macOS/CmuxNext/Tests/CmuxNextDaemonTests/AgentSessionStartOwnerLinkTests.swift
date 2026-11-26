@@ -218,23 +218,19 @@ import Testing
         #expect(refresh["session"] as? String == (supportsBoundCredentials ? "durable-chat" : nil))
     }
 
-    @Test(arguments: [false, true], [false, true])
-    func claudePrewarmUsesTheSameCredentialNameAsStart(supportsEndpointCredentials: Bool, supportsBoundCredentials: Bool) async throws {
-        var capabilities = ["agent-session-attach-v1", "agent-session-start-v1",
-                            DaemonCapability.agentSessionStartVMKind.rawValue, AgentSessionAttachClient.startCredentialsCapability]
-        if supportsEndpointCredentials { capabilities.append(AgentSessionAttachClient.startEndpointCredentialsCapability) }
-        if supportsBoundCredentials { capabilities.append(DaemonCapability.agentSessionBoundCredentials.rawValue) }
-        let daemon = try PresenceDaemon(capabilities: capabilities)
+    @Test(arguments: ["ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"])
+    func aSavedClaudeTokenNeverGoesToAnUnboundPrewarm(variable: String) async throws {
+        let daemon = try PresenceDaemon(capabilities: [
+            "agent-session-attach-v1", "agent-session-start-v1", AgentSessionAttachClient.prewarmCapability,
+            DaemonCapability.agentSessionStartVMKind.rawValue, AgentSessionAttachClient.startCredentialsCapability,
+            DaemonCapability.agentSessionBoundCredentials.rawValue, "agent-session-credential-reattach-v1",
+        ])
         defer { daemon.stop() }
         let client = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: daemon.path) }
-        let token = "sk-ant-oat01-fixture"
-        _ = try await client.prewarm(cwd: "/w", harness: "claude", ownerLink: link(3, 3),
-                                     credentials: ["ANTHROPIC_AUTH_TOKEN": token])
+        #expect(try await !client.prewarm(cwd: "/w", harness: "claude", ownerLink: link(3, 3),
+                                          credentials: [variable: "sk-ant-oat-fixture"]))
         await client.close()
-        let frame = try #require(daemon.frames.first { $0["cmd"] as? String == "agent-session-prewarm" })
-        let wire = try #require(frame["credentials"] as? [String: Any])
-        let name = supportsEndpointCredentials || supportsBoundCredentials ? "ANTHROPIC_AUTH_TOKEN" : "CLAUDE_CODE_OAUTH_TOKEN"
-        #expect(wire["env"] as? [String: String] == [name: token])
+        #expect(!daemon.frames.contains { $0["cmd"] as? String == "agent-session-prewarm" })
     }
 
     /// A new Cloud machine's first start (or a down machine that reconnects on use): its link was

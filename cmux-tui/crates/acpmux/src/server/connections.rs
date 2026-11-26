@@ -213,7 +213,9 @@ fn model_endpoint(provider: &Provider) -> Option<(&str, crate::byo_endpoint::Kin
         .or_else(|| provider.anthropic.map(|url| (url, Kind::Anthropic)))
 }
 
-fn standard_key_endpoint(file: &RouteFile) -> Option<(&'static str, crate::byo_endpoint::Kind)> {
+pub(crate) fn standard_key_endpoint(
+    file: &RouteFile,
+) -> Option<(&'static str, crate::byo_endpoint::Kind)> {
     let provider = provider(file.provider())?;
     let legacy_direct = matches!(provider.id, "anthropic" | "openai");
     let matches = |configured: Option<&str>, official: Option<&str>| match configured {
@@ -866,10 +868,13 @@ fn replace_key(
         if file.secret.as_deref() == Some(secret) {
             return Ok(None);
         }
+        let previous = file.secret.replace(secret.to_owned());
+        routes::validate(file)?;
         // Publish before changing the route. The connection list hides this marker while
         // the old identity is still present, including when writing the replacement fails.
         routes::record_disconnect(home, id, expected_instance)?;
-        Ok(file.secret.replace(secret.to_owned()))
+        routes::pin_replaced_key_bindings(home, id, expected_instance)?;
+        Ok(previous)
     })
     .map_err(|e| route_error(&e))?;
     let mut result = state(dir, home, sources);
@@ -2192,6 +2197,54 @@ secret = "keychain:work"
         assert!(routes::find(dir, &id).is_err());
     }
 
+    #[tokio::test]
+    async fn replacing_a_gemini_key_requires_existing_local_chats_to_pick_it_again() {
+        let d = dirs();
+        let mut config: config::Config =
+            serde_json::from_value(json!({"store": {"mode": "memory"}})).unwrap();
+        config.path = Some(d.home.join("config.json"));
+        config.profile_sources = ProfileSources::none();
+        config.profile_sources.cmux_json = Some(d.routes.with_file_name("cmux.json"));
+        let profile: HarnessProfile =
+            serde_json::from_value(json!({"argv": ["gemini"], "family": "gemini"})).unwrap();
+        let store = crate::store::open(&config.store, &d.home).unwrap();
+        let hub = Hub::new(config, store);
+        let dir = Some(d.routes.as_path());
+        let old = "env:FIXTURE_OLD_GEMINI_KEY";
+        let new = "env:FIXTURE_NEW_GEMINI_KEY";
+        let (id, state) =
+            add_key(dir, &d.home, "google", old, None, &ProfileSources::none(), None).unwrap();
+        let instance = find(&state, &id)["credential_instance"].as_str().unwrap();
+        routes::set_binding(&d.home, "chat:existing", Some(&id)).unwrap();
+        routes::set_binding(&d.home, "family:gemini", Some(&id)).unwrap();
+
+        let launch = async |chat: &str| {
+            let mut env = Default::default();
+            hub.apply_route_for("gemini", Some(chat), None, false, &profile, &mut env).await?;
+            Ok::<_, RpcError>(env)
+        };
+        assert_eq!(launch("existing").await.unwrap()["GEMINI_API_KEY"], format!("${{{old}}}"));
+        handle(
+            &hub,
+            Origin::Local,
+            method::MUX_CONNECTIONS_KEY_ADD,
+            &json!({"provider": "google", "secret": new, "replace": id, "replaceInstance": instance}),
+        )
+        .await
+        .unwrap();
+
+        let error = launch("existing").await.unwrap_err();
+        assert_eq!(error.data.unwrap()["reason"], "route.not_found");
+        // An older daemon can still read and save the same chat binding, but its
+        // route lookup cannot resolve it to the new key.
+        let bindings = routes::set_binding(&d.home, "chat:other", Some(&id)).unwrap();
+        assert!(routes::find(dir, &bindings.chats["existing"]).is_err());
+        assert!(routes::find_chat_route(dir, &d.home, "existing", &id).is_err());
+        assert_eq!(launch("new").await.unwrap()["GEMINI_API_KEY"], format!("${{{new}}}"));
+        routes::set_binding(&d.home, "chat:existing", Some(&id)).unwrap();
+        assert_eq!(launch("existing").await.unwrap()["GEMINI_API_KEY"], format!("${{{new}}}"));
+    }
+
     #[test]
     fn existing_google_and_xai_keys_need_explicit_cloud_consent() {
         let d = dirs();
@@ -2327,12 +2380,12 @@ secret = "keychain:work"
     }
 
     #[test]
-    fn an_older_loader_cannot_read_a_new_or_newly_opted_out_key() {
-        let d = dirs();
-        let dir = Some(d.routes.as_path());
+    fn older_build_can_add_a_second_key_without_resolving_the_local_only_key() {
         let sources = ProfileSources::none();
         for provider in ["anthropic", "openai"] {
             for initially_enabled in [false, true] {
+                let d = dirs();
+                let dir = Some(d.routes.as_path());
                 let reference = "keychain:fixture";
                 let (id, _) = add_key(
                     dir,
@@ -2357,11 +2410,25 @@ secret = "keychain:work"
                     })
                     .unwrap();
                 }
-                // The older loader validates the raw TOML fields without decoding consent.
-                assert!(matches!(
-                    routes::validate(&older_file()),
-                    Err(routes::RouteError::SecretInline(_))
-                ));
+                // The older allocator skips files it can load without decoding notes.
+                let older_loads = |id: &str| {
+                    std::fs::read_to_string(d.routes.join(format!("{id}.toml")))
+                        .ok()
+                        .and_then(|text| toml::from_str::<RouteFile>(&text).ok())
+                        .is_some_and(|file| routes::validate(&file).is_ok())
+                };
+                let next = std::iter::once(format!("{provider}-key"))
+                    .chain((2..1000).map(|n| format!("{provider}-key-{n}")))
+                    .find(|candidate| !older_loads(candidate))
+                    .unwrap();
+                let raw = older_file();
+                let mut second = raw.clone();
+                second.secret = Some("keychain:second-key".into());
+                second.notes = None;
+                routes::add(dir, &next, &second, false).unwrap();
+                assert_eq!(next, format!("{provider}-key-2"));
+                assert!(resolve(&id, raw.secret.as_deref().unwrap()).is_err());
+
                 let saved = routes::find(dir, &id).unwrap();
                 assert!(!saved.file.disabled);
                 assert_eq!(saved.file.secret.as_deref(), Some(reference));

@@ -259,7 +259,7 @@ pub struct PrewarmRequest {
 /// The parts of a coming `session/new` a hint names beyond its harness and folder: the model it
 /// pins (`_meta.acpmux.model`), its workspace (`_meta.acpmux.workspaceId`) and the owner's Cloud
 /// credential (`_meta.acpmux.credentials`, this machine's own socket only). Hints carrying
-/// API keys are declined. Other credentialed entries only live as long as the hint.
+/// API keys or Claude setup tokens are declined. Other credentialed entries only live as long as the hint.
 #[derive(Debug, Clone, Default)]
 pub struct PrewarmShape {
     pub model: Option<String>,
@@ -645,11 +645,11 @@ impl Hub {
         if req.release {
             return Ok(self.pool_release(req).await);
         }
-        // Cloud opt-out reaches bound sessions. A hint must never put these keys in the pool.
+        // Cloud opt-out and Disconnect reach bound sessions. Keep these hints out of the pool.
         if req.shape.credential.as_ref().is_some_and(|credential| {
             matches!(credential.family(), CredentialFamily::Gemini | CredentialFamily::Grok)
-                || (credential.key_provider().is_some()
-                    && !credential.uses_claude_subscription_token())
+                || credential.key_provider().is_some()
+                || credential.uses_claude_subscription_token()
         }) {
             return Ok(json!({"accepted": false}));
         }

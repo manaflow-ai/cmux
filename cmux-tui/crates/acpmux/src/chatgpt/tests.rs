@@ -763,6 +763,55 @@ async fn remove_revokes_the_refresh_token() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn older_account_toggle_preserves_chatgpt_redelivery_and_disconnect() {
+    for comment_only in [false, true] {
+        let s = setup().await;
+        let id = "chatgpt";
+        assert_eq!(sign_in(&s, &[("code", "c1")]).await.0, Status::Done(id.into()));
+        let dir = s.places.routes.as_deref();
+        let original = routes::find(dir, id).unwrap();
+        let instance = original.file.credential_instance.as_deref().unwrap();
+        if comment_only {
+            let text = toml::to_string_pretty(&original.file).unwrap();
+            std::fs::write(
+                &original.path,
+                crate::agent_credentials::with_stored_instance(&text, instance),
+            )
+            .unwrap();
+        }
+        let delivered = routes::for_credential(dir, id).unwrap();
+        assert_eq!(delivered.file.credential_instance.as_deref(), Some(instance));
+
+        for disabled in [true, false] {
+            // The older account writer preserves TOML fields and drops comments.
+            let text = std::fs::read_to_string(&original.path).unwrap();
+            let mut older: routes::RouteFile = toml::from_str(&text).unwrap();
+            older.disabled = disabled;
+            std::fs::write(&original.path, toml::to_string_pretty(&older).unwrap()).unwrap();
+            let current = routes::find(dir, id).unwrap();
+            assert_eq!(current.file.disabled, disabled);
+            assert_eq!(current.file.credential_instance.as_deref(), Some(instance));
+            assert_eq!(current.file.notes, original.file.notes);
+        }
+
+        let redelivered = routes::for_credential(dir, id).unwrap();
+        assert_eq!(redelivered.file.credential_instance, delivered.file.credential_instance);
+        assert!(
+            s.service
+                .token_lasting(&s.places.home, id, super::CREDENTIAL_MARGIN_SECS)
+                .await
+                .is_ok_and(|(token, _)| token == "access-0")
+        );
+        assert!(s.service.remove(&s.places, id, instance).await.unwrap());
+        assert!(
+            routes::bindings_with_disconnects(&s.places.home).disconnected_credentials[id]
+                .contains(instance)
+        );
+        assert!(routes::find(dir, id).is_err());
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn disconnect_revokes_before_a_route_backup_failure() {
     let s = setup().await;
     let id = "chatgpt";

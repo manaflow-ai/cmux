@@ -1016,6 +1016,36 @@ import Testing
     }
 
     @Test(arguments: [false, true])
+    func reauthenticatingADisabledPlanKeepsItDisabled(cancel: Bool) async throws {
+        let daemon = Daemon()
+        daemon.signedInPlan.withLock { $0 = true }
+        daemon.savedPlanEnabled.withLock { $0 = false }
+        let (entered, onWait) = AsyncStream<Void>.makeStream()
+        let (outcomes, finish) = AsyncStream<Data>.makeStream()
+        let models = make(daemon: daemon, waitForDevice: {
+            onWait.finish()
+            for await reply in outcomes { return reply }
+            return Data()
+        })
+        _ = await models.loadedState()
+        _ = try await models.run(["action": "connectChatGPTDevice", "id": "chatgpt-1", "servesCloud": true], context: click)
+        let task = try #require(models.chatgptDeviceTask)
+        for await _ in entered {}
+        #expect(daemon.savedPlanEnabled.withLock { $0 } == false)
+        if cancel {
+            _ = try await models.run(["action": "cancelChatGPTDevice"], context: click)
+        } else {
+            finish.yield(Data(#"{"status":"done","connection_id":"chatgpt-1"}"#.utf8))
+        }
+        finish.finish()
+        await task.value
+
+        #expect(!daemon.calls.withLock { $0.contains { $0.method == AcpmuxHarnessMethod.accountSet.rawValue } })
+        #expect(daemon.savedPlanEnabled.withLock { $0 } == false)
+        #expect(models.state["chatgptDevice"]?["phase"] == (cancel ? "idle" : "connected"))
+    }
+
+    @Test(arguments: [false, true])
     func deviceSignInOpensOnlyOnClickAndClearsItsCode(cancel: Bool) async throws {
         let daemon = Daemon()
         let opened = Opened()

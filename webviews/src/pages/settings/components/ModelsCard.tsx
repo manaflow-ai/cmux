@@ -361,7 +361,8 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
       cloud &&
       (gesture.provider ?? "chatgpt") === "chatgpt" &&
       gesture.id === activeRow?.id &&
-      activeRow?.enabled === false;
+      activeRow?.enabled === false &&
+      !activeRow.signedIn;
     startingDevice.current = true;
     return run(enablePlan ? { ...gesture, servesCloud: true } : gesture).finally(() => {
       startingDevice.current = false;

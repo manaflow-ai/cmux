@@ -93,7 +93,12 @@ impl Hub {
         .or(automatic) else {
             return Ok(None);
         };
-        let route = routes::find(dir.as_deref(), &id).map_err(|e| {
+        let route = if let Some(session) = session.filter(|_| scope == "chat") {
+            routes::find_chat_route(dir.as_deref(), &state, session, &id)
+        } else {
+            routes::find(dir.as_deref(), &id)
+        }
+        .map_err(|e| {
             route_error(&routes::RouteError::NotFound(format!(
                 "{e}: this {scope}'s route is gone; put its file back in ~/.config/cmux/routes \
                  or pick another account in the chat's Account menu"
@@ -360,6 +365,39 @@ impl Hub {
             && !self.holds_work_below(session)
     }
 
+    pub(super) async fn uses_local_chatgpt_plan(&self, session: &Session) -> bool {
+        let launch = session
+            .launch_env
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .map(|env| env.contains_key(crate::chatgpt::LOCAL_EXPIRY_ENV));
+        if launch == Some(true) {
+            return true;
+        }
+        if launch.is_none() {
+            let host = session.child.lock().await.as_ref().and_then(|child| child.host_record());
+            if let Some(record) = host
+                && (record.local_chatgpt_expiry.is_some()
+                    || self
+                        .legacy_adopted_chatgpt_expiry(session, record.harness_pid)
+                        .await
+                        .is_some())
+            {
+                return true;
+            }
+        }
+        let meta = session.meta();
+        let config = self.config.read().await;
+        let Ok(profile) =
+            super::resolve::session_profile(&config, &meta.harness, &meta.cwd, meta.remote_origin)
+        else {
+            return false;
+        };
+        let (dir, home) = routes::places(&config);
+        local_chatgpt_route(dir.as_deref(), &home, &meta, &profile).is_some()
+    }
+
     pub(super) async fn legacy_adopted_chatgpt_expiry(
         &self,
         session: &Session,
@@ -371,7 +409,7 @@ impl Hub {
             return None;
         }
         let meta = session.meta();
-        let (dir, home, profile, family) = {
+        let (dir, home, profile) = {
             let config = self.config.read().await;
             let Ok(profile) = super::resolve::session_profile(
                 &config,
@@ -388,7 +426,7 @@ impl Hub {
                 return None;
             }
             let (dir, home) = routes::places(&config);
-            (dir, home, profile, family)
+            (dir, home, profile)
         };
         tokio::task::spawn_blocking(move || {
             // The launch token still identifies an older local ChatGPT host when its route
@@ -402,17 +440,7 @@ impl Hub {
             }
             #[cfg(not(unix))]
             let _ = pid;
-            let (id, _) = routes::spawn_route(
-                dir.as_deref(),
-                &routes::bindings(&home),
-                &meta.id,
-                meta.session_env.get("CMUX_WORKSPACE_ID").map(String::as_str),
-                &family,
-                &profile.env,
-            )?;
-            if !crate::chatgpt::is_chatgpt_route(dir.as_deref(), &id) {
-                return None;
-            }
+            let id = local_chatgpt_route(dir.as_deref(), &home, &meta, &profile)?;
             let record = crate::chatgpt::store::read(&home, &id).ok()??;
             Some(record.expires_at)
         })
@@ -478,6 +506,7 @@ impl Hub {
             route_account::switch_allowed(current.as_deref(), found)
                 .map_err(|e| route_error(&e))?;
         }
+        let turn = session.turn_lock.try_lock().ok();
         let running = {
             let _spawn = self.spawn_lease(session).await;
             let claude = profile
@@ -495,26 +524,28 @@ impl Hub {
                 return Err(error);
             }
             let running = session.turn().is_some();
-            if running {
-                session.route_switch.store(true, Ordering::SeqCst);
-            }
+            let wait = turn.is_none() || !self.route_child_is_idle(session);
+            session.route_switch.store(true, Ordering::SeqCst);
             self.append(
                 session,
                 "mux",
                 "route_changed",
-                json!({"from": from, "to": route, "when": if running && !now { "after-turn" } else { "now" }}),
+                json!({"from": from, "to": route, "when": if wait && !(running && now) { "after-turn" } else { "now" }}),
             );
             running
         };
         if running {
             if now {
+                drop(turn);
                 self.cancel(session).await?;
             }
             return Ok(
                 json!({"routeId": route, "applied": if now { "after-cancel" } else { "after-turn" }}),
             );
         }
-        self.restart_on_route(session).await?;
+        if turn.is_some() {
+            self.restart_on_route(session).await?;
+        }
         let applied =
             if session.route_switch.load(Ordering::SeqCst) { "after-turn" } else { "now" };
         Ok(json!({"routeId": route, "applied": applied}))
@@ -676,6 +707,29 @@ impl Hub {
             }
         });
     }
+}
+
+fn local_chatgpt_route(
+    dir: Option<&Path>,
+    home: &Path,
+    meta: &SessionMeta,
+    profile: &HarnessProfile,
+) -> Option<String> {
+    let family = crate::config::derive_family(&meta.harness, profile);
+    if crate::agent_credentials::Family::of_harness(&family)
+        != Some(crate::agent_credentials::Family::Codex)
+    {
+        return None;
+    }
+    let (id, _) = routes::spawn_route(
+        dir,
+        &routes::bindings(home),
+        &meta.id,
+        meta.session_env.get("CMUX_WORKSPACE_ID").map(String::as_str),
+        &family,
+        &profile.env,
+    )?;
+    crate::chatgpt::is_chatgpt_route(dir, &id).then_some(id)
 }
 
 /// What `restart_harnesses` did: how many sessions restarted now, how many

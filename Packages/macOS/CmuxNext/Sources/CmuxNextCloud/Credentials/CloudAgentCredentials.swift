@@ -135,6 +135,13 @@ public final class CloudAgentCredentials {
     package var readCredentialConnections: (@MainActor () async -> ConnectionState?)?
     /// Reconciles withdrawn bindings on connected guests, including chats without a pane.
     package var withdrawGuestBindings: (@MainActor ([String]) async -> Bool)?
+
+    /// Finds a candidate for withdrawal. The RPC rechecks the owner answer on its own connection.
+    package static func withdrawalOwnerLink(for machine: CloudMachine, user: String,
+                                            appLink: CloudLinkSession) -> AgentSessionAttachClient.OwnerLink? {
+        guard appLink.ownership.callerOwnsVM, CloudTransferRules.isOwner(machine, user: user) else { return nil }
+        return CloudMachineLinks(appLink: appLink).ownerLink
+    }
     private var guestWithdrawalPending = false
 
     /// Subscribes to local connection changes while guest reconciliation is active.

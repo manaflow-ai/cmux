@@ -279,21 +279,27 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// changes once the chat is frozen, then `thenSync` (Move to Another Machine: a pull from the machine the chat
     /// leaves, then a seed of the one it goes to); `askFirst` narrows it to an asking policy first; `vmKind` is the
     /// Cloud API's answer for this app on the link in use. `login`: the owner's agent login, on stdin only
-    /// (`--login-stdin`), which the machine starts the moved chat's agent with. `loginConnection` is the
-    /// saved connection binding the guest records for withdrawal.
+    /// (`--login-stdin`), which the machine starts the moved chat's agent with. The Mac's acpmux
+    /// socket lets the CLI recheck Cloud consent for the saved connection after the frozen copy.
     public func agentMove(from: String, surface: UInt64, to: String, cwd: String, sync: FrozenSync? = nil, thenSync: FrozenSync? = nil,
-                          askFirst: Bool = false, vmKind: String? = nil, toPID: Int32? = nil, login: [String: String]? = nil,
-                          loginConnection: String? = nil) async throws -> Answer {
+                          askFirst: Bool = false, vmKind: String? = nil, toPID: Int32? = nil, login: CloudAgentCredential? = nil,
+                          loginConnection: String? = nil, loginSocket: String? = nil) async throws -> Answer {
         struct Call: Encodable {
             var verb = "agent-move"
             var from: String, surface: UInt64, to: String, cwd: String, sync: FrozenSync?, thenSync: FrozenSync?, askFirst: Bool, vmKind: String?
             var toPid: Int32?
             var login: Bool
         }
-        let stdin = try login.map { env in
-            var credentials: [String: Any] = ["env": env]
+        let stdin: Data?
+        if let login {
+            guard let loginSocket else { return Answer(ok: false, errorCode: "connections.not_cloud") }
+            var consent: [String: String] = ["socket": loginSocket, "id": login.connectionID]
+            consent["instance"] = login.instance
+            var credentials: [String: Any] = ["env": login.env, "consent": consent]
             if let loginConnection { credentials["connection"] = loginConnection }
-            return try JSONSerialization.data(withJSONObject: credentials)
+            stdin = try JSONSerialization.data(withJSONObject: credentials)
+        } else {
+            stdin = nil
         }
         return try await run(Call(from: from, surface: surface, to: to, cwd: cwd, sync: sync, thenSync: thenSync, askFirst: askFirst,
                                   vmKind: vmKind, toPid: toPID, login: login != nil), stdin: stdin).answer

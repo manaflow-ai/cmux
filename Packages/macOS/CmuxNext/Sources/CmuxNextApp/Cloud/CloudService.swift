@@ -284,17 +284,17 @@ final class CloudService {
         agentCredentials.withdrawGuestBindings = { [weak self] bindings in
             guard let self, !policyDisabled, let owner = auth.platformUserID else { return true }
             return await CloudAgentCredentials.withdrawModelConnections(bindings, on: machines.cloud.compactMap { machine in
-                guard machine.machine.createdBy == owner, machine.daemon.liveIdentity != nil else { return nil }
-                return (CloudMachineLinks(appLink: machine.appLink).ownerLink, AgentTabRemoteHost.endpoint(on: machine.daemon))
+                guard machine.daemon.liveIdentity != nil,
+                      let link = CloudAgentCredentials.withdrawalOwnerLink(for: machine.machine, user: owner, appLink: machine.appLink) else { return nil }
+                return (link, AgentTabRemoteHost.endpoint(on: machine.daemon))
             })
         }
-        // task-owner: observers; reconcile guest credentials when a guest reconnects.
+        // task-owner: observers; reconcile on reconnect and when a live link confirms ownership.
         observers.append(Task { [weak self] in
             for await _ in ObservationStream({ [weak self] in
-                self.map { [$0.machines.local] + $0.machines.cloud.map(\.daemon) }?.map { $0.liveIdentity == nil ? nil : $0.store.connectionEpoch }
-            }) {
-                self?.agentCredentials.credentialConnectionsChanged()
-            }
+                let daemons = self.map { [$0.machines.local] + $0.machines.cloud.filter(\.appLink.ownership.callerOwnsVM).map(\.daemon) } ?? []
+                return daemons.reduce(into: [String: Int]()) { $0[$1.machineID] = $1.liveIdentity == nil ? nil : $1.store.connectionEpoch }
+            }) { self?.agentCredentials.credentialConnectionsChanged() }
         })
         if linkEvents == nil {
             // `cloud.link.changed` arrives on the local daemon as an app server event.

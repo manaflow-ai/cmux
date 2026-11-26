@@ -171,9 +171,8 @@ export function ModelConnectionRow({
     .filter(Boolean)
     .join(" · ");
   const emailSuffix = connection.kind === "chatgpt-plan" && connection.email ? ` (${connection.email})` : "";
-  const label = legacyClaude
-    ? "Claude Code"
-    : emailSuffix && connection.label.endsWith(emailSuffix)
+  const label =
+    emailSuffix && connection.label.endsWith(emailSuffix)
       ? connection.label.slice(0, -emailSuffix.length)
       : connection.label;
   const canCheck = tools && connection.canCheckAccess;

@@ -259,8 +259,11 @@ impl Auth {
 }
 
 const CLOUD_POLICY_PREFIX: &str = "# cmux-cloud-enabled: ";
-// Older builds reject references with this prefix during route validation.
-const LOCAL_KEY_PREFIX: &str = "local-only:";
+const LEGACY_LOCAL_KEY_PREFIX: &str = "local-only:";
+const LOCAL_KEY_NOTES_PREFIX: &str = "# cmux-local-key-reference: ";
+// Older builds accept an absolute file reference when loading a route, but
+// their resolver refuses directories. The real reference stays in the notes.
+const LOCAL_KEY_PLACEHOLDER: &str = if cfg!(windows) { "file:C:/" } else { "file:/" };
 
 /// One route file. Field names are the TOML keys.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -706,10 +709,11 @@ const CLAUDE_TOKEN_NOTES: &str = "claude setup-token: served to Cloud machines' 
 fn file_from_toml(text: &str) -> Result<RouteFile, RouteError> {
     let mut file: RouteFile =
         toml::from_str(text).map_err(|e| RouteError::Failed(e.to_string()))?;
-    let mut opted_out = false;
+    let mut opted_out = file.kind == RouteKind::DirectApiKey
+        && file.secret.as_deref() == Some(LOCAL_KEY_PLACEHOLDER);
     if file.kind == RouteKind::DirectApiKey
         && let Some(reference) =
-            file.secret.as_deref().and_then(|s| s.strip_prefix(LOCAL_KEY_PREFIX))
+            file.secret.as_deref().and_then(|s| s.strip_prefix(LEGACY_LOCAL_KEY_PREFIX))
         && is_reference(reference)
     {
         file.secret = Some(reference.to_owned());
@@ -736,9 +740,19 @@ fn file_from_toml(text: &str) -> Result<RouteFile, RouteError> {
     {
         file.credential_instance = Some(instance);
         file.cloud_enabled = if provider == file.provider() { enabled } else { Some(false) };
+        let mut notes = notes;
+        if file.secret.as_deref() == Some(LOCAL_KEY_PLACEHOLDER)
+            && let Some((encoded, remaining)) = notes.split_once('\n')
+            && let Some(encoded) = encoded.strip_prefix(LOCAL_KEY_NOTES_PREFIX)
+            && let Ok(reference) = serde_json::from_str::<String>(encoded)
+            && is_reference(&reference)
+        {
+            file.secret = Some(reference);
+            notes = remaining;
+        }
         file.notes = (!notes.is_empty()).then(|| notes.to_owned());
     }
-    if file.kind == RouteKind::ClaudeToken
+    if matches!(file.kind, RouteKind::ClaudeToken | RouteKind::ChatgptPlan)
         && let Some(notes) = &file.notes
         && let Some(instance) = crate::agent_credentials::stored_instance(notes)
         && let Some((_, notes)) = notes.split_once('\n')
@@ -879,9 +893,9 @@ fn write_file(path: &Path, file: &RouteFile) -> Result<(), RouteError> {
         && let Some(instance) = &file.credential_instance
     {
         let mut disk = file.clone();
-        disk.notes = Some(credential_notes(file, instance));
-        if let Some(reference) = local_key_reference(file) {
-            disk.secret = Some(reference);
+        disk.notes = Some(credential_notes(file, instance)?);
+        if local_key_reference(file).is_some() {
+            disk.secret = Some(LOCAL_KEY_PLACEHOLDER.into());
         }
         let text = toml::to_string_pretty(&disk).map_err(|e| RouteError::Failed(e.to_string()))?;
         return write_route_text(path, &text);
@@ -895,32 +909,40 @@ fn write_file(path: &Path, file: &RouteFile) -> Result<(), RouteError> {
 }
 
 fn keeps_instance_in_notes(kind: RouteKind) -> bool {
-    matches!(kind, RouteKind::DirectApiKey | RouteKind::ClaudeToken)
+    matches!(kind, RouteKind::DirectApiKey | RouteKind::ClaudeToken | RouteKind::ChatgptPlan)
 }
 
-fn local_key_reference(file: &RouteFile) -> Option<String> {
+fn local_key_reference(file: &RouteFile) -> Option<&str> {
     if file.kind == RouteKind::DirectApiKey
         && file.cloud_enabled == Some(false)
         && file.provider() != "openrouter"
     {
-        return file.secret.as_ref().map(|reference| format!("{LOCAL_KEY_PREFIX}{reference}"));
+        return file.secret.as_deref().filter(|reference| *reference != LOCAL_KEY_PLACEHOLDER);
     }
     None
 }
 
 // Older writers preserve notes when they rewrite a route's name or enabled state.
-fn credential_notes(file: &RouteFile, instance: &str) -> String {
+fn credential_notes(file: &RouteFile, instance: &str) -> Result<String, RouteError> {
     let notes = file.notes.as_deref().unwrap_or("");
-    if file.kind == RouteKind::ClaudeToken {
-        return crate::agent_credentials::with_stored_instance(notes, instance);
+    if file.kind != RouteKind::DirectApiKey {
+        return Ok(crate::agent_credentials::with_stored_instance(notes, instance));
     }
     let enabled = match file.cloud_enabled {
         Some(true) => "true",
         Some(false) => "false",
         None => "default",
     };
-    let notes = format!("{CLOUD_POLICY_PREFIX}{enabled} {}\n{notes}", file.provider());
-    crate::agent_credentials::with_stored_instance(&notes, instance)
+    let mut text = format!("{CLOUD_POLICY_PREFIX}{enabled} {}\n", file.provider());
+    if let Some(reference) = local_key_reference(file) {
+        let encoded = serde_json::to_string(reference)
+            .map_err(|_| RouteError::Failed("could not write local key reference".into()))?;
+        text.push_str(LOCAL_KEY_NOTES_PREFIX);
+        text.push_str(&encoded);
+        text.push('\n');
+    }
+    text.push_str(notes);
+    Ok(crate::agent_credentials::with_stored_instance(&text, instance))
 }
 
 /// Backfill and restore keep the rest of the original TOML, including user comments.
@@ -944,14 +966,14 @@ fn write_credential_instance(
     if file.kind == RouteKind::DirectApiKey {
         doc.remove("cloud_enabled");
     }
-    if let Some(reference) = local_key_reference(file) {
-        let mut secret = toml_edit::Value::from(reference);
+    if local_key_reference(file).is_some() {
+        let mut secret = toml_edit::Value::from(LOCAL_KEY_PLACEHOLDER);
         if let Some(previous) = doc.get("secret").and_then(toml_edit::Item::as_value) {
             *secret.decor_mut() = previous.decor().clone();
         }
         doc["secret"] = toml_edit::Item::Value(secret);
     }
-    let mut notes = toml_edit::Value::from(credential_notes(file, instance));
+    let mut notes = toml_edit::Value::from(credential_notes(file, instance)?);
     if let Some(previous) = doc.get("notes").and_then(toml_edit::Item::as_value) {
         *notes.decor_mut() = previous.decor().clone();
     }
@@ -994,6 +1016,39 @@ fn lock_route_files(dir: Option<&Path>) -> Result<cmux_file_lock::FileLock, Rout
         .open(path)
         .map_err(failed)?;
     cmux_file_lock::FileLock::take(file, cmux_file_lock::Kind::Exclusive).map_err(failed)
+}
+
+/// Recheck the saved connection under the same lock that Settings uses to turn Cloud use off.
+/// The move pump drops the lock as soon as it writes the finish request.
+pub fn lock_cloud_move_connection(
+    path: &Path,
+    id: &str,
+    instance: Option<&str>,
+) -> Result<cmux_file_lock::FileLock, RouteError> {
+    let unavailable =
+        || RouteError::Unavailable("the model connection is unavailable for Cloud".into());
+    let dir = path.parent().filter(|_| path.is_absolute()).ok_or_else(unavailable)?;
+    let guard = lock_route_files(Some(dir))?;
+    let route = find(Some(dir), id)?;
+    let file = route.file;
+    let supported = match file.kind {
+        RouteKind::DirectApiKey => {
+            matches!(file.provider(), "anthropic" | "openai")
+                && crate::server::connections::standard_key_endpoint(&file).is_some()
+        }
+        RouteKind::ClaudeToken | RouteKind::ChatgptPlan => true,
+        _ => false,
+    };
+    if route.path == path
+        && supported
+        && !file.disabled
+        && file.cloud_enabled.unwrap_or(true)
+        && file.credential_instance.as_deref() == instance
+    {
+        Ok(guard)
+    } else {
+        Err(unavailable())
+    }
 }
 
 /// Apply an edit to the latest file. An edit of a removed route fails at the read.
@@ -1151,9 +1206,9 @@ fn needs_credential_migration(file: &RouteFile, text: &str) -> bool {
     if crate::agent_credentials::stored_instance(text).is_some() {
         return true;
     }
-    local_key_reference(file).is_some_and(|reference| {
-        toml::from_str::<RouteFile>(text).is_ok_and(|disk| disk.secret.as_ref() != Some(&reference))
-    })
+    local_key_reference(file).is_some()
+        && toml::from_str::<RouteFile>(text)
+            .is_ok_and(|disk| disk.secret.as_deref() != Some(LOCAL_KEY_PLACEHOLDER))
 }
 
 /// Preserve delivered identities across older rewrites and protect older Cloud reads of local keys.
@@ -1424,6 +1479,45 @@ pub fn bindings(home: &Path) -> Bindings {
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())
         .unwrap_or_default()
+}
+
+/// Resolve a chat binding and check it after reading the route, so a spawn that
+/// read bindings just before a key replacement cannot pick up the new key.
+pub(crate) fn find_chat_route(
+    dir: Option<&Path>,
+    home: &Path,
+    session: &str,
+    binding: &str,
+) -> Result<Route, RouteError> {
+    let (id, instance) =
+        binding.split_once(':').map_or((binding, None), |(id, instance)| (id, Some(instance)));
+    let route = find(dir, id)?;
+    if instance.is_some_and(|expected| route.file.credential_instance.as_deref() != Some(expected))
+        || bindings(home).chats.get(session).map(String::as_str) != Some(binding)
+    {
+        return Err(RouteError::NotFound(format!("no route {id:?}")));
+    }
+    Ok(route)
+}
+
+/// Preserve an explicitly bound chat's account before replacing a route's key.
+/// Older daemons keep these string values and refuse them as unknown route IDs.
+pub(crate) fn pin_replaced_key_bindings(
+    home: &Path,
+    id: &str,
+    instance: &str,
+) -> Result<(), RouteError> {
+    let _guard = BINDINGS_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let mut b = bindings(home);
+    let mut affected = b.chats.values_mut().filter(|route| route.as_str() == id).peekable();
+    if affected.peek().is_some() {
+        let binding = format!("{id}:{instance}");
+        for route in affected {
+            route.clone_from(&binding);
+        }
+        write_bindings(home, &b)?;
+    }
+    Ok(())
 }
 
 /// Change the bindings under one lock and write them atomically.
@@ -1956,33 +2050,64 @@ mod tests {
     }
 
     #[test]
-    fn legacy_opt_out_is_migrated_to_a_reference_the_older_loader_refuses() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("work-key.toml");
-        let local = r#"kind = "direct-api-key"
-families = ["claude"]
-secret = "env:WORK_KEY"
-notes = "Work connection"
-"#;
-        let route_dir = Some(dir.path());
-        // A file from the previous build must still enforce its stored Cloud opt-out.
-        std::fs::write(&path, format!("{local}cloud_enabled = false\n")).unwrap();
-        assert_eq!(find(route_dir, "work-key").unwrap().file.cloud_enabled, Some(false));
-        let saved = for_credential(route_dir, "work-key").unwrap();
-        let text = std::fs::read_to_string(&path).unwrap();
-        let older: RouteFile = toml::from_str(&text).unwrap();
-        assert!(matches!(validate(&older), Err(RouteError::SecretInline(_))));
-        assert_eq!(saved.file.notes.as_deref(), Some("Work connection"));
-        assert_eq!(saved.file.secret.as_deref(), Some("env:WORK_KEY"));
-        assert_eq!(saved.file.cloud_enabled, Some(false));
+    fn legacy_opt_out_is_migrated_to_an_unresolvable_reference() {
+        let instance = uuid::Uuid::new_v4().to_string();
+        let legacy_notes = crate::agent_credentials::with_stored_instance(
+            "# cmux-cloud-enabled: false anthropic\nWork connection",
+            &instance,
+        );
+        for (fields, prior_instance) in [
+            (
+                "secret = \"env:WORK_KEY\"\nnotes = \"Work connection\"\ncloud_enabled = false\n"
+                    .to_owned(),
+                None,
+            ),
+            (
+                format!("secret = \"local-only:env:WORK_KEY\"\nnotes = '''{legacy_notes}'''\n"),
+                Some(instance.as_str()),
+            ),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("work-key.toml");
+            let route_dir = Some(dir.path());
+            std::fs::write(
+                &path,
+                format!("kind = \"direct-api-key\"\nfamilies = [\"claude\"]\n{fields}"),
+            )
+            .unwrap();
+            assert_eq!(find(route_dir, "work-key").unwrap().file.cloud_enabled, Some(false));
+            let saved = for_credential(route_dir, "work-key").unwrap();
+            let saved_instance = saved.file.credential_instance.as_deref().unwrap();
+            if let Some(prior_instance) = prior_instance {
+                assert_eq!(saved_instance, prior_instance);
+            }
+            let text = std::fs::read_to_string(&path).unwrap();
+            let mut older: RouteFile = toml::from_str(&text).unwrap();
+            validate(&older).unwrap();
+            assert!(resolve_reference(older.secret.as_deref().unwrap()).is_err());
+            assert_eq!(saved.file.notes.as_deref(), Some("Work connection"));
+            assert_eq!(saved.file.secret.as_deref(), Some("env:WORK_KEY"));
+            assert_eq!(saved.file.cloud_enabled, Some(false));
 
-        let backup = remove(route_dir, dir.path(), "work-key").unwrap();
-        let restored = restore(route_dir, dir.path(), &backup).unwrap();
-        assert_eq!(restored.file.cloud_enabled, Some(false));
-        assert_ne!(restored.file.credential_instance, saved.file.credential_instance);
-        let older: RouteFile =
-            toml::from_str(&std::fs::read_to_string(restored.path).unwrap()).unwrap();
-        assert!(matches!(validate(&older), Err(RouteError::SecretInline(_))));
+            older.name = Some("Renamed in the older build".into());
+            std::fs::write(&path, toml::to_string_pretty(&older).unwrap()).unwrap();
+            let renamed = find(route_dir, "work-key").unwrap();
+            assert_eq!(renamed.file.name, older.name);
+            assert_eq!(renamed.file.secret, saved.file.secret);
+            assert_eq!(renamed.file.notes, saved.file.notes);
+            assert_eq!(renamed.file.cloud_enabled, Some(false));
+            assert_eq!(renamed.file.credential_instance, saved.file.credential_instance);
+
+            let backup = remove(route_dir, dir.path(), "work-key").unwrap();
+            let restored = restore(route_dir, dir.path(), &backup).unwrap();
+            assert_eq!(restored.file.secret, saved.file.secret);
+            assert_eq!(restored.file.cloud_enabled, Some(false));
+            assert_ne!(restored.file.credential_instance, saved.file.credential_instance);
+            let older: RouteFile =
+                toml::from_str(&std::fs::read_to_string(restored.path).unwrap()).unwrap();
+            validate(&older).unwrap();
+            assert!(resolve_reference(older.secret.as_deref().unwrap()).is_err());
+        }
     }
 
     #[test]

@@ -469,6 +469,22 @@ test("Cloud Models replaces a saved Claude token at its current priority", async
   expect(ids(rendered)).toEqual(["claude-token-3", "claude-token-2"]);
 });
 
+test("Cloud Models identifies each saved Claude token in the row and its menu button", async () => {
+  const models = structuredClone(mockModels.claudeTokenOnly);
+  const original = models.personal.connections.find((row) => row.id === "claude-token")!;
+  original.label = "Claude work";
+  const second = { ...original, id: "claude-token-2", label: "Claude personal", credentialInstance: "other-token" };
+  models.personal.connections.push(second);
+  const rendered = await render(models);
+  for (const token of [original, second]) {
+    const row = card(rendered).querySelector(`[data-connection="${token.id}"]`)!;
+    expect(row.querySelector(".models-connection-name")?.textContent).toBe(token.label);
+    expect(row.querySelector(`[data-menu="connection-${token.id}"]`)?.getAttribute("aria-label")).toContain(
+      token.label,
+    );
+  }
+});
+
 test.each([true, false])(
   "a named Settings visit hides the old Claude connection (status succeeds: %s)",
   async (succeeds) => {

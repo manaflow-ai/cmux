@@ -26,6 +26,8 @@ export type CloudStart = {
   home?: boolean;
   harness?: string;
   model?: string;
+  /** The Cloud picker made this selection independently of this Mac's selection. */
+  cloudOnly?: true;
   /** The permission mode picked before the first send (cloudModePick.ts); none: the machine's own start mode. */
   mode?: string;
   /** The picker's effort for `model`: the machine's agent starts on it (AgentPaneCloudStart `effort`). */
@@ -344,6 +346,7 @@ export async function startCloudChat(
   else if (start.home) params.home = true;
   if (start.harness) params.harness = start.harness;
   if (start.model) params.model = start.model;
+  if (start.cloudOnly) params.cloudOnly = true;
   // The mode picked for this start (cloudModePick.ts); the host starts the chat in it on the
   // person's own machine (AgentPaneCloudStart `mode`).
   if (start.mode) params.mode = start.mode;

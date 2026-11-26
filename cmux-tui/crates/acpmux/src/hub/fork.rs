@@ -314,15 +314,15 @@ impl Hub {
             }
             None => None,
         };
-        // These forks cannot carry a delivered model connection. Refuse before copying
+        // These forks do not carry the source's model connection. Refuse before copying
         // history that the new agent would otherwise replay on the machine's default.
         if !empty
             && target.is_none()
-            && matches!(
+            && ((matches!(
                 parent_meta.family.as_deref().unwrap_or(&parent_meta.harness),
                 "gemini" | "grok"
-            )
-            && (parent_meta.credential_withdrawn || self.has_delivered_credential(session))
+            ) && (parent_meta.credential_withdrawn || self.has_delivered_credential(session)))
+                || self.uses_local_chatgpt_plan(session).await)
         {
             return Err(super::credentials::credential_needed());
         }

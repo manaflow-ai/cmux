@@ -333,24 +333,23 @@ impl Chat {
 }
 
 /// cmux#45953: the owner's app warms the agent its coming start will run. acpmux gets the start's
-/// own folder, agent, model, workspace and credential, so the start that follows takes that agent;
+/// own folder, agent, model and workspace, so the start that follows takes that agent;
 /// the prewarm binds nothing, so the start still runs and binds the tab after it.
 #[test]
 fn the_owners_prewarm_hints_the_starts_own_agent_and_binds_nothing() {
     let mut chat = connect("prewarm-owner", AgentStartHost::OwnerCloud, false);
-    let warmed = chat.prewarm(env(TOKEN), json!("owner"));
+    let warmed = chat.prewarm(Value::Null, json!("owner"));
     assert_eq!(warmed["ok"], json!(true), "{warmed}");
     assert_eq!(warmed["data"]["accepted"], json!(true), "{warmed}");
-    assert!(!warmed.to_string().contains(TOKEN), "the answer never carries it");
     let hints = chat.sent("_acpmux/prewarm");
     assert_eq!(hints.len(), 1, "{hints:?}");
     let hint = &hints[0]["params"];
     assert_eq!(hint["cwd"], json!(chat.cwd), "the folder acpmux's trust answer checked");
     assert_eq!(hint["harness"], json!("claude"));
     assert_eq!(hint["model"], json!("claude-sonnet-4-5"));
-    assert_eq!(hint["credentials"], env(TOKEN));
+    assert!(hint.get("credentials").is_none());
     // Nothing started or bound: the start runs as before.
-    let started = chat.start(env(TOKEN), json!("owner"));
+    let started = chat.start(Value::Null, json!("owner"));
     assert_eq!(started["ok"], json!(true), "the tab is still unbound: {started}");
     let new = chat.sent("session/new");
     assert_eq!(new.len(), 1, "{new:?}");
@@ -358,7 +357,6 @@ fn the_owners_prewarm_hints_the_starts_own_agent_and_binds_nothing() {
     let meta = &new[0]["params"]["_meta"]["acpmux"];
     assert_eq!(new[0]["params"]["cwd"], hint["cwd"]);
     assert_eq!(meta["harness"], hint["harness"]);
-    assert_eq!(meta["credentials"], hint["credentials"]);
     assert_eq!(meta.get("workspaceId"), hint.get("workspaceId"));
 }
 
@@ -401,6 +399,29 @@ fn a_guest_does_not_forward_saved_keys_to_the_unbound_pool() {
         assert_eq!(reply["data"]["accepted"], false, "{variable}");
     }
     assert!(chat.sent("_acpmux/prewarm").is_empty());
+}
+
+#[test]
+fn a_guest_only_takes_a_claude_setup_token_on_the_chat_start() {
+    for (label, variable) in [
+        ("prewarm-setup-token", "ANTHROPIC_AUTH_TOKEN"),
+        ("prewarm-legacy-token", "CLAUDE_CODE_OAUTH_TOKEN"),
+    ] {
+        let mut chat = connect(label, AgentStartHost::OwnerCloud, false);
+        let credential = json!({"env":{(variable):"sk-ant-oat-fixture"},
+            "connection":format!("claude-token:{}", "a".repeat(64))});
+        let warmed = chat.prewarm(credential.clone(), json!("owner"));
+        assert_eq!(warmed["ok"], true);
+        assert_eq!(warmed["data"]["accepted"], false, "{variable}");
+        assert!(chat.sent("_acpmux/prewarm").is_empty());
+
+        assert_eq!(chat.start(credential, json!("owner"))["ok"], true);
+        let starts = chat.sent("session/new");
+        assert_eq!(starts.len(), 1);
+        let sent = &starts[0]["params"]["_meta"]["acpmux"]["credentials"];
+        assert!(sent["env"].get(variable).is_some());
+        assert!(sent["connection"].as_str().is_some_and(|id| id.starts_with("claude-token:")));
+    }
 }
 
 #[test]

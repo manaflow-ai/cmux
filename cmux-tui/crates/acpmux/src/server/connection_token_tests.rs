@@ -382,6 +382,45 @@ async fn an_in_flight_cloud_start_cannot_use_a_replaced_key_after_new_consent() 
 }
 
 #[tokio::test]
+async fn the_daemon_schema_supplies_every_field_needed_to_disconnect() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut config = Config::default();
+    config.path = Some(dir.path().join("config.json"));
+    config.profile_sources = crate::config::ProfileSources::none();
+    config.profile_sources.cmux_json = Some(dir.path().join("cmux.json"));
+    let hub = hub_with_config(config);
+    let mut person = Rpc::connect(&hub, &Who::Person).await;
+    let added = person
+        .call(
+            method::MUX_CONNECTIONS_KEY_ADD,
+            json!({"provider": "google", "secret": "env:FIXTURE_KEY"}),
+        )
+        .await;
+    assert!(added.get("error").is_none(), "{added}");
+    let listed = person.call(method::MUX_CONNECTIONS, json!({})).await;
+    let row = listed["result"]["connections"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["id"] == "google-key")
+        .unwrap();
+    let schema = person.call(method::MUX_SCHEMA, json!({})).await;
+    let documented =
+        schema["result"]["methods"][method::MUX_CONNECTIONS_REMOVE]["params"].as_object().unwrap();
+    let fields = json!({"id": row["id"], "instance": row["credential_instance"].as_str().unwrap()});
+    let params = documented.keys().map(|field| (field.clone(), fields[field].clone())).collect();
+    let removed = person.call(method::MUX_CONNECTIONS_REMOVE, Value::Object(params)).await;
+    assert!(removed.get("error").is_none(), "{removed}");
+    assert!(
+        !removed["result"]["connections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["id"] == "google-key")
+    );
+}
+
+#[tokio::test]
 async fn claude_token_add_registers_a_reference_whose_value_only_the_person_reads() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("setup-token");

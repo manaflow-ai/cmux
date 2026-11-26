@@ -24,6 +24,9 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     public var repository: String?
     public var harness: String?
     public var model: String?
+    private var cloudOnly = false
+    /// A hybrid first turn reuses the Mac's composer selection and credentials.
+    public var allowsHybridStart: Bool { !cloudOnly && account == nil }
     /// The permission mode the person picked for the chat before its first send; nil: the machine's
     /// own start mode. The chat's machine applies it only when it is the caller's own (``seed(cwd:draft:)``).
     public var mode: String?
@@ -118,6 +121,7 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
         self.team = team
         self.replacesChat = replacesChat
         self.autoPlaced = params?["autoPlaced"] as? Bool == true
+        self.cloudOnly = params?["cloudOnly"] as? Bool == true
         self.mode = mode
         (self.effort, self.account) = (effort, account)
         self.attachments = attachments

@@ -1014,6 +1014,7 @@ export function drawPaneBody({
                                   snapshot.catalog.find((entry) => entry.id === agent)?.family,
                                   agent,
                                   machine ? machine.model : model,
+                                  machine !== undefined,
                                 );
                               })(),
                             },
