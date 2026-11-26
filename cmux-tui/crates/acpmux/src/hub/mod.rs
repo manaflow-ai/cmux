@@ -39,11 +39,10 @@ pub(crate) mod audit_log;
 mod auto_background;
 // Idle chats leave this machine on their own while it stays over budget (`autoEvacuate`).
 pub(crate) mod auto_evacuate;
-// What Auto mode asks of a chat (`auto_session/`): its work, its record, its freeze.
-mod auto_hold;
 // A holder gives a chat the person moved: its turn stopped as a move by hand stops one.
 mod auto_give;
-pub(crate) use auto_give::TurnStop;
+// What Auto mode asks of a chat (`auto_session/`): its work, its record, its freeze.
+mod auto_hold;
 pub(crate) mod auto_resume;
 mod away_recap;
 mod background_cause;
@@ -500,6 +499,7 @@ pub use crate::build_info::{build, install_build, version_line};
 pub(crate) use crate::turn_errors;
 pub use agent_pairs::PairGuard;
 pub use auto_background::AUTO_BACKGROUND_ENV;
+pub(crate) use auto_give::TurnStop;
 pub(crate) use auto_hold::{AUTO_AWAY, AUTO_CLIENT};
 pub use away_recap::RecapWriter;
 pub use bg_tasks::{BgScope, bg_owner_words};
