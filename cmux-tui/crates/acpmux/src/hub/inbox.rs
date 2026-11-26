@@ -1479,6 +1479,8 @@ impl Hub {
         let wakes_before_rule = (surge_on && fire_notice(provenance.and_then(|p| p.get("notice"))))
             || wakes_as(&meta_now, class, is_report(provenance), waited, sender_session.as_deref());
         // A chat on the coordinator list wakes only for a page (`inbox_page_rule.rs`).
+        // Read the catalog snapshot. Reload publishes page-rule names while holding the config
+        // writer, so inbox admission never guesses during a write and never waits on it.
         let page_rule_on = self.page_rule_lists(&meta_now.name);
         let continuing = self.continuation_pending(session);
         // It would sit in an idle chat's inbox until a flush: said in its acceptance, and a
