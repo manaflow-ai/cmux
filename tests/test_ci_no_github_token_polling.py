@@ -52,8 +52,6 @@ ALLOWED: dict[str, str] = {
         'retry only: cmux-tui-point-channel.sh compare_status tries 3 times 10 s apart after a failed read, then falls back to git',
     'ios-internal-nightly-trigger.yml: Dispatch the build':
         'retry only: ios_internal_builder.py _gh_api tries 4 times, 10/20/40 s apart, only after a failed call',
-    "cmux-next-ios-kit.yml: Wait for the Mac's simulator test build":
-        'waits on a step inside the kit job, which needs: cannot express: one jobs read every 60 s, at most 50 passes; a candidate for an App token',
     'cmux-next-pair-e2e-vm.yml: The cmux-tui client for this tree':
         'pushes to pair-e2e/** and dispatch only: pin-cmux-tui.sh probe waits for an active trusted publisher, two run reads every 10 s for at most 90 s, then re-checks once after 20 s',
     "ci-macos.yml: Wait for routed Linux preflight":

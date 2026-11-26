@@ -106,16 +106,17 @@ HOSTED_PREFLIGHT_JOBS: dict[str, str] = {}
 CMUX_LINUX_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"
 CMUX_LINUX_JOBS = ("resolve-nightly-ghostty-cli-helper", "resolve-nightly-cmux-tui-client",
                    "prepare-nightly-variant-primary", "prepare-nightly-variant", "await-nightly-tree-marker",
-                   "check-nightly-app-store-shelf", "published-build")
+                   "check-nightly-app-store-shelf", "report-nightly-shelf-red", "published-build")
 # RFD 0021 route by need: of those, the essential ones take the nightly's reserved label on the first run, before a rerun or loop retry.
 NIGHTLY_PINNED_JOBS = ("resolve-nightly-cmux-tui-client", "prepare-nightly-variant-primary", "prepare-nightly-variant",
                        "published-build")
 NIGHTLY_PINNED_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry == '') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}"
-# Post-feed dispatchers that hold App keys (#56483): they take the nightly's own Linux label, exactly the pinned
-# route above, so the keys stay off the nightly mini, and never a hosted or rented runner. job -> why.
-NIGHTLY_LINUX_KEY_JOBS = {
-    "wake-nightly-next-tick": "mints the cmux-bot App token and reads the CI pool keys to dispatch the next tick",
-    "dispatch-published-in": "dispatches the published-in record with wake-nightly-next-tick's App keys",
+# The post-feed dispatchers (#56483) mint App tokens (cmux-bot and the CI pools), so they left the nightly mini for the
+# same reserved-label route: the keys stay off the mini, and a refused dispatch moves to another installation's hour.
+# Unlike CMUX_LINUX_JOBS they hold a secret; their route is exactly NIGHTLY_PINNED_RUNS_ON. job -> why.
+NIGHTLY_LINUX_CONTROLS = {
+    "wake-nightly-next-tick": "dispatches main's nightly-next tick with App tokens (#56483)",
+    "dispatch-published-in": "dispatches the post-publication run with App tokens (#56483)",
 }
 # Jobs on our minis for nightly-next only. Every other track (classic, RC) goes to the JIT label (GitHub-hosted until
 # 2026-11-21) through this short-circuit, as before #38596: its release uploads may wait out the API rate limit for up to 360 min, which must
@@ -197,14 +198,14 @@ class EveryJobOnOurMinis(unittest.TestCase):
         for name, job in JOBS.items():
             if name in HOSTED_TAIL_JOBS or name in HOSTED_LOOP_JOBS or name in HOSTED_PREFLIGHT_JOBS or job.get("uses"):
                 continue
-            if name in NIGHTLY_LINUX_KEY_JOBS:
-                if workflow_jobs.runs_on_cells(job) != [NIGHTLY_PINNED_RUNS_ON]:
-                    failures[name] = "an App-key dispatcher takes only the nightly's pinned Linux route"
-                continue
             if name in CMUX_LINUX_JOBS:
                 expected = NIGHTLY_PINNED_RUNS_ON if name in NIGHTLY_PINNED_JOBS else CMUX_LINUX_RUNS_ON
                 if workflow_jobs.runs_on_cells(job) != [expected] or workflow_jobs.secret_names(job):
                     failures[name] = "a cmux-linux control takes only cmux-linux and holds no secret"
+                continue
+            if name in NIGHTLY_LINUX_CONTROLS:
+                if workflow_jobs.runs_on_cells(job) != [NIGHTLY_PINNED_RUNS_ON]:
+                    failures[name] = "a nightly Linux control takes only the reserved label, then cmux-linux"
                 continue
             # Each matrix cell (`${{ matrix.pool }}` read as its values) is a route of its own.
             cells, routes = workflow_jobs.runs_on_cells(job), manaflow_routes(name)
