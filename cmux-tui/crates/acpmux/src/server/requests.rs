@@ -2541,7 +2541,8 @@ async fn dispatch_request_with_identity(
                         supersede_set,
                         flag("steerOnly") == Some(true),
                         given_provenance,
-                    ),
+                    )
+                    && !crate::hub::inbox::watch_wake(&params),
             };
             // An unverified prompt names no other sender: its activity is counted as an
             // unnamed prompt's was (`prompt_provenance::is_unverified`).
