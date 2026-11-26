@@ -36,6 +36,8 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
 FILES = "https://files.cmux.com/cmux-tui/tree"
+# The CDN answers urllib's default User-Agent with 403 (as mac_update_replay.py and derived_data_replay.py note).
+USER_AGENT = "cmux-cas-replay-a1"
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TREE_KEY = os.path.join(ROOT, "scripts/ci/cmux_tui_tree_key.py")
 
@@ -45,7 +47,7 @@ def binary_url(key, target):
 
 
 def head_ok(url):
-    req = urllib.request.Request(url, method="HEAD")
+    req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
             return r.status == 200
@@ -88,7 +90,8 @@ def fetch(key, target, work, from_dir):
         shutil.copyfile(os.path.join(from_dir, key), path)
         return d
     tmp = path + ".part"
-    with urllib.request.urlopen(binary_url(key, target), timeout=600) as r, open(tmp, "wb") as f:
+    with urllib.request.urlopen(urllib.request.Request(binary_url(key, target), headers={"User-Agent": USER_AGENT}),
+                                timeout=600) as r, open(tmp, "wb") as f:
         shutil.copyfileobj(r, f, 1 << 20)
     os.replace(tmp, path)
     return d
@@ -172,7 +175,8 @@ def main():
 
     keys = a.keys.split(",") if a.keys else discover(a.rev, a.walk, a.count, a.target)
     if len(keys) < 2:
-        raise SystemExit(f"A1 needs two published builds; found {len(keys)} in {a.walk} commits of {a.rev}")
+        raise SystemExit(f"A1 needs two published builds; found {len(keys)} in {a.walk} commits of {a.rev}"
+                         f" (none answering 200 on {FILES} usually means the CDN refused the request: 403)")
     os.makedirs(a.work, exist_ok=True)
     dirs = [fetch(k, a.target, a.work, a.from_dir) for k in keys]
     bins = [os.path.join(d, "acpmux") for d in dirs]
