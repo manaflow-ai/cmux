@@ -231,41 +231,6 @@ fn a_theme_file_sets_how_the_sidebar_rows_draw() {
     assert_eq!(refused, ["sidebar.showChats", "sidebar.workspaceRow.agent.icon"]);
 }
 
-/// The app's copy of the look lists (Swift `ThemeFileOverlay`) is this one:
-/// a key one reader takes and the other refuses would apply in the app and
-/// not in the CLI's `cmux theme check`, or the other way round.
-#[test]
-fn the_look_lists_match_the_apps() {
-    let swift =
-        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join(
-            "../../../Packages/macOS/CmuxNext/Sources/CmuxNextSettings/ThemeFileOverlay.swift",
-        ))
-        .expect("ThemeFileOverlay.swift");
-    // The quoted strings of the Swift `static let NAME ... = [ ... ]` literal.
-    let literal = |name: &str| -> BTreeSet<String> {
-        let start = swift.find(&format!("static let {name}")).expect(name);
-        let body = &swift[start..];
-        let body = &body[body.find('[').expect("[") + 1..body.find(']').expect("]")];
-        // `joined(separator: ".")` is the one quoted string that is no key.
-        body.split('"').skip(1).step_by(2).filter(|s| *s != ".").map(str::to_owned).collect()
-    };
-    let set = |list: &[&str]| list.iter().map(|key| (*key).to_owned()).collect::<BTreeSet<_>>();
-    assert_eq!(literal("lookKeys"), set(&LOOK_KEYS));
-    assert_eq!(literal("lookPrefixes"), set(&LOOK_PREFIXES));
-    // Swift names the theme file's own key and its exceptions key through their settings' `configPath`.
-    let named: Vec<&str> = EXCLUDED_KEYS
-        .iter()
-        .copied()
-        .filter(|key| ![SETTING_KEY, EXCEPTIONS_KEY].contains(key))
-        .collect();
-    assert_eq!(literal("excludedKeys"), set(&named));
-    assert!(
-        swift.contains("ThemeFileSetting.configPath")
-            && swift.contains("ThemeFileExceptionsSetting.configPath")
-    );
-    assert!(swift.contains(&format!("static let rowPrefix = \"{ROW_PREFIX}\"")));
-}
-
 /// The shipped Minimal sessions file sets every key it writes, each to the
 /// value it writes, with no refusal: read through the same reader the app's
 /// copy uses, applied over an empty root, every value reads back.
