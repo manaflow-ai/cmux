@@ -285,7 +285,18 @@ pub(crate) fn dir_size(dir: &std::path::Path, max: usize) -> (u64, bool) {
 pub(crate) fn scan(manager: &str, known: &mut BTreeMap<String, Known>) -> (Vec<Sample>, bool) {
     let read = |p: &str| std::fs::read_to_string(p).ok();
     let (mut samples, mut pids_read, mut truncated) = (Vec::new(), 0usize, false);
-    for slice in [crate::session_scope::SESSIONS_SLICE, crate::agent_host::scope::HOST_SLICE] {
+    let mut slices: Vec<String> =
+        [crate::session_scope::SESSIONS_SLICE, crate::agent_host::scope::HOST_SLICE]
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+    // Each session's own slice (`session_total.rs`) holds its scopes under the sessions slice.
+    slices.extend(
+        crate::session_total::session_slices(manager)
+            .into_iter()
+            .map(|(name, _)| format!("{}/{name}", crate::session_scope::SESSIONS_SLICE)),
+    );
+    for slice in &slices {
         let Ok(entries) = std::fs::read_dir(format!("{manager}/{slice}")) else { continue };
         for e in entries.flatten() {
             let name = e.file_name().to_string_lossy().into_owned();
@@ -391,15 +402,15 @@ pub(crate) fn read_ledger(home: &std::path::Path) -> Vec<StoppedGroup> {
 pub(crate) fn write_ledger(home: &std::path::Path, groups: &[StoppedGroup]) -> std::io::Result<()> {
     let path = home.join(LEDGER);
     if groups.is_empty() {
-        return match std::fs::remove_file(&path) {
+        return match crate::home_fs::remove_file(&path) {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
             _ => Ok(()),
         };
     }
-    std::fs::create_dir_all(home)?;
+    crate::home_fs::create_dirs(home)?;
     let tmp = home.join(format!("{LEDGER}.tmp"));
-    std::fs::write(&tmp, serde_json::to_vec(groups).map_err(std::io::Error::other)?)?;
-    std::fs::rename(&tmp, &path)
+    crate::home_fs::write(&tmp, serde_json::to_vec(groups).map_err(std::io::Error::other)?)?;
+    crate::home_fs::rename(&tmp, &path)
 }
 
 /// Whether a process of group `pgid` is still in `scope` under `manager` (`manager_dir`): a

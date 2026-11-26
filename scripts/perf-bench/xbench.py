@@ -488,7 +488,7 @@ class CmuxBrowser(Browser):
         config = os.path.join(profile, "cmux.json")
         if not os.path.exists(config):
             with open(config, "w") as handle:
-                json.dump({"updates": {"checkAutomatically": False, "downloadAutomatically": False}}, handle)
+                json.dump({"updates": {"automatic": "off"}}, handle)
         env = {"HOME": home, "CFFIXED_USER_HOME": home, "USER": os.environ.get("USER", ""), "TMPDIR": tmp + "/",
                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1",
                "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": config,

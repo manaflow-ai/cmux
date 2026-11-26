@@ -1,11 +1,12 @@
 //! `cmux vm new --provider freestyle|gcp`: which provider makes the VM (cmuxterm-hq RFD 0016,
 //! row ec576b0815). `freestyle` (or no `--provider`) is today's `cmux vm new`: the app's Cloud
-//! create, or the VM API, as [`super::vm::new_route`] picks. `gcp` is our own Compute Engine
-//! capacity (the CI builder pool, lanes until they move), never a customer's machine: it sends
+//! create, or the VM API, as [`super::vm::new_route`] picks. `gcp` makes the machine in the
+//! team's own GCP project, the pool a team admin connected with `cmux cloud provider gcp set`
+//! (cloud_provider.rs; bring your own cloud), or, for a team with no pool, in our own Compute
+//! Engine capacity when the deployment's `CLOUD_GCE_TEAMS` names it. It sends
 //! `cloud.machine.create` with `kind: "fleet"` and `provider: "gcp"` straight to the cmux API,
-//! headless, and CloudDO makes it only for a team its deployment's `CLOUD_GCE_TEAMS` names
-//! (cmux-platform `src/server/cloud/domain/Cloud.ts` create; otherwise
-//! `cloud.provider.unavailable`).
+//! headless (cmux-platform `src/server/cloud/domain/Cloud.ts` create; otherwise
+//! `cloud.provider.unavailable`, or `cloud.provider.pool_full` at the pool's size).
 //!
 //! The cmux API, the credential and the team come from `--cloud-api` (or `CMUX_CLOUD_API_URL`),
 //! `--cloud-token-file` (or `CMUX_CLOUD_ACCESS_TOKEN`) and `--team` (or `CMUX_CLOUD_TEAM`), as
@@ -116,7 +117,7 @@ pub(super) fn parse(words: &[String]) -> Result<GcpNew, UsageError> {
             "--cloud-token-file" => command.credential_file = Some(value()?.into()),
             other => {
                 return Err(UsageError::new(format!(
-                    "{other} is not taken with --provider gcp: a GCP VM is our own fleet capacity, made through the cmux API; the app's and the VM API's options are Freestyle's\n{USAGE}"
+                    "{other} is not taken with --provider gcp: a GCP VM is made in the team's own GCP pool through the cmux API (cmux cloud provider gcp); the app's and the VM API's options are Freestyle's\n{USAGE}"
                 )));
             }
         }

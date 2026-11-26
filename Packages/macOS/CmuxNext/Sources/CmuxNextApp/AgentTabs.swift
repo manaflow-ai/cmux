@@ -236,6 +236,7 @@ final class AgentTabStore {
     var sessions: AgentTabMap<String> = .init()
     /// A tab's page now shows another acpmux session (its first, or a `chat.select` switch).
     var onTabSession: @MainActor () -> Void = {}
+    var firstSessionWaits: [String: @MainActor (String) -> Void] = [:] // by tab id: a hybrid Cloud send begins its move at the first session (``CloudHybridGUIStart``)
     /// The daemon created a remote chat, including its effective seed folder and harness.
     var onRemoteChatStarted: (@MainActor (String, String, String?, String?) -> Void)?
     /// The owner's model credentials: a Cloud chat's start sends the one its Cloud start chose (``CloudAgentCredentials``).
@@ -667,6 +668,7 @@ final class AgentTabStore {
             let switched = sessions[scopedKey] != session
             sessions[scopedKey] = session
             if switched { onTabSession() }
+            if let wait = firstSessionWaits.removeValue(forKey: key) ?? firstSessionWaits.removeValue(forKey: provisional) { wait(session) }
             // Another machine's store keeps its own record of the session: its daemon bound it at
             // the start, so no bind goes from here (cx-k21v). Its git reads go there (``gitLink``).
             if bindsHere(key, machine: scoped.machine) { sendSession(session, for: key, machine: scoped.machine) }

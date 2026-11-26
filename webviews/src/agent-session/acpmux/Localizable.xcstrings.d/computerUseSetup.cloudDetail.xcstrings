@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "computerUseSetup.cloudDetail" : {
+      "comment" : "Agent pane: the line under 'Computer use works in chats on this Mac' for a Cloud or Sandboxed chat; the message the person wrote stays in the composer",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تعمل هذه الدردشة على جهاز سحابي لا يمكنه استخدام التطبيقات على الـ Mac الخاص بك. ابدأ الدردشة على هذا الـ Mac لاستخدام هذه الميزة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ovaj chat radi na Cloud mašini, koja ne može koristiti aplikacije na tvom Macu. Pokreni chat na ovom Macu za korištenje računara."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denne chat kører på en Cloud-maskine, som ikke kan bruge apps på din Mac. Start chatten på denne Mac for at bruge computerbrug."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dieser Chat läuft auf einer Cloud-Maschine, die die Apps auf deinem Mac nicht verwenden kann. Starte den Chat auf diesem Mac, um die Computernutzung zu verwenden."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This chat runs on a Cloud machine, which can't use the apps on your Mac. Start the chat on this Mac to use computer use."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Este chat se ejecuta en una máquina en Cloud, que no puede usar las apps de tu Mac. Inicia el chat en este Mac para usar esta función."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ce chat s’exécute sur une machine Cloud, qui ne peut pas utiliser les apps de votre Mac. Démarrez le chat sur ce Mac pour utiliser cette fonction."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Questa chat è in esecuzione su una macchina Cloud, che non può usare le app del tuo Mac. Avvia la chat su questo Mac per usare questa funzione."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "このチャットは Cloud マシンで実行されているため、お使いの Mac のアプリを使えません。コンピュータ操作を使うには、この Mac でチャットを開始してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ការជជែកនេះដំណើរការលើម៉ាស៊ីន Cloud ដែលមិនអាចប្រើកម្មវិធីនៅលើ Mac របស់អ្នកបានទេ។ ចាប់ផ្ដើមការជជែកនៅលើ Mac នេះ ដើម្បីប្រើការប្រើកុំព្យូទ័រ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 채팅은 Cloud 머신에서 실행되므로 Mac의 앱을 사용할 수 없습니다. 컴퓨터 사용을 쓰려면 이 Mac에서 채팅을 시작하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denne chatten kjører på en Cloud-maskin, som ikke kan bruke appene på Macen din. Start chatten på denne Macen for å bruke datamaskinbruk."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ten czat działa na maszynie Cloud, która nie może używać aplikacji na Twoim Macu. Rozpocznij czat na tym Macu, aby korzystać z obsługi komputera."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Este chat roda em uma máquina na Cloud, que não pode usar os apps do seu Mac. Inicie o chat neste Mac para usar este recurso."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Этот чат работает на машине Cloud, которая не может использовать приложения на вашем Mac. Начните чат на этом Mac, чтобы использовать управление компьютером."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แชตนี้ทำงานบนเครื่อง Cloud ซึ่งใช้แอปบน Mac ของคุณไม่ได้ เริ่มแชตบน Mac เครื่องนี้เพื่อใช้การใช้คอมพิวเตอร์"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu sohbet, Mac'inizdeki uygulamaları kullanamayan bir Cloud makinesinde çalışıyor. Bilgisayar kullanımı için sohbeti bu Mac'te başlatın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Цей чат працює на машині Cloud, яка не може користуватися програмами на вашому Mac. Почніть чат на цьому Mac, щоб використовувати керування комп’ютером."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cuộc trò chuyện này chạy trên một máy Cloud, không thể dùng các ứng dụng trên máy Mac của bạn. Hãy bắt đầu cuộc trò chuyện trên máy Mac này để sử dụng máy tính."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此聊天运行在 Cloud 机器上，无法使用你 Mac 上的应用。要使用电脑操作，请在这台 Mac 上开始聊天。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此聊天在 Cloud 機器上執行，無法使用你 Mac 上的 App。若要使用電腦操作，請在這台 Mac 上開始聊天。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
