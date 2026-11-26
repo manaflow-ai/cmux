@@ -98,6 +98,7 @@ async fn a_missing_declared_attachment_file_fails_the_read() {
     std::fs::remove_file(folder.join(file_name("img-1", "data"))).unwrap();
     let error = read(&folder).unwrap_err();
     assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+    assert!(hub.draft_attachments(&s).await.is_err());
     let bundle = tempfile::tempdir().unwrap();
     assert!(hub.export_draft_attachments(&s, bundle.path()).is_err());
 
@@ -110,6 +111,25 @@ async fn a_missing_declared_attachment_file_fails_the_read() {
     let target_session = chat(&target, "target");
     assert!(target.import_draft_attachments(imported_bundle.path(), &target_session.id).is_err());
     assert!(target.draft_attachments(&target_session).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn an_unwritable_destination_refuses_the_import_and_preserves_the_source() {
+    let source_dir = tempfile::tempdir().unwrap();
+    let source = disk_hub(source_dir.path());
+    let session = chat(&source, "move-refused");
+    keep(&source, &session).await;
+    let bundle = tempfile::tempdir().unwrap();
+    source.export_draft_attachments(&session, bundle.path()).unwrap();
+
+    let target_dir = tempfile::tempdir().unwrap();
+    let target = disk_hub(target_dir.path());
+    target.store.save(&session.meta()).unwrap();
+    let folder = target.store.session_path("move-refused").unwrap().join(DIR);
+    std::fs::write(folder, b"not a directory").unwrap();
+    assert!(target.import_draft_attachments(bundle.path(), "move-refused").is_err());
+    let kept = source.draft_attachments(&session).await.unwrap();
+    assert_in_place(&source, &session, &kept);
 }
 
 /// Session switch (A, then B, then A again) and a pane move or second client: each chat reads

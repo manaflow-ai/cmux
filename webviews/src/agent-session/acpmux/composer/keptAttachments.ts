@@ -64,14 +64,15 @@ const handoffs = new Map<string, Promise<void>>();
 export function keepElsewhere(store: KeptAttachments, chat: string, chips: ComposerAttachment[]): Promise<void> {
   const release = holdWebSwap(() => "composer.attachments-unsaved");
   const next = (handoffs.get(chat) ?? Promise.resolve()).then(
-    () => new Promise<void>((resolve) => {
-      retryDraftOperation(async () => {
-        const kept = await store.read(chat);
-        await store.write(chat, appendAttachments(kept, chips));
-        release();
-        resolve();
-      });
-    }),
+    () =>
+      new Promise<void>((resolve) => {
+        retryDraftOperation(async () => {
+          const kept = await store.read(chat);
+          await store.write(chat, appendAttachments(kept, chips));
+          release();
+          resolve();
+        });
+      }),
   );
   handoffs.set(chat, next);
   void next.then(() => {
@@ -103,11 +104,14 @@ export function useKeptAttachments(
   carry.current = carrying;
   const previousChat = useRef<string | undefined>(undefined);
   // Picks made before the chat's read completes still belong to it if the user navigates away.
-  const restoring = useRef<{
-    sessionId: string;
-    inherited?: ComposerAttachment[];
-    picks: ComposerAttachment[];
-  } | undefined>(undefined);
+  const restoring = useRef<
+    | {
+        sessionId: string;
+        inherited?: ComposerAttachment[];
+        picks: ComposerAttachment[];
+      }
+    | undefined
+  >(undefined);
   /// Writes sent and not answered yet.
   const inFlight = useRef(0);
   /// Each chat's newest write, and the chats whose newest write the host refused (with what it held).

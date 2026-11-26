@@ -25,7 +25,10 @@ const hostKeptAttachments: KeptAttachments = {
     callNative<unknown>("chat.draftAttachments.get", { sessionId }).then(
       (kept) => (Array.isArray(kept) ? (kept as ComposerAttachment[]) : []),
       (error: unknown) => {
-        if (error instanceof NativeError && (error.code === "native.unsupported" || error.code === "cmux.protocol.unknown_op")) {
+        if (
+          error instanceof NativeError &&
+          (error.code === "native.unsupported" || error.code === "cmux.protocol.unknown_op")
+        ) {
           return [];
         }
         throw error;
