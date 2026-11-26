@@ -621,7 +621,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 tab_discard::respond(operation, request)?
             }
             operation if error_journal::handles(operation) => {
-                error_journal::respond(operation, request)?
+                error_journal::respond(operation, request, output_capacity)?
             }
             operation if window_rules::handles(operation) => {
                 window_rules::respond(operation, request)?
