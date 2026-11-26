@@ -1,5 +1,11 @@
 # cmux-next sidebar: owner note (frozen log: a new entry is its own file in [`plans/cmux-next/sidebar-owner/`](sidebar-owner/README.md))
 
+- 2026-11-19 (lane/look-proportions): Sidebar-Look: no visual change. Leo, 2026-11-19: "the layout and proportions as
+  well". A look (theme file) may set the rows' fill-to-edge inset, fill-to-content padding and gap
+  (`appearance.metrics.sidebarRowInset`, `sidebarRowPadding`, `sidebarRowGap`); `SidebarRowTuning.outerInset`,
+  `contentInset` and `rowGap` read them ahead of the density's tokens, so unset they derive exactly what they did.
+  Regression: `AALookProportionsGalleryTests.noKeyDrawsTodaysLayout`, `aLookAppliesAndComesOffLive`.
+
 - 2026-11-24 (lane/sidebar-thumb-scroll-only, ask-969743672d): Sidebar-Look: Leo, 2026-11-22: "to be honest, when
   hovering your mouse to the sidebar, do you want to see the thumb? claude code, you dont see it... unless you scroll
   first. hovering only doesnt show. this completely eliminates the problem where for us right now, when you're near
