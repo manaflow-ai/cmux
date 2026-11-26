@@ -4,7 +4,7 @@
 // - a subagent the harness refused to start (the concurrent subagent limit) is the parent's own
 //   failed tool call: its name and one short status, no Retry, ↺, ⋯ or "13ms";
 // - a row's controls on the line and in its ⋯ menu are disjoint: "Retry" never twice.
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, jest, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -22,6 +22,7 @@ import { SUBAGENT_DONE } from "../src/agent-session/acpmux/subagents/subagentRow
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { settleReact } from "./support/domTeardown";
+import { AUTO_RETRY_FIRST_MS } from "../src/agent-session/acpmux/autoRetry";
 
 const REFUSAL =
   "Concurrent subagent limit reached. You can run 40 subagents at once. Do not retry. If the user wants more concurrent subagents, ask them to increase CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS.";
@@ -201,9 +202,11 @@ test.each(
   const agent = ranAndFailed({ state, resumable: true });
   const resumed: string[] = [];
   const host = render([agent], affordance, {
+    // acpmux refuses the first ask `retry.busy` (a turn runs); the row asks again on its own
+    // (retryState.ts untilNotBusy), and the next answer is the refusal the note says.
     resumeAgent: async (target) => {
       resumed.push(target.id);
-      return "retry.busy";
+      return resumed.length === 1 ? "retry.busy" : "retry.running";
     },
   });
   const row = host.querySelector<HTMLElement>(".cv-subagent-done-row")!;
@@ -212,8 +215,17 @@ test.each(
   expect(button.getAttribute("aria-label")).toBe("Resume");
   expect(row.querySelectorAll(".cv-subagent-restart")).toHaveLength(1);
   expect(row.querySelector(".cv-subagent-retry, .cv-subagent-retry-link, [data-menu]")).toBeNull();
-  await act(async () => button.click());
-  expect(resumed).toEqual([agent.id]);
+  jest.useFakeTimers();
+  try {
+    await act(async () => button.click());
+    expect(resumed).toEqual([agent.id]);
+    // Busy is no one's decision: no "try again shortly" note while the row waits to ask again.
+    expect(row.querySelector(".cv-subagent-resume__note")).toBeNull();
+    await act(async () => void jest.advanceTimersByTime(AUTO_RETRY_FIRST_MS));
+  } finally {
+    jest.useRealTimers();
+  }
+  expect(resumed).toEqual([agent.id, agent.id]);
   expect(row.querySelector(".cv-subagent-resume__note")?.textContent).toBeTruthy();
   expect(button.disabled).toBe(false);
 });
