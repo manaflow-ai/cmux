@@ -126,7 +126,10 @@ pub(super) enum Control {
     /// A joined relay socket: one more carrier, beside UDP and TURN.
     /// `pending`: send the pending handshake initiation through it at once
     /// (both sides dial the relay first, so no reassert follows the join).
-    Relay { carrier: super::RelayCarrier, pending: bool },
+    Relay {
+        carrier: super::RelayCarrier,
+        pending: bool,
+    },
     /// Debug and tests: the relay socket dies, as a proxy that resets it.
     KillRelay,
 }
