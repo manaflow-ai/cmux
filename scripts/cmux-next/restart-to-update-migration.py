@@ -13,7 +13,11 @@ the app by itself. The check then reads, from the updated app, what the person h
   - the bundle and the running app are the feed's newest build (--to);
   - the windows: as many, the same workspace in each, each still visible;
   - the workspaces by name, and the terminal's process still alive with its output;
-  - every setting changed before the update reads the same value after it.
+  - every setting changed before the update reads the same value after it;
+  - the updated build pauses the automatic updater (its log says so, Sparkle's automatic check is off).
+
+report.json has relaunch_s (click to the new build's socket answering) and windows_back_s (click to every
+window back), the two numbers a stopwatch on the film reads.
 
 The whole run is filmed (screencapture -v) to --out/restart-to-update.mov, with report.json beside it.
 Host rules match scripts/cmux-next/update-e2e.py: an Aqua GUI session for this user, no cmux NEXT installed or
@@ -289,6 +293,14 @@ def main():
         report["relaunch_s"] = round(time.time() - clicked, 1)
         record("Sparkle relaunched the updated app by itself", bool(back), f"{report['relaunch_s']} s after the click")
         settled = wait(lambda: len(windows_seen(topology())) >= len(before["topology_windows"]) and topology(), 60, 0.5)
+        report["windows_back_s"] = round(time.time() - clicked, 1)
+        # Leo, 2026-11-24: "so pasuse the auto updateer for now". The updated build itself, not the PR: its
+        # updater logs the pause at start and keeps Sparkle's own automatic check off (AutomaticUpdatePause).
+        status = rpc("updates.status")
+        checks = run("defaults", "read", BUNDLE_ID, "SUEnableAutomaticChecks").stdout.strip()
+        report["pause"] = {"logged": "automatic updates paused" in json.dumps(status), "SUEnableAutomaticChecks": checks}
+        record("the updated build pauses the automatic updater", report["pause"]["logged"] and checks in ("0", "false"),
+               json.dumps(report["pause"]))
         time.sleep(3)
         topo = topology()
         after = {"topology_windows": windows_seen(topo), "workspaces": workspace_names(topo),

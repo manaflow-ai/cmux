@@ -11,12 +11,18 @@
 // Prints one JSON verdict line at the end (and writes it to --out when given).
 //
 //   bun scripts/cmux-next/cloud-fork-placement.ts [--backend staging] [--sign-in password|oidc]
-//       [--team TEAM] [--runs N] [--paused-runs N] [--duress N] [--out FILE] [--divergence]
+//       [--team TEAM] [--runs N] [--paused-runs N] [--duress N] [--out FILE] [--risky] [--divergence]
 //
 // --paused-runs N: N more runs after the timed ones, each pausing its parent (cloud.machine.pause, until it reads
 // paused) after the setup and forking the paused parent. The split drill measured the provider's own fork of a
 // paused parent at p95 4.0 s against 15.9 s for a running one (cmuxterm-hq docs/findings/2026-11-24-split-drill.md);
 // this arm asks whether the platform's fork sees the same. The verdict carries it as `paused` beside the running arm.
+//
+// --risky (RFD 0163 row 25, acpmux fork_risky.rs): "Fork first" before a risky step. The parent's
+// checkout gets uncommitted work; the fork is taken with a `risky-` clientKey, as the daemon takes it
+// before it lets the step run; then the step runs on the parent (`git reset --hard && git clean
+// -fdx`), and the run checks the parent lost the work and the copy, the checkpoint, kept it.
+// `fork_call_ms` is then the time the person's Fork first holds the step.
 //
 // --divergence (cmux-platform Divergence.ts, the dirty-byte meter): after parity, wait for the copy's
 // baseline disk read, write DIVERGENCE_WRITE_MB on the copy, wait past one periodic read, pause the copy
@@ -52,6 +58,30 @@ const arg = (name: string, fallback?: string) => {
 const MARKER = "/tmp/cmux-fork-marker";
 const REPO = "/tmp/cmux-fork-repo";
 const COUNTER = "/tmp/cmux-fork-counter";
+const WORK = `${REPO}/uncommitted-work.txt`;
+
+/** --risky: uncommitted work in the checkout, which the risky step drops. Prints its sha256. */
+export function dirtyCommand(nonce: string): string {
+  return [`printf '%s' 'work-${nonce}' > ${WORK}`, `echo "work=$(sha256sum ${WORK} | cut -d' ' -f1)"`].join("\n");
+}
+
+/** The risky step the person allows after Fork first: drops every uncommitted change. */
+export const RISKY_STEP = `cd ${REPO} && git reset -q --hard && git clean -qfdx`;
+
+/** The work file's sha256 now, or empty when it is gone. */
+export function workCommand(): string {
+  return `echo "work=$(sha256sum ${WORK} 2>/dev/null | cut -d' ' -f1)"`;
+}
+
+/** cmux-platform's answer for a machine it does not know (yet). */
+export function notFound(status: number, body: any): boolean {
+  return status === 404 && (body?.code === "machine.not_found" || body?._tag === "MachineNotFound");
+}
+
+/** Whether the checkpoint held: the parent lost the work and the copy kept it. */
+export function checkpointKept(before: string | undefined, parent: string | undefined, copy: string | undefined) {
+  return { parent_lost_work: !!before && !parent, copy_kept_work: !!before && copy === before };
+}
 
 export type Parity = { marker: boolean; head: boolean; process_alive: boolean; process_counting: boolean };
 export type RunRow = {
@@ -71,6 +101,10 @@ export type RunRow = {
   /** --paused-runs: the parent was paused before the fork; pause_ms is the pause op until it read paused. */
   parent_paused?: boolean;
   pause_ms?: number | null;
+  /** How many times the fork answered 404 machine.not_found before it answered for good. */
+  fork_not_found_retries?: number;
+  /** --risky only: the step's exit on the parent and whether the copy kept what it dropped. */
+  risky?: { step_exit: number; parent_lost_work: boolean; copy_kept_work: boolean } | null;
   /** --split: the fork's steps done one at a time on the same parent (see splitPhases). */
   split?: SplitRow | null;
   /** The copy's create trace (GET /v1/machines/{id}?include=trace): where its restore's time went. */
@@ -206,7 +240,8 @@ export function armSummary(rows: RunRow[]) {
 }
 
 export function verdict(rows: RunRow[], meta: Record<string, unknown>) {
-  const ok = rows.filter((r) => r.parity && Object.values(r.parity).every(Boolean) && (r.divergence === undefined || r.divergence?.billed_as_diverged === true));
+  const kept = (r: RunRow) => r.risky === undefined || (!!r.risky && r.risky.step_exit === 0 && r.risky.parent_lost_work && r.risky.copy_kept_work);
+  const ok = rows.filter((r) => r.parity && Object.values(r.parity).every(Boolean) && kept(r) && (r.divergence === undefined || r.divergence?.billed_as_diverged === true));
   const nums = (k: "fork_call_ms" | "fork_to_first_exec_ms") => rows.map((r) => r[k]).filter((v): v is number => typeof v === "number");
   return {
     kind: "cloud-fork-placement",
@@ -317,6 +352,7 @@ async function main(): Promise<number> {
   const pausedRuns = Math.max(0, Math.min(10, Number(arg("--paused-runs", "0"))));
   const divergence = process.argv.includes("--divergence");
   const team = arg("--team") || undefined;
+  const risky = process.argv.includes("--risky");
   const secrets: string[] = [];
   const api = new Api(backend.api, team);
   if (arg("--sign-in", "password") === "oidc") api.bearer = (await oidcSignIn(backend.api, process.env, secrets)).token;
@@ -348,7 +384,7 @@ async function main(): Promise<number> {
   const rows: RunRow[] = [];
   for (let run = 1; run <= runs + pausedRuns; run++) {
     const paused = run > runs;
-    const row: RunRow = { run, parent: null, child: null, parent_ready_ms: null, fork_call_ms: null, fork_status: null, fork_to_first_exec_ms: null, parity: null, child_cost: null, agent: "not tried", error: null, cleanup: [] };
+    const row: RunRow = { run, parent: null, child: null, parent_ready_ms: null, fork_call_ms: null, fork_status: null, fork_to_first_exec_ms: null, parity: null, child_cost: null, agent: "not tried", error: null, cleanup: [], ...(risky ? { risky: null } : {}) };
     try {
       if (run > 1) await renewToken();
       const t0 = Date.now();
@@ -364,6 +400,12 @@ async function main(): Promise<number> {
       const before = facts(setup.stdout);
       const expect = createHash("sha256").update(nonce).digest("hex");
       if (before.marker !== expect) throw new Error(`the parent's marker is not the nonce's sha256 (${before.marker})`);
+      let work: string | undefined;
+      if (risky) {
+        const dirty = await parentExec(dirtyCommand(nonce), 30_000);
+        work = facts(dirty.stdout).work;
+        if (!work) throw new Error(`no uncommitted work on the parent: exit ${dirty.code}`);
+      }
       if (paused) {
         row.parent_paused = true;
         const p0 = Date.now();
@@ -371,16 +413,39 @@ async function main(): Promise<number> {
         await waitMachine(api, row.parent, (m) => m?.status === "paused", 180_000);
         row.pause_ms = Date.now() - p0;
       }
-      const f0 = Date.now();
-      const forked = await http("POST", `${platform}/v1/machines/${encodeURIComponent(row.parent)}/fork`, { clientKey: `${tag}-fork-${run}` }, platformHeaders(), 180_000, true);
+      const clientKey = risky ? `risky-${tag}-${run}` : `${tag}-fork-${run}`;
+      // cmux-platform answered 404 machine.not_found for a parent the API had just reported running, on runs
+      // 1, 3 and 5 of run 45456177673: it had not learned the machine yet. Ask again with the same clientKey
+      // (idempotent) for up to 60 s; fork_call_ms times the call that answered, fork_not_found_retries counts.
+      let forked: Awaited<ReturnType<typeof http>>;
+      let f0 = Date.now();
+      const deadline = Date.now() + 60_000;
+      row.fork_not_found_retries = 0;
+      for (;;) {
+        f0 = Date.now();
+        forked = await http("POST", `${platform}/v1/machines/${encodeURIComponent(row.parent)}/fork`, { clientKey }, platformHeaders(), 180_000, true);
+        if (!notFound(forked.status, forked.body) || Date.now() > deadline) break;
+        row.fork_not_found_retries++;
+        await new Promise((r) => setTimeout(r, 3_000));
+      }
       row.fork_call_ms = Date.now() - f0;
       row.fork_status = forked.status;
       if (forked.status !== 200 || typeof forked.body?.id !== "string") throw new Error(`fork: HTTP ${forked.status} ${JSON.stringify(forked.body).slice(0, 300)}`);
       row.child = forked.body.id as string;
       const childExec = directExec(api, row.child, journey);
+      if (risky) {
+        // The fork answered: the person's allow goes through now, and the step runs on the parent.
+        const step = await parentExec(RISKY_STEP, 60_000);
+        const left = facts((await parentExec(workCommand(), 30_000)).stdout).work;
+        row.risky = { step_exit: step.code, ...checkpointKept(work, left, undefined) };
+      }
       row.fork_to_first_exec_ms = row.fork_call_ms + (await firstExec(childExec, 180_000));
       const after = await childExec(parityCommand(), 60_000);
       row.parity = parity(before, facts(after.stdout));
+      if (row.risky) {
+        const kept = facts((await childExec(workCommand(), 30_000)).stdout).work;
+        row.risky = { ...row.risky, copy_kept_work: checkpointKept(work, undefined, kept).copy_kept_work };
+      }
       // An agent on the copy: the cheap check is that the guest's acpmux answers there.
       const agent = await childExec("command -v acpmux >/dev/null && acpmux ls >/dev/null 2>&1 && echo up || echo down", 30_000).catch((e) => ({ code: 1, stdout: "", stderr: String((e as Error).message) }));
       row.agent = agent.stdout.includes("up") ? "acpmux answers on the copy" : `acpmux did not answer: ${(agent.stderr || agent.stdout).slice(0, 200)}`;
@@ -467,7 +532,7 @@ async function main(): Promise<number> {
   const running = rows.filter((r) => !r.parent_paused);
   const pausedRows = rows.filter((r) => r.parent_paused);
   const v = {
-    ...verdict(running, { backend: backend.name, platform, at: new Date().toISOString(), ...(divergence ? { mode: "divergence" } : {}) }),
+    ...verdict(running, { backend: backend.name, platform, at: new Date().toISOString(), mode: divergence ? "divergence" : risky ? "risky" : "placement" }),
     ...(pausedRows.length ? { paused: armSummary(pausedRows) } : {}),
     ...(duress ? { duress: { ...duress, fork_call_p50: median(duress.fork_call_ms), fork_call_p95: p95(duress.fork_call_ms), first_exec_p50: median(duress.fork_to_first_exec_ms), first_exec_p95: p95(duress.fork_to_first_exec_ms) } } : {}),
   };

@@ -48,13 +48,16 @@ extension SettingsController {
         _ = try? await migrateComputerUseDeniedApps() // a copy of the earlier default deny list drops the terminals and cmux
         // Classic cmux keys next reads under another name (`ClassicSettingRename`).
         _ = try? await migrateClassicSettings()
-        // Shortcuts and settings classic cmux's Settings kept in its preferences (`ClassicShortcutImport`, `ClassicPreferenceImport`).
-        _ = try? await importClassicShortcuts(marker: marker)
-        _ = try? await importClassicPreferences(marker: marker)
         // Last, so a value the steps above moved counts too.
         _ = try? await forgetStoredDefaults(marker: marker)
         _ = try? await restoreWronglyForgottenDefaults()
         _ = try? await dropStrayNulls(marker: marker)
+    }
+
+    /// Import values that Classic kept outside its config file, after the person accepts the import.
+    public func importClassicDefaults(marker: UserDefaults) async throws {
+        try await importClassicShortcuts(marker: marker)
+        try await importClassicPreferences(marker: marker)
     }
 
     /// The record `restoreWronglyForgottenDefaults` keeps beside the file; it also marks that it ran.
@@ -224,4 +227,28 @@ extension SettingsController {
         if !result.removed.isEmpty { await reloadAfterWrite() }
         return result
     }
+}
+
+extension SettingsController {
+    /// Imports Classic's config after the person confirms. The marker makes this a durable
+    /// one-time action while a nonempty NEXT file keeps its values and receives only missing
+    /// Classic keys. The copied document then goes through the normal Classic key migration.
+    public func importClassicConfig(
+        marker: UserDefaults,
+        classicURL: URL? = nil,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) async throws {
+        guard !marker.bool(forKey: Self.classicConfigImportedKey) else { return }
+        let classic = classicURL ?? CmuxConfigFile.classicURL(environment: environment)
+        let edits = try await file.missingClassicSettings(from: classic)
+        if !edits.isEmpty {
+            _ = try await file.setUnset(edits)
+            await reloadAfterWrite()
+        }
+        _ = try await migrateClassicSettings()
+        marker.set(true, forKey: Self.classicConfigImportedKey)
+    }
+
+    /// The per-user marker for the confirmed Classic config import.
+    static let classicConfigImportedKey = "classicConfigImported.1"
 }

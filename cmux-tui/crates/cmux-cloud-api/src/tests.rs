@@ -13,7 +13,8 @@ use serde_json::{Value, json};
 use super::fork_runs::fork_children;
 use super::http::{base_url, vm_error};
 use super::owner::{
-    github_app_state, github_repo_list, handoff_turn, harness_login_copy, is_handoff_id,
+    clone_token, github_app_state, github_repo_list, handoff_turn, harness_login_copy,
+    is_full_name, is_handoff_id, is_installation_token,
 };
 use super::*;
 
@@ -443,6 +444,64 @@ fn an_unsafe_platform_scp_endpoint_or_refusal_is_not_answered() {
     );
 }
 
+#[test]
+fn a_desktop_setup_is_the_platforms_desktop_route_never_classic() {
+    let (origin, seen) = fake(|_| ok(r#"{"ok":true}"#));
+    let args = json!({ "id": VM });
+    let answer =
+        go(&request(&origin, Auth::Worker, "machine.setup_desktop", args.clone())).unwrap();
+    assert_eq!(answer, json!({ "ok": true }));
+    {
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0].target(), format!("POST /v1/cloud/machines/{VM}/desktop"));
+        assert!(seen[0].body.is_empty(), "the route takes no body");
+        assert_eq!(seen[0].header("authorization").as_deref(), Some("Bearer access"));
+        assert_eq!(seen[0].header("x-cmux-team").as_deref(), Some("team-1"));
+        assert_eq!(seen[0].header("x-stack-refresh-token"), None);
+    }
+    // A classic session and an id that is not a Worker machine's send nothing.
+    assert!(matches!(
+        go(&request(&origin, Auth::Stack, "machine.setup_desktop", args)),
+        Err(Failure::Transport(_))
+    ));
+    let bad_id = json!({ "id": "vm_x/../../api/vm" });
+    assert!(matches!(
+        go(&request(&origin, Auth::Worker, "machine.setup_desktop", bad_id)),
+        Err(Failure::Transport(_))
+    ));
+    assert_eq!(seen.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn a_desktop_setup_refusal_reads_as_a_machine_routes() {
+    let args = json!({ "id": VM });
+    // A plan refusal is the typed one the app shows its Upgrade dialog for.
+    let (origin, _) = fake(|_| {
+        Some((402, r#"{"error":"vm_active_limit_exceeded","message":"Cloud VMs require a cmux Pro subscription.","limit":0,"upgradeRequired":true,"upgradeUrl":"https://cmux.com/pricing"}"#.into()))
+    });
+    let failure =
+        go(&request(&origin, Auth::Worker, "machine.setup_desktop", args.clone())).unwrap_err();
+    assert!(matches!(failure, Failure::PlanRequired { .. }), "{failure:?}");
+    let (origin, _) = fake(|_| {
+        Some((
+            409,
+            r#"{"ok":false,"error":{"code":"machine.not_running","message":"Start it first."}}"#
+                .into(),
+        ))
+    });
+    assert_eq!(
+        go(&request(&origin, Auth::Worker, "machine.setup_desktop", args.clone())),
+        Err(Failure::http(409, Some("machine.not_running".into()), Some("Start it first.".into())))
+    );
+    // A 2xx that is not the route's `{ok}` is no answer.
+    let (origin, _) = fake(|_| ok("[]"));
+    assert!(matches!(
+        go(&request(&origin, Auth::Worker, "machine.setup_desktop", args)),
+        Err(Failure::Decoding(_))
+    ));
+}
+
 // MARK: owner routes
 
 #[test]
@@ -785,6 +844,27 @@ fn only_a_team_id_reaches_the_github_status_url_and_no_team_header_is_sent() {
 }
 
 #[test]
+fn the_github_status_answers_its_route_status_and_body_only_when_asked_raw() {
+    let body =
+        r#"{"configured":true,"app_slug":"cmux","connection":{"status":"active","repos":null}}"#;
+    let (origin, _) = fake(move |_| ok(body));
+    let args = json!({ "team": "team_01HZX9", "raw": true });
+    let answer = go(&request(&origin, Auth::Owner, "owner.github_app", args)).unwrap();
+    assert_eq!(
+        answer,
+        json!({ "state": "ready", "status": 200, "body": serde_json::from_str::<Value>(body).unwrap() })
+    );
+    let (origin, _) = fake(|_| Some((502, "<html>".into())));
+    let args = json!({ "team": "team_01HZX9", "raw": true });
+    let answer = go(&request(&origin, Auth::Owner, "owner.github_app", args)).unwrap();
+    assert_eq!(answer, json!({ "state": "unknown", "status": 502, "body": null }));
+    // No answer at all is only `unknown`: the app reads no status.
+    let args = json!({ "team": "team_01HZX9", "raw": true });
+    let answer = go(&request("http://127.0.0.1:9", Auth::Owner, "owner.github_app", args)).unwrap();
+    assert_eq!(answer, json!({ "state": "unknown" }));
+}
+
+#[test]
 fn the_github_repository_list_sends_only_the_team_and_filter_and_reads_each_row() {
     let body = r#"{"repos":[{"full_name":"acme/web","private":true,"default_branch":"main"},{"full_name":"acme/api","private":false,"default_branch":null}],"truncated":true,"cursor":"eyJj"}"#;
     let (origin, seen) = fake(move |_| ok(body));
@@ -793,8 +873,8 @@ fn the_github_repository_list_sends_only_the_team_and_filter_and_reads_each_row(
     assert_eq!(
         answer,
         json!({ "repos": [
-            { "full_name": "acme/web", "private": true, "default_branch": "main" },
-            { "full_name": "acme/api", "private": false, "default_branch": null },
+            { "full_name": "acme/web", "private": true, "default_branch": "main", "size_kb": null },
+            { "full_name": "acme/api", "private": false, "default_branch": null, "size_kb": null },
         ], "truncated": true, "cursor": "eyJj" })
     );
     // Refused before any request: no team id, a filter that is not text, a cursor that is no cursor.
@@ -846,22 +926,65 @@ fn a_team_with_no_github_connection_lists_as_github_not_connected() {
 }
 
 #[test]
-fn a_repository_list_with_a_row_that_is_not_one_is_no_list() {
-    for bad in [
-        json!({}),
-        json!({ "repos": [{ "full_name": "web", "private": true }] }),
-        json!({ "repos": [{ "full_name": "a/b/c", "private": true }] }),
-        json!({ "repos": [{ "full_name": "a/b" }] }),
-        json!({ "repos": [{ "full_name": "a/b", "private": false, "default_branch": 1 }] }),
-        json!({ "repos": [], "cursor": 7 }),
-    ] {
+fn a_repository_list_drops_each_row_that_is_not_one_and_needs_its_repos() {
+    for bad in [json!({}), json!({ "repos": {} }), json!({ "error": { "code": "x" } })] {
         assert_eq!(github_repo_list(&bad), None, "{bad}");
     }
+    let body = json!({ "repos": [
+        { "full_name": "web", "private": true },
+        { "full_name": "a/b/c", "private": true },
+        { "full_name": "-a/b" },
+        { "full_name": "a/.git" },
+        7,
+        { "full_name": "a/b" },
+        { "full_name": "a/c", "private": false, "default_branch": 1, "size_kb": 12 },
+        { "full_name": "a/d", "default_branch": "", "size_kb": -1 },
+        { "full_name": "a/e", "default_branch": "x".repeat(256), "size_kb": 2_147_483_647_i64 },
+    ], "cursor": 7 });
+    assert_eq!(
+        github_repo_list(&body),
+        Some(json!({ "repos": [
+            { "full_name": "a/b", "private": true, "default_branch": null, "size_kb": null },
+            { "full_name": "a/c", "private": false, "default_branch": null, "size_kb": 12 },
+            { "full_name": "a/d", "private": true, "default_branch": null, "size_kb": null },
+            { "full_name": "a/e", "private": true, "default_branch": null, "size_kb": null },
+        ], "truncated": false, "cursor": null }))
+    );
     // An answer without `truncated` reads it from the cursor.
     assert_eq!(
         github_repo_list(&json!({ "repos": [], "cursor": "c" })),
         Some(json!({ "repos": [], "truncated": true, "cursor": "c" }))
     );
+}
+
+#[test]
+fn a_full_name_is_githubs_owner_and_name() {
+    for good in [
+        "a/b",
+        "acme-co/web.app_2",
+        "a1/.github",
+        &format!("{}/{}", "o".repeat(39), "n".repeat(100)),
+    ] {
+        assert!(is_full_name(good), "{good}");
+    }
+    for bad in [
+        "",
+        "a",
+        "a/",
+        "/b",
+        "a/b/c",
+        "-a/b",
+        "a-/b",
+        "a_b/c",
+        "a/.",
+        "a/..",
+        "a/.git",
+        "a/b c",
+        &format!("{}/b", "o".repeat(40)),
+        &format!("a/{}", "n".repeat(101)),
+    ] {
+        assert!(!is_full_name(bad), "{bad}");
+    }
 }
 
 #[test]
@@ -902,6 +1025,182 @@ fn connect_github_asks_integration_connect_in_the_named_team_and_answers_the_ins
             Some("github is not configured on this deployment".into())
         ))
     );
+}
+
+#[test]
+fn connect_github_sends_the_apps_return_link_and_key_in_the_requests_team() {
+    let (origin, seen) = fake(|_| {
+        ok(
+            r#"{"ok":true,"value":{"connection":{"id":"conn_1"},"authorize_url":"https://github.com/apps/cmux/installations/new?state=s"}}"#,
+        )
+    });
+    let args = json!({ "idempotencyKey": "6F9619FF-8B86-D011-B42D-00C04FC964FF:plain", "returnTo": "cmux-dev+x://integration/complete" });
+    go(&request(&origin, Auth::Owner, "owner.github_connect", args)).unwrap();
+    for args in [
+        json!({ "returnTo": "https://evil.example/integration/complete" }),
+        json!({ "returnTo": "1cmux://integration/complete" }),
+        json!({ "returnTo": "cmux://integration/complete?x=1" }),
+        json!({ "idempotencyKey": "a b" }),
+    ] {
+        let refused = go(&request(&origin, Auth::Owner, "owner.github_connect", args.clone()));
+        assert!(matches!(refused, Err(Failure::Transport(_))), "{args}");
+    }
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.len(), 1);
+    assert_eq!(seen[0].header("x-cmux-team").as_deref(), Some("team-1"));
+    assert_eq!(
+        seen[0].json(),
+        json!({ "op": "integration.connect", "params": { "provider": "github", "return_to": "cmux-dev+x://integration/complete" }, "origin": "user", "idempotency_key": "6F9619FF-8B86-D011-B42D-00C04FC964FF:plain" })
+    );
+}
+
+#[test]
+fn connect_github_for_a_repository_sends_it_and_answers_connected_when_a_connection_covers_it() {
+    let (origin, seen) = fake(|_| {
+        ok(
+            r#"{"ok":true,"value":{"connection":{"id":"conn_1","status":"active"},"connected":true}}"#,
+        )
+    });
+    let args = json!({ "idempotencyKey": "key-1", "repo": "manaflow-ai/cmux" });
+    let answer = go(&request(&origin, Auth::Owner, "owner.github_connect", args)).unwrap();
+    assert_eq!(answer, json!({ "connected": true, "connection": "conn_1" }));
+    for repo in ["manaflow-ai", "a/b/c", "../x"] {
+        let args = json!({ "idempotencyKey": "key-1", "repo": repo });
+        let refused = go(&request(&origin, Auth::Owner, "owner.github_connect", args));
+        assert!(matches!(refused, Err(Failure::Transport(_))), "{repo}");
+    }
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.len(), 1);
+    assert_eq!(
+        seen[0].json(),
+        json!({ "op": "integration.connect", "params": { "provider": "github", "repo": "manaflow-ai/cmux" }, "origin": "user", "idempotency_key": "key-1" })
+    );
+
+    let (origin, _) = fake(|_| ok(r#"{"ok":true,"value":{"connected":true}}"#));
+    let args = json!({ "idempotencyKey": "key-1", "repo": "manaflow-ai/cmux" });
+    let refused = go(&request(&origin, Auth::Owner, "owner.github_connect", args));
+    assert!(matches!(refused, Err(Failure::Decoding(_))), "connected names no connection");
+}
+
+#[test]
+fn completing_github_posts_integration_complete_and_answers_the_routes_status_and_body() {
+    let (origin, seen) = fake(|_| {
+        Some((403, r#"{"ok":false,"error":{"code":"forbidden","message":"not yours"}}"#.into()))
+    });
+    let params = json!({ "state": "a.b.c", "code": "g1", "installation_id": "42" });
+    let args = json!({ "params": params, "idempotencyKey": "complete:a.b.c" });
+    let answer = go(&request(&origin, Auth::Owner, "owner.github_complete", args)).unwrap();
+    assert_eq!(
+        answer,
+        json!({ "status": 403, "body": { "ok": false, "error": { "code": "forbidden", "message": "not yours" } } })
+    );
+    for args in [
+        json!({ "params": { "code": "g1" }, "idempotencyKey": "k" }),
+        json!({ "params": { "state": 1 }, "idempotencyKey": "k" }),
+        json!({ "params": { "state": "a.b.c" }, "idempotencyKey": "k k" }),
+        json!({ "params": { "state": "a.b.c" } }),
+    ] {
+        let refused = go(&request(&origin, Auth::Owner, "owner.github_complete", args.clone()));
+        assert!(matches!(refused, Err(Failure::Transport(_))), "{args}");
+    }
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.len(), 1);
+    assert_eq!(seen[0].target(), "POST /v1/ops");
+    assert_eq!(seen[0].header("x-cmux-team").as_deref(), Some("team-1"));
+    assert_eq!(
+        seen[0].json(),
+        json!({ "op": "integration.complete", "params": params, "origin": "user", "idempotency_key": "complete:a.b.c" })
+    );
+    let (origin, _) = fake(|_| Some((200, "not json".into())));
+    let args = json!({ "params": { "state": "a.b.c" }, "idempotencyKey": "k" });
+    let answer = go(&request(&origin, Auth::Owner, "owner.github_complete", args)).unwrap();
+    assert_eq!(answer, json!({ "status": 200, "body": null }));
+}
+
+#[test]
+fn the_github_connection_list_says_whether_a_github_one_is_pending() {
+    let body = r#"{"ok":true,"value":{"connections":[{"provider":"slack","status":"pending"},{"provider":"github","status":"active"}]}}"#;
+    let (origin, seen) = fake(move |_| ok(body));
+    let answer = go(&request(&origin, Auth::Owner, "owner.github_list", json!({}))).unwrap();
+    assert_eq!(answer, json!({ "pending": false }));
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen[0].target(), "POST /v1/read");
+    assert_eq!(seen[0].header("x-cmux-team").as_deref(), Some("team-1"));
+    assert_eq!(seen[0].json(), json!({ "op": "integration.list", "params": {} }));
+    let (origin, _) =
+        fake(|_| ok(r#"{"value":{"connections":[7,{"provider":"github","status":"pending"}]}}"#));
+    let answer = go(&request(&origin, Auth::Owner, "owner.github_list", json!({}))).unwrap();
+    assert_eq!(answer, json!({ "pending": true }));
+    for (status, body) in [(200, r#"{"ok":false}"#), (200, r#"{"value":{}}"#), (500, "")] {
+        let (origin, _) = fake(move |_| Some((status, body.into())));
+        assert!(
+            go(&request(&origin, Auth::Owner, "owner.github_list", json!({}))).is_err(),
+            "{body}"
+        );
+    }
+}
+
+#[test]
+fn a_clone_token_is_asked_with_the_install_token_and_no_team_header_and_answers_only_the_token() {
+    let (origin, seen) = fake(|_| {
+        ok(
+            r#"{"token":"ghs_abc_123","repo":"Acme/Web","permissions":{"contents":"read","metadata":"read"},"expires_at":"x"}"#,
+        )
+    });
+    let args = json!({ "team": "team_01HZX9", "repo": "acme/web" });
+    let answer = go(&request(&origin, Auth::Owner, "owner.github_clone_token", args)).unwrap();
+    assert_eq!(answer, json!({ "token": "ghs_abc_123" }));
+    for args in [
+        json!({ "team": "team_01HZX9", "repo": "a/b/c" }),
+        json!({ "team": "x", "repo": "acme/web" }),
+        json!({ "repo": "acme/web" }),
+    ] {
+        let refused = go(&request(&origin, Auth::Owner, "owner.github_clone_token", args.clone()));
+        assert!(matches!(refused, Err(Failure::Transport(_))), "{args}");
+    }
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.len(), 1);
+    assert_eq!(seen[0].target(), "POST /v1/integrations/github/token");
+    assert_eq!(seen[0].header("authorization").as_deref(), Some("Bearer access"));
+    assert_eq!(seen[0].header("x-cmux-team"), None);
+    assert_eq!(
+        seen[0].json(),
+        json!({ "team": "team_01HZX9", "repo": "acme/web", "label": "cmux-local-clone", "permissions": { "contents": "read", "metadata": "read" } })
+    );
+    // A 2xx that is not a read token for that repository names no part of its body.
+    let (origin, _) = fake(|_| ok(r#"{"token":"ghs_abc","repo":"acme/other"}"#));
+    let args = json!({ "team": "team_01HZX9", "repo": "acme/web" });
+    match go(&request(&origin, Auth::Owner, "owner.github_clone_token", args)) {
+        Err(Failure::Decoding(message)) => assert!(!message.contains("ghs_"), "{message}"),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn a_clone_token_is_an_installation_token_for_that_repository_reading_only() {
+    let read = json!({ "contents": "read", "metadata": "read" });
+    let answer = |token: &str, repo: &str, permissions: Value| json!({ "token": token, "repo": repo, "permissions": permissions });
+    assert_eq!(
+        clone_token(Some(&answer("ghs_a", "acme/web", read.clone())), "ACME/web"),
+        Some("ghs_a")
+    );
+    assert_eq!(
+        clone_token(Some(&json!({ "token": "ghs_a", "repo": "acme/web" })), "acme/web"),
+        Some("ghs_a")
+    );
+    for bad in [
+        answer("ghp_a", "acme/web", read.clone()),
+        answer("ghs_a-b", "acme/web", read.clone()),
+        answer("ghs_a", "acme/api", read.clone()),
+        answer("ghs_a", "acme/web", json!({ "contents": "write" })),
+        answer("ghs_a", "acme/web", json!({ "issues": "read" })),
+        json!({ "token": "ghs_a" }),
+    ] {
+        assert_eq!(clone_token(Some(&bad), "acme/web"), None, "{bad}");
+    }
+    assert_eq!(clone_token(None, "acme/web"), None);
+    assert!(is_installation_token(&format!("ghs_{}", "a".repeat(251))));
+    assert!(!is_installation_token(&format!("ghs_{}", "a".repeat(252))));
 }
 
 // MARK: transport

@@ -54,10 +54,10 @@ extension TabStripView {
         hoveredID = id
         if let id { cells[id]?.isHovered = true }
         onHoverTab?(id)
+        goo?.hover(id, in: self)
     }
 
-    /// `moved`: a pointer event (true) or content that moved under a still
-    /// pointer (false, `geometryDidChange`).
+    /// `moved`: a pointer event (true) or content that moved under a still pointer (false, `geometryDidChange`).
     func updateHover(at point: CGPoint, moved: Bool) {
         // No hover (or hover card) while any drag involves this strip.
         let dragging = drag != nil || detachedID != nil || dropPlaceholderIndex != nil
@@ -125,7 +125,7 @@ extension TabStripView {
         clearHover()
         newTabButton.isHovered = false
         // Deferred relayout: tabs resize once the pointer has left the extended strip for the delay.
-        if closingModeWidth != nil, drag == nil { closingWatch.pointerLeft() }
+        if closingModeWidth != nil { closingWatch.pointerLeft() }
     }
 
     // MARK: - Clicks
@@ -356,6 +356,7 @@ extension TabStripView {
         if source.entersClosingMode {
             closingModeWidth = TabLayoutEngine.closingModeWidth(afterClosing: id, in: result, current: closingModeWidth)
             if let point { closingHit.closePressed(at: convert(point, to: tabsClip)) }
+            closingWatch.begin()
         }
         model.send(.close(id, source: source))
     }

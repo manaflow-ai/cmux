@@ -53,10 +53,11 @@ package final class BrowserDownloadHistory {
         guard rows != written else { return }
         written = rows
         let storage = storage, logger = logger
-        let data = try? JSONEncoder().encode(Document(downloads: rows))
         let previous = lastWrite
         lastWrite = Task.detached(priority: .utility) {
             await previous?.value
+            // concurrency-allow: runs in a detached task, off the main actor
+            let data = try? JSONEncoder().encode(Document(downloads: rows))
             do {
                 if let data, !rows.isEmpty {
                     try storage.write(data)

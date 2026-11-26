@@ -89,6 +89,7 @@ const WORDS: Record<string, StringKey> = {
   "status.stuck.spawnFailed": "status.stuck.spawnFailed",
   "status.harnessSandbox.failing": "status.harnessSandbox.failing",
   "status.queuePaused.paused": "status.queuePaused.paused",
+  "status.queuePaused.why": "status.queuePaused.why",
   "status.agentService.reconnecting": "status.agentService.reconnecting",
   "status.restoringSessions.restoring": "status.restoringSessions.restoring",
   "status.sendsHeld.held": "status.sendsHeld.held",
@@ -96,14 +97,10 @@ const WORDS: Record<string, StringKey> = {
 
 /// A link coming back on its own: silent, from the dot as from the machine row (Leo, 2026-11-24:
 /// "let's just keep optimistically connecting and reinforcing the connection"). acpmux sends none of
-/// these now (composer_status.rs `machine_link_item`); an older one still may.
-const SELF_HEALING: ReadonlySet<string> = new Set([
-  "status.machineLink.connecting",
-  "status.machineLink.reconnecting",
-  "status.machineLink.degraded",
-  "status.machineLink.restarting",
-  "status.agentService.reconnecting",
-]);
+/// these now (composer_status.rs `machine_link_item`); an older one still may. A pattern over the
+/// words acpmux sends, not copy: nothing here is ever drawn.
+const SELF_HEALING =
+  /^status\.(?:machineLink\.(?:connecting|reconnecting|degraded|restarting)|agentService\.reconnecting)$/;
 
 /// The catalog key an item draws: undefined for words this build does not know and, given `now`, for
 /// an item not yet due (`statusDueAt`).
@@ -141,7 +138,7 @@ export function readStatusItem(value: unknown): StatusItem | undefined {
   if (!raw || typeof raw.kind !== "string" || !KINDS.has(raw.kind)) return undefined;
   if (typeof raw.level !== "string" || !LEVELS.has(raw.level) || typeof raw.words !== "string") return undefined;
   // An older acpmux still sends a link on its way back; it says nothing here either.
-  if (SELF_HEALING.has(raw.words)) return undefined;
+  if (SELF_HEALING.test(raw.words)) return undefined;
   const item: StatusItem = { kind: raw.kind as StatusKind, level: raw.level as StatusLevel, words: raw.words };
   const subject = text(raw.subject);
   if (subject !== undefined) item.subject = subject;
@@ -179,6 +176,18 @@ export function readComposerStatus(value: unknown): ComposerStatus | undefined {
     items: raw.items.flatMap((item) => readStatusItem(item) ?? []),
     facts: raw.facts.flatMap((fact) => readFact(fact) ?? []),
   };
+}
+
+/// A paused queue's item names why: the error its failed turn ended with (queuePause.ts), the pane's
+/// to know (the turn's row carries it). The queue's own paused note said it before it moved into the
+/// dot (RFD 0128), so the dot says no less. No reason: the item as acpmux sent it.
+export function withPauseReason(items: readonly StatusItem[], reason: string | undefined): StatusItem[] {
+  if (!reason) return [...items];
+  return items.map((item) =>
+    item.kind === "queuePaused" && item.words === "status.queuePaused.paused"
+      ? { ...item, words: "status.queuePaused.why", subject: reason }
+      : item,
+  );
 }
 
 const RANK: Record<StatusLevel, number> = { info: 0, attention: 1, problem: 2 };

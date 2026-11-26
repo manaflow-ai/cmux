@@ -70,6 +70,8 @@ import {
   type LibraryRun,
   type ModelsRun,
   type ModelsState,
+  type LooksGallery,
+  type LooksRun,
   type AgentMcpRun,
   type AgentMcpState,
   type AllotmentSet,
@@ -97,6 +99,7 @@ import {
   type ChecklistFact,
   type PreviousBuild,
 } from "./ops";
+import { mockLooks, previewLook, runLooks } from "./mockLooks";
 import { rowsByKey, schema, hostRowsByKey } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
 import { validate } from "./validate";
@@ -108,6 +111,7 @@ import { mockLibrary, runLibrary } from "./mockLibrary";
 import { mockEmptyDoctor, runDoctor } from "./mockDoctor";
 import { mockAgentConfig, runAgentConfigMock } from "./mockAgentConfig";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
+import type { SlackConnection } from "./slackConnection";
 import type { WorktreeRecipe } from "../../worktreeRecipe";
 
 export type MockOptions = {
@@ -148,6 +152,12 @@ export type MockOptions = {
   previousBuild?: PreviousBuild | null;
   /** The host's refusal of that row's Go Back; default none (it runs). */
   previousBuildRefusal?: string;
+  /** Settings > Appearance > Looks (`cmux setup gallery`); default the catalog, nothing installed. */
+  looks?: LooksGallery;
+  /** The CLI refuses every Looks change with this message. */
+  looksRefusal?: string;
+  /** Looks whose repo has no preview image (`setup.preview_missing`). */
+  looksPreviewMissing?: string[];
   /** Writes of these keys the daemon refuses with this reason and details (a json row's
    * `accepted.problems`, as cmux-config's refusal carries them). */
   refusals?: Record<string, { message: string; details: Record<string, unknown> }>;
@@ -245,6 +255,7 @@ export const mockCmuxAccount: Record<"signedIn" | "signedOut" | "signingIn", Acc
     statusKind: "quiet",
     busy: false,
     buttons: [cmuxButton("cmux.signIn", "Sign In to cmux")],
+    signInBackend: "Signs in to cmux.com",
     note: null,
     error: null,
   },
@@ -295,6 +306,8 @@ export type MockWorktreeProject = {
 };
 
 export class MockSettingsProvider {
+  slack: SlackConnection = { connected: false, teams: [] };
+  slackAllowance: number | null = null;
   readonly log: Array<{ op: string; params: unknown }> = [];
   /** The colors `cmux.settings.theme.colors` answers (the gallery installs every bundled theme). */
   themeColors: GhosttyTheme[] = mockThemeColors;
@@ -351,6 +364,9 @@ export class MockSettingsProvider {
     if (options.devicesJoin) this.host = { ...this.host, devices_join: options.devicesJoin };
     if (options.library) this.library = options.library;
     if (options.libraryRefusal) this.libraryRefusal = options.libraryRefusal;
+    if (options.looks) this.looks = options.looks;
+    if (options.looksRefusal) this.looksRefusal = options.looksRefusal;
+    if (options.looksPreviewMissing) this.looksPreviewMissing = options.looksPreviewMissing;
     if (options.doctor) this.doctor = options.doctor;
     if (options.doctorRefusal) this.doctorRefusal = options.doctorRefusal;
     this.importable = options.importable ?? null;
@@ -380,6 +396,28 @@ export class MockSettingsProvider {
         return this.host;
       },
       "cmux.settings.accounts.state": () => this.accountsState(),
+      "cmux.settings.slack.request": (params) => {
+        if (params.method === "POST") return { url: "https://platform.example/v1/slack/install?ticket=example" };
+        if (params.method === "DELETE") this.slack = { connected: false, teams: [] };
+        return this.slack;
+      },
+      "cmux.settings.slack.create_app": () => ({
+        rid: "r0",
+        appId: "A0EXAMPLE",
+        name: "Acme",
+        installUrl: "https://platform.example/v1/slack/apps/r0/install?ticket=example",
+      }),
+      "cmux.settings.slack.open": () => ({}),
+      "cmux.settings.slack.awake": (params) => {
+        if ("allowance_seconds" in params) this.slackAllowance = params.allowance_seconds as number | null;
+        return {
+          allowance_seconds: this.slackAllowance ?? 7200,
+          default_seconds: 7200,
+          max_seconds: 86400,
+          days: 7,
+          senders: [],
+        };
+      },
       "cmux.settings.server.restart": () => ({}),
       "cmux.settings.server.pair": () => ({}),
       "cmux.settings.mobile.allow_again": () => {
@@ -736,6 +774,7 @@ export class MockSettingsProvider {
       "cmux.settings.archived.list": () => this.archived,
       "cmux.settings.archived.run": (params) => this.runArchived(params as ArchivedRun),
       "cmux.settings.customize.library": (params) => this.runLibrary(params as LibraryRun),
+      "cmux.settings.looks": (params) => this.runLooks(params as LooksRun),
       "cmux.settings.customize.checklist": (params) => ({
         checklist: mockChecklist(this.values, (params as { has?: ChecklistFact[] }).has ?? []),
       }),
@@ -1106,6 +1145,10 @@ export class MockSettingsProvider {
       "cmux.settings.machines.vm_host",
       "cmux.settings.accounts.state",
       "cmux.settings.accounts.run",
+      "cmux.settings.slack.request",
+      "cmux.settings.slack.create_app",
+      "cmux.settings.slack.open",
+      "cmux.settings.slack.awake",
       "cmux.settings.channels.state",
       "cmux.settings.channels.go_back",
       "cmux.settings.channels.update_machine",
@@ -1133,6 +1176,7 @@ export class MockSettingsProvider {
       "cmux.settings.customize.run",
       "cmux.settings.shares.list",
       "cmux.settings.customize.library",
+      "cmux.settings.looks",
       "cmux.settings.customize.checklist",
       "cmux.settings.shares.revoke",
       "cmux.settings.archived.list",
@@ -1226,6 +1270,7 @@ export class MockSettingsProvider {
     provide("cmux.settings.devices.changed", (ctx) => this.track(this.devicesChanged, ctx));
     provide("cmux.settings.models.changed", (ctx) => this.track(this.modelsChanged, ctx));
     provide("cmux.settings.keys.changed", (ctx) => this.track(this.keysChanged, ctx));
+    provide("cmux.settings.extensions.changed", (ctx) => this.track(this.extensionsWatch, ctx));
     provide("cmux.settings.channels.machines.changed", (ctx) => this.track(this.machinesChanged, ctx));
     provide("cmux.settings.channels.switch.changed", (ctx) => this.track(this.switchChanged, ctx));
   }
@@ -1480,6 +1525,13 @@ export class MockSettingsProvider {
   ];
   /** While true, `cmux.settings.extensions.list` is unknown (a host without the route). */
   extensionsUnsupported = false;
+  private readonly extensionsWatch = new Set<EventSourceContext>();
+
+  /** Tells the page the installed extensions changed, as the app does on the daemon's `apps-changed`
+   * (an install, a removal, or a saved manifest it reloaded). */
+  extensionsChanged(): void {
+    for (const ctx of this.extensionsWatch) ctx.emit(null);
+  }
 
   private extensionValues(app: MockExtensionApp): Record<string, unknown> {
     const values: Record<string, unknown> = {};
@@ -1779,6 +1831,35 @@ export class MockSettingsProvider {
   previousBuild: PreviousBuild | null = null;
   /** Why the host refuses that row's Go Back; null: it runs. */
   previousBuildRefusal: string | null = null;
+
+  /** What `cmux setup gallery` lists (Settings > Appearance > Looks). */
+  looks: LooksGallery = mockLooks();
+  /** The CLI's refusal of every Looks change; null: changes run. */
+  looksRefusal: string | null = null;
+  /** Looks whose repo has no preview image. */
+  looksPreviewMissing: string[] = [];
+  /** Every Looks verb the page ran but `gallery` and `preview`, in order (tests). */
+  readonly looksRuns: LooksRun[] = [];
+
+  /** `cmux --json setup VERB`: its JSON, or the CLI's error envelope as the host answers it (a
+   * refusal, and an install's consent card, are answers, not failed calls). */
+  private runLooks(run: LooksRun): unknown {
+    if (run.verb === "gallery") return this.looks;
+    if (run.verb === "preview") return previewLook(run.id, run.scheme, this.looksPreviewMissing);
+    this.looksRuns.push(run);
+    if (this.looksRefusal && !(run.verb === "install" && !run.yes))
+      return { code: "setup.refused", message: this.looksRefusal, details: {} };
+    const outcome = runLooks(this.looks, run);
+    if ("refusal" in outcome) return { code: "setup.refused", message: outcome.refusal, details: {} };
+    if ("consent" in outcome)
+      return {
+        code: "setup.needs_consent",
+        message: "nothing was changed: show the person this card, then run it again with --yes (install)",
+        details: outcome.consent,
+      };
+    this.looks = outcome.gallery;
+    return { ok: true, verb: run.verb };
+  }
   /** The build the card's Go Back asked for. */
   wentBack: string | null = null;
   /** The build the card's last Switch asked for. */
