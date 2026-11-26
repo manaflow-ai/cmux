@@ -432,7 +432,9 @@ async function pausedTree(id: string): Promise<{ root: string; needle: string }>
   const { dirs, files } = PAUSED_TREE;
   const script =
     `set -e; r="$HOME/paused-reads-${needle}"; ` +
-    `for d in $(seq -w 0 ${dirs - 1}); do mkdir -p "$r/d$d"; for f in $(seq -w 0 ${files - 1}); do ` +
+    // Fixed two-digit names (seq -f %02g, not -w): -w pads to the widest number, so 10 folders were d0..d9 and the
+    // needle's d04 never existed (run 45846190008 failed seeding: "d04/f07.txt: Directory nonexistent").
+    `for d in $(seq -f %02g 0 ${dirs - 1}); do mkdir -p "$r/d$d"; for f in $(seq -f %02g 0 ${files - 1}); do ` +
     `yes "line of d$d/f$f.txt for the paused read leg" | head -n 40 > "$r/d$d/f$f.txt"; done; done; ` +
     `echo ${needle} >> "$r/d04/f07.txt"; sync; echo "$r"`;
   const out = await exec(id, script, 60_000);

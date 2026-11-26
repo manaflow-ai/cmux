@@ -438,6 +438,8 @@ jobs:
         env:
           CMUX_APP_FFI_ARCHS: ${{ inputs.universal && 'arm64,x86_64' || 'arm64' }}
           CMUX_APP_FFI_OUT: ${{ runner.temp }}/app-ffi
+          # Self-hosted Macs keep cargo's target directory between releases (build-app-ffi.sh).
+          CMUX_APP_FFI_PERSIST_TARGET: ${{ runner.environment == 'self-hosted' && '1' || '0' }}
         run: ../scripts/cmux-next/build-app-ffi.sh
 
       - name: Assemble, check and checksum
