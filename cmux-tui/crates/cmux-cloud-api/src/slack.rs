@@ -33,7 +33,8 @@ pub(crate) fn is_chief_id(id: &str) -> bool {
     id.strip_prefix("agent_").is_some_and(|tail| {
         tail.len() == 26
             && tail.bytes().all(|b| {
-                b.is_ascii_digit() || (b.is_ascii_uppercase() && !matches!(b, b'I' | b'L' | b'O' | b'U'))
+                b.is_ascii_digit()
+                    || (b.is_ascii_uppercase() && !matches!(b, b'I' | b'L' | b'O' | b'U'))
             })
     })
 }

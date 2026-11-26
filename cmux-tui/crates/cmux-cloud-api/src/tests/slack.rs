@@ -49,12 +49,17 @@ fn an_own_bot_posts_its_configuration_token_and_name_once_and_a_refusal_never_ec
     assert_eq!(seen[1].json(), json!({ "configToken": token }));
     assert_eq!(seen[0].header("x-cmux-team").as_deref(), Some("team-1"));
     let (origin, _) = fake(move |_| {
-        Some((400, format!(r#"{{"error":{{"code":"slack.invalid_token","message":"bad {token}"}}}}"#)))
+        Some((
+            400,
+            format!(r#"{{"error":{{"code":"slack.invalid_token","message":"bad {token}"}}}}"#),
+        ))
     });
     let args = json!({ "route": "create_app", "configToken": token });
     let refused = slack(&origin, args).unwrap_err();
     assert!(!answer_line(&Err(refused.clone())).contains(token), "{refused:?}");
-    assert!(matches!(refused, Failure::Http { status: 400, code: Some(c), .. } if c == "slack.invalid_token"));
+    assert!(
+        matches!(refused, Failure::Http { status: 400, code: Some(c), .. } if c == "slack.invalid_token")
+    );
 }
 
 #[test]
@@ -62,7 +67,9 @@ fn a_slack_refusal_keeps_its_status_and_code() {
     let (origin, _) =
         fake(|_| Some((403, r#"{"error":{"code":"forbidden","message":"no"}}"#.into())));
     let refused = slack(&origin, json!({ "route": "connection" }));
-    assert!(matches!(refused, Err(Failure::Http { status: 403, code: Some(c), .. }) if c == "forbidden"));
+    assert!(
+        matches!(refused, Err(Failure::Http { status: 403, code: Some(c), .. }) if c == "forbidden")
+    );
 }
 
 #[test]
@@ -105,7 +112,10 @@ fn slack_awake_refuses_a_non_chief_id_before_a_request_and_a_reply_with_no_value
         let refused = awake(json!({ "chief": chief }));
         assert!(matches!(&refused, Err(Failure::Transport(m)) if m == "not a Chief id"), "{chief}");
     }
-    assert!(matches!(awake(json!({ "chief": CHIEF, "allowance": "x" })), Err(Failure::Transport(_))));
+    assert!(matches!(
+        awake(json!({ "chief": CHIEF, "allowance": "x" })),
+        Err(Failure::Transport(_))
+    ));
     assert!(seen.lock().unwrap().is_empty());
     let refused = awake(json!({ "chief": CHIEF }));
     assert!(matches!(&refused, Err(Failure::Transport(m)) if m == "unexpected slack-awake reply"));
