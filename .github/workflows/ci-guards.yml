@@ -190,6 +190,11 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_fleet_test_products.py
 
+      # The fleet iOS build client the Linux kit job calls: token, submit, poll, artifact.
+      - name: Test the fleet iOS build client
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fleet_ios_build.py
+
       # Noclobber is not exclusive creation: no set -C, and no guessable name in a shared temp folder, in scripts/
       # and .github/ (an allowlist with reasons that only shrinks).
       - name: Validate no guessable shared-temp names
@@ -783,6 +788,12 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
         run: bun test scripts/cmux-next/cloud-journey.test.ts scripts/cmux-next/cloud-journey-retry.test.ts scripts/cmux-next/cloud-journey-first-text.test.ts scripts/cmux-next/cloud-journey-window.test.ts scripts/cmux-next/cloud-journey-preclaim-login.test.ts scripts/cmux-next/cloud-journey-teammate.test.ts
 
+      # The staging test account sweep's picker: age, state, activity and creator decide what goes (pure; no
+      # network, no secret).
+      - name: Validate the staging test account sweep picker
+        if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
+        run: bun test scripts/cmux-next/cloud-test-sweep.test.ts
+
       # The machine vault E2E harness: cleanup, refusal, skip and leak paths (fake fetch and
       # fake CLIs; no network, no secret).
       - name: Validate the machine vault E2E harness
@@ -857,6 +868,10 @@ jobs:
       - name: Check that every workflow file is under GitHub's 500 KB limit, with room
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_file_size.py
+
+      - name: Check that no workflow gates a step on hashFiles() outside the workspace
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_workflow_hashfiles_in_workspace.py
 
       - name: Check that no workflow submits a build-fleet job with a lapsing --pool
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1704,6 +1719,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_link_ffi_key.py
 
+      - name: Validate a Mac-built CmuxMobileLinkFFI.xcframework is reused by the job's next step
+        if: ${{ !cancelled() && matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_link_ffi_sh.py
+
       - name: Validate TestFlight upload argument expansion
         if: ${{ !cancelled() && matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_upload_array_expansion.py
@@ -1792,6 +1811,9 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_zig_tarball_r2.sh
 
+      - name: Validate the patched Zig tree restore from the CI cache bucket
+        if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
+        run: ./tests/test_install_zig_ci_tree_cache.sh
       - name: Validate the Zig package archives restore from the CI cache bucket
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_zig_packages_r2.sh
@@ -1799,6 +1821,10 @@ jobs:
       - name: Validate the Node, Bun and Rust restore from the CI cache bucket
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_toolchain_r2.sh
+
+      - name: Validate the machine bun store puts the pinned bun back with no download
+        if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
+        run: ./tests/test_ci_bun_store.sh
 
       - name: Validate curl-seeded Ghostty Zig package archives
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
@@ -2246,6 +2272,10 @@ jobs:
       - name: Validate the warm nightly-next builder's git fetches are bounded and retried
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_git_fetch_retry.py
+
+      - name: Validate the warm nightly-next checkout reads GitHub only with the release App's token
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_warm_checkout_app_token.py
 
       - name: Validate test compilation cache seeding
         if: ${{ !cancelled() && matrix.group == 'quality-sharding' }}

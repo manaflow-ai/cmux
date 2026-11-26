@@ -735,6 +735,7 @@ dependencies = [
  "p256",
  "reqwest",
  "ring",
+ "rustls",
  "serde",
  "serde_json",
  "sha2",
@@ -900,6 +901,7 @@ dependencies = [
  "cmux-rd-core",
  "cmux-rd-proto",
  "cmux-remote-browser",
+ "cmux-share-approval",
  "serde",
  "serde_json",
 ]
