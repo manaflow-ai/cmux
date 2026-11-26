@@ -149,7 +149,7 @@ private struct LayoutShiftTracked: ViewModifier {
     /// The row's frame in its scroll view, while some of it is inside the scroll view's visible
     /// bounds; nil off them, or outside any scroll view (a copy of a card: the zoom's, a preview).
     /// Never the screen: a transform of the whole list (the grid's zoom scale) is not a shift.
-    private static func measure(_ proxy: GeometryProxy, _ space: LayoutShiftCounter.Space) -> CGRect? {
+    private nonisolated static func measure(_ proxy: GeometryProxy, _ space: LayoutShiftCounter.Space) -> CGRect? {
         guard let visible = proxy.bounds(of: .scrollView),
               visible.intersects(CGRect(origin: .zero, size: proxy.size)) else { return nil }
         let frame = proxy.frame(in: .scrollView)
