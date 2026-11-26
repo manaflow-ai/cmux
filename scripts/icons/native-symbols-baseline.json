@@ -76,6 +76,7 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Page/OnboardingPageImages.swift": 2,
  "Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Steps/HelperPanelArrow.swift": 2,
  "Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Steps/HelperPanelBackButton.swift": 1,
+ "Packages/macOS/CmuxNext/Sources/CmuxNextPages/CustomizeExperimentsMarkView.swift": 1,
  "Packages/macOS/CmuxNext/Sources/CmuxNextPages/LinkMenu.swift": 1,
  "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/PaletteLayout.swift": 1,
  "Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneTabView+Layout.swift": 1,
