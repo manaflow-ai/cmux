@@ -19,6 +19,7 @@ pub mod cdc;
 pub mod cold;
 pub mod dedup;
 pub mod id;
+pub mod lazy;
 pub mod manifest;
 pub mod pack;
 pub mod plan;
