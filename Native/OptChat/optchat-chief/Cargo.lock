@@ -262,6 +262,7 @@ name = "cmux-layout-reducer"
 version = "0.1.0"
 dependencies = [
  "cmux-action-catalog",
+ "cmux-motion",
  "serde",
  "serde_json",
  "unicode-normalization",
@@ -281,6 +282,10 @@ dependencies = [
 
 [[package]]
 name = "cmux-message-preview"
+version = "0.1.0"
+
+[[package]]
+name = "cmux-motion"
 version = "0.1.0"
 
 [[package]]
