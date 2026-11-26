@@ -1,6 +1,8 @@
 public import Foundation
 public import Observation
+#if canImport(ObjectiveC)
 internal import ObjectiveC
+#endif
 
 /// The language cmux's own native text is in, switched live (`app.language`, Leo 2026-11-16: "we
 /// gotta add settings for changing lanugages"). Which code to use is cmux-config's and the
@@ -77,11 +79,17 @@ public final class AppLanguage: Observable, Sendable {
     /// Makes `bundle` (one of cmux's own resource bundles) answer
     /// ``Foundation/Bundle/inAppLanguage`` in this language.
     public func adopt(_ bundle: Bundle) {
+        #if canImport(ObjectiveC)
         objc_setAssociatedObject(bundle, Self.key, self, .OBJC_ASSOCIATION_RETAIN)
+        #endif
+        // Linux (no associated objects, only the package test jobs): nothing adopts, so a bundle keeps its launch language.
+
     }
 
+    #if canImport(ObjectiveC)
     /// The associated-object key: this class object's address, unique and constant.
     fileprivate static var key: UnsafeRawPointer { unsafeBitCast(AppLanguage.self as AnyClass, to: UnsafeRawPointer.self) }
+    #endif
 
     /// The `.lproj` bundle for the chosen language from `bundle`'s language pack copy, else from
     /// `bundle` (its development language when neither has that one), nil for System. Registers the
@@ -116,6 +124,11 @@ extension Bundle {
     /// bundle never adopted) the pack's copy of this bundle, else this bundle. Pass it to
     /// `String(localized:bundle:)`; each module has `Bundle.localizedModule` for its own.
     public var inAppLanguage: Bundle {
-        (objc_getAssociatedObject(self, AppLanguage.key) as? AppLanguage)?.localizedBundle(for: self) ?? languagePackCopy ?? self
+        #if canImport(ObjectiveC)
+        let adopted = objc_getAssociatedObject(self, AppLanguage.key) as? AppLanguage
+        #else
+        let adopted: AppLanguage? = nil
+        #endif
+        return adopted?.localizedBundle(for: self) ?? languagePackCopy ?? self
     }
 }

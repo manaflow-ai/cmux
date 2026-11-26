@@ -161,6 +161,13 @@ PLATFORM_MSGS = frozenset({
     "cloud.spend_cap.warning",
     # A submit answer cut off with its intent still pending (cmux-platform CloudCore, retro r2b92b756): op and ms waited.
     "cloud.submit.cut_off",
+    # A chat's work VM (cmux-platform src/server/cloud/WorkMachine.ts workMachineLog, CloudDO.ts): whether one started,
+    # its size and pause policy, and why not. Kept only as work_machine()'s typed projection (RFD agent-work-placement).
+    "cloud.work_machine.failed",
+    "cloud.work_machine.not_ready",
+    "cloud.work_machine.ready",
+    "cloud.work_machine.skipped",
+    "cloud.work_machine.started",
     "cloud_environment.vault_edge_grants",
     "config.team_id_kind",
     "connector.repo_token.requested",
@@ -437,6 +444,35 @@ def idle_kept(j):
     return out
 
 
+# cloud.work_machine.*'s typed fields (CloudDO.ts): `work` is the work VM's id; the rest are sizes and timings.
+WORK_MACHINE_FIELDS = {"team": ID, "machine": ID, "work": ID, "cpu": INT, "memory_mb": INT, "ms": INT,
+                       "create_ms": INT, "history": INT}
+# A skip's reasons; a failure's `why` is the create answer's code, kept as a token. Anything else prints as "other".
+WORK_MACHINE_SKIPPED = frozenset({"no_plan", "agent_is_enough", "max_active", "max_machines", "rate", "budget"})
+# PausePolicy.ts PAUSE_POLICY_NAMES, plus "deployment" when the policy write was refused.
+WORK_MACHINE_POLICIES = frozenset({"current", "aggressive", "turn_end", "deployment"})
+
+
+def work_machine(j):
+    """cloud.work_machine.*'s typed projection: ids hashed, sizes and timings as ints, a fixed why and pause policy."""
+    msg = j["msg"]
+    out = {"msg": msg}
+    for k, kind in WORK_MACHINE_FIELDS.items():
+        v = base.typed(kind, j.get(k)) if k in j else None
+        if v is not None:
+            out[k] = v
+    why = j.get("why")
+    if isinstance(why, str):
+        if msg == "cloud.work_machine.skipped":
+            out["why"] = why if why in WORK_MACHINE_SKIPPED else "other"
+        else:
+            out["why"] = base.typed(TOKEN, why) or "other"
+    p = j.get("pause_policy")
+    if isinstance(p, str):
+        out["pause_policy"] = p if p in WORK_MACHINE_POLICIES else "other"
+    return out
+
+
 def public_log(j):
     """(fields, why): fields only for an allowlisted platform msg, else None and the drop reason."""
     if any(k in j for k in base.TENANT_KEYS):
@@ -446,6 +482,8 @@ def public_log(j):
         return None, "unlisted"
     if msg == "cloud.idle.kept":
         return idle_kept(j), None
+    if msg.startswith("cloud.work_machine."):
+        return work_machine(j), None
     out = {"msg": msg}
     for k, kind in PUBLIC_FIELDS.items():
         if k in j:
@@ -659,7 +697,8 @@ def window_totals(events, needles):
             key["version"] = base.tag(version)
         log = rec.get("log")
         if log is not None:
-            key["log"] = {k: v for k, v in log.items() if PUBLIC_FIELDS.get(k) != ID}
+            key["log"] = {k: v for k, v in log.items()
+                          if PUBLIC_FIELDS.get(k) != ID and WORK_MACHINE_FIELDS.get(k) != ID}
         k = json.dumps(key, sort_keys=True)
         totals[k] = totals.get(k, 0) + 1
     rows = [{**json.loads(k), "n": n} for k, n in sorted(totals.items())]
