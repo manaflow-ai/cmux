@@ -1,0 +1,28 @@
+[package]
+name = "cmux-remote-web"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Wasm browser client for authenticated cmux remote sessions"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+cmux-remote-protocol.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+snow.workspace = true
+wasm-bindgen.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# snow's ring and rand_core pull both getrandom lines; on wasm32-unknown-unknown
+# each needs its browser backend turned on or the crate refuses to compile.
+getrandom = { version = "0.3", features = ["wasm_js"] }
+getrandom-02 = { package = "getrandom", version = "0.2", features = ["js"] }
+

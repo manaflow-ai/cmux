@@ -986,6 +986,8 @@ class PipelineTest(unittest.TestCase):
         for name, job in wf["jobs"].items():
             if name == "mac-fallback":
                 continue  # MacFallbackTest: it runs on a linux step's request, not on the router's
+            if name in ("ios-fast-runner", "ios-fast"):
+                continue  # tests/test_ci_ios_fast_verdict.py: the additive fast iOS verdict plans from the diff itself
             if name in pickers:
                 with self.subTest(picker=name):
                     routed = f"inputs.jobs == '' || contains(fromJSON(inputs.jobs), '{pickers[name]}')"
@@ -1020,7 +1022,8 @@ class PipelineTest(unittest.TestCase):
     def test_the_changed_paths_are_nul_separated(self) -> None:
         # Without -z git quotes a non-ASCII path, which then matches no step's inputs: green, nothing run.
         wf = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
-        self.assertIn("git diff --name-only --no-renames -z ", wf["jobs"]["linux"]["steps"][1]["run"])
+        runs = [s.get("run", "") for s in wf["jobs"]["linux"]["steps"]]
+        self.assertTrue(any("git diff --name-only --no-renames -z " in run for run in runs))
         with tempfile.TemporaryDirectory() as tmp:
             listed = Path(tmp) / "paths"
             listed.write_bytes("skills/caf\u00e9/SKILL.md\0a b.txt\0".encode())
@@ -1309,8 +1312,9 @@ class PipelineTest(unittest.TestCase):
         # cmux-next-pr-autofix.yml's generated-drift job keeps its docs-only fallback runs; a pull request into
         # feat-cmux-next runs the generated-drift step, judged by the base's generated_outputs.py.
         autofix = yaml.safe_load((ROOT / ".github/workflows/cmux-next-pr-autofix.yml").read_text())["jobs"]
-        self.assertTrue(autofix["generated-drift"]["if"].endswith(
-            "&& (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' || github.workflow == 'docs-only fallback') }}"))
+        self.assertIn(
+            "&& (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' || github.workflow == 'docs-only fallback')",
+            autofix["generated-drift"]["if"])
         drift = steps["generated-drift"]
         self.assertEqual((drift.job, drift.inputs), ("linux", ("**",)))
         self.assertLessEqual(drift.timeout, 360)
@@ -1342,6 +1346,30 @@ class PipelineTest(unittest.TestCase):
             for path in ("web/app/page.tsx", "cmux-tui/src/main.rs", "scripts/ci/pr_router.py"):
                 self.assertFalse(ci_steps.routed(step, [path]), (step.name, path))
 
+    def test_the_fleet_artifact_edge_tests_run_as_a_step_into_feat_cmux_next(self) -> None:
+        # Slice 16: fleet-artifact-cdn.yml's test job keeps its other pull requests, main pushes and the dispatch
+        # deploy; a pull request into feat-cmux-next runs its commands as the fleet-artifact-cdn-test step.
+        wf = yaml.safe_load((ROOT / ".github/workflows/fleet-artifact-cdn.yml").read_text())
+        on = wf.get("on", wf.get(True))
+        self.assertEqual(on["pull_request"]["branches-ignore"], ["feat-cmux-next"])
+        self.assertEqual(on["push"]["branches"], ["main"])
+        self.assertIn("workflow_dispatch", on)
+        self.assertEqual(wf["jobs"]["deploy"]["needs"], "test")
+        job = wf["jobs"]["test"]
+        step = ci_steps.load().steps["fleet-artifact-cdn-test"]
+        self.assertEqual((step.job, step.needs), ("linux", ("node",)))
+        self.assertFalse(step.alone)
+        self.assertLessEqual(step.timeout, min(360, job["timeout-minutes"] * 60))
+        self.assertEqual(set(step.inputs), set(on["pull_request"]["paths"]))
+        for s in job["steps"]:
+            if "run" in s:
+                self.assertIn(f"cd {s['working-directory']}\n{s['run']}", step.run)
+        for path in ("workers/fleet-artifacts/src/index.mjs", "workers/fleet-artifacts/test/worker.test.mjs",
+                     ".github/workflows/fleet-artifact-cdn.yml"):
+            self.assertTrue(ci_steps.routed(step, [path]), path)
+        for path in ("workers/ci-artifacts/src/index.ts", "workers/device-hub/src/index.ts", "web/app/page.tsx"):
+            self.assertFalse(ci_steps.routed(step, [path]), path)
+
     def test_a_step_that_runs_bun_or_node_says_so(self) -> None:
         # The tools come from [tools], only for a routed step that lists them; nothing else puts bun or node
         # on the linux job's PATH, and the runner image is not assumed to hold either.
@@ -1350,7 +1378,8 @@ class PipelineTest(unittest.TestCase):
         wants_bun = {"app-platform", "mux", "automation-bench", "cloud-vm-image-lock", "cmux-vm-sdk", "web-complexity",
                      "web-typecheck", "webviews-typecheck", "diff-sidecar-check", "web-tests-1", "web-tests-2", "web-tests-3",
                      "web-tests-4", "web-production-build", "cmux-vm-cloud"}
-        wants_node = {"ci-artifact-worker", "web-complexity", "webviews-typecheck", "cmux-vm-cloud"}
+        wants_node = {"ci-artifact-worker", "fleet-artifact-cdn-test", "web-complexity", "webviews-typecheck",
+                      "cmux-vm-cloud"}
         self.assertEqual(table.steps["remote-daemon-packaging"].needs, ("go",))
         for name, step in table.steps.items():
             if step.job != "linux":
