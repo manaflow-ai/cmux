@@ -4,7 +4,8 @@ import Foundation
 /// The settings reads Rust answers (cmux-tui/crates/cmux-config/src/app_ops, linked through
 /// CCmuxAppFFI as `cmux_settings_call`): parse, validation and defaults live there once; this
 /// module keeps the AppKit apply side.
-public nonisolated enum SettingsRust {
+public nonisolated struct SettingsRust {
+    public nonisolated init() {}
     /// Why an op gave no reply: a bad request or an op this library does not have.
     public struct Failure: Error, Sendable, Equatable {
         public let status: Int32
