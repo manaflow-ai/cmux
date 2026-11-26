@@ -96,7 +96,8 @@ class MacWorkflowTests(unittest.TestCase):
         self.assertIn("swiftpm_prefetch_binary_artifacts.py\" --resolve", body)
         self.assertIn('--command "$FAST_CHECKS_COMMAND" --directory "$FAST_CHECKS_DIRECTORY"', body)
         self.assertNotIn("--store", body)  # the Mac store, shared with cmux-next.yml's Mac tiers
-        self.assertNotIn("github.token", step("Run fast checks"))
+        # Scoped to checks-mac: the job names the token once, in this step, so its command never sees it.
+        self.assertEqual(self.mac_job().count("github.token"), 1)
         self.assertEqual(prefetch.GITHUB_TOKEN_ENV, "CMUX_SWIFTPM_GITHUB_TOKEN")
 
 
