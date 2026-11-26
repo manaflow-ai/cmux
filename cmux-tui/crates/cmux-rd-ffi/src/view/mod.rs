@@ -6,7 +6,10 @@
 
 pub mod keyboard;
 pub mod pane;
+pub mod session;
+mod session_ops;
 pub mod tab;
+pub mod tabs;
 
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -208,6 +211,9 @@ fn events(state: &KeyboardState, events: Vec<InputEvent>) -> Value {
 
 /// Runs one request; Err when the request is not one.
 pub fn call(request: &[u8]) -> Result<Value, serde_json::Error> {
+    if let Some(answer) = session_ops::call(request) {
+        return answer;
+    }
     let request: Request = serde_json::from_slice(request)?;
     Ok(run(request))
 }
