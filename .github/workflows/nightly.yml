@@ -2189,6 +2189,8 @@ jobs:
           BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           REPO_URL: ${{ github.server_url }}/${{ github.repository }}
           WORKFLOW_SHA: ${{ github.sha }}
+          # This job's own token for the last-resort fetch of BUILD_SHA, never the shared App token.
+          FETCH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           [[ "$BUILD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "bad build sha: $BUILD_SHA" >&2; exit 1; }
@@ -2197,9 +2199,30 @@ jobs:
           git config gc.auto 0
           if git remote get-url origin >/dev/null 2>&1; then git remote set-url origin "$REPO_URL"; else git remote add origin "$REPO_URL"; fi
           mirror="${GLAEDA_GIT_MIRROR_DIR:-/Users/Shared/cmux-build-fleet/git}/cmux.git"
+          # Run 45744507889 (11-26) failed here on a cold slot that had borrowed the mirror: its curl and git
+          # fetch to github.com got 429 four times, then 403. The mirror (glaeda-git-mirror: main,
+          # feat-cmux-next and nightly-next every 60 s) is the one GitHub reader on this host; read it first.
+          # Every github.com git transfer this step makes is counted from git's own trace2 events (one file
+          # per git process): the goal is 0 per nightly, the commit read from this host's mirror.
+          trace_dir="$RUNNER_TEMP/checkout-git-trace2"
+          rm -rf "$trace_dir"
+          mkdir -p "$trace_dir"
+          export GIT_TRACE2_EVENT="$trace_dir"
+          source=""
+          report() {
+            n=$(cat "$trace_dir"/* 2>/dev/null | grep '"event":"child_start"' | grep '"child_class":"remote-https"' | grep -c 'github\.com' || true)
+            echo "checkout-git-fetches: github.com=${n:-0} commit=$BUILD_SHA source=${source:-none}"
+            echo "::notice title=checkout git fetches::github.com git fetches in this checkout: ${n:-0}; commit from ${source:-none}"
+            printf '### Checkout build ref\n\ngithub.com git fetches: %s; commit %s from %s\n' "${n:-0}" "$BUILD_SHA" "${source:-none}" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          }
+          trap report EXIT
           slot_mib=$(( $(du -sk .git/objects/pack 2>/dev/null | cut -f1 || echo 0) / 1024 ))
+          mirror_ok=""
           if [ -d "$mirror/objects" ] && [ ! -L "$mirror/objects" ] && [ ! -L "$mirror" ] && [ -f "$mirror/HEAD" ] \
-              && [ -f "$mirror/glaeda-verified" ] && [ ! -e "$mirror/glaeda-repair-pending" ] && [ ! -e "$mirror/shallow" ] \
+              && [ -f "$mirror/glaeda-verified" ] && [ ! -e "$mirror/glaeda-repair-pending" ] && [ ! -e "$mirror/shallow" ]; then
+            mirror_ok=1
+          fi
+          if [ -n "$mirror_ok" ] \
               && ! grep -qxF "$mirror/objects" .git/objects/info/alternates 2>/dev/null \
               && ids=$(stat -c '%d %i' "$mirror/objects" 2>/dev/null || stat -f '%d %i' "$mirror/objects") \
               && [[ "$ids" =~ ^[0-9]+\ [0-9]+$ ]]; then
@@ -2214,20 +2237,45 @@ jobs:
           if git rev-parse -q --verify HEAD >/dev/null; then
             git update-ref refs/remotes/origin/nightly-warm-base HEAD
           fi
-          # The mini's mirror (glaeda-git-mirror fetches main, feat-cmux-next and nightly-next every 60 s) is
-          # the one GitHub reader on this host. A job reads it first and goes to github.com only for what it
-          # lacks: run 45744507889 (11-26) failed here on a cold slot that had borrowed the mirror, after its
-          # curl and git fetch to github.com got 429 four times and then 403.
-          mirror_ok=
-          if grep -qxF "$mirror/objects" .git/objects/info/alternates 2>/dev/null; then mirror_ok=1; fi
-          has_build() { git cat-file -e "$BUILD_SHA^{commit}" 2>/dev/null; }
+          in_mirror() { [ -n "$mirror_ok" ] && git --git-dir="$mirror" cat-file -e "$1^{commit}" 2>/dev/null; }
+          from_mirror() {
+            git -c protocol.version=2 -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 fetch -q --no-tags --no-recurse-submodules "$mirror" "$BUILD_SHA" \
+              && git cat-file -e "$BUILD_SHA^{commit}" && source=mirror
+          }
+          # The mirror is fetched from GitHub every minute by the host's one fetcher (glaeda-git-mirror's
+          # LaunchAgent, under a flock). A commit pushed seconds ago may not be in it yet: ask that fetcher for
+          # a pass now and wait for it, instead of fetching from GitHub here.
+          mirror_tool="${GLAEDA_GIT_MIRROR_TOOL:-$HOME/.local/bin/glaeda-git-mirror}"
+          wait_for_mirror() {
+            local until=$((SECONDS + $1)) kick=""
+            while ! in_mirror "$BUILD_SHA"; do
+              [ -n "$mirror_ok" ] && (( SECONDS < until )) || return 1
+              if [ -z "$kick" ] && [ -x "$mirror_tool" ]; then
+                echo "the mirror lacks $BUILD_SHA: asking the host's mirror fetcher for a pass"
+                env -u GIT_TRACE2_EVENT "$mirror_tool" --apply --wait > "$RUNNER_TEMP/git-mirror-pass.log" 2>&1 &
+                kick=$!
+              elif [ -n "$kick" ] && ! kill -0 "$kick" 2>/dev/null; then
+                in_mirror "$BUILD_SHA" && break
+                echo "the mirror's pass ended without $BUILD_SHA: $(tail -c 400 "$RUNNER_TEMP/git-mirror-pass.log" 2>/dev/null)"
+                kick=""
+                sleep 15
+                continue
+              fi
+              sleep 5
+            done
+          }
+          started=$SECONDS
+          if wait_for_mirror "${CHECKOUT_MIRROR_WAIT_SECONDS:-300}" && from_mirror; then
+            echo "read $BUILD_SHA from the mirror in $((SECONDS - started)) s"
+          fi
           fetch_retry="$RUNNER_TEMP/git_fetch_retry.py"
           rm -f "$fetch_retry"
+          # The helper comes from local objects first (the mirror's, borrowed); raw.githubusercontent.com last.
           git show "$WORKFLOW_SHA:scripts/ci/git_fetch_retry.py" > "$fetch_retry" 2>/dev/null \
-            || { [ -n "$mirror_ok" ] && git --git-dir="$mirror" show "refs/heads/main:scripts/ci/git_fetch_retry.py" > "$fetch_retry" 2>/dev/null; } \
+            || git show "$BUILD_SHA:scripts/ci/git_fetch_retry.py" > "$fetch_retry" 2>/dev/null \
+            || cp scripts/ci/git_fetch_retry.py "$fetch_retry" 2>/dev/null \
             || curl -fsS --max-time 30 --retry 3 --retry-all-errors -o "$fetch_retry" \
               "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$WORKFLOW_SHA/scripts/ci/git_fetch_retry.py" \
-            || cp scripts/ci/git_fetch_retry.py "$fetch_retry" 2>/dev/null \
             || rm -f "$fetch_retry"
           retry() {
             if [ -s "$fetch_retry" ]; then python3 "$fetch_retry" --tries 3 --timeout 600 --repo "$GITHUB_WORKSPACE" -- "$@"
@@ -2236,26 +2284,28 @@ jobs:
               "$1" -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 "${@:2}"
             fi
           }
-          # wait_mirror SECONDS: poll the mirror (local reads, no GitHub) until it holds the build sha; its
-          # fetcher runs every 60 s, so the first wait covers two of its passes before github.com is asked.
-          wait_mirror() {
-            local until=$((SECONDS + $1))
-            while [ -n "$mirror_ok" ] && ! has_build && [ "$SECONDS" -lt "$until" ]; do sleep "${MIRROR_POLL_S:-5}"; done
-            has_build
+          once() {
+            if [ -s "$fetch_retry" ]; then python3 "$fetch_retry" --tries 1 --timeout 600 --repo "$GITHUB_WORKSPACE" -- "$@"
+            else "$1" -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 "${@:2}"; fi
           }
-          started=$SECONDS
-          if has_build; then
-            echo "github.com git fetches: 0 ($BUILD_SHA is in $mirror)"
-          elif wait_mirror "${MIRROR_WAIT_BEFORE_FETCH_S:-130}"; then
-            echo "github.com git fetches: 0 ($BUILD_SHA reached $mirror after $((SECONDS - started)) s)"
-          elif retry git -c protocol.version=2 fetch --no-tags --no-recurse-submodules origin "$BUILD_SHA"; then
-            echo "github.com git fetches: 1 (fetched $BUILD_SHA in $((SECONDS - started)) s)"
-          elif wait_mirror "${MIRROR_WAIT_AFTER_FETCH_S:-900}"; then
-            echo "::warning title=warm checkout::github.com refused the fetch; $BUILD_SHA reached $mirror after $((SECONDS - started)) s"
-          else
-            echo "::error title=warm checkout::$BUILD_SHA is neither in $mirror nor fetchable from github.com after $((SECONDS - started)) s"
-            exit 1
+          # The mirror never got the commit: fetch only that commit from GitHub, authenticated with this job's
+          # own token (never the shared App token), with a bounded backoff on a 429 or 403. Before each try
+          # the mirror is read again, so a pass of the host's fetcher that lands meanwhile wins.
+          if [ -z "$source" ]; then
+            echo "::warning title=warm checkout::the mirror lacks $BUILD_SHA after the wait; fetching only that commit from GitHub"
+            for delay in ${CHECKOUT_FETCH_BACKOFF_SECONDS:-0 30 60 120 240}; do
+              if [ "$delay" -gt 0 ]; then echo "backing off $delay s, then the mirror first"; sleep "$delay"; fi
+              if in_mirror "$BUILD_SHA" && from_mirror; then break; fi
+              if GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" \
+                  GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$FETCH_TOKEN" | base64 | tr -d '\n')" \
+                  once git -c protocol.version=2 fetch --no-tags --no-recurse-submodules origin "$BUILD_SHA"; then
+                source=github
+                break
+              fi
+            done
+            [ -n "$source" ] || { echo "::error title=warm checkout::$BUILD_SHA is in neither the mirror nor GitHub's answer after 5 tries"; exit 1; }
           fi
+          echo "fetched $BUILD_SHA from $source in $((SECONDS - started)) s"
           git_dir="${GITHUB_WORKSPACE:?}/.git"
           for key in core.sparseCheckout core.sparseCheckoutCone index.sparse; do
             git config --local --unset-all "$key" || true

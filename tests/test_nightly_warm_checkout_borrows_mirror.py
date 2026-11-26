@@ -59,8 +59,10 @@ def real_git() -> str:
 
 REAL_GIT = real_git()
 
-# On PATH ahead of git: at each top-level `git fetch`, note what the slot borrows, then run git.
+# On PATH ahead of git: at each top-level `git fetch` from origin (a fetch from the mirror is local), note what
+# the slot borrows, then run git.
 GIT_SHIM = """#!/bin/sh
+case " $* " in *" origin "*) ;; *) exec "$SHIM_REAL_GIT" "$@" ;; esac
 for arg in "$@"; do
   if [ "$arg" = fetch ]; then
     {
@@ -138,7 +140,8 @@ class WarmCheckoutBorrowsMirrorTest(unittest.TestCase):
         shim.write_text(GIT_SHIM)
         shim.chmod(0o755)
         env = {**self.env, "BUILD_SHA": sha, "WORKFLOW_SHA": sha, "REPO_URL": repo_url or self.origin.as_uri(),
-               "MIRROR_POLL_S": "0.2", "MIRROR_WAIT_BEFORE_FETCH_S": "1", "MIRROR_WAIT_AFTER_FETCH_S": "1", **extra,
+               "CHECKOUT_MIRROR_WAIT_SECONDS": "1", "CHECKOUT_FETCH_BACKOFF_SECONDS": "0", "FETCH_TOKEN": "test-token",
+               "GLAEDA_GIT_MIRROR_TOOL": str(self.temp / "no-mirror-tool"), **extra,
                "GITHUB_WORKSPACE": str(self.ws), "RUNNER_TEMP": str(self.temp / "runner-temp"),
                "GITHUB_REPOSITORY": "o/r", "GLAEDA_GIT_MIRROR_DIR": str(self.fleet_git),
                "SHIM_REAL_GIT": REAL_GIT, "SHIM_LOG": str(self.log), "SHIM_RECORD": RECORD,
@@ -188,7 +191,7 @@ class WarmCheckoutBorrowsMirrorTest(unittest.TestCase):
         # step must not have asked github.com at all; an origin that refuses everything proves it.
         result = self.run_warm_step(repo_url=(self.temp / "no-such-origin").as_uri())
         self.assertEqual(self.fetches(), [], "the step fetched from origin a build the mirror holds")
-        self.assertIn("github.com git fetches: 0", result.stdout)
+        self.assertIn("commit=%s source=mirror" % self.sha, result.stdout)
 
     def test_a_refused_fetch_waits_for_the_mirror_instead_of_failing(self) -> None:
         sha = self.commit_after_mirror()
@@ -197,16 +200,27 @@ class WarmCheckoutBorrowsMirrorTest(unittest.TestCase):
                                      REAL_GIT, str(self.mirror), str(self.origin)], env=self.env)
         self.addCleanup(catch_up.wait)
         result = self.run_warm_step(sha=sha, repo_url=(self.temp / "no-such-origin").as_uri(),
-                                    MIRROR_WAIT_AFTER_FETCH_S="60")
-        # Either the wait after the refusal sees the mirror catch up, or a retry of the fetch finds the
-        # objects already borrowed; both check the build out instead of failing the job.
-        self.assertRegex(result.stdout, r"github.com refused the fetch|github.com git fetches: 1")
+                                    CHECKOUT_FETCH_BACKOFF_SECONDS="0 1 2 4")
+        # The backoff reads the mirror again before each try, so the fetcher's pass wins.
+        self.assertIn("source=mirror", result.stdout)
+
+    def test_a_build_the_mirror_lacks_asks_the_hosts_fetcher_for_a_pass(self) -> None:
+        sha = self.commit_after_mirror()
+        tool = self.temp / "bin/glaeda-git-mirror"
+        tool.write_text(f'#!/bin/sh\n[ "$*" = "--apply --wait" ] || exit 2\n'
+                        f'exec "{REAL_GIT}" -C "{self.mirror}" fetch -q "{self.origin}" "+refs/heads/*:refs/heads/*"\n')
+        tool.chmod(0o755)
+        result = self.run_warm_step(sha=sha, repo_url=(self.temp / "no-such-origin").as_uri(),
+                                    GLAEDA_GIT_MIRROR_TOOL=str(tool), CHECKOUT_MIRROR_WAIT_SECONDS="30")
+        self.assertEqual(self.fetches(), [], "the step fetched from origin after the fetcher's pass brought the build")
+        self.assertIn("asking the host's mirror fetcher for a pass", result.stdout)
+        self.assertIn(f"checkout-git-fetches: github.com=0 commit={sha} source=mirror", result.stdout)
 
     def test_a_build_in_neither_the_mirror_nor_origin_fails_with_an_error(self) -> None:
         result = self.run_warm_step(sha=self.commit_after_mirror(),
                                     repo_url=(self.temp / "no-such-origin").as_uri(), check=False)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("is neither in", result.stdout)
+        self.assertIn("is in neither the mirror nor", result.stdout)
 
     def test_the_fetch_of_a_commit_the_mirror_has_transfers_nothing(self) -> None:
         self.run_warm_step()
