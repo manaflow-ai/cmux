@@ -15,7 +15,8 @@ import { TranscriptDisclosureProvider } from "../conversation/transcriptDisclosu
 import { ChiefPromptBubble } from "../conversation/ChiefPromptBubble";
 import { ChevronRight } from "../conversation/icons";
 import { CopyButton } from "../conversation/CopyButton";
-import { AssistantPresentation } from "../conversation/PresentationContext";
+import { Slot } from "../../../slots/Slot";
+import { receiveTransitionSlot } from "../../../slots/receiveTransition";
 import { InboxNoticeCard } from "../conversation/InboxNoticeCard";
 import { type InboxMessage } from "../conversation/inboxNotice";
 import { PendingSteer } from "../conversation/PendingSteer";
@@ -113,8 +114,10 @@ export const MessageRow = memo(
               )
             }
             githubRepository={githubRepository}
+            // Where it was sent from opens with the message, so the shut line stays one row
+            // (rowMetric.ts; Leo, 2026-11-17: "these are too big").
+            provenance={row.sentFrom && <SentFromLine from={row.sentFrom} />}
           />
-          {row.sentFrom && <SentFromLine from={row.sentFrom} />}
         </div>
       );
     if (row.kind === "user" && row.incoming?.kind === "hidden") return null;
@@ -225,10 +228,15 @@ export const MessageRow = memo(
     );
     // A finished reply its turn's footer does not serve keeps its own action row, whatever follows
     // it (model.ts hasReplyActions).
-    if (!replyActions) return <AssistantPresentation>{reply}</AssistantPresentation>;
+    // The reply's box is the theme slot `chat.receiveTransition` (slots/receiveTransition): its default
+    // is the AssistantPresentation this row drew before.
+    const arrived = (
+      <Slot slot={receiveTransitionSlot} props={{ children: reply, streaming: row.streaming === true }} />
+    );
+    if (!replyActions) return arrived;
     return (
       <>
-        <AssistantPresentation>{reply}</AssistantPresentation>
+        {arrived}
         <ReplyActions row={row} />
       </>
     );

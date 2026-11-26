@@ -27,6 +27,45 @@ import Testing
         #expect(own.note(owner: "Mac") == nil)
     }
 
+    /// Wide (Leo, 2026-11-23: "an extra wide table... just doesnt even work
+    /// right now"): the phone's own grid is wider than the page, so the
+    /// mirror takes it and pans; the phone claims it as its own.
+    @Test func wideMakesThePhonesOwnGridWiderAndPans() {
+        let wide = TerminalHostGridLayout(viewportWidth: 390, cell: cell, scale: 3, hostColumns: nil, hostRows: nil,
+                                          visibleRows: 40, wideColumns: TerminalHostGridLayout.defaultWideColumns)
+        #expect(wide.phoneColumns == 50)
+        #expect(wide.ownColumns == 200)
+        #expect(wide.isWide)
+        #expect(wide.columns == 200)
+        #expect(wide.followsHost)
+        #expect(abs(wide.surfaceWidth - 200.5 * 7.8) < 0.001)
+        #expect(abs(wide.maxPanX - (200 * 7.8 - 390)) < 0.001)
+        // The pan shows column 199 (the last) at the right edge.
+        #expect(abs(wide.pan(toShowColumn: 199, from: 0) - wide.maxPanX) < 0.001)
+        // The Mac answers the phone's claim: no note, the same mirror.
+        let answered = TerminalHostGridLayout(viewportWidth: 390, cell: cell, scale: 3, hostColumns: 200, hostRows: 40,
+                                              visibleRows: 40, wideColumns: 200)
+        #expect(answered.columns == 200)
+        #expect(!answered.differsFromPhone)
+        #expect(answered.note(owner: "Mac") == nil)
+    }
+
+    @Test func wideNeverNarrowsAPageAndStopsAtTheWidestSurface() {
+        // A page that already fits more than Wide's columns keeps its own.
+        let roomy = TerminalHostGridLayout(viewportWidth: 2000, cell: cell, scale: 2, hostColumns: nil, hostRows: nil,
+                                           visibleRows: 40, wideColumns: 200)
+        #expect(roomy.ownColumns == roomy.phoneColumns)
+        #expect(!roomy.isWide)
+        // Tiny cells: no wider than 8192 px.
+        let tiny = TerminalHostGridLayout(viewportWidth: 390, cell: CGSize(width: 4, height: 8), scale: 3, hostColumns: nil,
+                                          hostRows: nil, visibleRows: 40, wideColumns: 5000)
+        #expect(tiny.ownColumns == Int(floor(8192 / 12.0)))
+        // Off: the page's own width, nothing to pan.
+        let off = layout(host: nil)
+        #expect(off.ownColumns == off.phoneColumns)
+        #expect(off.maxPanX == 0)
+    }
+
     @Test func theMacsOwnGridAtThePhonesWidthChangesNothing() {
         let same = layout(host: (50, 40))
         #expect(!same.followsHost)
@@ -83,7 +122,8 @@ import Testing
         #expect(box.top == twentyRows)
         #expect(box.height == twentyRows)
         #expect(short.note(owner: "Aziz's Mac") == "50×20 · set by Aziz's Mac")
-        #expect(short.note(owner: nil) == "50×20 · set by another device")
+        // No named owner: the size alone, never a device it cannot name.
+        #expect(short.note(owner: nil) == "50×20")
     }
 
     /// A shorter grid on the primary screen pins to the top: the bottom

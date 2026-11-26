@@ -13,7 +13,7 @@ branch that is not the base, a head the branch has moved past, a cut history, or
 a previous run that was cancelled, held or never ran.
 
 None of the skipped steps can fail a pull request, so a skipped one hides no
-verdict; pr-capture-check, which can, is not in this workflow (pr-body-checks.yml).
+verdict. The description lints (capture among them, advisory here) run on every push, a base-only one too.
 
 The decide step runs here as the workflow runs it, against a local origin, with
 `gh` replaced by a stub that answers the previous head's run. The "Pick the steps"
@@ -23,6 +23,7 @@ CI_QUOTA_HOLD, fork, description edits).
 from __future__ import annotations
 
 import json
+import sys
 import os
 from pathlib import Path
 import subprocess
@@ -38,6 +39,8 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
     "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # noqa: E402
+from real_git import real_git, run_bounded  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/pr-checks.yml"
@@ -50,12 +53,14 @@ PICK = next(s for s in JOB["steps"] if s.get("id") == "pick")
 SKIPPED_ON_BASE_ONLY = ("review-link", "swift-logic", "split-plan", "ui-review")
 ALWAYS = ("pr-size",)
 EVERY = ("review-link", "swift-logic", "pr-size", "ui-review", "split-plan")
+# The description lints (CI v2 step 6, second cut: pr-body-checks.yml's push runs): every push, whatever else holds.
+BODY = ("capture", "design-spec", "perf-section", "cloud-backend")
 LINES = "".join(f"let a{i} = {i}\n" for i in range(60))
 SAME = "x\n" * 30  # identical lines: one replacement reads the same wherever it is
 
 
 def git(repo: Path, *args: str) -> str:
-    return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True).stdout.strip()
+    return run_bounded(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True, timeout=60).stdout.strip()
 
 
 def write(repo: Path, path: str, text: str) -> None:
@@ -150,8 +155,10 @@ class BaseOnlyStepTests(unittest.TestCase):
                "GITHUB_STEP_SUMMARY": str(self.temp / "summary.md"), "ACTION": action, "REPOSITORY": "o/r",
                "BEFORE": self.before if before is None else before, "AFTER": after,
                "BASE_REF": "feat-cmux-next", "PR": "7", "REMOTE": remote or f"file://{self.src}", **extra}
-        subprocess.run(["rm", "-rf", str(self.temp / "base-only")], check=True)
-        result = subprocess.run(["bash", "-c", STEP["run"]], cwd=self.temp, env=env, capture_output=True, text=True)
+        subprocess.run(["rm", "-rf", str(self.temp / "base-only")], check=True, timeout=60)
+        # Its own process group with a deadline: a step that hangs or spins fails the test and leaves nothing behind.
+        result = run_bounded(["bash", "-c", STEP["run"]], cwd=self.temp, env=env, capture_output=True, text=True,
+                             timeout=120)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         outputs = dict(line.split("=", 1) for line in output.read_text().splitlines() if "=" in line)
         return outputs.get("base_only", ""), result.stdout
@@ -207,7 +214,9 @@ class BaseOnlyStepTests(unittest.TestCase):
     def test_a_failed_history_listing_runs_everything(self):
         after = self.merge_base()
         # A git whose `rev-list ... --not` fails (a SIGPIPE, say): the shallow check is not skipped.
-        real = subprocess.run(["bash", "-c", "command -v git"], capture_output=True, text=True).stdout.strip()
+        # The git binary, never the first git on PATH: a wrapper there (a host's git guard) would exec this fake
+        # again, and the two spun forever in one process (cosmic-gray, 2026-11-10; tests/real_git.py).
+        real = real_git()
         (self.bin / "git").write_text('#!/usr/bin/env bash\nfor a; do [ "$a" = --not ] && exit 141; done\n'
                                       f'exec {real} "$@"\n')
         (self.bin / "git").chmod(0o755)
@@ -260,8 +269,8 @@ class BaseOnlyStepTests(unittest.TestCase):
         write(self.src, "docs/side.md", "side\n")
         git(self.src, "add", "-A")
         old = "2000-01-01T00:00:00Z"
-        subprocess.run(["git", "-C", str(self.src), "commit", "-qm", "side"], check=True,
-                       env={**os.environ, "GIT_AUTHOR_DATE": old, "GIT_COMMITTER_DATE": old})
+        run_bounded(["git", "-C", str(self.src), "commit", "-qm", "side"], check=True, timeout=60,
+                    env={**os.environ, "GIT_AUTHOR_DATE": old, "GIT_COMMITTER_DATE": old})
         git(self.src, "checkout", "-q", "feat-cmux-next")
         git(self.src, "merge", "-q", "--no-ff", "-m", "Merge side", "side")
         git(self.src, "checkout", "-q", "pr")
@@ -295,28 +304,28 @@ class PickTests(unittest.TestCase):
     def test_a_push_runs_every_step(self):
         for action in ("opened", "synchronize", "reopened", "ready_for_review"):
             with self.subTest(action=action):
-                self.assertEqual(sorted(pick(action)), sorted(EVERY))
-                self.assertEqual(sorted(pick(action, base_only="false")), sorted(EVERY))
+                self.assertEqual(sorted(pick(action)), sorted(EVERY + BODY))
+                self.assertEqual(sorted(pick(action, base_only="false")), sorted(EVERY + BODY))
 
     def test_a_base_only_update_runs_only_the_size_check(self):
-        self.assertEqual(pick(base_only="true"), list(ALWAYS))
-        self.assertEqual(pick(base_only="true", draft=True), [], "PR size skips drafts")
-        self.assertEqual(pick(base_only="true", hold="1"), [], "PR size is held")
+        self.assertEqual(pick(base_only="true"), list(ALWAYS + BODY))
+        self.assertEqual(pick(base_only="true", draft=True), list(BODY), "PR size skips drafts")
+        self.assertEqual(pick(base_only="true", hold="1"), list(BODY), "PR size is held")
 
     def test_a_draft_runs_only_split_plan(self):
         # A draft gets its lines and its size and UI answers when it is marked ready.
         for action in ("opened", "synchronize", "reopened"):
-            self.assertEqual(pick(action, draft=True), ["split-plan"])
+            self.assertEqual(pick(action, draft=True), ["split-plan", *BODY])
         self.assertEqual(pick("edited", draft=True, size_edit=True, ui_edit=True), [])
 
     def test_the_quota_hold_keeps_only_split_plan(self):
         # CI_QUOTA_HOLD=1 keeps the GITHUB_TOKEN budget for the nightly; split-plan reads only git.
-        self.assertEqual(pick(hold="1"), ["split-plan"])
+        self.assertEqual(pick(hold="1"), ["split-plan", *BODY])
         self.assertEqual(pick("edited", hold="1", size_edit=True, ui_edit=True), [])
-        self.assertEqual(sorted(pick(hold="0")), sorted(EVERY), "only the value 1 holds")
+        self.assertEqual(sorted(pick(hold="0")), sorted(EVERY + BODY), "only the value 1 holds")
 
     def test_a_fork_gets_no_status_lines(self):
-        self.assertEqual(sorted(pick(fork=True)), ["pr-size", "split-plan", "ui-review"])
+        self.assertEqual(sorted(pick(fork=True)), sorted(["pr-size", "split-plan", "ui-review", *BODY]))
 
     def test_an_edit_runs_only_what_it_moved(self):
         self.assertEqual(pick("edited"), [])

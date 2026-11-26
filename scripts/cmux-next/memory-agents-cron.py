@@ -15,6 +15,11 @@ app, one idle chat per workspace on the acpmux test agent (its first turn answer
 - memory.app_agents.ratio_vs_empty: the highest N's total / the empty total, both from this one run.
 - memory.app_agents.idle_gpu_device_pct and .idle_disk_write_mb_per_h (goal idle-gpu-disk, idle_rows): the worst idle
   window's GPU Device Utilization % over the same Mac with no app open, and its disk bytes written per hour.
+These sample --settle seconds (20) after the launch and after the last open, before hidden chat pages are released
+(60 s) and idle harnesses hibernate (120 s). So the run samples the empty app and each count once more, --settled-at
+seconds (150) after the launch and after the last open (bench_memory's settled-launch and settled-N), and writes the
+same rows for them under memory.app_agents.settled.: what the app holds once its idle work is done. The rows above
+keep what they read.
 A count whose chats did not all open (fewer workspaces than asked, or a pane failure) gets no row and no ratio: a
 partial sample is not that count's cost.
 
@@ -26,7 +31,8 @@ Claude Code or Codex CLI be. N counts the launch workspace: N=10 is 9 chat works
 So every run also says where the memory is (report.json `breakdown`, and report-only rows under
 memory.app_agents.breakdown., perf-cron.py REPORT_ONLY_ROW_RE): the footprint per process kind empty and at each full
 count, each kind's cost per chat workspace ((N - empty) / (N - 1)), the largest processes, and the V8 heap of the renderers
-that host cmux's pages, each renderer once (bench_memory --js-heap).
+that host cmux's pages, each renderer once, and the pages' live DOM nodes and decoded images per chat (bench_memory
+--js-heap).
 """
 from __future__ import annotations
 
@@ -43,19 +49,25 @@ FAKE_AGENT = "cmux-tui/crates/acpmux/tests/fake_agent.py"
 TOTAL_FLOOR_MB = 50.0  # the empty app's launch-to-launch spread was 849-941 MB (ram-baseline, 2026-11-08)
 
 
-def rows_from(report: dict) -> list[dict]:
-    """perf-cron rows from bench_memory.py's report (pure)."""
+# The two samples of each count (bench_memory's labels): `idle` --settle seconds after the open, `settled`
+# --settled-at seconds after it. Each phase's rows go under its own name part ("" for idle: the rows goals read).
+PHASES = {"idle": "", "settled": "settled."}
+
+
+def rows_from(report: dict, phase: str = "idle") -> list[dict]:
+    """perf-cron rows from bench_memory.py's report, for one phase's samples (pure)."""
+    part = PHASES[phase]
     samples = [s for s in report.get("samples") or [] if isinstance(s, dict)]
-    empty = next((s for s in samples if s.get("label") == "idle-launch"), None)
+    empty = next((s for s in samples if s.get("label") == f"{phase}-launch"), None)
     total = (empty or {}).get("total_footprint_mb")
     if not isinstance(total, (int, float)) or total <= 0:
         return []
-    rows = [{"name": "memory.app_agents.empty.total_footprint_mb", "p50": total, "p95": total, "unit": "MB",
+    rows = [{"name": f"memory.app_agents.{part}empty.total_footprint_mb", "p50": total, "p95": total, "unit": "MB",
              "floor": TOTAL_FLOOR_MB}]
     full = []
     for s in samples:
         label = str(s.get("label") or "")
-        if not label.startswith("idle-") or label == "idle-launch":
+        if not label.startswith(f"{phase}-") or label == f"{phase}-launch":
             continue
         try:
             asked = int(label.split("-", 1)[1])
@@ -64,13 +76,13 @@ def rows_from(report: dict) -> list[dict]:
         value = s.get("total_footprint_mb")
         if s.get("workspaces") != asked or s.get("pane_failures") or not isinstance(value, (int, float)):
             continue
-        rows.append({"name": f"memory.app_agents.{asked}.total_footprint_mb", "p50": value, "p95": value, "unit": "MB",
+        rows.append({"name": f"memory.app_agents.{part}{asked}.total_footprint_mb", "p50": value, "p95": value, "unit": "MB",
                      "floor": TOTAL_FLOOR_MB})
         full.append((asked, value))
     if full:
         asked, value = max(full)
         ratio = round(value / total, 3)
-        rows.append({"name": "memory.app_agents.ratio_vs_empty", "p50": ratio, "p95": ratio, "unit": "x", "floor": 0.1,
+        rows.append({"name": f"memory.app_agents.{part}ratio_vs_empty", "p50": ratio, "p95": ratio, "unit": "x", "floor": 0.1,
                      "agents": asked})
     return rows
 
@@ -139,14 +151,15 @@ def row_key(name: str) -> str:
     return out or "unknown"
 
 
-def full_samples(report: dict) -> tuple[dict | None, list[tuple[int, dict]]]:
-    """(the empty sample, [(N, sample)] for each count whose chats all opened), from bench_memory's report (pure)."""
+def full_samples(report: dict, phase: str = "idle") -> tuple[dict | None, list[tuple[int, dict]]]:
+    """(the empty sample, [(N, sample)] for each count whose chats all opened), of one phase, from bench_memory's report
+    (pure)."""
     samples = [s for s in report.get("samples") or [] if isinstance(s, dict)]
-    empty = next((s for s in samples if s.get("label") == "idle-launch"), None)
+    empty = next((s for s in samples if s.get("label") == f"{phase}-launch"), None)
     full = []
     for s in samples:
         label = str(s.get("label") or "")
-        if not label.startswith("idle-") or label == "idle-launch":
+        if not label.startswith(f"{phase}-") or label == f"{phase}-launch":
             continue
         try:
             asked = int(label.split("-", 1)[1])
@@ -183,14 +196,18 @@ def sample_view(sample: dict, keep: set[str], top: int = 8) -> dict:
     heap = sample.get("js_heap")
     if isinstance(heap, dict):
         view["js_heap"] = {k: heap[k] for k in ("pages", "hidden_pages", "renderers", "used_mb", "total_mb", "by_renderer", "by_path", "error", "error_count") if k in heap}
+        dom = heap.get("dom")
+        if isinstance(dom, dict):
+            view["js_heap"]["dom"] = {k: dom[k] for k in ("pages", "hidden_pages", "nodes", "images", "decoded_images", "decoded_mb",
+                                                          "per_hidden_page", "by_renderer", "error_count") if k in dom}
     return view
 
 
-def breakdown_from(report: dict) -> tuple[dict, list[dict]]:
+def breakdown_from(report: dict, phase: str = "idle") -> tuple[dict, list[dict]]:
     """Where the memory is (pure): report.json's `breakdown` and its report-only rows. Per chat is each kind's growth
     from the empty app to the highest full count over that count's chat workspaces (N - 1: the launch workspace
-    counts in N)."""
-    empty, full = full_samples(report)
+    counts in N). The settled phase's rows go under memory.app_agents.breakdown.settled."""
+    empty, full = full_samples(report, phase)
     if empty is None or not isinstance(empty.get("total_footprint_mb"), (int, float)):
         return {}, []
     samples = [empty] + [s for _, s in full]
@@ -199,7 +216,7 @@ def breakdown_from(report: dict) -> tuple[dict, list[dict]]:
     rows = []
 
     def row(name, value, unit="MB"):
-        rows.append({"name": BREAKDOWN_PREFIX + name, "p50": value, "p95": value, "unit": unit, "floor": TOTAL_FLOOR_MB})
+        rows.append({"name": BREAKDOWN_PREFIX + PHASES[phase] + name, "p50": value, "p95": value, "unit": unit, "floor": TOTAL_FLOOR_MB})
 
     for kind, value in sorted(out["empty"]["kinds"].items()):
         row(f"empty.{kind}.footprint_mb", value)
@@ -231,6 +248,14 @@ def breakdown_from(report: dict) -> tuple[dict, list[dict]]:
                 value = round((heaps[0]["total_mb"] - heaps[1]["total_mb"]) / chats, 1)
                 out["per_chat"]["js_heap_total_mb"] = value
                 row("per_chat.js_heap_total_mb", value)
+            # DOM per idle chat: the growth of every cmux page's live DOM nodes and decoded images (bench_memory
+            # js_heap.dom), only when both samples read every page.
+            doms = [(h.get("js_heap") or {}).get("dom") or {} for h in (high, low)]
+            if all(d.get("pages") and not d.get("error_count") for d in doms):
+                for key, unit in (("nodes", "count"), ("decoded_images", "count"), ("decoded_mb", "MB")):
+                    value = round((doms[0].get(key, 0) - doms[1].get(key, 0)) / chats, 1)
+                    out["per_chat"][f"dom_{key}"] = value
+                    row(f"per_chat.dom_{key}", value, unit)
     return out, rows
 
 
@@ -241,11 +266,30 @@ def bench_cmd(args: argparse.Namespace, raw: str) -> list[str]:
     cmd = [sys.executable, os.path.join(HERE, "bench_memory.py"), "--app", args.app, "--workspaces", args.agents,
            "--mix", "terminal+chat", "--fake-agent", os.path.join(ROOT, FAKE_AGENT), "--settle", args.settle,
            "--measure", args.measure, "--top", "8", "--js-heap", "--gpu", "--out", raw]
+    if float(args.settled_at or 0) > 0:
+        cmd += ["--settled-at", args.settled_at]
     if not args.no_app_vm or args.app_vm_stacks:
         cmd.append("--app-vm")
     if args.app_vm_stacks:
         cmd += ["--app-vm-stacks", args.app_vm_stacks]
     return cmd
+
+
+def chat_counts(report: dict, agents: str, phase: str = "idle") -> list[dict]:
+    """How many chat workspaces each asked count opened (pure): {"expected", "opened", "pane_failures"} per count in
+    --agents. `opened` is the idle-N sample's workspaces (the launch workspace counts in N, as in rows_from); with no
+    idle-N sample, the most workspaces any sample of the phase saw (the run stopped before N), else 0. The part prints
+    and stores it every run, so "not every chat opened" names how many did (memory-per-chat, 2026-11-26: the row went
+    without a value for days and the report said only that the count was missing)."""
+    samples = [s for s in report.get("samples") or [] if isinstance(s, dict)
+               and str(s.get("label") or "").startswith(f"{phase}-")]
+    counts = []
+    for n in sorted({int(x) for x in agents.split(",") if x.strip().isdigit()}):
+        at_n = next((s for s in samples if s.get("label") == f"{phase}-{n}"), None)
+        seen = [s.get("workspaces") for s in ([at_n] if at_n else samples) if isinstance(s.get("workspaces"), int)]
+        failures = [s.get("pane_failures") for s in samples if isinstance(s.get("pane_failures"), int)]
+        counts.append({"expected": n, "opened": max(seen) if seen else 0, "pane_failures": max(failures or [0])})
+    return counts
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -256,6 +300,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--agents", default="10", help="agent chat counts, e.g. 10 or 10,20")
     parser.add_argument("--settle", default="20")
     parser.add_argument("--measure", default="30")
+    parser.add_argument("--settled-at", default="150",
+                        help="the second sample, seconds after the launch and the last open (0: none)")
     parser.add_argument("--no-app-vm", action="store_true",
                         help="skip bench_memory --app-vm (by default every run stores the empty app process's vmmap "
                              "summary, footprint and heap in report.json app_vm)")
@@ -273,31 +319,43 @@ def main(argv: list[str] | None = None) -> int:
         report = {}
     rows = rows_from(report)
     breakdown, breakdown_rows = breakdown_from(report)
+    settled_rows = rows_from(report, "settled")
+    settled, settled_breakdown_rows = breakdown_from(report, "settled")
     rows += idle_rows(report)
-    out = {"rows": rows + breakdown_rows, "agents": args.agents, "bench_status": status}
+    out = {"rows": rows + breakdown_rows + settled_rows + settled_breakdown_rows, "agents": args.agents,
+           "bench_status": status}
     if report.get("gpu_no_app"):
         out["gpu_no_app"] = report["gpu_no_app"]
     if breakdown:
         out["breakdown"] = breakdown
+    if settled:
+        out["settled_breakdown"] = settled
     empty = next((s for s in report.get("samples") or [] if isinstance(s, dict) and s.get("label") == "idle-launch"), {})
     if empty.get("app_vm"):
         out["app_vm"] = empty["app_vm"]
     # perf-cron.py: an incomplete report keeps its rows for diagnostics but is no done part (incomplete_why names it).
     missing = [] if any(r["name"].endswith(".empty.total_footprint_mb") for r in rows) else \
         [f"no empty-app sample (bench_memory.py exit {status})"]
-    for n in sorted({int(x) for x in args.agents.split(",") if x.strip().isdigit()}):
+    out["chats"] = chat_counts(report, args.agents)
+    for c in out["chats"]:
+        n = c["expected"]
+        print(f"memory-agents: chats opened {c['opened']} of {n} expected (pane failures {c['pane_failures']})")
         if not any(r["name"] == f"memory.app_agents.{n}.total_footprint_mb" for r in rows):
-            missing.append(f"agents {n}: not every chat opened (or no sample)")
+            missing.append(f"agents {n}: opened {c['opened']} of {n} chat workspaces, pane failures "
+                           f"{c['pane_failures']} (bench_memory.py exit {status}): no memory.app_agents.ratio_vs_empty")
     if missing:
         out["incomplete"] = missing
     with open(args.json, "w") as f:
         json.dump(out, f, indent=1)
-    for r in rows:
+    for r in rows + settled_rows:
         print(f"memory-agents: {r['name']} = {r['p95']} {r['unit']}")
-    per_chat = breakdown.get("per_chat") or {}
-    if per_chat:
-        print(f"memory-agents: per chat workspace ({per_chat['chats']} chats) {per_chat['total_mb']} MB: "
-              + ", ".join(f"{k} {v}" for k, v in per_chat["kinds"].items()))
+    for name, view in (("", breakdown), ("settled ", settled)):
+        per_chat = view.get("per_chat") or {}
+        if per_chat:
+            print(f"memory-agents: {name}per chat workspace ({per_chat['chats']} chats) {per_chat['total_mb']} MB: "
+                  + ", ".join(f"{k} {v}" for k, v in per_chat["kinds"].items()))
+    if missing:
+        print("memory-agents: FAILED: " + "; ".join(missing), file=sys.stderr)
     return status or (1 if missing else 0)
 
 

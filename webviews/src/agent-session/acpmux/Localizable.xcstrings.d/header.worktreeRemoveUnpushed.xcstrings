@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "header.worktreeRemoveUnpushed" : {
+      "comment" : "Worktree pill: Remove the chat's worktree (cx-lyqio.5)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يحتوي {branch} على إيداعات غير موجودة في أي فرع آخر أو مستودع بعيد"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{branch} ima commitove kojih nema ni na jednoj drugoj grani ni udaljenom repozitoriju"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{branch} har commits, der ikke findes på nogen anden gren eller remote"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{branch} hat Commits, die auf keinem anderen Branch oder Remote liegen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{branch} has commits found on no other branch or remote"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{branch} tiene commits que no están en ninguna otra rama ni remoto"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{branch} a des commits présents sur aucune autre branche ni aucun dépôt distant"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{branch} ha commit che non si trovano su nessun altro branch o remoto"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{branch} には他のブランチやリモートにないコミットがあります"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{branch} មាន commit ដែលមិនមាននៅលើសាខាផ្សេង ឬ remote ណាមួយ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{branch}에 다른 브랜치나 원격에 없는 커밋이 있습니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{branch} har commits som ikke finnes på noen annen gren eller remote"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{branch} ma commity, których nie ma na żadnej innej gałęzi ani zdalnym repozytorium"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{branch} tem commits que não estão em nenhum outro branch ou remoto"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "В {branch} есть коммиты, которых нет ни в другой ветке, ни на удалённом репозитории"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{branch} มีคอมมิตที่ไม่มีในแบรนช์อื่นหรือรีโมตใด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{branch} dalında başka hiçbir dalda veya uzak depoda olmayan commit'ler var"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "У {branch} є коміти, яких немає в жодній іншій гілці чи віддаленому репозиторії"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{branch} có commit không nằm trên nhánh hay remote nào khác"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{branch} 有不在任何其他分支或远程上的提交"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{branch} 有不在任何其他分支或遠端上的提交"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -174,7 +174,7 @@ pub(super) fn app_exec(
     let Verb::Exec { command: line, .. } = &command.verb else { return None };
     let named =
         command.api.is_some() || command.credential_file.is_some() || command.team.is_some();
-    if named || env(API_ENV).is_some() || env(TOKEN_ENV).is_some() {
+    if named || env(API_ENV).is_some() || super::api_tokens::env_credential(&env).is_some() {
         return None;
     }
     Some(vec![
@@ -200,8 +200,10 @@ pub(super) fn resolve(
         // The error names neither the path nor the file's contents (a pasted secret could be in either).
         Some(path) => std::fs::read_to_string(path)
             .map_err(|e| format!("the --cloud-token-file could not be read ({:?})", e.kind()))?,
-        None => env(TOKEN_ENV).ok_or_else(|| {
-            format!("give your cmux credential with --cloud-token-file PATH or {TOKEN_ENV}")
+        None => super::api_tokens::env_credential(&env).ok_or_else(|| {
+            format!(
+                "give your cmux credential with --cloud-token-file PATH, {TOKEN_ENV} or CMUX_TOKEN"
+            )
         })?,
     };
     let credential = credential.trim().to_owned();
@@ -224,7 +226,7 @@ pub(super) fn run(
         .enable_all()
         .build()
         .map_err(|e| e.to_string())?;
-    let client = reqwest::Client::builder()
+    let client = cmux_egress::client_builder("cmux_tui::cli::cloud_client_session")
         .default_headers(cmux_build_space::headers().map_err(|e| e.to_string())?)
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
@@ -349,7 +351,7 @@ fn print_exec(
 /// `POST {api}/v1/cloud/machines/{machine}/exec` (cmux-platform MachineGuest.ts):
 /// `{command, timeoutMs}` -> `{exitCode, stdout, stderr}`, as the work user. A refusal answers
 /// `{ok: false, error: {code}}`; only a code from `cmux_cloud_api::session::known_code` is printed.
-async fn exec_route(
+pub(super) async fn exec_route(
     client: &reqwest::Client,
     scope: &Scope,
     credential: &str,
@@ -394,7 +396,7 @@ async fn exec_route(
     Ok(ExecAnswer { exit_code, stdout: text("stdout")?, stderr: text("stderr")? })
 }
 
-async fn exec(
+pub(super) async fn exec(
     client: &reqwest::Client,
     session: &Session,
     command: &str,

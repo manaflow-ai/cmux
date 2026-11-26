@@ -34,6 +34,8 @@ pub mod codes {
     pub const NOT_BOUND: &str = "cmux.cloud.not_bound";
     /// `cloud.machine.paused`.
     pub const MACHINE_PAUSED: &str = "cmux.cloud.machine_paused";
+    /// `cloud.billing.off`: payments are not open for this deployment.
+    pub const BILLING_OFF: &str = "cmux.cloud.billing_off";
     /// `cloud.migration.unavailable`.
     pub const MIGRATION_UNAVAILABLE: &str = "cmux.cloud.migration_unavailable";
     /// `cloud.machine.not_classic`.
@@ -49,6 +51,11 @@ pub mod codes {
     pub const MACHINE_BUSY: &str = "cmux.cloud.machine_busy";
     /// `cloud.size.grow_only`: a resize only grows.
     pub const SIZE_GROW_ONLY: &str = "cmux.cloud.size_grow_only";
+    /// `cloud.surge.unavailable`: the team's Cloud provider takes no surge
+    /// (not enabled for the team, or the provider has no burst path).
+    pub const SURGE_UNAVAILABLE: &str = "cmux.cloud.surge_unavailable";
+    /// `cloud.surge.capacity`: the provider has no room for the burst now.
+    pub const SURGE_CAPACITY: &str = "cmux.cloud.surge_capacity";
     /// `cloud.link.install_refused`: this install kind may not mint link
     /// tokens (only the cli, Mac and iOS installs may).
     pub const LINK_INSTALL_REFUSED: &str = "cmux.cloud.link_install_refused";
@@ -124,6 +131,7 @@ const WIRE_CODES: &[(&str, &str)] = &[
     ("cloud.machine.not_bound", codes::NOT_BOUND),
     ("cloud.machine.paused", codes::MACHINE_PAUSED),
     ("cloud.migration.unavailable", codes::MIGRATION_UNAVAILABLE),
+    ("cloud.billing.off", codes::BILLING_OFF),
     ("cloud.machine.not_classic", codes::NOT_CLASSIC),
     ("cloud.upgrade.failed", codes::UPGRADE_FAILED),
     ("cloud.rate_limited", codes::RATE_LIMITED),
@@ -132,6 +140,8 @@ const WIRE_CODES: &[(&str, &str)] = &[
     ("cloud.machine.not_paused", codes::NOT_PAUSED),
     ("cloud.machine.busy", codes::MACHINE_BUSY),
     ("cloud.size.grow_only", codes::SIZE_GROW_ONLY),
+    ("cloud.surge.unavailable", codes::SURGE_UNAVAILABLE),
+    ("cloud.surge.capacity", codes::SURGE_CAPACITY),
     ("cloud.link.install_refused", codes::LINK_INSTALL_REFUSED),
     ("approval.pending", codes::APPROVAL_PENDING),
     ("approval.denied", codes::APPROVAL_DENIED),
@@ -309,5 +319,23 @@ mod tests {
             assert_eq!(error.code, codes::VM_LIMIT, "{op}");
             assert_eq!(error.details.as_ref(), Some(&details), "{op}");
         }
+    }
+
+    /// 2026-11-25: `cmux vm new` failed with "cloud.machine.create answered
+    /// cloud.machine.not_found, which it does not declare". A create whose machine is gone
+    /// before it answers is a typed not-found now, never a protocol error.
+    #[test]
+    fn a_create_whose_machine_is_gone_is_a_typed_not_found() {
+        let error = CloudError::from_wire_for(
+            "cloud.machine.create",
+            &WireError {
+                code: "cloud.machine.not_found".into(),
+                message: "machine vm_57a7e6bc0337b978d609 not found".into(),
+                details: None,
+                retryable: false,
+            },
+        );
+        assert_eq!(error.code, codes::NOT_FOUND);
+        assert!(!error.message.contains("does not declare"), "{}", error.message);
     }
 }

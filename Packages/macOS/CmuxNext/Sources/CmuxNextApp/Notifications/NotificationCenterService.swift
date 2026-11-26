@@ -23,7 +23,9 @@ import CmuxNextFocus
 @Observable
 final class NotificationCenterService {
     /// `notifications.*` from cmux.json (the mute action updates it at once).
-    var preferences = NotificationPreferences()
+    var preferences = NotificationPreferences() {
+        didSet { CmuxToastCenter.shared.styles.configure(preferences.toastStyle); soundGate.apply(preferences.sounds) }
+    }
     /// A dismissal belongs to one daemon session, never another machine with the same IDs.
     typealias HighlightKey = NotificationOwnerKey
 
@@ -259,7 +261,7 @@ final class NotificationCenterService {
         endViewHolds()
         guard let press = clickedTab(in: window, at: location) else { return }
         if left, press.onStrip, let window {
-            beginStripPress(tab: press.tab, target: interactionTarget(tabID: press.tab, in: window), at: screen ?? window.convertPoint(toScreen: location), synthetic: synthetic)
+            beginStripPress(tab: press.tab, target: interactionTarget(tabID: press.tab, in: window), at: screen ?? window.convertPoint(toScreen: location), synthetic: synthetic, pane: press.pane, in: content(of: window))
             return
         }
         if let pane = press.pane, content(of: window)?.layoutModel.enterAttention(pane, click: true) == true { return }
@@ -302,10 +304,10 @@ final class NotificationCenterService {
 
     /// Opens the tab of `surface` (banner click) and reads it per policy.
     func open(surface: SurfaceID?) {
-        guard let services, let surface, let located = locate(surface: surface, in: services.daemon.store) else { return }
-        let context = AppActionContext(services: services)
-        context.reveal(located); services.agentTabs.existingView(located.tab.id)?.focusAsk()
-        interacted(.open, tabID: located.tab.id)
+        guard let services, let surface else { return } // a launch click can land before its tab loads: wait up to 15 s
+        desktop.whenFound(limit: .seconds(15), find: { [weak self] in _ = services.daemon.store.tabListRevision; return self?.locate(surface: surface, in: services.daemon.store) }, missed: { [weak self] in self?.note("open: surface \(surface.rawValue) not found after 15 s") }) { [weak self] located in
+            AppActionContext(services: services).reveal(located, front: true); services.agentTabs.existingView(located.tab.id)?.focusAsk(); self?.interacted(.open, tabID: located.tab.id)
+        }
     }
 
     /// A reply banner's text (`notify --reply`) for the terminal of `surface`:
@@ -365,8 +367,7 @@ final class NotificationCenterService {
     func owner(of tab: TabModel) -> DaemonService? { services?.machines.daemon(forTab: tab) }
 
     func interacted(_ trigger: NotificationTrigger, target: TabInteractionTarget) {
-        // A closed tab or replaced store is no longer the object pressed, even if its id is reused.
-        guard target.store.tab(idOrResource: target.tab.id) === target.tab, target.attentionUnchanged else { return }
+        guard target.isCurrent else { return } // a closed tab or replaced store, or a newer request
         interacted(trigger, tab: target.tab, owner: services?.machines.daemons.first { $0.store === target.store })
     }
 

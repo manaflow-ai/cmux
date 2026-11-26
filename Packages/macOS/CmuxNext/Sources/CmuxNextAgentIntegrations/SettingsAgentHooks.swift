@@ -1,6 +1,7 @@
 public import CmuxNextPages
 public import CmuxNextSettings
 public import Foundation
+import CmuxNextCompat
 
 /// Settings > Agents > Claude Code & Codex > Hooks (Labs `labs.agentCustomization`): every Claude Code
 /// and Codex hook on this Mac, by agent, event and matcher, with its command, scope and whether it
@@ -81,7 +82,7 @@ public final class SettingsAgentHooks: PageProvider {
             throw PageError(code: PageNativeOp.userOnlyCode, message: "\(action) needs a click in the page")
         }
         guard let cli = await cli() else { throw PageError(code: "cmux.page.unavailable", message: "no bundled cmux") }
-        let reply = try? await runCLI(cli, ["--json", "agent-config", "hooks"] + arguments)
+        let reply = try? await awaitConcurrently({ [arguments] in try await runCLI(cli, ["--json", "agent-config", "hooks"] + arguments) })
         await refresh()
         if let reply, reply.0 != 0 {
             error = Self.refusal(stdout: reply.1, stderr: reply.2) ?? "the change did not finish"
@@ -98,7 +99,7 @@ public final class SettingsAgentHooks: PageProvider {
             error = "no bundled cmux"
             return
         }
-        guard let reply = try? await runCLI(cli, ["--json", "agent-config", "hooks", "list"]), reply.0 == 0,
+        guard let reply = try? await awaitConcurrently({ try await runCLI(cli, ["--json", "agent-config", "hooks", "list"]) }), reply.0 == 0,
               let value = SettingsAgentMcpServers.lastLine(reply.1), value["hooks"]?.arrayValue != nil else {
             error = "the hooks list did not answer"
             return

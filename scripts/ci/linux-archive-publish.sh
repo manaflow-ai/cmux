@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Build the .deb and .rpm of this commit and publish the signed apt and yum repositories (cmuxterm-hq
-# docs/design/linux-signed-packages.md phase 4; scripts/ci/linux-archive.py does the building).
+# Publish the signed apt and yum repositories of this commit's .deb and .rpm (cmuxterm-hq
+# docs/design/linux-signed-packages.md phase 4; scripts/ci/linux-archive.py does the indexes).
 #
 #   scripts/ci/linux-archive-publish.sh BUILT_DIR WORK_DIR
 #
-# BUILT_DIR holds this run's own build of the musl binaries (the ones the Linux release file was signed
-# against). Reads env ARCHIVE_SIGNING_KEY (secret CMUX_LINUX_ARCHIVE_SIGNING_KEY: the signing subkey alone,
+# BUILT_DIR is unused (kept for the workflow's call): the packages are the ones the signed Linux release
+# file names, which scripts/ci/linux-packages.sh built from this run's own musl binaries and uploaded under
+# cmux-tui/<commit>/ (or the tree's prefix) before the file was signed, key or no key. Reads env ARCHIVE_SIGNING_KEY (secret CMUX_LINUX_ARCHIVE_SIGNING_KEY: the signing subkey alone,
 # linux-archive-key-new.sh), R2_ENDPOINT and the AWS_* R2 credentials, GITHUB_SHA, GITHUB_RUN_ID.
 #
 # Nothing is published, with a warning, while the secret is unset or scripts/ci/cmux-archive-keyring.asc
@@ -14,24 +15,19 @@
 # upload, so a secret that is not the published key's subkey publishes nothing.
 #
 # Layout on files.cmux.com:
-#   cmux-tui/<commit>/cmux_<version>_<arch>.deb, cmux-<version>-1.<arch>.rpm   written once
+#   cmux-tui/<commit>/cmux-<sequence>-<arch>.{deb,rpm}                          written once (linux-packages.sh)
 #   linux/apt/pool/<channel>/*.deb, linux/apt/dists/<channel>/...                the apt repository
 #   linux/rpm/<channel>/*.rpm, linux/rpm/<channel>/repodata/...                  the yum repository
 #   linux/cmux-archive-keyring.gpg                                               the public keyring
 # This first slice lists the newest build alone (the design keeps 20) and is re-signed by each push, not a
 # daily job yet; Valid-Until is 7 days.
 set -euo pipefail
-built=$1 work=$2
+work=$2
 channel=feat-cmux-next
 root=$(cd "$(dirname "$0")/../.." && pwd)
 archive="$root/scripts/ci/linux-archive.py"
 keys="$root/Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json"
 keyring_asc="$root/scripts/ci/cmux-archive-keyring.asc"
-NFPM_VERSION=2.49.0
-declare -A NFPM_SHA256=(
-  [x86_64]=2afaa5ffb5e3493402e31e7c67a5a1fb42133e3f66fc315ca0051934125561c7
-  [aarch64]=d4eee71839e92c68cbd3b101640bad32d2856fc551acae0635be9118e48c9d9c
-)
 
 if [[ -z "${ARCHIVE_SIGNING_KEY:-}" ]]; then
   echo "::warning::CMUX_LINUX_ARCHIVE_SIGNING_KEY is not set; the apt and yum repositories are not published"
@@ -51,28 +47,18 @@ subkey=$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1=="ssb" && $1
 [[ "$subkey" =~ ^[0-9A-F]{40}$ ]] || { echo "::error::CMUX_LINUX_ARCHIVE_SIGNING_KEY holds no signing subkey"; exit 1; }
 gpg --batch --yes --dearmor --output "$work/cmux-archive-keyring.gpg" "$keyring_asc"
 
-arch=$(uname -m)
-[[ -n "${NFPM_SHA256[$arch]:-}" ]] || { echo "::error::no pinned nfpm for $arch"; exit 1; }
-nfpm_arch=$([[ $arch == aarch64 ]] && echo arm64 || echo x86_64)
-curl -fsSL --retry 3 --max-time 300 -o "$work/nfpm.tgz" \
-  "https://github.com/goreleaser/nfpm/releases/download/v$NFPM_VERSION/nfpm_${NFPM_VERSION}_Linux_${nfpm_arch}.tar.gz"
-echo "${NFPM_SHA256[$arch]}  $work/nfpm.tgz" | sha256sum -c --quiet
-mkdir -p "$work/nfpm" && tar -xzf "$work/nfpm.tgz" -C "$work/nfpm" nfpm
-nfpm="$work/nfpm/nfpm"
 rpm_repo=1
 if ! command -v createrepo_c >/dev/null; then
-  timeout 300 sudo apt-get install -y -qq createrepo-c >/dev/null 2>&1 || true
+  bash "$(dirname "${BASH_SOURCE[0]}")/timeout.sh" 300 sudo apt-get install -y -qq createrepo-c >/dev/null 2>&1 || true
 fi
 command -v createrepo_c >/dev/null || { echo "::warning::createrepo_c is unavailable; the yum repository is not published"; rpm_repo=0; }
 
+# The packages the verified release file names (linux-packages.sh built and uploaded them before it was
+# signed), each checked against its signed sha256 and size: the repositories list exactly those bytes.
 curl -fsS --retry 3 --max-time 60 -o "$work/release.json" "https://files.cmux.com/cmux-tui/$GITHUB_SHA/release.json?archive=$GITHUB_RUN_ID"
 mkdir -p "$work/deb" "$work/rpm"
-for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
-  python3 "$archive" nfpm-config --release "$work/release.json" --keys "$keys" --target "$target" \
-    --binaries-dir "$built" --out "$work/nfpm-$target.json"
-  "$nfpm" package --config "$work/nfpm-$target.json" --packager deb --target "$work/deb/"
-  ((rpm_repo)) && "$nfpm" package --config "$work/nfpm-$target.json" --packager rpm --target "$work/rpm/"
-done
+python3 "$archive" fetch-packages --release "$work/release.json" --keys "$keys" --deb-dir "$work/deb" \
+  --rpm-dir "$work/rpm"
 
 upload() { # FILE KEY CACHE-CONTROL MODE...
   local file=$1 key=$2 cache=$3
@@ -82,20 +68,6 @@ upload() { # FILE KEY CACHE-CONTROL MODE...
 }
 immutable="public, max-age=31536000, immutable"
 index="public, max-age=60, must-revalidate"
-# A package of this commit already published (an earlier attempt) is kept and listed as is: its name holds
-# the version, so an installer that asked for it by name keeps getting the same bytes.
-for pkg in "$work"/deb/*.deb "$work"/rpm/*.rpm; do
-  [[ -f "$pkg" ]] || continue
-  name=$(basename "$pkg")
-  rc=0
-  upload "$pkg" "cmux-tui/$GITHUB_SHA/$name" "$immutable" --write-once || rc=$?
-  if [[ $rc == 9 ]]; then
-    curl -fsS --retry 3 --max-time 600 -o "$pkg" "https://files.cmux.com/cmux-tui/$GITHUB_SHA/$name?archive=$GITHUB_RUN_ID"
-  elif [[ $rc != 0 ]]; then
-    exit "$rc"
-  fi
-done
-
 repo="$work/repo"
 python3 "$archive" apt-repo --debs "$work/deb" --channel "$channel" --out "$repo/apt" --key-id "$subkey"
 gpgv --keyring "$work/cmux-archive-keyring.gpg" "$repo/apt/dists/$channel/InRelease"

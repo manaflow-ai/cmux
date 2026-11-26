@@ -218,7 +218,17 @@ pub(super) fn start(global: &GlobalArgs, request: &Request) -> i32 {
     // A folder's size never stops a start: one past what a copy sends whole goes as a first pass
     // (`size_cap`; Leo, 2026-11-15: "why are you guys still blocking on these?").
     let mut runner = SelfRunner::new(global);
-    let outcome = run(&mut runner, request);
+    // No app named and a cmux credential in the environment: the cmux API answers the app's
+    // verbs (direct.rs), so a machine with no signed-in app starts the same chat.
+    let outcome = match direct::Route::choose(global, |key| std::env::var(key).ok()) {
+        direct::Route::App => run(&mut runner, request),
+        direct::Route::Direct => match direct::Api::from_env(|key| std::env::var(key).ok()) {
+            Ok(mut api) => {
+                run(&mut direct::DirectRunner { inner: &mut runner, cloud: &mut api }, request)
+            }
+            Err(error) => Outcome::Failed { error, exit: 2 },
+        },
+    };
     if let Outcome::Done(answer) = &outcome {
         super::start_stages::print_table(request.timings, answer);
     }
@@ -255,7 +265,11 @@ pub(super) fn send_existing(
         no_focus: false,
     };
     let mut runner = SelfRunner::new(global);
-    report(&send_to(&mut runner, &request, machine_id, session), global.output)
+    // With CMUX_CLOUD_ACCESS_TOKEN and no app named, the exec goes through the cmux API (direct.rs).
+    let outcome = direct::on_route(global, &mut runner, |runner| {
+        send_to(runner, &request, machine_id, session)
+    });
+    report(&outcome, global.output)
 }
 
 /// The newest records `cmux chat read` reads of a chat on a Cloud VM, in one exec.
@@ -271,7 +285,10 @@ pub(super) fn read_existing(
     limit: usize,
 ) -> i32 {
     let mut runner = SelfRunner::new(global);
-    match read_on(&mut runner, machine_id, session, after, limit) {
+    let outcome = direct::on_route(global, &mut runner, |runner| {
+        read_on(runner, machine_id, session, after, limit)
+    });
+    match outcome {
         Outcome::Done(page) => super::wire::print_local_success(&page, global.output),
         Outcome::Failed { error, exit } => {
             super::wire::print_local_error(&error, global.output, exit)
@@ -330,7 +347,10 @@ pub(super) fn wait_existing(
     timeout: Duration,
 ) -> i32 {
     let mut runner = SelfRunner::new(global);
-    report(&wait_on(&mut runner, machine_id, session, timeout), global.output)
+    let outcome = direct::on_route(global, &mut runner, |runner| {
+        wait_on(runner, machine_id, session, timeout)
+    });
+    report(&outcome, global.output)
 }
 
 /// [`wait_existing`]'s wait: the newest turn (any seq after 0), within `timeout`.
@@ -731,6 +751,19 @@ pub(super) trait Runner {
         let _ = until;
         self.cmux(args)
     }
+    /// [`Runner::cmux_by`], whose `until` may move: when it comes with the child still running, `later` is asked
+    /// (with this runner, for steps of its own), and a later instant it names is the child's new end, asked again
+    /// when that one comes ([`fresh::Boot`]: a new machine still booting is waited on). A runner that cannot keep a
+    /// child running while it asks runs it as [`Runner::cmux_by`].
+    fn cmux_by_unless(
+        &mut self,
+        args: &[String],
+        until: Instant,
+        later: &mut dyn FnMut(&mut dyn Runner) -> Option<Instant>,
+    ) -> Ran {
+        let _ = later;
+        self.cmux_by(args, until)
+    }
     /// One line of progress while the run goes on (on stderr: never part of the answer), so a start that gives up a
     /// machine and tries another is never a silent wait.
     fn say(&mut self, _line: &str) {}
@@ -860,6 +893,22 @@ impl Runner for SelfRunner {
         }
     }
 
+    fn cmux_by_unless(
+        &mut self,
+        args: &[String],
+        until: Instant,
+        later: &mut dyn FnMut(&mut dyn Runner) -> Option<Instant>,
+    ) -> Ran {
+        let command = match self.step(args) {
+            Ok(command) => command,
+            Err(ran) => return ran,
+        };
+        // Never past the runner's own deadline, however far `later` moves it.
+        let own = self.until;
+        let cap = move |at: Instant| own.map_or(at, |own| own.min(at));
+        internal::bounded::output_by_unless(command, cap(until), &mut || later(self).map(cap))
+    }
+
     fn say(&mut self, line: &str) {
         match self.global.output {
             OutputMode::Human => eprintln!("{line}"),
@@ -894,8 +943,7 @@ impl Runner for SelfRunner {
     }
 
     fn fresh_name(&mut self) -> String {
-        // The app reads this shape as generated (`record::is_generated_name`), never as a title.
-        cmux_cloud_machine::record::chat_machine_name(&uuid::Uuid::new_v4().simple().to_string())
+        fresh_machine_name()
     }
 
     fn app(
@@ -912,6 +960,12 @@ impl Runner for SelfRunner {
         let mut stream = super::app::connect_command(&self.global).ok()?;
         super::app::request_by(&mut stream, method, params, timeout, self.until).ok()
     }
+}
+
+/// A new machine's name for [`Runner::fresh_name`] (also the Chief's `cloud_chat_start`, mcp/cloud_tools.rs).
+pub(super) fn fresh_machine_name() -> String {
+    // The app reads this shape as generated (`record::is_generated_name`), never as a title.
+    cmux_cloud_machine::record::chat_machine_name(&uuid::Uuid::new_v4().simple().to_string())
 }
 
 /// The globals a step needs to reach the same app.
@@ -1219,6 +1273,8 @@ struct Progress {
     creation: Option<String>,
     /// The command to ask again when it is not a start (`cmux chat send SESSION`'s own send, [`send_to`]).
     again: Option<String>,
+    /// The newest turn before the send, once the send answered: the timeout's `cloud chat status --after`.
+    baseline: Option<u64>,
 }
 
 impl Progress {
@@ -1245,7 +1301,7 @@ impl Progress {
         let machine = self.machine.clone().unwrap_or_else(|| request.machine.clone());
         match (&self.chat, self.sending) {
             (Some((machine_id, session, answer)), true) => {
-                wait_timeout(request, machine_id, session, answer.clone())
+                wait_timeout(request, machine_id, session, self.baseline, answer.clone())
             }
             (None, true) => {
                 let again = again_command(request, &machine);
@@ -1283,7 +1339,24 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     let outcome = run_once(runner, request);
     // A new machine this run made that never came up is deleted and the start runs on a fresh one (fresh.rs).
     let outcome = fresh::replace_stuck(runner, request, began, outcome);
-    if request.make_room { make_room(runner, request, began, outcome) } else { outcome }
+    let outcome =
+        if request.make_room { make_room(runner, request, began, outcome) } else { outcome };
+    explain_account_limit(outcome, &request.agent)
+}
+
+/// A turn that failed on its agent's account (out of usage, or turned off) answers what
+/// happened and the way on, not the agent's bare words (account_limit.rs, cmux#55066).
+fn explain_account_limit(outcome: Outcome, agent: &str) -> Outcome {
+    match outcome {
+        Outcome::Failed { mut error, exit }
+            if at(&error, "code").as_str() == Some("chat.turn_failed") =>
+        {
+            let said = at(&error, "message").as_str().unwrap_or_default().to_owned();
+            super::account_limit::explain(&mut error, &said, agent);
+            Outcome::Failed { error, exit }
+        }
+        outcome => outcome,
+    }
 }
 
 /// `--make-room` after a cap refusal: free the machine the refusal offers, then start once more. A
@@ -1363,7 +1436,11 @@ fn run_once(runner: &mut dyn Runner, request: &Request) -> Outcome {
     let mut progress = Progress::default();
     let mut timed = Timed::new(runner);
     let mut outcome = steps(&mut timed, request, deadline, &mut progress);
-    if deadline.passed(&mut timed) {
+    // Rollback follows a definitive refusal. Its receipt must survive a deadline crossed
+    // during deletion, rather than suggesting the caller retry on a machine we just deleted.
+    let rolled_back = matches!(&outcome, Outcome::Failed { error, .. }
+        if error.pointer("/details/cleanup").is_some());
+    if deadline.passed(&mut timed) && !rolled_back {
         outcome = progress.late(request);
     }
     if let (Some(id), Outcome::Done(answer)) = (progress.made.as_deref(), &mut outcome)
@@ -1493,6 +1570,18 @@ impl Runner for Timed<'_> {
     fn cmux_by(&mut self, args: &[String], until: Instant) -> Ran {
         let from = self.inner.now();
         let ran = self.inner.cmux_by(args, until);
+        self.record(args, from, &ran);
+        ran
+    }
+
+    fn cmux_by_unless(
+        &mut self,
+        args: &[String],
+        until: Instant,
+        later: &mut dyn FnMut(&mut dyn Runner) -> Option<Instant>,
+    ) -> Ran {
+        let from = self.inner.now();
+        let ran = self.inner.cmux_by_unless(args, until, later);
         self.record(args, from, &ran);
         ran
     }
@@ -1733,16 +1822,20 @@ fn steps(
     start.push("--json".to_owned());
     // On a machine this run makes for itself, the start is bounded and a stuck machine is given up (fresh.rs); a
     // `--from-folder` start's copy runs inside the step, so only the app's own stuck answer counts there.
-    let bound = fresh
+    // A machine still booting at the bound (a cold create: no spare) is waited on while it boots (fresh::Boot).
+    let mut boot = fresh
         .as_ref()
         .filter(|_| request.from_folder.is_none())
-        .map(|_| fresh::start_until(runner, deadline));
-    let ran = match bound {
-        Some(until) => runner.cmux_by(&start, until),
+        .map(|name| fresh::Boot::new(runner, name, deadline));
+    let ran = match &mut boot {
+        Some(boot) => {
+            let until = boot.until;
+            runner.cmux_by_unless(&start, until, &mut |runner| boot.later(runner))
+        }
         None => runner.cmux(&start),
     };
     if let Some(name) = &fresh
-        && let Some(stuck) = fresh::stuck(runner, &ran, bound, name, deadline)
+        && let Some(stuck) = fresh::stuck(runner, &ran, boot.as_ref(), name, deadline)
     {
         return stuck;
     }
@@ -1753,7 +1846,14 @@ fn steps(
                 Some(name) => unmade_fresh_retry(runner, error, name, request),
                 None => error,
             };
-            return start_refused(error, &listed, request);
+            let refused = start_refused(error, &listed, request);
+            return fresh::release_refused(
+                runner,
+                fresh.as_deref(),
+                progress.made.as_deref(),
+                refused,
+                deadline,
+            );
         }
     };
     if at(&started, "pending").as_bool() == Some(true) {
@@ -1799,6 +1899,11 @@ fn steps(
     }
     if let Some(estimate) = estimate {
         answer.set("estimate", estimate);
+    }
+    // How the machine came (a warm spare, made fresh, or one that already existed), when the start said:
+    // a lane's readback proves a spare claim from it (direct.rs `spare_origin`).
+    if let Some(origin) = started.get("machine_origin").filter(|v| v.is_object()) {
+        answer.set("machine_origin", origin.clone());
     }
     progress.machine = Some(Machine::Target(machine_id.to_owned()));
     progress.chat = Some((machine_id.to_owned(), session.to_owned(), answer.clone()));
@@ -2183,6 +2288,7 @@ fn send_prompt(
     let reported = sections(&sent);
     let baseline =
         last_turn(reported.get("before").or(reported.get("history"))).map_or(0, |turn| turn.seq);
+    progress.baseline = Some(baseline);
     if reported.get("exit").map(String::as_str).map(str::trim) != Some("0") {
         let output = reported.get("send").cloned().unwrap_or_default();
         return failed(
@@ -2200,6 +2306,8 @@ fn send_prompt(
         answer.set("delivery", json!(delivery));
     }
     if !request.wait {
+        // The newest turn before this send: `cloud chat status --after` tells this prompt's turn from an older one.
+        answer.set("after", json!(baseline));
         return Outcome::Done(answer);
     }
     // The send's exec already waited ([`turn_wait_script`]): its answer is the wait's first read.
@@ -2208,6 +2316,110 @@ fn send_prompt(
         answer.set("wait_route", json!("send"));
     }
     wait_turn(runner, request, machine_id, session, (baseline, tab, first), answer, deadline)
+}
+
+/// `cloud chat send` / `cloud_chat_send`: the next prompt of a running chat, without waiting ([`send_to`]).
+/// Answers `after`, the newest turn before this one, for [`status`] to tell this prompt's turn from an older one.
+pub(super) fn send(
+    runner: &mut dyn Runner,
+    machine_id: &str,
+    session: &str,
+    prompt: &str,
+) -> Outcome {
+    let request = Request {
+        prompt: Some(prompt.to_owned()),
+        agent: String::new(),
+        model: None,
+        effort: None,
+        mode: None,
+        cwd: None,
+        from_folder: None,
+        environment: None,
+        account: None,
+        machine: Machine::Target(machine_id.to_owned()),
+        wait: false,
+        timeout: DEFAULT_TIMEOUT,
+        make_room: false,
+        until: None,
+        allow_large: false,
+        timings: false,
+        no_focus: false,
+    };
+    send_to(runner, &request, machine_id, session)
+}
+
+/// The longest one [`status`] waits on the machine (`acp wait` inside one `cloud exec`).
+pub(super) const MAX_STATUS_WAIT_SECONDS: u64 = WAIT_SLICE_SECONDS;
+
+/// `cloud chat status|last` / `cloud_chat_status`: the chat's newest turn after `after` (any turn
+/// without it), waiting on the machine up to `wait_seconds` for it to end. `state` is `starting`
+/// (no turn after `after` yet), `running`, `permission_waiting` (the agent asks the person in the
+/// chat's tab), `ended` (with `reply`) or `failed`.
+pub(super) fn status(
+    runner: &mut dyn Runner,
+    machine_id: &str,
+    session: &str,
+    after: Option<u64>,
+    wait_seconds: u64,
+) -> Outcome {
+    let sid = shell_quote(session);
+    let wait = match wait_seconds.min(MAX_STATUS_WAIT_SECONDS) {
+        0 => String::new(),
+        slice => {
+            format!("\"$c\" acp wait {sid} --timeout {slice} >/dev/null 2>&1; echo \"@@wait $?\"; ")
+        }
+    };
+    let script = format!(
+        "{GUEST_PRELUDE}{wait}echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1; \
+         echo @@last; \"$c\" acp last {sid} --json 2>&1; echo \"@@lastexit $?\""
+    );
+    let mut answer = json!({
+        "machine_id": machine_id,
+        "target": format!("machine:{machine_id}"),
+        "session_id": session,
+        "follow_up": follow_ups(machine_id, session),
+    });
+    let polled = match exec(runner, machine_id, &script) {
+        Ok(stdout) => sections(&stdout),
+        Err(error) => {
+            let message = at(&error, "message").as_str().unwrap_or("cloud exec failed");
+            return failed(
+                "chat.unreachable",
+                format!("the chat's machine did not answer: {message}"),
+                json!({"answer": answer, "app": error}),
+                1,
+            );
+        }
+    };
+    let newest = last_turn(polled.get("history"));
+    if newest.is_none() && !polled.get("history").is_some_and(|text| text.contains("\"turns\"")) {
+        return failed(
+            "chat.lost",
+            "the chat's session on the machine does not answer",
+            json!({"answer": answer, "history": polled.get("history")}),
+            1,
+        );
+    }
+    let turn = newest.filter(|turn| after.is_none_or(|after| turn.seq > after));
+    let waited = polled.get("wait").map(|code| code.trim().to_owned()).unwrap_or_default();
+    let state = match &turn {
+        Some(turn) if turn.ended && turn.failed() => "failed",
+        Some(turn) if turn.ended => "ended",
+        _ if waited == "2" => "permission_waiting",
+        Some(_) => "running",
+        None => "starting",
+    };
+    answer.set("state", json!(state));
+    if let Some(turn) = &turn {
+        answer.set("turn", turn.value.clone());
+        if turn.ended
+            && polled.get("lastexit").map(|code| code.trim()) == Some("0")
+            && let Some(text) = reply(polled.get("last"))
+        {
+            answer.set("reply", json!(text));
+        }
+    }
+    Outcome::Done(answer)
 }
 
 /// The prompt to the chat tab `tab` over the machine's link, within what is left of the deadline. `NotSent`
@@ -2261,7 +2473,9 @@ fn wait_turn(
             Pushed::Unavailable => {
                 answer.set("wait_route", json!("exec"));
             }
-            Pushed::TimedOut => return wait_timeout(request, machine_id, session, answer),
+            Pushed::TimedOut => {
+                return wait_timeout(request, machine_id, session, Some(baseline), answer);
+            }
         }
     }
     // The reads in a row the Cloud API did not answer: a read only reads, so it is asked again.
@@ -2276,7 +2490,7 @@ fn wait_turn(
             // less than one left (the steps before spent it), no wait past the deadline.
             let slice = deadline.bound(runner, Duration::from_secs(WAIT_SLICE_SECONDS)).as_secs();
             if slice == 0 {
-                return wait_timeout(request, machine_id, session, answer);
+                return wait_timeout(request, machine_id, session, Some(baseline), answer);
             }
             let poll = format!("{GUEST_PRELUDE}{}", turn_wait_script(session, slice, seen));
             match exec(runner, machine_id, &poll) {
@@ -2343,7 +2557,7 @@ fn wait_turn(
             return permission_waiting(answer);
         }
         if deadline.passed(runner) {
-            return wait_timeout(request, machine_id, session, answer);
+            return wait_timeout(request, machine_id, session, Some(baseline), answer);
         }
         // No turn after the send yet. A machine whose `acp wait --until running` blocked for it (it answered:
         // [`waited_for_start`]) is asked again at once. One whose CLI lacks it returned on `ready` before the
@@ -2628,14 +2842,23 @@ fn pushed_turn(
     }
 }
 
-fn wait_timeout(request: &Request, machine_id: &str, session: &str, answer: Value) -> Outcome {
+/// The turn outlived `--timeout`: wait on with `cloud chat status`, after `baseline` (the newest turn before the
+/// send) when the send answered it.
+fn wait_timeout(
+    request: &Request,
+    machine_id: &str,
+    session: &str,
+    baseline: Option<u64>,
+    answer: Value,
+) -> Outcome {
+    let after = baseline.map(|seq| format!(" --after {seq}")).unwrap_or_default();
     failed(
         "chat.wait_timeout",
         format!(
-            "the turn is still running after {}s; wait on with: cmux cloud exec \
-             --target machine:{machine_id} --command '{GUEST_CMUX} acp wait {session} \
-             --timeout {WAIT_SLICE_SECONDS}'",
-            request.timeout.as_secs()
+            "the turn is still running after {}s; wait on with: cmux cloud chat status \
+             --target machine:{machine_id} --session {}{after} --wait {WAIT_SLICE_SECONDS}",
+            request.timeout.as_secs(),
+            shell_quote(session)
         ),
         json!({"answer": answer}),
         3,
@@ -2903,8 +3126,25 @@ const LAST_ERROR_WAIT: Duration = Duration::from_secs(5);
 /// app's last Cloud error (`cloud.machines`' `last_error`, AppControl+Cloud.swift) is added to `message` and
 /// `details` when it has one: why the list never loaded (cmuxterm-hq run 43553290380).
 fn list_unread(runner: &mut dyn Runner, message: String, mut details: Value) -> Outcome {
-    let last_error = runner
-        .app("cloud.machines", json!({}), LAST_ERROR_WAIT)
+    let answer = runner.app("cloud.machines", json!({}), LAST_ERROR_WAIT);
+    // The relay's `unavailable` (cmux-tui-core apps/relay.rs) is an app that is not connected: closed, or a
+    // locked or asleep Mac. Waiting a moment never loads its list, so the refusal says so and is not
+    // retryable; a connected app still loading is (ask-259986a6c4, interim-coord's 3 NIGHTLY readbacks).
+    if let Some(Err(refused)) = &answer {
+        if at(refused, "code").as_str() == Some("unavailable") {
+            details.set("app", Value::String("not_connected".to_owned()));
+            details.set("last_error", Value::Null);
+            return failed(
+                "cloud.app_not_connected",
+                "the cmux Mac app is not connected (it is closed, or its Mac is locked or asleep), so it \
+                 cannot load its Cloud machines and nothing was made or started: open or unlock the app, then \
+                 run this command again",
+                details,
+                75,
+            );
+        }
+    }
+    let last_error = answer
         .and_then(Result::ok)
         .and_then(|answer| at(&answer, "last_error").as_str().map(str::trim).map(str::to_owned))
         .filter(|error| !error.is_empty());
@@ -2913,7 +3153,12 @@ fn list_unread(runner: &mut dyn Runner, message: String, mut details: Value) -> 
         None => message,
     };
     details.set("last_error", last_error.map_or(Value::Null, Value::String));
-    failed("cloud.list_unread", message, details, 75)
+    let mut outcome = failed("cloud.list_unread", message, details, 75);
+    // Its message says to run it again in a moment: a connected app loading its list, so it is retryable.
+    if let Outcome::Failed { error, .. } = &mut outcome {
+        error["retryable"] = Value::Bool(true);
+    }
+    outcome
 }
 
 /// A machine name for this run: a fresh one no listed machine or create on its way has. It is never one that is:
@@ -3006,15 +3251,18 @@ fn fresh_start_command(message: &str, name: &str) -> Option<(usize, usize)> {
 
 /// The commands that go on with this chat.
 pub(super) fn follow_ups(machine: &str, session: &str) -> Value {
-    let on = |command: String| {
-        format!("cmux cloud exec --target machine:{machine} --command {}", shell_quote(&command))
+    let on = |verb: &str| {
+        format!(
+            "cmux cloud chat {verb} --target machine:{machine} --session {}",
+            shell_quote(session)
+        )
     };
     json!({
         "send": format!("cmux chat send {session} 'PROMPT' --wait"),
         // Another folder or a repository later, a folderless start's included (chat_cd.rs).
         "cd": format!("cmux chat cd {session} DIR|--repo OWNER/NAME"),
-        "wait": on(format!("{GUEST_CMUX} acp wait {session} --timeout {WAIT_SLICE_SECONDS}")),
-        "last": on(format!("{GUEST_CMUX} acp last {session}")),
+        "status": format!("{} --wait {WAIT_SLICE_SECONDS}", on("status")),
+        "last": on("last"),
     })
 }
 
@@ -3056,9 +3304,62 @@ pub(super) fn exec(runner: &mut dyn Runner, machine: &str, script: &str) -> Resu
         script.to_owned(),
         "--json".to_owned(),
     ];
-    let result = step_result(&runner.cmux(&args))?;
+    let result = match step_result(&runner.cmux(&args)) {
+        // A paused or stopped machine is woken, never refused: `cloud exec` does not resume it (only a
+        // start-session's connect does), so every read (`cloud chat status|last`), send and `chat cd` on a machine
+        // AutoCloud paused while idle ended in "the machine is not running; start it first" (AutoCloud Claude
+        // proof, 2026-11-25). It resumes once, as clone_wait's check does, and the command goes again; a refused
+        // resume, or a second refusal, is the answer as it came.
+        Err(error) if machine_not_running(&error) => {
+            let resume = vec![
+                "cloud".to_owned(),
+                "resume-machine".to_owned(),
+                "--target".to_owned(),
+                format!("machine:{machine}"),
+                "--json".to_owned(),
+            ];
+            step_result(&runner.cmux(&resume))?;
+            // The resume can answer before the machine's record runs: a refusal for its state while it comes up
+            // is asked again, every RESUME_PAUSE, for at most RESUME_BOUND (and never past the run's deadline).
+            let woke = runner.now();
+            loop {
+                match step_result(&runner.cmux(&args)) {
+                    Err(error)
+                        if (machine_not_running(&error)
+                            || at(&error, "code").as_str() == Some("vm_state_conflict"))
+                            && runner.now().saturating_duration_since(woke) + RESUME_PAUSE
+                                < RESUME_BOUND
+                            && runner
+                                .until()
+                                .is_none_or(|until| runner.now() + RESUME_PAUSE < until) =>
+                    {
+                        runner.pause(RESUME_PAUSE);
+                    }
+                    other => break other?,
+                }
+            }
+        }
+        other => other?,
+    };
     Ok(at(&result, "stdout").as_str().unwrap_or_default().to_owned())
 }
+
+/// Whether a `cloud exec` was refused because its machine is paused or stopped: the Cloud API's codes, or the app's
+/// text for them (the app reports a Cloud API error as `daemon_error` with the person's words, `CloudStrings`).
+pub(super) fn machine_not_running(error: &Value) -> bool {
+    let code = at(error, "code").as_str().unwrap_or_default();
+    let message = at(error, "message").as_str().unwrap_or_default().to_lowercase();
+    matches!(code, "vm_not_running" | "cloud.machine.not_running" | "cloud.machine.paused")
+        || NOT_RUNNING_TEXT.iter().any(|text| message.contains(text))
+}
+
+/// How long a command waits for a machine it resumed to run, and the pause between its tries.
+const RESUME_BOUND: Duration = Duration::from_secs(90);
+const RESUME_PAUSE: Duration = Duration::from_secs(3);
+
+/// The words of a refusal for a machine that does not run, from the Cloud API and the app.
+const NOT_RUNNING_TEXT: [&str; 4] =
+    ["machine is not running", "machine is paused", "machine is stopped", "start it first"];
 
 /// The shell words that set `f` to the prompt file `name` on the machine (after
 /// [`GUEST_PRELUDE`], which sets `HOME`): `f=...; `.
@@ -3333,6 +3634,7 @@ fn report(outcome: &Outcome, output: OutputMode) -> i32 {
 
 mod cap;
 mod clone_wait;
+pub(in crate::cli) mod direct;
 mod fault;
 mod folder;
 mod fresh;

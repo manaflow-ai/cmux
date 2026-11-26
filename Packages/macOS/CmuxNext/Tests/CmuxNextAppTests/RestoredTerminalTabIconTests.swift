@@ -34,14 +34,14 @@ import Testing
         store.apply(snapshot: tree(surface: 12))
         #expect(try icon(store) == .terminal)
         _ = store.apply(.agentChanged(claude(on: 3)))
-        #expect(try icon(store) == .agentMark("claude"), "the tab of the reported terminal draws Claude's mark")
+        #expect(try icon(store) == .terminalAgentMark("claude"), "the tab of the reported terminal draws Claude's mark")
     }
 
     @Test func theConnectSeedMarksTheRestoredTab() throws {
         let store = DaemonStore()
         store.apply(snapshot: tree(surface: 12))
         store.apply(agents: [claude(on: 3)])
-        #expect(try icon(store) == .agentMark("claude"))
+        #expect(try icon(store) == .terminalAgentMark("claude"))
     }
 
     /// The terminal restored into a tab with a new surface after the agent last reported: the tab
@@ -50,9 +50,9 @@ import Testing
         let store = DaemonStore()
         store.apply(snapshot: tree(surface: 3))
         _ = store.apply(.agentChanged(claude(on: 3)))
-        #expect(try icon(store) == .agentMark("claude"))
+        #expect(try icon(store) == .terminalAgentMark("claude"))
         store.apply(snapshot: tree(surface: 12))
-        #expect(try icon(store) == .agentMark("claude"))
+        #expect(try icon(store) == .terminalAgentMark("claude"))
     }
 
     /// An older daemon names no terminal: the surface alone still matches, and a status for
@@ -63,7 +63,7 @@ import Testing
         _ = store.apply(.agentChanged(claude(on: 3, terminal: nil)))
         #expect(try icon(store) == .terminal)
         _ = store.apply(.agentChanged(claude(on: 12, terminal: nil, at: 200)))
-        #expect(try icon(store) == .agentMark("claude"))
+        #expect(try icon(store) == .terminalAgentMark("claude"))
     }
 
     /// A terminal shown in two tabs (two views, two surfaces): a report on a third surface marks both.
@@ -76,7 +76,7 @@ import Testing
         _ = store.apply(.agentChanged(claude(on: 3)))
         let views = try #require(store.workspaces.first?.allTabs)
         #expect(views.count == 2)
-        #expect(views.map { TabItemMapping.shared.item($0, fallbackTitle: "Terminal").icon } == [.agentMark("claude"), .agentMark("claude")])
+        #expect(views.map { TabItemMapping.shared.item($0, fallbackTitle: "Terminal").icon } == [.terminalAgentMark("claude"), .terminalAgentMark("claude")])
     }
 
     @Test func agentChangedDecodesTheTerminal() throws {

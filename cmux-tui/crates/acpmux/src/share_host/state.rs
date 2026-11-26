@@ -5,7 +5,7 @@
 use super::{NotRunning, records};
 use cmux_hub_host::hub::Hub;
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use tokio::sync::mpsc::UnboundedSender;
@@ -45,11 +45,15 @@ pub(crate) struct Shared {
     hub: Mutex<Arc<Hub>>,
     link: Mutex<Link>,
     subscribers: Mutex<Vec<UnboundedSender<String>>>,
+    /// App channels that asked `device.watch`: each hears `online` as the daemon comes online.
+    watchers: Mutex<Vec<UnboundedSender<String>>>,
     pub app: Mutex<AppNotes>,
     /// The hub's devices: id -> platform.
     devices: Mutex<HashMap<String, String>>,
     /// The hub's other devices as screens, from the last `GET /v1/devices`; None before a read.
     screens: Mutex<Option<Vec<HubScreen>>>,
+    /// The share approval nonces this daemon took (`approval.rs`): each tap admits once.
+    seen_approvals: Mutex<HashSet<String>>,
 }
 
 /// One of the device hub's records other than this device's: a machine's screen host.
@@ -98,9 +102,11 @@ impl Shared {
             hub: Mutex::new(Arc::new(hub)),
             link: Mutex::new(Link { state: "starting", ..Link::default() }),
             subscribers: Mutex::new(Vec::new()),
+            watchers: Mutex::new(Vec::new()),
             app: Mutex::new(AppNotes::default()),
             devices: Mutex::new(HashMap::new()),
             screens: Mutex::new(None),
+            seen_approvals: Mutex::new(HashSet::new()),
         })
     }
 
@@ -144,6 +150,36 @@ impl Shared {
     pub(crate) fn relay(&self, text: &str) {
         let line = json!({"event": "push", "text": text}).to_string();
         lock(&self.subscribers).retain(|s| s.send(line.clone()).is_ok());
+    }
+
+    /// `{"event":"online","id":..,"user_id":..}` while the link is online signed in: the device the
+    /// daemon holds now and its account, so an app that took another identity (it asked before
+    /// the daemon signed in, or before it registered a new device) follows this one.
+    pub(crate) fn online_event(&self) -> Option<String> {
+        if self.link().state != "online" {
+            return None;
+        }
+        let hub = self.hub();
+        let user = hub.user_id()?;
+        Some(json!({"event": "online", "id": hub.device.id, "user_id": user}).to_string())
+    }
+
+    /// A new app channel that hears [`Shared::online_event`]: now when the link is online, and
+    /// each time it comes online again.
+    pub(crate) fn watch(&self, sender: UnboundedSender<String>) {
+        if let Some(line) = self.online_event()
+            && sender.send(line).is_err()
+        {
+            return;
+        }
+        lock(&self.watchers).push(sender);
+    }
+
+    /// Tells every watching app channel the link is online (as [`Shared::online_event`]).
+    pub(crate) fn announce_online(&self) {
+        if let Some(line) = self.online_event() {
+            lock(&self.watchers).retain(|s| s.send(line.clone()).is_ok());
+        }
     }
 
     pub(crate) fn set_devices(&self, devices: &Value) {
@@ -190,6 +226,14 @@ impl Shared {
                 "online": s.online, "screenShared": s.shared}),
             None => json!({"listed": false}),
         })
+    }
+
+    /// Runs `decide` with the taken approval nonces, one approval at a time.
+    pub(crate) fn with_seen_approvals<T>(
+        &self,
+        decide: impl FnOnce(&mut HashSet<String>) -> T,
+    ) -> T {
+        decide(&mut lock(&self.seen_approvals))
     }
 
     /// The hub's platform of device `id`, when listed.

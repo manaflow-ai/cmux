@@ -33,11 +33,32 @@ extension Strings {
         String(format: String(localized: "sidebar.priority.state.workingFor", defaultValue: "Working %@", bundle: .localizedModule), duration)
     }
     static var priorityIdle: String { String(localized: "sidebar.priority.state.idle", defaultValue: "Idle", bundle: .localizedModule) }
+    /// The header button with `sidebar.priorityView.filters`: every unseen result and failure read.
+    static var priorityMarkAllRead: String {
+        String(localized: "sidebar.priority.markAllRead", defaultValue: "Mark All as Read", bundle: .localizedModule)
+    }
+    /// The filter chips' names (`sidebar.priorityView.filters`).
+    static var priorityFilterAll: String { String(localized: "sidebar.priority.filter.all", defaultValue: "All", bundle: .localizedModule) }
+    static var priorityFilterWaiting: String {
+        String(localized: "sidebar.priority.filter.waiting", defaultValue: "Waiting", bundle: .localizedModule)
+    }
+    static var priorityFilterUnread: String {
+        String(localized: "sidebar.priority.filter.unread", defaultValue: "Unread", bundle: .localizedModule)
+    }
+    static var priorityFilterRunning: String {
+        String(localized: "sidebar.priority.filter.running", defaultValue: "Running", bundle: .localizedModule)
+    }
+    /// What the list says when the picked filter has no rows.
+    static var priorityFilterEmpty: String {
+        String(localized: "sidebar.priority.filter.empty", defaultValue: "Nothing here right now", bundle: .localizedModule)
+    }
     static var priorityMarkRead: String { String(localized: "sidebar.priority.markRead", defaultValue: "Mark as Read", bundle: .localizedModule) }
     static var priorityPin: String { String(localized: "sidebar.priority.pin", defaultValue: "Pin to Priority", bundle: .localizedModule) }
     static var priorityUnpin: String { String(localized: "sidebar.priority.unpin", defaultValue: "Unpin from Priority", bundle: .localizedModule) }
     static var prioritySnooze: String { String(localized: "sidebar.priority.snooze", defaultValue: "Snooze for 1 Hour", bundle: .localizedModule) }
     static var priorityArchive: String { String(localized: "sidebar.priority.archive", defaultValue: "Archive", bundle: .localizedModule) }
+    /// An archived chat's hover button in the Archived fold: it lists again.
+    static var priorityRestore: String { String(localized: "sidebar.priority.restore", defaultValue: "Restore", bundle: .localizedModule) }
     /// A row's VoiceOver actions: the chat moves one place in the Priority view and keeps it.
     static var priorityMoveEarlier: String { String(localized: "sidebar.priority.moveEarlier", defaultValue: "Move Earlier", bundle: .localizedModule) }
     static var priorityMoveLater: String { String(localized: "sidebar.priority.moveLater", defaultValue: "Move Later", bundle: .localizedModule) }

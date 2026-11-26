@@ -32,6 +32,7 @@ import { handleSsoCallback, handleSsoRedeem, handleSsoStart } from "./sso-routes
 import { AUTH_HANDOFFS_PATH, AUTH_HANDOFFS_REDEEM_PATH, handleAuthHandoffMint, handleAuthHandoffRedeem } from "./auth-handoff-routes.ts"
 import { CI_SESSION_PATH, handleCiSession } from "./ci-session.ts"
 import { sweepDeps, sweepFeedText } from "./feed-sweep.ts"
+import { GITHUB_AUTHORIZE_PATH, handleGithubAuthorize } from "./integrations/github-authorize-route.ts"
 import { GITHUB_TOKEN_PATH, handleGithubToken } from "./integrations/github-token-route.ts"
 import { isCloudPath, platformForward } from "./platform-forward.ts"
 
@@ -39,10 +40,15 @@ export { AccountIndexDO } from "./account-index-do.ts"
 // Named entrypoint for service bindings only (the platform Worker's environment setups); no HTTP route reaches it.
 export { PlatformChief } from "./platform-chief.ts"
 export { AgentGateway } from "./agent-gateway.ts"
+// Named entrypoint for cmux-platform's joined-machine GitHub token route only (integrations/machine-github.ts).
+export { MachineGitHub } from "./integrations/machine-github.ts"
 export { ModelKeys } from "./model-keys.ts"
 export { HandoffDO } from "./handoffs/handoff-do.ts"
 export { HandoffIndexDO } from "./handoffs/index-do.ts"
 import { handleHandoffs, HANDOFFS_PATH } from "./handoffs/routes.ts"
+export { AutoSessionDO } from "./auto-sessions/session-do.ts"
+export { AutoSessionIndexDO } from "./auto-sessions/index-do.ts"
+import { AUTO_SESSIONS_PATH, handleAutoSessions } from "./auto-sessions/routes.ts"
 export { AddressDO } from "./address-do.ts"
 export { ConversationDO } from "./conversation-do.ts"
 export { MuxDO } from "./mux-do.ts"
@@ -50,6 +56,7 @@ export { ChiefBrainDO } from "./chief-brain/brain-do.ts"
 export { OpencodeBrainDO } from "./chief-brain-opencode/brain-do.ts"
 export { ChiefDurableDO } from "./chief-durable/durable-do.ts"
 import { CHIEF_BRAIN_PATH, handleChiefBrain } from "./chief-brain/routes.ts"
+import { LOCAL_CHIEF_COMPUTER_PATH, handleLocalChiefComputer } from "./chief-brain/local-computer-routes.ts"
 import { GATEWAY_PATH, handleModelGateway } from "./model-gateway/http.ts"
 import { FAULT_PATH, handleFault } from "./chief-fault.ts"
 import { CC_NOTES_PATH, handleCcNotes } from "./chief-brain-cc/routes.ts"
@@ -206,7 +213,7 @@ const PROJECTION_COMPARE_FULL_CRON = "7 * * * *"
 
 export default {
   async fetch(request: Request, raw: RawEnv, ctx: ExecutionContext): Promise<Response> {
-    // The request's build space (build-space.ts): every object it reaches is that space's. Production ignores it.
+    // The request's build space (build-space.ts): every object it reaches is that space's. Production refuses a dev space.
     const space = spaceOf(request, raw)
     if (!space.ok) return space.response
     const env = spacedEnv(raw, space.space)
@@ -236,10 +243,13 @@ export default {
     if (HAND_PATH.test(url.pathname)) return handleHands(request, env, url.pathname)
     // The model gateway over HTTP (model-gateway/http.ts): run tokens and chief tokens, Anthropic Messages in, events out.
     if (GATEWAY_PATH.test(url.pathname)) return handleModelGateway(request, env, ctx)
+    // The computer of a Chief that runs on its owner's Mac (chief-brain/local-computer-routes.ts), keyed by the session's user.
+    const localComputer = url.pathname.match(LOCAL_CHIEF_COMPUTER_PATH)
+    if (localComputer) return handleLocalChiefComputer(request, env, localComputer[1]!, localComputer[2])
     // A chief's Durable Object brain (chief-brain/routes.ts): its owner's settings, and runs for conversation members.
     const chiefBrain = url.pathname.match(CHIEF_BRAIN_PATH)
     // A Chief that runs the opencode brain (chief-brain-opencode/) keeps its runs there.
-    const chiefBrainPath = chiefBrain?.[2]?.startsWith("machine-login") ? "machine-login" : chiefBrain?.[2] === "brain" || chiefBrain?.[2] === "github" || chiefBrain?.[2] === "memory" || chiefBrain?.[2] === "peer" ? chiefBrain[2] : "runs"
+    const chiefBrainPath = chiefBrain?.[2]?.startsWith("machine-login") ? "machine-login" : chiefBrain?.[2] === "brain" || chiefBrain?.[2] === "github" || chiefBrain?.[2] === "memory" || chiefBrain?.[2] === "peer" || chiefBrain?.[2]?.startsWith("computer") ? chiefBrain[2] : "runs"
     if (chiefBrain && chiefBrainPath === "runs" && (opencodeOn(env) || durableOn(env))) return handleOpencodeRuns(request, env, chiefBrain[1]!, chiefBrain[3], () => handleChiefBrain(request, env, chiefBrain[1]!, "runs", chiefBrain[3]))
     if (chiefBrain) return handleChiefBrain(request, env, chiefBrain[1]!, chiefBrainPath, chiefBrain[3])
     const fault = url.pathname.match(FAULT_PATH)
@@ -263,6 +273,9 @@ export default {
     // Cloud work mode's hand-offs (handoffs/routes.ts): the owner's sessions on cloud machines, and their machines' reports.
     const handoff = url.pathname.match(HANDOFFS_PATH)
     if (handoff) return handleHandoffs(request, env, handoff)
+    // Auto mode (auto-sessions/routes.ts): chats that move to the owner's Cloud machine when the laptop goes away, and back.
+    const autoSession = url.pathname.match(AUTO_SESSIONS_PATH)
+    if (autoSession) return handleAutoSessions(request, env, autoSession)
     if (url.pathname === "/v1/presence-key" && request.method === "POST") return handlePresenceKey(request, env)
     if (url.pathname.startsWith("/v1/inference/")) return inference(url.pathname, request, env, ctx)
     // The live model catalog (models-catalog/route.ts): public reads, internal publish and kill switch.
@@ -329,6 +342,8 @@ export default {
     if (url.pathname === CI_SESSION_PATH) return handleCiSession(request, env)
     // Google push receivers: staging and development only until the backend lead reviews them for production.
     if (env.ENVIRONMENT !== "production" && url.pathname === "/v1/hooks/google/pubsub") return handleGooglePubsub(request, env)
+    // GitHub came back from an existing installation with no code: on to its authorize page (integrations/github-authorize-route.ts).
+    if (url.pathname === GITHUB_AUTHORIZE_PATH) return handleGithubAuthorize(request, env)
     // GitHub installation tokens for git and gh (integrations/github-token-route.ts): bearer only, never the op path.
     const ghToken = url.pathname.match(GITHUB_TOKEN_PATH)
     if (ghToken) return handleGithubToken(request, env, ghToken[1]!)

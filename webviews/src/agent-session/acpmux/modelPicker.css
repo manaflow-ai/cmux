@@ -16,6 +16,51 @@
   min-width: 0;
   box-sizing: border-box;
 }
+.acpmux-mp[data-reasoning-column] {
+  width: min(550px, var(--available-width, calc(100vw - 24px)));
+}
+.acpmux-picker-reasoning-options,
+.acpmux-picker-speed-options {
+  margin: 0;
+  min-width: 0;
+  padding: var(--ds-space-1);
+  overflow: auto;
+  border: 0;
+}
+.acpmux-picker-reasoning-options {
+  flex: 0 0 32%;
+  border-inline-start: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+}
+.acpmux-picker-reasoning-options legend {
+  float: inline-start;
+  width: 100%;
+  padding: var(--grid-half-step) var(--ds-space-1);
+}
+.acpmux-picker-speed-options {
+  display: flex;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  border-top: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+}
+.acpmux-picker-reasoning-options label,
+.acpmux-picker-speed-options label {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: var(--ui-row-height);
+  padding: var(--grid-half-step) var(--ds-space-1);
+}
+.acpmux-picker-reasoning-options label { clear: both; }
+@media (max-width: 407px) {
+  .acpmux-picker-reasoning-options {
+    flex: 0 1 auto;
+    display: flex;
+    flex-wrap: wrap;
+    max-height: 30%;
+    border-inline-start: 0;
+    border-top: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+  }
+}
 /* The model menus' glass is every popup's (ui/glass/glass.css GLASS LEVELS: the menu level, and the
    40% veil on the App's glass that started here, cmux#37794). They kept a 92% tint of their own
    (--surface-text-min; Leo 2026-10-31: "plus all this dumbass shit in the model picker", over a menu
@@ -147,13 +192,14 @@
    STYLED IT'S FUCKING TONKA TOYS"): 28px rows and 24px in submenus, chrome type (13px, never the
    transcript's content size), 16px marks, compact insets, as Claude desktop's and Codex's pickers. */
 .acpmux-quick-menu {
-  --ui-row-height: calc(28px * var(--cmux-interface-scale, 1));
+  /* A look's menu tokens (docs/cmux-next/look-addons.md) reach this menu too; unset, the native density holds. */
+  --ui-row-height: var(--menu-row-height, calc(28px * var(--cmux-interface-scale, 1)));
   --ui-row-padding-inline: calc(8px * var(--cmux-interface-scale, 1));
   font-size: var(--text-body);
   width: max-content;
   min-width: min(280px, var(--available-width, calc(100vw - 24px)));
   max-width: min(440px, var(--available-width, calc(100vw - 24px)));
-  padding: 4px;
+  padding: var(--menu-padding, 4px);
   border: 0;
   /* Every popup's one radius (popupSurface.css, the native popovers' 8 pt), never a 10 of its own. */
   border-radius: var(--ui-popup-radius);
@@ -173,15 +219,15 @@
 .acpmux-quick-menu .ui-menu-group-label {
   display: block;
   padding: 4px var(--ui-row-padding-inline) 2px;
-  color: var(--agent-muted);
-  font-size: var(--text-caption);
+  color: var(--menu-label-color, var(--agent-muted));
+  font-size: var(--menu-label-size, var(--text-caption));
   line-height: var(--text-caption--line-height);
   letter-spacing: var(--text-caption--letter-spacing);
 }
 .acpmux-quick-menu .ui-separator {
   height: 0;
   margin: 4px var(--ui-row-padding-inline);
-  border-block-start: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+  border-block-start: var(--cmux-hairline, 0.5px) solid var(--menu-separator, var(--agent-border));
 }
 /* The agent pane does not load src/ui/ui.css. Model rows use an explicit trailing column, so every
    shortcut digit stays right-aligned even when the names have different lengths. */
@@ -192,7 +238,7 @@
   height: var(--ui-row-height);
   min-height: 0;
   padding-block: 0;
-  border-radius: 5px;
+  border-radius: var(--menu-hover-radius, var(--cmux-menu-highlight-radius));
   color: var(--agent-text);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
@@ -458,6 +504,16 @@
   max-height: min(132px, calc(var(--available-height, 100vh) / 2));
 }
 .acpmux-quick-placement-top .acpmux-quick-rail-tab { max-width: 100%; }
+/* A harness tab dragged along the rail (railReorder.ts), as in the columns menu: it rides above the
+   others, which slide aside; Starred never moves. With reduced motion they jump. */
+.acpmux-quick-rail[data-reordering],
+.acpmux-quick-rail[data-reordering] .acpmux-quick-rail-tab { cursor: grabbing; }
+.acpmux-quick-rail-tab[data-lifted] { position: relative; z-index: var(--layer-raised); background: var(--acpmux-menu-hover); color: var(--agent-text); }
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-quick-rail[data-reordering] .acpmux-quick-rail-tab[data-movable]:not([data-lifted]) {
+    transition: transform var(--cmux-motion-standard) var(--cmux-ease-out);
+  }
+}
 .acpmux-quick-placement-top .acpmux-quick-body { flex-basis: auto; }
 /* The default: harness symbols in a row across the top, each name on hover (Leo 2026-10-30: "we
    had a pretty good thing going with teh symbols of the harneses at the top"). A harness with no

@@ -23,6 +23,7 @@ pub(super) const APP_ONLY_SCOPES: &[&str] = &[
     "accounts",
     "bookmark",
     "open",
+    "video",
     "window",
     "keybinding",
     "errors",

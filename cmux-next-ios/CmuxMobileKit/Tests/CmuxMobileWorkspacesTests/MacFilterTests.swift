@@ -177,7 +177,7 @@ import Testing
 
     @Test func liveListStates() {
         func ctx(_ phases: [String: MacDataMachine.Phase]) -> WorkspaceInbox.Context { .init(phases: phases) }
-        // Linked to "a", dialing, last-known rows cached: shown dimmed (stale)
+        // Linked to "a", dialing, last-known rows cached: shown at full strength (stale)
         // with no agent state, and marked updating.
         let cached = inbox(context: ctx(["a": .cached(.connecting)]))
         #expect(cached.isUpdating)

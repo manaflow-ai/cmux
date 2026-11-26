@@ -268,14 +268,24 @@ class Plan:
     trusted: Path | None = None  # the reviewed copy trusted_pieces run from
 
 
-def git(repo: Path, *args: str, check: bool = True) -> str:
-    result = subprocess.run(["git", "-C", str(repo), *args], text=True, capture_output=True)
+def git(repo: Path, *args: str, check: bool = True, lazy: bool = True) -> str:
+    """LAZY=False for a read of refs and commits only: see no_lazy_fetch()."""
+    result = subprocess.run(["git", "-C", str(repo), *args], text=True, capture_output=True,
+                            env=None if lazy else no_lazy_fetch())
     if check and result.returncode != 0:
         raise SystemExit(f"web-lint: git {' '.join(args)} failed: {result.stderr.strip()}")
     return result.stdout
 
 
 PUSH_RANGE = "push_range.py"
+
+# trust_base() reads the reviewed branches' refs on every push. In a worktree of a blobless mirror a ref whose commit
+# the mirror lacks made `rev-parse ref^{commit}` lazy-fetch that commit's whole history, and pushes sat in this hook
+# 526 to 1436 s with no violation named (hq handbook blobless-mirror-hangs-in-a-lazy-fetch-of-history, 2026-11-18).
+# Its ref and commit reads run with lazy fetch off, so such a ref reads as absent (a full clone ignores the
+# variable). Reads that may need file contents keep lazy fetch.
+def no_lazy_fetch() -> dict[str, str]:
+    return {**os.environ, "GIT_NO_LAZY_FETCH": "1"}
 
 
 def load_push_range(trusted_scripts: Path | None):
@@ -300,6 +310,55 @@ def load_push_range(trusted_scripts: Path | None):
     finally:
         sys.dont_write_bytecode = writes
     return module
+
+
+# A run by hand in a shallow clone (cmux-ci's fast-checks checkout of a snapshot, depth 2) deepens it this far, one step
+# at a time, until HEAD meets the shared base; each step is one fetch on this limit.
+DEEPEN_STEPS = (200, 2000)
+DEEPEN_FETCH_SECONDS = 120
+
+
+def is_shallow(repo: Path) -> bool:
+    return git(repo, "rev-parse", "--is-shallow-repository", check=False).strip() == "true"
+
+
+def deepen_to_base(repo: Path, push_range, remote: str, head: str) -> list[str]:
+    """In a shallow clone, fetch the shared base (origin/feat-cmux-next) and HEAD's history together, deeper each step
+    (DEEPEN_STEPS), until HEAD meets the base. Only ever run in a clone that is already shallow, so it never cuts a full
+    clone's history (tests/test_ci_no_shallow_dev_fetch.py). Returns why each fetch failed, empty when one worked."""
+    tip = git(repo, "rev-parse", "--verify", "--quiet", f"{head}^{{commit}}", check=False).strip()
+    upstream = push_range.UPSTREAM  # refs/remotes/origin/feat-cmux-next
+    branch = upstream.split("/", 3)[-1]
+    env = push_range._no_prompt_env(repo) if hasattr(push_range, "_no_prompt_env") else {**os.environ,
+                                                                                        "GIT_TERMINAL_PROMPT": "0"}
+    failures = []
+    for depth in DEEPEN_STEPS:
+        if not is_shallow(repo):  # depth flags only in a shallow clone (see above)
+            break
+        argv = ["git", "-C", str(repo), "-c", "credential.interactive=false", "fetch", "--quiet", "--no-tags",
+                f"--depth={depth}", remote, f"+refs/heads/{branch}:{upstream}", *([tip] if tip else [])]
+        try:
+            done = subprocess.run(argv, text=True, capture_output=True, env=env, stdin=subprocess.DEVNULL,
+                                  timeout=DEEPEN_FETCH_SECONDS)
+            why = "" if done.returncode == 0 else ((done.stderr.strip().splitlines() or [f"exit {done.returncode}"])[-1])
+        except subprocess.TimeoutExpired:
+            why = f"no answer in {DEEPEN_FETCH_SECONDS}s"
+        except OSError as error:
+            why = str(error)
+        if why:
+            failures.append(f"depth {depth}: {why}")
+            break  # a remote that refused once refuses deeper too
+        failures = []
+        if tip and git(repo, "merge-base", tip, upstream, check=False).strip():
+            break
+    return failures
+
+
+def shallow_fallback(repo: Path, head: str) -> tuple[str | None, int]:
+    """The oldest first-parent commit this shallow clone has below HEAD, and how many commits down it is; None when
+    HEAD is all the clone has."""
+    chain = git(repo, "rev-list", "--first-parent", head, check=False).split()
+    return (chain[-1], len(chain) - 1) if len(chain) > 1 else (None, 0)
 
 
 def own_files(repo: Path, own, head: str | None) -> list[str]:
@@ -464,12 +523,12 @@ def trust_base(repo: Path, head: str) -> str | None:
         for remote in reviewed_remotes(repo):
             ref = f"refs/remotes/{remote}/{branch}"
             if subprocess.run(["git", "-C", str(repo), "rev-parse", "-q", "--verify", f"{ref}^{{commit}}"],
-                              capture_output=True).returncode != 0:
+                              capture_output=True, env=no_lazy_fetch()).returncode != 0:
                 continue
-            base = git(repo, "merge-base", head, ref, check=False).strip()
+            base = git(repo, "merge-base", head, ref, check=False, lazy=False).strip()
             if not base:
                 continue
-            distance = len(git(repo, "rev-list", f"--max-count={FAR}", f"{base}..{head}").split())
+            distance = len(git(repo, "rev-list", f"--max-count={FAR}", f"{base}..{head}", lazy=False).split())
             if distance < FAR:
                 return base
             found.append((distance, base))
@@ -1858,12 +1917,12 @@ def is_sparse(repo: Path) -> bool:
 
 
 def sparse_refusal(plan: Plan, mode: str) -> str:
-    """What a push from a sparse checkout is told when its checks need the whole commit (tree_of())."""
+    """What a lint of a sparse checkout's own working tree (--fix, or no --head) is told: the checks read the whole
+    repository, which the working tree does not hold. A pushed commit never gets this: tree_of() writes it whole."""
     areas = sorted({package.directory for package in plan.script_packages} | set(plan.eslint_files))
-    return (f"{mode}: refused; nothing was linted. This worktree is a sparse checkout, and the "
+    return (f"{mode}: nothing was linted. This worktree is a sparse checkout, and the "
             f"{', '.join(area + '/' for area in areas)} checks read the whole repository, which it does not hold. "
-            "Run `git sparse-checkout disable` here and push again, or push with "
-            "`scripts/cmux-next/push-from-host.sh <branch>`, which runs this hook on a full clone.")
+            "Lint a commit instead (`scripts/web-lint.sh --head HEAD`), which is written whole from git's objects.")
 
 
 @contextlib.contextmanager
@@ -1885,9 +1944,16 @@ def tree_of(repo: Path, sha: str | None, directories: list[str], only: list[str]
             shutil.rmtree(holder, ignore_errors=True)
         return
     try:
-        # No hooks: a checkout hook must not run for a lint tree.
+        # No hooks: a checkout hook must not run for a lint tree. Not sparse: `git worktree add` from a sparse
+        # worktree copies its sparse-checkout rules into the new one (git 2.36+, extensions.worktreeConfig), and
+        # its checkout leaves out what the cone does (2,651 of cmux's files from a `wt new` worktree, 2026-11-23);
+        # core.sparseCheckout=false on the command line reaches that checkout and wins over the copied config.
         with phase(f"lint tree at {sha[:12]}"):
-            git(repo, "-c", "core.hooksPath=/dev/null", "worktree", "add", "--quiet", "--detach", str(tree), sha)
+            git(repo, "-c", "core.hooksPath=/dev/null", "-c", "core.sparseCheckout=false",
+                "worktree", "add", "--quiet", "--detach", str(tree), sha)
+        if is_sparse(tree):
+            raise SystemExit(f"web-lint: the lint tree of {sha[:12]} leaves files of the commit out (a sparse "
+                             "checkout); nothing was linted. The `web lint` CI job checks this commit.")
         for directory in directories:
             if (tree / directory).is_dir() and shares_deps(repo, sha, directory):
                 if os.path.lexists(tree / directory / "node_modules"):
@@ -1979,13 +2045,30 @@ def charge_new_only(repo: Path, base: str, plan: Plan, tree: Path, results: list
         return
     compare = load_compare()
     with tree_of(repo, base, sorted({r.label for r in failed})) as base_tree:
+        # One install and one strings pass per package, then every rerun side by side with run_checks' slots: on
+        # 2026-11-26 a webviews pull request over a base red on 13 checks ran them here one at a time, each after its
+        # own `bun install`, 128 s of the fast gates' 290 s job (job 139919568161), when the head's 37 ran at once.
+        ready: dict[str, bool] = {}
+        reruns: list[Result] = []
         for result in failed:
-            whole = result.label not in plan.script_pieces  # a lone source-check piece needs no install
-            if whole and ensure_deps(base_tree, result.label):
-                continue  # no base to compare with: the red stays this change's
-            if whole:
-                compare.generate_strings(base_tree / result.label)
-            again = run(result.label, result.command, base_tree / result.label, package_env(base_tree, result.label))
+            # A ratchet that lands with its own script and baseline: the base cannot run it, so every finding on
+            # the merge (base's own moves since the baseline was written included) would be charged here. The
+            # same rule as the webviews checks gate (NEW_CHECK_SCRIPTS); later PRs compare normally.
+            script = compare.NEW_CHECK_SCRIPTS.get(result.command.removeprefix("bun run ").strip())
+            if script and not (base_tree / result.label / script).is_file():
+                print(f"::warning title=web lint (new check)::{result.label}: {result.command} is new; the base "
+                      f"{base[:12]} has no {script}, so this transition is not charged", file=sys.stderr)
+                result.returncode = 0
+                continue
+            if result.label not in plan.script_pieces and result.label not in ready:  # a lone piece needs no install
+                ready[result.label] = ensure_deps(base_tree, result.label) is None
+                if ready[result.label]:
+                    compare.generate_strings(base_tree / result.label)
+            if ready.get(result.label, True):  # else no base to compare with: the red stays this change's
+                reruns.append(result)
+        agains = run_checks(base_tree, plan, [(r.label, r.command, base_tree / r.label,
+                                               package_env(base_tree, r.label)) for r in reruns])
+        for result, again in zip(reruns, agains):
             if again.returncode == 0:
                 continue
             new, old = compare.compare(result.output, again.output, str(tree), str(base_tree))
@@ -2101,6 +2184,37 @@ def main(argv: list[str] | None = None) -> int:
                                   else push_range.own_range(repo, args.head or "HEAD", remote=args.remote)], []
         except ValueError as error:  # a git call failed (a commit gone between two reads)
             ranges, errors = [], [str(error)]
+        fallback = None
+        if errors and not args.pre_push and is_shallow(repo):
+            # A run by hand in a shallow clone: cmux-ci's fast-checks checkout of a snapshot (depth 2) is one nobody
+            # pushes, so "fetch and push again" was no step anyone could take (run 45105207823: refused in 0.08 s,
+            # nothing linted). Deepen the clone to the shared base here, then read the range again.
+            head = args.head or "HEAD"
+            print(f"{mode}: this shallow clone cannot tell which commits are its own yet; fetching "
+                  f"{push_range.UPSTREAM.split('/', 2)[-1]} and deepening HEAD ({', '.join(map(str, DEEPEN_STEPS))} commits "
+                  "at most)", file=sys.stderr)
+            failures = deepen_to_base(repo, push_range, args.remote, head)
+            try:
+                ranges, errors = [push_range.own_range(repo, head, remote=args.remote)], []
+            except ValueError as error:
+                errors = [str(error)] + [f"fetch {failure}" for failure in failures]
+            if errors:
+                # The fetch could not reach the base: lint what this clone has below HEAD instead of nothing.
+                oldest, depth = shallow_fallback(repo, head)
+                for error in errors:
+                    print(f"{mode}: still cannot tell this branch's own commits: {error}", file=sys.stderr)
+                if oldest:
+                    print(f"{mode}: linting every file changed over {head}~{depth} ({oldest[:12]}), the oldest commit "
+                          "this shallow clone has: files that commit's base already had are not linted, and files "
+                          "a base merge brought in count as this branch's", file=sys.stderr)
+                    fallback = changed_files(repo, oldest, args.head)
+                else:
+                    print(f"{mode}: this clone holds HEAD alone: linting every package (as --all)", file=sys.stderr)
+                    args.all = True
+                    fallback = []
+                errors, ranges = [], []
+        if fallback is not None:
+            heads[None if args.fix else args.head] = fallback
         if errors:
             for error in errors:
                 print(f"{mode}: cannot tell which commits are this push's own: {error}", file=sys.stderr)
@@ -2179,11 +2293,19 @@ def main(argv: list[str] | None = None) -> int:
         if is_sparse(repo):
             # 2026-11-11: a sparse checkout passed is_checked_out() before is_sparse() was part of it, and the checks
             # ran in it: FileNotFoundError without webviews/, "no Packages/macOS/CmuxNext/Sources" without the sources.
-            if head is None or only is None:
+            # A commit (every push) is linted in a tree written from git's objects, never from this checkout, so
+            # what the cone leaves out is no reason to lint nothing. 2026-11-23: a sparse worktree's pushes printed
+            # "refused; nothing was linted" 17 times in 7 hours and none of their web/ changes was checked. Only
+            # the working tree itself (--fix, or no --head) is the checkout, and that one cannot be linted whole.
+            if head is None:
                 print(sparse_refusal(plan, mode), file=sys.stderr)
                 return 1
-            print(f"{mode}: this worktree is a sparse checkout: the checks run on a lint tree of the {len(only)} "
-                  f"files of {head[:12]} they read.", file=sys.stderr)
+            if only is None:
+                print(f"{mode}: this worktree is a sparse checkout: the checks run on a full lint tree of "
+                      f"{head[:12]} written from git's objects.", file=sys.stderr)
+            else:
+                print(f"{mode}: this worktree is a sparse checkout: the checks run on a lint tree of the {len(only)} "
+                      f"files of {head[:12]} they read.", file=sys.stderr)
         if args.pre_push and head is not None and only is None and not is_checked_out(repo, head):
             missing = missing_objects(repo, head)
             if missing:

@@ -1,0 +1,83 @@
+// Nature: the wallpaper leads. The window is the Mac's clearest glass (Liquid Glass, clear) with
+// only half a tint of the theme's background, so your own picture is what you see through the
+// titlebar, the tab strip and the sidebar; the glass leans toward its hue. Nothing is painted over
+// it. The chat is the content layer at 86%, enough for text to read on a mid-tone picture.
+// Light (morning moss) and dark (forest floor) both come from this one file, and follow the Mac's
+// appearance. Under Reduce Transparency the app paints the theme background opaque instead.
+{
+  "name": "Nature",
+  "description": "Your wallpaper through the clearest glass, moss and bark colors, a leaf-green accent.",
+
+  "appearance.theme": "light:Builtin Light,dark:Builtin Dark",
+  "appearance.appTheme": "followTerminal",
+  "appearance.themeEdits": {
+    // Forest floor: a green-black ground, lichen-white text, new leaf as the accent.
+    "Builtin Dark/background": "#0f1a14",
+    "Builtin Dark/foreground": "#eaf2e6",
+    "Builtin Dark/cursor": "#a9e3b4",
+    "Builtin Dark/selection": "#518263",
+    "Builtin Dark/accent": "#8fd19e",
+    "Builtin Dark/0": "#26352b",
+    "Builtin Dark/1": "#f0867b",
+    "Builtin Dark/2": "#8fd19e",
+    "Builtin Dark/3": "#e6c36a",
+    "Builtin Dark/4": "#7fb5e6",
+    "Builtin Dark/5": "#c7a6e6",
+    "Builtin Dark/6": "#6fd3c4",
+    "Builtin Dark/7": "#cfd8cc",
+    "Builtin Dark/8": "#8da38f",
+    "Builtin Dark/9": "#f7a79e",
+    "Builtin Dark/10": "#a9e3b4",
+    "Builtin Dark/11": "#f1d792",
+    "Builtin Dark/12": "#a1cbf0",
+    "Builtin Dark/13": "#dac3f0",
+    "Builtin Dark/14": "#93e4d8",
+    "Builtin Dark/15": "#f4f8f1",
+    // Morning moss: a pale green-white ground, bark-green ink, a deep leaf accent that stays a mark
+    // on the clearest glass over a dark picture.
+    "Builtin Light/background": "#f3f6ee",
+    "Builtin Light/foreground": "#16241b",
+    "Builtin Light/cursor": "#185f2c",
+    "Builtin Light/selection": "#d3e4cb",
+    "Builtin Light/accent": "#185f2c",
+    "Builtin Light/0": "#16241b",
+    "Builtin Light/1": "#9c2a18",
+    "Builtin Light/2": "#185f2c",
+    "Builtin Light/3": "#6f5000",
+    "Builtin Light/4": "#1d4f91",
+    "Builtin Light/5": "#6b3fa0",
+    "Builtin Light/6": "#0a5f54",
+    "Builtin Light/7": "#4a5d4e",
+    "Builtin Light/8": "#566a59",
+    "Builtin Light/9": "#a8301d",
+    "Builtin Light/10": "#1a5e2d",
+    "Builtin Light/11": "#6e4f00",
+    "Builtin Light/12": "#1b4580",
+    "Builtin Light/13": "#5e3592",
+    "Builtin Light/14": "#0b5e54",
+    "Builtin Light/15": "#f3f6ee"
+  },
+  "appearance.accent": "theme",
+
+  // The window: no painting, the clearest glass, half a tint. The Clear preset in Settings is
+  // 0.35; 0.5 is the lowest that keeps chrome text at 7.5:1 or more over a mid-tone picture (the
+  // two extremes, pure black and pure white, are in DESIGN.md).
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "glass-clear",
+  "appearance.backgroundOpacity": 0.5,
+  "appearance.glassTransparency": 0,
+  "appearance.wallpaperTint": true,
+
+  // Chrome is the glass (no override), the chat is a plane over it.
+  "appearance.chromeStyle": "flat",
+  "appearance.sidebarSurface": "same",
+  "appearance.surfaces.agentPane.opacity": 0.86,
+  "sidebar.sectionLook": "quiet",
+
+  // The address bar's glass takes a faint leaf tint.
+  "browser.omnibar.glassTint": "accent",
+  "browser.omnibar.glassTintStrength": 0.1,
+
+  "appearance.statusIndicator.style": "arc",
+  "appearance.density": "comfortable"
+}

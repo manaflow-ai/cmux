@@ -19,7 +19,7 @@ import Testing
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         let counter = ReadCounter()
-        let page = SettingsPageProvider(settings: settings, hostLists: { counter.reads += 1; return ["reads": .number(1)] })
+        let page = SettingsPageProvider(settings: settings, hostSections: [SettingsHostSection(name: "reads") { counter.reads += 1; return ["reads": .number(1)] }])
         let subscription = try await page.subscribe("cmux.settings.host.changed", filter: .object([:]),
                                                     context: PageCallContext(page: PageDescriptor.settings.id), onEvent: { _ in })
         defer { subscription.cancel() }

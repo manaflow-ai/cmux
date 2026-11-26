@@ -11,7 +11,7 @@
   // background: the work tone. foreground: the ink. selection: the terminal's text selection, the
   // one blue (with the cursor below). There is no accent colour: the accent is neutral, so the
   // selected row, focus and Send draw in the ink, never in a hue.
-  "colors": { "background": "#202020", "foreground": "#e8e8e8", "selection": "#2b3a55" },
+  "colors": { "background": "#202020", "foreground": "#e8e8e8", "selection": "#657694" },
   "appearance.accent": "neutral",
   "ghostty": [
     "background = #202020",

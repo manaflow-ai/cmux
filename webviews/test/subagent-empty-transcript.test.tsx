@@ -66,14 +66,13 @@ const group: AcpmuxRow = {
 };
 const reply: AcpmuxRow = { id: "reply", kind: "assistant", version: 1, at: 2, text: "The review is complete." };
 
-test("an empty known child's transcript explains itself and keeps parent navigation", async () => {
+test("an empty known child's transcript explains itself, with no line naming its parent", async () => {
   const root = createRoot(document.getElementById("root")!);
-  const opened: (string | undefined)[] = [];
   const draw = async (views: Record<string, AcpmuxRow[]> | undefined) => {
-    const rows = childView("reviewer", [group], views, new Set(), "Release review")!;
+    const rows = childView("reviewer", [group], views, new Set())!;
     await act(async () =>
       root.render(
-        <SubagentNavContext.Provider value={(id) => opened.push(id)}>
+        <SubagentNavContext.Provider value={() => {}}>
           <VirtualTranscript rows={rows} onToggleActivity={() => {}} expanded={new Set()} />
         </SubagentNavContext.Provider>,
       ),
@@ -84,19 +83,17 @@ test("an empty known child's transcript explains itself and keeps parent navigat
     expect(document.querySelector("h3")?.textContent).toBe("No messages yet");
     expect(document.body.textContent).toContain("Messages and tool calls from this agent appear here.");
     expect(document.querySelector("[aria-busy=true]")).toBeNull();
-    await act(async () => (document.querySelector(".cv-subagent-of__pill") as HTMLElement).click());
-    expect(opened).toEqual([undefined]);
     await draw({ reviewer: [] });
     expect(document.querySelector("h3")?.textContent).toBe("No messages yet");
     await draw({ reviewer: [reply] });
     expect(document.body.textContent).toContain("The review is complete.");
     expect(document.body.textContent).not.toContain("No messages yet");
-    expect(document.querySelector(".cv-subagent-of__parent")?.textContent).toBe("Release review");
+    expect(document.body.textContent).not.toContain("Subagent of");
   } finally {
     await act(async () => root.unmount());
   }
 });
 
 test("an unknown child remains unresolved rather than showing an empty transcript", () => {
-  expect(childView("missing", [group], {}, new Set(), "Release review")).toBeUndefined();
+  expect(childView("missing", [group], {}, new Set())).toBeUndefined();
 });

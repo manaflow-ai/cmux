@@ -26,6 +26,9 @@ import types
 import unittest
 from unittest import mock
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from real_git import real_git  # noqa: E402
+
 
 def _load_git_fixture_env():
     """tests/git_fixture_env.py by path, so `python3 -I` (no script folder on sys.path) runs this file too."""
@@ -154,7 +157,7 @@ class Fixture(unittest.TestCase):
 
     def git(self, *args, check=True):
         return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env, text=True, capture_output=True,
-                              check=check)
+                              check=check, timeout=120)
 
     def write(self, relative, text):
         path = self.repo / relative
@@ -209,6 +212,29 @@ class RuleTests(Fixture):
                 self.commit("tiles")
                 hits = [h for r, hs in self.check()[0] if r.id == "phone-width" for h in hs]
                 self.assertEqual(len(hits), refused, [h.text for h in hits])
+
+    def test_expect_keypath_call_reads_tests_and_only_an_expanded_call(self):
+        # Xcode 26.6 fails the expansion of `#expect(xs.allSatisfy(\\.a))` (HoverCardBodyHandOffTests, 2026-11-26).
+        path = f"{PKG}/Tests/CmuxNextDesignTests/AddedTests.swift"
+        cases = (
+            ('#expect(f.fresh.edgeConstraints.allSatisfy(\\.isActive), "pins")', 1),
+            ("let x = try #require(rows.first(where: \\.isSelected))", 1),
+            ('#expect(f.fresh.edgeConstraints.allSatisfy { $0.isActive }, "pins")', 0),
+            ("#expect(rows.map(\\.id) == [1, 2])", 0),
+            ("#expect(rows.count == 2 && rows.allSatisfy(\\.dead))", 0),
+            ("let ids = try #require(start.first?.workspaces.map(\\.id))", 0),
+        )
+        for line, refused in cases:
+            with self.subTest(line=line):
+                self.git("reset", "--quiet", "--hard", self.base)
+                self.write(path, f"import Testing\n@Test func added() throws {{\n    {line}\n}}\n")
+                self.commit("a test")
+                hits = [h for r, hs in self.check()[0] if r.id == "expect-keypath-call" for h in hs]
+                self.assertEqual(len(hits), refused, [h.text for h in hits])
+        self.git("reset", "--quiet", "--hard", self.base)
+        self.write(f"{KIT}/Added.swift", "func f(_ xs: [Bool]) {\n    precondition(xs.allSatisfy(\\.self))\n}\n")
+        self.commit("not a test")
+        self.assertNotIn("expect-keypath-call", [r.id for r, _ in self.check()[0]])
 
     def test_raw_observation_is_allowed_in_the_tracked_wrappers_only(self):
         wrapper = "Packages/macOS/CmuxNext/Sources/CmuxNextCompat/SingleArmedTracking.swift"
@@ -2365,7 +2391,7 @@ class BlobReadTests(Fixture):
 
     def fake_git(self, body):
         """Put a `git` first on PATH whose `cat-file` runs BODY (sh) and whose other commands are the real git."""
-        real = shutil.which("git")
+        real = real_git()  # the binary, never a wrapper on PATH that would exec this fake again
         folder = self.root / "fake-bin"
         folder.mkdir(exist_ok=True)
         script = folder / "git"
@@ -2471,6 +2497,7 @@ class HookTests(Fixture):
                          "scripts/ci/deadline_http.py", "scripts/web-lint.sh",
                          "scripts/merge-xcstrings.py",
                          "scripts/merge-pbxproj.py", "scripts/merge-baseline.py", "scripts/merge-daemon-capabilities.py", "scripts/merge-insertions.py",
+                         "scripts/merge-cargo-lock.py",
                          "scripts/ci/merge_main_resolver.py", "scripts/ci/validate_test_execution_registry.py",
                          "scripts/ci/test_execution_registry.py", "scripts/ci/workload_entrypoints.py",
                          "scripts/normalize-pbxproj.py", "scripts/webviews_bun_version.py", *checks):
@@ -2758,7 +2785,7 @@ class HookTests(Fixture):
         # process the same way stands in for the daemon (the builtin one runs on macOS and Windows only).
         hooks = self.repo / ".git" / "cmux-git-hooks"
         pidfile = self.root / "detached.pid"
-        real = os.path.realpath(shutil.which("git", path=self.env.get("PATH")))
+        real = real_git()  # the binary, never a wrapper on PATH that would exec this stub again
         stub = self.root / "git-stub"
         stub.mkdir()
         (stub / "git").write_text(

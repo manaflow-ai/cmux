@@ -61,7 +61,7 @@ jobs:
   sweep:
     name: ${{ github.event_name == 'pull_request' && 'sim sweep' || 'acpmux simulation sweep' }} (${{ matrix.faults }}${{ matrix.resend == '0' && ', bare resend' || '' }}${{ matrix.known_gap && ', known gap' || '' }})${{ github.event_name == 'pull_request' && ' (advisory)' || '' }}
     if: ${{ (inputs.only == '' || inputs.only == 'sweep') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 90 }}
     strategy:
       fail-fast: false
@@ -94,9 +94,11 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-tui-acpmux-sim
+          shared-key: cmux-tui-acpmux-sim-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
           save-if: false
 
       - name: Run the seeds

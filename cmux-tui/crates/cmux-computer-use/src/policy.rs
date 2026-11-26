@@ -61,15 +61,17 @@ impl Mode {
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum SettleMode {
-    /// A fixed floor, then a check for change, with a ceiling (cmux).
-    #[default]
+    /// A fixed floor, then a check for change, with a ceiling (cmux). Only
+    /// when asked for (`settle: "adaptive"`, or a batch step whose outcome
+    /// is required): it is what lets an outcome be confirmed or no_effect.
     Adaptive,
     /// Anthropic's computer-use reference tool: a fixed 2.0 s after every
     /// action but typing, then a screenshot; typing in groups of 50
     /// characters, 12 ms per key, then a screenshot at once.
     Anthropic,
-    /// OpenAI's computer tool: the actions run, then the screenshot is taken
-    /// at once.
+    /// The default. OpenAI's computer tool: the actions run, then the
+    /// screenshot is taken at once, with no wait for the screen.
+    #[default]
     Openai,
 }
 
@@ -140,7 +142,7 @@ impl Default for PolicyConfig {
             allow_foreground: false,
             show_cursor: true,
             cloud_vm: false,
-            settle: SettleMode::Adaptive,
+            settle: SettleMode::Openai,
             menus: crate::menus::MenuMode::Open,
             live_preview: true,
             while_locked: false,
@@ -161,7 +163,7 @@ impl PolicyConfig {
             allow_foreground: true,
             show_cursor: true,
             cloud_vm: true,
-            settle: SettleMode::Adaptive,
+            settle: SettleMode::Openai,
             menus: crate::menus::MenuMode::Open,
             live_preview: true,
             // A cloud VM never locks (auto-login, lock off).
@@ -172,6 +174,12 @@ impl PolicyConfig {
 }
 
 /// The deny list a new install starts with. The person can remove any entry.
+///
+/// Terminals and cmux itself are not on it (Leo, 2026-11-22: "why not. it
+/// should be able to"): agents may act in cmux and in terminals by default.
+/// What an agent driving cmux must not do itself stays the person's:
+/// Computer Use's approval prompt is cmux Remote's (protected, below), and
+/// cmux's Settings writes `computerUse.*` only behind the person's own input.
 pub fn default_denied_apps() -> &'static [&'static str] {
     &[
         // Password managers and keychains.
@@ -197,7 +205,13 @@ pub fn default_denied_apps() -> &'static [&'static str] {
         "bitwarden",
         // Where an agent could change OS security settings.
         "com.apple.systempreferences",
-        // Terminals: typing there would run commands outside the agent's own sandbox and prompts.
+    ]
+}
+
+/// Entries earlier defaults held that the default no longer does: the
+/// terminals and cmux itself (see [`default_denied_apps`]).
+pub fn retired_default_denied_apps() -> &'static [&'static str] {
+    &[
         "com.apple.Terminal",
         "com.googlecode.iterm2",
         "com.mitchellh.ghostty",
@@ -212,10 +226,24 @@ pub fn default_denied_apps() -> &'static [&'static str] {
         "org.gnome.Terminal",
         "org.gnome.Ptyxis",
         "org.kde.konsole",
-        // cmux itself (an agent driving cmux could approve its own requests).
         "com.cmuxterm.app",
         "com.cmuxterm.app.*",
     ]
+}
+
+/// A stored deny list as it applies today. A list that still holds every
+/// entry of [`retired_default_denied_apps`] was copied from an earlier
+/// default (a person who edited the list kept the defaults they did not
+/// touch): those entries leave it, and every entry the person added stays.
+/// A list missing any of them was shaped by the person and is kept as is,
+/// so a terminal someone denied on purpose stays denied.
+pub fn migrate_denied_apps(list: Vec<String>) -> Vec<String> {
+    let retired = retired_default_denied_apps();
+    let holds = |entry: &str| list.iter().any(|e| e.trim() == entry);
+    if !retired.iter().all(|r| holds(r)) {
+        return list;
+    }
+    list.into_iter().filter(|e| !retired.contains(&e.trim())).collect()
 }
 
 /// The protected apps' exact ids (see [`protected`]: some prefixes too).
@@ -491,146 +519,5 @@ pub fn is_blocked(config: &PolicyConfig, app: &TargetApp) -> Option<Refusal> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn app(id: &str) -> TargetApp {
-        TargetApp { id: id.into(), name: id.into() }
-    }
-
-    fn req<'a>(
-        access: Access,
-        target: Option<&'a TargetApp>,
-        origin: &'a OriginKind,
-    ) -> Request<'a> {
-        Request { access, target, origin, foreground: false, session_granted: false }
-    }
-
-    #[test]
-    fn full_access_is_the_default_and_allows_ordinary_apps() {
-        let config = PolicyConfig::default();
-        assert_eq!(config.mode, Mode::FullAccess);
-        let safari = app("com.apple.Safari");
-        let d = decide(
-            &config,
-            &SavedApprovals::default(),
-            &req(Access::Act, Some(&safari), &OriginKind::Local),
-        );
-        assert_eq!(d, Decision::Allow);
-    }
-
-    #[test]
-    fn deny_list_beats_full_access_and_always() {
-        let config = PolicyConfig::default();
-        let mut saved = SavedApprovals::default();
-        saved.set_always("com.1password.1password");
-        let one = app("com.1password.1password");
-        let d = decide(&config, &saved, &req(Access::Observe, Some(&one), &OriginKind::Local));
-        assert_eq!(d, Decision::Refuse(Refusal::Denied));
-    }
-
-    #[test]
-    fn protected_apps_are_refused_even_with_an_empty_deny_list() {
-        let config = PolicyConfig::cloud_vm();
-        let agent = app("com.apple.SecurityAgent");
-        let d = decide(
-            &config,
-            &SavedApprovals::default(),
-            &req(Access::Act, Some(&agent), &OriginKind::Local),
-        );
-        assert_eq!(d, Decision::Refuse(Refusal::Protected));
-    }
-
-    #[test]
-    fn look_only_refuses_acting_but_allows_observing() {
-        let config = PolicyConfig { mode: Mode::LookOnly, ..PolicyConfig::default() };
-        let s = app("com.apple.Safari");
-        let saved = SavedApprovals::default();
-        assert_eq!(
-            decide(&config, &saved, &req(Access::Observe, Some(&s), &OriginKind::Local)),
-            Decision::Allow
-        );
-        assert_eq!(
-            decide(&config, &saved, &req(Access::Act, Some(&s), &OriginKind::Local)),
-            Decision::Refuse(Refusal::LookOnly)
-        );
-    }
-
-    #[test]
-    fn approved_apps_asks_once_then_remembers() {
-        let config = PolicyConfig { mode: Mode::ApprovedApps, ..PolicyConfig::default() };
-        let s = app("com.apple.Safari");
-        let mut saved = SavedApprovals::default();
-        assert_eq!(
-            decide(&config, &saved, &req(Access::Act, Some(&s), &OriginKind::Local)),
-            Decision::Ask { remember: true }
-        );
-        saved.set_always(&s.id);
-        assert_eq!(
-            decide(&config, &saved, &req(Access::Act, Some(&s), &OriginKind::Local)),
-            Decision::Allow
-        );
-        saved.set_never(&s.id);
-        assert_eq!(
-            decide(&config, &saved, &req(Access::Act, Some(&s), &OriginKind::Local)),
-            Decision::Refuse(Refusal::NeverAllowed)
-        );
-    }
-
-    #[test]
-    fn remote_needs_same_account_and_the_setting() {
-        let mut config = PolicyConfig::default();
-        let s = app("com.apple.Safari");
-        let saved = SavedApprovals::default();
-        let foreign = OriginKind::Remote { machine: "m".into(), same_account: false };
-        assert_eq!(
-            decide(&config, &saved, &req(Access::Discover, None, &foreign)),
-            Decision::Refuse(Refusal::ForeignAccount)
-        );
-        let mine = OriginKind::Remote { machine: "m".into(), same_account: true };
-        assert_eq!(decide(&config, &saved, &req(Access::Act, Some(&s), &mine)), Decision::Allow);
-        config.allow_own_machines = false;
-        assert_eq!(
-            decide(&config, &saved, &req(Access::Act, Some(&s), &mine)),
-            Decision::Refuse(Refusal::RemoteNotAllowed)
-        );
-    }
-
-    #[test]
-    fn foreground_needs_its_setting() {
-        let config = PolicyConfig::default();
-        let s = app("com.apple.Safari");
-        let r = Request {
-            access: Access::Act,
-            target: Some(&s),
-            origin: &OriginKind::Local,
-            foreground: true,
-            session_granted: false,
-        };
-        assert_eq!(
-            decide(&config, &SavedApprovals::default(), &r),
-            Decision::Refuse(Refusal::ForegroundNotAllowed)
-        );
-        assert_eq!(
-            decide(&PolicyConfig::cloud_vm(), &SavedApprovals::default(), &r),
-            Decision::Allow
-        );
-    }
-
-    #[test]
-    fn earlier_build_modes_read_as_the_nearest_mode() {
-        assert_eq!(Mode::parse("standard"), Some(Mode::FullAccess));
-        assert_eq!(Mode::parse("unrestricted"), Some(Mode::FullAccess));
-        assert_eq!(Mode::parse("bounded"), Some(Mode::ApprovedApps));
-        assert_eq!(Mode::parse("ask"), Some(Mode::AskEveryTime));
-        assert_eq!(Mode::parse("god"), None);
-    }
-
-    #[test]
-    fn matchers() {
-        let a = TargetApp { id: "com.agilebits.onepassword7".into(), name: "1Password 7".into() };
-        assert!(AppMatcher::parse("com.agilebits.onepassword*").unwrap().matches(&a));
-        assert!(AppMatcher::parse("name:1password 7").unwrap().matches(&a));
-        assert!(!AppMatcher::parse("com.agilebits").unwrap().matches(&a));
-    }
-}
+#[path = "policy_tests.rs"]
+mod tests;

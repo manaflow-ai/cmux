@@ -80,3 +80,32 @@ fn native_pre_tool_retention_measurement() {
     println!("native_pre_tool_retention: before={}/100 after={}/100", retained[0], retained[1]);
     assert_eq!(retained, [0, 100]);
 }
+
+#[test]
+fn a_glob_waits_only_for_its_patterns_literal_folders_while_the_checkout_fills() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = root.path().canonicalize().unwrap().join("repo");
+    std::fs::create_dir_all(repo.join("docs/cloud")).unwrap();
+    let mut sync = Sync::begin(&repo).unwrap();
+    sync.head_ready();
+    sync.filled(&["docs/cloud/**"]).unwrap();
+    let glob =
+        |input: serde_json::Value| json!({"cwd": repo, "tool_name": "Glob", "tool_input": input});
+    let quick = Duration::from_millis(100);
+    for held in [
+        json!({"pattern": "docs/cloud/**/*.md"}),
+        json!({"pattern": "./docs/cloud/*"}),
+        json!({"pattern": "cloud/*.md", "path": "docs"}),
+        json!({"pattern": format!("{}/docs/cloud/*", repo.display())}),
+    ] {
+        native_hook::wait("claude", "PreToolUse", &glob(held.clone()), quick)
+            .unwrap_or_else(|error| panic!("{held}: {error}"));
+    }
+    // A pattern with no literal folder reads the whole checkout, as a folder not held yet
+    // waits for its line (and is asked for).
+    for waits in [json!({"pattern": "**/*.rs"}), json!({"pattern": "src/*.rs"})] {
+        assert!(native_hook::wait("claude", "PreToolUse", &glob(waits.clone()), quick).is_err());
+    }
+    assert!(sync.wants().contains(&"src".to_owned()));
+    sync.complete().unwrap();
+}

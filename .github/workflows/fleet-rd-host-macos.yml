@@ -29,11 +29,19 @@ name: fleet rd-host macOS (advisory)
 # compiles neither wait for it nor read it. The workflow's name says "(advisory)"
 # like its job's, so a reader that judges a whole check suite skips it as well.
 #
-# It runs on its own gateway label, vars.CI_RD_HOST_GATEWAY, and falls back
-# to the advisory test-compile label vars.CI_TEST_COMPILE_GATEWAY, never the
-# required compile's CI_COMPILE_CHECK_GATEWAY: a gateway job holds a fleet runner
-# while its client waits on the controller (fleet-test-compile.yml's header has
-# the 2026-10-22 numbers). With both unset this job is skipped and nothing queues.
+# The controller submits the step (RFD 0162, gateway stubs off Mac runners,
+# 2026-11-26). This job ran on a gateway Mac runner (vars.CI_RD_HOST_GATEWAY)
+# only to wait while its cmux-ci client held the step on a fleet Mac: 4.0 Mac
+# job-hours on 2026-11-25 (12 runs, median 1202 s each). It now runs on
+# cmux-linux and reads the verdict with scripts/ci/fleet_compile_result.py
+# --phase rd-host-macos: that read (GET /compile-checks/v1/<sha>?phase=
+# rd-host-macos) submits the same macOS step (cmux-tui-rust-check.sh rd-host)
+# from the controller, trust-gated to a feat-cmux-next push head or a
+# same-repository pull request head, and judges it as this job did (exit 0
+# passes; a FAIL row of `rd-host fmt`, `clippy` or `test` fails; anything else
+# is no verdict). cmuxterm-hq#28074 adds the phase; until the controller runs it,
+# the read is no verdict and this job is a warning. A workflow_dispatch on a
+# branch head no verified run named also reads no verdict.
 #
 # The path filter is the plan: only a change to the crate, the check script or
 # this file starts it. tests/test_ci_rd_host_macos_route.py fails when no
@@ -63,6 +71,9 @@ concurrency:
 jobs:
   coalesce:
     if: github.repository == 'manaflow-ai/cmux'
+    # actions: read: base-coalesce lists this workflow's runs to re-run a window whose run failed.
+    permissions:
+      actions: read
     uses: ./.github/workflows/base-coalesce.yml
     with:
       key: fleet-rd-host-macos
@@ -73,45 +84,48 @@ jobs:
     needs: coalesce
     name: fleet/rd-host-macos (advisory)
     # The fleet takes this repository's own refs only; a push a window's earlier run covers skips (no runner).
-    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' && github.repository == 'manaflow-ai/cmux' && (vars.CI_RD_HOST_GATEWAY != '' || vars.CI_TEST_COMPILE_GATEWAY != '') }}
-    # The gateway label, as fleet-compile-check.yml's: the `if:` above already skips a fork or a repository with
-    # neither variable set, so the Linux branches only keep the expression readable (a gateway job hands the step to
-    # the controller; the Mac is the fleet worker, not this runner).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_RD_HOST_GATEWAY || vars.CI_TEST_COMPILE_GATEWAY || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    permissions: {}
-    # Longer than the client's queue (1200 s) plus run (3600 s) timeouts and its
-    # report: a job timeout concludes as a failure, which would read as red.
+    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' && github.repository == 'manaflow-ai/cmux' }}
+    # A Linux runner that only reads the controller's public verdict (the Mac is the fleet worker, not this runner).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    permissions:
+      contents: read
+    # Longer than the read's wait (4800 s) and its no-record window: a job timeout concludes as a failure, which
+    # would read as red.
     timeout-minutes: 90
     steps:
-      # The gateway checks nothing out: the fleet fetches the tip commit itself.
-      # Exit 0 is a pass. A FAIL row for `rd-host fmt`, `rd-host clippy` or
-      # `rd-host test` in the script's summary table is a red whatever the exit.
-      # Anything else (queue or run timeout, setup, the client) is no verdict:
-      # a warning, and this check stays green.
-      - name: Run cmux-rd-host's macOS fmt, clippy and tests on a fleet Mac
+      # The trusted reader at this run's commit, not the tree's code: the fleet fetches the tip commit itself.
+      - name: Check out the verdict reader
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          sparse-checkout: scripts/ci
+          persist-credentials: false
+      # pass: the step exited 0. fail: a FAIL row for `rd-host fmt`, `rd-host clippy` or `rd-host test` in the
+      # script's summary table, whatever the exit. Anything else (pending past the wait, no record, the controller
+      # down or not yet deployed, a fleet fault, setup) is no verdict: a warning, and this check stays green.
+      - name: Read cmux-rd-host's macOS fmt, clippy and tests from the fleet
         env:
           REF: ${{ github.sha }}
           SINCE: ${{ needs.coalesce.outputs.base }}
           SERVER: ${{ github.server_url }}/${{ github.repository }}
         run: |
           set -uo pipefail
-          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
-          if ! [[ -x "$client" ]]; then
-            echo "::warning title=fleet rd-host macOS::$client is not installed on runner $RUNNER_NAME; no rd-host verdict."
+          reader="$GITHUB_WORKSPACE/scripts/ci/fleet_compile_result.py"
+          if ! [[ -f "$reader" ]] || ! grep -q '"rd-host-macos"' "$reader"; then
+            echo "::warning title=fleet rd-host macOS::the verdict reader at ${REF:0:12} has no rd-host-macos phase; no rd-host verdict."
             exit 0
           fi
-          log="$RUNNER_TEMP/rd-host-macos.log"
-          status=0
-          "$client" run --class isolated --script scripts/ci/cmux-tui-rust-check.sh --ref "$REF" \
-            --os macos --arg rd-host --timeout 3600 --queue-timeout 1200 2>&1 | tee "$log" || status=$?
-          failed="$(grep -E -o 'rd-host (fmt|clippy|test) +FAIL \(exit [0-9]+\)' "$log" | sed -E 's/ +FAIL/: FAIL/' | sort -u | paste -sd ',' - || true)"
-          if [[ -n "$failed" ]]; then
-            range="$REF"
-            if [[ "$SINCE" =~ ^[0-9a-f]{40}$ ]]; then range="$SERVER/compare/$SINCE...$REF (the landings since the last tip checked)"; fi
-            echo "::error title=fleet rd-host macOS::$failed on macOS at ${REF:0:12}; red range: $range (advisory; see the errors above)."
-            exit 1
-          elif [[ "$status" -eq 0 ]]; then
-            echo "cmux-rd-host's macOS fmt, clippy and tests passed."
-          else
-            echo "::warning title=fleet rd-host macOS::No rd-host verdict (exit $status)."
-          fi
+          word="$(python3 "$GITHUB_WORKSPACE/scripts/ci/fleet_compile_result.py" --sha "$REF" --repo "$GITHUB_REPOSITORY" --phase rd-host-macos --wait 4800 --no-record 300 2>"$RUNNER_TEMP/fleet-result.err")" || word=none
+          why="$(sed -n 's/^fleet compile result for [0-9a-f]*: [a-z]* (\(.*\))$/\1/p' "$RUNNER_TEMP/fleet-result.err" | tail -n 1)"
+          case "$word" in
+            pass)
+              echo "cmux-rd-host's macOS fmt, clippy and tests passed." ;;
+            fail)
+              range="$REF"
+              if [[ "$SINCE" =~ ^[0-9a-f]{40}$ ]]; then range="$SERVER/compare/$SINCE...$REF (the landings since the last tip checked)"; fi
+              echo "::error title=fleet rd-host macOS::${why:-rd-host FAIL} on macOS at ${REF:0:12}; red range: $range (advisory)."
+              exit 1 ;;
+            *)
+              echo "::warning title=fleet rd-host macOS::No rd-host verdict ($word${why:+: $why})." ;;
+          esac

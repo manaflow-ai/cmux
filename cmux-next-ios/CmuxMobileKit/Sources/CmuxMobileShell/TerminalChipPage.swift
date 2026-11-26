@@ -16,12 +16,15 @@ struct TerminalChipPage: View {
         case c
     }
 
+    /// Only the states a chip still draws: a link still trying draws nothing (Leo, 2026-11-24,
+    /// item 3; ``ConnectionChip/Kind/paints``), so the gallery shows what ships.
     static let states: [ConnectionChip.Content] = [
-        .init(.connecting, sentence: "Connecting to Mac Studio…"),
-        .init(.reconnecting, sentence: "Reconnecting to Mac Studio…"),
-        .init(.macOffline, sentence: "Mac Studio is offline"),
-        .init(.cantReach, sentence: "Can't reach this terminal"),
-    ]
+        ConnectionChip.Content(.connecting, sentence: "Connecting to Mac Studio…"),
+        ConnectionChip.Content(.reconnecting, sentence: "Reconnecting to Mac Studio…"),
+        ConnectionChip.Content(.macOffline, sentence: "Mac Studio is offline"),
+        ConnectionChip.Content(.offline, sentence: "Offline"),
+        ConnectionChip.Content(.cantReach, sentence: "Can't reach this terminal"),
+    ].filter { $0.paints }
 
     static let lineCount = 6
 
@@ -71,9 +74,10 @@ struct TerminalChipPage: View {
 
     @ViewBuilder private var chip: some View {
         switch variant {
-        case .a: ConnectionChip(state, retry: state.symbol == nil ? nil : {})
-        case .b: ConnectionChip(state)
-        case .c: ConnectionChip.SymbolOnly(state)
+        // A gallery shows each state at once (the quiet bound is the chip's own test).
+        case .a: ConnectionChip(state, downSince: nil, retry: state.symbol == nil ? nil : {})
+        case .b: ConnectionChip(state, downSince: nil)
+        case .c: ConnectionChip.SymbolOnly(state, downSince: nil)
         }
     }
 }

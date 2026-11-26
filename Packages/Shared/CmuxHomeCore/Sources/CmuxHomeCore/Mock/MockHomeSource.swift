@@ -1,6 +1,8 @@
 import CmuxAgentQuestion
 public import Foundation
+#if canImport(UniformTypeIdentifiers)
 import UniformTypeIdentifiers
+#endif
 
 /// An in-memory owner for Home, used until the messaging backend lands and in
 /// tests, previews and demos. It behaves like a real owner: it assigns seqs and

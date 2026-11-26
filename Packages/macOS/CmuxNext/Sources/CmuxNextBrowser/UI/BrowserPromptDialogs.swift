@@ -14,6 +14,9 @@ final class BrowserPromptDialogs {
     private var shown: (prompt: ObjectIdentifier, dialog: Int)?
     private let center: CmuxDialogCenter
 
+    /// True while a dialog of a prompt is on screen.
+    var isShowing: Bool { shown != nil }
+
     init(center: CmuxDialogCenter = .shared) {
         self.center = center
     }
@@ -53,7 +56,7 @@ final class BrowserPromptDialogs {
         let cancel = CmuxDialogButton(id: "cancel", title: Strings.cancel, role: .cancel)
         let identifier = "browser.dialog.javascript"
         switch prompt.kind {
-        case .permission, .openExternalApp, .savePassword, .verificationOffer:
+        case .permission, .openExternalApp, .noAppForScheme, .savePassword, .verificationOffer:
             return nil
         case .credentials(let host, let realm):
             return BrowserHTTPAuth.spec(host: host, realm: realm, isSecure: true, failedBefore: false, user: nil)
@@ -83,7 +86,7 @@ final class BrowserPromptDialogs {
         }
     }
 
-    private func dismissShown() {
+    func dismissShown() {
         guard let shown else { return }
         self.shown = nil
         center.dismiss(shown.dialog)

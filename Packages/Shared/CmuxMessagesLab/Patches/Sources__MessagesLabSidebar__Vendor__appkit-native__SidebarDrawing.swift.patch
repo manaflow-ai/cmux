@@ -1,6 +1,24 @@
 --- a/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarDrawing.swift
 +++ b/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarDrawing.swift
-@@ -236,11 +236,7 @@
+@@ -224,23 +224,23 @@
+             draw(l, x: r.midX - lw / 2, baseline: r.midY + cap / 2, g)
+         case let .image(path):
+             g.saveGState()
+-            g.addEllipse(in: r); g.clip()
+             let url = path.hasPrefix("file:") ? URL(string: path) : assetDirectory?.appendingPathComponent(path)
+             if let url, let src = CGImageSourceCreateWithURL(url as CFURL, nil), let img = CGImageSourceCreateImageAtIndex(src, 0, nil) {
++                // cmux: a picture with clear edges (the Chief's pet) is fitted by what it draws: centred and grown to the
++                // avatar's size, with no disc to clip it to (the user, 2026-11-24: the pet sat high and read too small).
++                let fit = pictureFit(img, size: r.size)
++                if !fit.clearEdges { g.addEllipse(in: r); g.clip() }
+                 g.translateBy(x: r.minX, y: r.maxY); g.scaleBy(x: 1, y: -1)
+-                g.draw(img, in: CGRect(origin: .zero, size: r.size))
++                g.draw(img, in: fit.rect)
+             } else {
++                g.addEllipse(in: r); g.clip()
+                 g.setFillColor(p.monogramBottom); g.fill(r)
+             }
+             g.restoreGState()
          case let .emoji(e):
              g.setFillColor(p.groupDisc)
              g.fillEllipse(in: r)
@@ -13,10 +31,12 @@
          case let .group(members):
              g.setFillColor(p.groupDisc)
              g.fillEllipse(in: r)
-@@ -263,6 +259,33 @@
+@@ -261,8 +261,35 @@
+                 avatar(member ?? .monogram(""), in: sub, g, p)
+             }
          }
-     }
- 
++    }
++
 +    /// cmux: an emoji avatar's drawn box (its glyph image bounds) spans this share of the disc's
 +    /// diameter at every size, so the pinned tile and the row draw one avatar.
 +    static let emojiShare: CGFloat = 0.6
@@ -35,8 +55,8 @@
 +        let l = line(e, emojiFont(size), black)
 +        let b = drawnBounds(l) // y up from the baseline; `draw` puts the baseline at y down
 +        draw(l, x: r.midX - b.midX, baseline: r.midY + b.midY, g)
-+    }
-+
+     }
+ 
 +    /// cmux: a line's drawn box (glyph bounds, y up from the baseline), else its typographic box.
 +    static func drawnBounds(_ l: CTLine) -> CGRect {
 +        let glyphs = CTLineGetBoundsWithOptions(l, .useGlyphPathBounds)
@@ -47,16 +67,17 @@
      // MARK: Row
  
      /// The row's parts, each its own layer: the avatar (shared avatar bitmap) and the unread
-@@ -405,7 +428,7 @@
+@@ -405,7 +432,8 @@
      /// The avatar's rect in a tile (tile coordinates).
      static func tileAvatar(_ m: SidebarMetrics) -> CGRect {
          let d = m.pinAvatar
 -        return CGRect(x: ((m.tileWidth - d) / 2).rounded(), y: m.compact ? SidebarMetrics.pinTopPad / 2 : SidebarMetrics.pinTopPad, width: d, height: d)
-+        return CGRect(x: ((m.tileWidth - d) / 2).rounded(), y: SidebarMetrics.pinTopPad, width: d, height: d)
++        let y = m.compact ? ((m.tileHeight - d) / 2).rounded() : SidebarMetrics.pinTopPad // cmux: centred in a compact row
++        return CGRect(x: ((m.tileWidth - d) / 2).rounded(), y: y, width: d, height: d)
      }
  
      /// A pinned tile is layers: the avatar (one bitmap at the largest pin size, scaled), the
-@@ -422,8 +445,10 @@
+@@ -422,8 +450,10 @@
          return (n, b)
      }
      /// The width a tile name bitmap is drawn for: 0 when the name fits (natural width), else the room.
@@ -69,7 +90,7 @@
      }
      /// The width a bubble is drawn for: 0 when the preview fits on one line, else the bubble's room.
      static func tileBubbleKeyWidth(natural: CGFloat, tileWidth: CGFloat) -> CGFloat {
-@@ -432,7 +457,7 @@
+@@ -432,7 +462,7 @@
      /// The name, 16 pt tall, baseline 11 pt; `keyWidth` 0: natural width.
      static func tileNameImage(_ c: ConversationSummary, emphasized: Bool, keyWidth: CGFloat, ctx: SidebarRenderContext) -> CGImage? { // nil when the bitmap cannot be allocated
          let p = ctx.palette
@@ -78,7 +99,7 @@
          let full = line(tileName(c), pinNameFont, color)
          let l = keyWidth > 0 ? truncated(full, keyWidth, pinNameFont, color) : full
          let w = max(1, width(l).rounded(.up))
-@@ -485,16 +510,34 @@
+@@ -485,16 +515,27 @@
          return CGRect(x: (c.x - d / 2).rounded(), y: (c.y - d / 2).rounded(), width: d, height: d)
      }
  
@@ -86,6 +107,11 @@
 -    /// (`bubble`, nil: none) so a wide bubble never covers it (cmux-next's rule, 2026-10-08).
 -    static func tileUnreadDot(_ m: SidebarMetrics, bubble: CGRect?) -> CGRect {
 -        let d: CGFloat = 12
+-        let ar = tileAvatar(m)
+-        let cx = max(d / 2 + 1, ar.minX - d / 2 - 1)
+-        var cy = ar.midY - ar.height * 0.25
+-        if let bubble { cy = max(cy, bubble.maxY + d / 2 + 3) }
+-        return CGRect(x: cx - d / 2, y: cy - d / 2, width: d, height: d)
 +    /// The pinned tile's unread dot: the row dot's size, this far before the name.
 +    static let tileDotDiameter: CGFloat = SidebarMetrics.dotDiameter
 +    static let tileDotGap: CGFloat = 4
@@ -96,11 +122,7 @@
 +    /// (the user, 2026-10-21: the old dot at the avatar's upper left overlapped the bubble's tail).
 +    /// `nameWidth`: the name bitmap's width in points. The compact list's rows and tiles use it too.
 +    static func tileLabel(_ m: SidebarMetrics, nameWidth nw: CGFloat, unread: Bool) -> (name: CGRect, dot: CGRect?) {
-         let ar = tileAvatar(m)
--        let cx = max(d / 2 + 1, ar.minX - d / 2 - 1)
--        var cy = ar.midY - ar.height * 0.25
--        if let bubble { cy = max(cy, bubble.maxY + d / 2 + 3) }
--        return CGRect(x: cx - d / 2, y: cy - d / 2, width: d, height: d)
++        let ar = tileAvatar(m)
 +        let y = ar.maxY + SidebarMetrics.pinNameGap
 +        let lead = unread ? tileDotDiameter + tileDotGap : 0
 +        let x0 = max(4, ((m.tileWidth - lead - nw) / 2).rounded())
@@ -111,17 +133,10 @@
 +        return (name, CGRect(x: x0, y: (y + 7 - d / 2).rounded(), width: d, height: d))
      }
 +
-+    /// cmux: a compact row's name and unread dot (row coordinates): a one-column tile's label, so
-+    /// pinned and unpinned rows line up (Messages' narrow list).
-+    static func compactRowLabel(_ m: SidebarMetrics, nameWidth nw: CGFloat, unread: Bool) -> (name: CGRect, dot: CGRect?) {
-+        let x0 = m.tileRect(0).minX
-+        let label = tileLabel(m, nameWidth: nw, unread: unread)
-+        return (label.name.offsetBy(dx: x0, dy: 0), label.dot?.offsetBy(dx: x0, dy: 0))
-+    }
  }
  
  /// The list's motion (render-server animations only; no main-thread frames). Start values are the
-@@ -648,7 +691,7 @@
+@@ -648,7 +689,7 @@
          for d in lit { d.backgroundColor = p.typingDot; d.contentsScale = scale }
      }
      /// The dots pulse (tests: every lit dot has its animation, or the still phase is set).
@@ -130,7 +145,7 @@
      /// Still scenes: the dots stand at this phase of the pulse (0-1) instead of animating (nil: animate).
      static var stillPhase: Double?
      private static func level(_ i: Int, phase t: Double) -> Double {
-@@ -658,9 +701,14 @@
+@@ -658,9 +699,14 @@
      }
      /// Starts the pulse once. Phase-locked to whole periods of the media clock, so every bubble
      /// in the list pulses in step and a row that scrolls back in does not restart its cycle.
@@ -147,3 +162,43 @@
              return
          }
          let begin = (CACurrentMediaTime() / Self.period).rounded(.down) * Self.period
+@@ -721,3 +767,39 @@
+     }
+     func removeAll() { lock.lock(); map.removeAll(); order.removeAll(); lock.unlock() }
+ }
++
++/// cmux: where to draw a picture in a `size` box (y up, as the avatar's flipped-back context draws it). A picture with
++/// clear edges is centred on its opaque pixels and grown until they span `fill` of the box (at most 3 times); one that
++/// fills its canvas (a photo, a round picture) is drawn as it is. `clearEdges`: the picture had clear margins.
++func pictureFit(_ img: CGImage, size: CGSize, fill: CGFloat = 0.84) -> (rect: CGRect, clearEdges: Bool) {
++    let whole = (CGRect(origin: .zero, size: size), false)
++    switch img.alphaInfo {
++    case .none, .noneSkipFirst, .noneSkipLast: return whole
++    default: break
++    }
++    // A small alpha copy is enough to find the margins (64 x 64: under a point at an 88 pt avatar).
++    let n = 64
++    guard let ctx = CGContext(data: nil, width: n, height: n, bitsPerComponent: 8, bytesPerRow: n, space: CGColorSpaceCreateDeviceGray(),
++                              bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue), let data = ctx.data else { return whole }
++    ctx.clear(CGRect(x: 0, y: 0, width: n, height: n))
++    ctx.draw(img, in: CGRect(x: 0, y: 0, width: n, height: n))
++    let px = UnsafeBufferPointer(start: data.bindMemory(to: UInt8.self, capacity: n * n), count: n * n)
++    var minX = n, maxX = -1, minY = n, maxY = -1
++    // Faint pixels count too (a soft shadow), so nothing visible is grown past the avatar's edge.
++    for (i, a) in px.enumerated() where a > 6 {
++        let x = i % n, y = i / n
++        minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
++    }
++    guard maxX >= minX, maxY >= minY else { return whole }
++    // Fractions of the canvas; rows in the bitmap's memory run top-down.
++    let x0 = CGFloat(minX) / CGFloat(n), x1 = CGFloat(maxX + 1) / CGFloat(n)
++    let top0 = CGFloat(minY) / CGFloat(n), top1 = CGFloat(maxY + 1) / CGFloat(n)
++    let span = max(x1 - x0, top1 - top0)
++    // A picture with a thin clear margin (an icon's padding) is a picture to crop round, not art to fit.
++    guard span < 0.9 else { return whole }
++    let scale = min(3, max(1, fill / span))
++    let w = size.width * scale, h = size.height * scale
++    // The opaque box's middle in the drawn picture (y up), put on the box's middle.
++    let cx = (x0 + x1) / 2 * w, cy = (1 - (top0 + top1) / 2) * h
++    return (CGRect(x: (size.width / 2 - cx).rounded(), y: (size.height / 2 - cy).rounded(), width: w, height: h), true)
++}
