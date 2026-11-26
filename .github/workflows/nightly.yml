@@ -5310,6 +5310,8 @@ jobs:
     runs-on: ${{ needs.route-visual-gate-nightly.outputs.runs_on }}
     # A warm tour slot builds the DEV app in ~6-10 min; a cold one took 35 min.
     timeout-minutes: 75
+    # The GhosttyKit R2 credentials live in ci-cache-writer, whose deployment branch is main only.
+    environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     permissions:
       contents: read
       actions: read # the previous nightly's visual-gate artifact (desktop_visual_diff.py)
