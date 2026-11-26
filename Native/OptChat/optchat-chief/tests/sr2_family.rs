@@ -42,8 +42,9 @@ fn the_gate_admits_claude_sr2_as_a_claude_stdio_profile() {
 /// when the sr2 harness file is installed and runnable (Lawrence
 /// 2026-10-19: "make sure Chief, by default, will talk to the correct
 /// Claude, using the user's Claude CLI"). sr2 is an explicit choice
-/// (`chief engine set --harness claude-sr2`), or the fallback only when
-/// acpmux has no usable `claude`. A configured CodeRouter route still wins.
+/// (`chief engine set --harness claude-sr2`), never a fallback: with no
+/// usable `claude` the default stays `claude`, refused with its reason. A
+/// configured CodeRouter route still wins.
 #[test]
 fn the_default_is_the_users_own_claude_cli_even_when_sr2_runs() {
     use optchat_chief::host::default_harness;
@@ -56,14 +57,14 @@ fn the_default_is_the_users_own_claude_cli_even_when_sr2_runs() {
                        "unavailable": "`sr2 --version` failed"},
     }});
     assert_eq!(default_harness(&down), "claude");
-    // No usable `claude` on the PATH: sr2, when it runs, rather than a
-    // harness that refuses every turn.
+    // No usable `claude` on the PATH: still `claude`, whose refusal says
+    // why, never a move to the sr2 route the person did not pick.
     let no_cli = json!({"harnesses": {
         "claude": {"kind": "claude-stdio", "argv": ["claude"],
                    "unavailable": "claude was not found on PATH"},
         "claude-sr2": {"kind": "claude-stdio", "argv": ["/u/.local/bin/sr2", "claude"]},
     }});
-    assert_eq!(default_harness(&no_cli), "claude-sr2");
+    assert_eq!(default_harness(&no_cli), "claude");
     let routed = json!({"harnesses": {
         "claude": {"kind": "claude-stdio", "argv": ["/u/.local/bin/claude"]},
         "claude-cr": {"kind": "claude-stdio", "argv": ["/u/bin/coderouter", "team-route"]},

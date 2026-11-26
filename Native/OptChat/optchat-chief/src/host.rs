@@ -146,25 +146,17 @@ pub const DEFAULT_HARNESS: &str = "claude";
 /// finds on the login shell's PATH, run with the user's own
 /// `~/.claude/settings.json` and login; Lawrence 2026-10-19: "make sure
 /// Chief, by default, will talk to the correct Claude, using the user's
-/// Claude CLI"). The subrouter2 route (`claude-sr2`) is an explicit choice
-/// (`chief engine set --harness claude-sr2`), and the default only when
-/// acpmux has no usable `claude` but can run sr2.
+/// Claude CLI"). The subrouter2 route (`claude-sr2`) is only an explicit
+/// choice (`chief engine set --harness claude-sr2`): a missing `claude` is
+/// refused with its reason, never moved to another route (Leo 2026-11-26:
+/// "identify all the weird opinoinated fleet things we shipped into the app
+/// and remove them").
 pub fn default_harness(answer: &serde_json::Value) -> &'static str {
     let harnesses = answer.get("harnesses");
     if harnesses.and_then(|h| h.get(CODEROUTER_HARNESS)).is_some() {
         return CODEROUTER_HARNESS;
     }
-    let runnable_stdio = |name: &str| {
-        harnesses.and_then(|h| h.get(name)).is_some_and(|p| {
-            p.get("kind").and_then(serde_json::Value::as_str) == Some("claude-stdio")
-                && p.get("unavailable").is_none()
-        })
-    };
-    if !runnable_stdio(DEFAULT_HARNESS) && runnable_stdio(SR2_HARNESS) {
-        SR2_HARNESS
-    } else {
-        DEFAULT_HARNESS
-    }
+    DEFAULT_HARNESS
 }
 
 /// Records which executable (and its `--version`) the turns, compactor and
