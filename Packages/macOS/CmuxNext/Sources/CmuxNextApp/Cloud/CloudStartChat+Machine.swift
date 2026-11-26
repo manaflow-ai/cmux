@@ -65,7 +65,7 @@ extension CloudStartChat {
         let ensureProject = CloudStartCore().ensuresProject(account: account, platform: cloud.configuration.artifactsAPIBaseURL(), production: cloud.auth.configuration.isProductionAuth)
         // The install token and the session's access token are two reads of their own: together, not one after the other (cmux#45953).
         let reserved = start.reservationKey != nil
-        async let installRead = { @MainActor in reserved ? try await cloud.installIdentity.installToken() : nil }()
+        async let installRead = { @MainActor in ensureProject || reserved ? try await cloud.installIdentity.installToken() : nil }() // the ensure's credential too
         async let accessRead = { @MainActor in ensureProject || reserved ? try await cloud.auth.tokens().access : nil }()
         let access = try? await accessRead, install = try await installRead
         let request = Self.planRequest(key: start.key, account: account, workspace: workspace, user: cloud.auth.platformUserID,

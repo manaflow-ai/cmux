@@ -99,8 +99,8 @@ pub mod errno {
     pub const ENOSPC: i32 = libc::ENOSPC;
 }
 use errno::{
-    EACCES, EBADF, EEXIST, EINVAL, EIO, EISDIR, ENAMETOOLONG, ENOENT, ENOSPC, ENOTDIR, ENOTEMPTY,
-    EPERM, EXDEV,
+    EACCES, EBADF, EEXIST, EINVAL, EIO, EISDIR, ENAMETOOLONG, ENOENT, ENOTDIR, ENOTEMPTY, EPERM,
+    EXDEV,
 };
 /// The longest name a folder holds, in bytes (Linux's `NAME_MAX`).
 const NAME_MAX: usize = 255;
@@ -663,6 +663,8 @@ impl Overlay {
         let cache_index = Mutex::new(cache_on_disk(&cache));
         let content =
             if fetch.cache() { content::Content::open(&state.join("content")) } else { None };
+        // RFD 0065 piece 12: no shared store unless the environment turns one on.
+        let content = content.map(|content| content.with_shared(shared::from_env()));
         let pins_file = state.join(pin::PINS_FILE);
         let pins = pin::read_pins(&pins_file)?;
         let overlay = Self {
@@ -760,6 +762,13 @@ impl Overlay {
     #[must_use]
     pub fn content_bytes(&self) -> u64 {
         self.content.as_ref().map_or(0, content::Content::bytes)
+    }
+
+    /// What the content store read through from the shared store (RFD 0065 piece 12; all zero
+    /// while `CMUX_PROJECTION_SHARED_STORE` is off, the default).
+    #[must_use]
+    pub fn shared_transfer(&self) -> shared::Transfer {
+        self.content.as_ref().map(content::Content::transfer).unwrap_or_default()
     }
 
     /// The bytes of the Mac's files cached on the machine now.
@@ -2326,6 +2335,9 @@ mod swap;
 
 #[path = "overlay_content.rs"]
 pub mod content;
+
+#[path = "overlay_shared.rs"]
+pub mod shared;
 
 #[path = "overlay_age.rs"]
 mod age;
