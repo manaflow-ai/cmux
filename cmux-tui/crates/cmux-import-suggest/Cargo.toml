@@ -1,0 +1,19 @@
+[package]
+name = "cmux-import-suggest"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Settings › Import's card deck for the cmux macOS app over the app FFI: what the scan's facts become, which cards show (dismissals that stick until something new appears, the Chief's cookie requests), the import jobs' steps and transitions, iTerm2's profile colors and the classic import prompt's lines. Pure: the app reads the files and renders the words"
+
+[lints]
+workspace = true
+
+[dependencies]
+base64.workspace = true
+# iTerm2's preferences (a binary property list). No serde: the reader walks plist::Value.
+plist = { version = "1.10", default-features = false }
+serde.workspace = true
+serde_json.workspace = true
+unicode-segmentation.workspace = true

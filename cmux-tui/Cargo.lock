@@ -2304,6 +2304,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-import-suggest"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "plist",
+ "serde",
+ "serde_json",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "cmux-install-check"
 version = "0.1.0"
 dependencies = [

@@ -422,6 +422,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-import-suggest"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "plist",
+ "serde",
+ "serde_json",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "cmux-interactivity"
 version = "0.1.0"
 dependencies = [
@@ -498,6 +509,7 @@ dependencies = [
  "cmux-cloud-tasks",
  "cmux-focus-core",
  "cmux-imessage",
+ "cmux-import-suggest",
  "cmux-layout-reducer",
  "cmux-rd-screen",
  "cmux-tab-discard",

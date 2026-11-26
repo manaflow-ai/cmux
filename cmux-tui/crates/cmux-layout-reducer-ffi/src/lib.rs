@@ -17,6 +17,8 @@
 //! person started and no chat spawned fold behind Automatic),
 //! `cmux-tab-discard`'s hidden browser tab rules (`tab_discard_*`: which hidden tabs freeze,
 //! are discarded or are kept),
+//! `cmux-import-suggest`'s Settings › Import rules (`import_suggest_*`: the cards, dismissals,
+//! import jobs and what the scan's file facts become),
 //! Keep Mac Awake's command rule (`keep_awake_plan`: which terminal commands
 //! hold off idle sleep and when to look again),
 //! `cmux-bookmarks-core`'s optimistic bookmark tree (`bookmarks_apply`: the
@@ -93,6 +95,7 @@ mod cloud_task;
 pub mod drag_handle;
 pub mod focus;
 mod imessage;
+mod import_suggest;
 pub mod input;
 pub mod keychain;
 mod screen;
@@ -621,6 +624,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if screen::handles(operation) => screen::respond(operation, request)?,
             operation if tab_discard::handles(operation) => {
                 tab_discard::respond(operation, request)?
+            }
+            operation if import_suggest::handles(operation) => {
+                import_suggest::respond(operation, request)?
             }
             operation if window_rules::handles(operation) => {
                 window_rules::respond(operation, request)?
