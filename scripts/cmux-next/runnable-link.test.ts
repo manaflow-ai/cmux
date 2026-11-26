@@ -39,7 +39,7 @@ describe("runnable link", () => {
     const now = 10 * 3600_000;
     const rows = [
       { id: "a", name: "runnable link rl-x parent", status: "running", created_at: now - 60_000 },
-      { id: "b", name: "runnable link rl-y open 1", status: "running", created_at: now - 3 * 3600_000 },
+      { id: "b", name: "runnable link rl-y open 1", status: "running", created_at: now - 81 * 60_000 },
       { id: "c", name: "runnable link rl-y open 2", status: "running", created_at: now - 600_000 },
       { id: "d", name: "cloud journey auto jr-1", status: "running", created_at: 0 },
       { id: "e", name: "runnable link rl-x open 1", status: "deleted", created_at: now },

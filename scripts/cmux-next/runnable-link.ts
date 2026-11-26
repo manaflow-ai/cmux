@@ -191,7 +191,7 @@ export async function withRoom<T>(fn: () => Promise<T>, budgetMs = Number(proces
 /**
  * Machines this script made that no one deletes otherwise: this run's (a create cut off at the client timeout can
  * still make its machine, which the run never learns the id of: runs 45570177493, 45571955695 and 45573615938), and
- * any earlier run's left over two hours or more. Every machine here is named "runnable link rl-<tag> ...".
+ * any earlier run's older than STRAY_AGE_MS. Every machine here is named "runnable link rl-<tag> ...".
  */
 // A row's creation time in ms: machines carry a number, snapshots may carry an ISO string. Unknown reads as new.
 function createdMs(r: any): number {
@@ -239,10 +239,15 @@ export function runTag(name: unknown): string | null {
   return m ? m[1] : null;
 }
 
+// No run outlives its job (runnable-link.yml timeout-minutes: 75), so a row of this script older than that belongs to a dead
+// run. The old two-hour bound kept two link snapshots of runs 40 minutes gone, and with three other snapshots that filled
+// staging's five slots (run 45734544111: cloud.quota.exceeded at mint).
+export const STRAY_AGE_MS = 80 * 60_000;
+
 export function strays(rows: any[], tag: string, now: number, deleted: Set<string>): string[] {
   return rows
     .filter((r) => runTag(r?.name) !== null && r.status !== "deleted" && r.status !== "deleting")
-    .filter((r) => runTag(r.name) === tag || now - createdMs(r) >= 2 * 3600_000)
+    .filter((r) => runTag(r.name) === tag || now - createdMs(r) >= STRAY_AGE_MS)
     .map((r) => String(r.id ?? r.machine_id ?? ""))
     .filter((id) => id && !deleted.has(id));
 }
