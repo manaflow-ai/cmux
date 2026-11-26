@@ -74,7 +74,7 @@ env:
 jobs:
   platform-readiness:
     if: github.event_name == 'workflow_dispatch' && inputs.platform_readiness
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_DEPLOY_SKIP_FLEET != '1' && 'cmux-gcp-deploy-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-deploy-jit-x64' }}
     timeout-minutes: 10
     environment: cmux-vm-production
     permissions:
@@ -145,7 +145,7 @@ jobs:
       github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' &&
       !(github.event_name == 'push' && (startsWith(github.event.head_commit.message, 'cmux-vm: image roll ') ||
       startsWith(github.event.head_commit.message, 'cmux-vm: image rollback ')))
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_DEPLOY_SKIP_FLEET != '1' && 'cmux-gcp-deploy-jit-x64' || github.run_attempt == 1 && 'cmux-gcp-lane-build-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-deploy-jit-x64' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -210,7 +210,10 @@ jobs:
         shell: bash
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
-            git reset -q --hard HEAD
+            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
           fi
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
@@ -278,7 +281,7 @@ jobs:
   promote:
     needs: [plan, bake]
     if: needs.plan.outputs.roll == 'true' && needs.bake.result == 'success' && needs.bake.outputs.candidate != ''
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_DEPLOY_SKIP_FLEET != '1' && 'cmux-gcp-deploy-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-deploy-jit-x64' }}
     timeout-minutes: 15
     # A production change: the environment that deploys production (feat-cmux-next only) bounds the push App key.
     environment: cmux-vm-production
@@ -422,6 +425,7 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             wrangler.jsonc
+            .gitmodules
       - name: Land the roll commit
         id: push
         env:
@@ -463,7 +467,7 @@ jobs:
     needs: [plan, bake]
     if: needs.plan.outputs.roll == 'true' && needs.bake.result == 'success' && needs.bake.outputs.candidate != ''
     continue-on-error: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_DEPLOY_SKIP_FLEET != '1' && 'cmux-gcp-deploy-jit-x64' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-deploy-jit-x64' }}
     timeout-minutes: 75
     # The dev Freestyle account, as the bake: the candidate snapshot lives there. feat-cmux-next only.
     environment: cmux-next-vm-image-dev
@@ -561,7 +565,7 @@ jobs:
   report:
     needs: [plan, bake, promote]
     if: ${{ !cancelled() && needs.plan.outputs.roll == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_DEPLOY_SKIP_FLEET != '1' && 'cmux-gcp-deploy-jit-x64' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-deploy-jit-x64' }}
     timeout-minutes: 10
     permissions:
       contents: write
