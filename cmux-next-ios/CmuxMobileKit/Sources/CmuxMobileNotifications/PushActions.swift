@@ -213,6 +213,7 @@ public struct PushActions: Sendable {
         case .allowAlways: String(localized: "Always allow")
         case .deny: String(localized: "Deny")
         case .reply, .terminalReply: String(localized: "Reply")
+        // retry-prompt-ok: resends a reply the person wrote from a notification (it may have landed); sending again is theirs
         case .retry: String(localized: "Retry")
         }
     }
