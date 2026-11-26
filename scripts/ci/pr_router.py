@@ -29,6 +29,10 @@ pr_router.json lists each routed workflow ("callee") with what used to start it:
              a table that cannot be read starts it. A job of FULL_TIER_JOBS (the `mac` job) is routed only
              on a full-tier head: a draft or idle head runs no Mac, as cmux-next.yml's path_route held;
   labels     labels whose `labeled` event starts it whatever the paths (full-ci always does);
+  land_handoff_only
+             true for a workflow that starts only on a land's own heads: the `labeled` event that adds
+             ready-to-land or full-ci (the land handoff), or a synchronize of a ready-to-land PR whose head
+             is GitHub's base merge (land's update-branch). Any other head, full tier or not, skips it;
   draft      true for a workflow that also runs on a draft head (scripts/ci/head_tier.py's cheap tier);
              any other callee starts on a draft only with full-ci, and runs when the PR is marked ready
              for review, so every callee must listen to `ready_for_review` (`check` says so).
@@ -60,9 +64,11 @@ import head_tier  # noqa: E402
 import workflow_paths_cover_inputs as filters  # noqa: E402
 
 ROOT = HERE.parents[1]
-# The step table's jobs that run only on a full-tier head (head_tier.py): a draft, or a base merge into an idle pull
-# request, routes them nowhere, as cmux-next.yml's path_route turned every Mac tier off for one.
-FULL_TIER_JOBS = ("mac",)
+# The step table's jobs that run only on a full-tier head (head_tier.py): a cheap head (a draft, a ready head before
+# `ready-to-land` or `full-ci`, a base merge into an idle pull request) routes them nowhere, so pr-pipeline.yml does not
+# start on it at all. mac alone was here until 11-25, so linux, web-browser and ios ran on every cheap push: about 50k
+# runner-minutes a day (Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period.").
+FULL_TIER_JOBS = ("linux", "web-browser", "mac", "ios")
 MANIFEST = HERE / "pr_router.json"
 ENTRY = ROOT / ".github" / "workflows" / "pr-router.yml"
 FULL_CI = "full-ci"
@@ -139,9 +145,11 @@ def table_jobs_routed(callees: dict, files: list[str] | None, table: Path | None
 
 
 def route(event: dict, callees: dict, files: list[str] | None,
-          draft_switch: str = "1", decided: tuple[str, str] | None = None) -> tuple[list[str], dict[str, str]]:
+          draft_switch: str = "1", decided: tuple[str, str] | None = None,
+          land_update: bool = False) -> tuple[list[str], dict[str, str]]:
     """(the callee files to start, a reason per callee) for one pull_request event. DECIDED: head_tier's
-    (tier, reason) when the caller read the head's facts (route mode); else the draft rule alone."""
+    (tier, reason) when the caller read the head's facts (route mode); else the draft rule alone. LAND_UPDATE:
+    the head is GitHub's base merge into a ready-to-land PR (land_update_head), for `land_handoff_only` callees."""
     tier, tier_reason = decided or head_tier.tier("pull_request", event, draft_switch)
     cheap = tier == "cheap"
     # Fast-track (scripts/ci/fast_track.py): a docs, plans, skills, copy or tests-only change gets the cheap tier.
@@ -153,7 +161,8 @@ def route(event: dict, callees: dict, files: list[str] | None,
     pr = event.get("pull_request") or {}
     labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
     added = str((event.get("label") or {}).get("name") or "") if action == "labeled" else ""
-    if added in (head_tier.LAND_LABEL, FULL_CI):
+    handoff = added in (head_tier.LAND_LABEL, FULL_CI)
+    if handoff:
         # The land handoff (head_tier's land rule): the same head now runs the full tier, as when a draft is marked
         # ready, so every callee that skips a cheap head starts on it (each listens to ready_for_review). full-ci is
         # the same handoff from a lane VM, whose broker never sets ready-to-land (land-judge's land_tier asks it).
@@ -162,6 +171,10 @@ def route(event: dict, callees: dict, files: list[str] | None,
     for name, config in sorted(callees.items()):
         if action not in config["types"]:
             why[name] = f"does not listen to '{action}'"
+            continue
+        if config.get("land_handoff_only") and not handoff and not land_update:
+            why[name] = (f"land handoff only: starts when {head_tier.LAND_LABEL} or {FULL_CI} is added, or on land's "
+                         f"update-branch head")
             continue
         if added and (added == FULL_CI or added in config.get("labels", [])):
             start.append(name)
@@ -180,6 +193,10 @@ def route(event: dict, callees: dict, files: list[str] | None,
         if cheap and not config.get("draft"):
             why[name] = ("draft: starts when marked ready for review (or with full-ci)" if pr.get("draft") is not False
                          else tier_reason)
+            continue
+        # A callee whose every table job is full-tier-only starts on no cheap head (a fast-track head is full tier).
+        if tier != "full" and config.get("table_jobs") and set(config["table_jobs"]) <= set(FULL_TIER_JOBS):
+            why[name] = "cheap tier: starts when ready-to-land or full-ci is added (or the draft is marked ready)"
             continue
         if files is None:
             start.append(name)
@@ -202,6 +219,18 @@ def route(event: dict, callees: dict, files: list[str] | None,
         start.append(name)
         why[name] = "a changed file reaches it"
     return start, why
+
+
+def land_update_head(event: dict, callees: dict) -> bool:
+    """Whether EVENT is a synchronize of a ready-to-land PR to a head GitHub made by merging the base
+    (land's update-branch), read only when some callee is `land_handoff_only`. Unreadable is no."""
+    pr = event.get("pull_request") or {}
+    labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
+    if (event.get("action") != "synchronize" or head_tier.LAND_LABEL not in labels
+            or not any(c.get("land_handoff_only") for c in callees.values())):
+        return False
+    facts = head_tier.head_facts(event) or {}
+    return bool(facts.get("base_merge_only") and facts.get("by_github") is True)
 
 
 def caller_jobs(text: str) -> dict[str, str]:
@@ -259,10 +288,11 @@ def check(callees: dict, entry_text: str, workflows: Path) -> list[str]:
 
 def land_status(event: dict, decided: tuple[str, str]) -> str:
     """The `cmux/land-tier` commit status for EVENT's head (pr-router.yml posts it): `pending` while the land rule holds
-    it on the cheap tier (or idle), `success` once it runs the full tier, empty where the land rule does not apply."""
+    it on the cheap tier (or idle), `success` once it runs the full tier or the land carry rule carries its previous
+    head's success (head_tier.carried), empty where the land rule does not apply."""
     if (os.environ.get("CI_LAND_TIER", "1").strip() in ("0", "")) or not head_tier.land_rule_applies(event):
         return ""
-    return "success" if decided[0] == "full" else "pending"
+    return "success" if decided[0] == "full" or head_tier.carried(decided) else "pending"
 
 
 def write_outputs(start: list[str], why: dict[str, str], files: list[str] | None,
@@ -290,7 +320,7 @@ def main(argv: list[str]) -> int:
         event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
         files = changed_files()
         decided = head_tier.decide("pull_request", event)
-        start, why = route(event, callees, files, decided=decided)
+        start, why = route(event, callees, files, decided=decided, land_update=land_update_head(event, callees))
         labels = {str(label.get("name") or "") for label in (event.get("pull_request") or {}).get("labels") or []}
         full = decided[0] == "full" or FULL_CI in labels
         write_outputs(start, why, files, table_jobs_routed(callees, files, full=full),

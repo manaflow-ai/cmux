@@ -84,6 +84,22 @@ fn the_act_as_me_covers_are_the_macos_hosts() {
     );
 }
 
+#[test]
+fn the_act_as_me_managed_covers_are_the_macos_hosts() {
+    let swift: BTreeSet<String> = strings(&block(
+        &read("AgentPaneActAsMe.swift"),
+        "public nonisolated static let managedCovers: Set<String> = [",
+        "\n    ]",
+    ))
+    .into_iter()
+    .collect();
+    assert_eq!(
+        policy().act_as_me_managed_covers,
+        swift,
+        "policy.json act_as_me_managed_covers vs AgentPaneActAsMe.managedCovers"
+    );
+}
+
 /// The method sets of one Swift `Set<String>` table, `// comments` dropped.
 fn swift_set(file: &str, declaration: &str) -> BTreeSet<String> {
     strings(&block(&read(file), declaration, "\n    ]")).into_iter().collect()

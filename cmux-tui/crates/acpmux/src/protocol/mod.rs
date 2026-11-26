@@ -21,6 +21,7 @@ pub mod permission;
 pub mod presence;
 pub mod process;
 pub mod session;
+pub mod signature;
 pub mod sync;
 #[cfg(test)]
 mod tests;
@@ -185,6 +186,10 @@ pub fn registry() -> Vec<MethodDecl> {
         acp(method::SESSION_UPDATE, Notification),
         acp(method::SESSION_REQUEST_PERMISSION, ServerRequest),
         acp(method::CANCEL_REQUEST, ClientNotification),
+        // acpmux's own, in the session/ space: each session's dot glyph.
+        request::<signature::SignatureParams, signature::SignatureResult>(
+            method::SESSION_SIGNATURE,
+        ),
         // Which of the connection's requests still run (server/in_flight.rs `states`).
         untyped(method::MUX_REQUEST_STATE, Request),
         // ACP extensions acpmux names in the acp.* space.
@@ -336,8 +341,6 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_GOAL_UPDATE, Request),
         untyped(method::MUX_GOAL_GET, Request),
         untyped(method::MUX_SURGERY, Request),
-        untyped(method::MUX_TASK_LIST_SET, Request),
-        untyped(method::MUX_TASK_LIST_GET, Request),
         untyped(method::MUX_PLAN_BUILD, Request),
         untyped(method::MUX_PLAN_COMPARE, Request),
         untyped(method::MUX_PLAN_KEEP, Request),
@@ -348,8 +351,12 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_WORKTREE_CLEAN, Request),
         untyped(method::MUX_WORKTREE_RESTORE, Request),
         untyped(method::MUX_RETENTION, Request),
+        untyped(method::MUX_HISTORY_DELETE, Request),
+        untyped(method::MUX_HISTORY_OFFLOAD, Request),
+        untyped(method::MUX_TRANSCRIPT_OFFLOAD, Request),
         untyped(method::MUX_COLD_ARCHIVE, Request),
         untyped(method::MUX_AUTO_SESSION_SET, Request),
+        untyped(method::MUX_AUTO_SESSION_MOVE, Request),
         untyped(method::MUX_CHAT_MOVE, Request),
         untyped(method::MUX_AUTO_SESSION_LEFTOVER, Request),
         untyped(method::MUX_AUTO_SESSION_WAKE, Request),
@@ -374,6 +381,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_MACHINE_INFO, Request),
         untyped(method::MUX_SCORECARD, Request),
         untyped(method::MUX_SESSION_FILES, Request),
+        untyped(method::MUX_PAUSED_FILES, Request),
         request::<events::EventsParams, events::EventsResult>(method::MUX_EVENTS),
         keyed::<params::AttachmentParams>(method::MUX_ATTACHMENT, Request),
         keyed::<params::TurnShotsParams>(method::MUX_TURN_SHOTS, Request),
@@ -474,6 +482,9 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_SECRET_REQUEST, Request),
         keyed::<params::SecretSubmitParams>(method::MUX_SECRET_SUBMIT, Request),
         untyped(method::MUX_SECRET_RUN, Request),
+        untyped(method::MUX_CHAT_SECRETS_SET, Request),
+        untyped(method::MUX_CHAT_SECRETS_CLEAR, Request),
+        untyped(method::MUX_CHAT_SECRETS_LIST, Request),
         untyped(method::MUX_ELEVATION_REQUEST, Request),
         untyped(method::MUX_MCP_CONNECT_REQUEST, Request),
         untyped(method::MUX_MCP_CONNECT_ANSWER, Request),
@@ -602,6 +613,9 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/vm_host", Request),
         untyped("_acpmux/host_notice", Request),
         untyped("_acpmux/place", Request),
+        untyped("_acpmux/place_set", Request),
+        untyped("_acpmux/place_undo", Request),
+        untyped("_acpmux/place_get", Request),
         untyped("_acpmux/chat_place", Request),
         untyped("_acpmux/chat_place_set", Request),
         untyped(method::MUX_PLACE_CHAT, Request),
