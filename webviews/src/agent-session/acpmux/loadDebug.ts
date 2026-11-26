@@ -18,6 +18,9 @@ export type LoadRunOptions = {
   chunk_chars?: number;
   chunk_ms?: number;
   tool_every?: number;
+  /// What each delta is (mock.ts `LoadStreamOptions.kind`): reply text (the default), thought text,
+  /// or a status change alone.
+  stream_kind?: "text" | "thought" | "status";
   /// Scroll speed in points per second; 0 streams without scrolling.
   scroll_speed?: number;
   /// How far up the scroll goes before it turns back, in viewports.
@@ -167,6 +170,7 @@ export async function loadRun(
     toolEvery: Math.max(0, Math.floor(options.tool_every ?? 60)),
     prefixWords: options.reply_words,
     prefixSettleMs: options.reply_settle_ms,
+    kind: options.stream_kind,
   });
   let streamDone = false;
   let streamFinished: number | undefined;
