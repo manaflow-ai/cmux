@@ -35,8 +35,24 @@ thread_local! {
 pub fn left_alive() -> (usize, usize) {
     HUBS.with(|h| {
         let hubs = std::mem::take(&mut *h.borrow_mut());
+        let strong: Vec<usize> = hubs.iter().map(|w| w.strong_count()).collect();
+        if std::env::var_os("SIM_LEAK_TRACE").is_some() {
+            eprintln!(
+                "leak strong {strong:?} sentinels spawned {} dropped {}",
+                SENT_MADE.load(std::sync::atomic::Ordering::SeqCst),
+                SENT_DROPPED.load(std::sync::atomic::Ordering::SeqCst)
+            );
+        }
         (hubs.iter().filter(|w| w.strong_count() > 0).count(), hubs.len())
     })
+}
+static SENT_MADE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static SENT_DROPPED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+struct Sentinel;
+impl Drop for Sentinel {
+    fn drop(&mut self) {
+        SENT_DROPPED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
 }
 const TICK: Duration = Duration::from_millis(10);
 
@@ -171,6 +187,12 @@ async fn daemon(disk: Arc<Disk>, agents: Arc<Agents>, incarnation: u64) -> turmo
     acpmux::sim_agent::install(agents.factory(incarnation));
     let hub = Hub::new(config(), Box::new(SimStore(disk)));
     HUBS.with(|h| h.borrow_mut().push(Arc::downgrade(&hub)));
+    SENT_MADE.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let sentinel = Sentinel;
+    tokio::spawn(async move {
+        let _s = sentinel;
+        std::future::pending::<()>().await
+    });
     let _ = hub.person.install_spawn_key(app::PERSON_KEY);
     {
         let hub = hub.clone();
