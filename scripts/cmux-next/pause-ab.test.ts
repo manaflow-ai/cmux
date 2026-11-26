@@ -83,6 +83,21 @@ describe("pool", () => {
     expect(done.sort()).toEqual([1, 2, 3, 4, 5, 6, 7]);
     expect(peak).toBe(3);
   });
+  test("pairs start in pair order, 3 at a time (runs 45869919450, 45886952582: one at a time reached 4 of 10 pairs)", async () => {
+    const rows = [1, 2, 3, 4, 5].flatMap((pair) => ["turn_end", "aggressive"].map((arm) => ({ pair, arm })));
+    const started: number[] = [];
+    let live = 0;
+    let peak = 0;
+    await pool(pairsOf(rows), 3, async ({ pair, machines }) => {
+      started.push(pair);
+      expect(machines.map((m) => m.arm)).toEqual(["turn_end", "aggressive"]);
+      peak = Math.max(peak, ++live);
+      await new Promise((r) => setTimeout(r, 5));
+      live--;
+    });
+    expect(started).toEqual([1, 2, 3, 4, 5]);
+    expect(peak).toBe(3);
+  });
 });
 
 describe("stalePauseAbMachines", () => {

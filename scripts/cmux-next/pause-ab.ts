@@ -8,8 +8,8 @@
  * Signs in as the agent test account the way cloud-journey.ts does (CMUX_DOGFOOD_STACK_EMAIL/_PASSWORD from the
  * environment or a KEY=value --credentials file, or --sign-in oidc in a GitHub Actions job), then for every arm creates
  * --per-arm machines named `pause-ab-<tag>-<arm>-<i>`, sets the arm with `cloud.machine.idle_policy.set {machine,
- * pause_policy}` and reads it back, and drives the same seeded chat on every machine. Pairs come up one after another
- * (the next pair's creates wait until this pair runs, and no pair starts after --bringup-budget minutes, default 25);
+ * pause_policy}` and reads it back, and drives the same seeded chat on every machine. Pairs come up --bringup-pairs at
+ * a time (default 3; the next pair's creates wait for a free slot, and no pair starts after --bringup-budget minutes, default 25);
  * each pair drives its turns as soon as it runs, and a pair that cannot come up is skipped with its reason: --turns Claude turns
  * against the journey's model stub on the machine's loopback (`--model stub`, no real model), each followed by an
  * idle gap drawn from --gaps with seed --seed + i - 1 for pair i (machine i of every arm gets the same gaps, so each
@@ -562,6 +562,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const pollMs = Number(argValue("--poll", argv) ?? 5) * 1000;
   // No pair starts its bring-up after this many minutes, so the last pair's turns end inside the job's timeout.
   const bringupBudgetMs = Number(argValue("--bringup-budget", argv) ?? 25) * 60_000;
+  // How many pairs come up at once (each pair is one create per arm).
+  const bringupPairs = Math.max(1, Number(argValue("--bringup-pairs", argv) ?? 3));
   // Pair i (machine i of every arm) draws its gaps with seed + i - 1; `gaps` is pair 1's.
   const pairGaps = Array.from({ length: perArm }, (_, i) => gapSchedule(seed + i, turnCount, gapChoices));
   const gaps = pairGaps[0];
@@ -791,10 +793,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       took.push(`${r.name} ${Math.round((Date.now() - c0) / 1000)} s`);
       if (!r.id) throw new Error(`create ${r.name} answered no machine: ${short(v)}`);
     };
-    // One pair at a time: a pair's creates go out once the previous pair runs, and it starts its turns at once, so
-    // pairs overlap while staging's VM API never sees more than one pair's creates (run 45864237040: 20 concurrent
-    // creates, 8 answered cloud.provider.unavailable "vm-provider.persistCreateIntent (no response)", and one
-    // machine not running in 300 s failed the whole drill). A pair that cannot come up is skipped, with its reason.
+    // At most --bringup-pairs pairs in bring-up at once (default 3, so 6 creates): run 45864237040's 20 concurrent
+    // creates got 8 cloud.provider.unavailable "vm-provider.persistCreateIntent (no response)", but one pair at a time
+    // (runs 45869919450, 45886952582) spent the 25 min budget on 4 of 10 pairs, staging taking 2-11 min a pair.
+    // Each pair starts its turns as soon as it runs. A pair that cannot come up is skipped, with its reason.
     const bringUp = async (r: MachineResult) => {
       await createOne(r);
       for (;;) {
@@ -866,12 +868,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const drives: Promise<void>[] = [];
     const bring0 = Date.now();
     windowStart = bring0;
-    for (const { pair, machines: ms } of pairsOf(results)) {
+    await pool(pairsOf(results), bringupPairs, async ({ pair, machines: ms }) => {
       const t0 = Date.now();
       if (t0 - bring0 > bringupBudgetMs) {
         for (const r of ms) r.skipped = `bring-up budget ${bringupBudgetMs / 60_000} min spent before pair ${pair}`;
         J.record({ step: `pair ${pair} up`, status: "skip", ms: 0, detail: ms[0].skipped! });
-        continue;
+        return;
       }
       const up = await Promise.allSettled(ms.map(bringUp));
       const why = up.flatMap((u) => (u.status === "rejected" ? [String((u.reason as Error)?.message ?? u.reason).slice(0, 300)] : []));
@@ -879,14 +881,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         for (const r of ms) r.skipped = why.join(" | ");
         console.log(`pair ${pair} skipped: ${why.join(" | ")}`);
         J.record({ step: `pair ${pair} up`, status: "skip", ms: Date.now() - t0, detail: why.join(" | ").slice(0, 1000) });
-        continue;
+        return;
       }
       J.record({
         step: `pair ${pair} up`, status: "pass", ms: Date.now() - t0,
         detail: ms.map((r) => `${r.name}=${r.id} ${r.effective_policy}${r.policy_refused ? " (asked policy refused)" : ""}${r.replaced ? ` [replaced: ${r.replaced}]` : ""}; ${guestLine(r.name, r.guest_update_start)}`).join(" | ").slice(0, 1000) + (ttlRefused ? `; ttl_seconds refused: ${ttlRefused}` : ""),
       });
       drives.push(drivePair(ms));
-    }
+    });
     console.log(`created: ${took.join(", ")}`);
     const driven = results.filter((r) => !r.skipped);
     await J.step(`drive ${turnCount} turns per pair (${driven.length / arms.length} of ${perArm} pairs up)`, async () => {
