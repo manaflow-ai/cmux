@@ -48,7 +48,7 @@ fi
 echo "pool-make-room: $(gib "$free") GiB free, under the step's need of $(gib "$need") GiB; pruning in line (up to ${wait_s} s)"
 t0="$(date +%s)"
 CMUX_DISK_FLOOR_CHILD=1 CMUX_DISK_FLOOR_BYTES="$need" CMUX_DISK_RESERVE_BYTES="$need" CMUX_DISK_JOB_BYTES="$need" \
-  CMUX_DISK_FLOOR_LOCK_WAIT="$wait_s" timeout -k 5 "$wait_s" "$hook" room
+  CMUX_DISK_FLOOR_LOCK_WAIT="$wait_s" bash "$(dirname "${BASH_SOURCE[0]}")/timeout.sh" --kill-after=5 "$wait_s" "$hook" room
 after="$(avail)"
 case "$after" in ''|*[!0-9]*) after=0;; esac
 waited=$(( $(date +%s) - t0 ))
