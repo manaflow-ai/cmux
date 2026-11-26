@@ -1716,8 +1716,7 @@ impl ReconnectGroupSource for RuntimeReconnectGroups {
 
     fn resolution_time_excluded(&self) -> Duration {
         self.options.ssh.connection_share.auth_clock().map_or(Duration::ZERO, |clock| {
-            let now = Instant::now();
-            self.ssh_targets.iter().map(|target| clock.excluded_for(target, now)).sum()
+            clock.excluded_for_targets(&self.ssh_targets, Instant::now())
         })
     }
 

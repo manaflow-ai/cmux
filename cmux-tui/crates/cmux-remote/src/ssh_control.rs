@@ -96,20 +96,33 @@ pub struct SshAuthClock {
 struct AuthClockState {
     active: usize,
     active_since: Option<Instant>,
-    spent: Duration,
+    intervals: Vec<(Instant, Instant)>,
 }
 
 impl SshAuthClock {
     /// Authentication time up to `now`, including a run still in progress.
     pub fn excluded(&self, now: Instant) -> Duration {
         let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        state.values().map(|state| state.excluded(now)).sum()
+        let intervals = state.values().flat_map(|state| state.intervals_until(now)).collect();
+        merged_interval_duration(intervals)
     }
 
     /// Authentication time for one SSH target, up to `now`.
     pub fn excluded_for(&self, target: &SshTarget, now: Instant) -> Duration {
         let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         state.get(target).map_or(Duration::ZERO, |state| state.excluded(now))
+    }
+
+    /// Authentication time for a set of SSH targets, counting overlapping
+    /// prompts once because a deadline advances in wall-clock time.
+    pub fn excluded_for_targets(&self, targets: &[SshTarget], now: Instant) -> Duration {
+        let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let intervals = targets
+            .iter()
+            .filter_map(|target| state.get(target))
+            .flat_map(|state| state.intervals_until(now))
+            .collect();
+        merged_interval_duration(intervals)
     }
 
     fn begin(self: &Arc<Self>, target: SshTarget) -> AuthClockGuard {
@@ -125,9 +138,45 @@ impl SshAuthClock {
 
 impl AuthClockState {
     fn excluded(&self, now: Instant) -> Duration {
-        self.spent
-            + self.active_since.map_or(Duration::ZERO, |since| now.saturating_duration_since(since))
+        merged_interval_duration(self.intervals_until(now))
     }
+
+    fn intervals_until(&self, now: Instant) -> Vec<(Instant, Instant)> {
+        let mut intervals = self.intervals.clone();
+        if let Some(since) = self.active_since {
+            intervals.push((since, now));
+        }
+        intervals
+    }
+
+    fn record(&mut self, start: Instant, end: Instant) {
+        if let Some((_, previous_end)) = self.intervals.last_mut()
+            && start <= *previous_end
+        {
+            *previous_end = (*previous_end).max(end);
+        } else {
+            self.intervals.push((start, end));
+        }
+    }
+}
+
+fn merged_interval_duration(mut intervals: Vec<(Instant, Instant)>) -> Duration {
+    intervals.sort_unstable_by_key(|(start, _)| *start);
+    let Some((mut current_start, mut current_end)) = intervals.pop() else {
+        return Duration::ZERO;
+    };
+    let mut total = Duration::ZERO;
+    for (start, end) in intervals.into_iter().rev() {
+        if end >= current_start {
+            current_start = current_start.min(start);
+            current_end = current_end.max(end);
+        } else {
+            total = total.saturating_add(current_end.saturating_duration_since(current_start));
+            current_start = start;
+            current_end = end;
+        }
+    }
+    total.saturating_add(current_end.saturating_duration_since(current_start))
 }
 
 struct AuthClockGuard {
@@ -143,7 +192,7 @@ impl Drop for AuthClockGuard {
         if state.active == 0
             && let Some(since) = state.active_since.take()
         {
-            state.spent += since.elapsed();
+            state.record(since, Instant::now());
         }
     }
 }
@@ -285,12 +334,13 @@ async fn remove_unused_entry(inner: &ShareInner, target: &SshTarget, entry: &Sha
     // The map owns one reference. If no waiter retained another reference after
     // its per-target lock was released, discard a failed entry so a later run
     // does not grow the map forever.
-    if Arc::strong_count(entry) != 1 {
+    // The map and this caller each retain one reference while this helper runs.
+    if Arc::strong_count(entry) != 2 {
         return;
     }
     let mut masters = inner.masters.lock().await;
     if masters.get(target).is_some_and(|current| Arc::ptr_eq(current, entry))
-        && Arc::strong_count(entry) == 1
+        && Arc::strong_count(entry) == 2
     {
         masters.remove(target);
     }
