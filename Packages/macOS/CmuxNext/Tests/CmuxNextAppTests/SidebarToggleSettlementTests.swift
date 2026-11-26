@@ -64,7 +64,7 @@ struct SidebarToggleSettlementTests {
         content.frame = root.contentHost.bounds
         CATransaction.flush()
         try #require(window.screen != nil && Motion.canAnimate(in: sidebar), "needs an awake GUI display")
-        try #require(Motion.sidebar.duration(.appear) > 0 && Motion.sidebar.duration(.disappear) > 0)
+        try #require(Motion.sidebar.duration(SidebarContainerView.widthSpring) > 0)
         // Drain the initial observation before choosing the endpoints.
         try await Task.sleep(for: .milliseconds(100))
         let start = sidebar.frame.width

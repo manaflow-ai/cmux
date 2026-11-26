@@ -420,7 +420,7 @@ public final class SidebarContainerView: NSView {
         isWidthAnimating = false
     }
 
-    /// Animates to the model's presentation with the appear / disappear tokens (instant with
+    /// Animates to the model's presentation on ``widthSpring``'s time (instant with
     /// Reduce Motion). Idempotent: a repeat call for the same target does
     /// nothing, so the observation and a synchronous caller can both run it.
     func apply() {
@@ -464,13 +464,13 @@ public final class SidebarContainerView: NSView {
         // With no animation at all (Reduce Motion, the gate off) the width lands
         // in this turn and the completion clears this again at once.
         isWidthAnimating = true
-        armWidthMotionWatchdog(hidden ? .disappear : .appear)
+        armWidthMotionWatchdog(Self.widthSpring)
         widthCompletedGeneration = nil
         fadeCompletedGeneration = collapseMotion.fadesPanel ? nil : generation
         // Only the constraints move, a frame at a time on the window's motion clock: descendants re-lay out each frame
         // at their real size, in the frame the panes' springs step. The tokens' timed equivalent (duration and curve),
         // as before; a toggle mid-slide starts from the constant on screen.
-        startWidthMotion(to: target, reach: reach, collapsed: hidden, token: hidden ? .disappear : .appear, completion: { [weak self] in
+        startWidthMotion(to: target, reach: reach, collapsed: hidden, token: Self.widthSpring, completion: { [weak self] in
             guard let self, generation == self.animationGeneration else { return }
             // Flush the final constraint layout before publishing settlement. Content and
             // terminal geometry must already be at the target when they hear the motion ended.
@@ -483,7 +483,7 @@ public final class SidebarContainerView: NSView {
             self.finishCollapseIfReady(generation: generation, hidden: hidden, fadesPanel: collapseMotion.fadesPanel)
         })
 
-        // Keep the width's existing appear/disappear timing, but let the
+        // The width keeps ``widthSpring``'s timing, but the
         // prototype use the short fade tokens. This makes slideFade read as
         // a quick reveal over the structural slide instead of extending the
         // opacity animation to the sidebar's full travel time.
