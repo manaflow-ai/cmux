@@ -91,6 +91,19 @@ const unitFacts = async (exec: Exec) => {
   return Object.fromEntries(out.split("\n").map((l) => l.split("=", 2) as [string, string]));
 };
 const journal = (exec: Exec) => exec(asRoot("journalctl -u cmux-chief.service --no-pager -o cat -n 60"), 30_000).then((r) => r.stdout.trim().slice(-2500));
+/** What a missing reply leaves on the machine: the Chief's log, the daemon that carries its cloud conversation, its turn traces. */
+const replyEvidence = (exec: Exec) =>
+  exec(
+    asRoot(
+      [
+        "echo '== cmux-chief.service'; journalctl -u cmux-chief.service --no-pager -o short-iso -n 120 | tail -c 6000",
+        "echo '== daemon on the Chief socket'; s=$(head -n 1 /etc/cmux/daemon-socket 2>/dev/null); echo \"socket $s\"; ps -eo pid,etimes,args | grep '[c]mux-tui' | head -5",
+        "echo '== journal since 8 min, cloud and daemon lines'; journalctl --no-pager -o short-iso --since '-8 min' | grep -iE 'cmux-tui|cloud|conversation|websocket|subscri|wake|turn|acpmux|claude|error|warn' | grep -v ' sudo' | tail -n 120 | tail -c 9000",
+        "echo '== traces'; d=/home/cmux/.cmux/mux/optchat/traces; ls -lt $d 2>/dev/null | head -5; f=$(ls -t $d 2>/dev/null | head -n 1); [ -n \"$f\" ] && tail -c 3000 \"$d/$f\"",
+      ].join("; "),
+    ),
+    60_000,
+  ).then((r) => `${r.stdout.trim()}\n${r.stderr.trim().slice(-500)}`, (e) => `(evidence failed: ${String(e).slice(0, 300)})`);
 
 const REPLY_DEADLINE_MS = 240_000;
 const rowText = (m: any): string =>
@@ -236,7 +249,7 @@ async function main(): Promise<number> {
       const sentAt = Date.now();
       await api.op("message.send", { conversation, client_msg_id: `chief-start-${run}-app`, parts: [{ type: "text", text: `Reply with only the word ${word}` }] }, `chief-start-${run}-app`);
       const reply = await chiefReply(api, conversation, chief, seen, REPLY_DEADLINE_MS);
-      if (!reply) throw new Error(`no reply from ${chief} in ${REPLY_DEADLINE_MS / 1000} s; newest rows ${await rowsSeen(api, conversation)}\n${await journal(exec)}`);
+      if (!reply) throw new Error(`no reply from ${chief} in ${REPLY_DEADLINE_MS / 1000} s; newest rows ${await rowsSeen(api, conversation)}\n${await replyEvidence(exec)}`);
       if (/not signed in|not logged in/i.test(reply.text)) throw new Error(`the Chief answered without a model: ${reply.text.slice(0, 300)}`);
       return { value: null, detail: `reply in ${Math.round((Date.now() - sentAt) / 1000)} s: ${JSON.stringify(reply.text.slice(0, 200))}${reply.text.includes(word) ? "" : " (did not echo the word)"}` };
     });
