@@ -1,4 +1,5 @@
 public import CmuxNextCompat
+internal import CmuxNextHomeModel
 public import Foundation
 
 /// The home of one build's Chief (plans/cmux-next/home-state-ownership.md):
@@ -62,16 +63,17 @@ public nonisolated struct ChiefHome: Sendable, Equatable {
     /// Whether `bundleID` gets a Chief home of its own: every build but
     /// NIGHTLY, so two identities that run at the same time (NIGHTLY and
     /// cmux NEXT's `com.cmuxterm.app.nightly.cmux-next`, RC, release) never
-    /// share one Chief.
+    /// share one Chief (Rust `chief_home.has_own_home`).
     public static func hasOwnHome(bundleID: String?) -> Bool {
-        guard let bundleID, !bundleID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
-        return bundleID != nightlyBundleID
+        struct Request: Encodable { let bundleID: String? }
+        struct Reply: Decodable { let ownHome: Bool }
+        return ((try? ChiefHomeRules().call("has_own_home", Request(bundleID: bundleID))) as Reply?)?.ownHome ?? false
     }
 
     /// Whether this home may take in the old per-tag Chiefs (`ChiefMigration`):
     /// only NIGHTLY's (per-build isolation S6, cx-is1kf.7), never a build's
     /// own home, an explicit test home (rule 1) or a home of no bundle.
-    public var importsOldChiefs: Bool { !isolated && buildID == Self.nightlyBundleID }
+    public var importsOldChiefs: Bool { described?.importsOldChiefs ?? false }
 
     /// `--mux-home` of the brain host: OptChat memory under `optchat/`,
     /// the single-writer host lock at `state/host.lock`.
@@ -99,12 +101,27 @@ public nonisolated struct ChiefHome: Sendable, Equatable {
     /// error journal and the Chief host, which resolve at different points of the launch, agree.
     private static let ownAcpmuxAtLaunch = ownAcpmux(ProcessInfo.processInfo.environment)
 
+    private struct AppAcpmuxRequest: Encodable {
+        var isolated = false
+        var buildID: String?
+        var ownAcpmux: Bool?
+        var environment: [String: String] = [:]
+    }
+
+    private struct AppAcpmuxReply: Decodable {
+        let ownAcpmux: Bool
+        let usesAppAcpmux: Bool
+    }
+
     static func ownAcpmux(_ environment: [String: String]) -> Bool {
-        environment["CMUX_CHIEF_OWN_ACPMUX"] == "1"
+        let reply: AppAcpmuxReply? = try? ChiefHomeRules().call("uses_app_acpmux", AppAcpmuxRequest(environment: environment))
+        return reply?.ownAcpmux ?? false
     }
 
     static func usesAppAcpmux(isolated: Bool, buildID: String?, ownAcpmux: Bool) -> Bool {
-        !isolated && buildID == nightlyBundleID && !ownAcpmux
+        let reply: AppAcpmuxReply? = try? ChiefHomeRules().call(
+            "uses_app_acpmux", AppAcpmuxRequest(isolated: isolated, buildID: buildID, ownAcpmux: ownAcpmux))
+        return reply?.usesAppAcpmux ?? false
     }
     /// The conversation owner's cmux-tui session (its socket name).
     public var session: String { Self.sessionName(root: root) }
@@ -115,52 +132,62 @@ public nonisolated struct ChiefHome: Sendable, Equatable {
         self.buildID = buildID
     }
 
+    /// The home's rules as Rust derives them (`chief_home.describe`); nil when the call fails.
+    private var described: Described? {
+        struct Request: Encodable { let root: String; let isolated: Bool; let buildID: String? }
+        return try? ChiefHomeRules().call("describe", Request(root: root.path, isolated: isolated, buildID: buildID))
+    }
+
+    private struct Described: Decodable {
+        let root: String
+        let isolated: Bool
+        let buildID: String?
+        let importsOldChiefs: Bool
+    }
+
+    private struct Build: Encodable {
+        let bundleID: String?
+        let tag: String?
+    }
+
+    private struct ResolveRequest: Encodable {
+        let tag: String?
+        let environment: [String: String]
+        let userHome: String
+        let bundleID: String?
+        let appBuild: Build?
+        let isDebugBuild: Bool
+    }
+
+    /// The home of this build (rules 1-4 above, Rust `chief_home.resolve`). `appBuild` is the app's build
+    /// (this process's when `bundleID` is the main bundle's; else `bundleID` with `tag`): a DEV build's
+    /// folder is its build key (``BuildIdentity/stateFolderName(for:)``). When the rules cannot run, an
+    /// isolated home, so it never touches the user's real Chief.
     public static func resolve(tag: String?, environment: [String: String] = ProcessInfo.processInfo.environment,
                                userHome: URL = FileManager.default.homeDirectoryForCurrentUser,
                                bundleID: String? = Bundle.main.bundleIdentifier,
                                build appBuild: BuildIdentity? = nil,
                                isDebugBuild: Bool = ChiefHome.isDebugBuild) -> ChiefHome {
-        let value = { (key: String) in environment[key].flatMap { $0.isEmpty ? nil : $0 } }
-        if let explicit = value("CMUX_NEXT_CHIEF_HOME") ?? value("CMUX_NEXT_MUX_HOME") {
-            return ChiefHome(root: URL(fileURLWithPath: explicit, isDirectory: true).standardizedFileURL, isolated: false)
+        let identity = appBuild ?? (bundleID == Bundle.main.bundleIdentifier ? BuildStatePaths.current.build : nil)
+        let request = ResolveRequest(tag: tag, environment: environment, userHome: userHome.path, bundleID: bundleID,
+                                     appBuild: identity.map { Build(bundleID: $0.bundleID, tag: $0.tag) },
+                                     isDebugBuild: isDebugBuild)
+        guard let home: Described = try? ChiefHomeRules().call("resolve", request) else {
+            return ChiefHome(root: userHome.appendingPathComponent(".cmux/chief/isolated/untagged", isDirectory: true), isolated: true)
         }
-        let rootOverride = value("CMUX_NEXT_CHIEF_ROOT").map { URL(fileURLWithPath: $0, isDirectory: true).standardizedFileURL }
-        let base = chiefRoot(environment: environment, userHome: userHome)
-        let isolatedLaunch = value("CMUX_NEXT_CHIEF_ISOLATED") == "1" || value("CMUX_NEXT_NO_ACTIVATE") == "1"
-            || value("CMUX_NEXT_SHOWCASE") == "1"
-            || value("CMUX_NEXT_TEST_WINDOW_FRAME") != nil || value("CMUX_NEXT_TEST_WINDOW_SCREEN") != nil
-        if isolatedLaunch, rootOverride == nil {
-            let component = tag.flatMap(component(of:)) ?? "untagged"
-            return ChiefHome(root: base.appendingPathComponent("isolated/\(component)", isDirectory: true), isolated: true)
-        }
-        let account = value("CMUX_NEXT_CHIEF_ACCOUNT").flatMap(component(of:)) ?? "default"
-        let build = (isDebugBuild ? value("CMUX_NEXT_CHIEF_BUILD_ID") : nil) ?? bundleID
-        guard hasOwnHome(bundleID: build), let build, let name = folderName(of: build, appBuild: appBuild, bundleID: bundleID, tag: tag) else {
-            return ChiefHome(root: base.appendingPathComponent(account, isDirectory: true), isolated: false, buildID: build)
-        }
-        let root = base.appendingPathComponent(account == "default" ? name : "\(name).\(account)", isDirectory: true)
-        return ChiefHome(root: root, isolated: false, buildID: build)
-    }
-
-    /// The home's folder name for `build` (rule 4): the build key for a DEV build, so two copies of one bundle id
-    /// with their own tags (`CMUX_TAG`) keep apart (``BuildIdentity/stateFolderName(for:)``), else the bundle id as a
-    /// path component. `appBuild` is the app's build (this process's when `bundleID` is the main bundle's; else
-    /// `bundleID` with `tag`).
-    static func folderName(of build: String, appBuild: BuildIdentity?, bundleID: String?, tag: String?) -> String? {
-        let identity = appBuild ?? (bundleID == Bundle.main.bundleIdentifier ? BuildStatePaths.current.build
-            : BuildIdentity(bundleID: bundleID, bundledTag: tag))
-        if let folder = identity.stateFolderName(for: build), folder != build { return folder }
-        return component(of: build)
+        return ChiefHome(root: URL(fileURLWithPath: home.root, isDirectory: true), isolated: home.isolated, buildID: home.buildID)
     }
 
     /// The directory that holds every Chief home of this user (rules 2 and 4):
     /// `CMUX_NEXT_CHIEF_ROOT`, else `~/.cmux/chief`. Isolated homes are under its `isolated/`.
     public static func chiefRoot(environment: [String: String] = ProcessInfo.processInfo.environment,
                                  userHome: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
-        if let override = environment["CMUX_NEXT_CHIEF_ROOT"], !override.isEmpty {
-            return URL(fileURLWithPath: override, isDirectory: true).standardizedFileURL
+        struct Request: Encodable { let environment: [String: String]; let userHome: String }
+        struct Reply: Decodable { let root: String }
+        guard let reply: Reply = try? ChiefHomeRules().call("chief_root", Request(environment: environment, userHome: userHome.path)) else {
+            return userHome.appendingPathComponent(".cmux/chief", isDirectory: true)
         }
-        return userHome.appendingPathComponent(".cmux/chief", isDirectory: true)
+        return URL(fileURLWithPath: reply.root, isDirectory: true)
     }
 
     /// Whether a Chief brain host holds this home now (the flock on `state/host.lock`). It reads
@@ -181,40 +208,55 @@ public nonisolated struct ChiefHome: Sendable, Equatable {
     /// Every Chief home's agent tab host starts with it: `chief:<home id>`.
     public static let tabHostPrefix = "chief:"
 
+    private struct PathRequest: Encodable { let path: String }
+
     /// `chief:<home id>`, the agent tab host of the Chief home `muxHome`: its subagent tabs record
     /// it. The id is optchat-chief `paths::home_id`: FNV-1a 32 of the path bytes.
     public static func tabHost(muxHome: URL) -> String {
-        var hash: UInt32 = 0x811c_9dc5
-        for byte in muxHome.path.utf8 {
-            hash ^= UInt32(byte)
-            hash = hash &* 0x0100_0193
-        }
-        return tabHostPrefix + String(format: "%08x", hash)
+        struct Reply: Decodable { let tabHost: String }
+        let reply: Reply? = try? ChiefHomeRules().call("tab_host", PathRequest(path: muxHome.path))
+        return reply?.tabHost ?? tabHostPrefix
     }
 
     /// `cmux-chief-<FNV-1a 32 of the root path>`: one owner per home, short
     /// enough for the socket path; the CLI derives the same name.
     static func sessionName(root: URL) -> String {
-        var hash: UInt32 = 0x811c_9dc5
-        for byte in root.standardizedFileURL.path.utf8 {
-            hash ^= UInt32(byte)
-            hash = hash &* 0x0100_0193
-        }
-        return "cmux-chief-" + String(format: "%08x", hash)
+        struct Reply: Decodable { let session: String }
+        let reply: Reply? = try? ChiefHomeRules().call("session_name", PathRequest(path: root.path))
+        return reply?.session ?? "cmux-chief-"
     }
 
     /// A path component: runs of anything outside `[A-Za-z0-9._]` become one
     /// `-`; nil when nothing is left.
     static func component(of raw: String) -> String? {
-        var out = ""
-        for character in raw {
-            if character.isASCII, character.isLetter || character.isNumber || character == "." || character == "_" {
-                out.append(character)
-            } else if !out.hasSuffix("-") {
-                out.append("-")
-            }
+        struct Request: Encodable { let raw: String }
+        struct Reply: Decodable { let component: String? }
+        let reply: Reply? = try? ChiefHomeRules().call("component", Request(raw: raw))
+        return reply?.component
+    }
+}
+
+/// The `chief_home` area of the Rust home rules (cmux-home-rules `chief_home`), through ``HomeRules``.
+/// `package`: CmuxNextHostedChief's thin callers use it too.
+package nonisolated struct ChiefHomeRules: Sendable {
+    package init() {}
+
+    package func call<In: Encodable, Out: Decodable>(_ name: String, _ input: In) throws -> Out {
+        try HomeRules.call("chief_home." + name, input)
+    }
+
+    /// Runs `name` on `{"value": value}`, a JSON value the app decoded (`JSONSerialization`).
+    package func call<Out: Decodable>(_ name: String, value: Any?) throws -> Out {
+        let request: [String: Any] = ["value": value ?? NSNull()]
+        guard JSONSerialization.isValidJSONObject(request) else {
+            throw HomeRulesError(op: "chief_home." + name, code: .encode, detail: "not a JSON value")
         }
-        let trimmed = out.trimmingCharacters(in: CharacterSet(charactersIn: "-."))
-        return trimmed.isEmpty ? nil : trimmed
+        let data = try JSONSerialization.data(withJSONObject: request)
+        let reply = try HomeRules.callJSON("chief_home." + name, String(decoding: data, as: UTF8.self))
+        do {
+            return try JSONDecoder().decode(Out.self, from: Data(reply.utf8))
+        } catch {
+            throw HomeRulesError(op: "chief_home." + name, code: .decode, detail: String(describing: error))
+        }
     }
 }
