@@ -5,12 +5,18 @@ name: cmux-rd Windows host build
 # first check that cmux-rd-host's own workspace compiles for Windows at all: its Windows CI so
 # far is cmux-tui's cross check and cmux-codecs' bench, neither of which builds this crate.
 # Measurement needs it on a fleet Windows desktop for the Windows to Mac row
-# (cmuxterm-hq#19341, #14231); nothing gates on it. A pull request never starts it; a push to a
-# `lane/rd-windows-host*` branch does (a new workflow can't be dispatched until it is on the
+# (cmuxterm-hq#19341, #14231). A pull request touching cmux-rd-host starts it; so does a push
+# to a `lane/rd-windows-host*` branch (a new workflow can't be dispatched until it is on the
 # default branch), and dispatch works once it is.
 on:
   push:
     branches: ["lane/rd-windows-host*"]
+  # A pull request that touches cmux-rd-host (or this file) builds it for Windows, so the
+  # crate's Windows code can't break unseen.
+  pull_request:
+    paths:
+      - "cmux-tui/crates/cmux-rd-host/**"
+      - ".github/workflows/cmux-rd-windows-host-build.yml"
   workflow_dispatch:
 
 permissions:
