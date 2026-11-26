@@ -2661,9 +2661,10 @@ impl Hub {
         session
     }
 
-    /// Changes a session's metadata in place, with no record or save (tests outside the hub).
-    #[cfg(test)]
-    pub(crate) fn edit_test_meta(&self, session: &Session, edit: impl FnOnce(&mut SessionMeta)) {
+    /// Changes a session's metadata in place, with no record or save: a test's start state, for
+    /// unit tests and the integration tests under `tests/` alike (cmux#57795's needed one).
+    #[doc(hidden)]
+    pub fn edit_test_meta(&self, session: &Session, edit: impl FnOnce(&mut SessionMeta)) {
         edit(&mut session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
         // A change no record carries, as any direct metadata write is (`list_order.rs`).
         self.events.row_changed(session);
