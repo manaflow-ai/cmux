@@ -5,8 +5,12 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -91,6 +95,24 @@ class FakeWorker(w.Worker):
     def __init__(self, state: Path):
         super().__init__(state, "http://100.1.2.3:8765", None, None, host="preview-test")
         self.shot: list[str] = []
+        self.prefetched: list[tuple[str, str]] = []
+
+    def prefetch(self, req):
+        self.prefetched.append((req["head_sha"], req["base_sha"]))
+
+    def web_install(self):
+        return False
+
+    def web_scenes(self, files):
+        return ["entry.a"]
+
+    def web_side(self, sha, entries):
+        out = self.state / "shots" / "web" / sha
+        out.mkdir(parents=True, exist_ok=True)
+        self.shot.append(f"web:{sha}")
+        for e in entries:
+            (out / f"{e}.png").write_bytes(b"png-" + sha.encode())
+        return {e: out / f"{e}.png" for e in entries}
 
     def ensure_clone(self):
         pass
@@ -226,6 +248,157 @@ class FollowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             _, call = self.broker({"seq": 3, "requests": [], "reset": True})
             self.assertEqual(w.follow_once(FakeWorker(Path(tmp)), w.queue.Queue(), 90, call), 3)
+
+
+class SpeedTests(unittest.TestCase):
+    """The look's waits that were not the look's (the first real post took 126 s): the receipt publish, the fetch,
+    a cold chromium per shot, one look at a time, requests no look shows."""
+
+    def test_a_receipt_write_never_waits_on_publish_and_writes_coalesce(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            worker.publish_template = "publish {file} {host}"
+            gate, began, docs = threading.Event(), threading.Event(), []
+
+            def slow_publish():
+                began.set()
+                gate.wait(10)
+                docs.append(json.loads(worker.receipts_path.read_text()))
+
+            worker.publish_now = slow_publish
+            t0 = time.monotonic()
+            worker.look(request(ui_files=["webviews/src/a.tsx"]))
+            self.assertTrue(began.wait(5))
+            for n in range(5):  # five more receipts while the first publish hangs
+                worker.write_receipt(dict(worker.new_receipt(request(head_sha=f"{n}" * 40)), stages={}))
+            self.assertLess(time.monotonic() - t0, 5, "a look waited on the publish")
+            gate.set()
+            self.assertTrue(worker.publisher.flush(10))
+            # The hung publish, then one for the five writes behind it, carrying them all (the latest doc).
+            self.assertEqual(worker.publisher.runs, 2)
+            self.assertEqual(len(docs[-1]["receipts"]), 6)
+
+    def test_the_clone_borrows_the_mirror_and_fetches_nothing_the_mirror_holds(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+                   "GIT_COMMITTER_EMAIL": "t@t"}
+            mirror = Path(tmp) / "mirror.git"
+            subprocess.run(["git", "init", "-q", "--bare", str(mirror)], check=True)
+            blob = subprocess.run(["git", "-C", str(mirror), "hash-object", "-w", "--stdin"], input=b"x",
+                                  capture_output=True, check=True).stdout.decode().strip()
+            tree = subprocess.run(["git", "-C", str(mirror), "mktree"], input=f"100644 blob {blob}\ta\n".encode(),
+                                  capture_output=True, check=True).stdout.decode().strip()
+            sha = subprocess.run(["git", "-C", str(mirror), "commit-tree", tree, "-m", "m"], capture_output=True,
+                                 check=True, env=env).stdout.decode().strip()
+            worker = w.Worker(Path(tmp) / "state", None, None, None, host="t")
+            worker.mirror = mirror
+            subprocess.run(["git", "init", "-q", "--bare", str(worker.clone)], check=True)
+            self.assertFalse(worker.has_commit(sha))
+            worker.ensure_clone()  # a clone already there: only the alternates line
+            worker.ensure_clone()
+            alternates = (worker.clone / "objects/info/alternates").read_text().splitlines()
+            self.assertEqual(alternates, [str(mirror / "objects")])
+            worker.fetch(sha)  # no origin here: a fetch would fail
+            self.assertTrue(worker.has_commit(sha))
+            no_mirror = w.Worker(Path(tmp) / "state2", None, None, None, host="t")
+            no_mirror.mirror = None
+            subprocess.run(["git", "init", "-q", "--bare", str(no_mirror.clone)], check=True)
+            no_mirror.ensure_clone()
+            self.assertFalse((no_mirror.clone / "objects/info/alternates").exists())
+            with self.assertRaises(w.LookError):  # GitHub's turn (here: no origin)
+                no_mirror.fetch(sha)
+
+    def test_a_queued_request_is_prefetched_and_a_needs_build_one_is_refused_at_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            jobs = w.queue.Queue()
+            web = dict(request(ui_files=["webviews/src/a.tsx"]), seq=42)
+            app = dict(request(head_sha="d" * 40, ui_files=["Packages/macOS/CmuxNext/Sources/CmuxNextApp/A.swift"]),
+                       seq=43)
+            tests_only = dict(request(head_sha="e" * 40, ui_files=["Packages/macOS/CmuxNext/Tests/T.swift"]), seq=44)
+            _, call = FollowTests().broker({"seq": 44, "requests": [web, app, tests_only]})
+            self.assertEqual(w.follow_once(worker, jobs, 41, call), 44)
+            req, _ = jobs.get_nowait()
+            self.assertEqual(req["head_sha"], HEAD)
+            self.assertTrue(jobs.empty())
+            self.assertEqual(worker.prefetched, [(HEAD, BASE)])
+            rows = {r["head_sha"]: r for r in json.loads(worker.receipts_path.read_text())["receipts"]}
+            self.assertIn("needs an app build", rows["d" * 40]["error"])
+            self.assertIn("no scene shows", rows["e" * 40]["error"])
+            self.assertIsNotNone(rows["d" * 40]["stages"])
+
+    def test_a_needs_build_file_beside_a_web_file_still_gets_the_web_look(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            receipt = worker.look(request(ui_files=["webviews/src/a.tsx",
+                                                    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/A.swift"]))
+            self.assertIsNotNone(receipt["posted_at"], receipt.get("error"))
+            self.assertEqual([s["scene"] for s in receipt["scenes"]], ["entry.a"])
+            self.assertIn("needs an app build", receipt["error"])
+            self.assertEqual(worker.shot, [f"web:{HEAD}", f"web:{BASE}"])
+
+    def test_looks_overlap_outside_the_web_tree(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            both_fetching = threading.Barrier(2, timeout=5)
+            worker.fetch = lambda *shas: both_fetching.wait()
+            jobs = w.queue.Queue()
+            for n in "12":
+                jobs.put((request(head_sha=n * 40, branch=f"lane/{n}", ui_files=["webviews/src/a.tsx"]),
+                          time.monotonic()))
+            worker.on_branch_tip_or_landed = lambda head, branch: True
+            threads = [threading.Thread(target=w.drain, args=(worker, jobs, True)) for _ in range(2)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(10)
+            rows = json.loads(worker.receipts_path.read_text())["receipts"]
+            self.assertEqual(sorted(r["head_sha"][0] for r in rows if r.get("posted_at")), ["1", "2"],
+                             [r.get("error") for r in rows])
+
+    def test_a_superseded_head_is_dropped_only_after_it_waited_45_s(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            now = time.monotonic()
+            old = request()
+            worker.note_queued(old, now - 50)
+            worker.note_queued(request(head_sha="f" * 40), now - 10)
+            self.assertIsNone(worker.superseded_by(old, now - 30, now))  # 30 s queued: it still runs
+            self.assertEqual(worker.superseded_by(old, now - 50, now), "f" * 40)
+            self.assertIsNone(worker.superseded_by(request(branch="lane/other"), now - 50, now))
+            jobs = w.queue.Queue()
+            jobs.put((old, now - 50))
+            w.drain(worker, jobs, once=True)
+            [row] = json.loads(worker.receipts_path.read_text())["receipts"]
+            self.assertIn("superseded by ffffffffffff", row["error"])
+            self.assertEqual(worker.shot, [])
+
+    def test_the_shooter_stays_up_between_shots(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            launches = Path(tmp) / "launches"
+            fake = Path(tmp) / "fake-bun"
+            fake.write_text(f"""#!{sys.executable}
+import json, os, sys
+open({str(launches)!r}, "a").write("x")
+assert sys.argv[2] == "--serve"
+for line in sys.stdin:
+    spec = json.loads(line)
+    rows = []
+    for shot in spec["shots"]:
+        open(os.path.join(spec["out"], shot["name"] + ".png"), "wb").write(b"png")
+        rows.append({{"name": shot["name"], "file": shot["name"] + ".png"}})
+    print(json.dumps({{"shots": rows}}), flush=True)
+""")
+            fake.chmod(0o755)
+            worker = w.Worker(Path(tmp) / "state", None, None, None, host="t")
+            (worker.web_tree / "webviews").mkdir(parents=True)
+            worker.bun = lambda: str(fake)
+            try:
+                self.assertEqual(worker.shoot_gallery(["a.b"], Path(tmp) / "one"), {"a.b": "a.b.png"})
+                self.assertEqual(worker.shoot_gallery(["c"], Path(tmp) / "two"), {"c": "c.png"})
+                self.assertEqual(launches.read_text(), "x")
+            finally:
+                worker.stop_shooter()
 
 
 if __name__ == "__main__":
