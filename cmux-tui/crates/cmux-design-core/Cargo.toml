@@ -11,5 +11,7 @@ description = "The design system's rules for the macOS app, one copy for every O
 workspace = true
 
 [dependencies]
+# Spring math, timed curves and the color mix (motion area): calls, no logic moved there.
+cmux-motion = { path = "../cmux-motion", default-features = false }
 serde = { workspace = true }
 serde_json = { workspace = true }
