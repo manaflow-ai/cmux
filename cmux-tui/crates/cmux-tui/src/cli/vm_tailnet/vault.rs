@@ -1,0 +1,234 @@
+//! The user's tailnet node, kept in their cmux vault (RFD 0169): `keep VM` copies the node state a
+//! VM holds into the vault, `adopt VM` brings that node up on a VM with no key, and `vm rm` of a
+//! joined VM hands its node to the vault instead of signing it out. The state is a secret (the
+//! node's private keys): it goes from the VM to the vault and back, never to stdout, a log or a file
+//! on this machine. The vault route is person-only; no machine credential reads it.
+
+use std::time::{Duration, Instant};
+
+use base64::Engine as _;
+use cmux_tailnet_join::{SCRIPT_FILE, Secret, handoff};
+use serde_json::{Value, json};
+use sha2::{Digest as _, Sha256};
+
+use super::super::machine_join::{self, CallError, Platform};
+use super::super::vm_bootstrap::Guest;
+use super::{await_detached, exec_ok, millis};
+
+/// The vault's one tailnet node (cmux-platform `VaultTailnetNodeApi`).
+pub(super) const NODE_PATH: &str = "/v1/vault/tailnet-node";
+
+const VAULT_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// What the vault keeps: the node's name (its MagicDNS name), the vault revision it was written at,
+/// and its state (base64).
+pub(super) struct KeptNode {
+    pub(super) name: String,
+    pub(super) revision: u64,
+    pub(super) state: Secret,
+}
+
+/// The user's vault, as far as the node goes. A fake stands in for it in tests.
+pub(super) trait NodeVault {
+    /// Keeps `state` as the node `name`; `Ok` is the vault revision.
+    fn put(&self, name: &str, state: &Secret) -> Result<u64, String>;
+    /// The kept node, or `None` when the vault keeps none.
+    fn get(&self) -> Result<Option<KeptNode>, String>;
+    /// Drops the kept node (it was signed out: its keys open nothing any more).
+    fn delete(&self) -> Result<(), String>;
+}
+
+/// The vault on the cmux platform, signed in as the person.
+pub(super) struct PlatformVault {
+    platform: Platform,
+}
+
+/// The vault for whoever is signed in here; `None` when nobody is (no `CMUX_CLOUD_ACCESS_TOKEN`).
+pub(super) fn signed_in(
+    env: &dyn Fn(&str) -> Option<String>,
+) -> Result<Option<PlatformVault>, String> {
+    let Some(credential) = machine_join::device_credential(None, false)? else {
+        return Ok(None);
+    };
+    let origin = machine_join::platform_origin(None, env)?;
+    let platform =
+        Platform::new(origin, credential, VAULT_TIMEOUT).map_err(|failure| failure.message)?;
+    Ok(Some(PlatformVault { platform }))
+}
+
+fn said(error: CallError) -> String {
+    match error {
+        CallError::Status { code: "vault.tailnet_node_conflict", .. } => {
+            "your vault's tailnet node changed while this ran; run it again".to_owned()
+        }
+        CallError::Status { status, code, .. } if !code.is_empty() => {
+            format!("your vault refused it ({status} {code})")
+        }
+        CallError::Status { status, .. } => format!("your vault refused it ({status})"),
+        CallError::Unreachable(why) => format!("your vault is unreachable ({why})"),
+        CallError::Unreadable(status) => format!("your vault's answer was unreadable ({status})"),
+    }
+}
+
+impl NodeVault for PlatformVault {
+    fn put(&self, name: &str, state: &Secret) -> Result<u64, String> {
+        let answer = self
+            .platform
+            .request(reqwest::Method::PUT, NODE_PATH, Some(put_body(name, state)?))
+            .map_err(said)?;
+        answer
+            .get("revision")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| said(CallError::Unreadable(200)))
+    }
+
+    fn get(&self) -> Result<Option<KeptNode>, String> {
+        match self.platform.request(reqwest::Method::GET, NODE_PATH, None) {
+            Ok(body) => parse_node(&body).map(Some),
+            Err(CallError::Status { code: "vault.tailnet_node_missing", .. }) => Ok(None),
+            Err(error) => Err(said(error)),
+        }
+    }
+
+    fn delete(&self) -> Result<(), String> {
+        match self.platform.request(reqwest::Method::DELETE, NODE_PATH, None) {
+            Ok(_) | Err(CallError::Status { code: "vault.tailnet_node_missing", .. }) => Ok(()),
+            Err(error) => Err(said(error)),
+        }
+    }
+}
+
+fn fingerprint(raw: &[u8]) -> String {
+    Sha256::digest(raw).iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn decode(state: &Secret) -> Result<Vec<u8>, String> {
+    handoff::check_state(state.expose())?;
+    base64::engine::general_purpose::STANDARD
+        .decode(state.expose())
+        .map_err(|_| "the node state is not base64".to_owned())
+}
+
+/// The PUT body: the state, its name and the sha256 of its bytes, which the vault checks.
+pub(super) fn put_body(name: &str, state: &Secret) -> Result<Value, String> {
+    let raw = decode(state)?;
+    Ok(json!({"stateBase64": state.expose(), "name": name, "fingerprint": fingerprint(&raw)}))
+}
+
+/// Reads the vault's GET answer; the state must be a node's size and match its fingerprint.
+pub(super) fn parse_node(body: &Value) -> Result<KeptNode, String> {
+    let text = |key: &str| body.get(key).and_then(Value::as_str);
+    let (Some(state), Some(name), Some(print), Some(revision)) = (
+        text("stateBase64"),
+        text("name"),
+        text("fingerprint"),
+        body.get("revision").and_then(Value::as_u64),
+    ) else {
+        return Err("your vault's tailnet node is missing a field".to_owned());
+    };
+    let state = Secret::new(state);
+    let raw = decode(&state).map_err(|why| why.replacen("the node", "the vault's node", 1))?;
+    if fingerprint(&raw) != print {
+        return Err("your vault's tailnet node does not match its fingerprint".to_owned());
+    }
+    Ok(KeptNode { name: name.to_owned(), revision, state })
+}
+
+/// May the vault take the node `name`? Yes when it keeps none or keeps this same node; a different
+/// node stays unless the user runs `keep` on purpose.
+pub(super) fn holds_other(vault: &dyn NodeVault, name: &str) -> Result<Option<String>, String> {
+    Ok(vault.get()?.map(|kept| kept.name).filter(|kept| kept != name))
+}
+
+/// Copies the node `guest` holds into the vault as `name`, leaving it running there. `Ok` is the
+/// vault revision.
+pub(super) fn keep(
+    guest: &mut dyn Guest,
+    vault: &dyn NodeVault,
+    name: &str,
+) -> Result<u64, String> {
+    let answer = guest.exec(&handoff::snapshot_command())?;
+    if answer.exit_code != 0 {
+        return Err(format!(
+            "the VM did not hand over its node state (exit {}): {}",
+            answer.exit_code,
+            answer.stderr.trim()
+        ));
+    }
+    let state = handoff::parse_snapshot(&answer.stdout)?;
+    vault.put(name, &state)
+}
+
+/// Brings the vault's node up on `guest`: same name, addresses and node key, no auth key. `Ok` is
+/// the node, its name in the vault and how long it took.
+pub(super) fn adopt(
+    guest: &mut dyn Guest,
+    vault: &dyn NodeVault,
+    timeout: Duration,
+) -> Result<(Value, String), String> {
+    let started = Instant::now();
+    let deadline = started + timeout;
+    let Some(kept) = vault.get()? else {
+        return Err(
+            "your vault keeps no tailnet node; join a VM first (cmux vm tailnet join), then keep it"
+                .to_owned(),
+        );
+    };
+    exec_ok(
+        guest,
+        &cmux_tailnet_join::prepare_command(cmux_cloud_start_core::machine_bootstrap::USER),
+        "prepared",
+    )?;
+    guest
+        .write(SCRIPT_FILE, handoff::vm_adopt_script().as_bytes(), 0o700)
+        .map_err(|e| format!("writing the adopt script: {e}"))?;
+    guest
+        .write(handoff::STAGED_STATE_FILE, handoff::staged_contents(&kept.state).as_bytes(), 0o600)
+        .map_err(|e| format!("writing the node state: {e}"))?;
+    exec_ok(guest, &cmux_tailnet_join::start_command(), "started")?;
+    let (node, _) = await_detached(guest, deadline, timeout, Duration::from_millis(250), "adopt")?;
+    Ok((
+        json!({
+            "dnsName": node.dns_name,
+            "ips": node.ips,
+            "tags": node.tags,
+            "online": node.online,
+            "revision": kept.revision,
+            "elapsedMs": millis(started.elapsed()),
+        }),
+        kept.name,
+    ))
+}
+
+/// Before the VM goes (`vm rm`): stop its node, hand the state to the vault, then delete the VM's
+/// copy, so the node is never up twice and outlives the VM. If the vault does not take it, the node
+/// starts again on the VM and `Err` says why (the caller then signs it out as before).
+pub(super) fn release_to_vault(
+    guest: &mut dyn Guest,
+    vault: &dyn NodeVault,
+    name: &str,
+) -> Result<u64, String> {
+    let answer = guest.exec(&handoff::release_command())?;
+    if answer.exit_code != 0 {
+        return Err(format!(
+            "the VM did not release its node (exit {}): {}",
+            answer.exit_code,
+            answer.stderr.trim()
+        ));
+    }
+    let released = handoff::parse_released(&answer.stdout)?;
+    match vault.put(name, &released.state) {
+        Ok(revision) => {
+            // Best effort: the VM is about to go, and its stopped copy goes with it.
+            let _ = exec_ok(guest, &handoff::forget_command(), "cmux-tailnet-forgot");
+            Ok(revision)
+        }
+        Err(why) => {
+            let back = match exec_ok(guest, &handoff::restore_command(), "cmux-tailnet-restored") {
+                Ok(()) => "the node is running on the VM again".to_owned(),
+                Err(e) => format!("restarting it on the VM failed too: {e}"),
+            };
+            Err(format!("{why}; {back}"))
+        }
+    }
+}
