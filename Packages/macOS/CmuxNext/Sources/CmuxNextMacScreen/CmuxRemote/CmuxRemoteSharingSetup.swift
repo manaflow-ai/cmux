@@ -123,11 +123,10 @@ struct CmuxRemoteSharingSetup {
         // of ours while macOS's prompt is up; every answer ends in a fresh read.
         let read = await refresh()
         var state: [String: Any] = ["screen": read.screen, "control": read.control]
-        while true {
-            // No answer never enables sharing.
-            guard let next = RdUI.call("remote.setupStep", state) as? [String: Any], let done = next["done"] as? Bool else { return false }
-            if done { break }
-            guard !Task.isCancelled, let step = (next["step"] as? String).flatMap(Step.init(rawValue:)) else { return false }
+        var next = RdUI.call("remote.setupStep", state) as? [String: Any]
+        // Each pass waits on the person's answer to a sheet; it ends when Rust says done (or answers nothing).
+        while let current = next, current["done"] as? Bool == false {
+            guard !Task.isCancelled, let step = (current["step"] as? String).flatMap(Step.init(rawValue:)) else { return false }
             let answer = await present(Self.spec(step))
             guard !Task.isCancelled, let reply = RdUI.call("remote.setupAnswer", state.merging(["answer": answer]) { $1 }) as? [String: Any],
                   let after = reply["state"] as? [String: Any] else { return false }
@@ -139,8 +138,10 @@ struct CmuxRemoteSharingSetup {
             }
             let permissions = await refresh()
             state = after.merging(["screen": permissions.screen, "control": permissions.control]) { $1 }
+            next = RdUI.call("remote.setupStep", state) as? [String: Any]
         }
-        guard !Task.isCancelled else { return false }
+        // No answer never enables sharing.
+        guard !Task.isCancelled, next?["done"] as? Bool == true else { return false }
         try await enable()
         // The overview sheet (its last line names the standing yes) was answered: that is the one yes. A native
         // click with both grants ready shows no sheet and keeps no yes. Either way the person turned sharing
