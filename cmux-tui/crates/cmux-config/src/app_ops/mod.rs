@@ -13,7 +13,14 @@
 //! - `jsonc.strip` `{source}` answers `{text}` or `{problem}`.
 //! - `jsonc.position` `{source, path}` answers `{line, column}` of the key at
 //!   `path`, or `{}`.
-//! - The areas: [`theme`], [`effective`], [`looks`], [`shortcut`].
+//! - The areas, each answering its own `area.*` ops (one per line, like the
+//!   `pub mod` list and the `.or_else` chain below, so two branches that each
+//!   add an area insert a line apiece and merge cleanly):
+//!   - [`theme`]
+//!   - [`effective`]
+//!   - [`looks`]
+//!   - [`shortcut`]
+//!   - [`schema`]
 
 pub mod chrome_theme;
 pub mod effective;
