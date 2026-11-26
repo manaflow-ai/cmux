@@ -1,5 +1,12 @@
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Foundation
+#if canImport(CmuxLinuxCompat)
+import CmuxLinuxCompat
+#endif
 
 /// Wakes the Codex transcript monitor when its rollout or lease file changes.
 ///
