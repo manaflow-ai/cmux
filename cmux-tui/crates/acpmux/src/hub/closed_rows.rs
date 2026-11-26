@@ -106,10 +106,13 @@ impl Hub {
     }
 
     /// `session`'s row as a list page sends it, serialized: a closed one's cached bytes, not
-    /// parsed; any other built now.
+    /// parsed; a live one's kept bytes while its inputs are unchanged (`live_rows.rs`).
     pub(crate) fn own_row_text(&self, session: &Session, with_tools: bool) -> Arc<str> {
         if let Some(bytes) = self.closed_row_bytes(session, with_tools) {
             return bytes;
+        }
+        if session.status() != SessionStatus::Closed {
+            return self.live_row_text(session, with_tools);
         }
         let row = self.build_closed_summary(session, with_tools);
         serde_json::to_string(&row).unwrap_or_default().into()
@@ -155,6 +158,8 @@ impl Hub {
         }
         #[cfg(test)]
         self.closed_summary_builds.fetch_add(1, Ordering::SeqCst);
+        // Closed now: its live row is no longer read (`live_rows.rs`).
+        self.remove_live_row(&id);
         let mut cache = self.closed_summary_cache.lock().unwrap_or_else(|e| e.into_inner());
         // A summary may have been built while purge was unregistering the session. Recheck
         // the tombstone while holding the cache lock so a late reader cannot recreate it.
@@ -174,5 +179,6 @@ impl Hub {
 
     pub(super) fn remove_cached_closed_summary(&self, id: &str) {
         self.closed_summary_cache.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+        self.remove_live_row(id);
     }
 }
