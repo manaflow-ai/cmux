@@ -184,6 +184,26 @@ jobs:
       - name: Validate Wrangler deployment bundle
         run: npx --no-install wrangler deploy --dry-run --outdir "$RUNNER_TEMP/cmux-cloudflare-relay"
 
+      # The built Worker under `wrangler dev`, driven over its wire by tests/relay_do_behavior.mjs: the
+      # Router and both Durable Objects as the runtime runs them, which `cargo test` cannot reach. Without
+      # it a Router that errors on every Register and Connect (cmux#54175, headers_mut on the runtime's
+      # immutable request) passed this job and went to staging.
+      - name: Behavior tests under wrangler dev
+        timeout-minutes: 10
+        run: |
+          key="$(openssl rand -hex 24)"
+          printf 'CMUX_RELAY_TICKET_KEY=%s\n' "$key" > .dev.vars
+          npx --no-install wrangler dev --port 8799 --ip 127.0.0.1 --local > "$RUNNER_TEMP/relay-dev.log" 2>&1 &
+          dev=$!
+          trap 'kill "$dev" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 180); do
+            curl -fsS -m 2 http://127.0.0.1:8799/healthz >/dev/null 2>&1 && break
+            kill -0 "$dev" 2>/dev/null || { tail -50 "$RUNNER_TEMP/relay-dev.log"; exit 1; }
+            sleep 1
+          done
+          curl -fsS -m 2 http://127.0.0.1:8799/healthz >/dev/null || { echo "::error::wrangler dev never answered /healthz"; tail -50 "$RUNNER_TEMP/relay-dev.log"; exit 1; }
+          node tests/relay_do_behavior.mjs http://127.0.0.1:8799 "$key" || { tail -50 "$RUNNER_TEMP/relay-dev.log"; exit 1; }
+
   # What this run deploys, where, and whether it needs the migration approval. No secrets.
   plan:
     if: ${{ (github.repository == 'manaflow-ai/cmux' && (github.event_name == 'workflow_dispatch' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
