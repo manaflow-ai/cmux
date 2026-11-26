@@ -24,6 +24,7 @@ impl Peer {
         // The wait goes out as `nextRetryAt` (`park_at_start`), never as a countdown in the
         // error text, which is read long after it was written (a frozen "retry in 2519s").
         if !self.retry_immediately.load(Ordering::SeqCst)
+            && !self.idle_parked()
             && let Some(wait) = self.with_link(|l| l.park_at_start(crate::store::now_ms()))
         {
             let reason = "peer unreachable for over a day; retried hourly".to_owned();
@@ -40,13 +41,15 @@ impl Peer {
         }
         self.watch_tailnet();
         let mut immediate_redial = false;
-        while !self.stop.load(Ordering::SeqCst) {
+        // A peer nothing uses waits here instead of dialing (`peer_demand.rs`).
+        while !self.stop.load(Ordering::SeqCst) && self.await_demand().await {
             crate::gauges::bump(&crate::gauges::links().link_dials);
             if immediate_redial {
                 crate::gauges::bump(&crate::gauges::links().link_redials);
             }
             let outcome = self.connect_once(&mut out_rx).await;
-            let restarting = matches!(&outcome, Ok(LinkEnd::Restarting | LinkEnd::Switching));
+            let restarting =
+                matches!(&outcome, Ok(LinkEnd::Restarting | LinkEnd::Switching | LinkEnd::Idle));
             let was_ready = self.link().is_ready();
             let notice = self.finish_link(outcome, &mut backoff);
             // A ready link that just died (a dropped network, a wake from sleep) redials at once:
@@ -113,6 +116,9 @@ impl Peer {
         backoff: &mut Backoff,
     ) -> Option<PeerNotice> {
         *self.last_error.lock_or_recover() = outcome.as_ref().err().cloned();
+        if matches!(&outcome, Ok(LinkEnd::Idle)) {
+            return self.idle_ended();
+        }
         if matches!(&outcome, Ok(LinkEnd::Switching)) {
             // Another path of this peer answers: like a restart, its rows stay usable and the
             // next connect runs at once, but the remote's tokens are still good, and the backoff
@@ -1044,10 +1050,14 @@ impl Peer {
                     }
                 }
                 due = ping.tick() => {
+                    self.paths_tick();
+                    // Unused for `IDLE_CLOSE_AFTER`: it closes, and the next use dials again.
+                    if self.link().is_ready() && listed && self.idle_due() {
+                        break Ok(LinkEnd::Idle);
+                    }
                     // The selector moved the session to a faster path: the link moves while no
                     // request is out on it, and its list is in (one read after ready has no
                     // request out between its pages).
-                    self.paths_tick();
                     if self.link().is_ready() && listed && self.switch_due() {
                         break Ok(LinkEnd::Switching);
                     }
@@ -1217,6 +1227,7 @@ impl Peer {
                                     continue;
                                 }
                             }
+                            self.note_link_activity(&m);
                             if m == crate::server::controls::NOTICE {
                                 if let Err(error) = self.controls_notice(link, p).await {
                                     tracing::warn!(peer = %self.name, error = %error.message, "controls stream ended; keeping link up");

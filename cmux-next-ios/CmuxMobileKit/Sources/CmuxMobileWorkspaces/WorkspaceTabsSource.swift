@@ -933,10 +933,16 @@ public final class WorkspaceTabsSource: TabsDataSource {
             Task { await launchAgentTeams(teams) }
             return nil
         }
-        // One tab at a time; a second request says so instead of doing nothing (full verify D8).
+        // One tab at a time. The same option again is a second tap on what is already opening
+        // (its "Opening…" shows); another one opens right after the pending tab, instead of
+        // asking the person to pick it again (a question with only one answer).
         if let pending = pendingTabTitle {
             tabsLog.info("tab request \(option.id, privacy: .public) while \(pending, privacy: .public) is opening")
-            show("Still opening \(pending). Try again once it's open.")
+            guard pending != option.title else { return nil }
+            Task { @MainActor [weak self] in
+                guard let self, await self.waitForPendingTab() else { return }
+                self.beginTab(option)
+            }
             return nil
         }
         tabsLog.info("tab request \(option.id, privacy: .public) on \(self.macName, privacy: .public)")
@@ -952,6 +958,35 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     /// The new-tab option being created on the Mac ("New Claude Chat"), or nil.
     public internal(set) var pendingTabTitle: String?
+
+    /// How long a tab request waits for the tab being opened before it gives up: past this the
+    /// open is stuck (the Mac's own tab request answers well within it).
+    static let pendingTabPatience: Duration = .seconds(30)
+
+    /// Waits until no tab is opening (`pendingTabTitle` is nil), at most ``pendingTabPatience``,
+    /// so a second tab request opens right after the first instead of asking the person to try
+    /// again. True when the way is clear; on false the notice says the request did not open.
+    /// The caller sets `pendingTabTitle` before its next suspension point, so two waiters
+    /// never both go ahead.
+    func waitForPendingTab() async -> Bool {
+        guard pendingTabTitle != nil else { return true }
+        let deadline = ContinuousClock.now + Self.pendingTabPatience
+        while let pending = pendingTabTitle {
+            let left = deadline - ContinuousClock.now
+            var cleared = false
+            if left > .zero {
+                cleared = await BoundedWait(left).run { @MainActor [weak self] in
+                    // No strong reference across the wait: a source closed meanwhile goes away.
+                    await BoundedWait.observing { self?.pendingTabTitle != nil }
+                }
+            }
+            if !cleared, pendingTabTitle != nil {
+                show("\(pending) is still opening, so this one didn't open.")
+                return false
+            }
+        }
+        return true
+    }
     /// A tab the Mac just created and this phone made active: the screen leaves the
     /// grid for it, then clears this.
     public var openedTab: TabsKitTab.ID?
@@ -1193,6 +1228,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
     public func card(for kit: TabsKitTab) -> some View {
         WorkspaceTabCard(source: self, tabID: kit.id, insets: lastInsets)
             // The layout-shift count: a drawn card must not move or resize while the grid settles.
+            // Measured in the grid's visible bounds, so the grid's zoom scale is not a shift; the
+            // live page's stand-in and the context-menu preview sit outside the grid and report nothing.
             .layoutShiftTracked("tabcard.\(kit.id)", in: .window)
     }
 
@@ -1955,10 +1992,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
             await openOnPhone(url)
             return
         }
-        if let pending = pendingTabTitle {
-            show("Still opening \(pending). Try again once it's open.")
-            return
-        }
+        // Another tab is opening: this link opens right after it.
+        guard await waitForPendingTab() else { return }
         let title = WorkspaceTabsSource.option(.browser).title
         pendingTabTitle = title
         defer { pendingTabTitle = nil }
@@ -2263,11 +2298,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// chat itself stays as it was. acpmux's refusal (a Claude chat the Mac started) shows in its
     /// own words. False when no copy was made.
     public func editAndResend(_ id: TabsKitTab.ID, through seq: Int, prompt: String) async -> Bool {
+        // Another tab is opening: the copy is made right after it.
+        guard await waitForPendingTab() else { return false }
         guard let workspace, let creator, let tab = workspaceTab(id), tab.kind == .agent else { return false }
-        guard pendingTabTitle == nil else {
-            show(named("Another tab is opening. Try again in a moment."))
-            return false
-        }
         pendingTabTitle = "Fork"
         defer { pendingTabTitle = nil }
         let copy: WorkspaceTab
@@ -2392,10 +2425,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// Launch Claude Teams / Launch Codex Teams: a new terminal beside the tab shown, in its
     /// folder (the Mac's focused tab's), that runs the team's line.
     public func launchAgentTeams(_ teams: AgentTeamsLaunch) async {
-        guard let workspace, let chatsBackend, pendingTabTitle == nil else {
-            if let pending = pendingTabTitle { show("Still opening \(pending). Try again once it's open.") }
-            return
-        }
+        // Another tab is opening: the team's terminal opens right after it.
+        guard await waitForPendingTab(), let workspace, let chatsBackend else { return }
         let current = selectedTabID.flatMap { workspaceTab($0) }
         let shown: String? = switch current?.kind {
         case .terminal: current?.subtitle
@@ -2749,6 +2780,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
             return [
                 [
                     TabsKitMenuItem(title: "Copy Link", systemImage: "link", isEnabled: model.url != nil) { UIPasteboard.general.url = model.url },
+                    // retry-prompt-ok: a browser's deliberate Reload (it may resubmit a form or lose page state)
                     TabsKitMenuItem(title: "Reload", systemImage: "arrow.clockwise") { model.reloadOrStop() },
                 ] + (streamedPage.map { page in
                     [

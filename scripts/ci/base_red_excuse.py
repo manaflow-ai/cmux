@@ -1163,6 +1163,26 @@ BASE_VERDICT_REPO = {"teamleaderleo/glaeda": "manaflow-ai/glaeda"}
 # checks each entry against the workflows. Its verdict is read only when the PR run's own workflow has none at or
 # after the merge-base.
 BASE_WORKFLOW_FOR = {("feat-cmux-next", "ci.yml", "web"): "cmux-next-web.yml"}
+# A PR job whose base verdict is another workflow's job under another check name (2026-11-26). pr-router.yml's
+# `pipeline` job calls pr-pipeline.yml, whose `linux` job runs ci/steps.toml's linux steps (`ci/run run --job linux`)
+# as 'pr pipeline / linux'. Nothing runs pr-pipeline.yml on base pushes; the same linux steps run there as
+# cmux-next-base-linux.yml's `linux` job, 'base linux', by the same `ci/run`, with the same log groups and test lines.
+# Without this every base red of a linux step (tests/test_ci_no_single_size_pins.py, tests/test_ci_persisted_formats.py
+# and scripts/measure/tests/nightly-fresh-launch-update-arm.test.py on 2026-11-26, PR run 45794762063) was refused
+# as having no base verdict, on every PR at once. Keyed by (the base branch, the PR run's workflow file, the PR check),
+# the value is (the base-push workflow file, its check). The comparison is the usual one, by failing test and error
+# line: a red step the base run passed, or did not run, is never excused by it. Read after batch_check, before
+# BASE_WORKFLOW_FOR, and like both only when the PR run's own workflow has no verdict at or after the merge-base;
+# tests/test_base_red_excuse.py checks each entry against the workflows. The same holds for every step-table job of
+# pr-pipeline.yml that runs on Linux: 'pr pipeline / web-browser' (`ci/run run --job web-browser`) had no base run at
+# all for its step chat-flow-shift-budget, so its red on cmux#49399 and cmux#51550 (2026-11-26, PR run 45798346304
+# and job 139823535345: 'compaction ends: stray 74.8px > 8px', the same line on both) was refused as having no base
+# verdict; cmux-next-base-linux.yml now runs the web-browser job as its 'base web-browser' leg. The Mac and iOS jobs
+# (ios, mac) have no such base leg yet and keep the refusal.
+BASE_CHECK_FOR = {
+    ("feat-cmux-next", "pr-router.yml", "pr pipeline / linux"): ("cmux-next-base-linux.yml", "base linux"),
+    ("feat-cmux-next", "pr-router.yml", "pr pipeline / web-browser"): ("cmux-next-base-linux.yml", "base web-browser"),
+}
 # The post-merge batch tier (2026-11-21, cmux#48662): per-push base workflows move onto cmux-next-post-merge.yml,
 # which every ~2 h calls each suite of .github/post-merge-batch.json whose paths changed, as a caller job named by the
 # suite key, so the base's check of job J of suite S is 'S / J'. A workflow that moved there drops its own
@@ -2771,16 +2791,22 @@ SETUP_ONLY_STEPS = {
         # Installs build tools: zig (install-zig-ci.sh: its version from ghostty-zig-version.sh and the submodules'
         # build.zig.zon, the reviewed versions from toolchains.json and the Zig SDK's build.zig.zon, the tarball's
         # sha256 from zig-tarballs.sha256), the prebuilt GhosttyKit for the pinned ghostty submodule
-        # (download-prebuilt-ghosttykit.sh, else ensure-ghosttykit.sh: the checksum manifest, the archive validator,
+        # (download-prebuilt-ghosttykit.sh, through the LAN cache broker when there is one: lan_cache_fetch.py; else
+        # ensure-ghosttykit.sh: the checksum manifest, the archive validator,
         # ghostty.h, ensure-metal-toolchain.sh) and AXe (install-axe-ci.sh), under the selected Xcode. No app, worker or
         # test code.
         "Install build prerequisites": (
             "scripts/install-zig-ci.sh", "scripts/ghostty-zig-version.sh", "scripts/ci/zig-tarballs.sha256",
             "cmux-tui/build-support/notices/toolchains/toolchains.json", "cmux-tui/bindings/zig/build.zig.zon",
-            "scripts/download-prebuilt-ghosttykit.sh", "scripts/ensure-ghosttykit.sh",
+            "scripts/download-prebuilt-ghosttykit.sh", "scripts/ci/lan_cache_fetch.py", "scripts/ensure-ghosttykit.sh",
             "scripts/ghosttykit-checksums.txt", "scripts/validate-xcframework-archive.py",
             "scripts/ensure-metal-toolchain.sh", "ghostty.h", "ghostty", "ghostty-next", ".gitmodules",
-            "scripts/install-axe-ci.sh", *XCODE_PINS),
+            "scripts/install-axe-ci.sh",
+            # ensure-ghosttykit.sh's Zig package prefetch (zig-fetch-all.sh): the package lock, its R2 mirror and
+            # cache, the archive seeder, and the release download helper behind them.
+            "scripts/cmux-next/zig-fetch-all.sh", "scripts/ci/zig-packages.lock", "scripts/ci/zig-packages-r2.sh",
+            "scripts/ci/seed-zig-package-archives.sh", "scripts/ci/r2-cache.sh",
+            "scripts/ci/github-release-download.sh", "scripts/ci/github_release_asset.py", *XCODE_PINS),
         # Picks the runner's Xcode from the pins (toolchain setup).
         "Select Xcode": ("scripts/select-ci-xcode.sh", *XCODE_PINS),
         # xcrun and xcodebuild only, of the selected Xcode: the runner's simulator runtime (toolchain setup).
@@ -3018,6 +3044,13 @@ PR_ONLY_PEERS = 3  # other PRs' heads that must fail the same job at the same st
 PR_ONLY_PEER_RUNS = 30  # the workflow's newest completed runs of the red run's event listed
 PR_ONLY_PEER_READS = 10  # job lists read among them at most
 PR_ONLY_RED = frozenset({"failure", "timed_out", "startup_failure"})
+# A peer run that ended with no verdict (skipped: a labeled or edited event the workflow's own `if:` turns away;
+# cancelled: superseded by the PR's next push) is passed over: it neither spends one of PR_ONLY_PEER_READS nor stands
+# for its PR's newest run. pr-router.yml (no feat-cmux-next run) had 17 skipped and 1 cancelled among its 30 newest
+# completed pull_request runs on 2026-11-26 12:58Z, so the ten reads met few failed runs, and #58337 and #58408 needed
+# LAND_JUDGE_OVERRIDE for a 'pr pipeline / linux' red that failed the same way on #56579, #58486 and #58590.
+# land-judge's pr_only_peer_excuse got the same rule (leo-workspace#12031).
+PR_ONLY_NO_VERDICT_RUN = frozenset({"skipped", "cancelled", "neutral", "stale", "action_required"})
 # A repo path a workflow names: two or more segments, not a variable's ($RUNNER_TEMP/x), a URL's or another path's
 # tail. Kept when it is under .github/ or scripts/, or names a script or config file (its extension).
 WORKFLOW_PATH = re.compile(r"(?<![\w$/.:@{}-])(?:\./)?((?:[\w-][\w.-]*/)+[\w.-]*[\w-])")
@@ -3100,6 +3133,8 @@ def other_pr_peer_verdict(repo: str, base: str, name: str, job: dict, workflow_i
     for run in runs[:PR_ONLY_PEER_RUNS]:
         if len(matched) >= PR_ONLY_PEERS or reads >= PR_ONLY_PEER_READS:
             break
+        if str(run.get("conclusion") or "").lower() in PR_ONLY_NO_VERDICT_RUN:
+            continue  # no verdict: no read spent, and the PR's newest run with one still stands for it
         theirs = [str(pull.get("number")) for pull in run.get("pull_requests") or [] if isinstance(pull, dict)
                   and ((pull.get("base") or {}).get("ref")) == base]
         tested = str(run.get("head_sha") or "")
@@ -5952,6 +5987,8 @@ GUARD_JOB_IDS = (("cmux-next.yml", "checks"), ("cmux-next-guards.yml", "own-chan
 _PRODUCT = "builds, tests or generates from product code (Swift, Rust, web), so its red is never a guard's"
 _PLACE = "places, routes or waits for runners and runs: no verdict of its own on the tree"
 _PUBLISH = "requests, publishes, attributes or comments: no test verdict of its own"
+_FAIL_FAST = ("head fail-fast (head-fail-fast.yml, #54837): cancels the head's other heavy runs once the job it "
+              "needs is red; it reads no tree and gives no verdict of its own")
 # Every job of these workflows is declared (GUARD_JOB_IDS) or excluded here with its reason.
 GUARD_WORKFLOWS = {
     "cmux-next-guards.yml": {
@@ -5970,6 +6007,7 @@ GUARD_WORKFLOWS = {
                                       "request's red is its",
         "tooling-tests-base-red": "decides whether tooling-tests skips while the base is red (base_red_skip.py); "
                                   "it checks nothing itself",
+        "tooling-tests-fail-fast": _FAIL_FAST,
     },
     "ci-guards.yml": {
         "workflow-guard-submodule-forward-only": "reads the submodules' remote history, not only the tree",
@@ -5990,7 +6028,10 @@ GUARD_WORKFLOWS = {
                          "swift-test", "fast-tier-fleet-mac",
                          "daemon-test", "generated-files", "generated-verdict", "release-compile-fast",
                          "release-compile", "swift-exports-cache", "cmux-scheme-compile", "crash-ends-app",
-                         "dev-landing-compile", "release-compile-revert", "compile-status"), _PRODUCT),
+                         "dev-landing-compile", "release-compile-revert", "compile-status",
+                         "generated-files-linux"), _PRODUCT),
+        **dict.fromkeys(("app-compile-fleet-fail-fast", "fast-tier-fail-fast", "fast-tier-cargo-fail-fast",
+                         "web-bundles-fail-fast", "generated-files-fail-fast"), _FAIL_FAST),
         **dict.fromkeys(("request-nightly-next", "request-cmux-next-dev-publish", "pr-red-checks",
                          "push-attribution", "same-tree-status-daemon", "same-tree-status-scheme"), _PUBLISH),
         "pure-checks-coalesce": "the window gate (base-coalesce.yml): decides whether a push runs the pure checks, "
@@ -6083,6 +6124,10 @@ PACKAGE_JOBS = {
                   "cmux-tui/crates/cmux-transport/", "cmux-tui/crates/cmux-wg/",
                   # cmux-mobile-link-ffi depends on cmux-window-rules (#43111)
                   "cmux-tui/crates/cmux-window-rules/", "schemas/remote-tab/",
+                  # cmux-window-rules' tab group tests include_str! the shared vectors (#57843)
+                  "schemas/tab-group-rules/",
+                  # a crate the kit's manifests reach since #58214 (cmux-vnc's vnc_* JSON ops)
+                  "cmux-tui/crates/cmux-vnc/",
                   # cmux-mobile-link and cmux-mobile-host send the dev build's space (cmux-build-space, #43648),
                   # which reads the bundle rule from cmux-agent-pane-policy; its `testing` feature adds cmux-scope
                   "cmux-tui/crates/cmux-build-space/", "cmux-tui/crates/cmux-agent-pane-policy/",
@@ -6107,6 +6152,7 @@ PACKAGE_JOBS = {
                   "cmux-tui/crates/cmux-felt/", "cmux-tui/crates/cmux-follow-cam/",
                   "cmux-tui/crates/cmux-mobile-core/", "cmux-tui/crates/cmux-mobile-last-place/",
                   "cmux-tui/crates/cmux-output-paint/", "cmux-tui/crates/cmux-process/",
+                  "cmux-tui/crates/cmux-rd-screen/",  # cmux-mobile-link-ffi's screen stream rules
                   "cmux-tui/crates/cmux-relay-snapshot/", "cmux-tui/crates/cmux-remote-protocol/",
                   "cmux-tui/crates/cmux-share-approval/", "cmux-tui/crates/cmux-tab-snapshots/",
                   "cmux-tui/crates/cmux-tailnet-join/", "cmux-tui/crates/cmux-tailnet/",
@@ -7552,6 +7598,13 @@ WS_CHECK_TESTED_TIPS = 20  # base commits whose squash tree a run may have teste
 # while WS_CHECK_RESULT's `failed` still lists every failed step. ws_check_discount reads that count back from the log.
 WS_CHECK_DESCRIPTION = re.compile(r"(?:base red \(main [0-9a-f]{8} fails it too\) )?(\d+) of (\d+) steps failed"
                                   r"(?: \(\+(\d+) base red discounted, main ([0-9a-f]{8})\))?: (.*)", re.S)
+# Since lw#11671 (2026-11-26) a discounted status too long for 139 characters keeps its counts, base and first unit:
+# "N failed after discounting K on main SHA8: UNIT", N the run's own failed units (not steps), UNIT the first one's
+# file (a step's " [UNIT]" part, or the step when it has none). Unread, every such red was refused "names no failed
+# steps" and no per-test comparison ran: lw#12133 at fb44c444 ("4 failed after discounting 24 on main 33ce8b65:
+# test_review_pool_routing.py") and lw#12080 stopped red_not_excused on 2026-11-26. Read, its units are judged per
+# test against main like any other ws-check red: a unit that passes on main stays the head's red.
+WS_CHECK_LONG_DESCRIPTION = re.compile(r"(\d+) failed after discounting (\d+) on main ([0-9a-f]{8}): (.*)", re.S)
 # ws_check_run.py's own base pass lines (leo-workspace tools/ws-check own_base_pass reads the same ones): one "whole" or
 # "cut" line naming the main the failed units ran again on, and a "FAILED on main too" line per unit that failed there.
 WS_CHECK_BASE_PASS = re.compile(r"^ws-check base pass (?:whole: main ([0-9a-f]{40}),|cut: main ([0-9a-f]{40}): "
@@ -7590,8 +7643,18 @@ def ws_check_discount(lines: list[str], at: int, failed: list[str]) -> tuple[lis
 
 
 def ws_check_described(named: re.Match, failed: list[str], steps, lines: list[str], at: int) -> bool:
-    """Whether a ws-check status's description (NAMED, a WS_CHECK_DESCRIPTION match) is its run's WS_CHECK_RESULT: the
-    count and first step of FAILED, or the count and first unit tools/ws-check left after discounting main's reds."""
+    """Whether a ws-check status's description (NAMED, a WS_CHECK_DESCRIPTION or WS_CHECK_LONG_DESCRIPTION match) is
+    its run's WS_CHECK_RESULT: the count and first step of FAILED, or the count and first unit tools/ws-check left after
+    discounting main's reds (the long form: the unit count, discount, main and first unit's file, cut at 139)."""
+    if named.re is WS_CHECK_LONG_DESCRIPTION:
+        found = ws_check_discount(lines, at, failed)
+        if found is None or not found[0]:
+            return False
+        own, discounted, main = found
+        step, bracket, unit = own[0].partition(" [")
+        first = unit.removesuffix("]") if bracket else step
+        return ((int(named[1]), int(named[2]), named[3]) == (len(own), discounted, main[:8])
+                and bool(named[4]) and first.startswith(named[4]))
     count, total, described = int(named[1]), int(named[2]), named[5]
     if total != steps:
         return False
@@ -8108,10 +8171,10 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
     where = f"'{WS_CHECK}' on {sha}"
     if state != "failure":
         raise Refused(f"{where}: an unknown status state {state!r}")
-    named = WS_CHECK_DESCRIPTION.fullmatch(description)
+    named = WS_CHECK_DESCRIPTION.fullmatch(description) or WS_CHECK_LONG_DESCRIPTION.fullmatch(description)
     if not named:
-        raise Refused(f"{where}: failure \"{description}\" names no failed steps; only 'N of M steps failed: ...' is "
-                      "read per test")
+        raise Refused(f"{where}: failure \"{description}\" names no failed steps; only 'N of M steps failed: ...' or "
+                      "'N failed after discounting K on main SHA8: UNIT' is read per test")
     host = WS_CHECK_REPOS[repo]
     link = re.fullmatch(r"https://github\.com/" + re.escape(host) + r"/actions/runs/(\d+)(?:/job/\d+)?/?"
                         + WS_CHECK_FLEET_JOB, found["url"])
@@ -8792,7 +8855,8 @@ def batch_check(repo: str, base: str, file: str, name: str, github) -> str | Non
 
 def base_caller(repo: str, base: str, run: dict, name: str, github=None) -> tuple[str, str] | None:
     """(workflow file, check name) of the base's verdict for job NAME when RUN's own workflow no longer runs it on
-    BASE: the post-merge batch tier's (batch_check), else the workflow that runs the same called job on pushes to
+    BASE: the post-merge batch tier's (batch_check), else a base-push job named in BASE_CHECK_FOR, else the workflow
+    that runs the same called job on pushes to
     BASE (BASE_WORKFLOW_FOR, a pull-request-only caller of the same reusable workflow) under NAME itself; None for any
     other job, base, repo or unread workflow path."""
     path = run.get("path") if isinstance(run, dict) else None
@@ -8801,6 +8865,8 @@ def base_caller(repo: str, base: str, run: dict, name: str, github=None) -> tupl
     file = path.removeprefix(".github/workflows/").split("@", 1)[0]
     if (check := batch_check(repo, base, file, name, github)) is not None:
         return POST_MERGE_WORKFLOW, check
+    if (renamed := BASE_CHECK_FOR.get((base, file, name))) is not None:
+        return renamed
     caller = next((caller for (branch, pr_file, job_id), caller in BASE_WORKFLOW_FOR.items()
                    if branch == base and pr_file == file and name.startswith(f"{job_id} / ")), None)
     return None if caller is None else (caller, name)

@@ -300,6 +300,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The read of a document's icon list when Chromium reported none for it (#42435).
     @ObservationIgnored var documentFaviconRead: Task<Void, Never>?
     @ObservationIgnored private(set) var isClosed = false
+    /// The flow this tab was opened for (a sign-in, GitHub's install) handed back to the app and asked for the tab's
+    /// close (``closeAfterHandoff()``): nobody's close for the page to decide (`CEFTab+UserClose`).
+    @ObservationIgnored var handedOff = false
     /// The browser went with the engine's stop for quit (``browserDidClose(closesTab:)`` false), not by
     /// itself: a cmux page on it is not reopened elsewhere and reports no crash (`PageChromiumEvent.engineStopped`).
     @ObservationIgnored public private(set) var browserEndedForQuit = false
@@ -545,6 +548,12 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         let id = makeNavigationID()
         navigation = id
         machine.apply(.started(id, url: url))
+    }
+
+    /// The placeholder hands its browser to the page that takes it (`CEFPaneHost.adoptPlaceholder`): this tab
+    /// forgets it, so its close never closes that browser.
+    func handBrowserOver() {
+        browserID = nil
     }
 
     func creationFailed() {
