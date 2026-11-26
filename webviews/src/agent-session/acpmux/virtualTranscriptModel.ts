@@ -1,7 +1,7 @@
 import { type AcpmuxRow } from "./model";
 import { type ReferenceScope } from "./conversation/bareReferences";
 import { isEditRow } from "./turnChanges/sessionRows";
-import { ACTIVITY_LINE, LIVE_THINKING, THINKING, WORKING } from "./conversation/turns";
+import { LIVE_THINKING, THINKING, WORKING } from "./conversation/turns";
 import { PULSE_FIELDS } from "./conversation/liveLinePulse";
 import { workEnds } from "./conversation/waterfallSpans";
 
@@ -64,7 +64,6 @@ function sameRowDraw(before: AcpmuxRow, after: AcpmuxRow): boolean {
   if (
     after.kind === THINKING ||
     after.kind === WORKING ||
-    after.kind === ACTIVITY_LINE ||
     after.turnPhase === "running" ||
     before.turnPhase !== after.turnPhase
   )
@@ -92,6 +91,8 @@ export function sameRowFrame(previous: Record<string, unknown>, next: Record<str
   if (keys.length !== Object.keys(previous).length) return false;
   return keys.every((key) => {
     if (key === "children") return true;
+    // Read by the frame's first mount only (VirtualTranscript `RowFrame`, conversation/offscreenRows.ts).
+    if (key === "offscreen" || key === "placedHeight" || key === "enterUnseen") return true;
     // Snapshot rebuilding can clone unchanged rows when a prompt is sent; comparing the object here
     // made every mounted frame repaint on that send even though its content had not changed.
     if (key === "row") return sameRowDraw(previous.row as AcpmuxRow, next.row as AcpmuxRow);

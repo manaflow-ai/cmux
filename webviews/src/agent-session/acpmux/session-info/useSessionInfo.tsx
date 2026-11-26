@@ -21,6 +21,8 @@ import type { StartedSession } from "../started/startedSessions";
 import { headerStatus, visibleChanges } from "./changesSectionModel";
 import { useChangesStatuses, useStableUrls, withHeader } from "./changesStatus";
 import { type AccessGrant } from "./EnvironmentSection";
+import type { SessionInfoCloudControl } from "../hybrid/SessionInfoCloud";
+
 import { SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
 import { SUBAGENT_HEADER } from "./subagentScopeHeaderModel";
 import {
@@ -43,7 +45,6 @@ import { outputArtifacts, outputLinks, type OutputArtifact, type OutputLink } fr
 import { chatOutputs, type OutputFile } from "./chatOutputs";
 import { producedLinks, type ProducedLink } from "./producedLinks";
 import { type ProcessRegistry, type SessionInfoProcess } from "./processes";
-import { currentPlan, type SessionInfoPlan } from "./progressSectionModel";
 import type { WorkflowAgent, WorkflowSummary } from "../summary/workflow";
 import { useUnderSessionInfo } from "./underSessionInfo";
 import { useNativeSessionInfoHost } from "./native/host";
@@ -83,7 +84,7 @@ import type { ReadCarried, ResolveCarried } from "./carriedSectionModel";
 import { useStepAside } from "./stepAside";
 import { usageEntries } from "./usageEntries";
 import { chatPlace } from "../chatMachine";
-import { useAlsoHere } from "./alsoHereSectionModel";
+import { agentSideRowsOf } from "./agentSide";
 
 /// How long after an output click a narrowing counts as that diff's split.
 const SPLIT_SETTLE_MS = 2000;
@@ -243,6 +244,7 @@ export function useSessionInfo({
   readCarried,
   onResolveCarried,
   remoteControl,
+  cloud,
   onCompact,
   onViewPrompt,
   onOpenChat,
@@ -331,6 +333,8 @@ export function useSessionInfo({
   onResolveCarried?: ResolveCarried;
   /// Environment's Remote Control switch (App.tsx, remoteControl.ts): absent, no row.
   remoteControl?: { on: boolean; set: (on: boolean) => void };
+  /// Environment's cloud controls (hybrid/HybridMounts.tsx), in Remote Control's place.
+  cloud?: SessionInfoCloudControl;
   /// Sends the chat's agent its `/compact` (Context's and Usage's Compact); unset where it cannot reach.
   onCompact?: () => void;
   /// Context's View Prompt: opens the Context screen (context/ContextScreen.tsx); unset for a chat
@@ -609,6 +613,7 @@ export function useSessionInfo({
         readCarried={subagent ? undefined : readCarried}
         onResolveCarried={subagent ? undefined : onResolveCarried}
         remoteControl={remoteControl}
+        cloud={cloud}
         onCompact={stableOnCompact}
         onViewPrompt={stableOnViewPrompt}
         onOpenChat={stableOnOpenChat}
@@ -635,7 +640,6 @@ export type SessionInfoLists = {
   /// The pull requests, issues and commits the chat produced (producedLinks.ts).
   readonly produced: readonly ProducedLink[];
   readonly outputFiles: OutputFile[];
-  readonly scopedPlan: SessionInfoPlan | undefined;
   readonly artifacts: number;
   readonly documents: readonly OutputArtifact[];
   readonly agents: readonly Subagent[];
@@ -689,13 +693,6 @@ function useSessionInfoLists({
   // same files, so the sections need not read the rows for it.
   const outputFiles = useSameValue(
     useMemo(() => (drawn ? chatOutputs(rows, summary?.cwd) : NO_OUTPUT_FILES), [drawn, rows, summary?.cwd]),
-  );
-  const scopedWorking = scopedAgent?.state === "running";
-  const scopedPlan = useSameValue(
-    useMemo(
-      () => (drawn && scopedAgent ? currentPlan(rows, scopedWorking) : undefined),
-      [drawn, scopedAgent, rows, scopedWorking],
-    ),
   );
   // The chat's gallery, kept while it holds the same items (sameValue: each item's kind, key, source and
   // render call), so a replaced image or render with the same count is a new gallery, and a streamed
@@ -764,7 +761,6 @@ function useSessionInfoLists({
       links,
       produced,
       outputFiles,
-      scopedPlan,
       artifacts,
       documents,
       agents,
@@ -780,7 +776,6 @@ function useSessionInfoLists({
       links,
       produced,
       outputFiles,
-      scopedPlan,
       artifacts,
       documents,
       agents,
@@ -894,6 +889,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   readCarried,
   onResolveCarried,
   remoteControl,
+  cloud,
   onCompact,
   onViewPrompt,
   onOpenChat,
@@ -969,6 +965,8 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   readCarried?: ReadCarried;
   onResolveCarried?: ResolveCarried;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
+  /// Environment's cloud controls (hybrid/HybridMounts.tsx), in Remote Control's place.
+  cloud?: SessionInfoCloudControl;
   onCompact?: () => void;
   onViewPrompt?: () => void;
   onOpenChat?: (sessionId: string) => void;
@@ -1176,7 +1174,6 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     links,
     produced,
     outputFiles,
-    scopedPlan,
     artifacts,
     documents,
     agents,
@@ -1220,17 +1217,6 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   }, [shell, drawn, reading, wide, paneWidth, room, side, width, column, rowCount, push, overflow, native]);
   // After `summary`: read before its declaration, it threw on every render (a temporal dead zone).
   const usage = compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown);
-  // The plan the transcript's todo list draws. The chat's is the one the client publishes beside its
-  // rows (snapshot.progress, liveProgress.ts): the same object until the checklist changes or its turn
-  // ends, so a streamed token neither rescans the rows nor recounts the steps (carried from #34933). A
-  // subagent's panel gets the parent's snapshot, so it never reads that one: its plan comes from its
-  // own live rows (useSessionInfoLists `scopedPlan`), so a step ticked in place shows here at once.
-  const live = snapshot.progress;
-  const livePlan = useMemo<SessionInfoPlan | undefined>(
-    () => (live ? { entries: live.plan, ended: Boolean(live.ended), done: live.completed } : undefined),
-    [live],
-  );
-  const plan = scope?.agent ? scopedPlan : drawn ? livePlan : undefined;
   const views = subagents?.views;
   const asks = subagents?.asks;
   // Environment's Changes: the folder's git changes, read as the panel shows and at each turn's end.
@@ -1245,16 +1231,17 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   // The rest of what the sections take from the snapshot and the App, kept the same way.
   // What the sections draw of the other chats acpmux lists, not the list itself: the list is new each
   // time any chat anywhere changes (its status, its indicator, its time), which drew every section
-  // again, while a scroll ran too, though they show none of it. Usage's rows (usageEntries.ts) and Also
-  // working here's (useAlsoHere) keep their identity until what they draw changes.
+  // again, while a scroll ran too, though they show none of it. Usage's rows (usageEntries.ts) keep their
+  // identity until what they draw changes.
   const everyChat = drawn && !scope ? snapshot.sessions : undefined;
   const usageSessions = useSameValue(useMemo(() => usageEntries(everyChat), [everyChat]));
-  const alsoHereRows = useSameValue(useAlsoHere(summary?.sessionId, everyChat));
   const peerKinds = useSameValue(snapshot.peerKinds);
   // Where the chat runs beyond its summary (its route and listed peer), for Environment's machine row.
   const place = useSameValue(chatPlace(snapshot));
   const startedList = useSameValue(scope ? undefined : sessions?.list);
   const workflowList = useSameValue(scope ? undefined : workflows?.list);
+  // What waits on the agent's side (agentSide.ts): the chat's, never a subagent scope's.
+  const agentSide = scope ? undefined : agentSideRowsOf(t, snapshot.surge, snapshot.queue);
   // A subagent, a started chat or a workflow's agent opens beside the chat (its own pane): Session Info
   // steps aside for it as for the folder and Changes, and is back once that pane closes (Lucas,
   // 2026-11-06: "clicking on a subagent will close the session info summary menu, like how it does for
@@ -1376,7 +1363,6 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           backLabel={scope ? subagentBackLabel(t, scope.parent) : undefined}
           summary={summary}
           usage={usage}
-          plan={plan}
           machineName={machineName}
           peerKinds={snapshot.peerKinds}
           place={place}
@@ -1395,6 +1381,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           processes={processes ?? []}
           listed={registry?.listed ?? false}
           transcriptTasks={transcriptTasks ?? []}
+          agentSide={agentSide}
           sessions={scope ? [] : (sessions?.list ?? [])}
           workflows={scope ? [] : (workflows?.list ?? [])}
           agent={scope?.agent}
@@ -1415,6 +1402,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           onOpenArtifacts={rowCount > 0 ? () => setGallery(true) : undefined}
           onReconnectMcp={onReconnectMcp}
           remoteControl={scope ? undefined : remoteControl}
+          cloud={scope ? undefined : cloud}
           onCompact={scope ? undefined : onCompact}
           onViewPrompt={scope ? undefined : onViewPrompt}
           onOpenFolder={openFolder}
@@ -1471,7 +1459,6 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         rows={sectionRows}
         outputFiles={outputFiles}
         produced={produced}
-        plan={plan}
         toolCalls={toolCalls}
         agents={agents}
         waiting={waiting}
@@ -1481,6 +1468,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         processes={processes}
         listed={registry?.listed}
         transcriptTasks={transcriptTasks}
+        agentSide={agentSide}
         // The chats the chat's agent started are the chat's.
         sessions={startedList}
         workflows={workflowList}
@@ -1489,7 +1477,6 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         onOpenSession={onOpenSession}
         // Usage lists every chat acpmux lists; a subagent's own panel has no Usage.
         usageSessions={usageSessions}
-        alsoHere={alsoHereRows}
         onOpenChat={onOpenChat}
         onShowUsage={scope ? undefined : onShowUsage}
         onSetRunningLimit={setRunningLimit}
@@ -1513,6 +1500,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         readCarried={scope ? undefined : readCarried}
         onResolveCarried={scope ? undefined : onResolveCarried}
         remoteControl={scope ? undefined : remoteControl}
+        cloud={scope ? undefined : cloud}
         // Compact ends the chat's context, not a subagent's.
         onCompact={scope ? undefined : onCompact}
         onViewPrompt={scope ? undefined : onViewPrompt}

@@ -141,8 +141,12 @@ def _diff_tab_cells():
     return diff_tab_cells
 
 
-_libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
-_libsystem = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+if os.path.dirname(os.path.abspath(__file__)) not in sys.path:  # `python3 -I` leaves this folder off
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import macos_libs  # noqa: E402  (beside this file: a stand-in off a Mac, so the benches import anywhere)
+
+_libproc = macos_libs.library("/usr/lib/libproc.dylib")
+_libsystem = macos_libs.library("/usr/lib/libSystem.B.dylib")
 try:
     _responsible = _libsystem.responsibility_get_pid_responsible_for_pid
     _responsible.restype = ctypes.c_int
@@ -157,12 +161,13 @@ class _Timebase(ctypes.Structure):
     _fields_ = [("numer", ctypes.c_uint32), ("denom", ctypes.c_uint32)]
 
 
-_timebase = _Timebase()
-_libsystem.mach_timebase_info(ctypes.byref(_timebase))
+_timebase = macos_libs.timebase_of(_libsystem, _Timebase())
 
 
 def usage(pid: int):
-    """(resident, footprint, lifetime max footprint, cpu ns, wakeups), or None once the pid is gone."""
+    """(resident, footprint, lifetime max footprint, cpu ns, wakeups, package-idle wakeups), or None once the pid is
+    gone. wakeups is package-idle plus interrupt wakeups; a busy Mac's package is never idle, so under load the first
+    kind reads near 0 for the same wakes."""
     buf = (ctypes.c_uint64 * 64)()
     if _libproc.proc_pid_rusage(ctypes.c_int(pid), ctypes.c_int(4), ctypes.byref(buf)) != 0:
         return None
@@ -170,7 +175,7 @@ def usage(pid: int):
     # idle wakeups, interrupt wakeups, pageins, wired (7), resident (8),
     # phys_footprint (9), ... ri_lifetime_max_phys_footprint (30).
     cpu_ns = (buf[2] + buf[3]) * _timebase.numer // _timebase.denom
-    return buf[8], buf[9], buf[30], cpu_ns, buf[4] + buf[5]
+    return buf[8], buf[9], buf[30], cpu_ns, buf[4] + buf[5], buf[4]
 
 
 class _TaskInfo(ctypes.Structure):
@@ -361,7 +366,7 @@ def exe_path(pid: int) -> str | None:
     buf = ctypes.create_string_buffer(4096)
     try:
         size = _libproc.proc_pidpath(ctypes.c_int(pid), buf, ctypes.c_uint32(4096))
-    except (AttributeError, TypeError, ctypes.ArgumentError):
+    except (AttributeError, TypeError, ctypes.ArgumentError, OSError):  # OSError: off a Mac (macos_libs.OffMac)
         return None
     if not isinstance(size, int) or size <= 0:
         return None
@@ -919,10 +924,33 @@ class FakeChats:
 
     @staticmethod
     def acpmux_socket(bundle: str) -> str:
+        # The daemon's own home socket: `~/.acpmux/builds/<bundle id>/acpmux.sock`. A Debug
+        # build's daemon may not carry `bin/acpmux` in its command line (it can run as the
+        # multi-call `bin/cmux`, or under the DEV Files helper), so the process match below
+        # alone missed a daemon that was up and serving.
+        home_socket = None
+        try:
+            with open(os.path.join(bundle, "Contents", "Info.plist"), "rb") as handle:
+                bundle_id = plistlib.load(handle).get("CFBundleIdentifier")
+            if bundle_id:
+                import pwd
+                home_socket = os.path.join(pwd.getpwuid(os.getuid()).pw_dir, ".acpmux", "builds", bundle_id, "acpmux.sock")
+        except (OSError, plistlib.InvalidFileException):
+            pass
         deadline = time.monotonic() + 90
         while time.monotonic() < deadline:
+            if home_socket and os.path.exists(home_socket):
+                probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                try:
+                    probe.settimeout(2)
+                    probe.connect(home_socket)
+                    return home_socket
+                except OSError:
+                    pass
+                finally:
+                    probe.close()
             for pid, _, cmd in process_table():
-                if in_bundle(cmd, bundle) is not None and "/bin/acpmux daemon run" in cmd:
+                if in_bundle(cmd, bundle) is not None and " daemon run" in cmd:
                     listed = subprocess.run(["lsof", "-a", "-p", str(pid), "-U", "-Fn"],
                                             capture_output=True, text=True, timeout=30).stdout
                     # `<home>/acpmux.sock`, or `/tmp/acpmux-<uid>/<hash>.sock` when that path is too long.
@@ -931,6 +959,26 @@ class FakeChats:
                     if paths:
                         return paths[0]
             time.sleep(1)  # test script: waiting for the app's acpmux to listen
+        # Say why, so a fleet step's log answers it: which acpmux processes run (the bundle's
+        # and any other), and the newest acpmux daemon.log tails under ~/.acpmux.
+        for pid, ppid, cmd in process_table():
+            if "acpmux" in cmd or "cmux-files-host" in cmd or " daemon run" in cmd or in_bundle(cmd, bundle) is not None:
+                mark = "bundle" if in_bundle(cmd, bundle) is not None else "other"
+                print(f"   bench-memory: acpmux process ({mark}) pid={pid} ppid={ppid} {cmd[:300]}",
+                      file=sys.stderr, flush=True)
+        import pwd
+        logs = set()
+        for home in {pwd.getpwuid(os.getuid()).pw_dir, os.path.expanduser("~")}:
+            root = os.path.join(home, ".acpmux")
+            builds = os.path.join(root, "builds")
+            logs.add(os.path.join(root, "daemon.log"))
+            logs.update(os.path.join(builds, name, "daemon.log") for name in (os.listdir(builds) if os.path.isdir(builds) else []))
+        logs = sorted((p for p in logs if os.path.isfile(p)), key=os.path.getmtime, reverse=True)[:2]
+        for path in logs:
+            with open(path, "rb") as handle:
+                handle.seek(max(0, os.path.getsize(path) - 4000))
+                tail = handle.read().decode("utf-8", "replace")
+            print(f"   bench-memory: tail of {path}:\n{tail}", file=sys.stderr, flush=True)
         raise SystemExit("bench-memory: the app's acpmux opened no socket within 90 s")
 
     def workspace_ids(self) -> set[str]:

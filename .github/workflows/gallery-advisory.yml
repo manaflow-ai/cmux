@@ -32,7 +32,12 @@ name: gallery visual evidence (advisory)
 # post reads it, and a capture that breaks on a push never reddens the base. A pull
 # request's squash merge (GitHub's `web-flow` commit with a `(#N)`) had its receipt
 # on the PR, and bot pushes change no UI, so neither runs.
-# Cut from pull requests on 2026-11-21 (ci-time-map: advisory, 'Do not add this check to branch protection'; ~2.4k runner-min a day).
+# Cut from pull requests on 2026-11-21 (ci-time-map: advisory, 'Do not add this check to branch protection'; ~2.4k runner-min a day
+# when every webview PR ran it). Back on pull requests on 2026-11-25 for the component library only: a PR touching
+# webviews/src/kit, webviews/src/ui, the shared token CSS (desktop.css, pageDensity.css), scripts/gallery-matrix or
+# this file gets the before/after receipt, so a "unify" PR shows zero pixel change (RFD hq#25960 item 9; Leo, 2026-11-25:
+# "ofc take screenshots of the recommendations later too when it's applyable to the stuff"). Other webview PRs still
+# skip it. Still advisory: never in branch protection, and it warns only.
 # The receipt after a direct push to feat-cmux-next stays.
 on:
   push:
@@ -43,6 +48,16 @@ on:
       - "scripts/cmux-next/build-agent-pane-web.sh"
       - "scripts/ci/gallery_select.py"
       - "bun.lock"
+      - ".github/workflows/gallery-advisory.yml"
+  pull_request:
+    branches: [feat-cmux-next]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+    paths:
+      - "webviews/src/kit/**"
+      - "webviews/src/ui/**"
+      - "webviews/src/pages/shared/desktop.css"
+      - "webviews/src/pages/shared/pageDensity.css"
+      - "scripts/gallery-matrix/**"
       - ".github/workflows/gallery-advisory.yml"
   workflow_dispatch:
 
@@ -85,6 +100,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/pr_status.py
             scripts/ci/gallery_select.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Mark the gallery section stale
         env:
@@ -155,13 +171,32 @@ jobs:
             /Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift
             /web/data/model-catalog/
             /release-notes/next/highlights/
+            scripts/ci/toolchain-r2.sh
+            scripts/ci/toolchain-archives.sha256
+            scripts/ci/r2-cache.sh
+            scripts/ci/lan_cache_fetch.py
+            scripts/ci/toolchain-r2.sh
+            scripts/ci/toolchain-archives.sha256
+            scripts/ci/r2-cache.sh
+            scripts/ci/lan_cache_fetch.py
+            /.gitmodules
           persist-credentials: false
+
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
 
       - name: Setup Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -442,6 +477,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/pr_status.py
             scripts/ci/gallery_select.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Download the receipt
         continue-on-error: true

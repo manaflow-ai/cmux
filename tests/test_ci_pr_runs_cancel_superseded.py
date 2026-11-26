@@ -75,15 +75,21 @@ PR_EVENTS = ("pull_request", "pull_request_target")
 
 # Workflows whose superseded pull request runs are deliberately not cancelled.
 ALLOWED = {
+    # Only the `changed` job (a few seconds, one compare call) runs without a group: it decides whether this push
+    # measures by the files changed since the previous head, so cancelling the previous head's `changed` would lose
+    # that head's chat-pane change. The measuring `report` job cancels a superseded head's run.
+    "chat-open-perf-report.yml": "its seconds-long changed job diffs against the previous head; report cancels",
     # Debounce runs supersede themselves and exit 0 (next_batch.py
     # `superseded`); a cancel would read as a red run. The batch job is never
     # cancelled. See OWN_SUPERSESSION in test_ci_required_checks_are_bounded.py.
     "cmux-next-batch.yml": "debounce runs supersede themselves; the batch is never cancelled",
-    # Deploys preview, staging and production backends; deploy workflows
-    # serialise instead of cancelling. A pull request run also applies its
-    # migrations to the shared development database (migrations-development)
-    # before its preview deploy, so a cancel could stop one mid-apply.
-    "backend.yml": "deploy workflow; PR runs apply migrations to the shared development database",
+    # Opt-in measurements (a marker line in the body): a new head runs beside the one running, never cancelled
+    # (cloud-resume-matrix.yml's header), so an hour of samples on staging machines is not thrown away mid-cell.
+    "cloud-resume-matrix.yml": "opt-in resume measurement; a new head runs beside the running one, never cancelled",
+    "cloud-wake-echo.yml": "opt-in wake measurement, as cloud-resume-matrix.yml: a new head runs beside the running one",
+    # Its 3 min `changed` gate has no group on purpose: a push that measures nothing must not cancel the head still
+    # being measured. The measuring `report` job cancels per pull request (its job concurrency).
+    "chat-open-perf-report.yml": "the push gate has no group so a no-measure push never cancels a running report",
 }
 
 

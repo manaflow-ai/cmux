@@ -16,7 +16,6 @@ import type { DiffCommentRecord, DiffReviewTarget } from "../comments/types";
 import type { AcpmuxSnapshot } from "../agent-session/acpmux/model";
 import type { AppDetail, Grants, InstalledApp } from "../pages/apps/types";
 import type { CloudMachine, CloudSnapshot } from "../pages/cloud/ops";
-import type { ProviderRow } from "../pages/coderouter/types";
 import type { ReleaseNotes } from "../pages/changelog/types";
 import type { PickerSession } from "../pages/icon-picker/host";
 import type { EditorFile, ReadOnlyReason } from "../pages/editor/host";
@@ -47,8 +46,10 @@ import type {
   TailnetState,
   ModelsState,
   LibraryListing,
-  DoctorReport,
   HubState,
+  AutocloudState,
+  DoctorReport,
+  ConnectionsState,
 } from "../pages/settings/ops";
 import type { DoctorTreatment } from "../pages/settings/customizeDoctor";
 import type { MockData } from "../pages/passwords/mockProvider";
@@ -83,6 +84,12 @@ export type SettingsPageVariant = VariantBase & {
   keys?: KeysState;
   /** Settings > Integrations fixture state; default the mock's (a waiting Stripe refund). */
   hub?: HubState;
+  /** Settings > Automations fixture state; default the mock's (three automations, one failed run). */
+  autocloud?: AutocloudState;
+  /** Settings > Connections fixture state; default the mock's (Linear and Sentry connected). */
+  connections?: ConnectionsState;
+  /** The id of the Accounts team to mark active (Settings > Connections shows its owner menu). */
+  activeTeam?: string;
   /** Settings > Server > This Mac on Your Tailnet fixture state (null: no tailnet); default signed out. */
   tailnet?: TailnetState | null;
   /** Settings > Models fixture state (null: a host without the part); default the mock's Mac logins. */
@@ -282,9 +289,6 @@ export type AgentPaneVariant = VariantBase & {
   /** Milliseconds a native method's answer waits, by method: a slow host call the pane shows as
    *  in progress (New Worktree's "Creating worktree…"). */
   nativeDelayMs?: Record<string, number>;
-  /** The in-session status toggle (Debug Settings `agent.sessionStatus`, off by default) on, as the
-   *  app's `sessionStatus` push sends it: the live plan card and the recap card. */
-  sessionStatus?: boolean;
   /** The chat's `display` push (AgentPaneDisplaySetting.swift, chatDisplay.ts): `agentPane.display.*`
    *  keys and the app keys the chat follows, such as Minimal Mode (`{ "sidebar.minimal": true }`). */
   display?: Record<string, unknown>;
@@ -297,6 +301,9 @@ export type AgentPaneVariant = VariantBase & {
   /** Experiment arms the variant pins, by experiment id (experiments/experiment.ts), set before the
    *  pane's scripts run: a variant about one arm's look keeps it when the default moves. */
   experiments?: Record<string, string>;
+  /** Settings > Advanced > Experiments switches the variant turns on, by name (`{ foldSummaryCounts:
+   *  true }`), as the app's `applyExperiments` push sends them (experiments/switches.ts). */
+  experimentSwitches?: Record<string, boolean>;
   /** The pane's first chat has Session Info open, as a person who opened it there has it. Session
    *  Info starts closed in every new pane (sessionInfoState.ts); a stage that draws it set this. */
   sessionInfoOpen?: boolean;
@@ -356,6 +363,9 @@ export type DiffPageVariant = VariantBase & {
    * key (`cmux.diff.summary`, after `summaryDelayMs`), or a refusal reason `summaryCheck` answers.
    * Absent, the host serves no summary op. */
   summaries?: { sentences: Record<string, string>; delayMs?: number } | { refused: string };
+  /** Experiment arms the variant pins, by experiment id (experiments/experiment.ts), set before the
+   *  page's scripts run: a variant about one arm's look keeps it when the default moves. */
+  experiments?: Record<string, string>;
 };
 
 /** The App Store page on an in-page cmuxPage host serving its supervisor projection. */
@@ -420,18 +430,12 @@ export type CloudPageVariant = VariantBase & {
   surge?: import("../pages/cloud/ops").CloudSurge;
   /** The app's billing read: the latest payment failed (true), or the read fails ("fail"). */
   paymentPastDue?: boolean | "fail";
+  /** This month's usage (`cloud.usage.current`); "fail" fails the read, "hold" keeps it loading; absent: not served. */
+  usage?: import("../pages/cloud/ops").CloudUsage | "fail" | "hold";
   /** The plan the account panel names (`cloud.plan.get` `plan_id`), when not the sample plan's. */
   planId?: string;
   machines: CloudMachine[];
   snapshots: CloudSnapshot[];
-};
-
-/** The CodeRouter page on an in-page cmuxPage host serving account and provider rows. */
-export type CodeRouterPageVariant = VariantBase & {
-  mode?: "normal" | "loading" | "error";
-  error?: { code: string; message: string };
-  signedIn?: boolean;
-  providers: ProviderRow[];
 };
 
 /** The changelog page on an in-page cmuxPage host serving verified release notes. */
@@ -562,7 +566,6 @@ export type MarkdownPageEntry = EntryBase<MarkdownPageVariant> & { host: "markdo
 export type DiffPageEntry = EntryBase<DiffPageVariant> & { host: "diff-page" };
 export type AppsPageEntry = EntryBase<AppsPageVariant> & { host: "apps-page" };
 export type CloudPageEntry = EntryBase<CloudPageVariant> & { host: "cloud-page" };
-export type CodeRouterPageEntry = EntryBase<CodeRouterPageVariant> & { host: "coderouter-page" };
 export type ChangelogPageEntry = EntryBase<ChangelogPageVariant> & { host: "changelog-page" };
 export type IconPickerPageEntry = EntryBase<IconPickerPageVariant> & { host: "icon-picker-page" };
 export type EditorPageEntry = EntryBase<EditorPageVariant> & { host: "editor-page" };
@@ -591,7 +594,6 @@ export type GalleryEntry =
   | DiffPageEntry
   | AppsPageEntry
   | CloudPageEntry
-  | CodeRouterPageEntry
   | ChangelogPageEntry
   | IconPickerPageEntry
   | EditorPageEntry
@@ -611,7 +613,6 @@ export {
   diffPageEntry,
   appsPageEntry,
   cloudPageEntry,
-  codeRouterPageEntry,
   changelogPageEntry,
   iconPickerPageEntry,
   editorPageEntry,
