@@ -50,6 +50,7 @@ jobs:
             scripts/ci/workflow_paths_cover_inputs.py
             scripts/ci/gh_expressions.py
             .github/workflows/
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Update the red checks line

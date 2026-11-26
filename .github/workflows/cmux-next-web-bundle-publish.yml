@@ -453,6 +453,7 @@ jobs:
             /scripts/cmux-next/
             /webviews/src/web-abi.json
             /Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json
+            /.gitmodules
 
       - name: Download the archive
         if: needs.build.outputs.published != 'true'

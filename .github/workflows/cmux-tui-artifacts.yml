@@ -275,6 +275,7 @@ jobs:
             scripts/ci/cmux_tui_branch_inputs.py
             scripts/ci/cmux_tui_tree_key.py
             scripts/ci/api_call_log/
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Check whether a newer push superseded this one
         id: stale
@@ -331,6 +332,7 @@ jobs:
             scripts/ci/cmux_tui_feat_supersede.py
             scripts/ci/deadline_http.py
             scripts/ci/api_call_log/
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Cancel the older feat-cmux-next push runs no runner took
         env:
@@ -426,6 +428,7 @@ jobs:
             scripts/ci/select_package_tests.py
             scripts/ci/gh_expressions.py
             .github/workflows/cmux-tui-artifacts.yml
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       # The owned GCP build lanes reuse the workspace: after an earlier job's sparse checkout a full checkout there left tracked files missing (run 44398113924), so write HEAD's files again.
@@ -1069,6 +1072,7 @@ jobs:
             scripts/ci/cmux_tui_owner_feed.py
             scripts/ci/cmux_tui_publisher_testing.py
             scripts/ci/nightly_tree_source.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       # The owned GCP build lanes reuse the workspace: after an earlier job's sparse checkout a full checkout there left tracked files missing (run 44398113924), so write HEAD's files again.
@@ -1508,7 +1512,7 @@ jobs:
   # thin-LTO copy of the same two targets for the Cloud machine channel was dropped on 2026-11-22
   # (#49815: on 01:50-03:50Z its two legs spent 421 of the publisher's 1,462 re-run minutes).
   # LINUX_CALL_FOR_CHANNEL: the Linux legs are their own call, and `build` holds only the macOS
-  # legs, so point-machine-channel-early needs only build-linux. In one call it waited for the
+  # legs, so a point of build-linux's binaries needs only build-linux. In one call it waited for the
   # whole call: run 45077463540's Linux legs ended 6.4 min before its macOS leg, and run
   # 45135074927's Linux legs ended at 08:29:56Z while its aarch64-apple-darwin leg ran past 08:56Z,
   # and the channel waited the whole time (fix-running-cloud-channel). publish and
@@ -1556,100 +1560,10 @@ jobs:
       linux_runner: cmux-linux
 
 
-  # MACHINE_CHANNEL_THIN (goal cloud-fix-to-machine): the Cloud machine channel's own copy of the two
-  # Linux musl targets, thin (release LTO off, 16 codegen units: cmux-tui-build-package.yml), so
-  # point-machine-channel-early moves when it is built instead of when build-linux's fat legs are.
-  # On the cmux-linux pool a fat leg builds cold (no sticky disk): f3c7bad28065 (run 45334452445)
-  # spent 25 of its 41.9 merge-to-machine minutes in build-linux x86_64, and c04bec1ce5d9 (run
-  # 45330255428) waited 39.5 min for its aarch64 leg of 41.4. A thin leg took 4.3-7.6 min on
-  # 2026-11-13 (about 8.5 against 24.5 fat, runs 43239073532, 43317570784), for a stripped x86_64
-  # cmux-tui 36.0 MiB larger (#41963). MUSL_BUILT_ONCE (#49815) dropped this call over its re-run
-  # minutes (421 of 1,462 on 2026-11-22 01:50-03:50Z, on Blacksmith): it now runs on attempt 1 only
-  # (a re-run's channel moves from point-machine-channel after publish), on the owned cmux-linux pool,
-  # and only on a feat-cmux-next push, the one ref whose channel point reads it. Its artifacts are
-  # named machine-channel-*, which no publish, tree, release or npm pattern matches: the shipped Linux
-  # binaries stay build-linux's, and only point-machine-channel-early uploads these, to
-  # cmux-tui/<sha>/machine/. Undo: delete this job and point the early job at build-linux's
-  # cmux-tui-*-unknown-linux-musl again.
-  # LINUX_X86_64_FIRST (goal cloud-fix-to-machine): each thin musl target is its own call, so
-  # point-machine-channel-early moves the channel for x86_64 machines when the x86_64 leg is done, not when
-  # the slower aarch64 leg is, and an aarch64 failure no longer holds x86_64 back. In run 45536155088
-  # (2026-11-25) the x86_64 leg ended at 03:19:28Z and aarch64 failed at 03:27:16Z: the channel never moved
-  # early. Both calls are named build-machine-channel, so the legs keep the names "build-machine-channel /
-  # build TARGET". Their R2 cargo cache writes stay a feat-cmux-next push's alone (their `if`).
-  build-machine-channel-x86_64:
-    name: build-machine-channel
-    if: >-
-      ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' &&
-          github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 &&
-          needs.tree-preflight.result == 'success' && needs.tree-owner-wait.result != 'failure' &&
-          needs.tree-preflight.outputs.reuse_hit != 'true' &&
-          needs.tree-preflight.outputs.run_macos == 'true' &&
-          (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') }}
-    needs: [tree-preflight, tree-owner-wait]
-    # One group per run, as build-linux.
-    concurrency:
-      group: cmux-tui-build-machine-channel-x86_64-${{ needs.tree-preflight.outputs.key }}-${{ github.run_id }}
-      cancel-in-progress: false
-    permissions:
-      contents: read
-      # The reusable package workflow's permission ceiling (see build).
-      id-token: write
-      attestations: write
-    uses: ./.github/workflows/cmux-tui-build-package.yml
-    # The R2 cargo cache's write credentials (its own thin key), as build-linux.
-    secrets:
-      CI_CACHE_R2_ACCESS_KEY_ID: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
-      CI_CACHE_R2_SECRET_ACCESS_KEY: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
-      CI_CACHE_R2_ACCOUNT_ID: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_ACCOUNT_ID || '' }}
-    with:
-      version: 0.0.0-r2.sha-${{ github.sha }}
-      package_npm: false
-      package_pypi: false
-      include_windows: false
-      # scripts/cmux-next/cmux-tui-build-profiles.json machine_channel (a tree-key input).
-      target_set: ${{ fromJSON(needs.tree-preflight.outputs.build_profiles).machine_channel.x86_64_target_set }}
-      lto: ${{ fromJSON(needs.tree-preflight.outputs.build_profiles).machine_channel.lto }}
-      artifact_prefix: ${{ fromJSON(needs.tree-preflight.outputs.build_profiles).machine_channel.artifact_prefix }}
-      darwin_builder: ${{ needs.tree-preflight.outputs.darwin_builder }}
-      linux_runner: cmux-linux
+  # MACHINE_CHANNEL_THIN, LINUX_X86_64_FIRST: the Cloud machine channel's thin copy of the two Linux musl
+  # targets is built and pointed by cmux-machine-channel.yml on every feat-cmux-next push that changes the
+  # tree, not here, where a coalesced push built nothing (cmux#54889 waited 75 of 97 min).
 
-
-  build-machine-channel:
-    if: >-
-      ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' &&
-          github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 &&
-          needs.tree-preflight.result == 'success' && needs.tree-owner-wait.result != 'failure' &&
-          needs.tree-preflight.outputs.reuse_hit != 'true' &&
-          needs.tree-preflight.outputs.run_macos == 'true' &&
-          (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') }}
-    needs: [tree-preflight, tree-owner-wait]
-    # One group per run, as build-linux.
-    concurrency:
-      group: cmux-tui-build-machine-channel-${{ needs.tree-preflight.outputs.key }}-${{ github.run_id }}
-      cancel-in-progress: false
-    permissions:
-      contents: read
-      # The reusable package workflow's permission ceiling (see build).
-      id-token: write
-      attestations: write
-    uses: ./.github/workflows/cmux-tui-build-package.yml
-    # The R2 cargo cache's write credentials (its own thin key), as build-linux.
-    secrets:
-      CI_CACHE_R2_ACCESS_KEY_ID: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
-      CI_CACHE_R2_SECRET_ACCESS_KEY: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
-      CI_CACHE_R2_ACCOUNT_ID: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_ACCOUNT_ID || '' }}
-    with:
-      version: 0.0.0-r2.sha-${{ github.sha }}
-      package_npm: false
-      package_pypi: false
-      include_windows: false
-      # scripts/cmux-next/cmux-tui-build-profiles.json machine_channel (a tree-key input).
-      target_set: ${{ fromJSON(needs.tree-preflight.outputs.build_profiles).machine_channel.aarch64_target_set }}
-      lto: ${{ fromJSON(needs.tree-preflight.outputs.build_profiles).machine_channel.lto }}
-      artifact_prefix: ${{ fromJSON(needs.tree-preflight.outputs.build_profiles).machine_channel.artifact_prefix }}
-      darwin_builder: ${{ needs.tree-preflight.outputs.darwin_builder }}
-      linux_runner: cmux-linux
 
   build:
     if: >-
@@ -2412,14 +2326,12 @@ jobs:
   # skipped, and never records a reused pass.
   record-input-pass:
     name: record cmux-tui input pass
-    needs: [tree-preflight, tree-owner-wait, build-linux, build-machine-channel-x86_64, build-machine-channel, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests]
+    needs: [tree-preflight, tree-owner-wait, build-linux, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests]
     if: >-
       ${{ always() && !cancelled() && needs.tree-preflight.result == 'success' &&
           needs.tree-preflight.outputs.reuse_key != '' && needs.tree-preflight.outputs.reuse_hit != 'true' &&
           needs.tree-preflight.outputs.run_macos == 'true' &&
           needs.build-linux.result != 'failure' && needs.build-linux.result != 'cancelled' &&
-          needs.build-machine-channel-x86_64.result != 'failure' && needs.build-machine-channel-x86_64.result != 'cancelled' &&
-          needs.build-machine-channel.result != 'failure' && needs.build-machine-channel.result != 'cancelled' &&
           needs.build.result != 'failure' && needs.build.result != 'cancelled' &&
           needs.build-windows.result != 'failure' && needs.build-windows.result != 'cancelled' &&
           needs.darwin-fallback-plan.result != 'failure' && needs.darwin-fallback-plan.result != 'cancelled' &&
@@ -2627,7 +2539,7 @@ jobs:
 
       # Another run or attempt of the same commit may have published its Linux
       # cmux-tui and cmux-tui-hook to cmux-tui/<sha>/ first (every publisher
-      # builds them fat; point-machine-channel-early's copy goes to
+      # builds them fat; cmux-machine-channel.yml's copy goes to
       # cmux-tui/<sha>/machine/ and never here). Upload those four write-once
       # first and keep whatever bytes the prefix ends up serving
       # (scripts/ci/cmux-machine-linux-bytes.sh), so the checksums and manifest
@@ -3801,6 +3713,7 @@ jobs:
             scripts/ci/gh_budget_wait.sh
             scripts/ci/ensure-gh-attestation.sh
             cmux-tui/scripts/verify_published_manifest.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       # The owned GCP build lanes reuse the workspace: after an earlier job's sparse checkout a full checkout there left tracked files missing (run 44398113924), so write HEAD's files again.
@@ -4085,6 +3998,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/verify_cmux_tui_publication.py
             scripts/ci/deadline_http.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       # The owned GCP build lanes reuse the workspace: after an earlier job's sparse checkout a full checkout there left tracked files missing (run 44398113924), so write HEAD's files again.
@@ -5488,163 +5402,19 @@ jobs:
   # channel but its own). Only this checkout's scripts touch the key. An
   # older run never moves the channel back (web-ota-pointer.py newer).
   #
-  # point-machine-channel-early moves it as soon as build-machine-channel is
-  # done: it uploads that call's thin cmux-tui and cmux-tui-hook (the machine
-  # channel's own copy, artifacts machine-channel-*: MACHINE_CHANNEL_THIN) to
-  # cmux-tui/<sha>/machine/ and points the channel at them, long before the fat
-  # build-linux legs, publish and verify-publish could. The updater accepts that
-  # path since cmux#42308 (updater/channel.rs).
-  # It is a delivery step, not a gate: nothing needs it, continue-on-error
-  # keeps it out of the run's result, and whenever it skips or fails,
-  # point-machine-channel below moves the channel to the fat publication after
-  # publish and verify-publish as before (it finds the channel current when the
-  # early one succeeded: same commit). It runs in the run that builds the tree
-  # (its owner, or a takeover), as build-machine-channel does. Its objects are
-  # write-once (scripts/ci/cmux-machine-linux-bytes.sh): the first attempt's
-  # claim wins and an attempt with other bytes skips.
-  point-machine-channel-early:
-    # R2 credentials. Only a base branch's publish (which moves the channels) records a
-    # deployment; a lane branch's commit-addressed upload logs none on its PR.
-    environment:
-      name: artifacts
-      deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
-    name: point the Cloud machine channel at this commit's x86_64 Linux build
-    # One waiting point per channel: a newer commit's point replaces a pending one (the point is a
-    # forward-only compare-and-swap, so only the newest tree matters). With none, every commit queued
-    # its own point on the one-job label: 31 stale ones waited there on 2026-11-20.
-    concurrency:
-      group: cmux-tui-point-machine-early-${{ github.ref }}
-      cancel-in-progress: false
-    needs: [tree-preflight, tree-owner-wait, build-machine-channel-x86_64]
-    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.build-machine-channel-x86_64.result == 'success' && (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') }}
-    continue-on-error: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
+  # The thin machine-channel build and its point run in cmux-machine-channel.yml, on every
+  # feat-cmux-next push that changes the tree (MACHINE_CHANNEL_THIN, LINUX_X86_64_FIRST: x86_64 first, then
+  # both targets): here they waited for the
+  # coalesce window (cmux#54889: 75 of 97 merge-to-channel minutes). point-machine-channel below
+  # is the fallback after publish.
 
-      # The owned GCP build lanes reuse the workspace: after an earlier job's sparse checkout a full checkout there left tracked files missing (run 44398113924), so write HEAD's files again.
-      - name: Repair a reused self-hosted checkout
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
-            git sparse-checkout disable 2>/dev/null || true
-            git reset -q --hard HEAD
-          fi
-
-      - name: Download the machine channel's Linux cmux-tui binaries
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          # build-machine-channel-x86_64's thin copy only (MACHINE_CHANNEL_THIN, LINUX_X86_64_FIRST).
-          pattern: machine-channel-cmux-tui-x86_64-unknown-linux-musl
-          path: assets/cmux-tui
-          merge-multiple: true
-
-      - name: Upload the Linux binaries and point the channel
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: auto
-          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
-          SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
-        run: |
-          set -euo pipefail
-          dir="$RUNNER_TEMP/machine-channel"
-          mkdir -p "$dir" && chmod 700 "$dir"
-          # Write-once: another run or attempt that uploaded other bytes first keeps them, and this skips.
-          rc=0
-          scripts/ci/cmux-machine-linux-bytes.sh early assets/cmux-tui || rc=$?
-          [[ $rc == 3 ]] && exit 0
-          [[ $rc == 0 ]] || exit "$rc"
-          python3 scripts/ci/cmux-machine-channel.py payload --binaries-dir assets/cmux-tui --machine-path \
-            --commit "$GITHUB_SHA" --committed-at "$(git show -s --format=%ct HEAD)" \
-            --download-dir "$dir/binaries" --out "$dir/payload.json" --target x86_64-unknown-linux-musl
-          rm -rf "$dir/binaries"
-          scripts/ci/cmux-machine-channel-point.sh "$dir/payload.json" "$dir"
-
-
-  # point-machine-channel-early-linux adds the aarch64 build once both thin legs are done: the same
-  # commit's file with every target, which web-ota-pointer.py newer takes over the x86_64-only one when the
-  # x86_64 bytes match (completes), so no x86_64 machine downloads again. Its early claim is
-  # early-claim.json, the x86_64 point's early-claim-x86_64-unknown-linux-musl.json
-  # (scripts/ci/cmux-machine-linux-bytes.sh).
-  point-machine-channel-early-linux:
-    # R2 credentials. Only a base branch's publish (which moves the channels) records a
-    # deployment; a lane branch's commit-addressed upload logs none on its PR.
-    environment:
-      name: artifacts
-      deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
-    name: point the Cloud machine channel at this commit's Linux builds
-    # One waiting point per channel: a newer commit's point replaces a pending one (the point is a
-    # forward-only compare-and-swap, so only the newest tree matters). With none, every commit queued
-    # its own point on the one-job label: 31 stale ones waited there on 2026-11-20.
-    concurrency:
-      group: cmux-tui-point-machine-early-linux-${{ github.ref }}
-      cancel-in-progress: false
-    needs: [tree-preflight, tree-owner-wait, build-machine-channel-x86_64, build-machine-channel]
-    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.build-machine-channel-x86_64.result == 'success' && needs.build-machine-channel.result == 'success' && (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') }}
-    continue-on-error: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      # The owned GCP build lanes reuse the workspace: after an earlier job's sparse checkout a full checkout there left tracked files missing (run 44398113924), so write HEAD's files again.
-      - name: Repair a reused self-hosted checkout
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
-            git sparse-checkout disable 2>/dev/null || true
-            git reset -q --hard HEAD
-          fi
-
-      - name: Download the machine channel's Linux cmux-tui binaries
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          # build-machine-channel's thin copy only (MACHINE_CHANNEL_THIN), never the shipped cmux-tui-* artifacts.
-          pattern: machine-channel-cmux-tui-*-unknown-linux-musl
-          path: assets/cmux-tui
-          merge-multiple: true
-
-      - name: Upload the Linux binaries and point the channel
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: auto
-          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
-          SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
-        run: |
-          set -euo pipefail
-          dir="$RUNNER_TEMP/machine-channel"
-          mkdir -p "$dir" && chmod 700 "$dir"
-          # Write-once: another run or attempt that uploaded other bytes first keeps them, and this skips.
-          rc=0
-          scripts/ci/cmux-machine-linux-bytes.sh early assets/cmux-tui || rc=$?
-          [[ $rc == 3 ]] && exit 0
-          [[ $rc == 0 ]] || exit "$rc"
-          python3 scripts/ci/cmux-machine-channel.py payload --binaries-dir assets/cmux-tui --machine-path \
-            --commit "$GITHUB_SHA" --committed-at "$(git show -s --format=%ct HEAD)" \
-            --download-dir "$dir/binaries" --out "$dir/payload.json"
-          rm -rf "$dir/binaries"
-          scripts/ci/cmux-machine-channel-point.sh "$dir/payload.json" "$dir"
-
-  # After publish and verify-publish, as before point-machine-channel-early: it moves the channel when
+  # After publish and verify-publish, as the fallback for cmux-machine-channel.yml's points: it moves the channel when
   # the early job skipped or failed, and otherwise finds it current and keeps it.
   # A push that builds nothing (its tree already published, as a PR-first merge's tree is by the lane
   # head's run, or another run owns its key) has no build, publish or verify-publish, so it
   # moves the channel from the manifest adopt-commit-manifest wrote (or found) instead: the fat
   # cmux-tui/<sha>/ names, the first URL updater/channel.rs allowed_urls accepts. No machine/ copy of
-  # such a commit exists (only point-machine-channel-early uploads one, from this run's build).
+  # such a commit exists (only cmux-machine-channel.yml uploads one, from its own build).
   # 93d73d7b (run 43479235288) adopted its manifest at 18:07:54Z and, before this, the channel waited
   # for the next built commit at 18:22Z. The channel still never moves back (web-ota-pointer.py newer).
   # It never moves for identical code either (cmux-machine-channel-point.sh --same-tree): a channel on
@@ -5714,7 +5484,7 @@ jobs:
             --committed-at "$(git show -s --format=%ct HEAD)" --download-dir "$dir/binaries" --out "$dir/payload.json"
           rm -rf "$dir/binaries"
           # --same-tree: a channel on a commit of this commit's tree key (the adopted tree, or this
-          # commit's own build from point-machine-channel-early) is the same code and stays.
+          # commit's own build from cmux-machine-channel.yml) is the same code and stays.
           scripts/ci/cmux-machine-channel-point.sh "$dir/payload.json" "$dir" --same-tree
           # Then the signed Linux release files (cmuxterm-hq docs/design/linux-signed-packages.md):
           # cmux-tui/<sha>/release.json (written once) and cmux-tui/channels/linux-feat-cmux-next.json
@@ -6134,7 +5904,7 @@ jobs:
   # 300 an hour, must not spend the 1,000-an-hour budget every workflow shares.
   drop-build-artifacts:
     name: drop this run's build artifacts
-    needs: [reject-untrusted-pin-ref, push-gate, coalesce, coalesce-failed, supersede-feat-runs, tree-preflight, tree-owner-wait, build-machine-channel-x86_64, build-machine-channel, build-linux, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests, record-input-pass, publish-ref-notice, sentry-dsyms, publish, verify-publish, adopt-commit-manifest, rerun-deferred-commits, verify-cdn-publication, publish-windows, macos-cross-shadow, macos-cross-runtime-x86_64, publish-tree, publish-tree-windows, publish-tree-tested, point-feat-channel, point-windows-channel, mark-tree-commits, sweep-commit-manifests, sweep-pending-tree-notify, point-machine-channel-early, point-machine-channel-early-linux, point-machine-channel, point-mac-live-channel, request-image-roll, request-nightly-next, request-team-signed-tree, notify-unpublished-tree]
+    needs: [reject-untrusted-pin-ref, push-gate, coalesce, coalesce-failed, supersede-feat-runs, tree-preflight, tree-owner-wait, build-linux, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests, record-input-pass, publish-ref-notice, sentry-dsyms, publish, verify-publish, adopt-commit-manifest, rerun-deferred-commits, verify-cdn-publication, publish-windows, macos-cross-shadow, macos-cross-runtime-x86_64, publish-tree, publish-tree-windows, publish-tree-tested, point-feat-channel, point-windows-channel, mark-tree-commits, sweep-commit-manifests, sweep-pending-tree-notify, point-machine-channel, point-mac-live-channel, request-image-roll, request-nightly-next, request-team-signed-tree, notify-unpublished-tree]
     # Not after notify-unpublished-tree ran: it must stay the run's last job so the
     # deferred run it re-runs finds this owner ended (cx-urd.26). Those runs keep
     # their artifacts to the 1-day retention.

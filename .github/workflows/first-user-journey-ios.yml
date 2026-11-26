@@ -59,6 +59,7 @@ jobs:
             scripts/ci/deadline_http.py
             scripts/ci/simple_pool_picker.py
             scripts/ci/warm_distance.py
+            .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
       # The macOS pool the walk runs on (scripts/ci/ios_runner_pool.py, the

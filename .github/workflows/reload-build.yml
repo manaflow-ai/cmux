@@ -1126,6 +1126,7 @@ jobs:
             /scripts/ci/
             /scripts/cmux-next/web-ota-pointer.py
             /Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json
+            /.gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Repair a reused self-hosted checkout
