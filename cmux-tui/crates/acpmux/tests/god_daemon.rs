@@ -601,6 +601,53 @@ async fn peers(shape: &Shape, scratch: &Path, gate: Gate) -> (Value, Vec<Proxy>,
     (Value::Object(config), proxies, hubs)
 }
 
+/// The most a daemon held while it was sampled, by kind (`/proc/PID/status`): heap and stacks
+/// (`RssAnon`), mapped files (`RssFile`), threads, and when its RSS peaked, in ms after spawn.
+struct PeakSampler {
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    thread: std::thread::JoinHandle<Value>,
+}
+
+impl PeakSampler {
+    const EVERY: Duration = Duration::from_millis(10);
+
+    fn start(pid: u32, spawned: Instant) -> Self {
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let stopping = stop.clone();
+        let thread = std::thread::spawn(move || {
+            let (mut anon, mut file, mut threads, mut rss, mut at) = (0u64, 0u64, 0u64, 0u64, 0u64);
+            while !stopping.load(std::sync::atomic::Ordering::Relaxed) {
+                let Ok(status) = std::fs::read_to_string(format!("/proc/{pid}/status")) else {
+                    break;
+                };
+                let field = |name: &str| {
+                    status
+                        .lines()
+                        .find(|l| l.starts_with(name))
+                        .and_then(|l| l.split_whitespace().nth(1))
+                        .and_then(|n| n.parse::<u64>().ok())
+                        .unwrap_or(0)
+                };
+                anon = anon.max(field("RssAnon:") * 1024);
+                file = file.max(field("RssFile:") * 1024);
+                threads = threads.max(field("Threads:"));
+                let now = field("VmRSS:") * 1024;
+                if now > rss {
+                    (rss, at) = (now, ms(spawned));
+                }
+                std::thread::sleep(Self::EVERY);
+            }
+            json!({"anon": anon, "file": file, "threads": threads, "rss": rss, "atMs": at})
+        });
+        Self { stop, thread }
+    }
+
+    fn stop(self) -> Value {
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        self.thread.join().unwrap_or(Value::Null)
+    }
+}
+
 struct Daemon {
     child: Child,
     socket: PathBuf,
@@ -652,6 +699,12 @@ impl Daemon {
         }
         let socket_connect_us = micros(spawned);
         Self { child, socket, log, spawned, socket_connect_us }
+    }
+
+    /// Samples the daemon's memory until the returned sampler is stopped: what its peak RSS is
+    /// made of (`PeakSampler`).
+    fn sample_peak(&self) -> PeakSampler {
+        PeakSampler::start(self.child.id(), self.spawned)
     }
 
     /// The daemon's CPU time so far, user and system, in seconds (`/proc/PID/stat`).
@@ -2420,6 +2473,7 @@ fn size_run(label: &str, bytes: u64) -> Value {
         .is_some()
         .then(|| scratch.join("restart-dhat-heap.json"));
     let mut daemon = Daemon::start(&scratch, &home, restart_profile.as_deref());
+    let restart_sampler = daemon.sample_peak();
     let mut rpc = Rpc::connect(&daemon.socket);
     rpc.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "size-sweep"}}))
         .unwrap();
@@ -2438,6 +2492,7 @@ fn size_run(label: &str, bytes: u64) -> Value {
         .is_some_and(|(seq, before)| seq > before);
     let restart_send = send_first_token(&mut rpc, &id, &format!("size {label} restarted"));
     let (restart_rss, restart_peak_rss) = daemon.rss();
+    let restart_peak = restart_sampler.stop();
     drop(rpc);
     daemon.stop();
     let restart_heap = restart_profile.as_deref().map(attribute);
@@ -2445,6 +2500,7 @@ fn size_run(label: &str, bytes: u64) -> Value {
     // A second restart: the first adoption left whatever it saves for the next one, so this
     // reads what a chat costs on every restart after its first.
     let mut daemon = Daemon::start(&scratch, &home, None);
+    let second_sampler = daemon.sample_peak();
     let mut rpc = Rpc::connect(&daemon.socket);
     rpc.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "size-sweep"}}))
         .unwrap();
@@ -2454,6 +2510,7 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let second_all_logs = wait_all_logs_within(&mut rpc, SIZE_ALL_LOGS);
     let second_send = send_first_token(&mut rpc, &id, &format!("size {label} restarted twice"));
     let (_, second_peak_rss) = daemon.rss();
+    let second_peak = second_sampler.stop();
     drop(rpc);
     daemon.stop();
     let home_bytes: u64 = home_files(&home).values().sum();
@@ -2490,12 +2547,13 @@ fn size_run(label: &str, bytes: u64) -> Value {
         "restartSendFirstTokenUs": restart_send.as_ref().ok(),
         "restartSendError": restart_send.as_ref().err(),
         "restartRss": restart_rss, "restartPeakRss": restart_peak_rss, "restartHeap": restart_heap,
+        "restartPeak": restart_peak,
         "secondRestartAttachMs": second_attach_ms,
         "secondRestartAttachError": second_attach.as_ref().err(),
         "secondRestartAllLogsMs": second_all_logs.as_ref().ok(),
         "secondRestartSendFirstTokenUs": second_send.as_ref().ok(),
         "secondRestartSendError": second_send.as_ref().err(),
-        "secondRestartPeakRss": second_peak_rss,
+        "secondRestartPeakRss": second_peak_rss, "secondRestartPeak": second_peak,
         "homeBytes": home_bytes, "freeBytes": free,
     });
     if let Some(out) = std::env::var_os("FAST_CHECKS_OUT") {
