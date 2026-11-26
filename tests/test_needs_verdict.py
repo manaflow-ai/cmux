@@ -275,7 +275,7 @@ MIXED = {
     ("ci-web.yml", "react-apps-check", "Check webview test shards"): {
         "WEB_INPUTS": json.dumps({"web": "true"}),
         "WEB_NEEDS": json.dumps({"web-subarea-scope": WEB_SCOPE, "react-apps-check-shard": {"result": "abandoned"},
-                                 "react-doctor": {"result": "failure"}, "react-apps-base-check": {"result": "skipped"}})},
+                                 "react-apps-static": {"result": "success"}, "react-doctor": {"result": "failure"}, "react-apps-base-check": {"result": "skipped"}})},
     ("ci-web.yml", "web-status", "Check routed web jobs"): {
         "WEB_INPUTS": json.dumps({"web": "true", "macos": "false", "agent_session_web": "false"}),
         "WEB_NEEDS": json.dumps({"web-subarea-scope": {"result": "abandoned"}, "web-tests": {"result": "failure"},
