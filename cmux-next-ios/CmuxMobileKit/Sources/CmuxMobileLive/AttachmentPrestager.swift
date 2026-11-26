@@ -28,6 +28,7 @@ final class AttachmentPrestager {
         let task: Task<Result, any Error>
         let started: ContinuousClock.Instant
         let directory: String?
+        let signature: Int
     }
 
     private(set) var entries: [String: Entry] = [:]
@@ -48,9 +49,10 @@ final class AttachmentPrestager {
 
     /// The composer's attachments now: starts an upload for each new one that would upload at
     /// send, cancels the uploads of those taken off. `upload` nil (no link): nothing starts.
-    func sync(_ attachments: [AgentAttachment], directory: String? = nil, upload: Upload?) {
-        let wanted = Set(attachments.filter(Self.uploadsAtSend).map(\.id))
-        for (id, entry) in entries where !wanted.contains(id) || entry.directory != directory {
+    func sync(_ attachments: [AgentAttachment], directory: String? = nil, upload: Upload?, promptUploads: Bool = false) {
+        let wanted = Set(attachments.filter { Self.uploadsAtSend($0, promptUploads: promptUploads) }.map(\.id))
+        for (id, entry) in entries where !wanted.contains(id) || entry.directory != directory
+            || !attachments.contains(where: { $0.id == id && $0.hashValue == entry.signature }) {
             entry.task.cancel()
             entries[id] = nil
         }
@@ -74,7 +76,8 @@ final class AttachmentPrestager {
                     throw error
                 }
             }
-            entries[attachment.id] = Entry(task: task, started: started, directory: directory)
+            entries[attachment.id] = Entry(task: task, started: started, directory: directory,
+                                           signature: attachment.hashValue)
         }
     }
 

@@ -123,13 +123,13 @@ import Testing
         await mac.hold()
         let upload: AttachmentPrestager.Upload = { _, name in .path(try await mac.upload(name)) }
         let original = AgentAttachment(id: "image", kind: .image, name: "photo.heic", data: Data("heic".utf8))
-        prestager.sync([original], upload: upload)
+        prestager.sync([original], upload: upload, promptUploads: true)
         await mac.waitForUploadStart()
         let task = try #require(prestager.entries[original.id]?.task)
 
         let optimizedData = Data([0x89, 0x50, 0x4E, 0x47, 0, 0, 0, 0, 0, 0, 0, 0])
         let optimized = AgentAttachment(id: original.id, kind: .image, name: "photo.png", data: optimizedData)
-        prestager.sync([optimized], upload: upload)
+        prestager.sync([optimized], upload: upload, promptUploads: true)
 
         #expect(prestager.entries.isEmpty)
         #expect(task.isCancelled)

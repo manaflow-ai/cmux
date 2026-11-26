@@ -1417,7 +1417,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// same folder Send uploads to; files taken off stop (``AttachmentPrestager``).
     public func prestageAttachments(_ attachments: [AgentAttachment]) {
         let promptUploads = supportsPromptUploads
-        composerAttachments = attachments.filter { AttachmentPrestager.uploadsAtSend($0, promptUploads: promptUploads) }
+        // Keep the complete composer list so a reconnect that negotiates prompt uploads can
+        // start image transfers that were skipped on an older connection.
+        composerAttachments = attachments
         let cwd = baseDirectory
         let macName = summary.macName
         var upload: AttachmentPrestager.Upload?
@@ -1431,7 +1433,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 return .path(try await AcpmuxSessionSource.upload(payload, name: name, cwd: cwd, link: link, macName: macName))
             }
         }
-        prestager.sync(attachments, directory: cwd, upload: upload)
+        prestager.sync(attachments, directory: cwd, upload: upload, promptUploads: promptUploads)
     }
 
     /// Prompt references are available only after initialize has advertised the complete
@@ -1502,7 +1504,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 continue
             }
             try Task.checkCancellation()
-            guard let link else { throw LinkError(code: "offline", message: "Connect to \(macName) to send \(attachment.name).") }
+            if promptUpload == nil, link == nil {
+                throw LinkError(code: "offline", message: "Connect to \(macName) to send \(attachment.name).")
+            }
             progress?(AgentUploadProgress(name: attachment.name, sent: 0, total: attachment.byteCount ?? attachment.data?.count ?? 0,
                                           phase: .opening, attempt: 1))
             if let promptUpload {
@@ -1511,6 +1515,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 case .prompt(let uploadID, let fileName, let ownerToken): promptRefs[attachment.id] = (uploadID, fileName, ownerToken)
                 }
             } else {
+                guard let link else { throw LinkError(code: "offline", message: "Connect to \(macName) to send \(attachment.name).") }
                 uploaded[attachment.id] = try await Self.upload(payload, name: attachment.name, cwd: cwd, link: link, macName: macName)
             }
         }
@@ -1619,26 +1624,29 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 guard !chunk.isEmpty else {
                     throw LinkUpload.Failure(code: "unreadable", message: "Couldn't read \(name) on this iPhone.")
                 }
-                let reply = try await connection.request("_acpmux/file_put_chunk", .object([
+                var chunkParams: [String: JSONValue] = [
                     "sessionId": .string(sessionID), "uploadId": .string(id), "offset": .number(Double(offset)),
                     "data": .string(chunk.base64EncodedString()),
-                ]))
+                ]
+                if let ownerToken { chunkParams["ownerToken"] = .string(ownerToken) }
+                let reply = try await connection.request("_acpmux/file_put_chunk", .object(chunkParams))
                 offset = Int(reply["offset"]?.numberValue ?? Double(offset + chunk.count))
             }
-            let finish = try await connection.request("_acpmux/file_put_finish", .object([
+            var finishParams: [String: JSONValue] = [
                 "sessionId": .string(sessionID), "uploadId": .string(id), "fileName": .string(name),
                 "size": .number(Double(size)),
-            ]))
+            ]
+            if let ownerToken { finishParams["ownerToken"] = .string(ownerToken) }
+            let finish = try await connection.request("_acpmux/file_put_finish", .object(finishParams))
             guard finish["path"]?.stringValue != nil else {
                 throw LinkUpload.Failure(code: "upload.invalid", message: "The Mac did not finish \(name).")
             }
             return .prompt(uploadID: id, fileName: name, ownerToken: ownerToken)
         } catch {
             if let id = uploadID {
-                _ = try? await connection.request("_acpmux/file_put_cancel", .object([
-                    "sessionId": .string(sessionID), "uploadId": .string(id),
-                    "ownerToken": ownerToken.map(JSONValue.string) ?? .null,
-                ]))
+                var cancelParams: [String: JSONValue] = ["sessionId": .string(sessionID), "uploadId": .string(id)]
+                if let ownerToken { cancelParams["ownerToken"] = .string(ownerToken) }
+                _ = try? await connection.request("_acpmux/file_put_cancel", .object(cancelParams))
             }
             throw error
         }
