@@ -712,7 +712,8 @@ async fn a_parent_agents_resume_of_a_stopped_sub_session_honours_the_park() {
         resumed["promptId"].as_str().is_some_and(|p| p.starts_with("stopped-resume-")),
         "{resumed}"
     );
-    assert_eq!(of_kind(&hub, &child, "turn_started").len(), 3, "{:?}", kinds(&hub, &child));
+    let k = until(&hub, &child, |k| k.iter().filter(|k| *k == "turn_started").count() >= 3).await;
+    assert_eq!(of_kind(&hub, &child, "turn_started").len(), 3, "{k:?}");
 }
 
 /// Leo, 2026-11-24: "i wonder what will happen with claudes on vms... do they get stranded!? ...
