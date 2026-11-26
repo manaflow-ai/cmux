@@ -4,7 +4,6 @@ import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHomeEngine
-import CmuxNextRemoteView
 import CmuxNextSettings
 import Foundation
 
@@ -77,9 +76,6 @@ struct AppCrashReporting: Sendable {
         chiefPanics = .started(log: RustPanicSource.chiefLog(muxHome: HomeBrainHost.muxHome(tag: environment.tag)),
                                stateDirectory: state, stateName: "chief-panic-forwarder.json", sends: sends, source: .chief)
         Self.installLayoutPassGuard(reporter: reporter)
-        // Each ended screen share viewer session's first frame and present times (goal
-        // screen-share-fast); sent only while crash reporting runs (anonymous telemetry on).
-        RemoteRdSessionReports.install { [reporter] json in reporter.reportScreenShareSession(json: json) }
         UncaughtExceptionRecorder.reportLostExecutors { [reporter] message, name, frames in reporter.captureNonFatal(
             message, type: "SwiftExecutorLost", fingerprint: ["swift-executor-lost", name], extra: ["throw": frames]) }
     }
