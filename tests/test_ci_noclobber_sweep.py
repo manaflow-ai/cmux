@@ -74,6 +74,12 @@ APP_NAMES = {
 # (path, a piece of the line[, which occurrence]): why the grep's hit is safe. The occurrence counts, in file order,
 # the hits of PATH this piece holds (approves()); left out, it is 1. An entry approves that one hit only.
 ALLOWED = {
+    ("scripts/measure/screen-stream-eval/stage-table.sh", 'rig_root="/tmp/cmux-stage-table-$('):
+        "named by a hash of the run's secret token file, so no other account can guess it first; it must be the "
+        "same absolute path on both Macs (the two halves run in different homes), so a home folder cannot hold it",
+    ("scripts/measure/screen-stream-eval/targets/iphone-sim.sh", 'set="/tmp/iphsim.$('):
+        "made with mkdir -m 700, and an existing one is used only if this account owns it and it is not a symlink "
+        "(the next line); CoreSimulator's sockets need a short path, so it stays in /tmp",
     ("scripts/cmux-next/austins-day/austins-day.sh", '"${TMPDIR:-/tmp}/austins-day-$(date -u +%Y%m%dT%H%M%SZ).XXXXXX"'):
         "a mktemp -d template; shell_tree exempts nothing in this file because it sources $repo/scripts/cmux-next/"
         "capture-host-env.sh through a variable it cannot follow (it may redefine mktemp); that file defines no "

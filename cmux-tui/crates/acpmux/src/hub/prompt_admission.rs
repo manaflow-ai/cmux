@@ -36,9 +36,11 @@ use crate::rpc::RpcError;
 /// How long a prompt waits for admission, and how long it may hold it.
 pub(crate) const ADMISSION_BOUND: Duration = Duration::from_secs(3);
 /// How long after it came a prompt someone waits on goes without an answer before it is queued.
+// timeout: past it the prompt is queued and answered from there; the prompt is never dropped.
 pub(crate) const ANSWER_BOUND: Duration = Duration::from_secs(5);
 /// How long a prompt someone waits on waits in `queue_slot` for a turn lock held with no turn
 /// shown (or a restore) before it joins the queue, which answers it (#55502's bound).
+// timeout: past it the prompt joins the queue, which answers it; the prompt is never dropped.
 pub(crate) const TURN_LOCK_WAIT: Duration = Duration::from_secs(2);
 
 /// One prompt's admission: the lock while it holds it, the step it is in, and whether it reached

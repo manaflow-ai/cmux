@@ -275,6 +275,7 @@ fn bind(socket: &Path) -> Result<UnixListener> {
 const EARLY_BYTES: usize = 64 * 1024;
 /// How long a connection's first bytes are waited for before its pipe opens without them: a
 /// `lane-gh` call writes its request as soon as it connects.
+// timeout: not a failure bound; past it the pipe opens without early bytes and the connection goes on.
 const FIRST_BYTES_WAIT: std::time::Duration = std::time::Duration::from_millis(100);
 
 /// Carry one client connection to the first owner whose pipe opens (module docs).

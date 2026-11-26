@@ -34,6 +34,7 @@ use super::super::customize::pr::Http;
 use super::super::{GlobalArgs, OutputMode, wire};
 
 /// How long one preview request may take.
+// timeout: an interactive preview request; past it the CLI reports the preview failed instead of hanging.
 const PREVIEW_DEADLINE: std::time::Duration = std::time::Duration::from_secs(15);
 
 pub(super) const VERBS: &[&str] = &[

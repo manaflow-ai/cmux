@@ -32,7 +32,7 @@ permissions:
 
 concurrency:
   # The head is in the group: a new push runs beside a long run of an older head instead of waiting hours behind it.
-  group: cloud-resume-matrix-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+  group: cloud-resume-matrix-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}${{ github.event.action == 'edited' && !github.event.changes.body && format('-noop-{0}', github.run_id) || '' }}
   cancel-in-progress: false
 
 env:

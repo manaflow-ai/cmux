@@ -1605,10 +1605,12 @@ fetch --shallow-since="14 days ago" origin "$BASE_SHA" "$HEAD_SHA" \
   || true
 # A merge base found while the window cut history between it and the head (an old branch that merged the
 # base since; a cut commit lists in .git/shallow) skews commits= and files=: deepen for it as for none.
-mb=$(git -C "$repo" merge-base "$BASE_SHA" "$HEAD_SHA" 2>/dev/null || true)
+# GIT_NO_LAZY_FETCH: a failed --filter fetch still marks origin a promisor, and merge-base would then fetch the whole
+# history one missing commit at a time instead of saying the window held no merge base.
+mb=$(GIT_NO_LAZY_FETCH=1 git -C "$repo" merge-base "$BASE_SHA" "$HEAD_SHA" 2>/dev/null || true)
 cut=""
 if [ -n "$mb" ] && [ -f "$repo/.git/shallow" ]; then
-  cut=$({ echo "$mb"; git -C "$repo" rev-list "$mb..$HEAD_SHA"; } | grep -Fxf "$repo/.git/shallow" | head -1 || true)
+  cut=$({ echo "$mb"; GIT_NO_LAZY_FETCH=1 git -C "$repo" rev-list "$mb..$HEAD_SHA"; } | grep -Fxf "$repo/.git/shallow" | head -1 || true)
 fi
 if [ -z "$mb" ] || [ -n "$cut" ]; then
   echo "No merge base in the last 14 days, or history cut inside the pull request; fetching the whole history of the two commits."
