@@ -12,6 +12,8 @@ use serde::{Deserialize, Serialize};
 pub mod approval;
 #[path = "tabs_draft.rs"]
 pub mod draft;
+#[path = "tabs_layout.rs"]
+pub mod layout;
 #[path = "tabs_panes.rs"]
 pub mod panes;
 #[path = "tabs_place.rs"]
