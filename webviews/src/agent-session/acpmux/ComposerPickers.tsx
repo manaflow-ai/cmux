@@ -1,3 +1,4 @@
+import { ChevronIcon } from "./ComposerChevron";
 import { composerPickerEntries } from "./composerPickerEntries";
 import { useLiveSummary, useLiveSummaryValue } from "./liveSummary";
 import { acpmuxPerf } from "./perf";
@@ -2619,11 +2620,7 @@ export function ModeIcon({ modeId, icon }: { modeId?: unknown; icon?: ModeIconNa
   if (icon === "shield-alert") return <ShieldIcon shield="alert" modeIcon="shield-alert" />;
   return <ModeShield modeId={modeId} />;
 }
-export const ChevronIcon = () => (
-  <Icon size={14}>
-    <path d="M4.6 6.3 8 9.6l3.4-3.3" />
-  </Icon>
-);
+export { ChevronIcon };
 export const ChevronRightIcon = () => (
   <Icon>
     <path d="m6.25 4.25 3.5 3.75-3.5 3.75" />

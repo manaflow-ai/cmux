@@ -37,7 +37,7 @@ const start = (text = "ask @computer-use now") =>
   });
 
 const decorations = (state: EditorState): Decoration[] =>
-  (titlesPlugin.props.decorations?.call(titlesPlugin, state) as DecorationSet).find();
+  (titlesPlugin.props.decorations!.call(titlesPlugin, state) as DecorationSet).find();
 
 /// Whether the badge is drawn (its front, the hidden word, and its title end), and if it is selected.
 const badge = (state: EditorState) => {
