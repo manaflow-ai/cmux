@@ -1271,7 +1271,8 @@ mod tests {
     #[test]
     fn agent_mouse_defaults_and_choices() {
         let absent = read("agent_mouse", json!({}));
-        assert_eq!(absent["values"], json!({"motion": "human", "maxMoveMs": 350}));
+        assert_eq!(absent["values"]["motion"], "human");
+        assert_eq!(absent["values"]["maxMoveMs"].as_f64(), Some(350.0));
         let chosen = read(
             "agent_mouse",
             json!({"browser": {"agentMouse": {"motion": "instant", "maxMoveMs": 200}}}),
