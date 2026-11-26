@@ -215,6 +215,7 @@ jobs:
           sparse-checkout: |
             /scripts/ci/nightly_runner_preflight.py
             /scripts/ci/deadline_http.py
+            /.gitmodules
           sparse-checkout-cone-mode: false
       - name: Every routing label has an online runner
         if: github.repository == 'manaflow-ai/cmux'
@@ -303,6 +304,7 @@ jobs:
           fetch-depth: 1
           sparse-checkout: |
             /scripts/ci/nightly-publication-marker.py
+            /.gitmodules
           sparse-checkout-cone-mode: false
 
       # A second budget for decide's reads: GITHUB_TOKEN draws on the repository's Actions installation, which
@@ -972,6 +974,7 @@ jobs:
             scripts/ci/signing-runner-claim.sh
             .github/release-surface.txt
             scripts/ci/nightly_next_fix_forward.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Decide the promotion
@@ -5131,6 +5134,7 @@ jobs:
             scripts/ci/nightly-steps/visual-gate-resolve-mode.sh
             scripts/ci/nightly-steps/visual-gate-pick-runner.sh
             scripts/ci/warm_distance.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Resolve the visual gate mode
@@ -5329,6 +5333,7 @@ jobs:
             scripts/ci/nightly_next_canary_mode.py
             scripts/ci/nightly-steps/visual-gate-await.sh
             scripts/ci/nightly-steps/visual-gate-fail-when-held.sh
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Wait for the visual gate, at most 10 min past the signed build
@@ -6564,6 +6569,7 @@ jobs:
             scripts/ci/signing-runner-claim.sh
             scripts/ci/download-run-artifact.py
             scripts/ci/deadline_http.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       # The build ref may predate the hook list.
@@ -6698,6 +6704,7 @@ jobs:
             scripts/ci/nightly-steps/republish-deltas-upload-appcasts.sh
             scripts/ci/nightly-steps/republish-deltas-upload-next-appcasts.sh
             scripts/ci/signing-runner-claim.sh
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       # Before any release App secret: the claim again, and a keychain a killed job left is removed.
