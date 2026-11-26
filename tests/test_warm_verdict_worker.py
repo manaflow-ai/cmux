@@ -121,5 +121,58 @@ class InPlace(unittest.TestCase):
         self.assertEqual(v2["files"], 0)
 
 
+class Submodules(unittest.TestCase):
+    """ghostty-next is checked out at each head's gitlink, from the local mirror when it holds it."""
+
+    def test_checked_out_from_the_mirror_at_the_gitlink(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+
+        def g(repo, *a):
+            return subprocess.run(["git", "-C", str(repo), "-c", "protocol.file.allow=always", *a], check=True,
+                                  capture_output=True, text=True).stdout.strip()
+
+        def init(repo):
+            repo.mkdir(parents=True)
+            g(repo, "init", "-q", "-b", "main")
+            g(repo, "config", "user.email", "t@example.invalid")
+            g(repo, "config", "user.name", "t")
+
+        sub = root / "upstream"
+        init(sub)
+        (sub / "build.zig").write_text("one\n")
+        g(sub, "add", ".")
+        g(sub, "commit", "-q", "-m", "one")
+        first = g(sub, "rev-parse", "HEAD")
+        (sub / "build.zig").write_text("two\n")
+        g(sub, "commit", "-qam", "two")
+        second = g(sub, "rev-parse", "HEAD")
+        mirrors = root / "mirrors"
+        mirrors.mkdir()
+        g(root, "clone", "-q", "--mirror", str(sub), str(mirrors / "ghostty-next.git"))
+
+        src = root / "src"
+        init(src)
+        g(src, "update-index", "--add", "--cacheinfo", f"160000,{first},ghostty-next")
+        (src / ".gitmodules").write_text('[submodule "ghostty-next"]\n\tpath = ghostty-next\n'
+                                         "\turl = https://example.invalid/manaflow-ai/ghostty-next.git\n")
+        g(src, "add", ".gitmodules")
+        g(src, "commit", "-q", "-m", "pin one")
+        g(src, "update-index", "--cacheinfo", f"160000,{second},ghostty-next")
+        g(src, "commit", "-q", "-m", "pin two")
+        head = g(src, "rev-parse", "HEAD")
+
+        old = w.MIRRORS
+        w.MIRRORS = mirrors
+        self.addCleanup(setattr, w, "MIRRORS", old)
+        worker = w.Worker(root / "state", str(src), jobs=2)
+        worker.verdict(head)
+        self.assertEqual((worker.tree / "ghostty-next/build.zig").read_text(), "two\n")
+        pin_one = g(src, "rev-parse", "HEAD^")
+        worker.verdict(pin_one, pin_one)
+        self.assertEqual((worker.tree / "ghostty-next/build.zig").read_text(), "one\n")
+
+
 if __name__ == "__main__":
     unittest.main()
