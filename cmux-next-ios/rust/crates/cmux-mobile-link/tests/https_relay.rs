@@ -1252,7 +1252,14 @@ async fn an_early_ticket_joins_while_the_mac_answers_and_an_older_hub_still_work
             ..FakeOptions::default()
         };
         let rig = rig(fake, options(), true).await;
-        let phone = DialOptions { force_relay: true, relay: relay(&rig.server, &rig.phone_id), ..options() };
+        // The ticket path alone: the relay-first Bearer join (`relay_join_early`, on by
+        // default) would join before `wg-resp` on either hub and hide what the ticket buys.
+        let phone = DialOptions {
+            force_relay: true,
+            relay_join_early: false,
+            relay: relay(&rig.server, &rig.phone_id),
+            ..options()
+        };
         let started = std::time::Instant::now();
         let connected =
             dial::connect(&rig.phone, &rig.mac_id, TransportKind::WireGuard, &phone, LinkConfig::default())
