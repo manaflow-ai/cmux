@@ -5,7 +5,7 @@
   display: inline-flex;
   flex: none;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   font-family: var(--font-ui, inherit);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
@@ -17,12 +17,12 @@
 /* An icon button holding keycaps grows to fit them instead of clipping them. */
 .acpmux-header-tool[data-keycaps] {
   width: auto;
-  padding: 0 4px;
-  gap: 4px;
+  padding: 0 var(--ds-space-fixed-1);
+  gap: var(--ds-space-fixed-1);
 }
 
 /* Text buttons (All sessions, All Chats): a little room between the label and the caps. */
 .acpmux-newtab-all .acpmux-button-shortcut,
 .nt-chats-all .acpmux-button-shortcut {
-  margin-inline: 4px;
+  margin-inline: var(--ds-space-fixed-1);
 }

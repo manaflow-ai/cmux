@@ -34,7 +34,7 @@
   flex: none;
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   padding: 16px 20px 8px 12px;
 }
 .ce-head-text {
@@ -48,7 +48,7 @@
   letter-spacing: var(--text-title--letter-spacing);
 }
 .ce-lead {
-  margin: 4px 0 0;
+  margin: var(--ds-space-fixed-1) 0 0;
   color: var(--ce-text-2);
 }
 .ce-body {
@@ -66,7 +66,7 @@
   display: flex;
   justify-content: flex-end;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   padding: 12px 20px 16px;
   border-top: 1px solid var(--ce-line);
 }
@@ -149,7 +149,7 @@
 }
 .ce-button {
   height: 28px;
-  padding: 0 12px;
+  padding: 0 var(--ds-space-fixed-3);
   border: 1px solid var(--ce-line);
   border-radius: var(--ds-radius-control);
   background: transparent;
@@ -192,7 +192,7 @@
 }
 .ce-identity {
   display: flex;
-  gap: 16px;
+  gap: var(--ds-space-fixed-4);
   align-items: flex-start;
 }
 .ce-picture {
@@ -213,7 +213,7 @@
 .ce-names {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--ds-space-fixed-3);
   flex: 1;
   min-width: 0;
 }
@@ -225,7 +225,7 @@
   border: 0;
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 16px;
+  gap: var(--ds-space-fixed-1) var(--ds-space-fixed-4);
 }
 .ce-grant-item {
   display: inline-flex;
@@ -264,7 +264,7 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  margin: 4px 0 0;
+  margin: var(--ds-space-fixed-1) 0 0;
   padding: 12px 14px;
   border: 1px solid var(--ce-line);
   border-radius: 8px;
@@ -276,7 +276,7 @@
 .ce-switch-row {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: var(--ds-space-fixed-4);
   max-width: 560px;
 }
 .ce-switch-text {
@@ -303,9 +303,9 @@
 .ce-history-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--ds-space-fixed-3);
   min-height: 40px;
-  padding: 4px 0;
+  padding: var(--ds-space-fixed-1) 0;
   border-bottom: 1px solid var(--ce-line);
 }
 .ce-history-row:last-child {
@@ -325,8 +325,8 @@
 .chief-editor .lg-picture-crop {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-top: 8px;
+  gap: var(--ds-space-fixed-2);
+  margin-top: var(--ds-space-fixed-2);
 }
 .chief-editor .lg-picture-crop-view {
   position: relative;

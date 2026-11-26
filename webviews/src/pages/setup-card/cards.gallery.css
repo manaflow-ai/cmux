@@ -2,27 +2,27 @@
 .hm-gallery-stage {
   box-sizing: border-box;
   max-width: 100%;
-  padding: 16px;
+  padding: var(--ds-space-fixed-4);
   color: var(--cmux-text);
   font-size: var(--text-body);
 }
 .hm-gallery-note {
-  margin: 8px 0 0;
+  margin: var(--ds-space-fixed-2) 0 0;
   color: var(--cmux-text-tertiary);
   font-size: var(--text-caption);
 }
 .hm-gallery-message {
-  margin: 0 0 16px;
+  margin: 0 0 var(--ds-space-fixed-4);
   line-height: var(--text-body--line-height);
 }
 .hm-gallery-cards {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
-  gap: 16px;
+  gap: var(--ds-space-fixed-4);
 }
 .hm-gallery-card {
-  padding: 12px;
+  padding: var(--ds-space-fixed-3);
   border-radius: 12px;
 }
 .hm-gallery-first-run {
@@ -32,7 +32,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
+  padding: var(--ds-space-fixed-2) var(--ds-space-fixed-3);
   border-bottom: 1px solid var(--cmux-separator);
   color: var(--cmux-text);
 }
@@ -44,9 +44,9 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: var(--ds-space-fixed-3);
   height: 100%;
-  padding: 16px 24px;
+  padding: var(--ds-space-fixed-4) var(--ds-space-fixed-5);
   box-sizing: border-box;
 }
 .hm-gallery-setup__chat {
@@ -57,7 +57,7 @@
   max-width: 560px;
 }
 .hm-gallery-setup__bubble {
-  padding: 8px 12px;
+  padding: var(--ds-space-fixed-2) var(--ds-space-fixed-3);
   border-radius: 6px;
   background: var(--cmux-elevated-background);
   color: var(--cmux-text);
@@ -67,7 +67,7 @@
   width: 100%;
   max-width: 560px;
   box-sizing: border-box;
-  padding: 12px;
+  padding: var(--ds-space-fixed-3);
   border: 1px solid var(--cmux-separator);
   border-radius: 8px;
   color: var(--cmux-text-tertiary);

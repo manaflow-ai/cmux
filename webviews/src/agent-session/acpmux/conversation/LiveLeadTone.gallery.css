@@ -1,7 +1,7 @@
 .live-lead-tone {
   box-sizing: border-box;
   min-height: 100%;
-  padding: 24px;
+  padding: var(--ds-space-fixed-5);
   color: var(--cv-text);
   font-family: var(--cv-font, var(--font-ui));
 }
@@ -11,7 +11,7 @@
   left: auto;
   right: auto;
   min-height: 0;
-  padding-bottom: 12px;
+  padding-bottom: var(--ds-space-fixed-3);
 }
 /* Looks kept to compare against the shipped muted lead. */
 .live-lead-tone[data-look="ink"] .cv-worked__lead {

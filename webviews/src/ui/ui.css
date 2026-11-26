@@ -188,7 +188,7 @@
   align-items: center;
   min-width: 120px;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--ds-space-fixed-3);
 }
 
 .ui-select-value {
@@ -259,7 +259,7 @@
   box-sizing: border-box;
   width: 100%;
   height: var(--ui-row-height);
-  margin: 0 0 4px;
+  margin: 0 0 var(--ds-space-fixed-1);
   padding: 0 var(--ui-row-padding-inline);
   border: 0;
   border-radius: var(--ui-row-radius);
@@ -276,7 +276,7 @@
 .ui-toolbar .ui-separator {
   width: 1px;
   height: 16px;
-  margin: 0 4px;
+  margin: 0 var(--ds-space-fixed-1);
 }
 
 /* .ui-tooltip's look is the title tooltip's (pages/shared/desktop.css), the native tooltip's. */

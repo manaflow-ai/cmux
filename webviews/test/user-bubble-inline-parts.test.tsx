@@ -9,6 +9,7 @@ import { afterAll, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { settleReact } from "./support/domTeardown";
+import { designTokenValue } from "./support/gridTokens";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -16,10 +17,12 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
   virtualConsole: new VirtualConsole(),
 });
 const sheet = dom.window.document.createElement("style");
+// jsdom cannot resolve custom properties in margin shorthands. Supply the generated pixel values
+// before it parses this standalone stylesheet so getComputedStyle measures the same four sides.
 sheet.textContent = readFileSync(
   new URL("../src/agent-session/acpmux/conversation/conversation.css", import.meta.url),
   "utf8",
-);
+).replace(/var\((--ds-space-fixed-\d+)\)/g, (_, token: string) => designTokenValue(token));
 dom.window.document.head.append(sheet);
 const scope = globalThis as Record<string, unknown>;
 const replacements: Record<string, unknown> = {
@@ -92,6 +95,7 @@ const render = async (
 try {
   test("an inline image is the sent thumbnail: the whole image in its own shape", async () => {
     clearImageEntries();
+    await act(async () => setComposerSettings({ attachmentView: "inline" }));
     await render(
       prompt("inline-image", "look at this", [
         { kind: "text", text: "look " },
@@ -634,7 +638,8 @@ try {
     ).match(/\n\.acpmux-file-chip \{([^}]*)\}/)![1]!;
     expect(chip).toContain(`--acpmux-file-chip-gap: ${INLINE_FILE_CHIP.gap}px;`);
     expect(chip).toContain(`height: ${INLINE_FILE_CHIP.height}px;`);
-    expect(chip).toContain(`padding: 0 ${INLINE_FILE_CHIP.side}px;`);
+    expect(designTokenValue("--ds-space-fixed-2")).toBe(`${INLINE_FILE_CHIP.side}px`);
+    expect(chip).toContain("padding: 0 var(--ds-space-fixed-2);");
     expect(chip).toContain(`max-width: min(${INLINE_FILE_CHIP.maxWidth}px, 72vw);`);
   });
 } finally {

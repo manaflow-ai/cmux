@@ -216,7 +216,7 @@
   position: absolute;
   right: 4px;
   bottom: 4px;
-  padding: 0 4px;
+  padding: 0 var(--ds-space-fixed-1);
   border-radius: 4px;
   color: #fff; /* theme-fixed: on its own black scrim over media */
   background: rgb(0 0 0 / 0.55);
@@ -246,7 +246,7 @@
   inset: 0;
   display: grid;
   place-items: center;
-  padding: 4px;
+  padding: var(--ds-space-fixed-1);
   border-radius: var(--acpmux-attach-radius);
   line-height: 1.25;
   text-align: center;
@@ -261,13 +261,13 @@
   justify-content: center;
   gap: 3px;
   width: 104px;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-fixed-2);
   color: var(--agent-muted);
   text-align: center;
 }
 /* An image that cannot be drawn (attachmentIntake.tsx BrokenImageChip): the glyph and the note fit the tile. */
 .acpmux-attachment-image-failed {
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
 }
 .acpmux-attachment-image-failed .acpmux-attachment-failed-text {
   display: -webkit-box;
@@ -352,7 +352,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   color: var(--agent-muted);
 }
 .acpmux-attachment-image.acpmux-attachment-failed {
@@ -518,7 +518,7 @@
 .acpmux-pdf-sheet.is-large .acpmux-pdf-sheet-lines i { height: 4px; }
 .acpmux-pdf-viewer {
   width: min(520px, calc(100vw - 32px));
-  padding: 0 0 16px;
+  padding: 0 0 var(--ds-space-fixed-4);
   overflow: hidden;
   /* The width stays, the line is clear: the glass rim draws the one edge (.ui-glass). */
   border: var(--cmux-hairline, 0.5px) solid transparent;
@@ -533,7 +533,7 @@
   display: flex;
   align-items: center;
   min-height: 44px;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   padding: 0 10px 0 14px;
   border-bottom: 0.5px solid var(--agent-border);
 }
@@ -543,15 +543,15 @@
   display: grid;
   place-items: center;
   min-height: 300px;
-  padding: 24px;
+  padding: var(--ds-space-fixed-5);
   background: color-mix(in srgb, var(--agent-control) 38%, transparent);
 }
 .acpmux-pdf-viewer-open {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   max-width: calc(100% - 32px);
-  margin: 12px 16px 0;
+  margin: var(--ds-space-fixed-3) var(--ds-space-fixed-4) 0;
   padding: 7px 10px;
   border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   border-radius: 7px;
@@ -574,7 +574,7 @@
      is a .ui-reveal-text (ui/motion/motion.css) of a data-reveal-overlap host: it fades under the ×
      while the × shows, and fades at its end instead of an ellipsis only where it is cut. */
   --acpmux-document-meta-pad-block: 7px;
-  padding: var(--acpmux-document-meta-pad-block) 8px;
+  padding: var(--acpmux-document-meta-pad-block) var(--ds-space-fixed-2);
   color: var(--agent-text);
 }
 .acpmux-attachment-document-meta > svg { grid-row: 1 / span 2; align-self: center; }
@@ -695,7 +695,7 @@ button.acpmux-attachment-pasted-open:hover {
   justify-content: flex-start;
   gap: 0;
   height: 100%;
-  padding: 8px 12px 4px;
+  padding: var(--ds-space-fixed-2) var(--ds-space-fixed-3) var(--ds-space-fixed-1);
   overflow: hidden;
 }
 .acpmux-text-card__lines {
@@ -729,7 +729,7 @@ button.acpmux-attachment-pasted-open:hover {
 .acpmux-text-card__foot {
   display: flex;
   flex: none;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   min-width: 0;
 }
 .acpmux-text-card__label {
@@ -1032,7 +1032,7 @@ button.acpmux-attachment-pasted-open:hover {
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
 }
 .acpmux-paste-chip[data-chip-kind] .acpmux-paste-chip__panel:has(.acpmux-chip-collapse[data-place="corner"]) .acpmux-paste-view__text {
-  padding-top: calc(var(--ds-space-3) + 12px);
+  padding-top: calc(var(--ds-space-3) + var(--ds-space-fixed-3));
 }
 /* `chevron`: the face's own chevron, turning over as the chip opens. */
 .acpmux-paste-chip__chevron {
@@ -1082,7 +1082,7 @@ button.acpmux-attachment-pasted-open:hover {
   box-sizing: border-box;
   min-width: var(--ds-icon-16);
   height: var(--ds-icon-16);
-  padding: 0 4px;
+  padding: 0 var(--ds-space-fixed-1);
   border-radius: 999px;
   /* The accent role and the text the theme draws on it. */
   background: var(--agent-accent);
@@ -1163,7 +1163,7 @@ button.acpmux-attachment-pasted-open:hover {
   min-width: 0;
   max-width: min(340px, 72vw);
   height: 32px;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-fixed-2);
   color: var(--agent-text);
   vertical-align: middle;
 }
@@ -1199,7 +1199,7 @@ button.acpmux-attachment-pasted-open:hover {
   font-size: var(--text-caption);
   white-space: nowrap;
 }
-.cv-user__files { --acpmux-file-chip-radius: 6px; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+.cv-user__files { --acpmux-file-chip-radius: 6px; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--ds-space-fixed-1); }
 .cv-user__files > .acpmux-file-chip {
   border-radius: var(--acpmux-file-chip-radius);
   background: var(--agent-control);

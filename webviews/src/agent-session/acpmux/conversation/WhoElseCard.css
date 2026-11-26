@@ -9,13 +9,13 @@
   min-width: 0;
 }
 .cv-who-else__rows {
-  margin: 0 0 8px;
+  margin: 0 0 var(--ds-space-fixed-2);
   padding: 0;
   padding-inline-start: var(--cv-who-else-indent);
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   min-width: 0;
 }
 .cv-who-else__row {
@@ -28,7 +28,7 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 4px 8px;
+  gap: var(--ds-space-fixed-1) var(--ds-space-fixed-2);
   min-width: 0;
 }
 .cv-who-else__dot {
@@ -66,7 +66,7 @@
   color: var(--cv-text);
 }
 .cv-who-else__what {
-  margin-inline-start: 12px;
+  margin-inline-start: var(--ds-space-fixed-3);
   color: var(--cv-text-muted);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
@@ -77,8 +77,8 @@
   align-self: flex-start;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  margin: 0 0 8px;
+  gap: var(--ds-space-fixed-1);
+  margin: 0 0 var(--ds-space-fixed-2);
   margin-inline-start: var(--cv-who-else-indent);
   padding: 0;
   border: 0;
@@ -92,7 +92,7 @@
   color: var(--cv-text);
 }
 .cv-who-else__note {
-  margin: 0 0 8px;
+  margin: 0 0 var(--ds-space-fixed-2);
   margin-inline-start: var(--cv-who-else-indent);
   color: var(--cv-text-dim);
   font-size: var(--text-detail);

@@ -24,12 +24,12 @@
   --acpmux-context-used: var(--agent-accent);
   --acpmux-context-free: color-mix(in srgb, var(--agent-text) 14%, transparent);
   min-width: 0;
-  padding-bottom: 4px;
+  padding-bottom: var(--ds-space-fixed-1);
 }
 .acpmux-session-info-context__total {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   padding: 2px 8px 6px;
   white-space: nowrap;
 }
@@ -203,8 +203,8 @@
   margin: 8px 0 6px;
 }
 .acpmux-context-pop .acpmux-session-info-row {
-  margin: 0 -4px;
-  padding: 0 4px;
+  margin: 0 calc(-1 * var(--ds-space-fixed-1));
+  padding: 0 var(--ds-space-fixed-1);
   width: calc(100% + 8px);
 }
 

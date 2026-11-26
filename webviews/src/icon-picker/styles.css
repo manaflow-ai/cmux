@@ -24,7 +24,7 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   height: var(--icon-top-height);
   padding: 0 10px 0 8px;
 }
@@ -61,7 +61,7 @@
 .icon-picker-heading {
   flex: 1;
   min-width: 0;
-  margin: 0 4px;
+  margin: 0 var(--ds-space-fixed-1);
   font-size: 19px;
   font-weight: 400;
   color: var(--page-text);
@@ -94,7 +94,7 @@
   align-items: center;
   gap: 6px;
   height: 30px;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-fixed-2);
   border-radius: var(--ds-radius-control);
   color: var(--page-text-2);
 }
@@ -140,7 +140,7 @@
   height: var(--icon-error-height);
   max-height: calc(100% - var(--icon-top-height) - var(--icon-bar-height) - 16px);
   margin: 0;
-  padding: 0 12px;
+  padding: 0 var(--ds-space-fixed-3);
   overflow: hidden;
   border-radius: calc(var(--icon-error-height) / 2);
   /* Clear, at its width: the glass rim draws the band's one edge. */
@@ -233,7 +233,7 @@
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 0 12px calc(var(--icon-bar-height) + 16px);
+  padding: 0 var(--ds-space-fixed-3) calc(var(--icon-bar-height) + var(--ds-space-fixed-4));
   contain: strict;
   overscroll-behavior: contain;
 }
@@ -311,7 +311,7 @@
 }
 
 .icon-grid-empty {
-  padding: 32px 8px;
+  padding: var(--ds-space-fixed-6) var(--ds-space-fixed-2);
   text-align: center;
   color: var(--page-text-3);
 }
@@ -325,14 +325,14 @@
   bottom: 8px;
   display: flex;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   pointer-events: none;
 }
 
 .icon-bar-pill {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   height: var(--icon-bar-height);
   padding: 0 14px;
   border-radius: calc(var(--icon-bar-height) / 2);
@@ -400,7 +400,7 @@
   align-items: center;
   gap: 6px;
   height: 30px;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-fixed-2);
   border: 0;
   border-radius: var(--ds-radius-control);
   background: transparent;
@@ -421,7 +421,7 @@
 .icon-bar-divider {
   width: 1px;
   height: 18px;
-  margin: 0 4px;
+  margin: 0 var(--ds-space-fixed-1);
   background: var(--page-separator);
 }
 
@@ -452,7 +452,7 @@
 }
 
 .icon-asset-choose {
-  padding: 4px 12px;
+  padding: var(--ds-space-fixed-1) var(--ds-space-fixed-3);
   border-radius: var(--ds-radius-md);
   background: var(--page-selection);
   color: var(--page-text);
@@ -467,7 +467,7 @@
   flex: 1;
   min-width: 0;
   height: 28px;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-fixed-2);
   border-radius: var(--ds-radius-md);
   border: 1px solid var(--page-separator);
   background: var(--page-hover);
@@ -477,7 +477,7 @@
 .icon-asset-url button {
   border: 0;
   border-radius: var(--ds-radius-control);
-  padding: 0 12px;
+  padding: 0 var(--ds-space-fixed-3);
   background: var(--page-selection);
 }
 

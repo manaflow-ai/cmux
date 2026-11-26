@@ -138,7 +138,7 @@
   white-space: nowrap;
 }
 .acpmux-tour-task {
-  padding: 4px 0;
+  padding: var(--ds-space-fixed-1) 0;
   border-top: 1px solid color-mix(in srgb, var(--agent-text) 8%, transparent);
 }
 .acpmux-tour-task:first-child {

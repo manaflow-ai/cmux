@@ -17,18 +17,18 @@
 .cv-link-preview .acpmux-open-in{height:20px;padding:0 6px;border-radius:5px;box-shadow:none;color:var(--agent-muted)}
 .cv-link-preview__open:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
 /* A pull request's Review (review from link): Open's quiet button, one step apart from the split control after it. */
-.cv-link-preview__review{margin-inline-end:4px}
+.cv-link-preview__review{margin-inline-end:var(--ds-space-fixed-1)}
 /* Open and its chevron are one split control (Leo 2026-11-07), drawn as plain controls on the card's glass: no frame of their own, which over the frost read as a second glass capsule inside the card (Leo 2026-11-22: "doubled up glass/wack looking glass"). One hairline between the halves; each half hovers on its own, the two fills meeting as one rounded control. */
 .cv-link-preview__split{display:inline-flex;flex:none;align-items:stretch;height:20px}
 .cv-link-preview__split .cv-link-preview__open{height:auto;border-top-right-radius:0;border-bottom-right-radius:0;color:var(--agent-text)}
-.cv-link-preview__split .acpmux-open-in.is-chevron{height:auto;padding:0 4px;border-left:var(--cmux-hairline) solid var(--agent-border);border-top-left-radius:0;border-bottom-left-radius:0}
+.cv-link-preview__split .acpmux-open-in.is-chevron{height:auto;padding:0 var(--ds-space-fixed-1);border-left:var(--cmux-hairline) solid var(--agent-border);border-top-left-radius:0;border-bottom-left-radius:0}
 .cv-link-preview__target{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height);letter-spacing:var(--text-detail--letter-spacing)}
 /* Every link's hover card (chips/LinkHoverCard.tsx; Leo 2026-10-20) is the liquid glass (.ui-glass, ui/glass/glass.css) with the tooltip's shadow: its hairline border keeps its width, clear under the glass rim (desktop.css .ui-card.ui-glass). Its glass is the popover level, as every hover card's (glass.css GLASS LEVELS), which Reduce Transparency makes opaque. A pull request's (PullRequestCard.tsx) puts its glyph, in its state's colour, and its title in the head, then owner/repo#N and the author, then an open one's checks as ✓/✗ counts. */
 .cv-link-preview.ui-card{border:var(--cmux-hairline) solid transparent;--glass-elevation:var(--tooltip-shadow,var(--elevation-2))}
-.acpmux-pr-card__body{display:grid;gap:8px;font-size:var(--text-detail);line-height:var(--text-detail--line-height);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-pr-card__body{display:grid;gap:var(--ds-space-fixed-2);font-size:var(--text-detail);line-height:var(--text-detail--line-height);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-pr-card__title{display:-webkit-box;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;color:var(--agent-text);font-size:var(--text-control);line-height:var(--text-control--line-height);font-weight:600;overflow-wrap:anywhere;letter-spacing:var(--text-control--letter-spacing)}
-.acpmux-pr-card__facts{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;min-width:0;color:var(--agent-muted)}
-.acpmux-pr-card__status{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;min-width:0;color:var(--agent-muted);font-variant-numeric:tabular-nums}
+.acpmux-pr-card__facts{display:flex;flex-wrap:wrap;align-items:center;gap:var(--ds-space-fixed-1) var(--ds-space-fixed-2);min-width:0;color:var(--agent-muted)}
+.acpmux-pr-card__status{display:flex;flex-wrap:wrap;align-items:center;gap:var(--ds-space-fixed-1) var(--ds-space-fixed-2);min-width:0;color:var(--agent-muted);font-variant-numeric:tabular-nums}
 .acpmux-pr-card__state{font-weight:600}
 .acpmux-pr-card__state[data-state=open]{color:var(--agent-status-success)}
 .acpmux-pr-card__state[data-state=merged]{color:var(--agent-status-merged)}
@@ -45,12 +45,12 @@
 .acpmux-pr-card__glyph[data-state=closed]{color:var(--agent-status-failure)}
 .acpmux-pr-card__glyph[data-state=draft]{color:var(--agent-muted)}
 .acpmux-pr-card__author{min-width:0;overflow-wrap:anywhere}
-.acpmux-pr-card__checks{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;color:var(--agent-muted);font-variant-numeric:tabular-nums;border-radius:4px}
+.acpmux-pr-card__checks{display:flex;flex-wrap:wrap;align-items:baseline;gap:var(--ds-space-fixed-1) var(--ds-space-fixed-2);color:var(--agent-muted);font-variant-numeric:tabular-nums;border-radius:4px}
 .acpmux-pr-card__checks:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
 .acpmux-pr-card__checksName{color:var(--agent-text);font-weight:600}
 .acpmux-pr-card__count{font-weight:600}
-.acpmux-pr-card__checks > * + :is(.acpmux-pr-card__failed,.acpmux-pr-card__pending,.acpmux-pr-card__onBase)::before{content:"·";margin-inline-end:8px;color:var(--agent-border)}
-.acpmux-pr-card__checkNames{display:grid;gap:8px;max-width:320px}
+.acpmux-pr-card__checks > * + :is(.acpmux-pr-card__failed,.acpmux-pr-card__pending,.acpmux-pr-card__onBase)::before{content:"·";margin-inline-end:var(--ds-space-fixed-2);color:var(--agent-border)}
+.acpmux-pr-card__checkNames{display:grid;gap:var(--ds-space-fixed-2);max-width:320px}
 .acpmux-pr-card__checkList{display:grid}
 .acpmux-pr-card__checkListTitle{font-weight:600}
 .acpmux-pr-card__checkList[data-state=failed] .acpmux-pr-card__checkListTitle{color:var(--agent-status-failure)}
@@ -73,7 +73,7 @@
 .acpmux-pr-card__monogram[data-tone="4"]{background:color-mix(in srgb,var(--agent-ansi-5,var(--agent-muted)) 26%,transparent)}
 .acpmux-pr-card__monogram[data-tone="5"]{background:color-mix(in srgb,var(--agent-ansi-6,var(--agent-muted)) 26%,transparent)}
 .acpmux-pr-card__when{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.acpmux-pr-card__branches{display:flex;align-items:center;gap:4px;min-width:0;color:var(--agent-muted);font-family:var(--cv-code-font,var(--cv-mono,ui-monospace,"SF Mono",Menlo,monospace))}
+.acpmux-pr-card__branches{display:flex;align-items:center;gap:var(--ds-space-fixed-1);min-width:0;color:var(--agent-muted);font-family:var(--cv-code-font,var(--cv-mono,ui-monospace,"SF Mono",Menlo,monospace))}
 .acpmux-pr-card__branch{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-pr-card__review{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;color:var(--agent-muted)}
 .acpmux-pr-card__decision{font-weight:500}
@@ -91,10 +91,10 @@
 .acpmux-pr-card__label[data-tone="7"]{--label:var(--agent-status-merged)}
 .acpmux-pr-card__label[data-tone=danger]{--label:var(--agent-status-failure)}
 .acpmux-pr-card__changes{min-width:0}
-.acpmux-pr-card__counts{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;color:var(--agent-muted);font-variant-numeric:tabular-nums}
+.acpmux-pr-card__counts{display:flex;flex-wrap:wrap;align-items:center;gap:var(--ds-space-fixed-1) var(--ds-space-fixed-2);color:var(--agent-muted);font-variant-numeric:tabular-nums}
 .acpmux-pr-card__lines{display:inline-flex;align-items:center;gap:5px;color:inherit}
 /* One bar split by the lines each kind of file changed, then each kind's +/− after a dot of its colour (Leo 2026-11-07). The bar and the dots are marks, not controls, so they size by block-size. */
-.acpmux-pr-card__kindBar{display:flex;gap:4px;block-size:6px;margin-block:4px;overflow:hidden;border-radius:999px}
+.acpmux-pr-card__kindBar{display:flex;gap:var(--ds-space-fixed-1);block-size:6px;margin-block:var(--ds-space-fixed-1);overflow:hidden;border-radius:999px}
 .acpmux-pr-card__barPart{min-width:3px;border-radius:999px;background:var(--kind)}
 .acpmux-pr-card__bar,.acpmux-pr-card__breakdown{--kind:var(--agent-muted)}
 [data-kind=code]{--kind:var(--agent-link)}
@@ -103,9 +103,9 @@
 [data-kind=docs]{--kind:var(--agent-ansi-5,var(--agent-status-merged))}
 [data-kind=evals]{--kind:var(--agent-status-merged)}
 [data-kind=generated]{--kind:color-mix(in srgb,var(--agent-muted) 60%,transparent)}
-.acpmux-pr-card__breakdown{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;min-width:0;color:var(--agent-muted);font-variant-numeric:tabular-nums}
+.acpmux-pr-card__breakdown{display:flex;flex-wrap:wrap;align-items:center;gap:var(--ds-space-fixed-1) var(--ds-space-fixed-3);min-width:0;color:var(--agent-muted);font-variant-numeric:tabular-nums}
 .acpmux-pr-card__kindDot{flex:none;inline-size:8px;block-size:8px;border-radius:50%;background:var(--kind);align-self:center}
-.acpmux-pr-card__kind{display:inline-flex;align-items:baseline;gap:4px;min-width:0}
+.acpmux-pr-card__kind{display:inline-flex;align-items:baseline;gap:var(--ds-space-fixed-1);min-width:0}
 .acpmux-pr-card__kindName{color:var(--agent-muted);font-weight:500}
 .acpmux-pr-card__kindPartial{color:var(--agent-muted);font-size:var(--text-caption);letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-pr-card__added{color:var(--agent-diff-add)}

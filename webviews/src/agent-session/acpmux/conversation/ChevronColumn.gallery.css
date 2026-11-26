@@ -11,8 +11,8 @@
   left: auto;
   right: auto;
   min-height: var(--chevron-gallery-row-height);
-  margin: 0 0 8px;
-  padding-bottom: 8px;
+  margin: 0 0 var(--ds-space-fixed-2);
+  padding-bottom: var(--ds-space-fixed-2);
   contain: layout paint;
 }
 .chevron-column-gallery__row .cv-tools {

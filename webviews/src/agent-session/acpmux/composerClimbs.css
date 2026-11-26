@@ -187,7 +187,7 @@
 /* Text chips: the mode and model on a faint control-cornered rect with their chevron; Send a solid accent circle. */
 :root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="chips"]
   :is(.acpmux-access-trigger, .acpmux-model .acpmux-picker-button) {
-  padding-inline: 8px;
+  padding-inline: var(--ds-space-fixed-2);
   border-radius: var(--ds-radius-control);
   /* chat-surface-allow: the composer climb experiment (#48437); its fills are the arm under comparison, kept as tried until it ships */
   background: color-mix(in srgb, var(--agent-text) 9%, transparent);

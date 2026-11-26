@@ -459,7 +459,7 @@
 }
 .cv-user__files.cv-user__inline-strip {
   max-width: calc(70% + 8px);
-  margin-inline-end: -4px;
+  margin-inline-end: calc(-1 * var(--ds-space-fixed-1));
   margin-bottom: calc(var(--cv-user-attachment-gap) - var(--grid-half-step));
 }
 /* A tile in the strip lays its thumbnail out as a flex box, not on a text line: a line adds the
@@ -538,7 +538,7 @@
   position: absolute;
   right: 6px;
   bottom: 6px;
-  padding: 0 4px;
+  padding: 0 var(--ds-space-fixed-1);
   border-radius: 4px;
   color: #fff; /* theme-fixed: on its own black scrim over media */
   background: rgb(0 0 0 / 0.55);
@@ -562,7 +562,7 @@
   inset: 0;
   display: grid;
   place-items: center;
-  padding: 8px;
+  padding: var(--ds-space-fixed-2);
   border-radius: var(--cv-user-attachment-radius, var(--cv-media-radius));
   line-height: 1.25;
   text-align: center;
@@ -649,7 +649,7 @@
   box-sizing: border-box;
   max-width: 70%;
   min-width: 0;
-  margin-bottom: 4px;
+  margin-bottom: var(--ds-space-fixed-1);
   font-family: var(--cv-font);
   font-size: var(--text-detail);
   line-height: 18px;
@@ -660,7 +660,7 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   min-width: 0;
   min-height: var(--cv-context-copy);
   padding-inline-end: calc(var(--cv-context-copy) + var(--cv-context-gap));
@@ -710,10 +710,10 @@
 .cv-user__from {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   max-width: 100%;
   margin-bottom: 2px;
-  padding-right: 4px;
+  padding-right: var(--ds-space-fixed-1);
   font-family: var(--cv-font);
   font-size: var(--text-detail);
   line-height: 18px;
@@ -784,7 +784,7 @@
 .cv-expand-row.cv-user__more {
   min-height: 24px;
   margin: 0;
-  padding-top: 4px;
+  padding-top: var(--ds-space-fixed-1);
   line-height: 20px;
 }
 /* In a prompt's bubble the row is the bubble's whole bottom: its full width, and down through the
@@ -793,7 +793,7 @@
 .cv-user__bubble > .cv-expand-row.cv-user__more {
   width: calc(100% + 2 * var(--cv-bubble-pad-inline));
   margin: 0 calc(-1 * var(--cv-bubble-pad-inline)) calc(-1 * var(--cv-bubble-pad-block));
-  padding: 4px var(--cv-bubble-pad-inline) var(--cv-bubble-pad-block);
+  padding: var(--ds-space-fixed-1) var(--cv-bubble-pad-inline) var(--cv-bubble-pad-block);
 }
 /* A paste another agent wrote, or a text file's body, apart from the message's one text body
    (PromptText.tsx PastedText): its own lines in the bubble's ink, literal, with no card, border,
@@ -808,9 +808,9 @@
 .cv-user__pasted-from {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   height: 20px;
-  margin-bottom: 4px;
+  margin-bottom: var(--ds-space-fixed-1);
   color: var(--cv-text-muted);
   font-size: var(--text-detail);
   line-height: 20px;
@@ -822,9 +822,9 @@
 .cv-user__status {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  margin-top: 4px;
-  padding-right: 4px;
+  gap: var(--ds-space-fixed-2);
+  margin-top: var(--ds-space-fixed-1);
+  padding-right: var(--ds-space-fixed-1);
   font-family: var(--cv-font);
   font-size: calc(var(--cv-font-size) * 12 / 14);
   line-height: calc(var(--cv-font-size) * 16 / 14);
@@ -923,7 +923,7 @@
   flex-wrap: wrap;
   justify-content: flex-end;
   align-items: baseline;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
 }
 .cv-user__delivery-details {
   display: flex;
@@ -1110,7 +1110,7 @@
   white-space: nowrap;
 }
 .cv-message-footer-row.cv-turn-footer-row {
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
 }
 .cv-message-footer-row > :is(.cv-user__time, .cv-turn-time) {
   display: inline-flex;
@@ -1230,7 +1230,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0;
-  margin-inline-start: 8px;
+  margin-inline-start: var(--ds-space-fixed-2);
   white-space: nowrap;
   opacity: 0;
 }
@@ -1295,7 +1295,7 @@
   padding-inline-end: calc(var(--ds-space-3) - var(--cv-action-inset));
 }
 .cv-user__dot {
-  padding-inline: 4px;
+  padding-inline: var(--ds-space-fixed-1);
   color: var(--cv-text-dim);
   font-size: var(--text-caption);
   line-height: var(--cv-meta-row);
@@ -1593,7 +1593,7 @@
 }
 .cv-h4 {
   font-size: calc(var(--cv-font-size) * var(--instrument-heading-4-size, 1));
-  margin: 16px 0 4px;
+  margin: var(--ds-space-fixed-4) 0 var(--ds-space-fixed-1);
 }
 .cv-md strong {
   font-weight: 600;
@@ -2783,7 +2783,7 @@ pre.cv-math-source {
   flex: none;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   max-inline-size: 100%;
   margin-inline-start: auto;
 }
@@ -2849,7 +2849,7 @@ pre.cv-math-source {
   margin: 0;
 }
 .acpmux-ask-details ul {
-  padding-inline-start: 16px;
+  padding-inline-start: var(--ds-space-fixed-4);
   overflow-wrap: anywhere;
 }
 .acpmux-ask-input {
@@ -2860,7 +2860,7 @@ pre.cv-math-source {
 }
 .acpmux-ask-note {
   display: block;
-  padding-block: 0 4px;
+  padding-block: 0 var(--ds-space-fixed-1);
   padding-inline-start: 18px;
   color: var(--cv-text-dim);
   font-size: var(--text-detail);
@@ -2970,8 +2970,8 @@ body {
   display: inline-flex;
   flex: none;
   min-width: 0;
-  gap: 4px;
-  margin-left: calc(4px - var(--grid-gap));
+  gap: var(--ds-space-fixed-1);
+  margin-left: calc(var(--ds-space-fixed-1) - var(--grid-gap));
   white-space: nowrap;
 }
 /* The turn's tokens ("· 679.9K tokens") are secondary to its label and time, as on Claude
@@ -2983,7 +2983,7 @@ body {
 /* Split, output first and what the model read second (TurnTokens.tsx): "↓ 12.4K out ↑ 3.9M in". */
 .cv-worked__tokens.is-split {
   display: inline-flex;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
 }
 /* A separate elapsed time beside Thinking or a call stays secondary. Durations inside
    Working for and Worked for inherit their label's colour. */
@@ -3136,11 +3136,11 @@ body {
 }
 /* `inline`: right after the tokens, a dot before it as before each count. */
 .cv-worked .cv-command__bg[data-room="inline"] {
-  margin-inline-start: calc(4px - var(--grid-gap));
+  margin-inline-start: calc(var(--ds-space-fixed-1) - var(--grid-gap));
 }
 .cv-worked .cv-command__bg[data-room="inline"]::before {
   content: "·";
-  padding-inline-end: 4px;
+  padding-inline-end: var(--ds-space-fixed-1);
   color: var(--cv-text-dim);
 }
 .cv-worked .cv-command__bg[data-room="always"] {
@@ -4668,7 +4668,7 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
 .cv-shell__title {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   min-width: 0;
 }
 /* The folder the command ran in, by its last part ("cg-next-reds" for ~/wt/lanes/cg-next-reds). */
@@ -4735,11 +4735,11 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
   text-indent: -2ch;
 }
 .cv-shell__command:is(:has(+ .cv-shell__body:not(:empty)), :has(+ .cv-shell__exit)) {
-  padding-bottom: 8px;
+  padding-bottom: var(--ds-space-fixed-2);
   border-bottom: 1px solid var(--ds-surface-card-line);
 }
 .cv-shell__command + .cv-shell__body {
-  margin-top: 8px;
+  margin-top: var(--ds-space-fixed-2);
 }
 .cv-shell__prompt {
   color: var(--cv-text-dim);
@@ -4761,8 +4761,8 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
-  gap: 8px;
-  margin: 4px 0 8px;
+  gap: var(--ds-space-fixed-2);
+  margin: var(--ds-space-fixed-1) 0 var(--ds-space-fixed-2);
 }
 /* A call's images: the reply's thumbnail (chips.css .cv-thumb), narrower. Its frame keeps the fixed
  * shape until the image loads, so its height is held; a loaded image takes its own shape
@@ -4807,15 +4807,15 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
   --cv-video-frame-width: 112px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   min-width: 0;
   max-width: calc(100% - var(--cv-tool-text-inset));
-  margin: 4px 0 8px var(--cv-tool-text-inset);
+  margin: var(--ds-space-fixed-1) 0 var(--ds-space-fixed-2) var(--cv-tool-text-inset);
 }
 .cv-video-frames__head {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   min-width: 0;
   color: var(--cv-text-muted);
   font-size: var(--text-detail);
@@ -4825,7 +4825,7 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
 .cv-video-frames__name {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   min-width: 0;
   max-width: 100%;
   padding: 0;
@@ -4864,13 +4864,13 @@ button.cv-video-frames__name:focus-visible {
 .cv-video-frames__strip {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   max-width: 100%;
 }
 .cv-video-frames__grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(var(--cv-video-frame-width), 1fr));
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   width: min(100%, 720px);
 }
 .cv-video-frames__poster {
@@ -4919,7 +4919,7 @@ button.cv-video-frames__frame:focus-visible {
   position: absolute;
   left: 4px;
   bottom: 4px;
-  padding: 0 4px;
+  padding: 0 var(--ds-space-fixed-1);
   border-radius: 4px;
   color: #fff; /* theme-fixed: on its own black scrim over media */
   background: rgb(0 0 0 / 0.55);
@@ -4932,10 +4932,10 @@ button.cv-video-frames__frame:focus-visible {
 }
 
 .cv-tool-output {
-  margin: 4px 0 8px;
+  margin: var(--ds-space-fixed-1) 0 var(--ds-space-fixed-2);
   max-height: 240px;
   overflow: auto;
-  padding: 8px 12px;
+  padding: var(--ds-space-fixed-2) var(--ds-space-fixed-3);
   border-radius: var(--cv-card-radius, 12px);
   background: var(--cv-card-fill);
   box-shadow: inset 0 0 0 1px var(--cv-look-card-ring);
@@ -5058,7 +5058,7 @@ button.cv-video-frames__frame:focus-visible {
   overflow: hidden;
 }
 :root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step {
-  padding: 4px var(--cv-step-inset);
+  padding: var(--ds-space-fixed-1) var(--cv-step-inset);
 }
 :root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step + .cv-step {
   border-top: var(--cmux-hairline, .5px) solid var(--cv-rule);
@@ -5116,7 +5116,7 @@ button.cv-video-frames__frame:focus-visible {
   float: right;
   width: var(--cv-disclosure-slot);
   min-height: 20px;
-  margin-left: 8px;
+  margin-left: var(--ds-space-fixed-2);
   padding-left: 0;
 }
 :root[data-lead-thought-look="edge"] .cv-step-thought.is-lead.is-open > .cv-tool__chevron {
@@ -5136,8 +5136,8 @@ button.cv-video-frames__frame:focus-visible {
 /* "tree": the tree guide the steps hung off before, its glyphs back, hairlines between rows. */
 :root[data-tool-steps-look="tree"] .cv-steps {
   --cv-step-inset: 0px;
-  margin-left: 8px;
-  padding-left: 12px;
+  margin-left: var(--ds-space-fixed-2);
+  padding-left: var(--ds-space-fixed-3);
   border: 0;
   border-left: 1px solid var(--cv-rule);
   border-radius: 0;
@@ -5531,7 +5531,7 @@ button.cv-video-frames__frame:focus-visible {
   /* The line's height, never its 24px button's: the button centers on the line and overhangs it by
      a pixel, so the sent line is as tall as every one-line row (`.acpmux-row--line`). */
   height: var(--cv-tool-row-height);
-  margin-inline-start: 4px;
+  margin-inline-start: var(--ds-space-fixed-1);
   opacity: 0;
 }
 /* On a sent line (SentMessageLine.tsx) Copy's 24px slot (`.cv-message-footer-row`) sits inside the
@@ -5732,12 +5732,12 @@ button.cv-video-frames__frame:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
   /* The dot sits 4px from the name and from the host, not the sender's 8px gap plus a space. */
-  margin-inline-start: calc(4px - var(--cv-row-icon-gap));
+  margin-inline-start: calc(var(--ds-space-fixed-1) - var(--cv-row-icon-gap));
   color: var(--cv-text-dim);
 }
 .cv-received__host::before {
   content: "\00B7";
-  margin-inline-end: 4px;
+  margin-inline-end: var(--ds-space-fixed-1);
 }
 /* A machine with a menu (IncomingMessageCard.tsx MachineMenu) keeps the label's look; its name alone
    lights on hover and while its menu is open, never the dot before it or the line around it. */
@@ -5784,7 +5784,7 @@ button.cv-received__host:focus-visible > .cv-received__host-name {
 }
 /* Opened: the whole message, wrapped, never cut. */
 .cv-received__text {
-  margin-top: 4px;
+  margin-top: var(--ds-space-fixed-1);
   color: var(--cv-text);
   line-height: var(--cv-line-height);
   overflow-wrap: anywhere;
@@ -5827,7 +5827,7 @@ a.cv-sha:focus-visible {
 }
 /* Details in an opened message's panel: the prompt as the agent got it, closed until asked for. */
 .cv-received__details {
-  margin-top: 4px;
+  margin-top: var(--ds-space-fixed-1);
 }
 .cv-received__more {
   all: unset;
@@ -5859,7 +5859,7 @@ a.cv-sha:focus-visible {
 /* A call's output under its row (ToolRow.tsx): copyable whole from the corner on hover or focus. */
 .cv-tool-output-card {
   position: relative;
-  margin: 4px 0 8px;
+  margin: var(--ds-space-fixed-1) 0 var(--ds-space-fixed-2);
 }
 .cv-tool-output-card .cv-tool-output {
   margin: 0;
@@ -6105,7 +6105,7 @@ a.cv-sha:focus-visible {
 .cv-tool-output__controls {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--ds-space-fixed-3);
 }
 /* Wrap lines (and the hover-actions experiment's Copy) in its corner, on hover or focus. */
 .cv-tool-output__actions {
@@ -6236,7 +6236,7 @@ a.cv-sha:focus-visible {
   width: 100%;
   min-height: calc(var(--grid-base) + var(--text-detail--line-height));
   margin: 0;
-  padding-top: 4px;
+  padding-top: var(--ds-space-fixed-1);
   border-bottom-left-radius: inherit;
   border-bottom-right-radius: inherit;
   background-color: transparent;
@@ -6305,13 +6305,13 @@ a.cv-sha:focus-visible {
   width: auto;
   min-height: calc(var(--cv-font-size) * 32 / 14);
   margin-right: calc(-1 * var(--cv-actions-room, 0px));
-  padding-inline: 12px;
+  padding-inline: var(--ds-space-fixed-3);
 }
 /* Arms of `expand-row-look` (expandRow.experiment.ts), set on the root by ExpandRow.tsx; the shipped
    arm, the row continuing its block's surface, sets nothing. */
 :root[data-expand-row="fade"] :is(.cv-edit-diff, .cv-shell, .cv-tool-output__box) > .cv-expand-row[aria-expanded="false"] {
   position: relative;
-  margin-top: -24px;
+  margin-top: calc(-1 * var(--ds-space-fixed-5));
 }
 :root[data-expand-row="hairline"] :is(.cv-edit-diff, .cv-shell, .cv-tool-output__box) > .cv-expand-row {
   background-color: var(--ds-surface-card);
@@ -6327,8 +6327,8 @@ a.cv-sha:focus-visible {
   all: unset;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  margin: 4px 0 0;
+  gap: var(--ds-space-fixed-1);
+  margin: var(--ds-space-fixed-1) 0 0;
   color: var(--cv-text-muted);
   cursor: default;
   font-family: var(--cv-font);
@@ -6366,7 +6366,7 @@ a.cv-sha:focus-visible {
   box-shadow: inset 0 0 0 1px var(--ds-surface-card-line);
 }
 .cv-recap[data-look="rule"] {
-  padding-left: 12px;
+  padding-left: var(--ds-space-fixed-3);
   box-shadow: inset 2px 0 0 var(--agent-border);
 }
 .cv-recap[data-look="line"] {
@@ -6416,7 +6416,7 @@ a.cv-sha:focus-visible {
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   min-height: var(--cv-meta-row);
   padding-inline-start: 0;
   color: var(--cv-text-muted);
@@ -6841,7 +6841,7 @@ a.cv-sha:focus-visible {
   gap: var(--transient-surface-gap);
 }
 .cv-capacity-wait--card .cv-capacity-wait__more {
-  padding-inline-start: calc(16px + var(--grid-gap));
+  padding-inline-start: calc(var(--ds-space-fixed-4) + var(--grid-gap));
 }
 .cv-capacity-wait__track {
   display: block;
@@ -6866,7 +6866,7 @@ a.cv-sha:focus-visible {
   display: flex;
   flex-direction: column;
   max-inline-size: 560px;
-  padding: 4px;
+  padding: var(--ds-space-fixed-1);
   border-radius: var(--ds-radius-xl, 12px);
   background: var(--ds-color-elevated);
   box-shadow: var(--elevation-1);
@@ -6879,7 +6879,7 @@ a.cv-sha:focus-visible {
   display: flex;
   align-items: center;
   height: 24px;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-fixed-2);
   font-size: var(--text-caption);
   font-weight: var(--weight-emphasis, 600);
   color: var(--ds-color-muted);
@@ -6887,8 +6887,8 @@ a.cv-sha:focus-visible {
 .cv-settings-ask__row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 4px 4px 8px;
+  gap: var(--ds-space-fixed-2);
+  padding: var(--ds-space-fixed-1) var(--ds-space-fixed-1) var(--ds-space-fixed-1) var(--ds-space-fixed-2);
 }
 .cv-settings-ask__icon {
   flex: none;
@@ -6914,7 +6914,7 @@ a.cv-sha:focus-visible {
   min-width: 0;
   max-width: 100%;
   height: 24px;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-fixed-2);
   border-radius: var(--ds-radius-full, 999px);
   background: var(--ds-color-elevated);
   box-shadow: var(--elevation-1);
@@ -6953,10 +6953,10 @@ a.cv-sha:focus-visible {
 .cv-settings-ask-popover__panel {
   display: flex;
   flex-direction: column;
-  padding-bottom: 4px;
+  padding-bottom: var(--ds-space-fixed-1);
 }
 .cv-settings-ask-popover__panel .cv-settings-ask__row {
-  padding: 4px 8px 4px 12px;
+  padding: var(--ds-space-fixed-1) var(--ds-space-fixed-2) var(--ds-space-fixed-1) var(--ds-space-fixed-3);
 }
 /* The Connect GitHub card (GitHubConnectCard.tsx) is a next step, not a failure: GitHub's mark in
    the prose's ink, never the failure red. */
@@ -7015,7 +7015,7 @@ a.cv-sha:focus-visible {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   flex-basis: 100%;
 }
 .cv-turn-signin.cv-turn-signin__row,
@@ -7024,7 +7024,7 @@ a.cv-sha:focus-visible {
   flex-direction: row;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
 }
 .cv-turn-signin__text {
   color: var(--cv-text-dim);
@@ -7038,7 +7038,7 @@ a.cv-sha:focus-visible {
   box-sizing: border-box;
   min-width: 0;
   width: 240px;
-  padding: 4px 8px;
+  padding: var(--ds-space-fixed-1) var(--ds-space-fixed-2);
   border: 1px solid var(--agent-border);
   border-radius: 6px;
   background: transparent;
@@ -7449,7 +7449,7 @@ a.cv-sha:focus-visible {
  * height is final as it grows; Pierre highlights it once when it closes (StreamingCode.tsx). */
 .cv-code-plain {
   margin: 0;
-  padding: 0 12px 0 8px;
+  padding: 0 var(--ds-space-fixed-3) 0 var(--ds-space-fixed-2);
   overflow-x: auto;
   font-family: var(--cv-mono, var(--cmux-diff-code-font-family, "SF Mono", ui-monospace, Menlo, monospace));
   font-size: var(--cv-codeblock-size, 12px);
@@ -7516,7 +7516,7 @@ a.cv-sha:focus-visible {
   text-decoration: underline;
 }
 .cv-footnotes {
-  margin: 16px 0 0;
+  margin: var(--ds-space-fixed-4) 0 0;
   padding-top: 10px;
   border-top: 1px solid var(--cv-faint-rule);
   font-size: calc(var(--cv-font-size) * 12.5 / 14);
@@ -7528,7 +7528,7 @@ a.cv-sha:focus-visible {
   padding-left: 20px;
 }
 .cv-footnote + .cv-footnote {
-  margin-top: 4px;
+  margin-top: var(--ds-space-fixed-1);
 }
 
 /* Images (Markdown.tsx): a data URL image fits the column; a web image is a link. */
@@ -7618,7 +7618,7 @@ a.cv-sha:focus-visible {
   white-space: nowrap;
 }
 .acpmux-image-viewer-count {
-  margin-right: 8px;
+  margin-right: var(--ds-space-fixed-2);
   color: var(--agent-muted);
   font-variant-numeric: var(--instrument-type-numerals, tabular-nums);
 }
@@ -7651,7 +7651,7 @@ a.cv-sha:focus-visible {
   align-items: center;
   justify-content: center;
   /* Symmetric, so the stage's center is the fitted image's center (zoomAbout in ImageViewer.tsx). */
-  padding: 16px 56px;
+  padding: var(--ds-space-fixed-4) var(--ds-space-fixed-56);
   overflow: hidden;
   touch-action: none;
 }
@@ -7693,7 +7693,7 @@ a.cv-sha:focus-visible {
    theme's magenta, one status slot (Stop while it runs, then exit status and time), "Open in
    terminal" always there, and the end of the output. Small radius, no pills. */
 .acpmux-shell-block {
-  margin: 4px 0 8px;
+  margin: var(--ds-space-fixed-1) 0 var(--ds-space-fixed-2);
   border-radius: var(--cv-card-radius, 6px);
   background: var(--cv-card-fill);
   box-shadow: inset 0 0 0 1px var(--cv-look-card-ring);
@@ -7867,7 +7867,7 @@ a.cv-sha:focus-visible {
 }
 .cv-codeblock__action.cv-codeblock__action--text {
   width: auto;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-fixed-2);
   font-size: calc(var(--cv-font-size) * 12 / 14);
 }
 
@@ -7917,7 +7917,7 @@ a.cv-sha:focus-visible {
 
 /* Charts in replies (DiagramBlock). */
 .cv-diagram {
-  margin: 8px 0;
+  margin: var(--ds-space-fixed-2) 0;
   border-radius: 8px;
   box-shadow: inset 0 0 0 1px var(--ds-surface-card-line);
   overflow: hidden;
@@ -7954,7 +7954,7 @@ a.cv-sha:focus-visible {
 }
 .cv-diagram__chart {
   min-height: 120px;
-  padding: 12px;
+  padding: var(--ds-space-fixed-3);
   overflow-x: auto;
   /* A chart narrower than the card sits centered in it, as a narrower table and display math sit
      in the column (Leo 2026-11-22: "i dont know why we dont simply center tables in our agent chats"). */
@@ -8399,7 +8399,7 @@ a.cv-sha:focus-visible {
 /* One quiet tool-height line of short facts; the full facts wrap under it on a click, indented
    to the line's text. */
 .cv-session-start__detail {
-  padding: 0 0 4px var(--cv-tool-text-inset);
+  padding: 0 0 var(--ds-space-fixed-1) var(--cv-tool-text-inset);
   line-height: 18px;
   font-size: var(--text-detail);
   color: var(--cv-text-dim);
@@ -8471,7 +8471,7 @@ a.cv-sha:focus-visible {
   overflow: hidden;
   /* Above and below is a transparent border, not padding: overflow clips at the padding edge, so padding would show
      the top of a fourth line (Leo, 2026-11-23: "not show the sliver of the second line."). */
-  padding: 0 0 0 8px;
+  padding: 0 0 0 var(--ds-space-fixed-2);
   border-block: 2px solid transparent;
   border-left: 2px solid var(--agent-border);
   overflow-wrap: anywhere;
@@ -8480,7 +8480,7 @@ a.cv-sha:focus-visible {
   border-left-color: transparent;
 }
 .cv-agent-pair__held li + li {
-  margin-top: 4px;
+  margin-top: var(--ds-space-fixed-1);
 }
 /* The live region (<output>, role status): the held and dropped counts and a failed Resume. A box
    of its own, not display: contents, which drops the role in WebKit. */
@@ -8494,7 +8494,7 @@ a.cv-sha:focus-visible {
 }
 .cv-agent-pair[data-state="resumed"] .cv-agent-pair__dropped {
   flex: none;
-  margin-left: 8px;
+  margin-left: var(--ds-space-fixed-2);
   color: var(--cv-text-dim);
 }
 .cv-agent-pair__failed {
@@ -8624,7 +8624,7 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 .cv-user__pending {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   margin: 0;
   padding: 0;
   font-family: var(--cv-font);
@@ -8732,7 +8732,7 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 .cv-message__reply {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   margin: 0 0 8px 13px;
 }
 .cv-received .cv-message__reply {
@@ -8743,7 +8743,7 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 }
 .cv-received__replied {
   display: block;
-  margin-top: 4px;
+  margin-top: var(--ds-space-fixed-1);
 }
 /* Its Reply sits after the chevron, inside the line's padding, and shows while the line is hovered or holds the focus, so the
    line reads as before. */
@@ -8752,7 +8752,7 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   display: inline-flex;
   flex: none;
   align-items: center;
-  margin-left: 8px;
+  margin-left: var(--ds-space-fixed-2);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
   color: var(--cv-text-muted);
@@ -8787,7 +8787,7 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 /* Over the first of the messages queued behind the turn (QueuedMessageCard.tsx): a Stop-held
    message's quiet lead note. Its 18px line is included in model.ts's pending-group estimate. */
 .cv-received__queued-head {
-  padding-inline-start: 4px;
+  padding-inline-start: var(--ds-space-fixed-1);
   color: var(--cv-text-dim);
   font-size: var(--text-caption);
   line-height: 18px;
@@ -8804,7 +8804,7 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   display: inline-flex;
   flex: 0 1 auto;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   min-width: 0;
 }
 .cv-waiting__pill {
@@ -8873,7 +8873,7 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 @keyframes cv-needs-input-asked {
   from {
     width: 0;
-    margin-inline-end: -8px;
+    margin-inline-end: calc(-1 * var(--ds-space-fixed-2));
     transform: scale(0);
     opacity: 0;
   }
@@ -9044,7 +9044,7 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
 .cv-repo-recovery button {
   border: 0;
   border-radius: var(--ds-radius-control);
-  padding: 4px 8px;
+  padding: var(--ds-space-fixed-1) var(--ds-space-fixed-2);
   color: var(--agent-text);
   background: var(--ds-surface-inset);
 }
@@ -9425,7 +9425,7 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
    text column like the row's other cards, framed by a hairline so it reads as the extension's and not
    cmux's own text. The scene draws with the sections' renderer, so its rows and type match them. */
 .cv-tool-widget {
-  margin: 4px 0 8px var(--cv-tool-text-inset);
+  margin: var(--ds-space-fixed-1) 0 var(--ds-space-fixed-2) var(--cv-tool-text-inset);
   max-inline-size: 420px;
   padding: var(--ds-space-2);
   border-radius: var(--ds-radius-control);

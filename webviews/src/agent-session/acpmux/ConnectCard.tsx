@@ -15,6 +15,7 @@
 // head (shared/connect/ConnectPill.tsx), `details` under the line and `extra` controls after the
 // button (Disconnect behind its confirm, a pasted-key form).
 import { useId, useState, type FormEvent, type ReactNode } from "react";
+import { Button } from "../../ui/Button";
 import { AgentMark } from "../shared/AgentMark";
 import { normalizeClaudeToken } from "../shared/claudeSetupToken";
 import { checkToken, connectRequest, refusalText, type ConnectPhase, type ConnectProgress } from "./claudeConnect";
@@ -136,28 +137,26 @@ export function ConnectCard({
     </button>
   );
   const cancel = running && onCancel && (
-    <button
-      type="button"
-      className="ui-button ui-btn acpmux-connect-card__button"
-      data-variant="ghost"
-      data-size="sm"
+    <Button
+      className="acpmux-connect-card__button"
+      variant="ghost"
+      size="sm"
       data-connect-action="cancel"
       onClick={() => onCancel()}
     >
       {t("picker.setup.cancel")}
-    </button>
+    </Button>
   );
   const dismiss = onDismiss && !running && !done && (
-    <button
-      type="button"
-      className="ui-button ui-btn acpmux-connect-card__button"
-      data-variant="ghost"
-      data-size="sm"
+    <Button
+      className="acpmux-connect-card__button"
+      variant="ghost"
+      size="sm"
       data-connect-action="dismiss"
       onClick={() => onDismiss()}
     >
       {t("harness.notNow")}
-    </button>
+    </Button>
   );
   const others = !done && !running && (onPaste || onApiKey) && (
     <div className="acpmux-connect-card__others">

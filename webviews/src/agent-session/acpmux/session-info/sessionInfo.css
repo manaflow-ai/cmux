@@ -498,7 +498,7 @@
   display: contents;
 }
 .acpmux-session-info__body[data-layout="rules"] .acpmux-session-info-section {
-  padding: 4px 0;
+  padding: var(--ds-space-fixed-1) 0;
 }
 .acpmux-session-info__body[data-layout="rules"] > .acpmux-session-info-group .acpmux-session-info-section:not([data-section="environment"]) {
   border-top: var(--cmux-hairline, 0.5px) solid var(--agent-border);
@@ -644,7 +644,7 @@
   border-top-right-radius: var(--acpmux-session-info-card-radius);
 }
 .acpmux-session-info__body[data-layout="groups"] .acpmux-session-info-slot[data-run-start] {
-  margin-top: 8px;
+  margin-top: var(--ds-space-fixed-2);
 }
 .acpmux-session-info__body[data-layout="groups"] .acpmux-session-info-slot:last-child,
 .acpmux-session-info__body[data-layout="groups"] .acpmux-session-info-slot[data-run-end] {
@@ -928,7 +928,7 @@ button.acpmux-session-info-port:hover,
 }
 /* Carried memory: a proposed file's diff, opened under its row (CarriedSection.tsx), on the label column. */
 .acpmux-carried-diff {
-  padding: 0 var(--grid-gap) 4px calc(var(--grid-gap) * 2 + var(--grid-icon-box));
+  padding: 0 var(--grid-gap) var(--ds-space-fixed-1) calc(var(--grid-gap) * 2 + var(--grid-icon-box));
 }
 .acpmux-carried-diff > pre {
   margin: 0;
@@ -950,7 +950,7 @@ button.acpmux-session-info-port:hover,
 /* A note about the row above it starts on that row's label column (past its inset, icon box and gap)
    and wraps, so a long refusal never runs past the panel's edge. */
 .acpmux-session-info-note--label {
-  margin-top: -4px;
+  margin-top: calc(-1 * var(--ds-space-fixed-1));
   padding-left: calc(var(--grid-gap) * 2 + var(--grid-icon-box));
   white-space: normal;
   overflow-wrap: anywhere;
@@ -1341,7 +1341,7 @@ button.acpmux-session-info-port:hover,
 .acpmux-session-info-breakdown__row {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--ds-space-fixed-3);
 }
 /* Servers and Background tasks. */
 .acpmux-session-info-task,
@@ -1597,16 +1597,16 @@ button.acpmux-session-info-port:focus-visible {
 .acpmux-session-info-scope {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   min-width: 0;
 }
 .acpmux-session-info-scope[data-variant="title"] {
-  margin-left: -4px;
+  margin-left: calc(-1 * var(--ds-space-fixed-1));
 }
 .acpmux-session-info-scope__name {
   display: flex;
   align-items: baseline;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -1625,17 +1625,17 @@ button.acpmux-session-info-port:focus-visible {
 }
 .acpmux-session-info-scope[data-variant="crumb"] {
   height: 24px;
-  padding: 0 4px;
+  padding: 0 var(--ds-space-fixed-1);
 }
 .acpmux-session-info-scope__parent {
   flex: 0 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   max-width: 50%;
   height: 22px;
-  padding: 0 4px;
+  padding: 0 var(--ds-space-fixed-1);
   border: 0;
   border-radius: var(--acpmux-session-info-row-radius);
   background: none;
@@ -1771,18 +1771,18 @@ button.acpmux-session-info-scope__parent:focus-visible {
 .acpmux-cloud-repository-popover {
   min-width: 260px;
   max-width: min(360px, calc(100vw - 32px));
-  padding: 8px;
+  padding: var(--ds-space-fixed-2);
 }
 .acpmux-cloud-repository-picker {
   display: grid;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   min-width: min(var(--acpmux-cloud-repository-width, 0px), 344px, calc(100vw - 48px));
 }
 .acpmux-cloud-repository-search {
   width: 100%;
   box-sizing: border-box;
   min-height: 28px;
-  padding: 4px 8px;
+  padding: var(--ds-space-fixed-1) var(--ds-space-fixed-2);
   border: 1px solid color-mix(in srgb, var(--agent-text) 18%, transparent);
   border-radius: 6px;
   color: var(--agent-text);
@@ -1806,9 +1806,9 @@ button.acpmux-session-info-scope__parent:focus-visible {
   display: flex;
   width: 100%;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   min-height: 28px;
-  padding: 4px 8px;
+  padding: var(--ds-space-fixed-1) var(--ds-space-fixed-2);
   border: 0;
   border-radius: 5px;
   color: var(--agent-text);
@@ -1836,7 +1836,7 @@ button.acpmux-session-info-scope__parent:focus-visible {
 .acpmux-cloud-repository-progress,
 .acpmux-cloud-repository-empty,
 .acpmux-cloud-repository-error {
-  padding: 4px 8px;
+  padding: var(--ds-space-fixed-1) var(--ds-space-fixed-2);
   color: color-mix(in srgb, var(--agent-text) 65%, transparent);
   font-size: var(--text-detail);
 }
@@ -1845,7 +1845,7 @@ button.acpmux-session-info-scope__parent:focus-visible {
 }
 .acpmux-cloud-repository-connect {
   display: block;
-  padding: 4px 8px;
+  padding: var(--ds-space-fixed-1) var(--ds-space-fixed-2);
   border: 0;
   background: none;
   color: var(--accent-color);

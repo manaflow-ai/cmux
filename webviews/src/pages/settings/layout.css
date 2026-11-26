@@ -1363,7 +1363,7 @@
 .checklist-toggle-all {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   padding: 0;
   border: 0;
   background: none;
@@ -1431,7 +1431,7 @@
   align-items: center;
   gap: var(--ds-space-2);
   min-height: 32px;
-  padding: 4px var(--row-pad-x);
+  padding: var(--ds-space-fixed-1) var(--row-pad-x);
   box-shadow: inset 0 -1px 0 var(--border);
 }
 
@@ -1449,7 +1449,7 @@
 .checklist-text .row-title {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
 }
 
 .checklist-text .row-title svg {
@@ -1466,7 +1466,7 @@
 }
 
 .checklist-install {
-  padding: var(--grid-half-step) 8px;
+  padding: var(--grid-half-step) var(--ds-space-fixed-2);
   border: 1px solid var(--border-strong);
   border-radius: var(--ds-radius-control);
   background: var(--input-bg);
@@ -1485,14 +1485,14 @@
 .checklist-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
 }
 
 .checklist-chip,
 .checklist-menu-item {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   border: 1px solid var(--border);
   background: none;
   color: var(--text);
@@ -1500,7 +1500,7 @@
 }
 
 .checklist-chip {
-  padding: 4px 8px 4px 4px;
+  padding: var(--ds-space-fixed-1) var(--ds-space-fixed-2) var(--ds-space-fixed-1) var(--ds-space-fixed-1);
   border-radius: 999px;
 }
 
@@ -1532,12 +1532,12 @@
 
 /* The menu layout (gallery): menu-like rows, a check mark for on, no help line. */
 [data-checklist-layout="menu"] .checklist-items {
-  padding: 4px;
+  padding: var(--ds-space-fixed-1);
 }
 
 .checklist-menu-item {
   width: 100%;
-  padding: 4px 8px;
+  padding: var(--ds-space-fixed-1) var(--ds-space-fixed-2);
   border: 0;
   border-radius: var(--ds-radius-control);
   text-align: start;

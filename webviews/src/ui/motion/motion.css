@@ -125,6 +125,9 @@
 }
 .ui-reveal-host:has(:focus-visible) .ui-reveal,
 .ui-reveal:focus-visible {
+  /* Keyboard focus can arrive during a pointer transition. Changing its duration alone lets
+     that running transition finish on its original timeline. Keep only the fill transition. */
+  transition: var(--ui-fill-transition, none);
   --ui-reveal-ms: 0s;
 }
 /* The text of a row whose trailing controls show only on hover (.ui-reveal, or a host's own reveal
@@ -150,16 +153,19 @@
   white-space: nowrap;
   text-overflow: clip;
   -webkit-mask-image: linear-gradient(
-    to left,
+    var(--ui-reveal-direction, to left),
     transparent var(--ui-reveal-cover),
     #000 calc(var(--ui-reveal-cover) + var(--ui-reveal-fade, 20px))
   );
   mask-image: linear-gradient(
-    to left,
+    var(--ui-reveal-direction, to left),
     transparent var(--ui-reveal-cover),
     #000 calc(var(--ui-reveal-cover) + var(--ui-reveal-fade, 20px))
   );
   transition: --ui-reveal-cover var(--ui-reveal-ms) var(--ui-reveal-ease);
+}
+.ui-reveal-text:dir(rtl) {
+  --ui-reveal-direction: to right;
 }
 .ui-reveal-host:hover .ui-reveal-text,
 .ui-reveal-host:focus-within .ui-reveal-text,
@@ -170,6 +176,7 @@
   --ui-reveal-cover: var(--ui-reveal-controls-w, 0px);
 }
 .ui-reveal-host:has(:focus-visible) .ui-reveal-text {
+  transition: none;
   --ui-reveal-ms: 0s;
 }
 @media (hover: none) {

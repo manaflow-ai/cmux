@@ -145,7 +145,7 @@ button.cv-subagent > :last-child {
   visibility: hidden;
 }
 .cv-subagent-stoppable:has(> .cv-subagent-resume-control) > .cv-subagent > .cv-subagent__time {
-  margin-right: calc(24px + var(--cv-subagent-gap));
+  margin-right: calc(var(--ds-space-fixed-5) + var(--cv-subagent-gap));
 }
 .cv-subagent-stoppable > button.cv-subagent + .cv-subagent__stop {
   right: calc(var(--cv-subagent-inset) + 12px + var(--cv-subagent-gap));
@@ -359,10 +359,10 @@ button.cv-subagent > :last-child {
   padding-inline-start: var(--ds-space-5);
 }
 .acpmux-agents-list__row[data-depth="2"] {
-  padding-inline-start: 40px;
+  padding-inline-start: var(--ds-space-fixed-40);
 }
 .acpmux-agents-list__row[data-depth="3"] {
-  padding-inline-start: 56px;
+  padding-inline-start: var(--ds-space-fixed-56);
 }
 .acpmux-agents-list__row:hover {
   background: var(--agent-control-hover);
@@ -811,7 +811,7 @@ button.cv-subagent > :last-child {
    The same -4px as the failed count's. */
 .acpmux-running-tray__more {
   flex: none;
-  margin-inline-start: -4px;
+  margin-inline-start: calc(-1 * var(--ds-space-fixed-1));
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
@@ -820,7 +820,7 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray__failed {
   flex: none;
   /* The header's 8px gap less a space: "1 subagent done · 1 failed" reads as one run of words. */
-  margin-inline-start: -4px;
+  margin-inline-start: calc(-1 * var(--ds-space-fixed-1));
   white-space: nowrap;
   color: var(--agent-status-failure);
   font-variant-numeric: tabular-nums;
@@ -872,7 +872,7 @@ button.cv-subagent > :last-child {
   margin-inline-start: calc(var(--acpmux-tray-stop-width) + 2 * var(--acpmux-tray-gap) - var(--ds-space-2));
 }
 .acpmux-running-tray__time:empty {
-  margin-left: -8px;
+  margin-left: calc(-1 * var(--ds-space-fixed-2));
 }
 .acpmux-running-tray__status,
 .acpmux-running-tray .acpmux-agent-line__chevron,
@@ -965,7 +965,7 @@ button.cv-subagent > :last-child {
   height: auto;
   min-height: 28px;
   align-items: flex-start;
-  padding-block: 4px;
+  padding-block: var(--ds-space-fixed-1);
 }
 /* One leading title track, then the time and status tracks, then fixed Stop and chevron tracks. The
    time and status tracks take only what their words need, up to their old fixed widths
@@ -2055,7 +2055,7 @@ button.cv-subagent > :last-child {
   display: inline-flex;
   align-items: center;
   height: var(--acpmux-tray-pull-control-height);
-  padding-inline: calc((var(--acpmux-tray-pull-control-width) - 12px) / 2);
+  padding-inline: calc((var(--acpmux-tray-pull-control-width) - var(--ds-space-fixed-3)) / 2);
   border-radius: var(--ds-radius-control, 6px);
   background: var(--glass-tint, color-mix(in srgb, var(--glass-surface, Canvas) 18%, transparent));
   box-shadow: var(--glass-rim-shadow, inset 0 0 0 var(--cmux-hairline) var(--glass-edge));

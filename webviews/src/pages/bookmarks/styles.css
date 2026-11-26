@@ -12,9 +12,9 @@
 .bm-header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   min-width: 0;
-  padding: 16px var(--page-edge) 8px;
+  padding: var(--ds-space-fixed-4) var(--page-edge) var(--ds-space-fixed-2);
   border-bottom: 1px solid var(--page-separator);
 }
 
@@ -32,7 +32,7 @@
   min-width: 0;
   box-sizing: border-box;
   height: 28px;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-fixed-2);
   font-size: var(--text-title);
   border-radius: var(--ds-radius-md);
   border: 1px solid var(--page-separator);
@@ -83,7 +83,7 @@
   flex-direction: column;
   width: var(--bm-tree-track, clamp(160px, 28%, 240px));
   min-height: 0;
-  padding: 8px 0 8px calc(var(--page-edge) - 8px);
+  padding: var(--ds-space-fixed-2) 0 var(--ds-space-fixed-2) calc(var(--page-edge) - var(--ds-space-fixed-2));
   border-inline-end: 1px solid var(--page-separator);
 }
 
@@ -91,7 +91,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding-inline-end: 8px;
+  padding-inline-end: var(--ds-space-fixed-2);
   outline: none;
 }
 
@@ -118,9 +118,9 @@
   display: flex;
   flex: 1;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   min-width: 0;
-  padding-inline-end: 8px;
+  padding-inline-end: var(--ds-space-fixed-2);
   border-radius: var(--ds-radius-md);
 }
 
@@ -161,13 +161,13 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  padding: 8px calc(var(--page-edge) - 8px) 0;
+  padding: var(--ds-space-fixed-2) calc(var(--page-edge) - var(--ds-space-fixed-2)) 0;
 }
 
 .bm-list {
   flex: 1;
   min-height: 0;
-  padding-bottom: 12px;
+  padding-bottom: var(--ds-space-fixed-3);
 }
 
 .bm-row {
@@ -181,9 +181,9 @@
   display: flex;
   flex: 1;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   min-width: 0;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-fixed-2);
 }
 
 .bm-row:hover {
@@ -218,7 +218,7 @@
 }
 
 .is-compact .bm-row-cell {
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
 }
 
 /* The favicon's box is reserved before the icon arrives, so a loaded icon never shifts the title. */
@@ -272,7 +272,7 @@
 }
 
 .bm-list-pane > .bm-crumbs {
-  padding: 0 8px;
+  padding: 0 var(--ds-space-fixed-2);
 }
 
 .bm-crumbs.is-narrow-only,
@@ -308,7 +308,7 @@
 }
 
 .bm-crumb {
-  padding: 0 4px;
+  padding: 0 var(--ds-space-fixed-1);
   border: 0;
   border-radius: var(--ds-radius-sm);
   background: transparent;
@@ -325,7 +325,7 @@
 }
 
 .bm-crumb-separator {
-  padding: 0 4px;
+  padding: 0 var(--ds-space-fixed-1);
   color: var(--page-text-3);
 }
 
@@ -341,8 +341,8 @@
 }
 
 .bm-notice {
-  margin: 4px 8px 8px;
-  padding: 4px 8px;
+  margin: var(--ds-space-fixed-1) var(--ds-space-fixed-2) var(--ds-space-fixed-2);
+  padding: var(--ds-space-fixed-1) var(--ds-space-fixed-2);
   border-radius: 6px;
   border: 1px solid var(--page-separator);
   color: var(--page-text-2);
@@ -352,8 +352,8 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  margin: 48px 16px 0;
+  gap: var(--ds-space-fixed-1);
+  margin: var(--ds-space-fixed-48) var(--ds-space-fixed-4) 0;
   text-align: center;
 }
 
@@ -371,18 +371,18 @@
 /* The editor dialog. */
 .bm-editor {
   width: min(420px, calc(100vw - 32px));
-  padding: 16px 24px;
+  padding: var(--ds-space-fixed-4) var(--ds-space-fixed-5);
 }
 
 .bm-editor-form {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--ds-space-fixed-3);
   margin: 0;
 }
 
 .bm-editor-title {
-  margin: 0 0 4px;
+  margin: 0 0 var(--ds-space-fixed-1);
   font-size: var(--text-title);
   letter-spacing: var(--text-title--letter-spacing);
   font-weight: 600;
@@ -392,7 +392,7 @@
   display: grid;
   grid-template-columns: 64px 1fr;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
 }
 
 .bm-editor-label {
@@ -404,7 +404,7 @@
   box-sizing: border-box;
   height: 28px;
   min-width: 0;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-fixed-2);
   border-radius: var(--ds-radius-md);
   border: 1px solid var(--page-separator);
   background: transparent;
@@ -436,12 +436,12 @@
 .bm-editor-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
 }
 
 .bm-button {
   height: 28px;
-  padding: 0 12px;
+  padding: 0 var(--ds-space-fixed-3);
   border-radius: var(--ds-radius-control);
   border: 1px solid var(--page-separator);
   background: transparent;
