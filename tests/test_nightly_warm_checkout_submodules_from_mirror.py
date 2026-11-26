@@ -4,10 +4,13 @@
 nightly-next run 45782377330 (1cfdcaf6, job 139782733194) failed in "Checkout build ref (warm nightly-next
 builder)": `git submodule update --init --force --depth=1 --recursive` timed out at 600 s on all three tries,
 because the Mac fetched ghostty, ghostty-next and homebrew-cmux from github.com. The step already reads cmux
-itself from $GLAEDA_GIT_MIRROR_DIR/cmux.git. Now, for each submodule (nested ones too), a verified mirror beside
-it ($GLAEDA_GIT_MIRROR_DIR/NAME.git or OWNER/NAME.git, the same checks as cmux.git) that holds the gitlink commit
-replaces the github.com URL (url.<file://mirror>.insteadOf, this step's environment only). Any other submodule
-still goes to github.com, with the job's token.
+itself from $GLAEDA_GIT_MIRROR_DIR/cmux.git. A mini also keeps one bare mirror per cmux submodule at
+$GLAEDA_GIT_MIRROR_DIR/submodules/NAME.git (glaeda-git-mirror's submodule pass: each pin as refs/pins/<sha>, depth 1,
+`glaeda.url` naming its GitHub URL). Now, for each submodule (nested ones too), the kept mirror whose glaeda.url is
+the submodule's URL and that holds the gitlink commit replaces the github.com URL (url.<file://mirror>.insteadOf,
+this step's environment only). Any other submodule still goes to github.com, with the job's token.
+
+The mirrors here are built the way glaeda-git-mirror builds them (a bare init, a depth-1 fetch of each pin).
 
 The step's own `run:` text from nightly.yml runs against temp mirrors. github.com is reached only through an
 HTTPS proxy that records each CONNECT and refuses it, so a fetch from the origin URL is seen and fails fast.
@@ -17,6 +20,7 @@ Run: python3 tests/test_nightly_warm_checkout_submodules_from_mirror.py (a few s
 from __future__ import annotations
 
 import os
+import shutil
 import socketserver
 import subprocess
 import tempfile
@@ -70,17 +74,19 @@ class WarmCheckoutSubmodulesFromMirrorTest(unittest.TestCase):
         (self.temp / "bin/curl").write_text("#!/bin/sh\nexit 7\n")
         (self.temp / "bin/curl").chmod(0o755)
         self.fleet_git = self.temp / "fleet/git"
-        (self.fleet_git / "manaflow-ai").mkdir(parents=True)
-        # zig-pkg sits inside ghostty (a nested submodule); its mirror uses the OWNER/NAME.git layout.
+        self.fleet_git.mkdir(parents=True)
+        # zig-pkg sits inside ghostty (a nested submodule).
         self.pkg = self.repo("zig-pkg", {"pkg.zig": "one\n"})
         self.pkg = self.repo("zig-pkg", {"pkg.zig": "two\n"})
         self.ghostty = self.repo("ghostty", {"src/main.zig": "ghostty\n"}, subs={"pkg": ("zig-pkg", self.pkg)})
+        self.old_brew = self.repo("homebrew-cmux", {"Formula/cmux.rb": "old\n"})
         self.brew = self.repo("homebrew-cmux", {"Formula/cmux.rb": "brew\n"})
         self.sha = self.repo("cmux", {"scripts/ci/git_fetch_retry.py": RETRY_STUB, "README": "cmux\n"},
                              subs={"ghostty": ("ghostty", self.ghostty), "homebrew-cmux": ("homebrew-cmux", self.brew)})
-        for name, where in (("cmux", "cmux.git"), ("ghostty", "ghostty.git"), ("homebrew-cmux", "homebrew-cmux.git"),
-                            ("zig-pkg", "manaflow-ai/zig-pkg.git")):
-            self.mirror(name, where)
+        git_fixture_env.clone_repo(self.temp / "src/cmux", self.fleet_git / "cmux.git", "--mirror", env=self.env)
+        (self.fleet_git / "cmux.git/glaeda-verified").write_text("ok\n")
+        for name, pin in (("ghostty", self.ghostty), ("homebrew-cmux", self.brew), ("zig-pkg", self.pkg)):
+            self.submodule_mirror(name, pin)
         self.ws = self.temp / "actions-runner-1/_work/cmux/cmux"
         self.ws.mkdir(parents=True)
 
@@ -107,10 +113,15 @@ class WarmCheckoutSubmodulesFromMirrorTest(unittest.TestCase):
         self.git(path, "commit", "-qm", f"{name} commit")
         return self.git(path, "rev-parse", "HEAD")
 
-    def mirror(self, name: str, where: str) -> Path:
-        target = self.fleet_git / where
-        git_fixture_env.clone_repo(self.temp / "src" / name, target, "--mirror", env=self.env)
-        (target / "glaeda-verified").write_text("ok\n")
+    def submodule_mirror(self, name: str, pin: str) -> Path:
+        """SUBMODULES/NAME.git as glaeda-git-mirror's submodule pass keeps it: bare, the pin at depth 1."""
+        target = self.fleet_git / "submodules" / f"{name}.git"
+        if not (target / "HEAD").is_file():
+            target.mkdir(parents=True)
+            self.git(target, "init", "-q", "--bare")
+            self.git(target, "config", "glaeda.url", f"{GH}/{name}.git")
+        self.git(target, "-c", "protocol.version=2", "fetch", "-q", "--no-tags", "--depth=1",
+                 (self.temp / "src" / name).as_uri(), f"+{pin}:refs/pins/{pin}")
         return target
 
     def run_warm_step(self) -> subprocess.CompletedProcess:
@@ -144,16 +155,17 @@ class WarmCheckoutSubmodulesFromMirrorTest(unittest.TestCase):
         self.assertNotIn("insteadof", self.git(self.ws, "config", "--list", "--show-origin").lower())
 
     def test_a_mirror_that_lacks_the_commit_falls_back_to_github(self) -> None:
-        stale = self.fleet_git / "homebrew-cmux.git"
-        self.git(stale, "update-ref", "-d", "refs/heads/main")
-        self.git(stale, "-c", "gc.reflogExpire=now", "gc", "-q", "--prune=now")
+        stale = self.fleet_git / "submodules/homebrew-cmux.git"
+        shutil.rmtree(stale)
+        self.submodule_mirror("homebrew-cmux", self.old_brew)  # an older pin only
         result = self.run_warm_step()
         self.assertNotEqual(result.returncode, 0)
         self.assertTrue(self.github_connects(), result.stderr)
-        self.assertEqual(self.git(self.ws / "ghostty", "rev-parse", "HEAD"), self.ghostty)
+        self.assertIn(f"submodule {GH}/ghostty.git: from the fleet mirror", result.stdout)
+        self.assertNotIn(f"submodule {GH}/homebrew-cmux.git: from the fleet mirror", result.stdout)
 
-    def test_an_unverified_mirror_is_not_read(self) -> None:
-        (self.fleet_git / "manaflow-ai/zig-pkg.git/glaeda-verified").unlink()
+    def test_a_mirror_kept_for_another_url_is_not_read(self) -> None:
+        self.git(self.fleet_git / "submodules/zig-pkg.git", "config", "glaeda.url", f"{GH}/not-zig-pkg.git")
         result = self.run_warm_step()
         self.assertNotEqual(result.returncode, 0)
         self.assertTrue(self.github_connects(), result.stderr)
