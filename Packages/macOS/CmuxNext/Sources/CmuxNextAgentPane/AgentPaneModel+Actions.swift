@@ -60,6 +60,12 @@ extension AgentPaneModel {
     /// hurdles to jump through as possible"): the app's `accounts.githubConnect`, with the failed
     /// call's repository and the chat's link. It opens GitHub's page, so it needs the person's gesture.
     static let githubActions: Set<String> = ["accounts.githubConnect"]
+    /// The model picker's "Set up more for Cloud…" row with Cloud picked (webviews cloudPickerEntries.ts, cmux#51731):
+    /// the app's Open Settings on Settings > Cloud (`#/settings/cloud`, DeepLink.cloudRoute), where more ways to reach models on Cloud are set up. The page names no
+    /// section; the app fixes it. It opens a tab, so it spends the person's gesture.
+    static let settingsActions: Set<String> = ["openSettings"]
+    /// The arguments a settings action runs with; the page names none.
+    static let settingsArguments: [String: [String: String]] = ["openSettings": ["route": "#/settings/cloud"]]
 
     /// `action.run` from the page. Any agent tab may open the New Tab
     /// page (a blank chat's New), the command palette's chats page ("Show all", decision K1), and the
@@ -77,7 +83,7 @@ extension AgentPaneModel {
         let screenShare = id == "session.screenShare"
         let gated = Self.connectActions.contains(id) || Self.accessActions.contains(id) || Self.cloudStartActions.contains(id)
             || Self.terminalSwitchActions.contains(id) || Self.folderActions.contains(id) || Self.placeActions.contains(id)
-            || Self.setupActions.contains(id) || screenShare || Self.githubActions.contains(id)
+            || Self.setupActions.contains(id) || screenShare || Self.githubActions.contains(id) || Self.settingsActions.contains(id)
         guard id == "newTab.page" || Self.paletteActions.contains(id) || gated, let onRunAction else {
             return Self.unsupported("action.run")
         }
@@ -88,7 +94,7 @@ extension AgentPaneModel {
         if gated, !(Self.setupActions.contains(id) ? transport.gestures.consumeFreshGesture() : transport.gestures.consume()) {
             return Self.transportFailure(.gestureRequired)
         }
-        var arguments = Self.connectArguments[id] ?? Self.accessArguments[id] ?? [:]
+        var arguments = Self.connectArguments[id] ?? Self.accessArguments[id] ?? Self.settingsArguments[id] ?? [:]
         if screenShare || Self.placeActions.contains(id), let session { arguments["session"] = session }
         if let mode { arguments["mode"] = mode }
         if let priority { arguments["priority"] = priority }

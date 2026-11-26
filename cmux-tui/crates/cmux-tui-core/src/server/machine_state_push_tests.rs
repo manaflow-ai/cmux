@@ -134,11 +134,18 @@ struct FakeHost {
     unauthenticated: Mutex<Vec<u64>>,
     /// No Cloud app server takes a frame.
     nobody: AtomicBool,
+    /// The next bearer's lease is replaced as soon as it is handed out (an account switch).
+    switch_once: AtomicBool,
+    /// Leases up to this generation are no longer the daemon's.
+    replaced: AtomicU64,
 }
 
 impl Host for FakeHost {
     fn bearer(&self) -> Result<(Zeroizing<String>, u64), ()> {
         let n = self.bearers.fetch_add(1, Ordering::SeqCst) + 1;
+        if self.switch_once.swap(false, Ordering::SeqCst) {
+            self.replaced.store(n, Ordering::SeqCst);
+        }
         Ok((Zeroizing::new(format!("token-{n}")), n))
     }
 
@@ -149,6 +156,10 @@ impl Host for FakeHost {
     fn forward(&self, data: &Value) -> bool {
         self.forwarded.lock().unwrap().push(data.clone());
         !self.nobody.load(Ordering::SeqCst)
+    }
+
+    fn current(&self, generation: u64) -> bool {
+        generation > self.replaced.load(Ordering::SeqCst)
     }
 }
 
@@ -278,6 +289,31 @@ fn a_closed_socket_tells_lost_and_reconnects_with_a_fresh_bearer() {
     assert_ne!(first, second);
     assert_eq!(auth.as_deref(), Some("Bearer token-2"));
     assert_eq!(f.kinds(2), ["record", "live"]);
+}
+
+#[test]
+fn a_frame_after_the_lease_changed_is_dropped_and_the_socket_reopens_on_the_new_one() {
+    let f = Fixture::new(Duration::from_secs(30));
+    f.host.switch_once.store(true, Ordering::SeqCst);
+    f.server.plan(Conn::Hold(vec![state(A, "paused", "5")]));
+    f.server.plan(Conn::Hold(vec![state(A, "running", "6")]));
+    f.watch(&[A]);
+    let (first, _, auth, _) = f.server.open();
+    assert_eq!(auth.as_deref(), Some("Bearer token-1"));
+    loop {
+        if matches!(f.server.next(), Seen::Closed { conn } if conn == first) {
+            break;
+        }
+    }
+    let (_, _, auth, _) = f.server.open();
+    assert_eq!(auth.as_deref(), Some("Bearer token-2"));
+    // Only the new lease's frame reached the app server and the app.
+    let record = f.event();
+    assert_eq!(record["kind"], "record");
+    assert_eq!(record["record"]["status"], "running");
+    assert_eq!(f.event()["kind"], "live");
+    let forwarded = f.host.forwarded.lock().unwrap().clone();
+    assert_eq!(forwarded.len(), 1);
 }
 
 #[test]

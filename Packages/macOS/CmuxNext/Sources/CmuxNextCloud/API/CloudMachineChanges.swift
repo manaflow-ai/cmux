@@ -37,6 +37,8 @@ public final class CloudMachineChanges {
     private var record: @MainActor (CloudMachine) -> Void = { _ in }
     /// The watch requests, one after another in the order they were made.
     private var sending: Task<Void, Never>?
+    /// Bumped by ``stop()``: a watch queued before it is not sent after it.
+    private var watchEpoch: UInt64 = 0
     /// The last list's refresh: what a lost push falls back to.
     private var lastRefresh: (@MainActor () async -> Void)?
     /// The machines the pending settle read is for; nil when it is for no one machine (a create, a lost push).
@@ -49,11 +51,18 @@ public final class CloudMachineChanges {
         self.watch = watch
     }
 
-    private func send(_ machines: [CloudMachine]) {
+    /// Queues a watch behind the ones before it. `superseding` (a stop) drops every watch still queued, so none of
+    /// them opens sockets after the stop's empty list closed them; one already sending finishes first.
+    private func send(_ machines: [CloudMachine], superseding: Bool = false) {
         guard let watch else { return }
-        let previous = sending
+        if superseding { watchEpoch &+= 1 }
+        let previous = sending, epoch = watchEpoch
         // task-owner: kept in `sending`; each waits for the one before it
-        sending = Task { await previous?.value; await watch(machines) }
+        sending = Task { [weak self] in
+            await previous?.value
+            guard let self, self.watchEpoch == epoch else { return }
+            await watch(machines)
+        }
     }
 
     /// The daemon's connection is new (a restart): it holds no sockets of the last one, so the watched list goes again.
@@ -70,8 +79,10 @@ public final class CloudMachineChanges {
         switch kind {
         case "record":
             // The crate's record: timestamps in epoch milliseconds, as every CloudMachineRules reply.
+            // main-actor-ok: one machine's record (a fixed-shape object of ids, names and timestamps).
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .millisecondsSince1970
+            // main-actor-ok: the same single record, re-encoded once to decode it as a CloudMachine.
             guard let value = payload["record"], let data = try? JSONEncoder().encode(value),
                   let shown = try? decoder.decode(CloudMachine.self, from: data) else { return }
             record(shown)
@@ -287,7 +298,7 @@ public final class CloudMachineChanges {
     public func stop() {
         watched = []
         live = []
-        send([])
+        send([], superseding: true)
         lastRefresh = nil
         pendingMachines = nil
         stopped = true
@@ -339,13 +350,18 @@ extension CloudDaemon {
         guard !sendsStackSession else { return nil }
         let teamID = teamID
         return { machines in
-            // The crate reads timestamps in epoch milliseconds (CloudMachineRules).
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .millisecondsSince1970
-            guard let connection = connection(), let data = try? encoder.encode(machines),
-                  let list = try? JSONDecoder().decode(JSONValue.self, from: data) else { return }
+            guard let connection = connection(), let list = await Self.watchList(machines) else { return }
             let team = await teamID()
             _ = try? await connection.request(AppsMachineStateWatchRequest(machines: list, platform: baseURL.absoluteString, team: team))
         }
+    }
+
+    /// The person's whole machine list as the daemon's JSON, converted off the main actor.
+    @concurrent nonisolated private static func watchList(_ machines: [CloudMachine]) async -> JSONValue? {
+        // The crate reads timestamps in epoch milliseconds (CloudMachineRules).
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .millisecondsSince1970
+        guard let data = try? encoder.encode(machines) else { return nil }
+        return try? JSONDecoder().decode(JSONValue.self, from: data)
     }
 }

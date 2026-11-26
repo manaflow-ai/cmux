@@ -110,7 +110,17 @@ export function useClaudeConnectFlow(): { row?: ClaudeConnectRowProps; card: Rea
           progress={progress}
           done={saved}
           {...(begin ? { onBegin: begin } : {})}
-          {...(host.cancel ? { onCancel: host.cancel } : {})}
+          {...(host.cancel
+            ? {
+                onCancel: () => {
+                  // A Cancel ends the run with no error: not a save, so no Connected; the card
+                  // folds back to the row's Connect.
+                  setOpen(false);
+                  setRan(false);
+                  host.cancel?.();
+                },
+              }
+            : {})}
           {...(host.add
             ? {
                 onPaste: async (token: string) => {

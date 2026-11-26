@@ -105,6 +105,7 @@ pub fn sample_events() -> Vec<(&'static str, Event, u64)> {
         inbox_pending: false,
         handback_due: false,
         wish: None,
+        wish_at: None,
     };
     let holder = answer(Verdict::Holder, SAMPLE_EPOCH, SAMPLE_SNAPSHOT);
     let answered = |answer| Event::Answered { request: SAMPLE_REQUEST, answer };
@@ -160,8 +161,8 @@ pub fn sample_events() -> Vec<(&'static str, Event, u64)> {
         ("snapshot_too_large", Event::SnapshotFailed { copy: SAMPLE_COPY, too_large: true }, 0),
         ("closed", Event::Closed { epoch: SAMPLE_EPOCH + 1 }, 0),
         ("closed_after_another_holder", Event::Closed { epoch: SAMPLE_EPOCH + 3 }, 0),
-        ("wished_cloud", Event::Wished { to: MoveTo::Cloud }, 0),
-        ("wished_local", Event::Wished { to: MoveTo::Local }, 0),
+        ("wished_cloud", Event::Wished { to: MoveTo::Cloud, at: None }, 0),
+        ("wished_local", Event::Wished { to: MoveTo::Local, at: None }, 0),
         ("turn_stopped", Event::TurnStopped, 0),
         ("gave", Event::Gave { epoch: SAMPLE_EPOCH + 1 }, 0),
         ("give_not_copied", give_failed(GiveFailure::NotCopied), 0),
@@ -229,7 +230,7 @@ pub fn table() -> Value {
             "A laptop that holds the chat and has had no renewal answered for SELF_STOP_MS stops its tree, whatever the event.",
             "Only the answer to the newest request counts; any other is ignored.",
             "Auto off for a stopped chat continues its tree only at the epoch one past the laptop's (nobody else held the chat since); at any other the tree is killed and what it wrote is kept.",
-            "A move by hand is given by the chat's holder. A wish in the store's answer (or wished, when this daemon asked for the move) stops the turn that runs here (stop_turn), then stores a copy, then asks the store to take the chat (give): not_copied copies again and asks again. After gave a laptop stands by and a machine is away. A give that does not happen leaves the chat here (stay), and a wish the store refused is not tried again until an answer comes without one. not_moved tells the person, once for a wish, why the chat was not given: it is too large to copy, the store refused, or its turn did not stop.",
+            "A move by hand is given by the chat's holder. A wish in the store's answer (or wished, when this daemon asked for the move) stops the turn that runs here (stop_turn), then stores a copy, then asks the store to take the chat (give): not_copied copies again and asks again. After gave a laptop stands by and a machine is away, in any state where it holds the chat: the answer to a give may come after the move was taken back, and at an epoch past the holder's it says the chat is another holder's. A give that does not happen leaves the chat here (stay), and a wish the store refused is not tried again until an answer comes without one, or with one the person asked at another time (asking again starts a wish's time again). not_moved tells the person, once for a wish, why the chat was not given: it is too large to copy, the store refused, or its turn did not stop.",
             "show_blocked goes out when the chat's blocked reason changed, schedule_at when its next tick moved; a tick always schedules the next one.",
         ],
         "laptop": side(Side::Laptop),

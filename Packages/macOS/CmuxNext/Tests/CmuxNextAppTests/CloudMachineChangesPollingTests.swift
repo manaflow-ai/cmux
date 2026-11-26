@@ -215,6 +215,49 @@ struct CloudMachineChangesPollingTests {
         #expect(record.runningSince == Date(timeIntervalSince1970: 1_700_000_100))
     }
 
+    /// The watches sent to the daemon; the first one waits until the test releases it.
+    @MainActor private final class Watches {
+        var sent: [[String]] = []
+        var gate: CheckedContinuation<Void, Never>?
+        var started: CheckedContinuation<Void, Never>?
+        var emptied: CheckedContinuation<Void, Never>?
+
+        func watch(_ machines: [CloudMachine]) async {
+            sent.append(machines.map(\.id))
+            if sent.count == 1 {
+                await withCheckedContinuation { continuation in
+                    gate = continuation
+                    started?.resume()
+                    started = nil
+                }
+            }
+            if machines.isEmpty {
+                emptied?.resume()
+                emptied = nil
+            }
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func stopDropsTheWatchesStillQueuedBehindASlowOne() async {
+        let changes = CloudMachineChanges(sleep: { _ in })
+        let watches = Watches()
+        changes.startPush({ await watches.watch($0) }) { _ in }
+        await withCheckedContinuation { continuation in
+            watches.started = continuation
+            changes.listed([CloudMachine(id: "a")]) {}
+        }
+        // A list queued behind the slow watch, then Cloud is turned off.
+        changes.listed([CloudMachine(id: "b")]) {}
+        changes.stop()
+        await withCheckedContinuation { continuation in
+            watches.emptied = continuation
+            watches.gate?.resume()
+            watches.gate = nil
+        }
+        #expect(watches.sent == [["a"], []], "a watch queued before stop must not open sockets after it")
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func aPushTheDaemonDroppedWithoutLostIsNoLongerLive() async throws {
         let sleeper = Sleeper()

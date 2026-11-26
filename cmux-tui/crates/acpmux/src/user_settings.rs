@@ -1,9 +1,8 @@
 //! The cmux settings file, read only (the app's settings owner writes it):
 //! `CMUX_NEXT_CONFIG_FILE`, else `~/.config/cmux/cmux-next.json` (in
-//! `~/.config/cmux-next/` on macOS), else
-//! classic `~/.config/cmux/cmux.json` before the app's first launch copies
-//! it: `cmux_config::location`'s `config_path` and `seed_path`, read with
-//! `cmux_config::jsonc`, the settings owner's own reader. Read at each use,
+//! `~/.config/cmux-next/` on macOS): `cmux_config::location`'s `config_path`,
+//! read with `cmux_config::jsonc`, the settings owner's own reader. Classic is
+//! imported by the app only after the person consents. Read at each use,
 //! so a settings change applies to the next new chat.
 
 use cmux_config::{jsonc, location};
@@ -25,48 +24,42 @@ pub enum Settings {
     Unreadable(String),
 }
 
-/// The files `read` looks at, first that exists wins: the override alone,
-/// else `cmux-next.json` then classic `cmux.json`. The settings watcher
-/// (`hub/settings_watch.rs`) watches these.
+/// The single NEXT settings file `read` looks at. The settings watcher
+/// (`hub/settings_watch.rs`) watches it.
 pub fn paths() -> Vec<PathBuf> {
     location::migrate_legacy_once();
-    paths_from(|name| std::env::var_os(name).filter(|v| !v.is_empty()), dirs::home_dir)
+    vec![resolved_path()]
 }
 
-/// `paths` for an environment and a home lookup. With no home at all both
-/// files stay relative to the working directory, as before cmux-config read
-/// them (#42064 F1): `seed_path_from` alone would drop classic `cmux.json`.
-fn paths_from(
+/// The path for an environment and a home lookup. With no home at all the
+/// settings file stays relative to the working directory, as before.
+fn path_from(
     var: impl Fn(&str) -> Option<OsString>,
     home_dir: impl Fn() -> Option<PathBuf>,
-) -> Vec<PathBuf> {
+) -> PathBuf {
     let env = |name: &str| match name {
         "HOME" => Some(var("HOME").or_else(|| home_dir().map(OsString::from)).unwrap_or_default()),
         _ => var(name),
     };
-    std::iter::once(location::config_path_from(env)).chain(location::seed_path_from(env)).collect()
+    location::config_path_from(env)
 }
 
 /// The settings file as it is now.
 pub fn read() -> Settings {
-    let read_one = |path: &std::path::Path| match std::fs::read_to_string(path) {
-        Ok(text) => Some(match document(&text) {
+    let path = resolved_path();
+    match std::fs::read_to_string(&path) {
+        Ok(text) => match document(&text) {
             Some(doc) => Settings::Parsed(doc),
             None => Settings::Unreadable(format!("{}: not valid JSONC", path.display())),
-        }),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-        Err(e) => Some(Settings::Unreadable(format!("{}: {e}", path.display()))),
-    };
-    paths().iter().find_map(|path| read_one(path)).unwrap_or(Settings::Missing)
+        },
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Settings::Missing,
+        Err(error) => Settings::Unreadable(format!("{}: {error}", path.display())),
+    }
 }
 
-/// The settings file `read` reads: the first of [`paths`] that exists, else
-/// the first (the one the app creates). What a server cmux starts is told to
-/// read (`agent_tools::cmux_server`).
+/// The NEXT settings file passed to a server that cmux starts.
 pub fn resolved_path() -> PathBuf {
-    let paths = paths();
-    // `paths` always lists the config path first, so the empty default is never taken.
-    paths.iter().find(|path| path.exists()).or_else(|| paths.first()).cloned().unwrap_or_default()
+    path_from(|name| std::env::var_os(name).filter(|v| !v.is_empty()), dirs::home_dir)
 }
 
 /// The settings file's text, or `None` when there is none to read.
