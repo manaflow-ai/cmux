@@ -330,6 +330,8 @@ class NightlyNextOneJobTests(unittest.TestCase):
         self.assertIn("appcast-with-nearest-deltas.sh after-feed", steps[build].get("run", ""))
         self.assertIn("republish-deltas-upload-next-appcasts.sh", steps[upload].get("run", ""))
         self.assertEqual((steps[upload].get("env") or {}).get("DELTAS_ONLY_WHILE_NEWEST"), "1")
+        prebuilt = next(s for s in steps if s.get("name") == "Point the deltas job at the keyless prebuild")
+        self.assertEqual(prebuilt.get("run"), 'echo "NIGHTLY_NEXT_PREBUILT=$HOME/.cmux-nightly-next-prebuilt" >> "$GITHUB_ENV"')
         # Its own directory only: the kept build workspace beside it stays as nightly-next-one left it.
         for step in steps:
             path = (step.get("with") or {}).get("path")

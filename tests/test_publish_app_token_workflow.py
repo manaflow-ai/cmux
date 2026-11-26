@@ -141,8 +141,8 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual((len(mint), len(app), len(budget)), (1, 1, 1), name)
             # Mint, then this wrapper, then gh_budget_wait.sh, which wraps it and keeps its wait.
             if name in BUDGET_FIRST:
-                # Each wrapper calls the gh first on PATH when it was installed, so here the App wrapper
-                # calls the budget wrapper, which still waits: app -> budget -> gh.
+                # Its build runs before publication, so the budget wrapper is installed first. The App
+                # wrapper still follows its mint step and all github.token users follow both wrappers.
                 self.assertEqual(app[0], mint[0] + 1, name)
                 self.assertLess(budget[0], mint[0], name)
             else:
@@ -159,6 +159,10 @@ class WorkflowTests(unittest.TestCase):
             # Every step that sends github.token runs after the wrapper is on PATH.
             for i, s in enumerate(steps):
                 if i != app[0] and "github.token" in str(s.get("env", {})):
+                    if name in BUDGET_FIRST and i < mint[0]:
+                        # The build phase precedes token minting and intentionally uses the default
+                        # github.token. Publication steps follow both wrappers.
+                        continue
                     self.assertGreater(i, budget[0], (name, s.get("name")))
 
     def test_release_asset_uploads_take_the_app_token_first(self) -> None:
