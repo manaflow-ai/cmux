@@ -228,6 +228,8 @@ on:
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
+      - scripts/cmux-next/gen-agent-pane-policy-swift.py
+      - cmux-tui/crates/cmux-agent-pane-policy/policy.json
       - scripts/cmux-next/gen-phone-lane-fields.py
       - cmux-tui/spec/sdk-schema.json
       - scripts/ci/cargo-test-selected.sh
@@ -610,6 +612,8 @@ on:
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
+      - scripts/cmux-next/gen-agent-pane-policy-swift.py
+      - cmux-tui/crates/cmux-agent-pane-policy/policy.json
       - scripts/cmux-next/gen-phone-lane-fields.py
       - cmux-tui/spec/sdk-schema.json
       - scripts/ci/cargo-test-selected.sh
