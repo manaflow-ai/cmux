@@ -9,6 +9,10 @@ package nonisolated struct SidebarSnapshot: Codable, Hashable, Sendable {
     package var sections: [Section]
     package var profiles: [Profile]
     package var activeProfileID: String?
+    /// The window drew the sidebar document's blocks in its list (`SidebarModel.docDrag` set). Nil (false) in a
+    /// snapshot saved before this field: the next launch keeps the apps after the list out of the band below
+    /// until the document is back, so they appear once in the list instead of moving there (c-9197de7242).
+    package var drawsDocument: Bool?
 
     package struct Section: Codable, Hashable, Sendable {
         /// Nil for the pinned section.
@@ -44,14 +48,16 @@ package nonisolated struct SidebarSnapshot: Codable, Hashable, Sendable {
         package var icon: String?
     }
 
-    package init(sections: [Section], profiles: [Profile], activeProfileID: String?) {
+    package init(sections: [Section], profiles: [Profile], activeProfileID: String?, drawsDocument: Bool = false) {
         self.sections = sections
         self.profiles = profiles
         self.activeProfileID = activeProfileID
+        self.drawsDocument = drawsDocument ? true : nil
     }
 
     /// Captures what the sidebar shows now. Placeholder rows are not saved.
-    package init(sections: [SidebarSection], profiles: [SidebarProfile], activeProfileID: ProfileKey?) {
+    package init(sections: [SidebarSection], profiles: [SidebarProfile], activeProfileID: ProfileKey?, drawsDocument: Bool = false) {
+        self.drawsDocument = drawsDocument ? true : nil
         self.sections = sections.filter { !$0.isDocSection }.map { section in // document sections come back with the document
             Section(machineID: section.machine?.id.rawValue, machineName: section.machine?.name,
                     machineKind: section.machine.map { Self.kindName($0.kind) }, isCollapsed: section.isCollapsed,
@@ -59,6 +65,19 @@ package nonisolated struct SidebarSnapshot: Codable, Hashable, Sendable {
         }
         self.profiles = profiles.map { Profile(id: $0.id.rawValue, name: $0.name, color: $0.color?.rawValue, icon: $0.icon) }
         self.activeProfileID = activeProfileID?.rawValue
+    }
+
+    /// What `model` shows, as the next launch reads it: its rows, space bar and whether the document drew.
+    @MainActor package init(_ model: SidebarModel) {
+        self.init(sections: model.sections, profiles: model.profiles, activeProfileID: model.activeProfileID, drawsDocument: model.docDrag != nil)
+    }
+
+    /// What a save of `model` depends on: a pass that changed none of it builds no snapshot of every row.
+    package struct SaveKey: Equatable {
+        let revision: UInt64, profiles: [SidebarProfile], active: ProfileKey?, drawsDocument: Bool
+        @MainActor package init(_ model: SidebarModel) {
+            (revision, profiles, active, drawsDocument) = (model.contentRevision, model.profiles, model.activeProfileID, model.docDrag != nil)
+        }
     }
 
     /// The saved sections as sidebar sections: every row `.stale`, every

@@ -300,7 +300,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(job["name"], guard.WEBVIEW_JOB)
         self.assertEqual(job["needs"], ["decide", "resolve-nightly-cmux-tui-client"],
                          "beside build-nightly-app, never after it")
-        checkout = job["steps"][0]
+        checkout = next(s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/checkout@"))
         self.assertEqual(checkout["with"]["ref"], "${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}")
         checks = job["steps"][step_index(job, "Webview checks on the build commit")]
         self.assertIn("fast_gate_webviews_checks.py", checks["run"])
@@ -331,7 +331,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(job["needs"], ["decide", "resolve-nightly-cmux-tui-client"],
                          "beside the build, never after it")
         self.assertNotIn("one_job", job["if"], "it runs in both publishing modes")
-        checkout = job["steps"][0]
+        checkout = next(s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/checkout@"))
         self.assertEqual(checkout["with"]["ref"], "${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}")
         shelf = job["steps"][step_index(job, "Every Discover listing installs and shows something, on the build commit")]
         self.assertIn("scripts/ci/app-store-shelf-check.sh", shelf["run"])
