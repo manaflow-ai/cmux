@@ -47,7 +47,7 @@ public final class MacScreenSession {
         /// sends a line every second while frames flow and every two seconds on a still screen, so a fresh
         /// line whose count the viewer has already decoded means the screen did not change, not a stall.
         public var hostFrames: Double?
-        public var hostStatsAt: Date?
+        var hostStatsAt: Date?
     }
 
     /// Why the last session failed, in the words of the side that knew. The failed card says
