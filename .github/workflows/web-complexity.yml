@@ -33,7 +33,7 @@ jobs:
     name: Web complexity candidate
     # Pull requests execute contributor-controlled package install scripts. Keep
     # those runs on an ephemeral Blacksmith runner, never a runner variable.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # An install that stalls fails inside scripts/ci/bun-install.sh with its reason; this limit only has to fit a slow
     # registry's two bounded attempts (2 x 300 s) plus the check, so slowness never cancels the job.
     timeout-minutes: 20

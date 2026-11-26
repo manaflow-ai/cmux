@@ -57,7 +57,7 @@ class RunnerSetTests(unittest.TestCase):
         runs_on = runs_on_text(job, "ci.yml#changes")
         self.assertNotIn("needs.", runs_on)
         self.assertNotIn("github.run_attempt == 1 && 'ubuntu-24.04'", runs_on)
-        self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER", runs_on)
+        self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04'", runs_on)
         self.assertTrue(runs_on.rstrip().endswith("|| vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}"), runs_on)
         self.assertNotIn("needs", job)
         self.assertNotIn("portable-placement", jobs)

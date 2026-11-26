@@ -59,7 +59,7 @@ MAP = "scripts/ci/fast-check-inputs.json"
 SELF = (MAP, "scripts/ci/fast_check_route.py", "tests/test_ci_fast_check_route.py")
 FULL_LABEL = "full-ci"
 # The smallest pool runner: no GitHub-hosted label (the runner-label policy refuses one).
-ROUTE_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}"
+ROUTE_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}"
 ROUTE_JOB = "fast-check-route"
 BRANCH = "feat-cmux-next"
 

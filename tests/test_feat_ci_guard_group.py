@@ -286,7 +286,7 @@ class TheGuardGroupRunsOnItsMeasuredSize(unittest.TestCase):
         self.assertEqual(
             workflow_jobs.single_runs_on(self.job()),
             "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request'"
-            " && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04')"
+            " && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04'"
             " || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}",
         )
 

@@ -714,7 +714,7 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertIn("\npermissions: {}\n", text)
         # The ci-bot environment holds the sweep's dispatch credentials (118e52e14907).
         self.assertIn("  sweep:\n    environment:\n      name: ci-bot\n      deployment: false\n    permissions:\n      actions: write\n      pull-requests: read\n      contents: read\n", text)
-        self.assertIn("runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}", text)
+        self.assertIn("runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}", text)
         # Every sweep that may cancel shares one group; only a dispatched dry run, which cancels
         # nothing, gets its own, so the next cron sweep cannot replace it while it waits.
         self.assertIn("concurrency:\n  group: ci-queue-janitor${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && format('-dry-run-{0}', github.run_id) || '' }}\n  cancel-in-progress: false\n", text)

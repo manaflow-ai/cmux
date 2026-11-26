@@ -181,11 +181,11 @@ FORK_PULL_REQUEST = (
     "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name"
     " != github.repository && '{label}' || "
 )
-# cmux-linux jobs: a fork pull request reads the GitHub-hosted fork runner variable
+# cmux-linux jobs: a fork pull request takes the GitHub-hosted 'ubuntu-24.04' literal
 # (scripts/ci/one_linux_label.py), not a Blacksmith literal.
 FORK_RUNNER_PULL_REQUEST = (
     "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name"
-    " != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || "
+    " != github.repository && 'ubuntu-24.04' || "
 )
 FORK_PR_LABELS = {
     ("ci-web.yml", "web-typecheck", "runs-on"): SMALL,
@@ -200,7 +200,7 @@ FORK_PR_LABELS = {
     ("remote-daemon.yml", "remote-daemon-tests", "runs-on"): SMALL,
 }
 # Jobs whose fork pull request branch still names a Blacksmith literal rather than
-# vars.CI_FORK_LINUX_RUNNER (they are not on cmux-linux).
+# 'ubuntu-24.04' (they are not on cmux-linux).
 FORK_LITERAL = {
     ("ci-web.yml", "webviews-typecheck", "runs-on"),
     ("cloudflare-relay.yml", "cloudflare-relay", "runs-on"),
