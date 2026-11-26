@@ -83,6 +83,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --release --locked --no-default-features --features bench windows::
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # That test run relinks target\release\cmux-rd.exe without `link`; put the bench,link
+          # binary back so the selftests below have windows-serve-selftest (cached, a relink).
+          cargo build --release --locked --no-default-features --features bench,link
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Capture and encode a real desktop sample
         shell: pwsh

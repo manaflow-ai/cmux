@@ -76,7 +76,7 @@ jobs:
           set -euo pipefail
           src="$PWD"
           if [ -n "$AT" ] && [ "$AT" != feat-cmux-next ]; then
-            sha="$(git rev-parse --verify --quiet "$AT^{commit}" || true)"
+            sha="$(git rev-parse --verify --quiet "$AT^{commit}")" || sha=""
             if [ -z "$sha" ]; then echo "::error::no commit $AT in this repository"; exit 1; fi
             if ! git merge-base --is-ancestor "$sha" HEAD; then
               echo "::error::$sha is not on feat-cmux-next; auto-journey builds only commits on it"
@@ -85,7 +85,7 @@ jobs:
             src="$RUNNER_TEMP/auto-journey-src"
             git worktree add --detach "$src" "$sha"
           fi
-          git -C "$src" submodule update --init --depth 1 ghostty ghostty-next
+          (cd "$src" && git submodule update --init --depth 1 ghostty ghostty-next)
           echo "src=$src" >> "$GITHUB_OUTPUT"
           echo "sha=$(git -C "$src" rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 

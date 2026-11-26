@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.display.thinking.jumpButton.help" : {
+      "comment" : "Settings > Chat > Transcript > Jump to Latest While Working: help; Jump to latest is the chat's button that scrolls to the newest message",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "What the Jump to latest button shows while the agent works."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ما يعرضه زر الانتقال إلى الأحدث أثناء عمل الوكيل."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Šta dugme za skok na najnovije prikazuje dok agent radi."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvad knappen Gå til seneste viser, mens agenten arbejder."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Was die Schaltfläche „Zum Neuesten“ zeigt, während der Agent arbeitet."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lo que muestra el botón Ir a lo último mientras el agente trabaja."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ce que le bouton Aller au plus récent affiche pendant que l'agent travaille."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cosa mostra il pulsante Vai all'ultimo mentre l'agente lavora."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "エージェントの作業中に「最新へ移動」ボタンに表示するもの。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "អ្វីដែលប៊ូតុងលោតទៅថ្មីបំផុតបង្ហាញពេលភ្នាក់ងារកំពុងធ្វើការ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "에이전트가 작업하는 동안 최신으로 이동 버튼에 표시되는 내용입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hva knappen Gå til siste viser mens agenten arbeider."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Co pokazuje przycisk przejścia do najnowszych, gdy agent pracuje."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O que o botão Ir para o mais recente mostra enquanto o agente trabalha."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Что показывает кнопка перехода к последнему, пока агент работает."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "สิ่งที่ปุ่มข้ามไปล่าสุดแสดงขณะที่เอเจนต์ทำงาน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ajan çalışırken En sona git düğmesinin gösterdiği şey."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Що показує кнопка переходу до останнього, поки агент працює."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nút Nhảy đến mới nhất hiển thị gì khi tác nhân đang làm việc."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "智能体工作时“跳至最新”按钮显示的内容。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "代理程式工作時「跳至最新」按鈕顯示的內容。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

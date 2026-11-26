@@ -465,13 +465,15 @@ describe("cmux VM image /tmp writer after clean (image roll 42888042827: /tmp/op
     };
     const loginEnv = at('L.step(vm, "acpmux-login-env"');
     const checks = at('L.step(vm, "acpmux-harness-checks", acpmuxHarnessChecksDoneCommand())');
+    const probes = at('L.step(vm, "acpmux-probes-quiet", acpmuxProbesQuietCommand())');
     const clean = at('L.step(vm, "clean"');
     const tmpEmpty = at('L.step(vm, "tmp-empty"');
     const warm = at('"drop-cache-warm-bind-path"');
     const writers = at('L.step(vm, "tmp-no-writer", tmpWritersCommand())');
     const ready = at('L.step(vm, "snapshot-ready", snapshotReadyCommand())');
     expect(loginEnv).toBeLessThan(checks);
-    expect(checks).toBeLessThan(clean);
+    expect(checks).toBeLessThan(probes);
+    expect(probes).toBeLessThan(clean);
     expect(clean).toBeLessThan(tmpEmpty);
     expect(warm).toBeLessThan(writers);
     expect(writers).toBeLessThan(ready);
@@ -494,6 +496,50 @@ describe("cmux VM image /tmp writer after clean (image roll 42888042827: /tmp/op
     expect(wait).not.toMatch(/sleep (?!1;)\d/);
     expect(wait).toContain("acpmux's harness check did not finish");
   });
+
+  test("waits for acpmux's model probes (cwd in the unattended folder) to exit before clean", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "acpmux-unattended-"));
+    const { spawn } = await import("node:child_process");
+    const run = (limit: number) => runChild("bash", ["-c", bake.acpmuxProbesQuietCommand(limit, dir)], { timeout: 30_000 });
+    try {
+      const idle = await run(3);
+      expect(idle.stdout).toContain("acpmux-probes-quiet after 0s");
+      expect(idle.status).toBe(0);
+      // A probe that exits within the bound: the wait returns once it is gone.
+      const short = spawn("sleep", ["2"], { cwd: dir, stdio: "ignore" });
+      await new Promise((r) => setTimeout(r, 200));
+      const waited = await run(10);
+      expect(waited.status).toBe(0);
+      expect(waited.stdout).toMatch(/acpmux-probes-quiet after [1-9]\d*s/);
+      short.kill("SIGKILL");
+      // A probe still running at the bound: named, then stopped, and the step passes.
+      const stuck = spawn("sleep", ["300"], { cwd: dir, stdio: "ignore" });
+      const gone = new Promise((r) => stuck.once("exit", (_code, signal) => r(signal)));
+      try {
+        await new Promise((r) => setTimeout(r, 200));
+        const late = await run(2);
+        expect(late.status).toBe(0);
+        expect(late.stdout).toContain("model probes still run after 2s; stopping them");
+        expect(late.stdout).toContain(`probe pid ${stuck.pid}: sleep 300`);
+        expect(late.stdout).toContain("acpmux-probes-quiet after 2s (stopped the rest)");
+        expect(await gone).toBe("SIGTERM");
+      } finally {
+        stuck.kill("SIGKILL");
+      }
+      // A probe that ignores TERM is killed too.
+      const deaf = spawn("bash", ["-c", "trap '' TERM; sleep 300 & wait"], { cwd: dir, stdio: "ignore" });
+      try {
+        await new Promise((r) => setTimeout(r, 300));
+        const hard = await run(1);
+        expect(hard.status).toBe(0);
+        expect(hard.stdout).toContain("(stopped the rest)");
+      } finally {
+        deaf.kill("SIGKILL");
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
 
   async function writers(dir: string) {
     return runChild("bash", ["-c", bake.tmpWritersCommand([dir])], { timeout: 30_000 });
@@ -530,6 +576,8 @@ describe("cmux VM image /tmp writer after clean (image roll 42888042827: /tmp/op
       expect(out).toContain(`open by pid ${holder.pid}: sleep 300`);
       expect(out).toContain(`named by pid ${namer.pid}:`);
       expect(out).toContain("processes of");
+      expect(out).not.toContain("Usage:");
+      expect(out.trimEnd().split("\n").at(-1)).toContain(`written after clean: ${leftover}`);
     } finally {
       holder.kill("SIGKILL");
       namer.kill("SIGKILL");

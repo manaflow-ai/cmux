@@ -307,6 +307,8 @@ pub(super) struct Inner {
     pub widgets: super::widgets::WidgetState,
     /// Extension signal sources' last values and floors (`signal_sources.rs`).
     pub signal_sources: super::signal_sources::SignalSources,
+    /// `cmux.pane/1` opens with arguments, waiting for the pane's result (`pane_flow.rs`).
+    pub pane_opens: super::pane_flow::PaneOpens,
 }
 
 /// Work to do after the lock is released. Messages to hosts are not in this
@@ -514,6 +516,7 @@ impl Supervisor {
                 pages: Default::default(),
                 widgets: Default::default(),
                 signal_sources: Default::default(),
+                pane_opens: Default::default(),
             }),
             config,
             router,
@@ -1124,6 +1127,9 @@ pub(super) fn entry(
         "bundle_dir": package.map(|p| p.dir.to_string_lossy().into_owned()),
         // Palette entries (`apps-run {app, op}` runs them).
         "commands": package.map(|p| p.palette_commands(key_overrides)).unwrap_or_default(),
+        // `contributes.keybindings` in keybindings.json form, for the
+        // client's app binding layer (an own op runs as `app.command.run`).
+        "keybindings": package.map(Package::keybindings).unwrap_or_default(),
         "manifest": package.map(|p| p.manifest.clone()).unwrap_or(Value::Null),
         // The web panes the client may host (`render: web`): each page's
         // file root inside `bundle_dir` and its entry file, as the manifest
