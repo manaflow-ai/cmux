@@ -18,7 +18,7 @@ import PackageDescription
 //   CmuxNextTerminal -> CmuxNextTerminalGeometry, CmuxNextCopyMode (pure), CmuxGhosttyKit (binary), CCmuxAppFFI (predictive echo)
 //   CmuxNextCompat -> swift-atomics, system frameworks (back-ports of newer system APIs for the
 //     macOS 14 floor: Mutex, Atomic; any module may import it; plans/cmux-next/macos-floor.md)
-//   CmuxNextWakeups -> Compat, Signposts, system frameworks (the only sanctioned wakeup primitives:
+//   CmuxNextWakeups -> Compat, Signposts, CCmuxAppFFI (Interactivity: the interactivity policy), system frameworks (the only sanctioned wakeup primitives:
 //     FrameScheduler, DemandTimer, Backoff, WakeupLedger, and the one main-thread scheduler's
 //     per-frame budget MainFrameBudget; plans/cmux-next/idle-wakeups.md, main-thread-budget.md)
 //   CmuxNextDesign -> CmuxTheme, CCmuxAppFFI (cmux-motion curves and color mix), Icons (OverflowButton's glyph); CmuxNextActions -> Signposts, CCmuxAppFFI (the action catalog); CmuxNextDaemon -> Wakeups
@@ -718,7 +718,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .process("Resources/AttentionTabs.xcstrings"),
                 .copy("Resources/agent-pane"),
             ],
-            swiftSettings: uiSwiftSettings
+            swiftSettings: uiSwiftSettings,
+            plugins: [.plugin(name: "AgentPanePolicyPlugin")]
         ),
         .testTarget(
             name: "CmuxNextAgentPaneTests",
@@ -1172,7 +1173,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextComputerUsePreview",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextAgentPane",
+                "CmuxNextCompat",
                 "CmuxNextDaemon",
+                "CmuxNextDesign",
+                "CmuxNextSettings",
                 "CmuxNextTerminal",
             ],
             swiftSettings: uiSwiftSettings
@@ -2284,6 +2288,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             // Signposts: the main-thread scheduler's `stall.main_task` and `stall.over_budget` (MainFrameBudget), and
             // the typing probe's key-press flow hops (`key.flow`).
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
                 "CmuxNextCompat",
                 "CmuxNextSignposts",
             ],
@@ -2787,6 +2792,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             // The generated Schema Swift files (Schema/<name>.generated.swift), from schemas/settings (RFD 0048).
             plugins: [.plugin(name: "SettingsSchemaPlugin"), .plugin(name: "StringCatalogsPlugin")]
         ),
+        // Runs scripts/cmux-next/gen-agent-pane-policy-swift.py --swift-out into its work directory.
+        .plugin(name: "AgentPanePolicyPlugin", capability: .buildTool()),
         // Runs scripts/cmux-next/gen-settings-sources.py --swift-out into its work directory.
         .plugin(name: "SettingsSchemaPlugin", capability: .buildTool()),
         // Runs scripts/cmux-next/string_catalogs.py build-target: a target's <Table>.xcstrings.d directories (one file
