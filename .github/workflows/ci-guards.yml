@@ -1348,6 +1348,222 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_guards_are_wired.py
 
+      - name: Validate the api-workerd shards' key and green marker
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_api_workerd_green_marker.py
+
+      - name: Validate a pull request push cancels only its older heads' runs
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cancel_superseded_pr_runs.py
+
+      - name: Validate the affected-set replay classifier
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_affected_set_replay.py
+
+      - name: Validate the backend gate reruns an api-workerd shard that died without a verdict
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_api_workerd_infra_shards.py
+
+      - name: Validate the app-input digest ignores docs and tests-only trees
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_app_input_digest.py
+
+      - name: Validate jobs that need ancestry fetch one branch's history
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_branch_history_fetch.py
+
+      - name: Validate the native cmux-tui Mac leg starts from the warm target
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_cmux_tui_mac_warm_target.py
+
+      - name: Validate the pr router's fast track
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fast_track.py
+
+      - name: Validate the fixit handoff for a base or nightly type check red
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fixit_handoff.py
+
+      - name: Validate the fast tier's fleet verdict reader
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fleet_fast_tier_result.py
+
+      - name: Validate the GhosttyKit release check verifies by digest
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_ghosttykit_digest_routing.py
+
+      - name: Validate guard steps skip when the checkout failed
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_guards_skip_when_checkout_failed.py
+
+      - name: Validate the hourly full tier
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_hourly_full_tier.py
+
+      - name: Validate the land-tier status post survives a spent token budget
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_land_tier_status_post.py
+
+      - name: Validate the warm nightly-next checkout reads the git mirror
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: bash tests/test_ci_nightly_warm_checkout_mirror.sh
+
+      - name: Validate the parallel artifact transport contract
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_parallel_artifact_transport.py
+
+      - name: Validate a failed router job runs no job it would have skipped
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_path_route_skips_on_failure.py
+
+      - name: Validate the darwin cross leg makes room on a pool host
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pool_make_room.py
+
+      - name: Validate jobs' GitHub API calls go out on the CI pool Apps first
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pool_tokens.py
+
+      - name: Validate a workspace-repair reset runs only after a checkout made a repository
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_reset_needs_repo.py
+
+      - name: Validate the pr router's checkout reads the runner git mirror
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_router_checkout_mirror.py
+
+      - name: Validate the runner pool reconciler against the runner policy
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_runner_pool_reconcile.py
+
+      - name: Validate the machine channel plans in the pr router's route job
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_machine_channel_router_plan.py
+
+      - name: Validate a nightly tip under the tour gap still plans its clips
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_next_media_defer_keeps_clips.py
+
+      - name: Validate the tour job's timeout leaves the clip step its budget
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_next_media_tour_timeout.py
+
+      - name: Validate the PR verdict defers the fleet app compile to the land head
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_next_pr_app_compile_deferred.py
+
+      - name: Validate the PR autofix drift job skips changes with no generated output
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_next_pr_autofix_drift_scope.py
+
+      - name: Validate the app scheme compile takes the build fleet's Debug app
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_scheme_compile_fleet.py
+
+      - name: Validate a PR head push builds no cmux-tui tree unless asked
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_tui_branch_on_request.py
+
+      - name: Validate a cmux-tui artifacts dispatch moves the acpmux channel
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_tui_dispatch_points_channel.py
+
+      - name: Validate a cmux-tui tree request for a PR dispatches once on its head
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_tui_tree_request_pr.py
+
+      - name: Validate fast-checks coalescing keeps distinct commands and trees
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_fast_checks_concurrency.py
+
+      - name: Validate a Mac job that falls from its fleet partner says why
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_fleet_fallback.py
+
+      - name: Validate the mobile-core packages test on Linux only
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ios_mobile_core_linux_only.py
+
+      - name: Validate the LAN peer source for compiled products
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_lan_product_source.py
+
+      - name: Validate the Mac tiers the step table asks for
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_mac_tiers.py
+
+      - name: Validate no single nightly component's failure holds the publish
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_nightly_component_fallbacks.py
+
+      - name: Validate nightly Mac git reads carry the job's token exactly once
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_nightly_git_token_env.py
+
+      - name: Validate nightly notarize steps check the signed channel
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_nightly_notarize_channel_matches.py
+
+      - name: Validate nightly Mac release downloads carry the job's token
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_nightly_release_downloads.py
+
+      - name: Validate the warm nightly-next checkout reads submodules from the mirror
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_nightly_warm_checkout_submodules_from_mirror.py
+
+      - name: Validate the React Doctor shadow input key
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_receipt_input_key.py
+
+      - name: Validate the NIGHTLY's signed Screen Sharing helper release
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_screen_sharing_helper_release.py
+
+      - name: Validate apt installs skip packages the runner image already has
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_apt_skips_baked_packages.py
+
+      - name: Validate the fat cmux-tui build restores its warm target in order
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_cmux_tui_fat_warm_target.py
+
+      - name: Validate the iroh Apple suites have a Mac home
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_iroh_apple_suites_have_mac_home.py
+
+      - name: Validate the PR pipeline Linux batch keeps step with the pipeline
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pr_pipeline_linux_batch.py
+
+      - name: Validate the relay journey's build cache keeps step
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_relay_journey_build_cache.py
+
+      - name: Validate the dev daily signs on an ephemeral Mac
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_next_dev_daily_sign_ephemeral.py
+
+      - name: Validate the iOS kit bench runs after a red step
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ios_kit_bench_runs_after_red_step.py
+
+      - name: Validate the machine vault e2e workflow's secret references
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_machine_vault_e2e_workflow.py
+
+      - name: Validate the nightly-next feed watch
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_nightly_next_feed_watch.py
+
+      - name: Validate every dispatched workflow is registered on the default branch
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_workflows_registered.py
+
+      - name: Validate a pull request runs only the Swift Linux groups its change can fail
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_swift_linux_reach.py
+
       - name: Validate every non-cone sparse checkout keeps .gitmodules
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_sparse_checkout_keeps_gitmodules.py
