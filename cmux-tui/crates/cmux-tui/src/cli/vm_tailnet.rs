@@ -780,7 +780,8 @@ pub(super) fn run(
             match with_guest(&vm_id, env, |guest| vault::adopt(guest, &vault, timeout)) {
                 Ok((node, name)) => {
                     let mut record = read_record(env);
-                    record.insert(vm_id.clone(), name.clone());
+                    let dns = node.get("dnsName").and_then(Value::as_str).filter(|d| !d.is_empty());
+                    record.insert(vm_id.clone(), dns.unwrap_or(&name).to_owned());
                     write_record(env, &record);
                     if json_output {
                         println!(
@@ -937,7 +938,7 @@ fn refuse_second_holder(
         Ok(Some(kept)) => kept.name,
         _ => return None,
     };
-    record.iter().find(|(_, name)| **name == kept).map(|(holder, _)| {
+    record.iter().find(|(_, name)| vault::label(name) == vault::label(&kept)).map(|(holder, _)| {
         if holder == vm_id {
             format!("{vm_id} already holds your vault's node {kept}")
         } else {
@@ -995,7 +996,7 @@ fn forget_signed_out(env: &dyn Fn(&str) -> Option<String>, name: &str) -> Option
 
 fn drop_if_kept(vault: &dyn vault::NodeVault, name: &str) -> Option<String> {
     match vault.get() {
-        Ok(Some(kept)) if kept.name == name => vault
+        Ok(Some(kept)) if vault::label(&kept.name) == vault::label(name) => vault
             .delete()
             .err()
             .map(|why| format!("your vault still keeps the signed-out node ({why})")),

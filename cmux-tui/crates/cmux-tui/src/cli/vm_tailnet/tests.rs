@@ -308,8 +308,9 @@ impl vault::NodeVault for FakeVault {
         if self.refuse_put {
             return Err("your vault is unreachable (offline)".to_owned());
         }
-        vault::put_body(name, state)?;
-        *self.node.borrow_mut() = Some((name.to_owned(), state.expose().to_owned()));
+        let body = vault::put_body(name, state)?;
+        let name = body["name"].as_str().unwrap().to_owned();
+        *self.node.borrow_mut() = Some((name, state.expose().to_owned()));
         *self.revision.borrow_mut() += 1;
         Ok(*self.revision.borrow())
     }
@@ -339,10 +340,7 @@ fn keep_copies_the_running_node_into_the_vault_without_stopping_it() {
     let mut vm = fake(vec![said("cmux-tailnet-state c3RhdGU=\ncmux-tailnet-snapshot\n")]);
     let store = FakeVault::default();
     assert_eq!(vault::keep(&mut vm, &store, "leo-cmux.tail1.ts.net").unwrap(), 1);
-    assert_eq!(
-        store.node.borrow().clone(),
-        Some(("leo-cmux.tail1.ts.net".to_owned(), "c3RhdGU=".to_owned()))
-    );
+    assert_eq!(store.node.borrow().clone(), Some(("leo-cmux".to_owned(), "c3RhdGU=".to_owned())));
     assert!(!vm.commands[0].contains("pkill"), "keep never stops tailscaled");
 }
 
@@ -355,6 +353,12 @@ fn the_put_body_carries_the_sha256_of_the_decoded_bytes() {
         "4ba69735ca53765ed6a709edb56c6ea236b7193a3b29a6b390c346f0f4340e4e"
     );
     assert!(vault::put_body("n", &Secret::new("not base64!")).is_err());
+    // The vault takes the hostname label, not the tailnet's suffix.
+    assert_eq!(
+        vault::put_body("leo-cmux.tail1.ts.net.", &Secret::new("c3RhdGU=")).unwrap()["name"],
+        "leo-cmux"
+    );
+    assert!(vault::put_body("", &Secret::new("c3RhdGU=")).is_err());
 }
 
 #[test]
@@ -375,14 +379,14 @@ fn the_vaults_answer_must_match_its_fingerprint() {
 
 #[test]
 fn adopt_brings_the_vaults_node_up_with_no_key() {
-    let store = kept("leo-cmux.tail1.ts.net", "c3RhdGU=");
+    let store = kept("leo-cmux", "c3RhdGU=");
     let mut vm = fake(vec![
         said("prepared\n"),
         said("started\n"),
         said(&format!("rc=0\ncmux-tailnet-online-at 1800\ncmux-tailnet-joined {NODE_JSON}\n")),
     ]);
     let (node, name) = vault::adopt(&mut vm, &store, Duration::from_secs(60)).unwrap();
-    assert_eq!(name, "leo-cmux.tail1.ts.net");
+    assert_eq!(name, "leo-cmux");
     assert_eq!(node["dnsName"], "leo-cmux.tail1.ts.net");
     assert_eq!(node["revision"], 7);
     let state =
@@ -403,7 +407,7 @@ fn adopt_with_an_empty_vault_changes_nothing() {
 #[test]
 fn adopt_refuses_a_second_holder() {
     let store = kept("leo-cmux", "c3RhdGU=");
-    let record = BTreeMap::from([("vm_a".to_owned(), "leo-cmux".to_owned())]);
+    let record = BTreeMap::from([("vm_a".to_owned(), "leo-cmux.tail1.ts.net".to_owned())]);
     let refusal = refuse_second_holder(&record, &store, "vm_b").unwrap();
     assert!(refusal.contains("cmux vm tailnet move vm_a vm_b"), "{refusal}");
     assert!(refuse_second_holder(&BTreeMap::new(), &store, "vm_b").is_none());

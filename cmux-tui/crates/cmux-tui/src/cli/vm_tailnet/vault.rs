@@ -98,6 +98,12 @@ impl NodeVault for PlatformVault {
     }
 }
 
+/// The vault names the node by its hostname label (`leo-cmux` of `leo-cmux.tail1.ts.net`): the
+/// tailnet's suffix is not the node's and the vault takes only a label.
+pub(super) fn label(name: &str) -> &str {
+    name.trim_end_matches('.').split('.').next().unwrap_or_default()
+}
+
 fn fingerprint(raw: &[u8]) -> String {
     Sha256::digest(raw).iter().map(|b| format!("{b:02x}")).collect()
 }
@@ -112,6 +118,10 @@ fn decode(state: &Secret) -> Result<Vec<u8>, String> {
 /// The PUT body: the state, its name and the sha256 of its bytes, which the vault checks.
 pub(super) fn put_body(name: &str, state: &Secret) -> Result<Value, String> {
     let raw = decode(state)?;
+    let name = label(name);
+    if name.is_empty() {
+        return Err("the node has no name to keep it under".to_owned());
+    }
     Ok(json!({"stateBase64": state.expose(), "name": name, "fingerprint": fingerprint(&raw)}))
 }
 
@@ -137,7 +147,7 @@ pub(super) fn parse_node(body: &Value) -> Result<KeptNode, String> {
 /// May the vault take the node `name`? Yes when it keeps none or keeps this same node; a different
 /// node stays unless the user runs `keep` on purpose.
 pub(super) fn holds_other(vault: &dyn NodeVault, name: &str) -> Result<Option<String>, String> {
-    Ok(vault.get()?.map(|kept| kept.name).filter(|kept| kept != name))
+    Ok(vault.get()?.map(|kept| kept.name).filter(|kept| label(kept) != label(name)))
 }
 
 /// Copies the node `guest` holds into the vault as `name`, leaving it running there. `Ok` is the
