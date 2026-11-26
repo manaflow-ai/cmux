@@ -1,5 +1,6 @@
 // l10n-allow-file: DEV gallery Run board comparison variant, not shipped UI.
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { useAutoRetry } from "../../../autoRetry";
 import { KeyHint } from "../../../../../ui/KeyHint";
 import { sessionSummary } from "../../../summary/sessionSummary";
 import {
@@ -11,19 +12,14 @@ import {
   type RunAttempt,
   type RunBoardSnapshot,
 } from "../../model";
-import {
-  RunApiHttpError,
-  RunBoardApiSession,
-  type AttachTicketIntent,
-  type RunApiClient,
-  type RunAttachTicket,
-} from "../../runApi";
-import { attachFailureState, attachTicketExpired } from "../../runBoardModel";
+import { RunBoardApiSession, type AttachTicketIntent, type RunApiClient, type RunAttachTicket } from "../../runApi";
+import { attachFailureState, attachWithFreshTicket } from "../../runBoardModel";
 import { attachRunTerminal } from "../../runAttach";
 
 export type CompareRunBoardProps = {
   snapshot: RunBoardSnapshot;
-  recovered: RunBoardSnapshot;
+  /** With no `client`, what a replay recovers (a gallery fixture); unset, the board stays offline. */
+  recovered?: RunBoardSnapshot;
   disconnected?: boolean;
   client?: RunApiClient;
   onAttach?: (intent: AttachTicketIntent) => Promise<RunAttachTicket | void>;
@@ -277,8 +273,13 @@ export function CompareRunBoard({
   const apiSession = useRef<RunBoardApiSession | undefined>(undefined);
   const apiClient = useRef<RunApiClient | undefined>(undefined);
 
+  // An offline board reconnects and replays on its own (autoRetry.ts), never behind a "Reconnect
+  // and replay" button: a replay is a read with no cost (Leo, 2026-11-22: "vacuous decisions like
+  // that should be just done"). Only a failure that lasts the deadline shows one quiet line.
+  const [replaying, setReplaying] = useState(false);
   const reconnect = useCallback(async () => {
     if (!client) {
+      if (!recovered) return;
       dispatch({ type: "receive", snapshot: recovered });
       setReplayComplete(true);
       setActionReceipt(`Replayed through event ${recovered.cursor}.`);
@@ -286,16 +287,21 @@ export function CompareRunBoard({
     }
     const session = apiSession.current;
     if (!session) return;
+    setReplaying(true);
     try {
-      setApiError(undefined);
       const next = await session.snapshotAndReplay();
       dispatch({ type: "receive", snapshot: next });
       setReplayComplete(true);
       setActionReceipt(`Replayed through event ${next.cursor}.`);
-    } catch (error) {
-      setApiError(error instanceof Error ? error.message : String(error));
+    } catch {
+      // Asked again on its own while the board stays offline.
+    } finally {
+      setReplaying(false);
     }
   }, [client, recovered]);
+  const { stillTrying } = useAutoRetry(state.connection === "disconnected", () => void reconnect(), {
+    busy: replaying,
+  });
 
   useEffect(() => {
     if (!client || apiClient.current === client) return;
@@ -352,19 +358,16 @@ export function CompareRunBoard({
       setAttachAttempt(target.id);
       setPendingAttempt(target.id);
       setActionPending("attach");
-      const ticket = onAttach
-        ? await onAttach(intent)
-        : client?.requestAttachTicket
-          ? await client.requestAttachTicket(intent)
-          : undefined;
-      if (ticket && attachTicketExpired(ticket)) {
-        throw new RunApiHttpError(
-          410,
-          "This attach ticket has expired. Request a fresh ticket and try again.",
-          "run_attach_expired",
-        );
-      }
-      if (ticket) await (onAttachTicket ?? attachRunTerminal)(ticket);
+      // An expired or used ticket is replaced once on this click (runBoardModel.ts `attachWithFreshTicket`).
+      const ticket = await attachWithFreshTicket(
+        async () =>
+          onAttach
+            ? await onAttach(intent)
+            : client?.requestAttachTicket
+              ? await client.requestAttachTicket(intent)
+              : undefined,
+        onAttachTicket ?? attachRunTerminal,
+      );
       dispatch({ type: "select", attemptId: target.id });
       dispatch({ type: "attach", ...(ticket ? { ticket } : {}) });
       setAttachState(ticket ? "attached" : "idle");
@@ -398,9 +401,10 @@ export function CompareRunBoard({
   const attachLabel = (target: RunAttempt) => {
     if (actionPending === "attach" && pendingAttempt === target.id) return "Attaching…";
     if (state.attached === target.id && attachState === "attached") return "Terminal attached";
-    if (attachState === "expired" && attachAttempt === target.id) return "Attach expired · Retry";
-    if (attachState === "replayed" && attachAttempt === target.id) return "Attach used · Retry";
-    if (attachState === "error" && attachAttempt === target.id) return "Attach failed · Retry";
+    // An expired or used ticket was already replaced once on the click: a failure left says so,
+    // with no "Retry". retry-prompt-ok: Attach opens the worker's terminal, only on the person's click.
+    if (attachState !== "idle" && attachState !== "attached" && attachAttempt === target.id)
+      return "Couldn’t attach · Attach terminal";
     return "Attach terminal";
   };
 
@@ -443,21 +447,13 @@ export function CompareRunBoard({
         </small>
       </section>
 
-      {state.connection === "disconnected" && (
+      {state.connection === "disconnected" && stillTrying && (
         <section className="compare-replay-banner" data-replay-banner aria-live="polite">
-          <span className="compare-replay-icon" aria-hidden="true">
-            ↻
-          </span>
           <div>
-            <strong>Offline mirror · workers continue independently</strong>
             <span>
-              Showing the last durable snapshot. Reconnect to replay the owner event stream and recover finished
-              evidence.
+              Still trying to reach the run… Showing the last durable snapshot; workers continue independently.
             </span>
           </div>
-          <button type="button" onClick={() => void reconnect()}>
-            Reconnect and replay <span aria-hidden="true">↗</span>
-          </button>
         </section>
       )}
       {apiError && (
