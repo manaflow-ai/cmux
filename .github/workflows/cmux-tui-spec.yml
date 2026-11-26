@@ -113,6 +113,7 @@ on:
       - "schemas/settings/file-keys.json"
       - "schemas/sidebar-drag-geometry/vectors.json"
       - "schemas/sidebar-region-layout/vectors.json"
+      - "schemas/sidebar-row-rules/vectors.json"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, labeled]
   workflow_call:
