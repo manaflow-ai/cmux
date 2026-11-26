@@ -659,6 +659,18 @@ the Mac.
   tab stays on the phone (it remembers the last tab per workspace). The phone
   never sends `select-tab` or `report-focus` for its own navigation, because
   both move the Mac's view for the person sitting at it.
+- **Close Tab in one round trip** (trace-ios; Leo, 2026-11-25: "are we also doing more work on
+  perf while we're here? for the app especially?"): `close-tabs {surfaces, end_terminals}` is on
+  the allowlist (hostd's `ALLOWED_COMMANDS` and the Swift mirror, its fields generated from the
+  daemon schema). It is the same authority as `close-surface` followed by `close-terminal` of each
+  terminal whose views all close, which the phone already had, done in one daemon commit
+  (`batch-close-v1`). It names no program, folder or environment; `end_terminals` ends only
+  terminals no other view keeps. A Mac that refuses it gets the old two commands.
+- **Trace id (`_meta`)**: any line command may carry `_meta: {"traceId": ID}`, the W3C trace id
+  that ties the phone's spans to the Mac's (cmux#55505's format). The ID is 1 to 128 ASCII letters,
+  digits or `-`; any other `_meta` member or shape is refused (`trace_meta_refusal` in hostd,
+  `traceMetaRefusal` in the Swift mirror). The daemon ignores it. It grants and reads nothing.
+  Tests: `close_tabs_takes_a_trace_id_only` (policy), `DaemonLanePolicyCloseTabsTests`.
 - **Agent chat tabs:** `new-conversation-tab` is new on the allowlist, and
   `DaemonPolicy::agent_tab_verdict` narrows it to one shape. Rule 2 answers:
 
@@ -1125,10 +1137,19 @@ sent as an ACP `resource_link` to that path.
   does not permit resuming or truncating its bytes. Cleanup visits only that
   device's staging directory, never the publish directory's parent.
 - Completion receipts bind the upload ID, declared name and size to the published
-  inode. A retry after a lost final reply returns the same path without another
-  copy. Receipts expire with partial uploads after 24 hours; replaced files are
-  refused. `resumable_upload_reports_have_acks_and_path` checks replay at three
+  inode and content digest, including uploads satisfied by deduplication. A retry
+  after a lost final reply returns the same path without another copy. Publication
+  interrupted before its receipt is recovered by matching the retained part inode. Receipts expire with partial uploads after 24 hours; replaced files are
+  refused, as are same-inode content changes. Receipts are written atomically.
+  `upload_completion_recovers_interrupted_publication_and_checks_bytes` covers
+  crash recovery and changed bytes. `resumable_upload_reports_have_acks_and_path` checks replay at three
   offsets, ID reuse with another name, and replacement of the published inode.
+- Legacy development receipts without a content digest, and partial authoritative
+  receipts from the earlier writer, fail closed without changing the receipt or
+  published file. They are not migrated from the current file's bytes. A phone
+  encountering one must start a new upload ID; retrying that old ID remains an
+  error. `upload_completion_refuses_legacy_hashless_and_partial_receipts` checks
+  this policy with and without a supplied digest.
 - **Regression detectors:** `another_phone_cannot_resume_an_earlier_upload_part`,
   `resumable_upload_reopens_from_the_last_ack`,
   `resumable_upload_root_alias_does_not_clean_workspace_parent`, and the

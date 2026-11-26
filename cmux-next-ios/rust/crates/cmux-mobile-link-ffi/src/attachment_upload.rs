@@ -221,6 +221,10 @@ struct State {
 
 struct Upload {
     mac_id: String,
+    /// `LinkUpload` uses a fresh `link-<UUID>` key and clears it when its call ends.
+    /// Such a link has no reconnect owner, so waiting for a replacement would
+    /// deadlock that caller after the direct link closes.
+    one_shot: bool,
     /// The name on the Mac; `file_ready_as` may change it before the first attempt.
     name: Mutex<String>,
     cwd: Option<String>,
@@ -390,6 +394,7 @@ impl AttachmentUploads {
             error_message: None,
         };
         let upload = Arc::new(Upload {
+            one_shot: spec.mac_id.strip_prefix("link-").is_some_and(|id| uuid::Uuid::parse_str(id).is_ok()),
             mac_id: spec.mac_id,
             name: Mutex::new(spec.name),
             cwd: spec.cwd,
@@ -563,6 +568,12 @@ async fn run(core: Arc<Core>, upload: Arc<Upload>, path: PathBuf) {
         let link = match current {
             Some(link) => link,
             None => {
+                if upload.one_shot {
+                    return upload.fail(
+                        "link_unavailable",
+                        "The direct upload link ended before the Mac could receive the attachment.",
+                    );
+                }
                 upload.stage(UploadStage::WaitingForMac);
                 let live =
                     |link: &Option<Arc<LinkHandle>>| link.as_ref().is_some_and(|link| !link.is_closed());

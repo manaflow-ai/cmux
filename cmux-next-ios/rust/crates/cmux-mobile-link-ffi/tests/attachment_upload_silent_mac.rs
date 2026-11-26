@@ -160,18 +160,9 @@ async fn a_silent_mac_is_noticed_within_the_stall_bound_and_the_upload_resumes()
     .await
     .expect("connect");
 
-    let ack_stall = Duration::from_secs(2);
-    let timings = Timings {
-        open: Duration::from_secs(2),
-        have: Duration::from_secs(2),
-        ack_stall,
-        final_answer: Duration::from_secs(3),
-        backoff_start: Duration::from_millis(50),
-        backoff_max: Duration::from_millis(500),
-        give_up: Duration::from_secs(120),
-        progress_interval: Duration::from_millis(50),
-        first_reply: Duration::from_secs(1),
-    };
+    let timings = Timings::default();
+    let ack_stall = timings.ack_stall;
+    assert_eq!(ack_stall, Duration::from_secs(30));
     let uploads = AttachmentUploads::with_timings(Arc::new(Quiet), timings);
     uploads.set_link(mac_id.clone(), Some(link));
     let phone = tempfile::tempdir().unwrap();
@@ -193,7 +184,7 @@ async fn a_silent_mac_is_noticed_within_the_stall_bound_and_the_upload_resumes()
     assert_eq!(frozen.stage, UploadStage::Uploading);
     // Bounded: the engine gives up on the silent attempt and tries again (or waits for the Mac),
     // with the person able to cancel all along; never an endless send.
-    let noticed = until("a retry after the Mac went silent", ack_stall * 4, || {
+    let noticed = until("a retry after the Mac went silent", ack_stall + Duration::from_secs(10), || {
         let now = progress(&uploads);
         now.attempt > frozen.attempt || now.stage != UploadStage::Uploading
     })
@@ -204,10 +195,9 @@ async fn a_silent_mac_is_noticed_within_the_stall_bound_and_the_upload_resumes()
         !matches!(stage, UploadStage::Failed | UploadStage::Cancelled | UploadStage::Done),
         "a silent Mac is retried, not failed: {stage:?}"
     );
-    tokio::time::sleep(ack_stall * 2).await;
     signal(&child, libc::SIGCONT);
 
-    let path = tokio::time::timeout(Duration::from_secs(120), uploads.wait(id.clone()))
+    let path = tokio::time::timeout(Duration::from_secs(180), uploads.wait(id.clone()))
         .await
         .expect("finished after the Mac answered again")
         .expect("uploaded");

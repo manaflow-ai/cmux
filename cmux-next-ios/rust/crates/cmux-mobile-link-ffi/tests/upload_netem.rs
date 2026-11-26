@@ -325,14 +325,13 @@ async fn upload_new(job: UploadJob) -> Result<(), String> {
     }
 }
 
-/// The phone's dial, as the app makes it (a fresh device id each time, like a reinstall: hostd
-/// must find the part by upload id alone).
-fn request(base_url: &str, mac_id: &str, transport: Transport) -> ConnectRequest {
+/// The phone's dial: redials preserve the authenticated device that owns the staged bytes.
+fn request(base_url: &str, mac_id: &str, phone_id: &str, transport: Transport) -> ConnectRequest {
     ConnectRequest {
         base_url: base_url.to_owned(),
         token: "user:alice".into(),
         team_id: "team".into(),
-        device_id: uuid::Uuid::new_v4().to_string(),
+        device_id: phone_id.into(),
         mac_device_id: mac_id.to_owned(),
         transport,
         // The veth address is the path under test; loopback only misleads (the phone's own).
@@ -440,10 +439,11 @@ async fn upload_netem_cell() {
         "hostd child exited before ready"
     );
 
+    let phone_id = uuid::Uuid::new_v4().to_string();
     let connect_started = Instant::now();
     let connected = tokio::time::timeout(
         Duration::from_secs(120),
-        connect_inner(request(&local_url, &mac_id, transport), None),
+        connect_inner(request(&local_url, &mac_id, &phone_id, transport), None),
     )
     .await;
     let connect_ms = ms(connect_started);
@@ -506,11 +506,11 @@ async fn upload_netem_cell() {
                 started: Instant::now(),
                 progress: Arc::clone(&progress),
                 relink: {
-                    let (url, mac) = (local_url.clone(), mac_id.clone());
+                    let (url, mac, phone) = (local_url.clone(), mac_id.clone(), phone_id.clone());
                     Arc::new(move || {
-                        let (url, mac) = (url.clone(), mac.clone());
+                        let (url, mac, phone) = (url.clone(), mac.clone(), phone.clone());
                         Box::pin(async move {
-                            let dial = connect_inner(request(&url, &mac, transport), None);
+                            let dial = connect_inner(request(&url, &mac, &phone, transport), None);
                             tokio::time::timeout(Duration::from_secs(30), dial).await.ok()?.ok()
                         })
                     })

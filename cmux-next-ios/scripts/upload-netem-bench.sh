@@ -30,19 +30,34 @@ exe=$(cd "$rust" && cargo test --release -p cmux-mobile-link-ffi --test upload_n
 header="engine,transport,profile,load,size_mb,run,connect_ms,open_ms,last_byte_ms,reply_ms,total_ms,bytes_sent,finished,code,max_stall_ms,capped"
 [ -s "$csv" ] || echo "$header" > "$csv"
 
-ns() { echo iab$1; }
-cleanup() { for l in $(seq 0 $((lanes-1))); do sudo -n ip netns del "$(ns $l)" 2>/dev/null; sudo -n ip link del "vba$l" 2>/dev/null; done; }
-trap cleanup EXIT INT TERM
-cleanup
+run_dir=$(mktemp -d "${TMPDIR:-/tmp}/cmux-netem.XXXXXXXX") || exit 1
+run_key=${run_dir##*.}
+owned_namespaces=() owned_links=() owned_files=()
+ns() { echo "iab${run_key}-$1"; }
+host_if() { echo "va${run_key}$1"; }
+peer_if() { echo "vb${run_key}$1"; }
+cleanup() {
+  for item in "${owned_namespaces[@]}"; do sudo -n ip netns del "$item" 2>/dev/null || true; done
+  for item in "${owned_links[@]}"; do sudo -n ip link del "$item" 2>/dev/null || true; done
+  for item in "${owned_files[@]}"; do rm -f -- "$item"; done
+  rmdir -- "$run_dir"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 for l in $(seq 0 $((lanes-1))); do
-  n=$(ns $l); sub=10.77.$((20+l))
-  sudo -n ip netns add "$n" && sudo -n ip link add "vba$l" type veth peer name "vbb$l" netns "$n" || exit 1
-  sudo -n ip addr add $sub.1/24 dev "vba$l"; sudo -n ip link set "vba$l" up
-  sudo -n ip netns exec "$n" ip addr add $sub.2/24 dev "vbb$l"
-  sudo -n ip netns exec "$n" ip link set "vbb$l" up; sudo -n ip netns exec "$n" ip link set lo up
+  n=$(ns "$l"); host=$(host_if "$l"); peer=$(peer_if "$l"); sub=10.77.$((20+l))
+  sudo -n ip netns add "$n" || exit 1
+  owned_namespaces+=("$n")
+  sudo -n ip link add "$host" type veth peer name "$peer" netns "$n" || exit 1
+  owned_links+=("$host")
+  sudo -n ip addr add $sub.1/24 dev "$host"; sudo -n ip link set "$host" up
+  sudo -n ip netns exec "$n" ip addr add $sub.2/24 dev "$peer"
+  sudo -n ip netns exec "$n" ip link set "$peer" up; sudo -n ip netns exec "$n" ip link set lo up
 done
 
-cells=$(mktemp)  # lines: load size profile run
+cells=$run_dir/cells  # lines: load size profile run
+owned_files+=("$cells")
 for load in $loads; do for size in $sizes; do
   if [ "$size" -ge "$big_mb" ]; then ps=$big_profiles; r=$runs_big; else ps=$profiles; r=$runs; fi
   for p in $ps; do for i in $(seq 1 "$r"); do echo "$load $size $p $i"; done; done
@@ -53,20 +68,19 @@ lane_loop() {  # lane load file
   while read -r line <&3; do
     k=$((k+1)); [ $(( (k-1) % lanes )) -eq "$l" ] || continue
     set -- $line
-    sudo -n tc qdisc del dev "vba$l" root 2>/dev/null; sudo -n ip netns exec "$(ns $l)" tc qdisc del dev "vbb$l" root 2>/dev/null
+    sudo -n tc qdisc del dev "$(host_if "$l")" root 2>/dev/null; sudo -n ip netns exec "$(ns "$l")" tc qdisc del dev "$(peer_if "$l")" root 2>/dev/null
     echo "[lane $l] $line" >&2
-    NETEM_NS=$(ns $l) NETEM_HOST_IF=vba$l NETEM_NS_IF=vbb$l NETEM_HOST_IP=10.77.$((20+l)).1 \
+    NETEM_NS=$(ns "$l") NETEM_HOST_IF=$(host_if "$l") NETEM_NS_IF=$(peer_if "$l") NETEM_HOST_IP=10.77.$((20+l)).1 \
     NETEM_SIZE_MB=$2 NETEM_PROFILE=$3 NETEM_LOAD=$1 NETEM_RUN=$4 NETEM_TRANSPORT=$transport \
     NETEM_ENGINE=$engine NETEM_CAP_SECS=$cap NETEM_CSV=$csv USER=${USER:-$(id -un)} \
       "$exe" --exact upload_netem_cell --ignored --nocapture --test-threads=1 2>&1 | grep -E 'HANG|link-drop|relink|stage|NETEM-ROW|panicked' | sed "s/^/[lane $l] /" >&2
   done 3< "$file"
 }
 for load in $loads; do
+  owned_files+=("$cells.$load")
   grep "^$load " "$cells" > "$cells.$load"
   pids=""
   for l in $(seq 0 $((lanes-1))); do lane_loop "$l" "$load" "$cells.$load" & pids="$pids $!"; done
   wait $pids
-  rm -f "$cells.$load"
 done
-rm -f "$cells"
 python3 -I "$here/upload-netem-summary.py" "$csv" > "$out/baseline-$engine-$transport.md" && echo "wrote $out/baseline-$engine-$transport.md"

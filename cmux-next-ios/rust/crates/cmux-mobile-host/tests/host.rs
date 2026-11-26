@@ -1091,6 +1091,24 @@ fn sha256(bytes: &[u8]) -> Vec<u8> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn upload_invalid_resume_arguments_create_no_folders() {
+    let fixture = fixture(FakeOptions::default()).await;
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let before = std::fs::read_dir(&fixture.uploads).map(|entries| entries.count()).unwrap_or(0);
+    for extra in [
+        serde_json::json!({"upload_id": "invalid"}),
+        serde_json::json!({"upload_id": "11111111-1111-1111-1111-111111111111", "offset": 4}),
+        serde_json::json!({"upload_id": "11111111-1111-1111-1111-111111111111", "sha256": "invalid"}),
+    ] {
+        let mut args = serde_json::json!({"name": "bad.bin", "size": 3});
+        args.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        let mut upload = connected.link.open("upload", args).await.unwrap();
+        assert_eq!(drain(&mut upload).await.1, "bad_request");
+        assert_eq!(std::fs::read_dir(&fixture.uploads).map(|entries| entries.count()).unwrap_or(0), before);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn resumable_upload_reports_have_acks_and_path() {
     const MIB: usize = 1 << 20;
     let fixture = fixture(FakeOptions::default()).await;
@@ -1138,6 +1156,17 @@ async fn resumable_upload_reports_have_acks_and_path() {
         assert_eq!(done["path"], path.to_string_lossy().as_ref());
     }
     assert!(!path.with_file_name("whole 2.bin").exists());
+    let mut invalid_offset = connected
+        .link
+        .open(
+            "upload",
+            serde_json::json!({
+                "name": "whole.bin", "size": MIB + 3, "upload_id": upload_id, "offset": MIB + 4
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(drain(&mut invalid_offset).await.1, "bad_request");
     let mut changed = connected
         .link
         .open(
@@ -1317,8 +1346,44 @@ async fn resumable_upload_with_a_known_sha256_answers_the_stored_copy_without_by
     assert_eq!(lines[0]["deduped"], true);
     assert_eq!(lines[0]["size"], bytes.len());
 
+    // Losing a cache-hit reply must remain replayable even if the optional
+    // index disappears. The upload ID has its own durable completion receipt.
+    let folder = stored.parent().unwrap();
+    let parts =
+        folder.join(format!(".parts-{:x}", Sha256::digest(fixture.phone_id.to_ascii_lowercase().as_bytes())));
+    let index = parts.join(format!(".sha256-{}", folder.file_name().unwrap().to_str().unwrap()));
+    std::fs::remove_file(index.join(&hash)).unwrap();
+    let mut replay = connected
+        .link
+        .open(
+            "upload",
+            serde_json::json!({
+                "name": "b.bin", "size": bytes.len(), "upload_id": "55555555-5555-5555-5555-555555555555",
+                "sha256": hash
+            }),
+        )
+        .await
+        .unwrap();
+    let (reply, code) = drain(&mut replay).await;
+    assert_eq!(code, "eof");
+    assert_eq!(reply_lines(&reply).last().unwrap()["path"], first["path"]);
+    assert!(!folder.join("b.bin").exists());
+    std::fs::write(index.join(&hash), stored.file_name().unwrap().as_encoded_bytes()).unwrap();
+
     // The stored file changed (same size): the bytes cross again, into a new file.
     std::fs::write(&stored, vec![0x00_u8; bytes.len()]).unwrap();
+    let mut changed = connected
+        .link
+        .open(
+            "upload",
+            serde_json::json!({
+                "name": "a.bin", "size": bytes.len(), "upload_id": "44444444-4444-4444-4444-444444444444",
+                "sha256": hash
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(drain(&mut changed).await.1, "io");
     let third =
         upload_with_hash(&connected.link, "66666666-6666-6666-6666-666666666666", "a.bin", &bytes, &hash)
             .await;
@@ -1346,6 +1411,84 @@ async fn resumable_upload_with_a_known_sha256_answers_the_stored_copy_without_by
         .unwrap();
     let (_, code) = drain(&mut bad).await;
     assert_eq!(code, "bad_request");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn resumable_upload_dedup_index_alias_preserves_outside_entry() {
+    use std::os::unix::fs::symlink;
+
+    let fixture = fixture(FakeOptions::default()).await;
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let bytes = b"aliased-index";
+    let hash = format!("{:x}", Sha256::digest(bytes));
+    let first =
+        upload_with_hash(&connected.link, "99999999-9999-9999-9999-999999999999", "a.bin", bytes, &hash)
+            .await;
+    let stored = std::path::PathBuf::from(first["path"].as_str().unwrap());
+    let folder = stored.parent().unwrap();
+    let parts =
+        folder.join(format!(".parts-{:x}", Sha256::digest(fixture.phone_id.to_ascii_lowercase().as_bytes())));
+    let index = parts.join(format!(".sha256-{}", folder.file_name().unwrap().to_str().unwrap()));
+    let outside = fixture.outside.join("dedup-index-target");
+    std::fs::create_dir(&outside).unwrap();
+    let sentinel = outside.join(&hash);
+    std::fs::write(&sentinel, b"outside").unwrap();
+    std::fs::remove_dir_all(&index).unwrap();
+    symlink(&outside, &index).unwrap();
+
+    let second =
+        upload_with_hash(&connected.link, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "b.bin", bytes, &hash)
+            .await;
+    assert!(second.get("deduped").is_none(), "an aliased index must not answer a cache hit: {second}");
+    assert_ne!(second["path"], first["path"]);
+    assert_eq!(std::fs::read(&sentinel).unwrap(), b"outside", "the aliased index escaped its folder");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn resumable_upload_dedup_index_ignores_fifo_and_oversized_entries() {
+    use std::io::Write;
+    use std::os::unix::ffi::OsStrExt;
+
+    let fixture = fixture(FakeOptions::default()).await;
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let bytes = b"special-index-entry";
+    let hash = format!("{:x}", Sha256::digest(bytes));
+    let first =
+        upload_with_hash(&connected.link, "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", "a.bin", bytes, &hash)
+            .await;
+    let stored = std::path::PathBuf::from(first["path"].as_str().unwrap());
+    let folder = stored.parent().unwrap();
+    let parts =
+        folder.join(format!(".parts-{:x}", Sha256::digest(fixture.phone_id.to_ascii_lowercase().as_bytes())));
+    let index = parts.join(format!(".sha256-{}", folder.file_name().unwrap().to_str().unwrap()));
+    let entry = index.join(&hash);
+
+    std::fs::remove_file(&entry).unwrap();
+    let entry_name = std::ffi::CString::new(entry.as_os_str().as_bytes()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(entry_name.as_ptr(), 0o600) }, 0);
+    let fifo_entry = entry.clone();
+    let fifo_writer = std::thread::spawn(move || {
+        let Ok(mut fifo) = std::fs::OpenOptions::new().write(true).open(&fifo_entry) else { return };
+        let _ = fifo.write_all(b"not-a-published-file\n");
+    });
+    let fifo_result = tokio::time::timeout(
+        Duration::from_secs(3),
+        upload_with_hash(&connected.link, "cccccccc-cccc-cccc-cccc-cccccccccccc", "b.bin", bytes, &hash),
+    )
+    .await
+    .expect("FIFO index entry must not block lookup");
+    fifo_writer.join().unwrap();
+    assert!(fifo_result.get("deduped").is_none(), "a FIFO is not a cache entry: {fifo_result}");
+
+    std::fs::remove_file(&entry).unwrap();
+    std::fs::write(&entry, vec![b'x'; 8192]).unwrap();
+    let oversized = tokio::time::timeout(
+        Duration::from_secs(3),
+        upload_with_hash(&connected.link, "dddddddd-dddd-dddd-dddd-dddddddddddd", "c.bin", bytes, &hash),
+    )
+    .await
+    .expect("oversized index entry must be bounded");
+    assert!(oversized.get("deduped").is_none(), "an oversized entry is not a cache hit: {oversized}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

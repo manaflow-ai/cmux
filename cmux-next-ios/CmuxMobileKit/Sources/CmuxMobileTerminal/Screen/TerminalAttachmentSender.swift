@@ -10,7 +10,7 @@ import UniformTypeIdentifiers
 /// upload starts then, not on Send, and every stage can be cancelled
 /// (design/attachment-upload.md).
 @MainActor
-public protocol TerminalAttachmentSending: AnyObject {
+public protocol TerminalAttachmentSending: AnyObject, Sendable {
     /// Starts sending the attachment; nil when there is no Mac to send it to.
     func start(_ attachment: ComposerAttachment) -> String?
     /// Stops it at any stage, at once.
@@ -45,8 +45,9 @@ public final class EngineAttachmentSender: TerminalAttachmentSending {
         guard let url = attachment.fileURL else { return nil }
         guard attachment.kind == .video else { return client.start(url, name: attachment.name, to: destination) }
         let id = client.reserve(name: attachment.name, to: destination)
-        exports[id] = Task { [weak self] in
-            let prepared = await VideoCompressor.prepare(url) { fraction in
+        exports[id] = Task { [weak self, pickedMovie = attachment.pickedMovie] in
+            defer { withExtendedLifetime(pickedMovie) {} }
+            let prepared = await VideoCompressor.prepare(ScopedFile(url)) { fraction in
                 self?.client.compressProgress(id, fraction: fraction)
             }
             guard let self, !Task.isCancelled else {
@@ -123,8 +124,11 @@ enum ImageCompressor {
         }
     }
 
+    // ImageIO is synchronous. Run it off the main actor in the upload task so Stop's
+    // cancellation is visible between decode, thumbnail creation and JPEG finalization.
+    @concurrent
     static func prepare(_ source: Source) async -> URL? {
-        await Task.detached(priority: .userInitiated) { encode(source) }.value
+        encode(source)
     }
 
     /// `IMG_0001.HEIC` -> `IMG_0001.jpg`.
@@ -134,6 +138,7 @@ enum ImageCompressor {
     }
 
     nonisolated static func encode(_ source: Source) -> URL? {
+        guard !Task.isCancelled else { return nil }
         switch source {
         case .data(let data):
             return encode(CGImageSourceCreateWithData(data as CFData, nil), bytes: data.count)
@@ -146,27 +151,30 @@ enum ImageCompressor {
         }
     }
 
-    nonisolated static func encode(_ image: CGImageSource?, bytes: Int) -> URL? {
-        guard let image, let plan = plan(for: image, bytes: bytes), plan.reencode else { return nil }
+    nonisolated static func encode(
+        _ image: CGImageSource?, bytes: Int,
+        outputRoot: URL = FileManager.default.temporaryDirectory.appendingPathComponent("attachment-encode", isDirectory: true)
+    ) -> URL? {
+        guard !Task.isCancelled, bytes > 0, let image, let plan = plan(for: image, bytes: bytes), plan.reencode else { return nil }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
             kCGImageSourceShouldCacheImmediately: true,
             kCGImageSourceThumbnailMaxPixelSize: Int(plan.maxLongSide),
         ]
-        guard let scaled = CGImageSourceCreateThumbnailAtIndex(image, 0, options as CFDictionary) else { return nil }
-        let folder = FileManager.default.temporaryDirectory
-            .appendingPathComponent("attachment-encode", isDirectory: true)
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        guard let scaled = CGImageSourceCreateThumbnailAtIndex(image, 0, options as CFDictionary), !Task.isCancelled else { return nil }
+        let folder = outputRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let output = folder.appendingPathComponent("image.jpg")
-        guard (try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)) != nil,
-              let destination = CGImageDestinationCreateWithURL(output as CFURL, UTType.jpeg.identifier as CFString, 1, nil)
-        else { return nil }
-        CGImageDestinationAddImage(destination, scaled, [kCGImageDestinationLossyCompressionQuality: plan.quality] as CFDictionary)
-        guard CGImageDestinationFinalize(destination) else {
-            try? FileManager.default.removeItem(at: folder)
-            return nil
+        guard (try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)) != nil else { return nil }
+        var keepOutput = false
+        defer {
+            if !keepOutput { try? FileManager.default.removeItem(at: folder) }
         }
+        guard let destination = CGImageDestinationCreateWithURL(output as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(destination, scaled, [kCGImageDestinationLossyCompressionQuality: plan.quality] as CFDictionary)
+        guard !Task.isCancelled, CGImageDestinationFinalize(destination), !Task.isCancelled,
+              AttachmentEncoding.isSmaller(output, than: bytes) else { return nil }
+        keepOutput = true
         return output
     }
 
@@ -180,6 +188,13 @@ enum ImageCompressor {
     }
 }
 
+enum AttachmentEncoding {
+    nonisolated static func isSmaller(_ output: URL, than originalBytes: Int) -> Bool {
+        guard let bytes = try? output.resourceValues(forKeys: [.fileSizeKey]).fileSize else { return false }
+        return bytes > 0 && bytes < originalBytes
+    }
+}
+
 /// Runs the re-encode Rust's `videoPlan` asks for (HEVC, long side at most
 /// 1920) with `AVAssetExportSession`. Any failure sends the original: a
 /// bigger upload beats none.
@@ -190,9 +205,18 @@ enum VideoCompressor {
         var plan: VideoPlan?
     }
 
-    static func prepare(_ source: URL, progress: @escaping @MainActor (Double) -> Void) async -> Prepared {
+    static func prepare(_ file: ScopedFile, progress: @escaping @MainActor (Double) -> Void) async -> Prepared {
+        // The picker closes its own scope after adding the tile. AVFoundation reads
+        // the source lazily, through the end of export.
+        let access = file.open()
+        defer { access.close() }
+        let source = access.url
         let asset = AVURLAsset(url: source)
-        guard let plan = await plan(for: asset, at: source), plan.reencode else { return Prepared(output: nil, plan: nil) }
+        guard !Task.isCancelled,
+              let bytes = try? source.resourceValues(forKeys: [.fileSizeKey]).fileSize, bytes > 0,
+              let plan = await plan(for: asset, bytes: bytes)
+        else { return Prepared(output: nil, plan: nil) }
+        guard !Task.isCancelled, plan.reencode else { return Prepared(output: nil, plan: plan) }
         guard let session = AVAssetExportSession(asset: asset, presetName: plan.preset) else { return Prepared(output: nil, plan: plan) }
         let type: AVFileType = source.pathExtension.lowercased() == "mp4" ? .mp4 : .mov
         let folder = FileManager.default.temporaryDirectory
@@ -218,29 +242,37 @@ enum VideoCompressor {
         do {
             // Cancelling the calling task cancels the export (`export(to:as:)` honors it).
             try await session.export(to: output, as: type)
-            return Prepared(output: output, plan: plan)
+            if !Task.isCancelled, AttachmentEncoding.isSmaller(output, than: bytes) {
+                return Prepared(output: output, plan: plan)
+            }
         } catch {
-            try? FileManager.default.removeItem(at: folder)
-            return Prepared(output: nil, plan: plan)
+            // A failed or cancelled export may have written a partial movie.
         }
+        try? FileManager.default.removeItem(at: folder)
+        return Prepared(output: nil, plan: plan)
     }
 
     /// The asset's facts, for Rust to decide on.
-    static func plan(for asset: AVURLAsset, at url: URL) async -> VideoPlan? {
+    private static func plan(for asset: AVURLAsset, bytes: Int) async -> VideoPlan? {
         guard let track = try? await asset.loadTracks(withMediaType: .video).first,
               let (size, transform, formats) = try? await track.load(.naturalSize, .preferredTransform, .formatDescriptions),
               let duration = try? await asset.load(.duration)
         else { return nil }
-        let shown = size.applying(transform)
-        let bytes = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
         let codec = formats.first.map { CMFormatDescriptionGetMediaSubType($0) == kCMVideoCodecType_HEVC ? "hevc" : "h264" } ?? "unknown"
-        return videoPlan(
-            width: UInt32(abs(shown.width).rounded()),
-            height: UInt32(abs(shown.height).rounded()),
-            durationMs: UInt64(max(0, duration.seconds * 1000)),
-            bytes: UInt64(max(0, bytes)),
-            codec: codec
-        )
+        return plan(displaySize: size.applying(transform), duration: duration, bytes: bytes, codec: codec)
+    }
+
+    static func plan(displaySize: CGSize, duration: CMTime, bytes: Int, codec: String) -> VideoPlan? {
+        // AVFoundation may report indefinite time or nonrepresentable transformed dimensions.
+        // Failable conversion also handles a finite Double rounded up to 2^64.
+        let milliseconds = duration.seconds * 1000
+        guard milliseconds.isFinite, milliseconds >= 0,
+              let durationMs = UInt64(exactly: milliseconds.rounded(.towardZero)),
+              let width = UInt32(exactly: abs(displaySize.width).rounded()), width > 0,
+              let height = UInt32(exactly: abs(displaySize.height).rounded()), height > 0,
+              let byteCount = UInt64(exactly: bytes)
+        else { return nil }
+        return videoPlan(width: width, height: height, durationMs: durationMs, bytes: byteCount, codec: codec)
     }
 }
 #endif
