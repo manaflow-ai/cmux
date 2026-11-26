@@ -26,6 +26,25 @@ const TERMINAL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 /// How long a probe sent because the network changed may take, write and answer, before the
 /// link is redialed. A route that survived the change answers well within it.
 const NETWORK_CHANGE_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
+/// The same window for a link on a direct path (our direct socket or a direct tailnet path) with
+/// the fast fallback on ([`FAST_FALLBACK_ENV`]). A direct path rides the mapping the change may
+/// have just broken, and the bench (hq#23971) saw both direct paths stall 4-5 s at a change while
+/// both relays stalled 0; a direct link that answers nothing within this goes to the warm standby
+/// at once ([`ReconnectGroupSource::take_standby`]), and the source's own pass races direct again
+/// beside it.
+const FAST_FALLBACK_PROBE_TIMEOUT: Duration = Duration::from_millis(250);
+/// `CMUX_BRAID_FAST_FALLBACK=1` turns the fast fallback on (off by default).
+pub const FAST_FALLBACK_ENV: &str = "CMUX_BRAID_FAST_FALLBACK";
+
+fn fast_fallback_enabled() -> bool {
+    std::env::var(FAST_FALLBACK_ENV).is_ok_and(|value| matches!(value.trim(), "1" | "on" | "true"))
+}
+
+/// How long a probe after a network change waits before the link is redialed: the short window
+/// for a direct path when the fast fallback is on, the ordinary one otherwise.
+fn network_change_window(direct: bool, fast_fallback: bool) -> Duration {
+    if direct && fast_fallback { FAST_FALLBACK_PROBE_TIMEOUT } else { NETWORK_CHANGE_PROBE_TIMEOUT }
+}
 
 #[derive(Debug, Clone)]
 pub struct ClientConnectionConfig {
@@ -240,6 +259,21 @@ pub struct StandbyGroup {
     pub race_after: Option<Duration>,
 }
 
+/// Whether the machine behind a link is asleep (a person paused it), read
+/// without waking it. A paused Cloud VM is woken by any byte that reaches it,
+/// so a link with a gate sends nothing while the gate says asleep and no
+/// caller acts: no heartbeat and no redial. The first application send is an
+/// action: it goes out as it would, and that byte is the wake.
+#[async_trait]
+pub trait SleepGate: Send + Sync {
+    /// How long the link goes with no application send before it reads the
+    /// gate, and how often an idle link reads it (and probes, when awake).
+    fn look(&self) -> Duration;
+    /// Whether the machine is asleep now. A read that fails answers false:
+    /// the link probes as it would without a gate.
+    async fn asleep(&self) -> bool;
+}
+
 /// Told how each attempt to reattach an established session's carrier (a
 /// resume) ended, for a caller that logs every connect.
 pub trait ResumeHooks: Send + Sync {
@@ -295,6 +329,13 @@ pub struct ClientConnection {
     /// Why the last redial failed, until one succeeds: the reason a waiter
     /// that runs out of time is given.
     last_failure: StdMutex<Option<String>>,
+    /// Read before an idle link sends a heartbeat or redials ([`SleepGate`]).
+    sleep_gate: StdMutex<Option<Arc<dyn SleepGate>>>,
+    /// When the application last sent a frame (heartbeats are not sends).
+    last_action: StdMutex<Instant>,
+    /// True while the gate said asleep and nothing acted since: the link
+    /// sends nothing. An application send clears it.
+    quiet: watch::Sender<bool>,
 }
 
 #[derive(Clone, Debug)]
@@ -438,6 +479,9 @@ impl ClientConnection {
             actions: watch::channel(0).0,
             network: watch::channel(0).0,
             last_failure: StdMutex::new(None),
+            sleep_gate: StdMutex::new(None),
+            last_action: StdMutex::new(Instant::now()),
+            quiet: watch::channel(false).0,
         });
         Self::spawn_heartbeat(&connection);
         Ok(connection)
@@ -450,6 +494,71 @@ impl ClientConnection {
     /// Install hooks that every later resume attempt calls.
     pub fn set_resume_hooks(&self, hooks: Arc<dyn ResumeHooks>) {
         *self.resume_hooks.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(hooks);
+    }
+
+    /// Install the gate an idle link reads before it sends a heartbeat or
+    /// redials ([`SleepGate`]).
+    pub fn set_sleep_gate(&self, gate: Arc<dyn SleepGate>) {
+        *self.sleep_gate.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(gate);
+    }
+
+    fn sleep_gate(&self) -> Option<Arc<dyn SleepGate>> {
+        self.sleep_gate.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    }
+
+    /// Whether the link holds quiet: its gate said asleep and nothing acted since.
+    pub fn is_quiet(&self) -> bool {
+        *self.quiet.borrow()
+    }
+
+    /// An application send: the link is in use, and a quiet hold ends.
+    fn note_action(&self) {
+        *self.last_action.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Instant::now();
+        self.quiet.send_if_modified(|quiet| std::mem::replace(quiet, false));
+    }
+
+    /// The gate's look time while the link has had no application send for
+    /// that long; `None` without a gate or while the link is in use.
+    fn idle_look(&self) -> Option<Duration> {
+        let look = self.sleep_gate()?.look();
+        let since = self.last_action.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        (since.elapsed() >= look).then_some(look)
+    }
+
+    /// Whether the link must send nothing now: it is idle and its gate says
+    /// the machine is asleep. Reads the gate (only when idle) and records the
+    /// answer as the quiet hold.
+    async fn hold_quiet(&self) -> bool {
+        let Some(gate) = self.sleep_gate() else { return false };
+        if self.idle_look().is_none() {
+            self.quiet.send_if_modified(|quiet| std::mem::replace(quiet, false));
+            return false;
+        }
+        let asleep = gate.asleep().await;
+        // An action while the read ran wins: its byte is the wake.
+        let asleep = asleep && self.idle_look().is_some();
+        self.quiet.send_if_modified(|quiet| std::mem::replace(quiet, asleep) != asleep);
+        asleep
+    }
+
+    /// Returns once the link may send: at once unless it holds quiet, else
+    /// at an action or a read that says the machine woke.
+    async fn wait_while_asleep(
+        &self,
+        close_state: &mut watch::Receiver<CloseState>,
+    ) -> Result<(), ConnectionError> {
+        while self.hold_quiet().await {
+            let look = self.sleep_gate().map_or(Duration::from_secs(1), |gate| gate.look());
+            let mut quiet = self.quiet.subscribe();
+            tokio::select! {
+                biased;
+                _ = close_state.changed() => return Err(ConnectionError::Closed),
+                _ = quiet.wait_for(|quiet| !*quiet) => return Ok(()),
+                () = tokio::time::sleep(look) => {}
+            }
+        }
+        Ok(())
     }
 
     fn resume_hooks(&self) -> Option<Arc<dyn ResumeHooks>> {
@@ -628,6 +737,11 @@ impl ClientConnection {
         payload: Bytes,
         flags: FrameFlags,
     ) -> Result<u64, ConnectionError> {
+        if !flags.contains(FrameFlags::HEARTBEAT_REQUEST)
+            && !flags.contains(FrameFlags::HEARTBEAT_RESPONSE)
+        {
+            self.note_action();
+        }
         // Another send may hold this lane through an unbounded recovery, and
         // replay holds the session lock; a send with a deadline waits for
         // neither past it.
@@ -1109,6 +1223,12 @@ impl ClientConnection {
         if self.session_unavailable() {
             return Err(ConnectionError::SessionUnavailable);
         }
+        // A redial reaches the machine: a background recovery of an idle link
+        // whose machine is asleep waits for an action (an application send)
+        // or a read that says it woke, before its deadline starts.
+        if deadline.is_none() {
+            self.wait_while_asleep(&mut close_state).await?;
+        }
         self.set_diagnostics_state(ConnectionState::Reconnecting);
         let result = self.recover_locked(&mut close_state, deadline).await;
         if matches!(result, Err(ConnectionError::SessionUnavailable)) {
@@ -1544,23 +1664,37 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
     // A network change probes at once instead of at the next interval.
     let mut network = initial.network.subscribe();
     network.borrow_and_update();
+    // An action ends a quiet hold: the next probe waits one interval from it.
+    let mut quiet = initial.quiet.subscribe();
     drop(initial);
     let mut route = RouteSource::default();
+    let fast_fallback = fast_fallback_enabled();
     loop {
         // Where the link's route leaves from, read before the wait: a change that kills the
-        // address is compared with the address as it was.
+        // address is compared with the address as it was. An idle link with a sleep gate
+        // probes once per look, each after a read of the gate.
+        let mut wait = interval;
         if let Some(connection) = weak.upgrade() {
             route.refresh(&connection).await;
+            if let Some(look) = connection.idle_look() {
+                wait = wait.max(look);
+            }
         }
         let network_moved = tokio::select! {
             biased;
             _ = close_state.changed() => return,
             _ = network.changed() => true,
-            _ = tokio::time::sleep(interval) => false,
+            Ok(()) = quiet.changed() => continue,
+            _ = tokio::time::sleep(wait) => false,
         };
         let Some(connection) = weak.upgrade() else { return };
         if connection.closed.load(Ordering::Acquire) || connection.session_unavailable() {
             return;
+        }
+        // The machine is asleep and nothing acted: a probe is the byte that would wake it.
+        if connection.hold_quiet().await {
+            quiet.borrow_and_update();
+            continue;
         }
         if connection
             .deferred_receive
@@ -1584,8 +1718,8 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
         // After a network change the old route may be gone with a write stuck on it: the
         // probe queues behind that write and never goes out. Waiting the full answer window
         // for it held a blocked link up to 4 s past the change; give it the short one.
-        let timeout =
-            if network_moved { timeout.min(NETWORK_CHANGE_PROBE_TIMEOUT) } else { timeout };
+        let change_window = network_change_window(route.direct, fast_fallback);
+        let timeout = if network_moved { timeout.min(change_window) } else { timeout };
         let mut deadline = tokio::time::Instant::now() + timeout;
         let send = connection.send_in_generation(
             Some(generation),
@@ -1595,8 +1729,10 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
             FrameFlags::HEARTBEAT_REQUEST,
         );
         let Ok(send_result) =
-            probe_by(send, &mut deadline, &mut network, &mut close_state, &|| route.is_gone())
-                .await
+            probe_by(send, &mut deadline, change_window, &mut network, &mut close_state, &|| {
+                route.is_gone()
+            })
+            .await
         else {
             return;
         };
@@ -1611,8 +1747,10 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
         }
         let answer = connection.probe_liveness(generation, observed);
         let Ok(live) =
-            probe_by(answer, &mut deadline, &mut network, &mut close_state, &|| route.is_gone())
-                .await
+            probe_by(answer, &mut deadline, change_window, &mut network, &mut close_state, &|| {
+                route.is_gone()
+            })
+            .await
         else {
             return;
         };
@@ -1635,6 +1773,9 @@ struct RouteSource {
     /// The route's host and what it resolved to: resolved once per host, not per beat.
     remote: Option<(String, Option<std::net::IpAddr>)>,
     source: Option<std::net::IpAddr>,
+    /// The selected path is direct (not a relay): a network change gets the fast fallback's
+    /// window when it is on.
+    direct: bool,
 }
 
 impl RouteSource {
@@ -1644,7 +1785,11 @@ impl RouteSource {
             return;
         }
         let group = connection.group.read().await.clone();
-        let host = group.transport_snapshot().await.selected_path.and_then(|path| path.remote);
+        let selected = group.transport_snapshot().await.selected_path;
+        self.direct = selected
+            .as_ref()
+            .is_some_and(|path| path.kind == crate::observability::TransportPathKind::Direct);
+        let host = selected.and_then(|path| path.remote);
         let Some(host) = host else {
             self.source = None;
             return;
@@ -1678,11 +1823,12 @@ impl RouteSource {
 
 /// Await one phase of a heartbeat probe until `deadline`: `Ok(None)` when it passes, `Err` when
 /// the connection closes. A network change meanwhile pulls `deadline` in to
-/// [`NETWORK_CHANGE_PROBE_TIMEOUT`] from the change, so a probe already stuck behind a write
+/// `change_window` from the change ([`network_change_window`]), so a probe already stuck behind a write
 /// on the route that went away does not wait out the full answer window.
 async fn probe_by<T>(
     phase: impl Future<Output = T>,
     deadline: &mut tokio::time::Instant,
+    change_window: Duration,
     network: &mut watch::Receiver<u64>,
     close_state: &mut watch::Receiver<CloseState>,
     route_gone: &(dyn Fn() -> bool + Sync),
@@ -1695,7 +1841,7 @@ async fn probe_by<T>(
             _ = close_state.changed() => return Err(()),
             Ok(()) = network.changed() => {
                 // A route whose address is gone cannot answer: end the probe now.
-                let wait = if route_gone() { Duration::ZERO } else { NETWORK_CHANGE_PROBE_TIMEOUT };
+                let wait = if route_gone() { Duration::ZERO } else { change_window };
                 let short = tokio::time::Instant::now() + wait;
                 *deadline = (*deadline).min(short);
             }
@@ -2194,10 +2340,13 @@ mod route_source_tests {
 
     use tokio::sync::watch;
 
-    use super::{CloseState, RouteSource, probe_by};
+    use super::{
+        CloseState, FAST_FALLBACK_PROBE_TIMEOUT, NETWORK_CHANGE_PROBE_TIMEOUT, RouteSource,
+        network_change_window, probe_by,
+    };
 
     fn route_from(source: Option<IpAddr>) -> RouteSource {
-        RouteSource { remote: None, source }
+        RouteSource { remote: None, source, direct: false }
     }
 
     #[test]
@@ -2228,6 +2377,7 @@ mod route_source_tests {
         let ended = probe_by(
             std::future::pending::<()>(),
             &mut deadline,
+            NETWORK_CHANGE_PROBE_TIMEOUT,
             &mut network,
             &mut close_state,
             &|| true,
@@ -2247,6 +2397,7 @@ mod route_source_tests {
         let ended = probe_by(
             std::future::pending::<()>(),
             &mut deadline,
+            NETWORK_CHANGE_PROBE_TIMEOUT,
             &mut network,
             &mut close_state,
             &|| false,
@@ -2254,6 +2405,43 @@ mod route_source_tests {
         .await;
         assert!(matches!(ended, Ok(None)));
         assert_eq!(started.elapsed(), Duration::from_secs(2));
+    }
+
+    /// The fast fallback's window is for a direct path only, and only when it is on: a relay
+    /// keeps the ordinary window (it rode the change in the bench), and off is the old 2 s.
+    #[test]
+    fn the_fast_window_is_for_a_direct_path_with_the_fallback_on() {
+        assert_eq!(network_change_window(true, true), FAST_FALLBACK_PROBE_TIMEOUT);
+        assert_eq!(network_change_window(true, false), NETWORK_CHANGE_PROBE_TIMEOUT);
+        assert_eq!(network_change_window(false, true), NETWORK_CHANGE_PROBE_TIMEOUT);
+        assert_eq!(network_change_window(false, false), NETWORK_CHANGE_PROBE_TIMEOUT);
+    }
+
+    /// Before and after, one harness: a probe on a direct path whose mapping the change broke
+    /// (it never answers) holds the link 2000 ms before the redial with the fallback off, and
+    /// 250 ms with it on. The redial then takes the warm standby first.
+    #[tokio::test(start_paused = true)]
+    async fn a_dead_direct_path_is_left_8x_sooner_with_the_fast_fallback() {
+        let mut stalls = Vec::new();
+        for fast_fallback in [false, true] {
+            let (network_tx, mut network) = watch::channel(0_u64);
+            let (_close_tx, mut close_state) = watch::channel(CloseState::Pending);
+            let mut deadline = tokio::time::Instant::now() + Duration::from_secs(4);
+            network_tx.send_modify(|generation| *generation += 1);
+            let started = tokio::time::Instant::now();
+            let ended = probe_by(
+                std::future::pending::<()>(),
+                &mut deadline,
+                network_change_window(true, fast_fallback),
+                &mut network,
+                &mut close_state,
+                &|| false,
+            )
+            .await;
+            assert!(matches!(ended, Ok(None)));
+            stalls.push(started.elapsed());
+        }
+        assert_eq!(stalls, [Duration::from_millis(2000), Duration::from_millis(250)]);
     }
 }
 

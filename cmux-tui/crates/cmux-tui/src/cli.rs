@@ -123,7 +123,6 @@ mod cloud_team_keys;
 mod cloud_workspaces;
 mod code_mode;
 #[cfg(unix)]
-mod coderouter;
 mod codex_app_server;
 mod command;
 mod completion;
@@ -194,6 +193,9 @@ mod safe_mode;
 mod repro;
 #[cfg(unix)]
 mod sandbox_run;
+// `cmux search QUERY`: sessions, workspaces, scrollback and browser history (cli/search.rs).
+#[cfg(unix)]
+mod search;
 #[cfg(unix)]
 mod start_stages;
 #[cfg(unix)]
@@ -273,6 +275,7 @@ mod machine_doctor;
 mod machine_join;
 #[cfg(unix)]
 mod machine_link;
+mod machine_request;
 mod mobile_pair_requests;
 #[cfg(unix)]
 pub(crate) use machine_join::{
@@ -1090,7 +1093,6 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| agents::run_if_requested(args))
         .or_else(|| chief::run_if_requested(args))
         .or_else(|| chief::run_avatar_if_requested(args))
-        .or_else(|| coderouter::run_if_requested(args))
         .or_else(|| hosts::run_if_requested(args))
         .or_else(|| inference_gateway::run_if_requested(args))
         .or_else(|| inference_setup::run_if_requested(args))
@@ -1107,6 +1109,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| sandbox_run::run_if_requested(args))
         .or_else(|| cloud_journey::run_if_requested(args))
         .or_else(|| repro::run_if_requested(args))
+        .or_else(|| search::run_if_requested(args))
         .or_else(|| migrate::run_if_requested(args))
         .or_else(|| vm::run_if_requested(args))
         .or_else(|| vnc::run_if_requested(args))
@@ -1130,6 +1133,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_hands::run_if_requested(args))
         .or_else(|| cloud_automation_relay::run_if_requested(args))
         .or_else(|| cloud_auth_handoff_relay::run_if_requested(args))
+        .or_else(|| machine_request::run_if_requested(args))
         .or_else(|| machine_link::run_if_requested(args))
         .or_else(|| mobile_pair_requests::run_if_requested(args))
         .or_else(|| machine_join::run_if_requested(args))
