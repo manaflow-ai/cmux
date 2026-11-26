@@ -944,6 +944,7 @@ ui.reducedBackgrounds
 updates.automatic
 updates.channel
 updates.checkAutomatically
+updates.checkExtensions
 updates.checkIntervalSeconds
 updates.daemon
 updates.downloadAutomatically

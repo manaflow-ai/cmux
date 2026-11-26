@@ -1,0 +1,4 @@
+{
+  "agent": "network",
+  "why": "Extension update checks reach the network (the Community registry and each extension's git host)."
+}

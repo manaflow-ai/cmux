@@ -523,6 +523,27 @@
           ]
         },
         {
+          "key": "updates.checkExtensions",
+          "note": "Extension update offers: the cmux daemon checks installed extensions (Community registry rows and git installs) for a newer version every few hours and posts one notification per new version; off by default (capability matrix Updates row, cmuxterm-hq plans/cmux-next/extensions/capability-matrix.md). Read by cmux-tui-core mux/extension_updates.rs.",
+          "title": {
+            "key": "settings.updates.checkExtensions",
+            "text": "Check for Extension Updates"
+          },
+          "help": {
+            "key": "settings.updates.checkExtensions.help",
+            "text": "Checks your installed extensions for new versions every few hours and sends a notification when one is available."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "extensions",
+            "apps",
+            "update",
+            "check",
+            "notify"
+          ]
+        },
+        {
           "key": "updates.idleInstallMaxWaitSeconds",
           "name": "idleInstallMaxWait",
           "note": "Nightly idle install (#20295): the longest it waits for agent turns, foreground commands and input before installing anyway; the relaunch keeps every terminal and agent.",
