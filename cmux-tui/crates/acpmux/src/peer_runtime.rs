@@ -801,6 +801,7 @@ impl Peer {
             "lastSeen": link.last_seen,
             "downSince": link.down_since,
             "parked": link.parked(crate::store::now_ms()),
+            "agentLogin": self.lists(crate::agent_login::FEATURE),
             "attempts": link.attempts,
             "health": health,
             "healthAt": health_at,

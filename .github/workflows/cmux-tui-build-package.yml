@@ -188,9 +188,9 @@ jobs:
           PACKAGE_PYPI: ${{ inputs.package_pypi }}
           BUILD_AGENT_PLUGIN: ${{ inputs.build_agent_plugin }}
           DARWIN_BUILDER: ${{ inputs.darwin_builder }}
-          MACOS_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (inputs.macos_runner != '' && inputs.macos_runner || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || fromJSON(vars.RUNNER_POOLS).macos_15)) }}
+          MACOS_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || (inputs.macos_runner != '' && inputs.macos_runner || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || fromJSON(vars.RUNNER_POOLS).macos_15) }}
           LINUX_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-          LINUX_ARM64_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04-arm' || (inputs.linux_arm64_runner != '' && inputs.linux_arm64_runner || vars.LINUX_ARM64_RUNNER || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404-arm' || fromJSON(vars.RUNNER_POOLS).linux_arm64)) }}
+          LINUX_ARM64_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04-arm' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404-arm' || (inputs.linux_arm64_runner != '' && inputs.linux_arm64_runner || vars.LINUX_ARM64_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_arm64) }}
           VERIFY_LINUX_ARM64: ${{ inputs.verify_linux_arm64 }}
           LTO: ${{ inputs.lto }}
           ARTIFACT_PREFIX: ${{ inputs.artifact_prefix }}
@@ -404,6 +404,21 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           bash scripts/ci/apt-ensure.sh binutils clang libclang-dev musl-tools pkg-config
+
+      # A pool VM admits a job on 17 GiB free; a fat package leg's per-group targets need about 45, and
+      # the leg ran the VM's disk to zero mid-build (run 45770293904, job 139741483015, "No space left on
+      # device" in the runner's own _diag log). Ask the VM's disk-floor hook for this leg's need before
+      # anything restores into this runner's caches. Never fails the leg. Why: scripts/ci/pool-disk-need.sh
+      - name: Make room for this leg on a pool runner
+        if: runner.os == 'Linux' && runner.environment == 'self-hosted'
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          NEED_GIB: ${{ inputs.lto == 'thin' && '20' || '45' }}
+        shell: bash
+        run: |
+          bash scripts/ci/tests/pool-disk-need.test.sh
+          bash scripts/ci/pool-disk-need.sh "$NEED_GIB"
 
       # A GitHub-hosted Linux runner (4 vCPU, 16 GB, about 20 GB free on /) is
       # far smaller than the Blacksmith legs this job was sized on, and it gets
@@ -697,6 +712,9 @@ jobs:
             echo "registry-prefix=cmux-tui-cargo-registry-v1-"
             echo "registry-key=cmux-tui-cargo-registry-v1-$inputs"
             echo "registry=${CARGO_HOME:-$HOME/.cargo}/registry"
+            # The workspace delta on top of that entry, one per commit (scripts/ci/cargo-target-delta.sh).
+            echo "ws-prefix=cmux-tui-cargo-ws-v1-$LEG-$workspace-$inputs-"
+            echo "ws-key=cmux-tui-cargo-ws-v1-$LEG-$workspace-$inputs-$GITHUB_SHA"
           } >> "$GITHUB_OUTPUT"
 
       - name: Restore the cargo build from R2
@@ -726,6 +744,35 @@ jobs:
           path: ${{ steps.r2-cargo-key.outputs.registry }}
           key: ${{ steps.r2-cargo-key.outputs.registry-key }}
           restore-keys: ${{ steps.r2-cargo-key.outputs.registry-prefix }}
+
+      # The entry above holds dependencies only, and a pool runner has no sticky disk, so every pool leg
+      # compiled the whole workspace: 1462 s of cargo on the darwin leg, the nightly tree's critical
+      # path. The newest commit's workspace delta goes on top; sources whose bytes are unchanged get
+      # its build's mtimes back, so only what this commit changed rebuilds.
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-cargo-target-delta.md
+      - name: Restore the workspace delta from R2
+        id: r2-cargo-ws
+        if: ${{ steps.r2-cargo-key.outputs.ws-key != '' }}
+        timeout-minutes: 4
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: ${{ runner.temp }}/cargo-delta
+          key: ${{ steps.r2-cargo-key.outputs.ws-key }}
+          restore-keys: ${{ steps.r2-cargo-key.outputs.ws-prefix }}
+
+      - name: Apply the workspace delta
+        id: r2-cargo-ws-apply
+        if: ${{ steps.r2-cargo-key.outputs.ws-key != '' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          scripts/ci/cargo-target-delta.sh apply cmux-tui/target "$RUNNER_TEMP/cargo-delta" \
+            "$RUNNER_TEMP/cargo-delta.stamp" "${{ matrix.target }}" | tee -a "$GITHUB_STEP_SUMMARY"
 
       # Warm start for the Cloud machine channel's legs (lto=thin): the previous build's whole
       # target dir and cargo registry on a Blacksmith sticky disk, one per target, and
@@ -1075,6 +1122,13 @@ jobs:
             holder_binary="dist/cmux-tui-holder-${{ matrix.target }}"
             cp "cmux-tui/target/${{ matrix.target }}/release/cmux-holder" "$holder_binary"
           fi
+          # Optional until the prereader crate lands. Never stage a stale cached
+          # binary from a source tree without it; a present crate must build it.
+          rm -f "dist/cmux-tui-launch-preread-${{ matrix.target }}"
+          if [[ "$STAGE_TARGET" == *-apple-darwin && -f cmux-tui/crates/cmux-launch-preread/Cargo.toml ]]; then
+            cp "cmux-tui/target/${{ matrix.target }}/release/cmux-launch-preread" \
+              "dist/cmux-tui-launch-preread-${{ matrix.target }}"
+          fi
           # The bundled agent screen detector rides the same way as
           # cmux-tui-agent-screen-detection-<target> and installs as
           # cmux-agent-screen-detection beside cmux-tui. Required on macOS and
@@ -1238,6 +1292,35 @@ jobs:
           name: ${{ inputs.artifact_prefix }}cmux-agent-screen-detection-${{ matrix.target }}
           path: dist/cmux-agent-screen-detection-*${{ matrix.ext }}
           if-no-files-found: error
+
+      # What this leg built on top of the dependency entry, packed before the strip below removes it;
+      # every run prints its size, feat-cmux-next pushes save it. Why: docs/ci/cmux-next-workflow-notes/2026-11-26-cargo-target-delta.md
+      - name: Pack the workspace delta
+        id: r2-cargo-ws-pack
+        if: ${{ success() && steps.r2-cargo-ws-apply.outcome == 'success' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          start=$SECONDS
+          scripts/ci/cargo-target-delta.sh pack cmux-tui/target "$RUNNER_TEMP/cargo-delta.stamp" \
+            "$RUNNER_TEMP/cargo-delta-out" "${{ matrix.target }}" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "cargo delta: pack took $((SECONDS - start)) s" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Save the workspace delta to R2
+        if: ${{ success() && steps.r2-cargo-ws-pack.outcome == 'success' && github.ref == 'refs/heads/feat-cmux-next' && github.event_name != 'pull_request' }}
+        timeout-minutes: 6
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        with:
+          backend: r2
+          path: ${{ runner.temp }}/cargo-delta-out
+          key: ${{ steps.r2-cargo-key.outputs.ws-key }}
 
       # A feat-cmux-next build off Blacksmith whose inputs R2 lacks saves them: dependencies only, as
       # rust-cache keeps (scripts/ci/cargo_target_strip.py). Last in the job, after the staging and the
