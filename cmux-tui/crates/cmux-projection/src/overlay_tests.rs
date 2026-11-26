@@ -1235,6 +1235,125 @@ fn the_content_store_keeps_its_floor_of_free_disk() {
     assert!(fake.calls.load(Ordering::Relaxed) > asked, "evicted blobs came from nowhere");
 }
 
+/// 20 files in each of folders `a` and `b`.
+fn two_folders() -> Vec<String> {
+    let mut paths = Vec::new();
+    for folder in ["a", "b"] {
+        for n in 0..20 {
+            paths.push(format!("{folder}/f{n:02}.rs"));
+        }
+    }
+    paths
+}
+
+fn read_path(overlay: &Overlay, path: &str) -> Vec<u8> {
+    overlay.read(path_ino(overlay, path), 0, 100).unwrap()
+}
+
+#[test]
+fn a_session_records_first_reads_in_order_and_the_next_start_fetches_them_in_batches() {
+    let paths = two_folders();
+    let refs: Vec<&str> = paths.iter().map(String::as_str).collect();
+    let (manifest, fake) = served(&refs);
+    let state = tempfile::tempdir().unwrap();
+    // Read in this order, b's files backwards then a's, each twice.
+    let order: Vec<&str> = refs[20..].iter().rev().chain(&refs[..20]).copied().collect();
+    {
+        let overlay = open(state.path(), &manifest, &fake).with_replay("start");
+        assert!(overlay.replay_list().is_empty());
+        for path in order.iter().chain(&order) {
+            assert_eq!(read_path(&overlay, path), format!("<{path}>").into_bytes());
+        }
+    }
+    let list = fs::read(state.path().join("replay/start")).unwrap();
+    let listed: Vec<&str> = list
+        .split(|b| *b == 0)
+        .filter(|p| !p.is_empty())
+        .map(|p| std::str::from_utf8(p).unwrap())
+        .collect();
+    assert_eq!(listed, order);
+
+    // A new listing's start: nothing cached, the whole list comes in one batch, in id order.
+    fs::remove_dir_all(state.path().join("cache")).unwrap();
+    fs::remove_dir_all(state.path().join("content")).unwrap();
+    let (_, fresh) = served(&refs);
+    let overlay = open(state.path(), &manifest, &fresh).with_replay("start");
+    assert_eq!(overlay.replay_list(), order);
+    let report = overlay.replay_prefetch();
+    assert_eq!((report.listed, report.asked, report.fetched, report.batches), (40, 40, 40, 1));
+    let batch = fresh.batches.lock().unwrap()[0].clone();
+    let mut sorted = batch.clone();
+    sorted.sort_unstable();
+    assert_eq!(batch, sorted);
+    for path in &order {
+        assert_eq!(read_path(&overlay, path), format!("<{path}>").into_bytes());
+    }
+    assert_eq!(fresh.calls.load(Ordering::Relaxed), 1);
+    // A second prefetch finds everything cached and asks for nothing.
+    assert_eq!(overlay.replay_prefetch().asked, 0);
+}
+
+#[test]
+fn with_a_list_a_fault_reads_no_folder_ahead_until_a_scan_is_detected() {
+    let paths = two_folders();
+    let refs: Vec<&str> = paths.iter().map(String::as_str).collect();
+    let (manifest, fake) = served(&refs);
+    let state = tempfile::tempdir().unwrap();
+    {
+        let overlay = open(state.path(), &manifest, &fake).with_replay("start");
+        for path in &refs[..replay::MIN_FILES] {
+            read_path(&overlay, path);
+        }
+    }
+    fs::remove_dir_all(state.path().join("cache")).unwrap();
+    fs::remove_dir_all(state.path().join("content")).unwrap();
+    let (_, fresh) = served(&refs);
+    let overlay = open(state.path(), &manifest, &fresh).with_replay("start");
+    // Folder b is not in the list: each fault asks for its own file alone.
+    for path in &refs[20..20 + replay::SCAN_MISSES - 1] {
+        read_path(&overlay, path);
+    }
+    let batches = fresh.batches.lock().unwrap().clone();
+    assert_eq!(batches.len(), replay::SCAN_MISSES - 1);
+    assert!(batches.iter().all(|batch| batch.len() == 1));
+    // One more miss makes a scan: the rest of b comes with it.
+    read_path(&overlay, refs[20 + replay::SCAN_MISSES - 1]);
+    let last = fresh.batches.lock().unwrap().last().unwrap().clone();
+    assert_eq!(last.len(), 20 - (replay::SCAN_MISSES - 1));
+}
+
+#[test]
+fn a_start_that_reads_almost_nothing_keeps_the_last_list() {
+    let paths = two_folders();
+    let refs: Vec<&str> = paths.iter().map(String::as_str).collect();
+    let (manifest, fake) = served(&refs);
+    let state = tempfile::tempdir().unwrap();
+    {
+        let overlay = open(state.path(), &manifest, &fake).with_replay("start");
+        for path in &refs[..replay::MIN_FILES + 2] {
+            read_path(&overlay, path);
+        }
+    }
+    {
+        let overlay = open(state.path(), &manifest, &fake).with_replay("start");
+        read_path(&overlay, refs[30]);
+    }
+    let overlay = open(state.path(), &manifest, &fake).with_replay("start");
+    assert_eq!(overlay.replay_list().len(), replay::MIN_FILES + 2);
+    // Another key has a list of its own.
+    let other = open(tempfile::tempdir().unwrap().path(), &manifest, &fake).with_replay("build");
+    assert!(other.replay_list().is_empty());
+}
+
+#[test]
+fn without_replay_nothing_is_recorded() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    read_path(&overlay, "src/a.rs");
+    drop(overlay);
+    assert!(!state.path().join("replay").exists());
+}
+
 /// RFD 0065 piece 6: a listing entry's hash lets the store answer by content, so a file that moved
 /// and was touched (another path, size kept, another mtime) is read with no fetch, where without
 /// the hash the same listing fetches it.
