@@ -124,11 +124,12 @@ export function peerStatesFromStatus(status: unknown): Record<string, string> {
 }
 
 /// Whether a chat can start on the machine now: this Mac always; a peer once acpmux says its link
-/// is `connected` (a `degraded` link has not finished its handshake), or, from a daemon that says no
-/// state, while it is not marked disconnected. A Cloud chat's host acpmux does not list counts.
+/// is `connected` (a `degraded` link has not finished its handshake) or `idle` (left closed because
+/// unused: the start connects it, acpmux `peer_demand.rs`), or, from a daemon that says no state,
+/// while it is not marked disconnected. A Cloud chat's host acpmux does not list counts.
 export function environmentReady(environment: Environment): boolean {
   if (environment.kind === "local") return true;
-  if (environment.state !== undefined) return environment.state === "connected";
+  if (environment.state !== undefined) return environment.state === "connected" || environment.state === "idle";
   return environment.connected !== false;
 }
 
