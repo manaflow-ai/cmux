@@ -1059,18 +1059,6 @@
     },
     {
       "kind": "request",
-      "name": "_acpmux/task_list/set",
-      "params": true,
-      "result": true
-    },
-    {
-      "kind": "request",
-      "name": "_acpmux/task_list/get",
-      "params": true,
-      "result": true
-    },
-    {
-      "kind": "request",
       "name": "_acpmux/plan/build",
       "params": true,
       "result": true
@@ -1142,6 +1130,12 @@
     {
       "kind": "request",
       "name": "_acpmux/auto_session/set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/auto_session/move",
       "params": true,
       "result": true
     },
@@ -1297,6 +1291,12 @@
     {
       "kind": "request",
       "name": "_acpmux/session_files",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/paused_files",
       "params": true,
       "result": true
     },
@@ -1923,6 +1923,24 @@
     {
       "kind": "request",
       "name": "_acpmux/secret_run",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chat_secrets_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chat_secrets_clear",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chat_secrets_list",
       "params": true,
       "result": true
     },
@@ -2694,6 +2712,24 @@
     {
       "kind": "request",
       "name": "_acpmux/place",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/place_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/place_undo",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/place_get",
       "params": true,
       "result": true
     },
@@ -8212,18 +8248,6 @@
           "description": "Tags that have not expired.",
           "type": "object"
         },
-        "taskList": {
-          "anyOf": [
-            {
-              "$ref": "#/types/TaskListSummary"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "What is done and what is next across the chat's turns (`task_list.rs`): its harness's\nlatest plan (TodoWrite, update_plan) or the list its agent or Chief keeps\n(`_acpmux/task_list/set`); null until one is written. Absent from a peer on an older acpmux."
-        },
         "timeBreakdown": {
           "anyOf": [
             {
@@ -9193,18 +9217,6 @@
           "description": "Tags that have not expired.",
           "type": "object"
         },
-        "taskList": {
-          "anyOf": [
-            {
-              "$ref": "#/types/TaskListSummary"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "What is done and what is next across the chat's turns (`task_list.rs`): its harness's\nlatest plan (TodoWrite, update_plan) or the list its agent or Chief keeps\n(`_acpmux/task_list/set`); null until one is written. Absent from a peer on an older acpmux."
-        },
         "timeBreakdown": {
           "anyOf": [
             {
@@ -9890,109 +9902,6 @@
       ],
       "type": "object"
     },
-    "TaskItem": {
-      "description": "One step of the list.",
-      "properties": {
-        "content": {
-          "description": "The step's words, masked and cut to [`ITEM_CHARS`].",
-          "type": "string"
-        },
-        "status": {
-          "$ref": "#/types/TaskStatus"
-        }
-      },
-      "required": [
-        "content",
-        "status"
-      ],
-      "type": "object"
-    },
-    "TaskListSource": {
-      "description": "Who keeps a chat's task list.",
-      "oneOf": [
-        {
-          "const": "harness",
-          "description": "The harness's own plan events (TodoWrite, update_plan, ACP `plan`).",
-          "type": "string"
-        },
-        {
-          "const": "agent",
-          "description": "The chat's own agent, through `_acpmux/task_list/set`.",
-          "type": "string"
-        },
-        {
-          "const": "chief",
-          "description": "The person's side: the Chief or the app, through `_acpmux/task_list/set`.",
-          "type": "string"
-        }
-      ]
-    },
-    "TaskListSummary": {
-      "description": "What a summary carries of a chat's task list (`SessionSummary::task_list`): the steps, and the\ncounts and lines a sidebar row or a chat strip draws without counting again.",
-      "properties": {
-        "current": {
-          "description": "The first step in progress; null when none is.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "done": {
-          "description": "The steps completed.",
-          "format": "uint32",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "items": {
-          "items": {
-            "$ref": "#/types/TaskItem"
-          },
-          "type": "array"
-        },
-        "next": {
-          "description": "The first step still pending after the current one (or the first pending one when none is\nin progress); null when none is left.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "source": {
-          "$ref": "#/types/TaskListSource",
-          "description": "Who keeps it: `harness` (its own plan events), `agent` or `chief` (`_acpmux/task_list/set`)."
-        },
-        "total": {
-          "description": "Every step.",
-          "format": "uint32",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "updatedAt": {
-          "description": "When it last changed, Unix ms.",
-          "format": "uint64",
-          "minimum": 0,
-          "type": "integer"
-        }
-      },
-      "required": [
-        "current",
-        "done",
-        "items",
-        "next",
-        "source",
-        "total",
-        "updatedAt"
-      ],
-      "type": "object"
-    },
-    "TaskStatus": {
-      "description": "Where one step stands.",
-      "enum": [
-        "pending",
-        "in_progress",
-        "completed"
-      ],
-      "type": "string"
-    },
     "TimeBreakdown": {
       "properties": {
         "categories": {
@@ -10215,13 +10124,6 @@
         "client": {
           "type": "string"
         },
-        "planStep": {
-          "description": "Its plan's entry in progress, masked; null without one.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
         "prompt": {
           "type": "string"
         },
@@ -10254,7 +10156,6 @@
       "required": [
         "activity",
         "client",
-        "planStep",
         "prompt",
         "promptId",
         "stalledSince",
