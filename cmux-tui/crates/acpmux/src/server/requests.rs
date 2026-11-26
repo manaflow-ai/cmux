@@ -1996,6 +1996,8 @@ async fn dispatch_request_with_identity(
                 require_asking: crate::hub::require_asking::asked(meta),
                 credential,
                 create_key,
+                placed_by: pick("placedBy")
+                    .filter(|p| p == crate::autocloud_enroll::PLACED_BY_AUTOCLOUD),
             };
             let s = match &admitted {
                 Some(admitted) => {

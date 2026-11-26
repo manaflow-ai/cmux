@@ -78,6 +78,7 @@ import {
   menuItemForShortcut,
 } from "./chatHeaderToolsModel";
 import { tooltipProps } from "../shortcuts";
+import { usePaneView } from "../paneViewStore";
 import { experimentArm } from "../../../experiments/experiment";
 import { useExperimentSwitch } from "../../../experiments/switches";
 import {
@@ -271,6 +272,7 @@ function ChatHeaderToolsView({
   // Changes is listed there with its button too.
   // Built when "..." reads its rows, after the App's tab state refresh (onMenuOpen): the props of this
   // render, and the lit splits as the App last pushed them.
+  const paneView = usePaneView();
   const live = useRef({
     actions,
     tabTools,
@@ -312,7 +314,7 @@ function ChatHeaderToolsView({
       overflow,
     } = live.current;
     if (!tabTools) return [];
-    const { lit } = headerState();
+    const { lit } = headerState(paneView);
     const shownIds = new Set(actions.map((action) => action.id));
     // The buttons the pane is too narrow for come first, in their order: Changes keeps its own row below.
     const folded: ChatMenuItem[] = overflow
