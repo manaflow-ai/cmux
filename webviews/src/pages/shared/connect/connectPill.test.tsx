@@ -11,7 +11,7 @@ const { createRoot } = await import("react-dom/client");
 const { ConnectPill } = await import("./ConnectPill");
 const { ConnectCard } = await import("../../../agent-session/acpmux/ConnectCard");
 const { CONNECT_IDLE } = await import("../../../agent-session/acpmux/claudeConnect");
-const { CONNECT_TONE, EXPIRING_WITHIN_MS, expiryStatus } = await import("./connectStatus");
+const { CONNECT_STATUS_KEY, CONNECT_TONE, EXPIRING_WITHIN_MS, expiryStatus } = await import("./connectStatus");
 const { connectStrings } = await import("./strings");
 
 let unmount: (() => void) | null = null;
@@ -30,10 +30,12 @@ async function draw(node: React.ReactNode): Promise<HTMLElement> {
   return container;
 }
 
-test("every state draws its pill in its tone and words, and the host's words replace them", async () => {
+test("every state draws its pill in its tone and the words its host gives", async () => {
   const strings = connectStrings(["en"]);
   for (const status of Object.keys(CONNECT_TONE) as Array<keyof typeof CONNECT_TONE>) {
-    const root = await draw(<ConnectPill status={status} dataPrefix="connections" />);
+    const root = await draw(
+      <ConnectPill status={status} label={strings.t(CONNECT_STATUS_KEY[status])} dataPrefix="connections" />,
+    );
     const pill = root.querySelector<HTMLElement>(".connect-pill")!;
     expect(pill.dataset.tone).toBe(CONNECT_TONE[status]);
     expect(pill.hasAttribute("data-connections-status")).toBe(true);
@@ -61,7 +63,7 @@ test("an app connection draws through the pane's card: its parts, one named butt
           action: "reconnect",
         }}
         onBegin={() => void ran.push(look)}
-        pill={<ConnectPill status="expiring" />}
+        pill={<ConnectPill status="expiring" label="Expires soon" />}
         details={<span data-detail="">Sign-in expires soon.</span>}
         extra={
           <button type="button" data-extra="">
