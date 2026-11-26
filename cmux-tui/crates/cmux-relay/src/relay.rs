@@ -1407,6 +1407,7 @@ fn join_claims(
         issued_at_unix: validity.0,
         expires_at_unix: validity.1,
         grant: None,
+        region: None,
     }
 }
 
@@ -1790,6 +1791,7 @@ mod tests {
                 issued_at_unix,
                 expires_at_unix,
                 grant: None,
+                region: None,
             })
             .unwrap()
     }
