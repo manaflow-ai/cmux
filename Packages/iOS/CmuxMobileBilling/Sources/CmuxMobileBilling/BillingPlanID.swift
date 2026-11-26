@@ -1,11 +1,5 @@
 import Foundation
 
-/// The product family an app sells through the App Store.
-public enum BillingPlanFamily: String, Codable, Sendable {
-    case classic
-    case next
-}
-
 /// A cmux plan identifier as the server reports it (`planId`).
 ///
 /// A struct over the raw string, not a closed enum, so a plan the server adds

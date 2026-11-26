@@ -2,7 +2,7 @@
 
 cmux provides a notification panel for AI agents like Claude Code, Codex, and OpenCode. Notifications appear in a dedicated panel and trigger macOS system notifications.
 
-> For inline permission / plan / question approvals directly from the sidebar (Vibe Island-style), see **[Feed](feed.md)**. `cmux agent hook install` installs agent hooks; see [Agent hooks](agent-hooks.md).
+> For inline permission / plan / question approvals directly from the sidebar (Vibe Island-style), see **[Feed](feed.md)**. `cmux hooks setup` installs the Feed bridge alongside the notification hooks covered below.
 
 ## Quick Start
 
@@ -50,24 +50,26 @@ cmux notify --title "Build Complete"
 # With subtitle and body
 cmux notify --title "Claude Code" --subtitle "Permission" --body "Approval needed"
 
-# Notify about a specific terminal (default: the terminal you run it in)
-cmux notify --title "Done" --surface term_0123456789abcdef0123456789abcdef
+# Post to the panel only: record the entry in the Notifications panel, sidebar
+# badge and pane ring without a native banner, for a caller that shows its own
+cmux notify --title "Done" --desktop false
 
-# A workspace-level notification with no terminal
-cmux notify --title "Done" --workspace current
+# Notify a specific workspace/surface
+cmux notify --title "Done" --workspace workspace:1 --surface surface:1
 
-# Clear notifications for the calling terminal
+# Compatibility form for older scripts
+cmux notify --title "Done" --tab 0 --panel 1
+
+# Capture the returned id and dismiss exactly that notification
+notification_id="$(cmux notify --title "Done" --body "Task complete" --id-format uuids | awk '$1 == "OK" {print $2}')"
+cmux dismiss-notification --id "$notification_id"
+
+# Clear notifications for the posting surface (same caller resolution as notify)
 cmux notify --clear
 
-# Clear one terminal's notifications, or list what is posted
-cmux notification clear --terminal term_0123456789abcdef0123456789abcdef
-cmux notification list --json
+# Clear a workspace or surface in a specific window
+cmux clear-notifications --window window:1 --workspace workspace:1 --surface surface:1
 ```
-
-`--surface` and `--workspace` take a public id (`term_…`, `ws_…`) or `current`. The
-old `--tab`, `--panel`, `--id-format`, `workspace:N` and `surface:N` forms were removed with the
-Swift CLI, as were `cmux dismiss-notification` and `cmux clear-notifications`. To act on the
-app's notification list, use its actions: `cmux action list --noun notification`.
 
 ## Notifications from cmux Cloud machines
 
@@ -75,19 +77,19 @@ app's notification list, use its actions: `cmux action list --noun notification`
 your Mac. The in-machine `cmux` posts the notification into the machine's own cmux-tui
 session (`notification create`, tagged with the terminal it ran in); the Mac reads it off the
 machine's event stream it already follows and shows it on the pane that displays that
-terminal or, when no pane shows the terminal (a detached agent run, a pane you
+terminal — or, when no pane shows the terminal (a detached `cmux vm agent` run, a pane you
 closed), as a workspace-level notification wherever you are looking at that machine. Nothing
 of the machine is on screen: it is dropped.
 
 Inside a machine:
 
-- `--title`, `--subtitle`, and `--body` are honored; the machine's name becomes the subtitle
+- `--title`, `--body`, and `--level info|warning|error` are honored; `--subtitle` is folded
+  into the body (cmux-tui has no subtitle field) and the machine's name becomes the subtitle
   on the Mac.
-- `--surface` and `--workspace` only pick a terminal or workspace of the machine's own
-  session. `--window` is accepted and ignored, and `--desktop` is validated as `true|false`
-  (except with `--clear`) but otherwise ignored. `--reply` is refused: the Mac decides where
-  a machine's notification lands and how it is delivered, and a machine never sees a Mac
-  workspace, surface, or socket.
+- `--workspace`, `--surface`, `--window`, `--tab`, `--panel`, and `--reply` are ignored, and
+  `--desktop` is validated as `true|false` (except with `--clear`) but otherwise ignored: the
+  Mac decides where a machine's notification lands and how it is delivered, and a machine
+  never sees a Mac workspace, surface, or socket.
 - Text is treated as untrusted: escape sequences, control characters, and bidi/invisible
   characters are stripped, titles are capped at 128 bytes and bodies at 1 KiB, and each
   machine gets a burst of 5 notifications refilling at 1 per second (identical text within
@@ -115,30 +117,6 @@ from a Cloud machine or a third Mac are not relayed, so nothing shows twice or l
 Use `Cmd+Shift+U` to jump to the latest unread notification. Use `Ctrl+Cmd+U` to mark the current item as oldest unread and jump to the next latest unread. Both shortcuts are configurable in Settings > Keyboard Shortcuts and in `~/.config/cmux/cmux.json`.
 
 Focusing a pane marks that pane's notifications read. A notification posted without a surface belongs to the workspace instead of to a pane (cmux's own memory-pressure warning is one), so switching to the workspace marks the workspace's own notifications read. The other panes in that workspace keep their notifications and any manual or restored unread markers. "Mark Workspace as Read" in the workspace context menu still clears everything in the workspace at once.
-
-## Cache-TTL idle reminders
-
-Prompt caches can expire while an agent is idle. Configure one-shot reminders per
-agent family with `notifications.agentIdleTimers`; each reminder starts when the
-ACP session enters `idle` and is cancelled when it works, waits for input, keeps
-background work running, or ends. The setting is disabled unless it contains a
-valid entry.
-
-```jsonc
-{
-  "notifications": {
-    "agentIdleTimers": {
-      "claude": [{ "afterSeconds": 3420, "id": "cache-ttl" }],
-      "codex": [{ "afterSeconds": 1680, "id": "cache-ttl" }]
-    }
-  }
-}
-```
-
-When a reminder fires, its notification subtitle carries `cache-ttl:<id>` and
-the normalized `agent:<family>` so notification integrations can identify the
-reason without parsing the title. Duplicate ids within one family are ignored;
-delays must be between one second and seven days.
 
 ## Native banner lifetime and notification history
 
@@ -243,7 +221,7 @@ Global hooks from `~/.config/cmux/cmux.json` run first. Project hooks from paren
 
 ### Agent-event context
 
-Notifications that originate from an agent completion signal (agent hooks installed by `cmux agent hook install`, or cmux's built-in prompt-turn detection) carry an additional read-only `agent` object so hooks can implement their own per-agent notification policy:
+Notifications that originate from an agent completion signal (agent hooks installed by `cmux hooks setup`, or cmux's built-in prompt-turn detection) carry an additional read-only `agent` object so hooks can implement their own per-agent notification policy:
 
 | Field | Description |
 |----------|-------------|
@@ -298,22 +276,29 @@ Copilot CLI supports [hooks](https://docs.github.com/en/copilot/reference/copilo
     "userPromptSubmitted": [
       {
         "type": "command",
-        "bash": "if command -v cmux &>/dev/null; then cmux notify --clear; fi",
+        "bash": "if command -v cmux &>/dev/null; then cmux set-status copilot_cli Running; fi",
         "timeoutSec": 3
       }
     ],
     "agentStop": [
       {
         "type": "command",
-        "bash": "if command -v cmux &>/dev/null; then cmux notify --title 'Copilot CLI' --body 'Done'; else osascript -e 'display notification \"Done\" with title \"Copilot CLI\"'; fi",
+        "bash": "if command -v cmux &>/dev/null; then cmux notify --title 'Copilot CLI' --body 'Done'; cmux set-status copilot_cli Idle; else osascript -e 'display notification \"Done\" with title \"Copilot CLI\"'; fi",
         "timeoutSec": 5
       }
     ],
     "errorOccurred": [
       {
         "type": "command",
-        "bash": "if command -v cmux &>/dev/null; then cmux notify --title 'Copilot CLI' --subtitle 'Error' --body \"$(cat | jq -r '.errorMessage // \"An error occurred\"' 2>/dev/null | head -c 100)\"; else osascript -e 'display notification \"An error occurred\" with title \"Copilot CLI\"'; fi",
+        "bash": "if command -v cmux &>/dev/null; then cmux notify --title 'Copilot CLI' --subtitle 'Error' --body \"$(cat | jq -r '.errorMessage // \"An error occurred\"' 2>/dev/null | head -c 100)\"; cmux set-status copilot_cli Error; else osascript -e 'display notification \"An error occurred\" with title \"Copilot CLI\"'; fi",
         "timeoutSec": 5
+      }
+    ],
+    "sessionEnd": [
+      {
+        "type": "command",
+        "bash": "if command -v cmux &>/dev/null; then cmux clear-status copilot_cli; fi",
+        "timeoutSec": 3
       }
     ]
   }
@@ -398,7 +383,7 @@ client id. A second Mac attached to the same machine keeps its own unread
 state, and the machine's own TUI keeps its shared console marker.
 
 Locally these notifications behave like any other: they light the workspace
-and tab, appear in the notifications list and `cmux notification list`, post
+and tab, appear in the notifications list and `cmux list-notifications`, post
 a system notification when cmux is in the background, and the Cloud tree
 shows a dot on the terminal until this Mac reads it. When no pane on this Mac
 shows the terminal, the notification lands on the local workspace bound to
@@ -418,18 +403,17 @@ cmux sets these in child shells:
 ## CLI Commands
 
 ```
-cmux notify [--title <text>] [--subtitle <text>] [--body <text>] [--clear] [--surface <term_id|current>] [--workspace <ws_id|current>]
-cmux notification list [--limit <n>]
-cmux notification create --title <text> --body <text> [--subtitle <text>] [--level info|warning|error] [--terminal <term_id>]
-cmux notification clear [--terminal <term_id> | --workspace <ws_id> | --notification <notification_id>]
-cmux notification ack --client <client-id> <notification_id...>
-cmux app ping
+cmux notify [--title <text>] [--subtitle <text>] [--body <text>] [--reply] [--desktop <true|false>] [--clear] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
+cmux list-notifications
+cmux dismiss-notification (--id <uuid|notification:<uuid>> | --all-read)
+cmux mark-notification-read (--id <uuid|notification:<uuid>> | --workspace <id|ref> [--surface <id|ref>] | --all)
+cmux open-notification --id <uuid|notification:<uuid>>
+cmux jump-to-unread
+cmux clear-notifications [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
+cmux set-status <key> <value>
+cmux clear-status <key>
+cmux ping
 ```
-
-Opening, marking read, dismissing, and jumping to the latest unread notification are app
-actions: `cmux notification jump-to-latest-unread`, `cmux notification mark-all-as-read`, and
-the rest of `cmux action list --noun notification`. Sidebar status pills (`set-status`,
-`clear-status`) have no CLI in the Rust `cmux` yet.
 
 ## Best Practices
 

@@ -1,0 +1,154 @@
+import CmuxNotifications
+import CmuxSettings
+import Foundation
+import UserNotifications
+
+struct NativeNotificationDeliveryHooks: Sendable {
+    typealias AuthorizationCompletion = @MainActor @Sendable (
+        Bool,
+        NotificationAuthorizationState
+    ) -> Void
+    typealias AuthorizationHandler = @Sendable (@escaping AuthorizationCompletion) -> Void
+    typealias Scheduler = @Sendable (UNNotificationRequest, @escaping @Sendable (Error?) -> Void) -> Void
+    /// `(title, subtitle, body, origin)` for the user's `notifications.command`.
+    typealias CommandRunner = @Sendable (String, String, String, TerminalNotificationOrigin) -> Void
+
+    typealias UnavailableFeedbackPlayer = @Sendable (
+        TerminalNotificationPolicyEffects,
+        NotificationSoundOverrideContext?
+    ) async -> Void
+    /// Main-actor admission checked immediately before direct sound playback.
+    /// A caller uses this to invalidate work whose request was resolved while
+    /// sound preparation was suspended.
+    typealias PlaybackAdmission = @MainActor @Sendable () -> Bool
+
+    static let defaultCommandRunner: CommandRunner = {
+        title,
+        subtitle,
+        body,
+        origin in
+        NotificationSoundSettings.runCustomCommand(title: title, subtitle: subtitle, body: body, origin: origin)
+    }
+
+    var authorizationHandlerForTesting: AuthorizationHandler?
+    let userNotificationCenter: UserNotificationCenterService
+    var scheduler: Scheduler?
+    static let defaultUnavailableFeedbackPlayer: UnavailableFeedbackPlayer = { effects, soundContext in
+        await NativeNotificationDeliveryHooks.playNativeUnavailableFeedback(
+            effects: effects,
+            soundContext: soundContext
+        )
+    }
+
+    var commandRunner: CommandRunner = defaultCommandRunner
+    var unavailableFeedbackPlayer: UnavailableFeedbackPlayer = defaultUnavailableFeedbackPlayer
+
+    init(userNotificationCenter: UserNotificationCenterService) {
+        self.userNotificationCenter = userNotificationCenter
+    }
+
+    func authorizeForTesting(_ completion: @escaping AuthorizationCompletion) -> Bool {
+        guard let authorizationHandlerForTesting else {
+            return false
+        }
+        authorizationHandlerForTesting(completion)
+        return true
+    }
+
+    func schedule(_ request: UNNotificationRequest) async -> Error? {
+        let result: Result<Void, UserNotificationCenterFailure>
+        if let scheduler {
+            result = await userNotificationCenter.add(request, using: scheduler)
+        } else {
+            result = await userNotificationCenter.add(request)
+        }
+        switch result {
+        case .success:
+            return nil
+        case .failure(let error):
+            return error
+        }
+    }
+
+    func runCommand(title: String, subtitle: String, body: String, origin: TerminalNotificationOrigin = .local) {
+        commandRunner(title, subtitle, body, origin)
+    }
+
+    func playUnavailableFeedback(
+        effects: TerminalNotificationPolicyEffects,
+        soundContext: NotificationSoundOverrideContext? = nil
+    ) async {
+        await unavailableFeedbackPlayer(effects, soundContext)
+    }
+
+    func runLocalFeedback(
+        title: String,
+        subtitle: String,
+        body: String,
+        effects: TerminalNotificationPolicyEffects,
+        runCommand: Bool = true,
+        soundContext: NotificationSoundOverrideContext? = nil,
+        playbackAdmission: PlaybackAdmission? = nil,
+        origin: TerminalNotificationOrigin = .local
+    ) async {
+        await Self.runLocalFeedback(
+            title: title,
+            subtitle: subtitle,
+            body: body,
+            effects: effects,
+            runCommand: runCommand,
+            soundContext: soundContext,
+            playbackAdmission: playbackAdmission,
+            origin: origin,
+            commandRunner: commandRunner
+        )
+    }
+
+    static func playNativeUnavailableFeedback(
+        effects: TerminalNotificationPolicyEffects,
+        soundContext: NotificationSoundOverrideContext? = nil
+    ) async {
+        guard !Task.isCancelled else { return }
+        if effects.sound {
+            _ = await NotificationSoundSettings.playSelectedSound(context: soundContext)
+        }
+    }
+
+    static func runLocalFeedback(
+        title: String,
+        subtitle: String,
+        body: String,
+        effects: TerminalNotificationPolicyEffects,
+        runCommand: Bool = true,
+        soundContext: NotificationSoundOverrideContext? = nil,
+        playbackAdmission: PlaybackAdmission? = nil,
+        origin: TerminalNotificationOrigin = .local,
+        commandRunner: CommandRunner = {
+            title,
+            subtitle,
+            body,
+            origin in
+            NotificationSoundSettings.runCustomCommand(title: title, subtitle: subtitle, body: body, origin: origin)
+        }
+    ) async {
+        guard !Task.isCancelled, await (playbackAdmission?() ?? true) else { return }
+        if effects.sound {
+            // Keep command hooks responsive while the sound is staged, but
+            // retain the playback in this structured child task so callers
+            // can await completion and tests never race a detached task.
+            async let didPlay = NotificationSoundSettings.playSelectedSound(
+                context: soundContext,
+                playbackAdmission: playbackAdmission
+            )
+            if !Task.isCancelled,
+               await (playbackAdmission?() ?? true),
+               effects.command,
+               runCommand {
+                commandRunner(title, subtitle, body, origin)
+            }
+            _ = await didPlay
+        } else if effects.command, runCommand {
+            commandRunner(title, subtitle, body, origin)
+        }
+    }
+}

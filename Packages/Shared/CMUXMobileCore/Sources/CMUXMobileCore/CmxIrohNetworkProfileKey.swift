@@ -32,13 +32,6 @@ public struct CmxIrohNetworkProfileKey: Codable, Equatable, Hashable, Sendable {
         self.profileID = profileID
     }
 
-    /// A built-in key whose literal identifier a test checks against the
-    /// validating initializer, so the constant needs no throwing path.
-    init(builtInSource source: CmxIrohPathHintSource, profileID: String) {
-        self.source = source
-        self.profileID = profileID
-    }
-
     /// Decodes and validates a provider-qualified profile key.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)

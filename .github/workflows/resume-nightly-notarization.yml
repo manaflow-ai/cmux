@@ -36,8 +36,12 @@ permissions:
   actions: read
   contents: read
 
+# Per source run: a group per channel and variant let a newer recovery replace
+# a waiting one for another source run, whose accepted DMG then never
+# published. Every recovery of one source run (its first and outer DMG
+# artifacts, and retries) still takes turns.
 concurrency:
-  group: notarization-recovery-${{ inputs.channel }}-${{ inputs.variant }}
+  group: notarization-recovery-${{ inputs.channel }}-${{ inputs.variant }}-${{ inputs.source_run_id }}
   cancel-in-progress: false
 
 env:
@@ -47,10 +51,10 @@ env:
 jobs:
   resume:
     environment: release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 180
     # Secrets and the job token are set only on the steps that use them, so the
-    # steps that verify the recovered artifact do not inherit them.
+    # steps that launch the recovered app do not inherit them.
     env:
       SOURCE_RUN_ID: ${{ inputs.source_run_id }}
       ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
@@ -64,18 +68,36 @@ jobs:
           persist-credentials: false
           ref: refs/heads/main
 
+      # gh reads (run views, artifact downloads) spend the cmux-bot App's quota first, not the
+      # github.token quota every workflow in the repo shares (2026-11-25: core 0/5000 refused
+      # this workflow's downloads and its publish for three hours). scripts/ci/gh_app_token.sh
+      # --reads-only sends only reads as the App, github.token when the App is refused; with no
+      # App token (a failed mint, or no CMUX_BOT_APP_ID) nothing is installed.
+      - name: Mint the cmux-bot token for this job's reads
+        id: read-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: read
+          permission-contents: read
+
+      - name: Send this job's gh reads as the cmux-bot App, github.token as the fallback
+        env:
+          GH_APP_TOKEN: ${{ steps.read-token.outputs.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/gh_app_token.sh --install --reads-only
+
       - name: Select pinned Xcode
         run: ./scripts/select-ci-xcode.sh
-
-      - name: Restore pinned Node 22.23.4 from the CI cache bucket
-        shell: bash
-        continue-on-error: true
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 22.23.4 || true
 
       - name: Set up Node for recovered DMG packaging
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "22.23.4"
+          node-version: "20"
 
       - name: Install recovered DMG packaging tools
         env:
@@ -166,12 +188,24 @@ jobs:
             printf '%s=%s\n' "$key" "$value" >> "$GITHUB_ENV"
           done < "$RUNNER_TEMP/recovery.env"
 
+      # Only a recovered Computer Use helper needs a keychain before the wait:
+      # the helper re-seals the app. notarize-nightly-dmg.sh deletes it after
+      # the outer DMG signature. The DMG around the stapled app is signed with
+      # a keychain that resume-stapled-app-notarization.sh makes just before
+      # that signature.
+      - name: Import signing certificate for recovered DMG
+        if: env.RECOVERY_KIND == 'computer-use-helper'
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: ./scripts/ci/signing-keychain.sh create
+
       # The step limit leaves the job time to stage the outer submission below.
       - name: Wait, staple, and validate exact submitted DMG
         id: wait-staple
         timeout-minutes: 150
         env:
-          # Runtime checks are disabled; verify-stapled holds no secrets.
+          # Launch smokes run in verify-stapled, which holds no secrets.
           CMUX_DEFER_LAUNCH_SMOKES: "true"
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
@@ -183,23 +217,36 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p verified
-          # A state with stapled_app=true (an outer continuation artifact)
-          # is only continued; any other one gets the DMG around its stapled app.
-          outer_state="$RUNNER_TEMP/cmux-outer-dmg-notarization.state"
-          CMUX_CHANNEL="$REQUESTED_CHANNEL" \
-          NIGHTLY_VARIANT="$REQUESTED_VARIANT" \
-          CHANNEL_RELEASE_TAG="$REQUESTED_CHANNEL" \
-          CHANNEL_DMG_PREFIX="cmux-$REQUESTED_CHANNEL-macos" \
-          CMUX_NOTARY_WAIT_TIMEOUT=2m \
-          CMUX_NOTARY_EVIDENCE_FILE="$EVIDENCE_FILE" \
-          CMUX_STAPLED_APP_NOTARY_WAIT_TIMEOUT=40m \
-          ./scripts/ci/resume-stapled-app-notarization.sh \
-            "$STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "verified/$IMMUTABLE_NAME" \
-            "${APP_ENTITLEMENTS:-cmux.$REQUESTED_CHANNEL.entitlements}" "$outer_state"
+          if [ "${RECOVERY_KIND:-dmg}" = "computer-use-helper" ]; then
+            outer_state="$RUNNER_TEMP/cmux-outer-dmg-notarization.state"
+            CMUX_CHANNEL="$REQUESTED_CHANNEL" \
+            NIGHTLY_VARIANT="$REQUESTED_VARIANT" \
+            CHANNEL_RELEASE_TAG="$REQUESTED_CHANNEL" \
+            CHANNEL_DMG_PREFIX="cmux-$REQUESTED_CHANNEL-macos" \
+            CMUX_OUTER_NOTARY_WAIT_TIMEOUT=25m \
+            CMUX_STAPLED_APP_NOTARY_WAIT_TIMEOUT=20m \
+            ./scripts/ci/resume-helper-notarization.sh \
+              "$HELPER_STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "verified/$IMMUTABLE_NAME" \
+              "${APP_ENTITLEMENTS:-cmux.$REQUESTED_CHANNEL.entitlements}" "$APPLE_SIGNING_IDENTITY" "$outer_state"
+          else
+            # A state with stapled_app=true (an outer continuation artifact)
+            # is only continued; any other one gets the DMG around its stapled app.
+            outer_state="$RUNNER_TEMP/cmux-outer-dmg-notarization.state"
+            CMUX_CHANNEL="$REQUESTED_CHANNEL" \
+            NIGHTLY_VARIANT="$REQUESTED_VARIANT" \
+            CHANNEL_RELEASE_TAG="$REQUESTED_CHANNEL" \
+            CHANNEL_DMG_PREFIX="cmux-$REQUESTED_CHANNEL-macos" \
+            CMUX_NOTARY_WAIT_TIMEOUT=2m \
+            CMUX_NOTARY_EVIDENCE_FILE="$EVIDENCE_FILE" \
+            CMUX_STAPLED_APP_NOTARY_WAIT_TIMEOUT=40m \
+            ./scripts/ci/resume-stapled-app-notarization.sh \
+              "$STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "verified/$IMMUTABLE_NAME" \
+              "${APP_ENTITLEMENTS:-cmux.$REQUESTED_CHANNEL.entitlements}" "$outer_state"
+          fi
 
       # A submission still at Apple after the bounded waits is kept for the
       # next manual run (artifact_run_id = this run): the DMG around the
-      # stapled app when it exists.
+      # stapled app when it exists, else a recovered helper's outer DMG.
       - name: Prepare outer DMG recovery after bounded wait
         id: prepare-outer
         if: always() && steps.wait-staple.outcome == 'failure'
@@ -207,6 +254,10 @@ jobs:
           set -euo pipefail
           outer_state="$RUNNER_TEMP/cmux-outer-dmg-notarization.state"
           require=(--require-stapled-app)
+          if [ ! -s "$outer_state" ] && [ "${RECOVERY_KIND:-dmg}" = computer-use-helper ]; then
+            outer_state="$outer_state.first"
+            require=()
+          fi
           if [ ! -s "$outer_state" ]; then
             if grep -Fxq 'stapled_app=true' "${STATE_FILE:-/dev/null}"; then
               # A continued stapled-app DMG that is still pending before its
@@ -235,7 +286,7 @@ jobs:
           path: outer-recovery-staging/*
           compression-level: 0
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 14
 
       - name: Upload verified recovery artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -245,7 +296,7 @@ jobs:
             recovery
             verified
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 14
 
       - name: Cleanup keychain
         if: always()
@@ -256,12 +307,12 @@ jobs:
 
   verify-stapled:
     name: Verify stapled DMG
-    # No environment and no secrets: statically verify the exact DMG the
+    # No environment and no secrets: launch the app inside the exact DMG the
     # resume job stapled.
     needs: resume
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     steps:
       - name: Checkout trusted continuation tools
@@ -279,7 +330,7 @@ jobs:
           name: cmux-${{ inputs.channel }}-notarization-verified-${{ inputs.variant }}-${{ github.run_id }}
           path: recovered
 
-      - name: Verify the exact stapled DMG artifact
+      - name: Launch the app inside the exact stapled DMG
         env:
           REQUESTED_CHANNEL: ${{ inputs.channel }}
         run: |
@@ -294,4 +345,4 @@ jobs:
           if [ -f "$dmg.stapled-app-fallback" ]; then
             stapled=(--stapled-app-fallback "$(cat "$dmg.stapled-app-fallback")")
           fi
-          ./scripts/ci/verify-dmg-artifact.sh "$dmg" "$REQUESTED_CHANNEL" "${stapled[@]}"
+          ./scripts/ci/smoke-dmg.sh "$dmg" "$REQUESTED_CHANNEL" "${stapled[@]}"

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { reachabilityKey } from "../scripts/check-devbox-image-reachable";
 
 describe("devbox reachability run key", () => {
@@ -25,4 +26,16 @@ describe("devbox reachability run key", () => {
     // manifest does not, which is exactly what the daily run is for.
     expect(reachabilityKey(defaults, "client-2")).not.toBe(reachabilityKey(defaults, "client-1"));
   });
+});
+
+
+test("reachability cache includes the probe implementation and runs when it changes", () => {
+  const workflow = readFileSync(new URL("../../.github/workflows/cloud-vm-image-reachability.yml", import.meta.url), "utf8");
+  const key = workflow.split("\n").find((line) => line.trim().startsWith("key: devbox-reachable-"))!;
+  expect(key).toContain("hashFiles(");
+  for (const file of ["web/scripts/check-devbox-image-reachable.ts", "web/scripts/devbox-image-common.ts", "web/services/vms/drivers/cmuxTuiDaemon.ts"]) {
+    expect(key).toContain(file);
+    // Every probe dependency must trigger both a pull-request and main check.
+    expect(workflow.split("  push:")[1]!.split("  schedule:")[0]).toContain(`- ${file}`);
+  }
 });

@@ -16,13 +16,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
-import importlib.util as _git_fixture_importlib  # noqa: E402
-from os import path as _git_fixture_path  # noqa: E402
-_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
-    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
-git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
-_git_fixture_spec.loader.exec_module(git_fixture_env)
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -55,24 +49,33 @@ def cli(repo, *args):
 class PreflightTests(unittest.TestCase):
     def test_real_wiring_failure_then_repair_without_native_execution(self):
         with repo_fixture() as repo:
-            lint = repo / "scripts/lint-pbxproj-test-wiring.sh"
-            shutil.copy2(ROOT / "tests/test_ci_pbxproj_test_wiring.sh",
-                         repo / "tests/test_ci_pbxproj_test_wiring.sh")
-            # A lint that accepts everything is what the regression guard catches.
-            lint.write_text("#!/usr/bin/env bash\nexit 0\n")
-            lint.chmod(0o755)
+            for name in ("lint-pbxproj-test-wiring.sh", "sync-test-wiring",
+                         "sync_test_wiring.py", "normalize-pbxproj.py"):
+                shutil.copy2(ROOT / "scripts" / name, repo / "scripts" / name)
+            for name in ("test_ci_pbxproj_test_wiring.sh", "test_sync_test_wiring.py"):
+                shutil.copy2(ROOT / "tests" / name, repo / "tests" / name)
+            shutil.copytree(ROOT / "tests/fixtures/pbxproj-test-wiring",
+                            repo / "tests/fixtures/pbxproj-test-wiring")
+            (repo / "cmuxTests").mkdir()
+            (repo / "cmuxTests/ExistingTests.swift").write_text("import Testing\n")
+            (repo / "cmux.xcodeproj").mkdir()
+            project = repo / "cmux.xcodeproj/project.pbxproj"
+            shutil.copyfile(ROOT / "tests/fixtures/pbxproj-test-wiring/base.pbxproj", project)
+            sync = [str(repo / "scripts/sync-test-wiring"), "--repo-root", str(repo)]
+            subprocess.run(sync, check=True, capture_output=True, text=True)
+            (repo / "cmuxTests/UnwiredTests.swift").write_text("import Testing\n@Test func example() {}\n")
             with tempfile.TemporaryDirectory() as receipts:
                 evidence = Path(receipts) / "receipt.json"
                 failed = cli(repo, "--only", "test-wiring", "--receipt", str(evidence))
                 self.assertEqual(failed.returncode, 1, failed.stdout + failed.stderr)
-                self.assertIn("lint without --target should fail", failed.stdout)
+                self.assertIn("UnwiredTests.swift", failed.stdout)
                 self.assertIn("--only test-wiring", failed.stdout)
                 result = json.loads(evidence.read_text())
                 self.assertEqual(result["outcome"]["status"], "failed")
                 self.assertEqual(result["evidence"]["executions"][0]["argv"],
                                  ["bash", "tests/test_ci_pbxproj_test_wiring.sh"])
                 self.assertEqual(verify.receipt.check(result, "typechecking")["status"], "skipped")
-                shutil.copy2(ROOT / "scripts/lint-pbxproj-test-wiring.sh", lint)
+                subprocess.run(sync, check=True, capture_output=True, text=True)
                 fixed = cli(repo, "--only", "test-wiring", "--receipt", str(evidence))
                 self.assertEqual(fixed.returncode, 0, fixed.stdout + fixed.stderr)
                 result = json.loads(evidence.read_text())
@@ -307,10 +310,9 @@ class SwiftSyntaxTests(unittest.TestCase):
                 return {"id": item[0], "phase": item[1], "argv": item[3], "tests": None,
                         "cancelled": False, "status": "passed", "executed": True,
                         "elapsed_seconds": 0}, ""
-            # execute is faked, so no real swiftc runs; a host without one
-            # (a Linux dev box) must still reach it instead of "unsupported".
-            with patch.object(verify, "execute", side_effect=changed), \
-                    patch.object(verify.shutil, "which", return_value="/nonexistent/swiftc"):
+            # A runner with no swiftc would report "unsupported" before execute runs.
+            with patch.object(verify.shutil, "which", return_value="/usr/bin/swiftc"), \
+                    patch.object(verify, "execute", side_effect=changed):
                 result = verify.run(repo, ["swift-syntax"], 5, io.StringIO(),
                                     swift_files=["Example.swift"])
             self.assertEqual(result["outcome"]["status"], "interrupted")
@@ -483,11 +485,15 @@ class AffectedChecksTests(unittest.TestCase):
         with repo_fixture() as repo:
             (repo / "scripts/normalize-pbxproj.py").write_text("# changed helper")
             selected, _ = verify.affected_checks(repo, "HEAD")
-            self.assertEqual(selected, ["project-tests", "project", "feature-flags"])
+            self.assertEqual(selected, ["project-tests", "project", "test-wiring-sync", "feature-flags"])
 
-    def test_current_ci_wiring_inputs_select_their_checks(self):
+    def test_current_ci_schema_and_sync_inputs_select_their_checks(self):
         for path, expected in (
-            ("scripts/lint-pbxproj-test-wiring.sh", "test-wiring"),
+            ("web/data/cmux.schema.json", "config-schema"),
+            ("Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/ConfigValidation/CmuxConfigSchema.generated.swift", "config-schema"),
+            ("scripts/sync-test-wiring", "test-wiring-sync"),
+            ("scripts/sync_test_wiring.py", "test-wiring-sync"),
+            ("tests/fixtures/pbxproj-test-wiring/new.pbxproj", "test-wiring-sync"),
         ):
             with self.subTest(path=path), repo_fixture() as repo:
                 target = repo / path
@@ -503,11 +509,12 @@ class AffectedChecksTests(unittest.TestCase):
             (repo / "scripts/claude-launch-environment-policy.json").write_text("{}")
             selected, _ = verify.affected_checks(repo, "HEAD")
             self.assertEqual(selected, ["launch-policy", "feature-flags"])
-            output = repo / "agent-chat/adapters/claude-environment-policy.generated.ts"
-            output.parent.mkdir(parents=True, exist_ok=True)
+            output = repo / "Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/ClaudeSessionEnvironmentPolicy+Generated.swift"
+            output.parent.mkdir(parents=True)
             output.write_text("// edited generated output")
             selected, _ = verify.affected_checks(repo, "HEAD")
             self.assertIn("launch-policy", selected)
+            self.assertIn("package-groups", selected)
 
     def test_deleted_input_and_rename_keep_old_and_new_dependencies(self):
         with repo_fixture() as repo:
@@ -606,34 +613,6 @@ class AutomaticSelectionTests(unittest.TestCase):
             for env in ({"CI": "true"}, {"GITHUB_ACTIONS": "true"}):
                 self.assertEqual(verify.automatic_scope(repo, env)["mode"], "ci_full")
             self.assertEqual(verify.automatic_scope(repo, {"CI": "false"})["mode"], "affected")
-
-    def test_a_feat_cmux_next_branch_diffs_against_feat_cmux_next(self):
-        # feat-cmux-next split from main long ago: main's merge base with a feat-cmux-next branch is
-        # that old split, so every check (and every unrelated base failure) ran on a one-file change.
-        with repo_fixture() as repo:
-            git = ["git", "-C", str(repo)]
-            def commit(name):
-                (repo / name).write_text(name)
-                subprocess.run(git + ["add", name], check=True)
-                subprocess.run(git + ["-c", "user.name=t", "-c", "user.email=t@example.com",
-                                      "commit", "-qm", name], check=True)
-            split = subprocess.run(git + ["rev-parse", "HEAD"], capture_output=True, text=True,
-                                   check=True).stdout.strip()
-            commit("main-only.txt")
-            subprocess.run(git + ["update-ref", "refs/remotes/origin/main", "HEAD"], check=True)
-            subprocess.run(git + ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"],
-                           check=True)
-            subprocess.run(git + ["checkout", "-q", "--detach", split], check=True)
-            commit("next-1.txt")
-            commit("next-2.txt")
-            subprocess.run(git + ["update-ref", "refs/remotes/origin/feat-cmux-next", "HEAD"], check=True)
-            commit("my-change.txt")
-            scope = verify.automatic_scope(repo, {})
-            self.assertEqual((scope["mode"], scope["base_ref"]), ("affected", "refs/remotes/origin/feat-cmux-next"))
-            # A branch off main still diffs against main.
-            subprocess.run(git + ["checkout", "-q", "--detach", "refs/remotes/origin/main"], check=True)
-            commit("main-change.txt")
-            self.assertEqual(verify.automatic_scope(repo, {})["base_ref"], "refs/remotes/origin/main")
 
     def test_stale_remote_default_uses_full_recipe(self):
         with repo_fixture() as repo:

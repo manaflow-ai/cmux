@@ -33,8 +33,8 @@ pub(crate) struct WorkspaceStatus {
     pub id: WorkspaceId,
     /// The most urgent status of the workspace's agents; `None` without one.
     pub status: Option<AgentStatus>,
-    /// `branch · active pane title (N screens)`; the branch only when the
-    /// daemon resolved one.
+    /// `active pane title (N screens)`; the screen count only with more
+    /// than one screen.
     pub subtitle: String,
 }
 
@@ -206,23 +206,8 @@ fn strip_title_glyph(title: &str) -> &str {
 fn workspace_subtitle(workspace: &crate::session::WorkspaceView, screens_count: &str) -> String {
     let screen = workspace.active_screen_ref();
     let pane = screen.and_then(|screen| screen.pane(screen.active_pane));
-    let title = strip_title_glyph(pane.map(|pane| pane.display_name()).unwrap_or("shell"));
-    // The branch of the tab the workspace shows, else of any of its tabs.
-    let branch = pane
-        .and_then(|pane| pane.tabs.get(pane.active_tab))
-        .and_then(|tab| tab.git_branch.as_deref())
-        .or_else(|| {
-            workspace
-                .screens
-                .iter()
-                .flat_map(|screen| screen.panes.iter())
-                .flat_map(|pane| pane.tabs.iter())
-                .find_map(|tab| tab.git_branch.as_deref())
-        });
-    let mut subtitle = match branch {
-        Some(branch) => format!("{branch} · {title}"),
-        None => title.to_string(),
-    };
+    let mut subtitle =
+        strip_title_glyph(pane.map(|pane| pane.display_name()).unwrap_or("shell")).to_string();
     if workspace.screens.len() > 1 {
         subtitle.push(' ');
         subtitle.push_str(&screens_count.replace("{count}", &workspace.screens.len().to_string()));

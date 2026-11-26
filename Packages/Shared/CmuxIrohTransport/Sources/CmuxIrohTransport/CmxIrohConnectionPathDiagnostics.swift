@@ -1,4 +1,3 @@
-#if canImport(IrohLib)
 public import CMUXMobileCore
 import Foundation
 public import IrohLib
@@ -16,7 +15,7 @@ public final class CmxIrohConnectionPathDiagnostics: Sendable {
             surface: correlation.handle(for: connection.remoteId().toBytes().base64EncodedString()),
             // A native stable ID may be pointer-sized. Hash it into the bounded,
             // process-local diagnostic vocabulary before sending it off-device.
-            sessionID: max(1, Int(clamping: correlation.handle(for: String(connection.stableId())) ?? 1)),
+            sessionID: max(1, Int(correlation.handle(for: String(connection.stableId())) ?? 1)),
             selectedPath: {
                 CmxIrohObservedConnectionPath(
                     snapshots: connection.paths()
@@ -116,4 +115,3 @@ public final class CmxIrohConnectionPathDiagnostics: Sendable {
         }
     }
 }
-#endif

@@ -141,25 +141,6 @@ def _unescape_backslash_controls(s: str) -> str:
     return "".join(out)
 
 
-def wait_until(predicate, timeout_s: float = 5.0, interval_s: float = 0.05) -> Any:
-    """Poll predicate until it returns a truthy value or timeout_s passes.
-
-    Returns the first truthy value, or the last (falsy) one on timeout, so a
-    caller can assert on it or print it. A cmuxError (a rate limit, a surface not
-    created yet) counts as not yet true. Use it instead of a fixed sleep after a
-    socket command: it returns the moment the UI or state has settled.
-    """
-    deadline = time.time() + timeout_s
-    while True:
-        try:
-            value = predicate()
-        except cmuxError:
-            value = None
-        if value or time.time() >= deadline:
-            return value
-        time.sleep(interval_s)
-
-
 class cmux:
     """Client for controlling cmux via the v2 JSON Unix socket."""
 
@@ -952,8 +933,11 @@ class cmux:
         return bool(res.get("focused"))
 
     def wait_for_webview_focus(self, panel_id: str, timeout_s: float = 2.0) -> None:
-        if wait_until(lambda: self.is_webview_focused(panel_id), timeout_s):
-            return
+        start = time.time()
+        while time.time() - start < timeout_s:
+            if self.is_webview_focused(panel_id):
+                return
+            time.sleep(0.05)
         raise cmuxError(f"Timed out waiting for webview focus: {panel_id}")
 
     # ---------------------------------------------------------------------

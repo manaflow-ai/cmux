@@ -37,7 +37,6 @@ def api(path, method="GET", value=None):
         headers={"Authorization": f"Bearer {os.environ['CLOUDFLARE_API_TOKEN']}",
                  "Content-Type": "application/json"}, method=method)
     try:
-        # user-agent: the account API, no CDN-fronted read
         with urllib.request.urlopen(request, timeout=30) as response:
             body = json.load(response)
     except urllib.error.HTTPError as error:

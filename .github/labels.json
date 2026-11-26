@@ -165,6 +165,26 @@
       "name": "difficulty:4",
       "color": "5319E7",
       "description": "Architecture: security, protocol, migration, release, or broad design"
+    },
+    {
+      "name": "risk:low",
+      "color": "0E8A16",
+      "description": "Risk tier (docs/ci/risk-tiers.md)"
+    },
+    {
+      "name": "risk:normal",
+      "color": "FBCA04",
+      "description": "Risk tier (docs/ci/risk-tiers.md)"
+    },
+    {
+      "name": "risk:high",
+      "color": "B60205",
+      "description": "Risk tier (docs/ci/risk-tiers.md)"
+    },
+    {
+      "name": "risk:human-ok",
+      "color": "5319E7",
+      "description": "A maintainer looked at this high-risk PR (agents never add it)"
     }
   ]
 }

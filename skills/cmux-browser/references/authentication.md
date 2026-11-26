@@ -1,102 +1,129 @@
 # Authentication Patterns
 
-Log in to a site in a cmux browser tab from a script. Related:
-[session-management.md](session-management.md), [../SKILL.md](../SKILL.md).
+Login flows, session persistence, OAuth, and 2FA for cmux browser surfaces. Related: [session-management.md](session-management.md), [../SKILL.md](../SKILL.md).
 
-Set `TAB` from [surface discovery](surface-discovery.md) or from the result of
-`cmux tab create browser`. Never guess a tab or log credentials.
+Set `SURFACE` from [surface discovery](surface-discovery.md) or from the JSON
+returned by `browser open`. Never guess a default surface or log credentials.
+
+Saved browser state contains cookies and storage. Use a private directory with
+restrictive permissions before saving it:
+
+```bash
+STATE_DIR="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/cmux-browser-state"
+umask 077
+mkdir -p "$STATE_DIR"
+chmod 700 "$STATE_DIR"
+STATE_FILE="$STATE_DIR/auth-state.json"
+```
 
 ## Basic login
 
 ```bash
-TAB="$(cmux --json tab create browser --url https://app.example.com/login | jq -r '.. | .id? // empty | select(startswith("tab_"))' | head -n1)"
-[ -n "$TAB" ] || { printf '%s\n' 'tab create did not return a tab id' >&2; exit 1; }
-cmux browser "$TAB" snapshot --interactive
-cmux browser "$TAB" fill e1 "$APP_USERNAME"
-cmux browser "$TAB" fill e2 "$APP_PASSWORD"
-cmux browser "$TAB" click e3
-cmux browser "$TAB" state
+OPEN_JSON="$(cmux --json browser open https://app.example.com/login --focus false)"
+SURFACE="$(printf '%s' "$OPEN_JSON" | jq -r '.surface_ref // .surface_id // empty')"
+[ -n "$SURFACE" ] || { printf '%s\n' 'browser open did not return a surface ref' >&2; exit 1; }
+cmux browser --surface "$SURFACE" wait --load-state complete --timeout-ms 15000
+cmux browser --surface "$SURFACE" snapshot --interactive
+cmux browser --surface "$SURFACE" fill e1 "$APP_USERNAME"
+cmux browser --surface "$SURFACE" fill e2 "$APP_PASSWORD"
+cmux browser --surface "$SURFACE" click e3 --snapshot-after --json
+cmux browser --surface "$SURFACE" wait --url-contains "/dashboard" --timeout-ms 20000
 ```
 
-Block until the dashboard loads with
-`cmux browser "$TAB" wait --url-contains /dashboard --timeout-ms 15000`. If it
-times out and `state` still shows `/login`, take a new snapshot and report what
-the page says.
-
-## OAuth, SSO and two-factor
-
-Drive the fields you can see with `snapshot`, `fill` and `click`. Let the user
-finish the provider step or the 2FA code in the tab, then confirm with
-`cmux browser "$TAB" state`, or wait for the return URL with
-`wait --url-contains`.
-
-## Hand the tab back to the person
-
-A password you were not given, a 2FA code, a CAPTCHA, a payment or any
-consent screen is the person's step, not yours. Stop driving the tab and hand
-it back:
-
-1. Leave the page as it is. Do not type guesses, retry a code, or click
-   through a payment or consent button.
-2. Tell the person in chat, in one message: the tab (its name or `tab_…` id),
-   the site, and the step they need to take ("Sign in to github.com in the
-   Research tab, then I will open the PR"). Do not focus the tab or move their
-   pointer; they open it when they are ready.
-3. Block on the page's next state instead of asking them to report back:
-   `cmux browser "$TAB" wait --url-contains /dashboard --timeout-ms 120000`
-   (or `wait --text`, or `page.waitForURL` in the REPL). On a timeout, run the
-   same wait again a few times; if the page still has not moved, take a
-   `snapshot` and say what it shows.
-4. When the wait returns, confirm with `state` and carry on in the same tab.
-   Say in one line that you have resumed. Do not repeat the step they just
-   did.
-
-One hand-back per step. If the site asks again (a second factor after the
-password), hand back again with the new step named.
-
-## Saved state and cookies
-
-The per-tab CLI reads and sets cookies (`cookies get|set|clear`, see
-[commands.md](commands.md)). For an undoable clear use the browser REPL
-([repl-guide.md](repl-guide.md)): `page.context().clearCookies()` returns
-`{ restoreIds }` and `page.context().restoreCookies(result)` undoes it; you
-never delete the backup (only the person can). The tab keeps its login in the browser profile for
-as long as the profile keeps its cookies. To clear site data for the focused
-browser, the UI action `cmux browser delete-site-data` exists; check its
-arguments with `cmux action describe "browser delete-site-data"`.
-
-## Importing the person's sign-ins from another browser
-
-When a site needs the person's existing login (and they did not ask you to type
-credentials), ask for their cookies from the browser they use:
+## Saving authentication state
 
 ```bash
-cmux browser import-cookies --from chrome --domain github.com \
-  --reason "Review PR 1234 in the cmux browser as you"
-cmux browser import-cookies --from arc:Work --domain linear.app,notion.so \
-  --reason "Read the roadmap pages you linked"
-cmux browser import-cookies --from safari --domain example.com --reason "…" --profile Work
+cmux browser --surface "$SURFACE" state save "$STATE_FILE"
+chmod 600 "$STATE_FILE"
 ```
 
-- `--from <browser>[:<profile>]`: a registry id or the app's name (`chrome`,
-  `arc`, `brave`, `edge`, `helium`, `dia`, `firefox`, `zen`, `safari`); the
-  profile is the browser's folder name or the name it shows. No profile is the
-  browser's `Default` profile.
-- `--domain`: comma-separated sites. Ask for the fewest you need; without it
-  every cookie of that profile is copied.
-- `--reason` (required for agents): one sentence on what you will do with the
-  login. The person reads it first.
-- `--profile`: the cmux browser profile to import into (default: the default
-  profile).
+State includes cookies, localStorage, sessionStorage, and open tab metadata for that surface.
 
-The app shows the person a consent panel before it reads anything: it names
-your chat or terminal tab (a click shows it), your reason, your latest message,
-the source and the sites. Only after Allow does macOS ask for the browser's
-password (Chromium) or does cmux need Full Disk Access (Safari). The command
-waits up to about 3 minutes and fails with a clear error on Deny or no answer;
-do not retry on your own. Cookies never leave the Mac, and you never print them.
+## Restoring authentication
+
+```bash
+STATE_DIR="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/cmux-browser-state"
+umask 077
+mkdir -p "$STATE_DIR"
+chmod 700 "$STATE_DIR"
+STATE_FILE="$STATE_DIR/auth-state.json"
+OPEN_JSON="$(cmux --json browser open https://app.example.com --focus false)"
+SURFACE="$(printf '%s' "$OPEN_JSON" | jq -r '.surface_ref // .surface_id // empty')"
+[ -n "$SURFACE" ] || { printf '%s\n' 'browser open did not return a surface ref' >&2; exit 1; }
+cmux browser --surface "$SURFACE" state load "$STATE_FILE"
+cmux browser --surface "$SURFACE" goto https://app.example.com/dashboard
+cmux browser --surface "$SURFACE" snapshot --interactive
+```
+
+## OAuth / SSO
+
+Same shape as basic login, waiting on the provider host and then the return host, with generous timeouts:
+
+```bash
+OAUTH_STATE_DIR="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/cmux-browser-state"
+umask 077
+mkdir -p "$OAUTH_STATE_DIR"
+chmod 700 "$OAUTH_STATE_DIR"
+OAUTH_STATE_FILE="$OAUTH_STATE_DIR/oauth-state.json"
+OPEN_JSON="$(cmux --json browser open https://app.example.com/auth/provider --focus false)"
+SURFACE="$(printf '%s' "$OPEN_JSON" | jq -r '.surface_ref // .surface_id // empty')"
+[ -n "$SURFACE" ] || { printf '%s\n' 'browser open did not return a surface ref' >&2; exit 1; }
+cmux browser --surface "$SURFACE" wait --url-contains "login.example.com" --timeout-ms 30000
+cmux browser --surface "$SURFACE" snapshot --interactive
+# fill and click the provider's fields
+cmux browser --surface "$SURFACE" wait --url-contains "app.example.com" --timeout-ms 45000
+cmux browser --surface "$SURFACE" state save "$OAUTH_STATE_FILE"
+chmod 600 "$OAUTH_STATE_FILE"
+```
+
+## Two-factor
+
+Drive the password step, let the user complete 2FA in the webview, then wait with a long timeout (`--url-contains "/dashboard" --timeout-ms 120000`) and save state.
+
+## Cookie-based auth
+
+```bash
+cmux browser --surface "$SURFACE" cookies set session_cookie "$SESSION_COOKIE"
+cmux browser --surface "$SURFACE" goto https://app.example.com/dashboard
+```
+
+## Token refresh
+
+Load saved state, navigate, and re-login only when the URL bounced to `/login`:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+STATE_DIR="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/cmux-browser-state"
+umask 077
+mkdir -p "$STATE_DIR"
+chmod 700 "$STATE_DIR"
+STATE_FILE="${STATE_FILE:-$STATE_DIR/auth-state.json}"
+: "${SURFACE:?set SURFACE from browser open or surface discovery}"
+
+[ -f "$STATE_FILE" ] && cmux browser --surface "$SURFACE" state load "$STATE_FILE"
+cmux browser --surface "$SURFACE" goto https://app.example.com/dashboard
+
+if cmux browser --surface "$SURFACE" get url | grep -q '/login'; then
+  cmux browser --surface "$SURFACE" snapshot --interactive
+  cmux browser --surface "$SURFACE" fill e1 "$APP_USERNAME"
+  cmux browser --surface "$SURFACE" fill e2 "$APP_PASSWORD"
+  cmux browser --surface "$SURFACE" click e3
+  cmux browser --surface "$SURFACE" wait --url-contains "/dashboard" --timeout-ms 20000
+  cmux browser --surface "$SURFACE" state save "$STATE_FILE"
+  chmod 600 "$STATE_FILE"
+fi
+```
 
 ## Security
 
-Take credentials from environment variables. Do not print `snapshot` or `text`
-output from authenticated pages into logs or chat without filtering it.
+Never commit state files; they contain auth tokens. Take credentials from environment variables. Clear state after sensitive tasks:
+
+```bash
+cmux browser --surface "$SURFACE" cookies clear --all
+STATE_DIR="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/cmux-browser-state"
+STATE_FILE="${STATE_FILE:-$STATE_DIR/auth-state.json}"
+OAUTH_STATE_FILE="${OAUTH_STATE_FILE:-$STATE_DIR/oauth-state.json}"
+rm -f "$STATE_FILE"
+rm -f "$OAUTH_STATE_FILE"
+```

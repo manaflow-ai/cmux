@@ -113,36 +113,8 @@ SCAN_RULES = (
         "crates/cmux-tui/src/cli",
         frozenset({".rs"}),
         cli_literals_only=True,
-        # `cmux live` reads web-overlay.sh's state folder, `~/Library/Caches/cmux-next/web-slot`:
-        # a file path on this Mac, not a resource identity.
-        private_identity_exceptions=frozenset({"web-slot"}),
     ),
 )
-
-
-# A terminal inherits identity variables from the macOS CLI (`CMUX_SURFACE_ID`).
-# Their names are fixed process-environment keys that the CLI reads, not
-# resource vocabulary, so the `surface` rule skips exactly the names in this
-# Rust table. Reading the table, not a copy here, keeps the exemption in step
-# with the variables terminals actually carry; any other spelling still fails.
-TERMINAL_IDENTITY_ENV_SOURCE = "crates/cmux-daemon-launch-core/src/terminal_env.rs"
-TERMINAL_IDENTITY_ENV_TABLE_RE = re.compile(
-    r"pub\s+const\s+EXCLUDED_KEYS\s*:\s*\[\s*&str\s*;\s*\d+\s*\]\s*=\s*\[(?P<body>[^\]]*)\]"
-)
-
-
-def terminal_identity_env_names(tui: Path) -> frozenset[str]:
-    """The `CMUX_*` names in terminal_env.rs `EXCLUDED_KEYS`, or none if it is absent."""
-    try:
-        text = (tui / TERMINAL_IDENTITY_ENV_SOURCE).read_text(encoding="utf-8")
-    except OSError:
-        return frozenset()
-    match = TERMINAL_IDENTITY_ENV_TABLE_RE.search(text)
-    if match is None:
-        return frozenset()
-    return frozenset(
-        name for name in re.findall(r'"([^"]+)"', match.group("body")) if name.startswith("CMUX_")
-    )
 
 
 # These handwritten v10 modules remain reachable only through `cmux::raw`.
@@ -215,11 +187,6 @@ STRUCTURAL_SCOPES = frozenset({"workspace", "screen", "pane", "tab"})
 # outcome is journaled. A daemon restart must never guess that repeating one is
 # safe. Keep this set explicit so a future catalog edit cannot silently promise
 # exactly-once delivery for an effect that cmux cannot prove completed.
-# Optional `risk` of a transported operation: what it can affect beyond its
-# class. The app platform derives a permission scope from it.
-OPERATION_RISKS = frozenset(
-    {"read", "mutate-own", "mutate-shared", "execute", "send-external", "destructive"}
-)
 EXTERNALLY_EFFECTFUL_MUTATIONS = frozenset(
     {
         "browser.activate",
@@ -261,7 +228,6 @@ EXTERNALLY_EFFECTFUL_MUTATIONS = frozenset(
         "workspace.close",
         "workspace.create",
         "workspace.layout.apply",
-        "workspace.open_url",
         "workspace.run",
     }
 )
@@ -386,57 +352,6 @@ def _json_object(path: Path, diagnostics: list[Diagnostic]) -> Mapping[str, obje
         )
         return None
     return value
-
-
-def _blank_rust_comments(text: str) -> str:
-    """`text` with Rust `//` and (nested) `/* */` comments replaced by spaces,
-    newlines kept, so offsets and lines still match `text`. String, raw string,
-    byte and char literals are copied as they are."""
-    out = list(text)
-    i, n = 0, len(text)
-
-    def blank(a: int, b: int) -> None:
-        for k in range(a, b):
-            if out[k] != "\n":
-                out[k] = " "
-
-    while i < n:
-        c = text[i]
-        if text.startswith("//", i):
-            j = text.find("\n", i)
-            j = n if j < 0 else j
-            blank(i, j)
-            i = j
-        elif text.startswith("/*", i):
-            depth, j = 1, i + 2
-            while j < n and depth:
-                if text.startswith("/*", j):
-                    depth, j = depth + 1, j + 2
-                elif text.startswith("*/", j):
-                    depth, j = depth - 1, j + 2
-                else:
-                    j += 1
-            blank(i, j)
-            i = j
-        elif raw := re.match(r'b?r(#*)"', text[i : i + 300]):
-            if i and (text[i - 1].isalnum() or text[i - 1] == "_"):
-                i += 1
-                continue
-            close = '"' + raw.group(1)
-            j = text.find(close, i + raw.end())
-            i = n if j < 0 else j + len(close)
-        elif c == '"':
-            j = i + 1
-            while j < n and text[j] != '"':
-                j += 2 if text[j] == "\\" else 1
-            i = j + 1
-        elif c == "'":
-            # A char literal ('a', '\n', '\u{1F600}'); otherwise a lifetime.
-            char = re.match(r"'(?:\\(?:u\{[0-9a-fA-F]+\}|x[0-9a-fA-F]{2}|.)|[^\\'\n])'", text[i : i + 16])
-            i += char.end() if char else 1
-        else:
-            i += 1
-    return "".join(out)
 
 
 def _balanced_body(text: str, marker: re.Pattern[str]) -> tuple[str, int] | None:
@@ -661,11 +576,8 @@ def _rust_prefixes(path: Path, diagnostics: list[Diagnostic]) -> set[str]:
             )
         )
 
-    # Comments blanked to spaces (same offsets): a commented-out row or a
-    # `];` in a comment is not code.
-    code = _blank_rust_comments(text)
     selector = _balanced_body(
-        code,
+        text,
         re.compile(r"\bfn\s+is_registered_public_id\s*\([^)]*\)[^{]*\{"),
     )
     if selector is None:
@@ -677,22 +589,21 @@ def _rust_prefixes(path: Path, diagnostics: list[Diagnostic]) -> set[str]:
         # The selector's own literals are prefixes, and when it looks prefixes
         # up in the `PUBLIC_ID_PREFIXES` table (rows of (prefix, CLI scope)),
         # so is the first string of each row.
-        found: dict[str, int] = {}
-        for match in re.finditer(r'"([a-z][a-z0-9_]*)"', body):
-            found.setdefault(match.group(1), body_offset + match.start())
+        selector_prefixes = set(re.findall(r'"([a-z][a-z0-9_]*)"', body))
         if re.search(r"\bPUBLIC_ID_PREFIXES\b", body):
             table = re.search(
-                r"\bconst\s+PUBLIC_ID_PREFIXES\s*:[^=]*=\s*&\[(.*?)\];", code, re.DOTALL
+                r"\bconst\s+PUBLIC_ID_PREFIXES\s*:[^=]*=\s*&\[(.*?)\];", text, re.DOTALL
             )
             if table is None:
                 diagnostics.append(
                     Diagnostic(path, 1, 1, "boundary.prefix", "missing PUBLIC_ID_PREFIXES table")
                 )
                 return set(actual.values())
-            for match in re.finditer(r'\(\s*"([a-z][a-z0-9_]*)"\s*,', table.group(1)):
-                found.setdefault(match.group(1), table.start(1) + match.start(1) - 1)
-        missing = set(EXPECTED_PREFIXES) - set(found)
-        stale = set(found) - set(EXPECTED_PREFIXES)
+            selector_prefixes.update(
+                re.findall(r'\(\s*"([a-z][a-z0-9_]*)"\s*,', table.group(1))
+            )
+        missing = set(EXPECTED_PREFIXES) - selector_prefixes
+        stale = selector_prefixes - set(EXPECTED_PREFIXES)
         for prefix in sorted(missing):
             line, column = _line_column(text, body_offset)
             diagnostics.append(
@@ -705,11 +616,12 @@ def _rust_prefixes(path: Path, diagnostics: list[Diagnostic]) -> set[str]:
                 )
             )
         for prefix in sorted(stale):
+            relative = body.find(f'"{prefix}"')
             diagnostics.append(
                 _diagnostic_at(
                     path,
                     text,
-                    found[prefix],
+                    body_offset + max(relative, 0),
                     "boundary.prefix",
                     f"selector ID registry has unregistered prefix {prefix!r}",
                 )
@@ -807,20 +719,14 @@ def _runtime_operation_classes(
 
     variants, _ = enum_registry("ResourceOperation")
     local_variants, _ = enum_registry("LocalOperation")
-    class_re = re.compile(
-        r"\bimpl\s+ResourceOperation\s*\{.*?"
-        r"\bpub\s+const\s+fn\s+class\s*\(\s*self\s*\)\s*->\s*OperationClass\s*\{",
-        re.DOTALL,
+    class_method = _balanced_body(
+        text,
+        re.compile(
+            r"\bimpl\s+ResourceOperation\s*\{.*?"
+            r"\bpub\s+const\s+fn\s+class\s*\(\s*self\s*\)\s*->\s*OperationClass\s*\{",
+            re.DOTALL,
+        ),
     )
-    # The class table lives in resource.rs or in its own module, resource/class.rs.
-    class_path, class_text = path, text
-    class_method = _balanced_body(text, class_re)
-    module = path.with_suffix("") / "class.rs"
-    if class_method is None and module.is_file():
-        module_text = _read(module, diagnostics)
-        if module_text is not None:
-            class_path, class_text = module, module_text
-            class_method = _balanced_body(module_text, class_re)
     if class_method is None:
         diagnostics.append(
             Diagnostic(path, 1, 1, "boundary.operation-class", "missing ResourceOperation::class")
@@ -840,8 +746,8 @@ def _runtime_operation_classes(
         if wire_class not in TRANSPORT_OPERATION_CLASSES:
             diagnostics.append(
                 _diagnostic_at(
-                    class_path,
-                    class_text,
+                    path,
+                    text,
                     body_offset + branch.start("class"),
                     "boundary.operation-class",
                     f"unsupported runtime operation class {wire_class!r}",
@@ -853,8 +759,8 @@ def _runtime_operation_classes(
             if operation is None:
                 diagnostics.append(
                     _diagnostic_at(
-                        class_path,
-                        class_text,
+                        path,
+                        text,
                         body_offset + branch.start("variants"),
                         "boundary.operation-class",
                         f"class registry references unknown ResourceOperation::{variant}",
@@ -864,8 +770,8 @@ def _runtime_operation_classes(
             if variant in assigned_variants:
                 diagnostics.append(
                     _diagnostic_at(
-                        class_path,
-                        class_text,
+                        path,
+                        text,
                         body_offset + branch.start("variants"),
                         "boundary.operation-class",
                         f"ResourceOperation::{variant} has more than one class",
@@ -877,8 +783,8 @@ def _runtime_operation_classes(
     if "OperationClass::Mutation" not in body:
         diagnostics.append(
             _diagnostic_at(
-                class_path,
-                class_text,
+                path,
+                text,
                 body_offset,
                 "boundary.operation-class",
                 "ResourceOperation::class must have a Mutation fallback",
@@ -1159,117 +1065,12 @@ def _validate_catalog_type(
                 "types.StreamError.fields.details",
                 "errors.operation.failed.details.fields.extra.values",
                 "operations.frontend_projection.put.params.fields.projection",
-                # The app's own window state, opaque to the daemon like a
-                # frontend projection (OWNERSHIP-PRINCIPLES window records).
-                "types.WindowRecordSnapshot.fields.record",
-                "operations.window_record.put.params.fields.record",
-                # Settings values are data the settings schema describes, not
-                # the catalog (plans/cmux-next/settings-react.md section 2).
-                "operations.settings.set.params.fields.value",
-                "types.SettingsEdit.fields.value",
-                "operations.settings.schema.result",
-                "operations.settings.list.result.items",
-                "operations.settings.get.result",
-                "operations.settings.snapshot.result",
-                "errors.settings.invalid.details.fields.accepted",
-                "errors.settings.invalid.details.fields.value",
-                # Browser devices are Chrome DevTools' JSONV1 device objects,
-                # verbatim, so a Chrome custom-device export reads unchanged
-                # and Chrome's new keys survive (browser-devices-v1, cx-ocbf3).
-                "operations.browser.devices.add_custom.params.fields.device",
-                "operations.browser.tab.emulate.params.fields.custom",
-                "types.BrowserDeviceAddResult.fields.device",
-                "types.BrowserDeviceList.fields.chrome",
-                "types.BrowserDeviceList.fields.devices.items",
-                # A keybinding's args are the command's own object, passed
-                # through unchanged (keybindings.json, cx-9ce.17).
-                "types.KeybindingEntry.fields.args.value.values",
-                "operations.keybindings.set.params.fields.args.values",
-                # Sidebar layout sections and items: the reducer validates
-                # them, and a newer app's values and keys must survive a
-                # round trip (sidebar-sections.md L5), which a closed
-                # object type would refuse.
-                "types.SidebarLayoutSnapshot.fields.sections.items",
-                "types.SidebarLayoutOpSectionAdd.fields.section",
-                "types.SidebarLayoutOpItemAdd.fields.item",
-                # The sidebar document (sidebar-doc-v1): sections, items,
-                # targets, patches and ops are the reducer's own objects
-                # (cmux-layout-reducer sidebar_doc), validated there, and a
-                # newer app's keys must survive a round trip.
-                "types.SidebarSectionSnapshot.fields.kind",
-                "types.SidebarItemSnapshot.fields.body",
-                "types.SidebarDocMutation.fields.inverse.items",
-                "operations.sidebar.adopt.params.fields.refs.items",
-                "operations.sidebar.adopt.params.fields.to",
-                "operations.sidebar.apply.params.fields.ops.items",
-                "operations.sidebar.group.create.params.fields.to",
-                "operations.sidebar.group.update.params.fields.patch",
-                "operations.sidebar.item.add.params.fields.item",
-                "operations.sidebar.item.add.params.fields.to",
-                "operations.sidebar.item.update.params.fields.patch",
-                "operations.sidebar.move.params.fields.to",
-                "operations.sidebar.section.add.params.fields.place",
-                "operations.sidebar.section.add.params.fields.section",
-                "operations.sidebar.section.move.params.fields.place",
-                "operations.sidebar.section.update.params.fields.patch",
-                # Conversation message parts and reactions: the conversation
-                # reducer (cmux-conversation) validates them, and a newer
-                # app's part kinds (questions, attachments, work cards) must
-                # survive a round trip, which a closed union would refuse.
-                "types.ConversationMessage.fields.parts.items",
-                "types.ConversationMessage.fields.reactions.items",
-                "operations.conversation.send.params.fields.parts.items",
-                # The Chief brain's engine report, owned by optchat-chief and
-                # passed through unchanged (its turn summaries grow fields).
-                "operations.chief.engine.get.result",
-                "operations.chief.engine.set.result.arguments[0]",
-                # The Chief's automations, owned by optchat-chief and passed
-                # through unchanged (automations.rs, issue 25573).
-                "operations.chief.automation.list.result",
-                "operations.chief.automation.update.result.arguments[0]",
-                # Import from Conductor's dry run, owned by the
-                # cmux-conductor-import crate (plan::Plan) and passed
-                # through unchanged; the app that confirms it reads it.
-                "types.ConductorImportPlanResult.fields.plan.value",
-                # A browser import read: each reader's result is the
-                # cmux-browser-import crate's (bookmarks, history, tabs,
-                # extensions, an engine), in the app's Codable shapes, and
-                # Safari's engine comes from the Mac's NSPreferredWebServices
-                # dictionary, passed as macOS keeps it.
-                "types.BrowserImportReadResult.fields.ok.value",
-                "operations.browser_import.read.params.fields.services.value",
-                # The move from classic cmux: the source, decision, plan and
-                # preview are the cmux-classic-import crate's (source::Source,
-                # plan::Decision, plan::Plan, plan::Preview), passed through
-                # unchanged; the app that makes the workspaces reads them, and
-                # begin hands the plan's source back as it was read.
-                "types.ClassicImportPlanResult.fields.source.value",
-                "types.ClassicImportPlanResult.fields.decision.value",
-                "types.ClassicImportPlanResult.fields.plan.value",
-                "types.ClassicImportPlanResult.fields.preview.value",
-                "operations.classic_import.record.params.fields.source",
-                # A diff review comment is the diff page's own object, kept
-                # until it is sent to the agent; the daemon stamps only id,
-                # createdAt and updatedAt (diff-comments-v1).
-                "types.DiffComment.values",
             }
             is_explicit_extra = (
                 context.startswith("types.")
                 and context.endswith(".fields.extra.values")
             )
-            # The Cloud API calls (server/cloud_api.rs): each call's args and
-            # answer are the cmux-cloud-api crate's and the Cloud API's,
-            # passed through unchanged (the crate validates every argument).
-            is_cloud_api_call = re.fullmatch(
-                r"operations\.cloud\.(vm|runs|owner|previews|machine)\.[a-z_]+"
-                r"\.(params\.fields\.args\.values|result|result\.arguments\[0\])",
-                context,
-            ) is not None
-            if (
-                context not in allowed_json_contexts
-                and not is_explicit_extra
-                and not is_cloud_api_call
-            ):
+            if context not in allowed_json_contexts and not is_explicit_extra:
                 fail("JsonValue reference is not an audited extension-point exception", "JsonValue")
         return
     if kind == "parameter":
@@ -1638,7 +1439,7 @@ def _operation_catalog(
                 diagnostics, path, text, f"{operation}.params must be an object", operation
             )
             return
-        allowed = {"selectors", "fields", "extra", "unknown_params", "constraints", "one_of"}
+        allowed = {"selectors", "fields", "extra", "constraints", "one_of"}
         if set(value) - allowed or not {"selectors", "fields", "extra"} <= set(value):
             _catalog_diagnostic(
                 diagnostics, path, text, f"{operation}.params has a schema hole", operation
@@ -1646,14 +1447,6 @@ def _operation_catalog(
         if value.get("extra") is not False:
             _catalog_diagnostic(
                 diagnostics, path, text, f"{operation}.params.extra must be false", operation
-            )
-        if "unknown_params" in value and value["unknown_params"] != "refuse":
-            _catalog_diagnostic(
-                diagnostics,
-                path,
-                text,
-                f"{operation}.params.unknown_params must be \"refuse\" when present",
-                operation,
             )
         selector_map = value.get("selectors")
         if not isinstance(selector_map, dict):
@@ -1742,18 +1535,10 @@ def _operation_catalog(
             _catalog_diagnostic(diagnostics, path, text, f"{operation} descriptor must be an object")
             continue
         required = {"class", "idempotency", "target", "ancestors", "params", "result", "errors"}
-        allowed = required | {"stream", "constraints", "risk"}
+        allowed = required | {"stream", "constraints"}
         if not required <= set(descriptor) or set(descriptor) - allowed:
             _catalog_diagnostic(
                 diagnostics, path, text, f"{operation} descriptor has a schema hole", operation
-            )
-        if "risk" in descriptor and descriptor["risk"] not in OPERATION_RISKS:
-            _catalog_diagnostic(
-                diagnostics,
-                path,
-                text,
-                f"{operation} has invalid risk {descriptor['risk']!r}",
-                operation,
             )
         operation_class = descriptor.get("class")
         classes[operation] = str(operation_class)
@@ -2137,42 +1922,7 @@ def _operation_catalog(
         if (
             not isinstance(create_fields, dict)
             or set(create_fields)
-            != {
-                "name",
-                "initial_content",
-                "correlation_key",
-                "expected_revision",
-                "ephemeral",
-                "cwd",
-                "argv",
-                "shell",
-                "focus",
-                "placement",
-                "created_by",
-            }
-            or create_fields.get("created_by", {}).get("required") is not False
-            or create_fields.get("created_by", {}).get("type", {}).get("kind") != "object"
-            or create_fields.get("placement", {}).get("required") is not False
-            or create_fields.get("placement", {}).get("type")
-            != {"kind": "enum", "values": ["top", "after_current", "bottom"]}
-            or create_fields.get("focus", {}).get("required") is not False
-            or create_fields.get("focus", {}).get("type")
-            != {"kind": "primitive", "name": "boolean"}
-            or create_fields.get("cwd", {}).get("required") is not False
-            or create_fields.get("cwd", {}).get("type") != {"kind": "primitive", "name": "string"}
-            or create_fields.get("argv", {}).get("required") is not False
-            or create_fields.get("argv", {}).get("type")
-            != {
-                "kind": "array",
-                "items": {"kind": "primitive", "name": "string"},
-                "min_items": 1,
-            }
-            or create_fields.get("shell", {}).get("required") is not False
-            or create_fields.get("shell", {}).get("type")
-            != {"kind": "primitive", "name": "string", "min_length": 1}
-            or create_fields.get("ephemeral", {}).get("required") is not False
-            or create_fields.get("ephemeral", {}).get("type")
-            != {"kind": "primitive", "name": "boolean"}
+            != {"name", "initial_content", "correlation_key", "expected_revision"}
             or create_fields.get("name", {}).get("required") is not False
             or create_fields.get("name", {}).get("type")
             != {"kind": "primitive", "name": "string"}
@@ -2188,7 +1938,7 @@ def _operation_catalog(
                 diagnostics,
                 path,
                 text,
-                "workspace.create params must be optional name, ephemeral, cwd, argv, shell, focus, placement, created_by, correlation_key, and expected_revision plus required initial_content",
+                "workspace.create params must be optional name, correlation_key, and expected_revision plus required initial_content",
                 "workspace.create",
             )
 
@@ -2277,26 +2027,19 @@ def _operation_catalog(
     for operation in ("workspace.rename",):
         if operation not in operations:
             continue
-        params = operations.get(operation, {}).get("params", {})
-        fields = params.get("fields", {})
-        name_field = fields.get("name")
-        # A release (hq#1957) keeps the current name, so only it may omit one.
-        release = fields.get("release")
-        name_optional_for_release = (
-            isinstance(release, dict)
-            and release.get("type") == {"kind": "primitive", "name": "boolean"}
-            and "name is required unless release is true." in params.get("constraints", [])
+        name_field = (
+            operations.get(operation, {}).get("params", {}).get("fields", {}).get("name")
         )
         if (
             not isinstance(name_field, dict)
-            or name_field.get("required") is not (not name_optional_for_release)
+            or name_field.get("required") is not True
             or name_field.get("type") != {"kind": "primitive", "name": "string"}
         ):
             _catalog_diagnostic(
                 diagnostics,
                 path,
                 text,
-                f"{operation} name must be an unrestricted string, required unless a release",
+                f"{operation} name must be a required unrestricted string",
                 operation,
             )
     nullable_name = {
@@ -2468,7 +2211,7 @@ def _operation_catalog(
             or client_fields.get("transport", {}).get("type")
             != {"kind": "ref", "name": "ClientTransport"}
             or types.get("ClientTransport")
-            != {"kind": "enum", "values": ["unix", "websocket", "remote"]}
+            != {"kind": "enum", "values": ["unix", "websocket"]}
             or client_fields.get("connected_seconds", {}).get("type")
             != {"kind": "primitive", "name": "decimal"}
             or client_fields.get("attached_terminal_ids", {}).get("type", {}).get("items")
@@ -2635,7 +2378,7 @@ def _operation_catalog(
                 "value": {"kind": "resource_id", "resource": "pane"},
             }
             or set(types.get("LayoutColumn", {}).get("fields", {}))
-            != {"column_id", "width", "root", "dock", "rows"}
+            != {"column_id", "width", "root"}
             or screen_layout != {"kind": "ref", "name": "LayoutDocument"}
             or (
                 "screen.create" in operations
@@ -2666,20 +2409,12 @@ def _operation_catalog(
             "deleted",
             "recoverable",
             "extra",
-            "platform",
-            "capabilities",
         }
         if (
             set(machine_fields) != expected_machine_fields
             or machine_fields.get("name", {}).get("required") is not True
             or machine_fields.get("origin", {}).get("type", {}).get("values")
-            != ["local", "cloud", "ssh", "server"]
-            or machine_fields.get("platform") != {"required": False, "type": {"kind": "nullable", "value": {"kind": "ref", "name": "MachinePlatform"}}}
-            or machine_fields.get("capabilities") != {"required": False, "type": {"kind": "array", "items": {"kind": "primitive", "name": "string"}}}
-            or types.get("MachinePlatform") != {
-                "kind": "object", "extra": False,
-                "fields": {key: {"required": False, "type": {"kind": "nullable", "value": {"kind": "primitive", "name": "string"}}} for key in ("os", "arch")},
-            }
+            != ["local"]
             or machine_fields.get("status", {}).get("type", {}).get("values")
             != ["running", "connecting", "sleeping", "stopped", "unavailable"]
         ):
@@ -2687,7 +2422,7 @@ def _operation_catalog(
                 diagnostics,
                 path,
                 text,
-                "MachineSnapshot must keep the native owner and bounded remote catalog metadata contract",
+                "MachineSnapshot must describe only the endpoint's local machine",
                 "MachineSnapshot",
             )
 
@@ -2725,14 +2460,9 @@ def _operation_catalog(
     if "StreamEnd" in types:
         stream_end_fields = types.get("StreamEnd", {}).get("fields", {})
         stream_error_fields = types.get("StreamError", {}).get("fields", {})
-        # The stream envelopes live in resource/envelope.rs (moved out of resource.rs).
-        resource_text = "".join(
-            source.read_text(encoding="utf-8")
-            for source in (
-                path.parent.parent / "crates/cmux-tui-core/src/resource.rs",
-                path.parent.parent / "crates/cmux-tui-core/src/resource/envelope.rs",
-            )
-            if source.exists()
+        resource_source = path.parent.parent / "crates/cmux-tui-core/src/resource.rs"
+        resource_text = (
+            resource_source.read_text(encoding="utf-8") if resource_source.exists() else ""
         )
         if (
             stream_end_fields.get("error", {}).get("type")
@@ -3510,7 +3240,6 @@ def _is_test_or_example(path: Path) -> bool:
         or name.endswith("_test.go")
         or "_test." in name
         or name.startswith("test_")
-        or name in {"test.rs", "tests.rs"}
         or name.endswith("test.zig")
     )
 
@@ -3543,9 +3272,7 @@ def _rust_string_regions(text: str) -> Iterator[tuple[int, int]]:
             end = text.find(terminator, content_start)
             if end < 0:
                 return
-            # A direct include argument names a source file, not public CLI text.
-            if not re.search(r"\binclude_(?:str|bytes)!\s*\(\s*$", text[:index]):
-                yield content_start, end
+            yield content_start, end
             index = end + len(terminator)
             continue
         if text[index] == '"':
@@ -3555,10 +3282,7 @@ def _rust_string_regions(text: str) -> Iterator[tuple[int, int]]:
                 if text[cursor] == "\\":
                     cursor += 2
                 elif text[cursor] == '"':
-                    # Keep help/diagnostic strings in the scan; exclude only
-                    # direct compile-time resource paths in include macros.
-                    if not re.search(r"\binclude_(?:str|bytes)!\s*\(\s*$", text[:index]):
-                        yield content_start, cursor
+                    yield content_start, cursor
                     cursor += 1
                     break
                 else:
@@ -3579,7 +3303,6 @@ def _scan_region(
     start: int,
     end: int,
     private_identity_exceptions: frozenset[str] = frozenset(),
-    terminal_env_names: frozenset[str] = frozenset(),
 ) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
     region = text[start:end]
@@ -3599,24 +3322,14 @@ def _scan_region(
             # browser; only the dash-prefixed compatibility flag is exempt.
             if match.group(0) == "surface" and region[max(0, match.start() - 2):match.start()] == "--":
                 continue
-            # A terminal identity variable's name (`CMUX_SURFACE_ID`) is a
-            # process-environment key the terminal carries, not vocabulary.
-            if match.group(0) in terminal_env_names:
-                continue
             offset = start + match.start()
-            message = f"legacy public resource word in {match.group(0)!r}; use terminal or browser"
-            if re.fullmatch(r"CMUX_[A-Z0-9_]+", match.group(0)):
-                message += (
-                    "; an environment variable name passes only when it is a terminal identity "
-                    f"variable listed in {TERMINAL_IDENTITY_ENV_SOURCE} EXCLUDED_KEYS"
-                )
             diagnostics.append(
                 _diagnostic_at(
                     path,
                     text,
                     offset,
                     "boundary.surface",
-                    message,
+                    f"legacy public resource word in {match.group(0)!r}; use terminal or browser",
                 )
             )
             occupied.add(("surface", offset))
@@ -3685,7 +3398,6 @@ def _scan_region(
 def scan_public_boundaries(tui: Path) -> tuple[list[Diagnostic], int]:
     diagnostics: list[Diagnostic] = []
     generated = _generated_manifest_paths(tui, diagnostics)
-    terminal_env_names = terminal_identity_env_names(tui)
     scanned: set[Path] = set()
     for rule in SCAN_RULES:
         for path in _files_for_rule(tui, rule):
@@ -3711,7 +3423,6 @@ def scan_public_boundaries(tui: Path) -> tuple[list[Diagnostic], int]:
                         start,
                         end,
                         rule.private_identity_exceptions,
-                        terminal_env_names,
                     )
                 )
     return sorted(set(diagnostics)), len(scanned)
@@ -3739,12 +3450,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     if diagnostics:
         print(
             f"resource API boundary check failed with {len(diagnostics)} diagnostic(s)",
-            file=sys.stderr,
-        )
-        print(
-            "Fix the named public resource declaration or scanner classification, then rerun "
-            "python3 cmux-tui/scripts/check-resource-api-boundary.py. "
-            "See cmuxterm-hq REPAIR.md#cmux-next-base-checks.",
             file=sys.stderr,
         )
         return 1

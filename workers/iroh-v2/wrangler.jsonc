@@ -34,6 +34,7 @@
   "secrets": {
     "required": [
       "STACK_PROJECT_ID",
+      "STACK_PUBLISHABLE_KEY",
       "STACK_SERVER_KEY",
       "API_TICKET_KEYS",
       "API_TICKET_CURRENT_KEY_ID",
@@ -98,6 +99,7 @@
       "secrets": {
         "required": [
           "STACK_PROJECT_ID",
+          "STACK_PUBLISHABLE_KEY",
           "STACK_SERVER_KEY",
           "API_TICKET_KEYS",
           "API_TICKET_CURRENT_KEY_ID",
@@ -138,6 +140,7 @@
       "secrets": {
         "required": [
           "STACK_PROJECT_ID",
+          "STACK_PUBLISHABLE_KEY",
           "STACK_SERVER_KEY",
           "API_TICKET_KEYS",
           "API_TICKET_CURRENT_KEY_ID",
@@ -178,6 +181,7 @@
       "secrets": {
         "required": [
           "STACK_PROJECT_ID",
+          "STACK_PUBLISHABLE_KEY",
           "STACK_SERVER_KEY",
           "API_TICKET_KEYS",
           "API_TICKET_CURRENT_KEY_ID",

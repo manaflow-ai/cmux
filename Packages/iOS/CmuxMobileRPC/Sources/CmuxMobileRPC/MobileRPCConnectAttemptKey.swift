@@ -1,9 +1,5 @@
 internal import CMUXMobileCore
-#if canImport(Darwin)
 import Darwin
-#elseif canImport(Glibc)
-import Glibc
-#endif
 import Foundation
 
 /// In-memory identity for one physical peer route.
@@ -98,15 +94,15 @@ private func canonicalIPv4Address(_ value: String) -> String? {
     }
     var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
     return buffer.withUnsafeMutableBufferPointer { output in
-        guard let text = inet_ntop(
+        guard inet_ntop(
             AF_INET,
             &address,
             output.baseAddress,
             socklen_t(output.count)
-        ) else {
+        ) != nil else {
             return nil
         }
-        return String(cString: text)
+        return String(cString: output.baseAddress!)
     }
 }
 
@@ -119,14 +115,14 @@ private func canonicalIPv6Address(_ value: String) -> String? {
     }
     var buffer = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
     return buffer.withUnsafeMutableBufferPointer { output in
-        guard let text = inet_ntop(
+        guard inet_ntop(
             AF_INET6,
             &address,
             output.baseAddress,
             socklen_t(output.count)
-        ) else {
+        ) != nil else {
             return nil
         }
-        return String(cString: text)
+        return String(cString: output.baseAddress!)
     }
 }

@@ -1,43 +1,50 @@
 import subprocess
 import unittest
 from pathlib import Path
+import yaml
 
 DRIVER = Path(__file__).resolve().parents[1] / "scripts/run-iroh-release-gate.sh"
-NO_LISTENER = "no longer runs the iroh phone listener"
+WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/iroh-release-gate.yml"
 
 
-def run_driver(*args):
-    return subprocess.run([str(DRIVER), *args], text=True, capture_output=True)
+class MonitorSimulatorPlanTests(unittest.TestCase):
+    def test_workflow_bounds_the_gate_step(self):
+        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        step = next(
+            step for step in workflow["jobs"]["simulator-e2e"]["steps"]
+            if step.get("name") == "Run Iroh gate"
+        )
+        self.assertIn("timeout-minutes", step)
+        self.assertIn("75", step["timeout-minutes"])
+        self.assertIn("25", step["timeout-minutes"])
 
+    def test_gate_script_has_phase_timeout_and_reason(self):
+        script = DRIVER.read_text(encoding="utf-8")
+        self.assertIn("PHASE_TIMEOUT_SECONDS", script)
+        self.assertIn("run_phase_with_timeout prewarm", script)
+        self.assertIn("phase '{label}' timed out", script)
+        self.assertIn("build phase timed out", script)
+        self.assertIn("phase 'report' timed out", script)
+        self.assertIn("phase 'launch' timed out", script)
 
-class IrohReleaseGatePlanTests(unittest.TestCase):
-    """The app-rpc modes paired the iOS app with the tagged Mac app's iroh phone
-    listener, which the cmux-next Mac app removed. They are refused before any
-    build, simulator or credential work; the transport-only modes still plan."""
+    def test_prebuilt_soak_accepts_a_dedicated_simulator(self):
+        result = subprocess.run(
+            [str(DRIVER), "--mode", "relay-only", "--tag", "soki", "--skip-build",
+             "--soak-profile", "basic", "--simulator-id", "123e4567-e89b-42d3-a456-426614174000",
+             "--print-plan"], text=True, capture_output=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "app-rpc")
 
-    def test_app_rpc_modes_are_refused_with_one_message(self):
-        for mode in ("automatic", "relay-only", "relay-expiry"):
-            for extra in ([], ["--print-plan"], ["--skip-build", "--soak-profile", "basic"]):
-                result = run_driver("--mode", mode, "--tag", "soki", *extra)
-                self.assertEqual(result.returncode, 2, (mode, extra, result.stderr))
-                self.assertIn(f"--mode {mode} has no target", result.stderr)
-                self.assertIn(NO_LISTENER, result.stderr)
-                self.assertEqual(result.stdout, "")
-
-    def test_transport_modes_still_plan(self):
-        for mode, plan in (("direct-only", "simulator-direct-transport"),
-                           ("private-path", "host-private-path-transport")):
-            result = run_driver("--mode", mode, "--tag", "soki", "--print-plan")
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(result.stdout.strip(), plan)
-
-    def test_app_rpc_flags_are_refused_on_transport_modes(self):
-        for extra in (["--production"], ["--soak-profile", "basic"],
-                      ["--simulator-id", "123e4567-e89b-42d3-a456-426614174000"],
-                      ["--staging-base-url", "https://example.com"]):
-            result = run_driver("--mode", "direct-only", "--tag", "soki", *extra, "--print-plan")
-            self.assertEqual(result.returncode, 2, (extra, result.stderr))
-            self.assertIn(f"{extra[0]} belonged to the removed app-rpc modes", result.stderr)
+    def test_persistent_device_requires_a_soak_and_prebuilt_app(self):
+        for extra in ([], ["--skip-build"], ["--soak-profile", "basic"]):
+            result = subprocess.run(
+                [str(DRIVER), "--mode", "relay-only", "--tag", "soki", *extra,
+                 "--simulator-id", "123e4567-e89b-42d3-a456-426614174000", "--print-plan"],
+                text=True, capture_output=True,
+            )
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("requires a prebuilt staging soak", result.stderr)
 
 
 if __name__ == "__main__":

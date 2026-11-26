@@ -138,12 +138,6 @@ export class VmSnapshotIdempotencyConflictError extends Data.TaggedError("VmSnap
   readonly vmId: string;
 }> {}
 
-/** This machine already retains the maximum number of provider snapshots. */
-export class VmSnapshotQuotaExceededError extends Data.TaggedError("VmSnapshotQuotaExceededError")<{
-  readonly vmId: string;
-  readonly limit: number;
-}> {}
-
 export class VmCreateInProgressError extends Data.TaggedError("VmCreateInProgressError")<{
   readonly idempotencyKey: string;
 }> {}
@@ -243,7 +237,7 @@ export class VmSavedLimitExceededError extends Data.TaggedError("VmSavedLimitExc
   readonly limit: number;
   readonly current: number;
 }> {}
-export class VmGoShapeError extends Data.TaggedError("VmGoShapeError")<Record<string, never>> {}
+export class VmGoShapeError extends Data.TaggedError("VmGoShapeError") {}
 
 export class VmCreateCreditsInsufficientError extends Data.TaggedError("VmCreateCreditsInsufficientError")<{
   readonly itemId: string;
@@ -326,7 +320,6 @@ export type VmWorkflowError =
   | VmSnapshotNotFoundError
   | VmSnapshotInProgressError
   | VmSnapshotIdempotencyConflictError
-  | VmSnapshotQuotaExceededError
   | VmFileNotFoundError
   | VmFirewallRuleNotFoundError
   | VmFirewallRuleInvalidError
@@ -489,7 +482,6 @@ const vmWorkflowErrorTagRecord = {
   VmSnapshotNotFoundError: true,
   VmSnapshotInProgressError: true,
   VmSnapshotIdempotencyConflictError: true,
-  VmSnapshotQuotaExceededError: true,
   VmFileNotFoundError: true,
   VmFirewallRuleNotFoundError: true,
   VmFirewallRuleInvalidError: true,

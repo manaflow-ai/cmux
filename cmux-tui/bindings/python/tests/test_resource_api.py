@@ -12,7 +12,7 @@ import cmux
 import cmux._protocol as resource_protocol
 import cmux.aio
 import cmux.raw
-from cmux.resources import _journal_record, _layout_node, _layout_node_fields
+from cmux.resources import _journal_record
 from cmux import (
     AgentId,
     BrowserId,
@@ -109,104 +109,6 @@ def canceled_end(connection, stream_id, **fields):
 class ResourceApiTests(unittest.TestCase):
     def test_public_models_export_journal_append_result(self) -> None:
         self.assertIn("JournalAppendResult", cmux.__all__)
-
-    def test_viewport_columns_decode_their_dock_flag(self) -> None:
-        def viewport(dock: object) -> dict:
-            first = {
-                "column_id": "split_00000000000000000000000000000008",
-                "width": 0.5,
-                "root": {"kind": "leaf", "pane_id": "pane_00000000000000000000000000000005",
-                         "tab_ids": []},
-            }
-            if dock is not ...:
-                first["dock"] = dock
-            second = {
-                "column_id": "split_00000000000000000000000000000009",
-                "width": 0.5,
-                "root": {"kind": "leaf", "pane_id": "pane_0000000000000000000000000000000a",
-                         "tab_ids": []},
-            }
-            return {"kind": "viewport", "base_width": 0.5, "columns": [first, second]}
-
-        pinned = _layout_node(viewport({"edge": "top", "mode": "docked"}))
-        self.assertEqual(pinned.columns[0].dock, cmux.LayoutColumnDock("top", "docked"))
-        self.assertIsNone(pinned.columns[1].dock)
-        self.assertIsNone(_layout_node(viewport(None)).columns[0].dock)
-        self.assertIsNone(_layout_node(viewport(...)).columns[0].dock)
-        with self.assertRaises(cmux.ProtocolError):
-            _layout_node(viewport({"edge": "diagonal", "mode": "docked"}))
-
-    def test_viewport_columns_decode_and_encode_their_rows(self) -> None:
-        # rows-v1: row 2's row_id is its compat chain split in the column root.
-        rows = [
-            {"row_id": "split_0000000000000000000000000000000e", "height": 600},
-            {"row_id": "split_0000000000000000000000000000000d", "height": 400},
-        ]
-
-        def viewport(column_rows: object) -> dict:
-            first = {
-                "column_id": "split_00000000000000000000000000000008",
-                "width": 0.5,
-                "root": {
-                    "kind": "split", "split_id": "split_0000000000000000000000000000000d",
-                    "direction": "vertical", "ratio": 0.6,
-                    "first": {"kind": "leaf", "pane_id": "pane_00000000000000000000000000000005",
-                              "tab_ids": []},
-                    "second": {"kind": "leaf", "pane_id": "pane_00000000000000000000000000000006",
-                               "tab_ids": []},
-                },
-            }
-            if column_rows is not ...:
-                first["rows"] = column_rows
-            second = {
-                "column_id": "split_00000000000000000000000000000009",
-                "width": 0.5,
-                "root": {"kind": "leaf", "pane_id": "pane_0000000000000000000000000000000a",
-                         "tab_ids": []},
-            }
-            return {"kind": "viewport", "base_width": 0.5, "columns": [first, second]}
-
-        node = _layout_node(viewport(rows))
-        self.assertEqual(
-            node.columns[0].rows,
-            (
-                cmux.LayoutRow(cmux.SplitId("split_0000000000000000000000000000000e"), 600),
-                cmux.LayoutRow(cmux.SplitId("split_0000000000000000000000000000000d"), 400),
-            ),
-        )
-        self.assertIsNone(node.columns[1].rows)
-        encoded = _layout_node_fields(node)
-        self.assertEqual(encoded["columns"][0]["rows"], rows)
-        self.assertNotIn("rows", encoded["columns"][1])
-        self.assertNotIn("dock", encoded["columns"][1])
-        first = _layout_node_fields(_layout_node(viewport([{"height": 500}, rows[1]])))
-        self.assertEqual(first["columns"][0]["rows"][0], {"height": 500})
-        self.assertEqual(_layout_node_fields(_layout_node(viewport([])))["columns"][0]["rows"], [])
-        for bad in (
-            [{**rows[0], "width": 1}, rows[1]],
-            [{**rows[0], "height": 50}, rows[1]],
-            [{"row_id": rows[0]["row_id"]}, rows[1]],
-            "rows",
-        ):
-            with self.subTest(rows=bad):
-                with self.assertRaises(cmux.ProtocolError):
-                    _layout_node(viewport(bad))
-
-    def test_a_legacy_sticky_flag_decodes_as_dock(self) -> None:
-        # R87: `sticky` is the pre-rename name of `dock` (replayed results).
-        node = _layout_node({
-            "kind": "viewport", "base_width": 0.5,
-            "columns": [
-                {"column_id": "split_00000000000000000000000000000008", "width": 0.5,
-                 "root": {"kind": "leaf", "pane_id": "pane_00000000000000000000000000000005",
-                          "tab_ids": []},
-                 "sticky": {"edge": "left", "mode": "overlay"}},
-                {"column_id": "split_00000000000000000000000000000009", "width": 0.5,
-                 "root": {"kind": "leaf", "pane_id": "pane_0000000000000000000000000000000a",
-                          "tab_ids": []}},
-            ],
-        })
-        self.assertEqual(node.columns[0].dock, cmux.LayoutColumnDock("left", "overlay"))
 
     def test_journal_record_subjects_use_the_declared_wire_grammar(self) -> None:
         record = {

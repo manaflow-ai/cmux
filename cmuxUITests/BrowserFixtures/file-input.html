@@ -1,0 +1,27 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>File input automation</title>
+<form id="upload">
+  <input id="single" name="statement" type="file" hidden>
+  <input id="multiple" name="attachments" type="file" multiple>
+  <input id="text" name="text" value="unchanged">
+</form>
+<pre id="status">No files selected</pre>
+<script>
+  window.fileEvents = [];
+  for (const type of ['input', 'change']) {
+    document.addEventListener(type, event => {
+      if (event.target.type !== 'file') return;
+      window.fileEvents.push(`${event.target.id}:${type}:${event.target.files.length}`);
+      document.getElementById('status').textContent = [...event.target.files]
+        .map(file => `${file.name}: ${file.size} bytes`).join('\n') || 'No files selected';
+    });
+  }
+  window.describeFiles = async id => JSON.stringify(await Promise.all(
+    [...document.getElementById(id).files].map(async file => ({
+      name: file.name,
+      bytes: [...new Uint8Array(await file.arrayBuffer())],
+      type: file.type
+    }))
+  ));
+</script>

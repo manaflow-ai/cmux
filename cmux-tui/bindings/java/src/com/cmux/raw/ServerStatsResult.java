@@ -11,166 +11,87 @@ import java.util.Objects;
 
 
 public final class ServerStatsResult implements WireValue {
-    private final Field<ServerStatsCommands> commands;
     private final ServerStatsConnections connections;
-    private final Field<ServerStatsDisk> disk;
-    private final Field<ServerStatsHookQueue> hookQueue;
-    private final Field<ServerStatsJournalFollowers> journalFollowers;
     private final ServerStatsJournalWriter journalWriter;
-    private final Field<ServerStatsLocks> locks;
     private final ServerStatsRegistryLock registryLock;
-    private final Field<ServerStatsResourceProjection> resourceProjection;
     private final long schema;
     private final UInt64 uptimeMs;
-    private final Field<ServerStatsWritePath> writePath;
 
     private ServerStatsResult(Builder builder) {
-        this.commands = builder.commands;
         if (!builder.connectionsSet) throw new IllegalArgumentException("connections is required");
         this.connections = Wire.nonNull(builder.connections, "connections");
-        this.disk = builder.disk;
-        this.hookQueue = builder.hookQueue;
-        this.journalFollowers = builder.journalFollowers;
         if (!builder.journalWriterSet) throw new IllegalArgumentException("journal_writer is required");
         this.journalWriter = builder.journalWriter;
-        this.locks = builder.locks;
         if (!builder.registryLockSet) throw new IllegalArgumentException("registry_lock is required");
         this.registryLock = Wire.nonNull(builder.registryLock, "registry_lock");
-        this.resourceProjection = builder.resourceProjection;
         if (!builder.schemaSet) throw new IllegalArgumentException("schema is required");
         this.schema = builder.schema;
         if (!builder.uptimeMsSet) throw new IllegalArgumentException("uptime_ms is required");
         this.uptimeMs = Wire.nonNull(builder.uptimeMs, "uptime_ms");
-        this.writePath = builder.writePath;
     }
 
     public static Builder builder() { return new Builder(); }
 
-    public Field<ServerStatsCommands> commands() { return commands; }
     public ServerStatsConnections connections() { return connections; }
-    public Field<ServerStatsDisk> disk() { return disk; }
-    public Field<ServerStatsHookQueue> hookQueue() { return hookQueue; }
-    public Field<ServerStatsJournalFollowers> journalFollowers() { return journalFollowers; }
     public ServerStatsJournalWriter journalWriter() { return journalWriter; }
-    public Field<ServerStatsLocks> locks() { return locks; }
     public ServerStatsRegistryLock registryLock() { return registryLock; }
-    public Field<ServerStatsResourceProjection> resourceProjection() { return resourceProjection; }
     public long schema() { return schema; }
     public UInt64 uptimeMs() { return uptimeMs; }
-    public Field<ServerStatsWritePath> writePath() { return writePath; }
 
     public static ServerStatsResult fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "ServerStatsResult");
         Builder builder = builder();
-        Object rawCommands = Wire.optional(object, "commands");
-        if (!Wire.isMissing(rawCommands)) {
-            builder.commands(ServerStatsCommands.fromWire(rawCommands));
-        }
         Object rawConnections = Wire.required(object, "connections");
         builder.connections(ServerStatsConnections.fromWire(rawConnections));
-        Object rawDisk = Wire.optional(object, "disk");
-        if (!Wire.isMissing(rawDisk)) {
-            builder.disk(ServerStatsDisk.fromWire(rawDisk));
-        }
-        Object rawHookQueue = Wire.optional(object, "hook_queue");
-        if (!Wire.isMissing(rawHookQueue)) {
-            builder.hookQueue(ServerStatsHookQueue.fromWire(rawHookQueue));
-        }
-        Object rawJournalFollowers = Wire.optional(object, "journal_followers");
-        if (!Wire.isMissing(rawJournalFollowers)) {
-            builder.journalFollowers(ServerStatsJournalFollowers.fromWire(rawJournalFollowers));
-        }
         Object rawJournalWriter = Wire.required(object, "journal_writer");
         builder.journalWriter(rawJournalWriter == null ? null : ServerStatsJournalWriter.fromWire(rawJournalWriter));
-        Object rawLocks = Wire.optional(object, "locks");
-        if (!Wire.isMissing(rawLocks)) {
-            builder.locks(ServerStatsLocks.fromWire(rawLocks));
-        }
         Object rawRegistryLock = Wire.required(object, "registry_lock");
         builder.registryLock(ServerStatsRegistryLock.fromWire(rawRegistryLock));
-        Object rawResourceProjection = Wire.optional(object, "resource_projection");
-        if (!Wire.isMissing(rawResourceProjection)) {
-            builder.resourceProjection(ServerStatsResourceProjection.fromWire(rawResourceProjection));
-        }
         Object rawSchema = Wire.required(object, "schema");
         builder.schema(Wire.uint32(rawSchema, "ServerStatsResult.schema"));
         Object rawUptimeMs = Wire.required(object, "uptime_ms");
         builder.uptimeMs(Wire.uint64(rawUptimeMs, "ServerStatsResult.uptime_ms"));
-        Object rawWritePath = Wire.optional(object, "write_path");
-        if (!Wire.isMissing(rawWritePath)) {
-            builder.writePath(ServerStatsWritePath.fromWire(rawWritePath));
-        }
         return builder.build();
     }
 
     @Override
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
-        Wire.put(object, "commands", commands);
         Wire.put(object, "connections", connections);
-        Wire.put(object, "disk", disk);
-        Wire.put(object, "hook_queue", hookQueue);
-        Wire.put(object, "journal_followers", journalFollowers);
         Wire.put(object, "journal_writer", journalWriter);
-        Wire.put(object, "locks", locks);
         Wire.put(object, "registry_lock", registryLock);
-        Wire.put(object, "resource_projection", resourceProjection);
         Wire.put(object, "schema", schema);
         Wire.put(object, "uptime_ms", uptimeMs);
-        Wire.put(object, "write_path", writePath);
         return Collections.unmodifiableMap(object);
     }
 
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ServerStatsResult that)) return false;
-        return Objects.equals(commands, that.commands) && Objects.equals(connections, that.connections) && Objects.equals(disk, that.disk) && Objects.equals(hookQueue, that.hookQueue) && Objects.equals(journalFollowers, that.journalFollowers) && Objects.equals(journalWriter, that.journalWriter) && Objects.equals(locks, that.locks) && Objects.equals(registryLock, that.registryLock) && Objects.equals(resourceProjection, that.resourceProjection) && Objects.equals(schema, that.schema) && Objects.equals(uptimeMs, that.uptimeMs) && Objects.equals(writePath, that.writePath);
+        return Objects.equals(connections, that.connections) && Objects.equals(journalWriter, that.journalWriter) && Objects.equals(registryLock, that.registryLock) && Objects.equals(schema, that.schema) && Objects.equals(uptimeMs, that.uptimeMs);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(commands, connections, disk, hookQueue, journalFollowers, journalWriter, locks, registryLock, resourceProjection, schema, uptimeMs, writePath); }
+    public int hashCode() { return Objects.hash(connections, journalWriter, registryLock, schema, uptimeMs); }
 
     @Override
     public String toString() { return "ServerStatsResult" + toWire(); }
 
     public static final class Builder {
-        private Field<ServerStatsCommands> commands = Field.omitted();
         private ServerStatsConnections connections;
         private boolean connectionsSet;
-        private Field<ServerStatsDisk> disk = Field.omitted();
-        private Field<ServerStatsHookQueue> hookQueue = Field.omitted();
-        private Field<ServerStatsJournalFollowers> journalFollowers = Field.omitted();
         private ServerStatsJournalWriter journalWriter;
         private boolean journalWriterSet;
-        private Field<ServerStatsLocks> locks = Field.omitted();
         private ServerStatsRegistryLock registryLock;
         private boolean registryLockSet;
-        private Field<ServerStatsResourceProjection> resourceProjection = Field.omitted();
         private Long schema;
         private boolean schemaSet;
         private UInt64 uptimeMs;
         private boolean uptimeMsSet;
-        private Field<ServerStatsWritePath> writePath = Field.omitted();
 
-        public Builder commands(ServerStatsCommands value) {
-            this.commands = Field.of(value);
-            return this;
-        }
         public Builder connections(ServerStatsConnections value) {
             this.connections = value;
             this.connectionsSet = true;
-            return this;
-        }
-        public Builder disk(ServerStatsDisk value) {
-            this.disk = Field.of(value);
-            return this;
-        }
-        public Builder hookQueue(ServerStatsHookQueue value) {
-            this.hookQueue = Field.of(value);
-            return this;
-        }
-        public Builder journalFollowers(ServerStatsJournalFollowers value) {
-            this.journalFollowers = Field.of(value);
             return this;
         }
         public Builder journalWriter(ServerStatsJournalWriter value) {
@@ -178,17 +99,9 @@ public final class ServerStatsResult implements WireValue {
             this.journalWriterSet = true;
             return this;
         }
-        public Builder locks(ServerStatsLocks value) {
-            this.locks = Field.of(value);
-            return this;
-        }
         public Builder registryLock(ServerStatsRegistryLock value) {
             this.registryLock = value;
             this.registryLockSet = true;
-            return this;
-        }
-        public Builder resourceProjection(ServerStatsResourceProjection value) {
-            this.resourceProjection = Field.of(value);
             return this;
         }
         public Builder schema(long value) {
@@ -199,10 +112,6 @@ public final class ServerStatsResult implements WireValue {
         public Builder uptimeMs(UInt64 value) {
             this.uptimeMs = value;
             this.uptimeMsSet = true;
-            return this;
-        }
-        public Builder writePath(ServerStatsWritePath value) {
-            this.writePath = Field.of(value);
             return this;
         }
         public ServerStatsResult build() { return new ServerStatsResult(this); }

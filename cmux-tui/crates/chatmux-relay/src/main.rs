@@ -43,7 +43,7 @@ fn trust_description(trust: Trust) -> &'static str {
         Trust::Autonomous => {
             "YOLO (autonomous / unattended): approved agents may run ordinary file and command \
              actions without per-command approval. The machine owner must confirm it at the \
-             keyboard; secrets, billing, identity, trust changes, destructive \
+             keyboard; secrets, billing, identity, trust changes, Coderouter grants, destructive \
              environment deletion, and unsupported relay actions keep their own authority."
         }
     }
@@ -537,6 +537,8 @@ Environment:
   CHATMUX_RELAY_AUTOSTART      1 installs autostart, 0 skips the offer
   CHATMUX_RELAY_SAS_APPROVE    1 auto-approves the --code pairing (scripted
                                setup only; you skip the mutual verification)
+
+Coderouter commands are not available in this version.
 ",
         config_path = config_path.display(),
     );
@@ -650,14 +652,8 @@ async fn main() {
         Some(Command::Pair) | None => {}
     }
 
-    let http = match cmux_egress::client("chatmux_relay") {
-        Ok(http) => http,
-        Err(error) => {
-            eprintln!("could not build the HTTP client: {error}");
-            return;
-        }
-    };
-    let runtime = Runtime { backend, web_base, config_path, interactive, http };
+    let runtime =
+        Runtime { backend, web_base, config_path, interactive, http: reqwest::Client::new() };
 
     if parsed.managed_mode {
         let now = std::time::SystemTime::now()
@@ -718,4 +714,29 @@ async fn main() {
         SessionState { first_connect: true, first_run, managed: false },
     )
     .await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_allowed_roots_environment;
+
+    #[test]
+    fn empty_allowed_roots_environment_clears_scope() {
+        assert!(parse_allowed_roots_environment("").is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_allowed_roots_use_colon_separator() {
+        assert_eq!(
+            parse_allowed_roots_environment("/srv/one:/srv/two"),
+            vec!["/srv/one", "/srv/two"]
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_allowed_roots_keep_drive_letters() {
+        assert_eq!(parse_allowed_roots_environment(r"C:\work;D:\src"), vec![r"C:\work", r"D:\src"]);
+    }
 }

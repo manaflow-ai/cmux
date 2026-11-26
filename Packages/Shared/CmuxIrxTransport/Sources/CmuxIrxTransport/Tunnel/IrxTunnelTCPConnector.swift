@@ -1,13 +1,6 @@
-import CmuxEgress
-#if canImport(Darwin)
 import Darwin
-#else
-import Glibc
-#endif
 public import Foundation
-#if canImport(Network)
 import Network
-#endif
 
 /// One outbound TCP connection the tunnel relays to. Every call suspends
 /// until the operation is done, which is what bounds the relay's memory:
@@ -41,21 +34,15 @@ public struct IrxTunnelNetworkConnector: IrxTunnelConnecting {
     /// Waits out the connect deadline; injected so tests control time.
     private let sleep: @Sendable (Duration) async throws -> Void
 
-    /// - Parameter sleep: Defaults to `Task.sleep(for:)`. Not a closure-literal
-    ///   default: see IrxPeerEngine.init (cx-bsue).
-    public init(sleep: (@Sendable (Duration) async throws -> Void)? = nil) {
-        self.sleep = sleep ?? { try await Task.sleep(for: $0) }
+    public init(sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
+        self.sleep = sleep
     }
 
     public func resolve(host: String) async -> [IrxTunnelIPAddress] {
         await Task.detached(priority: .userInitiated) {
             var hints = addrinfo()
-            #if canImport(Darwin)
             hints.ai_socktype = SOCK_STREAM
-            #else
-            hints.ai_socktype = Int32(SOCK_STREAM.rawValue)
-            #endif
-            hints.ai_protocol = Int32(IPPROTO_TCP)
+            hints.ai_protocol = IPPROTO_TCP
             hints.ai_flags = AI_ADDRCONFIG
             var result: UnsafeMutablePointer<addrinfo>?
             guard getaddrinfo(host, nil, &hints, &result) == 0, let first = result else { return [] }
@@ -64,7 +51,7 @@ public struct IrxTunnelNetworkConnector: IrxTunnelConnecting {
             var cursor: UnsafeMutablePointer<addrinfo>? = first
             while let info = cursor, addresses.count < 16 {
                 if let sockaddr = info.pointee.ai_addr {
-                    switch Int32(clamping: sockaddr.pointee.sa_family) {
+                    switch Int32(sockaddr.pointee.sa_family) {
                     case AF_INET:
                         sockaddr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { pointer in
                             var address = pointer.pointee.sin_addr
@@ -90,7 +77,6 @@ public struct IrxTunnelNetworkConnector: IrxTunnelConnecting {
         port: Int,
         timeout: Duration
     ) async throws(IrxTunnelOpenError) -> any IrxTunnelByteChannel {
-        #if canImport(Network)
         guard let nwPort = NWEndpoint.Port(rawValue: UInt16(clamping: port)), !addresses.isEmpty else {
             throw IrxTunnelOpenError(status: .denied)
         }
@@ -108,14 +94,9 @@ public struct IrxTunnelNetworkConnector: IrxTunnelConnecting {
             }
         }
         throw lastError
-        #else
-        // No Network.framework: this platform opens no tunnel connections.
-        throw IrxTunnelOpenError(status: .failed)
-        #endif
     }
 }
 
-#if canImport(Network)
 /// An `NWConnection` behind async calls.
 final class IrxTunnelNWChannel: IrxTunnelByteChannel, @unchecked Sendable {
     private let connection: NWConnection
@@ -140,11 +121,11 @@ final class IrxTunnelNWChannel: IrxTunnelByteChannel, @unchecked Sendable {
             host = .ipv6(v6)
         }
         let tcp = NWProtocolTCP.Options()
-        tcp.connectionTimeout = max(1, Int(clamping: timeout.components.seconds))
+        tcp.connectionTimeout = max(1, Int(timeout.components.seconds))
         tcp.noDelay = true
         let parameters = NWParameters(tls: nil, tcp: tcp)
         parameters.preferNoProxies = true
-        let connection = CmuxEgress.connection(host: host, port: port, using: parameters, site: "CmuxIrxTransport.IrxTunnelTCPConnector")
+        let connection = NWConnection(host: host, port: port, using: parameters)
         let outcome = IrxTunnelConnectOutcome()
         // The deadline: whichever of state change, deadline, or cancellation
         // settles the outcome first wins; the others are no-ops.
@@ -273,4 +254,3 @@ private final class IrxTunnelConnectOutcome: @unchecked Sendable {
         continuation?.resume(returning: result)
     }
 }
-#endif

@@ -13,7 +13,6 @@ final class MessageEditOverlay: UIView, UITextViewDelegate {
     private let saveButton = UIButton(type: .system)
     private let original: String
     private var heightConstraint: NSLayoutConstraint?
-    // motion: allow static blur, a paused animator that only holds the blur amount and never runs
     private var blurAnimator: UIViewPropertyAnimator?
     var onSave: ((String) -> Void)?
     var onCancel: (() -> Void)?
@@ -75,8 +74,7 @@ final class MessageEditOverlay: UIView, UITextViewDelegate {
     /// Adds the overlay over `host`, with the field where the bubble is
     /// (`sourceFrame`, in host coordinates) and never under the keyboard or
     /// above `topInset`.
-    /// `keyboard`: a guide in `host` whose top is the docked keyboard's top.
-    func install(in host: UIView, keyboard: UILayoutGuide, sourceFrame: CGRect, topInset: CGFloat) {
+    func install(in host: UIView, sourceFrame: CGRect, topInset: CGFloat) {
         translatesAutoresizingMaskIntoConstraints = false
         host.addSubview(self)
         let gap: CGFloat = 8
@@ -111,7 +109,7 @@ final class MessageEditOverlay: UIView, UITextViewDelegate {
             textView.bottomAnchor.constraint(equalTo: field.bottomAnchor),
             height,
             atBubble,
-            field.bottomAnchor.constraint(lessThanOrEqualTo: keyboard.topAnchor, constant: -12),
+            field.bottomAnchor.constraint(lessThanOrEqualTo: host.keyboardLayoutGuide.topAnchor, constant: -12),
             field.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: topInset + 8),
         ])
         host.layoutIfNeeded()
@@ -119,7 +117,6 @@ final class MessageEditOverlay: UIView, UITextViewDelegate {
         cancelButton.alpha = 0
         saveButton.alpha = 0
         // The long-press menu's partial blur: the transcript stays faintly legible.
-        // motion: allow static blur, a paused animator that only holds the blur amount and never runs
         let animator = UIViewPropertyAnimator(duration: 1, curve: .linear) {
             self.blur.effect = UIBlurEffect(style: .systemUltraThinMaterial)
         }
@@ -127,7 +124,6 @@ final class MessageEditOverlay: UIView, UITextViewDelegate {
         animator.fractionComplete = 0.28
         blurAnimator = animator
         blur.alpha = 0
-        // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: 0.3, delay: 0, options: [.curveEaseOut]) {
             self.blur.alpha = 1
             self.field.alpha = 1
@@ -141,7 +137,6 @@ final class MessageEditOverlay: UIView, UITextViewDelegate {
 
     func dismiss(completion: @escaping () -> Void) {
         textView.resignFirstResponder()
-        // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseIn]) {
             self.blur.alpha = 0
             self.field.alpha = 0

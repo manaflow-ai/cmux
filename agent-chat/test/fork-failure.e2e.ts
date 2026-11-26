@@ -1,9 +1,9 @@
-import { E2E_WS } from "./e2e-base";
+const PORT = Number(process.env.CMUX_AGENT_UI_PORT ?? 7739);
 const TIMEOUT_MS = Number(process.env.E2E_TIMEOUT_MS ?? 30_000);
 
 export {};
 
-const ws = new WebSocket(E2E_WS);
+const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ws`);
 let opened = false;
 let forkError = "";
 let diffError = "";

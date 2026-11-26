@@ -1,7 +1,3 @@
-//! An owner-only Unix listener: the path's directory is checked, the path
-//! is leased, a stale socket is replaced, the socket is 0600, and the path
-//! is removed only while it still names the bound socket.
-
 use std::fmt;
 use std::fs;
 use std::io;
@@ -10,7 +6,6 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use cmux_tui_util::backoff::Backoff;
 use tokio::net::UnixListener;
 
 use crate::owner_lock::{OwnerFileLock, sibling_lock_path};
@@ -20,15 +15,45 @@ const SOCKET_PROBE_TIMEOUT: Duration = Duration::from_millis(250);
 const ACCEPT_RETRY_INITIAL_DELAY: Duration = Duration::from_millis(10);
 const ACCEPT_RETRY_MAX_DELAY: Duration = Duration::from_millis(250);
 
-/// The spacing of a listener's `accept` retries
-/// ([`cmux_tui_util::backoff::accept_retry_delay`]): 10 ms doubling to 250 ms.
-pub fn accept_backoff() -> Backoff {
-    Backoff::new(ACCEPT_RETRY_INITIAL_DELAY, ACCEPT_RETRY_MAX_DELAY).with_jitter(0.0)
+pub(crate) struct UnixAcceptBackoff {
+    next_delay: Duration,
 }
 
-/// Why a listener could not be bound.
+impl UnixAcceptBackoff {
+    pub(crate) fn new() -> Self {
+        Self { next_delay: ACCEPT_RETRY_INITIAL_DELAY }
+    }
+
+    pub(crate) fn retry_delay(&mut self, error: &io::Error) -> Option<Duration> {
+        if !retryable_accept_error(error) {
+            return None;
+        }
+        let delay = self.next_delay;
+        self.next_delay = self.next_delay.saturating_mul(2).min(ACCEPT_RETRY_MAX_DELAY);
+        Some(delay)
+    }
+
+    pub(crate) fn reset(&mut self) {
+        self.next_delay = ACCEPT_RETRY_INITIAL_DELAY;
+    }
+}
+
+fn retryable_accept_error(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::Interrupted
+            | io::ErrorKind::WouldBlock
+            | io::ErrorKind::ConnectionAborted
+            | io::ErrorKind::ConnectionReset
+            | io::ErrorKind::TimedOut
+    ) || matches!(
+        error.raw_os_error(),
+        Some(libc::EMFILE) | Some(libc::ENFILE) | Some(libc::ENOBUFS) | Some(libc::ENOMEM)
+    )
+}
+
 #[derive(Debug)]
-pub enum UnixSocketError {
+pub(crate) enum UnixSocketError {
     Io(io::Error),
     Protocol(String),
 }
@@ -58,7 +83,7 @@ impl std::error::Error for UnixSocketError {
 /// dropped before its accept task is polled remove the pathname synchronously,
 /// while the listener's own drop remains a safe idempotent fallback.
 #[derive(Debug)]
-pub struct UnixSocketCleanup {
+pub(crate) struct UnixSocketCleanup {
     path: PathBuf,
     device: u64,
     inode: u64,
@@ -85,7 +110,7 @@ impl UnixSocketCleanup {
         &self.path
     }
 
-    pub fn unlink(&self) -> io::Result<()> {
+    pub(crate) fn unlink(&self) -> io::Result<()> {
         self.unlink_inner(false)
     }
 
@@ -132,13 +157,13 @@ impl UnixSocketCleanup {
 }
 
 #[derive(Debug)]
-pub struct OwnedUnixListener {
+pub(crate) struct OwnedUnixListener {
     listener: UnixListener,
     cleanup: UnixSocketCleanupGuard,
 }
 
 impl OwnedUnixListener {
-    pub async fn bind(path: PathBuf) -> Result<Self, UnixSocketError> {
+    pub(crate) async fn bind(path: PathBuf) -> Result<Self, UnixSocketError> {
         let parent = path
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
@@ -212,12 +237,73 @@ impl OwnedUnixListener {
         Ok(lease)
     }
 
-    pub fn listener(&self) -> &UnixListener {
+    pub(crate) fn listener(&self) -> &UnixListener {
         &self.listener
     }
 
-    pub fn cleanup(&self) -> Arc<UnixSocketCleanup> {
+    pub(crate) fn cleanup(&self) -> Arc<UnixSocketCleanup> {
         Arc::clone(&self.cleanup.0)
+    }
+}
+
+#[cfg(test)]
+pub(crate) struct TestFileDescriptorExhaustion {
+    original_limit: libc::rlimit,
+    held: Vec<fs::File>,
+    restored: bool,
+}
+
+#[cfg(test)]
+impl TestFileDescriptorExhaustion {
+    pub(crate) fn exhaust() -> Self {
+        let mut original_limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+        assert_eq!(
+            unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &raw mut original_limit) },
+            0,
+            "could not read the file-descriptor limit: {}",
+            io::Error::last_os_error()
+        );
+        let constrained_limit = libc::rlimit {
+            rlim_cur: original_limit.rlim_cur.min(128),
+            rlim_max: original_limit.rlim_max,
+        };
+        assert_eq!(
+            unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &raw const constrained_limit) },
+            0,
+            "could not constrain the file-descriptor limit: {}",
+            io::Error::last_os_error()
+        );
+
+        let mut held = Vec::new();
+        loop {
+            match fs::File::open("/dev/null") {
+                Ok(file) => held.push(file),
+                Err(error) if error.raw_os_error() == Some(libc::EMFILE) => break,
+                Err(error) => panic!("file-descriptor exhaustion failed unexpectedly: {error}"),
+            }
+        }
+        Self { original_limit, held, restored: false }
+    }
+
+    pub(crate) fn restore(&mut self) {
+        if self.restored {
+            return;
+        }
+        self.held.clear();
+        assert_eq!(
+            unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &raw const self.original_limit) },
+            0,
+            "could not restore the file-descriptor limit: {}",
+            io::Error::last_os_error()
+        );
+        self.restored = true;
+    }
+}
+
+#[cfg(test)]
+impl Drop for TestFileDescriptorExhaustion {
+    fn drop(&mut self) {
+        self.restore();
     }
 }
 
@@ -316,5 +402,42 @@ fn contextual_io(error: io::Error, context: String) -> UnixSocketError {
 }
 
 #[cfg(test)]
-#[path = "unix_socket_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn bind_preserves_an_existing_owner_controlled_directory() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o755)).unwrap();
+        let socket = directory.path().join("daemon.sock");
+
+        let listener = OwnedUnixListener::bind(socket.clone()).await.unwrap();
+
+        assert_eq!(fs::metadata(directory.path()).unwrap().permissions().mode() & 0o777, 0o755);
+        assert_eq!(fs::metadata(&socket).unwrap().permissions().mode() & 0o777, 0o600);
+        drop(listener);
+    }
+
+    #[test]
+    fn accept_retry_backoff_is_bounded_and_resets_after_success() {
+        let error = io::Error::from_raw_os_error(libc::EMFILE);
+        let mut backoff = UnixAcceptBackoff::new();
+        let delays = (0..8)
+            .map(|_| backoff.retry_delay(&error).expect("EMFILE must be retryable"))
+            .collect::<Vec<_>>();
+
+        assert_eq!(delays[0], ACCEPT_RETRY_INITIAL_DELAY);
+        assert_eq!(delays[5], ACCEPT_RETRY_MAX_DELAY);
+        assert!(delays.iter().all(|delay| *delay <= ACCEPT_RETRY_MAX_DELAY));
+        backoff.reset();
+        assert_eq!(backoff.retry_delay(&error), Some(ACCEPT_RETRY_INITIAL_DELAY));
+    }
+
+    #[test]
+    fn accept_retry_backoff_rejects_fatal_listener_errors() {
+        let mut backoff = UnixAcceptBackoff::new();
+        let fatal = io::Error::from_raw_os_error(libc::EBADF);
+
+        assert_eq!(backoff.retry_delay(&fatal), None);
+    }
+}

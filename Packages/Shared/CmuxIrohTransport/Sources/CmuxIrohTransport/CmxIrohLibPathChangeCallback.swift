@@ -1,4 +1,3 @@
-#if canImport(IrohLib)
 import IrohLib
 
 /// Bridges Iroh's live path watcher into a coordinate-private async stream.
@@ -17,4 +16,3 @@ final class CmxIrohLibPathChangeCallback: PathChangeCallback, Sendable {
         )
     }
 }
-#endif

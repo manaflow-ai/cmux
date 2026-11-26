@@ -1,8 +1,4 @@
-#if canImport(Darwin)
 import Darwin
-#elseif canImport(Glibc)
-import Glibc
-#endif
 import Foundation
 
 private struct CmxIrohPathHintValidator {
@@ -20,11 +16,15 @@ private struct CmxIrohPathHintValidator {
       return nil
     }
     if value.hasPrefix("[") {
-      guard let bracketed = Substring(value).bracketedHost, bracketed.rest.hasPrefix(":") else {
+      guard let closingBracket = value.firstIndex(of: "]"),
+        value.index(after: closingBracket) < value.endIndex,
+        value[value.index(after: closingBracket)] == ":"
+      else {
         return nil
       }
-      let host = String(bracketed.host)
-      let port = String(bracketed.rest.dropFirst())
+      let host = String(value[value.index(after: value.startIndex)..<closingBracket])
+      let portStart = value.index(closingBracket, offsetBy: 2)
+      let port = String(value[portStart...])
       guard !host.contains("%"),
         let addressIsAllowed = ipv6LiteralIsAllowed(host),
         isCanonicalPort(port)
@@ -33,11 +33,13 @@ private struct CmxIrohPathHintValidator {
       }
       return addressIsAllowed
     }
-    guard let split = Substring(value).splitAtLastColon, !split.head.contains(":") else {
+    guard let separator = value.lastIndex(of: ":"),
+      value[..<separator].contains(":") == false
+    else {
       return nil
     }
-    let host = String(split.head)
-    let port = String(split.tail)
+    let host = String(value[..<separator])
+    let port = String(value[value.index(after: separator)...])
     guard let octets = canonicalIPv4Octets(host),
       isCanonicalPort(port)
     else {
@@ -47,14 +49,16 @@ private struct CmxIrohPathHintValidator {
   }
 
   private func directSocketAddressIsGloballyRoutable(_ value: String) -> Bool {
-    if let bracketed = Substring(value).bracketedHost {
-      guard let bytes = ipv6LiteralBytes(String(bracketed.host)) else {
+    if value.hasPrefix("["),
+      let closingBracket = value.firstIndex(of: "]") {
+      let host = String(value[value.index(after: value.startIndex)..<closingBracket])
+      guard let bytes = ipv6LiteralBytes(host) else {
         return false
       }
       return ipv6AddressIsGloballyRoutable(bytes)
     }
-    guard let split = Substring(value).splitAtLastColon,
-      let octets = canonicalIPv4Octets(String(split.head))
+    guard let separator = value.lastIndex(of: ":"),
+      let octets = canonicalIPv4Octets(String(value[..<separator]))
     else {
       return false
     }
@@ -67,11 +71,17 @@ private struct CmxIrohPathHintValidator {
       return nil
     }
     let octets = parts.compactMap { part -> UInt8? in
-      // UInt8(_: String) is nil past 255; the round trip refuses "+1" and "01".
-      guard let value = UInt8(part), String(value) == part else {
+      guard !part.isEmpty,
+        part.utf8.allSatisfy({ (48...57).contains($0) }),
+        let value = Int(part),
+        (0...255).contains(value)
+      else {
         return nil
       }
-      return value
+      guard String(value) == part else {
+        return nil
+      }
+      return UInt8(value)
     }
     return octets.count == 4 ? octets : nil
   }
@@ -155,7 +165,7 @@ private struct CmxIrohPathHintValidator {
       + [0x02, 0x54] {
       return false
     }
-    let ipv4MappedPrefix: [UInt8] = Array(repeating: 0, count: 10) + [0xFF, 0xFF]
+    let ipv4MappedPrefix = Array(repeating: UInt8(0), count: 10) + [0xFF, 0xFF]
     if Array(bytes.prefix(12)) == ipv4MappedPrefix {
       return ipv4AddressIsAllowed(Array(bytes.suffix(4)))
     }
@@ -163,7 +173,7 @@ private struct CmxIrohPathHintValidator {
   }
 
   private func ipv6AddressIsGloballyRoutable(_ bytes: [UInt8]) -> Bool {
-    let ipv4MappedPrefix: [UInt8] = Array(repeating: 0, count: 10) + [0xFF, 0xFF]
+    let ipv4MappedPrefix = Array(repeating: UInt8(0), count: 10) + [0xFF, 0xFF]
     if Array(bytes.prefix(12)) == ipv4MappedPrefix {
       return ipv4AddressIsGloballyRoutable(Array(bytes.suffix(4)))
     }
@@ -187,8 +197,11 @@ private struct CmxIrohPathHintValidator {
   }
 
   private func isCanonicalPort(_ port: String) -> Bool {
-    // UInt16(_: String) is nil past 65_535; the round trip refuses "+1" and "01".
-    guard let value = UInt16(port), value > 0 else {
+    guard !port.isEmpty,
+      port.utf8.allSatisfy({ (48...57).contains($0) }),
+      let value = Int(port),
+      (1...65_535).contains(value)
+    else {
       return false
     }
     return String(value) == port

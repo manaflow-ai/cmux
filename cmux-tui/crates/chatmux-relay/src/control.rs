@@ -69,6 +69,10 @@ mod unix {
         paused: AtomicBool,
         resume_notify: Notify,
         closed_notify: Notify,
+        #[cfg(test)]
+        read_done: Notify,
+        #[cfg(test)]
+        read_waiting: Mutex<Option<oneshot::Sender<()>>>,
     }
 
     impl Shared {
@@ -94,12 +98,7 @@ mod unix {
     pub struct UnixControl {
         shared: Arc<Shared>,
         writer_tx: Sender<OutboundLine>,
-        /// A duplicate of the stream's descriptor, owned here, so `end()`
-        /// shuts the socket down even after both halves dropped and never
-        /// touches a descriptor number another resource reused. `end()` also
-        /// closes it: on macOS the daemon's blocking read can miss the wake of
-        /// a shutdown while the relay keeps any descriptor of the socket.
-        shutdown_fd: Mutex<Option<std::os::fd::OwnedFd>>,
+        raw_fd: std::os::fd::RawFd,
         next_id: AtomicU64,
         timeout_ms: u64,
     }
@@ -132,12 +131,9 @@ mod unix {
             .map_err(|_| format!("cmux-tui control connect timed out ({})", socket_path.display()))?
             .map_err(|error| error.to_string())?;
         require_peer_uid(&stream, expected_uid)?;
-        let shutdown_fd = {
-            use std::os::fd::AsFd as _;
-            stream
-                .as_fd()
-                .try_clone_to_owned()
-                .map_err(|error| format!("cmux-tui control descriptor: {error}"))?
+        let raw_fd = {
+            use std::os::fd::AsRawFd as _;
+            stream.as_raw_fd()
         };
         let (read_half, write_half) = stream.into_split();
         let shared = Arc::new(Shared {
@@ -149,6 +145,10 @@ mod unix {
             paused: AtomicBool::new(false),
             resume_notify: Notify::new(),
             closed_notify: Notify::new(),
+            #[cfg(test)]
+            read_done: Notify::new(),
+            #[cfg(test)]
+            read_waiting: Mutex::new(None),
         });
         // Keep one async writer for every connection. The queue makes the
         // synchronous `send` API safe without spawning one task per input;
@@ -161,7 +161,7 @@ mod unix {
         Ok(Arc::new(UnixControl {
             shared,
             writer_tx,
-            shutdown_fd: Mutex::new(Some(shutdown_fd)),
+            raw_fd,
             next_id: AtomicU64::new(1),
             timeout_ms,
         }))
@@ -181,6 +181,23 @@ mod unix {
                 "cmux-tui control socket is served by uid {peer_uid}, not uid {expected_uid}"
             ))
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn connect_control_for_test(
+        socket_path: &std::path::Path,
+        timeout_ms: u64,
+    ) -> Result<Arc<UnixControl>, String> {
+        connect_control_inner(socket_path, timeout_ms).await
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn connect_control_as_for_test(
+        socket_path: &std::path::Path,
+        timeout_ms: u64,
+        expected_uid: u32,
+    ) -> Result<Arc<UnixControl>, String> {
+        connect_control_as(socket_path, timeout_ms, expected_uid).await
     }
 
     async fn write_loop(
@@ -243,6 +260,12 @@ mod unix {
                 let closed = shared.closed_notify.notified();
                 tokio::pin!(closed);
                 closed.as_mut().enable();
+                #[cfg(test)]
+                if let Some(waiting) =
+                    shared.read_waiting.lock().expect("control read waiter lock").take()
+                {
+                    let _ = waiting.send(());
+                }
                 if shared.closed.load(Ordering::SeqCst) {
                     break 'read_loop;
                 }
@@ -290,9 +313,23 @@ mod unix {
             }
         }
         shared.settle_closed();
+        #[cfg(test)]
+        shared.read_done.notify_waiters();
     }
 
     impl UnixControl {
+        #[cfg(test)]
+        pub(crate) async fn wait_reader_done(&self) {
+            self.shared.read_done.notified().await;
+        }
+
+        #[cfg(test)]
+        pub(crate) fn arm_reader_waiting(&self) -> oneshot::Receiver<()> {
+            let (sender, receiver) = oneshot::channel();
+            *self.shared.read_waiting.lock().expect("control read waiter lock") = Some(sender);
+            receiver
+        }
+
         fn encode_line(id: u64, cmd: &str, params: Value) -> Vec<u8> {
             let mut frame = match params {
                 Value::Object(map) => map,
@@ -388,19 +425,11 @@ mod unix {
             self.shared.deliberate.store(true, Ordering::SeqCst);
             self.shared.settle_closed();
             // Shut both directions so the read loop sees EOF and any blocked
-            // writer unblocks. shutdown acts on the socket, so the owned
-            // duplicate reaches it; a socket already shut down is harmless.
-            let shutdown_fd = match self.shutdown_fd.lock() {
-                Ok(mut shutdown_fd) => shutdown_fd.take(),
-                Err(poisoned) => poisoned.into_inner().take(),
-            };
-            if let Some(shutdown_fd) = shutdown_fd {
-                // SAFETY: shutdown on a descriptor this handle owns.
-                unsafe {
-                    use std::os::fd::AsRawFd as _;
-                    libc::shutdown(shutdown_fd.as_raw_fd(), libc::SHUT_RDWR);
-                }
-                drop(shutdown_fd);
+            // writer unblocks; the halves drop and close the fd afterwards.
+            // SAFETY: shutdown on a socket fd this handle owns for the split
+            // stream's lifetime; a failure (already closed) is harmless.
+            unsafe {
+                libc::shutdown(self.raw_fd, libc::SHUT_RDWR);
             }
         }
     }
@@ -410,9 +439,118 @@ mod unix {
 mod tests {
     use super::*;
     use serde_json::json;
-    use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _};
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _};
     use tokio::net::UnixListener;
-    use tokio::sync::oneshot;
+    use tokio::sync::{Notify, oneshot};
+
+    #[tokio::test]
+    async fn private_control_refuses_a_listener_run_by_another_user() {
+        let socket_path = std::env::temp_dir()
+            .join(format!("chatmux-relay-control-peer-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&socket_path);
+        let listener = UnixListener::bind(&socket_path).expect("bind control peer test socket");
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept control peer test");
+            let mut bytes = Vec::new();
+            stream.read_to_end(&mut bytes).await.expect("read refused client");
+            bytes
+        });
+
+        // SAFETY: getuid is always safe.
+        let other_uid = unsafe { libc::getuid() }.wrapping_add(1);
+        let error = unix::connect_control_as_for_test(&socket_path, 3_000, other_uid)
+            .await
+            .err()
+            .expect("a listener run by another user is refused");
+        assert!(error.contains(&format!("uid {other_uid}")), "{error}");
+        let written = tokio::time::timeout(Duration::from_secs(1), server)
+            .await
+            .expect("server observes the refused client close")
+            .expect("join control peer test server");
+        assert!(written.is_empty(), "nothing is written to a refused listener");
+        let _ = std::fs::remove_file(socket_path);
+    }
+
+    #[tokio::test]
+    async fn end_wakes_paused_reader_and_closes_socket() {
+        let socket_path = std::env::temp_dir()
+            .join(format!("chatmux-relay-control-close-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&socket_path);
+        let listener = UnixListener::bind(&socket_path).expect("bind control close test socket");
+        let (accepted_tx, accepted_rx) = oneshot::channel();
+        let (paused_tx, paused_rx) = oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.expect("accept control close test socket");
+            let (mut read_half, mut write_half) = stream.into_split();
+            accepted_tx.send(()).expect("tell client that socket is accepted");
+            paused_rx.await.expect("wait for client pause");
+            write_half.write_all(b"{}\n").await.expect("wake paused reader");
+            let mut bytes = Vec::new();
+            read_half.read_to_end(&mut bytes).await.expect("read client close");
+        });
+
+        let control = unix::connect_control_for_test(&socket_path, 3_000)
+            .await
+            .expect("connect control close test socket");
+        accepted_rx.await.expect("wait for control close test server");
+        control.pause();
+
+        // Register both waiters before end() so the test deterministically
+        // exercises the paused-reader branch and the close wakeup.
+        let read_waiting = control.arm_reader_waiting();
+        paused_tx.send(()).expect("tell server that reader is paused");
+        read_waiting.await.expect("paused reader entered wait");
+        let waiter_control = Arc::clone(&control);
+        let reader_done = tokio::spawn(async move { waiter_control.wait_reader_done().await });
+        tokio::task::yield_now().await;
+        control.end();
+
+        tokio::time::timeout(Duration::from_secs(1), reader_done)
+            .await
+            .expect("paused reader exits after end")
+            .expect("join paused reader waiter");
+        tokio::time::timeout(Duration::from_secs(1), server)
+            .await
+            .expect("server observes client close")
+            .expect("join control close test server");
+        let _ = std::fs::remove_file(socket_path);
+    }
+
+    #[tokio::test]
+    async fn close_broadcast_wakes_two_waiters() {
+        let notify = Arc::new(Notify::new());
+        let (first_ready_tx, first_ready_rx) = oneshot::channel();
+        let (second_ready_tx, second_ready_rx) = oneshot::channel();
+        let first_notify = Arc::clone(&notify);
+        let first = tokio::spawn(async move {
+            let notified = first_notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            first_ready_tx.send(()).expect("signal first waiter registration");
+            notified.await;
+        });
+        let second_notify = Arc::clone(&notify);
+        let second = tokio::spawn(async move {
+            let notified = second_notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            second_ready_tx.send(()).expect("signal second waiter registration");
+            notified.await;
+        });
+        first_ready_rx.await.expect("first waiter registered");
+        second_ready_rx.await.expect("second waiter registered");
+        notify.notify_waiters();
+        tokio::time::timeout(Duration::from_secs(1), first)
+            .await
+            .expect("first waiter wakes")
+            .expect("first waiter joins");
+        tokio::time::timeout(Duration::from_secs(1), second)
+            .await
+            .expect("second waiter wakes")
+            .expect("second waiter joins");
+    }
 
     #[tokio::test]
     async fn writer_queue_preserves_complete_fifo_lines() {
@@ -471,56 +609,6 @@ mod tests {
         assert_eq!(request.get("cmd").and_then(Value::as_str), Some("probe"));
 
         control.end();
-        let _ = std::fs::remove_file(socket_path);
-    }
-
-    /// Whether any process still holds a descriptor of the other end of
-    /// `socket`: macOS answers the other end's pid until its last descriptor
-    /// closes. A shutdown alone does not change the answer.
-    #[cfg(target_os = "macos")]
-    fn other_end_open(socket: &std::os::unix::net::UnixStream) -> bool {
-        use std::os::fd::AsRawFd as _;
-        let mut pid: libc::pid_t = 0;
-        let mut len = size_of::<libc::pid_t>() as libc::socklen_t;
-        // SAFETY: `socket` is open for this call; `pid` and `len` describe a
-        // live buffer of the size that getsockopt may write.
-        let status = unsafe {
-            libc::getsockopt(
-                socket.as_raw_fd(),
-                libc::SOL_LOCAL,
-                libc::LOCAL_PEERPID,
-                (&raw mut pid).cast(),
-                &raw mut len,
-            )
-        };
-        status == 0
-    }
-
-    /// `end()` closes every relay descriptor of the control socket while the
-    /// handle lives on (the pty session keeps it): the daemon reads each
-    /// client in a blocking read, and on macOS that read can miss the wake of
-    /// the relay's shutdown while the relay keeps a descriptor, so the daemon
-    /// would keep a ghost client until the session ends.
-    #[cfg(target_os = "macos")]
-    #[tokio::test]
-    async fn ending_a_control_closes_its_socket_while_the_handle_lives_on() {
-        let socket_path = std::env::temp_dir()
-            .join(format!("chatmux-relay-control-end-{}.sock", std::process::id()));
-        let _ = std::fs::remove_file(&socket_path);
-        let listener = UnixListener::bind(&socket_path).expect("bind control test socket");
-        let control =
-            connect_control(&socket_path, 3_000).await.expect("connect control test socket");
-        let (daemon, _) = listener.accept().await.expect("accept control test socket");
-        let daemon = daemon.into_std().expect("the daemon end as a std socket");
-
-        control.end();
-
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        while other_end_open(&daemon) && std::time::Instant::now() < deadline {
-            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-        }
-        assert!(!other_end_open(&daemon), "the ended control's socket is still open in the relay");
-        drop(control);
         let _ = std::fs::remove_file(socket_path);
     }
 }

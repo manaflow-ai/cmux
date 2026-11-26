@@ -17,10 +17,6 @@ public struct BillingAccount: Sendable, Equatable, Codable {
     public let currentPlan: BillingCurrentPlan
     /// The products on sale for this bundle.
     public let products: [BillingProductReference]
-    /// The catalog family selected by the billing backend.
-    /// When nil, infer it from the current plan or products for compatibility
-    /// with older wire responses.
-    public let catalogFamily: BillingPlanFamily?
 
     /// Creates an account value.
     /// - Parameters:
@@ -29,39 +25,18 @@ public struct BillingAccount: Sendable, Equatable, Codable {
     ///   - reason: Why purchases are not allowed, when they are not.
     ///   - currentPlan: The current plan.
     ///   - products: The products on sale.
-    ///   - catalogFamily: Explicit family for accounts with no current plan or products.
     public init(
         appAccountToken: UUID,
         eligible: Bool,
         reason: BillingIneligibilityReason?,
         currentPlan: BillingCurrentPlan,
-        products: [BillingProductReference],
-        catalogFamily: BillingPlanFamily? = nil
+        products: [BillingProductReference]
     ) {
         self.appAccountToken = appAccountToken
         self.eligible = eligible
         self.reason = reason
         self.currentPlan = currentPlan
         self.products = products
-        self.catalogFamily = catalogFamily
-    }
-
-    /// The paid plans the plans screen describes when this build sells none
-    /// (an ineligible account gets no products): the plans this package's app
-    /// sells, inferred from the current or on-sale plan family, plus any plan
-    /// from the other family only when the account is on it or it is on sale,
-    /// smallest first.
-    /// Without these an ineligible account, such as every TestFlight and dev
-    /// build in production, saw a plans screen with no plans on it.
-    public var catalogPlanIDs: [BillingPlanID] {
-        let sellsNext = catalogFamily.map { $0 == .next }
-            ?? (currentPlan.planID.isNext || products.contains { $0.planID.isNext })
-        var plans: Set<BillingPlanID> = sellsNext
-            ? [.nextPlus, .nextPro, .nextMax]
-            : [.pro, .max]
-        plans.formUnion(products.map(\.planID).filter { $0.rank > 0 })
-        if currentPlan.planID.rank > 0 { plans.insert(currentPlan.planID) }
-        return plans.sorted()
     }
 
     enum CodingKeys: String, CodingKey {
@@ -70,7 +45,6 @@ public struct BillingAccount: Sendable, Equatable, Codable {
         case reason
         case currentPlan
         case products
-        case catalogFamily
     }
 
     /// Decodes the response; a missing `products` list (an ineligible
@@ -82,6 +56,5 @@ public struct BillingAccount: Sendable, Equatable, Codable {
         reason = try container.decodeIfPresent(BillingIneligibilityReason.self, forKey: .reason)
         currentPlan = try container.decode(BillingCurrentPlan.self, forKey: .currentPlan)
         products = try container.decodeIfPresent([BillingProductReference].self, forKey: .products) ?? []
-        catalogFamily = try container.decodeIfPresent(BillingPlanFamily.self, forKey: .catalogFamily)
     }
 }

@@ -1,0 +1,44 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>iframe-nested</title></head>
+<body>
+<div id="status">PENDING</div>
+<pre id="event-log"></pre>
+<script>
+  window.__cmuxLog = [];
+  const logEl = document.getElementById('event-log');
+  const statusEl = document.getElementById('status');
+  let seq = 0;
+  window.__cmuxPush = function (entry) {
+    window.__cmuxLog.push(Object.assign({ seq: ++seq }, entry));
+    logEl.textContent = JSON.stringify(window.__cmuxLog);
+    if (window.__cmuxLog.some((e) => e.type === 'click' && e.target === '#deep-btn')) {
+      statusEl.textContent = 'PASS';
+    }
+  };
+
+  const SCRIPT_OPEN = '<scr' + 'ipt>';
+  const SCRIPT_CLOSE = '</scr' + 'ipt>';
+  const innerHtml =
+    '<button id="deep-btn">deep</button>' +
+    SCRIPT_OPEN +
+    'document.getElementById("deep-btn").addEventListener("click", function (ev) {' +
+    '  window.top.__cmuxPush({ type: ev.type, target: "#deep-btn", isTrusted: ev.isTrusted });' +
+    '});' +
+    SCRIPT_CLOSE;
+  const outerHtml =
+    '<button id="mid-btn">mid</button><iframe id="inner"></iframe>' +
+    SCRIPT_OPEN +
+    'document.getElementById("mid-btn").addEventListener("click", function (ev) {' +
+    '  window.top.__cmuxPush({ type: ev.type, target: "#mid-btn", isTrusted: ev.isTrusted });' +
+    '});' +
+    'document.getElementById("inner").srcdoc = ' + JSON.stringify(innerHtml) + ';' +
+    SCRIPT_CLOSE;
+
+  const outer = document.createElement('iframe');
+  outer.id = 'outer';
+  outer.srcdoc = outerHtml;
+  document.body.appendChild(outer);
+</script>
+</body>
+</html>

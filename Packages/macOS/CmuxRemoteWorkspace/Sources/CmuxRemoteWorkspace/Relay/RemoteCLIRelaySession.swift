@@ -1,0 +1,469 @@
+import CmuxFoundation
+import CryptoKit
+import Darwin
+import Foundation
+import Network
+import Security
+
+extension RemoteCLIRelayServer {
+    /// The relay's authorization decision for one post-authentication command
+    /// line: forward the (rewritten) line to the local socket, or deny it and
+    /// return an error to the remote client without touching the local socket.
+    enum CommandDisposition {
+        case forward(Data)
+        case deny(String)
+    }
+
+    /// One authenticated relay connection: sends the HMAC challenge, awaits
+    /// the MAC line, then forwards exactly one rewritten command line to the
+    /// local cmux unix socket and returns the response (faithful lift of the
+    /// legacy nested `WorkspaceRemoteCLIRelayServer.Session`).
+    ///
+    /// Isolation design: all mutable state is confined to the server's
+    /// serial `queue` (Network callbacks hop onto it; the blocking unix
+    /// round trip runs on a global utility queue and hops back).
+    /// `@unchecked Sendable` because `@Sendable` Network/Task callbacks
+    /// capture `self`; queue confinement is the safety argument.
+    final class Session: @unchecked Sendable {
+        /// Longer than the CLI's 20-second `agent.hook.barrier` response
+        /// budget so remote decision hooks can observe completion of a
+        /// preceding bounded lifecycle delivery.
+        static let localSocketRoundTripTimeoutSeconds = 25
+
+        /// Returns the local socket response timeout required by one rewritten
+        /// relay request.
+        ///
+        /// Actionable Feed requests carry their remaining user-decision budget
+        /// on the wire. The relay must outlive that wait plus the CLI's five
+        /// seconds of response headroom; unrelated commands keep the shorter
+        /// bounded default.
+        static func localSocketRoundTripTimeoutSeconds(for request: Data) -> Int {
+            guard let object = try? JSONSerialization.jsonObject(with: request)
+                    as? [String: Any],
+                  object["method"] as? String == "feed.push",
+                  let params = object["params"] as? [String: Any],
+                  let waitTimeoutNumber = params["wait_timeout_seconds"] as? NSNumber
+            else {
+                return localSocketRoundTripTimeoutSeconds
+            }
+            let waitTimeout = waitTimeoutNumber.doubleValue
+            guard waitTimeout.isFinite, waitTimeout > 0 else {
+                return localSocketRoundTripTimeoutSeconds
+            }
+            let maximumFeedWaitSeconds = 120.0
+            let responseHeadroomSeconds = 5
+            return max(
+                localSocketRoundTripTimeoutSeconds,
+                Int(ceil(min(waitTimeout, maximumFeedWaitSeconds)))
+                    + responseHeadroomSeconds
+            )
+        }
+
+        private enum Phase: Equatable, Sendable {
+            case awaitingAuth
+            case awaitingCommand
+            case forwarding
+            case closed
+        }
+
+        /// The challenge needs one round trip over SSH, and the CLI gives the
+        /// whole dial and handshake five seconds, so a connection that has
+        /// not authenticated by then only holds a pre-auth slot.
+        private static let preAuthTimeoutMilliseconds = 5_000
+        private static let handshakeTimeoutMilliseconds = 10_000
+
+        private let connection: NWConnection
+        private let localSocketPath: String
+        private let localSocketPeerCheck: UnixSocketPeerCheck
+        private let relayID: String
+        private let relayToken: Data
+        private let commandEvaluator: (Data) -> CommandDisposition
+        private let admitAuthenticated: () -> Bool
+        private let queue: DispatchQueue
+        private let clock: any RemoteProxyRetryClock
+        private let onClose: () -> Void
+        private let challengeProtocol = "cmux-relay-auth"
+        private let challengeVersion = 1
+        private let minimumFailureDelay: TimeInterval = 0.05
+        private let maximumFrameBytes = 16 * 1024
+        private let maximumResponseBytes = 1024 * 1024
+        private var deadlineTask: Task<Void, Never>?
+
+        private var buffer = Data()
+        private var phase: Phase = .awaitingAuth
+        private var challengeNonce = ""
+        private var challengeSentAt = Date()
+        private var isClosed = false
+        private var forwardingSocketDescriptor: Int32?
+        private var phaseTimeoutTask: Task<Void, Never>?
+
+        init(
+            connection: NWConnection,
+            localSocketPath: String,
+            localSocketPeerCheck: UnixSocketPeerCheck,
+            relayID: String,
+            relayToken: Data,
+            commandEvaluator: @escaping (Data) -> CommandDisposition,
+            admitAuthenticated: @escaping () -> Bool,
+            queue: DispatchQueue,
+            clock: any RemoteProxyRetryClock,
+            onClose: @escaping () -> Void
+        ) {
+            self.connection = connection
+            self.localSocketPath = localSocketPath
+            self.localSocketPeerCheck = localSocketPeerCheck
+            self.relayID = relayID
+            self.relayToken = relayToken
+            self.commandEvaluator = commandEvaluator
+            self.admitAuthenticated = admitAuthenticated
+            self.queue = queue
+            self.clock = clock
+            self.onClose = onClose
+        }
+
+        func start() {
+            deadlineTask = Task { [weak self, clock] in
+                guard (try? await clock.sleep(forMilliseconds: 30_000)) != nil else { return }
+                guard let self else { return }
+                self.queue.async { self.close() }
+            }
+            armPhaseTimeout(for: .awaitingAuth)
+            connection.stateUpdateHandler = { [weak self] state in
+                guard let self else { return }
+                self.queue.async {
+                    self.handleState(state)
+                }
+            }
+            connection.start(queue: queue)
+        }
+
+        func stop() {
+            close()
+        }
+
+        private func handleState(_ state: NWConnection.State) {
+            guard !isClosed else { return }
+            switch state {
+            case .ready:
+                sendChallenge()
+                receive()
+            case .failed, .cancelled:
+                close()
+            default:
+                break
+            }
+        }
+
+        private func sendChallenge() {
+            challengeSentAt = Date()
+            guard let nonce = Self.randomHex(byteCount: 16) else {
+                close()
+                return
+            }
+            challengeNonce = nonce
+            let challenge: [String: Any] = [
+                "protocol": challengeProtocol,
+                "version": challengeVersion,
+                "relay_id": relayID,
+                "nonce": challengeNonce,
+            ]
+            sendJSONLine(challenge) { _ in }
+        }
+
+        private func receive() {
+            guard !isClosed else { return }
+            connection.receive(minimumIncompleteLength: 1, maximumLength: maximumFrameBytes) { [weak self] data, _, isComplete, error in
+                guard let self else { return }
+                self.queue.async {
+                    if error != nil {
+                        self.close()
+                        return
+                    }
+                    if let data, !data.isEmpty {
+                        self.buffer.append(data)
+                        if self.buffer.count > self.maximumFrameBytes {
+                            self.sendFailureAndClose()
+                            return
+                        }
+                        self.processBufferedLines()
+                    }
+                    if isComplete {
+                        self.close()
+                        return
+                    }
+                    if !self.isClosed {
+                        self.receive()
+                    }
+                }
+            }
+        }
+
+        private func processBufferedLines() {
+            while let newlineIndex = buffer.firstIndex(of: 0x0A), !isClosed {
+                let lineData = buffer.prefix(upTo: newlineIndex)
+                buffer.removeSubrange(...newlineIndex)
+                let line = String(data: lineData, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                switch phase {
+                case .awaitingAuth:
+                    handleAuthLine(line)
+                case .awaitingCommand:
+                    handleCommandLine(Data(lineData) + Data([0x0A]))
+                case .forwarding, .closed:
+                    return
+                }
+            }
+        }
+
+        private func handleAuthLine(_ line: String) {
+            guard let data = line.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let receivedRelayID = object["relay_id"] as? String,
+                  receivedRelayID == relayID,
+                  let macHex = object["mac"] as? String,
+                  let receivedMAC = Self.hexData(from: macHex)
+            else {
+                sendFailureAndClose()
+                return
+            }
+
+            let authentication = RemoteRelayAuthentication(token: relayToken)
+            let expectedMAC = authentication.clientMAC(
+                relayID: relayID,
+                nonce: challengeNonce,
+                version: challengeVersion
+            )
+            guard receivedMAC.constantTimeEquals(expectedMAC) else {
+                sendFailureAndClose()
+                return
+            }
+
+            // A client that sends its own nonce requires the relay to prove it
+            // holds the token too, so a listener another remote user bound on
+            // the forwarded port cannot pose as the relay. Older clients send
+            // no nonce and get the plain success line.
+            var success: [String: Any] = ["ok": true]
+            if let clientNonceValue = object["client_nonce"] {
+                guard let clientNonce = clientNonceValue as? String,
+                      Self.isValidClientNonce(clientNonce) else {
+                    sendFailureAndClose()
+                    return
+                }
+                let proof = authentication.relayProofMAC(
+                    relayID: relayID,
+                    clientNonce: clientNonce,
+                    serverNonce: challengeNonce,
+                    version: challengeVersion
+                )
+                success["relay_mac"] = proof.relayHexString
+            }
+
+            guard admitAuthenticated() else {
+                sendFailureAndClose()
+                return
+            }
+            phase = .awaitingCommand
+            armPhaseTimeout(for: .awaitingCommand)
+            sendJSONLine(success) { [weak self] _ in
+                guard let self else { return }
+                self.queue.async {
+                    self.processBufferedLines()
+                }
+            }
+        }
+
+        private func handleCommandLine(_ commandLine: Data) {
+            guard !commandLine.isEmpty else {
+                sendFailureAndClose()
+                return
+            }
+            phase = .forwarding
+            phaseTimeoutTask?.cancel()
+            phaseTimeoutTask = nil
+            switch commandEvaluator(commandLine) {
+            case .deny(let reason):
+                sendDenialAndClose(reason: reason, commandLine: commandLine)
+            case .forward(let forwardedCommandLine):
+                forwardCommandLine(forwardedCommandLine)
+            }
+        }
+
+        private func forwardCommandLine(_ forwardedCommandLine: Data) {
+            let socketDescriptor: Int32
+            do {
+                socketDescriptor = try Self.makeLocalSocketDescriptor()
+            } catch {
+                sendFailureAndClose()
+                return
+            }
+            forwardingSocketDescriptor = socketDescriptor
+            DispatchQueue.global(qos: .utility).async {
+                [self, localSocketPath, localSocketPeerCheck, forwardedCommandLine, queue] in
+                let result = Result {
+                    try Self.roundTripUnixSocket(
+                        socketDescriptor: socketDescriptor,
+                        socketPath: localSocketPath,
+                        peerCheck: localSocketPeerCheck,
+                        request: forwardedCommandLine,
+                        maximumResponseBytes: maximumResponseBytes,
+                        shouldContinue: {
+                            queue.sync {
+                                !isClosed
+                                    && forwardingSocketDescriptor == socketDescriptor
+                            }
+                        }
+                    )
+                }
+                queue.async { [self] in
+                    if forwardingSocketDescriptor == socketDescriptor {
+                        forwardingSocketDescriptor = nil
+                    }
+                    Darwin.close(socketDescriptor)
+                    guard !isClosed else { return }
+                    switch result {
+                    case .success(let response):
+                        self.connection.send(content: response, completion: .contentProcessed { [weak self] _ in
+                            guard let self else { return }
+                            self.queue.async {
+                                self.close()
+                            }
+                        })
+                    case .failure:
+                        self.sendFailureAndClose()
+                    }
+                }
+            }
+        }
+
+        private func sendDenialAndClose(reason: String, commandLine: Data) {
+            phase = .closed
+            var requestID: Any = NSNull()
+            if let line = String(data: commandLine, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               let requestData = line.data(using: .utf8),
+               let request = try? JSONSerialization.jsonObject(with: requestData) as? [String: Any],
+               let id = request["id"], !(id is NSNull) {
+                requestID = id
+            }
+            let denial: [String: Any] = [
+                "id": requestID,
+                "ok": false,
+                "error": [
+                    "code": "remote_relay_denied",
+                    "message": reason,
+                ],
+            ]
+            sendJSONLine(denial) { [weak self] _ in
+                guard let self else { return }
+                self.queue.async {
+                    self.close()
+                }
+            }
+        }
+
+        private func sendFailureAndClose() {
+            let elapsed = Date().timeIntervalSince(challengeSentAt)
+            let delay = max(0, minimumFailureDelay - elapsed)
+            phase = .closed
+            phaseTimeoutTask?.cancel()
+            phaseTimeoutTask = nil
+            // Anti-timing-oracle minimum delay via the injected clock (legacy
+            // used queue.asyncAfter); ceil keeps the floor a true minimum.
+            let delayMilliseconds = Int((delay * 1000).rounded(.up))
+            Task { [weak self, clock] in
+                if delayMilliseconds > 0 {
+                    guard (try? await clock.sleep(forMilliseconds: delayMilliseconds)) != nil else { return }
+                }
+                guard let self else { return }
+                self.queue.async {
+                    self.sendJSONLine(["ok": false]) { [weak self] _ in
+                        guard let self else { return }
+                        self.queue.async {
+                            self.close()
+                        }
+                    }
+                }
+            }
+        }
+
+        private func armPhaseTimeout(for expectedPhase: Phase) {
+            phaseTimeoutTask?.cancel()
+            let timeoutMilliseconds = expectedPhase == .awaitingAuth
+                ? Self.preAuthTimeoutMilliseconds
+                : Self.handshakeTimeoutMilliseconds
+            phaseTimeoutTask = Task { [weak self, clock] in
+                guard (try? await clock.sleep(
+                    forMilliseconds: timeoutMilliseconds
+                )) != nil else {
+                    return
+                }
+                guard let self else { return }
+                self.queue.async {
+                    guard !self.isClosed, self.phase == expectedPhase else {
+                        return
+                    }
+                    self.close()
+                }
+            }
+        }
+
+        private func sendJSONLine(_ object: [String: Any], completion: @escaping @Sendable (NWError?) -> Void) {
+            guard !isClosed else {
+                completion(nil)
+                return
+            }
+            guard let payload = try? JSONSerialization.data(withJSONObject: object) else {
+                completion(nil)
+                return
+            }
+            connection.send(content: payload + Data([0x0A]), completion: .contentProcessed(completion))
+        }
+
+        private func close() {
+            guard !isClosed else { return }
+            isClosed = true
+            deadlineTask?.cancel()
+            deadlineTask = nil
+            phase = .closed
+            phaseTimeoutTask?.cancel()
+            phaseTimeoutTask = nil
+            if let forwardingSocketDescriptor {
+                // `shutdown` interrupts a blocking local read without racing
+                // descriptor reuse; the forwarding completion owns `close`.
+                _ = Darwin.shutdown(forwardingSocketDescriptor, SHUT_RDWR)
+            }
+            connection.stateUpdateHandler = nil
+            connection.cancel()
+            onClose()
+        }
+
+        /// Accepts 16 to 64 bytes of lowercase hex.
+        private static func isValidClientNonce(_ nonce: String) -> Bool {
+            guard (32...128).contains(nonce.utf8.count),
+                  nonce.utf8.allSatisfy({ (0x30...0x39).contains($0) || (0x61...0x66).contains($0) })
+            else {
+                return false
+            }
+            return hexData(from: nonce) != nil
+        }
+
+        static func authMAC(token: Data, message: Data) -> Data {
+            let key = SymmetricKey(data: token)
+            let code = HMAC<SHA256>.authenticationCode(for: message, using: key)
+            return Data(code)
+        }
+
+        static func hexData(from string: String) -> Data? {
+            Data(relayHex: string)
+        }
+
+        private static func randomHex(byteCount: Int) -> String? {
+            var bytes = [UInt8](repeating: 0, count: byteCount)
+            guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
+                return nil
+            }
+            return bytes.map { String(format: "%02x", $0) }.joined()
+        }
+
+    }
+}

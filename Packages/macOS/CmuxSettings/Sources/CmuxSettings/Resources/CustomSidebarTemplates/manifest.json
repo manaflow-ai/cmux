@@ -1,0 +1,58 @@
+{
+  "templates": [
+    {
+      "id": "agents-board",
+      "file": "agents-board.js",
+      "displayNameKey": "sidebar.template.agents-board.name",
+      "displayName": "Agents Board",
+      "descriptionKey": "sidebar.template.agents-board.description",
+      "description": "A kanban-style board for agent workspaces.",
+      "kind": "left"
+    },
+    {
+      "id": "btop-agents",
+      "file": "btop-agents.js",
+      "displayNameKey": "sidebar.template.btop-agents.name",
+      "displayName": "btop Agents",
+      "descriptionKey": "sidebar.template.btop-agents.description",
+      "description": "A terminal-inspired monitor for agent activity.",
+      "kind": "left"
+    },
+    {
+      "id": "panel-sessions",
+      "file": "panel-sessions.js",
+      "displayNameKey": "sidebar.template.panel-sessions.name",
+      "displayName": "Panel Sessions",
+      "descriptionKey": "sidebar.template.panel-sessions.description",
+      "description": "Searchable sessions for this workspace or all workspaces.",
+      "kind": "right"
+    },
+    {
+      "id": "panel-subagents",
+      "file": "panel-subagents.js",
+      "displayNameKey": "sidebar.template.panel-subagents.name",
+      "displayName": "Panel Subagents",
+      "descriptionKey": "sidebar.template.panel-subagents.description",
+      "description": "Coding-agent sessions grouped by workspace with live status.",
+      "kind": "right"
+    },
+    {
+      "id": "panel-todo",
+      "file": "panel-todo.js",
+      "displayNameKey": "sidebar.template.panel-todo.name",
+      "displayName": "Panel Todo",
+      "descriptionKey": "sidebar.template.panel-todo.description",
+      "description": "An interactive scratch checklist for the current workspace.",
+      "kind": "right"
+    },
+    {
+      "id": "workspaces",
+      "file": "workspaces.js",
+      "displayNameKey": "sidebar.template.workspaces.name",
+      "displayName": "Workspaces",
+      "descriptionKey": "sidebar.template.workspaces.description",
+      "description": "A straightforward live workspace list.",
+      "kind": "left"
+    }
+  ]
+}

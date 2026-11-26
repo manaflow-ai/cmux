@@ -4,6 +4,7 @@ import {
   jobsContentLocales,
   englishFallbackContentLocales,
   featureWorkflowContentLocales,
+  mainThreadDocsLocales,
   managedPoliciesDocsLocales,
   cloudSecurityDocsLocales,
   remoteTmuxDocsLocales,
@@ -22,23 +23,30 @@ import {
 import { changelogStore } from "./lib/changelog-store";
 import { isDocsZoneDeployment } from "./lib/docs-channel";
 import { keepServedDocsEntries, releaseDocsUrls } from "./lib/release-docs-sitemap";
-import { nextDocPages, nextDocPublicPath } from "../data/next-docs/pages";
+import { loadAllListings } from "./extensions/_lib/registry";
+import { extensionSitemapEntries } from "./extensions/_lib/sitemap-entries";
 
 /**
  * The served sitemap. A docs zone lists the docs it was built with. The main
  * site rewrites /docs to the release docs zone, which is built from the latest
  * release tag, so it lists only the docs that zone's own sitemap lists. If that
  * sitemap cannot be read, the main site falls back to every authored entry.
+ * The main site also lists every approved extension and setup page from the
+ * registry (the index pages even when the registry cannot be read).
  */
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const entries = sitemapEntries();
-  if (isDocsZoneDeployment()) return entries;
-  try {
-    return keepServedDocsEntries(entries, new Set(await releaseDocsUrls()));
-  } catch (error) {
-    console.error("sitemap.release_docs_unavailable", error);
-    return entries;
-  }
+  if (isDocsZoneDeployment()) return sitemapEntries();
+  // The registry and the release docs sitemap are read at once; each read is bounded by its timeout.
+  const [extensions, setups, servedDocs] = await Promise.all([
+    loadAllListings("extension"),
+    loadAllListings("setup"),
+    releaseDocsUrls().catch((error: unknown) => {
+      console.error("sitemap.release_docs_unavailable", error);
+      return null;
+    }),
+  ]);
+  const entries = [...sitemapEntries(), ...extensionSitemapEntries(extensions, setups)];
+  return servedDocs ? keepServedDocsEntries(entries, new Set(servedDocs)) : entries;
 }
 
 /** Builds localized sitemap entries, excluding unreleased download pages. */
@@ -119,6 +127,7 @@ export function sitemapEntries(): MetadataRoute.Sitemap {
     { path: "/docs/ssh", lastModified: "2026-07-03", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/remote-tmux", lastModified: "2026-07-03", changeFrequency: "monthly" as const, priority: 0.8, locales: remoteTmuxDocsLocales },
     { path: "/docs/managed-policies", lastModified: "2026-08-18", changeFrequency: "monthly" as const, priority: 0.8, locales: managedPoliciesDocsLocales },
+    { path: "/docs/main-thread", lastModified: "2026-11-20", changeFrequency: "monthly" as const, priority: 0.6, locales: mainThreadDocsLocales },
     { path: "/docs/cloud-security", lastModified: "2026-09-24", changeFrequency: "monthly" as const, priority: 0.8, locales: cloudSecurityDocsLocales },
     { path: "/docs/ios", lastModified: "2026-06-21", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/agent-integrations/claude-code-teams", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7 },
@@ -126,14 +135,6 @@ export function sitemapEntries(): MetadataRoute.Sitemap {
     { path: "/docs/agent-integrations/oh-my-codex", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/docs/agent-integrations/oh-my-pi", lastModified: "2026-07-07", changeFrequency: "monthly" as const, priority: 0.7, locales: fallbackContentLocales },
     { path: "/docs/agent-integrations/oh-my-claudecode", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7 },
-    // cmux-next docs, English only, at the nightly zone's URL (the only one that serves them).
-    ...nextDocPages.map((page) => ({
-      path: nextDocPublicPath(page.slug),
-      lastModified: "2026-11-09",
-      changeFrequency: "weekly" as const,
-      priority: 0.7,
-      locales: ["en"],
-    })),
     { path: changelogPath, lastModified: latestChangelogDate, changeFrequency: "weekly" as const, priority: 0.5 },
     ...changelog.map((release) => ({
       path: changelogVersionPath(release.version),
@@ -144,6 +145,7 @@ export function sitemapEntries(): MetadataRoute.Sitemap {
     { path: "/community", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.5 },
     { path: "/wall-of-love", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.5 },
     { path: "/nightly", lastModified: "2026-03-18", changeFrequency: "weekly" as const, priority: 0.6 },
+    { path: "/next", lastModified: "2026-11-09", changeFrequency: "weekly" as const, priority: 0.6 },
     { path: "/assets", lastModified: "2026-06-03", changeFrequency: "monthly" as const, priority: 0.5 },
     { path: "/art", lastModified: "2026-10-12", changeFrequency: "monthly" as const, priority: 0.5 },
     // SEO landing/guide pages: localized, not in the main nav.
@@ -172,8 +174,8 @@ export function sitemapEntries(): MetadataRoute.Sitemap {
     { path: "/agents/aider", lastModified: "2026-06-23", changeFrequency: "monthly" as const, priority: 0.6 },
     { path: "/agents/amp", lastModified: "2026-06-23", changeFrequency: "monthly" as const, priority: 0.6 },
     { path: "/agents/cursor-cli", lastModified: "2026-06-23", changeFrequency: "monthly" as const, priority: 0.6 },
-    { path: "/privacy-policy", lastModified: "2026-07-10", changeFrequency: "yearly" as const, priority: 0.3 },
-    { path: "/terms-of-service", lastModified: "2026-03-18", changeFrequency: "yearly" as const, priority: 0.3 },
+    { path: "/privacy-policy", lastModified: "2026-11-17", changeFrequency: "yearly" as const, priority: 0.3 },
+    { path: "/terms-of-service", lastModified: "2026-11-17", changeFrequency: "yearly" as const, priority: 0.3 },
     { path: "/eula", lastModified: "2026-03-18", changeFrequency: "yearly" as const, priority: 0.3 },
   ];
 

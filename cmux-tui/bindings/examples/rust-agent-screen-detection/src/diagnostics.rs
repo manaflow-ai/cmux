@@ -5,6 +5,51 @@
 //! and state interpretation are plugin policy. The daemon is used only for
 //! the generic terminal list, process, and screen reads.
 
+#[cfg(test)]
+mod target_selection_tests {
+    use std::collections::BTreeMap;
+
+    use cmux::{TerminalId, TerminalLifecycle, TerminalSnapshot};
+
+    use super::resolve_snapshot;
+
+    fn snapshot(hex: &str, title: &str) -> TerminalSnapshot {
+        TerminalSnapshot {
+            id: TerminalId::parse(format!("term_{hex}"))
+                .expect("test terminal ID has the required shape"),
+            tab_ids: Vec::new(),
+            title: title.to_string(),
+            cwd: None,
+            cols: 80,
+            rows: 24,
+            running: true,
+            lifecycle: TerminalLifecycle::Running,
+            stream_revision: Some(1),
+            exit: None,
+            extra: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn live_target_accepts_an_exact_terminal_id() {
+        let terminals = vec![snapshot("11111111111111111111111111111111", "build")];
+        let selected = resolve_snapshot(&terminals, "term_11111111111111111111111111111111")
+            .expect("terminal ID should resolve");
+        assert_eq!(selected.title, "build");
+    }
+
+    #[test]
+    fn live_target_rejects_an_ambiguous_title() {
+        let terminals = vec![
+            snapshot("11111111111111111111111111111111", "agent"),
+            snapshot("22222222222222222222222222222222", "agent"),
+        ];
+        let error = resolve_snapshot(&terminals, "agent").expect_err("duplicate title must fail");
+        assert!(error.contains("more than one terminal"), "{error}");
+        assert!(error.contains("term_1111"), "{error}");
+        assert!(error.contains("term_2222"), "{error}");
+    }
+}
 use std::path::{Path, PathBuf};
 
 use cmux::{
@@ -252,5 +297,82 @@ fn lifecycle_name(snapshot: &TerminalSnapshot) -> &'static str {
 }
 
 #[cfg(test)]
-#[path = "diagnostics_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    fn snapshot(hex: &str, title: &str) -> TerminalSnapshot {
+        TerminalSnapshot {
+            id: TerminalId::parse(format!("term_{hex}"))
+                .expect("test terminal ID has the required shape"),
+            tab_ids: Vec::new(),
+            title: title.to_string(),
+            cwd: None,
+            cols: 80,
+            rows: 24,
+            running: true,
+            lifecycle: cmux::TerminalLifecycle::Running,
+            stream_revision: Some(1),
+            exit: None,
+            extra: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn target_rejects_an_empty_or_oversized_value() {
+        assert!(validate_target("").is_err());
+        assert!(validate_target(&"x".repeat(MAX_TARGET_BYTES + 1)).is_err());
+    }
+
+    #[test]
+    fn target_reports_missing_ids_and_titles() {
+        let terminals = vec![snapshot("11111111111111111111111111111111", "build")];
+        assert!(
+            resolve_snapshot(&terminals, "term_22222222222222222222222222222222")
+                .unwrap_err()
+                .contains("was not found")
+        );
+        assert!(resolve_snapshot(&terminals, "missing").unwrap_err().contains("no terminal has"));
+    }
+
+    fn env<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
+        move |name| pairs.iter().find(|(key, _)| *key == name).map(|(_, value)| (*value).into())
+    }
+
+    const IN_A_PANE: &[(&str, &str)] =
+        &[("CMUX_TUI_SOCKET", "/tmp/pane.sock"), ("CMUX_TUI_SESSION_ID", "pane-session")];
+
+    #[test]
+    fn live_session_derives_its_socket_like_the_cli_and_ignores_the_panes() {
+        let route = live_route(None, Some("w4i-e1"), env(IN_A_PANE)).unwrap();
+        assert_eq!(route.socket, cmux::raw::default_socket_path("w4i-e1"));
+        assert_ne!(route.socket, PathBuf::from("/tmp/pane.sock"));
+        assert_eq!(route.session.as_deref(), Some("w4i-e1"));
+    }
+
+    #[test]
+    fn live_socket_is_exact_and_reads_its_own_session() {
+        let route = live_route(Some("/tmp/exact.sock"), None, env(IN_A_PANE)).unwrap();
+        assert_eq!(route, LiveRoute { socket: "/tmp/exact.sock".into(), session: None });
+        let both = live_route(Some("/tmp/exact.sock"), Some("w4i"), env(&[])).unwrap();
+        assert_eq!(both.session.as_deref(), Some("w4i"));
+    }
+
+    #[test]
+    fn live_route_without_flags_keeps_the_panes_socket_else_main() {
+        let route = live_route(None, None, env(IN_A_PANE)).unwrap();
+        assert_eq!(route.socket, PathBuf::from("/tmp/pane.sock"));
+        assert_eq!(route.session.as_deref(), Some("pane-session"));
+        let mux = live_route(None, None, env(&[("CMUX_MUX_SOCKET", "/tmp/mux.sock")])).unwrap();
+        assert_eq!(mux, LiveRoute { socket: "/tmp/mux.sock".into(), session: None });
+        let bare = live_route(None, None, env(&[])).unwrap();
+        assert_eq!(bare.socket, cmux::raw::default_socket_path("main"));
+    }
+
+    #[test]
+    fn live_session_names_a_path_component() {
+        for name in ["", "..", "a/b", "a\nb"] {
+            assert!(live_route(None, Some(name), env(&[])).is_err(), "{name:?}");
+        }
+    }
+}

@@ -1,17 +1,15 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { Tooltip } from "@base-ui-components/react/tooltip";
 import { CmdkMenu, type CmdkGroup } from "./components/CmdkMenu";
-import { QuestionCard } from "./components/QuestionCard";
 import { StatusRow } from "./components/StatusRow";
 import { ActivityIndicatorBlock, AgentMessageRow, Blocks, ToolBlock, TurnActions, type ToolBlockVariant } from "./components/Transcript";
-import { BarsIcon, Spinner, ProviderIcon } from "./components/icons";
+import { BarsIcon, PinwheelSpinner, ProviderIcon } from "./components/icons";
 import { HintTooltip } from "./components/Tooltips";
 import { useOverlayScrollbars } from "./hooks/useOverlayScrollbars";
 import type { OptionValue, SessionOption } from "./session";
 import {
   agentMessageBlocks,
   queuedAgentMessages,
-  galleryQuestions,
   activityScenarios,
   galleryActions,
   galleryCommands,
@@ -25,7 +23,7 @@ import { groupTurns } from "./turns";
 import { agentChatText } from "./i18n";
 import { RepositorySlugContext } from "./context";
 
-const cwd = "/Users/dev/project/agent-chat";
+const cwd = "/Users/lawrence/fun/cmuxterm-hq/worktrees/feat-agent-chat-ui/agent-chat";
 const noLoadingProviders = new Set<string>();
 const codexModelsLoading = new Set(["codex"]);
 
@@ -102,7 +100,7 @@ function ComposerMock({ state }: { state: "idle" | "starting" | "draft" | "error
           setOpenOptionId={setOpenOptionId}
           trailing={(
             <button className="send" type="button" aria-label="Start" disabled={state === "starting"}>
-              {state === "starting" ? <Spinner size={14} /> : <span aria-hidden>↑</span>}
+              {state === "starting" ? <PinwheelSpinner size={14} /> : <span aria-hidden>↑</span>}
             </button>
           )}
         />
@@ -359,17 +357,6 @@ export function GalleryApp() {
                 {queuedAgentMessages.map((message) => <AgentMessageRow key={message.id} message={message} />)}
               </div>
             </div>
-          </div>
-        </Section>
-
-        <Section id="agent-questions" title="Agent questions">
-          <div className="gallery-grid two">
-            {galleryQuestions.map((question) => (
-              <div className="gallery-question" key={question.questionId}>
-                <div className="gallery-label">{question.items.some((item) => item.secret) ? "Secret answer" : "Options, Other and typed text"}</div>
-                <QuestionCard question={question} onAnswer={(id, answers) => { console.log("gallery answer", id, answers); return true; }} />
-              </div>
-            ))}
           </div>
         </Section>
 

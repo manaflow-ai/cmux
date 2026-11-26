@@ -96,7 +96,6 @@ function harness(input: { stack?: FakeStack; quantity?: number; rowSeats?: numbe
   const queue = new MemoryTeamSeatQueue();
   const stripe = new FakeStripe(input.quantity ?? 2);
   const applied: number[] = [];
-  const applyOptions: unknown[] = [];
   const errors: unknown[] = [];
   const deps: TeamSeatReconcileDependencies = {
     queue,
@@ -106,18 +105,17 @@ function harness(input: { stack?: FakeStack; quantity?: number; rowSeats?: numbe
       (input.subscribed ?? true) && teamId === TEAM_ID
         ? { id: SUBSCRIPTION_ID, seats: input.rowSeats === undefined ? stripe.quantity : input.rowSeats }
         : null,
-    apply: async (subscription, options) => {
+    apply: async (subscription) => {
       applied.push(subscription.items.data.find((item) => item.price?.recurring?.usage_type !== "metered")!.quantity!);
-      applyOptions.push(options);
     },
     captureError: (error) => errors.push(error),
   };
-  return { stack, queue, stripe, applied, applyOptions, errors, deps };
+  return { stack, queue, stripe, applied, errors, deps };
 }
 
 describe("team seat reconciler", () => {
   test("raises the Stripe quantity to the member count after a join", async () => {
-    const { stack, queue, stripe, applied, applyOptions, deps } = harness();
+    const { stack, queue, stripe, applied, deps } = harness();
     stack.addMember(TEAM_ID, OUTSIDER_ID, MEMBER_GRANTS);
     await queue.markDirty(TEAM_ID);
 
@@ -126,7 +124,6 @@ describe("team seat reconciler", () => {
     expect(result).toEqual({ checked: 1, updated: 1, skipped: 0, failed: 0, busy: 0 });
     expect(stripe.updates).toEqual([{ subscriptionId: SUBSCRIPTION_ID, itemId: ITEM_ID, quantity: 3 }]);
     expect(applied).toEqual([3]);
-    expect(applyOptions).toEqual([{ markTeamSeatsDirty: false }]);
     const row = queue.rows.get(TEAM_ID)!;
     expect(row).toMatchObject({ dirtyAt: null, lastMemberCount: 3, lastStripeQuantity: 3, lastError: null });
   });

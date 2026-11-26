@@ -1,0 +1,854 @@
+{
+ "number": 14433,
+ "mergedAt": "2026-09-25T09:51:52Z",
+ "headRefOid": "bef1de725cb4066c4878d18911618de6e6262351",
+ "contexts": [
+  {
+   "__typename": "CheckRun",
+   "name": "Claude request",
+   "status": "COMPLETED",
+   "conclusion": "SKIPPED",
+   "startedAt": "2026-09-25T09:44:10Z",
+   "completedAt": "2026-09-25T09:44:10Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "changes",
+   "status": "COMPLETED",
+   "conclusion": "SKIPPED",
+   "startedAt": "2026-09-25T09:33:19Z",
+   "completedAt": "2026-09-25T09:33:18Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "changes",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:33:57Z",
+   "completedAt": "2026-09-25T09:34:27Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "transport",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:33:20Z",
+   "completedAt": "2026-09-25T09:33:42Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "receipt-contract",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:33:21Z",
+   "completedAt": "2026-09-25T09:33:39Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "CLA Assistant",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:33:19Z",
+   "completedAt": "2026-09-25T09:33:32Z",
+   "isRequired": true,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "CLA Assistant",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:51:58Z",
+   "completedAt": "2026-09-25T09:52:03Z",
+   "isRequired": true,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "CLA policy guard",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:33:21Z",
+   "completedAt": "2026-09-25T09:33:34Z",
+   "isRequired": true,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "CLA policy guard",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:36:47Z",
+   "completedAt": "2026-09-25T09:36:57Z",
+   "isRequired": true,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "Testbox broker trust boundary",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:33:21Z",
+   "completedAt": "2026-09-25T09:33:41Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "Web complexity",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:33:21Z",
+   "completedAt": "2026-09-25T09:33:57Z",
+   "isRequired": true,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "Web complexity",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:36:47Z",
+   "completedAt": "2026-09-25T09:37:25Z",
+   "isRequired": true,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "web-build",
+   "status": "COMPLETED",
+   "conclusion": "SKIPPED",
+   "startedAt": "2026-09-25T09:33:19Z",
+   "completedAt": "2026-09-25T09:33:18Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "Fast static checks",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:33:57Z",
+   "completedAt": "2026-09-25T09:34:23Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "web-tests",
+   "status": "COMPLETED",
+   "conclusion": "SKIPPED",
+   "startedAt": "2026-09-25T09:33:19Z",
+   "completedAt": "2026-09-25T09:33:18Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "Reverse test impact (report only)",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:34:29Z",
+   "completedAt": "2026-09-25T09:34:46Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "Watch owned pool jobs",
+   "status": "COMPLETED",
+   "conclusion": "SKIPPED",
+   "startedAt": "2026-09-25T09:34:27Z",
+   "completedAt": "2026-09-25T09:34:27Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "web-database-tests",
+   "status": "COMPLETED",
+   "conclusion": "SKIPPED",
+   "startedAt": "2026-09-25T09:33:27Z",
+   "completedAt": "2026-09-25T09:33:18Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "guards / workflow-guard-tests / preflight",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:34:30Z",
+   "completedAt": "2026-09-25T09:35:25Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "web-validation",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:33:21Z",
+   "completedAt": "2026-09-25T09:33:24Z",
+   "isRequired": true,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "guards / workflow-guard-tests / ci",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:34:30Z",
+   "completedAt": "2026-09-25T09:35:48Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "guards / workflow-guard-tests / app-host-execution",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:34:30Z",
+   "completedAt": "2026-09-25T09:35:33Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "guards / workflow-guard-tests / app-host-watchdog",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:34:40Z",
+   "completedAt": "2026-09-25T09:35:18Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "guards / workflow-guard-tests / app-host-process",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:34:30Z",
+   "completedAt": "2026-09-25T09:34:59Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "guards / workflow-guard-tests / app-host-cache",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:34:29Z",
+   "completedAt": "2026-09-25T09:34:51Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "guards / workflow-guard-tests / release-ios",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:34:30Z",
+   "completedAt": "2026-09-25T09:35:21Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "guards / workflow-guard-tests / release-notary",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:34:29Z",
+   "completedAt": "2026-09-25T09:35:07Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "guards / workflow-guard-tests / release-tooling",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:34:30Z",
+   "completedAt": "2026-09-25T09:35:10Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "guards / workflow-guard-tests / quality-sharding",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:34:30Z",
+   "completedAt": "2026-09-25T09:35:08Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "guards / workflow-guard-tests / quality-runtime",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:34:30Z",
+   "completedAt": "2026-09-25T09:35:00Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "guards / workflow-guard-tests / quality-determinism",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:34:30Z",
+   "completedAt": "2026-09-25T09:35:03Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "guards / workflow-guard-history",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:34:29Z",
+   "completedAt": "2026-09-25T09:34:54Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "guards / workflow-guard-cli-scripts / tui-resolution",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:34:30Z",
+   "completedAt": "2026-09-25T09:34:47Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "guards / workflow-guard-cli-scripts / profiling",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:34:29Z",
+   "completedAt": "2026-09-25T09:35:03Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "guards / workflow-guard-source-lints / sidebar-layout",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:34:29Z",
+   "completedAt": "2026-09-25T09:35:03Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "guards / workflow-guard-source-lints / dispatch-ownership",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:34:30Z",
+   "completedAt": "2026-09-25T09:35:10Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "guards / Guard status",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:35:50Z",
+   "completedAt": "2026-09-25T09:35:54Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "GhosttyKit release check",
+   "status": "COMPLETED",
+   "conclusion": "SKIPPED",
+   "startedAt": "2026-09-25T09:34:27Z",
+   "completedAt": "2026-09-25T09:34:27Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "browser",
+   "status": "COMPLETED",
+   "conclusion": "SKIPPED",
+   "startedAt": "2026-09-25T09:34:27Z",
+   "completedAt": "2026-09-25T09:34:27Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "web",
+   "status": "COMPLETED",
+   "conclusion": "SKIPPED",
+   "startedAt": "2026-09-25T09:34:27Z",
+   "completedAt": "2026-09-25T09:34:27Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "suite-coverage",
+   "status": "COMPLETED",
+   "conclusion": "SKIPPED",
+   "startedAt": "2026-09-25T09:34:27Z",
+   "completedAt": "2026-09-25T09:34:27Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "remote-daemon",
+   "status": "COMPLETED",
+   "conclusion": "SKIPPED",
+   "startedAt": "2026-09-25T09:34:27Z",
+   "completedAt": "2026-09-25T09:34:27Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "Claude wrapper regressions",
+   "status": "COMPLETED",
+   "conclusion": "SKIPPED",
+   "startedAt": "2026-09-25T09:34:27Z",
+   "completedAt": "2026-09-25T09:34:27Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "macos / macOS compile admission",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:35:26Z",
+   "completedAt": "2026-09-25T09:38:41Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "macos / swift-package-tests",
+   "status": "COMPLETED",
+   "conclusion": "SKIPPED",
+   "startedAt": "2026-09-25T09:34:27Z",
+   "completedAt": "2026-09-25T09:34:27Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "macos / inputs.unit_selectors != '' && 'app-host unit tests (changed suites)' || format('app-host unit tests ({0}/7)', matrix.shard)",
+   "status": "COMPLETED",
+   "conclusion": "SKIPPED",
+   "startedAt": "2026-09-25T09:38:42Z",
+   "completedAt": "2026-09-25T09:38:41Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "macos / CLI product tests",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:38:44Z",
+   "completedAt": "2026-09-25T09:40:02Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "macos / tests-build-and-lag",
+   "status": "COMPLETED",
+   "conclusion": "SKIPPED",
+   "startedAt": "2026-09-25T09:38:42Z",
+   "completedAt": "2026-09-25T09:38:41Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "macos / release-admission",
+   "status": "COMPLETED",
+   "conclusion": "SKIPPED",
+   "startedAt": "2026-09-25T09:38:42Z",
+   "completedAt": "2026-09-25T09:38:41Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "macos / release-build",
+   "status": "COMPLETED",
+   "conclusion": "SKIPPED",
+   "startedAt": "2026-09-25T09:38:42Z",
+   "completedAt": "2026-09-25T09:38:42Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "macos / macOS status",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:40:11Z",
+   "completedAt": "2026-09-25T09:40:15Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "linux-preflight",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:35:57Z",
+   "completedAt": "2026-09-25T09:36:00Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "macOS admission gate",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:35:57Z",
+   "completedAt": "2026-09-25T09:36:01Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "tests",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:40:30Z",
+   "completedAt": "2026-09-25T09:40:34Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "ci-status",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:40:37Z",
+   "completedAt": "2026-09-25T09:40:40Z",
+   "isRequired": true,
+   "checkSuite": {
+    "app": {
+     "slug": "github-actions"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "Vercel Agent Review",
+   "status": "COMPLETED",
+   "conclusion": "NEUTRAL",
+   "startedAt": "2026-09-25T09:33:17Z",
+   "completedAt": "2026-09-25T09:33:17Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "vercel"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "cubic \u00b7 AI code reviewer",
+   "status": "COMPLETED",
+   "conclusion": "NEUTRAL",
+   "startedAt": "2026-09-25T09:33:31Z",
+   "completedAt": "2026-09-25T09:33:33Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "cubic-dev-ai"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "[code]smith",
+   "status": "COMPLETED",
+   "conclusion": "SKIPPED",
+   "startedAt": "2026-09-25T09:33:15Z",
+   "completedAt": "2026-09-25T09:33:15Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "blacksmith-sh"
+    }
+   }
+  },
+  {
+   "__typename": "StatusContext",
+   "context": "CodeRabbit",
+   "state": "SUCCESS",
+   "createdAt": "2026-09-25T09:44:12Z",
+   "isRequired": false
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "Socket Security: Project Report",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:33:21Z",
+   "completedAt": "2026-09-25T09:33:23Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "socket-security"
+    }
+   }
+  },
+  {
+   "__typename": "CheckRun",
+   "name": "Socket Security: Pull Request Alerts",
+   "status": "COMPLETED",
+   "conclusion": "SUCCESS",
+   "startedAt": "2026-09-25T09:33:23Z",
+   "completedAt": "2026-09-25T09:33:36Z",
+   "isRequired": false,
+   "checkSuite": {
+    "app": {
+     "slug": "socket-security"
+    }
+   }
+  }
+ ]
+}

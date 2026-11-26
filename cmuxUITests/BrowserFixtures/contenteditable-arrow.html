@@ -1,0 +1,73 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>contenteditable-arrow</title>
+  <style>
+    body { margin: 24px; font: 20px/1.5 sans-serif; }
+    #editor { width: 520px; border: 1px solid #888; padding: 8px; }
+    #editor:focus { outline: 2px solid #367bf5; }
+  </style>
+</head>
+<body>
+  <div id="editor" contenteditable="true" aria-label="multiline editor">
+    <div>first line</div>
+    <div>second line</div>
+    <div>third line</div>
+  </div>
+  <script>
+    const editor = document.getElementById('editor');
+    let arrowKeydowns = [];
+
+    function placeCaretAtStart() {
+      const firstText = editor.firstElementChild && editor.firstElementChild.firstChild;
+      if (!firstText) return;
+      const range = document.createRange();
+      range.setStart(firstText, 0);
+      range.collapse(true);
+      const selection = getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+
+    function lineForSelection() {
+      const selection = getSelection();
+      let element = selection && selection.anchorNode;
+      if (element && element.nodeType !== Node.ELEMENT_NODE) element = element.parentElement;
+      while (element && element.parentElement !== editor) element = element.parentElement;
+      return element ? Array.prototype.indexOf.call(editor.children, element) : -1;
+    }
+
+    function lineForNode(node) {
+      let element = node;
+      if (element && element.nodeType !== Node.ELEMENT_NODE) element = element.parentElement;
+      while (element && element.parentElement !== editor) element = element.parentElement;
+      return element ? Array.prototype.indexOf.call(editor.children, element) : -1;
+    }
+
+    editor.addEventListener('focus', placeCaretAtStart);
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+        arrowKeydowns.push({
+          key: event.key,
+          isTrusted: event.isTrusted,
+          shiftKey: event.shiftKey
+        });
+      }
+    }, true);
+
+    window.__cmuxArrowState = () => {
+      const selection = getSelection();
+      return {
+        line: lineForSelection(),
+        anchorLine: selection ? lineForNode(selection.anchorNode) : -1,
+        focusLine: selection ? lineForNode(selection.focusNode) : -1,
+        offset: selection ? selection.anchorOffset : -1,
+        lastArrowTrusted: arrowKeydowns.length ? arrowKeydowns[arrowKeydowns.length - 1].isTrusted : false,
+        lastArrowShift: arrowKeydowns.length ? arrowKeydowns[arrowKeydowns.length - 1].shiftKey : false,
+        arrowKeydownCount: arrowKeydowns.length
+      };
+    };
+  </script>
+</body>
+</html>

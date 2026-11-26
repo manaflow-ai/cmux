@@ -1,2 +1,0 @@
-2026-11-25: device hub closes a Mac socket silent past 90 s, so phones see a cut-off Mac as offline (#55281; cmux#52200)
-2026-11-26: device hub keeps its reap alarm for a Mac socket that never pinged, so that Mac too shows offline on iPhone (#55562; cmux#52200)

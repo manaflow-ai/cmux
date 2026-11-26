@@ -1,4 +1,0 @@
-{
-  "agent": "userOnly",
-  "why": "On, Settings shows and edits Claude Code's and Codex's own settings, MCP servers, skills, commands and hooks in their own config files: only the person turns that on."
-}

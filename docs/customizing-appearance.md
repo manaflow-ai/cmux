@@ -11,7 +11,7 @@ pane borders, notification rings, icon) lives in `~/.config/cmux/cmux.json`.
 | --- | --- | --- |
 | `~/.config/ghostty/config` or `~/.config/ghostty/config.ghostty` | Terminal rendering, shared with standalone Ghostty | **Reload Configuration** (Cmd+Shift+,) or `cmux reload-config` |
 | `~/Library/Application Support/com.mitchellh.ghostty/config.ghostty` | Same, Ghostty's macOS location | Same |
-| `~/Library/Application Support/com.cmuxterm.app/config.ghostty` | cmux-only Ghostty overrides. The Settings theme and font-size controls write here | Same |
+| `~/Library/Application Support/com.cmuxterm.app/config.ghostty` | cmux-only Ghostty overrides. `cmux themes` and the Settings font-size controls write here | Same |
 | `~/.config/cmux/cmux.json` | App chrome and behavior ([schema](https://github.com/manaflow-ai/cmux/blob/main/web/data/cmux.schema.json)) | Reloads automatically when you save |
 
 cmux loads its own `config.ghostty` after Ghostty's files, so a key set there
@@ -50,10 +50,24 @@ settings are replaced or don't apply:
 
 ## Themes
 
-Pick a theme in Settings, with a live preview across the running app. The
-`cmux themes` CLI was removed with the Swift CLI and has no Rust equivalent yet.
-To script a theme, write the light/dark pair into any Ghostty config file and
-reload (`cmux settings reload-configuration`):
+Pick a theme interactively, with a live preview across the running app:
+
+```bash
+cmux themes
+```
+
+Or script it:
+
+```bash
+cmux themes list
+cmux themes set "Catppuccin Mocha"
+cmux themes set --light "Catppuccin Latte" --dark "Catppuccin Mocha"
+cmux themes clear
+```
+
+`set` writes `theme = light:...,dark:...` into cmux's `config.ghostty` and asks
+the app to reload. `clear` removes that line so your Ghostty config's `theme`
+applies again. You can also write the pair yourself in any Ghostty config file:
 
 ```ini
 theme = light:Catppuccin Latte,dark:Catppuccin Mocha
@@ -63,7 +77,7 @@ The light or dark half follows `app.appearance` (`system`, `light`, or `dark`)
 in `cmux.json`.
 
 Custom themes are ordinary Ghostty config files. Put one in
-`~/.config/ghostty/themes/<Name>` and it shows up in the theme picker. Colors
+`~/.config/ghostty/themes/<Name>` and it shows up in `cmux themes list`. Colors
 set directly in your config (`background`, `foreground`, `palette`, and so on)
 override the theme's.
 
@@ -106,26 +120,6 @@ split panes and each copy uses its own GPU memory.
 
 `window-padding-x`, `window-padding-y`, `window-padding-balance`, and
 `window-padding-color` pad each terminal pane.
-
-### Wallpaper that switches by itself
-
-cmux NEXT draws one picture behind the whole window (`appearance.background` in
-`~/.config/cmux/cmux-next.json`), and it can change on its own the way the macOS
-desktop does. One command sets each mode:
-
-```sh
-cmux wallpaper follow-appearance --light ~/Pictures/day.jpg --dark ~/Pictures/night.jpg
-cmux wallpaper schedule 07:00=~/Pictures/day.jpg sunset=~/Pictures/night.jpg
-cmux wallpaper use-macos-dynamic catalina      # follows the sun; no name lists them
-cmux wallpaper rotate ~/Pictures/Walls --every 30m
-cmux wallpaper show                            # the mode and the picture shown now
-cmux wallpaper off
-```
-
-Schedule times are `HH:MM` or `sunrise`, `sunset`, `dawn`, `dusk`, `noon` with an
-optional offset such as `sunset-30m`. Sun times come from your time zone, or from
-`cmux wallpaper location LAT,LON`. `cmux wallpaper --help` lists every option, and
-the cmux-customization skill has the same settings as JSON.
 
 ## Fonts
 
@@ -204,14 +198,14 @@ The Ghostty keys `sidebar-background` (a hex color, or
 `light:#hex,dark:#hex`) and `sidebar-tint-opacity` set the same tint. Use one
 place or the other.
 
+To replace the sidebar entirely, write a [custom sidebar](custom-sidebars.md)
+in `~/.config/cmux/sidebars/`. [`Examples/CustomSidebars`](../Examples/CustomSidebars)
+has ready-to-copy ones.
+
 ## Workspace and notification colors
 
 - `workspaceColors.indicatorStyle`: `leftRail` (default) or `solidFill` for the
-  selected workspace. In cmux NEXT the same key sets how a colored workspace's
-  row shows its color: `dot` (default), `leftRail` (a bar down the row's edge)
-  or `fill` (the whole row in its color; `solidFill` is read as `fill`). It is
-  Workspace Color Style in Settings › Appearance, and applies to workspaces
-  inside groups too.
+  selected workspace.
 - `workspaceColors.selectionColor` and `workspaceColors.notificationBadgeColor`
   override those colors.
 - `workspaceColors.subtleSelection`: `true` swaps the solid left-rail selection
@@ -228,9 +222,8 @@ place or the other.
 - `workspaceColors.colors` is the named palette shown in the workspace color
   picker. It replaces the built-in palette, so copy the default entries from the
   schema that you want to keep.
-- Color a workspace from the CLI with a palette choice:
-  `cmux workspace set-color --color blue --target ws_…` (grey, blue, red,
-  yellow, green, pink, purple, cyan, orange).
+- Color a workspace from the CLI: `cmux workspace-action set-color Amber` or
+  `cmux workspace-action --action set-color --color "#C0392B"`.
 - `notifications.paneFlashColor` recolors the unread pane ring and pane flash.
   `notifications.unreadPaneRing` and `notifications.paneFlash` turn them off.
 

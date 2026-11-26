@@ -1,9 +1,6 @@
 internal import CMUXMobileCore
 public import CmuxIrohTransport
 public import Foundation
-#if canImport(FoundationNetworking)
-public import FoundationNetworking
-#endif
 
 public enum IrxBrokerServiceError: Error, Sendable {
     case notRegistered
@@ -657,7 +654,7 @@ public actor IrxBrokerService {
         now: Date = Date()
     ) -> IrxGrantSnapshot? {
         guard !deactivated else { return nil }
-        guard let grants: [String: IrxGrantSnapshot] = grantCache.load(),
+        guard let grants = grantCache.load(),
             let snapshot = grants[acceptorEndpointIDHex],
             snapshot.isFresh(at: now)
         else { return nil }
@@ -668,7 +665,7 @@ public actor IrxBrokerService {
     /// instead of re-presenting stale cache.
     public func dropGrant(acceptorEndpointIDHex: String) {
         guard !deactivated else { return }
-        var grants: [String: IrxGrantSnapshot] = grantCache.load() ?? [:]
+        var grants = grantCache.load() ?? [:]
         guard grants.removeValue(forKey: acceptorEndpointIDHex) != nil else { return }
         grantCache.save(grants)
         journal.record("broker", "grant-dropped", ["acceptor": acceptorEndpointIDHex])
@@ -706,7 +703,7 @@ public actor IrxBrokerService {
             grantJWS: response.grant,
             expiresAt: expiresAt
         )
-        var grants: [String: IrxGrantSnapshot] = grantCache.load() ?? [:]
+        var grants = grantCache.load() ?? [:]
         grants[acceptorEndpointIDHex] = snapshot
         try requireCurrent(epoch)
         grantCache.save(grants)

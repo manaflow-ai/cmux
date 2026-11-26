@@ -1,0 +1,503 @@
+{
+  "baseline": "c4881822f28ade0934a512ee154514c9838a2922",
+  "head": "1fac7afcd6f26785edb604973332cf4ec8a0ba3a",
+  "platform": "macOS-26.4.1-arm64-arm-64bit",
+  "swift": "Apple Swift version 6.3.3 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)\nTarget: arm64-apple-macosx26.0",
+  "scope": "Warm runtime; fresh synthetic files; kernel-buffered FileHandle writes; no fsync.",
+  "variants": {
+    "before": [
+      {
+        "behavior_checks": "passed",
+        "crossing_16_mib": false,
+        "samples": [
+          {
+            "bytes_written": 30550,
+            "dropped_lines": 0,
+            "flush_ms": 0.466917,
+            "write_calls": 32
+          },
+          {
+            "bytes_written": 30550,
+            "dropped_lines": 0,
+            "flush_ms": 0.426916,
+            "write_calls": 32
+          },
+          {
+            "bytes_written": 30550,
+            "dropped_lines": 0,
+            "flush_ms": 0.392625,
+            "write_calls": 32
+          },
+          {
+            "bytes_written": 30550,
+            "dropped_lines": 0,
+            "flush_ms": 0.356667,
+            "write_calls": 32
+          },
+          {
+            "bytes_written": 30550,
+            "dropped_lines": 0,
+            "flush_ms": 0.5885,
+            "write_calls": 32
+          },
+          {
+            "bytes_written": 30550,
+            "dropped_lines": 0,
+            "flush_ms": 0.509,
+            "write_calls": 32
+          },
+          {
+            "bytes_written": 30550,
+            "dropped_lines": 0,
+            "flush_ms": 0.440959,
+            "write_calls": 32
+          }
+        ],
+        "submitted_lines": 32
+      },
+      {
+        "behavior_checks": "passed",
+        "crossing_16_mib": false,
+        "samples": [
+          {
+            "bytes_written": 244626,
+            "dropped_lines": 0,
+            "flush_ms": 0.9715,
+            "write_calls": 256
+          },
+          {
+            "bytes_written": 244626,
+            "dropped_lines": 0,
+            "flush_ms": 1.068292,
+            "write_calls": 256
+          },
+          {
+            "bytes_written": 244626,
+            "dropped_lines": 0,
+            "flush_ms": 1.128792,
+            "write_calls": 256
+          },
+          {
+            "bytes_written": 244626,
+            "dropped_lines": 0,
+            "flush_ms": 1.235208,
+            "write_calls": 256
+          },
+          {
+            "bytes_written": 244626,
+            "dropped_lines": 0,
+            "flush_ms": 1.539834,
+            "write_calls": 256
+          },
+          {
+            "bytes_written": 244626,
+            "dropped_lines": 0,
+            "flush_ms": 1.342709,
+            "write_calls": 256
+          },
+          {
+            "bytes_written": 244626,
+            "dropped_lines": 0,
+            "flush_ms": 1.230041,
+            "write_calls": 256
+          }
+        ],
+        "submitted_lines": 256
+      },
+      {
+        "behavior_checks": "passed",
+        "crossing_16_mib": false,
+        "samples": [
+          {
+            "bytes_written": 978858,
+            "dropped_lines": 0,
+            "flush_ms": 4.83275,
+            "write_calls": 1024
+          },
+          {
+            "bytes_written": 978858,
+            "dropped_lines": 0,
+            "flush_ms": 4.190459,
+            "write_calls": 1024
+          },
+          {
+            "bytes_written": 978858,
+            "dropped_lines": 0,
+            "flush_ms": 6.581666,
+            "write_calls": 1024
+          },
+          {
+            "bytes_written": 978858,
+            "dropped_lines": 0,
+            "flush_ms": 4.000542,
+            "write_calls": 1024
+          },
+          {
+            "bytes_written": 978858,
+            "dropped_lines": 0,
+            "flush_ms": 4.610166,
+            "write_calls": 1024
+          },
+          {
+            "bytes_written": 978858,
+            "dropped_lines": 0,
+            "flush_ms": 5.824416,
+            "write_calls": 1024
+          },
+          {
+            "bytes_written": 978858,
+            "dropped_lines": 0,
+            "flush_ms": 5.291042,
+            "write_calls": 1024
+          }
+        ],
+        "submitted_lines": 1024
+      },
+      {
+        "behavior_checks": "passed",
+        "crossing_16_mib": false,
+        "samples": [
+          {
+            "bytes_written": 979096,
+            "dropped_lines": 128,
+            "flush_ms": 4.565333,
+            "write_calls": 1024
+          },
+          {
+            "bytes_written": 979096,
+            "dropped_lines": 128,
+            "flush_ms": 4.146333,
+            "write_calls": 1024
+          },
+          {
+            "bytes_written": 979096,
+            "dropped_lines": 128,
+            "flush_ms": 4.953458,
+            "write_calls": 1024
+          },
+          {
+            "bytes_written": 979096,
+            "dropped_lines": 128,
+            "flush_ms": 4.30725,
+            "write_calls": 1024
+          },
+          {
+            "bytes_written": 979096,
+            "dropped_lines": 128,
+            "flush_ms": 7.210542,
+            "write_calls": 1024
+          },
+          {
+            "bytes_written": 979096,
+            "dropped_lines": 128,
+            "flush_ms": 5.371625,
+            "write_calls": 1024
+          },
+          {
+            "bytes_written": 979096,
+            "dropped_lines": 128,
+            "flush_ms": 5.10675,
+            "write_calls": 1024
+          }
+        ],
+        "submitted_lines": 1152
+      },
+      {
+        "behavior_checks": "passed",
+        "crossing_16_mib": true,
+        "samples": [
+          {
+            "bytes_written": 244626,
+            "dropped_lines": 0,
+            "flush_ms": 1.621166,
+            "write_calls": 256
+          },
+          {
+            "bytes_written": 244626,
+            "dropped_lines": 0,
+            "flush_ms": 1.79875,
+            "write_calls": 256
+          },
+          {
+            "bytes_written": 244626,
+            "dropped_lines": 0,
+            "flush_ms": 3.454416,
+            "write_calls": 256
+          },
+          {
+            "bytes_written": 244626,
+            "dropped_lines": 0,
+            "flush_ms": 10.434833,
+            "write_calls": 256
+          },
+          {
+            "bytes_written": 244626,
+            "dropped_lines": 0,
+            "flush_ms": 1.837791,
+            "write_calls": 256
+          },
+          {
+            "bytes_written": 244626,
+            "dropped_lines": 0,
+            "flush_ms": 3.326583,
+            "write_calls": 256
+          },
+          {
+            "bytes_written": 244626,
+            "dropped_lines": 0,
+            "flush_ms": 2.224833,
+            "write_calls": 256
+          }
+        ],
+        "submitted_lines": 256
+      }
+    ],
+    "after": [
+      {
+        "behavior_checks": "passed",
+        "crossing_16_mib": false,
+        "samples": [
+          {
+            "bytes_written": 30550,
+            "dropped_lines": 0,
+            "flush_ms": 0.51875,
+            "write_calls": 1
+          },
+          {
+            "bytes_written": 30550,
+            "dropped_lines": 0,
+            "flush_ms": 0.409958,
+            "write_calls": 1
+          },
+          {
+            "bytes_written": 30550,
+            "dropped_lines": 0,
+            "flush_ms": 0.369625,
+            "write_calls": 1
+          },
+          {
+            "bytes_written": 30550,
+            "dropped_lines": 0,
+            "flush_ms": 0.325375,
+            "write_calls": 1
+          },
+          {
+            "bytes_written": 30550,
+            "dropped_lines": 0,
+            "flush_ms": 0.312166,
+            "write_calls": 1
+          },
+          {
+            "bytes_written": 30550,
+            "dropped_lines": 0,
+            "flush_ms": 0.654542,
+            "write_calls": 1
+          },
+          {
+            "bytes_written": 30550,
+            "dropped_lines": 0,
+            "flush_ms": 0.647792,
+            "write_calls": 1
+          }
+        ],
+        "submitted_lines": 32
+      },
+      {
+        "behavior_checks": "passed",
+        "crossing_16_mib": false,
+        "samples": [
+          {
+            "bytes_written": 244626,
+            "dropped_lines": 0,
+            "flush_ms": 0.671083,
+            "write_calls": 1
+          },
+          {
+            "bytes_written": 244626,
+            "dropped_lines": 0,
+            "flush_ms": 0.592625,
+            "write_calls": 1
+          },
+          {
+            "bytes_written": 244626,
+            "dropped_lines": 0,
+            "flush_ms": 0.582792,
+            "write_calls": 1
+          },
+          {
+            "bytes_written": 244626,
+            "dropped_lines": 0,
+            "flush_ms": 0.46325,
+            "write_calls": 1
+          },
+          {
+            "bytes_written": 244626,
+            "dropped_lines": 0,
+            "flush_ms": 0.539583,
+            "write_calls": 1
+          },
+          {
+            "bytes_written": 244626,
+            "dropped_lines": 0,
+            "flush_ms": 0.494375,
+            "write_calls": 1
+          },
+          {
+            "bytes_written": 244626,
+            "dropped_lines": 0,
+            "flush_ms": 0.495292,
+            "write_calls": 1
+          }
+        ],
+        "submitted_lines": 256
+      },
+      {
+        "behavior_checks": "passed",
+        "crossing_16_mib": false,
+        "samples": [
+          {
+            "bytes_written": 978858,
+            "dropped_lines": 0,
+            "flush_ms": 0.886334,
+            "write_calls": 1
+          },
+          {
+            "bytes_written": 978858,
+            "dropped_lines": 0,
+            "flush_ms": 0.720167,
+            "write_calls": 1
+          },
+          {
+            "bytes_written": 978858,
+            "dropped_lines": 0,
+            "flush_ms": 0.810542,
+            "write_calls": 1
+          },
+          {
+            "bytes_written": 978858,
+            "dropped_lines": 0,
+            "flush_ms": 0.918458,
+            "write_calls": 1
+          },
+          {
+            "bytes_written": 978858,
+            "dropped_lines": 0,
+            "flush_ms": 0.671,
+            "write_calls": 1
+          },
+          {
+            "bytes_written": 978858,
+            "dropped_lines": 0,
+            "flush_ms": 0.854708,
+            "write_calls": 1
+          },
+          {
+            "bytes_written": 978858,
+            "dropped_lines": 0,
+            "flush_ms": 0.811709,
+            "write_calls": 1
+          }
+        ],
+        "submitted_lines": 1024
+      },
+      {
+        "behavior_checks": "passed",
+        "crossing_16_mib": false,
+        "samples": [
+          {
+            "bytes_written": 979096,
+            "dropped_lines": 128,
+            "flush_ms": 0.910416,
+            "write_calls": 1
+          },
+          {
+            "bytes_written": 979096,
+            "dropped_lines": 128,
+            "flush_ms": 2.890459,
+            "write_calls": 1
+          },
+          {
+            "bytes_written": 979096,
+            "dropped_lines": 128,
+            "flush_ms": 0.65925,
+            "write_calls": 1
+          },
+          {
+            "bytes_written": 979096,
+            "dropped_lines": 128,
+            "flush_ms": 2.409666,
+            "write_calls": 1
+          },
+          {
+            "bytes_written": 979096,
+            "dropped_lines": 128,
+            "flush_ms": 5.819292,
+            "write_calls": 1
+          },
+          {
+            "bytes_written": 979096,
+            "dropped_lines": 128,
+            "flush_ms": 1.169209,
+            "write_calls": 1
+          },
+          {
+            "bytes_written": 979096,
+            "dropped_lines": 128,
+            "flush_ms": 1.064625,
+            "write_calls": 1
+          }
+        ],
+        "submitted_lines": 1152
+      },
+      {
+        "behavior_checks": "passed",
+        "crossing_16_mib": true,
+        "samples": [
+          {
+            "bytes_written": 244626,
+            "dropped_lines": 0,
+            "flush_ms": 0.99075,
+            "write_calls": 2
+          },
+          {
+            "bytes_written": 244626,
+            "dropped_lines": 0,
+            "flush_ms": 0.830917,
+            "write_calls": 2
+          },
+          {
+            "bytes_written": 244626,
+            "dropped_lines": 0,
+            "flush_ms": 0.804083,
+            "write_calls": 2
+          },
+          {
+            "bytes_written": 244626,
+            "dropped_lines": 0,
+            "flush_ms": 0.777375,
+            "write_calls": 2
+          },
+          {
+            "bytes_written": 244626,
+            "dropped_lines": 0,
+            "flush_ms": 1.058416,
+            "write_calls": 2
+          },
+          {
+            "bytes_written": 244626,
+            "dropped_lines": 0,
+            "flush_ms": 1.01575,
+            "write_calls": 2
+          },
+          {
+            "bytes_written": 244626,
+            "dropped_lines": 0,
+            "flush_ms": 1.121167,
+            "write_calls": 2
+          }
+        ],
+        "submitted_lines": 256
+      }
+    ]
+  }
+}

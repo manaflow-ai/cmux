@@ -1,0 +1,29 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="script-src 'unsafe-inline'; object-src 'none'">
+<title>csp-no-unsafe-eval</title>
+</head>
+<body>
+<button id="csp-btn">increment</button>
+<span id="counter">0</span>
+<div id="status">PENDING</div>
+<pre id="event-log"></pre>
+<script>
+  window.__cmuxLog = [];
+  const logEl = document.getElementById('event-log');
+  const statusEl = document.getElementById('status');
+  const counterEl = document.getElementById('counter');
+  let seq = 0;
+  let count = 0;
+  document.getElementById('csp-btn').addEventListener('click', (ev) => {
+    count += 1;
+    counterEl.textContent = String(count);
+    window.__cmuxLog.push({ seq: ++seq, type: ev.type, target: '#csp-btn', isTrusted: ev.isTrusted });
+    logEl.textContent = JSON.stringify(window.__cmuxLog);
+    statusEl.textContent = 'PASS';
+  });
+</script>
+</body>
+</html>

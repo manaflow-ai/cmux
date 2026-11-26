@@ -1,4 +1,3 @@
-#if canImport(dnssd)
 import Darwin
 @preconcurrency import Dispatch
 import dnssd
@@ -53,7 +52,7 @@ public actor CmxIrohSystemBonjourPublisher: CmxIrohBonjourPublishing {
     public func events() -> AsyncStream<CmxIrohBonjourPublisherEvent> {
         let id = UUID()
         return AsyncStream(bufferingPolicy: .bufferingNewest(32)) { continuation in
-            observers.updateValue(continuation, forKey: id)
+            observers[id] = continuation
             continuation.onTermination = { [weak self] _ in
                 Task { await self?.removeObserver(id) }
             }
@@ -127,8 +126,8 @@ public actor CmxIrohSystemBonjourPublisher: CmxIrohBonjourPublishing {
                         advertisement.interfaceIndex,
                         advertisement.hostTarget,
                         record.type,
-                        UInt16(clamping: kDNSServiceClass_IN),
-                        UInt16(clamping: bytes.count), // an A or AAAA address, 4 or 16 bytes
+                        UInt16(kDNSServiceClass_IN),
+                        UInt16(bytes.count),
                         bytes.baseAddress,
                         60,
                         cmxIrohBonjourRecordRegisterCallback,
@@ -159,7 +158,7 @@ public actor CmxIrohSystemBonjourPublisher: CmxIrohBonjourPublishing {
                     CmxIrohLANAdvertisement.domain,
                     advertisement.hostTarget,
                     advertisement.port.bigEndian,
-                    UInt16(clamping: bytes.count), // CmxIrohLANTXTRecord bounds the record below 65,536
+                    UInt16(bytes.count),
                     bytes.baseAddress,
                     cmxIrohBonjourServiceRegisterCallback,
                     context
@@ -232,13 +231,13 @@ public actor CmxIrohSystemBonjourPublisher: CmxIrohBonjourPublishing {
             guard address.ipAddress.withCString({ inet_pton(AF_INET, $0, &value) }) == 1 else {
                 throw CmxIrohLANDiscoveryError.invalidSocketAddress
             }
-            return (UInt16(clamping: kDNSServiceType_A), Data(bytes: &value, count: MemoryLayout.size(ofValue: value)))
+            return (UInt16(kDNSServiceType_A), Data(bytes: &value, count: MemoryLayout.size(ofValue: value)))
         case .ipv6:
             var value = in6_addr()
             guard address.ipAddress.withCString({ inet_pton(AF_INET6, $0, &value) }) == 1 else {
                 throw CmxIrohLANDiscoveryError.invalidSocketAddress
             }
-            return (UInt16(clamping: kDNSServiceType_AAAA), Data(bytes: &value, count: MemoryLayout.size(ofValue: value)))
+            return (UInt16(kDNSServiceType_AAAA), Data(bytes: &value, count: MemoryLayout.size(ofValue: value)))
         }
     }
 
@@ -252,4 +251,3 @@ public actor CmxIrohSystemBonjourPublisher: CmxIrohBonjourPublishing {
         }
     }
 }
-#endif

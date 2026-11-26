@@ -4,6 +4,7 @@ import { preferredLocaleFromAcceptLanguage } from "./i18n/accept-language";
 import { routing } from "./i18n/routing";
 import { isAgentPageVariantPath } from "./app/lib/agent-page-paths";
 import { isDocsPathname, isDocsZoneDeployment } from "./app/lib/docs-channel";
+import { docsLinkFallback } from "./app/lib/docs-link-fallbacks";
 import {
   fallbackContentRequestForPathname,
   featureWorkflowContentLocales,
@@ -137,9 +138,10 @@ function handleHostAndMachineRoutes(
     return NextResponse.rewrite(url);
   }
 
-  // Machine endpoints retain their own validation and authentication, outside
-  // locale, sign-in page and browser-navigation handling.
-  if (isMachineEndpointPath(pathname)) {
+  // OpenAI-compatible coderouter traffic is a machine endpoint, never a
+  // localized page. Keep this explicit in addition to the matcher exclusion
+  // so direct middleware tests and future matcher edits fail safely.
+  if (pathname === "/v1/responses" || pathname === "/v1/codex/responses") {
     return NextResponse.next();
   }
 
@@ -171,6 +173,15 @@ function handleHostAndMachineRoutes(
   // Locale handling belongs to those origins; rewriting it here first causes
   // the origin to normalize the path back through the router in a loop.
   if (!isDocsZoneDeployment() && isDocsPathname(pathname)) {
+    // A docs link that shipped in What's New but has no page goes to the
+    // nearest live page (docs-link-fallbacks.ts says why it never shadows one).
+    const fallback = docsLinkFallback(pathname);
+    if (fallback) {
+      // A plain URL: NextURL would put back the request's trailing slash.
+      const url = new URL(request.url);
+      url.pathname = fallback;
+      return NextResponse.redirect(url, 307);
+    }
     return NextResponse.next();
   }
 
@@ -386,6 +397,8 @@ function handleLegalAndDocsRoutes(
     "/company-information",
     "/terms-of-service",
     "/eula",
+    "/cmux-cloud/subprocessors",
+    "/cmux-cloud/dpa",
   ]);
   if (englishOnlyPages.has(pathname)) {
     const url = request.nextUrl.clone();
@@ -476,6 +489,30 @@ function handleLegalAndDocsRoutes(
     const url = request.nextUrl.clone();
     url.pathname = "/en/docs/cloud-security";
     return NextResponse.rewrite(url);
+  }
+  return handleEnglishOnlyDocsRoute(request, pathname, "/docs/main-thread");
+}
+
+/**
+ * An English-only docs page: keep its canonical URL unprefixed and bypass
+ * locale detection, so a browser language preference cannot select a 404.
+ */
+function handleEnglishOnlyDocsRoute(
+  request: NextRequest,
+  pathname: string,
+  docsPath: string,
+): NextResponse | undefined {
+  const bare = pathname.replace(/\/$/, "");
+  if (bare === docsPath) {
+    const url = request.nextUrl.clone();
+    url.pathname = `/en${docsPath}`;
+    return NextResponse.rewrite(url);
+  }
+  const prefixed = bare.match(/^\/([a-z]{2}(?:-[A-Z]{2})?)(\/docs\/.+)$/);
+  if (prefixed && prefixed[2] === docsPath && prefixed[1] !== "en") {
+    const url = request.nextUrl.clone();
+    url.pathname = docsPath;
+    return NextResponse.redirect(url, 301);
   }
   return undefined;
 }
@@ -647,14 +684,9 @@ function isCoderouterLandingPath(pathname: string): boolean {
   return pathname === "/coderouter" || pathname === "/coderouter/";
 }
 
-function isMachineEndpointPath(pathname: string): boolean {
-  return pathname === "/v1/responses" ||
-    pathname === "/v1/codex/responses" ||
-    pathname === "/server" || pathname.startsWith("/server/");
-}
-
 export const config = {
   matcher: [
-    "/((?!api|v1|_next|_vercel|agent-page-variant|authorize|handler|connected).*)",
+    // `.well-known` (the iOS app's AASA file) must not get a locale redirect.
+    "/((?!api|v1|_next|_vercel|agent-page-variant|authorize|handler|\\.well-known).*)",
   ],
 };

@@ -1,4 +1,3 @@
-import { isIP } from "node:net";
 import { CMUX_TUI_PORT, cmuxTuiAsDaemonUser, cmuxTuiLayoutSelector } from "./drivers/cmuxTuiDaemon";
 
 /**
@@ -29,29 +28,26 @@ import { CMUX_TUI_PORT, cmuxTuiAsDaemonUser, cmuxTuiLayoutSelector } from "./dri
  *   pause, through the same pause path the Pause Machine action uses
  *   (workflows.ts pauseVm), with pause reason `idle`.
  *
- * Anything the probe cannot read (an old image, a daemon that does not
- * answer, a failed exec, a row without a private address) is unknown, and
- * unknown never pauses.
+ * Anything the probe cannot read (a daemon that does not answer, a failed
+ * exec, a row without a private address) is unknown, and unknown never pauses.
+ *
+ * Legacy daemons: machines baked before the daemon served `subscribe-activity`
+ * (every production image up to cmux-tui a9b104f3) answer it with serde's
+ * unknown-variant error, and their CLI has no `acp` subcommand. Those two
+ * answers, and only those, are not unknown: the daemon reads as `legacy` and
+ * acpmux as none. A legacy machine is decided from what /proc and the API show
+ * (busy terminals, which include an agent CLI in a terminal, ssh, inbound
+ * connections other than the daemon port, CPU, API calls); it has no input or
+ * agent times, so a person at an idle shell prompt counts as idle. Its reasons
+ * end in `;legacy_daemon`.
  */
 
 /**
  * Minutes of idleness before a machine without its own setting pauses. The
  * single switch for the default: 0 turns auto-pause off for every machine that
- * has not chosen a value. Leo, 2026-10-21: on, 30 minutes. Leo, 2026-10-30:
- * "we're saying no auto pausing of the freestyle vms for now": Off.
+ * has not chosen a value. Leo, 2026-10-21: on, 30 minutes.
  */
-export const VM_IDLE_PAUSE_DEFAULT_MINUTES = 0;
-
-/**
- * The kill switch for idle auto-pause, off unless the deployment sets
- * `CMUX_VM_IDLE_AUTO_PAUSE=on`. Off, the `vm-idle-pause` cron probes and
- * pauses no machine, not even one that chose a timeout (Leo, 2026-10-30:
- * "we're saying no auto pausing of the freestyle vms for now"). Pause Machine
- * and Resume are not affected.
- */
-export function vmIdleAutoPauseEnabled(env: Readonly<Record<string, string | undefined>> = process.env): boolean {
-  return env.CMUX_VM_IDLE_AUTO_PAUSE === "on";
-}
+export const VM_IDLE_PAUSE_DEFAULT_MINUTES = 30;
 
 /** The per-machine choices, in minutes; 0 is Off. */
 export const VM_IDLE_PAUSE_CHOICES = [0, 15, 30, 60, 120] as const;
@@ -65,6 +61,55 @@ export const VM_PAUSE_REASON_KEY = "cmuxPauseReason";
 export const VM_LAST_API_ACTIVITY_KEY = "cmuxLastApiActivityAt";
 /** When the idle cron last checked the machine, epoch ms; the cron checks the least recent first. */
 export const VM_IDLE_PROBED_AT_KEY = "cmuxIdleProbedAt";
+/** Last cron verdict, independent of lifecycle/activity fences. */
+export const VM_IDLE_LAST_DECISION_KEY = "cmuxIdleLastDecision";
+export type VmIdleOutcome = "paused" | "idle" | "active" | "unknown" | "off" | "aborted" | "error" | "claim_refused";
+export type VmIdleLastDecision = {
+  readonly at: number;
+  readonly outcome: VmIdleOutcome;
+  readonly reason: string;
+  readonly run: { readonly checked: number; readonly elapsedMs: number };
+};
+export type VmIdlePauseDiagnostics = {
+  readonly minutes: VmIdlePauseMinutes;
+  readonly lastCheckedAt: number | null;
+  readonly idleSince: number | null;
+  readonly lastApiActivityAt: number | null;
+  readonly privateAddressKnown: boolean;
+  readonly lastDecision: VmIdleLastDecision | null;
+};
+
+/**
+ * The idle fence: a counter every write that can change the idle verdict
+ * moves (an observation, API activity, the setting, any status write, a
+ * resume, the cron's pause claim). The cron's observation write, its pause
+ * claim and its pause record each require the value it read, so a probe that
+ * overlapped any of those writes loses instead of restoring a stale stretch or
+ * pausing a machine someone just used.
+ */
+export const VM_IDLE_EPOCH_KEY = "cmuxIdleEpoch";
+/**
+ * The fence the idle cron claimed for a provider pause it has not settled yet.
+ * Set by the claim; removed by any status write and by the cron's observation
+ * write. Still there on a later run means the pause's answer was lost: that
+ * run reads the provider back and records or undoes it.
+ */
+export const VM_IDLE_PAUSE_CLAIM_KEY = "cmuxIdlePauseClaim";
+/**
+ * The fence a pause that said why (a person's Pause Machine, or the cron's own
+ * idle pause) set when it recorded. The status reconciler's paused write says
+ * nothing and stamps nothing, so a row it paused is nobody's decision.
+ */
+export const VM_PAUSE_INTENT_EPOCH_KEY = "cmuxPauseIntentEpoch";
+
+/**
+ * A deliberate pause under way: a person's Pause Machine or the allowance
+ * enforcer writes `{ cause, epoch }` with a fence bump before any provider
+ * effect (a zero runtime cap, the provider pause), so an idle recovery that
+ * read the row earlier loses its fence, and one that already holds a fence
+ * sees the pause as newer than it. Kept until the pause's own paused write.
+ */
+export const VM_PENDING_PAUSE_KEY = "cmuxPendingPause";
 
 /** API activity is written at most this often per machine. */
 export const VM_API_ACTIVITY_MIN_INTERVAL_MS = 60_000;
@@ -78,6 +123,11 @@ export const VM_IDLE_CPU_BUSY_CORES = 0.05;
 
 /** Why the control plane paused a machine: the idle timer, or a person or client asking. */
 export type VmPauseReason = "idle" | "user";
+/**
+ * What a paused write may store as its cause: a reason, or the allowance
+ * enforcer (goPause.ts), whose pause is deliberate but shows no reason.
+ */
+export type VmPauseCause = VmPauseReason | "allowance";
 
 /** The cron's period (vercel.json `/api/cron/vm-idle-pause`). */
 export const VM_IDLE_PROBE_INTERVAL_MS = 5 * 60_000;
@@ -96,10 +146,72 @@ export function isVmIdlePauseMinutes(value: unknown): value is VmIdlePauseMinute
 
 type MetadataRow = { readonly providerMetadata?: Record<string, unknown> | null };
 
+/** The row's idle fence (VM_IDLE_EPOCH_KEY); 0 when never written. */
+export function vmIdleEpochFromRow(row: MetadataRow): number {
+  const stored = row.providerMetadata?.[VM_IDLE_EPOCH_KEY];
+  return typeof stored === "number" && Number.isSafeInteger(stored) && stored >= 0 ? stored : 0;
+}
+
+/** The fence of an idle pause the cron claimed but has not settled (VM_IDLE_PAUSE_CLAIM_KEY), or null. */
+export function vmIdlePauseClaimFromRow(row: MetadataRow): number | null {
+  const stored = row.providerMetadata?.[VM_IDLE_PAUSE_CLAIM_KEY];
+  return typeof stored === "number" && Number.isSafeInteger(stored) && stored >= 0 ? stored : null;
+}
+
+/** The fence a paused row's stated pause set (VM_PAUSE_INTENT_EPOCH_KEY), or null for nobody's decision. */
+export function vmPauseIntentEpochFromRow(row: MetadataRow): number | null {
+  const stored = row.providerMetadata?.[VM_PAUSE_INTENT_EPOCH_KEY];
+  return typeof stored === "number" && Number.isSafeInteger(stored) && stored >= 0 ? stored : null;
+}
+
 /** The machine's own choice, else the default. A stored value outside the choices is ignored. */
 export function vmIdlePauseMinutesFromRow(row: MetadataRow): VmIdlePauseMinutes {
   const stored = row.providerMetadata?.[VM_IDLE_PAUSE_MINUTES_KEY];
   return isVmIdlePauseMinutes(stored) ? stored : VM_IDLE_PAUSE_DEFAULT_MINUTES;
+}
+
+/** The fence a deliberate pause under way set (VM_PENDING_PAUSE_KEY), or null. */
+export function vmPendingPauseEpochFromRow(row: MetadataRow): number | null {
+  const epoch = pendingPauseField(row, "epoch");
+  return epoch !== null && epoch >= 0 ? epoch : null;
+}
+
+function pendingPauseField(row: MetadataRow, field: "epoch" | "requestedAt"): number | null {
+  const stored = row.providerMetadata?.[VM_PENDING_PAUSE_KEY];
+  if (!stored || typeof stored !== "object") return null;
+  const value = (stored as Record<string, unknown>)[field];
+  return typeof value === "number" && Number.isSafeInteger(value) ? value : null;
+}
+
+/**
+ * How long a pending pause (VM_PENDING_PAUSE_KEY) holds the idle cron back.
+ * A pause clears its own intent when it fails, so only a process that died
+ * mid-pause leaves one behind. The pause callers run inside the pause route
+ * (maxDuration 300 s) and the runtime-limits cron (60 s), and every route in
+ * web/app is capped at 960 s; the provider pause itself times out at 30 s.
+ * Twenty minutes is past all of them.
+ */
+export const VM_PAUSE_INTENT_TTL_MS = 20 * 60_000;
+
+/**
+ * The one check every idle claim, recovery and compensation consults: a
+ * person's or the allowance enforcer's pause is under way (its intent is
+ * written; its zero cap and provider pause may still be in flight), whatever
+ * its fence relative to the cron's. While it holds, the cron takes no claim,
+ * clears no cap and resumes nothing; leaving a zero cap is the safe side.
+ * An intent older than VM_PAUSE_INTENT_TTL_MS is abandoned. The repository's
+ * claims check the same thing in SQL (noOutstandingPauseIntent).
+ */
+export function hasOutstandingPauseIntent(row: MetadataRow, now: number): boolean {
+  const requestedAt = pendingPauseField(row, "requestedAt");
+  return requestedAt !== null && now - requestedAt < VM_PAUSE_INTENT_TTL_MS;
+}
+
+/** The stored cause of a paused machine's pause, including the allowance enforcer's; null otherwise. */
+export function vmPauseCauseFromRow(row: MetadataRow & { readonly status: string }): VmPauseCause | null {
+  if (row.status !== "paused") return null;
+  const stored = row.providerMetadata?.[VM_PAUSE_REASON_KEY];
+  return stored === "idle" || stored === "user" || stored === "allowance" ? stored : null;
 }
 
 /** Why a paused machine is paused, when the control plane paused it; null otherwise. */
@@ -142,21 +254,48 @@ export function vmLastApiActivityFromRow(row: MetadataRow): number | null {
  */
 export function vmIdlePrivateAddressesFromRow(row: MetadataRow): string[] {
   const metadata = row.providerMetadata ?? {};
-  const raw = [metadata["networkIpv4"], metadata["networkIpv6"]];
-  // A malformed field can hide an inbound connection on that interface.
-  if (raw.some((a) => a != null && a !== "" && (typeof a !== "string" || isIP(a) === 0))) return [];
-  return raw.filter((a): a is string => typeof a === "string" && a !== "");
+  return [metadata["networkIpv4"], metadata["networkIpv6"]].filter((a): a is string => typeof a === "string" && a !== "");
 }
+
+/** Only the diagnostic fields leave the row; never expose arbitrary provider metadata. */
+export function vmIdlePauseDiagnosticsFromRow(row: MetadataRow & { readonly providerVmId: string | null }): VmIdlePauseDiagnostics {
+  const checked = row.providerMetadata?.[VM_IDLE_PROBED_AT_KEY];
+  return {
+    minutes: vmIdlePauseMinutesFromRow(row),
+    lastCheckedAt: isTime(checked) ? checked : null,
+    idleSince: vmIdleObservationFromRow(row)?.idleSince ?? null,
+    lastApiActivityAt: vmLastApiActivityFromRow(row),
+    privateAddressKnown: vmIdlePrivateAddressesFromRow(row).length > 0,
+    lastDecision: lastDecisionFromMetadata(row.providerMetadata?.[VM_IDLE_LAST_DECISION_KEY]),
+  };
+}
+
+function lastDecisionFromMetadata(raw: unknown): VmIdleLastDecision | null {
+  if (!raw || typeof raw !== "object") return null;
+  const { at, outcome, reason, run } = raw as Record<string, unknown>;
+  if (!isTime(at) || typeof outcome !== "string" || typeof reason !== "string" || !run || typeof run !== "object") return null;
+  if (!["paused", "idle", "active", "unknown", "off", "aborted", "error", "claim_refused"].includes(outcome)) return null;
+  const { checked, elapsedMs } = run as Record<string, unknown>;
+  if (count(checked) === null || count(elapsedMs) === null) return null;
+  return { at, outcome: outcome as VmIdleOutcome, reason, run: { checked: checked as number, elapsedMs: elapsedMs as number } };
+}
+
+/** The daemon's `subscribe-activity` snapshot. */
+export type VmIdleDaemonActivity = {
+  readonly attachedClients: number;
+  readonly liveAgents: number;
+  readonly lastUserInputAt: number | null;
+  readonly lastAgentActionAt: number | null;
+};
 
 /** What {@link vmIdleProbeCommand} saw on the machine. */
 export type VmIdleProbe = {
-  /** The session daemon's activity snapshot; null when it did not answer. */
-  readonly daemon: {
-    readonly attachedClients: number;
-    readonly liveAgents: number;
-    readonly lastUserInputAt: number | null;
-    readonly lastAgentActionAt: number | null;
-  } | null;
+  /**
+   * The session daemon's activity snapshot; `legacy` when the daemon refused
+   * `subscribe-activity` as an unknown command (a build from before it); null
+   * when it did not answer or answered anything else.
+   */
+  readonly daemon: VmIdleDaemonActivity | "legacy" | null;
   /** acpmux sessions; null when they could not be read (a stopped acpmux reads as none). */
   readonly acpmux: { readonly busySessions: number; readonly lastUpdatedAt: number | null } | null;
   /** Terminals whose foreground process group is not just a shell at its prompt. */
@@ -199,6 +338,7 @@ export function parseVmIdleProbe(stdout: string): VmIdleProbe | null {
 function parseDaemon(value: unknown): VmIdleProbe["daemon"] {
   if (!value || typeof value !== "object") return null;
   const d = value as Record<string, unknown>;
+  if (d.legacy === true) return "legacy";
   const attachedClients = count(d.attached_clients);
   const liveAgents = count(d.live_agents);
   if (attachedClients === null || liveAgents === null) return null;
@@ -253,11 +393,13 @@ export function decideVmIdlePause(input: {
   if (typeof probe === "string") return { pause: false, reason: `unknown:${probe}`, observation: null };
   const previous = carriedObservation(input.previous, input.providerVmId, now);
   const cpu = cpuCoresSince(previous, probe, now);
+  const legacy = probe.daemon === "legacy" ? ";legacy_daemon" : "";
   const active = activeReasons(probe, cpu);
-  if (active.length > 0) return { pause: false, reason: `active:${active.join(",")}`, observation: null };
+  if (active.length > 0) return { pause: false, reason: `active:${active.join(",")}${legacy}`, observation: null };
   // A counter that went back (a reboot) vouches for nothing before it.
   const idleSince = previous !== null && cpu !== "reset" ? previous.idleSince : now;
-  const reported = [probe.daemon.lastUserInputAt, probe.daemon.lastAgentActionAt, probe.acpmux.lastUpdatedAt, input.lastApiActivityAt]
+  const daemon = probe.daemon === "legacy" ? null : probe.daemon;
+  const reported = [daemon?.lastUserInputAt, daemon?.lastAgentActionAt, probe.acpmux.lastUpdatedAt, input.lastApiActivityAt]
     .filter((at): at is number => typeof at === "number")
     .map((at) => Math.min(at, now));
   const lastActivity = Math.max(idleSince, ...reported);
@@ -267,8 +409,8 @@ export function decideVmIdlePause(input: {
     observedAt: now,
     ...(isCpuMs(probe.cpuBusyMs) ? { cpuBusyMs: probe.cpuBusyMs } : {}),
   };
-  if (now - lastActivity >= input.minutes * 60_000) return { pause: true, reason: "idle_timeout", observation };
-  return { pause: false, reason: "idle", observation };
+  if (now - lastActivity >= input.minutes * 60_000) return { pause: true, reason: `idle_timeout${legacy}`, observation };
+  return { pause: false, reason: `idle${legacy}`, observation };
 }
 
 type KnownVmIdleProbe = VmIdleProbe & {
@@ -282,12 +424,16 @@ function knownProbe(probe: VmIdleProbe | null): KnownVmIdleProbe | string {
   const { daemon, acpmux } = probe;
   if (!daemon) return "daemon";
   if (!acpmux) return "acpmux";
+  // Without a CPU sample a background job could be working unseen.
+  if (!isCpuMs(probe.cpuBusyMs)) return "cpu";
   return { ...probe, daemon, acpmux };
 }
 
 /** The previous observation when it is this machine's and recent enough to vouch for the time since. */
 function carriedObservation(previous: VmIdleObservation | null, providerVmId: string, now: number): VmIdleObservation | null {
   if (previous === null || previous.providerVmId !== providerVmId || previous.observedAt > now) return null;
+  // Without its CPU sample nothing measured the CPU since it, so it vouches for nothing.
+  if (!isCpuMs(previous.cpuBusyMs)) return null;
   return now - previous.observedAt <= VM_IDLE_OBSERVATION_MAX_GAP_MS ? previous : null;
 }
 
@@ -308,7 +454,7 @@ function cpuCoresSince(previous: VmIdleObservation | null, probe: VmIdleProbe, n
 
 function activeReasons(probe: KnownVmIdleProbe, cpuCores: number | "reset" | null): string[] {
   return [
-    probe.daemon.liveAgents > 0 && "live_agents",
+    probe.daemon !== "legacy" && probe.daemon.liveAgents > 0 && "live_agents",
     probe.acpmux.busySessions > 0 && "agent_turns",
     probe.busyTerminals > 0 && "busy_terminals",
     probe.sshSessions > 0 && "ssh_sessions",
@@ -326,9 +472,7 @@ function activeReasons(probe: KnownVmIdleProbe, cpuCores: number | "reset" | nul
  * - the acpmux session list the shell part wrote to $CMUX_IDLE_ACPMUX
  *   (`NONE` when acpmux is not running, `ERR` when it could not be read);
  * - /proc: each pseudo-terminal's foreground process group (a group with
- *   anything but a shell in it, or a shell given -c or a script, is a running
- *   command; a process that exited mid-read is skipped, any other unreadable
- *   process makes the count unknown), sshd session processes,
+ *   anything but a shell in it is a running command), sshd session processes,
  *   and established TCP connections into a listening port, counted when they
  *   reach the machine's private address ($CMUX_IDLE_PRIVATE_ADDRESSES) or sshd,
  *   except the daemon's own port ($CMUX_IDLE_DAEMON_PORT: the app's link, whose
@@ -341,7 +485,7 @@ function activeReasons(probe: KnownVmIdleProbe, cpuCores: number | "reset" | nul
  * Times and counts only leave the machine.
  */
 export const VM_IDLE_PROBE_SCRIPT = String.raw`
-import ipaddress, json, os, socket
+import ipaddress, json, os, re, socket
 proc = os.environ.get("CMUX_IDLE_PROC_ROOT", "/proc")
 SHELLS = {"bash", "zsh", "fish", "sh", "dash", "ksh", "mksh", "tcsh", "csh", "nu", "xonsh", "elvish"}
 
@@ -361,11 +505,29 @@ def daemon_sockets():
     return [p for p in out if p]
 
 def daemon():
+    legacy = None
     for path in daemon_sockets():
         a = daemon_at(path)
-        if a is not None:
+        if a is not None and not a.get("legacy"):
             return a
-    return None
+        legacy = legacy or a
+    return legacy
+
+# a9b104f3's daemon answers a request it cannot parse with "bad request: " and serde's
+# message, which for an unknown tag is: unknown variant <tick>name<tick>, expected ...
+# (\x60 is the backtick; the script lives in a template literal and may not contain one).
+# serde's unknown-variant message for one, two or many expected variants, then
+# serde_json's position, as a9b104f3's server.rs sends it: format!("bad request: {error}").
+VARIANT = r"\x60[a-z][a-z0-9_-]*\x60"
+LEGACY_DAEMON_REFUSAL = re.compile(
+    r"bad request: unknown variant \x60subscribe-activity\x60, expected (?:"
+    + VARIANT + r"|" + VARIANT + r" or " + VARIANT + r"|one of " + VARIANT + r"(?:, " + VARIANT + r")+"
+    + r")(?: at line [0-9]+ column [0-9]+)?")
+
+def refused_as_unknown(msg):
+    # A build from before subscribe-activity refuses exactly this command, and nothing else.
+    err = msg.get("error") if msg.get("ok") is False else None
+    return isinstance(err, str) and LEGACY_DAEMON_REFUSAL.fullmatch(err.strip()) is not None
 
 def daemon_at(path):
     try:
@@ -381,6 +543,10 @@ def daemon_at(path):
             buf += chunk
         s.close()
         msg = json.loads(buf.split(b"\n", 1)[0])
+        if not isinstance(msg, dict):
+            return None
+        if refused_as_unknown(msg):
+            return {"legacy": True}
         a = msg.get("data", {}).get("activity") if msg.get("ok") is True else None
         if not isinstance(a, dict):
             return None
@@ -394,7 +560,7 @@ def acpmux():
             text = f.read()
     except Exception:
         return None
-    if text.strip() == "NONE":
+    if text.strip() == "NONE" or (text.strip() == "ERR" and acp_missing()):
         return {"busy_sessions": 0, "last_updated_at_ms": None}
     try:
         sessions = json.loads(text).get("sessions")
@@ -407,21 +573,34 @@ def acpmux():
         if not isinstance(s, dict) or "peer" in s:
             continue
         pending = s.get("pendingPermissions")
-        queued = s.get("queued", 0)
-        # A durable queued prompt may be waiting while its session reports
-        # "ready" and has no current turn. A malformed count is unknown.
-        if type(queued) is not int or queued < 0:
-            return None
-        if (s.get("turn") is not None or (isinstance(pending, int) and pending > 0)
-                or queued > 0 or s.get("queuePaused") is True
-                or s.get("waitsForSlot") is True or s.get("moving") is True
-                or s.get("waitingOn") is not None
-                or s.get("status") in ("running", "waiting")):
+        if s.get("turn") is not None or (isinstance(pending, int) and pending > 0) or s.get("status") in ("running", "waiting"):
             busy += 1
         u = s.get("updatedAt")
         if isinstance(u, int) and u > 0 and (latest is None or u > latest):
             latest = u
     return {"busy_sessions": busy, "last_updated_at_ms": latest}
+
+# a9b104f3's CLI refuses an unknown first word with exactly this message, optionally
+# followed by a suggestion; with --json it prints one usage.invalid object, else one
+# "cmux: " line. Its stderr is that line and nothing else.
+ACP_REFUSAL = re.compile(r'unknown resource scope "acp"\.( Did you mean \x60[a-z][a-z-]*\x60\?)?')
+
+def acp_missing():
+    try:
+        with open(os.environ["CMUX_IDLE_ACPMUX_ERR"]) as f:
+            err = f.read().strip()
+    except Exception:
+        return False
+    if "\n" in err:
+        return False
+    if err.startswith("{"):
+        try:
+            e = json.loads(err)
+        except Exception:
+            return False
+        message = e.get("message") if isinstance(e, dict) and e.get("code") == "usage.invalid" else None
+        return isinstance(message, str) and ACP_REFUSAL.fullmatch(message) is not None
+    return err.startswith("cmux: ") and ACP_REFUSAL.fullmatch(err[len("cmux: "):]) is not None
 
 # A process that exited between the listing and the read. Anything else that
 # cannot be read could hide work, so it makes the answer unknown (None).
@@ -570,23 +749,21 @@ def inbound_connections(procs):
             with open(os.path.join(proc, "net", table)) as f:
                 lines = f.read().splitlines()[1:]
         except FileNotFoundError:
-            # On a kernel without IPv6 tcp6 can be absent; tcp is always required.
+            # No tcp6 table is a kernel without IPv6: no IPv6 connections. No tcp table is unreadable.
             if table == "tcp6":
                 continue
             return None
         except Exception:
+            # A table that exists but cannot be read could hide a connection in use.
             return None
         for line in lines:
-            if not line.strip():
-                continue
             p = line.split()
             try:
                 lhex, lport = p[1].split(":")
                 rport = int(p[2].split(":")[1], 16)
                 rows.append((address(lhex), int(lport, 16), p[3], rport, p[9]))
             except Exception:
-                # A malformed row might be an established stream to a forwarded port.
-                return None
+                pass
     listening = {port for _, port, state, _, _ in rows if state == "0A"}
     daemon_port = os.environ.get("CMUX_IDLE_DAEMON_PORT", "")
     daemon_inodes = daemon_socket_inodes(procs)
@@ -645,15 +822,16 @@ print(json.dumps({
  * only literal IP addresses pass.
  */
 export function vmIdleProbeCommand(privateAddresses: readonly string[]): string {
-  const addresses = privateAddresses.filter((a) => isIP(a) !== 0).join(",");
+  const addresses = privateAddresses.filter((a) => /^[0-9a-fA-F.:]+$/.test(a)).join(",");
   const acp = (args: string) => cmuxTuiAsDaemonUser(`"$CMUX_TUI_BIN" acp --json ${args}`);
   return [
     cmuxTuiLayoutSelector(),
     `t=$(mktemp) || exit 1`,
-    `s=$(${acp("daemon status")} </dev/null 2>/dev/null)`,
+    // LC_ALL=C keeps an unknown-subcommand refusal in English for acp_missing().
+    `s=$(${cmuxTuiAsDaemonUser(`LC_ALL=C "$CMUX_TUI_BIN" acp --json daemon status`)} </dev/null 2>"$t.err")`,
     `case "$s" in *'"pid":'[0-9]*|*'"pid": '[0-9]*) ${acp("ls")} </dev/null >"$t" 2>/dev/null || printf ERR >"$t" ;; *'"running":false'*|*'"running": false'*) printf NONE >"$t" ;; *) printf ERR >"$t" ;; esac`,
-    `CMUX_IDLE_ACPMUX="$t" CMUX_IDLE_DAEMON_UID="$(id -u "$CMUX_TUI_USER")" CMUX_IDLE_DAEMON_PORT=${CMUX_TUI_PORT} CMUX_IDLE_PRIVATE_ADDRESSES='${addresses}' python3 -I - <<'CMUX_IDLE_PY'\n${VM_IDLE_PROBE_SCRIPT}\nCMUX_IDLE_PY`,
-    `rc=$?; rm -f "$t"; exit $rc`,
+    `CMUX_IDLE_ACPMUX="$t" CMUX_IDLE_ACPMUX_ERR="$t.err" CMUX_IDLE_DAEMON_UID="$(id -u "$CMUX_TUI_USER")" CMUX_IDLE_DAEMON_PORT=${CMUX_TUI_PORT} CMUX_IDLE_PRIVATE_ADDRESSES='${addresses}' python3 -I - <<'CMUX_IDLE_PY'\n${VM_IDLE_PROBE_SCRIPT}\nCMUX_IDLE_PY`,
+    `rc=$?; rm -f "$t" "$t.err"; exit $rc`,
   ].join("\n");
 }
 

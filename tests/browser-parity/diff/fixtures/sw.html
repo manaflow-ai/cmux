@@ -1,0 +1,7 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="icon" href="data:,"><title>Service worker</title></head><body><h1>Service worker</h1><p id="state">starting</p><button id="probe">Probe</button><p id="out">idle</p>
+<script>
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").then(() => navigator.serviceWorker.ready).then(() => (document.getElementById("state").textContent = navigator.serviceWorker.controller ? "controlled" : "ready"), (e) => (document.getElementById("state").textContent = "error " + e.name));
+else document.getElementById("state").textContent = "unsupported";
+navigator.serviceWorker?.addEventListener("controllerchange", () => (document.getElementById("state").textContent = "controlled"));
+probe.onclick = async () => (document.getElementById("out").textContent = await (await fetch("/sw-intercepted")).text());
+</script></body></html>

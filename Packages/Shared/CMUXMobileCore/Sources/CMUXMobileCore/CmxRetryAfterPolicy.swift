@@ -1,7 +1,4 @@
 public import Foundation
-#if canImport(FoundationNetworking)
-public import FoundationNetworking
-#endif
 
 /// Shared interpretation of HTTP `Retry-After` for every automatic client
 /// retry owner. A server directive is a minimum wait, never a replacement for
@@ -61,7 +58,8 @@ public struct CmxRetryAfterPolicy: Sendable {
     /// without shortening ordinary server directives or trapping on restore.
     public func roundedUpSeconds(_ seconds: TimeInterval) -> Int {
         guard seconds > 0 else { return 0 }
-        return seconds.rounded(.up).saturatedInteger(Int.self) ?? 0
+        let rounded = seconds.rounded(.up)
+        return rounded >= Double(Int.max) ? Int.max : Int(rounded)
     }
 
     /// Sleep in representable chunks while preserving the entire requested

@@ -1,22 +1,13 @@
 {
-  "originHash" : "a531f7436be59b5d6d08b2e7d305c395d1b3d2cd64a5005f600e9c685da3cc79",
+  "originHash" : "264fe0f1abcd1b5f1db1014e3b6f1356e8368158088f922f86ae226567788f41",
   "pins" : [
     {
-      "identity" : "swift-asn1",
+      "identity" : "iroh-ffi",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/apple/swift-asn1.git",
+      "location" : "https://github.com/manaflow-ai/iroh-ffi.git",
       "state" : {
-        "revision" : "97fd57437fc94cfa6b62f2b8f84c50f433534e17",
-        "version" : "1.7.5"
-      }
-    },
-    {
-      "identity" : "swift-crypto",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/apple/swift-crypto.git",
-      "state" : {
-        "revision" : "95ba0316a9b733e92bb6b071255ff46263bbe7dc",
-        "version" : "3.15.1"
+        "revision" : "ee19f156667ca640b912108a45f8b5bb8d156fec",
+        "version" : "1.2.0-cmux.1.ios17"
       }
     }
   ],

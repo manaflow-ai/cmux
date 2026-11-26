@@ -6,6 +6,7 @@ import {
   bigint,
   boolean,
   check,
+  date,
   foreignKey,
   index,
   integer,
@@ -15,12 +16,11 @@ import {
   primaryKey,
   text,
   timestamp,
-  unique,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
-export const vmProvider = pgEnum("vm_provider", ["freestyle", "gcp"]);
+export const vmProvider = pgEnum("vm_provider", ["freestyle"]);
 
 /** A closed, actionable observed-destroy cleanup object. */
 export function observedDestroyCleanupValidityPredicate(cleanup: SQLWrapper): SQL {
@@ -80,11 +80,10 @@ export const cloudVmNotificationDeliveryStatus = pgEnum("cloud_vm_notification_d
   "dismissed",
 ]);
 
-/** Durable fan-out run state. A run is the user-visible unit of work above a VM. */
+/** Durable team-owned Runs. Session and provider credentials never enter these rows. */
 export const runStatus = pgEnum("run_status", [
   "queued",
   "running",
-  "cancelling",
   "succeeded",
   "failed",
   "cancelled",
@@ -92,47 +91,111 @@ export const runStatus = pgEnum("run_status", [
 
 export const runAttemptStatus = pgEnum("run_attempt_status", [
   "queued",
-  "leased",
   "running",
   "succeeded",
   "failed",
   "cancelled",
-  "expired",
 ]);
 
 export const runEventKind = pgEnum("run_event_kind", [
   "run.created",
   "attempt.queued",
   "attempt.started",
-  "attempt.heartbeat",
-  "attempt.output",
-  "attempt.artifact",
   "attempt.succeeded",
   "attempt.failed",
-  "run.cancel_requested",
-  "run.completed",
+  "attempt.cancelled",
+  "run.cancelled",
 ]);
 
-/** Runtime lifetime is independent from the compute placement that hosts it. */
-export const cloudRuntimeKind = pgEnum("cloud_runtime_kind", [
-  "persistent",
-  "ephemeral",
+export const runs = pgTable("runs", {
+  ownerTeamId: text("owner_team_id"),
+  spec: jsonb("spec").$type<Record<string, unknown>>(),
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: text("user_id").notNull(),
+  billingTeamId: text("billing_team_id"),
+  idempotencyKey: text("idempotency_key"),
+  requestDigest: text("request_digest").notNull(),
+  source: jsonb("source").$type<Record<string, unknown>>().notNull(),
+  recipe: text("recipe").notNull(),
+  provider: text("provider").notNull().default("cloud-vm"),
+  desiredAttempts: integer("desired_attempts").notNull().default(1),
+  status: runStatus("status").notNull().default("queued"),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  error: text("error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("runs_user_idempotency_key_unique")
+    .on(table.userId, table.idempotencyKey)
+    .where(sql`${table.ownerTeamId} is null and ${table.idempotencyKey} is not null`),
+  index("runs_user_created_idx").on(table.userId, table.createdAt, table.id),
+  uniqueIndex("runs_owner_idempotency_unique").on(table.ownerTeamId, table.idempotencyKey).where(sql`${table.ownerTeamId} is not null and ${table.idempotencyKey} is not null`),
 ]);
 
-/** Lifecycle transitions are owned by the control plane and fence stale workers. */
-export const cloudRuntimeLifecycle = pgEnum("cloud_runtime_lifecycle", [
-  "provisioning",
-  "ready",
-  "running",
-  "draining",
-  "suspended",
-  "stopped",
-  "released",
-  "failed",
+export const runAttempts = pgTable("run_attempts", {
+  leaseId: uuid("lease_id"),
+  leaseUntil: timestamp("lease_until", { withTimezone: true }),
+  workerId: text("worker_id"),
+  cancelRequestedAt: timestamp("cancel_requested_at", { withTimezone: true }),
+  checkpoint: jsonb("checkpoint").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+  cleanupState: text("cleanup_state").notNull().default("pending"),
+  retainedUntil: timestamp("retained_until", { withTimezone: true }),
+  promotedAt: timestamp("promoted_at", { withTimezone: true }),
+  runtimeId: uuid("runtime_id"),
+  id: uuid("id").defaultRandom().primaryKey(),
+  runId: uuid("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
+  ordinal: integer("ordinal").notNull(),
+  variant: jsonb("variant").$type<Record<string, unknown>>().notNull(),
+  status: runAttemptStatus("status").notNull().default("queued"),
+  providerVmId: text("provider_vm_id"),
+  result: jsonb("result").$type<Record<string, unknown>>(),
+  error: text("error"),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("run_attempts_run_ordinal_unique").on(table.runId, table.ordinal),
+  index("run_attempts_run_status_idx").on(table.runId, table.status),
 ]);
 
-export type CloudRuntimeKind = (typeof cloudRuntimeKind.enumValues)[number];
-export type CloudRuntimeLifecycle = (typeof cloudRuntimeLifecycle.enumValues)[number];
+export const runEvents = pgTable("run_events", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  runId: uuid("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
+  attemptId: uuid("attempt_id").references(() => runAttempts.id, { onDelete: "cascade" }),
+  sequence: integer("sequence").notNull(),
+  kind: runEventKind("kind").notNull(),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("run_events_run_sequence_unique").on(table.runId, table.sequence),
+  index("run_events_run_cursor_idx").on(table.runId, table.sequence, table.id),
+]);
+
+
+/** Receipt artifacts are immutable JSON, never arbitrary external URLs. */
+export const runArtifacts = pgTable("run_artifacts", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  runId: uuid("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
+  attemptId: uuid("attempt_id").notNull().references(() => runAttempts.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  digest: text("digest").notNull(),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("run_artifacts_attempt_name_unique").on(table.attemptId, table.name)]);
+
+export const runAttachTickets = pgTable("run_attach_tickets", {
+  digest: text("digest").primaryKey(),
+  runId: uuid("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
+  attemptId: uuid("attempt_id").notNull().references(() => runAttempts.id, { onDelete: "cascade" }),
+  ownerTeamId: text("owner_team_id").notNull(),
+  userId: text("user_id").notNull(),
+  providerVmId: text("provider_vm_id").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  redeemedAt: timestamp("redeemed_at", { withTimezone: true }),
+});
+
 
 /** Teams own pools; a VM is assigned one pool from its own team. */
 export const coderouterPools = pgTable("coderouter_pools", {
@@ -222,207 +285,6 @@ export const cloudVms = pgTable(
   ],
 );
 
-/** Durable runtime identity. VM status and provider addresses remain owned by cloud_vms. */
-export const cloudRuntimes = pgTable("cloud_runtimes", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  ownerTeamId: text("owner_team_id").notNull(),
-  runtimeKind: cloudRuntimeKind("runtime_kind").notNull().default("persistent"),
-  lifecycleState: cloudRuntimeLifecycle("lifecycle_state").notNull().default("provisioning"),
-  /** Null until a host explicitly binds its authoritative journal lineage. */
-  journalSessionId: text("journal_session_id"),
-  /** M0 pins one runtime to one VM; deleting compute retains the runtime. */
-  machineId: uuid("machine_id").references(() => cloudVms.id, { onDelete: "set null" }),
-  /** Incremented on every placement change and used as an optimistic fence. */
-  placementGeneration: integer("placement_generation").notNull().default(1),
-  /** Runtime operation lease; never expose the token in public API views. */
-  leaseToken: text("lease_token"),
-  leaseGeneration: integer("lease_generation").notNull().default(0),
-  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
-  /** Optional tenant-scoped idempotency key for runtime creation. */
-  idempotencyKey: text("idempotency_key"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  releasedAt: timestamp("released_at", { withTimezone: true }),
-}, (table) => [
-  index("cloud_runtimes_owner_idx").on(table.ownerTeamId),
-  index("cloud_runtimes_owner_lifecycle_idx").on(table.ownerTeamId, table.lifecycleState, table.updatedAt),
-  index("cloud_runtimes_lease_idx").on(table.lifecycleState, table.leaseExpiresAt),
-  uniqueIndex("cloud_runtimes_machine_unique").on(table.machineId),
-  uniqueIndex("cloud_runtimes_journal_unique").on(table.journalSessionId),
-  uniqueIndex("cloud_runtimes_owner_idempotency_unique")
-    .on(table.ownerTeamId, table.idempotencyKey)
-    .where(sql`${table.idempotencyKey} is not null`),
-  check("cloud_runtimes_generation_positive", sql`${table.placementGeneration} > 0`),
-  check("cloud_runtimes_lease_generation_nonnegative", sql`${table.leaseGeneration} >= 0`),
-  check("cloud_runtimes_owner_nonempty", sql`length(trim(${table.ownerTeamId})) > 0`),
-]);
-
-/** Durable provider workspace handles owned by a persistent Runtime. */
-export const cloudRuntimeWorkspaces = pgTable("cloud_runtime_workspaces", {
-  runtimeId: uuid("runtime_id").primaryKey().references(() => cloudRuntimes.id, { onDelete: "cascade" }),
-  ownerTeamId: text("owner_team_id").notNull(),
-  workspaceId: text("workspace_id").notNull(),
-  workspaceName: text("workspace_name").notNull(),
-  provider: text("provider").notNull().default("freestyle"),
-  lifecycle: text("lifecycle").notNull().default("provisioning"),
-  providerVmId: text("provider_vm_id"),
-  providerWorkspaceId: text("provider_workspace_id"),
-  providerTerminalId: text("provider_terminal_id"),
-  ownerId: text("owner_id").notNull(),
-  idempotencyKey: text("idempotency_key").notNull(),
-  requestDigest: text("request_digest").notNull(),
-  failureCode: text("failure_code"),
-  failureMessage: text("failure_message"),
-  version: integer("version").notNull().default(1),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  uniqueIndex("cloud_runtime_workspaces_owner_idempotency_unique").on(table.ownerTeamId, table.idempotencyKey),
-  uniqueIndex("cloud_runtime_workspaces_workspace_id_unique").on(table.workspaceId),
-  index("cloud_runtime_workspaces_owner_idx").on(table.ownerTeamId, table.updatedAt),
-  check("cloud_runtime_workspaces_lifecycle_check", sql`${table.lifecycle} in ('provisioning', 'running', 'suspended', 'stopped', 'failed')`),
-  check("cloud_runtime_workspaces_provider_check", sql`${table.provider} in ('freestyle', 'gcp')`),
-]);
-
-/** A durable fan-out run. Source and recipe are immutable after creation. */
-export const runs = pgTable(
-  "runs",
-  {
-    id: uuid("id").defaultRandom().primaryKey(),
-    userId: text("user_id").notNull(),
-    billingTeamId: text("billing_team_id"),
-    idempotencyKey: text("idempotency_key"),
-    requestDigest: text("request_digest").notNull(),
-    source: jsonb("source").$type<{ repository?: string; ref?: string; commit?: string; archiveDigest?: string }>().notNull(),
-    recipe: text("recipe").notNull(),
-    provider: text("provider").notNull().default("cloud-vm"),
-    desiredAttempts: integer("desired_attempts").notNull().default(1),
-    /** `sandboxed`: one throwaway VM from a pinned image, destroyed when the Run ends (hq#3367). */
-    environment: text("environment").$type<"persistent" | "sandboxed">().notNull().default("persistent"),
-    /** Manifest image the sandbox VM booted from; null for persistent Runs. */
-    imageId: text("image_id"),
-    imageVersion: text("image_version"),
-    /** A sandboxed Run's result receipt (`cmux.run.receipt/v1`); never provider handles or secrets. */
-    receipt: jsonb("receipt").$type<Record<string, unknown> | null>(),
-    status: runStatus("status").notNull().default("queued"),
-    cancelRequestedAt: timestamp("cancel_requested_at", { withTimezone: true }),
-    completedAt: timestamp("completed_at", { withTimezone: true }),
-    error: text("error"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    uniqueIndex("runs_user_idempotency_key_unique")
-      .on(table.userId, table.idempotencyKey)
-      .where(sql`${table.idempotencyKey} is not null`),
-    index("runs_user_created_idx").on(table.userId, table.createdAt, table.id),
-    index("runs_status_updated_idx").on(table.status, table.updatedAt),
-    check("runs_desired_attempts_check", sql`${table.desiredAttempts} between 1 and 32`),
-    check("runs_provider_check", sql`${table.provider} in ('cloud-vm')`),
-    check("runs_environment_check", sql`${table.environment} in ('persistent', 'sandboxed')`),
-    check("runs_sandboxed_single_attempt_check", sql`${table.environment} <> 'sandboxed' or (${table.desiredAttempts} = 1 and ${table.imageId} is not null and ${table.billingTeamId} is not null)`),
-    index("runs_environment_status_idx").on(table.environment, table.status).where(sql`${table.environment} = 'sandboxed'`),
-  ],
-);
-
-/** One independently leased execution slot in a run. Lease tokens fence stale workers. */
-export const runAttempts = pgTable(
-  "run_attempts",
-  {
-    id: uuid("id").defaultRandom().primaryKey(),
-    runId: uuid("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
-    /** Tenant-scoped durable runtime selected for this execution attempt. */
-    runtimeId: uuid("runtime_id").references(() => cloudRuntimes.id, { onDelete: "set null" }),
-    ordinal: integer("ordinal").notNull(),
-    status: runAttemptStatus("status").notNull().default("queued"),
-    providerVmId: text("provider_vm_id"),
-    providerWorkspaceId: text("provider_workspace_id"),
-    providerTerminalId: text("provider_terminal_id"),
-    terminalRetainUntil: timestamp("terminal_retain_until", { withTimezone: true }),
-    /** Hash of the last single-use Run attach ticket; raw ticket material is never persisted. */
-    attachTicketHash: text("attach_ticket_hash"),
-    attachTicketExpiresAt: timestamp("attach_ticket_expires_at", { withTimezone: true }),
-    attachTicketConsumedAt: timestamp("attach_ticket_consumed_at", { withTimezone: true }),
-    cleanupLeaseToken: text("cleanup_lease_token"),
-    cleanupLeaseExpiresAt: timestamp("cleanup_lease_expires_at", { withTimezone: true }),
-    leaseToken: text("lease_token"),
-    leaseGeneration: integer("lease_generation").notNull().default(0),
-    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
-    sourceDigest: text("source_digest"),
-    result: jsonb("result").$type<Record<string, unknown> | null>(),
-    exitCode: integer("exit_code"),
-    error: text("error"),
-    startedAt: timestamp("started_at", { withTimezone: true }),
-    finishedAt: timestamp("finished_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    uniqueIndex("run_attempts_run_ordinal_unique").on(table.runId, table.ordinal),
-    index("run_attempts_lease_idx").on(table.status, table.leaseExpiresAt),
-    index("run_attempts_terminal_retention_idx").on(table.status, table.terminalRetainUntil, table.cleanupLeaseExpiresAt),
-    index("run_attempts_run_status_idx").on(table.runId, table.status),
-    index("run_attempts_runtime_idx").on(table.runtimeId, table.createdAt, table.id),
-    check("run_attempts_lease_generation_check", sql`${table.leaseGeneration} >= 0`),
-  ],
-);
-
-/** Append-only, cursorable run journal. externalId makes worker retries idempotent. */
-export const runEvents = pgTable(
-  "run_events",
-  {
-    id: uuid("id").defaultRandom().primaryKey(),
-    runId: uuid("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
-    attemptId: uuid("attempt_id").references(() => runAttempts.id, { onDelete: "cascade" }),
-    sequence: integer("sequence").notNull(),
-    attemptSequence: integer("attempt_sequence"),
-    externalId: text("external_id"),
-    kind: runEventKind("kind").notNull(),
-    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
-    /** Lease that wrote this event. A retry of it is answered only for this lease or the live holder. */
-    writerLeaseGeneration: integer("writer_lease_generation"),
-    /** SHA-256 of the writer's lease token; raw lease tokens are never stored on events. */
-    writerLeaseTokenHash: text("writer_lease_token_hash"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    uniqueIndex("run_events_run_sequence_unique").on(table.runId, table.sequence),
-    uniqueIndex("run_events_attempt_external_unique")
-      .on(table.attemptId, table.externalId)
-      .where(sql`${table.attemptId} is not null and ${table.externalId} is not null`),
-    uniqueIndex("run_events_attempt_sequence_unique")
-      .on(table.attemptId, table.attemptSequence)
-      .where(sql`${table.attemptId} is not null and ${table.attemptSequence} is not null`),
-    index("run_events_run_cursor_idx").on(table.runId, table.sequence, table.id),
-  ],
-);
-
-/** Immutable artifact manifest entries. Bytes are uploaded to a provider-owned URI. */
-export const runArtifacts = pgTable(
-  "run_artifacts",
-  {
-    id: uuid("id").defaultRandom().primaryKey(),
-    runId: uuid("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
-    attemptId: uuid("attempt_id").notNull().references(() => runAttempts.id, { onDelete: "cascade" }),
-    name: text("name").notNull(),
-    mediaType: text("media_type").notNull().default("application/octet-stream"),
-    sizeBytes: integer("size_bytes").notNull(),
-    digest: text("digest").notNull(),
-    uri: text("uri").notNull(),
-    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
-    /** Lease that recorded this manifest; see runEvents.writerLeaseGeneration. */
-    writerLeaseGeneration: integer("writer_lease_generation"),
-    writerLeaseTokenHash: text("writer_lease_token_hash"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    uniqueIndex("run_artifacts_attempt_name_unique").on(table.attemptId, table.name),
-    index("run_artifacts_run_idx").on(table.runId, table.createdAt, table.id),
-    check("run_artifacts_size_check", sql`${table.sizeBytes} >= 0 and ${table.sizeBytes} <= 536870912`),
-    check("run_artifacts_digest_check", sql`${table.digest} ~ '^sha256:[0-9a-fA-F]{64}$'`),
-  ],
-);
-
 /**
  * External teardown that must outlive its account-owned VM row. Account
  * deletion moves pending terminal cleanup here in the same transaction that
@@ -477,6 +339,24 @@ export const cloudVmSnapshotRequests = pgTable(
     check("cloud_vm_snapshot_requests_key_length", sql`length(${table.idempotencyKey}) between 1 and 128`),
   ],
 );
+
+/** Durable Hive identity. VM status and provider addresses remain owned by cloud_vms. */
+export const cloudRuntimes = pgTable("cloud_runtimes", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  ownerTeamId: text("owner_team_id").notNull(),
+  /** Null until a host explicitly binds its authoritative journal lineage. */
+  journalSessionId: text("journal_session_id"),
+  /** M0 pins one runtime to one VM; deleting compute retains the runtime. */
+  machineId: uuid("machine_id").references(() => cloudVms.id, { onDelete: "set null" }),
+  placementGeneration: integer("placement_generation").notNull().default(1),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("cloud_runtimes_owner_idx").on(table.ownerTeamId),
+  uniqueIndex("cloud_runtimes_machine_unique").on(table.machineId),
+  uniqueIndex("cloud_runtimes_journal_unique").on(table.journalSessionId),
+  check("cloud_runtimes_generation_positive", sql`${table.placementGeneration} > 0`),
+  check("cloud_runtimes_owner_nonempty", sql`length(trim(${table.ownerTeamId})) > 0`),
+]);
 
 /** Provider-owned agent identities; multiple root/child threads can share a runtime. */
 export const cloudRuntimeAgentBindings = pgTable("cloud_runtime_agent_bindings", {
@@ -1039,30 +919,6 @@ export const cloudVmPublicationEmailGrants = pgTable("cloud_vm_publication_email
 ]);
 
 /**
- * A machine credential for one protected publication: API clients send it in
- * the `__Host-cmux-api-key` cookie, which the edge strips before the VM sees the
- * request. Only the SHA-256 of the key is stored; revoking sets `revoked_at`.
- */
-export const cloudVmPublicationApiKeys = pgTable("cloud_vm_publication_api_keys", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  publicationId: uuid("publication_id").notNull().references(() => cloudVmPublications.id, { onDelete: "cascade" }),
-  ownerUserId: text("owner_user_id").notNull(),
-  name: text("name").notNull(),
-  tokenHash: text("token_hash").notNull(),
-  /** The key's last four characters, so a person can tell keys apart. */
-  tokenHint: text("token_hint").notNull(),
-  expiresAt: timestamp("expires_at", { withTimezone: true }),
-  revokedAt: timestamp("revoked_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  uniqueIndex("cloud_vm_publication_api_keys_token_hash_unique").on(table.tokenHash),
-  index("cloud_vm_publication_api_keys_publication_idx").on(table.publicationId, table.createdAt),
-  check("cloud_vm_publication_api_keys_hash_check", sql`${table.tokenHash} ~ '^[0-9a-f]{64}$'`),
-  check("cloud_vm_publication_api_keys_name_check", sql`char_length(${table.name}) between 1 and 64`),
-  check("cloud_vm_publication_api_keys_hint_check", sql`char_length(${table.tokenHint}) = 4`),
-]);
-
-/**
  * Cross-origin browser transaction created on the publication hostname before
  * the browser visits CMUX sign-in. Only hashes of the opaque transaction and
  * OAuth state values are persisted; the host-only cookie holds the verifier.
@@ -1299,6 +1155,29 @@ export const cloudVmSessions = pgTable(
     index("cloud_vm_sessions_user_status_updated_idx")
       .on(table.userId, table.status, table.updatedAt),
     index("cloud_vm_sessions_vm_updated_idx").on(table.vmId, table.updatedAt),
+  ],
+);
+
+/**
+ * Teammates who may start app chats on a team Cloud machine besides its
+ * creator (Leo, 2026-10-31: "we can't simply block always"). The machine's
+ * creator or a team admin writes a row through /api/vm/[id]/chat-grants; the
+ * attach endpoint answers `vmKind: owner` to a granted caller still on the
+ * machine's team (services/vms/vmKind.ts). A grant goes with its machine.
+ */
+export const cloudVmChatGrants = pgTable(
+  "cloud_vm_chat_grants",
+  {
+    vmId: uuid("vm_id")
+      .notNull()
+      .references(() => cloudVms.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    /** Who shared it: the machine's creator or a team admin. */
+    grantedBy: text("granted_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("cloud_vm_chat_grants_vm_user_unique").on(table.vmId, table.userId),
   ],
 );
 
@@ -1830,97 +1709,14 @@ export const stripeSubscriptions = pgTable(
   ],
 );
 
-/**
- * The Stripe webhook inbox and idempotency ledger: one row per verified
- * event, answered 2xx once stored and processed from here
- * (services/billing/stripeWebhookInbox.ts).
- */
-export const stripeWebhookEvents = pgTable(
-  "stripe_webhook_events",
-  {
-    id: text("id").primaryKey(),
-    type: text("type").notNull(),
-    payloadHash: text("payload_hash"),
-    processedAt: timestamp("processed_at", { withTimezone: true }),
-    error: text("error"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    /** The Stripe object the event changes; one event per object is processed at a time. */
-    objectKey: text("object_key"),
-    /** Stripe's `event.created`. */
-    eventCreatedAt: timestamp("event_created_at", { withTimezone: true }),
-    attempts: integer("attempts").notNull().default(0),
-    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).defaultNow(),
-    /**
-     * The holder's lease. Defaults to 15 minutes from the insert: a row the
-     * pre-inbox build writes is held while that build applies it.
-     */
-    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true })
-      .default(sql`now() + interval '15 minutes'`),
-    /** Why a processed event changed nothing; null when it was applied. */
-    skipReason: text("skip_reason"),
-  },
-  (table) => [
-    index("stripe_webhook_events_due_idx")
-      .on(table.nextAttemptAt)
-      .where(sql`${table.processedAt} is null`),
-    index("stripe_webhook_events_object_key_idx")
-      .on(table.objectKey, table.eventCreatedAt)
-      .where(sql`${table.objectKey} is not null`),
-  ],
-);
-
-/**
- * The cmux Cloud $1 pass (services/billing/cloudIntro.ts): one row per pass
- * checkout an account started. `open` until Stripe verifies the payment, then
- * `granted` (the pass runs from `started_at` to `ends_at`) or `refused` (the
- * payment was refunded; `refusal` says why). Every started row counts as a
- * card attempt; granted rows count toward the caps and are unique per account
- * and per card fingerprint.
- */
-export const cloudIntroPasses = pgTable(
-  "cloud_intro_passes",
-  {
-    checkoutSessionId: text("checkout_session_id").primaryKey(),
-    stackUserId: text("stack_user_id").notNull(),
-    /** The teams the account belonged to at checkout; a team gets one pass across its members. */
-    stackTeamIds: text("stack_team_ids").array().notNull().default(sql`'{}'::text[]`),
-    status: text("status").$type<"open" | "granted" | "refused">().notNull().default("open"),
-    refusal: text("refusal"),
-    paymentIntentId: text("payment_intent_id"),
-    stripeCustomerId: text("stripe_customer_id"),
-    cardFingerprint: text("card_fingerprint"),
-    cardFunding: text("card_funding"),
-    /** The buyer chose "continue on Plus after 30 days"; only then is the card saved. */
-    renewOnPlus: boolean("renew_on_plus").notNull().default(false),
-    /** The card saved for off-session use, when `renew_on_plus`. */
-    paymentMethodId: text("payment_method_id"),
-    refundId: text("refund_id"),
-    startedAt: timestamp("started_at", { withTimezone: true }),
-    endsAt: timestamp("ends_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    index("cloud_intro_passes_stack_user_idx").on(table.stackUserId),
-    index("cloud_intro_passes_stack_team_ids_idx").using("gin", table.stackTeamIds),
-    index("cloud_intro_passes_granted_started_idx")
-      .on(table.startedAt)
-      .where(sql`${table.status} = 'granted'`),
-    uniqueIndex("cloud_intro_passes_payment_intent_unique")
-      .on(table.paymentIntentId)
-      .where(sql`${table.paymentIntentId} is not null`),
-    uniqueIndex("cloud_intro_passes_granted_user_unique")
-      .on(table.stackUserId)
-      .where(sql`${table.status} = 'granted'`),
-    uniqueIndex("cloud_intro_passes_granted_card_unique")
-      .on(table.cardFingerprint)
-      .where(sql`${table.status} = 'granted'`),
-    check(
-      "cloud_intro_passes_status_check",
-      sql`${table.status} in ('open', 'granted', 'refused')`,
-    ),
-  ],
-);
+export const stripeWebhookEvents = pgTable("stripe_webhook_events", {
+  id: text("id").primaryKey(),
+  type: text("type").notNull(),
+  payloadHash: text("payload_hash"),
+  processedAt: timestamp("processed_at", { withTimezone: true }),
+  error: text("error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const proWelcomeFulfillments = pgTable(
   "pro_welcome_fulfillments",
@@ -2656,6 +2452,8 @@ export const stackIdentitySnapshots = pgTable(
         displayName: string | null;
         billingPlanId: string | null;
         billingSeats: number | null;
+        /** Optional: rows written before team deals existed omit it. */
+        entitlementOverride?: unknown;
       }[]>()
       .notNull()
       .default(sql`'[]'::jsonb`),
@@ -2683,6 +2481,20 @@ export const cloudVmAlertStates = pgTable("cloud_vm_alert_states", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   check("cloud_vm_alert_states_severity_check", sql`${table.severity} in ('critical', 'warning')`),
+]);
+
+/**
+ * One staff Cloud VM health sweep per row (services/vms/health). Read-only
+ * observations of the provider account; the page reads the newest row and
+ * the sweep prunes rows past its retention window.
+ */
+export const cloudVmHealthSnapshots = pgTable("cloud_vm_health_snapshots", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  attentionNeeded: boolean("attention_needed").notNull(),
+  report: jsonb("report").notNull(),
+}, (table) => [
+  index("cloud_vm_health_snapshots_created_at_idx").on(table.createdAt),
 ]);
 
 /** Sanitized Cloud diagnostics. The receipt and export lease survive server restarts. */
@@ -2935,6 +2747,32 @@ export const hexclavePendingRevocations = pgTable("hexclave_pending_revocations"
   index("hexclave_pending_revocations_user_idx").on(table.userId),
 ]);
 
+/**
+ * A Stack session that must be revoked because the Cloud access grant it
+ * enrolled was revoked. Written in the same transaction that revokes the
+ * grant, so no crash can lose it. The row is deleted once Stack accepts the
+ * revocation; until then the vm-reconcile cron claims due rows (lease in
+ * `claimed_until`, `FOR UPDATE SKIP LOCKED`) and retries with bounded
+ * backoff. After the attempt cap or 24 hours it stops (`gave_up_at`) and is
+ * reported.
+ */
+export const stackSessionRevocations = pgTable("stack_session_revocations", {
+  stackSessionId: text("stack_session_id").primaryKey(),
+  userId: text("user_id").notNull(),
+  accessGrantId: uuid("access_grant_id"),
+  attempts: integer("attempts").notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+  claimedUntil: timestamp("claimed_until", { withTimezone: true }),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  gaveUpAt: timestamp("gave_up_at", { withTimezone: true }),
+}, (table) => [
+  index("stack_session_revocations_due_idx")
+    .on(table.nextAttemptAt)
+    .where(sql`${table.gaveUpAt} is null`),
+  index("stack_session_revocations_user_idx").on(table.userId),
+]);
+
 export type HexclaveWebhookOutcome = "processed" | "ignored" | "invalid" | "failed";
 
 /**
@@ -2942,6 +2780,56 @@ export type HexclaveWebhookOutcome = "processed" | "ignored" | "invalid" | "fail
  * revocations reflect Hexclave; a redelivery of such an id is acknowledged
  * without work. Invalid and failed deliveries keep `processed_at` null.
  */
+/**
+ * Verified Hexclave webhook deliveries waiting to be applied. The webhook
+ * answers 200 once a delivery is stored here; a rate-limited drain (the
+ * webhook's own after-response kick and the every-minute `hexclave-inbox`
+ * cron) applies them, coalescing events for one user or team into one
+ * Hexclave read. A row is deleted once applied (and recorded in
+ * `hexclave_webhook_events`). After the attempt cap a row is dead-lettered
+ * (kept, reported, purged after 30 days). Only the target is stored, never
+ * the payload.
+ */
+export const hexclaveWebhookInbox = pgTable("hexclave_webhook_inbox", {
+  svixId: text("svix_id").primaryKey(),
+  eventType: text("event_type").notNull(),
+  entityKind: text("entity_kind").$type<"user" | "team">().notNull(),
+  entityId: text("entity_id").notNull(),
+  revokeCandidateTeamIds: jsonb("revoke_candidate_team_ids").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  attempts: integer("attempts").notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+  claimedUntil: timestamp("claimed_until", { withTimezone: true }),
+  lastError: text("last_error"),
+  deadLetteredAt: timestamp("dead_lettered_at", { withTimezone: true }),
+}, (table) => [
+  check("hexclave_webhook_inbox_entity_kind_check", sql`${table.entityKind} in ('user', 'team')`),
+  index("hexclave_webhook_inbox_due_idx").on(table.nextAttemptAt).where(sql`${table.deadLetteredAt} is null`),
+  index("hexclave_webhook_inbox_entity_idx").on(table.entityKind, table.entityId),
+]);
+
+/** At most this many inbox drains run at once, each holding one leased slot. */
+export const hexclaveWebhookInboxDrainSlots = pgTable("hexclave_webhook_inbox_drain_slots", {
+  slot: integer("slot").primaryKey(),
+  /** The holder's token: only it may release the slot. */
+  leaseId: uuid("lease_id").notNull(),
+  leasedUntil: timestamp("leased_until", { withTimezone: true }).notNull(),
+});
+
+/**
+ * The inbox's single state row: a global Hexclave backoff every drain checks
+ * before it starts, and the stuck and dead-letter counts last reported (an
+ * alert fires only when they change).
+ */
+export const hexclaveWebhookInboxState = pgTable("hexclave_webhook_inbox_state", {
+  id: integer("id").primaryKey().default(1),
+  throttledUntil: timestamp("throttled_until", { withTimezone: true }).notNull().default(sql`'epoch'`),
+  reportedStuck: integer("reported_stuck").notNull().default(0),
+  reportedDeadLettered: integer("reported_dead_lettered").notNull().default(0),
+}, (table) => [
+  check("hexclave_webhook_inbox_state_singleton", sql`${table.id} = 1`),
+]);
+
 export const hexclaveWebhookEvents = pgTable("hexclave_webhook_events", {
   svixId: text("svix_id").primaryKey(),
   eventType: text("event_type").notNull(),
@@ -3005,6 +2893,22 @@ export const appleSubscriptions = pgTable("apple_subscriptions", {
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
   revocationReason: integer("revocation_reason"),
   stateSignedAt: timestamp("state_signed_at", { withTimezone: true }).notNull(),
+  /**
+   * When the cron last got an answer from the App Store Server API for this
+   * subscription (renewal re-check or lapse check). Not a state write, so it
+   * never moves `updated_at`.
+   */
+  appleCheckedAt: timestamp("apple_checked_at", { withTimezone: true }),
+  /**
+   * The higher plan of the period still running when Apple's early renewal
+   * into a lower plan was written (a downgrade charged up to a day before the
+   * period ends). It grants until `carried_until` unless
+   * `carried_transaction_id` was refunded; the cron re-derives the plan once
+   * it ends and clears these.
+   */
+  carriedPlanId: text("carried_plan_id"),
+  carriedUntil: timestamp("carried_until", { withTimezone: true }),
+  carriedTransactionId: text("carried_transaction_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
@@ -3059,6 +2963,12 @@ export const appleNotifications = pgTable("apple_notifications", {
   receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
   processedAt: timestamp("processed_at", { withTimezone: true }),
   error: text("error"),
+  /** Failed applications so far; each one pushes `next_attempt_at` out exponentially. */
+  attemptCount: integer("attempt_count").notNull().default(0),
+  /** The retry job skips the row until then (null: due now). */
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+  /** Set after the last allowed attempt failed; the retry job stops and alerts. */
+  deadLetteredAt: timestamp("dead_lettered_at", { withTimezone: true }),
 }, (table) => [
   index("apple_notifications_original_transaction_id_idx").on(table.originalTransactionId),
   index("apple_notifications_pending_idx")
@@ -3066,121 +2976,50 @@ export const appleNotifications = pgTable("apple_notifications", {
     .where(sql`${table.processedAt} is null`),
 ]);
 
-// Curated model catalog (GET /api/models/v1; services/model-catalog/).
-// models.dev copies, one row per distinct content; curator overrides; and the
-// published catalog versions the endpoint serves (newest first).
-export const modelsDevSnapshots = pgTable(
-  "models_dev_snapshots",
-  {
-    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
-    /** SHA-256 (base64url) of the canonical `raw` JSON. */
-    contentHash: text("content_hash").notNull(),
-    fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
-    /** The models.dev document, reduced to the providers the overrides read. */
-    raw: jsonb("raw").notNull(),
-  },
-  (table) => [
-    uniqueIndex("models_dev_snapshots_content_hash_unique").on(table.contentHash),
-    index("models_dev_snapshots_fetched_at_idx").on(table.fetchedAt.desc()),
-  ],
-);
-
-export const catalogOverrides = pgTable(
-  "catalog_overrides",
-  {
-    id: uuid("id").defaultRandom().primaryKey(),
-    /** `harness`: one harness's whole override (with `position`); `model`: one model's fields. */
-    kind: text("kind").notNull(),
-    harnessId: text("harness_id").notNull(),
-    /** The model id for `model` rows; null for `harness` rows. */
-    modelId: text("model_id"),
-    value: jsonb("value").notNull(),
-    author: text("author").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-    active: boolean("active").notNull().default(true),
-  },
-  (table) => [
-    unique("catalog_overrides_target_unique").on(table.kind, table.harnessId, table.modelId).nullsNotDistinct(),
-    check("catalog_overrides_kind_check", sql`${table.kind} in ('harness', 'model')`),
-    check(
-      "catalog_overrides_model_id_check",
-      sql`(${table.kind} = 'model') = (${table.modelId} is not null)`,
-    ),
-  ],
-);
-
-export const catalogVersions = pgTable(
-  "catalog_versions",
-  {
-    version: integer("version").primaryKey().generatedAlwaysAsIdentity(),
-    /** SHA-256 (base64url) of the served body; the endpoint's ETag. */
-    contentHash: text("content_hash").notNull(),
-    catalog: jsonb("catalog").notNull(),
-    publishedAt: timestamp("published_at", { withTimezone: true }).notNull().defaultNow(),
-    publishedBy: text("published_by").notNull(),
-    sourceSnapshotId: bigint("source_snapshot_id", { mode: "number" }).references(() => modelsDevSnapshots.id),
-  },
-  (table) => [index("catalog_versions_published_at_idx").on(table.publishedAt.desc())],
-);
-
-/** One staff Cloud VM health sweep per row (services/vms/health). */
-export const cloudVmHealthSnapshots = pgTable("cloud_vm_health_snapshots", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  attentionNeeded: boolean("attention_needed").notNull(),
-  report: jsonb("report").notNull(),
+/**
+ * Where the App Store Server Notifications backfill (Get Notification
+ * History) resumes, per bundle and environment. A window runs from
+ * `window_start_at` to `window_end_at`; `pagination_token` is set while it is
+ * only partly read. Once it is read to the end, `next_start_at` moves to its
+ * end and the token clears.
+ */
+export const appleNotificationHistoryCursors = pgTable("apple_notification_history_cursors", {
+  bundleId: text("bundle_id").notNull(),
+  environment: text("environment").notNull(),
+  nextStartAt: timestamp("next_start_at", { withTimezone: true }).notNull(),
+  windowStartAt: timestamp("window_start_at", { withTimezone: true }),
+  windowEndAt: timestamp("window_end_at", { withTimezone: true }),
+  paginationToken: text("pagination_token"),
+  /** Consecutive runs stopped by a retryable verification failure on the current page. */
+  retryableRuns: integer("retryable_runs").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
-  index("cloud_vm_health_snapshots_created_at_idx").on(table.createdAt),
+  primaryKey({ columns: [table.bundleId, table.environment] }),
 ]);
 
-/** Durable Stack revocation work created when a Cloud access grant is revoked. */
-export const stackSessionRevocations = pgTable("stack_session_revocations", {
-  stackSessionId: text("stack_session_id").primaryKey(),
-  userId: text("user_id").notNull(),
-  accessGrantId: uuid("access_grant_id"),
-  attempts: integer("attempts").notNull().default(0),
-  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
-  claimedUntil: timestamp("claimed_until", { withTimezone: true }),
-  lastError: text("last_error"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  gaveUpAt: timestamp("gave_up_at", { withTimezone: true }),
-}, (table) => [
-  index("stack_session_revocations_due_idx")
-    .on(table.nextAttemptAt)
-    .where(sql`${table.gaveUpAt} is null`),
-  index("stack_session_revocations_user_idx").on(table.userId),
-]);
-
-export const hexclaveWebhookInbox = pgTable("hexclave_webhook_inbox", {
-  svixId: text("svix_id").primaryKey(),
-  eventType: text("event_type").notNull(),
-  entityKind: text("entity_kind").$type<"user" | "team">().notNull(),
-  entityId: text("entity_id").notNull(),
-  revokeCandidateTeamIds: jsonb("revoke_candidate_team_ids").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+/**
+ * Opt-in hang reports from cmux NEXT Nightly (schema 2, see
+ * `app/api/hang-reports`). Anonymous: `install_id` is a random per-Mac UUID
+ * the client rotates every 30 days. No IP address, account or user agent is
+ * stored. `received_day` is the server's UTC day and carries the per-install
+ * daily cap. Rows are deleted after 90 days by `/api/cron/hang-reports-retention`.
+ */
+export const hangReports = pgTable("hang_reports", {
+  reportId: uuid("report_id").primaryKey(),
+  installId: uuid("install_id").notNull(),
+  receivedDay: date("received_day", { mode: "string" }).notNull(),
   receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
-  attempts: integer("attempts").notNull().default(0),
-  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
-  claimedUntil: timestamp("claimed_until", { withTimezone: true }),
-  lastError: text("last_error"),
-  deadLetteredAt: timestamp("dead_lettered_at", { withTimezone: true }),
+  appVersion: text("app_version"),
+  appBuild: text("app_build"),
+  channel: text("channel"),
+  osVersion: text("os_version"),
+  arch: text("arch"),
+  chip: text("chip"),
+  cores: integer("cores"),
+  memoryGb: integer("memory_gb"),
+  counts: jsonb("counts").$type<Record<string, string>>(),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
 }, (table) => [
-  check("hexclave_webhook_inbox_entity_kind_check", sql`${table.entityKind} in ('user', 'team')`),
-  index("hexclave_webhook_inbox_due_idx").on(table.nextAttemptAt).where(sql`${table.deadLetteredAt} is null`),
-  index("hexclave_webhook_inbox_entity_idx").on(table.entityKind, table.entityId),
-]);
-
-export const hexclaveWebhookInboxDrainSlots = pgTable("hexclave_webhook_inbox_drain_slots", {
-  slot: integer("slot").primaryKey(),
-  leaseId: uuid("lease_id").notNull(),
-  leasedUntil: timestamp("leased_until", { withTimezone: true }).notNull(),
-});
-
-export const hexclaveWebhookInboxState = pgTable("hexclave_webhook_inbox_state", {
-  id: integer("id").primaryKey().default(1),
-  throttledUntil: timestamp("throttled_until", { withTimezone: true }).notNull().default(sql`'epoch'`),
-  reportedStuck: integer("reported_stuck").notNull().default(0),
-  reportedDeadLettered: integer("reported_dead_lettered").notNull().default(0),
-}, (table) => [
-  check("hexclave_webhook_inbox_state_singleton", sql`${table.id} = 1`),
+  index("hang_reports_install_day_idx").on(table.installId, table.receivedDay),
+  index("hang_reports_received_at_idx").on(table.receivedAt),
 ]);

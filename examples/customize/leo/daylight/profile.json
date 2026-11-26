@@ -1,7 +1,0 @@
-{
-  "name": "leo-daylight",
-  "description": "The Leo collection's look in the light: frosted glass on lavender paper, a violet accent, and the same tones in the clock, weather, gacha and usage extensions.",
-  "settings": {
-    "appearance.themeFile": "leo-daylight"
-  }
-}

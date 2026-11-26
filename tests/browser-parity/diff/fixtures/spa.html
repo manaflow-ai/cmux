@@ -1,0 +1,5 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="icon" href="data:,"><title>SPA home</title></head><body><nav><a id="to-users" href="/diff/spa.html#/users">Users</a> <a id="to-home" href="/diff/spa.html#/">Home</a></nav><main id="view">Home view</main>
+<script>
+const render = () => { const r = location.hash.slice(1) || "/"; document.getElementById("view").textContent = "loading"; setTimeout(() => { document.getElementById("view").innerHTML = r === "/users" ? "<h2>Users</h2><ul><li>Ada</li><li>Linus</li></ul>" : "Home view"; document.title = r === "/users" ? "SPA users" : "SPA home"; }, 400); };
+addEventListener("hashchange", render);
+</script></body></html>

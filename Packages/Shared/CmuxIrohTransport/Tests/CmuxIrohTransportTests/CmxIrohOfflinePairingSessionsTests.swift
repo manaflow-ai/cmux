@@ -1,9 +1,5 @@
 import CMUXMobileCore
-#if canImport(CryptoKit)
 @preconcurrency import CryptoKit
-#else
-@preconcurrency import Crypto
-#endif
 import Foundation
 import Testing
 @testable import CmuxIrohTransport

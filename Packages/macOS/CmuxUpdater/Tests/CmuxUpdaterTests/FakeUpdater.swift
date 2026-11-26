@@ -24,7 +24,6 @@ final class FakeUpdater: UpdaterHandle {
     var automaticallyChecksForUpdates = false
     var automaticallyDownloadsUpdates = false
     var updateCheckInterval: TimeInterval = 3600
-    var lastUpdateCheckDate: Date?
 
     func start() throws {
         if let startError { throw startError }
@@ -35,9 +34,5 @@ final class FakeUpdater: UpdaterHandle {
         checkForUpdatesCallCount += 1
     }
 
-    private(set) var informationCheckCount = 0
-    private(set) var backgroundCheckCount = 0
-
-    func checkForUpdateInformation() { informationCheckCount += 1 }
-    func checkForUpdatesInBackground() { backgroundCheckCount += 1 }
+    func checkForUpdateInformation() {}
 }

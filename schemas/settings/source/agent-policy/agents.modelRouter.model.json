@@ -1,4 +1,0 @@
-{
-  "agent": "settable",
-  "why": "The cmux model router's default model is the same choice exposed by its Settings and MCP pickers."
-}

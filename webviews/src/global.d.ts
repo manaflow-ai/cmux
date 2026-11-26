@@ -39,17 +39,15 @@ declare global {
       getScroller: () => HTMLElement;
       shortcuts: Record<string, unknown>;
     }): () => void;
-    installManualInputReset(options: { target: Document | HTMLElement; getScroller: () => HTMLElement }): () => void;
+    installManualInputReset(options: {
+      target: Document | HTMLElement;
+      getScroller: () => HTMLElement;
+    }): () => void;
     performAction(action: string, scroller: HTMLElement): boolean;
     resetSmoothTarget(scroller: HTMLElement): void;
   };
 
   interface Window {
-    /// Set only by a bench (bench/transcript-scroll-up.bench.ts): told when the transcript asks for an older
-    /// page and when that ask settles, so the bench times ask to drawn. Unset in the app: one property read.
-    /// direct.ts `fetchOlder` also reports `reply` (an older page's records in hand), `fold` and `published` (its
-    /// fold began, and its rows were published), with ask -1; the bench (SPLIT=1) matches them to asks by time.
-    __cmuxOlderTrace?: (phase: "ask" | "settled" | "reply" | "fold" | "published", at: number, ask: number) => void;
     __cmuxPerformDiffViewerNavigationAction?: (action: string) => boolean;
     __cmuxDiffViewer?: {
       codeView?: unknown;

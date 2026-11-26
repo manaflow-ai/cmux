@@ -1,8 +1,4 @@
-#if canImport(CryptoKit)
 import CryptoKit
-#else
-import Crypto
-#endif
 public import CMUXMobileCore
 public import Foundation
 
@@ -160,7 +156,7 @@ public struct CmxIrohGrantVerifier: Sendable {
               Self.isCanonicalUUID(claims.bindingID),
               Self.isCanonicalUUID(claims.deviceID),
               Self.decodeBase64URL(claims.accountSubject)?.count == 32,
-              claims.identityGeneration.isValidIdentityGeneration,
+              (1 ... Int(Int32.max)).contains(claims.identityGeneration),
               claims.alpn == Self.alpn,
               claims.scope == Self.attestationScope,
               claims.notBefore >= notBeforeFloor,
@@ -271,10 +267,7 @@ public struct CmxIrohGrantVerifier: Sendable {
         guard let selected = keySet.keys.first(where: { $0.kid == id }) else {
             throw CmxIrohGrantVerifierError.unknownKeyID
         }
-        // The loop above already decoded every key; a failed decode here refuses the set.
-        guard let der = Data(base64Encoded: selected.spkiDerBase64) else {
-            throw CmxIrohGrantVerifierError.invalidKeySet
-        }
+        let der = Data(base64Encoded: selected.spkiDerBase64)!
         do {
             return try Curve25519.Signing.PublicKey(
                 rawRepresentation: der.suffix(32)
@@ -306,7 +299,7 @@ public struct CmxIrohGrantVerifier: Sendable {
         isCanonicalUUID(peer.bindingID)
             && isCanonicalUUID(peer.deviceID)
             && (1 ... 64).contains(peer.tag.utf8.count)
-            && peer.identityGeneration.isValidIdentityGeneration
+            && (1 ... Int(Int32.max)).contains(peer.identityGeneration)
     }
 
     private static func isCanonicalUUID(_ value: String) -> Bool {
@@ -351,12 +344,13 @@ public struct CmxIrohGrantVerifier: Sendable {
     }
 
     private static func seconds(_ date: Date) throws -> Int64 {
-        // Int64(exactly:) is nil for NaN, infinity and 2^63 (TimeInterval(Int64.max)
-        // rounds up to 2^63, which the old range check let through to a trap).
-        guard let seconds = Int64(exactly: date.timeIntervalSince1970.rounded(.down)) else {
+        let value = date.timeIntervalSince1970
+        guard value.isFinite,
+              value >= TimeInterval(Int64.min),
+              value <= TimeInterval(Int64.max) else {
             throw CmxIrohGrantVerifierError.invalidClaims
         }
-        return seconds
+        return Int64(value.rounded(.down))
     }
 
     private static func sum(_ left: Int64, _ right: Int64) throws -> Int64 {

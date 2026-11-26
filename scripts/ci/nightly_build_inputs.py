@@ -3,14 +3,15 @@
 
 `detect_ci_change_areas` already answers "can this path change Release app
 bytes" for pull requests, including the carve-outs that are easy to get wrong:
-the app bundles `skills/cmux-computer-use` as a folder resource, so skill Markdown
+the app bundles `skills/cmux-cua` as a folder resource, so skill Markdown
 outside that folder is neutral while everything inside it is a build input.
 Reusing that classifier keeps one definition of an app build input.
 
 The pull-request question is narrower than this one, though: `release_build`
 asks whether a change needs a Release *compile*, and the router excuses paths
-that ship in the bundle without being compiled, such as the `Resources/bin`
-scripts. So the bundled paths are read back out of the Xcode project
+that ship in the bundle without being compiled -- `CLI/`, whose product is
+copied into the app, and the `Resources/bin` scripts -- because a dedicated
+lane covers each. So the bundled paths are read back out of the Xcode project
 here rather than listed by hand, and a new bundled resource cannot become
 skippable by being added somewhere this file does not know about.
 
@@ -36,7 +37,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import cmux_next_route as next_route  # noqa: E402
 import detect_ci_change_areas as detect  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -73,12 +73,12 @@ def nightly_workflow_inputs(root: Path) -> frozenset[str]:
 
 
 def bundled_paths(root: Path) -> frozenset[str]:
-    """Repository paths the app target copies into the app bundle.
+    """Repository paths the cmux target copies into the app bundle.
 
     Read from the Xcode project, because the pull-request router excuses some
     of these: it asks whether a Release compile is needed, and a script copied
     into the bundle compiles nothing. Covers the resource and copy-files
-    phases, which is where `skills/cmux-computer-use`, `Resources/bin/*` and
+    phases, which is where `skills/cmux-cua`, `Resources/bin/*` and
     `scripts/setup-pam-tid.sh` enter the app.
     """
     project = (root / detect.MACOS_XCODE_PROJECT_PATH).read_text(encoding="utf-8")
@@ -88,11 +88,7 @@ def bundled_paths(root: Path) -> frozenset[str]:
     # elsewhere cannot resolve every one of its phase identifiers.
     phases: dict[str, str] = {}
     for section in ("PBXCopyFilesBuildPhase", "PBXResourcesBuildPhase"):
-        body = detect._pbx_section(project, section)
-        # The copy-files section is empty since the target stopped copying the
-        # Swift CLI product; an empty section has no phase to read.
-        if body.strip():
-            phases.update(detect._pbx_objects(body))
+        phases.update(detect._pbx_objects(detect._pbx_section(project, section)))
     build_files = detect._pbx_objects(detect._pbx_section(project, "PBXBuildFile"))
     references = detect._pbx_objects(detect._pbx_section(project, "PBXFileReference"))
     paths: set[str] = set()
@@ -103,15 +99,9 @@ def bundled_paths(root: Path) -> frozenset[str]:
         if phase is None:
             continue
         for build_file_id in detect._pbx_list_ids(phase, "files"):
-            file_ref = detect._pbx_field(build_files[build_file_id], "fileRef", required=False)
-            if file_ref is None:
-                # A Swift package product (productRef, e.g. the embedded
-                # CmuxNextApp.framework, 81b17999): built from package sources,
-                # which always rebuild, so it bundles no neutral file.
-                if detect._pbx_field(build_files[build_file_id], "productRef", required=False) is None:
-                    raise ValueError(f"build file {build_file_id} has neither fileRef nor productRef")
-                continue
-            reference_id = detect._pbx_reference_id(file_ref)
+            reference_id = detect._pbx_reference_id(
+                detect._pbx_field(build_files[build_file_id], "fileRef")
+            )
             reference = references.get(reference_id)
             if reference is None:
                 # A reference from a group or a synchronized folder, which is
@@ -120,8 +110,8 @@ def bundled_paths(root: Path) -> frozenset[str]:
             if detect._pbx_field(reference, "sourceTree") != "SOURCE_ROOT":
                 continue
             paths.add(detect.normalize_path(detect._pbx_field(reference, "path")))
-    # The cmux-next target bundles only built products and package resources,
-    # so an empty set is a valid answer, not an unreadable project.
+    if not paths:
+        raise ValueError("the cmux target bundles no repository path")
     return frozenset(paths)
 
 
@@ -164,7 +154,7 @@ def is_pull_request_ci_config(path: str) -> bool:
 
 
 def _reaches_the_app(areas: detect.ChangeAreas) -> bool:
-    return areas.release_build
+    return areas.release_build or areas.cli
 
 
 def build_inputs_changed(paths: list[str], root: Path = ROOT) -> tuple[bool, str]:
@@ -187,15 +177,12 @@ def build_inputs_changed(paths: list[str], root: Path = ROOT) -> tuple[bool, str
             return True, f"{path} is built into what the Nightly publishes"
         if is_pull_request_ci_config(path):
             continue
-        # The Cloud VM image, services and agent configs: no Xcode project, Package.swift or build
-        # script names them (test_no_app_input_is_named_by_a_build_input). The image roll alone
-        # (images/cmux-vm/inputs.lock.json) lands about 100 times a day, and each one read as an app
-        # change, so the nightly built, signed and notarized the same app again.
-        if next_route.no_app_input(path):
-            continue
         candidates.append(path)
     if not candidates:
         return False, "only pull-request CI configuration changed"
+    # `cli` covers the cmux-cli target, whose product the cmux target copies
+    # into the bundle; a CLI-only change ships without needing a Release
+    # compile, which is the only thing `release_build` answers.
     if not _reaches_the_app(detect.classify_files(candidates)):
         return False, "no changed path reaches the app the Nightly publishes"
     named = next(

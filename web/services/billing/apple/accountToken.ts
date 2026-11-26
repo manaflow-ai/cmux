@@ -3,7 +3,6 @@ import {
   resolveProPlanStatus,
   stripeBillingStatusForUser,
   type PersonalBillingSource,
-  type PersonalPlanId,
   type ProReconcileUser,
 } from "../pro";
 import { teamPlanStatusForTeam } from "../teamPlanStatus";
@@ -15,7 +14,9 @@ import {
   APPLE_PLAN_BILLING_PERIODS,
   appleProductId,
   type AppleBillingPeriod,
+  type ApplePlanId,
   isAcceptedAppleBundleId,
+  isClassicAppleBundleId,
   isSignedAppleEnvironment,
   type SignedAppleEnvironment,
 } from "./config";
@@ -45,7 +46,7 @@ export type AppleAccountTokenResponse = {
   };
   readonly products: readonly {
     readonly productId: string;
-    readonly planId: PersonalPlanId;
+    readonly planId: ApplePlanId;
     readonly billingPeriod: AppleBillingPeriod;
   }[];
 };
@@ -148,8 +149,12 @@ export async function appleAccountTokenResponse(
     teamBilled,
     purchasesGrant: purchasesGrant(app, user.primaryEmailVerified ? user.primaryEmail : null, deps.env ?? process.env),
   });
-  const plans: PersonalPlanId[] = goEnabled ? ["go", "pro", "max"] : ["pro", "max"];
   const { bundleId } = app;
+  // The classic app sells the classic plans; the cmux-next apps sell only the
+  // NEXT plans, each product granting its own NEXT plan (RFD 0037a).
+  const plans: readonly ApplePlanId[] = bundleId && !isClassicAppleBundleId(bundleId)
+    ? ["next_plus", "next_pro", "next_max"]
+    : goEnabled ? ["go", "pro", "max"] : ["pro", "max"];
   return {
     appAccountToken,
     eligible: reason === null,

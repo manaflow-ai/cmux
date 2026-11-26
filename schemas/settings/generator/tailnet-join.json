@@ -1,8 +1,0 @@
-{
-  "source": "schemas/settings/source/tailnet-join.json",
-  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+TailnetJoin.generated.swift",
-  "type": "TailnetJoinSettingsSchema",
-  "lists": {
-    "tailnetJoin": ["descriptors", "TailnetJoinSettingsSchema"]
-  }
-}

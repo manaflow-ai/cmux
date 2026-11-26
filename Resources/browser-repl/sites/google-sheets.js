@@ -1,0 +1,319 @@
+// sites.googleSheets: sheet list, cell values and exports through Google's
+// htmlview and export endpoints in the signed-in session (no tab). Values are
+// the full sheet as Google exports it (not the first HTML chunk).
+(function (root) {
+  "use strict";
+  const S = root.CmuxBrowserRepl && root.CmuxBrowserRepl.sites;
+  if (!S) return;
+  const { URL } = root.CmuxBrowserRepl.core;
+  S.register(
+    "googleSheets",
+    (t) => {
+      const g = S.shared.google;
+      const ed = S.shared.editors.create(t);
+      // Selects a range with the name box, as a person would.
+      async function selectRange(page, range) {
+        const box = page.locator("#t-name-box");
+        await box.waitFor({ timeout: 30000 });
+        await box.click();
+        await box.fill(range);
+        await box.press("Enter");
+        await t.sleep(300);
+      }
+      // What the name box shows (the selection), or null.
+      const shownSelection = (page) =>
+        t.readBack(page, () => { const b = document.querySelector("#t-name-box"); return b && typeof b.value === "string" ? b.value : null; }).catch(() => null);
+      // Whether the name box shows `want` (A1 notation; an open end such as
+      // A:A matches any row the editor fills in).
+      const sameRange = (shown, want) => {
+        if (typeof shown !== "string") return false;
+        try {
+          const a = S.parseA1Range(shown.replace(/^.*!/, ""));
+          const b = S.parseA1Range(want);
+          return a.c0 === b.c0 && a.r0 === b.r0 && (b.c1 === null || a.c1 === b.c1) && (b.r1 === null || a.r1 === b.r1);
+        } catch (e) {
+          return false;
+        }
+      };
+      // Inside an input batch, right before its keys: the editor's
+      // selection must be the range the write confirmed (an editor or
+      // another session that moved it would send them elsewhere).
+      async function expectSelection(page, want, name) {
+        const shown = await shownSelection(page);
+        if (!sameRange(shown, want)) throw new S.SiteError("target_mismatch", `${name}: the editor's selection is ${shown === null ? "unreadable" : JSON.stringify(shown)}, not the confirmed ${want}; nothing was sent by this batch. Make a new draft and show it to the user again`);
+      }
+      // The tab the editor shows: its gid in the editor's URL (null: the
+      // sheet's default tab, as the call named none).
+      const tabOf = (page) => {
+        try {
+          return (/(?:^|[#&])gid=(\d+)/.exec(new URL(page.url()).hash.slice(1)) || [])[1] || null;
+        } catch (e) {
+          return undefined;
+        }
+      };
+      // The number of rows up to the last non-empty one in the sheet's CSV export.
+      const usedRows = (rows) => {
+        let last = rows.length;
+        while (last > 0 && rows[last - 1].every((v) => v === "")) last--;
+        return last;
+      };
+      // appendAfter: for append, the used row count the target was computed
+      // from; the write reads it again right before each input batch.
+      function writeCells(action, sheet, range, rows, opts, appendAfter) {
+        const name = `googleSheets.${action}`;
+        if (typeof sheet === "string" && /^draft-\d+-[0-9a-f]+$/.test(sheet)) return ed.edit("googleSheets", action, name, null, sheet, range);
+        // Private copies: the draft's run writes the rows its preview shows,
+        // whatever the caller changes afterwards.
+        const values = t.copyInput(rows, `${name}: values`);
+        const options = t.copyInput(opts, `${name}: options`);
+        if (!Array.isArray(values) || !values.length || !values.every(Array.isArray)) throw new S.SiteError("invalid", `${name}: values: expected rows, an array of arrays such as [["a", 1]]`);
+        const r = ref(sheet, name, options || {});
+        const start = String(range).split(":")[0].toUpperCase();
+        const m = /^([A-Z]+)(\d+)$/.exec(start);
+        if (!m) throw new S.SiteError("invalid", `${name}: range: expected A1 notation, got ${JSON.stringify(range)}`);
+        const c0 = ed.colIndex(m[1]);
+        const r0 = Number(m[2]);
+        const width = Math.max(...values.map((row) => row.length));
+        const target = `${start}:${ed.colName(c0 + width - 1)}${r0 + values.length - 1}`;
+        // Sheets' paste parser ends a row at CR, LF or CRLF and a cell at
+        // a tab: any of them in a value would write cells the draft does
+        // not show. U+2028, U+2029 and U+0085 are line terminators too, so
+        // they are refused the same way.
+        if (values.some((row) => row.some((v) => /[\n\r\t\u2028\u2029\u0085]/.test(String(v === null || v === undefined ? "" : v))))) throw new S.SiteError("invalid", `${name}: a value contains a tab, a line break (LF, U+2028, U+2029 or U+0085) or a carriage return; Sheets cells are typed and cannot hold one this way`);
+        // The confirmed range and one more row and column: after the
+        // write, the cells outside the range must be as they were.
+        const wide = `${start}:${ed.colName(c0 + width)}${r0 + values.length}`;
+        const outside = (cell) => {
+          const p = /^([A-Z]+)(\d+)$/.exec(cell);
+          return ed.colIndex(p[1]) >= c0 + width || Number(p[2]) >= r0 + values.length;
+        };
+        const rowOps = [];
+        const tab = r.gid === undefined || r.gid === null ? null : String(r.gid);
+        // An append's position, read from the export: the first empty row
+        // after the data, given that the write typed `typed` rows there
+        // already (they may not be saved yet). It is the drafted row while
+        // the data still ends at row appendAfter and nothing but this
+        // write's rows follows it; else the row the data now ends after.
+        const appendPosition = async (typed) => {
+          const rows = (await api.read(sheet, options || {})).rows;
+          const head = usedRows(rows.slice(0, appendAfter));
+          if (head !== appendAfter) return `A${head + 1}`;
+          return `A${usedRows(rows.slice(appendAfter + typed)) ? usedRows(rows) + 1 : appendAfter + 1}`;
+        };
+        const reread = (typed) => (appendAfter === undefined ? undefined : async () => ({ appendAt: await appendPosition(typed) }));
+        return ed.edit("googleSheets", action, name, r, { range: target }, options, () => ({
+          summary: `Write ${values.length} row(s) at ${target} in Google Sheet ${r.id}`,
+          target: appendAfter === undefined ? { tab } : { tab, appendAt: `A${appendAfter + 1}` },
+          content: { range: target, values },
+          // An append goes after the last row as drafted: rows added since
+          // would be overwritten, so its position (appendAt, a target
+          // field) is read again from the export at the confirmation and
+          // right before each input batch (Sheets' web editor has no
+          // insert-at-end the session can call); a moved position fails as
+          // target_mismatch. The range is read back from it too. A
+          // write's range is the address the call named.
+          sent: appendAfter === undefined ? ["range", "values"] : ["values"],
+          observe: async (page) => {
+            const at = { tab: tabOf(page) };
+            if (appendAfter === undefined) return at;
+            const appendAt = await appendPosition(0);
+            const row = Number(appendAt.slice(1));
+            return { ...at, appendAt, range: `${appendAt}:${ed.colName(c0 + width - 1)}${row + values.length - 1}` };
+          },
+          act: async (page, press) => {
+            const want = new Map();
+            values.forEach((row, i) => row.forEach((v, j) => want.set(`${ed.colName(c0 + j)}${r0 + i}`, v === null || v === undefined ? "" : String(v))));
+            // The cells next to the range, read before the first input.
+            const border = async () => new Map((await api.cells(sheet, { ...(options || {}), range: wide })).cells.map((c) => [c.cell, c]));
+            const before = await border();
+            const shownCell = (c) => (c ? JSON.stringify(c.formula || c.value) : "empty");
+            let spilled = [];
+            const check = async () => {
+              const got = await border();
+              spilled = [...new Set([...before.keys(), ...got.keys()])].filter((cell) => outside(cell) && shownCell(before.get(cell)) !== shownCell(got.get(cell))).map((cell) => `${cell} is ${shownCell(got.get(cell))}, was ${shownCell(before.get(cell))}`);
+              return !spilled.length && [...want].every(([cell, v]) => v === "" || (got.has(cell) && (v.startsWith("=") ? got.get(cell).formula === v : got.get(cell).value === v)));
+            };
+            // A write that changed a cell outside the confirmed range fails
+            // and types nothing more (another editor of the sheet can also
+            // have changed it; either way the draft did not show it).
+            const contained = () => {
+              if (spilled.length) throw new S.SiteError("commit_unverified", `${name}: cells outside the confirmed range ${target} changed after the write (${spilled.join("; ")}); check the sheet and its version history`);
+            };
+            // One paste of the rows as TSV at the top-left cell, as a person
+            // pastes a range: Sheets reads the paste event's clipboardData.
+            // The selection is made before the batch's read-backs (the
+            // append position, the account) and read back again inside the
+            // batch, right before the paste.
+            await selectRange(page, start);
+            await press.input(async () => {
+              await expectSelection(page, start, name);
+              await page.clipboard.writeText(values.map((row) => row.map((v) => (v === null || v === undefined ? "" : String(v))).join("\t")).join("\n"));
+              await page.keyboard.press("ControlOrMeta+v");
+            }, reread(0));
+            await ed.saved(page);
+            const pasted = await ed.verify(check, [800, 1500, 2500]);
+            contained();
+            if (pasted) return { status: "written", range: target, verified: true };
+            // An editor that dropped the paste gets typed keys, cell by cell
+            // (Tab moves right, Enter starts the next row).
+            await selectRange(page, start);
+            for (const [i, row] of values.entries()) {
+              row.forEach((v, j) => {
+                rowOps.push([String(v === null || v === undefined ? "" : v), j < row.length - 1]);
+              });
+              // Each row's keys start at its first cell, read back right
+              // before them.
+              await press.input(async () => {
+                await expectSelection(page, `${ed.colName(c0)}${r0 + i}`, name);
+                for (const [text, tab] of rowOps.splice(0)) {
+                  if (text) await page.keyboard.type(text);
+                  if (tab) await page.keyboard.press("Tab");
+                }
+                await page.keyboard.press("Enter");
+              }, reread(i));
+            }
+            await ed.saved(page);
+            const typed = await ed.verify(check);
+            contained();
+            return { status: "written", range: target, verified: typed };
+          },
+        }));
+      }
+      const ref = (sheet, name, options) => {
+        const r = g.parse(sheet, name, "spreadsheets");
+        if (options.uid !== undefined) r.uid = options.uid;
+        return r;
+      };
+      const api = {
+        // { title, sheets: [{ name, gid }] }
+        async info(sheet, options = {}) {
+          const r = ref(sheet, "googleSheets.info", options);
+          const q = r.uid !== undefined ? `?authuser=${r.uid}` : "";
+          const { response } = await g.fetchFile(t, "googleSheets.info", `https://docs.google.com/spreadsheets/d/${r.id}/htmlview${q}`, { expectHTML: true });
+          const html = await response.text();
+          const titleMatch = /<title>([^<]*)<\/title>/i.exec(html);
+          const title = titleMatch ? S.decodeEntities(titleMatch[1]).replace(/\s+-\s+Google (Sheets|Drive)\s*$/, "").trim() : null;
+          const sheets = [];
+          const re = /id="sheet-button-(\d+)"[^>]*>\s*(?:<a[^>]*>)?([^<]*)</g;
+          for (let m; (m = re.exec(html)); ) sheets.push({ name: S.decodeEntities(m[2]).trim(), gid: m[1] });
+          return { title, sheets: sheets.length ? sheets : [{ name: null, gid: "0" }] };
+        },
+        // { title, sheet, gid, rows: string[][] }. Pick the sheet with
+        // { gid } or { sheet: name } (default: the URL's gid, else the first);
+        // { range: "A1:C10" } keeps that block.
+        async read(sheet, options = {}) {
+          const r = ref(sheet, "googleSheets.read", options);
+          let name = null;
+          if (options.gid !== undefined) r.gid = String(options.gid);
+          else if (options.sheet !== undefined) {
+            const info = await api.info(sheet, options);
+            const found = info.sheets.find((s) => s.name === options.sheet);
+            if (!found) throw new S.SiteError("not_found", `googleSheets.read: no sheet named ${JSON.stringify(options.sheet)}; sheets: ${info.sheets.map((s) => s.name).join(", ")}`);
+            r.gid = found.gid;
+            name = found.name;
+          }
+          const { title, text } = await g.exportText(t, "googleSheets.read", r, "csv");
+          let rows = S.parseCSV(text);
+          if (options.range) {
+            const { c0, r0, c1, r1 } = S.parseA1Range(options.range);
+            rows = rows.slice(r0, r1 === null ? undefined : r1 + 1).map((row) => row.slice(c0, c1 === null ? undefined : c1 + 1));
+          }
+          return { title, sheet: name, gid: r.gid === undefined ? null : String(r.gid), rows };
+        },
+        // Every sheet: [{ name, gid, rows }].
+        async readAll(sheet, options = {}) {
+          const info = await api.info(sheet, options);
+          const out = [];
+          for (const s of info.sheets) {
+            const { rows } = await api.read(sheet, { ...options, gid: s.gid, sheet: undefined });
+            out.push({ name: s.name, gid: s.gid, rows });
+          }
+          return out;
+        },
+        // Cells with values and formulas from the xlsx export:
+        // { sheet, range, cells: [{ cell, value, formula? }] }. Pick the tab
+        // with { sheet: name } or { gid } (default: the URL's gid, else the
+        // first); { range: "A1:C10" } keeps that block.
+        async cells(sheet, options = {}) {
+          const r = ref(sheet, "googleSheets.cells", options);
+          const book = await ed.workbook("googleSheets.cells", r);
+          let tab = book[0];
+          if (options.sheet !== undefined) tab = book.find((x) => x.name === options.sheet);
+          else if (options.gid !== undefined || r.gid !== undefined) {
+            const gid = String(options.gid !== undefined ? options.gid : r.gid);
+            const info = await api.info(sheet, options);
+            const at = info.sheets.findIndex((x) => x.gid === gid);
+            tab = at >= 0 ? book[at] : tab;
+          }
+          if (!tab) throw new S.SiteError("not_found", `googleSheets.cells: no sheet named ${JSON.stringify(options.sheet)}; sheets: ${book.map((x) => x.name).join(", ")}`);
+          let cells = tab.cells;
+          if (options.range) {
+            const { c0, r0, c1, r1 } = S.parseA1Range(options.range);
+            cells = cells.filter((c) => {
+              const m = /^([A-Z]+)(\d+)$/.exec(c.cell);
+              const col = ed.colIndex(m[1]);
+              const row = Number(m[2]) - 1;
+              return col >= c0 && (c1 === null || col <= c1) && row >= r0 && (r1 === null || row <= r1);
+            });
+          }
+          return { sheet: tab.name, range: options.range || null, cells };
+        },
+        // Cells whose value contains `text`, in every tab: [{ sheet, cell, value }].
+        async find(sheet, text, options = {}) {
+          const r = ref(sheet, "googleSheets.find", options);
+          const book = await ed.workbook("googleSheets.find", r);
+          const hits = [];
+          for (const tab of book) for (const c of tab.cells) if (String(c.value).includes(String(text)) || (c.formula && c.formula.includes(String(text)))) hits.push({ sheet: tab.name, cell: c.cell, value: c.value });
+          return hits.sort((a, b) => (a.sheet + a.cell).localeCompare(b.sheet + b.cell));
+        },
+        // Writes a 2D array of values (a string starting with = is a
+        // formula) at the range's top-left cell, in the tab of the URL's gid,
+        // typed cell by cell; an empty value leaves its cell as it is.
+        // Private sheet: at once; otherwise a draft that write(draftId, { confirm: true }) applies.
+        // { status: "written", range, verified }.
+        write(sheet, range, values, options) {
+          return writeCells("write", sheet, range, values, options);
+        },
+        // Appends rows after the last non-empty row: { status, range, verified }.
+        async append(sheet, rows, options) {
+          if (typeof sheet === "string" && /^draft-\d+-[0-9a-f]+$/.test(sheet)) return writeCells("append", sheet, rows, undefined, options);
+          const last = usedRows((await api.read(sheet, options || {})).rows);
+          return writeCells("append", sheet, `A${last + 1}`, rows, options, last);
+        },
+        // Clears the values in a range: { status: "cleared", range, verified }.
+        clear(sheet, range, opts) {
+          if (typeof sheet === "string" && /^draft-\d+-[0-9a-f]+$/.test(sheet)) return ed.edit("googleSheets", "clear", "googleSheets.clear", null, sheet, range);
+          const options = t.copyInput(opts, "googleSheets.clear: options");
+          range = String(range);
+          const r = ref(sheet, "googleSheets.clear", options || {});
+          S.parseA1Range(range);
+          return ed.edit("googleSheets", "clear", "googleSheets.clear", r, { range }, options, () => ({
+            summary: `Clear ${range} in Google Sheet ${r.id}`,
+            target: { tab: r.gid === undefined || r.gid === null ? null : String(r.gid) },
+            content: { range },
+            sent: ["range"],
+            observe: async (page) => ({ tab: tabOf(page) }),
+            act: async (page, press) => {
+              await selectRange(page, range);
+              await press.input(async () => {
+                await expectSelection(page, range, "googleSheets.clear");
+                await page.keyboard.press("Delete");
+              });
+              await ed.saved(page);
+              const verified = await ed.verify(async () => (await api.cells(sheet, { ...(options || {}), range })).cells.length === 0);
+              return { status: "cleared", range: range.toUpperCase(), verified };
+            },
+          }));
+        },
+        // Writes xlsx (all sheets), csv/tsv (one sheet: { gid }), pdf or ods; { path, title, format }.
+        async export(sheet, options = {}) {
+          const r = ref(sheet, "googleSheets.export", options);
+          if (options.gid !== undefined) r.gid = String(options.gid);
+          return g.exportTo(t, "googleSheets.export", r, options.format || "xlsx", options);
+        },
+      };
+      return api;
+    },
+    { summary: "Sheet list, cell values (whole sheet or A1 range) and exports of Google Sheets; confirmed-draft writes", writes: ["write", "append", "clear"] },
+  );
+})(typeof globalThis !== "undefined" ? globalThis : this);

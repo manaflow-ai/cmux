@@ -1,32 +1,14 @@
 //! Safe Rust wrapper around libghostty-vt.
 //!
 //! The terminal engine is the exact same VT parser and state machine used
-//! by the Ghostty app (libghostty-vt built from the `ghostty-next/` submodule), so anything
+//! by the Ghostty app (built from the `ghostty/` submodule), so anything
 //! rendered from this crate matches what a real Ghostty surface would show.
 
-// The crash ratchet keeps this crate at zero production panics
-// (plans/cmux-next/crash-elimination.md section 6).
-#![cfg_attr(
-    not(test),
-    deny(
-        clippy::unwrap_used,
-        clippy::expect_used,
-        clippy::panic,
-        clippy::unreachable,
-        clippy::todo,
-        clippy::unimplemented,
-        clippy::exit
-    )
-)]
-
-mod formatter_options;
 mod key;
 mod kitty;
-mod kitty_replay;
 mod mouse;
 mod render;
 mod screen_text;
-mod snapshot;
 mod terminal;
 
 /// Raw bindings, re-exported for key/mode constants.
@@ -45,24 +27,13 @@ pub use mouse::{
 pub use render::{
     ATTR_BLINK, ATTR_BOLD, ATTR_FAINT, ATTR_INVERSE, ATTR_INVISIBLE, ATTR_ITALIC,
     ATTR_STRIKETHROUGH, Cell, CellWidth, ColorSpec, CursorInfo, CursorShape, Dirty,
-    KittyGraphicsFrameDelta, RenderFrame, RenderRow, RenderState, StyledRun, UnderlineStyle,
-    rows_to_runs,
+    KittyGraphicsFrameDelta, RenderFrame, RenderState, StyledRun, UnderlineStyle, rows_to_runs,
 };
 pub use screen_text::{ScreenRowText, ScreenSearch, ScreenTextCell};
-pub use snapshot::{
-    HISTORY_DIGEST_VERSION, HistoryDigest, SNAPSHOT_ENVELOPE_LEN, SNAPSHOT_RECORD_HEADER_LEN,
-    SnapshotHistoryPage, SnapshotPhase, SnapshotRecord, primary_history_pages, reencode_ready,
-    snapshot_digest_input, snapshot_envelope_version, snapshot_ready_len, snapshot_records,
-    snapshot_version, tag as snapshot_tag,
-};
 pub use terminal::{
-    Callbacks, ClearHistoryOutcome, ClipboardLocation, ClipboardReadFn, ClipboardReadRequest,
-    CommandOutput, HistoryPage, HistoryPages, HistorySnapshot, KittyGraphicsLimits,
-    KittyImageIdCursors, KittyReplayState, MAX_CLIPBOARD_READ_BYTES, MarkerError, NotifyFn,
-    ProgramStatusEvent, ProgramStatusFn, ProgramStatusKind, ProgramStatusReport,
-    ProgramStatusState, PtyWriteFn, Rgb, SNAPSHOT_CONTINUATION_MAX_BYTES, Screen, Scrollbar,
-    SelectionPoint, SelectionRange, Terminal, TerminalColorOverrides,
-    TerminalPointerSemanticSnapshot, TrackedScreenPoint, VtReplay, VtReplayTail, VtReplayWindow,
+    Callbacks, ClearHistoryOutcome, KittyGraphicsLimits, KittyImageIdCursors, KittyReplayState,
+    NotifyFn, PtyWriteFn, Rgb, Screen, Scrollbar, SelectionPoint, SelectionRange, Terminal,
+    TerminalColorOverrides, TerminalPointerSemanticSnapshot, TrackedScreenPoint, VtReplay,
     parse_color, parse_palette_entry,
 };
 

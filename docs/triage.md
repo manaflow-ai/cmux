@@ -208,18 +208,8 @@ evening on it and leaves.
 - The issue names a starting point: a file, a symbol, or a command to run.
 - No pending team decision. If the answer depends on what cmux should do rather
   than what it does, it is not a first issue.
-- It can be verified without maintainer-only CI, and the issue says how. See
-  the [verification ladder](contributor-verification.md).
-- It is not labeled `needs a call`.
-- It still reproduces on the current
-  [NIGHTLY](https://github.com/manaflow-ai/cmux#nightly-builds).
-
-The label stays true only if someone takes it off. A maintainer, or an agent
-working the backlog, removes `good first issue` when the issue is claimed (a
-comment saying someone is on it, or a linked open PR), when it gets
-`needs a call`, or when it goes stale: no longer reproducing on NIGHTLY, or the
-starting point it names has moved. Label a handful of issues that meet the bar;
-don't label in bulk.
+- It can be verified without maintainer-only CI. See the
+  [verification ladder](contributor-verification.md).
 
 `help wanted` means nobody on the team is working on it and a patch is welcome.
 It carries no promise about size or difficulty.

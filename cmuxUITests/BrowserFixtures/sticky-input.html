@@ -1,0 +1,53 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>sticky-input</title></head>
+<body>
+<input id="sticky" type="text" value="prefill">
+<div id="status">PENDING</div>
+<pre id="event-log"></pre>
+<script>
+  window.__cmuxLog = [];
+  const logEl = document.getElementById('event-log');
+  const statusEl = document.getElementById('status');
+  let seq = 0;
+  function logEvent(ev, extra) {
+    window.__cmuxLog.push(Object.assign(
+      { seq: ++seq, type: ev.type, target: '#sticky', isTrusted: ev.isTrusted },
+      extra || {}
+    ));
+    logEl.textContent = JSON.stringify(window.__cmuxLog);
+  }
+
+  const el = document.getElementById('sticky');
+  let last = el.value;
+  let reverts = 0;
+  let rewriteUsed = false;
+  function check() {
+    if (el.value === 'final-text' && reverts >= 2 && rewriteUsed) {
+      statusEl.textContent = 'PASS';
+    }
+  }
+
+  // Hostile framework simulation: the first two modifications are reverted.
+  el.addEventListener('input', (ev) => {
+    logEvent(ev, { value: el.value, reverts });
+    if (reverts < 2) {
+      reverts += 1;
+      el.value = last;
+    }
+    last = el.value;
+    check();
+  });
+  // And the first change event rewrites the value once.
+  el.addEventListener('change', (ev) => {
+    logEvent(ev, { value: el.value, rewriteUsed });
+    if (!rewriteUsed) {
+      rewriteUsed = true;
+      el.value = 'rewritten-once';
+      last = el.value;
+    }
+    check();
+  });
+</script>
+</body>
+</html>

@@ -58,6 +58,8 @@ export type TeamBillingSummary = {
   readonly memberLimit: number | null;
   readonly memberCount: number;
   readonly hasActiveSubscription: boolean;
+  /** The plan name of the team's enterprise deal, shown instead of the plan; null without one. */
+  readonly enterpriseLabel: string | null;
 };
 
 export type TeamDetail = {
@@ -75,19 +77,4 @@ export type TeamDetail = {
   readonly invitations: TeamInvitation[];
   readonly links: TeamInviteLink[];
   readonly billing: TeamBillingSummary;
-};
-
-/** One row of `GET /api/teams`: a team the signed-in user belongs to. */
-export type TeamListing = {
-  readonly id: string;
-  readonly displayName: string;
-  readonly profileImageUrl: string | null;
-  readonly role: TeamRole;
-  readonly permissions: TeamViewerPermissions;
-};
-
-/** `GET /api/teams`. `selectedTeamId` is null when no listed team is selected. */
-export type TeamListResponse = {
-  readonly teams: TeamListing[];
-  readonly selectedTeamId: string | null;
 };

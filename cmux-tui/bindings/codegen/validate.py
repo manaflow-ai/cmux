@@ -430,18 +430,9 @@ class _Validator:
                 node,
                 path,
                 required={"kind", "values"},
-                allowed={"kind", "values", "fallback"},
+                allowed={"kind", "values"},
             )
             values = self.require_array(node.get("values"), f"{path}.values")
-            if "fallback" in node and (
-                values is None
-                or not all(isinstance(value, str) for value in values)
-                or node["fallback"] not in values
-            ):
-                self.issue(
-                    f"{path}.fallback",
-                    "must be one of the values of a string enum",
-                )
             if values is not None:
                 if not values:
                     self.issue(f"{path}.values", "must not be empty")

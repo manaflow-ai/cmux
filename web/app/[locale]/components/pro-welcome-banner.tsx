@@ -4,24 +4,19 @@ import { useLocale, useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
 import { fallbackContentLocales } from "../../../i18n/locale-availability";
 import { ContentLocaleLink } from "./content-locale-link";
-import { cloudIntroBillingCode } from "../../../services/billing/cloudIntroOffer";
 
 // Reads the ?welcome= / ?billing= states set by /api/billing/checkout so the
 // /pro page itself can stay static.
 // Render inside <Suspense> (useSearchParams requirement).
-// `cloudIntro` is the server's isCloudIntroEnabled(): the $1 pass's codes
-// mean nothing while its checkout is off.
-export function ProWelcomeBanner({ cloudIntro = false }: { cloudIntro?: boolean }) {
+export function ProWelcomeBanner() {
   const t = useTranslations("pricing");
   const locale = useLocale();
   const params = useSearchParams();
   const welcome = params.get("welcome");
   const billing = params.get("billing");
-  const introCode = cloudIntro ? cloudIntroBillingCode(billing) : null;
 
-  const message = introCode
-    ? t(`cloudIntro.${introCode}`)
-    : welcome === "success"
+  const message =
+    welcome === "success"
       ? t("welcomeSuccess")
       : welcome === "active"
         ? t("welcomeActive")

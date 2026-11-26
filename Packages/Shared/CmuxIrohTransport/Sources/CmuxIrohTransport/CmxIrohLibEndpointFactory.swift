@@ -1,4 +1,3 @@
-#if canImport(IrohLib)
 public import CMUXMobileCore
 import Foundation
 public import IrohLib
@@ -97,4 +96,3 @@ extension CmxIrohLibEndpointFactory {
         try CmxIrohLibConnection(driver: driver)
     }
 }
-#endif

@@ -1,0 +1,8 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="icon" href="data:,"><title>WebSocket</title></head><body><h1>WebSocket</h1><button id="send">Send</button><p id="out">idle</p>
+<script>
+const ws = new WebSocket("ws://" + location.host + "/ws");
+ws.onopen = () => (document.getElementById("out").textContent = "open");
+ws.onmessage = (e) => (document.getElementById("out").textContent = e.data);
+ws.onerror = () => (document.getElementById("out").textContent = "error");
+send.onclick = () => ws.send("hi");
+</script></body></html>

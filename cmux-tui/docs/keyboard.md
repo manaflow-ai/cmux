@@ -52,8 +52,8 @@ These defaults come from `Keys::default`.
 | `Ctrl-b g` | Append a two-thirds-width terminal to the right |
 | `Ctrl-b U` | Undo the latest structural layout action on the focused screen |
 | `Ctrl-b ?` | Open the keyboard shortcut modal |
-| `Ctrl-b a` | Go to the next tab that needs you (see below) |
-| `Ctrl-b A` | List the tabs that need you; Enter goes to the selected one |
+| `Ctrl-b a` | Go to the next tab that needs you: a blocked agent, then an unread error or warning, then another unread tab |
+| `Ctrl-b A` | Open a searchable list of the tabs that need you; Enter goes to the selected tab |
 | `Ctrl-b h` or `Ctrl-b Left` | Focus left |
 | `Alt-h` or `Alt-Left` | Focus left |
 | `Ctrl-b l` or `Ctrl-b Right` | Focus right |
@@ -72,6 +72,8 @@ These defaults come from `Keys::default`.
 | `Ctrl-b d` | Quit a local TUI or detach an attached TUI |
 
 Press `Ctrl-b`, release it, then press the suffix. `N` is uppercase and `+` is the plus character (Shift-Equal on a US keyboard). Lowercase `Ctrl-b n` still selects the next screen. Every default Alt action also has a prefix binding, including when `keys.alt_shortcuts` is `false`.
+
+`Ctrl-b a` visits the tabs in the order `cmux attention next` answers: tabs whose agent waits on you (`blocked`) first, then tabs with an unread `error` or `warning` notification, then other unread tabs, each oldest first. A blocked tab stays in the queue after you look at it, so repeated presses cycle through all of them. An unread tab stays in the queue until its notification is cleared. When nothing needs you, a toast says so. See [Notifications](configuration.md#notifications).
 
 Directional focus follows Zellij's pane memory: when several panes share the requested edge, cmux-tui returns to the pane focused most recently.
 
@@ -118,6 +120,8 @@ Workspace navigation follows tmux's outer session lane: `(` and `)` move backwar
 Motions treat a wide character as one cell. A copy joins soft-wrapped rows into one line and keeps hard line breaks. A block selection copies the same columns from each row. The copy goes to the system clipboard through OSC 52, as a mouse selection does. Leaving copy mode returns the view to the live bottom.
 
 Search is smart-case: a needle with no uppercase letter matches any case, and a needle with an uppercase letter matches case exactly. Search covers all retained scrollback, highlights every match in the view, marks the current match, and shows its position as `3/17`. `n` and `N` wrap around at the ends of history. Pressing `Enter` on an empty prompt repeats the previous search in the prompt's direction. A count ends in `+` when more than 10,000 matches exist; only the newest 10,000 are kept.
+
+Search matches the text as it shows on the screen. When a search ignores case, only ASCII letters fold; other characters match exactly. A match can continue across a soft-wrapped row, but never across a hard line break. Each search reads the retained screen once when you press `Enter`, `n`, or `N`; it does not run while you type in the prompt or while the terminal draws. This build reads the screen text in Rust because its libghostty-vt has no search API. The `feat-cmux-next` builds use libghostty-vt's own search; the keys, highlights, and counts are the same.
 
 Remap copy-mode commands with the `keys.copy_mode` object. Each command accepts a string, an array of strings, or `"none"`, and replaces that command's default keys. A chord given to one command is removed from every other copy-mode command. A copy-mode chord equal to the prefix is ignored.
 
@@ -182,7 +186,7 @@ exit
 
 When the built-in sidebar is focused, its divider becomes a bold accent rail. `Tab` toggles files/workspaces without leaving sidebar focus. In the files view, Up/Down and Ctrl-J/Ctrl-K move the selection, Right descends into a directory, Enter descends or opens a file in a new `$EDITOR` tab, and Left or `h` goes to the parent when the machine rail is absent. `c` sends a safely quoted `cd` to the focused pane, `o` opens `.html` and `.md` files in a browser tab, `.` toggles dotfiles, `/` enters filter mode, and `~` follows the focused pane cwd again. Esc clears a nonempty filter before leaving filter mode.
 
-In the workspaces view, Up/Down move the selection and Enter activates it. With a daemon that has the sidebar document (`sidebar-doc-v1`), the list is the document's order, Pinned first, and `p` pins or unpins the selected workspace. A one-level `tabs` view follows the highlighted workspace. Multi-level views such as `workspaces → agents` are collapsible trees: Left collapses, Right expands, Space toggles, and Enter activates the exact workspace, pane, tab, or agent surface. Alt/Option with arrows or `hjkl` always navigates, so Alt-Left and Alt-Right traverse views instead of changing tree expansion. Right from the final view or Esc returns to the pane. Any normal prefixed command leaves sidebar focus and runs through the usual action table. A configured sidebar plugin keeps its existing PTY forwarding behavior.
+In the workspaces view, Up/Down move the selection and Enter activates it. A one-level `tabs` view follows the highlighted workspace. Multi-level views such as `workspaces → agents` are collapsible trees: Left collapses, Right expands, Space toggles, and Enter activates the exact workspace, pane, tab, or agent surface. Alt/Option with arrows or `hjkl` always navigates, so Alt-Left and Alt-Right traverse views instead of changing tree expansion. Right from the final view or Esc returns to the pane. Any normal prefixed command leaves sidebar focus and runs through the usual action table. A configured sidebar plugin keeps its existing PTY forwarding behavior.
 
 When the optional machine rail is visible, `Ctrl-b S` enters through the first view containing workspaces. Alt/Option-Left or Alt/Option-`h` at the left pane boundary enters the rightmost visible view. Left or `h` and Right or `l` traverse the ordered native views. Up/Down or `k`/`j` changes the selected machine, Enter connects to it, `m` opens the provider scope/actions menu when the provider offers one, and Esc returns to the active pane. Clicking a view's one-row top pad focuses it without activating a row. Clicking a machine, workspace, pane, tab, or agent activates it and returns keyboard input to the latest terminal. Sidebar views swallow other unprefixed keys instead of forwarding them to a remote terminal.
 
@@ -318,17 +322,6 @@ show-shortcuts
 next-attention
 attention-list
 detach
-dock-workspace-left
-dock-workspace-right
-dock-workspace-top
-dock-workspace-bottom
-undock-workspace
-toggle-dock-left
-toggle-dock-right
-toggle-dock-top
-toggle-dock-bottom
-toggle-dock-floating
-toggle-dock-orientation
 ```
 
 `rename-pane` is still accepted as an alias for `rename-tab`.

@@ -75,17 +75,17 @@ def emit(record: dict) -> None:
             pass
 
 
-ACTORS = {"infra": "retry", "mechanical": "fixer", "real": "agent", "soft": "softfail", "teammate": "teammate"}  # class (or fallthrough) -> act_<name>.py
+ACTORS = {"infra": "retry", "mechanical": "fixer", "real": "agent", "soft": "softfail"}  # class -> act_<name>.py
 
 
-def load_actor(cls: str, actors_dir: Path = HERE, attr: str = "act"):
+def load_actor(cls: str, actors_dir: Path = HERE):
     path = Path(actors_dir) / f"act_{ACTORS.get(cls, cls)}.py"
     if not path.is_file():
         return None
     spec = importlib.util.spec_from_file_location(f"ci_oops_act_{cls}", path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    return getattr(mod, attr, None)
+    return getattr(mod, "act", None)
 
 
 def act(verdict: dict, ctx: dict, dry_run: bool, actors_dir: Path = HERE) -> dict:
@@ -149,34 +149,6 @@ def load_authors():
     return None
 
 
-BASE_RED_STATE = os.environ.get("CI_OOPS_BASE_RED_STATE")  # a pulled reconciler-state/base-red-watch folder
-
-
-def base_reds(state_dir=None) -> dict | None:
-    """base-red-watch's current.json `base` ({`workflow / job` or `workflow / job › check`: {"sha", "url", "steps"}}),
-    what is red on cmux's base right now, or None when it is not here (then every ctx's base_red is None: unknown)."""
-    folder = state_dir or BASE_RED_STATE
-    if not folder:
-        return None
-    try:
-        got = json.loads((Path(folder) / "current.json").read_text()).get("base")
-    except (OSError, ValueError, AttributeError):
-        return None
-    return got if isinstance(got, dict) else None
-
-
-def base_red_of(ctx: dict, base: dict | None) -> tuple[bool | None, str]:
-    """(base_red, why) for CTX: True when the base's newest run of its `workflow / job` is red, False when base-red-watch
-    names no such red, None when there is no evidence or the PR's base is not the one base-red-watch reads (main)."""
-    if base is None or ctx.get("repo") != "manaflow-ai/cmux" or ctx.get("base_ref") not in (None, "main"):
-        return None, ""
-    key = f"{ctx.get('workflow')} / {ctx.get('job')}"
-    hit = base.get(key) or next((v for k, v in base.items() if k.startswith(key + " › ")), None)
-    if not hit:
-        return False, ""
-    return True, f"{key} red on base {str(hit.get('sha') or '')[:10]} {hit.get('url') or ''}".strip()
-
-
 def run_contexts(repo: str, run_id: int, attempt: int | None = None, get_json=gh_json, get_text=gh_text) -> tuple[dict, list[dict]]:
     """The run and one ctx per failed job of ATTEMPT (default the run's latest), each with its log's tail."""
     run = get_json(f"repos/{repo}/actions/runs/{run_id}")
@@ -185,7 +157,6 @@ def run_contexts(repo: str, run_id: int, attempt: int | None = None, get_json=gh
     prs = run.get("pull_requests") or []
     pr = prs[0] if prs else {}
     authors = load_authors()
-    base = base_reds()
     author = (run.get("actor") or {}).get("login")
     out = []
     for job in jobs:
@@ -212,7 +183,6 @@ def run_contexts(repo: str, run_id: int, attempt: int | None = None, get_json=gh
                "steps": [{"name": s.get("name"), "conclusion": s.get("conclusion"), "number": s.get("number")}
                          for s in job.get("steps") or []],
                "red_at": job.get("completed_at"), "log_tail": "\n".join(log.splitlines()[-core.LOG_TAIL_LINES:])}
-        ctx["base_red"], ctx["base_red_why"] = base_red_of(ctx, base)
         out.append(ctx)
     return run, out
 
@@ -248,22 +218,6 @@ def act_on_run(repo: str, run_id: int, attempt: int | None, dry_run: bool, rules
             real = dict(v, **{"class": "real", "rule": f"{v.get('rule')}>real", "swallow": core.SWALLOW["real"]})
             got = act(real, ctx, dry_run, actors_dir)
             rec = record_for(real, ctx, got)
-            rec["jobs"] = ctx["class_job_names"]
-            emit(rec)
-            records.append(rec)
-        elif outcome.get("fallthrough") == "teammate":
-            # A fix for a teammate's PR (core-team.json) is never pushed: act_teammate (part 2) hands it over as
-            # suggestions or a PR onto their branch. The fixer's outcome carries the unified diff as "patch".
-            fn = load_actor("teammate", actors_dir)
-            handed = dict(v, patch=outcome.get("patch") or v.get("patch"))
-            if fn is None:
-                got = {"outcome": "skipped", "note": "no act_teammate.py yet"}
-            else:
-                try:
-                    got = fn(handed, ctx, dry_run)
-                except Exception as err:  # noqa: BLE001  never a red job
-                    got = {"outcome": "gave_up", "note": f"act_teammate raised {err.__class__.__name__}: {err}"[:300]}
-            rec = record_for(dict(v, rule=f"{v.get('rule')}>teammate"), ctx, got)
             rec["jobs"] = ctx["class_job_names"]
             emit(rec)
             records.append(rec)
@@ -338,38 +292,6 @@ def soft_sweep(repo: str, seen: dict, since: str, max_runs: int, dry_run: bool, 
     return done
 
 
-def settle_sweep(repo: str, seen: dict, since: str, max_runs: int, dry_run: bool, get_json=gh_json, now=None,
-                 actors_dir: Path = HERE) -> int:
-    """Green PR runs on lane branches since SINCE go to act_agent.settle (1c): a green at the fix agent's commit is
-    logged agent_fixed, a fix that weakened tests is dropped. act_agent keeps records only for PRs it sent an agent to,
-    so every other run settles to `none` from its state file. Marked in SEEN as `settle:RUN:ATTEMPT`. One list call."""
-    fn = load_actor("real", actors_dir, "settle")
-    if fn is None:
-        return 0
-    now = now or dt.datetime.now(dt.timezone.utc)
-    runs = get_json(f"repos/{repo}/actions/runs?status=success&event=pull_request&per_page=50&created=%3E%3D{since}"
-                    ).get("workflow_runs") or []
-    done = 0
-    for run in sorted(runs, key=lambda r: r.get("updated_at") or ""):
-        key = f"settle:{run.get('id')}:{run.get('run_attempt') or 1}"
-        prs = run.get("pull_requests") or []
-        if key in seen or done >= max_runs or not prs or not str(run.get("head_branch") or "").startswith("lane/"):
-            continue
-        seen[key] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
-        done += 1
-        ctx = {"repo": repo, "pr": prs[0].get("number"), "head_sha": run.get("head_sha"),
-               "head_ref": run.get("head_branch"), "run_id": run.get("id"), "workflow": run.get("name"),
-               "green_at": run.get("updated_at")}
-        try:
-            got = fn(ctx, dry_run)
-        except Exception as err:  # noqa: BLE001  an actor's bug must not turn the oops job red
-            got = {"outcome": "gave_up", "note": f"act_agent.settle raised {err.__class__.__name__}: {err}"[:300]}
-        if isinstance(got, dict) and got.get("outcome") not in (None, "none"):
-            emit({"v": core.CI_OOPS_VERSION, "repo": repo, "pr": ctx["pr"], "run_id": ctx["run_id"],
-                  "head_sha": ctx["head_sha"], **got, "at": now_iso()})
-    return done
-
-
 SWEEP_SEEN_KEEP_H = 48
 OUTBOX_SOURCE = "ci-oops"  # tools/fleet-reconcilers/outbox_relay.py SOURCES delivers its tells
 
@@ -407,7 +329,7 @@ def requeue_lands(repo: str, retried: dict, state_dir, get_json=gh_json, now=Non
 
 def sweep(repo: str, state_dir: Path | None, since_min: int, settle_min: int, max_runs: int, dry_run: bool,
           skip_workflows=(), get_json=gh_json, get_text=gh_text, now=None, actors_dir: Path = HERE,
-          soft_runs: int = 0, settle_runs: int = 0) -> dict:
+          soft_runs: int = 0) -> dict:
     """The reconciler's pass: every failed run of REPO created in the last SINCE_MIN minutes, finished at least
     SETTLE_MIN ago (its jobs' logs are whole by then; act_retry caps the attempts itself), whose
     workflow is not in SKIP_WORKFLOWS, and whose run_id:attempt is not in STATE_DIR/seen.json, is run through
@@ -475,19 +397,12 @@ def sweep(repo: str, state_dir: Path | None, since_min: int, settle_min: int, ma
             soft = soft_sweep(repo, seen, since, soft_runs, dry_run, get_json, now, actors_dir)
         except Exception as err:  # noqa: BLE001  the listing failed: the next pass reads it again
             print(f"::warning::ci-oops soft sweep {repo}: {err.__class__.__name__}: {err}"[:300], flush=True)
-    settled = 0
-    if settle_runs:
-        try:
-            settled = settle_sweep(repo, seen, since, settle_runs, dry_run, get_json, now, actors_dir)
-        except Exception as err:  # noqa: BLE001  the listing failed: the next pass reads it again
-            print(f"::warning::ci-oops settle sweep {repo}: {err.__class__.__name__}: {err}"[:300], flush=True)
     if seen_path:
         seen_path.parent.mkdir(parents=True, exist_ok=True)
         seen_path.write_text(json.dumps(seen, indent=1, sort_keys=True) + "\n")
         retried_path.write_text(json.dumps(retried, indent=1, sort_keys=True) + "\n")
     summary = {"repo": repo, "listed": len(runs), "picked": len(picked), "acted": len(acted),
-               "deferred": max(0, len(picked) - max_runs), "left": why_not, "lands_requeued": landed, "soft_runs": soft,
-               "settled_runs": settled}
+               "deferred": max(0, len(picked) - max_runs), "left": why_not, "lands_requeued": landed, "soft_runs": soft}
     print("CI_OOPS_SWEEP=" + json.dumps(summary, sort_keys=True), flush=True)
     return summary
 
@@ -518,7 +433,6 @@ def main(argv=None) -> int:
     p.add_argument("--max-runs", type=int, default=12)
     p.add_argument("--skip-workflow", action="append", default=[])
     p.add_argument("--soft-runs", type=int, default=0, help="green PR runs a pass reads for soft warnings (0b)")
-    p.add_argument("--settle-runs", type=int, default=0, help="green lane PR runs a pass settles for act_agent (1c)")
     p.add_argument("--dry-run", action="store_true")
     sub.add_parser("check-rules")
     a = ap.parse_args(argv)
@@ -527,8 +441,7 @@ def main(argv=None) -> int:
         for repo in a.repo:
             try:
                 sweep(repo, Path(a.state) / repo.replace("/", "__") if a.state else None, a.since_min, a.settle_min,
-                      a.max_runs, a.dry_run, a.skip_workflow, soft_runs=a.soft_runs,
-                      settle_runs=a.settle_runs)
+                      a.max_runs, a.dry_run, a.skip_workflow, soft_runs=a.soft_runs)
             except Exception as err:  # an unreadable listing: logged, never red; the next pass reads it again
                 print(f"::warning::ci-oops sweep {repo}: {err.__class__.__name__}: {err}"[:400], flush=True)
         return 0

@@ -1,181 +1,204 @@
 # Command Reference (cmux Browser)
 
+## Surface contract
+
 Run `cmux browser --help` against the installed binary before relying on exact
-syntax. `TAB` below is a `tab_…` id (or a unique prefix) from `cmux tab list`
-or `cmux tab create browser`; `page` means the browser nearest you (your
-workspace, then your window; never the focused tab in another window). See
-[surface-discovery.md](surface-discovery.md) before targeting a tab in another
-workspace.
-
-## Creation and discovery
+syntax. Creation verbs (`open`, `open-split`, `new`) and the explicitly global
+browser verbs listed in `SKILL.md` may omit a surface. Every surface-bound
+command that reads or mutates an existing browser must include one:
 
 ```bash
-cmux --json tab create browser --url https://example.com
-cmux --json tab create browser --url https://example.com --name docs --workspace ws_… --screen current --pane current
-cmux --json tab list
-cmux tab tab_… show
-cmux browser list
+cmux browser --surface <surface> get url
+cmux browser --surface <surface> snapshot --interactive
+cmux browser --surface <surface> tab list
+cmux browser --surface <surface> click <selector-or-ref>
 ```
 
-`tab create browser` needs `--url`. `--workspace`, `--screen` and `--pane`
-place the tab; without them it goes to the caller's pane. UI actions
-`cmux tab new-browser`, `cmux browser split-right` and
-`cmux browser split-down` open a browser in the focused place; read their
-arguments with `cmux action describe "browser split-right"`.
+`cmux browser <surface> <verb> ...` is the equivalent positional form. See
+[surface-discovery.md](surface-discovery.md) before targeting an existing
+authenticated browser or a browser in another workspace.
 
-## Page commands for app tabs (`tab_…` or `page`)
+## Accepted aliases
+
+Use the preferred column in new docs/scripts; every alias still requires the
+same explicit surface.
+
+| Purpose | Preferred | Accepted alias |
+| --- | --- | --- |
+| Read URL | `cmux browser --surface <surface> get url` | `cmux browser --surface <surface> url` or `get-url` |
+| Navigate | `cmux browser --surface <surface> goto <url>` | `navigate` |
+| Interactive snapshot | `cmux browser --surface <surface> snapshot --interactive` | `-i` |
+| Press a key | `cmux browser --surface <surface> press <key>` | `key` |
+
+The upstream `agent-browser` command's implicit page context maps to an
+explicit cmux surface. Its interactive snapshot maps to `snapshot
+--interactive`; its `open` command maps to `cmux browser open` because creation
+returns a new surface.
+
+## Discovery and creation
 
 ```bash
-cmux browser "$TAB" navigate https://example.com
-cmux browser "$TAB" back
-cmux browser "$TAB" forward
-cmux browser "$TAB" reload
-cmux browser "$TAB" state
-cmux browser "$TAB" eval 'document.title'
-cmux browser "$TAB" snapshot
-cmux browser "$TAB" snapshot --interactive
-cmux browser "$TAB" snapshot --selector "form#checkout" --max-depth 3 --interactive
-cmux browser "$TAB" click e2
-cmux browser "$TAB" focus "#email"
-cmux browser "$TAB" text body
-cmux browser "$TAB" value "#email"
-cmux browser "$TAB" fill "#email" "$APP_USERNAME"
-cmux browser "$TAB" type "#search" "query"
-cmux browser "$TAB" wait "#results"
-cmux browser "$TAB" wait --url-contains /dashboard --timeout-ms 15000
-cmux browser "$TAB" wait --text "Saved"
-cmux browser "$TAB" wait --load-state complete
-cmux browser "$TAB" wait --function 'window.appReady === true'
-cmux browser "$TAB" screenshot --out page.png
-cmux browser "$TAB" screenshot --selector "#chart" --out chart.png
-cmux browser "$TAB" screenshot --full-page --out full.png
-cmux browser "$TAB" screenshot --out - > page.png
-cmux browser "$TAB" tabs
-cmux browser page tabs --all
-cmux browser "$TAB" new-tab https://example.com
-cmux browser "$TAB" select
-cmux browser "$TAB" close
-cmux browser "$TAB" press Enter
-cmux browser "$TAB" press Tab --selector "#email"
-cmux browser "$TAB" hover "#menu"
-cmux browser "$TAB" select "#size" m
-cmux browser "$TAB" check "#terms"
-cmux browser "$TAB" uncheck "#newsletter"
-cmux browser "$TAB" scroll --dy 600
-cmux browser "$TAB" scroll "#results" --dy 300
-cmux browser "$TAB" scroll-into-view "#footer"
-cmux browser "$TAB" cookies get --name session_id
-cmux browser "$TAB" cookies set session_id abc123 --domain .example.com --secure
-cmux browser "$TAB" cookies clear --domain example.com
-cmux browser "$TAB" storage local get
-cmux browser "$TAB" storage local set theme dark
-cmux browser "$TAB" storage session get draft
-cmux browser "$TAB" storage session clear
+cmux identify --json
+cmux tree --all --json
+cmux browser --surface <surface> identify --json
+
+cmux --json browser open <url> --focus false
+cmux --json browser open <url> --workspace <workspace> --window <window> --focus false
+cmux --json browser open-split <url> --workspace <workspace> --focus false
 ```
 
-`goto` and `open` are accepted for `navigate`; `url` and `title` are accepted
-for `state`. `fill` replaces the field's value; `type` types into it.
-Selectors are CSS selectors or snapshot refs (`e3`, `@e3`). Add `--json` before
-the scope for machine-readable output (`cmux --json browser "$TAB" state`).
+Creation defaults to the caller's `CMUX_WORKSPACE_ID` when neither
+`--workspace` nor `--window` is supplied, and `--focus` defaults to false. An
+explicit `--workspace` lets an agent create in another workspace without
+selecting it.
 
-`wait` takes one condition: a selector (positional or `--selector`), else
-`--url-contains`, `--text`, `--load-state interactive|complete`, or
-`--function` (a JavaScript expression), in that order. With none it waits for
-the page to finish loading. The default timeout is 5000 ms (`--timeout-ms`, at
-most 120000, or `--timeout` in seconds); it exits 1 with `timeout` when the
-condition does not hold in time, and keeps waiting across a navigation.
-
-`screenshot` captures the visible viewport as a PNG. `--selector` captures one
-element (scrolled into view, clipped to the viewport); `--full-page` captures
-the whole document (at most 25 million CSS pixels and 48 viewport tiles;
-fixed headers repeat in WebKit tabs). Without `--out` the PNG is a new file in
-the temporary directory (kept for an hour, newest 32); `--out PATH` copies it there. It prints the path
-(`--json`: the tab, path, width and height). `--out -` writes only the PNG to
-stdout.
-
-`tabs` lists the browser tabs of the tab's workspace (`page tabs`: the focused
-workspace; `--all`: every workspace) with id, title, URL, pane and whether each
-is selected or focused. `new-tab [URL]` opens a browser tab in the same pane
-and prints its id under `created`; `select` (or `switch`) shows and focuses the
-tab; `close` closes it. They run the same actions as the tab strip, wait for
-them unless `--no-wait`, and refuse a tab that is not an app browser tab. They
-act on the tab you name; the old `tab switch|close <index>` has no equivalent.
-
-`press KEY` sends a key to the focused element (or `--selector`'s element,
-focused first). Keys are W3C key or code names (`Enter`, `Tab`, `Escape`,
-`ArrowDown`, `PageDown`, `F5`, `Space`, `Shift`, `KeyA`, `Slash`, `Numpad1`) or
-one character; any other name is sent as is, so `Control+a` is one opaque key,
-not a combination. The events are page-level (untrusted): Space activates
-buttons and checkboxes and Enter submits a single-line form field, but browser
-defaults such as Tab moving focus do not run. `hover` sends pointer and mouse
-over, enter and move events. `select SELECTOR VALUE` picks an option by its
-value (`select` with no arguments is the tab verb above). `check` and
-`uncheck` click only when the state differs and fail with `not_checkable`,
-`disabled` or `not_changed`. `scroll` scrolls the page, or one element, by
-`--dx`/`--dy` CSS pixels (`scroll 400` is `--dy 400`) and prints the new
-position. The old flag forms (`--selector`, `--value`, `--key`) and verb
-aliases (`key`, `scrollintoview`) still work. These act once and do not retry
-for an element that is still loading.
-
-`cookies` reads and changes the tab profile's cookies (fields `name`, `value`,
-`domain`, `path`, `expires`, `secure`, `httpOnly`, `hostOnly`, `session_only`).
-`get` filters by `--name`, `--value`, `--path`, `--expires`, `--secure` and
-`--http-only` (exact), `--domain` (substring) and `--url` (the cookies a request
-there would send).
-`set NAME VALUE` takes the domain from `--domain` (a leading dot covers
-subdomains), else `--url`'s host, else the tab's page; `--path` defaults to `/`, and `--expires` takes Unix
-seconds; a time already past is refused (use `clear`). `clear` takes the same
-filters, `--domain` meaning that domain and its subdomains, and reports how many
-it cleared. It needs at least one and only reaches the tab's site (its host,
-parent domains and subdomains), because the store is the person's browser
-profile; `--all` is refused.
-
-`storage local|session` (default `local`) reads one key or every key with
-`get`, writes with `set KEY VALUE` and empties the area with `clear`, in the
-page's origin.
-
-## Daemon browsers (`browser_…`)
-
-A browser the cmux-tui daemon owns has its own verbs:
+## Navigation
 
 ```bash
-cmux browser browser_… show
-cmux browser browser_… navigate --url https://example.com
-cmux browser browser_… back|forward|reload|activate
-cmux browser browser_… key --key Enter
-cmux browser browser_… text --text "hello"
-cmux browser browser_… close
+cmux browser --surface <surface> goto <url>
+cmux browser --surface <surface> back|forward|reload
+cmux browser --surface <surface> get url|title
 ```
 
-`key` also takes `--kind down|up|press` and `--modifiers shift,control,alt,meta`.
-
-## UI actions on the nearest browser
-
-These run the same action as the menu or palette and return no page data:
-`browser screenshot-page`, `browser screenshot-section`,
-`browser toggle-developer-tools`, `browser show-javascript-console`,
-`browser delete-site-data`,
-`browser toggle-design-mode`, `browser toggle-focus-mode`,
-`browser toggle-react-grab`. Page zoom is `cmux tab <tab_…> zoom in|out|reset`
-(the app's Zoom In, Zoom Out and Actual Size on the tab's pane).
+## Snapshot and inspection
 
 ```bash
-cmux action list --noun browser
-cmux action describe "browser screenshot-page"
-cmux browser screenshot-page
+cmux browser --surface <surface> snapshot --interactive
+cmux browser --surface <surface> snapshot --interactive --compact --max-depth 3
+cmux browser --surface <surface> get text body
+cmux browser --surface <surface> get html body
+cmux browser --surface <surface> get value "#email"
+cmux browser --surface <surface> get attr "#email" --attr placeholder
+cmux browser --surface <surface> get count ".row"
+cmux browser --surface <surface> get box "#submit"
+cmux browser --surface <surface> get styles "#submit" --property color
+cmux browser --surface <surface> eval '<js>'
 ```
 
-## Not in the per-tab CLI (use the REPL)
+## Interaction
 
-The old CLI's `state save|load`, `console`,
-`errors`, `highlight`, `download`,
-`dialog`, `frame`, `network`, `trace`, `screencast`, `geolocation`,
-`offline`, `viewport`, `dblclick`, `keydown`, `keyup`, `get attr|count|box|styles|html`,
-`identify`, `profile`, `design-mode status` and `--snapshot-after` have no
-per-tab command (`wait`, `screenshot` and the input verbs are above). Cookies,
-storage, saved state, console, dialogs and downloads are in the browser REPL
-([repl-guide.md](repl-guide.md)); do not poll with `eval`. For a one-shot read that
-`text` and `value` do not cover, `eval` returns the script's value.
+```bash
+cmux browser --surface <surface> click|dblclick|hover|focus <selector-or-ref>
+cmux browser --surface <surface> fill <selector-or-ref> [text]
+cmux browser --surface <surface> type <selector-or-ref> <text>
+cmux browser --surface <surface> press|key|keydown|keyup [--key <key> | <key>]
+cmux browser --surface <surface> select <selector-or-ref> <value>
+cmux browser --surface <surface> check|uncheck <selector-or-ref>
+cmux browser --surface <surface> scroll [--selector <css>] [--dx <n>] [--dy <n>]
+```
 
-See also [snapshot-refs.md](snapshot-refs.md) and
-[authentication.md](authentication.md).
+Empty `fill` text clears the field. Keyboard names follow Playwright/W3C
+conventions (`Enter`, `Tab`, `Escape`, `ArrowLeft`, `Space`). Supported keys
+use the native WebKit input path, preserving browser defaults such as
+contenteditable caret movement, selection, scrolling, and control activation;
+opaque tokens use a page-event compatibility fallback. `Space`, `Spacebar`,
+and `space` emit DOM key `" "` with code `"Space"`; use `--key ' '` to pass
+the raw DOM key. Use `keydown Shift`/`keyup Shift` (or another supported
+modifier) around an arrow press when a page editor should extend a selection;
+the modifier state is retained per browser surface.
+
+## Wait
+
+```bash
+cmux browser --surface <surface> wait --selector "#ready" --timeout-ms 10000
+cmux browser --surface <surface> wait --text "Done" --timeout-ms 10000
+cmux browser --surface <surface> wait --url-contains "/dashboard" --timeout-ms 10000
+cmux browser --surface <surface> wait --load-state complete --timeout-ms 15000
+cmux browser --surface <surface> wait --function "document.readyState === 'complete'" --timeout-ms 10000
+```
+
+## Design mode
+
+```bash
+cmux browser --surface <surface> design-mode enable|disable|toggle|status --json
+```
+
+Design mode lets a user select page elements and copy their DOM, style, URL,
+and screenshot context for pasting into an agent. CLI enable/disable never
+moves application focus or copies context automatically.
+
+## Session, state, and diagnostics
+
+```bash
+cmux browser --surface <surface> cookies get|set|clear ...
+cmux browser --surface <surface> cookies clear --url https://app.example.com/
+cmux browser --surface <surface> cookies clear --domain app.example.com
+cmux browser --surface <surface> cookies clear --all
+cmux browser --surface <surface> storage local|session get|set|clear ...
+cmux browser --surface <surface> tab list|new|switch|close ...
+cmux browser --surface <surface> state save|load <path>
+cmux browser --surface <surface> console list|clear
+cmux browser --surface <surface> errors list|clear
+cmux browser --surface <surface> highlight <selector>
+cmux browser --surface <surface> screenshot
+cmux browser --surface <surface> download list [--limit <1...25>]
+cmux browser --surface <surface> download wait --timeout-ms 10000
+```
+
+`download list` returns the newest records for that browser surface without
+consuming `download wait` events. JSON records include `download_id`,
+`filename`, the actual saved `path` (or `null`), `status`, `bytes` when known,
+and `path_exists` when a path is present. The list is capped at 25 records;
+`--limit` may request a smaller positive count. Text output marks unavailable
+values explicitly.
+The legacy positional form treats a bare token as a destination path, so use
+the explicit `download wait <path>` or `download --path <path>` spelling when
+you want to make that intent unambiguous. `download list` is the only listing
+subcommand.
+
+`cookies clear` requires an explicit scope (`--url`, `--domain`, `--name`,
+`--path`, another cookie filter, or `--all`). URL scope follows cookie
+domain/path, secure, and expiration matching for the requested URL. JSON
+responses include the number of removed cookies as `cleared`.
+
+## Agent reliability
+
+Use `--snapshot-after` on mutating actions to get a fresh post-action snapshot.
+Re-snapshot after navigation, modal open/close, or major DOM changes. Prefer
+short handles in output; use `--id-format both` only when a UUID must be logged
+or exported. If the handle is stale, rediscover it; never silently retarget the
+focused browser.
+
+## Viewport emulation
+
+```bash
+cmux browser --surface <surface> viewport 1280 720
+cmux browser --surface <surface> screenshot --out /tmp/desktop.png
+cmux browser --surface <surface> viewport reset
+```
+
+`screenshot --out` takes a file path and replaces a file already there. An empty
+path or a directory is an error, and nothing on disk changes.
+
+Dimensions are limited to 1..4096 CSS pixels. cmux changes
+`window.innerWidth`/`window.innerHeight` and aspect-fits the page inside the
+existing pane; it does not resize the pane, move other surfaces, or change
+focus. Screenshot PNG dimensions are exact CSS pixels on Retina and non-Retina
+displays.
+
+An unsupported viewport/page-zoom combination leaves the viewport unchanged
+and returns `invalid_params` with reason
+`viewport_zoom_render_geometry_too_large` plus `maximum_page_zoom`. An attached
+browser inspector returns `invalid_state` with reason
+`attached_browser_inspector`; close or detach it first. Opening or redocking an
+attached inspector while emulation is active resets the viewport to native
+sizing.
+
+## Known WKWebView gaps (`not_supported`)
+
+`browser.trace.start|stop`,
+`browser.network.route|unroute|requests`, `browser.screencast.start|stop`, and
+`browser.input_mouse|input_keyboard|input_touch` are not supported by the
+WKWebView engine.
+
+`browser.geolocation.set` (`latitude`, `longitude`, optional `accuracy`, or
+`clear: true`) and `browser.offline.set` (`enabled`) work on WebKit. The
+override reaches the loaded page's main frame at once and every later
+document in all frames (an iframe already loaded keeps its old values until
+it reloads, though offline blocks its loads at once). It survives a web
+content crash or a hidden tab discard. A popup the page opens shares the
+opener's emulation.
+
+See also [snapshot-refs.md](snapshot-refs.md),
+[authentication.md](authentication.md), and
+[session-management.md](session-management.md).

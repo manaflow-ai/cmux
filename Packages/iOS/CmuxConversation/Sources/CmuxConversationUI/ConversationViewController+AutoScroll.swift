@@ -10,11 +10,8 @@ import UIKit
 /// moves the content offset each frame; the steps go through the scroll
 /// delegate callbacks a finger would (begin and end dragging, end
 /// decelerating), so the transcript leaves and regains the bottom as it does
-/// under a real drag. Like a finger, it moves the content by each frame's
-/// delta from where it is (`ConversationAutoScrollMotion`), so an anchor
-/// restore when an older page lands carries on instead of being undone.
-/// Each step is a signpost interval (subsystem `com.cmux.conversation`,
-/// category `AutoScroll`) for the trace.
+/// under a real drag. Each step is a signpost interval (subsystem
+/// `com.cmux.conversation`, category `AutoScroll`) for the trace.
 @MainActor
 final class ConversationAutoScrollDriver {
     static let environmentKey = "CMUX_UITEST_CONVERSATION_AUTOSCROLL"
@@ -24,7 +21,7 @@ final class ConversationAutoScrollDriver {
     private var link: CADisplayLink?
     private var index = 0
     private var stepStart: CFTimeInterval = 0
-    private var motion = ConversationAutoScrollMotion()
+    private var startOffset: CGFloat = 0
     private var interval: OSSignpostIntervalState?
     private let signposter = OSSignposter(subsystem: "com.cmux.conversation", category: "AutoScroll")
 
@@ -63,17 +60,15 @@ final class ConversationAutoScrollDriver {
         let step = script.steps[index]
         let progress = step.progress(at: link.timestamp - stepStart)
         if case .hold = step {} else {
-            let frame = motion.frame(
-                distance: progress.distance,
-                currentOffsetY: scrollView.contentOffset.y,
-                top: -scrollView.adjustedContentInset.top,
-                bottom: controller.bottomOffset.y
-            )
-            scrollView.contentOffset.y = frame.offsetY
+            let inset = scrollView.adjustedContentInset
+            let top = -inset.top
+            let bottom = controller.bottomOffset.y
+            let y = min(bottom, max(top, startOffset - progress.distance))
+            scrollView.contentOffset.y = y
             // A finger's drag updates the pin as it moves (isTracking or
             // isDecelerating in scrollViewDidScroll); the driver has neither.
             controller.isPinnedToBottom = controller.isNearBottom(tolerance: 44)
-            if frame.reachedEdge, case .flick = step {
+            if y == top || y == bottom, case .flick = step, progress.distance != 0 {
                 return finish(step: step, at: link.timestamp, in: controller, scrollView: scrollView)
             }
         }
@@ -97,7 +92,7 @@ final class ConversationAutoScrollDriver {
         endInterval()
         index = next
         stepStart = time
-        motion = ConversationAutoScrollMotion()
+        startOffset = scrollView.contentOffset.y
         guard index < script.steps.count else { return stop() }
         let step = script.steps[index]
         switch step {
@@ -110,7 +105,7 @@ final class ConversationAutoScrollDriver {
         case .hold:
             break
         }
-        let label = "\(index): \(step.scriptText)"
+        let label = "\(index): \(String(describing: step))"
         interval = signposter.beginInterval("step", id: signposter.makeSignpostID(), "\(label)")
     }
 

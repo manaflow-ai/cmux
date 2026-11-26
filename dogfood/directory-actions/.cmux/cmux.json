@@ -1,0 +1,31 @@
+{
+  "actions": {
+    "cmux.newTerminal": {
+      "type": "command",
+      "title": "Root New Terminal",
+      "subtitle": "Loaded from directory-actions/.cmux/cmux.json",
+      "command": "echo 'ROOT NEW TERMINAL'; echo 'SOURCE=directory-actions/.cmux/cmux.json'; pwd",
+      "target": "newTabInCurrentPane",
+      "shortcut": "cmd+shift+1",
+      "icon": { "type": "image", "path": "./icons/root-terminal.svg" }
+    },
+    "root.echo": {
+      "type": "command",
+      "title": "Root Echo",
+      "subtitle": "Ancestor action should still merge into nested directories",
+      "command": "echo 'ROOT ECHO'; echo 'SOURCE=directory-actions/.cmux/cmux.json'; pwd",
+      "target": "newTabInCurrentPane",
+      "shortcut": "cmd+shift+r",
+      "icon": { "type": "emoji", "value": "🌲" }
+    }
+  },
+  "ui": {
+    "surfaceTabBar": {
+      "buttons": [
+        "cmux.newTerminal",
+        "root.echo",
+        "cmux.newBrowser"
+      ]
+    }
+  }
+}

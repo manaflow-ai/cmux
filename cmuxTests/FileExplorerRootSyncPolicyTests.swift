@@ -1,0 +1,95 @@
+import AppKit
+import Testing
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+@Suite("File explorer root sync policy")
+struct FileExplorerRootSyncPolicyTests {
+    @Test("Hidden right sidebar keeps file explorer root lazy")
+    func hiddenRightSidebarKeepsFileExplorerRootLazy() {
+        for mode in RightSidebarMode.allCases {
+            #expect(
+                FileExplorerRootSyncPolicy.shouldSyncFileExplorerStore(
+                    isRightSidebarVisible: false,
+                    mode: mode
+                ) == false
+            )
+        }
+    }
+
+    @Test("Visible Files and Find may sync file explorer root")
+    func visibleFileModesMaySyncFileExplorerRoot() {
+        for mode in [RightSidebarMode.files, .find] {
+            #expect(
+                FileExplorerRootSyncPolicy.shouldSyncFileExplorerStore(
+                    isRightSidebarVisible: true,
+                    mode: mode
+                )
+            )
+        }
+    }
+
+    @Test("Visible non-file modes keep file explorer root lazy")
+    func visibleNonFileModesKeepFileExplorerRootLazy() {
+        let fileModes = Set([RightSidebarMode.files, .find])
+        for mode in RightSidebarMode.allCases.filter({ !fileModes.contains($0) }) {
+            #expect(
+                FileExplorerRootSyncPolicy.shouldSyncFileExplorerStore(
+                    isRightSidebarVisible: true,
+                    mode: mode
+                ) == false
+            )
+        }
+    }
+}
+
+@MainActor
+@Suite("Right sidebar keyboard navigation")
+struct RightSidebarKeyboardNavigationTests {
+    @Test("Return and keypad Enter open the selected item")
+    func returnAndKeypadEnterOpenSelection() throws {
+        for keyCode in [UInt16(36), UInt16(76)] {
+            let event = try #require(Self.keyEvent(keyCode: keyCode, modifierFlags: []))
+            #expect(event.isFileExplorerOpenSelectionShortcut(in: FileExplorerPanelPlacement.rightSidebar))
+        }
+    }
+
+    @Test("Command Down opens the selected item")
+    func commandDownOpensSelection() throws {
+        let event = try #require(Self.keyEvent(keyCode: 125, modifierFlags: [.command]))
+        #expect(event.isFileExplorerOpenSelectionShortcut(in: FileExplorerPanelPlacement.rightSidebar))
+    }
+
+    @Test("Plain Down, Shift Return, and Command Return keep their existing routes")
+    func nonActivationKeysDoNotOpenSelection() throws {
+        let plainDown = try #require(Self.keyEvent(keyCode: 125, modifierFlags: []))
+        let shiftReturn = try #require(Self.keyEvent(keyCode: 36, modifierFlags: [.shift]))
+        let commandReturn = try #require(Self.keyEvent(keyCode: 36, modifierFlags: [.command]))
+
+        #expect(!plainDown.isFileExplorerOpenSelectionShortcut(in: FileExplorerPanelPlacement.rightSidebar))
+        #expect(!shiftReturn.isFileExplorerOpenSelectionShortcut(in: FileExplorerPanelPlacement.rightSidebar))
+        #expect(!commandReturn.isFileExplorerOpenSelectionShortcut(in: FileExplorerPanelPlacement.rightSidebar))
+    }
+
+    private static func keyEvent(
+        keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags
+    ) -> NSEvent? {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifierFlags,
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "",
+            charactersIgnoringModifiers: "",
+            isARepeat: false,
+            keyCode: keyCode
+        )
+    }
+}

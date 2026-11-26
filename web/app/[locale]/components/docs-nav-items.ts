@@ -7,6 +7,7 @@ import {
   cloudSecurityDocsLocales,
   fallbackContentLocales,
   featureWorkflowContentLocales,
+  mainThreadDocsLocales,
   managedPoliciesDocsLocales,
   remoteTmuxDocsLocales,
 } from "../../../i18n/locale-availability";
@@ -215,10 +216,19 @@ export const navItems: NavEntry[] = [
       { titleKey: "nextShortcuts", href: "/docs/next/keyboard-shortcuts", locales: baseDocsLocales },
       { titleKey: "nextCli", href: "/docs/next/cli", locales: baseDocsLocales },
       { titleKey: "nextMcp", href: "/docs/next/mcp", locales: baseDocsLocales },
-      { titleKey: "nextApiVersions", href: "/docs/next/api-versions", locales: baseDocsLocales },
       { titleKey: "nextSettings", href: "/docs/next/settings", locales: baseDocsLocales },
-      { titleKey: "nextNetwork", href: "/docs/next/network-requirements", locales: baseDocsLocales },
       { titleKey: "nextArchitecture", href: "/docs/next/architecture", locales: baseDocsLocales },
+    ],
+  },
+  {
+    sectionKey: "engineeringSection",
+    children: [
+      {
+        titleKey: "mainThread",
+        href: "/docs/main-thread",
+        locales: mainThreadDocsLocales,
+        contentLocales: mainThreadDocsLocales,
+      },
     ],
   },
   { titleKey: "changelog", href: "/docs/changelog" },

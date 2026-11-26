@@ -1,5 +1,4 @@
 import type { DiffItem } from "../diff-stream";
-import { foldFind } from "./fold";
 
 export type FindMatchSide = "additions" | "deletions";
 
@@ -17,7 +16,9 @@ export type FindMatch = {
   lineText: string;
 };
 
-type FindHunkContent = { type: "context"; lines: number } | { type: "change"; additions: number; deletions: number };
+type FindHunkContent =
+  | { type: "context"; lines: number }
+  | { type: "change"; additions: number; deletions: number };
 
 type FindHunk = {
   additionStart: number;
@@ -50,7 +51,7 @@ function pushLineMatches(
   lineNumber: number,
   lineText: string,
 ): void {
-  const haystack = foldFind(lineText);
+  const haystack = lineText.toLowerCase();
   let from = 0;
   let occurrence = 0;
   for (;;) {
@@ -75,7 +76,7 @@ function pushLineMatches(
  * additions, matching the unified rendering order.
  */
 export function collectFindMatches(items: DiffItem[], rawQuery: string): FindMatch[] {
-  const query = foldFind(rawQuery);
+  const query = rawQuery.toLowerCase();
   const matches: FindMatch[] = [];
   if (query === "") {
     return matches;
@@ -99,11 +100,7 @@ export function collectFindMatches(items: DiffItem[], rawQuery: string): FindMat
         if (segment.type === "context") {
           for (let i = 0; i < segment.lines; i += 1) {
             pushLineMatches(
-              matches,
-              query,
-              item.id,
-              "additions",
-              additionLine,
+              matches, query, item.id, "additions", additionLine,
               lineContent(additionLines, additionIndex),
             );
             additionLine += 1;
@@ -114,11 +111,7 @@ export function collectFindMatches(items: DiffItem[], rawQuery: string): FindMat
         } else {
           for (let i = 0; i < segment.deletions; i += 1) {
             pushLineMatches(
-              matches,
-              query,
-              item.id,
-              "deletions",
-              deletionLine,
+              matches, query, item.id, "deletions", deletionLine,
               lineContent(deletionLines, deletionIndex),
             );
             deletionLine += 1;
@@ -126,11 +119,7 @@ export function collectFindMatches(items: DiffItem[], rawQuery: string): FindMat
           }
           for (let i = 0; i < segment.additions; i += 1) {
             pushLineMatches(
-              matches,
-              query,
-              item.id,
-              "additions",
-              additionLine,
+              matches, query, item.id, "additions", additionLine,
               lineContent(additionLines, additionIndex),
             );
             additionLine += 1;
@@ -148,18 +137,21 @@ export function collectFindMatches(items: DiffItem[], rawQuery: string): FindMat
  * streamed in, query edited). Prefers the same (item, side, line, occurrence)
  * anchor; falls back to clamping.
  */
-export function reanchorActiveMatch(previous: FindMatch | null, matches: FindMatch[], previousIndex: number): number {
+export function reanchorActiveMatch(
+  previous: FindMatch | null,
+  matches: FindMatch[],
+  previousIndex: number,
+): number {
   if (matches.length === 0) {
     return 0;
   }
   if (previous != null) {
-    const found = matches.findIndex(
-      (match) =>
-        match.itemId === previous.itemId &&
-        match.side === previous.side &&
-        match.lineNumber === previous.lineNumber &&
-        match.occurrence === previous.occurrence &&
-        match.start === previous.start,
+    const found = matches.findIndex((match) =>
+      match.itemId === previous.itemId &&
+      match.side === previous.side &&
+      match.lineNumber === previous.lineNumber &&
+      match.occurrence === previous.occurrence &&
+      match.start === previous.start,
     );
     if (found !== -1) {
       return found;

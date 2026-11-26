@@ -11,7 +11,7 @@
     "directory": "cmux-tui/dist/npm/cmux"
   },
   "homepage": "https://github.com/manaflow-ai/cmux/tree/main/cmux-tui",
-  "license": "GPL-3.0-or-later",
+  "license": "MIT",
   "engines": {
     "node": ">=18"
   },

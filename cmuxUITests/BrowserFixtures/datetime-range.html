@@ -1,0 +1,45 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>datetime-range</title></head>
+<body>
+<input id="date" type="date">
+<input id="range" type="range" min="0" max="100" value="10">
+<div id="status">PENDING</div>
+<pre id="event-log"></pre>
+<script>
+  window.__cmuxLog = [];
+  const logEl = document.getElementById('event-log');
+  const statusEl = document.getElementById('status');
+  let seq = 0;
+  function logEvent(ev, target, extra) {
+    window.__cmuxLog.push(Object.assign(
+      { seq: ++seq, type: ev.type, target, isTrusted: ev.isTrusted },
+      extra || {}
+    ));
+    logEl.textContent = JSON.stringify(window.__cmuxLog);
+  }
+
+  const dateEl = document.getElementById('date');
+  const rangeEl = document.getElementById('range');
+  let dateChanged = false;
+  let rangeChanged = false;
+  function check() {
+    if (dateChanged && rangeChanged &&
+        dateEl.value === '2026-01-15' && rangeEl.valueAsNumber >= 90) {
+      statusEl.textContent = 'PASS';
+    }
+  }
+
+  dateEl.addEventListener('change', (ev) => {
+    dateChanged = true;
+    logEvent(ev, '#date', { value: dateEl.value });
+    check();
+  });
+  rangeEl.addEventListener('change', (ev) => {
+    rangeChanged = true;
+    logEvent(ev, '#range', { value: rangeEl.value });
+    check();
+  });
+</script>
+</body>
+</html>

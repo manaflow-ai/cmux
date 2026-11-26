@@ -1,6 +1,4 @@
-import { foldFind } from "./fold";
 import type { FindMatch } from "./model";
-import { clearAdaptiveFind, paintAdaptiveFind, releaseAdaptiveFind, type FindColors } from "../ui/findPaint";
 
 export const FIND_HIGHLIGHT_NAME = "cmux-find-match";
 export const FIND_ACTIVE_HIGHLIGHT_NAME = "cmux-find-active";
@@ -20,14 +18,6 @@ const highlightCSS = `
 }
 `;
 
-/** highlightCSS's colors, fit to the surface under each match (an added or removed line's tint,
- * the file header, the page: ui/findPaint.ts); the rules above are the fallback. */
-const findColors: FindColors = {
-  match: "light-dark(rgba(255, 199, 0, 0.42), rgba(255, 199, 0, 0.34))",
-  current: "light-dark(#ff9632, #e8821e)",
-  currentInk: "#1a1208",
-};
-
 /**
  * What the painter reads on every pass. `activeItemSpan` is the active
  * match's file span in scroll coordinates (from the virtualizer's item
@@ -43,12 +33,6 @@ export type FindPaintSnapshot = {
 type PainterOptions = {
   container: HTMLElement;
   getSnapshot: () => FindPaintSnapshot;
-  /** The ranges to paint, in place of the model-matched ones (`collectFindPaintRanges`): a view
-   * that counts matches in its rendered rows (`collectQueryRanges`) picks the active one itself. */
-  collect?: (container: HTMLElement, snapshot: FindPaintSnapshot, shadowRoots: ShadowRoot[]) => FindPaintRanges;
-  /** Whether scrolling repaints (default true): a virtualized view mounts rows as it scrolls; a view
-   * that renders every row does not need it (highlight ranges move with their text). */
-  repaintOnScroll?: boolean;
 };
 
 export type FindHighlightPainter = {
@@ -66,7 +50,6 @@ function clearHighlights(): void {
   }
   CSS.highlights.delete(FIND_HIGHLIGHT_NAME);
   CSS.highlights.delete(FIND_ACTIVE_HIGHLIGHT_NAME);
-  clearAdaptiveFind(FIND_HIGHLIGHT_NAME);
 }
 
 /**
@@ -172,16 +155,20 @@ function rowScrollTop(row: Element, container: HTMLElement): number {
   return rowRect.top - containerRect.top + container.scrollTop;
 }
 
-function findActiveRow(container: HTMLElement, rows: Element[], snapshot: FindPaintSnapshot): Element | null {
+function findActiveRow(
+  container: HTMLElement,
+  rows: Element[],
+  snapshot: FindPaintSnapshot,
+): Element | null {
   const active = snapshot.active;
   if (active == null) {
     return null;
   }
   const lineNumber = String(active.lineNumber);
-  const candidates = rows.filter(
-    (row) =>
-      (row.getAttribute("data-line") === lineNumber || row.getAttribute("data-alt-line") === lineNumber) &&
-      rowMatchesSide(row, active.side),
+  const candidates = rows.filter((row) =>
+    (row.getAttribute("data-line") === lineNumber ||
+      row.getAttribute("data-alt-line") === lineNumber) &&
+    rowMatchesSide(row, active.side),
   );
   if (candidates.length === 0) {
     return null;
@@ -239,7 +226,7 @@ export function collectFindPaintRanges(
   const activeRow = findActiveRow(container, rows, snapshot);
   for (const row of rows) {
     const rowText = collectRowText(row);
-    const haystack = foldFind(rowText.text);
+    const haystack = rowText.text.toLowerCase();
     let from = 0;
     let occurrence = 0;
     for (;;) {
@@ -264,28 +251,6 @@ export function collectFindPaintRanges(
 }
 
 /**
- * Every occurrence of `query` (lowercased) in the rendered rows' code, in document order, for a
- * view whose rows are all rendered, so the ranges are its matches.
- */
-export function collectQueryRanges(
-  container: HTMLElement,
-  query: string,
-  shadowRoots: ShadowRoot[] = collectOpenShadowRoots(container),
-): Range[] {
-  const ranges: Range[] = [];
-  if (query === "") return ranges;
-  for (const row of collectRows(container, shadowRoots)) {
-    const rowText = collectRowText(row);
-    const haystack = foldFind(rowText.text);
-    for (let start = haystack.indexOf(query); start !== -1; start = haystack.indexOf(query, start + query.length)) {
-      const range = rangeFor(rowText, start, start + query.length);
-      if (range != null) ranges.push(range);
-    }
-  }
-  return ranges;
-}
-
-/**
  * Paints find highlights over the rendered rows using the CSS Custom
  * Highlight API. The code view virtualizes rows, so this runs on every
  * scroll/DOM change; match COUNTING is model-side (`collectFindMatches`)
@@ -296,7 +261,6 @@ function paint(
   container: HTMLElement,
   snapshot: FindPaintSnapshot,
   shadowRoots: ShadowRoot[],
-  collect: NonNullable<PainterOptions["collect"]> = collectFindPaintRanges,
 ): void {
   if (!supportsFindHighlights()) {
     return;
@@ -305,12 +269,11 @@ function paint(
     clearHighlights();
     return;
   }
-  const { matchRanges, activeRanges } = collect(container, snapshot, shadowRoots);
+  const { matchRanges, activeRanges } = collectFindPaintRanges(container, snapshot, shadowRoots);
   CSS.highlights.set(FIND_HIGHLIGHT_NAME, new Highlight(...matchRanges));
   const activeHighlight = new Highlight(...activeRanges);
   activeHighlight.priority = 1;
   CSS.highlights.set(FIND_ACTIVE_HIGHLIGHT_NAME, activeHighlight);
-  paintAdaptiveFind(container.ownerDocument, FIND_HIGHLIGHT_NAME, findColors, matchRanges, activeRanges, shadowRoots);
 }
 
 /**
@@ -323,11 +286,11 @@ function paint(
  * and clears all highlights.
  */
 export function installFindHighlightPainter(options: PainterOptions): FindHighlightPainter {
-  const { container, getSnapshot, collect, repaintOnScroll = true } = options;
+  const { container, getSnapshot } = options;
   let frame: number | null = null;
   let disposed = false;
   let highlightSheet: CSSStyleSheet | null = null;
-  const styledRoots = new Set<DocumentOrShadowRoot & { adoptedStyleSheets: CSSStyleSheet[] }>();
+  const styledRoots = new WeakSet<DocumentOrShadowRoot>();
   const observedRoots = new WeakSet<Node>();
 
   const adoptStyles = (root: DocumentOrShadowRoot & { adoptedStyleSheets: CSSStyleSheet[] }) => {
@@ -370,7 +333,7 @@ export function installFindHighlightPainter(options: PainterOptions): FindHighli
     // New files stream in as new shadow hosts; re-sync before painting so
     // their rows are styled, observed, and painted in the same pass.
     const shadowRoots = syncShadowRoots();
-    paint(container, getSnapshot(), shadowRoots, collect);
+    paint(container, getSnapshot(), shadowRoots);
   };
   const schedule = () => {
     if (frame == null && !disposed) {
@@ -379,7 +342,7 @@ export function installFindHighlightPainter(options: PainterOptions): FindHighli
   };
 
   adoptStyles(document as unknown as DocumentOrShadowRoot & { adoptedStyleSheets: CSSStyleSheet[] });
-  if (repaintOnScroll) container.addEventListener("scroll", schedule, { passive: true });
+  container.addEventListener("scroll", schedule, { passive: true });
   observer.observe(container, { childList: true, subtree: true, characterData: true });
   syncShadowRoots();
 
@@ -394,11 +357,6 @@ export function installFindHighlightPainter(options: PainterOptions): FindHighli
       container.removeEventListener("scroll", schedule);
       observer.disconnect();
       clearHighlights();
-      releaseAdaptiveFind(FIND_HIGHLIGHT_NAME);
-      // A later painter adopts its own sheet; drop this one's.
-      for (const root of styledRoots)
-        root.adoptedStyleSheets = root.adoptedStyleSheets.filter((sheet) => sheet !== highlightSheet);
-      styledRoots.clear();
     },
   };
 }

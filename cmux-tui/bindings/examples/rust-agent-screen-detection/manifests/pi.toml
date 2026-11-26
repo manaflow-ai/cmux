@@ -1,7 +1,7 @@
 id = "pi"
-version = "2026.10.01.1"
+version = "2026.09.14.1"
 min_engine_version = 1
-updated_at = "2026-10-01T00:00:00Z"
+updated_at = "2026-09-14T00:00:00Z"
 aliases = ["herdr:pi"]
 
 [[rules]]
@@ -10,10 +10,7 @@ state = "working"
 priority = 100
 region = "whole_recent"
 visible_working = true
-any = [
-  { contains = ["Working..."] },
-  { line_regex = ['^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Working$'] },
-]
+contains = ["Working..."]
 
 [[rules]]
 id = "working_border"
@@ -21,7 +18,4 @@ state = "working"
 priority = 100
 region = "bottom_non_empty_lines(12)"
 visible_working = true
-any = [
-  { line_regex = ['^── [⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Working ─+$'] },
-  { line_regex = ['^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Working$'] },
-]
+line_regex = ['^── [⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Working ─+$']

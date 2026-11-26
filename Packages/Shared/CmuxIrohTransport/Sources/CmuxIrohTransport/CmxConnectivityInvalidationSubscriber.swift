@@ -1,9 +1,5 @@
-public import CmuxEgress
 import CMUXMobileCore
 public import Foundation
-#if canImport(FoundationNetworking)
-public import FoundationNetworking
-#endif
 
 /// Revision-only message carried by the account connectivity channel.
 ///
@@ -91,7 +87,7 @@ public actor CmxConnectivityInvalidationSubscriber {
     public init(
         serviceBaseURL: URL,
         accessToken: @escaping AccessTokenProvider,
-        session: sending URLSession = CmuxEgress.shared(site: "CmuxIrohTransport.CmxConnectivityInvalidationSubscriber"),
+        session: sending URLSession = .shared,
         backoff: CmxIrohReconnectBackoff = CmxIrohReconnectBackoff(),
         sleep: @escaping @Sendable (TimeInterval) async throws -> Void = {
             try await Task<Never, Never>.sleep(for: .seconds($0))
@@ -177,7 +173,7 @@ public actor CmxConnectivityInvalidationSubscriber {
         }
         var request = URLRequest(url: url)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        let task = CmuxEgress.websocket(session, with: request, site: "CmuxIrohTransport.CmxConnectivityInvalidationSubscriber")
+        let task = session.webSocketTask(with: request)
         task.maximumMessageSize = CmxConnectivityInvalidation.maximumFrameBytes
         task.resume()
         defer { task.cancel(with: .goingAway, reason: nil) }

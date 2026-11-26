@@ -1,7 +1,5 @@
 public import Foundation
-#if canImport(os)
 internal import os
-#endif
 
 /// A fixed-capacity ring of recent ``DiagnosticEvent`` values with a
 /// non-blocking hot-path recorder.
@@ -82,7 +80,7 @@ public final class DiagnosticLog: Sendable {
         capacity: Int = 4096,
         buildStamp: String = "",
         role: DiagnosticRuntimeRole = .unspecified,
-        anchorWallNanos: UInt64 = (Date().timeIntervalSince1970 * 1_000_000_000).saturatedInteger(UInt64.self) ?? 0,
+        anchorWallNanos: UInt64 = UInt64(max(0, Date().timeIntervalSince1970 * 1_000_000_000)),
         anchorMonotonicNanos: UInt64 = DispatchTime.now().uptimeNanoseconds
     ) {
         let capacity = max(1, capacity)
@@ -199,7 +197,7 @@ public final class DiagnosticLog: Sendable {
         failure: DiagnosticFailureKind? = nil,
         count: Int? = nil
     ) {
-        let boundedCount = count.map { min(max(0, $0), Int(clamping: UInt32.max)) }
+        let boundedCount = count.map { min(max(0, $0), Int(UInt32.max)) }
         record(DiagnosticEvent(
             .appFeatureAction,
             surface: surface,
@@ -249,7 +247,7 @@ public final class DiagnosticLog: Sendable {
             ms: elapsedMilliseconds,
             a: operation.rawValue,
             b: phase.rawValue,
-            c: detail.map { min(max(0, $0), Int(clamping: UInt32.max)) },
+            c: detail.map { min(max(0, $0), Int(UInt32.max)) },
             traceID: traceID.rawValue
         ))
     }
@@ -344,7 +342,7 @@ public final class DiagnosticLog: Sendable {
     /// the store has reset, so no old event can reappear after this returns.
     /// Recording itself remains non-blocking.
     public func clear(
-        anchorWallNanos: UInt64 = (Date().timeIntervalSince1970 * 1_000_000_000).saturatedInteger(UInt64.self) ?? 0,
+        anchorWallNanos: UInt64 = UInt64(max(0, Date().timeIntervalSince1970 * 1_000_000_000)),
         anchorMonotonicNanos: UInt64 = DispatchTime.now().uptimeNanoseconds
     ) async {
         await withCheckedContinuation { acknowledgement in
@@ -610,7 +608,7 @@ public final class DiagnosticLog: Sendable {
             if event.code == .selectedPathChanged, let pathKind = event.diagnosticPathKind {
                 selectedPaths[key] = (pathKind, head)
             }
-            slots.modify(checked: head) { $0 = event }
+            slots[head] = event
             head = (head + 1) % capacity
             if filled < capacity {
                 filled += 1

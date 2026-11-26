@@ -23,23 +23,66 @@ tests. An app build is needed when native build or runtime behavior changes, not
 for every instruction edit. Web changes need their package's checks and live preview.
 
 Native work uses a [tagged build](../../cmux-dev-workflow/references/tagged-builds.md)
-or the existing CI lane. A web or daemon change runs in a copy of the NIGHTLY (`cmux app try .`), no build. Team members: shared build fleet rules are in cmuxterm-hq.
+or the existing CI lane. Team members: shared build fleet rules are in cmuxterm-hq.
 
 ## Native app versus test compilation
 
-A tagged `reload.sh` build proves the `cmux` scheme (the `cmux-next` target) built.
-It says nothing about whether package tests or test-only imports compile.
-Compile and run the app package tests with SwiftPM:
+A tagged `reload.sh` build proves the app target built. It says nothing about
+whether `cmuxTests`, `cmuxUITests`, package tests or test-only imports compile.
+For authorized local native test compilation, the existing wrapper is:
 
 ```sh
-cd Packages/macOS/CmuxNext
-swift build --build-tests
-swift test --filter <Module>Tests
+./scripts/test-unit.sh -derivedDataPath "$HOME/Library/Developer/Xcode/DerivedData/cmux-<tag>-tests" build-for-testing
 ```
 
-`swift test` does not launch `cmux DEV`. Record how many tests ran; a zero-test
-invocation is not verification. CLI tests are cmux-tui Rust tests;
-run them on a Testbox or in CI. Never run `xcodebuild test` locally.
+Use `build-for-testing`, not `build`: the latter skips the test target. Like
+CI, the wrapper builds `cmuxTests` without a Swift module, so a one-test-file
+edit skips a serial ~26 s emit-module step; set `CMUX_TEST_EMIT_MODULE=1` to
+keep the module, for example to inspect test frames in lldb. This
+still does not execute tests. Execute the focused selection through the supported
+test lane and record how many ran; a zero-test invocation is not verification.
+Keep test DerivedData separate from the app tag's directory: a failed test build
+can leave an unsigned test bundle that breaks the next app CodeSign step.
+For `cmuxApp`/`AppDelegate` changes, retain the current GlobalISel workaround
+when required by project instructions.
+
+## Webview, bun and browser tests
+
+Run a few named test files at a pushed commit on Blacksmith Linux, not on a shared dev box:
+
+```bash
+./scripts/run-linux-tests.sh --ref <pushed-commit-sha> webviews/test/foo.test.tsx --wait
+```
+
+It dispatches `.github/workflows/linux-tests.yml` from main for the head of a branch pushed here. Each file runs in its own `bun test` with the web bundles built and Playwright's Chromium and WebKit installed, so browser-lane suites run instead of skipping. Paths may be relative to `webviews/`. `--runner 16` or `32` picks a bigger machine, and `--no-bundles` skips the bundle build. Packages that test with vitest or Playwright Test are refused. The wrapper lives on main; from another branch run it with:
+
+```bash
+gh api -H 'Accept: application/vnd.github.raw' repos/manaflow-ai/cmux/contents/scripts/run-linux-tests.sh | bash -s -- --ref <sha> webviews/test/foo.test.tsx --wait
+```
+
+## UI and socket checks
+
+## E2E and UI tests
+
+Run through GitHub Actions or the VM. Never launch an untagged app locally to satisfy socket or UI tests.
+
+Dispatch through the wrapper. It pins the exact pushed commit, carries a `dispatch_id` so the run is resolvable, and returns the run URL:
+
+```bash
+./scripts/run-e2e.sh cmuxTests/YourTestClass --ref <pushed-commit-sha> --wait
+```
+
+`gh workflow run test-e2e.yml` on its own is always rejected: `test_filter` is a required input, and without `--ref` the dispatch lands on whatever ref happens to be current rather than the commit you meant to test.
+
+**Compile the test target locally before dispatching.** One focused run costs 10-20 macOS runner-minutes, and it compiles the whole tree before it runs anything, so the most common red result on a feature branch is a Swift compile error rather than a test failure. The `cmux-unit` command above catches those in a fraction of the time and without a runner.
+
+**The wrapper picks the runner; leave `--runner` off.** `auto` goes through `scripts/ci/e2e_runner_pool.py`, the rule pull request CI uses: an owned Mac with a free slot first, then `blacksmith-12vcpu-macos-26` while it has headroom, then `blacksmith-6vcpu-macos-26`, then the shorter queue. A dispatch that names a Blacksmith pool skips idle owned Macs and waits in that pool's queue, which can run to an hour or more when many branches are testing at once (76 minutes on 6vcpu macOS 26 on 2026-09-25). Leaving it off also lets the wrapper attach to an identical run already in flight at that commit on any of those pools; a named `--runner` only reuses a run on that pool. Pass `--runner blacksmith-6vcpu-macos-15` only when the question is specifically about macOS 15 behavior, and expect to wait for it.
+
+**Do not dispatch `test-macos-suite.yml` for one test.** It runs a whole test target, compiles cold every time, and has none of the wrapper's reuse or refusal. A single-test dispatch there costs about 20 macOS runner-minutes for an answer the wrapper would share.
+
+**Do not re-dispatch the same selector at the same commit.** A focused run's result is a property of the commit; repeating it reprints the same failure at full cost. The wrapper now refuses a selector that already failed at that commit and points at the earlier run; read that run, fix the branch, push, and dispatch the new commit. A run the Mac failed before any test started (the UI test runner never initialized, no GUI session, screen capture never started; the list is `scripts/ci/machine_failure.py`) is not an answer, so the wrapper dispatches it again on its own, up to twice per commit, and prints which run and why. Add a signature there when you meet a new one; `--force` is for anything else you know was infrastructure.
+
+If a run fails with `selected test filter matched zero tests`, the selector is wrong or the test file is not wired into `project.pbxproj` (see the test wiring section of SKILL.md). Fix the selector; retrying an unmatched filter costs another full build and matches nothing again.
 
 ## Python socket tests
 
@@ -47,31 +90,3 @@ run them on a Testbox or in CI. Never run `xcodebuild test` locally.
 
 For CLI dogfood use `CMUX_TAG=<tag> scripts/cmux-debug-cli.sh ...`, not the global
 `/tmp/cmux-cli` symlink. Confirm the tested artifact is the one you launched.
-
-## Repeat admission without rebuilding between runs
-
-Use one managed step for repeated independent suite processes:
-
-```sh
-cmux-ci run --class light --script scripts/ci/run-swift-testing-suites.sh \
-  --ref FULL_SHA --arg Packages/macOS/CmuxNext --arg=--repeat --arg 20 \
-  --env CMUX_SWIFT_TEST_SUITES=HandlerCoverageTests \
-  --env CMUX_SWIFT_TEST_DIRECT=0 --env CMUX_SWIFT_TEST_SUITE_JOBS=1 \
-  --env CMUX_SWIFT_TEST_SUITE_TIMEOUT_SECONDS=60 \
-  --key handler-admission-FULL_SHA --timeout 7200
-```
-
-`--repeat N` (1–9999) builds/lists once with the normal binary-header guard
-then starts a fresh process for each repetition of each selected suite. Each
-process must finish within its deadline and report nonzero test execution.
-Admission disables timeout and database-lock retries and stops a suite at its
-first failure. Other selected suites still report their results. Omit the flag
-for the ordinary suite runner's existing retry policy.
-
-Keep the exact source SHA, worker, toolchain, CPU budget, debug-info options,
-`ci-phase build-and-list` duration, and every `ci-repeat` row. The summary must
-say all requested repetitions passed; a timed-out build means zero completed
-repetitions. Compare build minutes separately from warm execution seconds.
-A compiled target alone is not a linked/discovered test bundle. A binary-header
-ABI change legitimately invalidates build products; preserve that guard and
-do not claim a scheduler cache defect without evidence of a compatible slot.

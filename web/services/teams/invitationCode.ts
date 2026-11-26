@@ -33,8 +33,8 @@ export function createInvitationCodeClient(
 
   async function call(path: string, code: string, accessToken: string): Promise<InvitationCodeResult<unknown>> {
     const projectId = environment.NEXT_PUBLIC_STACK_PROJECT_ID?.trim();
-    const publishableKey = environment.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY?.trim() || undefined;
-    if (!projectId) return { ok: false, failure: "unavailable" };
+    const publishableKey = environment.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY?.trim();
+    if (!projectId || !publishableKey) return { ok: false, failure: "unavailable" };
     let response: Response;
     try {
       response = await withStackAuthSpan("team_invitation_code", () => fetcher(`${stackApiV1BaseURL()}${path}`, {
@@ -75,15 +75,13 @@ function stackApiV1BaseURL(): string {
   return /\/api\/v1$/u.test(base) ? base : `${base}/api/v1`;
 }
 
-function stackClientHeaders(projectId: string, publishableKey: string | undefined, accessToken: string): Record<string, string> {
+function stackClientHeaders(projectId: string, publishableKey: string, accessToken: string): Record<string, string> {
   return {
     "content-type": "application/json",
     // Hexclave names only, as in app/lib/stack.ts.
     "x-hexclave-access-type": "client",
     "x-hexclave-project-id": projectId,
-    // No key header when none is configured: Stack accepts that, but rejects a
-    // revoked key.
-    ...(publishableKey ? { "x-hexclave-publishable-client-key": publishableKey } : {}),
+    "x-hexclave-publishable-client-key": publishableKey,
     "x-hexclave-access-token": accessToken,
     "x-hexclave-override-error-status": "true",
   };

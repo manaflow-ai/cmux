@@ -1,63 +1,11 @@
 # Upgrading running Cloud machines
 
-> **CLI note (2026-09-30):** the Mac-side `cmux vm push`, `vm pull` and exec verbs named
-> below were removed in the Rust CLI cutover.
-
-A machine from an image with the store (`/opt/cmux/current`, `cmux host run`)
-updates its cmux-tui and cmux-tui-hook by itself: the session host, acpmux, the
-Cloud receiver and `cmux host` itself (see "Self-update" below). Everything
-else a machine keeps from its image for its whole life, and so does a machine
-from an older image (the devbox supervisor), so every other change to guest
-software, the daemon's command line, or the attach contract reaches only
-machines created after the next bake unless it is shipped to running machines
-on purpose. This doc is the contract that makes that shipping possible, the
-runbook for doing it, and the plan for machines it cannot reach.
-
-## Self-update
-
-The first status report also carries `updater.first_ready`, the image's
-pre-ready update observation saved across the exec into the channel build.
-It records `image_behind`, content-addressed binary versions (`from_version`
-and `to_version`, SHA256), the full `channel_commit`, Unix-ms `started_at`
-and `finished_at`, monotonic `check_ms`, and `update_ms`. Durations round up
-to milliseconds. An already-current image has `image_behind=false` and
-`update_ms=0`; a channel that could not be read has null comparison and
-update duration. `outcome` is `updated`, `current`, or `on_image`, so a failed
-attempt is never presented as a successful update. Later updater checks and
-the post-update process retain this first observation. Older machines have
-no observation; consumers must report unavailable, never infer zero.
-
-The `first_ready` and `a_machine_made_on_an_old_image` tests in
-`cmux-host/src/updater/tests.rs` exercise the report from fake behind/current
-images, persistence across exec, and an unreadable channel. The existing
-Cloud status sender carries this updater block without a second route.
-
-`cmux host run`'s `updater` role (`cmux-tui/crates/cmux-host/src/updater`)
-reads the signed channel `https://files.cmux.com/cmux-tui/channels/cloud-machine.json`
-30 s after it starts, on every resume and every minute. CI moves the
-channel to every feat-cmux-next push whose cmux-tui build is published
-(`point-machine-channel` in `cmux-tui-artifacts.yml`; signed with the web update
-key, which never leaves CI). When the channel names another build, the machine
-waits until no acpmux session runs a turn or waits on a permission, downloads
-both binaries into `/opt/cmux/store` (sha256 and size from the signed file),
-builds the next profile, flips `/opt/cmux/current` and restarts the work user's
-`acpmux.service`, other services running the old binary and last
-`cmux-host.service`. The new build must report the channel's commit from the
-session host and acpmux within ten minutes, or it flips back; a guard timer
-running the previous build rolls back one that never starts. A rolled-back
-build is not tried again, and a machine never goes back to a build older than
-one it applied. So the rules below for cmux-tui apply to every merge, not just
-to a fleet upgrade: a merge reaches running machines within minutes of its
-build.
-
-- Read it on a machine: `sudo cmux host update status`; run one check now:
-  `sudo cmux host update check`.
-- Off on one machine: `sudo touch /etc/cmux/no-self-update` (the bake writes it
-  while it runs and removes it at park; the image smoke writes it on its clones).
-  A machine whose `~/.cmux/bin/cmux-tui` the Mac app replaced in place
-  (`cmux link machine update`) also leaves itself alone.
-- The image is a cache: a machine from an older image boots its image's build
-  and updates 30 s later. Rebaking is a periodic refresh, not the path for fixes.
+A cmux Cloud machine keeps the software its image baked for its whole life.
+Nothing on the guest updates itself, so every change to guest software, the
+daemon's command line, or the attach contract reaches only machines created
+after the next bake unless it is shipped to running machines on purpose. This
+doc is the contract that makes that shipping possible, the runbook for doing
+it, and the plan for machines it cannot reach.
 
 Read it before changing any of: `cmux-tui` (daemon, terminal host, remote
 protocol, journal), `web/services/vms/images/devbox/` (the boot supervisor and
@@ -79,10 +27,8 @@ missing, and an in-place upgrade plus a one-row backfill restored them
 
 | Change | Reaches running machines? | How |
 | --- | --- | --- |
-| `cmux-tui` binary and `cmux-tui-hook` on a store image (`cmux host run`) | Yes, by itself | The `updater` role (Self-update, above) |
-| `cmux-tui` binary, `cmux-tui-hook`, and the state-mount helper on a devbox image | Yes | `web/scripts/upgrade-fleet-cmux-tui.ts` (below) |
+| `cmux-tui` binary, `cmux-tui-hook`, and the state-mount helper | Yes | `web/scripts/upgrade-fleet-cmux-tui.ts` (below) |
 | Coding-agent hook entries | Yes | Same run: the pinned install command re-runs `cmux-tui agent hook install` |
-| Guest `cmux` adapter, browser opener and Cloud CLI (`/usr/local/libexec/cmux-cloud-*`) | Yes | Same run: the install script puts this web build's guest integration in with the binary, so the adapter always reads the binary's exits (a timed-out `process wait` exits 124). An update that replaces only the binary (the app's machine update) leaves the old adapter, and a shell running the old adapter keeps its code after the file is replaced, so on a Cloud machine the binary exits 124 for that wait only to a caller that sets `CMUX_CALLER_READS_WAIT_124=1`, as the current adapter does on each call; a machine whose binary is already current still gets the integration |
 | `cmux-devbox-boot`, systemd units, the daemon's argv and environment | No | Bake only. The supervisor that is running keeps its own copy |
 | Baked packages, agent pins, desktop, `/etc/cmux/*` | No (agent pins: only on machines opted into `agentUpdates: "latest"`) | Bake only; opted-in machines update their coding agents on attach (`web/services/vms/guestAgentUpdates.ts`) |
 | Create-time provider config: inline TLS rules (coderouter), VPC, firewall | No | Fixed at `vms.create`; the platform ignores later rules |
@@ -115,37 +61,10 @@ else is image-only: design it so old machines keep working without it.
   adoptable. Never kill hosts on shutdown, and never move them into a path
   where `systemctl restart cmux-tui-daemon` is the only restart (the unit's
   `KillMode=control-group` kills every host).
-  Each terminal host runs in its own transient scope
-  (`cmux-terminal-host-<pid>.scope` in `cmuxhosts.slice`) when the
-  unit sets `CMUX_TUI_HOST_SCOPES=systemd` (baked units do; the daemon moves
-  each host it starts with `StartTransientUnit`, through `sudo -n busctl`
-  with a fixed argv when it runs as the Cloud user). A `systemctl stop` or
-  `restart` of the daemon unit then keeps every terminal, and the next daemon
-  adopts them. The move fails open: hosts on a machine whose unit predates
-  the variable, or whose `StartTransientUnit` call failed (logged once),
-  keep running unscoped in the unit's cgroup, and a unit stop ends them. A
-  scope is a lifetime boundary, not an isolation guarantee. A host ignores a stray SIGTERM, SIGHUP, SIGINT or SIGQUIT (it is the
-  only holder of its PTY) but honors a SIGTERM from PID 1, so a machine
-  shutdown ends each terminal promptly through the host's normal exit path
-  (exit record written), never after the stop timeout.
 - **Journal and registry migrations are forward-only and one-way.** The new
   daemon must open every older on-disk schema. After it migrates, the old
   binary may not start, so a rollback is only safe before the new daemon runs.
   State this in the PR when a change migrates on-disk state.
-- **The stored-output cleanup is one-way.** A daemon that finds terminal
-  output in its registry (older builds journaled every output chunk) builds a
-  new registry without it in the background and swaps it in at its next
-  start. The removed records leave runs of missing journal sequences, listed
-  in `journal_pruned_ranges`. An older build still opens the swapped registry
-  and serves its workspaces, but it is degraded: it does not know
-  `journal_pruned_ranges`, so its journal reads, journal subscriptions and
-  restore previews that cross a removed run end with a gap error, and its
-  agent roster restore skips those runs. It is not refused, because a refused
-  daemon would not start at all. The replaced file stays as
-  `workspace-registry.sqlite3.pre-output-cleanup` until a start after a full
-  start on the new registry. To roll back in that window, stop the daemon and
-  rename the `.pre-output-cleanup` file over the registry (remove its `-wal`
-  and `-shm` files first).
 - **Startup time is data-dependent.** A daemon replays its journal and adopts
   hosts before it listens; a 12 GB journal took about 3 minutes (2026-09-28).
   Nothing that waits for a daemon may assume seconds.
@@ -179,7 +98,7 @@ not the default image, so they keep its older cmux-tui and belong in the
 inventory like any other running machine.
 
 1. **Inventory.** List running machines and their owners (read-only):
-   `select provider_vm_id, provider_metadata->>'cmuxTuiContract', provider_metadata->>'cmuxRemoteAuth', image_version from cloud_vms where destroyed_at is null and provider = 'freestyle' and status = 'running'`.
+   `select provider_vm_id, provider_metadata->>'cmuxTuiContract', image_version from cloud_vms where destroyed_at is null and provider = 'freestyle' and status = 'running'`.
 2. **Canary.** Run one machine you own, then attach to it from the Mac:
 
    ```bash
@@ -194,7 +113,7 @@ inventory like any other running machine.
 
    ```sql
    update cloud_vms
-      set provider_metadata = provider_metadata || '{"cmuxTuiContract":"snapshot-v2","cmuxRemoteAuth":"trusted-carrier"}'::jsonb,
+      set provider_metadata = provider_metadata || '{"cmuxTuiContract":"snapshot-v2"}'::jsonb,
           updated_at = now()
     where provider_vm_id = any($1)
       and destroyed_at is null
@@ -216,9 +135,8 @@ runs its `ensure` path, so a running machine receives the bounded state-image
 growth fix even when its daemon is crash-looping. If the daemon upgrade needs
 to roll back, the previous helper is restored with the binary.
 
-- `SKIP unsupported-cloud-auth`: the supervisor starts neither a trusted-carrier
-  daemon nor a `freestyle-edge-grant` host-configured daemon. A new binary
-  would not make it attachable; the machine is image-only (below).
+- `SKIP no-trusted-carrier`: the supervisor starts a pre-carrier daemon. A new
+  binary would not make it attachable; the machine is image-only (below).
 - `SKIP disk-free=<n>MB`, `SKIP no-daemon`, `SKIP daemon-not-listening`:
   nothing changed. A no-daemon machine usually crash-loops or has a full
   disk; inspect it.

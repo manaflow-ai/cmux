@@ -1,9 +1,5 @@
 public import Foundation
-#if canImport(CryptoKit)
 import CryptoKit
-#else
-import Crypto
-#endif
 
 /// Stores one authenticated, encrypted cache per full v2 identity on both Mac and iOS.
 public actor V2FileStateStore: V2StateStoring {

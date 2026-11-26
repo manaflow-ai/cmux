@@ -4,8 +4,6 @@ compatibility_date = "2026-07-22"
 
 [vars]
 CMUX_RELAY_TICKET_ISSUER = "cmux-relay"
-# "1": a far viewer (its region differs from the daemon's) gets a classic circuit created in its own region, not an inline one in the slot by the daemon; off, every circuit is placed near the slot. Off until measured (src/placement.rs).
-CMUX_RELAY_VIEWER_CIRCUITS = "0"
 
 [build]
 command = "worker-build --release --no-panic-recovery"

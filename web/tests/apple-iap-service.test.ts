@@ -1,7 +1,14 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { ServerEventInput } from "../services/analytics/serverEvents";
-import { appleEnvironmentGrantsEntitlement } from "../services/billing/apple/config";
+import {
+  appleEnvironmentGrantsEntitlement,
+  appleProductFor,
+  appleProductId,
+  appleSandboxGrantNeedsAccountEmail,
+  appleUsdListPrice,
+  planIdForAppleProduct,
+} from "../services/billing/apple/config";
 import { appleSubscriptionGrantsAccess, bestAppleEntitlement } from "../services/billing/apple/entitlement";
 import type { AppleServerApi } from "../services/billing/apple/serverApi";
 import {
@@ -19,7 +26,8 @@ import { createAppleTestSigner } from "./helpers/apple-signing";
 
 const BUNDLE = "com.cmux.app";
 const ORIGINAL = "2000000000000100";
-const DAY = 24 * 60 * 60 * 1000;
+const HOUR = 60 * 60 * 1000;
+const DAY = 24 * HOUR;
 const NOW = new Date(Date.UTC(2026, 9, 15));
 const env = { APPLE_IAP_BUNDLE_IDS: `${BUNDLE},dev.cmux.app.beta`, APPLE_IAP_APP_APPLE_ID: "6783338052" };
 const signer = createAppleTestSigner();
@@ -32,6 +40,8 @@ let applyFailures: number;
 let serverApi: AppleServerApi | null;
 let token: string;
 let tokenB: string;
+let clock: Date;
+const noHistory: AppleServerApi["notificationHistory"] = async () => ({ signedPayloads: [], hasMore: false, paginationToken: null });
 
 function deps(): AppleIapDependencies {
   return {
@@ -48,7 +58,7 @@ function deps(): AppleIapDependencies {
     captureEvent: async (input) => {
       events.push(input);
     },
-    now: () => NOW,
+    now: () => clock,
   };
 }
 
@@ -134,6 +144,7 @@ beforeEach(async () => {
   events = [];
   applyFailures = 0;
   serverApi = null;
+  clock = NOW;
   token = await store.accountTokenForUser("user-a");
   tokenB = await store.accountTokenForUser("user-b");
 });
@@ -196,6 +207,7 @@ describe("client transactions", () => {
 
   test("prefers Apple's current signed state from the Server API", async () => {
     serverApi = {
+      notificationHistory: noHistory,
       subscriptionStatus: async () => ({
         status: 4,
         signedTransactionInfo: signer.sign(transaction({ signedDate: NOW.getTime() })),
@@ -208,7 +220,7 @@ describe("client transactions", () => {
   });
 
   test("falls back to the client transaction when the Server API fails", async () => {
-    serverApi = { subscriptionStatus: async () => { throw new Error("503"); } };
+    serverApi = { notificationHistory: noHistory, subscriptionStatus: async () => { throw new Error("503"); } };
     const result = await recordClientAppleTransaction({ userId: "user-a", signedTransactionInfo: signer.sign(transaction()) }, deps());
     expect(result.status).toBe("active");
   });
@@ -406,6 +418,8 @@ describe("App Store Server Notifications", () => {
     expect(row!.error).toContain("Stack unavailable");
     expect(events).toEqual([]);
 
+    // The failure scheduled the retry five minutes out.
+    clock = new Date(NOW.getTime() + 5 * 60_000);
     const result = await retryAppleNotifications({}, deps());
     expect(result.notifications.processed).toBe(1);
     expect(store.notifications.get(row!.notificationUuid)?.processedAt).not.toBeNull();
@@ -417,13 +431,13 @@ describe("App Store Server Notifications", () => {
     expect(await receiveAppleNotification(notification({ type: "SUBSCRIBED", subtype: "INITIAL_BUY", status: 1, tx: { appAccountToken: undefined } }), deps()))
       .toBe("skipped");
     expect([...store.notifications.values()][0]?.error).toBe("skipped: unlinked_account");
-    expect(await store.pendingNotifications(10)).toEqual([]);
+    expect(await store.pendingNotifications(10, NOW)).toEqual([]);
   });
 
   test("the retry job re-derives the plan for users whose subscription expired without a notification", async () => {
     await subscribe();
     store.subscriptions.set(ORIGINAL, {
-      ...subscription(), expiresAt: new Date(NOW.getTime() - 60_000), updatedAt: new Date(NOW.getTime() - 30 * DAY),
+      ...subscription(), expiresAt: new Date(NOW.getTime() - 2 * HOUR), updatedAt: new Date(NOW.getTime() - 30 * DAY),
     });
     applied = [];
     const result = await retryAppleNotifications({}, deps());
@@ -440,7 +454,7 @@ describe("App Store Server Notifications", () => {
 
     test("catches a grace period that ended weeks after the expiry", async () => {
       await subscribe();
-      setRow({ status: "grace_period", expiresAt: new Date(NOW.getTime() - 20 * DAY), gracePeriodExpiresAt: new Date(NOW.getTime() - 60_000) });
+      setRow({ status: "grace_period", expiresAt: new Date(NOW.getTime() - 20 * DAY), gracePeriodExpiresAt: new Date(NOW.getTime() - 2 * HOUR) });
       applied = [];
       const result = await retryAppleNotifications({}, deps());
       expect(result.lapsedUsers).toBe(1);
@@ -457,7 +471,7 @@ describe("App Store Server Notifications", () => {
 
     test("a swept row does not match again", async () => {
       await subscribe();
-      setRow({ expiresAt: new Date(NOW.getTime() - 60_000) });
+      setRow({ expiresAt: new Date(NOW.getTime() - 2 * HOUR) });
       expect((await retryAppleNotifications({}, deps())).lapsedUsers).toBe(1);
       expect(subscription().status).toBe("expired");
       expect((await retryAppleNotifications({}, deps())).lapsedUsers).toBe(0);
@@ -473,7 +487,7 @@ describe("App Store Server Notifications", () => {
 
     test("a failed re-derive is swept again on the next run", async () => {
       await subscribe();
-      setRow({ expiresAt: new Date(NOW.getTime() - 60_000) });
+      setRow({ expiresAt: new Date(NOW.getTime() - 2 * HOUR) });
       applied = [];
       applyFailures = 1;
       expect(await retryAppleNotifications({}, deps())).toMatchObject({ lapsedUsers: 1, lapsedFailures: 1 });
@@ -557,6 +571,7 @@ describe("notifications about an older transaction", () => {
     await subscribeAndRenew();
     const lookups: string[] = [];
     serverApi = {
+      notificationHistory: noHistory,
       subscriptionStatus: async ({ originalTransactionId }) => {
         lookups.push(originalTransactionId);
         return {
@@ -667,6 +682,26 @@ describe("Apple entitlement policy", () => {
     expect(appleEnvironmentGrantsEntitlement({ environment: "Xcode", bundleId: BUNDLE }, {})).toBe(false);
   });
 
+  test("staging, a separate Vercel project deployed to its own production environment, grants every Sandbox purchase", async () => {
+    // cmux-staging.vercel.app runs with VERCEL_ENV=production (cloud-vm-ops: each project uses its own
+    // production environment), so VERCEL_ENV alone made staging refuse every TestFlight and simulator buyer.
+    const { projects } = await import("../scripts/cloud-vm/projects.mjs");
+    const staging = { VERCEL_ENV: "production", VERCEL_PROJECT_ID: projects.staging.projectId, APPLE_IAP_SANDBOX_ACCOUNT_EMAILS: "review@example.com" };
+    expect(appleEnvironmentGrantsEntitlement({ environment: "Sandbox", bundleId: BUNDLE, accountEmail: "tester@example.com" }, staging)).toBe(true);
+    expect(appleEnvironmentGrantsEntitlement({ environment: "Sandbox", bundleId: "dev.cmux.app.beta" }, staging)).toBe(true);
+    expect(appleSandboxGrantNeedsAccountEmail(staging)).toBe(false);
+    expect(appleEnvironmentGrantsEntitlement({ environment: "Sandbox", bundleId: BUNDLE }, { ...staging, APPLE_IAP_SANDBOX_ENTITLEMENTS: "none" })).toBe(false);
+    expect(appleEnvironmentGrantsEntitlement({ environment: "Sandbox", bundleId: BUNDLE }, { ...staging, VERCEL_ENV: "preview" })).toBe(true);
+    // Production (or a production deployment whose project is unknown) keeps the allowlist.
+    for (const production of [
+      { VERCEL_ENV: "production", VERCEL_PROJECT_ID: projects.production.projectId },
+      { VERCEL_ENV: "production" },
+    ]) {
+      expect(appleEnvironmentGrantsEntitlement({ environment: "Sandbox", bundleId: BUNDLE, accountEmail: "tester@example.com" }, production)).toBe(false);
+      expect(appleSandboxGrantNeedsAccountEmail(production)).toBe(true);
+    }
+  });
+
   test("the highest granting plan wins and unknown plans never grant", () => {
     const best = bestAppleEntitlement([
       row,
@@ -677,8 +712,45 @@ describe("Apple entitlement policy", () => {
     expect(best?.originalTransactionId).toBe("2");
   });
 
+  test("NEXT and classic plans are picked separately, each family's highest plan winning", () => {
+    const rows = [
+      row,
+      { ...row, originalTransactionId: "2", planId: "next_plus" },
+      { ...row, originalTransactionId: "3", planId: "next_pro" },
+      { ...row, originalTransactionId: "4", planId: "next_max", status: "expired" },
+    ];
+    expect(bestAppleEntitlement(rows, NOW, {})?.originalTransactionId).toBe("1");
+    expect(bestAppleEntitlement(rows, NOW, {}, undefined, "classic")?.originalTransactionId).toBe("1");
+    expect(bestAppleEntitlement(rows, NOW, {}, undefined, "next")?.originalTransactionId).toBe("3");
+    // A NEXT subscription alone never counts as a classic plan, and the reverse.
+    expect(bestAppleEntitlement([{ ...row, planId: "next_max" }], NOW, {})).toBeNull();
+    expect(bestAppleEntitlement([row], NOW, {}, undefined, "next")).toBeNull();
+  });
+
   test("an active row past its expiry does not grant", () => {
     expect(appleSubscriptionGrantsAccess({ ...row, expiresAt: new Date(NOW.getTime() - 1) }, NOW, {})).toBe(false);
+  });
+});
+
+describe("the one price book (RFD 0037a)", () => {
+  test("App Store list prices are the web price / 0.7 rounded up to .99", () => {
+    expect(appleUsdListPrice("next_plus", "monthly")).toBe(29.99);
+    expect(appleUsdListPrice("next_pro", "monthly")).toBe(74.99);
+    expect(appleUsdListPrice("next_max", "monthly")).toBe(299.99);
+    expect(appleUsdListPrice("go", "monthly")).toBe(21.99);
+    expect(appleUsdListPrice("pro", "monthly")).toBe(74.99);
+    expect(appleUsdListPrice("max", "monthly")).toBe(299.99);
+  });
+
+  test("each NEXT product grants exactly its own plan, monthly only, and old products keep granting", () => {
+    for (const planId of ["next_plus", "next_pro", "next_max"] as const) {
+      expect(appleProductId("com.cmux.app", planId, "monthly")).toBe(`com.cmux.app.${planId}.monthly`);
+      expect(planIdForAppleProduct(`com.cmux.app.${planId}.monthly`, "com.cmux.app")).toBe(planId);
+      expect(planIdForAppleProduct(`dev.cmux.app.internal.${planId}.monthly`, "dev.cmux.app.internal")).toBe(planId);
+      expect(appleProductFor(`com.cmux.app.${planId}.yearly`, "com.cmux.app")).toBeNull();
+    }
+    expect(planIdForAppleProduct("com.cmux.app.go.monthly", "com.cmux.app")).toBe("go");
+    expect(planIdForAppleProduct("com.cmux.app.max.monthly", "com.cmux.app")).toBe("max");
   });
 });
 

@@ -7,9 +7,6 @@
 #   scripts/ci/guards-local.sh --group X     only group X (no stamp)
 #   scripts/ci/guards-local.sh --list        show the plan
 #
-# --results is written incrementally by run_ci_guards.py; a caller that is cut short can still compare the steps that
-# finished, while the missing steps are marked unknown for the merge gate.
-#
 # The "CI fast guards" check runs this same script. A clean full pass writes
 # ${XDG_CACHE_HOME:-~/.cache}/cmux-guards/pass/<HEAD sha>, which the agent
 # merge guard accepts for `gh pr merge --admin` on that head.
@@ -18,12 +15,6 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cache="${XDG_CACHE_HOME:-$HOME/.cache}/cmux-guards"
 packages=(PyYAML==6.0.3 bashlex==0.18)
-# ci-guards.yml lints shell with the runner image's shellcheck (and actionlint
-# calls it too). A host without one gets a pinned copy in the venv, so the
-# shellcheck steps run here instead of failing on a missing command.
-if ! command -v shellcheck >/dev/null 2>&1; then
-  packages+=(shellcheck-py==0.10.0.1)
-fi
 venv="${CMUX_GUARDS_VENV:-$cache/venv-$(printf '%s ' "${packages[@]}" | shasum | cut -c1-12)}"
 
 if [[ ! -x "$venv/bin/python3" ]]; then

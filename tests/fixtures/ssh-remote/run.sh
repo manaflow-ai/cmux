@@ -18,32 +18,20 @@ chmod 600 /home/dev/.ssh/authorized_keys
 chmod 700 /root/.ssh
 chmod 600 /root/.ssh/authorized_keys
 
-# Logs in a private folder: a fixed /tmp name could be planted (scripts/check-test-determinism.py predictable-tmp-path).
-LOG_DIR="$(mktemp -d)"
-
-python3 -m http.server "$REMOTE_HTTP_PORT" --bind 127.0.0.1 --directory /srv/www >"$LOG_DIR/http.log" 2>&1 &
+python3 -m http.server "$REMOTE_HTTP_PORT" --bind 127.0.0.1 --directory /srv/www >/tmp/http.log 2>&1 &
 HTTP_PID=$!
-python3 /usr/local/bin/ws_echo.py --host 127.0.0.1 --port "$REMOTE_WS_PORT" >"$LOG_DIR/ws.log" 2>&1 &
+python3 /usr/local/bin/ws_echo.py --host 127.0.0.1 --port "$REMOTE_WS_PORT" >/tmp/ws.log 2>&1 &
 WS_PID=$!
 
-# Until both servers listen on their ports (ss, from iproute2), 10 s at most; a server that exits fails at once.
-listening() {
-  ss -Hltn "sport = :$1" 2>/dev/null | grep -q .
-}
-for _ in $(seq 1 100); do
-  kill -0 "$HTTP_PID" 2>/dev/null || break
-  kill -0 "$WS_PID" 2>/dev/null || break
-  listening "$REMOTE_HTTP_PORT" && listening "$REMOTE_WS_PORT" && break
-  sleep 0.1
-done
-if ! kill -0 "$HTTP_PID" 2>/dev/null || ! listening "$REMOTE_HTTP_PORT"; then
-  echo "HTTP fixture failed to start listening on $REMOTE_HTTP_PORT (see $LOG_DIR/http.log)" >&2
-  cat "$LOG_DIR/http.log" >&2 || true
+sleep 0.2
+if ! kill -0 "$HTTP_PID" 2>/dev/null; then
+  echo "HTTP fixture failed to start (see /tmp/http.log)" >&2
+  cat /tmp/http.log >&2 || true
   exit 1
 fi
-if ! kill -0 "$WS_PID" 2>/dev/null || ! listening "$REMOTE_WS_PORT"; then
-  echo "WebSocket fixture failed to start listening on $REMOTE_WS_PORT (see $LOG_DIR/ws.log)" >&2
-  cat "$LOG_DIR/ws.log" >&2 || true
+if ! kill -0 "$WS_PID" 2>/dev/null; then
+  echo "WebSocket fixture failed to start (see /tmp/ws.log)" >&2
+  cat /tmp/ws.log >&2 || true
   exit 1
 fi
 

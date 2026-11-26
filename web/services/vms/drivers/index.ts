@@ -1,5 +1,4 @@
 import { FreestyleProvider } from "./freestyle";
-import { GcpProvider } from "./gcp";
 import {
   isProviderId,
   type AttachTransport,
@@ -9,14 +8,13 @@ import {
 } from "./types";
 
 export * from "./types";
-export { FreestyleProvider, GcpProvider };
+export { FreestyleProvider };
 
 let registry: Map<ProviderId, VMProvider> | null = null;
 
 function buildRegistry(): Map<ProviderId, VMProvider> {
   const map = new Map<ProviderId, VMProvider>();
   map.set("freestyle", new FreestyleProvider());
-  map.set("gcp", new GcpProvider());
   return map;
 }
 
@@ -44,7 +42,8 @@ export function volumeCapableProviderId(): ProviderId | null {
 export function defaultProviderId(): ProviderId {
   const configured = process.env.CMUX_VM_DEFAULT_PROVIDER;
   if (isProviderId(configured)) return configured;
-  // Freestyle remains the default; GCP is an explicit Labs choice.
+  // Freestyle (the public platform) is the only provider; the env override
+  // survives so an operator can still pin it explicitly.
   return "freestyle";
 }
 

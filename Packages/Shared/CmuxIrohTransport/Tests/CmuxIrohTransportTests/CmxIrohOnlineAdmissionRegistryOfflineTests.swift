@@ -1,9 +1,5 @@
 import CMUXMobileCore
-#if canImport(CryptoKit)
 import CryptoKit
-#else
-import Crypto
-#endif
 import Foundation
 import Testing
 
@@ -260,8 +256,6 @@ extension CmxIrohOnlineAdmissionRegistryTests {
                 authenticatedPeerID: fixture.initiator.endpointID
             ).isAccepted
         )
-        // At 30 s the snapshot is read again (behind the admission of a pair it listed).
-        await broker.waitForCallCount(2)
         #expect(await broker.callCount() == 2)
     }
 

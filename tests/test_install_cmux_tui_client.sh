@@ -20,15 +20,8 @@ trap 'report_failure "$LINENO"' ERR
 APP="$TEST_DIR/Test.app"
 mkdir -p "$APP/Contents"
 CLIENT="$TEST_DIR/client"
-# One binary: invoked as acpmux (argv[0]) it answers acpmux --version, as in
-# cmux-tui's main.rs.
 cat > "$CLIENT" <<'SH'
 #!/bin/sh
-if [ "$(basename "$0")" = acpmux ]; then
-  [ "$1" = --version ] || exit 64
-  printf '%s\n' 'acpmux 0.1.0 (test)'
-  exit 0
-fi
 [ "$1" = remote-probe ] && [ "$2" = --json ] || exit 64
 if [ "${FAKE_SSH_MACOS_FROM_CLIENT:-0}" = 1 ]; then
   printf '%s\n' '{"app":"cmux-tui","capabilities":["wireguard-hub","test-capability","ssh-payload-download","ssh-payload-macos-from-client"]}'
@@ -47,37 +40,8 @@ install_client() {
     "$ROOT_DIR/scripts/install-cmux-tui-client.sh" "$APP" "$@"
 }
 
-assert_layout() { # <app>: bin/cmux is the file, cmux-tui and acpmux link to it
-  local bin="$1/Contents/Resources/bin" name
-  [ -f "$bin/cmux" ] && [ ! -L "$bin/cmux" ]
-  for name in cmux-tui acpmux; do
-    [ -L "$bin/$name" ] && [ "$(readlink "$bin/$name")" = cmux ]
-  done
-}
-
 install_client
-cmp "$CLIENT" "$APP/Contents/Resources/bin/cmux"
-assert_layout "$APP"
-# The agent screen detector (mapped in bundle-map.json) installs beside a local
-# client as bin/cmux-agent-screen-detection, the name the daemon runs; a local
-# client without one removes a stale copy.
-printf stale > "$APP/Contents/Resources/bin/cmux-agent-screen-detection"
-printf detector > "$TEST_DIR/cmux-agent-screen-detection"
-install_client
-cmp "$TEST_DIR/cmux-agent-screen-detection" "$APP/Contents/Resources/bin/cmux-agent-screen-detection"
-[ -x "$APP/Contents/Resources/bin/cmux-agent-screen-detection" ]
-rm -f "$TEST_DIR/cmux-agent-screen-detection"
-install_client
-[ ! -e "$APP/Contents/Resources/bin/cmux-agent-screen-detection" ]
-echo "PASS: a local client brings its agent screen detector, and one without it removes a stale copy"
-# A reinstall over an earlier layout (a real bin/cmux-tui and bin/acpmux)
-# replaces both files with the symlinks.
-rm "$APP/Contents/Resources/bin/cmux-tui" "$APP/Contents/Resources/bin/acpmux"
-cp "$CLIENT" "$APP/Contents/Resources/bin/cmux-tui"
-cp "$CLIENT" "$APP/Contents/Resources/bin/acpmux"
-install_client
-assert_layout "$APP"
-echo "PASS: bin/cmux is the binary; cmux-tui and acpmux are relative symlinks to it"
+cmp "$CLIENT" "$APP/Contents/Resources/bin/cmux-tui"
 install_client --require-capability wireguard-hub
 install_client --require-capability wireguard-hub --require-capability test-capability
 if install_client --require-capability wireguard-hub --require-capability missing > "$TEST_DIR/missing.log" 2>&1; then
@@ -90,7 +54,7 @@ echo "PASS: client installation with zero, one, and multiple required capabiliti
 # remains authoritative and is still capability-probed, even though it is a script.
 for arch in arm64 x86_64 universal; do
   install_client --arch "$arch" --require-capability wireguard-hub
-  cmp "$CLIENT" "$APP/Contents/Resources/bin/cmux"
+  cmp "$CLIENT" "$APP/Contents/Resources/bin/cmux-tui"
 done
 echo "PASS: local override stays unchanged for each architecture selection"
 
@@ -186,6 +150,9 @@ if [ -n "\${FAKE_GH_RATE_LIMITED_FILE:-}" ]; then
     exit 1
   fi
 fi
+if [[ "\${FAKE_GH_EXIT:-0}" == 0 && " \$* " == *" --format json "* ]]; then
+  printf '%s\n' '[{"attestation":{"bundle":{"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json","fake":true}}}]'
+fi
 exit "\${FAKE_GH_EXIT:-0}"
 SH
 cat > "$FAKEBIN/lipo" <<'SH'
@@ -199,12 +166,7 @@ if [ "$1" = -create ]; then
 fi
 exit 0
 SH
-cat > "$FAKEBIN/codesign" <<'SH'
-#!/bin/bash
-printf 'codesign %s\n' "$*" >> "$EVENTS"
-exit 0
-SH
-chmod +x "$FAKEBIN/curl" "$FAKEBIN/gh" "$FAKEBIN/lipo" "$FAKEBIN/codesign"
+chmod +x "$FAKEBIN/curl" "$FAKEBIN/gh" "$FAKEBIN/lipo"
 
 # Every case needs its own download cache: the installer skips the curl for a
 # slice already cached under the manifest's commit, and that commit is one
@@ -220,6 +182,7 @@ install_remote() { # <app> [installer options]
   : > "$EVENTS.bundle"
   REMOTE_INSTALL_SEQ=$((REMOTE_INSTALL_SEQ + 1))
   PATH="$FAKEBIN:$PATH" CMUX_TUI_CLIENT_CACHE="$TEST_DIR/cache-$REMOTE_INSTALL_SEQ" \
+    CMUX_TUI_ATTESTATION_CACHE="${ATTEST_CACHE:-$TEST_DIR/attest-cache-$REMOTE_INSTALL_SEQ}" \
     CMUX_TUI_CLIENT_DOWNLOAD_MAX_SECONDS="$DOWNLOAD_BUDGET" /bin/bash \
     "$ROOT_DIR/scripts/install-cmux-tui-client.sh" "$app" \
     --manifest-url "https://files.example.test/cmux-tui/$COMMIT/manifest.json" "$@"
@@ -231,10 +194,13 @@ DOWNLOAD_BUDGET=600
 ATTESTED_APP="$TEST_DIR/Attested.app"
 install_remote "$ATTESTED_APP" --expected-commit "$COMMIT" --attest-signer-workflow "$SIGNER" \
   --require-capability wireguard-hub > "$TEST_DIR/attested.log" 2>&1
-cmp "$CLIENT" "$ATTESTED_APP/Contents/Resources/bin/cmux"
-grep -q "^gh attestation verify .*manifest.* --repo manaflow-ai/cmux --signer-workflow $SIGNER --source-digest $COMMIT\$" "$EVENTS"
+cmp "$CLIENT" "$ATTESTED_APP/Contents/Resources/bin/cmux-tui"
+grep -q "^gh attestation verify .*manifest.* --repo manaflow-ai/cmux --signer-workflow $SIGNER --source-digest $COMMIT --format json\$" "$EVENTS"
 # The manifest is verified before any slice it names is fetched.
 [ "$(sed -n '1p' "$EVENTS")" = "curl https://files.example.test/cmux-tui/$COMMIT/manifest.json" ]
+# With no bundle cached or published, one short fetch of the published bundle
+# misses, then the API lookup verifies.
+[ "$(cat "$EVENTS.bundle")" = "bundle https://files.example.test/cmux-tui-attestations/sha256-$(slice_sha "$SERVE/manifest.json").sigstore.json" ]
 [ "$(sed -n '2p' "$EVENTS" | cut -d' ' -f1-3)" = "gh attestation verify" ]
 [ "$(sed -n '3p' "$EVENTS")" = "curl https://files.example.test/cmux-tui/$COMMIT/cmux-tui-aarch64-apple-darwin" ]
 echo "PASS: attested manifest is verified before slices are downloaded"
@@ -305,7 +271,7 @@ if FAKE_GH_EXIT=1 install_remote "$UNATTESTED_APP" --expected-commit "$COMMIT" -
   exit 1
 fi
 grep -q 'no valid build-provenance attestation for the cmux-tui manifest' "$TEST_DIR/unattested.log"
-[ ! -e "$UNATTESTED_APP/Contents/Resources/bin/cmux" ]
+[ ! -e "$UNATTESTED_APP/Contents/Resources/bin/cmux-tui" ]
 if grep -q 'apple-darwin' "$EVENTS"; then
   echo "FAIL: downloaded a slice named by an unverified manifest" >&2
   exit 1
@@ -327,32 +293,37 @@ cmp "$CLIENT" "$RATE_LIMITED_APP/Contents/Resources/bin/cmux-tui"
 [ "$(grep -c '^gh attestation verify' "$EVENTS")" = 3 ]
 echo "PASS: a rate-limited attestation lookup is retried, then verified"
 
-# A quota that never resets ends the loop after the default retries (sized to
-# outlast GitHub's hourly reset), and the error names the rate limit instead
-# of claiming the manifest has no valid attestation.
-echo 1000 > "$TEST_DIR/rate-limited-forever"
-# Delay 0 runs all nine retries instantly instead of sleeping through the 65-minute schedule.
-FAKE_GH_RATE_LIMITED_FILE="$TEST_DIR/rate-limited-forever" CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS=0 \
-  install_remote "$TEST_DIR/RateLimitedForever.app" --expected-commit "$COMMIT" --attest-signer-workflow "$SIGNER" \
-  > "$TEST_DIR/rate-limited-forever.log" 2>&1 && {
-    echo "FAIL: installed while the attestation lookup stayed rate-limited" >&2
+# A spent installation quota (run 45583224796, every retry 403'd) no longer holds
+# the install: the attestation bundles are read without the token and verified
+# offline with --bundle. A bundle that does not verify admits nothing.
+manifest_digest="$(slice_sha "$SERVE/manifest.json")"
+printf '{"attestations":[{"bundle":{"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json"}}]}' \
+  > "$SERVE/sha256:$manifest_digest"
+echo 99 > "$TEST_DIR/rate-limited-left"
+FAKE_GH_RATE_LIMITED_FILE="$TEST_DIR/rate-limited-left" CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS=0 \
+  install_remote "$TEST_DIR/AnonymousBundle.app" --expected-commit "$COMMIT" --attest-signer-workflow "$SIGNER" \
+  > "$TEST_DIR/anonymous-bundle.log" 2>&1 || {
+    echo "FAIL: a drained API quota failed the install although the bundle reads without a token" >&2
+    cat "$TEST_DIR/anonymous-bundle.log" >&2
     exit 1
   }
-[ "$(grep -c '^gh attestation verify' "$EVENTS")" = 10 ] || {
-  echo "FAIL: expected 1 attempt + 9 retries, got $(grep -c '^gh attestation verify' "$EVENTS")" >&2
-  exit 1
-}
-grep -q 'error: the GitHub API rate limit did not reset' "$TEST_DIR/rate-limited-forever.log" || {
-  echo "FAIL: exhausted rate-limit retries did not report the rate limit" >&2
-  cat "$TEST_DIR/rate-limited-forever.log" >&2
-  exit 1
-}
-if grep -q 'no valid build-provenance attestation' "$TEST_DIR/rate-limited-forever.log"; then
-  echo "FAIL: exhausted rate-limit retries claimed the attestation is invalid" >&2
+cmp "$CLIENT" "$TEST_DIR/AnonymousBundle.app/Contents/Resources/bin/cmux-tui"
+grep -q "^curl https://api.github.com/repos/manaflow-ai/cmux/attestations/sha256:$manifest_digest\$" "$EVENTS"
+grep -q "^gh attestation verify .*manifest.* --bundle .*anon-0.sigstore.json --repo manaflow-ai/cmux --signer-workflow $SIGNER --source-digest $COMMIT\$" "$EVENTS"
+[ "$(grep -c '^gh attestation verify' "$EVENTS")" = 2 ]
+echo 99 > "$TEST_DIR/rate-limited-left"
+FAKE_GH_BUNDLE_EXIT=1 FAKE_GH_RATE_LIMITED_FILE="$TEST_DIR/rate-limited-left" CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS=0 \
+  CMUX_TUI_ATTEST_RATE_LIMIT_RETRIES=1 install_remote "$TEST_DIR/AnonymousRejected.app" --expected-commit "$COMMIT" \
+  --attest-signer-workflow "$SIGNER" > "$TEST_DIR/anonymous-rejected.log" 2>&1 && {
+    echo "FAIL: installed from a token-less bundle that did not verify" >&2
+    exit 1
+  }
+if grep -q 'apple-darwin' "$EVENTS"; then
+  echo "FAIL: downloaded a slice after a token-less bundle did not verify" >&2
   exit 1
 fi
-[ ! -e "$TEST_DIR/RateLimitedForever.app/Contents/Resources/bin/cmux" ]
-echo "PASS: a rate limit that never resets stops after the retries with a rate-limit error"
+rm -f "$SERVE/sha256:$manifest_digest"
+echo "PASS: a drained API quota verifies the bundle read without the token; a bad bundle admits nothing"
 
 # A real verification failure is final on the first answer.
 FAKE_GH_EXIT=1 CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS=0 install_remote "$TEST_DIR/Rejected.app" \
@@ -365,9 +336,9 @@ echo "PASS: a rejected attestation is not retried"
 
 # The publisher uploads the manifest's Sigstore bundle under its digest
 # (cmux-tui-artifacts.yml, "Publish the manifest's Sigstore bundle"). With it the
-# attestation is verified offline, so a spent API quota holds nothing: nightly
-# run 41150090913 (2026-10-31) waited 37 minutes for the quota in "Bundle the
-# cmux-tui client" with its app compiled.
+# attestation is verified offline, so a spent API quota holds nothing: classic
+# nightly runs 45539773839-45569593374 (2026-11-25) each slept 15 minutes in
+# "Bundle the cmux-tui client" on the nightly-only Macs, then failed on the quota.
 MANIFEST_DIGEST="$(slice_sha "$SERVE/manifest.json")"
 BUNDLE_NAME="sha256-$MANIFEST_DIGEST.sigstore.json"
 printf '{"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json"}\n' > "$SERVE/$BUNDLE_NAME"
@@ -377,7 +348,7 @@ FAKE_GH_RATE_LIMITED_FILE="$TEST_DIR/bundle-rate-limited" CMUX_TUI_ATTEST_RETRY_
   --expected-commit "$COMMIT" --attest-signer-workflow "$SIGNER" > "$TEST_DIR/bundled.log" 2>&1 || {
     echo "FAIL: a published bundle did not let the install through a spent API quota" >&2
     cat "$TEST_DIR/bundled.log" >&2; exit 1; }
-cmp "$CLIENT" "$TEST_DIR/Bundled.app/Contents/Resources/bin/cmux"
+cmp "$CLIENT" "$TEST_DIR/Bundled.app/Contents/Resources/bin/cmux-tui"
 grep -q "^bundle https://files.example.test/cmux-tui-attestations/$BUNDLE_NAME\$" "$EVENTS.bundle"
 [ "$(grep -c '^gh ' "$EVENTS")" = 1 ] || { echo "FAIL: the bundled install also asked the API" >&2; cat "$EVENTS" >&2; exit 1; }
 grep -q "^gh attestation verify .*manifest.* --bundle .* --repo manaflow-ai/cmux --signer-workflow $SIGNER --source-digest $COMMIT\$" "$EVENTS"
@@ -388,7 +359,7 @@ echo "PASS: a published Sigstore bundle verifies the manifest offline, through a
 # A bundle that does not verify admits nothing by itself: the API lookup decides.
 FAKE_GH_BUNDLE_EXIT=1 install_remote "$TEST_DIR/BadBundle.app" --expected-commit "$COMMIT" \
   --attest-signer-workflow "$SIGNER" > "$TEST_DIR/bad-bundle.log" 2>&1
-cmp "$CLIENT" "$TEST_DIR/BadBundle.app/Contents/Resources/bin/cmux"
+cmp "$CLIENT" "$TEST_DIR/BadBundle.app/Contents/Resources/bin/cmux-tui"
 [ "$(grep -c '^gh attestation verify .* --bundle ' "$EVENTS")" = 1 ]
 [ "$(grep '^gh attestation verify' "$EVENTS" | grep -vc -- ' --bundle ')" = 1 ]
 grep -q 'did not verify; asking the GitHub attestations API' "$TEST_DIR/bad-bundle.log"
@@ -396,10 +367,48 @@ if FAKE_GH_BUNDLE_EXIT=1 FAKE_GH_EXIT=1 install_remote "$TEST_DIR/BadBoth.app" -
   --attest-signer-workflow "$SIGNER" > "$TEST_DIR/bad-both.log" 2>&1; then
   echo "FAIL: installed with a rejected bundle and a rejected API attestation" >&2; exit 1
 fi
-[ ! -e "$TEST_DIR/BadBoth.app/Contents/Resources/bin/cmux" ]
+[ ! -e "$TEST_DIR/BadBoth.app/Contents/Resources/bin/cmux-tui" ]
 grep -q 'no valid build-provenance attestation' "$TEST_DIR/bad-both.log"
 rm -f "$SERVE/$BUNDLE_NAME"
 echo "PASS: a bundle that does not verify falls back to the API lookup and never admits on its own"
+
+# A published bundle that verified lands in the host attestation cache, and the
+# next install of that manifest reads the cache: no fetch and no API lookup.
+OFFLINE_CACHE="$TEST_DIR/attest-cache-offline"
+printf '{"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json"}\n' > "$SERVE/$BUNDLE_NAME"
+ATTEST_CACHE="$OFFLINE_CACHE" install_remote "$TEST_DIR/Published.app" --expected-commit "$COMMIT" \
+  --attest-signer-workflow "$SIGNER" > "$TEST_DIR/published.log" 2>&1
+rm -f "$SERVE/$BUNDLE_NAME"
+[ "$(grep -c '^gh ' "$EVENTS")" = 1 ]
+[ -s "$OFFLINE_CACHE/$MANIFEST_DIGEST.sigstore.json" ]
+ATTEST_CACHE="$OFFLINE_CACHE" install_remote "$TEST_DIR/Cached.app" --expected-commit "$COMMIT" \
+  --attest-signer-workflow "$SIGNER" > "$TEST_DIR/cached.log" 2>&1
+cmp "$CLIENT" "$TEST_DIR/Cached.app/Contents/Resources/bin/cmux-tui"
+grep -q 'verified offline from cached bundle' "$TEST_DIR/cached.log"
+[ "$(grep -c '^gh ' "$EVENTS")" = 1 ]
+grep -q "^gh attestation verify .* --bundle $OFFLINE_CACHE/" "$EVENTS"
+[ ! -s "$EVENTS.bundle" ] || { echo "FAIL: a cached bundle still fetched the published one" >&2; exit 1; }
+echo "PASS: a published bundle is cached, so the next install reads no network and no API"
+
+# A cached bundle gh rejects is no verdict: it falls through to the API lookup.
+FAKE_GH_BUNDLE_EXIT=1 ATTEST_CACHE="$OFFLINE_CACHE" install_remote "$TEST_DIR/BadCache.app" \
+  --expected-commit "$COMMIT" --attest-signer-workflow "$SIGNER" > "$TEST_DIR/bad-cache.log" 2>&1
+cmp "$CLIENT" "$TEST_DIR/BadCache.app/Contents/Resources/bin/cmux-tui"
+grep -q -- "--source-digest $COMMIT --format json\$" "$EVENTS"
+echo "PASS: a rejected cached bundle falls back to the API lookup"
+
+# The bundle a successful API lookup returns is cached for the next install.
+API_CACHE="$TEST_DIR/attest-cache-api"
+ATTEST_CACHE="$API_CACHE" install_remote "$TEST_DIR/ApiFirst.app" --expected-commit "$COMMIT" \
+  --attest-signer-workflow "$SIGNER" > "$TEST_DIR/api-first.log" 2>&1
+grep -q -- '--format json$' "$EVENTS"
+ATTEST_CACHE="$API_CACHE" install_remote "$TEST_DIR/ApiSecond.app" --expected-commit "$COMMIT" \
+  --attest-signer-workflow "$SIGNER" > "$TEST_DIR/api-second.log" 2>&1
+grep -q 'verified offline from cached bundle' "$TEST_DIR/api-second.log"
+if grep -q -- '--format json$' "$EVENTS"; then
+  echo "FAIL: the bundle an API lookup verified was not reused" >&2; exit 1
+fi
+echo "PASS: an API lookup's bundle is cached, so the next install reads no API"
 
 if install_remote "$TEST_DIR/Malformed.app" --attest-signer-workflow "cmux-tui-artifacts.yml" \
     > "$TEST_DIR/malformed.log" 2>&1; then
@@ -414,8 +423,8 @@ echo "PASS: a malformed signer workflow is rejected before any download"
 # workflow is still required to have signed the manifest.
 DEFAULT_APP="$TEST_DIR/Default.app"
 install_remote "$DEFAULT_APP" --expected-commit "$COMMIT" > "$TEST_DIR/default.log" 2>&1
-cmp "$CLIENT" "$DEFAULT_APP/Contents/Resources/bin/cmux"
-grep -q "^gh attestation verify .* --signer-workflow $SIGNER --source-digest $COMMIT\$" "$EVENTS"
+cmp "$CLIENT" "$DEFAULT_APP/Contents/Resources/bin/cmux-tui"
+grep -q "^gh attestation verify .* --signer-workflow $SIGNER --source-digest $COMMIT --format json\$" "$EVENTS"
 if FAKE_GH_EXIT=1 install_remote "$TEST_DIR/DefaultDenied.app" --expected-commit "$COMMIT" > "$TEST_DIR/default-denied.log" 2>&1; then
   echo "FAIL: a remote install without flags skipped attestation" >&2
   exit 1
@@ -426,7 +435,7 @@ echo "PASS: remote installs verify the publishing workflow's attestation by defa
 # Only the explicit local-development opt-out installs without gh, and it says so.
 OPT_OUT_APP="$TEST_DIR/OptOut.app"
 FAKE_GH_EXIT=1 install_remote "$OPT_OUT_APP" --allow-unattested > "$TEST_DIR/opt-out.log" 2>&1
-cmp "$CLIENT" "$OPT_OUT_APP/Contents/Resources/bin/cmux"
+cmp "$CLIENT" "$OPT_OUT_APP/Contents/Resources/bin/cmux-tui"
 grep -q 'warning: installing an unattested cmux-tui manifest' "$TEST_DIR/opt-out.log"
 if grep -q '^gh ' "$EVENTS"; then
   echo "FAIL: --allow-unattested still invoked gh" >&2
@@ -461,8 +470,8 @@ for arch in arm64 x86_64; do
   native_app="$TEST_DIR/Native-$arch.app"
   install_remote "$native_app" --arch "$arch" --expected-commit "$COMMIT" \
     --require-capability wireguard-hub > "$TEST_DIR/native-$arch.log" 2>&1
-  cmp "$SERVE/cmux-tui-$slice-apple-darwin" "$native_app/Contents/Resources/bin/cmux"
-  grep -q "^gh attestation verify .* --source-digest $COMMIT\$" "$EVENTS"
+  cmp "$SERVE/cmux-tui-$slice-apple-darwin" "$native_app/Contents/Resources/bin/cmux-tui"
+  grep -q "^gh attestation verify .* --source-digest $COMMIT --format json\$" "$EVENTS"
   grep -q "curl .*cmux-tui-$slice-apple-darwin\$" "$EVENTS"
   [[ "$(sed -n '2p' "$EVENTS" | cut -d' ' -f1-3)" == "gh attestation verify" ]]
   [[ "$(sed -n '3p' "$EVENTS")" == "curl https://files.example.test/cmux-tui/$COMMIT/cmux-tui-$slice-apple-darwin" ]]
@@ -528,7 +537,7 @@ for arch in arm64 x86_64; do
     echo "FAIL: native install ignored the selected slice digest" >&2; exit 1
   fi
   grep -q "sha256 mismatch for cmux-tui-$slice-apple-darwin" "$TEST_DIR/bad-digest.log"
-  [[ ! -e "$TEST_DIR/BadDigest-$arch.app/Contents/Resources/bin/cmux" ]]
+  [[ ! -e "$TEST_DIR/BadDigest-$arch.app/Contents/Resources/bin/cmux-tui" ]]
   mv "$TEST_DIR/original-slice" "$SERVE/cmux-tui-$slice-apple-darwin"
   echo "PASS: $arch keeps attestation, architecture, capability and digest checks"
 done
@@ -538,112 +547,6 @@ fi
 grep -q 'unsupported cmux-tui architecture' "$TEST_DIR/unknown-arch.log"
 [[ ! -s "$EVENTS" ]]
 echo "PASS: unsupported architecture fails before network access"
-
-# The app host (apps-v1) installs beside the client when the manifest has it,
-# and a manifest without it removes a copy left by an earlier install.
-printf 'app host arm\n' > "$SERVE/cmux-tui-app-host-aarch64-apple-darwin"
-printf 'app host intel\n' > "$SERVE/cmux-tui-app-host-x86_64-apple-darwin"
-MANIFEST_WITHOUT_APP_HOST="$(cat "$SERVE/manifest.json")"
-APP_HOST_ARM_SHA="$(slice_sha "$SERVE/cmux-tui-app-host-aarch64-apple-darwin")"
-APP_HOST_X64_SHA="$(slice_sha "$SERVE/cmux-tui-app-host-x86_64-apple-darwin")"
-cat > "$SERVE/manifest.json" <<JSON
-{"commit":"$COMMIT","binaries":{"cmux-tui-aarch64-apple-darwin":"$ARM_SHA","cmux-tui-x86_64-apple-darwin":"$X64_SHA","cmux-tui-aarch64-unknown-linux-musl":"$ARM_SHA","cmux-tui-x86_64-unknown-linux-musl":"$ARM_SHA","cmux-tui-app-host-aarch64-apple-darwin":"$APP_HOST_ARM_SHA","cmux-tui-app-host-x86_64-apple-darwin":"$APP_HOST_X64_SHA"}}
-JSON
-APP_HOST_APP="$TEST_DIR/AppHost.app"
-install_remote "$APP_HOST_APP" --arch arm64 > "$TEST_DIR/app-host-arm.log" 2>&1
-cmp "$SERVE/cmux-tui-app-host-aarch64-apple-darwin" "$APP_HOST_APP/Contents/Resources/bin/cmux-app-host"
-[ -x "$APP_HOST_APP/Contents/Resources/bin/cmux-app-host" ]
-# A thin slice keeps the signature it was published with.
-if grep -q '^codesign ' "$EVENTS"; then
-  echo "FAIL: a thin companion slice was signed again" >&2; exit 1
-fi
-install_remote "$TEST_DIR/AppHostUniversal.app" > "$TEST_DIR/app-host-universal.log" 2>&1
-grep -q '^lipo -create .*cmux-tui-app-host-aarch64-apple-darwin' "$EVENTS"
-[ -x "$TEST_DIR/AppHostUniversal.app/Contents/Resources/bin/cmux-app-host" ]
-# The published x86_64 slices carry no signature (only arm64 links ad-hoc
-# signed), so a lipo'd companion is signed ad hoc as a whole; unsigned, the
-# tagged build's check-bundled-browser-host.sh refuses bin/cmux-browser-host.
-grep -q '^codesign --force --sign - .*/AppHostUniversal.app/Contents/Resources/bin/cmux-app-host$' "$EVENTS"
-# Off main the build publishes no Intel Mac slice: an arm64 install still takes
-# the arm64 companion and fetches nothing x86_64.
-cat > "$SERVE/manifest.json" <<JSON
-{"commit":"$COMMIT","binaries":{"cmux-tui-aarch64-apple-darwin":"$ARM_SHA","cmux-tui-aarch64-unknown-linux-musl":"$ARM_SHA","cmux-tui-x86_64-unknown-linux-musl":"$ARM_SHA","cmux-tui-app-host-aarch64-apple-darwin":"$APP_HOST_ARM_SHA"}}
-JSON
-: > "$EVENTS"
-install_remote "$TEST_DIR/AppHostArmOnly.app" --arch arm64 > "$TEST_DIR/app-host-arm-only.log" 2>&1
-cmp "$SERVE/cmux-tui-app-host-aarch64-apple-darwin" "$TEST_DIR/AppHostArmOnly.app/Contents/Resources/bin/cmux-app-host"
-if grep -q 'x86_64-apple-darwin' "$EVENTS"; then
-  echo "FAIL: an arm64 install fetched an Intel Mac slice" >&2; exit 1
-fi
-echo "PASS: an arm64 install takes its companions from a build without Intel Mac slices"
-printf '%s\n' "$MANIFEST_WITHOUT_APP_HOST" > "$SERVE/manifest.json"
-install_remote "$APP_HOST_APP" --arch arm64 > "$TEST_DIR/app-host-gone.log" 2>&1
-[ ! -e "$APP_HOST_APP/Contents/Resources/bin/cmux-app-host" ]
-grep -q 'publishes no cmux-app-host' "$TEST_DIR/app-host-gone.log"
-echo "PASS: the app host installs from the same build and a build without one removes it"
-
-# --require-companions (the nightly bundle) makes a companion the build lacks
-# fail the install, so a nightly without bin/cmux-app-host never publishes.
-printf '%s\n' "$MANIFEST_WITHOUT_APP_HOST" > "$SERVE/manifest.json"
-if install_remote "$TEST_DIR/RequireCompanions.app" --arch arm64 --require-companions > "$TEST_DIR/require-companions.log" 2>&1; then
-  echo "FAIL: --require-companions accepted a build with no app host" >&2; exit 1
-fi
-grep -q 'publishes no cmux-app-host for arm64' "$TEST_DIR/require-companions.log"
-[ ! -e "$TEST_DIR/RequireCompanions.app/Contents/Resources/bin/cmux-app-host" ]
-echo "PASS: --require-companions refuses a build without the app host"
-
-# The Cloud app server (cmux/cloud) installs beside the app host as bin/cmux-cloud the
-# same way; a wrong sha256 is refused and leaves no binary; a build without it removes it.
-printf 'cloud arm\n' > "$SERVE/cmux-tui-cloud-server-aarch64-apple-darwin"
-printf 'cloud intel\n' > "$SERVE/cmux-tui-cloud-server-x86_64-apple-darwin"
-CLOUD_ARM_SHA="$(slice_sha "$SERVE/cmux-tui-cloud-server-aarch64-apple-darwin")"
-CLOUD_X64_SHA="$(slice_sha "$SERVE/cmux-tui-cloud-server-x86_64-apple-darwin")"
-cloud_manifest() {
-  cat > "$SERVE/manifest.json" <<JSON
-{"commit":"$COMMIT","binaries":{"cmux-tui-aarch64-apple-darwin":"$ARM_SHA","cmux-tui-x86_64-apple-darwin":"$X64_SHA","cmux-tui-aarch64-unknown-linux-musl":"$ARM_SHA","cmux-tui-x86_64-unknown-linux-musl":"$ARM_SHA","cmux-tui-cloud-server-aarch64-apple-darwin":"$1","cmux-tui-cloud-server-x86_64-apple-darwin":"$CLOUD_X64_SHA"}}
-JSON
-}
-CLOUD_APP="$TEST_DIR/Cloud.app"
-cloud_manifest "$CLOUD_ARM_SHA"
-install_remote "$CLOUD_APP" --arch arm64 > "$TEST_DIR/cloud-arm.log" 2>&1
-cmp "$SERVE/cmux-tui-cloud-server-aarch64-apple-darwin" "$CLOUD_APP/Contents/Resources/bin/cmux-cloud"
-[ -x "$CLOUD_APP/Contents/Resources/bin/cmux-cloud" ]
-[ ! -e "$CLOUD_APP/Contents/Resources/bin/cmux-app-host" ]
-cloud_manifest "$(printf '0%.0s' {1..64})"
-if install_remote "$TEST_DIR/CloudBad.app" --arch arm64 > "$TEST_DIR/cloud-bad.log" 2>&1; then
-  echo "FAIL: a wrong cmux-cloud sha256 was accepted" >&2; exit 1
-fi
-[ ! -e "$TEST_DIR/CloudBad.app/Contents/Resources/bin/cmux-cloud" ]
-printf '%s\n' "$MANIFEST_WITHOUT_APP_HOST" > "$SERVE/manifest.json"
-install_remote "$CLOUD_APP" --arch arm64 > "$TEST_DIR/cloud-gone.log" 2>&1
-[ ! -e "$CLOUD_APP/Contents/Resources/bin/cmux-cloud" ]
-grep -q 'publishes no cmux-cloud' "$TEST_DIR/cloud-gone.log"
-echo "PASS: the Cloud app server installs from the same build, a wrong sha256 is refused, and a build without one removes it"
-
-# The agent screen detector installs beside the client as
-# bin/cmux-agent-screen-detection (the exact name the daemon runs) from the
-# manifest's cmux-tui-agent-screen-detection-<target> slices, lipo'd like the
-# client; a build that publishes none removes a copy left by an earlier install.
-printf 'detector arm\n' > "$SERVE/cmux-tui-agent-screen-detection-aarch64-apple-darwin"
-printf 'detector intel\n' > "$SERVE/cmux-tui-agent-screen-detection-x86_64-apple-darwin"
-DETECTOR_ARM_SHA="$(slice_sha "$SERVE/cmux-tui-agent-screen-detection-aarch64-apple-darwin")"
-DETECTOR_X64_SHA="$(slice_sha "$SERVE/cmux-tui-agent-screen-detection-x86_64-apple-darwin")"
-cat > "$SERVE/manifest.json" <<JSON
-{"commit":"$COMMIT","binaries":{"cmux-tui-aarch64-apple-darwin":"$ARM_SHA","cmux-tui-x86_64-apple-darwin":"$X64_SHA","cmux-tui-aarch64-unknown-linux-musl":"$ARM_SHA","cmux-tui-x86_64-unknown-linux-musl":"$ARM_SHA","cmux-tui-agent-screen-detection-aarch64-apple-darwin":"$DETECTOR_ARM_SHA","cmux-tui-agent-screen-detection-x86_64-apple-darwin":"$DETECTOR_X64_SHA"}}
-JSON
-DETECTOR_APP="$TEST_DIR/Detector.app"
-install_remote "$DETECTOR_APP" --arch arm64 > "$TEST_DIR/detector-arm.log" 2>&1
-cmp "$SERVE/cmux-tui-agent-screen-detection-aarch64-apple-darwin" "$DETECTOR_APP/Contents/Resources/bin/cmux-agent-screen-detection"
-[ -x "$DETECTOR_APP/Contents/Resources/bin/cmux-agent-screen-detection" ]
-install_remote "$TEST_DIR/DetectorUniversal.app" > "$TEST_DIR/detector-universal.log" 2>&1
-grep -q '^lipo -create .*cmux-tui-agent-screen-detection-aarch64-apple-darwin' "$EVENTS"
-[ -x "$TEST_DIR/DetectorUniversal.app/Contents/Resources/bin/cmux-agent-screen-detection" ]
-grep -q '^codesign --force --sign - .*/DetectorUniversal.app/Contents/Resources/bin/cmux-agent-screen-detection$' "$EVENTS"
-printf '%s\n' "$MANIFEST_WITHOUT_APP_HOST" > "$SERVE/manifest.json"
-install_remote "$DETECTOR_APP" --arch arm64 > "$TEST_DIR/detector-gone.log" 2>&1
-[ ! -e "$DETECTOR_APP/Contents/Resources/bin/cmux-agent-screen-detection" ]
-grep -q 'publishes no cmux-agent-screen-detection' "$TEST_DIR/detector-gone.log"
-echo "PASS: the agent screen detector installs from the same build as bin/cmux-agent-screen-detection, and a build without one removes it"
 
 # Native means the hardware architecture, including an Intel process translated
 # by Rosetta on Apple Silicon. Exercise through the actual installer entry point.
@@ -670,7 +573,7 @@ for scenario in apple-silicon intel rosetta sysctl-unavailable aarch64; do
   FAKE_HOST_ARCH="$host" FAKE_ARM_CAPABLE="$capable" FAKE_SYSCTL_EXIT="$sysctl_exit" \
     install_remote "$TEST_DIR/NativeHost-$scenario.app" --arch native \
     --require-capability wireguard-hub > "$TEST_DIR/native-host-$scenario.log" 2>&1
-  cmp "$SERVE/cmux-tui-$wanted-apple-darwin" "$TEST_DIR/NativeHost-$scenario.app/Contents/Resources/bin/cmux"
+  cmp "$SERVE/cmux-tui-$wanted-apple-darwin" "$TEST_DIR/NativeHost-$scenario.app/Contents/Resources/bin/cmux-tui"
   grep -q "curl .*cmux-tui-$wanted-apple-darwin\$" "$EVENTS"
   cmp "$SERVE/cmux-tui-$rejected-apple-darwin" "$TEST_DIR/NativeHost-$scenario.app/Contents/Resources/bin/cmux-tui-ssh/cmux-tui-$rejected-apple-darwin"
   echo "PASS: native $scenario selects $wanted"
@@ -680,38 +583,6 @@ if FAKE_HOST_ARCH=unsupported install_remote "$TEST_DIR/UnknownNative.app" --arc
 fi
 [[ ! -s "$EVENTS" ]]
 echo "PASS: unsupported native host fails before network access"
-
-# --- acpmux (linked into the binary, run through bin/acpmux) -----------------
-OLD_CLIENT="$TEST_DIR/old-client"
-cat > "$OLD_CLIENT" <<'SH'
-#!/bin/sh
-[ "$1" = remote-probe ] && [ "$2" = --json ] || exit 64
-printf '%s\n' '{"app":"cmux-tui","capabilities":["wireguard-hub"]}'
-SH
-chmod +x "$OLD_CLIENT"
-
-install_remote "$TEST_DIR/Acpmux.app" --arch arm64 --require-acpmux > "$TEST_DIR/acpmux.log" 2>&1
-assert_layout "$TEST_DIR/Acpmux.app"
-[ "$("$TEST_DIR/Acpmux.app/Contents/Resources/bin/acpmux" --version)" = 'acpmux 0.1.0 (test)' ]
-if grep -q 'acpmux-' "$EVENTS"; then
-  echo "FAIL: downloaded a separate acpmux binary" >&2; exit 1
-fi
-echo "PASS: acpmux runs from the installed binary with no separate download"
-
-# A build from before acpmux was linked in still installs, with a warning,
-# and fails with --require-acpmux.
-mkdir -p "$TEST_DIR/OldLocal.app/Contents" "$TEST_DIR/OldRequired.app/Contents"
-CMUX_TUI_CLIENT_LOCAL="$OLD_CLIENT" /bin/bash \
-  "$ROOT_DIR/scripts/install-cmux-tui-client.sh" "$TEST_DIR/OldLocal.app" > "$TEST_DIR/old-local.log" 2>&1
-assert_layout "$TEST_DIR/OldLocal.app"
-grep -q 'warning: installed binary does not run acpmux through bin/acpmux' "$TEST_DIR/old-local.log"
-if CMUX_TUI_CLIENT_LOCAL="$OLD_CLIENT" /bin/bash \
-  "$ROOT_DIR/scripts/install-cmux-tui-client.sh" "$TEST_DIR/OldRequired.app" --require-acpmux > "$TEST_DIR/old-required.log" 2>&1; then
-  echo "FAIL: --require-acpmux accepted a binary without acpmux" >&2
-  exit 1
-fi
-grep -q 'error: installed binary does not run acpmux through bin/acpmux' "$TEST_DIR/old-required.log"
-echo "PASS: a binary without acpmux warns, and fails with --require-acpmux"
 
 # --- Stalled download -----------------------------------------------------------
 # To curl, a dead HTTP/2 stream is a server that answers and then sends nothing.
@@ -725,15 +596,18 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=localhost \
   -keyout "$STALL_DIR/key.pem" -out "$STALL_DIR/cert.pem" > "$STALL_DIR/openssl.log" 2>&1
 # The server certificate is self-signed; this test is about stalls, not trust.
 printf 'insecure\n' > "$STALL_DIR/.curlrc"
+# The server reports its port through a FIFO this shell holds open, so the
+# timed read below waits for it without polling.
+mkfifo "$STALL_DIR/port.fifo"
+exec 5<>"$STALL_DIR/port.fifo"
 python3 - "$STALL_DIR" <<'PY' &
 import os, socket, ssl, sys, threading, time
 root = sys.argv[1]
 context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 context.load_cert_chain(f"{root}/cert.pem", f"{root}/key.pem")
 listener = socket.create_server(("127.0.0.1", 0))
-with open(f"{root}/port.tmp", "w") as handle:
-    handle.write(str(listener.getsockname()[1]))
-os.rename(f"{root}/port.tmp", f"{root}/port")
+with open(f"{root}/port.fifo", "w") as handle:
+    handle.write("%d\n" % listener.getsockname()[1])
 def stall(connection):
     try:
         with context.wrap_socket(connection, server_side=True) as tls:
@@ -750,12 +624,10 @@ while True:
 PY
 STALL_SERVER_PID=$!
 trap 'kill "$STALL_SERVER_PID" 2>/dev/null || true; rm -rf "$TEST_DIR"' EXIT
-port_deadline=$((SECONDS + 10))
-while (( SECONDS < port_deadline )) && [[ ! -s "$STALL_DIR/port" ]]; do
-  sleep 0.1
-done
-[[ -s "$STALL_DIR/port" ]] || { echo "FAIL: stall server did not start" >&2; exit 1; }
-STALL_PORT="$(cat "$STALL_DIR/port")"
+STALL_PORT=""
+read -r -t 10 -u 5 STALL_PORT || true
+exec 5<&-
+[[ "$STALL_PORT" =~ ^[0-9]+$ ]] || { echo "FAIL: stall server did not start" >&2; exit 1; }
 mkdir -p "$TEST_DIR/Stalled.app/Contents"
 stall_status=0
 started=$SECONDS

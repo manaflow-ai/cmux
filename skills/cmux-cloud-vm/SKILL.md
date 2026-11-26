@@ -1,173 +1,69 @@
 ---
 name: cmux-cloud-vm
-description: "Start a Cloud chat and read its reply in one command (`cmux cloud start-chat --prompt TEXT --wait --json`), and operate cmux Cloud machines through the app's cloud actions (or the cmux VM API with no app: provision, exec, pause, delete), and drive a machine's own cmux-tui session from inside it. Use for cmux machine/vm/cloud tasks; backend implementation belongs to cmux-backend."
+description: "Operate cmux Cloud machines, run durable remote commands or agents, and present their workspaces or services. Use for cmux vm/cloud tasks; backend implementation belongs to cmux-backend."
 ---
 
 # cmux Cloud machines
 
-Use this skill when a task involves a cmux Cloud machine. Machine terminals persist
-when panes close or the Mac disconnects.
-
-The Swift CLI's `cmux vm …` family (route, run, agent, dev, push, pull, tree, open
-and the rest) was removed. What works now:
-
-| Where | What works |
-| --- | --- |
-| Mac, app running | `cmux cloud start-chat --prompt TEXT --wait --json` (a Cloud chat and its reply, below), and the `cmux cloud <verb>` app actions: create, open, fork, snapshot, restore, resize, rename and kill machines, sign in, diagnostics |
-| No app (CI, a headless agent) | `cmux machine` (`new`, `show`, `exec`, `pause`, `resume`, `rm` and more; `cmux vm` is its old name) against the cmux VM API with an API key: [provision, run, pause, delete](references/headless.md) |
-| Inside a machine | the machine's `cmux`, a guest adapter over its cmux-tui daemon: the resource grammar (`cmux workspace list`, `cmux terminal current screen read`) plus guest verbs (`cmux self`, `cmux coderouter`, `cmux env`, `cmux layout`, `cmux notify`, `cmux open-url`) |
-
-## Start a Cloud chat and read its reply: one command
-
-```sh
-cmux cloud start-chat --prompt 'Summarize README.md' --wait --json
-```
-
-It starts an agent chat (`--agent claude` by default, or `codex`, ...) on a Cloud
-machine, sends the prompt and, with `--wait`, waits for the turn to end and answers
-`reply` with `machine_id`, `machine_name`, `session_id`, `workspace_id` and
-`tab_id`. The chat opens as a tab in the machine's workspace in the app, so
-the person can read it. Without `--wait` it answers once the prompt is sent.
-
-- Which machine: `--name NAME` takes the machine with that name, or creates it;
-  `--target machine:vm-…` takes that machine. With neither it creates a new small
-  machine with a new name (`chat-…`), one workspace per machine, so a chat never
-  lands on a machine someone else uses.
-- No folder is needed: without `--cwd` the chat starts in a new folder of its own under
-  `~/chats` on the machine; `--cwd FOLDER` starts it in that existing folder instead;
-  `--timeout SECONDS` bounds `--wait` (default 900).
-- The next prompt to the same chat, with `SESSION_ID` from the answer (the answer's
-  `follow_up.send` has it filled in). The session id finds the chat's machine; `--wait`
-  prints the reply:
-
-  ```sh
-  cmux chat send SESSION_ID 'next prompt' --wait
-  ```
-
-  Exit 2 with `chat.permission_waiting`: the agent asks for a permission, answered in the
-  chat's tab.
-- Another folder or repository for a chat that already runs: `cmux chat cd SESSION_ID DIR`,
-  or `cmux chat cd SESSION_ID --repo OWNER/NAME [--ref REF]` (the machine clones it into
-  `~/chats/SESSION_ID/NAME` with the GitHub access it has). The chat goes on there as a new
-  session with the conversation so far; send its next prompt to the answer's `session_id`.
-  `follow_up.new_chat` starts a new chat in the same folder.
-- Errors say what to do next: `cloud.signed_out` (run `cmux login`),
-  `cloud.start_pending` (the machine is still coming up: run the same command again,
-  its `details.again`, to keep waiting), `chat.permission_waiting`, `chat.wait_timeout`.
-  Run from an agent chat, it starts at once, as from a terminal: nothing asks the
-  person. Only when they turned off `cloud.agentsStartWithoutAsking` does the app
-  ask first with a card in that chat (Start, Not now); `cmux agents dialog list` lists it.
-
-`cmux cloud start-chat --help` has every flag.
-
-### A test, proof or lane makes a machine: name it `cmux-test-<run>`, kill it after
-
-A machine a test, proof, journey or agent lane makes counts against the person's team cap
-like any other (20, paused ones count). Leo's own team filled with leftover `chat-…` and
-`lease-…` machines, and his NIGHTLY could not make one (2026-11-09). So:
-
-- Name it `cmux-test-<run>` (lowercase letters, digits, `.`, `_`, `-`): `cmux cloud
-  start-chat --name cmux-test-<run> ...` or `cmux machine new --name cmux-test-<run>`.
-  Never let a test start-chat pick its own `chat-…` name: that name is the person's.
-- Kill it in a cleanup that always runs: a shell `trap 'cmux cloud kill-machine --target machine:$ID --confirm --json' EXIT`,
-  a `finally`, or an `if: always()` step in a workflow.
-- The platform deletes a `cmux-test-…` machine (and a journey's `cloud journey auto jr-…`
-  or a chat proof's `ccp-<run>`) 6 hours after its create, and the cap message names
-  these as test leftovers. A machine with any other name is never touched.
+Use an existing machine and a workspace for the task. Machine terminals persist
+when panes close or the Mac disconnects. Work headlessly; open a pane or share a
+URL when there is a result for the user to inspect.
 
 ## Start with discovery
 
 ```sh
-cmux action list --category cloud
-cmux action describe "cloud resize-machine"
-cmux app capabilities
+cmux vm --help
+cmux auth status
+cmux vm ls --json
+cmux vm route --json
 ```
 
-`action describe` prints the action's targets and arguments. Actions drive the app
-the same way its palette and sidebar do. Run from the CLI or MCP, read actions answer
-in the action result (`--json` prints it): `cloud exec` returns `exit_code`, `stdout`
-and `stderr`, `cmux machine new` (the `cloud new-machine` action) the new `machine_id`, `machine-status` and the file
-and listing actions their facts. They need the app, sign-in and its private tunnel.
+On the Mac, host operations need the app, sign-in and its private tunnel. Inside a
+machine, use `cmux self --json` and the guest's help; read [guest operations](references/guest.md)
+for its supported subset and auth. Installed help is authoritative when versions differ.
 
-## Machine lifecycle from the Mac
+`route` inspects placement without creating a machine. Read `would_provision` and
+the backend's `limits`/`capabilities`; do not assume a plan cap, memory size or
+provider feature. Reuse the router's pool machine, or explicitly pin an existing
+target with `--machine <id>`. Base is the user's persistent work. Prefer another
+workspace on a machine to another machine.
 
-```sh
-cmux vm ls --json                           # machines (machine_id, target, status, owner)
-cmux machine new                                          # prints its target and next steps (--json: machine_id, or pending)
-cmux cloud new-workspace --json                           # a new cloud workspace on a new small machine of its own (machine_id, target; or pending)
-cmux cloud new-terminal-on-machine --target machine:vm-…  # a new workspace with a terminal there
-cmux cloud ssh --target machine:vm-…                      # a terminal tab in its first workspace
-cmux cloud machine-status --target machine:vm-…
-cmux cloud resize-machine --target machine:vm-… --size large --wait
-cmux cloud snapshot-machine --target machine:vm-…
-cmux cloud restore-machine --target machine:vm-… --snapshot <snapshot-id>
-cmux workspace new-on-machine --machine machine:vm-…
-```
+## Run and observe
 
-From the CLI or MCP, every machine action needs `--target machine:vm-…`; without it
-the app refuses the run (only a person's own click acts on the machine in front of
-them). The full set is in [the command reference](references/commands.md).
+After identifying an authorized target, choose the operation:
 
-Before creating a machine, check whether it already exists: `cmux vm ls`
-answers the app's own machine list (the sidebar's Cloud machines), each with the
-`target` the other verbs take and its `status` (`paused` for a paused machine). Act on
-it only when it says `loaded: true`: `loaded: false` means the list is not known yet.
-`cmux machine list` also shows them (rows with `kind: "cloud"`), but it cannot tell an
-unloaded list from an empty one.
+| Need | Start here |
+| --- | --- |
+| Bounded command and exit code | `cmux vm run --machine <id> -- <command>` |
+| Detached coding agent | `cmux vm agent --machine <id> --agent codex --no-open -- "<task>"` |
+| Project with a dev layout | `cmux vm dev <id> --dry-run --json`, then the approved plan |
+| Observe without opening panes | `cmux vm tree <id> --json`, `cmux vm terminal read <id> <term>` |
+| Completion and full output | `cmux vm terminal wait-exit <id> <term>`, then `terminal output` |
 
-## Work inside a machine
-
-Open a terminal on the machine (`cmux cloud new-terminal-on-machine --target machine:vm-…`, or
-`cmux cloud ssh --target machine:vm-…`, or the sidebar), then use
-the machine's own `cmux` from that terminal. `current` selectors address the
-session's active terminal, pane and workspace; use `$CMUX_TUI_TERMINAL_ID` for the
-caller's own terminal:
-
-```sh
-cmux self --json
-cmux workspace list
-cmux pane current split --right
-cmux terminal term_… write --text $'bun test\n'
-cmux terminal term_… screen wait --pattern 'pass|fail' --timeout-ms 600000
-cmux terminal term_… screen read
-cmux notify --title "Tests done" --body "see the tests tab"
-```
-
-Read [guest operations](references/guest.md) for guest auth, CodeRouter, layouts,
-computer use on the machine's desktop (`agent-desktop`, baked into every desktop
-image) and browser authentication. The machine's `cmux --help` is authoritative.
+Read the selected verb's `--help` before adding flags. Retain the machine,
+workspace/terminal identity and actual exit result. A finished wait is not proof
+that tests passed. Use `vm open`/`workspace open` to present verified results;
+closing a view does not stop the machine terminal.
 
 ## Constraints that apply throughout
 
-- Provisioning, forking, restoring, resizing and killing machines need the user's
-  authorization for the target and effect; retain authorization already given. Do not
-  kill machines to make capacity.
-- Keep account and upstream tokens on the host. Do not copy the user's credentials
-  into a machine unless requested. Secret values do not belong in layout JSON, logs or
-  command arguments.
-- App actions can change focus. Prefer working inside the machine's session, which
-  does not move the Mac's focus.
-
-## Old `vm` verbs
-
-The Swift `cmux vm …` family is gone; today's `cmux machine` (old name `cmux vm`) is
-the API client in [headless.md](references/headless.md). The old verbs' replacements are app actions:
-`cmux cloud exec --command …` (returns the exit code and output), `cmux cloud ssh`
-(opens a terminal), `cmux cloud file-write`, `cmux vm file-read|files-list|prepare-scp`
-(these return their result to the CLI),
-`cmux cloud pause-machine|resume-machine`, `cmux cloud list-machines` (for `vm ls`),
-and `cmux cloud domain-list` (listing only). These have no CLI path:
-`vm route|tree|wait|restart|stats|prompt`, `vm open <m>:port/<n>`, `vm terminal …`
-against a machine from the Mac, `vm layout|env` from the Mac, and domain publishing. Copy a port
-link from the machine's menu (Copy Machine Link): the copy actions are menu-only. The
-[command reference](references/commands.md#old-vm-verbs-and-their-replacements)
-maps every old verb.
+- Provisioning, forking, resetting, resizing and destructive cleanup need the
+  user's authorization for the target and effect; retain authorization already
+  given. Do not delete machines to make capacity or reset Base as a workaround.
+- Keep account/upstream tokens on the host. Do not copy the user's credentials
+  into a machine unless requested. Use the secret/env transfer paths when authorized;
+  values do not belong in layout JSON, logs or command arguments.
+- Use `--no-open`, `--detach` or `--print` while working. Focus changes are intentional.
+  `workspace rm` kills its terminals; `workspace close` detaches them.
 
 ## Read only the relevant detail
 
-- [Without the app](references/headless.md): `cmux machine` with an API key, from provision to delete.
-- [Workflow recipes](references/agent-workflows.md): the supported paths for common tasks.
-- [Command reference](references/commands.md): every cloud action and its arguments.
-- [Guest operations](references/guest.md): inside-machine grammar, CodeRouter, desktop computer use (`agent-desktop`), notifications.
-- [Sidebar parity](references/sidebar-parity.md): sidebar items and their actions.
-- [Local workspace rules](../cmux-workspace/SKILL.md): presenting work without disrupting the caller.
+- [Workflow recipes](references/agent-workflows.md): project setup, interactive
+  terminals, long runs, peer agents, forks and service publication.
+- [Command reference](references/commands.md): exact flags, JSON/exit contracts,
+  file/env transfer, layouts, limits and capabilities. Search its task index first.
+- [Guest operations](references/guest.md): host/guest grammar, CodeRouter,
+  peer access, mirror behavior, notifications and browser authentication.
+- [Sidebar parity](references/sidebar-parity.md): map a specific UI action to CLI.
+- [Local workspace rules](../cmux-workspace/SKILL.md): presenting cloud work
+  without disrupting the caller's workspace.

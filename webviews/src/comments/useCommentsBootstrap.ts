@@ -1,15 +1,14 @@
 import { useEffect } from "react";
-import { listCommentsAndReview } from "./bridge";
-import type { DiffCommentRecord, DiffReviewTarget } from "./types";
+import { listComments } from "./bridge";
+import type { DiffCommentRecord } from "./types";
 
 /**
- * Loads persisted comments for the active repository, with the pull request it reviews when it is
- * a review worktree. Cleanup invalidates an older load so a slow response cannot overwrite comments
- * after a repo switch; a switch first empties both, so no other worktree's pull request shows.
+ * Loads persisted comments for the active repository. Cleanup invalidates an
+ * older load so a slow response cannot overwrite comments after a repo switch.
  */
 export function useCommentsBootstrap(
   repoRoot: string | null,
-  onLoaded: (comments: DiffCommentRecord[], review?: DiffReviewTarget) => void,
+  onLoaded: (comments: DiffCommentRecord[]) => void,
 ): void {
   useEffect(() => {
     onLoaded([]);
@@ -17,10 +16,10 @@ export function useCommentsBootstrap(
       return;
     }
     let active = true;
-    listCommentsAndReview(repoRoot)
-      .then(({ comments, review }) => {
+    listComments(repoRoot)
+      .then((comments) => {
         if (active) {
-          onLoaded(comments, review);
+          onLoaded(comments);
         }
       })
       .catch((error) => {

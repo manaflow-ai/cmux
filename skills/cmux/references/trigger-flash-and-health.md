@@ -1,9 +1,15 @@
-# Flash
+# Trigger Flash and Surface Health
 
-Flash the focused pane for visual confirmation (app action, same as Cmd-Shift-H):
+Flash a surface or workspace for visual confirmation in the UI:
 
 ```bash
-cmux pane flash-focused
+cmux trigger-flash --surface surface:7
+cmux trigger-flash --workspace workspace:2
 ```
 
-It flashes the focused pane only. Per-surface and per-workspace flash targets and `cmux surface-health` were removed; there is no replacement for checking hidden or detached surfaces. `cmux tab list --json` and `cmux terminal list --json` show what the daemon holds.
+Detect hidden, detached, or non-windowed surfaces before routing focused input when UI state may be stale:
+
+```bash
+cmux surface-health
+cmux surface-health --workspace workspace:2
+```

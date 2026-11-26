@@ -1,4 +1,3 @@
-#if canImport(IrohLib)
 import CMUXMobileCore
 import CmuxIrohTransport
 import Foundation
@@ -156,4 +155,3 @@ struct IrxDirectOnlyEndpointTests {
         await supervisor.deactivate()
     }
 }
-#endif

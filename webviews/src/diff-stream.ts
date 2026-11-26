@@ -2,10 +2,8 @@ import type { CodeViewItem } from "@pierre/diffs";
 import type { CommentAnnotationMetadata } from "./comments/types";
 import type { DiffViewerLabelResolver } from "./labels";
 import type { FileTreeRefreshSource } from "./file-tree-refresh";
-import { deferredFileDiff } from "./deferred-parse";
 import { annotateDiffMetadata } from "./diff-metadata";
-import { blobFingerprint, patchFingerprint, textFingerprint } from "./viewed-files";
-import { MAX_KEPT_PATCH_BYTES, MAX_KEPT_PATCH_TOTAL_BYTES, PATCH_TEXT_KEY } from "./kept-patch-text";
+import { patchFingerprint } from "./viewed-files";
 
 export type GitStatusPatchEntry = {
   path: string;
@@ -115,13 +113,6 @@ export type StreamPatchOptions = {
   parsePatchFiles: (patchText: string, cacheKey: string) => Array<{ files?: any[]; patchMetadata?: string }>;
   patchURL: string;
   processFile: (patchText: string, options: { cacheKey: string; isGitDiff: boolean }) => any;
-  /** Whether the repository marks `path` generated (`.gitattributes`); such files load deferred. */
-  isGeneratedPath?: (path: string) => boolean;
-  /**
-   * The patch text to show for one file's patch text, or null to leave the file out (Hide
-   * imports, diff-viewer/importHunks.ts). Each hunk kept must be a hunk of the text it got.
-   */
-  filterFileText?: (fileText: string) => string | null;
 };
 
 const commitMetadataPattern = /^From\s+([a-f0-9]+)\s/im;
@@ -149,8 +140,6 @@ export async function streamPatch(options: StreamPatchOptions): Promise<void> {
   let nextIncrementalBatchSize = 128;
   let currentPatchPrefix: string | undefined;
   let patchMetadataIndex = 0;
-  // The patch text kept for Load full files (diff-viewer/fullFiles.ts), within its limits.
-  let keptPatchBytes = 0;
   const batchConfig = {
     initialBatchSize: options.initialFileTreeRowCount,
     maxIncrementalBatchSize: 4_096,
@@ -162,13 +151,7 @@ export async function streamPatch(options: StreamPatchOptions): Promise<void> {
     throwIfAborted();
     annotateDiffMetadata(fileDiff);
     normalizeGitFileDiffPaths(fileDiff);
-    const result = appendFileDiffToModel(
-      model,
-      fileDiff,
-      patchPrefix,
-      options.getCollapsed(),
-      options.label("untitled"),
-    );
+    const result = appendFileDiffToModel(model, fileDiff, patchPrefix, options.getCollapsed(), options.label("untitled"));
     if (result?.renamedItem) {
       options.onRename(result.renamedItem);
     }
@@ -206,13 +189,6 @@ export async function streamPatch(options: StreamPatchOptions): Promise<void> {
     if (force || model.pendingItems.length >= batchSize || now - lastFlushAt >= maxWait) {
       flushPendingItems();
       await measuredYield();
-      lastYieldAt = performance.now();
-    } else if (now - lastYieldAt >= PARSE_SLICE_MS) {
-      // Between later batches the parse still gives the page a turn every slice: it ran up to
-      // the 100 ms batch wait in one task, which held back the first files' rows (the highlight
-      // pool's start-up and React's commit wait for the main thread) and any input.
-      await yieldToTask();
-      metrics.yieldCount += 1;
       lastYieldAt = performance.now();
     }
   }
@@ -261,38 +237,20 @@ export async function streamPatch(options: StreamPatchOptions): Promise<void> {
     options.onTreeSource(createFileTreeSourceFromModel(model));
   }
 
-  async function appendCompleteFileText(streamedText: string) {
+  async function appendCompleteFileText(fileText: string) {
     throwIfAborted();
-    if (streamedText.trim() === "") {
+    if (fileText.trim() === "") {
       return;
     }
-    // A commit's header rides on its first file: read it before a filter can leave that file out.
-    const metadata = commitMetadataFromFileText(streamedText);
+    const metadata = commitMetadataFromFileText(fileText);
     if (metadata != null) {
       currentPatchPrefix = commitMetadataLabel(metadata, patchMetadataIndex, options.label);
       patchMetadataIndex += 1;
     }
-    const fileText = options.filterFileText ? options.filterFileText(streamedText) : streamedText;
-    if (fileText == null) {
-      return;
-    }
-    const cacheKey = diffFileCacheKey(model.fileIndex, fileText);
-    // A file that will open collapsed behind "Load diff" is not parsed now
-    // (deferred-parse.ts): only its header, plus a count of its changed lines.
-    const fileDiff =
-      deferredFileDiff(fileText, cacheKey, options.processFile, options.isGeneratedPath ?? (() => false)) ??
-      options.processFile(fileText, { cacheKey, isGitDiff: true });
+    const cacheKey = `cmux-diff-file-${model.fileIndex}`;
+    const fileDiff = options.processFile(fileText, { cacheKey, isGitDiff: true });
     annotateDiffMetadata(fileDiff, fileText);
     annotatePatchIdentity(fileDiff, fileText);
-    // Load full files parses this file's patch again with its two sides.
-    if (
-      fileDiff != null &&
-      fileText.length <= MAX_KEPT_PATCH_BYTES &&
-      keptPatchBytes + fileText.length <= MAX_KEPT_PATCH_TOTAL_BYTES
-    ) {
-      fileDiff[PATCH_TEXT_KEY] = fileText;
-      keptPatchBytes += fileText.length;
-    }
     await enqueueFileDiff(fileDiff, currentPatchPrefix);
   }
 
@@ -388,8 +346,7 @@ function appendFileDiffToModel(
   const previousState = path.length === 0 ? undefined : model.pathStateByTreePath.get(treePath);
   const renamedItem = previousState == null ? undefined : moveCurrentPathItemToPrevious(model, treePath, previousState);
   const stats = fileStats(fileDiff);
-  const itemId =
-    previousState != null || model.itemIdToFile.has(treePath) ? uniqueDiffItemId(model, `${treePath}?2`) : treePath;
+  const itemId = previousState != null || model.itemIdToFile.has(treePath) ? uniqueDiffItemId(model, `${treePath}?2`) : treePath;
   const item: DiffItem = {
     id: itemId,
     type: "diff",
@@ -430,11 +387,7 @@ function appendFileDiffToModel(
   return { item, renamedItem };
 }
 
-function moveCurrentPathItemToPrevious(
-  model: StreamingDiffModel,
-  treePath: string,
-  state: PathState,
-): RenameDiffItem | undefined {
+function moveCurrentPathItemToPrevious(model: StreamingDiffModel, treePath: string, state: PathState): RenameDiffItem | undefined {
   const oldId = state.currentItemId;
   const suffix = state.currentType === "deleted" ? "?deleted" : "?previous";
   const newId = uniqueDiffItemId(model, `${treePath}${suffix}`);
@@ -485,12 +438,7 @@ function uniqueDiffItemId(model: StreamingDiffModel, baseId: string): string {
   return nextId;
 }
 
-function updateGitStatusForPath(
-  model: StreamingDiffModel,
-  treePath: string,
-  changeType: string | undefined,
-  sawDeleted: boolean,
-): void {
+function updateGitStatusForPath(model: StreamingDiffModel, treePath: string, changeType: string | undefined, sawDeleted: boolean): void {
   if (sawDeleted && changeType !== "deleted") {
     if (model.gitStatusByPath.delete(treePath)) {
       removeGitStatusEntry(model, treePath);
@@ -556,7 +504,9 @@ function createFileTreeSourceFromModel(model: StreamingDiffModel): FileTreeSourc
     previousRevision,
     revision: model.treeRevision,
     statsChanged: model.pendingStatsChanged,
-    statsByPath: new Map(Array.from(model.statsByPath, ([path, stats]) => [path, { ...stats }])),
+    statsByPath: new Map(
+      Array.from(model.statsByPath, ([path, stats]) => [path, { ...stats }]),
+    ),
     treePathByItemId: new Map(model.treePathByItemId),
   };
   model.pendingStatsChanged = false;
@@ -587,32 +537,19 @@ async function appendParsedPatchText(
   const patches = options.parsePatchFiles(patchText, "cmux-diff");
   const hasMultiplePatches = patches.length > 1;
   for (const [patchIndex, patch] of patches.entries()) {
-    const patchPrefix = hasMultiplePatches
-      ? commitMetadataLabel(patch.patchMetadata, patchIndex, options.label)
-      : undefined;
+    const patchPrefix = hasMultiplePatches ? commitMetadataLabel(patch.patchMetadata, patchIndex, options.label) : undefined;
     for (const fileDiff of patch.files ?? []) {
       await enqueueFileDiff(fileDiff, patchPrefix);
     }
   }
 }
 
-/**
- * Splits a streamed patch into one text per file. Exported for its tests.
- *
- * Text that cannot hold a file boundary (no `diff --git ` in it, or across its seam with what came
- * before) waits in `held` instead of joining `buffer`: `buffer += text` makes a rope, and the next
- * `indexOf` flattens it, copying the whole buffer once per network chunk. Inside one big file (a
- * 60 MB generated bundle) that was quadratic, 4.4 s of copying before the file's header drew.
- */
-export function createStreamingPatchFileSplitter() {
+function createStreamingPatchFileSplitter() {
   let boundaryIndex: number | undefined;
   let buffer = "";
   let consumed = 0;
   let searchStart = 0;
   let sawGitBoundary = false;
-  /** Pushed text not yet in `buffer`, and the last characters pushed (a marker can span pushes). */
-  let held: string[] = [];
-  let seam = "";
   const gitMarker = "diff --git ";
   const gitMarkerWithNewline = "\n" + gitMarker;
   const gitMarkerSearchTailLength = gitMarkerWithNewline.length - 1;
@@ -664,30 +601,15 @@ export function createStreamingPatchFileSplitter() {
     }
   }
 
-  function release(): void {
-    if (held.length === 0) {
-      return;
-    }
-    compactConsumedPrefix();
-    buffer += held.length === 1 ? held[0] : held.join("");
-    held = [];
-  }
-
   return {
     push(text: string) {
-      if (text.length === 0) {
-        return;
-      }
-      held.push(text);
-      const probe = seam + text;
-      seam = probe.slice(-gitMarkerSearchTailLength);
-      if (probe.includes(gitMarker)) {
-        release();
+      if (text.length > 0) {
+        compactConsumedPrefix();
+        buffer += text;
       }
     },
     takeAvailableFile,
     finish() {
-      release();
       const fileText = takeAvailableFile();
       if (fileText != null) {
         return { fileText };
@@ -792,24 +714,11 @@ function commitMetadataLabel(metadata: string | undefined, index: number, label:
  * patch text size (large-diff deferral) on the parsed diff. Only the streaming
  * path has per-file raw text; text-blob parses fall back to hunk hashing.
  */
-/**
- * A streamed file's `cacheKey`: its place in the diff and a hash of its patch text. Pierre keeps a
- * file's highlighted lines by this key and treats two diffs with one key as the same diff
- * (`areDiffTargetsEqual`), so a key by place alone reused the highlight of the file's old patch
- * after a refresh (a revert, a stage, Hide white space) and failed on the missing lines
- * ("deletionLine and additionLine are null").
- */
-export function diffFileCacheKey(fileIndex: number, fileText: string): string {
-  return `cmux-diff-file-${fileIndex}-${textFingerprint(fileText)}`;
-}
-
 function annotatePatchIdentity(fileDiff: any, fileText: string): void {
   if (fileDiff == null || typeof fileDiff !== "object") {
     return;
   }
   fileDiff.cmuxPatchFingerprint = patchFingerprint(fileText);
-  const blob = blobFingerprint(fileText);
-  if (blob != null) fileDiff.cmuxBlobFingerprint = blob;
   fileDiff.cmuxPatchByteLength = fileText.length;
 }
 
@@ -836,15 +745,15 @@ export function decodeGitQuotedPath(path: string): string {
   const encoder = new TextEncoder();
   const appendText = (text: string) => bytes.push(...encoder.encode(text));
   const namedEscapes: Record<string, number> = {
-    a: 0x07,
-    b: 0x08,
-    f: 0x0c,
-    n: 0x0a,
-    r: 0x0d,
-    t: 0x09,
-    v: 0x0b,
+    "a": 0x07,
+    "b": 0x08,
+    "f": 0x0c,
+    "n": 0x0a,
+    "r": 0x0d,
+    "t": 0x09,
+    "v": 0x0b,
     "\\": 0x5c,
-    '"': 0x22,
+    "\"": 0x22,
   };
   for (let index = 0; index < path.length;) {
     const codePoint = path.codePointAt(index);
@@ -882,10 +791,6 @@ export function decodeGitQuotedPath(path: string): string {
 }
 
 export function fileStats(fileDiff: any): FileStats {
-  // A deferred file is not parsed yet; its counts come from the patch text.
-  if (fileDiff?.cmuxDeferredStats != null) {
-    return { ...fileDiff.cmuxDeferredStats };
-  }
   const stats = { added: 0, deleted: 0 };
   for (const hunk of fileDiff.hunks ?? []) {
     stats.added += hunk.additionLines ?? 0;
@@ -900,45 +805,16 @@ function sameFileStats(previousStats: FileStats | undefined, stats: FileStats): 
 
 function gitStatusType(changeType: string | undefined): string {
   switch (changeType) {
-    case "new":
-      return "added";
-    case "deleted":
-      return "deleted";
-    case "rename-pure":
-    case "rename-changed":
-      return "renamed";
-    default:
-      return "modified";
+  case "new":
+    return "added";
+  case "deleted":
+    return "deleted";
+  case "rename-pure":
+  case "rename-changed":
+    return "renamed";
+  default:
+    return "modified";
   }
-}
-
-/** How long the parse runs before it yields between batches (one task, under a 60 Hz frame). */
-const PARSE_SLICE_MS = 12;
-
-/**
- * A turn of the event loop without waiting for a frame: the parse goes to the back of the task
- * queue, so input, the highlight workers' replies, React's commits and a due frame run first.
- * (Not `scheduler.yield()`: its continuation runs ahead of those tasks, so worker replies waited
- * for the whole parse.)
- * One channel for the page, as React's scheduler does: a started port that is still connected is
- * never collected, so a channel per yield would keep hundreds alive after a big patch.
- */
-let yieldChannel: MessageChannel | null = null;
-const yieldWaiters: (() => void)[] = [];
-
-function yieldToTask(): Promise<void> {
-  if (typeof MessageChannel === "undefined") {
-    return new Promise((resolve) => setTimeout(resolve, 0));
-  }
-  if (yieldChannel == null) {
-    yieldChannel = new MessageChannel();
-    yieldChannel.port1.onmessage = () => yieldWaiters.shift()?.();
-  }
-  const channel = yieldChannel;
-  return new Promise((resolve) => {
-    yieldWaiters.push(resolve);
-    channel.port2.postMessage(undefined);
-  });
 }
 
 function yieldToNextFrame(): Promise<void> {

@@ -4,21 +4,17 @@ import AppKit
 /// Blocker: HeaderBar installs an NSToolbar and a titlebar accessory on the
 /// window, and a Home tab shares the cmux-next window. The same controls sit
 /// in the pane over `HeaderBackdropView` (the blurred, darkened transcript),
-/// near HeaderBar's measured places: the avatar (36 pt from 4 pt, clear of the
-/// pill) at the top, and the glass capsule name pill centered 58 pt
-/// from the top (`HeaderBar.pillWidth`, or the button's own width when that is more, bold
-/// 13 pt, the dim chevron). No
+/// at HeaderBar's measured places: the 40 pt avatar centered 8 pt from the
+/// top (the toolbar item), and the glass capsule name pill centered 58 pt
+/// from the top (`HeaderBar.pillWidth`, bold 13 pt, the dim chevron). No
 /// band, no edge line, no video button (Home has no calls).
 final class PaneHeaderView: NSView {
     let avatar = NSImageView()
     let pill = NSButton()
-    /// cmux: the capsule behind the pill. Clear: on macOS 26 the pill's own
-    /// glass bezel is the capsule; before 26 it holds `pillGlass`
-    /// (`useGlassPill()`). Never a dark fill (Lawrence 2026-10-20).
+    /// cmux: a small translucent capsule behind the pill, always shown, so
+    /// its title reads over the rows when the header has no band
+    /// (HeaderFade.swift). Clear until `setPillBacking(_:)`.
     let pillBacking = NSView()
-    /// cmux: before macOS 26, the glass capsule under the borderless pill
-    /// (`useGlassPill()`); nil on 26, where the pill is system glass.
-    private(set) var pillGlass: (any LabGlassSurface)?
     var title: String = "" { didSet { if title != oldValue { applyTitle() } } }
     /// The avatar's monogram (the conversation's other participant).
     var initials: String = "" { didSet { if initials != oldValue { applyAvatar() } } }
@@ -30,39 +26,19 @@ final class PaneHeaderView: NSView {
     /// white monogram (Messages' light-mode avatar).
     var light = false { didSet { if light != oldValue { applyAvatar() } } }
     var onContact: () -> Void = {}
-    /// cmux: the host's top-right controls (Home's panel toggles, like Claude desktop's), at the
-    /// trailing edge on the avatar's line. They take their own clicks; nil shows none.
-    var trailingAccessory: NSView? {
-        didSet {
-            guard trailingAccessory !== oldValue else { return }
-            oldValue?.removeFromSuperview()
-            if let trailingAccessory { addSubview(trailingAccessory) }
-            needsLayout = true
-        }
-    }
-    /// cmux: who else has the conversation open (chat multiplayer), beside the name pill; empty
-    /// shows none. `facesLabel` is what VoiceOver reads for them (the host's localized words).
-    let facesView = PaneHeaderFacesView()
-    var faces: [PaneHeaderFace] {
-        get { facesView.faces }
-        set { facesView.faces = newValue; needsLayout = true }
-    }
-    var facesLabel: String = "" { didSet { facesView.setAccessibilityLabel(facesLabel) } }
-    /// The gap between the name pill and the faces.
-    static let facesGap: CGFloat = 8
-    /// The accessory's distance from the header's trailing edge.
-    static let trailingInset: CGFloat = 12
-    /// cmux: Home's chat with no header (`HostView.useBareTop`): no avatar and no name pill; only
-    /// the accessory shows, `bareAccessoryTop` under the pane's top.
-    var bare = false { didSet { if bare != oldValue { applyTitle() } } }
-    static let bareAccessoryTop: CGFloat = 8
+    /// cmux: the pill's hover tooltip (the Chief's brain hint); nil shows its accessibility label.
+    var pillToolTip: String? { didSet { if pillToolTip != oldValue { applyTitle() } } }
+    /// cmux-classic: the conversation's status ("Waiting for you" while an approval waits): an
+    /// attention dot on the avatar, the pill's accessibility value and tooltip. Nil: none.
+    var status: String? { didSet { if status != oldValue { applyStatus() } } }
+    private let statusDot = NSView()
 
-    /// cmux (user 2026-11-05, msg 23140: the avatar crowded the "Chief" pill): 36 pt from 4 pt, so it ends
-    /// ``avatarPillGap`` above the pill instead of running 4 pt under it as Messages' 40 pt one from 8 pt did.
+    /// cmux-classic: 36 pt from 4 pt, so the pill (top at 44 pt) clears the avatar's chin by
+    /// `avatarPillGap`; the 40 pt disc from 8 pt ran 4 pt under the pill (v3f a-first-run).
     static let avatarSize: CGFloat = 36
     static let avatarTop: CGFloat = 4
-    /// The clear space between the avatar's bottom and the name pill's top.
-    static let avatarPillGap: CGFloat = pillCenterY - pillHeight / 2 - avatarTop - avatarSize
+    /// The space between the avatar's bottom and the pill's top.
+    static var avatarPillGap: CGFloat { (pillCenterY - pillHeight / 2) - (avatarTop + avatarSize) }
     /// HeaderBar: Messages' pill center, 58 pt from the window top.
     static let pillCenterY: CGFloat = 58
     static let pillHeight: CGFloat = 28
@@ -89,30 +65,29 @@ final class PaneHeaderView: NSView {
         pill.font = .systemFont(ofSize: 13, weight: .bold)
         pill.target = self
         pill.action = #selector(contactClicked)
+        // cmux: a stable handle for UI tests and dogfood tours (the label is localized).
+        pill.setAccessibilityIdentifier("HomeHeaderNamePill")
         addSubview(pill)
-        facesView.setAccessibilityElement(true)
-        facesView.setAccessibilityRole(.group)
-        addSubview(facesView)
+        statusDot.wantsLayer = true
+        statusDot.layer?.backgroundColor = NSColor.systemOrange.cgColor
+        statusDot.layer?.borderWidth = 2
+        statusDot.isHidden = true
+        statusDot.setAccessibilityElement(false)
+        addSubview(statusDot)
         applyTitle()
     }
     required init?(coder: NSCoder) { fatalError() }
     override var isFlipped: Bool { true }
 
-    /// The name pill takes its clicks, and so do the trailing accessory's
-    /// controls; the rest of the header is the header itself: a click on the
-    /// avatar opens the contact (as the pill does), and the empty space
-    /// drags the window (cmux: Messages' header is its toolbar, so a drag
-    /// there moves the window; the scroll view starts below the header). The
-    /// accessory's own gaps drag too (its hit test finds no control there).
-    /// Bare (Home with no header, `useBareTop`), only the accessory's controls take clicks: the rows
-    /// under the rest of it keep theirs.
+    /// The name pill takes its clicks; the rest of the header is the header
+    /// itself: a click on the avatar opens the contact (as the pill does),
+    /// and the empty space drags the window (cmux: Messages' header is its
+    /// toolbar, so a drag there moves the window; the scroll view starts
+    /// below the header).
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard !isHidden else { return nil }
         let p = convert(point, from: superview)
         if pill.frame.contains(p) && !pill.isHidden { return pill }
-        if let accessory = trailingAccessory, !accessory.isHidden, accessory.frame.contains(p),
-           let hit = accessory.hitTest(p), hit !== accessory { return hit }
-        return bounds.contains(p) && !bare ? self : nil
+        return bounds.contains(p) ? self : nil
     }
 
     override var mouseDownCanMoveWindow: Bool { true }
@@ -136,64 +111,33 @@ final class PaneHeaderView: NSView {
         super.layout()
         let s = PaneHeaderView.avatarSize
         avatar.frame = CGRect(x: (bounds.width - s) / 2, y: PaneHeaderView.avatarTop, width: s, height: s)
-        let w = pillWidth
+        let w = HeaderBar.pillWidth(title)
         let h = PaneHeaderView.pillHeight
         pill.frame = CGRect(x: (bounds.width - w) / 2, y: PaneHeaderView.pillCenterY - h / 2, width: w, height: h)
         pillBacking.frame = pill.frame
         pillBacking.layer?.cornerRadius = h / 2
         pillBacking.isHidden = pill.isHidden
-        pillGlass?.frame = pillBacking.bounds
-        pillGlass?.cornerRadius = h / 2
-        layoutTrailingAccessory()
-        layoutFaces()
+        // The attention dot sits on the avatar's lower right, ringed in the header's fill.
+        let d: CGFloat = 12
+        statusDot.frame = CGRect(x: avatar.frame.maxX - d + 1, y: avatar.frame.maxY - d + 1, width: d, height: d)
+        statusDot.layer?.cornerRadius = d / 2
+        statusDot.layer?.borderColor = Fixture.background.cgColor
     }
 
-    /// Messages' measured width, or wider when the button needs more: this pill is a plain `NSButton`
-    /// that draws its own title, chevron and glass padding, which take about 8 pt more than
-    /// Messages' measure, so a long name such as "workspace-1005" was cut (a1285, 2026-11-20).
-    private var pillWidth: CGFloat {
-        max(HeaderBar.pillWidth(title), pill.intrinsicContentSize.width.rounded(.up))
-    }
-
-    /// The trailing edge the pill's line may reach: the trailing accessory's start, else the inset.
-    private var pillLineLimit: CGFloat {
-        trailingAccessory.flatMap { $0.isHidden ? nil : $0.frame.minX - 8 } ?? bounds.width - PaneHeaderView.trailingInset
-    }
-
-    /// The accessory at its intrinsic size (else its own frame size), centered on the avatar's line at the trailing edge;
-    /// hidden in a pane so narrow it would reach the avatar.
-    private func layoutTrailingAccessory() {
-        guard let accessory = trailingAccessory else { return }
-        let intrinsic = accessory.intrinsicContentSize
-        let size = CGSize(width: intrinsic.width == NSView.noIntrinsicMetric ? accessory.frame.width : intrinsic.width,
-                          height: intrinsic.height == NSView.noIntrinsicMetric ? accessory.frame.height : intrinsic.height)
-        let centerY = PaneHeaderView.avatarTop + PaneHeaderView.avatarSize / 2
-        let top = bare ? PaneHeaderView.bareAccessoryTop : centerY - size.height / 2
-        let frame = CGRect(x: bounds.width - PaneHeaderView.trailingInset - size.width, y: top,
-                           width: size.width, height: size.height)
-        if accessory.frame != frame { accessory.frame = frame }
-        let avatarFrame = CGRect(x: (bounds.width - PaneHeaderView.avatarSize) / 2, y: PaneHeaderView.avatarTop,
-                                 width: PaneHeaderView.avatarSize, height: PaneHeaderView.avatarSize)
-        accessory.isHidden = bare ? frame.minX < 0 : frame.minX < avatarFrame.maxX + 8
-    }
-
-    /// The faces after the name pill, centered on its line; hidden with the pill, with nobody else
-    /// here, or in a pane too narrow to keep them clear of the trailing accessory.
-    private func layoutFaces() {
-        let size = facesView.intrinsicContentSize
-        let frame = CGRect(x: pill.frame.maxX + PaneHeaderView.facesGap, y: PaneHeaderView.pillCenterY - size.height / 2,
-                           width: size.width, height: size.height)
-        if facesView.frame != frame { facesView.frame = frame }
-        facesView.isHidden = pill.isHidden || faces.isEmpty || frame.maxX > pillLineLimit
+    private func applyStatus() {
+        statusDot.isHidden = status == nil || avatar.isHidden
+        pill.setAccessibilityValue(status)
+        pill.toolTip = [pillToolTip ?? pill.accessibilityLabel(), status].compactMap { $0 }.joined(separator: " · ")
+        needsLayout = true
     }
 
     private func applyTitle() {
         pill.title = title
-        pill.isHidden = bare || title.isEmpty
-        avatar.isHidden = pill.isHidden
+        pill.isHidden = title.isEmpty
+        avatar.isHidden = title.isEmpty
         pill.setAccessibilityLabel(String(format: NativeStrings.contactFormat, title))
-        pill.setHomeToolTip(pill.accessibilityLabel())
         avatar.setAccessibilityLabel(title)
+        applyStatus()
         needsLayout = true
     }
 
@@ -203,27 +147,15 @@ final class PaneHeaderView: NSView {
         avatar.image = picture.map(PaneHeaderView.avatarImage(picture:)) ?? PaneHeaderView.avatarImage(initials, light: light)
     }
 
-    /// cmux: the name pill as glass. macOS 26 and newer: the pill's own
-    /// glass bezel, nothing behind it. Before 26: a borderless pill on a
-    /// glass capsule (`LabGlass`, a visual-effect view there). Once per header.
-    func useGlassPill() {
-        if #available(macOS 26, *) { return }
-        guard pillGlass == nil else { return }
-        let glass = LabGlass.surface()
-        pillBacking.addSubview(glass)
-        pillGlass = glass
-        pill.isBordered = false
-        needsLayout = true
+    /// cmux: the pill's capsule color (translucent); nil leaves it clear.
+    func setPillBacking(_ color: NSColor?) {
+        pillBacking.layer?.backgroundColor = color?.cgColor
     }
 
-    /// The header's avatar for `initials`: letters and digits as Messages' grey
-    /// gradient monogram (``MonogramAvatar``, Lawrence 2026-10-30: "CH for chief?
-    /// like in imessage"); anything else (an emoji) on the plain disc (white 253,
-    /// as HeaderView draws it; the theme's secondary grey in a light theme).
+    /// A monogram on the header's avatar disc (white 253, as HeaderView
+    /// draws it). HeaderBar draws the fixture contact's measured "I"; a Home
+    /// conversation shows its participant's initials.
     static func avatarImage(_ initials: String, light: Bool = false) -> NSImage {
-        if MonogramAvatar.isMonogram(initials) {
-            return MonogramAvatar(initials: initials).image(side: avatarSize, light: light)
-        }
         let disc = light ? Fixture.secondaryText : NSColor(white: 253 / 255, alpha: 1)
         let ink: NSColor = light ? .white : .black
         return NSImage(size: NSSize(width: avatarSize, height: avatarSize), flipped: true) { r in

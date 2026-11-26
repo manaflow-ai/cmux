@@ -1,79 +1,34 @@
 # Package Boundaries
 
-Expands the package rules in [../SKILL.md](../SKILL.md): what a package is,
-where it lives, how it is wired, and how lockfiles and feature flags work.
-
-## What a package must be
-
-cmux is migrating from a single app target into Swift Packages under `Packages/`. Every new package must be:
-
-- **Ergonomic.** Default to internal access; `public` only what downstream consumers actually use.
-- **Acyclic.** Packages form a strict DAG. Share a type by lifting it to a lower package or defining a protocol seam in the consumer. Every new dependency edge requires re-checking that the graph stays acyclic.
-- **Whole-domain.** One package (or CmuxNext module) owns a full domain (settings, appearance, workspace, terminal, browser, command palette). Math, theme and settings helpers for appearance are folders inside one appearance module, not three modules. A boundary exists because more than one consumer needs the contents, or a build/test seam must exist.
-
-Existing packages under `Packages/` predate this policy; do not use them as design references.
+Expands the package extraction and layering rules in [../SKILL.md](../SKILL.md).
 
 ## Domain names vs slice names
 
-Good (a domain): CmuxNext modules such as `CmuxNextSettings`, `CmuxNextControl`, `CmuxNextBrowser` and `CmuxNextSidebar`.
+Good (a domain): `CmuxSettings`, `CmuxSettingsUI`, `CmuxAppearance`, `CmuxWorkspaces`, `CmuxBrowser`, `CmuxControlSocket`.
 
 Weak (a slice): `CmuxAppearanceMath`, `CmuxWorkspaceModel`, `CmuxFooFormatting`, `CmuxFooLogic`, `CmuxFooState`. Slices force callers to depend on several sibling packages any time they touch the real domain.
 
 ## Extract leaf-first
 
-Extract the package with no internal dependencies first. It keeps the migration incremental: fewer dependency edges, fewer project-file entries, simpler tests, a clearer rollback path. It also avoids needing several downstream packages to exist before one package compiles.
+Extracting the package with no internal dependencies first keeps the migration incremental: fewer dependency edges, fewer project-file entries, simpler tests, a clearer rollback path. It also avoids needing several downstream packages to exist before one package compiles.
 
-## Group folders
+## Composition root
 
-Every package lives physically under exactly one group directory:
-`Packages/Shared/<pkg>` (both apps), `Packages/iOS/<pkg>` (iOS only), or
-`Packages/macOS/<pkg>` (macOS only). `cmux.xcworkspace/contents.xcworkspacedata`
-mirrors that folder shape, with three groups whose container locations are those
-folders and every package directory as a FileRef under its folder's group.
+The executable app target names concrete services and repositories and injects them. No global containers, no runtime-state singletons, no `static let shared`, no service lookups from package internals. SwiftUI `Environment` carries already-constructed observable models down a view tree, never service wiring.
 
-The folder is the source of truth. To move a package, `git mv` the directory,
-then run:
+## Executable target boundary
 
-```bash
-python3 scripts/check-workspace-package-groups.py --write
-```
-
-Cross-group `.package(path:)` deps use `../../<Group>/<Name>`. Never hand-edit
-workspace group membership. CI runs `python3 scripts/check-workspace-package-groups.py --check`
-and fails on drift.
-
-## Lockfiles
-
-Do not gitignore cmux-owned `Package.resolved` files; SwiftPM resolution changes
-must be visible in PR diffs. Track the root Xcode lockfile and every cmux-owned
-package-local `Package.resolved` produced by standalone `swift package resolve` /
-`swift build` / `swift test`. A package-local lockfile is the source of truth for
-that package's standalone resolution and is not replaced by
-`cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`.
-Vendored third-party directories may keep their upstream ignore policy. CI runs
-`python3 scripts/check-package-resolved-policy.py`.
-
-## Feature flags
-
-A feature flag means a remote PostHog runtime flag. Unless the user explicitly
-asks for a compile-time flag, local setting, or environment variable, declare it
-with a `FLAG(key: …)` comment in Swift (or in `web/app/lib/feature-flags.ts` for
-web) with an owner, a `reviewBy` date and `defaultWhenUnavailable`, evaluate it
-in one place, give it live update behavior, and add focused tests.
-`scripts/lint-feature-flags.py` enforces the naming, ownership, review-date,
-default and single-evaluation rules, and keys in
-`scripts/retired-feature-flags.txt` may never return. A local override may
-support dogfood but must not be the production control plane.
+A lower package cannot extend a higher-owned type without inverting the dependency direction, so `AppDelegate+*` / `cmuxApp+*` extensions do not move down. Extract the behavior into a Coordinator/Service/Repository, inject it into the god object or composition root, and reduce the original extension to a one-line forward.
 
 ## pbxproj wiring
 
-The macOS app lives in `Packages/macOS/CmuxNext`, one module per feature. The
-only Xcode target, `cmux-next`, links one local package (`Packages/macOS/CmuxNext`)
-and its `CmuxNextApp` product. A new module is a target in that `Package.swift`
-and needs no project edit; a new package is a dependency in that
-`Package.swift`, not a new project reference.
+`cmux.xcodeproj` lists package dependencies explicitly. Adding `Packages/CmuxFoo` means mirroring an existing package's entries:
 
-If a change does touch `cmux.xcodeproj`, run:
+- one `XCLocalSwiftPackageReference` in the project's `packageReferences`
+- one `XCSwiftPackageProductDependency`
+- one `PBXBuildFile` linked in the Frameworks phase of every target that imports it
+
+App-target packages link into **both** `cmux` and `cmuxTests` (the target the `cmux-unit` scheme runs) so tests can import and inject them. A package linked by the app but not `cmuxTests` compiles the app and fails the test target. Copy a recent leaf package for the exact shape, then run:
 
 ```bash
 scripts/normalize-pbxproj.py

@@ -33,12 +33,11 @@ if (unknownArguments.length > 0) {
 
 const manifest = parseManifest(await readStdin());
 const projectId = requiredEnv("NEXT_PUBLIC_STACK_PROJECT_ID");
-// Optional: the production project requires no publishable key.
-const publishableClientKey = process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY?.trim();
+const publishableClientKey = requiredEnv("NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY");
 const secretServerKey = requiredEnv("STACK_SECRET_SERVER_KEY");
 const stack = new StackServerApp({
   projectId,
-  ...(publishableClientKey ? { publishableClientKey } : {}),
+  publishableClientKey,
   secretServerKey,
   tokenStore: null,
   noAutomaticPrefetch: true,

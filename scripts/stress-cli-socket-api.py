@@ -12,7 +12,6 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import dataclasses
-import tempfile
 import datetime as dt
 import glob
 import json
@@ -133,6 +132,7 @@ TOP_LEVEL_COMMANDS = {
     "jump-to-unread",
     "jump-to-last-prompt",
     "clear-notifications",
+    "left-sidebar",
     "right-sidebar",
     "set-status",
     "clear-status",
@@ -965,6 +965,7 @@ def build_cli_cases(ctx: StressContext) -> list[CliCase]:
         CliCase("jump-to-unread", argv("jump-to-unread"), expect_codes=any_code, covered_command="jump-to-unread"),
         CliCase("jump-to-last-prompt", argv("jump-to-last-prompt"), covered_command="jump-to-last-prompt"),
         CliCase("clear-notifications", ctx_argv(lambda c: ["clear-notifications", "--workspace", require(c.workspace_id, "workspace")]), expect_codes=any_code, covered_command="clear-notifications"),
+        CliCase("left-sidebar-mode", argv("left-sidebar", "mode"), expect_codes=any_code, covered_command="left-sidebar"),
         CliCase("right-sidebar-mode", argv("right-sidebar", "mode"), expect_codes=any_code, covered_command="right-sidebar"),
         CliCase("set-status", ctx_argv(lambda c: ["set-status", "stress", "running", "--workspace", require(c.workspace_id, "workspace"), "--icon", "hammer", "--color", "#ff9500"]), expect_codes=any_code, covered_command="set-status"),
         CliCase("list-status", ctx_argv(lambda c: ["list-status", "--workspace", require(c.workspace_id, "workspace")]), expect_codes=any_code, covered_command="list-status"),
@@ -1557,17 +1558,12 @@ def resolve_cli_path(raw: str | None, tag: str | None) -> str:
     if tag:
         candidates.append(os.path.expanduser(f"~/Library/Developer/Xcode/DerivedData/cmux-{tag}/Build/Products/Debug/cmux DEV {tag}.app/Contents/Resources/bin/cmux"))
         candidates.append(os.path.expanduser(f"~/Library/Developer/Xcode/DerivedData/cmux-{tag}/Build/Products/Debug/cmux"))
-    # The app opened last writes its CLI path; reload.sh's /tmp pointer is legacy.
-    for last_cli in (
-        pathlib.Path.home() / "Library/Application Support/cmux-next/last-app-cli",
-        pathlib.Path.home() / "Library/Application Support/cmux/last-app-cli",  # a build from before cmux-next/
-        pathlib.Path("/tmp/cmux-last-cli-path"),
-    ):
-        if last_cli.exists():
-            try:
-                candidates.append(last_cli.read_text(encoding="utf-8").strip())
-            except OSError:
-                pass
+    last_cli = pathlib.Path("/tmp/cmux-last-cli-path")
+    if last_cli.exists():
+        try:
+            candidates.append(last_cli.read_text(encoding="utf-8").strip())
+        except OSError:
+            pass
     candidates.extend(glob.glob(os.path.expanduser("~/Library/Developer/Xcode/DerivedData/**/Build/Products/Debug/cmux"), recursive=True))
     for candidate in candidates:
         if candidate and os.path.isfile(candidate) and os.access(candidate, os.X_OK):
@@ -1612,8 +1608,7 @@ def main() -> int:
     args = parser.parse_args()
 
     tag = safe_name(args.tag) if args.tag else None
-    # The default is a folder mkdtemp makes, never a guessable /tmp name another account could make first.
-    artifacts_dir = pathlib.Path(args.artifacts or tempfile.mkdtemp(prefix=f"cmux-cli-socket-stress-{now_slug()}-", dir="/tmp")).expanduser()
+    artifacts_dir = pathlib.Path(args.artifacts or f"/tmp/cmux-cli-socket-stress-{now_slug()}").expanduser()
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     cli_path = resolve_cli_path(args.cli, tag)
     socket_path = resolve_socket_path(args.socket, tag)

@@ -6,6 +6,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PICK="$ROOT_DIR/scripts/ci/nightly-sparkle-key.sh"
 WORKFLOW="$ROOT_DIR/.github/workflows/nightly.yml"
+# The published nightly's Sparkle deltas: auto-resume-nightly-notarization.yml generate-deltas.
+DELTAS="$ROOT_DIR/.github/workflows/auto-resume-nightly-notarization.yml"
 
 expect() {
   # expect <want> <selector> <channel> [nightly-key]
@@ -26,16 +28,6 @@ expect shared    nightly rc
 expect "<error>" nightly nightly ""
 expect "<error>" typo    nightly
 
-# The cmux-next track signs only with its own key and never falls back.
-got="$(TRACK=nightly-next CHANNEL=nightly NIGHTLY_SPARKLE_KEY=nightly SHARED_SPARKLE_PRIVATE_KEY=shared \
-  NIGHTLY_SPARKLE_PRIVATE_KEY=nightly NEXT_SPARKLE_PRIVATE_KEY=next "$PICK")"
-[ "$got" = next ] || { echo "FAIL: nightly-next picked '$got', want 'next'"; exit 1; }
-if TRACK=nightly-next CHANNEL=nightly NIGHTLY_SPARKLE_KEY=nightly SHARED_SPARKLE_PRIVATE_KEY=shared \
-  NIGHTLY_SPARKLE_PRIVATE_KEY=nightly "$PICK" >/dev/null 2>&1; then
-  echo "FAIL: nightly-next without its own key must fail, not fall back"
-  exit 1
-fi
-
 if SHARED_SPARKLE_PRIVATE_KEY="" CHANNEL=nightly "$PICK" >/dev/null 2>&1; then
   echo "FAIL: a missing shared key must fail"
   exit 1
@@ -47,32 +39,12 @@ if grep -Eq '^ +SPARKLE_PRIVATE_KEY: \$\{\{ secrets\.' "$WORKFLOW"; then
   echo "FAIL: nightly.yml passes SPARKLE_PRIVATE_KEY directly; use scripts/ci/nightly-sparkle-key.sh"
   exit 1
 fi
-# Run blocks moved into scripts/ci/nightly-steps (#25879, #26196) still count:
-# only the scripts nightly.yml actually runs, and each one that signs must use it.
-step_scripts=()
-while IFS= read -r name; do
-  step_scripts+=("$ROOT_DIR/scripts/ci/nightly-steps/$name")
-done < <(grep -oE 'scripts/ci/nightly-steps/[A-Za-z0-9_.-]+\.sh' "$WORKFLOW" | sed 's#.*/##' | sort -u)
-for script in "${step_scripts[@]}"; do
-  # A step script that signs (it reads SPARKLE_PRIVATE_KEY) must take it from the helper.
-  case "$(grep -c 'SPARKLE_PRIVATE_KEY' "$script")" in
-    0) ;;
-    *)
-      grep -Eq 'SPARKLE_PRIVATE_KEY="\$\((bash "\$TOOLS/|\./)scripts/ci/nightly-sparkle-key\.sh"?\)"' "$script" || {
-        echo "FAIL: $(basename "$script") reads SPARKLE_PRIVATE_KEY without scripts/ci/nightly-sparkle-key.sh"
-        exit 1
-      } ;;
-  esac
-done
-helper_calls="$(cat "$WORKFLOW" "${step_scripts[@]}" \
-  | grep -cE 'SPARKLE_PRIVATE_KEY="\$\((bash "\$TOOLS/|\./)scripts/ci/nightly-sparkle-key\.sh"?\)"')"
-if [ "$helper_calls" -lt 3 ]; then
+if [ "$(grep -c 'SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"' "$WORKFLOW")" -lt 2 ]; then
   echo "FAIL: nightly.yml must derive the embedded key and sign every appcast through the helper"
   exit 1
 fi
 
-DELTAS="$ROOT_DIR/scripts/ci/generate-nightly-deltas.sh"
-if ! grep -Fq 'scripts/ci/generate-nightly-deltas.sh' "$WORKFLOW" || ! grep -Fq 'drop-previous-nightlies-with-other-sparkle-key.sh" "$previous" "$SPARKLE_PUBLIC_KEY"' "$DELTAS"; then
+if ! grep -Fq 'drop-previous-nightlies-with-other-sparkle-key.sh' "$DELTAS" || ! grep -Fq 'nightly-delta/previous "$SPARKLE_PUBLIC_KEY"' "$DELTAS"; then
   echo "FAIL: the post-publication delta step must drop previous nightlies signed for another key before building deltas"
   exit 1
 fi

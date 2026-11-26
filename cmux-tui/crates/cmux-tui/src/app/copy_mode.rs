@@ -19,7 +19,7 @@ use cmux_tui_core::{SurfaceId, SurfaceKind};
 use self::engine::VisualMode;
 pub(crate) use self::engine::{CopyModeState, CopyOutcome, CopyPoint, CopyView, ResolvedSelection};
 use self::grid::TerminalGrid;
-use crate::app::layout::FocusTarget;
+use crate::app::FocusTarget;
 use crate::app::{App, RenderAction};
 use crate::config::CopyModeAction;
 use crate::keys::KeyboardInput;

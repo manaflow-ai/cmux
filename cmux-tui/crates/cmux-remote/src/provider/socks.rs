@@ -1,20 +1,15 @@
-//! The subset of SOCKS5 (RFC 1928) the WireGuard hub speaks: CONNECT, literal
-//! IP targets, and either no authentication or, when the hub was started with
-//! a client token, RFC 1929 username/password carrying that token. Shared by
-//! the hub (server side) and [`super::SocksDialer`] (client side) so the two
-//! cannot drift.
+//! The subset of SOCKS5 (RFC 1928) the WireGuard hub speaks: CONNECT, no
+//! authentication, literal IP targets. Shared by the hub (server side) and
+//! [`super::SocksDialer`] (client side) so the two cannot drift.
 
 use std::fmt;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
-use subtle::ConstantTimeEq;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use zeroize::Zeroizing;
 
 pub(crate) const VERSION: u8 = 0x05;
 pub(crate) const METHOD_NO_AUTH: u8 = 0x00;
-pub(crate) const METHOD_USER_PASSWORD: u8 = 0x02;
 pub(crate) const METHOD_UNACCEPTABLE: u8 = 0xFF;
 pub(crate) const COMMAND_CONNECT: u8 = 0x01;
 pub(crate) const ADDRESS_IPV4: u8 = 0x01;
@@ -32,13 +27,6 @@ pub(crate) const REPLY_ADDRESS_TYPE_NOT_SUPPORTED: u8 = 0x08;
 
 /// Longest domain name a request may carry; RFC 1928 uses one length byte.
 const MAX_DOMAIN_BYTES: usize = 255;
-
-/// RFC 1929 subnegotiation version and the username the hub's clients send.
-/// The token is the password; the username only satisfies the wire format.
-const USER_PASSWORD_VERSION: u8 = 0x01;
-const TOKEN_USERNAME: &[u8] = b"cmux";
-const AUTH_SUCCEEDED: u8 = 0x00;
-const AUTH_FAILED: u8 = 0x01;
 
 pub(crate) fn reply_description(code: u8) -> &'static str {
     match code {
@@ -100,43 +88,20 @@ pub(crate) struct Request {
 
 // ---- client side -----------------------------------------------------------
 
-/// Run the client half of a SOCKS5 CONNECT for `target` over `stream`. With
-/// a `token` the client offers only username/password and sends the token as
-/// the password; without one it offers only no-auth. On success the stream
-/// carries the tunneled connection from here on.
-pub(crate) async fn client_connect<S>(
-    stream: &mut S,
-    target: SocketAddr,
-    token: Option<&[u8]>,
-) -> Result<(), SocksError>
+/// Run the client half of a SOCKS5 CONNECT for `target` over `stream`. On
+/// success the stream carries the tunneled connection from here on.
+pub(crate) async fn client_connect<S>(stream: &mut S, target: SocketAddr) -> Result<(), SocksError>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    let method = if token.is_some() { METHOD_USER_PASSWORD } else { METHOD_NO_AUTH };
-    stream.write_all(&[VERSION, 1, method]).await?;
+    stream.write_all(&[VERSION, 1, METHOD_NO_AUTH]).await?;
     let mut chosen = [0u8; 2];
     stream.read_exact(&mut chosen).await?;
     if chosen[0] != VERSION {
         return Err(SocksError::Protocol(format!("server version {}", chosen[0])));
     }
-    if chosen[1] != method {
+    if chosen[1] != METHOD_NO_AUTH {
         return Err(SocksError::Protocol(format!("server selected method 0x{:02x}", chosen[1])));
-    }
-    if let Some(token) = token {
-        let length = u8::try_from(token.len())
-            .map_err(|_| SocksError::Protocol("client token longer than 255 bytes".into()))?;
-        let mut auth = Zeroizing::new(Vec::with_capacity(3 + TOKEN_USERNAME.len() + token.len()));
-        auth.push(USER_PASSWORD_VERSION);
-        auth.push(TOKEN_USERNAME.len() as u8);
-        auth.extend_from_slice(TOKEN_USERNAME);
-        auth.push(length);
-        auth.extend_from_slice(token);
-        stream.write_all(&auth).await?;
-        let mut status = [0u8; 2];
-        stream.read_exact(&mut status).await?;
-        if status != [USER_PASSWORD_VERSION, AUTH_SUCCEEDED] {
-            return Err(SocksError::Protocol("hub refused the client token".into()));
-        }
     }
 
     let mut request = vec![VERSION, COMMAND_CONNECT, 0x00];
@@ -158,28 +123,10 @@ where
 
 // ---- server side -----------------------------------------------------------
 
-/// What a client's greeting earned.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Greeting {
-    /// Refused (no acceptable method, or a wrong token): the client may not send a request.
-    Refused,
-    /// No token is configured, or the client presented it: any request the server allows.
-    Authenticated,
-    /// A token is configured and the client chose no-auth, which `open` allowed: the server
-    /// narrows what such a client may reach.
-    Open,
-}
-
-/// Negotiate the method with a client. Without a `token` the server accepts
-/// only no-auth. With one, a client that offers username/password must send
-/// the token as its password (compared in constant time); a client that
-/// offers only no-auth is [`Greeting::Open`] when `open` allows it, else
-/// refused.
-pub(crate) async fn server_greet<S>(
-    stream: &mut S,
-    token: Option<&[u8]>,
-    open: bool,
-) -> Result<Greeting, SocksError>
+/// Negotiate the method with a client. Returns `true` when no-auth was agreed
+/// and the client may send a request; `false` after telling the client no
+/// method was acceptable.
+pub(crate) async fn server_greet<S>(stream: &mut S) -> Result<bool, SocksError>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
@@ -190,37 +137,13 @@ where
     }
     let mut methods = vec![0u8; usize::from(head[1])];
     stream.read_exact(&mut methods).await?;
-    let method = match token {
-        None => METHOD_NO_AUTH,
-        Some(_) if methods.contains(&METHOD_USER_PASSWORD) => METHOD_USER_PASSWORD,
-        Some(_) if open => METHOD_NO_AUTH,
-        Some(_) => METHOD_USER_PASSWORD,
-    };
-    if !methods.contains(&method) {
+    if methods.contains(&METHOD_NO_AUTH) {
+        stream.write_all(&[VERSION, METHOD_NO_AUTH]).await?;
+        Ok(true)
+    } else {
         stream.write_all(&[VERSION, METHOD_UNACCEPTABLE]).await?;
-        return Ok(Greeting::Refused);
+        Ok(false)
     }
-    stream.write_all(&[VERSION, method]).await?;
-    let Some(token) = token else { return Ok(Greeting::Authenticated) };
-    if method == METHOD_NO_AUTH {
-        return Ok(Greeting::Open);
-    }
-
-    let mut version = [0u8; 1];
-    stream.read_exact(&mut version).await?;
-    if version[0] != USER_PASSWORD_VERSION {
-        return Err(SocksError::Protocol(format!("auth version {}", version[0])));
-    }
-    let username_length = usize::from(stream.read_u8().await?);
-    let mut username = vec![0u8; username_length];
-    stream.read_exact(&mut username).await?;
-    let password_length = usize::from(stream.read_u8().await?);
-    let mut password = Zeroizing::new(vec![0u8; password_length]);
-    stream.read_exact(&mut password).await?;
-    let accepted = password.len() == token.len() && bool::from(password.as_slice().ct_eq(token));
-    let status = if accepted { AUTH_SUCCEEDED } else { AUTH_FAILED };
-    stream.write_all(&[USER_PASSWORD_VERSION, status]).await?;
-    Ok(if accepted { Greeting::Authenticated } else { Greeting::Refused })
 }
 
 /// Read one request after a successful greeting.
@@ -311,5 +234,73 @@ where
 }
 
 #[cfg(test)]
-#[path = "socks_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn client_and_server_halves_agree_on_the_wire() {
+        let (mut client, mut server) = tokio::io::duplex(256);
+        let target: SocketAddr = "[fd7a::10]:1337".parse().unwrap();
+        let server_side = async {
+            assert!(server_greet(&mut server).await.unwrap());
+            let request = server_read_request(&mut server).await.unwrap();
+            assert_eq!(request.command, COMMAND_CONNECT);
+            assert_eq!(request.target, Target::Ip(target));
+            server_reply(&mut server, REPLY_SUCCEEDED, Some("100.64.0.1:50000".parse().unwrap()))
+                .await
+                .unwrap();
+        };
+        let client_side = async { client_connect(&mut client, target).await.unwrap() };
+        tokio::join!(server_side, client_side);
+    }
+
+    #[tokio::test]
+    async fn a_failure_reply_surfaces_its_code() {
+        let (mut client, mut server) = tokio::io::duplex(256);
+        let server_side = async {
+            assert!(server_greet(&mut server).await.unwrap());
+            let _ = server_read_request(&mut server).await.unwrap();
+            server_reply(&mut server, REPLY_NOT_ALLOWED, None).await.unwrap();
+        };
+        let client_side = async {
+            let error =
+                client_connect(&mut client, "10.0.0.1:80".parse().unwrap()).await.unwrap_err();
+            assert!(matches!(error, SocksError::Reply(REPLY_NOT_ALLOWED)), "{error}");
+            assert!(error.to_string().contains("0x02"));
+        };
+        tokio::join!(server_side, client_side);
+    }
+
+    #[tokio::test]
+    async fn a_client_offering_only_other_methods_is_refused() {
+        let (mut client, mut server) = tokio::io::duplex(64);
+        let server_side = async { assert!(!server_greet(&mut server).await.unwrap()) };
+        let client_side = async {
+            client.write_all(&[VERSION, 1, 0x02]).await.unwrap();
+            let mut chosen = [0u8; 2];
+            client.read_exact(&mut chosen).await.unwrap();
+            assert_eq!(chosen, [VERSION, METHOD_UNACCEPTABLE]);
+        };
+        tokio::join!(server_side, client_side);
+    }
+
+    #[tokio::test]
+    async fn domain_targets_parse_to_a_domain_request() {
+        let (mut client, mut server) = tokio::io::duplex(256);
+        let server_side = async {
+            assert!(server_greet(&mut server).await.unwrap());
+            let request = server_read_request(&mut server).await.unwrap();
+            assert_eq!(request.target, Target::Domain { name: "example.com".into(), port: 443 });
+        };
+        let client_side = async {
+            client.write_all(&[VERSION, 1, METHOD_NO_AUTH]).await.unwrap();
+            let mut chosen = [0u8; 2];
+            client.read_exact(&mut chosen).await.unwrap();
+            let mut request = vec![VERSION, COMMAND_CONNECT, 0, ADDRESS_DOMAIN, 11];
+            request.extend_from_slice(b"example.com");
+            request.extend_from_slice(&443u16.to_be_bytes());
+            client.write_all(&request).await.unwrap();
+        };
+        tokio::join!(server_side, client_side);
+    }
+}

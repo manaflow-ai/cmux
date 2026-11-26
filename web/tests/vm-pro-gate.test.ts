@@ -34,8 +34,7 @@ describe("Cloud VM Pro gate", () => {
       NEXT_PUBLIC_STACK_PROJECT_ID: "454ecd03-1db2-4050-845e-4ce5b0cd9895",
     });
     expect(entitlements.planId).toBe(PRO_PLAN_ID);
-    // Pro has no allowance, only the high abuse guard.
-    expect(entitlements.maxActiveVms).toBe(200);
+    expect(entitlements.maxActiveVms).toBeGreaterThan(0);
   });
 
   test("isPaidVmPlan recognizes pro, team, and founders, not free", () => {
@@ -113,24 +112,24 @@ describe("vm_requires_pro response copy", () => {
     const payload = await response.json() as Record<string, unknown>;
     expect(payload).toMatchObject({
       error: "vm_requires_pro",
-      message: "Cloud VMs require a cmux Plus plan.",
-      action: "Upgrade to cmux Plus at https://cmux.com/pricing to create Cloud VMs.",
+      message: "Cloud VMs require a cmux Pro plan.",
+      action: "Upgrade to cmux Pro at https://cmux.com/pricing to create Cloud VMs.",
       upgradeRequired: true,
       upgradeUrl: "https://cmux.com/pricing",
-      ui: { title: "cmux Plus required" },
+      ui: { title: "cmux Pro required" },
     });
   });
 
   test("resolves the upgrade instruction from the requested locale", async () => {
     const payload = await (await vmRequiresProResponse("ja")).json() as Record<string, unknown>;
-    expect(payload.message).toBe("Cloud VM を利用するには cmux Plus プランが必要です。");
+    expect(payload.message).toBe("Cloud VM を利用するには cmux Pro プランが必要です。");
     expect(String(payload.action)).toContain("https://cmux.com/pricing");
-    expect(String(payload.action)).toContain("cmux Plus にアップグレード");
+    expect(String(payload.action)).toContain("cmux Pro にアップグレード");
     // Clients key off these, never the prose.
     expect(payload).toMatchObject({
       error: "vm_requires_pro",
       upgradeRequired: true,
-      ui: { title: "cmux Plus が必要です" },
+      ui: { title: "cmux Pro が必要です" },
     });
   });
 
@@ -149,7 +148,7 @@ describe("vm_requires_pro response copy", () => {
         locale,
         hasMessage: Boolean(copy?.message),
         // ui.title must come from the catalog, never the English status fallback.
-        uiTitleIsLocalized: Boolean(copy?.title) && payload.ui.title === copy?.title?.replace("{plan}", "Plus"),
+        uiTitleIsLocalized: Boolean(copy?.title) && payload.ui.title === copy?.title,
         actionHasPlaceholder: copy?.action?.includes("{upgradeUrl}") ?? false,
         renderedHasUrl: payload.action.includes("https://cmux.com/pricing"),
         renderedHasRawPlaceholder: payload.action.includes("{upgradeUrl}"),

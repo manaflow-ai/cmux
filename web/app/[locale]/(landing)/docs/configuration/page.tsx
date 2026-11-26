@@ -288,6 +288,7 @@ function PropertyGrid({
 export default function ConfigurationPage() {
   const locale = useLocale();
   const t = useTranslations("docs.configuration");
+  const shortcutTranslations = useTranslations("docs.keyboardShortcuts");
 
   const metadataProperties = {
     $schema: schemaProperties.$schema,
@@ -431,10 +432,7 @@ working-directory = ~/code`}</CodeBlock>
         unbind a shortcut in <code>shortcuts.bindings</code>. Unbind aliases also include
         empty string (<code>&quot;&quot;</code>), <code>none</code>, <code>clear</code>,{" "}
         <code>unbound</code>, and <code>disabled</code>. Example chord:{" "}
-        <code>[&quot;ctrl+b&quot;, &quot;c&quot;]</code>. To give one action several keys, use{" "}
-        <code>{`{"any": ["ctrl+tab", "cmd+]"]}`}</code>: each item is a single shortcut or a
-        chord, every one runs the action, and the first is the one menus and the command palette
-        show. An empty list unbinds. Numbered actions use{" "}
+        <code>[&quot;ctrl+b&quot;, &quot;c&quot;]</code>. Numbered actions use{" "}
         <code>1</code> as the stored default and still match digits <code>1</code> through{" "}
         <code>9</code>.
       </p>
@@ -442,14 +440,9 @@ working-directory = ~/code`}</CodeBlock>
         The defaults below are the same cmux-owned actions listed on the{" "}
         <Link href="/docs/keyboard-shortcuts">keyboard shortcuts page</Link>.
       </p>
-      <p>
-        {t.rich("shortcutsBindingsKeymapLink", {
-          keymapLink: (chunks) => <Link href="/docs/keyboard-shortcuts#base-keymaps">{chunks}</Link>,
-        })}
-      </p>
       {shortcutCategories.map((category) => (
         <section key={category.id}>
-          <h4>{localizedShortcutText(category.title, locale)}</h4>
+          <h4>{shortcutTranslations(`cat.${category.titleKey}` as never)}</h4>
           <div className="not-prose overflow-hidden rounded-xl border border-border/70 bg-background/40">
             {category.shortcuts.map((shortcut, index) => (
               <div

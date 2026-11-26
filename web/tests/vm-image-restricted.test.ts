@@ -1,4 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import realManifest from "../services/vms/images/manifest.json";
 
 // A restricted (test) manifest image: never a default, and only a caller whose
@@ -62,6 +64,14 @@ describe("restricted manifest images", () => {
   test("an unrestricted twin of the same image does not open it", () => {
     expect(refusal(() => resolveVmImage("freestyle", RESTRICTED_ID, allow("user-leo"), { kind: "base", callerUserId: "user-mallory" }))).toContain("not listed");
     expect(resolveVmImage("freestyle", RESTRICTED_ID, allow("user-leo"), { kind: "base", callerUserId: "user-leo" }).image).toBe(RESTRICTED_ID);
+  });
+
+  test("both create paths hand the authenticated user to the resolver", () => {
+    const read = (file: string) => readFileSync(path.join(import.meta.dirname, "..", file), "utf8");
+    const create = read("app/api/vm/route.ts");
+    expect(create).toContain("const selected = resolveCreateImage(provider, body, memoryMb, user.id);");
+    expect(create).toContain("resolveVmImage(provider, body.image, process.env, { kind: body.kind, memoryMb, callerUserId });");
+    expect(read("app/api/vm/base/routeShared.ts")).toMatch(/resolveVmImage\(provider, parsed\.body\.image, process\.env, \{[^}]*callerUserId: user\.id,[^}]*\}\)/);
   });
 
   test("the allowlist matches whole ids only", () => {

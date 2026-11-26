@@ -27,8 +27,6 @@ class SwiftTestExecutionTests(unittest.TestCase):
             "✔ Test run with 11 tests in 1 suite passed after 1.230 seconds.",
             "✔ Test run with 11 tests in 2 suites passed after 1.230 seconds.",
             "\x1b[32m✔ Test run with 11 tests in 0 suites passed after 1.230 seconds.\x1b[0m",
-            # A run whose only issues are known issues (withKnownIssue) passes.
-            "━ Test run with 3 tests in 1 suite passed after 0.066 seconds with 1 known issue.",
         ):
             with self.subTest(summary=summary):
                 result = self.run_guard(summary)
@@ -110,6 +108,17 @@ class SwiftTestExecutionTests(unittest.TestCase):
             r"^FirstTests\.Suite/", r"^FirstTests\.topLevel\(\)($|/)",
             r"^SecondTests\.Suite/",
         ])
+
+    def test_discovery_ignores_swift_runtime_diagnostics(self) -> None:
+        warning = "swift runtime: backtrace-on-crash is not supported for privileged executables."
+        result = self.run_guard(
+            f"{warning}\n{warning}{warning}\nFirstTests.Suite/testOne()\n{warning}\n",
+            "--list-filters",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), [r"^FirstTests\.Suite/"])
+        only_warning = self.run_guard(f"{warning}\n", "--list-filters")
+        self.assertNotEqual(only_warning.returncode, 0)
 
     def test_discovery_fails_closed_on_unrecognized_or_empty_output(self) -> None:
         for output in ("", "FirstTests.Suite/testOne()\nunrecognized new test record\n"):

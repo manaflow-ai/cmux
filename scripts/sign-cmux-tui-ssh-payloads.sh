@@ -29,7 +29,7 @@ fi
 APP_PATH="$1"
 ENTITLEMENTS="$2"
 IDENTITY="$3"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CODESIGN_TOOL="${CMUX_CODESIGN_TOOL:-/usr/bin/codesign}"
 FILE_TOOL="${CMUX_FILE_TOOL:-/usr/bin/file}"
 PAYLOAD_DIR="$APP_PATH/Contents/Resources/bin/cmux-tui-ssh"
 MANIFEST="$PAYLOAD_DIR/manifest.json"
@@ -56,7 +56,7 @@ for payload in "$PAYLOAD_DIR"/*; do
     continue
   fi
   echo "==> signing cmux-tui SSH payload $(basename "$payload")"
-  "$SCRIPT_DIR/codesign-retry.sh" --force --options runtime "${TS_FLAG[@]}" --sign "$IDENTITY" \
+  "$CODESIGN_TOOL" --force --options runtime "${TS_FLAG[@]}" --sign "$IDENTITY" \
     --entitlements "$ENTITLEMENTS" "$payload"
   signed+=("$(basename "$payload")")
 done

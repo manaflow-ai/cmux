@@ -14,6 +14,7 @@
 </p>
 
 <p align="center">
+  <a href="https://x.com/manaflowai"><img src="https://img.shields.io/badge/@manaflow-555?logo=x" alt="X / Twitter" /></a>
   <a href="https://discord.gg/xsgFEVrWCZ"><img src="https://img.shields.io/badge/Discord-555?logo=discord" alt="Discord" /></a>
   <a href="https://github.com/manaflow-ai/cmux"><img src="https://img.shields.io/github/stars/manaflow-ai/cmux?style=flat&logo=github&label=stars&color=4c71f2" alt="GitHub stars" /></a>
 </p>
@@ -383,7 +384,7 @@ Evet, cmux ücretsiz kullanılır. Kaynak kodu [GitHub](https://github.com/manaf
 
 ### cmux'u nasıl destekleyebilirim?
 
-cmux ücretsiz ve açık kaynaktır ve her zaman öyle kalacaktır.
+cmux ücretsiz ve açık kaynaktır ve her zaman öyle kalacaktır. Geliştirmeyi desteklemek ve cmux AI, iOS uygulaması ve Cloud VMs dahil olmak üzere sırada ne olduğuna erken erişim almak isterseniz, [cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)'a göz atın.
 
 ### Bir özellik isteğim var veya bir hata buldum?
 
@@ -403,7 +404,7 @@ Bunu duymak istiyoruz. GitHub'da bir [issue](https://github.com/manaflow-ai/cmux
 
 Katılım yolları:
 
-- Güncellemeler için bizi X'te takip edin [@lawrencecchen](https://x.com/lawrencecchen) ve [@austinywang](https://x.com/austinywang)
+- Güncellemeler için bizi X'te takip edin [@manaflowai](https://x.com/manaflowai), [@lawrencecchen](https://x.com/lawrencecchen) ve [@austinywang](https://x.com/austinywang)
 - [Discord](https://discord.gg/xsgFEVrWCZ)'da sohbete katılın
 - [GitHub issues](https://github.com/manaflow-ai/cmux/issues) ve [discussions](https://github.com/manaflow-ai/cmux/discussions) oluşturun ve katılın
 - cmux ile ne inşa ettiğinizi bize bildirin
@@ -413,6 +414,7 @@ Katılım yolları:
 - [Discord](https://discord.gg/xsgFEVrWCZ)
 - [WhatsApp](https://chat.whatsapp.com/Fblh7FB58lOI2cx6ccdIqY?mode=gi_t)
 - [GitHub](https://github.com/manaflow-ai/cmux)
+- [X / Twitter](https://twitter.com/manaflowai)
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
@@ -421,6 +423,12 @@ Katılım yolları:
   <strong>WeChat:</strong> Topluluğa katılmak için QR kodunu tarayın.<br />
   <img src="./docs/assets/wechat-community-qr.jpg" alt="cmux topluluğuna katılmak için WeChat QR kodu" width="240" />
 </p>
+
+## cmux Pro
+
+cmux ücretsiz, açık kaynak ve her zaman öyle olacak. Geliştirmeyi desteklemek ve sırada ne olduğuna erken erişim almak isterseniz:
+
+**[cmux Pro'ı Edinin](https://cmux.com/api/billing/checkout?plan=pro)**
 
 ## Lisans
 

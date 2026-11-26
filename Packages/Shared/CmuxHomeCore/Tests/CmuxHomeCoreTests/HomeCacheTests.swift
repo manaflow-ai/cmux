@@ -34,7 +34,6 @@ import CmuxHomeCoreTestSupport
         let rows = store.rows.map(\.title)
         let transcript = texts(store, Self.austin)
         store.stop()
-        await store.flushCache()
         return (rows, transcript)
     }
 
@@ -51,28 +50,6 @@ import CmuxHomeCoreTestSupport
         #expect(texts(store, Self.austin) == transcript, "the conversation shows at once")
     }
 
-    /// CMUX-571: the Chief Home showed last comes back with the cache, before the owner answers,
-    /// with its conversation in the cached inbox, so Home's page draws it at the first frame.
-    @Test func aRelaunchKnowsTheLastChiefBeforeTheOwnerAnswers() async {
-        let cache = Self.cache()
-        let store = HomeStore(source: MockHomeSource(options: .immediate), cache: cache, cacheWriteDelay: .zero)
-        store.start()
-        await waitUntil { store.isOnline && !store.rows.isEmpty }
-        store.rememberChief(Self.austin)
-        store.stop()
-        await store.flushCache()
-        var offline = MockHomeSource.Options.immediate
-        offline.startsOnline = false
-        let relaunched = HomeStore(source: MockHomeSource(options: offline), cache: cache, cacheWriteDelay: .zero)
-        #expect(relaunched.launchChief == nil, "nothing before the cache is read")
-        relaunched.primeFromCache()  // what the Home list does before its first frame
-        #expect(relaunched.launchChief == Self.austin, "drawn before the owner answers")
-        #expect(!relaunched.isOnline)
-        relaunched.rememberChief(nil)
-        #expect(relaunched.launchChief == nil, "the live Chief decides once this launch names it")
-        #expect(relaunched.cachedChief == Self.austin, "no Chief named keeps the last one for the next launch")
-    }
-
     @Test func theOwnerOverwritesTheCacheWhenItAnswers() async throws {
         let cache = Self.cache()
         _ = await lastLaunch(cache)
@@ -84,7 +61,7 @@ import CmuxHomeCoreTestSupport
             return message
         }
         snapshot.windows[Self.austin] = edited
-        try await cache.save(snapshot)
+        try cache.save(snapshot)
         let store = HomeStore(source: MockHomeSource(options: .immediate), cache: cache, cacheWriteDelay: .zero)
         store.start()
         #expect(!texts(store, Self.austin).isEmpty && texts(store, Self.austin).allSatisfy { $0 == "stale copy" })
@@ -92,7 +69,6 @@ import CmuxHomeCoreTestSupport
         store.beginOpen(Self.austin)
         await waitUntil { store.isOnline && !self.texts(store, Self.austin).isEmpty && !self.texts(store, Self.austin).contains("stale copy") }
         #expect(!texts(store, Self.austin).contains("stale copy"))
-        await store.flushCache()
         #expect(try #require(cache.load()).windows[Self.austin]?.contains { $0.parts == [.text("stale copy")] } == false,
                 "the cache follows the owner")
     }
@@ -105,14 +81,12 @@ import CmuxHomeCoreTestSupport
         store.setDraft("half a thought", for: Self.austin)
         store.setScrollAnchor(HomeScrollAnchor(message: MessageID("msg_7"), offset: 42), for: Self.austin)
         store.stop()
-        await store.flushCache()
         let next = HomeStore(source: MockHomeSource(options: .immediate), cache: cache, cacheWriteDelay: .zero)
         next.start()
         #expect(next.draft(for: Self.austin) == "half a thought")
         #expect(next.scrollAnchor(for: Self.austin) == HomeScrollAnchor(message: MessageID("msg_7"), offset: 42))
         next.setDraft("", for: Self.austin)
         next.stop()
-        await next.flushCache()
         #expect(try #require(cache.load()).drafts[Self.austin] == nil, "a sent or cleared draft leaves the cache")
     }
 
@@ -125,7 +99,7 @@ import CmuxHomeCoreTestSupport
         await waitUntil { store.isOnline }
         store.setDraft("typed just before Quit", for: Self.austin)
         #expect(cache.load()?.drafts[Self.austin] == nil, "still in the batch")
-        await store.flushCache()
+        store.flushCache()
         #expect(try #require(cache.load()).drafts[Self.austin] == "typed just before Quit")
         #expect(store.isOnline, "a flush does not stop the store")
     }
@@ -138,7 +112,7 @@ import CmuxHomeCoreTestSupport
         var snapshot = try #require(cache.load())
         snapshot.sends = [HomeCachedSend(key: key, conversation: Self.austin, text: "sent before quitting",
                                          issuedAt: Date(timeIntervalSince1970: 1_791_000_000), failed: false)]
-        try await cache.save(snapshot)
+        try cache.save(snapshot)
         let source = MockHomeSource(options: .immediate)
         let store = HomeStore(source: source, cache: cache, cacheWriteDelay: .zero)
         store.start()
@@ -159,7 +133,7 @@ import CmuxHomeCoreTestSupport
         var snapshot = try #require(cache.load())
         snapshot.sends = [HomeCachedSend(key: key, conversation: Self.austin, text: "did not go",
                                          issuedAt: Date(timeIntervalSince1970: 1_791_000_000), failed: true)]
-        try await cache.save(snapshot)
+        try cache.save(snapshot)
         var offline = MockHomeSource.Options.immediate
         offline.startsOnline = false
         let store = HomeStore(source: MockHomeSource(options: offline), cache: cache, cacheWriteDelay: .zero)

@@ -1,14 +1,14 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
 use std::io;
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 #[cfg(unix)]
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, Weak};
 use std::task::{Context, Poll};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use axum::Router;
 use axum::extract::connect_info::{ConnectInfo, Connected};
@@ -23,14 +23,11 @@ use cmux_remote_protocol::{FrameFlags, Lane, SessionId};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, RwLock, Semaphore, mpsc, oneshot, watch};
 use tokio::task::JoinSet;
-// The daemon's deadlines (resume lease, pending link groups) are tokio's, as the timers that
-// end them are, so they hold on a paused or test clock too.
-use tokio::time::Instant;
 
-use crate::connection::{ConnectionError, LinkRejected, send_link_ready, send_link_rejection};
+use crate::connection::{ConnectionError, LinkRejection, send_link_ready, send_link_rejection};
 use crate::crypto::{
-    AcceptedSecureLink, AuthKind, ConnectionAttemptId, CryptoError, ServiceAuthority,
-    authorize_secure_link, verify_secure_link,
+    AcceptedSecureLink, AuthKind, ConnectionAttemptId, CryptoError, authorize_secure_link,
+    verify_secure_link,
 };
 pub use crate::crypto::{
     InboundAuthEvidence, NetworkPeer, VerifiedKernelPeer, VerifiedSshPrincipal,
@@ -41,20 +38,11 @@ use crate::observability::{ConnectionState, ServerConnectionSnapshot};
 use crate::provider::AxumWebSocketLink;
 use crate::session::{ReceivedFrame, ReliableSession, SessionError, SessionLimits};
 #[cfg(unix)]
-use crate::unix_socket::{OwnedUnixListener, UnixSocketCleanup};
-use cmux_terminal_host_protocol::net_keepalive::enable_tcp_keepalive;
+use crate::unix_socket::{OwnedUnixListener, UnixAcceptBackoff, UnixSocketCleanup};
 
 const PENDING_LINK_TTL: Duration = Duration::from_secs(30);
 const MAX_PENDING_LINK_GROUPS: usize = 256;
-/// The fewest logical client sessions a daemon admits at once, whatever its
-/// open-file limit.
-pub const MIN_CLIENT_CONNECTIONS: usize = 64;
-/// The most logical client sessions a daemon admits at once. It bounds the
-/// per-client state (replay buffers, lane schedulers) a daemon can hold.
-pub const MAX_CLIENT_CONNECTIONS: usize = 4_096;
-/// Descriptors one connected client may hold: up to four lane links plus the
-/// pipes and PTYs of the commands and streams it runs.
-const DESCRIPTORS_PER_CLIENT: u64 = 16;
+const MAX_CLIENT_CONNECTIONS: usize = 64;
 const MAX_CONCURRENT_HANDSHAKES: usize = 256;
 const MAX_PENDING_APPROVALS: usize = 64;
 const PREAUTH_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -152,7 +140,6 @@ struct ClientKey {
 pub struct ServerConnection {
     pub device_id: String,
     pub session_id: SessionId,
-    service_authority: ServiceAuthority,
     key: ClientKey,
     owner: Weak<RemoteDaemon>,
     self_weak: Weak<ServerConnection>,
@@ -165,12 +152,6 @@ pub struct ServerConnection {
     lane_sends: [Mutex<()>; 4],
     closed: AtomicBool,
     close_state: watch::Sender<ServerCloseState>,
-    /// When the connection opened; [`Self::input_at_ms`] counts from it.
-    opened: Instant,
-    /// Milliseconds after [`Self::opened`] of the last client frame
-    /// [`Self::receive`] delivered (not connection control): the snapshot's
-    /// `input_idle_ms`. One relaxed store per frame.
-    input_at_ms: AtomicU64,
 }
 
 #[derive(Clone, Debug)]
@@ -309,7 +290,6 @@ impl ServerConnection {
     fn new(
         owner: &Arc<RemoteDaemon>,
         key: ClientKey,
-        service_authority: ServiceAuthority,
         session: ReliableSession,
         lane_bindings: Vec<Vec<Lane>>,
     ) -> Arc<Self> {
@@ -322,7 +302,6 @@ impl ServerConnection {
         Arc::new_cyclic(move |self_weak| Self {
             device_id,
             session_id,
-            service_authority,
             key,
             owner,
             self_weak: self_weak.clone(),
@@ -345,17 +324,11 @@ impl ServerConnection {
             lane_sends: std::array::from_fn(|_| Mutex::new(())),
             closed: AtomicBool::new(false),
             close_state,
-            opened: Instant::now(),
-            input_at_ms: AtomicU64::new(0),
         })
     }
 
     fn current_generation(&self) -> u64 {
         *self.generation.borrow()
-    }
-
-    pub fn service_authority(&self) -> &ServiceAuthority {
-        &self.service_authority
     }
 
     pub async fn snapshot(&self) -> ServerConnectionSnapshot {
@@ -373,14 +346,7 @@ impl ServerConnection {
             resume_lease_remaining_ms,
             lane_bindings: diagnostics.lane_bindings.clone(),
             physical_link_count: diagnostics.lane_bindings.len(),
-            input_idle_ms: Some(
-                self.opened_ms().saturating_sub(self.input_at_ms.load(Ordering::Relaxed)),
-            ),
         }
-    }
-
-    fn opened_ms(&self) -> u64 {
-        self.opened.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
     }
 
     pub async fn send(
@@ -438,13 +404,9 @@ impl ServerConnection {
                     if let Some(expected) = expected_generation {
                         return Err(DaemonError::Generation { expected, actual });
                     }
-                    // A failed send the old session took (its sequence was used) was retained,
-                    // and reconnect replayed it with the original sequence. A send that found
-                    // the old session already closed took nothing: send it on the replacement,
-                    // or it is lost and the next frame takes its sequence.
-                    if self.session.read().await.next_outbound_sequence(lane) > sequence {
-                        return Ok(sequence);
-                    }
+                    // The failed send retained this reliable frame. Reconnect
+                    // replayed it with the original application sequence.
+                    return Ok(sequence);
                 }
                 Err(error) => return Err(error.into()),
             }
@@ -460,10 +422,7 @@ impl ServerConnection {
             let generation = session.generation();
             match session.receive().await {
                 Ok(Some(frame)) => match self.handle_connection_control(&frame).await? {
-                    ConnectionControlAction::Deliver => {
-                        self.input_at_ms.store(self.opened_ms(), Ordering::Relaxed);
-                        return Ok(Some(frame));
-                    }
+                    ConnectionControlAction::Deliver => return Ok(Some(frame)),
                     ConnectionControlAction::Continue => continue,
                     ConnectionControlAction::Close => return Ok(None),
                 },
@@ -772,47 +731,11 @@ fn recoverable_server_session_error(error: &SessionError) -> bool {
     )
 }
 
-/// How many logical client sessions a daemon admits at once: half of its soft
-/// open-file limit at [`DESCRIPTORS_PER_CLIENT`] each, within
-/// [`MIN_CLIENT_CONNECTIONS`]..=[`MAX_CLIENT_CONNECTIONS`]. The daemon process
-/// raises its soft limit toward the hard limit at start (`owner_start`), so on
-/// a default Linux host (hard limit 524288, raised soft 65536) this is 2048.
-pub fn client_connection_limit() -> usize {
-    client_limit_for_open_files(soft_open_file_limit())
-}
-
-fn client_limit_for_open_files(soft_limit: Option<u64>) -> usize {
-    let Some(soft_limit) = soft_limit else {
-        return MIN_CLIENT_CONNECTIONS;
-    };
-    let fit = soft_limit / 2 / DESCRIPTORS_PER_CLIENT;
-    usize::try_from(fit).unwrap_or(usize::MAX).clamp(MIN_CLIENT_CONNECTIONS, MAX_CLIENT_CONNECTIONS)
-}
-
-#[cfg(unix)]
-fn soft_open_file_limit() -> Option<u64> {
-    let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
-    // SAFETY: `limit` is valid writable storage for one rlimit.
-    if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &raw mut limit) } != 0 {
-        return None;
-    }
-    Some(limit.rlim_cur)
-}
-
-#[cfg(not(unix))]
-fn soft_open_file_limit() -> Option<u64> {
-    None
-}
-
 pub struct RemoteDaemon {
     auth: Arc<AuthDatabase>,
     limits: SessionLimits,
     policy: DaemonSessionPolicy,
     state: Mutex<DaemonState>,
-    /// One permit per logical client session, held from its first link until
-    /// the daemon drops it, so admission is decided before link-ready.
-    client_slots: Arc<Semaphore>,
-    client_limit: usize,
     accepted_tx: mpsc::Sender<Arc<ServerConnection>>,
     handshakes: Semaphore,
     approvals: Semaphore,
@@ -821,8 +744,6 @@ pub struct RemoteDaemon {
 
 struct DaemonState {
     clients: HashMap<ClientKey, Arc<ServerConnection>>,
-    /// The admission permit of each registered client; removed with it.
-    client_permits: HashMap<ClientKey, OwnedSemaphorePermit>,
     pending: HashMap<(ClientKey, u64, ConnectionAttemptId), PendingLinks>,
     registration_locks: HashMap<ClientKey, Weak<Mutex<()>>>,
 }
@@ -834,13 +755,6 @@ struct PendingLinks {
     assigned: BTreeSet<Lane>,
     client_resume: BTreeMap<Lane, u64>,
     grant_generation: u64,
-    service_authority: ServiceAuthority,
-    /// A new session's admission permit, moved to `client_permits` once it
-    /// registers; a reconnect has none.
-    client_permit: Option<OwnedSemaphorePermit>,
-    /// The Control link's early data (`AcceptedSecureLink::early`), read by the
-    /// session first once the group commits.
-    early: Vec<Bytes>,
 }
 
 struct ReconnectRegistration<'a> {
@@ -849,7 +763,6 @@ struct ReconnectRegistration<'a> {
     link: Arc<dyn FrameLink>,
     lane_bindings: Vec<Vec<Lane>>,
     peer_resume: &'a BTreeMap<Lane, u64>,
-    service_authority: &'a ServiceAuthority,
 }
 
 impl RemoteDaemon {
@@ -866,21 +779,7 @@ impl RemoteDaemon {
         limits: SessionLimits,
         policy: DaemonSessionPolicy,
     ) -> Result<(Arc<Self>, mpsc::Receiver<Arc<ServerConnection>>), DaemonError> {
-        Self::with_client_limit(auth, limits, policy, client_connection_limit())
-    }
-
-    /// [`Self::with_policy`] admitting at most `client_limit` logical client
-    /// sessions at once instead of the limit derived from the open-file limit.
-    pub fn with_client_limit(
-        auth: Arc<AuthDatabase>,
-        limits: SessionLimits,
-        policy: DaemonSessionPolicy,
-        client_limit: usize,
-    ) -> Result<(Arc<Self>, mpsc::Receiver<Arc<ServerConnection>>), DaemonError> {
         let policy = policy.validate()?;
-        if client_limit == 0 || client_limit > Semaphore::MAX_PERMITS {
-            return Err(DaemonError::Protocol("client limit must be positive".into()));
-        }
         let (accepted_tx, accepted_rx) = mpsc::channel(64);
         let daemon = Arc::new(Self {
             auth,
@@ -888,12 +787,9 @@ impl RemoteDaemon {
             policy,
             state: Mutex::new(DaemonState {
                 clients: HashMap::new(),
-                client_permits: HashMap::new(),
                 pending: HashMap::new(),
                 registration_locks: HashMap::new(),
             }),
-            client_slots: Arc::new(Semaphore::new(client_limit)),
-            client_limit,
             accepted_tx,
             handshakes: Semaphore::new(MAX_CONCURRENT_HANDSHAKES),
             approvals: Semaphore::new(MAX_PENDING_APPROVALS),
@@ -905,11 +801,6 @@ impl RemoteDaemon {
 
     pub fn auth(&self) -> &Arc<AuthDatabase> {
         &self.auth
-    }
-
-    /// How many logical client sessions this daemon admits at once.
-    pub fn client_limit(&self) -> usize {
-        self.client_limit
     }
 
     pub async fn accept(self: &Arc<Self>, inbound: InboundLink) -> Result<(), DaemonError> {
@@ -933,7 +824,7 @@ impl RemoteDaemon {
                 drop(approval);
                 accepted
             }
-            AuthKind::Carrier | AuthKind::Enrolled | AuthKind::Grant => tokio::time::timeout(
+            AuthKind::Carrier | AuthKind::Enrolled => tokio::time::timeout(
                 AUTHORIZATION_TIMEOUT,
                 authorize_secure_link(verified, &*self.auth),
             )
@@ -967,8 +858,7 @@ impl RemoteDaemon {
             )));
         }
         let now = Instant::now();
-        let pending_key = (key.clone(), accepted.generation, accepted.connection_attempt);
-        let (existing, expired, joins_pending_group) = {
+        let (existing, expired) = {
             let mut state = self.state.lock().await;
             // Per-group timers normally remove these entries. This bounded
             // scan is the admission-time safety net when a timer is delayed
@@ -983,12 +873,11 @@ impl RemoteDaemon {
                 .into_iter()
                 .filter_map(|key| state.pending.remove(&key))
                 .collect::<Vec<_>>();
-            (state.clients.get(&key).cloned(), expired, state.pending.contains_key(&pending_key))
+            (state.clients.get(&key).cloned(), expired)
         };
         for pending in expired {
             close_pending_links(Some(pending)).await;
         }
-        let mut client_permit = None;
         let (base_generation, daemon_resume) = match &existing {
             Some(connection) => {
                 if connection.closed.load(Ordering::Acquire) {
@@ -1004,56 +893,19 @@ impl RemoteDaemon {
             }
             None => {
                 if accepted.generation != 0 {
-                    send_link_rejection(&accepted.link, LinkRejected::session_unavailable())
-                        .await?;
+                    send_link_rejection(&accepted.link, LinkRejection::SessionUnavailable).await?;
                     return Err(DaemonError::Generation {
                         expected: 0,
                         actual: accepted.generation,
                     });
                 }
-                // A new session takes its slot before link-ready, so a full
-                // daemon refuses it with a reason the client can act on
-                // instead of closing it after it looked connected. The other
-                // links of the same group share the first link's slot.
-                if !joins_pending_group {
-                    let Ok(permit) = self.client_slots.clone().try_acquire_owned() else {
-                        send_link_rejection(
-                            &accepted.link,
-                            LinkRejected::too_many_clients(self.client_limit),
-                        )
-                        .await?;
-                        let _ = accepted.link.close().await;
-                        return Err(DaemonError::TooManyClients { limit: self.client_limit });
-                    };
-                    client_permit = Some(permit);
-                }
                 (None, Lane::ALL.into_iter().map(|lane| (lane, 0)).collect())
-            }
-        };
-        // Early data is the Control lane's replay, written for this session and generation:
-        // anything else refuses the link. What the daemon already has is dropped here, and the
-        // session's own dedupe drops anything that arrives meanwhile.
-        let early = if accepted.early.is_empty() {
-            Vec::new()
-        } else {
-            let contiguous = daemon_resume.get(&Lane::Control).copied().unwrap_or(0);
-            match crate::session::admit_early_frames(
-                &accepted.early,
-                accepted.session,
-                accepted.generation,
-                contiguous,
-            ) {
-                Ok(early) if existing.is_some() => early,
-                Ok(_) => Vec::new(),
-                Err(error) => {
-                    let _ = accepted.link.close().await;
-                    return Err(DaemonError::Protocol(error));
-                }
             }
         };
         send_link_ready(&accepted.link, accepted.session, accepted.generation, daemon_resume)
             .await?;
 
+        let pending_key = (key.clone(), accepted.generation, accepted.connection_attempt);
         let mut state = self.state.lock().await;
         let registry_matches = match (&existing, state.clients.get(&key)) {
             (Some(expected), Some(actual)) => {
@@ -1080,8 +932,7 @@ impl RemoteDaemon {
             let duplicate_lane =
                 accepted.lanes.iter().copied().find(|lane| pending.assigned.contains(lane));
             let metadata_mismatch = pending.client_resume != accepted.resume
-                || pending.grant_generation != accepted.grant.revocation_generation
-                || pending.service_authority != accepted.grant.authority;
+                || pending.grant_generation != accepted.grant.revocation_generation;
             if metadata_mismatch || duplicate_lane.is_some() {
                 let stale = state.pending.remove(&pending_key);
                 drop(state);
@@ -1107,17 +958,8 @@ impl RemoteDaemon {
                 assigned: BTreeSet::new(),
                 client_resume: accepted.resume.clone(),
                 grant_generation: accepted.grant.revocation_generation,
-                service_authority: accepted.grant.authority.clone(),
-                client_permit: None,
-                early: Vec::new(),
             }
         });
-        if !early.is_empty() {
-            pending.early = early;
-        }
-        if pending.client_permit.is_none() {
-            pending.client_permit = client_permit.take();
-        }
         for lane in &accepted.lanes {
             let lane_was_new = pending.assigned.insert(*lane);
             debug_assert!(lane_was_new);
@@ -1135,16 +977,7 @@ impl RemoteDaemon {
         }
         let mut pending = state.pending.remove(&pending_key).expect("pending entry exists");
         drop(pending.expiry_task.take());
-        let client_permit = pending.client_permit.take();
         drop(state);
-        // Every lane is in: the grant that formed this group admits nothing
-        // more, also once this session closes.
-        self.auth.seal_grant_link_group(
-            &key.device_id,
-            key.session,
-            accepted.generation,
-            accepted.connection_attempt,
-        );
         let mut lane_bindings =
             pending.routes.iter().map(|route| route.lanes.clone()).collect::<Vec<_>>();
         lane_bindings
@@ -1164,11 +997,6 @@ impl RemoteDaemon {
         let (connection, is_new) = if let Some(connection) = existing {
             let expected_generation = base_generation.expect("an existing client has a generation");
             let rejected_mux = mux.clone();
-            let link: Arc<dyn FrameLink> = if pending.early.is_empty() {
-                mux
-            } else {
-                Arc::new(crate::link::EarlyFrames::new(mux, std::mem::take(&mut pending.early)))
-            };
             if let Err(error) = self
                 .reconnect_registered_client(
                     &key,
@@ -1176,10 +1004,9 @@ impl RemoteDaemon {
                     ReconnectRegistration {
                         expected_generation,
                         generation: accepted.generation,
-                        link,
+                        link: mux,
                         lane_bindings,
                         peer_resume: &pending.client_resume,
-                        service_authority: &pending.service_authority,
                     },
                 )
                 .await
@@ -1193,13 +1020,7 @@ impl RemoteDaemon {
             (connection, false)
         } else {
             let reliable = ReliableSession::new(key.session, mux, self.limits);
-            let connection = ServerConnection::new(
-                self,
-                key.clone(),
-                pending.service_authority,
-                reliable,
-                lane_bindings,
-            );
+            let connection = ServerConnection::new(self, key.clone(), reliable, lane_bindings);
             let mut state = self.state.lock().await;
             if state.clients.contains_key(&key) {
                 drop(state);
@@ -1208,16 +1029,11 @@ impl RemoteDaemon {
                     "client session was registered concurrently".into(),
                 ));
             }
-            // The group's first link took this permit. Only a group whose
-            // entry expired and was rebuilt between its links has none.
-            let Some(permit) =
-                client_permit.or_else(|| self.client_slots.clone().try_acquire_owned().ok())
-            else {
+            if state.clients.len() >= MAX_CLIENT_CONNECTIONS {
                 drop(state);
                 let _ = connection.close().await;
-                return Err(DaemonError::TooManyClients { limit: self.client_limit });
-            };
-            state.client_permits.insert(key.clone(), permit);
+                return Err(DaemonError::Protocol("too many connected clients".into()));
+            }
             state.clients.insert(key.clone(), connection.clone());
             drop(state);
             (connection, true)
@@ -1251,11 +1067,6 @@ impl RemoteDaemon {
         connection: &Arc<ServerConnection>,
         registration: ReconnectRegistration<'_>,
     ) -> Result<(), DaemonError> {
-        if connection.service_authority() != registration.service_authority {
-            return Err(DaemonError::Protocol(
-                "client service authority changed across reconnect".into(),
-            ));
-        }
         let still_registered = {
             let state = self.state.lock().await;
             state.clients.get(key).is_some_and(|current| {
@@ -1311,7 +1122,7 @@ impl RemoteDaemon {
         let daemon = Arc::downgrade(self);
         let connection = Arc::downgrade(&connection);
         let task = tokio::spawn(async move {
-            tokio::time::sleep_until(deadline).await;
+            tokio::time::sleep_until(deadline.into()).await;
             let (Some(_daemon), Some(connection)) = (daemon.upgrade(), connection.upgrade()) else {
                 return;
             };
@@ -1330,7 +1141,7 @@ impl RemoteDaemon {
     ) -> PendingLinkExpiryTask {
         let daemon = Arc::downgrade(self);
         let task = tokio::spawn(async move {
-            tokio::time::sleep_until(created_at + PENDING_LINK_TTL).await;
+            tokio::time::sleep_until((created_at + PENDING_LINK_TTL).into()).await;
             let Some(daemon) = daemon.upgrade() else {
                 return;
             };
@@ -1360,7 +1171,6 @@ impl RemoteDaemon {
             state.clients.get(key).is_some_and(|current| Arc::ptr_eq(current, connection));
         if matches {
             state.clients.remove(key);
-            state.client_permits.remove(key);
             state.pending.retain(|(pending_key, _, _), _| pending_key != key);
         }
         matches
@@ -1446,10 +1256,7 @@ struct WebSocketState {
     daemon: Arc<RemoteDaemon>,
     maximum_frame_bytes: usize,
     trusted_carrier: bool,
-    keepalive: WebSocketKeepalive,
 }
-
-pub use cmux_terminal_host_protocol::net_keepalive::WebSocketKeepalive;
 
 /// How a direct WebSocket listener admits links.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -1459,33 +1266,14 @@ pub struct DirectWebSocketOptions {
     /// Grant carrier authentication to every link: the listener is reachable only
     /// from a network whose members are all authorized (a cmux Cloud machine's
     /// private VPC). Enrolled and invitation dials keep working alongside.
-    /// Off loopback it also needs `allow_trusted_carrier_non_loopback`, and
-    /// even then only peers on a private address (RFC 1918, 100.64/10, ULA)
-    /// get carrier authentication; any other peer must present a device key,
-    /// an invitation or a client grant.
     pub trusted_carrier: bool,
-    /// Explicit opt-in for `trusted_carrier` on a non-loopback bind. Without it
-    /// the listener refuses to start: off loopback the direct listener requires
-    /// a client grant. Only compatibility machines whose launch line predates
-    /// client grants (`--remote-ws-trusted-carrier`) and local development set it.
-    pub allow_trusted_carrier_non_loopback: bool,
-    /// When an idle link is pinged and when a silent one is closed. The
-    /// default ([`WebSocketKeepalive::default`]) is the production policy.
-    pub keepalive: WebSocketKeepalive,
-}
-
-impl DirectWebSocketOptions {
-    /// A listener with the production keepalive policy.
-    pub fn new(allow_insecure_non_loopback: bool, trusted_carrier: bool) -> Self {
-        Self { allow_insecure_non_loopback, trusted_carrier, ..Self::default() }
-    }
 }
 
 struct LimitedTcpListener {
     inner: tokio::net::TcpListener,
     permits: Arc<Semaphore>,
     /// Spacing for accept errors that persist (descriptor exhaustion).
-    accept_backoff: cmux_tui_util::backoff::Backoff,
+    accept_backoff: cmux_tui_core::backoff::Backoff,
 }
 
 struct AdmissionIo {
@@ -1498,7 +1286,6 @@ struct AdmissionIo {
 #[derive(Clone)]
 struct AdmissionInfo {
     upgraded: Arc<AtomicBool>,
-    peer: SocketAddr,
 }
 
 impl Listener for LimitedTcpListener {
@@ -1517,7 +1304,6 @@ impl Listener for LimitedTcpListener {
                 Ok((inner, address)) => {
                     self.accept_backoff.reset();
                     let _ = inner.set_nodelay(true);
-                    enable_tcp_keepalive(&inner);
                     return (
                         AdmissionIo {
                             inner,
@@ -1530,7 +1316,7 @@ impl Listener for LimitedTcpListener {
                 }
                 Err(error) => {
                     drop(permit);
-                    if cmux_tui_util::backoff::accept_error_needs_backoff(&error) {
+                    if cmux_tui_core::backoff::accept_error_needs_backoff(&error) {
                         tokio::time::sleep(self.accept_backoff.next_delay()).await;
                     }
                 }
@@ -1545,21 +1331,7 @@ impl Listener for LimitedTcpListener {
 
 impl Connected<IncomingStream<'_, LimitedTcpListener>> for AdmissionInfo {
     fn connect_info(stream: IncomingStream<'_, LimitedTcpListener>) -> Self {
-        Self { upgraded: stream.io().upgraded.clone(), peer: *stream.remote_addr() }
-    }
-}
-
-/// Whether a trusted-carrier listener may grant carrier authentication to a
-/// peer at `ip`: loopback, or a private address that only an authorized network
-/// can originate (RFC 1918, shared 100.64/10, IPv6 unique local fc00::/7).
-/// Every other peer falls back to ordinary network evidence.
-pub(crate) fn trusted_carrier_peer_in_scope(ip: IpAddr) -> bool {
-    match ip.to_canonical() {
-        IpAddr::V4(v4) => {
-            let [a, b, ..] = v4.octets();
-            v4.is_loopback() || v4.is_private() || (a == 100 && (64..128).contains(&b))
-        }
-        IpAddr::V6(v6) => v6.is_loopback() || (v6.segments()[0] & 0xfe00) == 0xfc00,
+        Self { upgraded: stream.io().upgraded.clone() }
     }
 }
 
@@ -1642,7 +1414,7 @@ pub async fn serve_direct_websocket(
         daemon,
         address,
         maximum_frame_bytes,
-        DirectWebSocketOptions { allow_insecure_non_loopback, ..Default::default() },
+        DirectWebSocketOptions { allow_insecure_non_loopback, trusted_carrier: false },
     )
     .await
 }
@@ -1653,33 +1425,22 @@ pub async fn serve_direct_websocket_with_options(
     maximum_frame_bytes: usize,
     options: DirectWebSocketOptions,
 ) -> Result<DirectWebSocketServer, DaemonError> {
-    let DirectWebSocketOptions {
-        allow_insecure_non_loopback,
-        trusted_carrier,
-        allow_trusted_carrier_non_loopback,
-        keepalive,
-    } = options;
+    let DirectWebSocketOptions { allow_insecure_non_loopback, trusted_carrier } = options;
     if !address.ip().is_loopback() && !allow_insecure_non_loopback {
         return Err(DaemonError::Protocol(format!(
             "refusing plaintext remote WebSocket bind {address}; use TLS or explicitly allow it"
         )));
     }
-    if trusted_carrier && !address.ip().is_loopback() && !allow_trusted_carrier_non_loopback {
-        return Err(DaemonError::Protocol(format!(
-            "refusing trusted-carrier WebSocket bind {address}: off loopback the direct \
-             listener requires a client grant"
-        )));
-    }
-    let listener = tokio::net::TcpListener::bind(address).await.map_err(|error| {
-        DaemonError::Protocol(crate::port_holder::bind_failure_message(address, &error))
-    })?;
+    let listener = tokio::net::TcpListener::bind(address)
+        .await
+        .map_err(|error| DaemonError::Protocol(format!("could not bind WebSocket: {error}")))?;
     let local_addr = listener.local_addr().map_err(|error| {
         DaemonError::Protocol(format!("could not read WebSocket address: {error}"))
     })?;
-    let state = WebSocketState { daemon, maximum_frame_bytes, trusted_carrier, keepalive };
+    let state = WebSocketState { daemon, maximum_frame_bytes, trusted_carrier };
     let router = Router::new().route("/v1/link", get(upgrade_websocket)).with_state(state);
     let listener = LimitedTcpListener {
-        accept_backoff: cmux_tui_util::backoff::Backoff::new(
+        accept_backoff: cmux_tui_core::backoff::Backoff::new(
             Duration::from_millis(10),
             Duration::from_secs(1),
         ),
@@ -1711,18 +1472,13 @@ async fn upgrade_websocket(
         .max_frame_size(state.maximum_frame_bytes)
         .on_upgrade(move |socket| async move {
             admission.upgraded.store(true, Ordering::Release);
-            let link = AxumWebSocketLink::with_keepalive(
-                "direct-websocket",
-                state.maximum_frame_bytes,
-                socket,
-                state.keepalive,
-            );
-            let inbound =
-                if state.trusted_carrier && trusted_carrier_peer_in_scope(admission.peer.ip()) {
-                    InboundLink::trusted_network(Box::new(link), NetworkPeer::Tcp)
-                } else {
-                    InboundLink::network(Box::new(link), NetworkPeer::Tcp)
-                };
+            let link =
+                AxumWebSocketLink::new("direct-websocket", state.maximum_frame_bytes, socket);
+            let inbound = if state.trusted_carrier {
+                InboundLink::trusted_network(Box::new(link), NetworkPeer::Tcp)
+            } else {
+                InboundLink::network(Box::new(link), NetworkPeer::Tcp)
+            };
             let _ = state.daemon.accept(inbound).await;
         })
 }
@@ -1794,7 +1550,7 @@ pub async fn serve_unix_with_shutdown(
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
     let permits = Arc::new(Semaphore::new(MAX_UNIX_CONNECTIONS));
     let task = tokio::spawn(async move {
-        let mut accept_backoff = crate::unix_socket::accept_backoff();
+        let mut accept_backoff = UnixAcceptBackoff::new();
         let mut connections = JoinSet::new();
         loop {
             tokio::select! {
@@ -1810,7 +1566,7 @@ pub async fn serve_unix_with_shutdown(
                             accepted
                         }
                         Err(error) => {
-                            let Some(delay) = cmux_tui_util::backoff::accept_retry_delay(&mut accept_backoff, &error) else {
+                            let Some(delay) = accept_backoff.retry_delay(&error) else {
                                 if let Some(owner_shutdown) = &owner_shutdown {
                                     let _ = owner_shutdown.send(true);
                                 }
@@ -1867,19 +1623,12 @@ pub enum DaemonError {
     Link(LinkError),
     Session(SessionError),
     Protocol(String),
-    Generation {
-        expected: u64,
-        actual: u64,
-    },
+    Generation { expected: u64, actual: u64 },
     GenerationExhausted,
     HandshakeBusy,
     ApprovalBusy,
     HandshakeTimeout,
     Closed,
-    /// The daemon already serves its limit of logical client sessions.
-    TooManyClients {
-        limit: usize,
-    },
 }
 
 impl fmt::Display for DaemonError {
@@ -1902,9 +1651,6 @@ impl fmt::Display for DaemonError {
             Self::ApprovalBusy => formatter.write_str("too many pending enrollment approvals"),
             Self::HandshakeTimeout => formatter.write_str("remote handshake timed out"),
             Self::Closed => formatter.write_str("daemon connection is closed"),
-            Self::TooManyClients { limit } => {
-                write!(formatter, "too many connected clients (the limit is {limit})")
-            }
         }
     }
 }
@@ -1943,95 +1689,17 @@ impl From<SessionError> for DaemonError {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-    use tempfile::tempdir;
+    use async_trait::async_trait;
+    use cmux_remote_protocol::{LanePolicy, WireFrame};
+    use tempfile::{TempDir, tempdir};
     #[cfg(unix)]
     use tokio::net::UnixListener;
+    use tokio::sync::{Mutex as AsyncMutex, Semaphore};
 
     use super::*;
-
-    #[test]
-    fn trusted_carrier_scope_admits_only_loopback_and_private_peers() {
-        for inside in [
-            "127.0.0.1",
-            "10.4.0.7",
-            "172.16.0.1",
-            "192.168.1.2",
-            "100.64.0.1",
-            "100.127.255.254",
-            "::1",
-            "fd00:4::7",
-            "fd7a:115c:a1e0::a",
-            "fc00::1",
-            "::ffff:10.0.0.5",
-        ] {
-            assert!(trusted_carrier_peer_in_scope(inside.parse().unwrap()), "{inside}");
-        }
-        for outside in [
-            "8.8.8.8",
-            "100.128.0.1",
-            "100.63.255.255",
-            "169.254.169.254",
-            "172.32.0.1",
-            "2602:f75c:0:1::2a",
-            "fe80::1",
-            "::ffff:8.8.8.8",
-            "0.0.0.0",
-            "::",
-        ] {
-            assert!(!trusted_carrier_peer_in_scope(outside.parse().unwrap()), "{outside}");
-        }
-    }
-
-    #[tokio::test]
-    async fn trusted_carrier_off_loopback_needs_the_explicit_opt_in() {
-        let state = tempdir().unwrap();
-        let auth = AuthDatabase::load_or_create(state.path(), "trusted-scope", false).unwrap();
-        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
-        let refused = serve_direct_websocket_with_options(
-            daemon.clone(),
-            "0.0.0.0:0".parse().unwrap(),
-            65_535,
-            DirectWebSocketOptions {
-                allow_insecure_non_loopback: true,
-                trusted_carrier: true,
-                ..Default::default()
-            },
-        )
-        .await;
-        let Err(DaemonError::Protocol(message)) = refused else {
-            panic!("trusted carrier bound off loopback without the opt-in");
-        };
-        assert!(message.contains("requires a client grant"), "{message}");
-        // Loopback stays a valid trusted listener with no opt-in.
-        serve_direct_websocket_with_options(
-            daemon.clone(),
-            "127.0.0.1:0".parse().unwrap(),
-            65_535,
-            DirectWebSocketOptions { trusted_carrier: true, ..Default::default() },
-        )
-        .await
-        .unwrap()
-        .shutdown()
-        .await
-        .unwrap();
-        serve_direct_websocket_with_options(
-            daemon,
-            "0.0.0.0:0".parse().unwrap(),
-            65_535,
-            DirectWebSocketOptions {
-                allow_insecure_non_loopback: true,
-                trusted_carrier: true,
-                allow_trusted_carrier_non_loopback: true,
-                ..Default::default()
-            },
-        )
-        .await
-        .unwrap()
-        .shutdown()
-        .await
-        .unwrap();
-    }
+    use crate::unix_socket::TestFileDescriptorExhaustion;
 
     #[cfg(unix)]
     #[test]
@@ -2047,6 +1715,33 @@ mod tests {
             .unwrap();
 
         assert!(status.success(), "Unix listener stopped after a recoverable accept error");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn unix_listener_accept_exhaustion_fixture() {
+        if std::env::var_os("CMUX_TEST_UNIX_ACCEPT_EXHAUSTION").is_none() {
+            return;
+        }
+
+        let directory = tempdir().unwrap();
+        let state = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(state.path(), "accept-retry-unix", false).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let socket = directory.path().join("link.sock");
+        let server = serve_unix(daemon, &socket, 65_535).await.unwrap();
+        let _queued = std::os::unix::net::UnixStream::connect(&socket).unwrap();
+        let mut exhaustion = TestFileDescriptorExhaustion::exhaust();
+
+        tokio::time::sleep(Duration::from_millis(75)).await;
+        exhaustion.restore();
+        tokio::time::sleep(Duration::from_millis(150)).await;
+
+        assert!(
+            !server.task.as_ref().unwrap().is_finished(),
+            "Unix listener task exited instead of retrying the recoverable accept error"
+        );
+        server.shutdown().await.unwrap();
     }
 
     #[cfg(unix)]
@@ -2122,6 +1817,70 @@ mod tests {
         drop(server);
         assert!(!socket.exists(), "dropping UnixServer left its socket path behind");
     }
+    use crate::connection::{ClientConnection, ClientConnectionConfig, LinkReady, ReconnectPolicy};
+    use crate::crypto::{
+        AuthRequest, ClientAuthMode, ClientHandshake, ServerAuthenticator, StaticIdentity,
+        initiate_secure_link, public_key_fingerprint,
+    };
+    use crate::link::test_support;
+    use crate::provider::{
+        CarrierEvidence, LinkGroup, LinkRequest, ProviderCapabilities, ProviderError,
+    };
+
+    struct PreludeProbeLink {
+        reads: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl FrameLink for PreludeProbeLink {
+        fn description(&self) -> &str {
+            "prelude-probe"
+        }
+
+        fn maximum_frame_bytes(&self) -> usize {
+            128 * 1024
+        }
+
+        async fn send(&self, _frame: Bytes) -> Result<(), LinkError> {
+            Ok(())
+        }
+
+        async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+            self.reads.fetch_add(1, Ordering::SeqCst);
+            Ok(None)
+        }
+
+        async fn close(&self) -> Result<(), LinkError> {
+            Ok(())
+        }
+    }
+
+    fn carrier_auth_request(public_key: [u8; 32], inbound: InboundAuthEvidence) -> AuthRequest {
+        AuthRequest {
+            mode: AuthKind::Carrier,
+            invitation_id: None,
+            device_public_key: public_key,
+            device_name: "carrier-client".into(),
+            session: SessionId([91; 16]),
+            lane: Lane::Control,
+            lanes: vec![Lane::Control],
+            generation: 0,
+            inbound,
+        }
+    }
+
+    #[test]
+    fn wrong_kernel_uid_is_rejected_before_noise_prelude() {
+        let reads = Arc::new(AtomicUsize::new(0));
+        let inbound = InboundLink::same_owner_kernel_peer(
+            Box::new(PreludeProbeLink { reads: reads.clone() }),
+            502,
+            501,
+        );
+
+        assert!(inbound.is_none());
+        assert_eq!(reads.load(Ordering::SeqCst), 0);
+    }
 
     #[cfg(unix)]
     #[tokio::test]
@@ -2138,6 +1897,40 @@ mod tests {
 
         let server = serve_unix(daemon, parent.join("link.sock"), 65_535).await.unwrap();
         server.shutdown().await.unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn serve_unix_respects_the_socket_path_lock() {
+        use std::fs::OpenOptions;
+        use std::os::fd::AsRawFd;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("link.sock");
+        let stale = UnixListener::bind(&path).unwrap();
+        drop(stale);
+        let lock = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .open(directory.path().join("link.sock.lock"))
+            .unwrap();
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+        let state = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(state.path(), "locked-unix-path", false).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+
+        let result = serve_unix(daemon, &path, 65_535).await;
+        let ignored_lock = result.is_ok();
+        if let Ok(server) = result {
+            server.shutdown().await.unwrap();
+        }
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
+
+        assert!(!ignored_lock, "Unix daemon socket ignored its ownership lock");
     }
 
     #[cfg(unix)]
@@ -2163,6 +1956,20 @@ mod tests {
 
         assert!(successor_preserved, "old Unix server unlinked its successor socket");
         assert!(reachable, "successor Unix socket was unreachable after old-server shutdown");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_socket_directory_requires_effective_uid_ownership() {
+        use std::os::unix::fs::MetadataExt;
+
+        let directory = tempdir().unwrap();
+        let metadata = std::fs::symlink_metadata(directory.path()).unwrap();
+        let wrong_uid = metadata.uid().wrapping_add(1);
+        let error =
+            crate::unix_socket::validate_socket_directory_for_uid(directory.path(), wrong_uid)
+                .unwrap_err();
+        assert!(error.to_string().contains("owned"));
     }
 
     #[cfg(unix)]
@@ -2244,37 +2051,1239 @@ mod tests {
         assert!(!target.join("missing").exists());
     }
 
-    #[test]
-    fn client_limit_scales_with_the_soft_open_file_limit() {
-        // No limit to read, or a small one: today's floor.
-        assert_eq!(client_limit_for_open_files(None), MIN_CLIENT_CONNECTIONS);
-        assert_eq!(client_limit_for_open_files(Some(256)), MIN_CLIENT_CONNECTIONS);
-        assert_eq!(client_limit_for_open_files(Some(1_024)), MIN_CLIENT_CONNECTIONS);
-        // Half the descriptors at 16 per client.
-        assert_eq!(client_limit_for_open_files(Some(10_240)), 320);
-        assert_eq!(client_limit_for_open_files(Some(65_536)), 2_048);
-        // An unlimited hard limit still bounds per-client state.
-        assert_eq!(client_limit_for_open_files(Some(u64::MAX)), MAX_CLIENT_CONNECTIONS);
+    #[tokio::test]
+    async fn carrier_authorization_requires_verified_ingress_and_policy() {
+        let allowed_directory = tempdir().unwrap();
+        let allowed =
+            AuthDatabase::load_or_create(allowed_directory.path(), "carrier-allowed", true)
+                .unwrap();
+        let denied_directory = tempdir().unwrap();
+        let denied =
+            AuthDatabase::load_or_create(denied_directory.path(), "carrier-denied", false).unwrap();
+        let client = StaticIdentity::generate().unwrap();
+        let public_key = client.public_key();
+
+        let verified = [
+            ("kernel", InboundAuthEvidence::verified_same_owner_kernel_peer(501, 501).unwrap()),
+            ("ssh", InboundAuthEvidence::verified_ssh_principal("alice@example.test").unwrap()),
+        ];
+        for (carrier, evidence) in verified {
+            let grant = ServerAuthenticator::authorize(
+                &*allowed,
+                carrier_auth_request(public_key, evidence.clone()),
+            )
+            .await
+            .unwrap_or_else(|error| panic!("{carrier} evidence was rejected: {error}"));
+            assert_eq!(grant.device_id, format!("carrier:{}", public_key_fingerprint(&public_key)));
+            assert!(
+                ServerAuthenticator::authorize(
+                    &*denied,
+                    carrier_auth_request(public_key, evidence),
+                )
+                .await
+                .is_err(),
+                "{carrier} evidence bypassed disabled carrier policy"
+            );
+        }
+
+        let network = [
+            ("tcp", NetworkPeer::Tcp),
+            ("tls", NetworkPeer::Tls),
+            ("relay", NetworkPeer::Relay),
+            ("iroh", NetworkPeer::Iroh),
+        ];
+        for (carrier, peer) in network {
+            let evidence = InboundAuthEvidence::Network(peer);
+            assert!(
+                ServerAuthenticator::authorize(
+                    &*allowed,
+                    carrier_auth_request(public_key, evidence),
+                )
+                .await
+                .is_err(),
+                "{carrier} network evidence granted Carrier authentication"
+            );
+        }
     }
 
-    #[test]
-    fn a_daemon_refuses_a_zero_client_limit() {
-        let state = tempdir().unwrap();
-        let auth = AuthDatabase::load_or_create(state.path(), "zero-client-limit", false).unwrap();
-        let result = RemoteDaemon::with_client_limit(
+    /// A listener the operator marked trusted vouches for its peers by itself:
+    /// the grant needs no enrollment and no daemon-wide carrier policy, and it
+    /// still names the client's own key so the connection stays attributable.
+    #[tokio::test]
+    async fn trusted_network_listener_grants_carrier_without_policy_or_enrollment() {
+        let directory = tempdir().unwrap();
+        let denied =
+            AuthDatabase::load_or_create(directory.path(), "trusted-network", false).unwrap();
+        let client = StaticIdentity::generate().unwrap();
+        let public_key = client.public_key();
+        for peer in [NetworkPeer::Tcp, NetworkPeer::Tls] {
+            let grant = ServerAuthenticator::authorize(
+                &*denied,
+                carrier_auth_request(public_key, InboundAuthEvidence::TrustedNetwork(peer)),
+            )
+            .await
+            .unwrap_or_else(|error| panic!("trusted {peer:?} evidence was rejected: {error}"));
+            assert_eq!(grant.device_id, format!("network:{}", public_key_fingerprint(&public_key)));
+            // The grant stays current without the daemon-wide carrier policy: the
+            // network, not the device list, is what admits and revokes it.
+            assert!(denied.grant_is_current(&grant).await);
+            assert!(denied.device_is_active(&grant.device_id).await);
+        }
+        assert!(
+            ServerAuthenticator::authorize(
+                &*denied,
+                carrier_auth_request(public_key, InboundAuthEvidence::Network(NetworkPeer::Tcp)),
+            )
+            .await
+            .is_err(),
+            "an untrusted listener's network evidence granted Carrier authentication"
+        );
+        assert!(denied.pending_enrollments().await.is_empty());
+    }
+
+    struct FaultEpoch {
+        failed: watch::Sender<bool>,
+    }
+
+    impl FaultEpoch {
+        fn new() -> Self {
+            let (failed, _) = watch::channel(false);
+            Self { failed }
+        }
+
+        fn is_failed(&self) -> bool {
+            *self.failed.borrow()
+        }
+
+        fn fail(&self) {
+            self.failed.send_replace(true);
+        }
+    }
+
+    struct FaultLink {
+        name: &'static str,
+        incoming: AsyncMutex<mpsc::Receiver<Bytes>>,
+        outgoing: mpsc::Sender<Bytes>,
+        epoch: Arc<FaultEpoch>,
+    }
+
+    fn fault_pair() -> (FaultLink, FaultLink, Arc<FaultEpoch>) {
+        let (client_tx, daemon_rx) = mpsc::channel(64);
+        let (daemon_tx, client_rx) = mpsc::channel(64);
+        let epoch = Arc::new(FaultEpoch::new());
+        (
+            FaultLink {
+                name: "fault-client",
+                incoming: AsyncMutex::new(client_rx),
+                outgoing: client_tx,
+                epoch: epoch.clone(),
+            },
+            FaultLink {
+                name: "fault-daemon",
+                incoming: AsyncMutex::new(daemon_rx),
+                outgoing: daemon_tx,
+                epoch: epoch.clone(),
+            },
+            epoch,
+        )
+    }
+
+    #[async_trait]
+    impl FrameLink for FaultLink {
+        fn description(&self) -> &str {
+            self.name
+        }
+
+        fn maximum_frame_bytes(&self) -> usize {
+            128 * 1024
+        }
+
+        async fn send(&self, frame: Bytes) -> Result<(), LinkError> {
+            if self.epoch.is_failed() {
+                return Err(LinkError::Transport("injected abrupt carrier loss".into()));
+            }
+            self.outgoing.send(frame).await.map_err(|_| LinkError::Closed)
+        }
+
+        async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+            let mut failed = self.epoch.failed.subscribe();
+            let mut incoming = self.incoming.lock().await;
+            if *failed.borrow() {
+                if let Ok(frame) = incoming.try_recv() {
+                    return Ok(Some(frame));
+                }
+                return Err(LinkError::Transport("injected abrupt carrier loss".into()));
+            }
+            tokio::select! {
+                biased;
+                frame = incoming.recv() => Ok(frame),
+                _ = failed.changed() => Err(LinkError::Transport("injected abrupt carrier loss".into())),
+            }
+        }
+
+        async fn close(&self) -> Result<(), LinkError> {
+            self.epoch.fail();
+            Ok(())
+        }
+    }
+
+    struct FaultGroup {
+        daemon: Arc<RemoteDaemon>,
+        epochs: AsyncMutex<Vec<Arc<FaultEpoch>>>,
+        evidence: CarrierEvidence,
+    }
+
+    impl FaultGroup {
+        async fn fail_current(&self) {
+            self.epochs.lock().await.last().expect("an active carrier").fail();
+        }
+    }
+
+    #[async_trait]
+    impl LinkGroup for FaultGroup {
+        fn description(&self) -> &str {
+            "daemon-lifecycle-fault-group"
+        }
+
+        fn capabilities(&self) -> ProviderCapabilities {
+            ProviderCapabilities::STREAM
+        }
+
+        fn evidence(&self) -> &CarrierEvidence {
+            &self.evidence
+        }
+
+        async fn open(&self, _request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {
+            let (client, daemon, epoch) = fault_pair();
+            self.epochs.lock().await.push(epoch);
+            let remote = self.daemon.clone();
+            tokio::spawn(async move {
+                let inbound =
+                    InboundLink::same_owner_kernel_peer(Box::new(daemon), 501, 501).unwrap();
+                let _ = remote.accept(inbound).await;
+            });
+            Ok(Box::new(client))
+        }
+
+        async fn close(&self) -> Result<(), ProviderError> {
+            for epoch in self.epochs.lock().await.iter() {
+                epoch.fail();
+            }
+            Ok(())
+        }
+    }
+
+    struct PartialStartupGroup {
+        daemon: Arc<RemoteDaemon>,
+        interactive_opens: AtomicUsize,
+        evidence: CarrierEvidence,
+    }
+
+    #[async_trait]
+    impl LinkGroup for PartialStartupGroup {
+        fn description(&self) -> &str {
+            "partial-startup-group"
+        }
+
+        fn capabilities(&self) -> ProviderCapabilities {
+            ProviderCapabilities::WEBSOCKET
+        }
+
+        fn evidence(&self) -> &CarrierEvidence {
+            &self.evidence
+        }
+
+        async fn open(&self, request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {
+            if request.lane == Lane::Interactive {
+                self.interactive_opens.fetch_add(1, Ordering::AcqRel);
+            } else if self.interactive_opens.load(Ordering::Acquire) == 1 {
+                tokio::time::timeout(Duration::from_secs(1), async {
+                    loop {
+                        if !self.daemon.state.lock().await.pending.is_empty() {
+                            break;
+                        }
+                        tokio::task::yield_now().await;
+                    }
+                })
+                .await
+                .expect("the first physical link never reached the daemon pending registry");
+                return Err(ProviderError::Transport(
+                    "injected transient failure after the first physical link".into(),
+                ));
+            }
+
+            let (client, daemon) = test_support::pair(128 * 1024);
+            let remote = self.daemon.clone();
+            tokio::spawn(async move {
+                let inbound =
+                    InboundLink::same_owner_kernel_peer(Box::new(daemon), 501, 501).unwrap();
+                let _ = remote.accept(inbound).await;
+            });
+            Ok(Box::new(client))
+        }
+
+        async fn close(&self) -> Result<(), ProviderError> {
+            Ok(())
+        }
+    }
+
+    async fn enroll_test_device(auth: &Arc<AuthDatabase>, identity: &StaticIdentity) -> String {
+        let invitation = auth.create_invitation(Duration::from_secs(60), Vec::new()).await.unwrap();
+        let authorization = tokio::spawn({
+            let auth = auth.clone();
+            let invitation_id = invitation.id.clone();
+            let public_key = identity.public_key();
+            async move {
+                ServerAuthenticator::authorize(
+                    &*auth,
+                    AuthRequest {
+                        mode: AuthKind::Invitation,
+                        invitation_id: Some(invitation_id),
+                        device_public_key: public_key,
+                        device_name: "lane-count-client".into(),
+                        session: SessionId([70; 16]),
+                        lane: Lane::Control,
+                        lanes: Lane::ALL.to_vec(),
+                        generation: 0,
+                        inbound: InboundAuthEvidence::Network(NetworkPeer::Tls),
+                    },
+                )
+                .await
+            }
+        });
+        auth.wait_for_pending(Duration::from_secs(1)).await.unwrap();
+        let device = auth.approve(&invitation.id).await.unwrap();
+        assert_eq!(authorization.await.unwrap().unwrap().device_id, device.id);
+        device.id
+    }
+
+    async fn connect_enrolled_lane_partition(
+        daemon: &Arc<RemoteDaemon>,
+        accepted: &mut mpsc::Receiver<Arc<ServerConnection>>,
+        identity: &StaticIdentity,
+        session: SessionId,
+        connection_attempt: ConnectionAttemptId,
+        lane_bindings: Vec<Vec<Lane>>,
+    ) -> (Arc<ServerConnection>, Vec<crate::crypto::SecureLink>) {
+        let daemon_key = daemon.auth().identity().public_key();
+        let mut client_tasks = Vec::new();
+        let mut server_tasks = Vec::new();
+        for lanes in lane_bindings {
+            let (client_link, server_link) = test_support::pair(128 * 1024);
+            let daemon = daemon.clone();
+            server_tasks.push(tokio::spawn(async move {
+                daemon.accept(InboundLink::network(Box::new(server_link), NetworkPeer::Tls)).await
+            }));
+            let identity = identity.clone();
+            client_tasks.push(tokio::spawn(async move {
+                let secure = initiate_secure_link(
+                    Box::new(client_link),
+                    ClientHandshake {
+                        identity,
+                        expected_daemon: Some(daemon_key),
+                        auth: ClientAuthMode::Enrolled,
+                        device_name: "lane-count-client".into(),
+                        session,
+                        lane: lanes[0],
+                        lanes,
+                        generation: 0,
+                        connection_attempt,
+                        resume: BTreeMap::new(),
+                        handshake_timeout: Duration::from_secs(5),
+                    },
+                )
+                .await
+                .unwrap();
+                let ready = secure.receive().await.unwrap().unwrap();
+                serde_json::from_slice::<LinkReady>(&ready).unwrap();
+                secure
+            }));
+        }
+
+        let mut client_links = Vec::new();
+        for task in client_tasks {
+            client_links.push(
+                tokio::time::timeout(Duration::from_secs(2), task)
+                    .await
+                    .expect("client lane handshake timed out")
+                    .unwrap(),
+            );
+        }
+        let connection = tokio::time::timeout(Duration::from_secs(2), accepted.recv())
+            .await
+            .expect("logical connection registration timed out")
+            .expect("daemon acceptance stream closed");
+        for task in server_tasks {
+            tokio::time::timeout(Duration::from_secs(2), task)
+                .await
+                .expect("server lane handshake timed out")
+                .unwrap()
+                .unwrap();
+        }
+        (connection, client_links)
+    }
+
+    #[tokio::test]
+    async fn logical_attempt_persists_once_across_one_to_four_physical_links() {
+        let directory = tempdir().unwrap();
+        let auth =
+            AuthDatabase::load_or_create(directory.path(), "logical-attempt", false).unwrap();
+        let identity = StaticIdentity::generate().unwrap();
+        let device_id = enroll_test_device(&auth, &identity).await;
+        let (daemon, mut accepted) = RemoteDaemon::new(auth.clone(), SessionLimits::default());
+        let partitions = [
+            vec![Lane::ALL.to_vec()],
+            vec![vec![Lane::Interactive, Lane::Control], vec![Lane::Bulk, Lane::Tunnel]],
+            vec![vec![Lane::Interactive], vec![Lane::Control], vec![Lane::Bulk, Lane::Tunnel]],
+            Lane::ALL.into_iter().map(|lane| vec![lane]).collect(),
+        ];
+        let mut live_connections = Vec::new();
+        let mut live_links = Vec::new();
+
+        for (index, lane_bindings) in partitions.into_iter().enumerate() {
+            let expected_physical_links = lane_bindings.len();
+            let writes_before = auth.test_persistence_writes_succeeded();
+            let attempt = ConnectionAttemptId([(index + 1) as u8; 16]);
+            let (connection, links) = connect_enrolled_lane_partition(
+                &daemon,
+                &mut accepted,
+                &identity,
+                SessionId([(index + 1) as u8; 16]),
+                attempt,
+                lane_bindings,
+            )
+            .await;
+
+            assert_eq!(connection.device_id, device_id);
+            assert_eq!(connection.snapshot().await.physical_link_count, expected_physical_links);
+            assert_eq!(
+                auth.test_persistence_writes_succeeded(),
+                writes_before + 1,
+                "{expected_physical_links} physical links persisted more than one logical attempt"
+            );
+            live_connections.push(connection);
+            live_links.extend(links);
+        }
+
+        assert_eq!(auth.test_persistence_started_revisions(), (1..=6).collect::<Vec<_>>());
+        drop(live_links);
+        drop(live_connections);
+    }
+
+    #[tokio::test]
+    async fn successful_multi_link_admission_does_not_retain_its_expiry_task() {
+        let directory = tempdir().unwrap();
+        let auth =
+            AuthDatabase::load_or_create(directory.path(), "completed-expiry", false).unwrap();
+        let identity = StaticIdentity::generate().unwrap();
+        enroll_test_device(&auth, &identity).await;
+        let (daemon, mut accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let metrics = tokio::runtime::Handle::current().metrics();
+
+        let (connection, links) = connect_enrolled_lane_partition(
+            &daemon,
+            &mut accepted,
+            &identity,
+            SessionId([31; 16]),
+            ConnectionAttemptId([31; 16]),
+            Lane::ALL.into_iter().map(|lane| vec![lane]).collect(),
+        )
+        .await;
+        tokio::time::pause();
+        for _ in 0..4 {
+            tokio::task::yield_now().await;
+        }
+        assert!(daemon.state.lock().await.pending.is_empty());
+        let tasks_after_admission = metrics.num_alive_tasks();
+
+        tokio::time::advance(PENDING_LINK_TTL + Duration::from_secs(1)).await;
+        for _ in 0..4 {
+            tokio::task::yield_now().await;
+        }
+
+        assert_eq!(
+            metrics.num_alive_tasks(),
+            tasks_after_admission,
+            "successful admission retained its detached expiry timer"
+        );
+        drop(links);
+        drop(connection);
+    }
+
+    #[tokio::test]
+    async fn stale_partial_lane_group_does_not_poison_next_connection_attempt() {
+        let directory = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(directory.path(), "partial-startup", true).unwrap();
+        let (daemon, mut accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let group = Arc::new(PartialStartupGroup {
+            daemon,
+            interactive_opens: AtomicUsize::new(0),
+            evidence: CarrierEvidence::LocalPeer { uid: None, pid: None },
+        });
+        let config = ClientConnectionConfig {
+            identity: StaticIdentity::generate().unwrap(),
+            expected_daemon: None,
+            auth: ClientAuthMode::Carrier,
+            device_name: "partial-startup-client".into(),
+            session: SessionId([32; 16]),
+            lane_policy: LanePolicy::Isolated,
+            limits: SessionLimits::default(),
+            reconnect: ReconnectPolicy { heartbeat_interval: None, ..ReconnectPolicy::default() },
+        };
+
+        ClientConnection::connect(group.clone(), config.clone()).await.unwrap_err();
+        let client =
+            tokio::time::timeout(Duration::from_secs(2), ClientConnection::connect(group, config))
+                .await
+                .expect("the replacement connection attempt timed out")
+                .expect("the replacement connection attempt failed");
+        let server = tokio::time::timeout(Duration::from_secs(1), accepted.recv())
+            .await
+            .expect("the stale partial attempt prevented the replacement from registering")
+            .expect("the daemon acceptance stream closed");
+
+        assert_eq!(server.snapshot().await.physical_link_count, 4);
+        client.close().await.unwrap();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn idle_partial_lane_group_expires_without_another_connection() {
+        let directory = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(directory.path(), "partial-expiry", true).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let group = Arc::new(PartialStartupGroup {
+            daemon: daemon.clone(),
+            interactive_opens: AtomicUsize::new(0),
+            evidence: CarrierEvidence::LocalPeer { uid: None, pid: None },
+        });
+        let config = ClientConnectionConfig {
+            identity: StaticIdentity::generate().unwrap(),
+            expected_daemon: None,
+            auth: ClientAuthMode::Carrier,
+            device_name: "partial-expiry-client".into(),
+            session: SessionId([34; 16]),
+            lane_policy: LanePolicy::Isolated,
+            limits: SessionLimits::default(),
+            reconnect: ReconnectPolicy { heartbeat_interval: None, ..ReconnectPolicy::default() },
+        };
+
+        ClientConnection::connect(group, config).await.unwrap_err();
+        assert_eq!(daemon.state.lock().await.pending.len(), 1);
+
+        tokio::time::advance(PENDING_LINK_TTL + Duration::from_secs(1)).await;
+        tokio::task::yield_now().await;
+
+        assert!(
+            daemon.state.lock().await.pending.is_empty(),
+            "an idle partial link group outlived its admission deadline"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn pending_link_expiry_closes_its_registered_routes() {
+        let directory = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(directory.path(), "partial-close", true).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let key = (
+            ClientKey { device_id: "partial-close-client".into(), session: SessionId([36; 16]) },
+            0,
+            ConnectionAttemptId([36; 16]),
+        );
+        let created_at = Instant::now();
+        let (link, _peer, closed, _peer_closed) = tracking_pair();
+        daemon.state.lock().await.pending.insert(
+            key.clone(),
+            PendingLinks {
+                created_at,
+                expiry_task: None,
+                routes: vec![LinkRoute { lanes: vec![Lane::Interactive], link: Arc::new(link) }],
+                assigned: BTreeSet::from([Lane::Interactive]),
+                client_resume: BTreeMap::new(),
+                grant_generation: 0,
+            },
+        );
+        let expiry_task = daemon.schedule_pending_link_expiry(key.clone(), created_at);
+        daemon.state.lock().await.pending.get_mut(&key).unwrap().expiry_task = Some(expiry_task);
+
+        tokio::time::advance(PENDING_LINK_TTL + Duration::from_secs(1)).await;
+        tokio::task::yield_now().await;
+
+        assert!(daemon.state.lock().await.pending.is_empty());
+        assert!(closed.load(Ordering::Acquire), "the expired route was removed without closing");
+    }
+
+    #[tokio::test]
+    async fn dropping_daemon_terminates_its_revocation_monitor() {
+        let directory = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(directory.path(), "monitor-drop", true).unwrap();
+        tokio::task::yield_now().await;
+        let metrics = tokio::runtime::Handle::current().metrics();
+        let baseline_tasks = metrics.num_alive_tasks();
+        let (daemon, accepted) = RemoteDaemon::new(auth.clone(), SessionLimits::default());
+        let weak = Arc::downgrade(&daemon);
+
+        drop(accepted);
+        drop(daemon);
+        tokio::time::timeout(Duration::from_millis(250), async {
+            while weak.upgrade().is_some() || metrics.num_alive_tasks() > baseline_tasks {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("dropping a daemon retained its revocation monitor");
+        drop(auth);
+    }
+
+    async fn connected_fault_pair(
+        lease: Duration,
+        session: SessionId,
+    ) -> (TempDir, Arc<RemoteDaemon>, Arc<FaultGroup>, Arc<ClientConnection>, Arc<ServerConnection>)
+    {
+        let directory = tempdir().unwrap();
+        let auth =
+            AuthDatabase::load_or_create(directory.path(), "daemon-lifecycle", true).unwrap();
+        let (daemon, mut accepted) = RemoteDaemon::with_policy(
             auth,
             SessionLimits::default(),
-            DaemonSessionPolicy::default(),
-            0,
-        );
-        assert!(matches!(result, Err(DaemonError::Protocol(_))));
+            DaemonSessionPolicy { resume_lease: lease },
+        )
+        .unwrap();
+        let group = Arc::new(FaultGroup {
+            daemon: daemon.clone(),
+            epochs: AsyncMutex::new(Vec::new()),
+            evidence: CarrierEvidence::LocalPeer { uid: None, pid: None },
+        });
+        let client = ClientConnection::connect(
+            group.clone(),
+            ClientConnectionConfig {
+                identity: StaticIdentity::generate().unwrap(),
+                expected_daemon: None,
+                auth: ClientAuthMode::Carrier,
+                device_name: "daemon-lifecycle-client".into(),
+                session,
+                lane_policy: LanePolicy::Single,
+                limits: SessionLimits::default(),
+                reconnect: ReconnectPolicy {
+                    initial_delay: Duration::from_millis(1),
+                    maximum_delay: Duration::from_millis(5),
+                    maximum_attempts: Some(4),
+                    ..ReconnectPolicy::default()
+                },
+            },
+        )
+        .await
+        .unwrap();
+        let server =
+            tokio::time::timeout(Duration::from_secs(2), accepted.recv()).await.unwrap().unwrap();
+        (directory, daemon, group, client, server)
     }
 
-    #[test]
-    fn too_many_clients_names_the_limit() {
-        assert_eq!(
-            DaemonError::TooManyClients { limit: 64 }.to_string(),
-            "too many connected clients (the limit is 64)"
+    async fn wait_for_disconnected(server: &ServerConnection, generation: u64) {
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                if server.lifecycle.lock().await.disconnected_generation == Some(generation) {
+                    return;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("server did not observe abrupt carrier loss");
+    }
+
+    #[tokio::test]
+    async fn abrupt_transport_suspends_replayable_server_send_until_reconnect() {
+        let (_directory, _daemon, group, client, server) =
+            connected_fault_pair(Duration::from_secs(5), SessionId([31; 16])).await;
+        let initial = server.snapshot().await;
+        assert_eq!(initial.generation, 0);
+        assert_eq!(initial.state, ConnectionState::Connected);
+        assert_eq!(initial.physical_link_count, 1);
+        assert_eq!(initial.lane_bindings, vec![Lane::ALL.to_vec()]);
+        group.fail_current().await;
+
+        let sending_server = server.clone();
+        let mut send = tokio::spawn(async move {
+            sending_server
+                .send(
+                    Lane::Control,
+                    7,
+                    Bytes::from_static(b"replayed from daemon"),
+                    FrameFlags::empty(),
+                )
+                .await
+        });
+        wait_for_disconnected(&server, 0).await;
+        let reconnecting = server.snapshot().await;
+        assert_eq!(reconnecting.generation, 0);
+        assert_eq!(reconnecting.state, ConnectionState::Reconnecting);
+        assert!(reconnecting.resume_lease_remaining_ms.is_some());
+        assert!(tokio::time::timeout(Duration::from_millis(20), &mut send).await.is_err());
+
+        let received = tokio::time::timeout(Duration::from_secs(2), client.receive())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let sequence = send.await.unwrap().unwrap();
+        assert_eq!(received.sequence, sequence);
+        assert_eq!(received.payload, b"replayed from daemon".as_slice());
+        assert_eq!(server.current_generation(), 1);
+        let reconnected = server.snapshot().await;
+        assert_eq!(reconnected.generation, 1);
+        assert_eq!(reconnected.state, ConnectionState::Connected);
+        assert_eq!(reconnected.resume_lease_remaining_ms, None);
+        client.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn successful_reconnects_do_not_retain_obsolete_resume_expiry_tasks() {
+        let directory = tempdir().unwrap();
+        let auth =
+            AuthDatabase::load_or_create(directory.path(), "resume-expiry-task-lifecycle", true)
+                .unwrap();
+        let (daemon, _accepted) = RemoteDaemon::with_policy(
+            auth,
+            SessionLimits::default(),
+            DaemonSessionPolicy { resume_lease: MAX_RESUME_LEASE },
+        )
+        .unwrap();
+        let key = ClientKey {
+            device_id: "resume-expiry-task-client".into(),
+            session: SessionId([39; 16]),
+        };
+        let (initial, _initial_peer, mut previous_closed, _initial_peer_closed) = tracking_pair();
+        let session =
+            ReliableSession::new(key.session, Arc::new(initial), SessionLimits::default());
+        let server = ServerConnection::new(&daemon, key, session, vec![Lane::ALL.to_vec()]);
+        tokio::task::yield_now().await;
+        let metrics = tokio::runtime::Handle::current().metrics();
+        let baseline_tasks = metrics.num_alive_tasks();
+
+        for generation in 1..=8 {
+            server.note_transport_loss(generation - 1).await;
+            let (replacement, _peer, replacement_closed, _peer_closed) = tracking_pair();
+            server
+                .reconnect_physical(
+                    generation - 1,
+                    generation,
+                    Arc::new(replacement),
+                    vec![Lane::ALL.to_vec()],
+                    &BTreeMap::new(),
+                )
+                .await
+                .unwrap();
+            tokio::time::timeout(Duration::from_secs(1), async {
+                while !previous_closed.load(Ordering::Acquire) {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .expect("reconnect did not finish closing the previous carrier");
+            previous_closed = replacement_closed;
+        }
+
+        tokio::time::timeout(Duration::from_millis(250), async {
+            while metrics.num_alive_tasks() > baseline_tasks {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("successful reconnects retained obsolete resume-expiry tasks");
+        server.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn graceful_session_close_removes_connection_immediately() {
+        let (_directory, daemon, _group, client, server) =
+            connected_fault_pair(Duration::from_secs(5), SessionId([32; 16])).await;
+        let receiving_server = server.clone();
+        let receive = tokio::spawn(async move { receiving_server.receive().await });
+
+        client.close().await.unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), receive)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap()
+                .is_none()
         );
+        assert!(daemon.connections().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn cancelled_server_close_finishes_once_and_publishes_transport_failure() {
+        let directory = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(directory.path(), "cancelled-close", true).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let key =
+            ClientKey { device_id: "cancelled-close-device".into(), session: SessionId([36; 16]) };
+        let session =
+            ReliableSession::new(key.session, Arc::new(HangingCloseLink), SessionLimits::default());
+        let connection =
+            ServerConnection::new(&daemon, key.clone(), session, vec![Lane::ALL.to_vec()]);
+        daemon.state.lock().await.clients.insert(key, connection.clone());
+
+        let registry = daemon.state.lock().await;
+        let closing = tokio::spawn({
+            let connection = connection.clone();
+            async move { connection.close().await }
+        });
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while !connection.closed.load(Ordering::Acquire) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("server close did not begin");
+        closing.abort();
+        assert!(closing.await.unwrap_err().is_cancelled());
+        drop(registry);
+
+        let error = tokio::time::timeout(Duration::from_secs(2), connection.close())
+            .await
+            .expect("repeat close did not observe detached server cleanup")
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            DaemonError::Protocol(ref message)
+                if message == "timed out closing remote session transport"
+        ));
+        assert!(daemon.connections().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn owner_disconnect_closes_exact_logical_session() {
+        let session = SessionId([42; 16]);
+        let (_directory, daemon, _group, _client, server) =
+            connected_fault_pair(Duration::from_secs(5), session).await;
+        let device_id = server.device_id.clone();
+
+        assert!(daemon.disconnect(&device_id, session).await.unwrap());
+        assert!(daemon.connections().await.is_empty());
+        assert!(!daemon.disconnect(&device_id, session).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn crashed_session_is_evicted_when_resume_lease_expires() {
+        let (_directory, daemon, group, _client, server) =
+            connected_fault_pair(Duration::from_millis(30), SessionId([33; 16])).await;
+        let receiving_server = server.clone();
+        let receive = tokio::spawn(async move { receiving_server.receive().await });
+        group.fail_current().await;
+
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), receive)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap()
+                .is_none()
+        );
+        assert!(server.closed.load(Ordering::Acquire));
+        assert!(daemon.connections().await.is_empty());
+    }
+
+    struct BlockingReplayLink {
+        started: Semaphore,
+        release: Semaphore,
+    }
+
+    struct HangingCloseLink;
+
+    #[async_trait]
+    impl FrameLink for HangingCloseLink {
+        fn description(&self) -> &str {
+            "hanging-close"
+        }
+
+        fn maximum_frame_bytes(&self) -> usize {
+            128 * 1024
+        }
+
+        async fn send(&self, _frame: Bytes) -> Result<(), LinkError> {
+            Ok(())
+        }
+
+        async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+            std::future::pending().await
+        }
+
+        async fn close(&self) -> Result<(), LinkError> {
+            std::future::pending().await
+        }
+    }
+
+    #[tokio::test]
+    async fn revocation_starts_all_session_closes_without_waiting_for_transport_cleanup() {
+        let directory = tempdir().unwrap();
+        let auth =
+            AuthDatabase::load_or_create(directory.path(), "revocation-fanout", false).unwrap();
+        let invitation = auth.create_invitation(Duration::from_secs(60), Vec::new()).await.unwrap();
+        let identity = StaticIdentity::generate().unwrap();
+        let authorization = tokio::spawn({
+            let auth = auth.clone();
+            let invitation_id = invitation.id.clone();
+            async move {
+                ServerAuthenticator::authorize(
+                    &*auth,
+                    AuthRequest {
+                        mode: AuthKind::Invitation,
+                        invitation_id: Some(invitation_id),
+                        device_public_key: identity.public_key(),
+                        device_name: "two-session-client".into(),
+                        session: SessionId([61; 16]),
+                        lane: Lane::Control,
+                        lanes: vec![Lane::Control],
+                        generation: 0,
+                        inbound: InboundAuthEvidence::Network(NetworkPeer::Tls),
+                    },
+                )
+                .await
+            }
+        });
+        auth.wait_for_pending(Duration::from_secs(1)).await.unwrap();
+        let device = auth.approve(&invitation.id).await.unwrap();
+        assert_eq!(authorization.await.unwrap().unwrap().device_id, device.id);
+
+        let (daemon, _accepted) = RemoteDaemon::new(auth.clone(), SessionLimits::default());
+        let mut connections = Vec::new();
+        for session_byte in [61, 62] {
+            let key =
+                ClientKey { device_id: device.id.clone(), session: SessionId([session_byte; 16]) };
+            let session = ReliableSession::new(
+                key.session,
+                Arc::new(HangingCloseLink),
+                SessionLimits::default(),
+            );
+            let connection =
+                ServerConnection::new(&daemon, key.clone(), session, vec![Lane::ALL.to_vec()]);
+            daemon.state.lock().await.clients.insert(key, connection.clone());
+            connections.push(connection);
+        }
+
+        auth.revoke(&device.id).await.unwrap();
+        tokio::time::timeout(Duration::from_millis(250), async {
+            while connections.iter().any(|connection| !connection.closed.load(Ordering::Acquire)) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("one slow transport serialized revocation of another session");
+    }
+
+    #[async_trait]
+    impl FrameLink for BlockingReplayLink {
+        fn description(&self) -> &str {
+            "blocking-replay"
+        }
+
+        fn maximum_frame_bytes(&self) -> usize {
+            128 * 1024
+        }
+
+        async fn send(&self, _frame: Bytes) -> Result<(), LinkError> {
+            self.started.add_permits(1);
+            self.release.acquire().await.unwrap().forget();
+            Ok(())
+        }
+
+        async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+            std::future::pending().await
+        }
+
+        async fn close(&self) -> Result<(), LinkError> {
+            Ok(())
+        }
+    }
+
+    struct BlockingReceiveLink {
+        closed: watch::Sender<bool>,
+        receive_started: Semaphore,
+        close_called: Semaphore,
+    }
+
+    impl BlockingReceiveLink {
+        fn new() -> Self {
+            let (closed, _) = watch::channel(false);
+            Self { closed, receive_started: Semaphore::new(0), close_called: Semaphore::new(0) }
+        }
+    }
+
+    #[async_trait]
+    impl FrameLink for BlockingReceiveLink {
+        fn description(&self) -> &str {
+            "blocking-previous-carrier"
+        }
+
+        fn maximum_frame_bytes(&self) -> usize {
+            128 * 1024
+        }
+
+        async fn send(&self, _frame: Bytes) -> Result<(), LinkError> {
+            Ok(())
+        }
+
+        async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+            let mut closed = self.closed.subscribe();
+            self.receive_started.add_permits(1);
+            if *closed.borrow() {
+                return Ok(None);
+            }
+            closed.changed().await.map_err(|_| LinkError::Closed)?;
+            Ok(None)
+        }
+
+        async fn close(&self) -> Result<(), LinkError> {
+            self.closed.send_replace(true);
+            self.close_called.add_permits(1);
+            Ok(())
+        }
+    }
+
+    struct TrackingMemoryLink {
+        name: &'static str,
+        incoming: AsyncMutex<mpsc::Receiver<Bytes>>,
+        outgoing: AsyncMutex<Option<mpsc::Sender<Bytes>>>,
+        closed: Arc<AtomicBool>,
+    }
+
+    fn tracking_pair() -> (TrackingMemoryLink, TrackingMemoryLink, Arc<AtomicBool>, Arc<AtomicBool>)
+    {
+        let (left_tx, right_rx) = mpsc::channel(16);
+        let (right_tx, left_rx) = mpsc::channel(16);
+        let left_closed = Arc::new(AtomicBool::new(false));
+        let right_closed = Arc::new(AtomicBool::new(false));
+        (
+            TrackingMemoryLink {
+                name: "tracking-replacement",
+                incoming: AsyncMutex::new(left_rx),
+                outgoing: AsyncMutex::new(Some(left_tx)),
+                closed: left_closed.clone(),
+            },
+            TrackingMemoryLink {
+                name: "tracking-peer",
+                incoming: AsyncMutex::new(right_rx),
+                outgoing: AsyncMutex::new(Some(right_tx)),
+                closed: right_closed.clone(),
+            },
+            left_closed,
+            right_closed,
+        )
+    }
+
+    #[async_trait]
+    impl FrameLink for TrackingMemoryLink {
+        fn description(&self) -> &str {
+            self.name
+        }
+
+        fn maximum_frame_bytes(&self) -> usize {
+            128 * 1024
+        }
+
+        async fn send(&self, frame: Bytes) -> Result<(), LinkError> {
+            if self.closed.load(Ordering::Acquire) {
+                return Err(LinkError::Closed);
+            }
+            let outgoing = self.outgoing.lock().await.as_ref().cloned().ok_or(LinkError::Closed)?;
+            outgoing.send(frame).await.map_err(|_| LinkError::Closed)
+        }
+
+        async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+            Ok(self.incoming.lock().await.recv().await)
+        }
+
+        async fn close(&self) -> Result<(), LinkError> {
+            self.closed.store(true, Ordering::Release);
+            self.outgoing.lock().await.take();
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn reconnect_accepts_a_burned_generation_and_closes_the_previous_carrier() {
+        let directory = tempdir().unwrap();
+        let auth =
+            AuthDatabase::load_or_create(directory.path(), "previous-carrier-close", true).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let key =
+            ClientKey { device_id: "reconnecting-device".into(), session: SessionId([35; 16]) };
+        let previous = Arc::new(BlockingReceiveLink::new());
+        let session = ReliableSession::new(key.session, previous.clone(), SessionLimits::default());
+        let connection =
+            ServerConnection::new(&daemon, key.clone(), session, vec![Lane::ALL.to_vec()]);
+        daemon.state.lock().await.clients.insert(key.clone(), connection.clone());
+
+        let receiving_connection = connection.clone();
+        let receive = tokio::spawn(async move { receiving_connection.receive().await });
+        tokio::time::timeout(Duration::from_secs(1), previous.receive_started.acquire())
+            .await
+            .expect("the previous receiver did not block on its carrier")
+            .unwrap()
+            .forget();
+
+        let (replacement, peer, replacement_closed, _peer_closed) = tracking_pair();
+        let replacement: Arc<dyn FrameLink> = Arc::new(replacement);
+        let resume = Lane::ALL.into_iter().map(|lane| (lane, 0)).collect();
+        daemon
+            .reconnect_registered_client(
+                &key,
+                &connection,
+                ReconnectRegistration {
+                    expected_generation: 0,
+                    generation: 3,
+                    link: replacement,
+                    lane_bindings: vec![Lane::ALL.to_vec()],
+                    peer_resume: &resume,
+                },
+            )
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(1), previous.close_called.acquire())
+            .await
+            .expect("the previous carrier was not closed after publication")
+            .unwrap()
+            .forget();
+        assert!(!replacement_closed.load(Ordering::Acquire));
+
+        let frame = WireFrame {
+            session: key.session,
+            generation: 3,
+            lane: Lane::Control,
+            flags: FrameFlags::RELIABLE,
+            sequence: 1,
+            acknowledgement: 0,
+            stream: 11,
+            payload: b"replacement stayed open".to_vec(),
+        };
+        peer.send(Bytes::from(frame.encode().unwrap())).await.unwrap();
+        let received = tokio::time::timeout(Duration::from_secs(1), receive)
+            .await
+            .expect("the old blocked receiver did not advance to the replacement")
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(received.generation, 3);
+        assert_eq!(received.payload, b"replacement stayed open".as_slice());
+        assert!(!replacement_closed.load(Ordering::Acquire));
+    }
+
+    #[tokio::test]
+    async fn daemon_registry_remains_available_while_registration_replay_blocks() {
+        let directory = tempdir().unwrap();
+        let auth =
+            AuthDatabase::load_or_create(directory.path(), "registration-lock", true).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let key = ClientKey { device_id: "registered-device".into(), session: SessionId([34; 16]) };
+        let (server_link, _peer_link) = test_support::pair(128 * 1024);
+        let session =
+            ReliableSession::new(key.session, Arc::new(server_link), SessionLimits::default());
+        let connection =
+            ServerConnection::new(&daemon, key.clone(), session, vec![Lane::ALL.to_vec()]);
+        daemon.state.lock().await.clients.insert(key.clone(), connection.clone());
+        connection
+            .send(Lane::Control, 9, Bytes::from_static(b"pending replay"), FrameFlags::empty())
+            .await
+            .unwrap();
+
+        let blocking =
+            Arc::new(BlockingReplayLink { started: Semaphore::new(0), release: Semaphore::new(0) });
+        let reconnecting_daemon = daemon.clone();
+        let reconnecting_connection = connection.clone();
+        let reconnecting_key = key.clone();
+        let reconnecting_link: Arc<dyn FrameLink> = blocking.clone();
+        let registration = daemon.registration_lock(&key).await;
+        let reconnect = tokio::spawn(async move {
+            let _registration = registration.lock().await;
+            let resume = Lane::ALL.into_iter().map(|lane| (lane, 0)).collect();
+            reconnecting_daemon
+                .reconnect_registered_client(
+                    &reconnecting_key,
+                    &reconnecting_connection,
+                    ReconnectRegistration {
+                        expected_generation: 0,
+                        generation: 1,
+                        link: reconnecting_link,
+                        lane_bindings: vec![Lane::ALL.to_vec()],
+                        peer_resume: &resume,
+                    },
+                )
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(1), blocking.started.acquire())
+            .await
+            .expect("replay did not reach the blocking link")
+            .unwrap()
+            .forget();
+
+        let connections = tokio::time::timeout(Duration::from_millis(50), daemon.connections())
+            .await
+            .expect("registration replay held the global daemon state lock");
+        assert_eq!(connections.len(), 1);
+        let snapshots =
+            tokio::time::timeout(Duration::from_millis(50), daemon.connection_snapshots())
+                .await
+                .expect("registration replay blocked cached connection diagnostics");
+        assert_eq!(snapshots.len(), 1);
+        assert_eq!(snapshots[0].state, ConnectionState::Reconnecting);
+        assert_eq!(snapshots[0].generation, 0);
+        blocking.release.add_permits(1);
+        reconnect.await.unwrap().unwrap();
+        assert_eq!(connection.current_generation(), 1);
+    }
+
+    #[tokio::test]
+    async fn explicit_close_cancels_a_blocked_registration_replay() {
+        let directory = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(directory.path(), "cancel-replay", true).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let key = ClientKey { device_id: "closing-device".into(), session: SessionId([36; 16]) };
+        let (server_link, _peer_link) = test_support::pair(128 * 1024);
+        let session =
+            ReliableSession::new(key.session, Arc::new(server_link), SessionLimits::default());
+        let connection =
+            ServerConnection::new(&daemon, key.clone(), session, vec![Lane::ALL.to_vec()]);
+        daemon.state.lock().await.clients.insert(key.clone(), connection.clone());
+        connection
+            .send(Lane::Control, 9, Bytes::from_static(b"pending replay"), FrameFlags::empty())
+            .await
+            .unwrap();
+
+        let blocking =
+            Arc::new(BlockingReplayLink { started: Semaphore::new(0), release: Semaphore::new(0) });
+        let reconnecting_daemon = daemon.clone();
+        let reconnecting_connection = connection.clone();
+        let reconnecting_key = key.clone();
+        let reconnecting_link: Arc<dyn FrameLink> = blocking.clone();
+        let reconnect = tokio::spawn(async move {
+            let resume = Lane::ALL.into_iter().map(|lane| (lane, 0)).collect();
+            reconnecting_daemon
+                .reconnect_registered_client(
+                    &reconnecting_key,
+                    &reconnecting_connection,
+                    ReconnectRegistration {
+                        expected_generation: 0,
+                        generation: 1,
+                        link: reconnecting_link,
+                        lane_bindings: vec![Lane::ALL.to_vec()],
+                        peer_resume: &resume,
+                    },
+                )
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(1), blocking.started.acquire())
+            .await
+            .expect("replay did not reach the blocking link")
+            .unwrap()
+            .forget();
+
+        tokio::time::timeout(Duration::from_millis(250), connection.close())
+            .await
+            .expect("close waited for the resume lease")
+            .unwrap();
+        assert!(matches!(reconnect.await.unwrap(), Err(DaemonError::Closed)));
+        assert!(daemon.connections().await.is_empty());
     }
 }

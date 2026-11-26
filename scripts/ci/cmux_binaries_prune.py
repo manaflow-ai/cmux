@@ -13,9 +13,6 @@ A family is a key pattern plus a decide function, so the families another owner 
 never touched: `*/latest/`, `mux/` (read outside this repo until manaflow-ai/cmux-cloud#2),
 `cmux-next-web/`, the `nightly/`, `rc/` and `stable/` appcasts, and anything new.
 
-`cmux-tui/<sha>/machine/` (the Cloud machine channel's thin-LTO copy, written only by
-point-machine-channel-early) is its own family: kept 30 days, then deleted (keep_machine_copy).
-
 A commit-addressed prefix is kept when its commit is any of:
 
 - named anywhere in a pin file's history on either branch (--pin-file: `git log -p` of
@@ -154,20 +151,6 @@ def keep_commit(group: Group, ctx: Context) -> str:
     return "delete"
 
 
-def keep_machine_copy(group: Group, ctx: Context) -> str:
-    """cmux-tui/<sha>/machine/: the Cloud machine channel's thin-LTO copy of a feat-cmux-next commit.
-
-    Only the channel names it, and the channel moves to a newer commit on every feat-cmux-next push
-    that builds, so nothing asks for one after a few days. No pin, latest manifest, tree or app
-    installs it (they read the shipped cmux-tui/<sha>/ beside it, its own family), and it is never a
-    cold snapshot: kept TRUNK_DAYS, then deleted.
-    """
-    age = census.age_days(group.newest, ctx.now)
-    if age is None or age < TRUNK_DAYS:
-        return f"keep: machine copy under {TRUNK_DAYS} days old"
-    return "delete"
-
-
 def keep_tree(group: Group, ctx: Context) -> str:
     # op-ci-tiers owns the tree rule (source.json "family": trunk|branch); until it lands, keep all.
     return "keep: tree (owner rule pending)"
@@ -178,7 +161,6 @@ FAMILIES = (
     Family("cmux-relay", re.compile(r"^cmux-relay/(?P<id>[0-9a-f]{40})/[^/]+$"), keep_commit),
     Family("chatmux-relay", re.compile(r"^chatmux-relay/(?P<id>[0-9a-f]{40})/[^/]+$"), keep_commit),
     Family("cmux-tui", re.compile(r"^cmux-tui/(?P<id>[0-9a-f]{40})/[^/]+$"), keep_commit),
-    Family("cmux-tui-machine", re.compile(r"^cmux-tui/(?P<id>[0-9a-f]{40})/machine/[^/]+$"), keep_machine_copy),
     Family("cmux-tui-windows", re.compile(r"^cmux-tui-windows/(?P<id>[0-9a-f]{40})/[^/]+$"), keep_commit),
     Family("cmux-tui-tree", re.compile(r"^cmux-tui/tree/(?P<id>[A-Za-z0-9._-]+)/[^/]+$"), keep_tree),
 )
@@ -413,7 +395,6 @@ class Bucket(r2_cache_prune.Bucket):
 def presign_works(signer) -> bool:
     """The host can only delete with these URLs if R2 accepts the signature: try one GET."""
     try:
-        # user-agent: presigned R2, no CDN
         with urllib.request.urlopen(signer("GET", LATEST[0]), timeout=60) as response:
             return json.loads(response.read()).get("commit") is not None
     except (OSError, ValueError):

@@ -1,8 +1,0 @@
-# The gates whose tests write the design doc's row 5e (`v2.pr05e.*`). A line is GROUP FILTER; see run-v2-gates.sh.
-book kin_table_change_gate
-book sibling_insert_gate
-book family_page_gate
-book family_page_after_gate
-book folder_page_gate
-book random_replay_gate
-book cold_continuation_gate

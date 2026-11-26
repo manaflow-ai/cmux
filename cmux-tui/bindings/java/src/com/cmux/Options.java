@@ -35,12 +35,6 @@ public final class Options {
         public static Read defaults() { return new Read(Map.of()); }
     }
 
-    /** Machine response format; this grants no session or execution rights. */
-    public record MachineRead(boolean catalog) {
-        public static MachineRead defaults() { return new MachineRead(false); }
-        Map<String, Object> params() { return catalog ? Map.of("catalog", true) : Map.of(); }
-    }
-
     public record Control(Map<String, Object> extra) {
         public Control { extra = copy(extra); }
         public static Control defaults() { return new Control(Map.of()); }
@@ -384,33 +378,6 @@ public final class Options {
     }
     public record ScreenRename(Mutation mutation, String name) {
         public ScreenRename { mutation = mut(mutation); Objects.requireNonNull(name, "name"); }
-    }
-    /**
-     * Pins, unpins, or resizes one viewport column ({@code column.update}).
-     * {@code column} is the column's split ID. Set {@code dock},
-     * {@code width}, or both; {@code edge} ("left", "right", "top" or
-     * "bottom") and {@code mode} ("docked" or "overlay") apply only when
-     * dock is true.
-     */
-    public record ColumnUpdate(
-        Mutation mutation,
-        String column,
-        Optional<Boolean> dock,
-        Optional<String> edge,
-        Optional<String> mode,
-        Optional<Double> width
-    ) {
-        public ColumnUpdate {
-            mutation = mut(mutation);
-            Objects.requireNonNull(column, "column");
-            dock = opt(dock);
-            edge = opt(edge);
-            mode = opt(mode);
-            width = opt(width);
-            if (dock.isEmpty() && width.isEmpty()) {
-                throw new IllegalArgumentException("set dock, width, or both");
-            }
-        }
     }
     public record PaneRename(Mutation mutation, String name) {
         public PaneRename { mutation = mut(mutation); Objects.requireNonNull(name, "name"); }

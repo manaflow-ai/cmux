@@ -1,37 +1,30 @@
 use crate::CommandMetadata;
 use crate::codec::JsonLineConnection;
-use crate::codec::UnixStream;
 use crate::generated::{Event, IdentifyResult, decode_event};
-pub(crate) use crate::socket_paths::{
-    current_uid_component, fallback_root, runtime_base, unix_socket_path_fits,
-};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
+use sha2::{Digest, Sha256};
 use std::collections::VecDeque;
 use std::fmt;
+use std::mem::{offset_of, size_of};
 use std::net::Shutdown;
+use std::os::unix::ffi::OsStrExt;
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
-
-mod response;
-pub(crate) use response::ensure_success;
 
 pub type Result<T> = std::result::Result<T, CmuxError>;
 
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum CmuxError {
-    /// A protocol-v12 command failure. `error_code` and `error_details` are
-    /// the response's machine-readable fields when it carries them.
     Command {
         command: String,
         message: String,
         id: Option<Value>,
-        error_code: Option<String>,
-        error_details: Option<Box<Value>>,
     },
     /// Structured `cmux.protocol/2` operation failure.
     Protocol {
@@ -153,6 +146,15 @@ impl fmt::Display for CmuxError {
     }
 }
 
+impl std::error::Error for CmuxError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::MutationTransport { source, .. } => Some(source.as_ref()),
+            _ => None,
+        }
+    }
+}
+
 /// Connection settings.
 #[derive(Debug, Clone)]
 pub struct ClientConfig {
@@ -246,10 +248,7 @@ pub struct CmuxClient {
     connection: JsonLineConnection,
     next_id: u64,
     server: Option<ServerInfo>,
-    /// Event frames that arrived while a request waited, as sent.
-    buffered_events: VecDeque<Value>,
-    /// Set once [`Self::closer`] hands out a closer.
-    control: Option<Arc<StreamControl>>,
+    buffered_events: VecDeque<Event>,
 }
 
 impl CmuxClient {
@@ -296,14 +295,7 @@ impl CmuxClient {
             }
         }
         let connection = connection?;
-        Ok(Self {
-            config,
-            connection,
-            next_id: 1,
-            server: None,
-            buffered_events: VecDeque::new(),
-            control: None,
-        })
+        Ok(Self { config, connection, next_id: 1, server: None, buffered_events: VecDeque::new() })
     }
 
     pub fn config(&self) -> &ClientConfig {
@@ -315,53 +307,7 @@ impl CmuxClient {
     }
 
     pub fn take_buffered_event(&mut self) -> Option<Event> {
-        self.buffered_events.pop_front().map(decode_event)
-    }
-
-    /// The next event frame on this connection exactly as the daemon sent
-    /// it (`{event, ...}`): first those that arrived while earlier requests
-    /// waited, in order, then the next one read, with no read timeout. A
-    /// connection that subscribed with raw commands (`subscribe` and the
-    /// commands that scope it, such as `cloud-conversation-subscribe`) reads
-    /// its events here. [`Self::closer`] ends a blocked call from another
-    /// thread, which then returns [`CmuxError::Closed`].
-    pub fn recv_event_frame(&mut self) -> Result<Value> {
-        if let Some(value) = self.buffered_events.pop_front() {
-            return Ok(value);
-        }
-        let control = self.control.clone();
-        let closed = |error| match &control {
-            Some(control) => map_closed(error, control),
-            None => error,
-        };
-        if control.as_ref().is_some_and(|control| control.closed.load(Ordering::Acquire)) {
-            return Err(CmuxError::Closed);
-        }
-        self.connection.without_read_timeout(|connection| {
-            loop {
-                let value = connection.recv().map_err(closed)?;
-                if value.get("event").is_some() {
-                    return Ok(value);
-                }
-            }
-        })
-    }
-
-    /// Closes this connection from another thread and unblocks an active
-    /// [`Self::recv_event_frame`] or request.
-    pub fn closer(&mut self) -> Result<StreamCloser> {
-        let control = match &self.control {
-            Some(control) => Arc::clone(control),
-            None => {
-                let control = Arc::new(StreamControl {
-                    socket: self.connection.shutdown_clone()?,
-                    closed: AtomicBool::new(false),
-                });
-                self.control = Some(Arc::clone(&control));
-                control
-            }
-        };
-        Ok(StreamCloser { control })
+        self.buffered_events.pop_front()
     }
 
     pub fn close(&mut self) {
@@ -370,23 +316,8 @@ impl CmuxClient {
 
     /// Send an escape-hatch request for an extension unknown to this SDK.
     ///
-    /// This is the generic call for the older `cmd` command lines (the
-    /// `conversation-*` and `cloud-*` commands and the rest of
-    /// spec/commands.md); `cmux.protocol/2` operations go through
-    /// [`crate::Client::call`] and [`crate::Client::subscribe`]. Normal
-    /// protocol commands should use the generated typed methods.
-    pub fn request_raw(&mut self, request: Map<String, Value>) -> Result<Value> {
-        let command = request.get("cmd").and_then(Value::as_str).unwrap_or("<raw>").to_string();
-        let response = self.request_raw_reply(request)?;
-        ensure_success(&command, &response)?;
-        Ok(response)
-    }
-
-    /// [`Self::request_raw`], but the daemon's reply line comes back as sent
-    /// whether `ok` is true or false, so a caller can read every field of a
-    /// refusal (`error_code`, `error`, and fields such as a cloud refusal's
-    /// `reason`). Only local and transport failures are errors.
-    pub fn request_raw_reply(&mut self, mut request: Map<String, Value>) -> Result<Value> {
+    /// Normal protocol commands should use the generated typed methods.
+    pub fn request_raw(&mut self, mut request: Map<String, Value>) -> Result<Value> {
         if let Some(command) = request.get("cmd").and_then(Value::as_str)
             && let Some(metadata) =
                 crate::generated::COMMANDS.iter().find(|metadata| metadata.name == command)
@@ -398,8 +329,9 @@ impl CmuxClient {
             request.insert("id".to_string(), id.clone());
             id
         });
+        let command = request.get("cmd").and_then(Value::as_str).unwrap_or("<raw>").to_string();
         self.connection.send(&Value::Object(request))?;
-        self.receive_reply(&id)
+        self.receive_response(&id, &command)
     }
 
     pub(crate) fn execute<Request, Response>(
@@ -415,8 +347,7 @@ impl CmuxClient {
         let id = Value::from(self.next_id());
         let envelope = request_envelope(metadata.name, id.clone(), request)?;
         self.connection.send(&envelope)?;
-        let response = self.receive_reply(&id)?;
-        ensure_success(metadata.name, &response)?;
+        let response = self.receive_response(&id, metadata.name)?;
         decode_response(metadata.name, response)
     }
 
@@ -466,7 +397,7 @@ impl CmuxClient {
                     connection.close();
                     return Err(CmuxError::QueueOverflow { limit: self.config.max_queued_events });
                 }
-                buffered.push_back(message);
+                buffered.push_back(decode_event(message));
                 continue;
             }
             if message.get("id") != Some(&id) {
@@ -540,7 +471,7 @@ impl CmuxClient {
         Ok(())
     }
 
-    fn receive_reply(&mut self, id: &Value) -> Result<Value> {
+    fn receive_response(&mut self, id: &Value, command: &str) -> Result<Value> {
         loop {
             let response = self.connection.recv()?;
             if response.get("event").is_some() {
@@ -548,12 +479,13 @@ impl CmuxClient {
                     self.connection.close();
                     return Err(CmuxError::QueueOverflow { limit: self.config.max_queued_events });
                 }
-                self.buffered_events.push_back(response);
+                self.buffered_events.push_back(decode_event(response));
                 continue;
             }
             if response.get("id") != Some(id) {
                 continue;
             }
+            ensure_success(command, &response)?;
             return Ok(response);
         }
     }
@@ -587,7 +519,7 @@ pub(crate) fn hashed_socket_legacy_path(path: &Path) -> Option<PathBuf> {
     if digest.len() != 64 || !digest.bytes().all(|b| b.is_ascii_hexdigit()) {
         return None;
     }
-    let canonical = fallback_root().join(format!("cmux-tui-{uid}"));
+    let canonical = PathBuf::from("/tmp").join(format!("cmux-tui-{uid}"));
     let sibling = parent.parent()?.join(format!("cmux-tui-{uid}"));
     let mut roots = vec![canonical];
     if sibling != roots[0] {
@@ -598,21 +530,16 @@ pub(crate) fn hashed_socket_legacy_path(path: &Path) -> Option<PathBuf> {
         for entry in entries.flatten().take(256) {
             let name = entry.file_name();
             let Some(name) = name.to_str() else { continue };
-            let session = name.strip_suffix(".sock").unwrap_or(name);
             if !name.ends_with(".sock")
-                || crate::socket_hash::session_digest(session).map(|d| d + ".sock").as_deref()
-                    != Some(leaf)
+                || format!(
+                    "{:x}.sock",
+                    Sha256::digest(name.strip_suffix(".sock").unwrap_or(name).as_bytes())
+                ) != leaf
             {
                 continue;
             }
             let Ok(file_type) = entry.file_type() else { continue };
-            #[cfg(unix)]
             if std::os::unix::fs::FileTypeExt::is_socket(&file_type) {
-                return Some(entry.path());
-            }
-            // Windows AF_UNIX sockets are plain files to the file system.
-            #[cfg(windows)]
-            if file_type.is_file() {
                 return Some(entry.path());
             }
         }
@@ -628,8 +555,7 @@ impl Drop for CmuxClient {
 
 pub struct CmuxStream {
     connection: JsonLineConnection,
-    /// Event frames that arrived before the stream's reply, as sent.
-    buffered: VecDeque<Value>,
+    buffered: VecDeque<Event>,
     control: Arc<StreamControl>,
     terminal_event: Option<&'static str>,
     max_queued_events: usize,
@@ -641,8 +567,8 @@ impl CmuxStream {
         if self.finished || self.control.closed.load(Ordering::Acquire) {
             return Err(CmuxError::Closed);
         }
-        if let Some(value) = self.buffered.pop_front() {
-            return Ok(self.finish_if_terminal(decode_event(value)));
+        if let Some(event) = self.buffered.pop_front() {
+            return Ok(self.finish_if_terminal(event));
         }
         loop {
             let value = self.connection.recv().map_err(|error| map_closed(error, &self.control))?;
@@ -652,39 +578,12 @@ impl CmuxStream {
         }
     }
 
-    /// The next event frame exactly as the daemon sent it (`{event, ...}`),
-    /// whether or not this SDK has a type for it, so a client can surface
-    /// every event without a per-event patch ([`decode_event`] gives the
-    /// typed view of the same frame). Ends the stream like [`Self::recv`].
-    pub fn recv_frame_timeout(&mut self, timeout: Duration) -> Result<Value> {
-        if self.finished || self.control.closed.load(Ordering::Acquire) {
-            return Err(CmuxError::Closed);
-        }
-        let value = match self.buffered.pop_front() {
-            Some(value) => value,
-            None => {
-                let control = Arc::clone(&self.control);
-                self.connection.with_read_timeout(timeout, |connection| {
-                    loop {
-                        let value =
-                            connection.recv().map_err(|error| map_closed(error, &control))?;
-                        if value.get("event").is_some() {
-                            return Ok(value);
-                        }
-                    }
-                })?
-            }
-        };
-        self.finish_if_terminal_name(value.get("event").and_then(Value::as_str));
-        Ok(value)
-    }
-
     pub fn recv_timeout(&mut self, timeout: Duration) -> Result<Event> {
         if self.finished || self.control.closed.load(Ordering::Acquire) {
             return Err(CmuxError::Closed);
         }
-        if let Some(value) = self.buffered.pop_front() {
-            return Ok(self.finish_if_terminal(decode_event(value)));
+        if let Some(event) = self.buffered.pop_front() {
+            return Ok(self.finish_if_terminal(event));
         }
         let control = Arc::clone(&self.control);
         let value = self.connection.with_read_timeout(timeout, |connection| {
@@ -716,18 +615,14 @@ impl CmuxStream {
     }
 
     fn finish_if_terminal(&mut self, event: Event) -> Event {
-        self.finish_if_terminal_name(event.wire_name());
-        event
-    }
-
-    fn finish_if_terminal_name(&mut self, name: Option<&str>) {
-        let terminal = self.terminal_event.is_some_and(|terminal| name == Some(terminal))
-            || name == Some("overflow");
+        let terminal = self.terminal_event.is_some_and(|name| event.wire_name() == Some(name))
+            || event.wire_name() == Some("overflow");
         if terminal {
             self.finished = true;
             self.control.closed.store(true, Ordering::Release);
             self.connection.close();
         }
+        event
     }
 }
 
@@ -747,7 +642,7 @@ impl Drop for CmuxStream {
 
 #[derive(Clone)]
 pub struct StreamCloser {
-    pub(crate) control: Arc<StreamControl>,
+    control: Arc<StreamControl>,
 }
 
 impl StreamCloser {
@@ -763,9 +658,9 @@ impl StreamCloser {
     }
 }
 
-pub(crate) struct StreamControl {
-    pub(crate) socket: UnixStream,
-    pub(crate) closed: AtomicBool,
+struct StreamControl {
+    socket: UnixStream,
+    closed: AtomicBool,
 }
 
 fn request_envelope<Request: Serialize>(
@@ -786,6 +681,22 @@ fn request_envelope<Request: Serialize>(
     fields.insert("id".to_string(), id);
     fields.insert("cmd".to_string(), Value::String(command.to_string()));
     Ok(Value::Object(fields))
+}
+
+fn ensure_success(command: &str, response: &Value) -> Result<()> {
+    if response.get("ok") == Some(&Value::Bool(true)) {
+        return Ok(());
+    }
+    let message = response
+        .get("error")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown command error")
+        .to_string();
+    Err(CmuxError::Command {
+        command: command.to_string(),
+        message,
+        id: response.get("id").cloned(),
+    })
 }
 
 fn decode_response<Response: DeserializeOwned>(command: &str, response: Value) -> Result<Response> {
@@ -852,7 +763,7 @@ pub fn validate_session_name(session: &str) -> Result<()> {
 /// Resolves a session socket path and reports invalid session input.
 pub fn try_default_socket_path(session: &str) -> Result<PathBuf> {
     validate_session_name(session)?;
-    default_socket_path_for_session(session)
+    Ok(default_socket_path_for_session(session))
 }
 
 /// Resolves a session socket path without changing the historical signature.
@@ -869,13 +780,21 @@ pub fn default_socket_path(session: &str) -> PathBuf {
     }
 }
 
-fn default_socket_path_for_session(session: &str) -> Result<PathBuf> {
-    let base = runtime_base();
+fn default_socket_path_for_session(session: &str) -> PathBuf {
+    let base = std::env::var_os("XDG_RUNTIME_DIR")
+        .filter(|value| !value.is_empty())
+        .or_else(|| std::env::var_os("TMPDIR").filter(|value| !value.is_empty()))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/tmp"));
     default_socket_path_in_runtime_dir(session, base.join(private_runtime_dir_name()))
 }
 
 fn invalid_session_socket_path(session: &str) -> PathBuf {
-    let base = runtime_base();
+    let base = std::env::var_os("XDG_RUNTIME_DIR")
+        .filter(|value| !value.is_empty())
+        .or_else(|| std::env::var_os("TMPDIR").filter(|value| !value.is_empty()))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/tmp"));
     invalid_session_socket_path_in_runtime_dir(session, base)
 }
 
@@ -886,60 +805,60 @@ fn invalid_session_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBu
     if unix_socket_path_fits(&preferred) {
         preferred
     } else {
-        fallback_root()
+        PathBuf::from("/tmp")
             .join(format!("cmux-tui-invalid-{}", current_uid_component()))
             .join(invalid_session_socket_leaf(session))
     }
 }
 
-pub(crate) fn default_socket_path_in_runtime_dir(
-    session: &str,
-    runtime_dir: PathBuf,
-) -> Result<PathBuf> {
+fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> PathBuf {
     let file_name = format!("{session}.sock");
     let preferred = runtime_dir.join(&file_name);
     if !unix_socket_path_fits(&preferred) {
-        let fallback = fallback_root().join(private_runtime_dir_name()).join(file_name);
+        let fallback = PathBuf::from("/tmp").join(private_runtime_dir_name()).join(file_name);
         if unix_socket_path_fits(&fallback) {
-            return Ok(fallback);
+            return fallback;
         }
-        let Some(digest) = crate::socket_hash::session_digest(session) else {
-            return Err(CmuxError::InvalidArgument(
-                crate::socket_hash::LONG_PATH_NEEDS_HASH.into(),
-            ));
-        };
-        let fallback = fallback_root();
-        let preferred_base = runtime_dir.parent().unwrap_or(&fallback);
+        let digest = Sha256::digest(session.as_bytes());
+        let preferred_base = runtime_dir.parent().unwrap_or_else(|| Path::new("/tmp"));
         let hashed = preferred_base
             .join(format!("cmux-tui-hashed-{}", current_uid_component()))
-            .join(format!("{digest}.sock"));
+            .join(format!("{digest:x}.sock"));
         if unix_socket_path_fits(&hashed) {
-            return Ok(hashed);
+            return hashed;
         }
-        let hashed = fallback_root()
+        let hashed = PathBuf::from("/tmp")
             .join(format!("cmux-tui-hashed-{}", current_uid_component()))
-            .join(format!("{digest}.sock"));
+            .join(format!("{digest:x}.sock"));
         debug_assert!(unix_socket_path_fits(&hashed));
-        return Ok(hashed);
+        return hashed;
     }
-    Ok(preferred)
+    preferred
 }
 
 pub(crate) fn private_runtime_dir_name() -> String {
     format!("cmux-tui-{}", current_uid_component())
 }
 
-fn invalid_session_socket_leaf(session: &str) -> String {
-    crate::socket_hash::invalid_session_leaf(session)
+fn unix_socket_path_fits(path: &Path) -> bool {
+    const SUN_PATH_CAPACITY: usize =
+        size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
+    path.as_os_str().as_bytes().len() < SUN_PATH_CAPACITY
 }
 
-#[cfg(all(test, unix))]
+fn current_uid_component() -> String {
+    // SAFETY: getuid has no preconditions and does not dereference pointers.
+    unsafe { libc::getuid() }.to_string()
+}
+
+fn invalid_session_socket_leaf(session: &str) -> String {
+    format!("{:x}.sock", Sha256::digest(session.as_bytes()))
+}
+
+#[cfg(test)]
 mod tests {
-    #![cfg_attr(not(feature = "socket-path-hash"), allow(dead_code, unused_imports))]
     use super::*;
     use std::io::{BufRead, BufReader, Write};
-    use std::mem::{offset_of, size_of};
-    use std::os::unix::ffi::OsStrExt;
     use std::os::unix::net::UnixListener;
     use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
     use std::thread;
@@ -1014,7 +933,6 @@ mod tests {
         assert!(matches!(result, Err(CmuxError::Closed)));
     }
 
-    #[cfg(feature = "socket-path-hash")]
     #[test]
     fn session_socket_helpers_reject_unsafe_names_before_joining() {
         for session in [
@@ -1077,7 +995,7 @@ mod tests {
         assert_eq!(isolated.parent().and_then(Path::parent), Some(expected_outer));
         let legacy_runtime = runtime_dir.join(private_runtime_dir_name());
         assert_eq!(
-            default_socket_path_in_runtime_dir("legacy name", legacy_runtime.clone()).unwrap(),
+            default_socket_path_in_runtime_dir("legacy name", legacy_runtime.clone()),
             legacy_runtime.join("legacy name.sock")
         );
         assert!(ClientConfig::try_from_env_or_default_session("../escape").is_err());
@@ -1096,11 +1014,12 @@ mod tests {
         assert!(result.is_ok(), "source-compatible constructor must not panic");
     }
 
-    #[cfg(feature = "socket-path-hash")]
     #[test]
     fn implicit_hashed_socket_falls_back_to_the_legacy_session_socket() {
-        // The probe also scans the root's cmux-tui-<uid>. A short root, so the
-        // hashed path fits sun_path as every product-chosen hashed path does.
+        // The probe scans at most 256 entries of /tmp/cmux-tui-<uid>, which a
+        // shared runner fills, then the root's own cmux-tui-<uid>. A short
+        // private root keeps this socket in the second, and the hashed path
+        // inside sun_path.
         let root = crate::test_roots::TempRoot::short();
         let id = NEXT_TEST_SOCKET.fetch_add(1, AtomicOrdering::Relaxed);
         let session = format!("rf{}-{id}", std::process::id());
@@ -1109,9 +1028,8 @@ mod tests {
         let legacy = SocketFile(dir.join(format!("{session}.sock")));
         let hashed_dir = root.path().join(format!("cmux-tui-hashed-{}", current_uid_component()));
         std::fs::create_dir_all(&hashed_dir).unwrap();
-        let digest = crate::socket_hash::session_digest(&session).unwrap() + ".sock";
+        let digest = format!("{:x}.sock", Sha256::digest(session.as_bytes()));
         let config = ClientConfig::from_socket_path(hashed_dir.join(digest));
-        assert!(unix_socket_path_fits(&config.socket_path), "{}", config.socket_path.display());
         assert!(is_hashed_socket(&config.socket_path));
         let listener = UnixListener::bind(&legacy.0).unwrap();
         assert_eq!(hashed_socket_legacy_path(&config.socket_path), Some(legacy.0.clone()));
@@ -1134,6 +1052,44 @@ mod tests {
     }
 
     #[test]
+    fn long_session_socket_path_uses_bindable_digest_fallback() {
+        const EXPECTED_DIGEST: &str =
+            "e538a84493067947f7376110a6f695dd3db062b67eee939c3660c07f3f47dce2";
+        let session = format!("legacy-{}", "x".repeat(200));
+        let path = try_default_socket_path(&session).unwrap();
+        let expected_leaf = format!("{EXPECTED_DIGEST}.sock");
+
+        assert_eq!(path.file_name().and_then(|name| name.to_str()), Some(expected_leaf.as_str()));
+        assert!(
+            path.parent()
+                .and_then(Path::file_name)
+                .is_some_and(|name| name.to_string_lossy().starts_with("cmux-tui-hashed-"))
+        );
+        assert!(unix_socket_path_fits(&path), "unusable socket path: {path:?}");
+
+        let bind_session = format!("rust-sdk-bind-{}-{}", std::process::id(), "x".repeat(200));
+        let bind_path = try_default_socket_path(&bind_session).unwrap();
+        std::fs::create_dir_all(bind_path.parent().unwrap()).unwrap();
+        let _ = std::fs::remove_file(&bind_path);
+        let listener = UnixListener::bind(&bind_path)
+            .unwrap_or_else(|error| panic!("failed to bind {bind_path:?}: {error}"));
+        drop(listener);
+        std::fs::remove_file(bind_path).unwrap();
+    }
+
+    #[test]
+    fn long_session_hash_prefers_runtime_base_and_falls_back_to_tmp() {
+        let session = format!("legacy-{}", "x".repeat(200));
+        let preferred_runtime = PathBuf::from("/run/user/501/cmux-tui-501");
+        let preferred = default_socket_path_in_runtime_dir(&session, preferred_runtime);
+        assert!(preferred.to_string_lossy().starts_with("/run/user/501/cmux-tui-hashed-"));
+
+        let long_runtime = PathBuf::from("/tmp").join("x".repeat(200)).join("cmux-tui-501");
+        let fallback = default_socket_path_in_runtime_dir(&session, long_runtime);
+        assert!(fallback.to_string_lossy().starts_with("/tmp/cmux-tui-hashed-"));
+    }
+
+    #[test]
     fn unix_socket_path_boundary_reserves_trailing_nul() {
         const SUN_PATH_CAPACITY: usize =
             size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
@@ -1147,6 +1103,22 @@ mod tests {
         assert_eq!(first_over_limit.as_os_str().as_bytes().len(), SUN_PATH_CAPACITY);
         assert!(unix_socket_path_fits(&fit));
         assert!(!unix_socket_path_fits(&first_over_limit));
+    }
+
+    #[test]
+    fn non_ascii_long_session_uses_utf8_sha256_digest_fallback() {
+        const EXPECTED_DIGEST: &str =
+            "0d3fd777d54547652e50e049becfce29b81513bc248da9d22bbd37593f0d52e3";
+        let session = "名前".repeat(100);
+        let path = try_default_socket_path(&session).unwrap();
+        let expected_leaf = format!("{EXPECTED_DIGEST}.sock");
+
+        assert_eq!(path.file_name().and_then(|name| name.to_str()), Some(expected_leaf.as_str()));
+        assert!(
+            path.parent()
+                .and_then(Path::file_name)
+                .is_some_and(|name| name.to_string_lossy().starts_with("cmux-tui-hashed-"))
+        );
     }
 
     #[test]

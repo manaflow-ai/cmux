@@ -30,7 +30,7 @@ public struct CmxIrohLocalBindingExpectation: Equatable, Sendable {
               Self.isCanonicalUUID(appInstanceID),
               cmxIrohIsSafeToken(clientNamespace, maximumUTF8ByteCount: 255),
               cmxIrohIsSafeToken(tag),
-              identityGeneration.isValidIdentityGeneration,
+              (1 ... Int(Int32.max)).contains(identityGeneration),
               capabilities.count <= 32,
               Set(capabilities).count == capabilities.count,
               capabilities.allSatisfy({ cmxIrohIsSafeToken($0) }) else {

@@ -1,135 +1,75 @@
 ---
 name: cmux
-description: End-user control of cmux topology and routing (windows, workspaces, panes, tabs, terminals, focus, moves, identify, flash). Use when automation needs deterministic placement and navigation in a multi-pane cmux layout.
+description: End-user control of cmux topology and routing (windows, workspaces, panes/surfaces, focus, moves, reorder, identify, trigger flash). Use when automation needs deterministic placement and navigation in a multi-pane cmux layout.
 ---
 
 # cmux Core Control
 
-Non-browser cmux topology and routing. The `cmux` CLI is noun-first: `cmux <scope> [<selector>] <verb>`.
+Non-browser cmux topology and routing.
 
-- **Window**: top-level macOS cmux window, owned by the app.
-- **Workspace** (`ws_…`): a sidebar entry.
-- **Screen** (`screen_…`): a layout inside a workspace.
-- **Pane** (`pane_…`): a split region in a screen.
-- **Tab** (`tab_…`): a tab in a pane, showing a terminal or browser.
-- **Terminal** (`term_…`): terminal content, addressable with or without a tab.
-- **Room**: a personal view that shows the workspaces pinned to it and those of the sessions it follows. Rooms, workspace groups and tab or screen groups take their id or exact name (`cmux room --help`).
-- **Closed history**: recently closed tabs, screens and workspaces (`cmux closed list`, `cmux closed <id> reopen`).
+- **Window**: top-level macOS cmux window.
+- **Workspace**: tab-like group within a window.
+- **Pane**: split container in a workspace.
+- **Surface**: a tab within a pane (terminal or browser panel).
 
 ## Fast start
 
 ```bash
-cmux app identify                                  # which app and socket
-cmux terminal "$CMUX_TUI_TERMINAL_ID" show --json  # the caller terminal
-cmux window list
-cmux workspace list
-cmux pane list
-cmux tab list
-cmux workspace create --name api
-cmux pane pane_… split --right -- npm run dev     # new pane running the argv; focus stays
-cmux pane pane_… run -- npm run dev                # new tab in an existing pane
-cmux tab tab_… move --workspace ws_… --screen screen_… --pane pane_… --index 0
-cmux pane flash-focused                            # attention cue (app action)
+cmux identify --json                              # current caller context
+cmux list-windows / list-workspaces / list-panes
+cmux list-pane-surfaces --pane pane:1
+cmux new-workspace
+cmux new-split right --surface surface:1
+cmux new-split down --command "npm run dev"       # new terminal runs the command in a live shell
+cmux move-surface --surface surface:7 --pane pane:2 --focus true
+cmux split-off --surface surface:7 right
+cmux reorder-surface --surface surface:7 --before surface:3
+
+# workspace context-menu actions (color, description, rename, pin, ...)
+cmux workspace-action --action set-color --color Blue
+cmux workspace-action --action set-description --description "Ship checklist"
+
+# attention cue
+cmux trigger-flash --surface surface:7
 ```
 
-## Show UI in a chat reply
+## Handle model
 
-Embed screenshots instead of describing a UI change: a cmux chat draws `![alt](/abs/path.png)`, a bare image path, a `file://` URL or an https image address (PR media) as a thumbnail that opens full size on click. Put a before/after pair in one paragraph (`![Before](/tmp/a.png) ![After](/tmp/b.png)`, or `Before: /tmp/a.png` and `After: /tmp/b.png` on two lines) and it draws side by side. `#N`, `owner/repo#N`, `hq#N`, commit SHAs and `path/to/file.ts:42` become links.
+Output defaults to short refs (`window:N`, `workspace:N`, `pane:N`, `surface:N`). UUIDs are accepted as input; request UUID output only when needed with `--id-format uuids|both`.
 
-## Which `cmux` to run
+## Initial command on new terminals
 
-Inside a cmux terminal, `$CMUX_BUNDLED_CLI_PATH` is the CLI that ships with the running app. A login shell (`zsh -lc`, which Codex and other agents use) can put an older `cmux` first on `PATH`, for example a `uv tool` or `pipx` install of the PyPI `cmux` package. That CLI can lack verbs such as `browser page`. When a verb or flag that this skill documents is missing, run `"$CMUX_BUNDLED_CLI_PATH"` instead, or define `cmux() { "${CMUX_BUNDLED_CLI_PATH:-cmux}" "$@"; }` once per shell. Do not run `cmux daemon stop` to cure a version mismatch: it stops the user's session.
-
-## Selectors
-
-Every instance selector is a public id (`ws_…`, `pane_…`, `tab_…`, `term_…`), `caller`, `current`, or an exact name. `name:<value>` forces a name; it is required for names equal to `current` or `caller`, shaped like an id, or containing `_`. An ambiguous name fails with every candidate id. `caller` is the workspace, screen, pane, tab or terminal the command runs in (its terminal or agent chat, as `cmux identify` reports). Inside cmux, `current` means the caller's object too; it is the focused object only without a caller (a shell outside cmux) or under `--socket`/`--session`. Prefer `caller` in scripts: it fails instead of guessing. Ids are stable across app and daemon restarts. The old `window:N`, `workspace:N`, `pane:N` and `surface:N` refs are gone.
-
-## Running a command in a new terminal
-
-`cmux pane <sel> run -- <argv…>` opens a tab in that pane running the exact argv; `run shell '<script>'` passes a script to the shell. `--on-exit close|keep|shell` controls the tab after the process exits (`shell` drops it into a new shell), and `--cwd`/`--name` set its directory and title. `cmux workspace <sel> run` does the same in a workspace. The app action `cmux workspace new --command "…"` types the command into a new workspace's shell.
-
-## App actions
-
-Every action in the app's registry is also a verb: `cmux action list --noun workspace` lists them and `cmux action describe "<noun> <verb>"` shows arguments. Run one with `cmux <noun> <verb> [--target ID] [--<arg> VALUE]`, for example `cmux workspace set-color --target ws_… --color blue`. The daemon grammar is tried first; words it rejects run as an app action.
-
-## Showing your work to the person
-
-None of these moves the person's focus; `cmux docs search "show the user"` prints the same guide.
-
-```bash
-cmux agent open SESSION_ID [--group G]                # that agent session's chat, in a new workspace (in sidebar group G)
-cmux workspace ws_… status set build "tests passing"   # a status line on the workspace's sidebar row (--state, --ttl…)
-cmux workspace ws_… progress set 0.4 --label "3 of 8"
-cmux notify --title "Review ready" --body "PR #123"    # --desktop false: sidebar marker only
-cmux attention request --tab tab_… --reason "Confirm GitHub access"   # the person must act in this tab
-cmux attention clear --tab tab_…
-```
-
-When the person must do something in a specific tab (confirm, log in, approve, pick), mark that tab with `cmux attention request` (MCP `tab_update {tab, attention: "reason"}`). The tab and its workspace row show as needing them, without moving their focus. The mark clears when you clear it, when a browser tab goes to another page, or when the tab closes. In what you tell the person, name the workspace and the tab by their titles ("the GitHub tab in the coord-deputy workspace"), never by a `ws_…`, `tab_…` or `pane_…` id: they cannot see or search ids. When they ask to go there, `cmux tab tab_… focus` (MCP `tab_focus`) takes them to it.
-
-To run a prompt in a new agent chat on this Mac and read the reply, use one command, `cmux chat --prompt TEXT --wait --json`: it starts the chat as a tab in the app, waits until its turn ends (`--timeout`, default 900 s) and answers `reply` with the chat's `session_id`, `workspace_id` and `tab_id`. Go on with `cmux chat send SESSION_ID 'TEXT' --wait --json`; `cmux chat wait SESSION_ID` waits for a running turn and `cmux chat read SESSION_ID` reads the transcript. `--timeout` passing exits 3 (`chat.wait_timeout`, `details.answer.timed_out: true`); a permission prompt exits 2 (`chat.permission_waiting`).
-
-To run a prompt on a Cloud machine and read the reply, use one command, `cmux cloud start-chat --prompt TEXT --wait --json` (the [cmux-cloud-vm](../cmux-cloud-vm/SKILL.md) skill): it starts the chat on a new small machine (or `--name NAME`, `--target machine:vm-…`), opens it as a tab in the app and answers the reply with its `machine_id`, `session_id` and `tab_id`.
-
-A Cloud workspace chat takes everything the composer's Cloud start picks: `cmux chat --on cloud --harness claude|codex --model MODEL --effort low|medium|high|xhigh|max --mode MODE` with a folder (`--from-folder DIR`, a copy of a folder on this Mac; `--cwd DIR`, a folder on the machine) or No folder (`--no-folder`, a fresh folder of its own; also what no folder flag means), `--prompt TEXT --wait --json`. `cmux agents chat new --on cloud …` is the same start. The chat opens in its machine's workspace in the sidebar; `--effort` and `--mode` are set on it before its first prompt, and one the harness refuses fails the start with `chat.settings_refused` (nothing sent).
-
-To start another agent on a task and show it, use one command, `cmux agent new -n NAME --worktree REPO@BASE --prompt-file BRIEF.md --report-to ME --group G -d` (the `acpmux` skill): it makes the worktree, starts the session, sends the brief and opens its chat in group G; running it again changes nothing.
-
-To give a new chat on this Mac files (a screenshot, a log), add `--attach FILE` once per file to `cmux chat TEXT` or `cmux agents chat new -- TEXT` (MCP `agents_chat_new` with `attachments`, absolute paths): the first prompt carries them as `cmux agent send --attach` does, any type and size. A missing or unreadable file starts nothing (`attach.not_found`, `attach.not_a_file`, `attach.unreadable`). A message to a running chat (`cmux agents chat send`) carries text only and refuses `--attach` (`chat.attach_send_unsupported`); a Cloud chat refuses it too.
-
-To open a link, the MCP tool `workspace_open_url` loads it on the workspace's right side, but it navigates a browser tab already there; `cmux browser profile open URL --profile default --background true` (MCP `browser_profile_open` with `activate: false`) adds a tab and keeps the pane's selected tab. `tab focus`, `workspace focus`, `agents tab select` and `focus: true` do move the person's focus: use them only when asked. `current` is the workspace the person looks at, not yours: from a cmux terminal `status set` without a selector targets that terminal's workspace, but an agent chat has no terminal, so name the workspace (`$CMUX_WORKSPACE_ID` when set).
-
-## Messaging a Chief or a person
-
-Any coding agent (Claude Code, Codex, OpenCode, pi, an cmux agent session) can message the person's Chief, another Chief, or a person or group chat in Home. Use `cmux chat`, or the MCP tools `chat_send`, `chat_read` and `chat_list` (same arguments):
-
-```bash
-cmux chat list                                              # the Chief chats: Chief, Codex Chief, Muse Chief…
-cmux chat send --to chief --text "a12 is blocked on CI" --class blocker
-cmux chat send --to codex --text "Is PR 33023 safe to land?" --wait --timeout 600 --json   # waits for that Chief's reply
-cmux chat send --to "Leo" --text "The build is green"       # a person or a group chat, by its Home name
-cmux chat read --to chief --last 10 --json
-cmux chat wait --to chief --from chief --timeout 300        # the Chief's next message
-```
-
-`--to chief` is the person's own Chief; a Chief's name (`codex` is "Codex Chief") or id is that Chief; any other name is a person or a group chat. Your message is always yours, never the person's: the chat shows `[from NAME]`, where NAME is your cmux agent session, else `HARNESS-SESSION@HOST` (for example `claude-3fa9c1d2@mini-7`), or `--as NAME`. A Chief reads it as an agent's words, so it will not run local actions on it the way it would for the person. `--wait` prints a Chief's reply when its turn ends; a person's reply arrives in Home, and an cmux agent session also gets a Chief's reply back as an acpmux message. `--class` says what you ask (`question`, `block`, `blocker`, `action`, `result`, `fyi`).
-
-From another machine (a fleet Mac, a cloud VM), the Chief is the agent session `chief` on the person's Mac: `cmux agent send HOST/chief "…" --class question --wait` (or the acpmux MCP `send` tool) reaches it over the peer link, as your session, and its reply comes back to your session.
-
-## Asking the person
-
-The person allows tools through the chat's mode and the harness's own permission prompts, never through your questions. A chat in Full access (Claude Code `bypassPermissions`, Codex full access) has already allowed every tool call its harness would ask about. Never ask them to allow, confirm or approve a step, with AskUserQuestion or in text ("allow this?", "should I go ahead?"): decide, say why in one line, and go on. Deciding never widens the task: a step a cmux skill keeps for the person's own request (importing a browser's cookies, deleting their data) waits for that request, and a cmux consent card (computer use setup) is theirs to answer; leave such a step out and say so. Ask only about product taste you cannot settle from the request or the code (how something should look, read or behave), and ask it as that choice, never as a permission. The cmux MCP server's instructions say the same (`acpmux::agent_tools::ASKING_RULE`).
-
-## Screenshots of the app
-
-Agents without Screen Recording permission can still see cmux: these verbs write a PNG of cmux's own windows. They never focus, raise or activate anything, and they work while the window is in the background or covered.
-
-```bash
-cmux window screenshot --out window.png                 # the focused window
-cmux window screenshot --target win_… --out -           # PNG inline as base64
-cmux pane screenshot --target pane_… --out pane.png
-cmux tab screenshot --target tab_… --out tab.png
-```
-
-The reply's `result` holds `path` (or `png_base64` for `--out -`; a PNG over 4 MiB still goes to a file), `width` and `height` in pixels, `scale` (pixels per point), `method` (`window`) and `masked`, how many areas the image covers. Without `--out` the PNG goes to the temporary directory. A pane or terminal tab that no window shows, or a minimized window, fails with `screenshot.unavailable` and the reason; read a terminal's text with `cmux terminal <id> screen read` instead.
-
-Your image comes back masked: every area that can show a browser page, a chat or an unchecked app page is filled opaque mid gray, and menus and floating panels are left out. That is every browser pane whole, its toolbar and tab strip included, every web view cmux does not own (a sidebar app, a link preview), every agent chat and Home conversation, and every app page except Keybindings, Changelog, Apps, Diff, Markdown, Editor, Files, the icon picker and Debug Settings. Only the browser REPL can hide the secrets a page shows, and only `cmux agents chat read` can hide them in a chat. A pane or tab showing a browser is captured with its page masked, not refused; a browser tab that no window shows is refused, because off screen it is all page. A window that keeps animating or resizing, or a mask that cannot be painted, fails with the reason rather than returning unmasked pixels. Screenshot a page with `browser_repl_eval` and `page.screenshot()` ([cmux-browser](../cmux-browser/SKILL.md)). A person's palette or menu run captures everything and also copies the image.
+`new-workspace`, `new-split`, `new-pane`, and `new-surface` accept `--command <text>`. cmux starts the terminal's normal interactive shell and delivers the text plus one Enter at spawn time, so the command runs immediately and the shell stays alive after it exits. No follow-up `send` or `send-key enter` is needed, and the text is passed literally (quoting, `&&`, pipes, and `$VARS` are interpreted by the new shell). The flag is terminal-only: it is rejected with `--type browser|simulator|agent-session`, blank text is ignored, and `new-workspace --layout` ignores it because layout surfaces define their own commands. Details: [references/panes-surfaces.md](references/panes-surfaces.md).
 
 ## Settings
 
-cmux-next settings live in `~/.config/cmux/cmux-next.json`. With the app running, `cmux settings get [PATH]`, `cmux settings set PATH VALUE` and `cmux settings reset PATH` read and write it; `cmux settings validate` checks it without the app. Keys come from `schemas/settings/settings-schema.json`, not classic `cmux.json`; see [cmux-settings](../cmux-settings/SKILL.md) before editing.
+cmux-owned settings live in `~/.config/cmux/cmux.json`. `cmux docs settings` prints the docs URL, schema URL, raw GitHub resources, cmux.json paths, and reload command. `cmux settings`, `cmux settings cmux-json`, and `cmux settings shortcuts` open the UI.
 
-Terminal rendering (cursor style, scrollback) belongs in Ghostty config; font family, font size and theme default to Ghostty config and can be overridden in cmux settings.
+`cmux reload-config` reloads both `cmux.json` and `~/.config/ghostty/config`, refreshing terminals in place with no app restart.
+
+Terminal rendering (font, cursor style, theme, scrollback, `background-opacity`, `background-blur`) belongs in Ghostty config, not cmux settings. Everything else (app behavior, sidebar, notifications, browser behavior, automation, workspace colors, cmux-owned shortcuts) is cmux settings. Before editing, copy any existing `cmux.json` to a timestamped `.bak` next to it. Legacy `~/.config/cmux/settings.json` and `~/Library/Application Support/com.cmuxterm.app/settings.json` are read only as fallback for missing keys.
+
+For a completed download, the CLI can inspect the bounded history owned by the
+target browser surface without consuming a waiter:
+
+```bash
+cmux browser --surface <surface> download list
+cmux browser --surface <surface> download list --limit 5 --json
+```
+
+Use the browser skill for the full response fields and wait/path compatibility
+details.
 
 ## Deep-dive references
 
 | Reference | When to Use |
 |-----------|-------------|
-| [references/handles-and-identify.md](references/handles-and-identify.md) | Selectors, ids, and finding the caller |
-| [references/windows-workspaces.md](references/windows-workspaces.md) | Window and workspace lifecycle, order, and context-menu actions |
-| [references/panes-surfaces.md](references/panes-surfaces.md) | Splits, tabs, moves, focus |
-| [references/trigger-flash-and-health.md](references/trigger-flash-and-health.md) | Flash cue; surface health was removed |
-| [references/automations.md](references/automations.md) | Automations: `--when pr-opened\|agent-idle` events, timers, `--if` conditions, `--watch` triggers, `test` before you say it works |
+| [references/handles-and-identify.md](references/handles-and-identify.md) | Handle syntax, self-identify, caller targeting |
+| [references/windows-workspaces.md](references/windows-workspaces.md) | Window/workspace lifecycle, reorder/move, and context-menu actions (color, description, rename) |
+| [references/panes-surfaces.md](references/panes-surfaces.md) | Splits, surfaces, move/reorder, focus routing |
+| [references/trigger-flash-and-health.md](references/trigger-flash-and-health.md) | Flash cue and surface health checks |
 | [../cmux-workspace/SKILL.md](../cmux-workspace/SKILL.md) | Current caller workspace rules and non-disruptive automation |
-| [../cmux-settings/SKILL.md](../cmux-settings/SKILL.md) | Safe settings edits |
-| [../cmux-browser/SKILL.md](../cmux-browser/SKILL.md) | Browser tabs |
+| [../cmux-settings/SKILL.md](../cmux-settings/SKILL.md) | Safe cmux.json settings edits and validation |
+| [../cmux-browser/SKILL.md](../cmux-browser/SKILL.md) | Browser automation on surface-backed webviews |
+| [../cmux-markdown/SKILL.md](../cmux-markdown/SKILL.md) | Markdown viewer panel with live file watching |
+| [../cmux-capture/SKILL.md](../cmux-capture/SKILL.md) | Screenshots and clips of a cmux window for evidence |

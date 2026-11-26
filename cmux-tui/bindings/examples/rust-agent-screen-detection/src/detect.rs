@@ -51,27 +51,9 @@ pub(crate) const QUIESCENCE_DEBOUNCE_MS: u64 = 300;
 /// phase it exists to report.
 pub(crate) const MAX_EVAL_INTERVAL_MS: u64 = 1_000;
 
-/// How long after a terminal size change its output is the agent's redraw
-/// (SIGWINCH), not a working signal (W5-Q, bench round 4 screen #8).
-pub(crate) const RESIZE_REDRAW_GRACE_MS: u64 = 1_000;
-
 /// Recent PTY output is a working signal for a screen source. It upgrades an
 /// otherwise idle screen and expires through one deterministic re-evaluation.
-/// A read of the agent's own idle prompt (`visible_idle`) is held only
-/// through [`QUIESCENCE_DEBOUNCE_MS`]: the prompt with no spinner is positive
-/// evidence, so an interrupted turn shows idle within a second of its last
-/// redraw (manaflow-ai/cmux#36529), not 1.5 s after it. A working agent's
-/// spinner redraws far more often than that. On that prompt the output only
-/// holds a state: it does not start work for an agent that reads idle
-/// ([`ScreenDetectTracker::apply_output_activity`]).
 pub(crate) const WORKING_ACTIVITY_WINDOW_MS: u64 = 1_500;
-
-/// Whether output last seen at `at` still counts as activity at `now`, for an
-/// idle read that did (`visible_idle`) or did not match the agent's prompt.
-fn output_within(at: Instant, now: Instant, visible_idle: bool) -> bool {
-    let age = now.duration_since(at).as_millis() as u64;
-    if visible_idle { age < QUIESCENCE_DEBOUNCE_MS } else { age <= WORKING_ACTIVITY_WINDOW_MS }
-}
 
 /// Herdr confirms a plain idle screen several times before replacing a
 /// working state. This avoids a single redraw frame making a live turn look
@@ -255,16 +237,9 @@ struct TrackedTerminal {
     /// When output last advanced the revision. The first observation only
     /// anchors the tracker and is not treated as fresh activity.
     last_output_at: Option<Instant>,
-    /// Terminal size `(cols, rows)` at the last [`ScreenDetectTracker::observe_size`].
-    size: Option<(u16, u16)>,
-    /// When the size last changed: output until [`RESIZE_REDRAW_GRACE_MS`]
-    /// after it is the agent's redraw, no working signal.
-    resized_at: Option<Instant>,
     /// The last evaluation used output activity to upgrade idle to working.
     /// This creates one expiry re-evaluation even when the screen is unchanged.
     evaluated_with_activity: bool,
-    /// That upgraded read was the agent's own idle prompt ([`output_within`]).
-    activity_on_visible_idle: bool,
     /// Agent the foreground process matched on the previous scan; identity
     /// edges trigger immediate evaluation, before any quiescence.
     foreground_agent: Option<String>,
@@ -311,18 +286,6 @@ pub struct ScreenDetectTracker {
 }
 
 impl ScreenDetectTracker {
-    /// Record the terminal's current size. A change (a pane move, a split,
-    /// a window resize) makes the agent redraw its whole screen; output
-    /// within [`RESIZE_REDRAW_GRACE_MS`] after it does not read as working.
-    /// The first size only anchors the terminal.
-    pub fn observe_size(&mut self, terminal_id: &str, cols: u16, rows: u16, now: Instant) {
-        let entry = self.terminals.entry(terminal_id.to_string()).or_default();
-        if entry.size.is_some_and(|size| size != (cols, rows)) {
-            entry.resized_at = Some(now);
-        }
-        entry.size = Some((cols, rows));
-    }
-
     /// Record the terminal's current output revision. Returns `true` when
     /// the screen changed since the last evaluation and either output has
     /// been quiet for the debounce window or the max-interval pacer is due
@@ -337,17 +300,11 @@ impl ScreenDetectTracker {
         } else if entry.revision != revision {
             entry.revision = revision;
             entry.quiet_since = Some(now);
-            // A redraw that answers a size change is no output of work.
-            let redraw = entry.resized_at.is_some_and(|at| {
-                now.saturating_duration_since(at).as_millis() as u64 <= RESIZE_REDRAW_GRACE_MS
-            });
-            if !redraw {
-                entry.last_output_at = Some(now);
-            }
+            entry.last_output_at = Some(now);
         }
-        let output_active = entry
-            .last_output_at
-            .is_some_and(|at| output_within(at, now, entry.activity_on_visible_idle));
+        let output_active = entry.last_output_at.is_some_and(|at| {
+            now.duration_since(at).as_millis() as u64 <= WORKING_ACTIVITY_WINDOW_MS
+        });
         let activity_expired = entry.evaluated_with_activity && !output_active;
         let pending_idle_due = entry.pending_idle.active()
             && entry.last_evaluated_at.is_none_or(|at| {
@@ -392,20 +349,15 @@ impl ScreenDetectTracker {
         {
             deadlines.push(now + Duration::from_millis(PENDING_IDLE_RECHECK_MS));
         }
-        if entry.evaluated_revision != Some(entry.revision)
-            && let Some(quiet) = entry.quiet_since
-        {
-            deadlines.push(quiet + Duration::from_millis(QUIESCENCE_DEBOUNCE_MS));
+        if entry.evaluated_revision != Some(entry.revision) {
+            if let Some(quiet) = entry.quiet_since {
+                deadlines.push(quiet + Duration::from_millis(QUIESCENCE_DEBOUNCE_MS));
+            }
         }
-        if entry.evaluated_with_activity
-            && let Some(output) = entry.last_output_at
-        {
-            let window = if entry.activity_on_visible_idle {
-                QUIESCENCE_DEBOUNCE_MS
-            } else {
-                WORKING_ACTIVITY_WINDOW_MS + 1
-            };
-            deadlines.push(output + Duration::from_millis(window));
+        if entry.evaluated_with_activity {
+            if let Some(output) = entry.last_output_at {
+                deadlines.push(output + Duration::from_millis(WORKING_ACTIVITY_WINDOW_MS + 1));
+            }
         }
         if entry.pending_idle.active() {
             deadlines.push(now + Duration::from_millis(PENDING_IDLE_RECHECK_MS));
@@ -413,45 +365,19 @@ impl ScreenDetectTracker {
         deadlines.into_iter().min().map(|deadline| deadline.max(now))
     }
 
-    /// Flowing PTY output is a working signal for the screen source: an idle
-    /// read of `terminal_id` taken while output is recent
-    /// ([`WORKING_ACTIVITY_WINDOW_MS`]) becomes working, and the tracker then
-    /// owes one expiry re-evaluation. Hooks still win in the core roster
-    /// reducer.
-    ///
-    /// A read of the agent's own idle prompt (`visible_idle`) is a fact of
-    /// the screen, so output on it does not start work: when the last
-    /// reported state is idle, or there is none, the read stays idle. One
-    /// redraw of a prompt at rest (a clock in a status line, a notice) is
-    /// then no `working` report and no `idle` report after it. After a
-    /// working or blocked report the output still holds the read, because a
-    /// read can land between two parts of a redraw and see the prompt with
-    /// no spinner.
-    ///
-    /// One exception: a read whose matched idle rule has no working rule of
-    /// its manifest above it ([`Detection::idle_above_working`]). A working
-    /// rule can win on that prompt only at a tie of priorities, so output is
-    /// the fact of work there and still starts it.
-    pub fn apply_output_activity(
-        &mut self,
-        terminal_id: &str,
-        detection: &mut Detection,
-        now: Instant,
-    ) {
-        if detection.skip_state_update || detection.state != ScreenState::Idle {
-            return;
+    /// Mark that the last screen evaluation used flowing PTY output to
+    /// upgrade an idle state. The tracker then owes an expiry evaluation.
+    pub(crate) fn note_activity_upgrade(&mut self, terminal_id: &str) {
+        if let Some(entry) = self.terminals.get_mut(terminal_id) {
+            entry.evaluated_with_activity = true;
         }
-        let Some(entry) = self.terminals.get_mut(terminal_id) else { return };
-        if !entry.last_output_at.is_some_and(|at| output_within(at, now, detection.visible_idle)) {
-            return;
-        }
-        let at_rest = entry.emitted.as_ref().is_none_or(|(_, state)| *state == AgentState::Idle);
-        if detection.visible_idle && at_rest && !detection.idle_above_working {
-            return;
-        }
-        detection.state = ScreenState::Working;
-        entry.evaluated_with_activity = true;
-        entry.activity_on_visible_idle = detection.visible_idle;
+    }
+
+    /// True while PTY output has advanced within the activity window.
+    pub(crate) fn output_active(&self, terminal_id: &str, now: Instant) -> bool {
+        self.terminals.get(terminal_id).and_then(|entry| entry.last_output_at).is_some_and(|at| {
+            now.duration_since(at).as_millis() as u64 <= WORKING_ACTIVITY_WINDOW_MS
+        })
     }
 
     /// Return whether generic OSC metadata may be attributed to the current
@@ -471,11 +397,6 @@ impl ScreenDetectTracker {
         // have emitted its OSC title or progress before the process probe
         // caught up, so do not discard that evidence on the first edge.
         entry.osc_metadata_state.is_fresh(stream_revision)
-    }
-
-    /// The tracker holds an entry for `terminal_id`.
-    pub(crate) fn tracks(&self, terminal_id: &str) -> bool {
-        self.terminals.contains_key(terminal_id)
     }
 
     /// True when this terminal previously journaled a screen-derived state
@@ -910,5 +831,717 @@ impl ScreenDetectTracker {
     /// from the roster by the terminal lifecycle, not by an exit emission.
     pub fn retain_terminals(&mut self, live: impl Fn(&str) -> bool) {
         self.terminals.retain(|terminal_id, _| live(terminal_id));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::{HashSet, hash_map::DefaultHasher};
+    use std::hash::BuildHasher;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    #[derive(Clone)]
+    struct CountingBuildHasher {
+        builds: Arc<AtomicUsize>,
+    }
+
+    impl BuildHasher for CountingBuildHasher {
+        type Hasher = DefaultHasher;
+
+        fn build_hasher(&self) -> Self::Hasher {
+            self.builds.fetch_add(1, Ordering::Relaxed);
+            DefaultHasher::new()
+        }
+    }
+
+    fn detection(state: ScreenState) -> Detection {
+        Detection {
+            state,
+            skip_state_update: false,
+            matched_rule: Some("rule".into()),
+            visible_idle: false,
+            visible_blocker: false,
+            visible_working: false,
+        }
+    }
+
+    #[test]
+    fn screen_detect_tracker_debounces_quiescence_per_revision() {
+        let mut tracker = ScreenDetectTracker::default();
+        let t0 = Instant::now();
+        let at = |milliseconds: u64| t0 + Duration::from_millis(milliseconds);
+
+        // A never-evaluated terminal evaluates on first sight.
+        assert!(tracker.observe_revision("term_a", 1, t0));
+        tracker.record_detection("term_a", Some(("codex", detection(ScreenState::Idle))));
+        // An unchanged screen never re-evaluates.
+        assert!(!tracker.observe_revision("term_a", 1, at(400)));
+
+        // New output re-arms the debounce; inside the window with a recent
+        // evaluation nothing fires.
+        assert!(!tracker.observe_revision("term_a", 2, at(500)));
+        assert!(!tracker.observe_revision("term_a", 2, at(700)));
+        // Quiet long enough: evaluate exactly once per revision.
+        assert!(tracker.observe_revision("term_a", 2, at(900)));
+        tracker.record_detection("term_a", Some(("codex", detection(ScreenState::Idle))));
+        assert!(!tracker.observe_revision("term_a", 2, at(1_100)));
+    }
+
+    #[test]
+    fn screen_detect_activity_expires_with_one_recheck() {
+        let mut tracker = ScreenDetectTracker::default();
+        let t0 = Instant::now();
+        let at = |milliseconds: u64| t0 + Duration::from_millis(milliseconds);
+
+        assert!(tracker.observe_revision("term_a", 1, t0));
+        tracker.record_detection("term_a", Some(("codex", detection(ScreenState::Idle))));
+        assert!(!tracker.observe_revision("term_a", 2, at(400)));
+        assert!(tracker.observe_revision("term_a", 2, at(800)));
+        assert!(tracker.output_active("term_a", at(800)));
+        tracker.record_detection("term_a", Some(("codex", detection(ScreenState::Working))));
+        tracker.note_activity_upgrade("term_a");
+
+        assert!(!tracker.observe_revision("term_a", 2, at(1_200)));
+        assert!(tracker.observe_revision("term_a", 2, at(2_301)));
+        assert!(!tracker.output_active("term_a", at(2_301)));
+        tracker.record_detection("term_a", Some(("codex", detection(ScreenState::Idle))));
+        assert!(!tracker.observe_revision("term_a", 2, at(2_400)));
+    }
+
+    #[test]
+    fn screen_detect_tracker_paces_evaluation_of_never_quiet_spinner_screens() {
+        let mut tracker = ScreenDetectTracker::default();
+        let t0 = Instant::now();
+        let at = |milliseconds: u64| t0 + Duration::from_millis(milliseconds);
+
+        assert!(tracker.observe_revision("term_a", 1, t0));
+        tracker.record_detection("term_a", Some(("codex", detection(ScreenState::Idle))));
+
+        // A working spinner redraws every ~100ms, so the screen never goes
+        // quiet for the debounce window. The pacer still evaluates at 1Hz;
+        // without it a working codex would stay idle forever.
+        let mut evaluations = 0;
+        for tick in 1..=25u64 {
+            if tracker.observe_revision("term_a", 1 + tick, at(tick * 100)) {
+                evaluations += 1;
+                tracker
+                    .record_detection("term_a", Some(("codex", detection(ScreenState::Working))));
+            }
+        }
+        assert_eq!(evaluations, 2, "1Hz pacer under 2.5s of continuous output");
+        assert!(tracker.has_live_emission("term_a"));
+    }
+
+    #[test]
+    fn screen_detect_tracker_emits_only_state_edges() {
+        let mut tracker = ScreenDetectTracker::default();
+
+        let first =
+            tracker.record_detection("term_a", Some(("codex", detection(ScreenState::Working))));
+        assert_eq!(
+            first,
+            Some(ScreenDetectEmission {
+                terminal_id: "term_a".into(),
+                agent: "codex".into(),
+                state: AgentState::Working,
+                matched_rule: Some("rule".into()),
+                visible_idle: false,
+                visible_blocker: false,
+                visible_working: false,
+            })
+        );
+        // Same state again: no event (edge-triggered, never per-scan).
+        let repeat =
+            tracker.record_detection("term_a", Some(("codex", detection(ScreenState::Working))));
+        assert_eq!(repeat, None);
+        // Transition to blocked emits.
+        let blocked =
+            tracker.record_detection("term_a", Some(("codex", detection(ScreenState::Blocked))));
+        assert_eq!(blocked.map(|emission| emission.state), Some(AgentState::Blocked));
+    }
+
+    #[test]
+    fn failed_journal_admission_rolls_back_an_edge_for_retry() {
+        let mut tracker = ScreenDetectTracker::default();
+
+        let first = tracker
+            .record_detection("term_a", Some(("codex", detection(ScreenState::Working))))
+            .expect("first edge");
+        tracker.commit_emission(&first);
+
+        let blocked = tracker
+            .record_detection("term_a", Some(("codex", detection(ScreenState::Blocked))))
+            .expect("blocked edge");
+        tracker.rollback_emission(&blocked);
+
+        let retry = tracker
+            .record_detection("term_a", Some(("codex", detection(ScreenState::Blocked))))
+            .expect("a rejected edge must be retried");
+        assert_eq!(retry.state, AgentState::Blocked);
+        assert_eq!(retry.agent, "codex");
+    }
+
+    #[test]
+    fn replayed_edge_commits_the_post_state_after_rollback() {
+        let mut tracker = ScreenDetectTracker::default();
+        let working = tracker
+            .record_detection("term_a", Some(("codex", detection(ScreenState::Working))))
+            .expect("working edge");
+        tracker.commit_emission(&working);
+
+        let blocked = tracker
+            .record_detection("term_a", Some(("codex", detection(ScreenState::Blocked))))
+            .expect("blocked edge");
+        tracker.rollback_emission(&blocked);
+        tracker.commit_emission(&blocked);
+
+        assert_eq!(
+            tracker.record_detection("term_a", Some(("codex", detection(ScreenState::Blocked)))),
+            None,
+            "a successful replay must commit the edge exactly once",
+        );
+    }
+
+    #[test]
+    fn committed_edges_ignore_a_late_rollback() {
+        let mut tracker = ScreenDetectTracker::default();
+        let working = tracker
+            .record_detection("term_a", Some(("codex", detection(ScreenState::Working))))
+            .expect("working edge");
+        tracker.commit_emission(&working);
+        tracker.rollback_emission(&working);
+
+        assert_eq!(
+            tracker.record_detection("term_a", Some(("codex", detection(ScreenState::Working)))),
+            None,
+            "a committed edge must not be undone by a late failure callback",
+        );
+    }
+
+    #[test]
+    fn screen_detect_tracker_confirms_plain_idle_before_downgrading_working() {
+        let mut tracker = ScreenDetectTracker::default();
+        let t0 = Instant::now();
+        let at = |milliseconds: u64| t0 + Duration::from_millis(milliseconds);
+        tracker.record_detection_at(
+            "term_a",
+            Some(("codex", detection(ScreenState::Working))),
+            t0,
+            false,
+            false,
+        );
+
+        // Three 100 ms rechecks are held. The fourth confirms idle.
+        assert!(
+            tracker
+                .record_detection_at(
+                    "term_a",
+                    Some(("codex", detection(ScreenState::Idle))),
+                    at(0),
+                    false,
+                    false,
+                )
+                .is_none()
+        );
+        assert!(
+            tracker
+                .record_detection_at(
+                    "term_a",
+                    Some(("codex", detection(ScreenState::Idle))),
+                    at(PENDING_IDLE_RECHECK_MS),
+                    false,
+                    false,
+                )
+                .is_none()
+        );
+        assert!(
+            tracker
+                .record_detection_at(
+                    "term_a",
+                    Some(("codex", detection(ScreenState::Idle))),
+                    at(PENDING_IDLE_RECHECK_MS * 2),
+                    false,
+                    false,
+                )
+                .is_none()
+        );
+        assert_eq!(
+            tracker
+                .record_detection_at(
+                    "term_a",
+                    Some(("codex", detection(ScreenState::Idle))),
+                    at(PENDING_IDLE_RECHECK_MS * 3),
+                    false,
+                    false,
+                )
+                .map(|emission| emission.state),
+            Some(AgentState::Idle)
+        );
+    }
+
+    #[test]
+    fn screen_detect_tracker_refreshes_a_stable_visible_blocker() {
+        let mut tracker = ScreenDetectTracker::default();
+        let t0 = Instant::now();
+        let blocked = Detection {
+            state: ScreenState::Blocked,
+            skip_state_update: false,
+            matched_rule: Some("confirm".into()),
+            visible_idle: false,
+            visible_blocker: true,
+            visible_working: false,
+        };
+        assert!(
+            tracker
+                .record_detection_at("term_a", Some(("codex", blocked.clone())), t0, false, false)
+                .is_some()
+        );
+        assert!(
+            tracker
+                .record_detection_at(
+                    "term_a",
+                    Some(("codex", blocked.clone())),
+                    t0 + Duration::from_millis(STABLE_BLOCKER_REFRESH_MS - 1),
+                    false,
+                    false,
+                )
+                .is_none()
+        );
+        assert!(
+            tracker
+                .record_detection_at(
+                    "term_a",
+                    Some(("codex", blocked)),
+                    t0 + Duration::from_millis(STABLE_BLOCKER_REFRESH_MS),
+                    false,
+                    false,
+                )
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn screen_detect_tracker_closes_departed_agents_with_done() {
+        let mut tracker = ScreenDetectTracker::default();
+        assert!(
+            tracker.record_detection("term_a", None).is_none(),
+            "a terminal that never emitted stays silent"
+        );
+
+        tracker.record_detection("term_a", Some(("codex", detection(ScreenState::Working))));
+        assert!(tracker.has_live_emission("term_a"));
+        let done = tracker.record_detection("term_a", None);
+        assert_eq!(
+            done,
+            Some(ScreenDetectEmission {
+                terminal_id: "term_a".into(),
+                agent: "codex".into(),
+                state: AgentState::Done,
+                matched_rule: None,
+                visible_idle: false,
+                visible_blocker: false,
+                visible_working: false,
+            })
+        );
+        assert!(!tracker.has_live_emission("term_a"));
+        assert_eq!(tracker.record_detection("term_a", None), None, "done is an edge too");
+    }
+
+    #[test]
+    fn screen_detect_tracker_keeps_prior_state_for_viewers_and_unknowns() {
+        let mut tracker = ScreenDetectTracker::default();
+        tracker.record_detection("term_a", Some(("codex", detection(ScreenState::Working))));
+
+        let viewer = Detection {
+            state: ScreenState::Unknown,
+            skip_state_update: true,
+            matched_rule: Some("transcript_viewer".into()),
+            visible_idle: false,
+            visible_blocker: false,
+            visible_working: false,
+        };
+        assert_eq!(tracker.record_detection("term_a", Some(("codex", viewer))), None);
+
+        let unknown = detection(ScreenState::Unknown);
+        assert_eq!(tracker.record_detection("term_a", Some(("codex", unknown))), None);
+        assert!(tracker.has_live_emission("term_a"), "working emission still owns the terminal");
+    }
+
+    #[test]
+    fn screen_detect_tracker_flags_identity_edges_for_immediate_evaluation() {
+        let mut tracker = ScreenDetectTracker::default();
+        // Shell pane: no agent means no edge, first scan included.
+        assert!(!tracker.note_foreground_agent("term_a", None));
+        assert!(!tracker.note_foreground_agent("term_a", None));
+        // codex launches: edge fires once, then the identity is steady.
+        assert!(tracker.note_foreground_agent("term_a", Some("codex")));
+        assert!(!tracker.note_foreground_agent("term_a", Some("codex")));
+        // Swapping agents in place is an edge, and so is exiting.
+        assert!(tracker.note_foreground_agent("term_a", Some("claude")));
+        for attempt in 1..AGENT_MISS_CONFIRMATION_ATTEMPTS {
+            assert!(
+                !tracker.note_foreground_agent("term_a", None),
+                "miss {attempt} must stay inside the confirmation window"
+            );
+            assert_eq!(tracker.foreground_agent("term_a"), Some("claude"));
+        }
+        assert!(tracker.note_foreground_agent("term_a", None));
+        assert_eq!(tracker.foreground_agent("term_a"), None);
+    }
+
+    #[test]
+    fn identity_edge_retries_a_failed_screen_read_without_new_output() {
+        let mut tracker = ScreenDetectTracker::default();
+        let t0 = Instant::now();
+        let at = |milliseconds: u64| t0 + Duration::from_millis(milliseconds);
+
+        // Establish a previously evaluated screen for one foreground agent.
+        assert!(tracker.note_foreground_agent_at("term_a", Some("claude"), t0));
+        assert!(tracker.observe_revision("term_a", 1, t0));
+        tracker.record_detection_at(
+            "term_a",
+            Some(("claude", detection(ScreenState::Working))),
+            t0,
+            false,
+            false,
+        );
+
+        // The process changes, but the first read after the edge is assumed
+        // to fail. The retry must still be armed by the identity edge.
+        assert!(tracker.note_foreground_agent_at("term_a", Some("codex"), at(100)));
+        assert!(
+            tracker.observe_revision("term_a", 1, at(QUIESCENCE_DEBOUNCE_MS)),
+            "an identity edge must invalidate the old evaluated revision"
+        );
+    }
+
+    #[test]
+    fn screen_detect_tracker_resets_identity_misses_on_a_positive_probe() {
+        let mut tracker = ScreenDetectTracker::default();
+        assert!(tracker.note_foreground_agent("term_a", Some("codex")));
+        for _ in 0..AGENT_MISS_CONFIRMATION_ATTEMPTS - 1 {
+            assert!(!tracker.note_foreground_agent("term_a", None));
+        }
+        // A successful process probe prevents the previous misses from
+        // carrying into the next disappearance window.
+        assert!(!tracker.note_foreground_agent("term_a", Some("codex")));
+        for _ in 0..AGENT_MISS_CONFIRMATION_ATTEMPTS - 1 {
+            assert!(!tracker.note_foreground_agent("term_a", None));
+        }
+        assert!(tracker.note_foreground_agent("term_a", None));
+    }
+
+    #[test]
+    fn screen_detect_tracker_process_exit_clears_identity_even_without_a_done_row() {
+        let mut tracker = ScreenDetectTracker::default();
+        let t0 = Instant::now();
+        assert!(tracker.note_foreground_agent_at("term_a", Some("codex"), t0));
+        assert!(tracker.record_detection_at("term_a", None, t0, true, true).is_none());
+        assert_eq!(tracker.foreground_agent("term_a"), None);
+        assert!(!tracker.startup_grace_active("term_a", t0 + Duration::from_secs(4)));
+    }
+
+    #[test]
+    fn screen_detect_tracker_graces_new_identity_before_reading_the_screen() {
+        let mut tracker = ScreenDetectTracker::default();
+        let t0 = Instant::now();
+        let at = |milliseconds: u64| t0 + Duration::from_millis(milliseconds);
+
+        assert!(tracker.observe_revision("term_a", 1, t0));
+        tracker.record_detection("term_a", Some(("codex", detection(ScreenState::Working))));
+        assert!(!tracker.observe_revision("term_a", 2, at(100)));
+        assert!(tracker.output_active("term_a", at(100)));
+        assert!(tracker.note_foreground_agent_at("term_a", Some("codex"), t0));
+        assert!(!tracker.output_active("term_a", at(100)));
+        assert!(tracker.startup_grace_active("term_a", at(AGENT_STARTUP_GRACE_MS - 1)));
+        assert!(!tracker.startup_grace_active("term_a", at(AGENT_STARTUP_GRACE_MS)));
+
+        // Presence is published without screen evidence. The scanner's grace
+        // check prevents a stale shell prompt from reaching record_detection.
+        assert_eq!(
+            tracker
+                .record_identity_presence_at("term_a", "codex", t0)
+                .map(|emission| emission.state),
+            Some(AgentState::Idle)
+        );
+        assert!(!tracker.needs_identity_presence("term_a", "codex"));
+        tracker.rollback_emission(&ScreenDetectEmission {
+            terminal_id: "term_a".into(),
+            agent: "codex".into(),
+            state: AgentState::Idle,
+            matched_rule: None,
+            visible_idle: false,
+            visible_blocker: false,
+            visible_working: false,
+        });
+        assert!(tracker.needs_identity_presence("term_a", "codex"));
+
+        // The scanner calls finish once the deadline passes. It clears the
+        // evaluated revision so an unchanged viewport is read exactly once.
+        assert!(tracker.finish_startup_grace("term_a", at(AGENT_STARTUP_GRACE_MS)));
+        assert!(!tracker.finish_startup_grace("term_a", at(AGENT_STARTUP_GRACE_MS + 1)));
+        assert!(!tracker.startup_grace_active("term_a", at(AGENT_STARTUP_GRACE_MS + 1)));
+    }
+
+    #[test]
+    fn screen_detect_tracker_restarts_grace_for_an_agent_swap() {
+        let mut tracker = ScreenDetectTracker::default();
+        let t0 = Instant::now();
+        let at = |milliseconds: u64| t0 + Duration::from_millis(milliseconds);
+
+        assert!(tracker.note_foreground_agent_at("term_a", Some("codex"), t0));
+        assert!(!tracker.note_foreground_agent_at("term_a", Some("codex"), at(500)));
+        assert!(tracker.note_foreground_agent_at("term_a", Some("claude"), at(700)));
+        assert!(tracker.startup_grace_active("term_a", at(700 + AGENT_STARTUP_GRACE_MS - 1)));
+        assert!(!tracker.startup_grace_active("term_a", at(700 + AGENT_STARTUP_GRACE_MS)));
+    }
+
+    #[test]
+    fn screen_detect_tracker_restarts_grace_for_same_agent_process_replacement() {
+        let mut tracker = ScreenDetectTracker::default();
+        let t0 = Instant::now();
+        let at = |milliseconds: u64| t0 + Duration::from_millis(milliseconds);
+
+        assert!(tracker.note_foreground_job_at("term_a", Some("codex"), Some(41), t0));
+        assert!(!tracker.note_foreground_job_at("term_a", Some("codex"), Some(41), at(500)));
+        assert!(tracker.note_foreground_job_at("term_a", Some("codex"), Some(42), at(700)));
+        assert!(tracker.startup_grace_active("term_a", at(700 + AGENT_STARTUP_GRACE_MS - 1)));
+        assert!(!tracker.startup_grace_active("term_a", at(700 + AGENT_STARTUP_GRACE_MS)));
+    }
+
+    #[test]
+    fn same_agent_process_replacement_republishes_idle_presence() {
+        let mut tracker = ScreenDetectTracker::default();
+        let t0 = Instant::now();
+
+        assert!(tracker.note_foreground_job_at("term_a", Some("codex"), Some(41), t0));
+        let first = tracker.record_identity_presence_at("term_a", "codex", t0).unwrap();
+        tracker.commit_emission(&first);
+        assert!(!tracker.needs_identity_presence("term_a", "codex"));
+
+        assert!(tracker.note_foreground_job_at(
+            "term_a",
+            Some("codex"),
+            Some(42),
+            t0 + Duration::from_millis(1),
+        ));
+        assert!(tracker.needs_identity_presence("term_a", "codex"));
+        let replacement = tracker
+            .record_identity_presence_at("term_a", "codex", t0 + Duration::from_millis(1))
+            .expect("replacement must emit presence even when state stays idle");
+        assert_eq!(replacement.agent, "codex");
+        assert_eq!(replacement.state, AgentState::Idle);
+    }
+
+    #[test]
+    fn screen_detect_tracker_keeps_first_acquisition_osc_evidence_and_fences_replacements() {
+        let mut tracker = ScreenDetectTracker::default();
+        let t0 = Instant::now();
+
+        assert!(tracker.note_foreground_job_at_with_revision(
+            "term_a",
+            Some("codex"),
+            None,
+            Some(41),
+            t0,
+        ));
+        // Herdr keeps evidence emitted before the first process probe. The
+        // userland equivalent does not require a revision on this edge.
+        assert!(tracker.metadata_is_fresh("term_a", Some(41)));
+        assert!(tracker.metadata_is_fresh("term_a", Some(40)));
+
+        // A replacement must not inherit the previous process's OSC fields.
+        assert!(tracker.note_foreground_job_at_with_revision(
+            "term_a",
+            Some("claude"),
+            None,
+            Some(41),
+            t0,
+        ));
+        assert!(!tracker.metadata_is_fresh("term_a", Some(41)));
+        assert!(!tracker.metadata_is_fresh("term_a", None));
+        assert!(tracker.metadata_is_fresh("term_a", Some(42)));
+
+        // A confirmed exit also leaves a fence. The host cannot clear its
+        // retained fields, so the next acquisition waits for new output.
+        for attempt in 0..AGENT_MISS_CONFIRMATION_ATTEMPTS {
+            let edge =
+                tracker.note_foreground_job_at_with_revision("term_a", None, None, Some(42), t0);
+            assert_eq!(edge, attempt + 1 == AGENT_MISS_CONFIRMATION_ATTEMPTS);
+        }
+        assert!(tracker.note_foreground_job_at_with_revision(
+            "term_a",
+            Some("codex"),
+            None,
+            Some(42),
+            t0,
+        ));
+        assert!(!tracker.metadata_is_fresh("term_a", Some(42)));
+        assert!(tracker.metadata_is_fresh("term_a", Some(43)));
+
+        // Once this terminal has supplied a generation anchor, a missing
+        // revision cannot prove that retained metadata belongs to the new
+        // process. Fail closed until the host reports a newer revision.
+        assert!(!tracker.metadata_is_fresh("term_a", None));
+
+        // If the catalog omitted the revision on a first acquisition, a later
+        // revision does not change the first-acquisition policy. The evidence
+        // may have been emitted before the process probe caught up.
+        assert!(tracker.note_foreground_job_at_with_revision(
+            "term_b",
+            Some("codex"),
+            None,
+            None,
+            t0,
+        ));
+        assert!(!tracker.note_foreground_job_at_with_revision(
+            "term_b",
+            Some("codex"),
+            None,
+            Some(41),
+            t0,
+        ));
+        assert!(tracker.metadata_is_fresh("term_b", Some(41)));
+        assert!(tracker.metadata_is_fresh("term_b", Some(42)));
+    }
+
+    #[test]
+    fn screen_detect_tracker_keeps_first_acquisition_without_revision_unfenced() {
+        let mut tracker = ScreenDetectTracker::default();
+        let t0 = Instant::now();
+
+        assert!(tracker.note_foreground_job_at_with_revision(
+            "term_a",
+            Some("codex"),
+            None,
+            None,
+            t0,
+        ));
+        assert!(tracker.metadata_is_fresh("term_a", None));
+
+        // Once a replacement is observed, a later revision enriches the
+        // identity and starts the fence even if the edge had no revision.
+        assert!(tracker.note_foreground_job_at_with_revision(
+            "term_a",
+            Some("claude"),
+            None,
+            None,
+            t0,
+        ));
+        assert!(!tracker.note_foreground_job_at_with_revision(
+            "term_a",
+            Some("claude"),
+            None,
+            Some(9),
+            t0,
+        ));
+        assert!(!tracker.metadata_is_fresh("term_a", Some(9)));
+        assert!(tracker.metadata_is_fresh("term_a", Some(10)));
+    }
+
+    #[test]
+    fn screen_detect_exit_does_not_use_local_scheduler_revision_as_osc_fence() {
+        let mut tracker = ScreenDetectTracker::default();
+        let t0 = Instant::now();
+
+        // A daemon without stream revisions still uses a local screen key to
+        // schedule reads. That key is not evidence about PTY generations.
+        assert!(tracker.observe_revision("term_a", 7, t0));
+        assert!(tracker.note_foreground_job_at_with_revision(
+            "term_a",
+            Some("codex"),
+            None,
+            None,
+            t0,
+        ));
+        let started = tracker
+            .record_detection_at(
+                "term_a",
+                Some(("codex", detection(ScreenState::Working))),
+                t0,
+                true,
+                false,
+            )
+            .expect("agent state edge");
+        tracker.commit_emission(&started);
+
+        // The exit has no host revision. The compatibility path must remain
+        // open; the local scheduler key must not become a durable fence.
+        let ended = tracker
+            .record_detection_at_with_revision("term_a", None, t0, true, true, None)
+            .expect("exit edge");
+        tracker.commit_emission(&ended);
+        assert!(tracker.metadata_is_fresh("term_a", Some(1)));
+    }
+
+    #[test]
+    fn screen_detect_tracker_emits_idle_presence_when_the_first_screen_asserts_nothing() {
+        let mut tracker = ScreenDetectTracker::default();
+        // First evaluation right after spawn hits a viewer/unknown screen:
+        // presence must not wait for a stable screen.
+        let viewer = Detection {
+            state: ScreenState::Unknown,
+            skip_state_update: true,
+            matched_rule: Some("transcript_viewer".into()),
+            visible_idle: false,
+            visible_blocker: false,
+            visible_working: false,
+        };
+        let presence = tracker.record_detection("term_a", Some(("codex", viewer)));
+        assert_eq!(
+            presence,
+            Some(ScreenDetectEmission {
+                terminal_id: "term_a".into(),
+                agent: "codex".into(),
+                state: AgentState::Idle,
+                matched_rule: Some("transcript_viewer".into()),
+                visible_idle: false,
+                visible_blocker: false,
+                visible_working: false,
+            })
+        );
+
+        let unknown = detection(ScreenState::Unknown);
+        assert_eq!(
+            tracker
+                .record_detection("term_b", Some(("codex", unknown)))
+                .map(|emission| emission.state),
+            Some(AgentState::Idle)
+        );
+    }
+
+    #[test]
+    fn screen_detect_tracker_prunes_closed_terminals_with_one_lookup_each() {
+        const LIVE_COUNT: usize = 1_024;
+        const CLOSED_COUNT: usize = 1_024;
+
+        let mut tracker = ScreenDetectTracker::default();
+        let live_ids: Vec<String> = (0..LIVE_COUNT).map(|index| format!("live-{index}")).collect();
+        let closed_ids: Vec<String> =
+            (0..CLOSED_COUNT).map(|index| format!("closed-{index}")).collect();
+        for terminal_id in live_ids.iter().chain(&closed_ids) {
+            tracker.record_detection(terminal_id, Some(("codex", detection(ScreenState::Working))));
+        }
+
+        let builds = Arc::new(AtomicUsize::new(0));
+        let mut live = HashSet::with_capacity_and_hasher(
+            LIVE_COUNT,
+            CountingBuildHasher { builds: builds.clone() },
+        );
+        live.extend(live_ids.iter().map(String::as_str));
+        builds.store(0, Ordering::Relaxed);
+
+        tracker.retain_terminals(|terminal_id| live.contains(terminal_id));
+
+        assert_eq!(
+            builds.load(Ordering::Relaxed),
+            LIVE_COUNT + CLOSED_COUNT,
+            "retention must make one indexed membership lookup per tracked terminal",
+        );
+        assert!(live_ids.iter().all(|terminal_id| tracker.has_live_emission(terminal_id)));
+        assert!(closed_ids.iter().all(|terminal_id| !tracker.has_live_emission(terminal_id)));
     }
 }

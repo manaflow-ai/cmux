@@ -1,8 +1,4 @@
-#if canImport(Darwin)
 import Darwin
-#elseif canImport(Glibc)
-import Glibc
-#endif
 
 /// A numeric IP socket address used for a required Iroh UDP bind.
 public struct CmxIrohBindAddress: Equatable, Sendable {

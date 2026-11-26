@@ -105,47 +105,23 @@ import CMUXMobileCore
     private final class DialGate: @unchecked Sendable {
         private let lock = NSLock()
         private var started = 0
-        private var parked: [Int: CheckedContinuation<Void, Never>] = [:]
-        private var cancelledBeforePark: Set<Int> = []
-        /// Each dial's 1-based number when it starts.
-        let starts = AsyncStream<Int>.makeStream()
-        /// Each parked dial's number when its task is cancelled.
-        let cancellations = AsyncStream<Int>.makeStream()
+        private var release: [CheckedContinuation<Void, Never>] = []
 
-        func dialStarted() -> Int {
-            let number = lock.withLock {
-                started += 1
-                return started
+        func dialStarted() { lock.lock(); started += 1; lock.unlock() }
+        var dialCount: Int { lock.lock(); defer { lock.unlock() }; return started }
+        func hold() async {
+            await withCheckedContinuation { continuation in
+                lock.lock()
+                release.append(continuation)
+                lock.unlock()
             }
-            starts.continuation.yield(number)
-            return number
         }
-
-        var dialCount: Int { lock.withLock { started } }
-
-        /// Parks dial `number` until its task is cancelled, then throws
-        /// CancellationError. A parked dial never outlives its owner's cancel,
-        /// so no test leaves a suspended task behind.
-        func hold(_ number: Int) async throws {
-            await withTaskCancellationHandler {
-                await withCheckedContinuation { continuation in
-                    let resumeNow = lock.withLock { () -> Bool in
-                        if cancelledBeforePark.remove(number) != nil { return true }
-                        parked[number] = continuation
-                        return false
-                    }
-                    if resumeNow { continuation.resume() }
-                }
-            } onCancel: {
-                let continuation = lock.withLock { () -> CheckedContinuation<Void, Never>? in
-                    if let continuation = parked.removeValue(forKey: number) { return continuation }
-                    cancelledBeforePark.insert(number)
-                    return nil
-                }
-                continuation?.resume()
-            }
-            cancellations.continuation.yield(number)
-            throw CancellationError()
+        func releaseAll() {
+            lock.lock()
+            let pending = release
+            release = []
+            lock.unlock()
+            pending.forEach { $0.resume() }
         }
     }
 
@@ -153,33 +129,33 @@ import CMUXMobileCore
         let journal = IrxJournal(subsystem: "test", category: "hint-race", journalFileURL: nil)
         let gate = DialGate()
         let engine = IrxPeerEngine(journal: journal, label: "test") {
-            // Every dial parks against the stale relay (the silent black
-            // hole); the race must cancel it rather than wait it out.
-            try await gate.hold(gate.dialStarted())
+            gate.dialStarted()
+            // First dial parks forever against the stale relay (the silent
+            // black hole); the race must cancel it rather than wait it out.
+            await gate.hold()
             throw IrxConnectionError.closed(nil)
         }
-        var starts = gate.starts.stream.makeAsyncIterator()
-        var cancellations = gate.cancellations.stream.makeAsyncIterator()
-
         await engine.warmUp(trigger: "test-warmup")
-        #expect(await starts.next() == 1)
+        // Wait until the first dial is actually in flight.
+        for _ in 0..<100 where gate.dialCount == 0 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(gate.dialCount == 1)
 
         await engine.relayHintChanged(trigger: "test-hint")
         // The race cancels dial 1 and starts dial 2 without any timer wait.
-        #expect(await cancellations.next() == 1)
-        #expect(await starts.next() == 2)
-
-        // stop() cancels dial 2 too: no dial task outlives the test.
-        await engine.stop()
-        #expect(await cancellations.next() == 2)
+        for _ in 0..<100 where gate.dialCount < 2 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
         #expect(gate.dialCount == 2)
+        gate.releaseAll()
     }
 
     @Test func hintChangeNeverTouchesIdleEngine() async throws {
         let journal = IrxJournal(subsystem: "test", category: "hint-idle", journalFileURL: nil)
         let gate = DialGate()
         let engine = IrxPeerEngine(journal: journal, label: "test") {
-            _ = gate.dialStarted()
+            gate.dialStarted()
             throw IrxConnectionError.closed(nil)
         }
         await engine.relayHintChanged(trigger: "test-idle")
@@ -198,7 +174,7 @@ import CMUXMobileCore
             journal: journal,
             label: "test"
         ) {
-            _ = gate.dialStarted()
+            gate.dialStarted()
             throw IrxAdmissionDenied(code: .admissionTimeout)
         }
 
@@ -228,7 +204,7 @@ import CMUXMobileCore
                 try Task.checkCancellation()
             }
         ) {
-            _ = gate.dialStarted()
+            gate.dialStarted()
             dials.continuation.yield(())
             throw CmxRateLimitedError(retryAfterSeconds: 1)
         }
@@ -249,33 +225,6 @@ import CMUXMobileCore
         wake.continuation.finish()
         sleeps.continuation.finish()
         dials.continuation.finish()
-    }
-
-    /// A server Retry-After near Int.max is a hostile or broken header, not a
-    /// wait: the engine caps it at 2^31 s (68 years) so the deadline
-    /// arithmetic and the clock's conversion cannot trap.
-    @Test func retryAfterNearIntMaxWaitsTheCap() async throws {
-        let journal = IrxJournal(subsystem: "test", category: "retry-after-max", journalFileURL: nil)
-        let sleeps = AsyncStream<Duration>.makeStream()
-        // A frozen clock: the remaining wait equals the scheduled delay.
-        let clock = PeerRetryTestClock()
-        let engine = IrxPeerEngine(
-            journal: journal,
-            label: "test",
-            clockNow: { clock.now },
-            retrySleep: { duration in
-                sleeps.continuation.yield(duration)
-                throw CancellationError()
-            }
-        ) {
-            throw CmxRateLimitedError(retryAfterSeconds: Int.max)
-        }
-
-        _ = try? await engine.ensureSession(trigger: "test-retry-after-max")
-        var sleepIterator = sleeps.stream.makeAsyncIterator()
-        #expect(await sleepIterator.next() == .seconds(2_147_483_648))
-        await engine.stop()
-        sleeps.continuation.finish()
     }
 }
 

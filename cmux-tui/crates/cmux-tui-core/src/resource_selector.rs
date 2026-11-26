@@ -8,8 +8,7 @@ use crate::resource::{
 };
 use crate::{PaneId, ScreenId, SurfaceId, WorkspaceId};
 
-mod id_forms;
-mod name_scope;
+mod tab_scope;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -152,20 +151,12 @@ pub struct ResolvedResourcePath {
     pub browser: Option<BrowserPublicId>,
 }
 
-/// Finds the runtime id of the in-process terminal with a host id.
-pub(crate) type InProcessHostLookup<'a> = &'a dyn Fn(&str) -> Option<SurfaceId>;
-
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub(crate) struct ResourceSelectorContext<'a> {
     pub machine_id: &'a MachinePublicId,
     pub machine_name: Option<&'a str>,
     pub session_id: &'a SessionPublicId,
     pub session_name: &'a str,
-    /// The runtime id of the in-process terminal with a host id, which the
-    /// state's host index does not hold (only hosted terminals are in it);
-    /// a terminal selector takes it as it takes a hosted terminal's host id
-    /// (id_forms.rs). Asked only when a bare id names nothing else.
-    pub in_process_host: Option<InProcessHostLookup<'a>>,
 }
 
 #[derive(Debug, Clone)]
@@ -255,97 +246,40 @@ pub(crate) fn resolve_resource_selectors(
     }
 
     require_target_selector(selectors, target)?;
-    // Every request that resolved before selects the same object
-    // (`cmux.protocol/2` takes additions only), so the id forms come in
-    // three steps (id_forms.rs):
-    // 1. prefixes (`pane_3f`) and a tab or pane id as a terminal: they were
-    //    never names, so they become full ids first;
-    // 2. full ids and names, as before, then a name in the whole session
-    //    (name_scope.rs);
-    // 3. only when step 2 finds nothing: bare ids, host ids and `focused`,
-    //    which were names (a tab named `focused` keeps its old answer).
-    let host = context.in_process_host;
-    let prefixed = id_forms::expand(state, host, selectors, id_forms::IdForms::Prefixed)?;
-    let selectors = prefixed.as_ref().unwrap_or(selectors);
-    let error = match resolve_path(state, target, selectors, &machine, &session) {
-        Err(error) if error.code != "selector.ambiguous" => error,
-        resolved => return resolved,
-    };
-    match id_forms::expand(state, host, selectors, id_forms::IdForms::Unprefixed) {
-        Ok(Some(expanded)) => resolve_path(state, target, &expanded, &machine, &session),
-        Ok(None) => Err(error),
-        // The word is neither a name nor an id: the name's answer says more.
-        Err(unexpanded) if unexpanded.code == "selector.not_found" => Err(error),
-        Err(unexpanded) => Err(unexpanded),
-    }
-}
-
-/// Step 2 of [`resolve_resource_selectors`]: `selectors` (full ids, names
-/// and `current`) under the resolved machine and session.
-fn resolve_path(
-    state: &State,
-    target: ResourceTarget,
-    selectors: &ResourceSelectors,
-    machine: &MachinePublicId,
-    session: &SessionPublicId,
-) -> Result<ResolvedResourceSlots, ResourceError> {
     validate_contiguous_name_current_chains(selectors, target)?;
 
     let mut supplied_workspace = None;
     let mut supplied_screen = None;
     let mut supplied_pane = None;
     let mut supplied_tab = None;
-    // A name the scoped rule does not find under implicit (`current`)
-    // parents is looked up further (name_scope.rs); the found
-    // object's own place then scopes what follows.
-    let rescope_pane = |pane: Option<PaneId>| {
-        let screen = pane.and_then(|pane| state.resource_indexes.pane_screen.get(&pane).copied());
-        let workspace =
-            screen.and_then(|screen| state.resource_indexes.screen_workspace.get(&screen).copied());
-        (screen, workspace)
-    };
 
     if let Some(raw) = selectors.workspace.as_deref() {
         supplied_workspace = Some(resolve_workspace(state, raw)?);
     }
     if let Some(raw) = selectors.screen.as_deref() {
-        let screen = match resolve_screen(state, raw, supplied_workspace) {
-            Err(error)
-                if error.code == "selector.not_found"
-                    && name_scope::implicit_parents(selectors, 3) =>
-            {
-                let screen = name_scope::screen(state, raw)?.ok_or(error)?;
-                supplied_workspace = state.resource_indexes.screen_workspace.get(&screen).copied();
-                screen
-            }
-            resolved => resolved?,
-        };
-        supplied_screen = Some(screen);
+        supplied_screen = Some(resolve_screen(state, raw, supplied_workspace)?);
     }
     if let Some(raw) = selectors.pane.as_deref() {
-        let pane = match resolve_pane(state, raw, supplied_screen) {
-            Err(error)
-                if error.code == "selector.not_found"
-                    && name_scope::implicit_parents(selectors, 4) =>
-            {
-                let pane = name_scope::pane(state, raw)?.ok_or(error)?;
-                (supplied_screen, supplied_workspace) = rescope_pane(Some(pane));
-                pane
-            }
-            resolved => resolved?,
-        };
-        supplied_pane = Some(pane);
+        supplied_pane = Some(resolve_pane(state, raw, supplied_screen)?);
     }
     if let Some(raw) = selectors.tab.as_deref() {
         let tab = match resolve_tab(state, raw, supplied_pane) {
-            Err(error)
-                if error.code == "selector.not_found"
-                    && name_scope::implicit_parents(selectors, 5) =>
-            {
-                let tab = name_scope::tab(state, raw, supplied_screen, supplied_workspace)?
-                    .ok_or(error)?;
+            Err(error) if error.code == "selector.not_found" => {
+                let beyond = tab_scope::tab_beyond_current_pane(
+                    state,
+                    selectors,
+                    raw,
+                    supplied_screen,
+                    supplied_workspace,
+                )?;
+                let tab = beyond.ok_or(error)?;
+                // The tab's own pane, screen and workspace scope what follows.
                 supplied_pane = state.resource_indexes.tab_pane.get(&tab).copied();
-                (supplied_screen, supplied_workspace) = rescope_pane(supplied_pane);
+                supplied_screen = supplied_pane
+                    .and_then(|pane| state.resource_indexes.pane_screen.get(&pane).copied());
+                supplied_workspace = supplied_screen.and_then(|screen| {
+                    state.resource_indexes.screen_workspace.get(&screen).copied()
+                });
                 tab
             }
             resolved => resolved?,
@@ -357,31 +291,15 @@ fn resolve_path(
     let mut target_browser = None;
     let target_tab = match target {
         ResourceTarget::Terminal => {
-            let raw = selectors.terminal.as_deref().unwrap_or_default();
-            let resolved = match resolve_terminal(
+            let raw = selectors.terminal.as_deref().expect("target selector checked");
+            let (slot, id) = resolve_terminal(
                 state,
                 raw,
                 supplied_tab,
                 supplied_pane,
                 supplied_screen,
                 supplied_workspace,
-            ) {
-                Err(error)
-                    if error.code == "selector.not_found"
-                        && name_scope::implicit_parents(selectors, 6) =>
-                {
-                    let tab = name_scope::terminal(state, raw)?.ok_or(error)?;
-                    supplied_tab = Some(tab);
-                    supplied_pane = state.resource_indexes.tab_pane.get(&tab).copied();
-                    (supplied_screen, supplied_workspace) = rescope_pane(supplied_pane);
-                    match state.resource_indexes.content_ids.get(&tab) {
-                        Some(ContentPublicId::Terminal(id)) => (tab, id.clone()),
-                        _ => return Err(ResourceError::not_found("terminal", raw)),
-                    }
-                }
-                resolved => resolved?,
-            };
-            let (slot, id) = resolved;
+            )?;
             target_terminal = Some(id);
             Some(slot)
         }
@@ -457,8 +375,8 @@ fn resolve_path(
         }
         return Ok(ResolvedResourceSlots {
             path: ResolvedResourcePath {
-                machine: machine.clone(),
-                session: Some(session.clone()),
+                machine,
+                session: Some(session),
                 workspace: None,
                 screen: None,
                 pane: None,
@@ -575,8 +493,8 @@ fn resolve_path(
         .transpose()?;
     Ok(ResolvedResourceSlots {
         path: ResolvedResourcePath {
-            machine: machine.clone(),
-            session: Some(session.clone()),
+            machine,
+            session: Some(session),
             workspace: Some(workspace_id),
             screen: screen_id,
             pane: pane_id,
@@ -1192,4 +1110,53 @@ fn public_tab_id(state: &State, slot: SurfaceId) -> Result<&TabPublicId, Resourc
         .tab_ids
         .get(&slot)
         .ok_or_else(|| ResourceError::not_found("tab", "<resolved>"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_selectors_below_target_depth() {
+        let selectors = ResourceSelectors {
+            machine: Some("machine-1".into()),
+            session: Some("session-1".into()),
+            workspace: Some("workspace-1".into()),
+            pane: Some("pane-1".into()),
+            ..Default::default()
+        };
+
+        let error = selectors.unexpected_below(ResourceTarget::Workspace);
+        assert_eq!(error, Some("pane"));
+    }
+
+    #[test]
+    fn requires_target_selector_at_target_depth() {
+        let selectors = ResourceSelectors {
+            machine: Some("machine-1".into()),
+            session: Some("session-1".into()),
+            ..Default::default()
+        };
+
+        let error = require_target_selector(&selectors, ResourceTarget::Workspace)
+            .expect_err("workspace target without workspace selector must fail");
+        assert!(error.to_string().contains("missing required workspace selector"));
+    }
+
+    #[test]
+    fn singleton_name_matches_only_expected_name_and_id_matches_public_id() {
+        let public_id = String::from("session_0123456789abcdef0123456789abcdef");
+        let by_name = resolve_singleton("session", "name:dev", &public_id, Some("dev"), Ok)
+            .expect("matching name resolves");
+        assert_eq!(by_name, public_id);
+
+        let by_id = resolve_singleton("session", &public_id, &public_id, Some("other"), Ok)
+            .expect("matching public id resolves");
+        assert_eq!(by_id, public_id);
+
+        let mismatch =
+            resolve_singleton("session", &format!("name:{public_id}"), &public_id, Some("dev"), Ok)
+                .expect_err("public id must not match as a name");
+        assert_eq!(mismatch.code, "selector.not_found");
+    }
 }

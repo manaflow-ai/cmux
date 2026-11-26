@@ -3,6 +3,7 @@ freeze-ok label lets a pull request through."""
 import importlib.util
 import io
 import json
+import os
 import re
 import subprocess
 import sys
@@ -11,88 +12,13 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("merge_freeze", ROOT / "scripts/ci/merge_freeze.py")
 freeze = importlib.util.module_from_spec(spec)
 sys.modules["merge_freeze"] = freeze  # dataclasses looks the module up by name
 spec.loader.exec_module(freeze)
-
-# What the lane broker lets a graphql query select. Copied on 2026-11-11 from the broker's GRAPHQL_ROOT_FIELDS,
-# GRAPHQL_FIELDS, GRAPHQL_CHECK_SUITE_FIELDS, the keys of its GRAPHQL_SCOPED_FIELDS and the fields it allows under
-# `issues`. The broker keeps them in its own source, so this is a copy: refresh it when the broker's list changes
-# (a check on the broker's side compares it to this file). The check below holds field names only, not where in
-# the tree the broker accepts one (its scoped parents), so it is a floor, not the broker's full rule.
-BROKER_ROOT_FIELDS = frozenset({
-    "__typename", "rateLimit", "repository", "search",
-})
-BROKER_FIELDS = frozenset({
-    "__typename", "actor", "additions", "assignees", "author", "authorAssociation", "autoMergeRequest",
-    "baseRefName", "baseRefOid", "body", "byteSize", "changeType", "changedFiles", "closedAt", "color",
-    "comments", "commit", "commits", "committedDate", "committer", "context", "contexts", "cost",
-    "createdAt", "creator", "databaseId", "date", "defaultBranchRef", "deletions", "description", "email",
-    "enabledBy", "endCursor", "entries", "files", "hasNextPage", "hasPreviousPage", "headRefName",
-    "headRefOid", "id", "isArchived", "isBinary", "isCrossRepository", "isDraft", "isFork", "isMinimized",
-    "isPrivate", "isTruncated", "issueCount", "label", "labels", "lastEditedAt", "limit", "locked", "login",
-    "maintainerCanModify", "mergeCommit", "mergeMethod", "mergeStateStatus", "mergeable", "merged",
-    "mergedAt", "mergedBy", "message", "messageBody", "messageHeadline", "mode", "name", "nameWithOwner", "nodes",
-    "number", "object", "oid",
-    "pageInfo", "parents", "path", "prefix", "pullRequest", "pushedAt", "remaining", "requestedReviewer",
-    "resetAt", "reviewRequests", "reviews", "slug", "startCursor", "state", "status", "submittedAt",
-    "target", "targetUrl", "text", "timelineItems", "title", "totalCount", "tree", "type", "updatedAt",
-    "url", "used", "user", "visibility",
-})
-BROKER_CHECK_SUITE_FIELDS = frozenset({
-    "__typename", "app", "branch", "checkRuns", "checkSuite", "commit", "completedAt", "conclusion",
-    "createdAt", "databaseId", "detailsUrl", "displayTitle", "endCursor", "event", "externalId", "file",
-    "hasNextPage", "id", "name", "nameWithOwner", "nodes", "number", "oid", "pageInfo", "path", "repository",
-    "runAttempt", "runNumber", "slug", "startedAt", "status", "steps", "summary", "title", "totalCount",
-    "updatedAt", "url", "workflow", "workflowRun",
-})
-BROKER_ISSUES_FIELDS = frozenset({
-    "__typename", "author", "body", "createdAt", "endCursor", "hasNextPage", "labels", "login", "name",
-    "nodes", "number", "pageInfo", "state", "title",
-})
-BROKER_SCOPED_FIELD_NAMES = frozenset({
-    "associatedPullRequests", "baseRef", "baseRepository", "checkSuites", "compare", "headRepository",
-    "headRepositoryOwner", "history", "isRequired", "issueOrPullRequest", "issues", "owner", "pullRequests",
-    "ref", "repository", "statusCheckRollup",
-})
-BROKER_BELOW_ROOT = BROKER_FIELDS | BROKER_CHECK_SUITE_FIELDS | BROKER_ISSUES_FIELDS | BROKER_SCOPED_FIELD_NAMES
-
-
-def graphql_fields(query):
-    """(root fields, other fields) a graphql document selects: aliases, argument lists, variable
-    definitions and the type after `... on` are not fields."""
-    tokens = re.findall(r'"(?:[^"\\]|\\.)*"|\.\.\.|[{}():]|\$?[A-Za-z_]\w*', re.sub(r"#[^\n]*", "", query))
-    roots, below, depth, parens, index = set(), set(), 0, 0, 0
-    while index < len(tokens):
-        token = tokens[index]
-        index += 1
-        if token == "(":
-            parens += 1
-        elif token == ")":
-            parens -= 1
-        elif token == "{":
-            depth += 1
-        elif token == "}":
-            depth -= 1
-        elif token == "...":
-            if index < len(tokens) and tokens[index] == "on":
-                index += 2  # `on Type`
-        elif parens or depth == 0 or token.startswith(('"', "$")) or token == ":":
-            continue
-        elif index < len(tokens) and tokens[index] == ":":
-            continue  # an alias; the field follows
-        else:
-            (roots if depth == 1 else below).add(token)
-    return roots, below
-
-
-def broker_refused_fields(query):
-    roots, below = graphql_fields(query)
-    return sorted((roots - BROKER_ROOT_FIELDS) | (below - BROKER_BELOW_ROOT))
-
 
 NOW = datetime.now(timezone.utc)
 
@@ -278,6 +204,220 @@ class FreezeTests(unittest.TestCase):
         self.assertEqual(status, 2)
 
 
+# The open-freeze list is one GraphQL query; FakeGh names it apart from the lastEditedAt query.
+FREEZE_LIST = "graphql:freezes"
+
+
+def freeze_list(issues, has_next=False):
+    """The GraphQL answer listing `issues` (REST-shaped, as issue() makes them)."""
+    nodes = [{"number": i["number"], "title": i.get("title"), "body": i.get("body"), "createdAt": i["created_at"],
+              "author": i.get("user"), "labels": {"nodes": i.get("labels", [])}} for i in issues]
+    return {"data": {"repository": {"issues": {"pageInfo": {"hasNextPage": has_next, "endCursor": "next"},
+                                               "nodes": nodes}}}}
+
+
+class FakeGh:
+    """subprocess.run for `gh`: answers from `responses` by endpoint prefix and records each call
+    with the token it was made with."""
+
+    def __init__(self, responses, refuse_token=None):
+        self.responses, self.refuse_token, self.calls = responses, refuse_token, []
+
+    def __call__(self, args, check=False, capture_output=False, text=False, env=None):
+        token = (env or os.environ).get("GH_TOKEN")
+        endpoint = next((a for a in args if a.startswith("repos/") or a == "graphql"), "")
+        if endpoint == "graphql" and any("issues(states:OPEN" in a for a in args):
+            endpoint = FREEZE_LIST
+        self.calls.append((endpoint, token))
+        if self.refuse_token is not None and token == self.refuse_token:
+            raise subprocess.CalledProcessError(1, args, "", "gh: API rate limit exceeded for installation (HTTP 403)")
+        for prefix, value in self.responses.items():
+            if endpoint.startswith(prefix):
+                return subprocess.CompletedProcess(args, 0, json.dumps(value), "")
+        raise AssertionError(f"unexpected gh call {args}")
+
+
+class CheckApiCalls(unittest.TestCase):
+    """`check` from the merge-freeze workflow reads GitHub only as far as a freeze could block."""
+
+    REPO = "manaflow-ai/cmux"
+    ISSUES = FREEZE_LIST
+
+    def run_check(self, fake, *extra, env=None):
+        with mock.patch.object(freeze.subprocess, "run", fake), mock.patch.dict(os.environ, env or {}), \
+                redirect_stdout(io.StringIO()) as out, redirect_stderr(io.StringIO()):
+            status = freeze.main(["check", "--repo", self.REPO, "--pr", "42", "--base", "feat-cmux-next", *extra])
+        return status, out.getvalue(), [endpoint for endpoint, _ in fake.calls]
+
+    def test_no_open_freeze_reads_only_the_freeze_list(self):
+        fake = FakeGh({self.ISSUES: freeze_list([])})
+        status, _, calls = self.run_check(fake, "--changed-files", "3")
+        self.assertEqual(status, 0)
+        self.assertEqual(calls, [self.ISSUES])  # was: + pulls/42/files and pulls/42
+
+    def test_a_freeze_on_another_branch_reads_no_pull_request(self):
+        frozen = {**issue(body=body(extra="branch: main")), "state": "open"}
+        fake = FakeGh({self.ISSUES: freeze_list([frozen]), f"repos/{self.REPO}/issues/7/events": [labeled("lawrence", "merge-freeze")],
+                       f"repos/{self.REPO}/collaborators/": {"role_name": "admin"},
+                       "graphql": {"data": {"repository": {"issue": {"lastEditedAt": None}}}}})
+        status, _, calls = self.run_check(fake)
+        self.assertEqual(status, 0)
+        self.assertFalse([c for c in calls if "/pulls/" in c or "/issues/42/" in c], calls)
+        # A freeze that cannot apply to this base costs no authority reads either (GITHUB_TOKEN budget).
+        self.assertEqual(calls, [self.ISSUES])
+
+    def test_a_lapsed_freeze_reads_only_the_freeze_list(self):
+        lapsed = {**issue(body=body(expires="2020-01-01T00:00Z")), "state": "open"}
+        status, _, calls = self.run_check(FakeGh({self.ISSUES: freeze_list([lapsed])}))
+        self.assertEqual(status, 0)
+        self.assertEqual(calls, [self.ISSUES])
+
+    def applicable(self, files):
+        return FakeGh({
+            self.ISSUES: freeze_list([issue(body=body())]),
+            f"repos/{self.REPO}/issues/7/events": [labeled("lawrence", "merge-freeze")],
+            f"repos/{self.REPO}/collaborators/": {"role_name": "admin"},
+            "graphql": {"data": {"repository": {"issue": {"lastEditedAt": None}}}},
+            f"repos/{self.REPO}/pulls/42/files": [{"filename": f} for f in files],
+            f"repos/{self.REPO}/pulls/42": {"changed_files": len(files)},
+            f"repos/{self.REPO}/issues/42/events": [],
+        })
+
+    def test_an_applicable_freeze_still_blocks_using_the_events_file_count(self):
+        fake = self.applicable(["cmux-tui/spec/a.md"])
+        status, out, calls = self.run_check(fake, "--changed-files", "1")
+        self.assertEqual(status, 1)
+        self.assertIn("#7", out)
+        self.assertIn(f"repos/{self.REPO}/pulls/42/files?per_page=100&page=1", calls)
+        self.assertNotIn(f"repos/{self.REPO}/pulls/42", calls)  # the count came from the event
+
+    def test_a_cut_short_file_list_is_still_status_2(self):
+        status, _, _ = self.run_check(self.applicable(["docs/a.md"]), "--changed-files", "3001")
+        self.assertEqual(status, 2)
+
+    def test_without_the_event_count_the_pull_request_is_read(self):
+        status, _, calls = self.run_check(self.applicable(["docs/a.md"]))
+        self.assertEqual(status, 0)
+        self.assertIn(f"repos/{self.REPO}/pulls/42", calls)
+
+    def test_the_freeze_list_follows_graphql_pages_and_fails_closed_past_the_cap(self):
+        pages = [freeze_list([issue(number=7, body=body())], has_next=True),
+                 freeze_list([issue(number=8, body=body())])]
+        cursors = []
+
+        def fake(*args, write=False):
+            cursors.append(next((a for a in args if a.startswith("c=")), None))
+            return json.dumps(pages[len(cursors) - 1])
+        with mock.patch.object(freeze, "gh", fake):
+            self.assertEqual([i["number"] for i in freeze.open_freeze_issues(self.REPO)], [7, 8])
+            self.assertEqual(cursors, [None, "c=next"])
+            cursors.clear()
+            with self.assertRaises(ValueError):
+                freeze.open_freeze_issues(self.REPO, max_pages=1)
+
+    def test_a_refused_app_read_falls_back_to_the_workflow_token(self):
+        fake = FakeGh({self.ISSUES: freeze_list([])}, refuse_token="app")
+        status, _, _ = self.run_check(fake, env={"GH_TOKEN": "app", "GH_FALLBACK_TOKEN": "workflow"})
+        self.assertEqual(status, 0)
+        self.assertEqual([token for _, token in fake.calls], ["app", "workflow"])
+        fake = FakeGh({self.ISSUES: freeze_list([])}, refuse_token="app")
+        status, _, _ = self.run_check(fake, env={"GH_TOKEN": "app", "GH_FALLBACK_TOKEN": ""})
+        self.assertEqual(status, 3)  # no fallback: rate-limited, not checked, never clear
+
+    def test_a_graphql_refusal_of_the_app_token_falls_back_to_the_workflow_token(self):
+        # GraphQL names no HTTP status: the REST list this replaced got a 403 here and fell back.
+        calls = []
+
+        def fake(args, **kwargs):
+            token = (kwargs.get("env") or os.environ).get("GH_TOKEN")
+            calls.append(token)
+            if token == "app":
+                raise subprocess.CalledProcessError(1, args, "", "GraphQL: Resource not accessible by integration (repository)")
+            return subprocess.CompletedProcess(args, 0, json.dumps(freeze_list([])), "")
+
+        with mock.patch.dict(os.environ, {"GH_TOKEN": "app", "GH_FALLBACK_TOKEN": "workflow"}), \
+                mock.patch.object(freeze.subprocess, "run", fake):
+            self.assertEqual(freeze.open_freeze_issues(self.REPO), [])
+        self.assertEqual(calls, ["app", "workflow"])
+
+    def test_a_freeze_list_answer_with_graphql_errors_is_never_read_as_complete(self):
+        answer = {**freeze_list([]), "errors": [{"type": "FORBIDDEN", "message": "Resource not accessible by integration"}]}
+        with mock.patch.object(freeze, "gh", lambda *args, write=False: json.dumps(answer)):
+            with self.assertRaises(ValueError):
+                freeze.open_freeze_issues(self.REPO)
+
+    def test_a_write_is_never_retried_with_the_fallback(self):
+        with mock.patch.dict(os.environ, {"GH_TOKEN": "app", "GH_FALLBACK_TOKEN": "workflow"}):
+            fake = FakeGh({}, refuse_token="app")
+            with mock.patch.object(freeze.subprocess, "run", fake):
+                with self.assertRaises(subprocess.CalledProcessError):
+                    freeze.gh("issue", "close", "7", write=True)
+        self.assertEqual(len(fake.calls), 1)
+
+    def test_a_collaborator_404_on_the_app_token_is_asked_again_with_the_workflow_token(self):
+        # A 404 means "not a collaborator" and drops the freeze; a narrow App token must not decide that.
+        calls = []
+
+        def fake(args, **kwargs):
+            token = (kwargs.get("env") or os.environ).get("GH_TOKEN")
+            calls.append(token)
+            if token == "app":
+                raise subprocess.CalledProcessError(1, args, "", "gh: Not Found (HTTP 404)")
+            return subprocess.CompletedProcess(args, 0, json.dumps({"role_name": "admin"}), "")
+
+        with mock.patch.dict(os.environ, {"GH_TOKEN": "app", "GH_FALLBACK_TOKEN": "workflow"}), \
+                mock.patch.object(freeze.subprocess, "run", fake):
+            self.assertEqual(freeze.repo_role("o/r", "maintainer"), "admin")
+        self.assertEqual(calls, ["app", "workflow"])
+
+    def rate_limited_check(self, failures, retry="120", error="gh: API rate limit exceeded for installation."):
+        """check with the first `failures` GitHub reads failing with `error`: (status, sleeps, stderr)."""
+        calls, sleeps = [], []
+
+        def gh(*args):
+            calls.append(args)
+            if len(calls) <= failures:
+                raise freeze.subprocess.CalledProcessError(1, ["gh", *args], stderr=error)
+            return json.dumps(freeze_list([])) if "graphql" in args else "[]"
+
+        original_gh, original_sleep = freeze.gh, freeze.time.sleep
+        freeze.gh, freeze.time.sleep = gh, sleeps.append
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                files = Path(directory) / "files.txt"
+                files.write_text("docs/a.md\n")
+                err = io.StringIO()
+                with redirect_stderr(err), redirect_stdout(io.StringIO()):
+                    status = freeze.main(["check", "--repo", "x/y", "--pr", "1", "--files", str(files),
+                                          "--rate-limit-retry", retry])
+        finally:
+            freeze.gh, freeze.time.sleep = original_gh, original_sleep
+        return status, sleeps, err.getvalue()
+
+    def test_a_rate_limited_read_is_retried_once(self):
+        status, sleeps, _ = self.rate_limited_check(failures=1)
+        self.assertEqual((status, sleeps), (0, [120]))
+
+    def test_a_read_still_rate_limited_after_the_retry_is_status_3_could_not_check(self):
+        """Not 1 (frozen) and not 0 (clear): the merge freeze check shows a warning instead of a
+        red, and gh-merge-green and next-autoland, which read again before merging, refuse it."""
+        for error in ("gh: API rate limit exceeded for installation.",
+                      "gh: You have exceeded a secondary rate limit. (HTTP 403)",
+                      "gh: Too Many Requests (HTTP 429)"):
+            with self.subTest(error=error):
+                status, sleeps, err = self.rate_limited_check(failures=2, error=error)
+                self.assertEqual((status, sleeps), (3, [120]))
+                self.assertIn("could not check", err)
+
+    def test_any_other_unreadable_answer_is_still_status_2_with_no_retry(self):
+        status, sleeps, _ = self.rate_limited_check(
+            failures=2, error="gh: Resource not accessible by integration (HTTP 403)")
+        self.assertEqual((status, sleeps), (2, []))
+
+    def test_without_a_retry_a_rate_limited_read_is_status_3_at_once(self):
+        status, sleeps, _ = self.rate_limited_check(failures=1, retry="0")
+        self.assertEqual((status, sleeps), (3, []))
+
 class PaginationTests(unittest.TestCase):
     """The gh quota shim refuses `gh api --paginate` (it can't be charged), so lists are read one
     page per call, with an explicit per_page and a page cap that fails closed."""
@@ -317,359 +457,37 @@ class PaginationTests(unittest.TestCase):
             freeze.gh_items("repos/x/y/pulls/1/files")
         self.assertEqual(len(calls), freeze.MAX_PAGES)
 
-    def test_a_changed_files_list_past_the_cap_is_status_2_not_clear(self):
-        endless, calls = self.fake_gh(10**6)
-
-        def gh(*args):  # one open (inactive) freeze, so the files are read; the PR's files never end
-            if "/issues?" in args[-1]:
-                return json.dumps([{**issue(body=body()), "user": {"login": "lawrence"}}])
-            if args[1] == "graphql":
-                return json.dumps({"data": {"repository": {"issueOrPullRequest": {"lastEditedAt": None}}}})
-            if "/events?" in args[-1]:
-                return "[]"
-            return endless(*args)
-        self.with_gh(gh)
-        stderr = io.StringIO()
-        with redirect_stderr(stderr):
-            status = freeze.main(["check", "--repo", "x/y", "--pr", "1"])
-        self.assertEqual(status, 2)
-        self.assertIn("pulls/1/files has more than 30 pages", stderr.getvalue())
-        self.assertEqual(len(calls), freeze.MAX_PAGES)
-
-    def test_a_full_last_page_reads_one_empty_page_after_it(self):
-        gh, calls = self.fake_gh(freeze.PER_PAGE)
-        self.with_gh(gh)
-        items = freeze.gh_items("repos/x/y/pulls/1/files")
-        self.assertEqual(len(items), freeze.PER_PAGE)
-        self.assertEqual([c[1] for c in calls], [f"repos/x/y/pulls/1/files?per_page=100&page={n}" for n in (1, 2)])
-
-    def test_a_page_that_is_not_a_list_is_unreadable(self):
-        self.with_gh(lambda *args: json.dumps({"message": "refused"}))
-        with self.assertRaisesRegex(TypeError, "page 1 is not a list"):
-            freeze.gh_items("repos/x/y/pulls/1/files")
-
     def test_the_script_never_asks_gh_to_paginate(self):
         source = (ROOT / "scripts/ci/merge_freeze.py").read_text()
         self.assertNotIn('"--paginate"', source)
 
 
-def rate_limited(*args):
-    import subprocess
-    raise subprocess.CalledProcessError(1, ["gh", *args], stderr="gh: API rate limit exceeded for installation. (HTTP 403)")
+class GraphqlRepositoryVariablesTests(unittest.TestCase):
+    """The lane-gh broker refuses a graphql call unless the repository is named through variables called
+    owner and name, so `merge_freeze.py check` exited 2 on every lane VM while it used $o and $n."""
 
+    REPOSITORY_ARGS = re.compile(r"repository\(\s*owner:\s*\$(\w+)\s*,\s*name:\s*\$(\w+)\s*\)")
 
-def node(raw):
-    """An issue as the GraphQL fallback returns it."""
-    return {"number": raw["number"], "title": raw["title"], "body": raw["body"], "state": "OPEN",
-            "createdAt": raw["created_at"], "author": {"login": raw["user"]["login"]},
-            "labels": {"nodes": raw["labels"]}}
+    def test_every_graphql_query_in_scripts_names_the_repository_with_owner_and_name(self):
+        wrong, seen = [], 0
+        for path in sorted((ROOT / "scripts").rglob("*")):
+            if not path.is_file() or path.suffix in {".png", ".jpg", ".gz", ".zip", ".pyc"}:
+                continue
+            try:
+                text = path.read_text()
+            except UnicodeDecodeError:
+                continue
+            for match in self.REPOSITORY_ARGS.finditer(text):
+                seen += 1
+                if match.groups() != ("owner", "name"):
+                    wrong.append(f"{path.relative_to(ROOT)}: $" + ", $".join(match.groups()))
+        self.assertGreater(seen, 0, "the detector found no graphql repository queries; its pattern is stale")
+        self.assertEqual([], wrong, "name the repository with $owner and $name (the lane-gh broker requires it)")
 
-
-class SpentRestQuotaTests(unittest.TestCase):
-    """A spent REST quota never refuses a green PR's merge: the freeze list falls back to GraphQL,
-    and with no freeze open the check reads nothing else."""
-
-    def run_check(self, gh):
-        calls = []
-
-        def recording(*args):
-            calls.append(args)
-            if args[1] == "graphql":
-                refused = broker_refused_fields(next(a for a in args if a.startswith("query=")))
-                if refused:  # what the lane-gh broker answers a query with a field outside its list
-                    raise subprocess.CalledProcessError(
-                        1, args, "", f"gh: lane-gh call graphql x/y: refused: graphql: field {refused[0]} is refused")
-            return gh(*args)
-        original = freeze.gh
-        freeze.gh = recording
-        self.addCleanup(setattr, freeze, "gh", original)
-        out, err = io.StringIO(), io.StringIO()
-        with redirect_stdout(out), redirect_stderr(err):
-            status = freeze.main(["check", "--repo", "x/y", "--pr", "1", "--base", "feat-cmux-next"])
-        return status, out.getvalue(), err.getvalue(), calls
-
-    @staticmethod
-    def issues_query(args):
-        return args[1] == "graphql" and any("issues(" in a for a in args)
-
-    @staticmethod
-    def graphql_answer(nodes, has_next=False):
-        return json.dumps({"data": {"repository": {"issues": {
-            "pageInfo": {"hasNextPage": has_next}, "nodes": nodes}}}})
-
-    def test_a_rate_limited_issue_list_falls_back_to_graphql_and_clears(self):
-        def gh(*args):
-            if args[1].startswith("repos/x/y/issues?"):
-                return rate_limited(*args)
-            if self.issues_query(args):
-                return self.graphql_answer([])
-            self.fail(f"unexpected read: {args}")
-        status, _, err, calls = self.run_check(gh)
-        self.assertEqual(status, 0, err)
-        query = next(c for c in calls if self.issues_query(c))
-        self.assertIn("owner=x", query)
-        self.assertIn("name=y", query)
-
-    def test_the_quota_shims_refusal_also_falls_back_to_graphql(self):
-        import subprocess
-
-        def gh(*args):
-            if args[1].startswith("repos/x/y/issues?"):
-                raise subprocess.CalledProcessError(1, ["gh", *args], stderr=(
-                    "gh: gh-quota: refused for tool:merge-freeze (budget 600/h, used 600 in the last hour)"))
-            if self.issues_query(args):
-                return self.graphql_answer([])
-            self.fail(f"unexpected read: {args}")
-        status, _, err, _ = self.run_check(gh)
-        self.assertEqual(status, 0, err)
-
-    def test_a_graphql_fallback_freeze_still_blocks(self):
-        """With a freeze open, check also reads the issue's last edit; the broker refused `repository { issue }`
-        for it, so `check` exited 2 (cannot read) exactly while a freeze was in force. Here the fake gh refuses
-        an off-list query as the broker does, and the check still exits 1."""
-        frozen = issue(body=body())
-
-        def gh(*args):
-            target = args[1]
-            if target.startswith("repos/x/y/issues?"):
-                return rate_limited(*args)
-            if self.issues_query(args):
-                return self.graphql_answer([node(frozen)])
-            if target == "graphql":
-                return json.dumps({"data": {"repository": {"issueOrPullRequest": {"lastEditedAt": None}}}})
-            if target.startswith("repos/x/y/issues/7/events?"):
-                return json.dumps([labeled("lawrence", name="merge-freeze")])
-            if target == "repos/x/y/collaborators/lawrence/permission":
-                return json.dumps({"role_name": "admin"})
-            if target.startswith("repos/x/y/pulls/1/files?"):
-                return json.dumps([{"filename": "cmux-tui/spec/x.json"}])
-            if target == "repos/x/y/pulls/1":
-                return json.dumps({"changed_files": 1})
-            if target.startswith("repos/x/y/issues/1/events?"):
-                return "[]"
-            self.fail(f"unexpected read: {args}")
-        status, out, err, _ = self.run_check(gh)
-        self.assertEqual(status, 1, err)
-        self.assertIn("#7", out)
-        self.assertIn("cmux-tui/spec/x.json", out)
-
-    def test_no_open_freeze_reads_no_files_or_events(self):
-        def gh(*args):
-            if args[1].startswith("repos/x/y/issues?"):
-                return "[]"
-            self.fail(f"unexpected read: {args}")
-        status, _, err, calls = self.run_check(gh)
-        self.assertEqual(status, 0, err)
-        self.assertEqual(len(calls), 1)
-
-    def run_graphql_first(self, gh):
-        calls = []
-
-        def recording(*args):
-            calls.append(args)
-            return gh(*args)
-        original = freeze.gh
-        freeze.gh = recording
-        self.addCleanup(setattr, freeze, "gh", original)
-        out, err = io.StringIO(), io.StringIO()
-        with redirect_stdout(out), redirect_stderr(err):
-            status = freeze.main(["check", "--repo", "x/y", "--pr", "1", "--base", "feat-cmux-next", "--graphql-first"])
-        return status, out.getvalue(), err.getvalue(), calls
-
-    def test_graphql_first_reads_no_rest_when_no_freeze_is_open(self):
-        """merge-freeze.yml runs on about 141 pull request events an hour (2026-11-21 07Z); the REST issue list
-        each made came out of the repository's GITHUB_TOKEN hour the production promote gates 403'd on. GraphQL
-        has its own quota, so the workflow reads the freeze list there first."""
-        def gh(*args):
-            if self.issues_query(args):
-                return self.graphql_answer([])
-            self.fail(f"unexpected read: {args}")
-        status, _, err, calls = self.run_graphql_first(gh)
-        self.assertEqual(status, 0, err)
-        self.assertEqual(len(calls), 1)
-
-    def test_graphql_first_falls_back_to_rest_when_graphql_is_refused(self):
-        def gh(*args):
-            if self.issues_query(args):
-                raise subprocess.CalledProcessError(1, ["gh", *args], stderr="gh: HTTP 502")
-            if args[1].startswith("repos/x/y/issues?"):
-                return "[]"
-            self.fail(f"unexpected read: {args}")
-        status, _, err, calls = self.run_graphql_first(gh)
-        self.assertEqual(status, 0, err)
-        self.assertEqual(len(calls), 2)
-
-    def test_graphql_first_still_blocks_on_an_open_freeze(self):
-        frozen = issue(body=body())
-
-        def gh(*args):
-            target = args[1]
-            if self.issues_query(args):
-                return self.graphql_answer([node(frozen)])
-            if target == "graphql":
-                return json.dumps({"data": {"repository": {"issueOrPullRequest": {"lastEditedAt": None}}}})
-            if target.startswith("repos/x/y/issues/7/events?"):
-                return json.dumps([labeled("lawrence", name="merge-freeze")])
-            if target == "repos/x/y/collaborators/lawrence/permission":
-                return json.dumps({"role_name": "admin"})
-            if target.startswith("repos/x/y/pulls/1/files?"):
-                return json.dumps([{"filename": "cmux-tui/spec/x.json"}])
-            if target == "repos/x/y/pulls/1":
-                return json.dumps({"changed_files": 1})
-            if target.startswith("repos/x/y/issues/1/events?"):
-                return "[]"
-            self.fail(f"unexpected read: {args}")
-        status, out, err, _ = self.run_graphql_first(gh)
-        self.assertEqual(status, 1, err)
-        self.assertIn("#7", out)
-
-    def test_a_graphql_next_page_is_unreadable_not_clear(self):
-        def gh(*args):
-            if args[1].startswith("repos/x/y/issues?"):
-                return rate_limited(*args)
-            if self.issues_query(args):
-                return self.graphql_answer([], has_next=True)
-            self.fail(f"unexpected read: {args}")
-        status, _, err, calls = self.run_check(gh)
-        self.assertEqual(status, 2)
-        self.assertTrue(any(self.issues_query(c) for c in calls), "GraphQL fallback never ran")
-        self.assertIn("next page", err)
-
-    def test_a_broker_refusal_of_the_fallback_is_status_2_and_says_so(self):
-        import subprocess
-        refusal = ("gh: lane-gh call graphql x/y: refused: graphql: field issues is refused (the broker reads the call's repo "
-                   "with a few fields only: GRAPHQL_ROOT_FIELDS, GRAPHQL_FIELDS). Requests from this VM go through "
-                   "the lane-gh broker; it holds no GitHub token.")
-
-        def gh(*args):
-            if args[1].startswith("repos/x/y/issues?"):
-                return rate_limited(*args)
-            if self.issues_query(args):
-                raise subprocess.CalledProcessError(1, ["gh", *args], stderr=refusal)
-            self.fail(f"unexpected read: {args}")
-        status, out, err, _ = self.run_check(gh)
-        self.assertEqual(status, 2, "a refused read is unknown (fail closed), never a freeze (1) or clear (0)")
-        self.assertEqual(out, "", "no freeze is reported")
-        self.assertIn("lane-gh broker refused the GraphQL fallback", err)
-        self.assertIn("not a freeze", err)
-        self.assertIn("field issues is refused", err)
-
-    def test_a_spent_graphql_quota_through_the_broker_is_not_called_a_refusal(self):
-        import subprocess
-
-        def gh(*args):
-            if args[1].startswith("repos/x/y/issues?"):
-                return rate_limited(*args)
-            if self.issues_query(args):
-                raise subprocess.CalledProcessError(1, ["gh", *args], stderr=(
-                    "gh: lane-gh call graphql x/y: GitHub's GraphQL quota is spent (HTTP 403); REST is a separate "
-                    "5000/h quota and still answers"))
-            self.fail(f"unexpected read: {args}")
-        status, _, err, _ = self.run_check(gh)
-        self.assertEqual(status, 2)
-        self.assertNotIn("broker refused", err)
-
-    def test_a_broker_outage_or_github_error_is_not_called_a_refusal(self):
-        import subprocess
-        for stderr in ("gh: lane-gh call graphql x/y: the broker sent no answer. Requests from this VM go through the "
-                       "lane-gh broker; it holds no GitHub token.",
-                       "gh: lane-gh call graphql x/y: HTTP 502: Bad Gateway. Requests from this VM go through the "
-                       "lane-gh broker; it holds no GitHub token."):
-            def gh(*args, stderr=stderr):
-                if args[1].startswith("repos/x/y/issues?"):
-                    return rate_limited(*args)
-                if self.issues_query(args):
-                    raise subprocess.CalledProcessError(1, ["gh", *args], stderr=stderr)
-                self.fail(f"unexpected read: {args}")
-            with self.subTest(stderr=stderr[:50]):
-                status, _, err, _ = self.run_check(gh)
-                self.assertEqual(status, 2)
-                self.assertNotIn("broker refused", err)
-                self.assertIn("cannot read merge freezes", err)
-
-    def test_a_failure_that_is_not_a_rate_limit_stays_status_2_without_graphql(self):
-        import subprocess
-
-        def gh(*args):
-            if args[1].startswith("repos/x/y/issues?"):
-                raise subprocess.CalledProcessError(1, ["gh", *args], stderr="gh: Not Found (HTTP 404)")
-            self.fail(f"unexpected read: {args}")
-        status, _, _, calls = self.run_check(gh)
-        self.assertEqual(status, 2)
-        self.assertEqual(len(calls), 1)
-
-
-
-class BrokerGraphqlFieldsTests(unittest.TestCase):
-    """The land gates read GitHub through the lane-gh broker, which refuses a graphql field outside its list. Scope:
-    merge_freeze.py, scripts/gh-merge-green and the base-red classifier land-judge runs on every land with a red
-    (CLASSIFIER_FILES), not every graphql caller in scripts/. A classifier query the broker refuses means no base red
-    can be excused from a lane VM (cmuxterm-hq#10092: BLOB_QUERY's `mode`)."""
-
-    # The base-red classifier and the helpers it loads; cmuxterm-hq tools/lane-gh-broker/test_classifier_queries.py
-    # SOURCES lists the same files.
-    CLASSIFIER_FILES = ("base_red_excuse.py", "test_reds.py", "main_fix_evidence.py", "gh_pages.py",
-                        "webviews_test_results.py")
-    # Refused on purpose, with why the classifier still answers (the broker's REFUSED_ON_PURPOSE): root `nodes` can
-    # name a node of any repo, so SuiteChecks.read catches the refusal and reads those runs over REST.
-    CLASSIFIER_REFUSED_ON_PURPOSE = frozenset({"SUITE_CHECKS_QUERY"})
-
-    def gate_queries(self):
-        import ast
-        tree = ast.parse((ROOT / "scripts/ci/merge_freeze.py").read_text())
-        queries = [n.value for n in ast.walk(tree) if isinstance(n, ast.Constant) and isinstance(n.value, str)
-                   and "repository(" in n.value]
-        queries += re.findall(r"query='([^']*)'", (ROOT / "scripts/gh-merge-green").read_text())
-        return queries
-
-    def classifier_queries(self):
-        """Each classifier file's module-level `NAME_QUERY` strings, by name: literals and f-strings joined as Python
-        joins them, each `{value}` of an f-string read as `0` (a page size or count, never a field name). A `_QUERY`
-        this can't read fails the test, so a query is never skipped unread (cmux#42173 review F1)."""
-        import ast
-
-        def text(node):
-            if isinstance(node, ast.Constant) and isinstance(node.value, str):
-                return node.value
-            if isinstance(node, ast.JoinedStr):
-                return "".join(text(part) if isinstance(part, ast.Constant) else "0" for part in node.values)
-            if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-                left, right = text(node.left), text(node.right)
-                return None if left is None or right is None else left + right
-            return None
-
-        found = {}
-        for name in self.CLASSIFIER_FILES:
-            for node in ast.parse((ROOT / "scripts/ci" / name).read_text()).body:
-                if (isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)
-                        and node.targets[0].id.endswith("_QUERY")
-                        and not (isinstance(node.value, ast.Constant) and not isinstance(node.value.value, str))):
-                    value = text(node.value)
-                    self.assertIsNotNone(value, f"{name}: {node.targets[0].id} is not a string this scan can read")
-                    found[f"{name}:{node.targets[0].id}"] = value
-        return found
-
-    def test_the_parser_reads_root_fields_fields_and_skips_aliases_arguments_and_types(self):
-        roots, below = graphql_fields('query($o:String!){a: repository(owner:$o,name:"x"){issue(number:1){... on Issue{lastEditedAt}}}}')
-        self.assertEqual((roots, below), ({"repository"}, {"issue", "lastEditedAt"}))
-
-    def test_the_refused_issue_field_is_detected(self):
-        self.assertEqual(broker_refused_fields("query{repository(owner:$owner,name:$name){issue(number:$i){lastEditedAt}}}"),
-                         ["issue"])
-
-    def test_every_land_gate_graphql_query_selects_only_fields_the_broker_accepts(self):
-        queries = self.gate_queries()
-        self.assertGreaterEqual(len(queries), 6, "the scan found too few queries; its pattern is stale")
-        for query in queries:
-            self.assertEqual([], broker_refused_fields(query), query)
-
-    def test_every_classifier_graphql_query_selects_only_fields_the_broker_accepts(self):
-        queries = self.classifier_queries()
-        self.assertGreaterEqual(len(queries), 4, "the scan found too few classifier queries; its pattern is stale")
-        refused = {key: broker_refused_fields(query) for key, query in queries.items()
-                   if key.partition(":")[2] not in self.CLASSIFIER_REFUSED_ON_PURPOSE and broker_refused_fields(query)}
-        self.assertEqual({}, refused, "the lane broker refuses these fields; allow them in cmuxterm-hq "
-                         "tools/lane-gh-broker/graphql-allowlist.json and this file's BROKER_* copy the same day")
+    def test_merge_freeze_passes_the_repository_as_owner_and_name_variables(self):
+        source = (ROOT / "scripts/ci/merge_freeze.py").read_text()
+        self.assertEqual(2, source.count('f"owner={owner}", "-f", f"name={name}"'))
+        self.assertNotRegex(source, r'"-f", f"[on]=')
 
 
 if __name__ == "__main__":

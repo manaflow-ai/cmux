@@ -16,14 +16,6 @@ itself (`ws://`, `wss://`, or `iroh://`), a state directory, a device name, an
 optional invitation, and an optional WireGuard tunnel. It attaches nothing; the
 caller lists or creates a terminal and attaches it afterwards.
 
-Every connect has a deadline. A `timeout_milliseconds` of 0 (and the untimed
-`cmux_terminal_client_connect`) means the default: one reconnect attempt (15 s)
-for an enrolled or carrier connect, plus the daemon's approval window (5 min)
-when an invitation is enrolling. Inside it, a direct `ws`/`wss` dial has its own
-12 s bound covering DNS, the connect, TLS and the upgrade, so a route that
-accepts and never answers fails with an error that names the stage and the
-peer (`websocket upgrade to HOST:PORT did not finish within 12 s`).
-
 ## Device identity and the state directory
 
 `state_dir` is owned by this library. It is created `0700` and holds
@@ -106,10 +98,7 @@ workspace that already exists. It sends `tab.create_terminal` with only the
 `workspace` selector, and the daemon puts the new tab in that workspace's
 focused pane (the active pane of its active screen) and selects it there, the
 way opening a tab in the TUI does; a workspace with no screen gets a new screen
-and pane. When the focused pane is a chat dock or holds an agent chat, the tab
-goes to a pane on the chat's right instead when there is one; an agent chat that
-is not docked and is alone on its screen gets a new column there. The session's
-focused workspace does not move. The result is the same
+and pane. The session's focused workspace does not move. The result is the same
 `MutationResult` shape as create, so `value.terminal_id` is the id to attach.
 The workspace must be named by its opaque `ws_` id. The library rejects a name
 or `current` before sending anything, because the daemon would otherwise

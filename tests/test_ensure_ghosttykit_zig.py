@@ -9,13 +9,7 @@ import subprocess
 import tarfile
 import tempfile
 import unittest
-# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
-import importlib.util as _git_fixture_importlib  # noqa: E402
-from os import path as _git_fixture_path  # noqa: E402
-_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
-    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
-git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
-_git_fixture_spec.loader.exec_module(git_fixture_env)
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -53,17 +47,15 @@ class EnsureGhosttyKitZigTests(unittest.TestCase):
         hash_command = "shasum" if shutil.which("shasum") else "sha256sum"
         (bin_dir / hash_command).symlink_to(shutil.which(hash_command))
 
-        env = git_fixture_env.fixture_env({
+        env = {
             key: value for key, value in os.environ.items()
             if not key.startswith(("CMUX_GHOSTTYKIT_", "GIT_"))
-        })
+        }
         env.update(
             PATH=str(bin_dir), HOME=str(root), LC_ALL="C",
             GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull,
             CMUX_GHOSTTYKIT_CACHE_DIR=str(root / "cache"),
             CMUX_GHOSTTYKIT_NO_PREBUILT="1",
-            # The mirror prefetch (zig-fetch-all.sh) is covered by test_ghostty_cli_helper_cache.sh.
-            CMUX_GHOSTTY_PREFETCH="0",
             TEST_ROOT=str(root),
         )
         for args in (

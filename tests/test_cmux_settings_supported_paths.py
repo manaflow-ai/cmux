@@ -2,7 +2,7 @@
 """Exercise path discovery in checkout and installed layouts.
 
 Semantic validation belongs to config doctor; it must not use an ambient CLI
-or be replaced by the path inventory.
+or be replaced by the path inventory. See test_cli_config_doctor.py.
 """
 
 import json
@@ -22,7 +22,7 @@ SKILL_ROOT = REPO_ROOT / "skills" / "cmux-settings"
 # descendant paths beneath these roots (for example shortcuts.bindings).
 SETTINGS_SECTIONS = (
     "app", "terminal", "surfaceTabBar", "notifications", "sidebar", "sidebarAppearance",
-    "workspaceColors", "automation", "agentMessages", "browser", "markdown", "fileEditor",
+    "workspaceColors", "automation", "agentMessages", "chief", "browser", "markdown", "fileEditor",
     "fileExplorer", "diffViewer", "shortcuts",
 )
 
@@ -46,6 +46,12 @@ class SupportedPathsTests(unittest.TestCase):
             shutil.copyfile(
                 SKILL_ROOT / "references" / "all-keys.md",
                 skill / "references" / "all-keys.md",
+            )
+        if layout == "checkout":
+            (root / "Sources").mkdir(exist_ok=True)
+            shutil.copyfile(
+                REPO_ROOT / "Sources" / "CmuxSettingsJSONPathSupport.swift",
+                root / "Sources" / "CmuxSettingsJSONPathSupport.swift",
             )
         return script
 
@@ -82,11 +88,16 @@ class SupportedPathsTests(unittest.TestCase):
             self.assertIn("sidebar.showPorts", result.stdout.splitlines())
         self.assertEqual(checkout.stdout, installed.stdout)
 
-    def test_missing_reference_fails_with_a_reinstall_hint(self):
+    def test_missing_reference_falls_back_to_checkout_source(self):
         script = self.helper("checkout", reference=False)
         result = self.run_helper(script, "list-supported")
-        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertIn("reinstall the cmux-settings skill", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("app.workspaceInheritWorkingDirectory", result.stdout.splitlines())
+        self.assertIn("app.openSupportedFilesInCmux", result.stdout.splitlines())
+        self.assertIn("app.preferredEditor", result.stdout.splitlines())
+        self.assertIn("markdown.fontSize", result.stdout.splitlines())
+        self.assertIn("diffViewer.defaultLayout", result.stdout.splitlines())
+        self.assertNotIn("app.notARealSetting", result.stdout.splitlines())
 
     def test_list_supported_matches_schema_settings_paths(self):
         schema = json.loads((REPO_ROOT / "web" / "data" / "cmux.schema.json").read_text())
@@ -157,7 +168,7 @@ class ShortcutActionReferenceTests(unittest.TestCase):
             / "shortcut-actions.md"
         ).read_text()
         listed = set(
-            re.findall(r"^-\s+`shortcuts\.bindings\.([A-Za-z0-9.-]+)`", reference, re.M)
+            re.findall(r"^-\s+`shortcuts\.bindings\.([A-Za-z0-9-]+)`", reference, re.M)
         )
         self.assertEqual(
             sorted(set(enum) - listed),

@@ -35,13 +35,6 @@ RELAY_LAUNCHER = ROOT / "cmux-tui/dist/npm/cmux-relay/bin/cmux-relay.js"
 NPM_BUILDER = ROOT / "cmux-tui/dist/scripts/package_npm.py"
 SSH_MANIFEST = "bin/cmux-tui-ssh/manifest.json"
 BUILD_COMMIT = "0123456789abcdef0123456789abcdef01234567"
-NOTICE = "THIRD_PARTY_LICENSES.md"
-RUST_TARGETS = {
-    "darwin-arm64": "aarch64-apple-darwin",
-    "darwin-x64": "x86_64-apple-darwin",
-    "linux-x64": "x86_64-unknown-linux-musl",
-    "linux-arm64": "aarch64-unknown-linux-musl",
-}
 SSH_ARTIFACTS = {
     "cmux-tui-aarch64-unknown-linux-musl": "cmux-tui-linux-arm64",
     "cmux-tui-x86_64-unknown-linux-musl": "cmux-tui-linux-x64",
@@ -165,24 +158,6 @@ process.exit(0);
     path.chmod(0o755)
 
 
-def notice_text(kind: str, rust_target: str) -> str:
-    return f"# Third-party notices: {kind} {rust_target}\n"
-
-
-def write_notices(directory: Path) -> Path:
-    """The generated notices (package_notices.py output) the packages must carry."""
-
-    directory.mkdir(parents=True, exist_ok=True)
-    for rust_target in RUST_TARGETS.values():
-        for kind in ("cmux-tui", "relay"):
-            (directory / f"{kind}-{rust_target}.md").write_text(notice_text(kind, rust_target))
-    return directory
-
-
-def package_rust_target(name: str) -> str:
-    return RUST_TARGETS[name.split("-", 2)[2]]
-
-
 def write_ssh_manifests(root: Path) -> None:
     """Pin every platform's packaged cmux-tui in every platform package."""
 
@@ -199,7 +174,7 @@ def write_ssh_manifests(root: Path) -> None:
         path.write_text(json.dumps(manifest) + "\n")
 
 
-def make_npm_packages(root: Path, tui_version_output: str | None = None) -> None:
+def make_npm_packages(root: Path) -> None:
     root.mkdir()
     for name, (os_name, cpu) in NPM_TARGETS.items():
         package = root / name
@@ -211,28 +186,13 @@ def make_npm_packages(root: Path, tui_version_output: str | None = None) -> None
                     "version": VERSION,
                     "os": [os_name],
                     "cpu": [cpu],
-                    "files": [
-                        "bin/cmux-tui",
-                        "bin/cmux-tui-hook",
-                        "bin/cmux-agent-screen-detection",
-                        *(["bin/cmux-tui-host"] if os_name == "linux" else []),
-                        SSH_MANIFEST,
-                        NOTICE,
-                    ],
+                    "files": ["bin/cmux-tui", "bin/cmux-tui-hook", SSH_MANIFEST],
                 }
             )
             + "\n"
         )
-        (package / NOTICE).write_text(notice_text("cmux-tui", package_rust_target(name)))
-        # What the real binary prints for `--version`: the distribution release.
-        write_executable(
-            package / "bin/cmux-tui",
-            tui_version_output or f"cmux {VERSION} ({BUILD_COMMIT}; {name})",
-        )
+        write_executable(package / "bin/cmux-tui", f"cmux-tui 1.2.3 {name}")
         write_executable(package / "bin/cmux-tui-hook", "cmux-tui-hook 1.2.3")
-        write_executable(package / "bin/cmux-agent-screen-detection", "detector")
-        if os_name == "linux":
-            write_executable(package / "bin/cmux-tui-host", "cmux-tui-host")
     write_ssh_manifests(root)
 
     for name, (os_name, cpu) in RELAY_TARGETS.items():
@@ -245,12 +205,11 @@ def make_npm_packages(root: Path, tui_version_output: str | None = None) -> None
                     "version": VERSION,
                     "os": [os_name],
                     "cpu": [cpu],
-                    "files": ["bin/chatmux-relay", "bin/cmux-tui", NOTICE],
+                    "files": ["bin/chatmux-relay", "bin/cmux-tui"],
                 }
             )
             + "\n"
         )
-        (package / NOTICE).write_text(notice_text("relay", package_rust_target(name)))
         write_relay_binary_fixture(package / "bin/chatmux-relay")
         write_executable(package / "bin/cmux-tui")
 
@@ -270,10 +229,10 @@ def make_npm_packages(root: Path, tui_version_output: str | None = None) -> None
         )
         + "\n"
     )
-    # The shipped launcher: it forwards `--version` to the platform binary, whose release line
-    # the contract checks.
-    (launcher / "bin").mkdir()
-    shutil.copy2(ROOT / "cmux-tui/dist/npm/cmux/bin/cmux.js", launcher / "bin/cmux.js")
+    write_executable(
+        launcher / "bin/cmux.js",
+        "cmux launcher 1.2.3",
+    )
 
     relay_launcher = root / "cmux-relay"
     relay_launcher.mkdir()
@@ -292,16 +251,6 @@ def make_npm_packages(root: Path, tui_version_output: str | None = None) -> None
         + "\n"
     )
     write_relay_launcher_fixture(relay_launcher / "bin/cmux-relay.js")
-    write_license_files(root)
-    write_notices(root.parent / "notices")
-
-
-def write_license_files(packages: Path) -> None:
-    """Every generated npm package ships the GPL text as LICENSE."""
-
-    for package in packages.iterdir():
-        if package.is_dir():
-            (package / "LICENSE").write_text("GPL-3.0-or-later\n")
 
 
 def make_pypi_wheels(tmp_path: Path) -> Path:
@@ -315,8 +264,6 @@ def make_pypi_wheels(tmp_path: Path) -> Path:
     ):
         write_executable(binaries / f"cmux-tui-{target}")
         write_executable(binaries / f"cmux-tui-hook-{target}", "hook")
-        write_executable(binaries / f"cmux-tui-agent-screen-detection-{target}", "detector")
-        write_executable(binaries / f"cmux-tui-host-{target}", f"cmux-tui-host {target}")
 
     wheels = tmp_path / "wheels"
     result = subprocess.run(
@@ -329,8 +276,6 @@ def make_pypi_wheels(tmp_path: Path) -> Path:
             VERSION,
             "--out",
             str(wheels),
-            "--notices-dir",
-            str(write_notices(tmp_path / "notices")),
         ],
         cwd=ROOT,
         check=False,
@@ -342,13 +287,6 @@ def make_pypi_wheels(tmp_path: Path) -> Path:
 
 
 def run_validator(*args: str) -> subprocess.CompletedProcess[str]:
-    """Run the validator with the generated notices next to the packages."""
-
-    for flag in ("--npm-packages", "--pypi-wheels"):
-        if flag in args:
-            notices = Path(args[args.index(flag) + 1]).parent / "notices"
-            args = (*args, "--notices-dir", str(notices))
-            break
     return subprocess.run(
         [sys.executable, str(VALIDATOR), *args],
         cwd=ROOT,
@@ -403,30 +341,6 @@ def test_host_npm_target_rejects_unknown_architecture() -> None:
                 raise AssertionError("unknown host architecture must raise RuntimeError")
 
 
-def test_npm_contract_rejects_a_binary_that_reports_another_release(tmp_path: Path) -> None:
-    """Tester rollout: the published 0.13.4 binary printed `cmux 0.1.0 (...)`.
-
-    A tester's bug report must name the release they installed, so the
-    contract refuses a package whose binary reports a different version.
-    """
-    packages = tmp_path / "npm-packages"
-    make_npm_packages(packages, tui_version_output=f"cmux 0.1.0 ({BUILD_COMMIT})")
-
-    result = run_validator(
-        "--npm-packages",
-        str(packages),
-        "--version",
-        VERSION,
-        "--install-npm-package",
-        host_npm_target(),
-    )
-
-    assert result.returncode != 0, result.stdout
-    assert "--version" in result.stderr and VERSION in result.stderr, result.stderr
-    # The installed launcher forwards to the binary, so the refusal quotes the binary's line.
-    assert f"found 'cmux 0.1.0 ({BUILD_COMMIT})'" in result.stderr, result.stderr
-
-
 def test_npm_contract_rejects_missing_hook(tmp_path: Path) -> None:
     packages = tmp_path / "npm-packages"
     make_npm_packages(packages)
@@ -441,104 +355,6 @@ def test_npm_contract_rejects_missing_hook(tmp_path: Path) -> None:
 
     assert result.returncode != 0
     assert "cmux-tui-hook" in result.stderr
-
-
-def test_npm_contract_rejects_a_unix_package_without_the_screen_detector(tmp_path: Path) -> None:
-    # The daemon runs bin/cmux-agent-screen-detection from beside its own executable.
-    packages = tmp_path / "npm-packages"
-    make_npm_packages(packages)
-    (packages / "cmux-tui-darwin-arm64/bin/cmux-agent-screen-detection").unlink()
-
-    result = run_validator("--npm-packages", str(packages), "--version", VERSION)
-
-    assert result.returncode != 0
-    assert "cmux-agent-screen-detection" in result.stderr, result.stderr
-
-
-def test_npm_builder_ships_the_screen_detector_beside_cmux_tui(tmp_path: Path) -> None:
-    binaries = tmp_path / "binaries"
-    for target in RUST_TARGETS.values():
-        write_executable(binaries / f"cmux-tui-{target}", f"cmux-tui {target}")
-        write_executable(binaries / f"cmux-tui-hook-{target}", "hook")
-        write_executable(binaries / f"cmux-tui-agent-screen-detection-{target}", f"detector {target}")
-        write_executable(binaries / f"cmux-tui-host-{target}", f"cmux-tui-host {target}")
-        write_relay_binary_fixture(binaries / f"chatmux-relay-{target}")
-    command = [
-        sys.executable, str(NPM_BUILDER), "--binaries-dir", str(binaries), "--version", VERSION,
-        "--build-commit", BUILD_COMMIT, "--out", str(tmp_path / "npm-packages"),
-        "--notices-dir", str(write_notices(tmp_path / "notices")),
-    ]
-    built = subprocess.run(command, cwd=ROOT, check=False, capture_output=True, text=True)
-    assert built.returncode == 0, built.stderr
-    for name, target in (("cmux-tui-linux-arm64", "aarch64-unknown-linux-musl"), ("cmux-tui-darwin-x64", "x86_64-apple-darwin")):
-        package = tmp_path / "npm-packages" / name
-        shipped = package / "bin/cmux-agent-screen-detection"
-        assert shipped.read_bytes() == (binaries / f"cmux-tui-agent-screen-detection-{target}").read_bytes()
-        assert shipped.stat().st_mode & stat.S_IXUSR
-        assert "bin/cmux-agent-screen-detection" in json.loads((package / "package.json").read_text())["files"]
-
-    (binaries / "cmux-tui-agent-screen-detection-x86_64-unknown-linux-musl").unlink()
-    missing = subprocess.run(command, cwd=ROOT, check=False, capture_output=True, text=True)
-    assert missing.returncode != 0
-    assert "cmux-tui-agent-screen-detection-x86_64-unknown-linux-musl" in missing.stderr, missing.stderr
-
-
-def test_npm_contract_rejects_a_linux_package_without_the_terminal_host(tmp_path: Path) -> None:
-    # A Linux daemon runs every terminal host from bin/cmux-tui-host beside its own
-    # executable (host_exe/linux.rs, CMUX-571); without it each host maps all of cmux-tui.
-    packages = tmp_path / "npm-packages"
-    make_npm_packages(packages)
-    (packages / "cmux-tui-linux-arm64/bin/cmux-tui-host").unlink()
-
-    result = run_validator("--npm-packages", str(packages), "--version", VERSION)
-
-    assert result.returncode != 0
-    assert "cmux-tui-host" in result.stderr, result.stderr
-
-
-def test_npm_contract_rejects_a_macos_package_with_the_terminal_host(tmp_path: Path) -> None:
-    # macOS packages keep their contract: no bin/cmux-tui-host.
-    packages = tmp_path / "npm-packages"
-    make_npm_packages(packages)
-    write_executable(packages / "cmux-tui-darwin-arm64/bin/cmux-tui-host", "cmux-tui-host")
-
-    result = run_validator("--npm-packages", str(packages), "--version", VERSION)
-
-    assert result.returncode != 0
-    assert "cmux-tui-host" in result.stderr, result.stderr
-
-
-def test_npm_builder_ships_the_terminal_host_beside_cmux_tui_on_linux(tmp_path: Path) -> None:
-    binaries = tmp_path / "binaries"
-    for target in RUST_TARGETS.values():
-        write_executable(binaries / f"cmux-tui-{target}", f"cmux-tui {target}")
-        write_executable(binaries / f"cmux-tui-hook-{target}", "hook")
-        write_executable(binaries / f"cmux-tui-agent-screen-detection-{target}", "detector")
-        write_executable(binaries / f"cmux-tui-host-{target}", f"cmux-tui-host {target}")
-        write_relay_binary_fixture(binaries / f"chatmux-relay-{target}")
-    command = [
-        sys.executable, str(NPM_BUILDER), "--binaries-dir", str(binaries), "--version", VERSION,
-        "--build-commit", BUILD_COMMIT, "--out", str(tmp_path / "npm-packages"),
-        "--notices-dir", str(write_notices(tmp_path / "notices")),
-    ]
-    built = subprocess.run(command, cwd=ROOT, check=False, capture_output=True, text=True)
-    assert built.returncode == 0, built.stderr
-    for name, target in (("cmux-tui-linux-x64", "x86_64-unknown-linux-musl"), ("cmux-tui-linux-arm64", "aarch64-unknown-linux-musl")):
-        package = tmp_path / "npm-packages" / name
-        # The exact name host_exe/linux.rs looks for beside the daemon.
-        shipped = package / "bin/cmux-tui-host"
-        assert shipped.read_bytes() == (binaries / f"cmux-tui-host-{target}").read_bytes()
-        assert shipped.stat().st_mode & stat.S_IXUSR
-        assert "bin/cmux-tui-host" in json.loads((package / "package.json").read_text())["files"]
-    for name in ("cmux-tui-darwin-arm64", "cmux-tui-darwin-x64", "cmux-relay-linux-x64"):
-        assert not (tmp_path / "npm-packages" / name / "bin/cmux-tui-host").exists(), name
-    result = run_validator("--npm-packages", str(tmp_path / "npm-packages"), "--version", VERSION)
-    assert result.returncode == 0, result.stderr
-
-    (binaries / "cmux-tui-host-aarch64-unknown-linux-musl").unlink()
-    missing = subprocess.run(command, cwd=ROOT, check=False, capture_output=True, text=True)
-    assert missing.returncode != 0
-    assert "cmux-tui-host-aarch64-unknown-linux-musl" in missing.stderr, missing.stderr
 
 
 def test_npm_contract_rejects_extra_file(tmp_path: Path) -> None:
@@ -581,8 +397,6 @@ def test_npm_builder_pins_every_remote_binary_for_ssh_bootstrap(tmp_path: Path) 
     ):
         write_executable(binaries / f"cmux-tui-{target}", f"cmux-tui {target}")
         write_executable(binaries / f"cmux-tui-hook-{target}", "hook")
-        write_executable(binaries / f"cmux-tui-agent-screen-detection-{target}", "detector")
-        write_executable(binaries / f"cmux-tui-host-{target}", f"cmux-tui-host {target}")
         write_relay_binary_fixture(binaries / f"chatmux-relay-{target}")
     packages = tmp_path / "npm-packages"
     built = subprocess.run(
@@ -597,8 +411,6 @@ def test_npm_builder_pins_every_remote_binary_for_ssh_bootstrap(tmp_path: Path) 
             BUILD_COMMIT,
             "--out",
             str(packages),
-            "--notices-dir",
-            str(write_notices(tmp_path / "notices")),
         ],
         cwd=ROOT,
         check=False,
@@ -624,84 +436,6 @@ def test_npm_builder_pins_every_remote_binary_for_ssh_bootstrap(tmp_path: Path) 
     }
     result = run_validator("--npm-packages", str(packages), "--version", VERSION)
     assert result.returncode == 0, result.stderr
-
-
-def test_npm_contract_rejects_a_package_without_its_notice(tmp_path: Path) -> None:
-    packages = tmp_path / "npm-packages"
-    make_npm_packages(packages)
-    (packages / "cmux-tui-linux-x64" / NOTICE).unlink()
-
-    result = run_validator("--npm-packages", str(packages), "--version", VERSION)
-
-    assert result.returncode != 0
-    assert NOTICE in result.stderr, result.stderr
-
-
-def test_npm_contract_rejects_a_notice_that_differs_from_the_generated_one(tmp_path: Path) -> None:
-    packages = tmp_path / "npm-packages"
-    make_npm_packages(packages)
-    (packages / "cmux-relay-linux-arm64" / NOTICE).write_text("edited\n")
-
-    result = run_validator("--npm-packages", str(packages), "--version", VERSION)
-
-    assert result.returncode != 0
-    assert "cmux-relay-linux-arm64" in result.stderr and "relay-aarch64-unknown-linux-musl.md" in result.stderr, result.stderr
-
-
-def test_npm_builder_ships_the_notice_of_each_target(tmp_path: Path) -> None:
-    binaries = tmp_path / "binaries"
-    for target in RUST_TARGETS.values():
-        write_executable(binaries / f"cmux-tui-{target}", f"cmux-tui {target}")
-        write_executable(binaries / f"cmux-tui-hook-{target}", "hook")
-        write_executable(binaries / f"cmux-tui-agent-screen-detection-{target}", "detector")
-        write_executable(binaries / f"cmux-tui-host-{target}", f"cmux-tui-host {target}")
-        write_relay_binary_fixture(binaries / f"chatmux-relay-{target}")
-    notices = write_notices(tmp_path / "notices")
-    (notices / "cmux-tui-x86_64-unknown-linux-musl.md").unlink()
-    command = [
-        sys.executable, str(NPM_BUILDER), "--binaries-dir", str(binaries), "--version", VERSION,
-        "--build-commit", BUILD_COMMIT, "--out", str(tmp_path / "npm-packages"), "--notices-dir", str(notices),
-    ]
-    missing = subprocess.run(command, cwd=ROOT, check=False, capture_output=True, text=True)
-    assert missing.returncode != 0
-    assert "cmux-tui-x86_64-unknown-linux-musl.md" in missing.stderr, missing.stderr
-
-    write_notices(notices)
-    built = subprocess.run(command, cwd=ROOT, check=False, capture_output=True, text=True)
-    assert built.returncode == 0, built.stderr
-    package = tmp_path / "npm-packages" / "cmux-tui-linux-x64"
-    assert (package / NOTICE).read_text() == notice_text("cmux-tui", "x86_64-unknown-linux-musl")
-    assert NOTICE in json.loads((package / "package.json").read_text())["files"]
-    relay = tmp_path / "npm-packages" / "cmux-relay-darwin-arm64"
-    assert (relay / NOTICE).read_text() == notice_text("relay", "aarch64-apple-darwin")
-
-
-def test_pypi_wheels_ship_the_notice_as_a_license_file(tmp_path: Path) -> None:
-    import zipfile
-
-    wheels = make_pypi_wheels(tmp_path)
-    dist_info = f"cmux-{VERSION}.dist-info"
-    for tag, target in (
-        ("musllinux_1_2_x86_64", "x86_64-unknown-linux-musl"),
-        ("manylinux_2_17_aarch64.manylinux2014_aarch64", "aarch64-unknown-linux-musl"),
-        ("macosx_11_0_arm64", "aarch64-apple-darwin"),
-    ):
-        with zipfile.ZipFile(wheels / f"cmux-{VERSION}-py3-none-{tag}.whl") as archive:
-            assert archive.read(f"{dist_info}/licenses/{NOTICE}").decode() == notice_text("cmux-tui", target)
-            metadata = archive.read(f"{dist_info}/METADATA").decode()
-        assert f"License-File: {NOTICE}\n" in metadata
-
-
-def test_pypi_contract_rejects_a_wheel_whose_notice_differs(tmp_path: Path) -> None:
-    import zipfile
-
-    wheels = make_pypi_wheels(tmp_path)
-    (tmp_path / "notices" / "cmux-tui-x86_64-apple-darwin.md").write_text("regenerated\n")
-
-    result = run_validator("--pypi-wheels", str(wheels), "--version", VERSION)
-
-    assert result.returncode != 0
-    assert "macosx_10_12_x86_64" in result.stderr and NOTICE in result.stderr, result.stderr
 
 
 def test_relay_launcher_preserves_native_signal_exit_status(tmp_path: Path) -> None:
@@ -774,51 +508,6 @@ def test_pypi_contract_requires_all_six_wheels_and_metadata(tmp_path: Path) -> N
     assert "expected" in result.stderr.lower()
 
 
-def test_pypi_linux_wheels_ship_the_terminal_host(tmp_path: Path) -> None:
-    import zipfile
-
-    wheels = make_pypi_wheels(tmp_path)
-    binaries = tmp_path / "binaries"
-    for tag, target in (
-        ("musllinux_1_2_x86_64", "x86_64-unknown-linux-musl"),
-        ("manylinux_2_17_x86_64.manylinux2014_x86_64", "x86_64-unknown-linux-musl"),
-        ("musllinux_1_2_aarch64", "aarch64-unknown-linux-musl"),
-        ("manylinux_2_17_aarch64.manylinux2014_aarch64", "aarch64-unknown-linux-musl"),
-    ):
-        with zipfile.ZipFile(wheels / f"cmux-{VERSION}-py3-none-{tag}.whl") as archive:
-            info = archive.getinfo("cmux_tui/bin/cmux-tui-host")
-            assert archive.read(info) == (binaries / f"cmux-tui-host-{target}").read_bytes()
-            assert (info.external_attr >> 16) & 0o777 == 0o755
-    for tag in ("macosx_11_0_arm64", "macosx_10_12_x86_64"):
-        with zipfile.ZipFile(wheels / f"cmux-{VERSION}-py3-none-{tag}.whl") as archive:
-            assert "cmux_tui/bin/cmux-tui-host" not in archive.namelist()
-
-    # A Linux wheel without it fails the contract.
-    wheel = wheels / f"cmux-{VERSION}-py3-none-musllinux_1_2_aarch64.whl"
-    rewritten = tmp_path / "rewritten.whl"
-    with zipfile.ZipFile(wheel) as source, zipfile.ZipFile(rewritten, "w") as target:
-        for info in source.infolist():
-            if info.filename != "cmux_tui/bin/cmux-tui-host":
-                target.writestr(info, source.read(info.filename))
-    wheel.unlink()
-    rewritten.rename(wheel)
-    result = run_validator("--pypi-wheels", str(wheels), "--version", VERSION)
-    assert result.returncode != 0
-    assert "cmux-tui-host" in result.stderr, result.stderr
-
-    # And the builder refuses a Linux target without its terminal host.
-    (binaries / "cmux-tui-host-x86_64-unknown-linux-musl").unlink()
-    missing = subprocess.run(
-        [
-            sys.executable, str(PYPI_BUILDER), "--binaries-dir", str(binaries), "--version", VERSION,
-            "--out", str(tmp_path / "wheels-again"), "--notices-dir", str(tmp_path / "notices"),
-        ],
-        cwd=ROOT, check=False, capture_output=True, text=True,
-    )
-    assert missing.returncode != 0
-    assert "cmux-tui-host-x86_64-unknown-linux-musl" in missing.stderr, missing.stderr
-
-
 def test_pypi_contract_rejects_non_executable_hook(tmp_path: Path) -> None:
     wheels = make_pypi_wheels(tmp_path)
     wheel = next(wheels.glob("*.whl"))
@@ -850,7 +539,6 @@ def main() -> None:
         test_npm_contract_packs_and_installs_matching_platform,
         test_npm_relay_contract_installs_and_runs_isolated_smoke,
         lambda _directory: test_host_npm_target_rejects_unknown_architecture(),
-        test_npm_contract_rejects_a_binary_that_reports_another_release,
         test_npm_contract_rejects_missing_hook,
         test_npm_contract_rejects_extra_file,
         test_npm_contract_rejects_ssh_digest_that_differs_from_the_packaged_binary,
@@ -858,15 +546,6 @@ def main() -> None:
         test_relay_launcher_preserves_native_signal_exit_status,
         test_pypi_contract_requires_all_six_wheels_and_metadata,
         test_pypi_contract_rejects_non_executable_hook,
-        test_npm_contract_rejects_a_package_without_its_notice,
-        test_npm_contract_rejects_a_notice_that_differs_from_the_generated_one,
-        test_npm_builder_ships_the_notice_of_each_target,
-        test_pypi_wheels_ship_the_notice_as_a_license_file,
-        test_pypi_contract_rejects_a_wheel_whose_notice_differs,
-        test_npm_contract_rejects_a_linux_package_without_the_terminal_host,
-        test_npm_contract_rejects_a_macos_package_with_the_terminal_host,
-        test_npm_builder_ships_the_terminal_host_beside_cmux_tui_on_linux,
-        test_pypi_linux_wheels_ship_the_terminal_host,
     )
     for test in tests:
         with tempfile.TemporaryDirectory(prefix="cmux-tui-contract-test-") as directory:

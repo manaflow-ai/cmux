@@ -3,7 +3,17 @@
 //! its mode line, and the page scroll actions.
 
 use super::*;
-use crate::app::host_input::KeyboardIngress;
+use crate::app::KeyboardIngress;
+use crate::config::Action;
+use crate::localization;
+use crate::session::Session;
+
+/// Drain session mutation settlements, as main's other App tests do.
+fn settle_pending_mutations(app: &mut App, events: &Receiver<AppEvent>) {
+    while app.session.has_pending_mutations() {
+        app.handle(events.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+    }
+}
 
 fn key(c: char) -> KeyEvent {
     KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)

@@ -292,10 +292,6 @@
         },
         "fields": {"$ref": "#/$defs/objectFields"},
         "extra": {"const": false},
-        "unknown_params": {
-          "const": "refuse",
-          "description": "Refuse a parameter the catalog does not declare (validation.invalid). Absent: the daemon drops it and runs the request."
-        },
         "constraints": {
           "type": "array",
           "items": {"type": "string", "minLength": 1}
@@ -375,7 +371,6 @@
         "class": {
           "enum": ["read", "mutation", "stream_open", "connection_control"]
         },
-        "risk": {"enum": ["read", "mutate-own", "mutate-shared", "execute", "send-external", "destructive"], "description": "What the operation can affect when it differs from what its class says; the app platform derives a permission scope from it (send-external: <family>:external)."},
         "idempotency": {"$ref": "#/$defs/idempotency"},
         "target": {"$ref": "#/$defs/scope"},
         "ancestors": {

@@ -17,8 +17,6 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use crate::panic_free::RecoverPoison;
-
 #[cfg(windows)]
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
 #[cfg(windows)]
@@ -37,8 +35,8 @@ use windows_sys::Win32::System::Threading::{
     THREAD_SUSPEND_RESUME,
 };
 
-/// Child-exit re-check period where no exit waiter exists (Windows, or a
-/// unix child whose waiter thread could not start).
+/// Child-exit re-check period where no exit waiter exists (Windows).
+#[cfg(not(unix))]
 const SUPERVISOR_WAIT: Duration = Duration::from_millis(500);
 const MAX_RESTART_DELAY: Duration = Duration::from_secs(30);
 const MAX_PLUGIN_COMMAND_ARGS: usize = 256;
@@ -49,21 +47,6 @@ const MAX_PLUGIN_COMMAND_ARG_BYTES: usize = 4096;
 const STABLE_RUNTIME: Duration = Duration::from_secs(30);
 
 pub(crate) type JournalPluginExitHandler = Arc<dyn Fn(&str, u64) + Send + Sync + 'static>;
-
-/// One restart that the supervisor scheduled after a child exit or a failed launch. Numbers
-/// only: no plugin id and no exit text.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct JournalPluginRestart {
-    /// The restarts since the daemon started. Nothing resets it.
-    pub(crate) restarts: u64,
-    /// The failures in a row: 1 again after a child that lived for [`STABLE_RUNTIME`].
-    pub(crate) failures: u32,
-    /// The wait before the next launch.
-    pub(crate) delay: Duration,
-}
-
-pub(crate) type JournalPluginRestartHandler =
-    Arc<dyn Fn(JournalPluginRestart) + Send + Sync + 'static>;
 
 /// A plugin child plus the OS-owned boundary used to stop its descendants.
 /// The supervisor must own the whole process tree: a plugin helper that keeps
@@ -221,30 +204,6 @@ fn resume_suspended_journal_plugin(child: &Child) -> std::io::Result<()> {
     result
 }
 
-/// See [`JournalPluginRuntime::hold_waiter`].
-pub(crate) struct JournalPluginHoldWaiter {
-    state: Arc<(Mutex<SupervisorState>, Condvar)>,
-}
-
-impl JournalPluginHoldWaiter {
-    /// Block until an `on_demand` plugin is configured and held (true), or
-    /// until it can never be: it was demanded or the runtime shut down
-    /// (false). Configuration changes wake it; nothing else does.
-    pub(crate) fn wait_until_held(&self) -> bool {
-        let (lock, changed) = &*self.state;
-        let mut state = lock.lock().unwrap_or_else(|error| error.into_inner());
-        loop {
-            if state.demanded || state.stopping {
-                return false;
-            }
-            if state.options.as_ref().is_some_and(|options| options.on_demand) {
-                return true;
-            }
-            state = changed.wait(state).unwrap_or_else(|error| error.into_inner());
-        }
-    }
-}
-
 /// A configured userland journal plugin.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JournalPluginOptions {
@@ -258,11 +217,6 @@ pub struct JournalPluginOptions {
     /// Artifact revision. A changed revision restarts a running child even
     /// when its command and working directory stay the same.
     pub revision: Option<String>,
-    /// Start the process only once the daemon calls
-    /// [`JournalPluginRuntime::demand`]: the bundled screen detector, which
-    /// reads only the screens of running programs, waits for the first one
-    /// (`mux/journal_plugin_demand.rs`). `false` starts it with the socket.
-    pub on_demand: bool,
 }
 
 impl JournalPluginOptions {
@@ -282,10 +236,6 @@ impl JournalPluginOptions {
         anyhow::ensure!(
             self.id != crate::AGENT_HOOK_PRODUCER_ID,
             "journal plugin id is reserved for the built-in agent hook producer"
-        );
-        anyhow::ensure!(
-            self.id != crate::shell_history::SHELL_PRODUCER_ID,
-            "journal plugin id is reserved for the built-in shell producer"
         );
         let Some(executable) = self.command.first() else {
             anyhow::bail!("journal plugin command must not be empty");
@@ -331,21 +281,12 @@ struct SupervisorState {
     child: Option<JournalPluginChild>,
     restart_at: Option<Instant>,
     failures: u32,
-    /// The restarts since the daemon started (`JournalPluginRestart::restarts`).
-    restarts: u64,
     child_started_at: Option<Instant>,
     started: bool,
-    /// [`JournalPluginRuntime::demand`] was called: an `on_demand` plugin
-    /// may start. It stays set for the daemon's life.
-    demanded: bool,
     stopping: bool,
     generation: u64,
     child_generation: Option<u64>,
     exit_handler: Option<JournalPluginExitHandler>,
-    restart_handler: Option<JournalPluginRestartHandler>,
-    /// The running child has no exit-waiter thread (it could not start), so
-    /// the supervisor falls back to a timed `try_wait` for that child.
-    exit_waiter_missing: bool,
 }
 
 /// Owns one plugin process and restarts failed children until shutdown. The
@@ -415,61 +356,6 @@ impl JournalPluginRuntime {
         lock.lock().unwrap_or_else(|error| error.into_inner()).exit_handler = handler;
     }
 
-    /// Install the callback that gets each restart the supervisor schedules (a child exit or a
-    /// failed launch). The callback runs without the supervisor mutex held.
-    pub(crate) fn set_restart_handler(&self, handler: Option<JournalPluginRestartHandler>) {
-        let (lock, _) = &*self.state;
-        lock.lock().unwrap_or_else(|error| error.into_inner()).restart_handler = handler;
-    }
-
-    /// The running child's process group (the child leads its own), or
-    /// `None` while no child runs. The supervisor holds its lock from the
-    /// spawn until the child is recorded, so a connection the child makes
-    /// can never be checked before its group is known here.
-    #[cfg(unix)]
-    pub(crate) fn process_group(&self) -> Option<libc::pid_t> {
-        let (lock, _) = &*self.state;
-        let state = lock.lock().unwrap_or_else(|error| error.into_inner());
-        state.child.as_ref().map(|child| child.process_group_id).filter(|group| *group > 0)
-    }
-
-    /// Let an `on_demand` plugin start (no-op for any other, and after the
-    /// first call). Returns whether this call released a held plugin.
-    pub fn demand(&self) -> bool {
-        let (lock, changed) = &*self.state;
-        let mut state = lock.lock().unwrap_or_else(|error| error.into_inner());
-        if state.demanded {
-            return false;
-        }
-        state.demanded = true;
-        let released = state.options.as_ref().is_some_and(|options| options.on_demand);
-        changed.notify_all();
-        released
-    }
-
-    /// Whether an `on_demand` plugin is configured and still held (not
-    /// yet demanded, the runtime not shut down).
-    pub fn held(&self) -> bool {
-        let (lock, _) = &*self.state;
-        let state = lock.lock().unwrap_or_else(|error| error.into_inner());
-        !state.demanded
-            && !state.stopping
-            && state.options.as_ref().is_some_and(|options| options.on_demand)
-    }
-
-    /// Whether [`JournalPluginRuntime::demand`] was called.
-    pub fn demanded(&self) -> bool {
-        let (lock, _) = &*self.state;
-        lock.lock().unwrap_or_else(|error| error.into_inner()).demanded
-    }
-
-    /// A handle that blocks until an `on_demand` plugin is held, for the
-    /// daemon's demand watch (`mux/journal_plugin_demand.rs`). It holds the
-    /// supervisor's state, not the runtime.
-    pub(crate) fn hold_waiter(&self) -> JournalPluginHoldWaiter {
-        JournalPluginHoldWaiter { state: Arc::clone(&self.state) }
-    }
-
     /// Starts supervision after the local socket has been bound. This ordering
     /// gives the plugin an authoritative socket path and avoids a startup race.
     pub fn start(&self, socket: PathBuf, session: String) {
@@ -507,9 +393,7 @@ impl JournalPluginRuntime {
                 .name("cmux-journal-plugin".into())
                 .spawn(move || supervise(shared));
             match handle {
-                Ok(handle) => {
-                    *self.thread.lock().recover_poison() = Some(handle);
-                }
+                Ok(handle) => *self.thread.lock().unwrap() = Some(handle),
                 Err(error) => {
                     state.started = false;
                     eprintln!("cmux-tui: journal plugin supervisor did not start: {error}");
@@ -541,7 +425,7 @@ impl JournalPluginRuntime {
         if let (Some(handler), Some((plugin_id, generation))) = retired {
             handler(&plugin_id, generation);
         }
-        if let Some(handle) = self.thread.lock().recover_poison().take()
+        if let Some(handle) = self.thread.lock().unwrap().take()
             && handle.join().is_err()
         {
             eprintln!("cmux-tui: journal plugin supervisor panicked during shutdown");
@@ -558,9 +442,8 @@ impl Drop for JournalPluginRuntime {
 /// Blocks until the plugin process exits, without reaping it (WNOWAIT, so
 /// the supervisor's `try_wait` still gets the status), then wakes the
 /// supervisor. Replaces the supervisor's 500 ms `try_wait` poll.
-/// Returns false when the thread could not start.
 #[cfg(unix)]
-fn spawn_exit_waiter(shared: Arc<(Mutex<SupervisorState>, Condvar)>, pid: u32) -> bool {
+fn spawn_exit_waiter(shared: Arc<(Mutex<SupervisorState>, Condvar)>, pid: u32) {
     let spawned = thread::Builder::new().name("cmux-journal-plugin-wait".into()).spawn(move || {
         loop {
             // SAFETY: `info` is a zeroed siginfo_t that waitid fills in.
@@ -583,12 +466,8 @@ fn spawn_exit_waiter(shared: Arc<(Mutex<SupervisorState>, Condvar)>, pid: u32) -
         let _state = lock.lock().unwrap_or_else(|error| error.into_inner());
         changed.notify_all();
     });
-    match spawned {
-        Ok(_) => true,
-        Err(error) => {
-            eprintln!("cmux-tui: journal plugin exit waiter did not start: {error}");
-            false
-        }
+    if let Err(error) = spawned {
+        eprintln!("cmux-tui: journal plugin exit waiter did not start: {error}");
     }
 }
 
@@ -607,18 +486,14 @@ fn supervise(shared: Arc<(Mutex<SupervisorState>, Condvar)>) {
                 Ok(Some(status)) => {
                     eprintln!("cmux-tui: journal plugin exited with {status}");
                     let (exited_generation, child_started_at) = mark_child_exit(&mut state, false);
-                    let restart = note_child_failure(&mut state, Instant::now(), child_started_at);
+                    note_child_failure(&mut state, Instant::now(), child_started_at);
                     let exit_handler = state.exit_handler.clone();
-                    let restart_handler = state.restart_handler.clone();
                     let plugin_id = state.options.as_ref().map(|options| options.id.clone());
                     drop(state);
                     if let (Some(handler), Some(plugin_id), Some(generation)) =
                         (exit_handler, plugin_id, exited_generation)
                     {
                         handler(&plugin_id, generation);
-                    }
-                    if let Some(handler) = restart_handler {
-                        handler(restart);
                     }
                     continue;
                 }
@@ -626,11 +501,7 @@ fn supervise(shared: Arc<(Mutex<SupervisorState>, Condvar)>) {
                     // A waiter thread notifies `changed` when the child
                     // exits (unix), so this wait needs no period.
                     #[cfg(unix)]
-                    if state.exit_waiter_missing {
-                        let _ = changed.wait_timeout(state, SUPERVISOR_WAIT);
-                    } else {
-                        drop(changed.wait(state));
-                    }
+                    drop(changed.wait(state));
                     #[cfg(not(unix))]
                     let _ = changed.wait_timeout(state, SUPERVISOR_WAIT);
                     continue;
@@ -638,18 +509,14 @@ fn supervise(shared: Arc<(Mutex<SupervisorState>, Condvar)>) {
                 Err(error) => {
                     eprintln!("cmux-tui: cannot inspect journal plugin: {error}");
                     let (exited_generation, child_started_at) = mark_child_exit(&mut state, true);
-                    let restart = note_child_failure(&mut state, Instant::now(), child_started_at);
+                    note_child_failure(&mut state, Instant::now(), child_started_at);
                     let exit_handler = state.exit_handler.clone();
-                    let restart_handler = state.restart_handler.clone();
                     let plugin_id = state.options.as_ref().map(|options| options.id.clone());
                     drop(state);
                     if let (Some(handler), Some(plugin_id), Some(generation)) =
                         (exit_handler, plugin_id, exited_generation)
                     {
                         handler(&plugin_id, generation);
-                    }
-                    if let Some(handler) = restart_handler {
-                        handler(restart);
                     }
                     continue;
                 }
@@ -666,12 +533,6 @@ fn supervise(shared: Arc<(Mutex<SupervisorState>, Condvar)>) {
             drop(changed.wait(state));
             continue;
         };
-        if options.on_demand && !state.demanded {
-            // Held until the daemon sees a program to read
-            // (`JournalPluginRuntime::demand` notifies `changed`).
-            drop(changed.wait(state));
-            continue;
-        }
         if let Some(wait) =
             state.restart_at.and_then(|at| at.checked_duration_since(Instant::now()))
             && !wait.is_zero()
@@ -685,10 +546,7 @@ fn supervise(shared: Arc<(Mutex<SupervisorState>, Condvar)>) {
         match spawn_plugin(&options, &socket, &session, generation) {
             Ok(child) => {
                 #[cfg(unix)]
-                {
-                    state.exit_waiter_missing =
-                        !spawn_exit_waiter(Arc::clone(&shared), child.child.id());
-                }
+                spawn_exit_waiter(Arc::clone(&shared), child.child.id());
                 state.child = Some(child);
                 state.child_generation = Some(generation);
                 state.child_started_at = Some(Instant::now());
@@ -696,12 +554,7 @@ fn supervise(shared: Arc<(Mutex<SupervisorState>, Condvar)>) {
             }
             Err(error) => {
                 eprintln!("cmux-tui: journal plugin failed to start: {error}");
-                let restart = note_child_failure(&mut state, Instant::now(), None);
-                let restart_handler = state.restart_handler.clone();
-                drop(state);
-                if let Some(handler) = restart_handler {
-                    handler(restart);
-                }
+                note_child_failure(&mut state, Instant::now(), None);
             }
         }
     }
@@ -713,20 +566,14 @@ fn spawn_plugin(
     session: &str,
     generation: u64,
 ) -> anyhow::Result<JournalPluginChild> {
-    let Some((program, args)) = options.command.split_first() else {
-        anyhow::bail!("journal plugin command is empty");
-    };
-    let mut command = Command::new(program);
+    let mut command = Command::new(&options.command[0]);
     command
-        .args(args)
+        .args(&options.command[1..])
         .env("CMUX_TUI_SOCKET", socket)
         .env("CMUX_MUX_SOCKET", socket)
         .env("CMUX_TUI_SESSION_ID", session)
         .env("CMUX_PLUGIN_ID", &options.id)
         .env("CMUX_PLUGIN_GENERATION", generation.to_string())
-        // The plugin exits when this pid exits, so a `kill -9` of the daemon
-        // does not leave an orphan that reconnects to the next daemon.
-        .env("CMUX_PLUGIN_HOST_PID", std::process::id().to_string())
         .env("CMUX_PLUGIN_PROTOCOL_VERSION", "1")
         .env("CMUX_PLUGIN_KIND", "journal")
         .env("CMUX_JOURNAL_PLUGIN", "1")
@@ -821,21 +668,17 @@ fn mark_child_exit(
 /// Account for a failed launch or child exit. A child that lived through the
 /// stability window resets the accumulated crash-loop budget; a short-lived
 /// child advances it. Keeping this policy in the generic supervisor avoids
-/// embedding agent-specific assumptions in the host. Returns the restart it
-/// scheduled, for the restart handler.
+/// embedding agent-specific assumptions in the host.
 fn note_child_failure(
     state: &mut SupervisorState,
     now: Instant,
     child_started_at: Option<Instant>,
-) -> JournalPluginRestart {
+) {
     if child_started_at.is_some_and(|started_at| now.duration_since(started_at) >= STABLE_RUNTIME) {
         state.failures = 0;
     }
     state.failures = state.failures.saturating_add(1);
-    state.restarts = state.restarts.saturating_add(1);
-    let delay = restart_delay(state.failures);
-    state.restart_at = Some(now + delay);
-    JournalPluginRestart { restarts: state.restarts, failures: state.failures, delay }
+    state.restart_at = Some(now + restart_delay(state.failures));
 }
 
 fn restart_delay(failures: u32) -> Duration {
@@ -848,5 +691,129 @@ fn next_generation(current: u64) -> u64 {
 }
 
 #[cfg(test)]
-#[path = "journal_plugin_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn options_reject_empty_or_unsafe_commands() {
+        let invalid = JournalPluginOptions {
+            id: "valid_id".into(),
+            command: vec![],
+            cwd: None,
+            revision: None,
+        };
+        assert!(invalid.validate().is_err());
+        let too_many = JournalPluginOptions {
+            id: "valid_id".into(),
+            command: (0..=MAX_PLUGIN_COMMAND_ARGS)
+                .map(|index| format!("/tmp/plugin-{index}"))
+                .collect(),
+            cwd: None,
+            revision: None,
+        };
+        assert!(too_many.validate().is_err());
+        let invalid_cwd = JournalPluginOptions {
+            id: "valid_id".into(),
+            command: vec!["/tmp/detector".into()],
+            cwd: Some("/tmp/with\0nul".into()),
+            revision: None,
+        };
+        assert!(invalid_cwd.validate().is_err());
+        let reserved = JournalPluginOptions {
+            id: crate::AGENT_HOOK_PRODUCER_ID.into(),
+            command: vec!["/tmp/detector".into()],
+            cwd: None,
+            revision: None,
+        };
+        assert!(reserved.validate().is_err());
+        let valid = JournalPluginOptions {
+            id: "screen_detector".into(),
+            command: vec!["/tmp/detector".into()],
+            cwd: None,
+            revision: Some("abc".into()),
+        };
+        assert!(valid.validate().is_ok());
+    }
+
+    #[test]
+    fn restart_delay_is_bounded() {
+        assert_eq!(restart_delay(1), Duration::from_secs(1));
+        assert_eq!(restart_delay(6), Duration::from_secs(32).min(MAX_RESTART_DELAY));
+    }
+
+    #[test]
+    fn unexpected_restart_advances_the_generation_fence() {
+        assert_eq!(next_generation(0), 1);
+        assert_eq!(next_generation(41), 42);
+        assert_eq!(next_generation(u64::MAX), 1);
+
+        let mut state = SupervisorState {
+            generation: 1,
+            child_generation: Some(1),
+            ..SupervisorState::default()
+        };
+        assert_eq!(mark_child_exit(&mut state, false), (Some(1), None));
+        assert_eq!(state.generation, 2);
+        assert!(state.child_generation.is_none());
+    }
+
+    #[test]
+    fn crash_backoff_accumulates_for_short_lived_children() {
+        let started = Instant::now();
+        let mut state = SupervisorState {
+            failures: 2,
+            child_started_at: Some(started),
+            ..SupervisorState::default()
+        };
+
+        let child_started_at = state.child_started_at.take();
+        note_child_failure(&mut state, started + Duration::from_secs(5), child_started_at);
+
+        assert_eq!(state.failures, 3);
+        assert_eq!(state.restart_at, Some(started + Duration::from_secs(9)));
+    }
+
+    #[test]
+    fn stable_children_reset_the_crash_backoff_budget() {
+        let started = Instant::now();
+        let mut state = SupervisorState {
+            failures: 5,
+            child_started_at: Some(started),
+            ..SupervisorState::default()
+        };
+
+        let child_started_at = state.child_started_at.take();
+        note_child_failure(&mut state, started + STABLE_RUNTIME, child_started_at);
+
+        assert_eq!(state.failures, 1);
+        assert_eq!(state.restart_at, Some(started + STABLE_RUNTIME + Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn persisted_start_generation_is_not_reduced_after_configuration() {
+        let runtime = JournalPluginRuntime::default();
+        runtime.configure(Some(JournalPluginOptions {
+            id: "screen_detector".into(),
+            command: vec!["/tmp/screen-detector".into()],
+            cwd: None,
+            revision: None,
+        }));
+
+        runtime.start_with_generation_seed(
+            PathBuf::from("/tmp/cmux-tui-test.sock"),
+            "main".into(),
+            17,
+        );
+        let generation = runtime.state.0.lock().unwrap().generation;
+        assert_eq!(generation, 17);
+        runtime.shutdown();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_runtime_can_cross_thread_boundaries() {
+        fn assert_send_sync<T: Send + Sync>() {}
+
+        assert_send_sync::<JournalPluginRuntime>();
+    }
+}

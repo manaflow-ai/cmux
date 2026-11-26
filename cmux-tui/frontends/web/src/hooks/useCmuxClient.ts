@@ -14,8 +14,12 @@ import {
   type Tree,
 } from "cmux/raw";
 import { browserClientName } from "../lib/clientName";
-import { createCoalescedRefresh, type CoalescedRefresh } from "../lib/coalescedRefresh";
-import { initialLocalSelectionState, localSelectionReducer, selectionSnapshot } from "../lib/localSelection";
+import { createCoalescedRefresh } from "../lib/coalescedRefresh";
+import {
+  initialLocalSelectionState,
+  localSelectionReducer,
+  selectionSnapshot,
+} from "../lib/localSelection";
 import { reconnectTransition, type ReconnectState } from "../lib/reconnect";
 import { SUPPORTED_PROTOCOL, supportsProtocol } from "../lib/protocol";
 import { activeScreen, locateSurface, SurfaceTitleReconciler, treeToViewModel } from "../lib/tree";
@@ -72,9 +76,6 @@ export function useCmuxClient() {
     const pendingSurfaceTitles = new Map<Id, string>();
     let titleReconciler = new SurfaceTitleReconciler();
     let clientPresenceGeneration = 0;
-    let transportGeneration = 0;
-    let treeRefreshQueue: CoalescedRefresh | null = null;
-    let clientsRefreshQueue: CoalescedRefresh | null = null;
 
     const discardPendingSurfaceTitles = () => {
       if (titleFlushTimer !== undefined) clearTimeout(titleFlushTimer);
@@ -85,74 +86,45 @@ export function useCmuxClient() {
       titleFlushTimer = undefined;
       if (cancelled || pendingSurfaceTitles.size === 0) return;
       pendingSurfaceTitles.clear();
-      setState((current) =>
-        current.tree === null ? current : { ...current, tree: titleReconciler.apply(current.tree) },
-      );
+      setState((current) => current.tree === null
+        ? current
+        : { ...current, tree: titleReconciler.apply(current.tree) });
     };
-    const queueSurfaceTitle = (surface: Id, title: string, text: string | undefined) => {
-      titleReconciler.record(surface, title, text);
+    const queueSurfaceTitle = (surface: Id, title: string) => {
+      titleReconciler.record(surface, title);
       pendingSurfaceTitles.set(surface, title);
       titleFlushTimer ??= setTimeout(flushSurfaceTitles, 0);
     };
 
-    const refresh = async (
-      client: CmuxClient | null = activeClient,
-      reconciler: SurfaceTitleReconciler = titleReconciler,
-    ) => {
-      if (!client) return null;
+    const refresh = async () => {
+      if (!activeClient) return null;
       discardPendingSurfaceTitles();
-      const token = reconciler.beginRefresh();
-      const tree = await client.listWorkspaces();
-      // A reconnect may replace both the client and title reconciler while a
-      // snapshot is in flight. Its result belongs to the old generation and
-      // must not overwrite the new workspace tree.
-      if (cancelled || client !== activeClient || reconciler !== titleReconciler) return null;
-      const committed = reconciler.commit(tree, token);
-      if (committed.applied) {
+      const token = titleReconciler.beginRefresh();
+      const tree = await activeClient.listWorkspaces();
+      const committed = titleReconciler.commit(tree, token);
+      if (!cancelled && committed.applied) {
         setState((current) => ({ ...current, tree: committed.tree }));
         dispatchSelection({ type: "tree-updated", snapshot: selectionSnapshot(committed.tree) });
       }
       return committed.tree;
     };
-
-    const cancelRefreshQueues = () => {
-      treeRefreshQueue?.cancel();
-      clientsRefreshQueue?.cancel();
-      treeRefreshQueue = null;
-      clientsRefreshQueue = null;
-    };
-    const makeRefreshQueues = (generation: number, client: CmuxClient, reconciler: SurfaceTitleReconciler) => {
-      cancelRefreshQueues();
-      const queueTreeRefresh = createCoalescedRefresh(async () => {
-        await refresh(client, reconciler);
-      });
-      const queueClientsRefresh = createCoalescedRefresh(async () => {
-        const presenceGeneration = clientPresenceGeneration;
-        const clients = await client.listClients();
-        if (
-          !cancelled &&
-          client === activeClient &&
-          generation === transportGeneration &&
-          presenceGeneration === clientPresenceGeneration
-        ) {
-          setState((current) => ({ ...current, clients }));
-        }
-      });
-      treeRefreshQueue = queueTreeRefresh;
-      clientsRefreshQueue = queueClientsRefresh;
-      clientsRefreshRef.current = queueClientsRefresh;
-      return { queueClientsRefresh, queueTreeRefresh };
-    };
+    const queueClientsRefresh = createCoalescedRefresh(async () => {
+      if (!activeClient) return;
+      const generation = clientPresenceGeneration;
+      const clients = await activeClient.listClients();
+      if (!cancelled && generation === clientPresenceGeneration) {
+        setState((current) => ({ ...current, clients }));
+      }
+    });
+    clientsRefreshRef.current = queueClientsRefresh;
     refreshRef.current = refresh;
 
     const start = async (reconnecting: boolean, previousAttempt = 0): Promise<void> => {
       if (cancelled) return;
-      const generation = ++transportGeneration;
       // Retained title events belong to one transport generation. A restarted
       // server may reuse surface IDs, so no title state may cross reconnects.
       discardPendingSurfaceTitles();
       titleReconciler = new SurfaceTitleReconciler();
-      clientPresenceGeneration += 1;
       let dropHandled = false;
       let canReconnect = false;
       const transport = new WebSocketTransport(config.url, {
@@ -172,14 +144,10 @@ export function useCmuxClient() {
       });
       const client = new CmuxClient({ transport });
       activeClient = client;
-      const reconciler = titleReconciler;
-      const { queueClientsRefresh, queueTreeRefresh } = makeRefreshQueues(generation, client, reconciler);
 
       const scheduleRetry = () => {
-        if (cancelled || dropHandled || generation !== transportGeneration) return;
+        if (cancelled || dropHandled) return;
         dropHandled = true;
-        activeClient = null;
-        cancelRefreshQueues();
         const step = reconnectTransition({ attempt: previousAttempt, delayMs: 0 }, "retry");
         setState((current) => ({
           ...current,
@@ -199,19 +167,20 @@ export function useCmuxClient() {
         const info = await client.identify();
         if (info.app !== "cmux-tui") throw new Error(t("wrongApp", { app: info.app }));
         if (!supportsProtocol(info.protocol)) {
-          throw new Error(
-            t("wrongProtocol", {
-              required: SUPPORTED_PROTOCOL,
-              protocol: info.protocol,
-            }),
-          );
+          throw new Error(t("wrongProtocol", {
+            required: SUPPORTED_PROTOCOL,
+            protocol: info.protocol,
+          }));
         }
         // Presence commands are additive (7c5a9e3e60); a protocol-6 server
         // predating them still serves everything else, so degrade instead of
         // failing the whole connect.
         await client.setClientInfo(browserClientName(), "web").catch(() => undefined);
         const events = await client.subscribe();
-        const [tree, clients] = await Promise.all([client.listWorkspaces(), client.listClients().catch(() => [])]);
+        const [tree, clients] = await Promise.all([
+          client.listWorkspaces(),
+          client.listClients().catch(() => []),
+        ]);
         if (cancelled) return;
         canReconnect = true;
         // A successful (re)connect resets the retry baseline so the next drop
@@ -243,13 +212,10 @@ export function useCmuxClient() {
               scheduleRetry();
               return;
             }
-            if (cancelled || generation !== transportGeneration) return;
+            if (cancelled) return;
             if (event.event === "notification") {
               const notification = event as NotificationEvent;
-              // `desktop: false` (`notify --desktop false`): no toast, the unread mark stays.
-              if (notification.desktop !== false) {
-                setToasts((current) => [...current.slice(-2), notification]);
-              }
+              setToasts((current) => [...current.slice(-2), notification]);
               if (notification.surface !== null) {
                 setUnread((current) => new Set(current).add(notification.surface!));
               }
@@ -258,9 +224,9 @@ export function useCmuxClient() {
               const changed = event as TitleChangedEvent;
               if (changed.title === undefined) {
                 discardPendingSurfaceTitles();
-                queueTreeRefresh();
+                await refresh();
               } else {
-                queueSurfaceTitle(changed.surface, changed.title, changed.text);
+                queueSurfaceTitle(changed.surface, changed.title);
               }
             }
             // This frontend passes only live PTY tabs to useAttachedTerminal;
@@ -269,19 +235,15 @@ export function useCmuxClient() {
             // belongs to another client and must not be echoed into a
             // multi-client retry loop. Browser rendering must track which
             // local size report produced the asynchronous failure first.
-            // `layout-changed` carries only screen layout fields and
-            // `surface-resized` carries only cell dimensions; neither is a
-            // complete workspace tree, so keep the authoritative fetch but
-            // coalesce it instead of patching incomplete payloads locally.
             if (["tree-changed", "layout-changed", "surface-resized", "surface-exited"].includes(event.event)) {
               discardPendingSurfaceTitles();
-              queueTreeRefresh();
+              await refresh();
             }
             if (
-              event.event === "client-attached" ||
-              event.event === "client-changed" ||
+              event.event === "client-attached"
+              || event.event === "client-changed"
               // Keep the client viewport list current after a shared resize.
-              event.event === "surface-resized"
+              || event.event === "surface-resized"
             ) {
               if (event.event !== "surface-resized") clientPresenceGeneration += 1;
               queueClientsRefresh();
@@ -299,7 +261,6 @@ export function useCmuxClient() {
         })();
       } catch (error) {
         client.close();
-        if (client === activeClient) activeClient = null;
         if (cancelled) return;
         if (reconnecting) {
           scheduleRetry();
@@ -330,12 +291,9 @@ export function useCmuxClient() {
       cancelled = true;
       if (retryTimer !== undefined) clearTimeout(retryTimer);
       discardPendingSurfaceTitles();
-      cancelRefreshQueues();
       refreshRef.current = null;
       clientsRefreshRef.current = null;
-      const client = activeClient;
-      activeClient = null;
-      void client?.close();
+      void activeClient?.close();
     };
   }, [config]);
 
@@ -345,55 +303,48 @@ export function useCmuxClient() {
     setConfig({ ...next, token: next.token || undefined });
   }, []);
 
-  const runMutation = useCallback(
-    async (mutation: (client: CmuxClient) => Promise<unknown>) => {
-      if (!state.client) return false;
-      try {
-        await mutation(state.client);
-        return true;
-      } catch (error) {
-        const toast: Toast = {
-          event: "notification",
-          notification: localToastId.current--,
-          title: t("commandFailed"),
-          body: error instanceof Error ? error.message : String(error),
-          level: "error",
-          surface: null,
-        };
-        setToasts((current) => [...current.slice(-2), toast]);
-        return false;
-      }
-    },
-    [state.client],
-  );
+  const runMutation = useCallback(async (mutation: (client: CmuxClient) => Promise<unknown>) => {
+    if (!state.client) return false;
+    try {
+      await mutation(state.client);
+      return true;
+    } catch (error) {
+      const toast: Toast = {
+        event: "notification",
+        notification: localToastId.current--,
+        title: t("commandFailed"),
+        body: error instanceof Error ? error.message : String(error),
+        level: "error",
+        surface: null,
+      };
+      setToasts((current) => [...current.slice(-2), toast]);
+      return false;
+    }
+  }, [state.client]);
 
   const selectScreen = useCallback((workspaceId: Id, screenId: Id, surface: Id | null) => {
     dispatchSelection({ type: "navigate", workspaceId, screenId });
-    if (surface !== null)
-      setUnread((current) => {
-        const next = new Set(current);
-        next.delete(surface);
-        return next;
-      });
+    if (surface !== null) setUnread((current) => {
+      const next = new Set(current);
+      next.delete(surface);
+      return next;
+    });
   }, []);
 
   const selectPane = useCallback((paneId: Id) => {
     dispatchSelection({ type: "select-pane", paneId });
   }, []);
 
-  const selectTab = useCallback(
-    async (pane: Id, index: number, surface: Id) => {
-      await runMutation(async (client) => {
-        await client.selectTab({ pane, index: BigInt(index) });
-        setUnread((current) => {
-          const next = new Set(current);
-          next.delete(surface);
-          return next;
-        });
+  const selectTab = useCallback(async (pane: Id, index: number, surface: Id) => {
+    await runMutation(async (client) => {
+      await client.selectTab({ pane, index: BigInt(index) });
+      setUnread((current) => {
+        const next = new Set(current);
+        next.delete(surface);
+        return next;
       });
-    },
-    [runMutation],
-  );
+    });
+  }, [runMutation]);
 
   // Creation responses carry only the new surface id; selection is local, so
   // follow the creation by locating that surface in a fresh tree and
@@ -412,49 +363,42 @@ export function useCmuxClient() {
     [runMutation],
   );
 
-  const mutations = useMemo(
-    () => ({
-      newWorkspace: () => createAndFollow((client) => client.newWorkspace()),
-      newScreen: (workspace: Id) => createAndFollow((client) => client.newScreen({ workspace })),
-      newTab: (pane: Id) => runMutation((client) => client.newTab({ pane })),
-      newBrowserTab: (pane: Id, url: string) => runMutation((client) => client.newBrowserTab(url, { pane })),
-      split: (pane: Id, dir: "right" | "down") => runMutation((client) => client.split(pane, dir)),
-      closeWorkspace: (workspace: Id) => runMutation((client) => client.closeWorkspace(workspace)),
-      closeScreen: (screen: Id) => runMutation((client) => client.closeScreen(screen)),
-      closePane: (pane: Id) => runMutation((client) => client.closePane(pane)),
-      closeSurface: (surface: Id) => runMutation((client) => client.closeSurface(surface)),
-      renameWorkspace: (workspace: Id, name: string) =>
-        runMutation((client) => client.renameWorkspace(workspace, name)),
-      renameScreen: (screen: Id, name: string) => runMutation((client) => client.renameScreen(screen, name)),
-      renamePane: (pane: Id, name: string) => runMutation((client) => client.renamePane(pane, name)),
-      renameSurface: (surface: Id, name: string) => runMutation((client) => client.renameSurface(surface, name)),
-      zoomPane: (pane: Id) => runMutation((client) => client.zoomPane({ pane, mode: "toggle" })),
-      swapPane: (pane: Id, dir: "left" | "right" | "up" | "down") =>
-        runMutation((client) => client.swapPane({ pane, dir })),
-      setSplitRatio: (split: Id, ratio: number) => runMutation((client) => client.setSplitRatio(split, ratio)),
-      setClientSizing: (surface: Id, clientId: Id, enabled: boolean) =>
-        runMutation(async (client) => {
-          await client.setClientSizing(surface, clientId, enabled);
-        }),
-      useOnlyClientSizing: (surface: Id, clientId: Id) =>
-        runMutation(async (client) => {
-          await client.useOnlyClientSizing(surface, clientId);
-        }),
-      useAllClientSizing: (surface: Id) =>
-        runMutation(async (client) => {
-          await client.useAllClientSizing(surface);
-        }),
-      detachClient: (clientId: Id) =>
-        runMutation(async (client) => {
-          await client.detachClient(clientId);
-          setState((current) => ({
-            ...current,
-            clients: current.clients.filter((item) => item.client !== clientId),
-          }));
-        }),
+  const mutations = useMemo(() => ({
+    newWorkspace: () => createAndFollow((client) => client.newWorkspace()),
+    newScreen: (workspace: Id) => createAndFollow((client) => client.newScreen({ workspace })),
+    newTab: (pane: Id) => runMutation((client) => client.newTab({ pane })),
+    newBrowserTab: (pane: Id, url: string) => runMutation((client) => client.newBrowserTab(url, { pane })),
+    split: (pane: Id, dir: "right" | "down") => runMutation((client) => client.split(pane, dir)),
+    closeWorkspace: (workspace: Id) => runMutation((client) => client.closeWorkspace(workspace)),
+    closeScreen: (screen: Id) => runMutation((client) => client.closeScreen(screen)),
+    closePane: (pane: Id) => runMutation((client) => client.closePane(pane)),
+    closeSurface: (surface: Id) => runMutation((client) => client.closeSurface(surface)),
+    renameWorkspace: (workspace: Id, name: string) => runMutation((client) => client.renameWorkspace(workspace, name)),
+    renameScreen: (screen: Id, name: string) => runMutation((client) => client.renameScreen(screen, name)),
+    renamePane: (pane: Id, name: string) => runMutation((client) => client.renamePane(pane, name)),
+    renameSurface: (surface: Id, name: string) => runMutation((client) => client.renameSurface(surface, name)),
+    zoomPane: (pane: Id) => runMutation((client) => client.zoomPane({ pane, mode: "toggle" })),
+    swapPane: (pane: Id, dir: "left" | "right" | "up" | "down") =>
+      runMutation((client) => client.swapPane({ pane, dir })),
+    setSplitRatio: (split: Id, ratio: number) =>
+      runMutation((client) => client.setSplitRatio(split, ratio)),
+    setClientSizing: (surface: Id, clientId: Id, enabled: boolean) => runMutation(async (client) => {
+      await client.setClientSizing(surface, clientId, enabled);
     }),
-    [createAndFollow, runMutation],
-  );
+    useOnlyClientSizing: (surface: Id, clientId: Id) => runMutation(async (client) => {
+      await client.useOnlyClientSizing(surface, clientId);
+    }),
+    useAllClientSizing: (surface: Id) => runMutation(async (client) => {
+      await client.useAllClientSizing(surface);
+    }),
+    detachClient: (clientId: Id) => runMutation(async (client) => {
+      await client.detachClient(clientId);
+      setState((current) => ({
+        ...current,
+        clients: current.clients.filter((item) => item.client !== clientId),
+      }));
+    }),
+  }), [createAndFollow, runMutation]);
 
   const refreshClients = useCallback(() => {
     clientsRefreshRef.current?.();
@@ -465,7 +409,7 @@ export function useCmuxClient() {
   }, []);
 
   const view = useMemo(
-    () => (state.tree ? treeToViewModel(state.tree, unread, selection) : []),
+    () => state.tree ? treeToViewModel(state.tree, unread, selection) : [],
     [selection, state.tree, unread],
   );
   return {

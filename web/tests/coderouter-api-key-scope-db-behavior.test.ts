@@ -4,7 +4,6 @@ import { closeCloudDbForTests } from "../db/client";
 import type { CredentialKeyService } from "../services/coderouter/encryption";
 import {
   createApiKey,
-  hasRefreshingAccount,
   listAccounts,
   selectAccountForSession,
 } from "../services/coderouter/repository";
@@ -75,7 +74,6 @@ function nativeProxy(upstreamKeys: string[]) {
       return { provider: "openai-apikey", apiKey: `sk-${row!.label as string}`, accountId, label: row!.label as string };
     },
     cooldown: async () => {},
-    hasRefreshingAccount,
   }, {
     fetch: async (_input, init) => {
       upstreamKeys.push(new Headers(init?.headers).get("authorization") ?? "");
@@ -126,7 +124,7 @@ dbTest("an organization API key cannot select its creator's or a member's privat
   const proxy = nativeProxy(upstream);
 
   const refused = await proxy(nativeRequest(key));
-  expect(refused.status).toBe(429);
+  expect(refused.status).toBe(503);
   expect(upstream).toEqual([]);
 
   await nativeAccount(ORG, "org-shared", "team", MEMBER);

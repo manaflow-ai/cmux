@@ -307,10 +307,9 @@ class LanSourceClassTests(unittest.TestCase):
         finalize = ("CMUX_NODE_PRODUCT_SOURCE_CLASS: ${{ steps.peer-products.outputs.hit == 'true' && "
                     "(steps.peer-products.outputs.source == 'lan' && 'lan' || 'peer') || "
                     "(steps.r2-products.outputs.hit == 'true' && 'r2' || 'github') }}")
-        # cli-product-tests is the one consumer of compile admission's product.
-        self.assertEqual(workflow.count(finalize), 1)
-        self.assertEqual(workflow.count("CMUX_PEER_PRODUCT_SOURCE: ${{ steps.peer-products.outputs.source }}"), 1)
-        self.assertEqual(workflow.count("scripts/ci/peer_product_source.py fetch"), 1)
+        self.assertEqual(workflow.count(finalize), 4)
+        self.assertEqual(workflow.count("CMUX_PEER_PRODUCT_SOURCE: ${{ steps.peer-products.outputs.source }}"), 4)
+        self.assertEqual(workflow.count("scripts/ci/peer_product_source.py fetch"), 4)
 
 
 if __name__ == "__main__":

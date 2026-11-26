@@ -1,8 +1,4 @@
-#if canImport(CryptoKit)
 import CryptoKit
-#else
-import Crypto
-#endif
 public import Foundation
 
 /// Derives short-lived, account-private Bonjour names for verified Iroh bindings.
@@ -94,12 +90,11 @@ public struct CmxIrohLANRendezvousAliasGenerator: Sendable {
 
     static func epoch(for date: Date) throws -> Int64 {
         let value = date.timeIntervalSince1970
-        // Int64(exactly:) is nil for NaN, infinity and 2^63 (the old bound let
-        // TimeInterval(Int64.max) * rotationInterval through to a trap).
-        guard value >= 0, let epoch = Int64(exactly: (value / rotationInterval).rounded(.down)) else {
+        guard value.isFinite, value >= 0,
+              value <= TimeInterval(Int64.max) * rotationInterval else {
             throw CmxIrohLANRendezvousAliasError.invalidTimestamp
         }
-        return epoch
+        return Int64((value / rotationInterval).rounded(.down))
     }
 
     static func isCanonicalAlias(_ value: String) -> Bool {

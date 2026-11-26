@@ -11,24 +11,46 @@ use crate::resource::{
 };
 use crate::{PaneId, ScreenId, SplitDir, SplitId, Surface, SurfaceId, WorkspaceId};
 
-mod floating_panes;
-mod layout_columns;
-mod layout_fit;
-mod layout_rows;
-mod layout_snapshot;
-mod one_pane_screen;
-mod split_around;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ViewportColumn {
+    Base,
+    Split(SplitId),
+}
 
-pub use layout_columns::{ColumnDock, DockEdge, DockMode, DockRole, ViewportColumn};
-pub(crate) use layout_columns::{
-    ColumnProjection, LONE_DOCK_NEIGHBOR_WIDTH, LayoutColumn, LayoutMutationKey, LayoutResizeOwner,
-    dock_columns_are_consistent, dock_flags_are_consistent, flags_are_lone_pinned,
-    project_layout_columns,
-};
-#[cfg(test)]
-pub(crate) use layout_columns::{LONE_DOCK_WIDTH, normalize_dock_columns};
-pub(crate) use layout_rows::{LayoutRow, ROW_HEIGHT_PERMILLE};
-pub(crate) use layout_snapshot::ScreenLayoutSnapshot;
+/// One stable horizontal column in a scrollable screen.
+///
+/// `Screen::root` remains the compatibility projection consumed by existing
+/// split-tree clients. While columns are active, these records own the real
+/// per-column trees and their auto-layout creation order.
+#[derive(Debug, Clone)]
+pub(crate) struct LayoutColumn {
+    pub(crate) id: SplitId,
+    pub(crate) width: f32,
+    pub(crate) root: Node,
+    pub(crate) creation_order_auto_layout: Option<Vec<PaneId>>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ScreenLayoutSnapshot {
+    pub root: Node,
+    pub active_pane: PaneId,
+    pub zoomed_pane: Option<PaneId>,
+    pub creation_order_auto_layout: Option<Vec<PaneId>>,
+    pub viewport_splits: BTreeMap<SplitId, f32>,
+    pub viewport_base_width: Option<f32>,
+    pub layout_columns: Vec<LayoutColumn>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LayoutResizeOwner {
+    InProcess(u64),
+    ControlClient(u64),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LayoutMutationKey {
+    Resize { owner: LayoutResizeOwner, transaction: u64 },
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct LayoutUndoEntry {
@@ -36,19 +58,6 @@ pub(crate) struct LayoutUndoEntry {
     pub after_revision: u64,
     pub created_panes: Vec<PaneId>,
     pub coalesce: Option<LayoutMutationKey>,
-    /// A tab drag inside one screen: undo moves the tab back to its origin
-    /// pane before restoring `before`, instead of closing anything.
-    pub tab_restore: Option<LayoutUndoTabRestore>,
-}
-
-/// Where a dragged tab came from, and the pane the drag created for it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct LayoutUndoTabRestore {
-    pub surface: SurfaceId,
-    pub origin_pane: PaneId,
-    pub origin_index: usize,
-    /// The pane the drag created (a new split or column), removed by undo.
-    pub created_pane: Option<PaneId>,
 }
 
 const LAYOUT_UNDO_LIMIT: usize = 32;
@@ -94,9 +103,6 @@ pub enum Node {
         ratio: f32,
         a: Box<Node>,
         b: Box<Node>,
-        /// The divider between `a` and `b` is drawn as hidden. Only the look
-        /// changes: the split, its ratio and its panes stay as they are.
-        divider_hidden: bool,
     },
     /// Zellij-style stacked panes. `expanded` preserves the selected member
     /// while focus is elsewhere in the split tree.
@@ -278,7 +284,6 @@ impl Node {
                     ratio: 0.5,
                     a: Box::new(old),
                     b: Box::new(Node::Leaf(new_pane)),
-                    divider_hidden: false,
                 };
                 true
             }
@@ -296,7 +301,6 @@ impl Node {
                     ratio: 0.5,
                     a: Box::new(old),
                     b: Box::new(Node::Leaf(new_pane)),
-                    divider_hidden: false,
                 };
                 true
             }
@@ -327,16 +331,11 @@ impl Node {
         match self {
             Node::Leaf(id) if id == target => None,
             leaf @ Node::Leaf(_) => Some(leaf),
-            Node::Split { id, dir, ratio, a, b, divider_hidden } => {
+            Node::Split { id, dir, ratio, a, b } => {
                 match (a.remove_leaf(target), b.remove_leaf(target)) {
-                    (Some(a), Some(b)) => Some(Node::Split {
-                        id,
-                        dir,
-                        ratio,
-                        a: Box::new(a),
-                        b: Box::new(b),
-                        divider_hidden,
-                    }),
+                    (Some(a), Some(b)) => {
+                        Some(Node::Split { id, dir, ratio, a: Box::new(a), b: Box::new(b) })
+                    }
                     (Some(a), None) => Some(a),
                     (None, Some(b)) => Some(b),
                     (None, None) => None,
@@ -386,6 +385,19 @@ impl Node {
         walk(self, target, dir).1
     }
 
+    #[cfg(test)]
+    pub(crate) fn set_deepest_ratio(
+        &mut self,
+        target: PaneId,
+        dir: SplitDir,
+        new_ratio: f32,
+    ) -> bool {
+        let Some(split) = self.deepest_split_for_pane(target, dir) else {
+            return false;
+        };
+        self.set_split_ratio(split, new_ratio)
+    }
+
     pub(crate) fn set_split_ratio(&mut self, target: SplitId, new_ratio: f32) -> bool {
         match self {
             Node::Leaf(_) => false,
@@ -401,51 +413,6 @@ impl Node {
         }
     }
 
-    /// Set whether split `target`'s divider is hidden. `Some(true)` when the
-    /// value changed, `Some(false)` when it already had that value, `None`
-    /// when `target` is not in this tree.
-    pub(crate) fn set_divider_hidden(&mut self, target: SplitId, hidden: bool) -> Option<bool> {
-        match self {
-            Node::Leaf(_) | Node::Stack { .. } => None,
-            Node::Split { id, divider_hidden, a, b, .. } => {
-                if *id == target {
-                    let changed = *divider_hidden != hidden;
-                    *divider_hidden = hidden;
-                    Some(changed)
-                } else {
-                    a.set_divider_hidden(target, hidden)
-                        .or_else(|| b.set_divider_hidden(target, hidden))
-                }
-            }
-        }
-    }
-
-    /// Whether split `target`'s divider is hidden, or `None` when `target`
-    /// is not in this tree.
-    pub(crate) fn divider_hidden(&self, target: SplitId) -> Option<bool> {
-        match self {
-            Node::Leaf(_) | Node::Stack { .. } => None,
-            Node::Split { id, divider_hidden, a, b, .. } => {
-                if *id == target {
-                    Some(*divider_hidden)
-                } else {
-                    a.divider_hidden(target).or_else(|| b.divider_hidden(target))
-                }
-            }
-        }
-    }
-
-    /// Append the id of every split in this tree whose divider is hidden.
-    pub fn hidden_dividers(&self, out: &mut Vec<SplitId>) {
-        if let Node::Split { id, a, b, divider_hidden, .. } = self {
-            if *divider_hidden {
-                out.push(*id);
-            }
-            a.hidden_dividers(out);
-            b.hidden_dividers(out);
-        }
-    }
-
     pub(crate) fn split_ratio(&self, target: SplitId) -> Option<f32> {
         match self {
             Node::Leaf(_) | Node::Stack { .. } => None,
@@ -457,6 +424,136 @@ impl Node {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stack_construction_rejects_empty_membership() {
+        assert!(Node::stack(Vec::new()).is_none());
+        assert!(Node::stack(vec![1]).is_some());
+    }
+
+    fn nested_tree() -> Node {
+        Node::Split {
+            id: 10,
+            dir: SplitDir::Right,
+            ratio: 0.5,
+            a: Box::new(Node::Split {
+                id: 11,
+                dir: SplitDir::Right,
+                ratio: 0.4,
+                a: Box::new(Node::Leaf(1)),
+                b: Box::new(Node::Leaf(2)),
+            }),
+            b: Box::new(Node::Leaf(3)),
+        }
+    }
+
+    #[test]
+    fn split_ids_survive_leaf_swaps_and_unrelated_ratio_updates() {
+        let mut root = nested_tree();
+
+        assert!(root.swap_leaves(1, 3));
+        assert!(root.set_deepest_ratio(2, SplitDir::Right, 0.7));
+
+        assert!(root.contains_split(10));
+        assert!(root.contains_split(11));
+        assert!(!root.contains_split(12));
+        let Node::Split { id, a, .. } = root else { panic!("root should be split") };
+        assert_eq!(id, 10);
+        let Node::Split { id, .. } = a.as_ref() else { panic!("child should be split") };
+        assert_eq!(*id, 11);
+    }
+
+    #[test]
+    fn exact_split_ratio_targets_one_same_direction_node() {
+        let mut root = nested_tree();
+
+        assert!(root.set_split_ratio(10, 0.8));
+        let Node::Split { ratio: root_ratio, a, .. } = &root else {
+            panic!("root should be split");
+        };
+        assert_eq!(*root_ratio, 0.8);
+        let Node::Split { ratio: inner_ratio, .. } = a.as_ref() else {
+            panic!("child should be split");
+        };
+        assert_eq!(*inner_ratio, 0.4);
+        assert!(!root.set_split_ratio(999, 0.2));
+    }
+
+    #[test]
+    fn collapsing_a_parent_preserves_surviving_descendant_split_id() {
+        let root = nested_tree();
+
+        let collapsed = root.remove_leaf(3).expect("left subtree should survive");
+
+        let Node::Split { id, .. } = collapsed else { panic!("child split should survive") };
+        assert_eq!(id, 11);
+    }
+
+    #[test]
+    fn removing_an_unrelated_branch_preserves_a_singleton_stack() {
+        let root = Node::Split {
+            id: 10,
+            dir: SplitDir::Right,
+            ratio: 0.5,
+            a: Box::new(Node::stack_with_expanded(vec![1], 1).unwrap()),
+            b: Box::new(Node::Leaf(2)),
+        };
+
+        let remaining = root.remove_leaf(2).unwrap();
+
+        assert!(matches!(
+            remaining,
+            Node::Stack { ref panes, expanded: 1 } if panes.as_slice() == [1]
+        ));
+    }
+
+    #[test]
+    fn legacy_projection_preserves_many_equal_viewport_column_widths() {
+        let mut screen = Screen {
+            id: 1,
+            public_id: ScreenPublicId::random().unwrap(),
+            name: None,
+            root: Node::Leaf(1),
+            active_pane: 21,
+            zoomed_pane: None,
+            creation_order_auto_layout: None,
+            viewport_splits: BTreeMap::new(),
+            viewport_base_width: None,
+            layout_columns: (1..=21)
+                .map(|pane| LayoutColumn {
+                    id: 100 + pane,
+                    width: 1.0,
+                    root: Node::Leaf(pane),
+                    creation_order_auto_layout: None,
+                })
+                .collect(),
+            layout_revision: 0,
+            layout_undo: VecDeque::new(),
+        };
+
+        screen.sync_layout_column_projection();
+
+        let layout = crate::layout::layout_screen(
+            &screen.root,
+            crate::layout::Rect { x: 0, y: 0, width: 2_100, height: 24 },
+            Some(screen.active_pane),
+        );
+        assert_eq!(layout.panes.len(), 21);
+        assert!(
+            layout.panes.iter().all(|(_, rect)| rect.width == 100),
+            "legacy clients should receive the authoritative equal-width projection: {:?}",
+            layout.panes
+        );
+        let Node::Split { ratio, .. } = screen.root else {
+            panic!("multiple columns should produce a compatibility split");
+        };
+        assert!((ratio - (20.0 / 21.0)).abs() < f32::EPSILON);
     }
 }
 
@@ -505,8 +602,6 @@ pub struct Screen {
     /// `viewport_base_width` are derived compatibility projections while
     /// this list is non-empty.
     pub(crate) layout_columns: Vec<LayoutColumn>,
-    /// `floating-panes-v1`: the panes shown above the tiled layout, back to front (model/floating_panes.rs).
-    pub(crate) floating: Vec<cmux_layout_reducer::floating_panes::Floating<PaneId>>,
     /// Monotonic structural revision used to fence layout undo.
     pub(crate) layout_revision: u64,
     /// In-memory only. Pane processes cannot be resurrected across daemon
@@ -515,6 +610,18 @@ pub struct Screen {
 }
 
 impl Screen {
+    pub(crate) fn layout_snapshot(&self) -> ScreenLayoutSnapshot {
+        ScreenLayoutSnapshot {
+            root: self.root.clone(),
+            active_pane: self.active_pane,
+            zoomed_pane: self.zoomed_pane,
+            creation_order_auto_layout: self.creation_order_auto_layout.clone(),
+            viewport_splits: self.viewport_splits.clone(),
+            viewport_base_width: self.viewport_base_width,
+            layout_columns: self.layout_columns.clone(),
+        }
+    }
+
     fn coalesces_layout_change(&self, key: LayoutMutationKey) -> bool {
         self.layout_undo.back().is_some_and(|entry| {
             entry.created_panes.is_empty()
@@ -563,35 +670,12 @@ impl Screen {
             }
             return;
         }
-        // crash-allow: pre-existing invariant; hidden from the ratchet behind a test module until the unit-test deletion (cx-034r)
         let before = before.expect("non-coalesced layout changes require a prior snapshot");
         self.layout_undo.push_back(LayoutUndoEntry {
             before,
             after_revision: self.layout_revision,
             created_panes,
             coalesce,
-            tab_restore: None,
-        });
-        while self.layout_undo.len() > LAYOUT_UNDO_LIMIT {
-            self.layout_undo.pop_front();
-        }
-    }
-
-    /// Record a same-screen tab drag. `before` is this screen's layout
-    /// before the drag; undo moves the tab back and restores it. The entry
-    /// creates no pane that undo must close, so it never needs confirmation.
-    pub(crate) fn record_tab_drag_change(
-        &mut self,
-        before: ScreenLayoutSnapshot,
-        restore: LayoutUndoTabRestore,
-    ) {
-        self.layout_revision = self.layout_revision.saturating_add(1);
-        self.layout_undo.push_back(LayoutUndoEntry {
-            before,
-            after_revision: self.layout_revision,
-            created_panes: Vec::new(),
-            coalesce: None,
-            tab_restore: Some(restore),
         });
         while self.layout_undo.len() > LAYOUT_UNDO_LIMIT {
             self.layout_undo.pop_front();
@@ -628,9 +712,118 @@ impl Screen {
         self.viewport_splits = snapshot.viewport_splits;
         self.viewport_base_width = snapshot.viewport_base_width;
         self.layout_columns = snapshot.layout_columns;
-        self.restore_floating_panes(snapshot.floating);
-        // The pane that has the focus now is the front pane, also in a list from before it got the focus.
-        self.raise_floating_pane(self.active_pane);
+    }
+
+    pub(crate) fn layout_columns_active(&self) -> bool {
+        !self.layout_columns.is_empty()
+    }
+
+    pub(crate) fn layout_column_for_pane_mut(&mut self, pane: PaneId) -> Option<&mut LayoutColumn> {
+        self.layout_columns.iter_mut().find(|column| column.root.contains(pane))
+    }
+
+    pub(crate) fn insert_layout_column_after(
+        &mut self,
+        target: PaneId,
+        base_id: SplitId,
+        column: LayoutColumn,
+    ) -> bool {
+        if self.layout_columns.is_empty() {
+            if !self.root.contains(target) {
+                return false;
+            }
+            let root = std::mem::replace(&mut self.root, Node::Leaf(0));
+            self.layout_columns.push(LayoutColumn {
+                id: base_id,
+                width: self.viewport_base_width.unwrap_or(1.0),
+                root,
+                creation_order_auto_layout: self.creation_order_auto_layout.take(),
+            });
+        }
+        let Some(index) =
+            self.layout_columns.iter().position(|candidate| candidate.root.contains(target))
+        else {
+            return false;
+        };
+        self.layout_columns.insert(index + 1, column);
+        self.sync_layout_column_projection();
+        true
+    }
+
+    pub(crate) fn sync_layout_column_projection(&mut self) {
+        let Some(first) = self.layout_columns.first() else {
+            self.viewport_splits.clear();
+            self.viewport_base_width = None;
+            return;
+        };
+        self.viewport_splits.clear();
+        self.viewport_base_width = Some(first.width);
+        self.creation_order_auto_layout = None;
+
+        let mut root = first.root.clone();
+        let mut width_before = first.width;
+        for column in self.layout_columns.iter().skip(1) {
+            // This tree is a read-compatibility projection, not a user resize
+            // request. Preserve exact authoritative proportions even when a
+            // wide layout requires a derived ratio outside mutation bounds.
+            let ratio = width_before / (width_before + column.width);
+            root = Node::Split {
+                id: column.id,
+                dir: SplitDir::Right,
+                ratio,
+                a: Box::new(root),
+                b: Box::new(column.root.clone()),
+            };
+            self.viewport_splits.insert(column.id, column.width);
+            width_before += column.width;
+        }
+        self.root = root;
+        debug_assert!(self.layout_column_projection_is_consistent());
+    }
+
+    pub(crate) fn collapse_single_layout_column(&mut self) {
+        if self.layout_columns.len() != 1 {
+            self.sync_layout_column_projection();
+            return;
+        }
+        let column = self.layout_columns.pop().expect("single layout column");
+        self.root = column.root;
+        self.creation_order_auto_layout = column.creation_order_auto_layout;
+        self.viewport_splits.clear();
+        self.viewport_base_width = None;
+    }
+
+    pub(crate) fn layout_column_projection_is_consistent(&self) -> bool {
+        if self.layout_columns.is_empty() {
+            return self.viewport_splits.is_empty() && self.viewport_base_width.is_none();
+        }
+        if self.layout_columns.len() < 2
+            || self.creation_order_auto_layout.is_some()
+            || self.viewport_base_width != self.layout_columns.first().map(|column| column.width)
+            || self.viewport_splits.len() + 1 != self.layout_columns.len()
+        {
+            return false;
+        }
+
+        let projected_panes = self.root.pane_ids_vec();
+        let column_panes = self
+            .layout_columns
+            .iter()
+            .flat_map(|column| column.root.pane_ids_vec())
+            .collect::<Vec<_>>();
+        if projected_panes != column_panes {
+            return false;
+        }
+
+        self.layout_columns.iter().enumerate().all(|(index, column)| {
+            let expected_owner =
+                if index == 0 { ViewportColumn::Base } else { ViewportColumn::Split(column.id) };
+            (index == 0 || self.viewport_splits.get(&column.id).copied() == Some(column.width))
+                && column.root.pane_ids_vec().into_iter().all(|pane| {
+                    self.root.viewport_column_owner(pane, &self.viewport_splits)
+                        == Some(expected_owner)
+                })
+        })
     }
 }
 
@@ -643,10 +836,6 @@ pub struct Workspace {
     /// a frontend's richer layout state.
     pub key: String,
     pub name: String,
-    /// Who chose `name` (the registry's `name_source`).
-    pub name_source: crate::resource_name::NameSource,
-    /// The registry's `name_revision` for `name`.
-    pub name_revision: u64,
     pub screens: Vec<Screen>,
     pub active_screen: usize,
 }
@@ -657,47 +846,6 @@ impl Workspace {
     }
 }
 
-/// A count of the workspaces named `workspace-N` by `N`: the highest one is the last key.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct WorkspaceNameNumbers(BTreeMap<usize, usize>);
-
-impl WorkspaceNameNumbers {
-    /// The `N` of a name `workspace-N`.
-    pub(crate) fn number(name: &str) -> Option<usize> {
-        name.strip_prefix("workspace-")?.parse::<usize>().ok()
-    }
-
-    /// The numbers of `workspaces` (a walk of the list: a restore or an index rebuild).
-    pub(crate) fn of(workspaces: &[Workspace]) -> Self {
-        let mut numbers = Self::default();
-        for workspace in workspaces {
-            numbers.add(&workspace.name);
-        }
-        numbers
-    }
-
-    pub(crate) fn add(&mut self, name: &str) {
-        if let Some(number) = Self::number(name) {
-            *self.0.entry(number).or_default() += 1;
-        }
-    }
-
-    pub(crate) fn remove(&mut self, name: &str) {
-        let Some(number) = Self::number(name) else { return };
-        if let std::collections::btree_map::Entry::Occupied(mut entry) = self.0.entry(number) {
-            *entry.get_mut() -= 1;
-            if *entry.get() == 0 {
-                entry.remove();
-            }
-        }
-    }
-
-    /// The highest `N`, or 0 when no workspace is named `workspace-N`.
-    pub(crate) fn highest(&self) -> usize {
-        self.0.last_key_value().map_or(0, |(number, _)| *number)
-    }
-}
-
 /// The full mutable session state, exposed to [`crate::Mux::with_state`]
 /// closures.
 #[derive(Clone)]
@@ -705,9 +853,6 @@ pub struct State {
     pub workspaces: Vec<Workspace>,
     pub(crate) workspace_index_by_id: HashMap<WorkspaceId, usize>,
     pub(crate) workspace_id_by_key: HashMap<String, WorkspaceId>,
-    /// The `N` of each workspace named `workspace-N`, so the next default name reads the
-    /// highest one without a walk of the list (`Mux::default_workspace_name`).
-    pub(crate) workspace_name_numbers: WorkspaceNameNumbers,
     /// Monotonic version of the ordered workspace registry. Pane, screen, and
     /// tab-only mutations do not advance this counter.
     pub workspace_revision: u64,
@@ -721,19 +866,13 @@ pub struct State {
     pub active_workspace: usize,
     pub panes: HashMap<PaneId, Pane>,
     /// View placements keyed by daemon-local placement identity.
-    pub surfaces: crate::route_table::RouteTable<SurfaceId, Arc<Surface>>,
+    pub surfaces: HashMap<SurfaceId, Arc<Surface>>,
     /// Stable terminal content kept alive independently of view placement.
-    pub(crate) terminal_catalog: crate::route_table::RouteTable<TerminalPublicId, Arc<Surface>>,
+    pub(crate) terminal_catalog: HashMap<TerminalPublicId, Arc<Surface>>,
     /// Reverse lookup for catalog owners addressed by daemon-local runtime ID.
-    pub(crate) terminal_catalog_by_runtime:
-        crate::route_table::RouteTable<SurfaceId, TerminalPublicId>,
-    /// Host terminal id -> catalog owner (mux/terminal_catalog_index.rs). Copy-on-write and published with the
-    /// routes, so the live-terminal lookup reads it with no lock (R-DAEMON-STATE stage S1).
-    pub(crate) terminal_catalog_by_host: crate::route_table::RouteTable<String, TerminalPublicId>,
+    pub(crate) terminal_catalog_by_runtime: HashMap<SurfaceId, TerminalPublicId>,
     pub(crate) split_screens: HashMap<SplitId, (usize, usize, ScreenId)>,
     pub(crate) resource_indexes: PublicSlotIndexes,
-    /// The tab creations that have a place (`tab-create-place-v1`): one value for each copy.
-    pub(crate) tab_places: crate::mux::tab_strip::tab_place::SharedPlaceLists,
 }
 
 impl State {
@@ -748,10 +887,10 @@ impl State {
         let replaced = self.panes.insert(id, pane);
         debug_assert!(replaced.is_none(), "pane {id} was inserted twice");
         if replaced.is_none() {
-            // The index write must run in release builds too: inside the
-            // `debug_assert!` it was compiled out there.
-            let previous = self.resource_indexes.panes.insert(public_id.clone(), id);
-            debug_assert!(previous.is_none(), "pane public id {public_id} was inserted twice");
+            debug_assert!(
+                self.resource_indexes.panes.insert(public_id.clone(), id).is_none(),
+                "pane public id {public_id} was inserted twice"
+            );
             self.resource_indexes.pane_ids.insert(id, public_id);
             self.pane_revision = self.pane_revision.saturating_add(1);
         }
@@ -776,17 +915,7 @@ impl State {
         self.workspace_id_by_key.insert(workspace.key.clone(), workspace.id);
         self.resource_indexes.workspaces.insert(workspace.public_id.clone(), workspace.id);
         self.resource_indexes.workspace_ids.insert(workspace.id, workspace.public_id.clone());
-        self.workspace_name_numbers.add(&workspace.name);
         self.workspaces.push(workspace);
-    }
-
-    /// Rename the workspace at `index` (the rename's only writer of a live workspace's name,
-    /// so [`Self::workspace_name_numbers`] follows it).
-    pub(crate) fn set_workspace_name(&mut self, index: usize, name: String) {
-        let Some(workspace) = self.workspaces.get_mut(index) else { return };
-        self.workspace_name_numbers.remove(&workspace.name);
-        self.workspace_name_numbers.add(&name);
-        workspace.name = name;
     }
 
     pub(crate) fn remove_workspace(&mut self, index: usize) -> Workspace {
@@ -800,19 +929,12 @@ impl State {
     pub(crate) fn move_workspace(&mut self, old_index: usize, new_index: usize) {
         let workspace = self.workspaces.remove(old_index);
         self.workspaces.insert(new_index, workspace);
-        // Only the workspaces between the two positions changed place; the keys did not change.
-        let (low, high) = (old_index.min(new_index), old_index.max(new_index));
-        for (index, workspace) in
-            self.workspaces.iter().enumerate().take(high.saturating_add(1)).skip(low)
-        {
-            self.workspace_index_by_id.insert(workspace.id, index);
-        }
+        self.rebuild_workspace_indexes();
     }
 
     pub(crate) fn rebuild_workspace_indexes(&mut self) {
         self.workspace_index_by_id.clear();
         self.workspace_id_by_key.clear();
-        self.workspace_name_numbers = WorkspaceNameNumbers::of(&self.workspaces);
         for (index, workspace) in self.workspaces.iter().enumerate() {
             self.workspace_index_by_id.insert(workspace.id, index);
             self.workspace_id_by_key.insert(workspace.key.clone(), workspace.id);
@@ -840,31 +962,6 @@ impl State {
         self.resource_indexes.content_ids.insert(slot, identity.content_id.clone());
     }
 
-    /// Placing a live surface's slot in a pane records the identity the
-    /// surface was created with when the topology has none, so a placement
-    /// can never leave a tab without durable identity (cx-95uaf).
-    pub(crate) fn register_placed_tab_identity(&mut self, slot: SurfaceId) {
-        if self.resource_indexes.tab_ids.contains_key(&slot)
-            && self.resource_indexes.content_ids.contains_key(&slot)
-        {
-            return;
-        }
-        let Some(identity) =
-            self.surfaces.get(&slot).and_then(|surface| surface.resource_identity().cloned())
-        else {
-            return;
-        };
-        // A half record (tab id without content id) must not leave its old
-        // tab id pointing at this slot.
-        if let Some(old) = self.resource_indexes.tab_ids.get(&slot)
-            && old != &identity.tab_id
-        {
-            let old = old.clone();
-            self.resource_indexes.tabs.remove(&old);
-        }
-        self.register_tab_identity(slot, &identity);
-    }
-
     /// Every placed tab must carry a durable identity. Losing one would make
     /// the next projection tombstone live durable rows, so this fails the
     /// mutation instead of silently dropping the tab.
@@ -882,8 +979,6 @@ impl State {
     }
 
     pub(crate) fn rebuild_resource_indexes(&mut self) {
-        #[cfg(test)]
-        crate::walk_counters::index_rebuild_visited(self.workspaces.len());
         let mut indexes = PublicSlotIndexes::default();
         let mut live_split_slots = self.split_screens.keys().copied().collect::<HashSet<_>>();
         for workspace in &self.workspaces {
@@ -891,9 +986,7 @@ impl State {
             debug_assert!(old.is_none(), "duplicate workspace public id");
             indexes.workspace_ids.insert(workspace.id, workspace.public_id.clone());
             for screen in &workspace.screens {
-                for column in &screen.layout_columns {
-                    live_split_slots.extend(std::iter::once(column.id).chain(column.row_ids()));
-                }
+                live_split_slots.extend(screen.layout_columns.iter().map(|column| column.id));
                 let old = indexes.screens.insert(screen.public_id.clone(), screen.id);
                 debug_assert!(old.is_none(), "duplicate screen public id");
                 indexes.screen_ids.insert(screen.id, screen.public_id.clone());
@@ -905,11 +998,13 @@ impl State {
                         indexes.pane_ids.insert(pane.id, pane.public_id.clone());
                         indexes.pane_screen.insert(pane.id, screen.id);
                         for surface_id in &pane.tabs {
-                            // Tab identity is owned by the topology. A
-                            // restored or detached tab has no surface, and
-                            // rebuilding must not lose it.
-                            let Some((tab_id, content_id)) = self.tab_identity_of(*surface_id)
-                            else {
+                            // Tab identity is owned by the topology, never by
+                            // the live surface. A restored or detached tab has
+                            // no surface, and rebuilding must not lose it.
+                            let (Some(tab_id), Some(content_id)) = (
+                                self.resource_indexes.tab_ids.get(surface_id).cloned(),
+                                self.resource_indexes.content_ids.get(surface_id).cloned(),
+                            ) else {
                                 continue;
                             };
                             let old = indexes.tabs.insert(tab_id.clone(), *surface_id);
@@ -933,48 +1028,7 @@ impl State {
                 indexes.split_ids.insert(split, public_id);
             }
         }
-        // A live surface in no pane keeps its identity: a create between its
-        // insert and its pane binding. Dropping it here let the binding add
-        // a tab with no durable identity, and every later projection failed
-        // (cx-95uaf). A tab of a pane outside every screen is not carried:
-        // the projection would tombstone it, so coverage must fail instead.
-        let placed =
-            self.panes.values().flat_map(|pane| pane.tabs.iter().copied()).collect::<HashSet<_>>();
-        for (slot, tab_id) in &self.resource_indexes.tab_ids {
-            if indexes.tab_ids.contains_key(slot)
-                || indexes.tabs.contains_key(tab_id)
-                || !self.surfaces.contains_key(slot)
-                || placed.contains(slot)
-            {
-                continue;
-            }
-            let Some(content_id) = self.resource_indexes.content_ids.get(slot) else { continue };
-            indexes.tabs.insert(tab_id.clone(), *slot);
-            indexes.tab_ids.insert(*slot, tab_id.clone());
-            let placements = indexes.content_placements.entry(content_id.clone()).or_default();
-            if !placements.contains(slot) {
-                placements.push(*slot);
-            }
-            indexes.content_ids.insert(*slot, content_id.clone());
-        }
         self.resource_indexes = indexes;
-    }
-
-    /// The durable identity of tab `slot`: the topology's record, else the
-    /// identity its live surface was created with. The fallback repairs a
-    /// slot whose record was lost, so one bad slot cannot fail every later
-    /// projection; a slot with neither still fails loudly.
-    pub(crate) fn tab_identity_of(
-        &self,
-        slot: SurfaceId,
-    ) -> Option<(TabPublicId, ContentPublicId)> {
-        if let (Some(tab_id), Some(content_id)) =
-            (self.resource_indexes.tab_ids.get(&slot), self.resource_indexes.content_ids.get(&slot))
-        {
-            return Some((tab_id.clone(), content_id.clone()));
-        }
-        let identity = self.surfaces.get(&slot)?.resource_identity()?;
-        Some((identity.tab_id.clone(), identity.content_id.clone()))
     }
 
     pub fn workspace_by_public_id(&self, id: &WorkspacePublicId) -> Option<&Workspace> {
@@ -1016,6 +1070,12 @@ impl State {
         Some(*placement)
     }
 
+    pub(crate) fn terminal_runtime_by_id(&self, id: SurfaceId) -> Option<&Arc<Surface>> {
+        self.terminal_catalog_by_runtime
+            .get(&id)
+            .and_then(|terminal| self.terminal_catalog.get(terminal))
+    }
+
     pub(crate) fn workspace_index(&self, id: WorkspaceId) -> Option<usize> {
         self.workspace_index_by_id.get(&id).copied()
     }
@@ -1026,10 +1086,6 @@ impl State {
 
     pub(crate) fn workspace_by_key(&self, key: &str) -> Option<&Workspace> {
         self.workspace_id_by_key.get(key).and_then(|id| self.workspace_by_id(*id))
-    }
-
-    pub(crate) fn workspace_index_by_key(&self, key: &str) -> Option<usize> {
-        self.workspace_id_by_key.get(key).and_then(|id| self.workspace_index(*id))
     }
 
     /// Workspace and screen indices of the screen containing a pane.

@@ -63,25 +63,145 @@ verify_ipa_aps_environment_production() {
     rm -rf "$workdir"
     return 1
   fi
-  while IFS= read -r -d '' extension_app; do
-    extension_ent="$workdir/$(basename "$extension_app").entitlements.plist"
-    if ! codesign --verify --strict --verbose=2 "$extension_app" >&2 ||
-      ! codesign -d --entitlements :- --xml "$extension_app" > "$extension_ent" 2>/dev/null; then
-      echo "error: signed notification extension failed code-signature verification: $extension_app" >&2
-      rm -rf "$workdir"
-      return 1
-    fi
-    extension_bundle_id="$("$PLISTBUDDY" -c 'Print :CFBundleIdentifier' "$extension_app/Info.plist" 2>/dev/null || true)"
-    extension_app_id="$("$PLISTBUDDY" -c 'Print :application-identifier' "$extension_ent" 2>/dev/null || true)"
-    extension_team_id="$("$PLISTBUDDY" -c 'Print :com.apple.developer.team-identifier' "$extension_ent" 2>/dev/null || true)"
-    expected_extension_app_id="$DEVELOPMENT_TEAM.$extension_bundle_id"
-    if [[ "$extension_app_id" != "$expected_extension_app_id" || "$extension_team_id" != "$DEVELOPMENT_TEAM" ]]; then
-      echo "error: signed notification extension identity is invalid (application-identifier='${extension_app_id:-<absent>}', expected='$expected_extension_app_id', team='${extension_team_id:-<absent>}'): $extension_app" >&2
-      plutil -p "$extension_ent" >&2 || true
-      rm -rf "$workdir"
-      return 1
-    fi
-  done < <(find "$app/PlugIns" -type d -name '*.appex' -prune -print0 2>/dev/null)
+  # CloudVPN.appex is a system-network extension with a different signing
+  # contract. Only the notification service extension uses the host app's
+  # notification-style application-identifier/team entitlements checked here.
+  local extension_app="$app/PlugIns/NotificationService.appex"
+  if [[ ! -d "$extension_app" ]]; then
+    echo "error: signed IPA is missing NotificationService.appex: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  extension_ent="$workdir/NotificationService.appex.entitlements.plist"
+  if ! codesign --verify --strict --verbose=2 "$extension_app" >&2 ||
+    ! codesign -d --entitlements :- --xml "$extension_app" > "$extension_ent" 2>/dev/null; then
+    echo "error: signed notification extension failed code-signature verification: $extension_app" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  extension_bundle_id="$($PLISTBUDDY -c 'Print :CFBundleIdentifier' "$extension_app/Info.plist" 2>/dev/null || true)"
+  extension_app_id="$($PLISTBUDDY -c 'Print :application-identifier' "$extension_ent" 2>/dev/null || true)"
+  extension_team_id="$($PLISTBUDDY -c 'Print :com.apple.developer.team-identifier' "$extension_ent" 2>/dev/null || true)"
+  expected_extension_app_id="$DEVELOPMENT_TEAM.$extension_bundle_id"
+  if [[ "$extension_app_id" != "$expected_extension_app_id" || "$extension_team_id" != "$DEVELOPMENT_TEAM" ]]; then
+    echo "error: signed notification extension identity is invalid (application-identifier='${extension_app_id:-<absent>}', expected='$expected_extension_app_id', team='${extension_team_id:-<absent>}'): $extension_app" >&2
+    plutil -p "$extension_ent" >&2 || true
+    rm -rf "$workdir"
+    return 1
+  fi
+  rm -rf "$workdir"
+  return 0
+}
+
+verify_ipa_cloud_vpn_extension() {
+  local ipa="$1"
+  local workdir app extension ent profile host_ent
+  local bundle_id expected_bundle_id expected_app_id app_id team_id network_extension
+  local profile_app_id profile_network_extension
+  workdir="$(mktemp -d)"
+  if ! ( cd "$workdir" && unzip -q "$ipa" ); then
+    echo "error: could not unzip IPA to verify CloudVPN signing: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  app="$(find "$workdir/Payload" -maxdepth 1 -name '*.app' -type d 2>/dev/null | head -n 1)"
+  extension="$app/PlugIns/CloudVPN.appex"
+  if [[ -z "$app" || ! -d "$extension" ]]; then
+    echo "error: App Store IPA is missing CloudVPN.appex: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  if [[ ! -f "$extension/embedded.mobileprovision" ]]; then
+    echo "error: CloudVPN.appex has no embedded App Store provisioning profile: $extension" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  if ! codesign --verify --strict --verbose=2 "$extension" >&2; then
+    echo "error: CloudVPN.appex failed code-signature verification: $extension" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  ent="$workdir/CloudVPN.entitlements.plist"
+  if ! codesign -d --entitlements :- --xml "$extension" > "$ent" 2>/dev/null; then
+    echo "error: could not read signed CloudVPN entitlements: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  bundle_id="$($PLISTBUDDY -c 'Print :CFBundleIdentifier' "$extension/Info.plist" 2>/dev/null || true)"
+  app_id="$($PLISTBUDDY -c 'Print :application-identifier' "$ent" 2>/dev/null || true)"
+  team_id="$($PLISTBUDDY -c 'Print :com.apple.developer.team-identifier' "$ent" 2>/dev/null || true)"
+  network_extension="$($PLISTBUDDY -c 'Print :com.apple.developer.networking.networkextension:0' "$ent" 2>/dev/null || true)"
+  expected_bundle_id="$CLOUD_VPN_BUNDLE_IDENTIFIER"
+  expected_app_id="$DEVELOPMENT_TEAM.$expected_bundle_id"
+  host_ent="$workdir/host-entitlements.plist"
+  if ! codesign -d --entitlements :- --xml "$app" > "$host_ent" 2>/dev/null ||
+    ! python3 - "$host_ent" "$ent" "$DEVELOPMENT_TEAM.$PRODUCT_BUNDLE_IDENTIFIER" <<'PY'
+import plistlib
+import sys
+
+host_path, extension_path, host_group = sys.argv[1:]
+for label, path in (("host", host_path), ("CloudVPN", extension_path)):
+    with open(path, "rb") as handle:
+        entitlements = plistlib.load(handle)
+    if "packet-tunnel-provider" not in entitlements.get("com.apple.developer.networking.networkextension", []):
+        raise SystemExit(f"signed {label} is missing packet-tunnel-provider")
+    if entitlements.get("keychain-access-groups") != [host_group]:
+        raise SystemExit(f"signed {label} must claim exactly the host keychain group {host_group}")
+PY
+  then
+    echo "error: signed host and CloudVPN do not share the required VPN permissions; refusing to upload" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  if [[ "$bundle_id" != "$expected_bundle_id" || "$app_id" != "$expected_app_id" || "$team_id" != "$DEVELOPMENT_TEAM" ]] ||
+    ! python3 - "$ent" <<'PY'
+import plistlib
+import sys
+
+with open(sys.argv[1], "rb") as handle:
+    entitlements = plistlib.load(handle)
+values = entitlements.get("com.apple.developer.networking.networkextension", [])
+if "packet-tunnel-provider" not in values:
+    raise SystemExit(1)
+PY
+  then
+    echo "error: signed CloudVPN identity is invalid (bundle-id='${bundle_id:-<absent>}', expected-bundle-id='$expected_bundle_id', application-identifier='${app_id:-<absent>}', expected='$expected_app_id', team='${team_id:-<absent>}', network-extension='${network_extension:-<absent>}'): $extension" >&2
+    plutil -p "$ent" >&2 || true
+    rm -rf "$workdir"
+    return 1
+  fi
+  profile="$workdir/CloudVPN.profile.plist"
+  if ! security cms -D -i "$extension/embedded.mobileprovision" > "$profile" 2>/dev/null; then
+    echo "error: could not decode CloudVPN.appex provisioning profile: $extension" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  profile_app_id="$($PLISTBUDDY -c 'Print :Entitlements:application-identifier' "$profile" 2>/dev/null || true)"
+  profile_network_extension="$($PLISTBUDDY -c 'Print :Entitlements:com.apple.developer.networking.networkextension:0' "$profile" 2>/dev/null || true)"
+  if [[ "$profile_app_id" != "$expected_app_id" ]] ||
+    ! python3 - "$profile" "$DEVELOPMENT_TEAM.$PRODUCT_BUNDLE_IDENTIFIER" <<'PY'
+import plistlib
+import sys
+
+with open(sys.argv[1], "rb") as handle:
+    entitlements = plistlib.load(handle).get("Entitlements", {})
+values = entitlements.get("com.apple.developer.networking.networkextension", [])
+if "packet-tunnel-provider" not in values:
+    raise SystemExit(1)
+expected_group = sys.argv[2]
+if not any(
+    group == expected_group
+    or (isinstance(group, str) and group.endswith(".*") and expected_group.startswith(group[:-1]))
+    for group in entitlements.get("keychain-access-groups", [])
+):
+    raise SystemExit("CloudVPN profile does not authorize the host keychain group")
+PY
+  then
+    echo "error: embedded CloudVPN profile does not authorize the signed packet tunnel (application-identifier='${profile_app_id:-<absent>}', network-extension='${profile_network_extension:-<absent>}'): $extension" >&2
+    plutil -p "$profile" >&2 || true
+    rm -rf "$workdir"
+    return 1
+  fi
   rm -rf "$workdir"
   return 0
 }
@@ -107,7 +227,21 @@ verify_ipa_app_store_main_entitlements() {
     rm -rf "$workdir"
     return 1
   fi
-  if ! python3 "$SCRIPT_DIR/filter-ios-appstore-entitlements.py" --check "$ent"; then
+  if [[ "${CLOUD_VPN_REQUIRED:-0}" -eq 0 ]]; then
+    if ! python3 "$SCRIPT_DIR/filter-ios-appstore-entitlements.py" \
+      --check --remove-network-extension "$ent"; then
+      rm -rf "$workdir"
+      return 1
+    fi
+  else
+    if ! python3 "$SCRIPT_DIR/filter-ios-appstore-entitlements.py" \
+      --check "$ent"; then
+      rm -rf "$workdir"
+      return 1
+    fi
+  fi
+  if [[ "${CLOUD_VPN_REQUIRED:-0}" -eq 0 && -d "$app/PlugIns/CloudVPN.appex" ]]; then
+    echo "error: App Store IPA embeds CloudVPN.appex even though the App Store lane disables the system VPN: $ipa" >&2
     rm -rf "$workdir"
     return 1
   fi
@@ -198,7 +332,12 @@ for key, value in source.items():
         continue
     profile_value = profile[key]
     if isinstance(value, list) and isinstance(profile_value, list):
-        profile[key] = [item for item in value if item in profile_value]
+        authorized = [item for item in value if item in profile_value]
+        # Keep the profile baseline when the checked-in contract names a
+        # shared group that this extension profile does not grant. An empty
+        # entitlement list is less valid than the profile's own group.
+        if authorized:
+            profile[key] = authorized
     else:
         profile[key] = value
 profile["keychain-access-groups"] = [expected_group]
@@ -214,6 +353,97 @@ PY
     "$PLISTBUDDY" -c "Set :CMUXKeychainAccessGroup $DEVELOPMENT_TEAM.$host_bundle_id" "$extension/Info.plist"
   else
     "$PLISTBUDDY" -c "Add :CMUXKeychainAccessGroup string $DEVELOPMENT_TEAM.$host_bundle_id" "$extension/Info.plist"
+  fi
+  codesign --force --sign "$identity" --entitlements "$merged_entitlements" --timestamp "$extension"
+  codesign --verify --strict --verbose=2 "$extension"
+}
+
+# Xcode's manual export can embed the correct CloudVPN provisioning profile
+# while dropping the packet-tunnel entitlement from the extension signature.
+# Re-sign the extension from that profile before signing the host app so the
+# nested code seal and the Network Extension capability both survive export.
+resign_cloud_vpn_extension() {
+  local app="$1"
+  local resign_dir="$2"
+  local identity="$3"
+  local host_bundle_id="$4"
+  local extension="$app/PlugIns/CloudVPN.appex"
+  local profile="$resign_dir/cloud-vpn-profile.plist"
+  local profile_entitlements="$resign_dir/cloud-vpn-profile-entitlements.plist"
+  local merged_entitlements="$resign_dir/cloud-vpn-entitlements.plist"
+  local entitlements_source="${IOS_CLOUD_VPN_ENTITLEMENTS:-$IOS_DIR/Config/CloudVPN.entitlements}"
+
+  if [[ ! -d "$extension" ]]; then
+    echo "error: exported app has no CloudVPN.appex to sign" >&2
+    return 1
+  fi
+  if [[ ! -f "$entitlements_source" ]]; then
+    echo "error: CloudVPN extension entitlements are missing: $entitlements_source" >&2
+    return 1
+  fi
+  if ! security cms -D -i "$extension/embedded.mobileprovision" > "$profile"; then
+    echo "error: could not decode CloudVPN provisioning profile" >&2
+    return 1
+  fi
+  if ! plutil -extract Entitlements xml1 -o "$profile_entitlements" "$profile"; then
+    echo "error: CloudVPN provisioning profile has no Entitlements dictionary" >&2
+    return 1
+  fi
+  cp "$profile_entitlements" "$merged_entitlements"
+  if ! python3 - "$merged_entitlements" "$entitlements_source" "$DEVELOPMENT_TEAM" "$host_bundle_id" <<'PY'
+import plistlib
+import sys
+
+merged_path, source_path, team_id, host_bundle_id = sys.argv[1:]
+with open(merged_path, "rb") as handle:
+    profile = plistlib.load(handle)
+with open(source_path, "rb") as handle:
+    source = plistlib.load(handle)
+
+expected_bundle_id = f"{host_bundle_id}.CloudVPN"
+expected_app_id = f"{team_id}.{expected_bundle_id}"
+if profile.get("application-identifier") != expected_app_id:
+    raise SystemExit(
+        "CloudVPN provisioning profile targets "
+        f"{profile.get('application-identifier', '<absent>')}, expected {expected_app_id}"
+    )
+network_extension = profile.get("com.apple.developer.networking.networkextension", [])
+if "packet-tunnel-provider" not in network_extension:
+    raise SystemExit("CloudVPN provisioning profile does not authorize packet-tunnel-provider")
+
+# The checked-in keychain value contains Xcode substitutions. Resolve the host
+# identity before applying the profile's exact or wildcard authorization.
+host_group = f"{team_id}.{host_bundle_id}"
+if not any(
+    group == host_group
+    or (isinstance(group, str) and group.endswith(".*") and host_group.startswith(group[:-1]))
+    for group in profile.get("keychain-access-groups", [])
+):
+    raise SystemExit("CloudVPN provisioning profile does not authorize the host keychain group")
+
+# Keep profile metadata as the source of truth, adding only values explicitly
+# requested by the checked-in contract and already authorized by the profile.
+for key, value in source.items():
+    if key not in profile:
+        continue
+    profile_value = profile[key]
+    if isinstance(value, list) and isinstance(profile_value, list):
+        profile[key] = [item for item in value if item in profile_value]
+    else:
+        profile[key] = value
+
+profile["keychain-access-groups"] = [host_group]
+
+with open(merged_path, "wb") as handle:
+    plistlib.dump(profile, handle)
+PY
+  then
+    echo "error: CloudVPN entitlements do not match the packet-tunnel profile" >&2
+    return 1
+  fi
+  if ! plutil -lint "$merged_entitlements" >/dev/null; then
+    echo "error: generated CloudVPN entitlements are invalid" >&2
+    return 1
   fi
   codesign --force --sign "$identity" --entitlements "$merged_entitlements" --timestamp "$extension"
   codesign --verify --strict --verbose=2 "$extension"
@@ -492,9 +722,9 @@ verify_app_store_ipa_has_no_external_purchase_links() {
     return 1
   fi
 
-  matches="$(LC_ALL=C grep -R -a -l -E 'github\.com/manaflow-ai/cmux#founders-edition|founders-edition|buy\.stripe\.com' "$app" 2>/dev/null || true)"
+  matches="$(LC_ALL=C grep -R -a -l -E 'github\.com/manaflow-ai/cmux#founders-edition|founders-edition' "$app" 2>/dev/null || true)"
   if [[ -n "$matches" ]]; then
-    echo "error: App Store IPA contains an external purchase/enrollment link; refusing to upload" >&2
+    echo "error: App Store IPA contains an external Founders Edition purchase/enrollment link; refusing to upload" >&2
     printf '%s\n' "$matches" >&2
     rm -rf "$workdir"
     return 1
@@ -507,7 +737,7 @@ verify_app_store_ipa_has_no_external_purchase_links() {
 usage() {
   cat <<'EOF'
 Usage:
-  ios/scripts/upload-testflight.sh [--lane beta|appstore] [--build-number <number>]
+  ios/scripts/upload-testflight.sh [--lane beta|classic|appstore] [--build-number <number>]
                                   [--signing manual|automatic] [--external]
                                   [--archive-path <path>] [--export-only]
 
@@ -518,11 +748,22 @@ TestFlight behavior:
   bundle id: dev.cmux.app.beta
   profile:   cmux Beta Distribution
 
+The classic lane ships the classic app to its internal TestFlight-only
+App Store Connect record, cmux CLASSIC:
+
+  bundle id: dev.cmux.app.classic
+  profile:   App Store distribution profile for dev.cmux.app.classic
+  display:   cmux CLASSIC
+
 The production App Store lane uses:
 
   bundle id: com.cmux.app
   profile:   cmux App Store Distribution
   display:   cmux
+
+com.cmux.app now ships cmux-next, so the appstore lane refuses to upload the
+classic app unless CMUX_IOS_ALLOW_CLASSIC_APPSTORE_UPLOAD=1 is set; it can still
+archive and export (--export-only).
 
 On the manual signing path the exported app is RE-SIGNED with the full
 entitlements before upload. The archive is built unsigned (to avoid
@@ -557,15 +798,19 @@ or:
   APPLE_APP_SPECIFIC_PASSWORD
   APPLE_PROVIDER_PUBLIC_ID
 
-With ASC API authentication, the appstore lane also requires ASC_APP_ID and the
+With ASC API authentication, the classic and appstore lanes also require ASC_APP_ID and the
 asc CLI so upload can target the numeric App Store Connect app record instead
 of relying on bundle-id lookup. Apple ID credentials keep using altool.
 
 Options:
-  --lane <beta|appstore>    Distribution lane. beta is the existing TestFlight
-                            path. appstore uploads the production bundle to its
-                            TestFlight lane and sets the changelog notes without
-                            assigning a beta group.
+  --lane <beta|classic|appstore>
+                            Distribution lane. beta is the existing TestFlight
+                            path. classic uploads dev.cmux.app.classic (cmux
+                            CLASSIC) as an internal-only TestFlight build, built
+                            like the App Store binary (no system VPN). appstore
+                            uploads the production bundle to its TestFlight lane
+                            and sets the changelog notes without assigning a beta
+                            group.
   --build-number <number>   CFBundleVersion. Defaults to UTC yyyyMMddHHmmss.
                             Self-healed up to (App Store Connect max + 1) if it
                             would not be the highest build (TestFlight only offers
@@ -585,8 +830,9 @@ Options:
                             builds must pass Apple Beta App Review (~24h) before
                             external testers can install the first build of a new
                             MARKETING_VERSION. With ASC API-key auth, the script
-                            also assigns the processed build to the configured external group
-                            (CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID / _NAME) and the Pro group
+                            also assigns the processed build to the Founder's
+                            Edition group (CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID /
+                            _NAME) and the Pro group
                             (CMUX_TESTFLIGHT_PRO_GROUP_ID)
                             and auto-submits a new MARKETING_VERSION for Beta App
                             Review when Apple reports READY_FOR_BETA_SUBMISSION.
@@ -784,6 +1030,18 @@ case "$LANE" in
     PRODUCT_DISPLAY_NAME="${IOS_BETA_DISPLAY_NAME:-cmux BETA}"
     CRASH_REPORTING_ENABLED="YES"
     ;;
+  classic)
+    # cmux CLASSIC: the classic app's internal TestFlight-only record. It is
+    # signed with App Store distribution profiles, so it reads the profile
+    # names install-app-store-provisioning-profile.sh exports.
+    PRODUCT_BUNDLE_IDENTIFIER="${IOS_CLASSIC_BUNDLE_ID:-dev.cmux.app.classic}"
+    # In CI the installer exported IOS_APPSTORE_PROVISIONING_PROFILE_NAME for
+    # dev.cmux.app.classic. Locally, set IOS_CLASSIC_PROVISIONING_PROFILE_NAME
+    # rather than reuse a com.cmux.app name; export would reject the mismatch.
+    PROVISIONING_PROFILE_NAME="${IOS_CLASSIC_PROVISIONING_PROFILE_NAME:-${IOS_APPSTORE_PROVISIONING_PROFILE_NAME:-cmux Classic Distribution}}"
+    PRODUCT_DISPLAY_NAME="${IOS_CLASSIC_DISPLAY_NAME:-cmux CLASSIC}"
+    CRASH_REPORTING_ENABLED="YES"
+    ;;
   appstore)
     PRODUCT_BUNDLE_IDENTIFIER="${IOS_APPSTORE_BUNDLE_ID:-com.cmux.app}"
     PROVISIONING_PROFILE_NAME="${IOS_APPSTORE_PROVISIONING_PROFILE_NAME:-cmux App Store Distribution}"
@@ -797,13 +1055,28 @@ case "$LANE" in
     ;;
 esac
 
-if [[ "$LANE" == "appstore" && "$EXTERNAL_TESTING" -eq 1 ]]; then
-  echo "error: --external is TestFlight-only and cannot be used with --lane appstore" >&2
+# Lanes that upload to a numeric App Store Connect record with App Store
+# distribution profiles and the VPN-free App Store binary: the official
+# com.cmux.app record and the internal-only cmux CLASSIC record.
+APP_RECORD_LANE=0
+[[ "$LANE" == "appstore" || "$LANE" == "classic" ]] && APP_RECORD_LANE=1
+
+if [[ "$LANE" == "classic" ]]; then
+  # com.cmux.app (App Store Connect app 6783338052) ships cmux-next from
+  # feat-cmux-next. The classic app must never land on that record again.
+  if [[ "$PRODUCT_BUNDLE_IDENTIFIER" == "com.cmux.app" || "${ASC_APP_ID:-}" == "6783338052" ]]; then
+    echo "error: --lane classic must not target com.cmux.app / App Store Connect app 6783338052; that record ships cmux-next. Use the cmux CLASSIC record (dev.cmux.app.classic)." >&2
+    exit 2
+  fi
+fi
+
+if [[ "$APP_RECORD_LANE" -eq 1 && "$EXTERNAL_TESTING" -eq 1 ]]; then
+  echo "error: --external is beta-only and cannot be used with --lane $LANE" >&2
   exit 2
 fi
 
-if [[ "$LANE" == "appstore" && "$AUTO_VERSION" -eq 1 ]]; then
-  echo "error: --auto-version is beta-only. Set the configured App Store marketing version intentionally before an App Store upload." >&2
+if [[ "$APP_RECORD_LANE" -eq 1 && "$AUTO_VERSION" -eq 1 ]]; then
+  echo "error: --auto-version is beta-only. Set the configured $LANE marketing version intentionally before uploading." >&2
   exit 2
 fi
 
@@ -823,13 +1096,31 @@ NOTIFICATION_SERVICE_BUNDLE_IDENTIFIER="$(bash "$SCRIPT_DIR/notification-service
 WORKSPACE="$IOS_DIR/cmux.xcworkspace"
 SCHEME="cmux-ios"
 DEVELOPMENT_TEAM="${IOS_DEVELOPMENT_TEAM:-7WLXT3NR37}"
+CLOUD_VPN_BUNDLE_IDENTIFIER="${PRODUCT_BUNDLE_IDENTIFIER}.CloudVPN"
+# The beta app has a provisioned packet-tunnel extension. The official App
+# Store app is permanently VPN-free: do not let a stale or manually inherited
+# IOS_APPSTORE_ENABLE_CLOUD_VPN value re-enable Apple's rejected capability.
+# Internal and classic app identities are separate Apple registrations and do
+# not opt in implicitly.
+CLOUD_VPN_REQUIRED=0
+if [[ "$LANE" == "beta" && "$PRODUCT_BUNDLE_IDENTIFIER" == "dev.cmux.app.beta" ]]; then
+  CLOUD_VPN_REQUIRED=1
+fi
+APPSTORE_SYSTEM_VPN_DISABLED=0
+if [[ "$APP_RECORD_LANE" -eq 1 ]]; then
+  APPSTORE_SYSTEM_VPN_DISABLED=1
+fi
 SHARED_XCCONFIG="$IOS_DIR/Config/Shared.xcconfig"
 CHECKED_IN_BETA_MARKETING_VERSION="$(read_xcconfig_setting CMUX_IOS_BETA_MARKETING_VERSION "$SHARED_XCCONFIG")"
 CHECKED_IN_APPSTORE_MARKETING_VERSION="$(read_xcconfig_setting CMUX_IOS_APPSTORE_MARKETING_VERSION "$SHARED_XCCONFIG")"
+CHECKED_IN_CLASSIC_MARKETING_VERSION="$(read_xcconfig_setting CMUX_IOS_CLASSIC_MARKETING_VERSION "$SHARED_XCCONFIG")"
 
 case "$LANE" in
   beta)
     LANE_MARKETING_VERSION="${BETA_MARKETING_VERSION:-${IOS_BETA_MARKETING_VERSION:-$CHECKED_IN_BETA_MARKETING_VERSION}}"
+    ;;
+  classic)
+    LANE_MARKETING_VERSION="${IOS_CLASSIC_MARKETING_VERSION:-$CHECKED_IN_CLASSIC_MARKETING_VERSION}"
     ;;
   appstore)
     LANE_MARKETING_VERSION="${IOS_APPSTORE_MARKETING_VERSION:-$CHECKED_IN_APPSTORE_MARKETING_VERSION}"
@@ -849,18 +1140,34 @@ PRODUCTION_RUNTIME_BUILD_ARGS=(
   CMUX_PRESENCE_BASE_URL=https://presence.cmux.dev
 )
 
+# Apple review rejected the system VPN API in the public App Store binary.
+# Keep the feature available to beta/internal builds, but compile it out of the
+# official App Store lane and use an entitlement contract without Network
+# Extension permissions. The command-line condition is inherited by the local
+# Swift packages that make up cmuxFeature.
+BUILD_FEATURE_ARGS=()
+if [[ "$APPSTORE_SYSTEM_VPN_DISABLED" -eq 1 ]]; then
+  BUILD_FEATURE_ARGS+=(
+    'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) CMUX_APPSTORE'
+    CMUX_APPSTORE_BUILD=YES
+    CMUX_APP_CODE_SIGN_ENTITLEMENTS=Config/cmux-appstore-release.entitlements
+    CODE_SIGN_ENTITLEMENTS=Config/cmux-appstore-release.entitlements
+    CMUX_CLOUD_VPN_PROVIDER_BUNDLE_IDENTIFIER=
+  )
+fi
+
 # Notes audience is driven by the testing lane (External block for --external).
 NOTES_AUDIENCE="internal"
 [[ "$EXTERNAL_TESTING" == "1" ]] && NOTES_AUDIENCE="external"
 
-# Both beta and the official com.cmux.app upload are TestFlight lanes. The
-# production marketing version has its own independent sequence, so its notes
-# use the current changelog entry without requiring that entry's version to
-# equal the production version.
+# Every lane uploads to TestFlight. The classic and production marketing
+# versions have their own independent sequences, so their notes use the
+# current changelog entry without requiring that entry's version to equal the
+# lane version.
 TESTFLIGHT_NOTES_LANE=0
-[[ "$LANE" == "beta" || "$LANE" == "appstore" ]] && TESTFLIGHT_NOTES_LANE=1
+[[ "$LANE" == "beta" || "$APP_RECORD_LANE" -eq 1 ]] && TESTFLIGHT_NOTES_LANE=1
 NOTES_VERSION_GUARD=1
-[[ "$LANE" == "appstore" ]] && NOTES_VERSION_GUARD=0
+[[ "$APP_RECORD_LANE" -eq 1 ]] && NOTES_VERSION_GUARD=0
 
 # Stamp the lane's marketing version at archive time. Release.xcconfig defaults
 # to the beta value for normal TestFlight builds, but the App Store lane shares
@@ -1140,6 +1447,7 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
       CMUX_CRASH_REPORTING_ENABLED="$CRASH_REPORTING_ENABLED" \
       ${MARKETING_VERSION_ARGS[@]+"${MARKETING_VERSION_ARGS[@]}"} \
       "${PRODUCTION_RUNTIME_BUILD_ARGS[@]}" \
+      ${BUILD_FEATURE_ARGS[@]+"${BUILD_FEATURE_ARGS[@]}"} \
       CODE_SIGN_STYLE=Automatic \
       CODE_SIGNING_ALLOWED=YES \
       CODE_SIGNING_REQUIRED=YES \
@@ -1166,6 +1474,7 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
       CMUX_CRASH_REPORTING_ENABLED="$CRASH_REPORTING_ENABLED" \
       ${MARKETING_VERSION_ARGS[@]+"${MARKETING_VERSION_ARGS[@]}"} \
       "${PRODUCTION_RUNTIME_BUILD_ARGS[@]}" \
+      ${BUILD_FEATURE_ARGS[@]+"${BUILD_FEATURE_ARGS[@]}"} \
       CODE_SIGNING_ALLOWED=NO \
       CODE_SIGNING_REQUIRED=NO \
       CODE_SIGN_IDENTITY="" \
@@ -1194,13 +1503,31 @@ if [[ -n "$ARCHIVE_APP" && -d "$ARCHIVE_APP" ]]; then
     echo "error: archive app CFBundleIdentifier is '$ARCHIVE_APP_BUNDLE_IDENTIFIER' but lane '$LANE' requires '$PRODUCT_BUNDLE_IDENTIFIER'. Re-archive for the selected lane." >&2
     exit 1
   fi
-  if [[ "$LANE" == "appstore" ]]; then
+  if [[ "$APP_RECORD_LANE" -eq 1 ]]; then
     ARCHIVE_CRASH_REPORTING_ENABLED="$("$PLISTBUDDY" -c 'Print :CMUXCrashReportingEnabled' "$ARCHIVE_APP/Info.plist" 2>/dev/null || true)"
     if [[ "$ARCHIVE_CRASH_REPORTING_ENABLED" != "$CRASH_REPORTING_ENABLED" ]]; then
       echo "error: App Store archive CMUXCrashReportingEnabled is '${ARCHIVE_CRASH_REPORTING_ENABLED:-<absent>}', expected '$CRASH_REPORTING_ENABLED'; refusing to export" >&2
       exit 1
     fi
   fi
+fi
+
+if [[ "$APPSTORE_SYSTEM_VPN_DISABLED" -eq 1 ]]; then
+  if [[ "$SIGNING" != "manual" ]]; then
+    echo "error: App Store builds without the system VPN must use manual signing so the archive can be stripped and re-signed without Network Extension permissions" >&2
+    exit 2
+  fi
+  ARCHIVE_APPSTORE_BUILD="$($PLISTBUDDY -c 'Print :CMUXAppStoreBuild' "$ARCHIVE_APP/Info.plist" 2>/dev/null || true)"
+  if [[ "$ARCHIVE_APPSTORE_BUILD" != "YES" ]]; then
+    echo "error: App Store VPN-free export requires an archive built with CMUX_APPSTORE; the reused archive is missing CMUXAppStoreBuild=YES" >&2
+    exit 2
+  fi
+  if [[ -d "$ARCHIVE_APP/PlugIns/CloudVPN.appex" ]]; then
+    rm -rf "$ARCHIVE_APP/PlugIns/CloudVPN.appex"
+    echo "removed CloudVPN.appex from the App Store archive"
+  fi
+  "$PLISTBUDDY" -c 'Delete :CMUXCloudVPNProviderBundleIdentifier' "$ARCHIVE_APP/Info.plist" 2>/dev/null || true
+  echo "removed the App Store archive's CloudVPN provider declaration"
 fi
 
 if ! "$REPO_ROOT/scripts/lib/verify-ios-release-origins.sh" --app "$ARCHIVE_APP"; then
@@ -1220,7 +1547,7 @@ fi
 
 # The archive's dSYMs are the source of both symbol paths for this build: the
 # Symbols/ files the export embeds in the IPA for App Store Connect crash
-# symbolication, and the dSYM run artifact ios-testflight.yml persists for
+# symbolication, and the dSYM run artifact the upload workflow persists for
 # local symbolication after ASC's copy is unavailable. An archive without
 # dSYMs (DEBUG_INFORMATION_FORMAT != dwarf-with-dsym, or a truncated fleet
 # download) would ship a build whose crashes can never be symbolicated by
@@ -1276,6 +1603,10 @@ if [[ "$LANE" == "beta" ]]; then
   else
     plutil -insert testFlightInternalTestingOnly -bool YES "$EXPORT_OPTIONS"
   fi
+elif [[ "$LANE" == "classic" ]]; then
+  # cmux CLASSIC is an internal TestFlight home only; its builds can never be
+  # added to an external group or submitted for review.
+  plutil -insert testFlightInternalTestingOnly -bool YES "$EXPORT_OPTIONS"
 fi
 plutil -insert uploadSymbols -bool YES "$EXPORT_OPTIONS"
 if [[ "$SIGNING" == "automatic" ]]; then
@@ -1296,9 +1627,9 @@ else
   plutil -insert signingCertificate -string "${IOS_SIGNING_CERTIFICATE:-Apple Distribution}" "$EXPORT_OPTIONS"
   "$PLISTBUDDY" -c "Add :provisioningProfiles dict" "$EXPORT_OPTIONS"
   "$PLISTBUDDY" -c "Add :provisioningProfiles:$PRODUCT_BUNDLE_IDENTIFIER string $PROVISIONING_PROFILE_NAME" "$EXPORT_OPTIONS"
-  if [[ "$LANE" == "appstore" || "$LANE" == "beta" ]]; then
+  if [[ "$APP_RECORD_LANE" -eq 1 || "$LANE" == "beta" ]]; then
     EXTENSION_BUNDLE_IDENTIFIER="$NOTIFICATION_SERVICE_BUNDLE_IDENTIFIER"
-    if [[ "$LANE" == "appstore" ]]; then
+    if [[ "$APP_RECORD_LANE" -eq 1 ]]; then
       EXTENSION_PROFILE_NAME="${IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME:-}"
     else
       EXTENSION_PROFILE_NAME="${IOS_BETA_EXTENSION_PROVISIONING_PROFILE_NAME:-}"
@@ -1308,6 +1639,18 @@ else
       exit 1
     fi
     "$PLISTBUDDY" -c "Add :provisioningProfiles:$EXTENSION_BUNDLE_IDENTIFIER string $EXTENSION_PROFILE_NAME" "$EXPORT_OPTIONS"
+    if [[ "$CLOUD_VPN_REQUIRED" -eq 1 ]]; then
+      if [[ "$APP_RECORD_LANE" -eq 1 ]]; then
+        CLOUD_VPN_PROFILE_NAME="${IOS_APPSTORE_CLOUD_VPN_PROVISIONING_PROFILE_NAME:-}"
+      else
+        CLOUD_VPN_PROFILE_NAME="${IOS_BETA_CLOUD_VPN_PROVISIONING_PROFILE_NAME:-}"
+      fi
+      if [[ -z "$CLOUD_VPN_PROFILE_NAME" ]]; then
+        echo "error: manual App Store export needs a provisioning profile name for $CLOUD_VPN_BUNDLE_IDENTIFIER" >&2
+        exit 1
+      fi
+      "$PLISTBUDDY" -c "Add :provisioningProfiles:$CLOUD_VPN_BUNDLE_IDENTIFIER string $CLOUD_VPN_PROFILE_NAME" "$EXPORT_OPTIONS"
+    fi
   fi
 fi
 
@@ -1323,6 +1666,38 @@ IPA_PATH="$EXPORT_PATH/cmux.ipa"
 if [[ ! -f "$IPA_PATH" ]]; then
   echo "error: IPA was not exported at $IPA_PATH" >&2
   exit 1
+fi
+# The VPN strip runs from a temporary unpack directory; keep the output path
+# absolute so a caller-provided relative CMUX_IOS_UPLOAD_DIR still works.
+IPA_PATH="$(cd "$(dirname "$IPA_PATH")" && pwd)/$(basename "$IPA_PATH")"
+
+if [[ "$APPSTORE_SYSTEM_VPN_DISABLED" -eq 1 ]]; then
+  VPN_STRIP_DIR="$(mktemp -d)"
+  if ! ( cd "$VPN_STRIP_DIR" && unzip -q "$IPA_PATH" ); then
+    echo "error: could not unpack App Store IPA while stripping the disabled system VPN" >&2
+    rm -rf "$VPN_STRIP_DIR"
+    exit 1
+  fi
+  IPA_APP="$(find "$VPN_STRIP_DIR/Payload" -maxdepth 1 -name '*.app' -type d 2>/dev/null | head -n 1 || true)"
+  if [[ -z "$IPA_APP" || ! -d "$IPA_APP" ]]; then
+    echo "error: exported App Store IPA has no Payload/*.app to strip the disabled system VPN from" >&2
+    rm -rf "$VPN_STRIP_DIR"
+    exit 1
+  fi
+  if [[ -d "$IPA_APP/PlugIns/CloudVPN.appex" ]]; then
+    rm -rf "$IPA_APP/PlugIns/CloudVPN.appex"
+    echo "removed CloudVPN.appex from the App Store IPA"
+  fi
+  "$PLISTBUDDY" -c 'Delete :CMUXCloudVPNProviderBundleIdentifier' "$IPA_APP/Info.plist" 2>/dev/null || true
+  rm -f "$IPA_PATH"
+  IPA_MEMBERS=(Payload)
+  for ipa_member in Symbols SwiftSupport BCSymbolMaps; do
+    if [[ -d "$VPN_STRIP_DIR/$ipa_member" ]]; then
+      IPA_MEMBERS+=("$ipa_member")
+    fi
+  done
+  ( cd "$VPN_STRIP_DIR" && zip -qrX "$IPA_PATH" "${IPA_MEMBERS[@]}" )
+  rm -rf "$VPN_STRIP_DIR"
 fi
 
 # Re-sign the exported app with the FULL entitlements (production aps-environment
@@ -1370,6 +1745,9 @@ if [[ "$SIGNING" == "manual" ]]; then
   # CODE_SIGN_ENTITLEMENTS = Config/cmux-release.entitlements, so default to that
   # path rather than parsing xcodebuild -showBuildSettings (slower, more brittle).
   RELEASE_ENTITLEMENTS="${IOS_RELEASE_ENTITLEMENTS:-$IOS_DIR/Config/cmux-release.entitlements}"
+  if [[ "$APPSTORE_SYSTEM_VPN_DISABLED" -eq 1 && -z "${IOS_RELEASE_ENTITLEMENTS:-}" ]]; then
+    RELEASE_ENTITLEMENTS="$IOS_DIR/Config/cmux-appstore-release.entitlements"
+  fi
   RESIGN_IDENTITY="${IOS_DISTRIBUTION_IDENTITY:-Apple Distribution: Manaflow, Inc. (7WLXT3NR37)}"
 
   if [[ ! -f "$RELEASE_ENTITLEMENTS" ]]; then
@@ -1472,6 +1850,16 @@ if [[ "$SIGNING" == "manual" ]]; then
     echo "error: could not re-sign NotificationService.appex with the host keychain group" >&2
     exit 1
   fi
+  if [[ "$CLOUD_VPN_REQUIRED" -eq 1 ]]; then
+    if ! resign_cloud_vpn_extension \
+      "$RESIGN_APP" \
+      "$RESIGN_DIR" \
+      "$RESIGN_IDENTITY" \
+      "$PRODUCT_BUNDLE_IDENTIFIER"; then
+      echo "error: could not re-sign CloudVPN.appex with the packet-tunnel profile" >&2
+      exit 1
+    fi
+  fi
 
   # Start from the exported app's current (profile-baseline) entitlements, then
   # MERGE the profile's authorized Entitlements dict, then every key from the
@@ -1533,7 +1921,13 @@ PY
   # Distribution profiles can authorize hotspot-provider even though Apple
   # rejects it in iOS uploads, including TestFlight. Preserve packet-tunnel
   # and Personal VPN permissions while filtering unsupported host values.
-  python3 "$SCRIPT_DIR/filter-ios-appstore-entitlements.py" "$MERGED_ENTITLEMENTS"
+  if [[ "$CLOUD_VPN_REQUIRED" -eq 0 ]]; then
+    python3 "$SCRIPT_DIR/filter-ios-appstore-entitlements.py" \
+      --remove-network-extension "$MERGED_ENTITLEMENTS"
+  else
+    python3 "$SCRIPT_DIR/filter-ios-appstore-entitlements.py" \
+      "$MERGED_ENTITLEMENTS"
+  fi
   plutil -lint "$MERGED_ENTITLEMENTS" >/dev/null
 
   # The archive is built unsigned, so $(AppIdentifierPrefix) in Info.plist
@@ -1606,12 +2000,12 @@ else
   # with no aps-environment), so an automatic export almost certainly drops it too.
   #
   # Rather than upload a known-push-broken build with only a warning (CI warnings
-  # are effectively silent, and ios-testflight.yml drives the PRIMARY beta cut with
+  # are effectively silent, and a CI lane that drove the PRIMARY beta cut used
   # --signing automatic), FAIL CLOSED: verify the exported IPA actually carries
   # aps-environment, and refuse the upload if it does not. If automatic ever does
   # preserve it, the gate passes and upload proceeds.
   #
-  # To make CI cut a push-WORKING beta, ios-testflight.yml must import the iOS
+  # To make CI cut a push-WORKING beta, the upload workflow must import the iOS
   # distribution cert and call this script with --signing manual (nightly.yml /
   # release.yml already import a signing cert on ephemeral runners, so the pattern
   # exists). That is a security-relevant workflow + secrets decision, deliberately
@@ -1638,47 +2032,62 @@ echo "signed IPA app symbols verified (Symbols/*.symbols present for ASC crash s
 echo "IPA_PATH=$IPA_PATH"
 
 EXPECTED_IPA_CRASH_REPORTING=""
-[[ "$LANE" == "appstore" ]] && EXPECTED_IPA_CRASH_REPORTING="$CRASH_REPORTING_ENABLED"
+[[ "$APP_RECORD_LANE" -eq 1 ]] && EXPECTED_IPA_CRASH_REPORTING="$CRASH_REPORTING_ENABLED"
 if ! verify_ipa_bundle_identity "$IPA_PATH" "$PRODUCT_BUNDLE_IDENTIFIER" "$DEVELOPMENT_TEAM" "$EXPECTED_IPA_CRASH_REPORTING"; then
   echo "error: signed IPA bundle identity does not match lane '$LANE'; refusing to upload" >&2
   exit 1
 fi
 echo "signed IPA bundle identity verified: $PRODUCT_BUNDLE_IDENTIFIER"
 
-if [[ "$LANE" == "appstore" ]]; then
+if [[ "$APP_RECORD_LANE" -eq 1 ]]; then
   if ! verify_app_store_ipa_has_no_external_purchase_links "$IPA_PATH"; then
     exit 1
   fi
   echo "App Store IPA verified to omit external purchase/enrollment links: $IPA_PATH"
-  if ! verify_ipa_app_store_main_entitlements "$IPA_PATH"; then
-    echo "error: App Store IPA contains unsupported iOS main-app entitlements; refusing to upload" >&2
+fi
+if ! verify_ipa_app_store_main_entitlements "$IPA_PATH"; then
+  echo "error: IPA contains unsupported iOS main-app entitlements; refusing to upload" >&2
+  exit 1
+fi
+echo "IPA verified to omit unsupported iOS main-app entitlements: $IPA_PATH"
+if [[ "$CLOUD_VPN_REQUIRED" -eq 1 ]]; then
+  if ! verify_ipa_cloud_vpn_extension "$IPA_PATH"; then
+    echo "error: IPA CloudVPN extension is not signed with its packet-tunnel profile and host keychain group; refusing to upload" >&2
     exit 1
   fi
-  echo "App Store IPA verified to omit unsupported iOS main-app entitlements: $IPA_PATH"
+  echo "IPA verified to carry a signed CloudVPN packet-tunnel extension sharing the host keychain group: $IPA_PATH"
 fi
 
 if [[ "$EXPORT_ONLY" -eq 1 ]]; then
   exit 0
 fi
 
+# com.cmux.app now ships cmux-next from feat-cmux-next. The classic app keeps
+# only its internal TestFlight home (--lane classic), so an appstore upload of
+# this tree needs an explicit override.
+if [[ "$LANE" == "appstore" && "${CMUX_IOS_ALLOW_CLASSIC_APPSTORE_UPLOAD:-}" != "1" ]]; then
+  echo "error: refusing to upload the classic iOS app to com.cmux.app: that App Store record now ships cmux-next from feat-cmux-next. Upload the classic app with --lane classic (cmux CLASSIC, dev.cmux.app.classic)." >&2
+  exit 2
+fi
+
 upload_app_store_with_asc() {
   if [[ -z "${ASC_APP_ID:-}" ]]; then
-    echo "error: --lane appstore requires a configured numeric app id so the upload targets the expected app record" >&2
+    echo "error: --lane $LANE requires a configured numeric app id so the upload targets the expected app record" >&2
     exit 2
   fi
   if [[ ! "$ASC_APP_ID" =~ ^[0-9]+$ ]]; then
-    echo "error: --lane appstore requires the configured app id to be numeric; do not pass a bundle id" >&2
+    echo "error: --lane $LANE requires the configured app id to be numeric; do not pass a bundle id" >&2
     exit 2
   fi
   if ! command -v asc >/dev/null 2>&1; then
-    echo "error: --lane appstore requires the release upload CLI for app-id based upload" >&2
+    echo "error: --lane $LANE requires the release upload CLI for app-id based upload" >&2
     exit 2
   fi
 
   local asc_private_key_path="${ASC_API_KEY_PATH:-}"
   local asc_private_key_b64="${ASC_API_KEY_P8_BASE64:-}"
   if [[ -z "${ASC_API_KEY_ID:-}" || -z "${ASC_API_ISSUER_ID:-}" || ( -z "$asc_private_key_path" && -z "$asc_private_key_b64" ) ]]; then
-    echo "error: --lane appstore upload requires complete upload credentials" >&2
+    echo "error: --lane $LANE upload requires complete upload credentials" >&2
     exit 2
   fi
   if [[ -n "$asc_private_key_path" && ! -f "$asc_private_key_path" ]]; then
@@ -1779,11 +2188,11 @@ if [[ -n "${APPLE_ID:-}" || -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" || -n "${APPLE
   HAS_APPLE_ID_UPLOAD_ENV=1
 fi
 
-if [[ "$LANE" == "appstore" && "$HAS_COMPLETE_ASC_UPLOAD_ENV" -eq 1 ]]; then
+if [[ "$APP_RECORD_LANE" -eq 1 && "$HAS_COMPLETE_ASC_UPLOAD_ENV" -eq 1 ]]; then
   upload_app_store_with_asc
-elif [[ "$LANE" == "appstore" && "$HAS_ANY_ASC_UPLOAD_ENV" -eq 1 && "$HAS_APPLE_ID_UPLOAD_ENV" -ne 1 ]]; then
+elif [[ "$APP_RECORD_LANE" -eq 1 && "$HAS_ANY_ASC_UPLOAD_ENV" -eq 1 && "$HAS_APPLE_ID_UPLOAD_ENV" -ne 1 ]]; then
   upload_app_store_with_asc
-elif [[ "$LANE" != "appstore" && ( -n "${ASC_API_KEY_ID:-}" || -n "${ASC_API_ISSUER_ID:-}" || -n "${ASC_API_KEY_PATH:-}" ) ]]; then
+elif [[ "$APP_RECORD_LANE" -ne 1 && ( -n "${ASC_API_KEY_ID:-}" || -n "${ASC_API_ISSUER_ID:-}" || -n "${ASC_API_KEY_PATH:-}" ) ]]; then
   if [[ -z "${ASC_API_KEY_ID:-}" || -z "${ASC_API_ISSUER_ID:-}" || -z "${ASC_API_KEY_PATH:-}" ]]; then
     echo "error: upload credentials must be set together" >&2
     exit 2
@@ -1869,7 +2278,7 @@ else
   # changelog-driven behavior + version-match guard.
   NOTES_SOURCE_ARGS=()
   NOTES_SOURCE_DESC="ios/CHANGELOG.md"
-  [[ "$NOTES_VERSION_GUARD" -eq 0 ]] && NOTES_SOURCE_DESC="ios/CHANGELOG.md (production version stream)"
+  [[ "$NOTES_VERSION_GUARD" -eq 0 ]] && NOTES_SOURCE_DESC="ios/CHANGELOG.md (lane version stream)"
   if [[ "$RANGE_NOTES_MODE" -eq 1 ]]; then
     # Keep generator stderr on the CI transcript (its fallback/unreachable-base
     # diagnostics are useful); only swallow a non-zero EXIT so a generator hiccup
@@ -1925,7 +2334,7 @@ fi
 
 # --external means "ship to subscribers", not merely "make this build externally
 # eligible in principle". After upload, assign the processed build to the
-# Existing external beta groups so both audiences receive it, and create
+# Founder's Edition and Pro beta groups so both audiences receive it, and create
 # the Beta App Review submission when Apple requires one for a new beta marketing
 # version. This is fatal: a red CI/upload is preferable to claiming the external
 # lane tracked main when either subscriber group missed the build.
@@ -1943,7 +2352,7 @@ if [[ "$LANE" == "beta" && "$EXPORT_ONLY" -ne 1 && "$EXTERNAL_TESTING" -eq 1 && 
     EXTERNAL_GROUP_SELECTOR=( --group-id "3ee84bfa-10ad-4f23-a45c-f9a3b037373e" )
   fi
   PRO_TESTFLIGHT_GROUP_ID="${CMUX_TESTFLIGHT_PRO_GROUP_ID:-34fbede5-3880-4560-b1bb-a45787249780}"
-  echo "assigning external TestFlight build $SHIPPED_BUILD_NUMBER to the existing beta groups" >&2
+  echo "assigning external TestFlight build $SHIPPED_BUILD_NUMBER to the Founder's Edition and Pro beta groups" >&2
   ASC_API_KEY_ID="$ASC_API_KEY_ID" ASC_API_ISSUER_ID="$ASC_API_ISSUER_ID" \
     ASC_API_KEY_PATH="${ASC_API_KEY_PATH:-}" ASC_API_KEY_P8_BASE64="${ASC_API_KEY_P8_BASE64:-}" \
     python3 "$SCRIPT_DIR/asc_assign_external_testflight_group.py" \

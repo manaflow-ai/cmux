@@ -1,9 +1,4 @@
 use super::*;
-
-mod exit_snapshot;
-mod hooks;
-mod segments;
-mod writer_batch;
 use base64::Engine;
 
 use crate::resource::WireDecimal;
@@ -21,24 +16,18 @@ use std::time::{Duration, Instant};
 
 const MAX_PRODUCER_EVENTS: usize = 64;
 const MAX_PRODUCER_MANIFEST_BYTES: usize = 1024 * 1024;
-pub(super) const MAX_EVENT_PAYLOAD_BYTES: usize = 1024 * 1024;
+const MAX_EVENT_PAYLOAD_BYTES: usize = 1024 * 1024;
 const MAX_CAUSATION_DEPTH: u16 = 32;
-pub(crate) const JOURNAL_SEGMENT_RECORD_LIMIT: usize = 1_024;
+const JOURNAL_SEGMENT_RECORD_LIMIT: usize = 1_024;
 const MAX_CHECKPOINT_CONTENT_UNCOMPRESSED_BYTES: usize = 256 * 1024 * 1024;
 /// Result arrays are capped by the embedded resource-operation catalog.
 pub(crate) const JOURNAL_LIST_MAX_ITEMS: usize = 4096;
-/// The newest checkpoints always kept. The `journal_checkpoints_keep_recent`
-/// trigger repeats this number; keep the two equal.
-pub(crate) const JOURNAL_CHECKPOINTS_KEPT: usize = 16;
-/// The newest checkpoint the prune keeps, counting from 0.
-const JOURNAL_CHECKPOINT_OLDEST_KEPT_OFFSET: usize = JOURNAL_CHECKPOINTS_KEPT - 1;
-/// The most checkpoints one maintenance tick deletes.
-pub(crate) const JOURNAL_CHECKPOINT_PRUNE_BATCH: usize = 64;
 
 fn ensure_journal_deadline(deadline: Option<Instant>) -> anyhow::Result<()> {
-    if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
-        return Err(crate::JournalContention::COMMIT_DEADLINE.into());
-    }
+    anyhow::ensure!(
+        deadline.is_none_or(|deadline| Instant::now() < deadline),
+        "session journal commit deadline expired"
+    );
     Ok(())
 }
 
@@ -333,9 +322,6 @@ struct PreparedJournalSegment {
     compressed: Vec<u8>,
     digest: [u8; 32],
     kinds: Vec<String>,
-    /// Its records of the kinds a journal reducer folds
-    /// (`session_journal::reducer_records`).
-    reducer_records: Vec<session_journal::reducer_records::ReducerRecordRow>,
 }
 
 pub(super) fn create_journal_extensions_schema(
@@ -424,8 +410,7 @@ pub(super) fn create_journal_extensions_schema(
            content BLOB NOT NULL,
            uncompressed_bytes INTEGER NOT NULL CHECK(uncompressed_bytes > 0),
            sha256 BLOB UNIQUE NOT NULL CHECK(length(sha256) = 32),
-           sealed_at_ms INTEGER NOT NULL CHECK(sealed_at_ms >= 0),
-           actors_json TEXT
+           sealed_at_ms INTEGER NOT NULL CHECK(sealed_at_ms >= 0)
          );
          CREATE TABLE IF NOT EXISTS journal_segment_kinds (
            segment_id TEXT NOT NULL,
@@ -458,15 +443,10 @@ pub(super) fn create_journal_extensions_schema(
          BEGIN
            SELECT RAISE(ABORT, 'journal checkpoints are immutable');
          END;
-         DROP TRIGGER IF EXISTS journal_checkpoints_reject_delete;
-         CREATE TRIGGER IF NOT EXISTS journal_checkpoints_keep_recent
+         CREATE TRIGGER IF NOT EXISTS journal_checkpoints_reject_delete
            BEFORE DELETE ON journal_checkpoints
-           WHEN OLD.source_sequence
-                  > (SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments)
-             OR (SELECT COUNT(*) FROM journal_checkpoints
-                 WHERE source_sequence > OLD.source_sequence) < 16
          BEGIN
-           SELECT RAISE(ABORT, 'journal checkpoints keep the newest 16 and every unsealed one');
+           SELECT RAISE(ABORT, 'journal checkpoints are immutable');
          END;
          CREATE TABLE IF NOT EXISTS terminal_exit_snapshots (
            terminal_id TEXT PRIMARY KEY NOT NULL,
@@ -486,13 +466,16 @@ pub(super) fn create_journal_extensions_schema(
     )?;
     ensure_built_in_agent_producer(transaction)?;
     migrate_journal_receipt_origins(transaction)?;
-    let delivery_columns = table_columns(transaction, "journal_hook_deliveries")?;
+    let delivery_columns = {
+        let mut statement = transaction.prepare("PRAGMA table_info(journal_hook_deliveries)")?;
+        statement
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<HashSet<_>, _>>()?
+    };
     if !delivery_columns.contains("started_event_id") {
         transaction
             .execute("ALTER TABLE journal_hook_deliveries ADD COLUMN started_event_id TEXT", [])?;
     }
-    // A seal writes it: the owner adds it, not the later ledger pass (cx-0b8z).
-    mutation_ledger::add_nullable_column(transaction, "journal_segments", "actors_json")?;
     session_journal::ensure_journal_event_index_schema(transaction)?;
     Ok(())
 }
@@ -662,10 +645,7 @@ fn migrate_journal_receipt_origins(transaction: &Transaction<'_>) -> anyhow::Res
     Ok(())
 }
 
-pub(super) fn table_columns(
-    transaction: &Transaction<'_>,
-    table: &str,
-) -> anyhow::Result<HashSet<String>> {
+fn table_columns(transaction: &Transaction<'_>, table: &str) -> anyhow::Result<HashSet<String>> {
     let mut statement = transaction.prepare(&format!("PRAGMA table_info({table})"))?;
     statement
         .query_map([], |row| row.get::<_, String>(1))?
@@ -794,16 +774,15 @@ pub(crate) fn validate_journal_hook_manifest(manifest: &JournalHookManifest) -> 
             !regex.pattern.is_empty() && regex.pattern.len() <= 1024,
             "hook regex must contain 1 to 1024 UTF-8 bytes"
         );
-        // A new hook on terminal output would never fire: output is not in
-        // the session journal (output_store.rs). Hooks stored before keep
-        // matching the output records of older registries.
+        // `terminal_output` stays valid here: a hook stored before output
+        // left the journal keeps matching the records of older registries,
+        // and a retried put of one returns its receipt. `put_journal_hook`
+        // refuses a new one.
         anyhow::ensure!(
-            regex.field != "terminal_output",
-            "hook regex field terminal_output is retired: terminal output is not in the session \
-             journal; wait with terminal.wait or read with terminal.output_read"
-        );
-        anyhow::ensure!(
-            matches!(regex.field.as_str(), "kind" | "subjects" | "payload" | "record"),
+            matches!(
+                regex.field.as_str(),
+                "kind" | "subjects" | "payload" | "record" | "terminal_output"
+            ),
             "hook regex field is invalid"
         );
         regex::bytes::RegexBuilder::new(&regex.pattern)
@@ -835,7 +814,7 @@ impl WorkspaceRegistry {
         validate_journal_ingress_shape(ingress, origin, idempotency_key)?;
         let fingerprint = journal_ingress_fingerprint(ingress)?;
         ingress_receipt(
-            &self.connection.get(),
+            &self.connection,
             &ingress.producer_id,
             origin,
             idempotency_key,
@@ -847,26 +826,565 @@ impl WorkspaceRegistry {
     pub(crate) fn append_journal_ingress_events(
         &mut self,
         events: &[&crate::journal_ingress::JournalIngressEvent],
-    ) -> anyhow::Result<Vec<crate::journal_ingress::JournalBatchReceipt>> {
-        let shared = self.connection.clone();
-        let connection = shared.get();
-        shared.append_journal_ingress_events_with_limits(
-            &connection,
+    ) -> anyhow::Result<Vec<Option<JournalAppendCommit>>> {
+        self.append_journal_ingress_events_with_limits(events, Duration::from_secs(5), None, || {
+            Ok(())
+        })
+    }
+
+    pub(crate) fn append_journal_ingress_events_with_deadline<F>(
+        &mut self,
+        events: &[&crate::journal_ingress::JournalIngressEvent],
+        deadline: Instant,
+        busy_timeout: Duration,
+        admit_commit: F,
+    ) -> anyhow::Result<Vec<Option<JournalAppendCommit>>>
+    where
+        F: FnOnce() -> anyhow::Result<()>,
+    {
+        self.append_journal_ingress_events_with_limits(
             events,
-            Duration::from_secs(5),
-            None,
-            || Ok(()),
+            busy_timeout,
+            Some(deadline),
+            admit_commit,
         )
     }
-}
 
-impl WorkspaceRegistry {
+    fn append_journal_ingress_events_with_limits<F>(
+        &mut self,
+        events: &[&crate::journal_ingress::JournalIngressEvent],
+        busy_timeout: Duration,
+        deadline: Option<Instant>,
+        admit_commit: F,
+    ) -> anyhow::Result<Vec<Option<JournalAppendCommit>>>
+    where
+        F: FnOnce() -> anyhow::Result<()>,
+    {
+        ensure_journal_deadline(deadline)?;
+        self.connection.busy_timeout(busy_timeout)?;
+        let deadline_active = deadline.map(|_| Arc::new(AtomicBool::new(true)));
+        if let (Some(deadline), Some(active)) = (deadline, deadline_active.as_ref())
+            && let Err(error) = self.connection.progress_handler(
+                1,
+                Some({
+                    let active = active.clone();
+                    move || active.load(Ordering::Acquire) && Instant::now() >= deadline
+                }),
+            )
+        {
+            let error = anyhow::Error::new(error);
+            return match self.connection.busy_timeout(Duration::from_secs(5)) {
+                Ok(()) => Err(error),
+                Err(reset_error) => Err(error.context(format!(
+                    "also failed to restore workspace registry busy timeout: {reset_error}"
+                ))),
+            };
+        }
+        let result = self.append_journal_ingress_events_with_current_timeout(
+            events,
+            deadline,
+            deadline_active.as_deref(),
+            busy_timeout,
+            admit_commit,
+        );
+        let clear_progress = if deadline.is_some() {
+            self.connection.progress_handler(0, None::<fn() -> bool>)
+        } else {
+            Ok(())
+        };
+        let reset_timeout = self.connection.busy_timeout(Duration::from_secs(5));
+        let cleanup = match (clear_progress, reset_timeout) {
+            (Ok(()), Ok(())) => Ok(()),
+            (Err(error), _) => {
+                Err(anyhow::Error::new(error).context("clear workspace registry deadline handler"))
+            }
+            (Ok(()), Err(error)) => {
+                Err(anyhow::Error::new(error).context("restore workspace registry busy timeout"))
+            }
+        };
+        match (result, cleanup) {
+            (result, Ok(())) => result,
+            (Ok(_), Err(error)) => Err(error),
+            (Err(error), Err(cleanup_error)) => Err(error.context(format!(
+                "also failed to restore workspace registry limits: {cleanup_error:#}"
+            ))),
+        }
+    }
+
+    fn append_journal_ingress_events_with_current_timeout<F>(
+        &mut self,
+        events: &[&crate::journal_ingress::JournalIngressEvent],
+        deadline: Option<Instant>,
+        deadline_active: Option<&AtomicBool>,
+        busy_timeout: Duration,
+        admit_commit: F,
+    ) -> anyhow::Result<Vec<Option<JournalAppendCommit>>>
+    where
+        F: FnOnce() -> anyhow::Result<()>,
+    {
+        ensure_journal_deadline(deadline)?;
+        if events.is_empty() {
+            return Ok(Vec::new());
+        }
+        #[cfg(test)]
+        let before_commit = self.journal_before_commit.take();
+        #[cfg(test)]
+        let after_commit_admission = self.journal_after_commit_admission.take();
+        let tx = self.connection.transaction()?;
+        // This guard disables the progress callback before `tx` rolls back on
+        // every early return. An expired callback must interrupt forward work,
+        // but it must never interrupt the rollback that removes partial rows.
+        let deadline_guard = JournalDeadlineTransactionGuard { active: deadline_active };
+        let session_id = transaction_session_id(&tx)?;
+        let terminal_ids = events
+            .iter()
+            .filter_map(|event| match *event {
+                crate::journal_ingress::JournalIngressEvent::TerminalOutput {
+                    terminal_id, ..
+                }
+                | crate::journal_ingress::JournalIngressEvent::TerminalResize {
+                    terminal_id, ..
+                }
+                | crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
+                    terminal_id,
+                    ..
+                } => Some(terminal_id.as_str().to_string()),
+                crate::journal_ingress::JournalIngressEvent::Frontend { .. }
+                | crate::journal_ingress::JournalIngressEvent::Producer { .. }
+                | crate::journal_ingress::JournalIngressEvent::TerminalBarrier => None,
+            })
+            .collect::<HashSet<_>>();
+        let mut expanded_by_terminal =
+            terminal_topology_subjects_batch(&tx, terminal_ids.iter().cloned())?;
+        let mut subjects_by_terminal = HashMap::<String, Vec<JournalSubject>>::new();
+        for terminal_id in terminal_ids {
+            let mut subjects = BTreeSet::from([
+                JournalSubject { kind: "session".into(), id: session_id.clone() },
+                JournalSubject { kind: "terminal".into(), id: terminal_id.clone() },
+            ]);
+            subjects.extend(expanded_by_terminal.remove(&terminal_id).unwrap_or_default());
+            subjects_by_terminal.insert(terminal_id, subjects.into_iter().collect::<Vec<_>>());
+        }
+        let mut terminal_offsets = HashMap::<(&str, &str), u64>::new();
+        let mut commits = Vec::with_capacity(events.len());
+        for event in events {
+            ensure_journal_deadline(deadline)?;
+            if matches!(*event, crate::journal_ingress::JournalIngressEvent::TerminalBarrier) {
+                commits.push(None);
+                continue;
+            }
+            if let crate::journal_ingress::JournalIngressEvent::Producer {
+                ingress,
+                validated,
+                origin,
+                idempotency_key,
+            } = *event
+            {
+                commits.push(Some(append_journal_ingress_transaction(
+                    &tx,
+                    ingress,
+                    validated,
+                    origin,
+                    idempotency_key,
+                )?));
+                continue;
+            }
+            if let crate::journal_ingress::JournalIngressEvent::Frontend {
+                principal_id,
+                occurred_at_ms,
+                event,
+            } = *event
+            {
+                validate_identifier("frontend journal principal", principal_id)?;
+                validate_identifier("frontend journal generation", event.generation())?;
+                validate_identifier("frontend journal event id", event.event_id())?;
+                let mut subjects = BTreeSet::from([
+                    JournalSubject { kind: "session".into(), id: session_id.clone() },
+                    JournalSubject { kind: "client".into(), id: principal_id.clone() },
+                    JournalSubject {
+                        kind: "frontend_projection".into(),
+                        id: event.frontend_projection_id().to_string(),
+                    },
+                ]);
+                let (kind, payload) = match event {
+                    crate::FrontendJournalEvent::Focus {
+                        event_id: _,
+                        frontend_projection_id,
+                        generation,
+                        target,
+                        workspace_id,
+                        screen_id,
+                        pane_id,
+                        tab_id,
+                        content_id,
+                    } => {
+                        if let Some(id) = workspace_id {
+                            subjects.insert(JournalSubject {
+                                kind: "workspace".into(),
+                                id: id.to_string(),
+                            });
+                        }
+                        if let Some(id) = screen_id {
+                            subjects.insert(JournalSubject {
+                                kind: "screen".into(),
+                                id: id.to_string(),
+                            });
+                        }
+                        if let Some(id) = pane_id {
+                            subjects
+                                .insert(JournalSubject { kind: "pane".into(), id: id.to_string() });
+                        }
+                        if let Some(id) = tab_id {
+                            subjects
+                                .insert(JournalSubject { kind: "tab".into(), id: id.to_string() });
+                        }
+                        if let Some(id) = content_id {
+                            subjects.insert(JournalSubject {
+                                kind: match id {
+                                    ContentPublicId::Terminal(_) => "terminal",
+                                    ContentPublicId::Browser(_) => "browser",
+                                }
+                                .into(),
+                                id: id.as_str().into(),
+                            });
+                        }
+                        (
+                            "frontend.focus.changed",
+                            json!({
+                                "format":"cmux.frontend-focus.v1",
+                                "frontend_projection_id":frontend_projection_id,
+                                "generation":generation,
+                                "target":target,
+                                "workspace_id":workspace_id,
+                                "screen_id":screen_id,
+                                "pane_id":pane_id,
+                                "tab_id":tab_id,
+                                "content_id":content_id.as_ref().map(ContentPublicId::as_str),
+                            }),
+                        )
+                    }
+                    crate::FrontendJournalEvent::Resize {
+                        event_id: _,
+                        frontend_projection_id,
+                        generation,
+                        cols,
+                        rows,
+                        cell_width,
+                        cell_height,
+                    } => {
+                        anyhow::ensure!(
+                            *cols > 0 && *rows > 0 && *cell_width > 0 && *cell_height > 0,
+                            "frontend journal geometry must be positive"
+                        );
+                        (
+                            "frontend.resized",
+                            json!({
+                                "format":"cmux.frontend-geometry.v1",
+                                "frontend_projection_id":frontend_projection_id,
+                                "generation":generation,
+                                "cols":cols,
+                                "rows":rows,
+                                "cell_width":cell_width,
+                                "cell_height":cell_height,
+                            }),
+                        )
+                    }
+                    crate::FrontendJournalEvent::Viewport {
+                        event_id: _,
+                        frontend_projection_id,
+                        generation,
+                        screen_id,
+                        offset,
+                        target,
+                        settled,
+                    } => {
+                        if let Some(id) = screen_id {
+                            subjects.insert(JournalSubject {
+                                kind: "screen".into(),
+                                id: id.to_string(),
+                            });
+                        }
+                        (
+                            "frontend.viewport.changed",
+                            json!({
+                                "format":"cmux.frontend-viewport.v1",
+                                "frontend_projection_id":frontend_projection_id,
+                                "generation":generation,
+                                "screen_id":screen_id,
+                                "offset":offset.to_string(),
+                                "target":target.to_string(),
+                                "settled":settled,
+                            }),
+                        )
+                    }
+                };
+                expand_topology_subjects(&tx, &mut subjects)?;
+                let subjects = subjects.into_iter().collect::<Vec<_>>();
+                let producer = JournalProducer {
+                    kind: "frontend".into(),
+                    id: event.frontend_projection_id().to_string(),
+                };
+                let authority = JournalAuthority {
+                    principal_id: principal_id.clone(),
+                    lease_id: format!("frontend:{}", event.frontend_projection_id()),
+                    generation: event.generation().into(),
+                    role: "frontend.observer".into(),
+                };
+                let duplicate_sequence = tx
+                    .query_row(
+                        "SELECT sequence FROM journal_event_index WHERE event_id = ?1",
+                        [event.event_id()],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .optional()?
+                    .map(u64::try_from)
+                    .transpose()
+                    .context("frontend journal sequence is negative")?;
+                if let Some(sequence) = duplicate_sequence {
+                    let mut records = query_session_journal_sequences(&tx, &[sequence])?;
+                    let stored = records
+                        .pop()
+                        .context("frontend journal event index points to an absent record")?;
+                    anyhow::ensure!(
+                        stored.kind == kind
+                            && stored.class == JournalClass::Observation
+                            && stored.replay == JournalReplayPolicy::Advisory
+                            && stored.producer == producer
+                            && stored.authority.as_ref() == Some(&authority)
+                            && stored.sensitivity == JournalSensitivity::Metadata
+                            && stored.payload == payload,
+                        "frontend journal event id was reused with different content"
+                    );
+                    commits.push(None);
+                    continue;
+                }
+                append_journal_record(
+                    &tx,
+                    &JournalAppend {
+                        event_id: event.event_id(),
+                        schema_version: 1,
+                        kind,
+                        class: JournalClass::Observation,
+                        replay: JournalReplayPolicy::Advisory,
+                        occurred_at_ms: *occurred_at_ms,
+                        producer: &producer,
+                        authority: Some(&authority),
+                        causation_id: None,
+                        correlation_id: None,
+                        causation_depth: 0,
+                        subjects: &subjects,
+                        sensitivity: JournalSensitivity::Metadata,
+                        payload: &payload,
+                        content: None,
+                        resource_revision: None,
+                        previous_resource_revision: None,
+                    },
+                )?;
+                commits.push(None);
+                continue;
+            }
+            let (terminal_id, generation, occurred_at_ms, kind, class, payload, content) =
+                match *event {
+                    crate::journal_ingress::JournalIngressEvent::TerminalOutput {
+                        terminal_id,
+                        generation,
+                        occurred_at_ms,
+                        bytes,
+                    } => {
+                        let key = (terminal_id.as_str(), generation.as_ref());
+                        let start = match terminal_offsets.get(&key).copied() {
+                            Some(offset) => offset,
+                            None => {
+                                let offset = tx
+                                    .query_row(
+                                        "SELECT next_offset FROM journal_terminal_streams
+                                     WHERE terminal_id = ?1 AND generation = ?2",
+                                        params![terminal_id.as_str(), generation.as_ref()],
+                                        |row| row.get::<_, i64>(0),
+                                    )
+                                    .optional()?
+                                    .map(u64::try_from)
+                                    .transpose()
+                                    .context("terminal journal offset is negative")?
+                                    .unwrap_or(0);
+                                terminal_offsets.insert(key, offset);
+                                offset
+                            }
+                        };
+                        let end = start
+                            .checked_add(u64::try_from(bytes.len())?)
+                            .context("terminal journal offset exhausted")?;
+                        terminal_offsets.insert(key, end);
+                        let digest = Sha256::digest(bytes);
+                        (
+                            terminal_id,
+                            generation,
+                            *occurred_at_ms,
+                            "terminal.output",
+                            JournalClass::Observation,
+                            json!({
+                                "format":"cmux.terminal-output.v1",
+                                "encoding":"raw",
+                                "byte_count":bytes.len().to_string(),
+                                "sha256":encode_hex(digest.as_slice()),
+                                "stream_offset_start":start.to_string(),
+                                "stream_offset_end":end.to_string(),
+                            }),
+                            Some(bytes.as_slice()),
+                        )
+                    }
+                    crate::journal_ingress::JournalIngressEvent::TerminalResize {
+                        terminal_id,
+                        generation,
+                        occurred_at_ms,
+                        cols,
+                        rows,
+                        cell_width,
+                        cell_height,
+                    } => (
+                        terminal_id,
+                        generation,
+                        *occurred_at_ms,
+                        "terminal.resized",
+                        JournalClass::State,
+                        json!({
+                            "format":"cmux.terminal-geometry.v1",
+                            "cols":cols,
+                            "rows":rows,
+                            "cell_width":cell_width,
+                            "cell_height":cell_height,
+                        }),
+                        None,
+                    ),
+                    crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
+                        terminal_id,
+                        generation,
+                        occurred_at_ms,
+                        reason,
+                    } => (
+                        terminal_id,
+                        generation,
+                        *occurred_at_ms,
+                        "terminal.output.gap",
+                        JournalClass::State,
+                        json!({
+                            "format":"cmux.terminal-output-gap.v1",
+                            "reason":reason,
+                        }),
+                        None,
+                    ),
+                    crate::journal_ingress::JournalIngressEvent::Frontend { .. }
+                    | crate::journal_ingress::JournalIngressEvent::Producer { .. }
+                    | crate::journal_ingress::JournalIngressEvent::TerminalBarrier => {
+                        unreachable!()
+                    }
+                };
+            let subjects = subjects_by_terminal
+                .get(terminal_id.as_str())
+                .context("terminal journal subjects were not prepared")?;
+            let producer = JournalProducer {
+                kind: "terminal_runtime".into(),
+                id: terminal_id.as_str().into(),
+            };
+            let authority = JournalAuthority {
+                principal_id: "cmux.terminal-runtime".into(),
+                lease_id: format!("terminal:{}", terminal_id.as_str()),
+                generation: generation.to_string(),
+                role: "terminal.runtime".into(),
+            };
+            let event_id = random_event_id("terminal");
+            append_journal_record(
+                &tx,
+                &JournalAppend {
+                    event_id: &event_id,
+                    schema_version: 1,
+                    kind,
+                    class,
+                    replay: JournalReplayPolicy::Required,
+                    occurred_at_ms,
+                    producer: &producer,
+                    authority: Some(&authority),
+                    causation_id: None,
+                    correlation_id: None,
+                    causation_depth: 0,
+                    subjects,
+                    sensitivity: JournalSensitivity::Sensitive,
+                    payload: &payload,
+                    content,
+                    resource_revision: None,
+                    previous_resource_revision: None,
+                },
+            )?;
+            commits.push(None);
+        }
+        ensure_journal_deadline(deadline)?;
+        for ((terminal_id, generation), next_offset) in terminal_offsets {
+            tx.execute(
+                "INSERT INTO journal_terminal_streams(terminal_id, generation, next_offset)
+                 VALUES(?1, ?2, ?3)
+                 ON CONFLICT(terminal_id, generation) DO UPDATE SET
+                   next_offset = excluded.next_offset",
+                params![terminal_id, generation, i64::try_from(next_offset)?],
+            )?;
+        }
+        #[cfg(test)]
+        if let Some((entered, release)) = before_commit {
+            entered.send(()).context("report journal before-commit test hook")?;
+            release.recv().context("release journal before-commit test hook")?;
+        }
+        ensure_journal_deadline(deadline)?;
+        if let Some(deadline) = deadline {
+            tx.busy_timeout(deadline.saturating_duration_since(Instant::now()).min(busy_timeout))?;
+        }
+        ensure_journal_deadline(deadline)?;
+        admit_commit()?;
+        // The caller now owns the authoritative commit result. Disable the
+        // transaction deadline so a slow fsync cannot produce a false timeout
+        // followed by a durable commit.
+        deadline_guard.disarm();
+        #[cfg(test)]
+        if let Some((entered, release)) = after_commit_admission {
+            entered.send(()).context("report journal commit-admission test hook")?;
+            release.recv().context("release journal commit-admission test hook")?;
+        }
+        match tx.execute_batch("COMMIT") {
+            Ok(()) => Ok(commits),
+            Err(error) => {
+                deadline_guard.disarm();
+                match tx.rollback() {
+                    Ok(()) => Err(error.into()),
+                    Err(rollback_error) => Err(anyhow::Error::new(error).context(format!(
+                        "also failed to roll back expired journal transaction: {rollback_error}"
+                    ))),
+                }
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_journal_before_commit_for_test(
+        &mut self,
+        entered: std::sync::mpsc::SyncSender<()>,
+        release: std::sync::mpsc::Receiver<()>,
+    ) {
+        self.journal_before_commit = Some((entered, release));
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_journal_after_commit_admission_for_test(
+        &mut self,
+        entered: std::sync::mpsc::SyncSender<()>,
+        release: std::sync::mpsc::Receiver<()>,
+    ) {
+        self.journal_after_commit_admission = Some((entered, release));
+    }
+
     pub(crate) fn journal_producer_manifests(
         &self,
     ) -> anyhow::Result<Vec<JournalProducerManifest>> {
-        let db = self.connection.get();
-        let mut statement =
-            db.prepare("SELECT manifest_json FROM journal_producers ORDER BY producer_id ASC")?;
+        let mut statement = self
+            .connection
+            .prepare("SELECT manifest_json FROM journal_producers ORDER BY producer_id ASC")?;
         statement
             .query_map([], |row| row.get::<_, String>(0))?
             .map(|value| Ok(serde_json::from_str(&value?)?))
@@ -883,10 +1401,7 @@ impl WorkspaceRegistry {
         self.journal_producer_manifests().map(|manifests| {
             manifests
                 .into_iter()
-                .filter(|manifest| {
-                    manifest.producer_id != crate::AGENT_HOOK_PRODUCER_ID
-                        && manifest.producer_id != crate::shell_history::SHELL_PRODUCER_ID
-                })
+                .filter(|manifest| manifest.producer_id != crate::AGENT_HOOK_PRODUCER_ID)
                 .collect()
         })
     }
@@ -901,17 +1416,12 @@ impl WorkspaceRegistry {
             manifest.producer_id != crate::AGENT_HOOK_PRODUCER_ID,
             "the cmux agent producer is built in"
         );
-        anyhow::ensure!(
-            manifest.producer_id != crate::shell_history::SHELL_PRODUCER_ID,
-            "the cmux shell producer id is reserved"
-        );
         validate_journal_producer_manifest(manifest)?;
         validate_identifier("journal producer origin", origin)?;
         validate_identifier("journal producer idempotency key", idempotency_key)?;
         let manifest_value = serde_json::to_value(manifest)?;
         let fingerprint = Sha256::digest(canonical_json(&manifest_value)?.as_bytes());
-        let db = self.connection.get();
-        let tx = db.unchecked_transaction()?;
+        let tx = self.connection.transaction()?;
         if let Some(commit) = operation_receipt(
             &tx,
             "session.journal.producer.put",
@@ -983,7 +1493,6 @@ impl WorkspaceRegistry {
                 content: None,
                 resource_revision: None,
                 previous_resource_revision: None,
-                actor: None,
             },
         )?;
         let result = json!({
@@ -1013,8 +1522,7 @@ impl WorkspaceRegistry {
         origin: &str,
         idempotency_key: &str,
     ) -> anyhow::Result<JournalAppendCommit> {
-        let db = self.connection.get();
-        let tx = db.unchecked_transaction()?;
+        let tx = self.connection.transaction()?;
         let commit =
             append_journal_ingress_transaction(&tx, ingress, validated, origin, idempotency_key)?;
         tx.commit()?;
@@ -1047,21 +1555,23 @@ fn append_journal_ingress_transaction(
         return Ok(commit);
     }
     let installed = tx
-        .prepare_cached(
+        .query_row(
             "SELECT 1 FROM journal_producers
              WHERE producer_id = ?1 AND manifest_version = ?2",
-        )?
-        .query_row(params![ingress.producer_id, i64::from(ingress.manifest_version)], |_| Ok(()))
+            params![ingress.producer_id, i64::from(ingress.manifest_version)],
+            |_| Ok(()),
+        )
         .optional()?
         .is_some();
     anyhow::ensure!(installed, "journal producer or manifest version is not installed");
     let causation_depth = match ingress.causation_id.as_deref() {
         Some(causation_id) => {
             let parent_depth = tx
-                .prepare_cached(
+                .query_row(
                     "SELECT causation_depth FROM journal_event_index WHERE event_id = ?1",
-                )?
-                .query_row([causation_id], |row| row.get::<_, i64>(0))
+                    [causation_id],
+                    |row| row.get::<_, i64>(0),
+                )
                 .optional()?
                 .context("journal causation event does not exist")?;
             u16::try_from(parent_depth)
@@ -1120,7 +1630,6 @@ fn append_journal_ingress_transaction(
             content: None,
             resource_revision: None,
             previous_resource_revision: None,
-            actor: None,
         },
     )?;
     let result = json!({
@@ -1128,21 +1637,21 @@ fn append_journal_ingress_transaction(
         "sequence":sequence.to_string(),
         "event_id":event_id,
     });
-    tx.prepare_cached(
+    tx.execute(
         "INSERT INTO journal_ingress_receipts(
            producer_id, origin, idempotency_key, fingerprint, event_id,
            journal_sequence, result_json
          ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-    )?
-    .execute(params![
-        ingress.producer_id,
-        origin,
-        idempotency_key,
-        fingerprint.as_slice(),
-        event_id,
-        i64::try_from(sequence)?,
-        canonical_json(&result)?,
-    ])?;
+        params![
+            ingress.producer_id,
+            origin,
+            idempotency_key,
+            fingerprint.as_slice(),
+            event_id,
+            i64::try_from(sequence)?,
+            canonical_json(&result)?,
+        ],
+    )?;
     if built_in_agent {
         WorkspaceRegistry::stage_agent_hook_pending(
             tx,
@@ -1157,6 +1666,464 @@ fn append_journal_ingress_transaction(
 }
 
 impl WorkspaceRegistry {
+    pub(crate) fn journal_hook_states(&self) -> anyhow::Result<Vec<JournalHookState>> {
+        let mut statement = self.connection.prepare(
+            "SELECT manifest_json, enabled, cursor_sequence
+             FROM journal_hooks
+             WHERE enabled = 1
+             ORDER BY hook_id ASC, manifest_version ASC",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?))
+            })?
+            .map(|row| {
+                let (manifest, enabled, cursor) = row?;
+                Ok(JournalHookState {
+                    manifest: serde_json::from_str(&manifest)?,
+                    cursor_sequence: u64::try_from(cursor)
+                        .context("hook cursor sequence is negative")?,
+                    enabled: enabled != 0,
+                })
+            })
+            .collect()
+    }
+
+    pub(crate) fn journal_events_caused_by_hooks(
+        &self,
+        hook_ids: &[String],
+        event_ids: &[String],
+    ) -> anyhow::Result<HashSet<(String, String)>> {
+        if hook_ids.is_empty() || event_ids.is_empty() {
+            return Ok(HashSet::new());
+        }
+        let hook_ids = canonical_json(&serde_json::to_value(hook_ids)?)?;
+        let event_ids = canonical_json(&serde_json::to_value(event_ids)?)?;
+        let mut statement = self.connection.prepare(
+            "SELECT causal_hook_id, event_id
+             FROM journal_event_index
+             WHERE causal_hook_id IN (SELECT value FROM json_each(?1))
+               AND event_id IN (SELECT value FROM json_each(?2))",
+        )?;
+        statement
+            .query_map(params![hook_ids, event_ids], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<Result<HashSet<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    pub(crate) fn put_journal_hook(
+        &mut self,
+        manifest: &JournalHookManifest,
+        origin: &str,
+        idempotency_key: &str,
+    ) -> anyhow::Result<JournalAppendCommit> {
+        self.put_journal_hook_admitting(manifest, origin, idempotency_key, false)
+    }
+
+    /// [`Self::put_journal_hook`]; `admit_retired_fields` stores a hook on
+    /// the retired `terminal_output` field, as a daemon that still journaled
+    /// output did (tests of the retry of such a put).
+    fn put_journal_hook_admitting(
+        &mut self,
+        manifest: &JournalHookManifest,
+        origin: &str,
+        idempotency_key: &str,
+        admit_retired_fields: bool,
+    ) -> anyhow::Result<JournalAppendCommit> {
+        validate_journal_hook_manifest(manifest)?;
+        validate_identifier("journal hook origin", origin)?;
+        validate_identifier("journal hook idempotency key", idempotency_key)?;
+        let manifest_value = serde_json::to_value(manifest)?;
+        let fingerprint = Sha256::digest(canonical_json(&manifest_value)?.as_bytes());
+        let tx = self.connection.transaction()?;
+        if let Some(commit) = operation_receipt(
+            &tx,
+            "session.journal.hook.put",
+            origin,
+            idempotency_key,
+            fingerprint.as_slice(),
+        )? {
+            return Ok(commit);
+        }
+        // A new hook on terminal output would never fire: output is not in
+        // the session journal (output_store.rs). A retry of one stored before
+        // returned its receipt above.
+        anyhow::ensure!(
+            admit_retired_fields
+                || manifest
+                    .filter
+                    .regex
+                    .as_ref()
+                    .is_none_or(|regex| regex.field != "terminal_output"),
+            "hook regex field terminal_output is retired: terminal output is not in the session \
+             journal; wait with terminal.wait or read with terminal.output_read"
+        );
+        let latest = tx
+            .query_row(
+                "SELECT manifest_version, manifest_json
+                 FROM journal_hooks WHERE hook_id = ?1
+                 ORDER BY manifest_version DESC LIMIT 1",
+                [&manifest.hook_id],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()?;
+        if let Some((version, stored)) = latest {
+            let version = u32::try_from(version).context("hook manifest version is invalid")?;
+            anyhow::ensure!(
+                manifest.manifest_version > version
+                    || (manifest.manifest_version == version
+                        && canonical_json(&serde_json::from_str(&stored)?)?
+                            == canonical_json(&manifest_value)?),
+                "journal hook manifest versions must increase"
+            );
+        }
+        let head = journal_head(&tx)?;
+        let cursor = if manifest.delivery.start == "beginning" { 0 } else { head };
+        let now = unix_epoch_ms()?;
+        tx.execute(
+            "INSERT INTO journal_hooks(
+               hook_id, manifest_version, manifest_json, enabled, cursor_sequence, installed_at_ms
+             ) VALUES(?1, ?2, ?3, 1, ?4, ?5)
+             ON CONFLICT(hook_id, manifest_version) DO UPDATE SET
+               manifest_json=excluded.manifest_json,
+               enabled=1",
+            params![
+                manifest.hook_id,
+                i64::from(manifest.manifest_version),
+                canonical_json(&manifest_value)?,
+                i64::try_from(cursor)?,
+                i64::try_from(now)?,
+            ],
+        )?;
+        tx.execute(
+            "UPDATE journal_hooks SET enabled = 0
+             WHERE hook_id = ?1 AND manifest_version <> ?2",
+            params![manifest.hook_id, i64::from(manifest.manifest_version)],
+        )?;
+        let session_id = transaction_session_id(&tx)?;
+        let subjects = vec![
+            JournalSubject { kind: "session".into(), id: session_id },
+            JournalSubject { kind: "hook".into(), id: manifest.hook_id.clone() },
+        ];
+        let producer = JournalProducer { kind: "journal_admin".into(), id: origin.into() };
+        let event_id = random_event_id("hook_manifest");
+        let sequence = append_journal_record(
+            &tx,
+            &JournalAppend {
+                event_id: &event_id,
+                schema_version: 1,
+                kind: "hook.manifest.installed",
+                class: JournalClass::State,
+                replay: JournalReplayPolicy::Required,
+                occurred_at_ms: now,
+                producer: &producer,
+                authority: None,
+                causation_id: None,
+                correlation_id: Some(idempotency_key),
+                causation_depth: 0,
+                subjects: &subjects,
+                sensitivity: JournalSensitivity::Sensitive,
+                payload: &manifest_value,
+                content: None,
+                resource_revision: None,
+                previous_resource_revision: None,
+            },
+        )?;
+        let result = json!({
+            "hook_id":manifest.hook_id,
+            "manifest_version":manifest.manifest_version,
+            "sequence":sequence.to_string(),
+            "event_id":event_id,
+        });
+        insert_operation_receipt(
+            &tx,
+            "session.journal.hook.put",
+            origin,
+            idempotency_key,
+            fingerprint.as_slice(),
+            sequence,
+            &result,
+        )?;
+        tx.commit()?;
+        Ok(JournalAppendCommit { sequence, event_id, replayed: false })
+    }
+
+    pub(crate) fn schedule_journal_hook_deliveries(
+        &mut self,
+        scans: &[JournalHookScan],
+    ) -> anyhow::Result<Vec<bool>> {
+        if scans.is_empty() {
+            return Ok(Vec::new());
+        }
+        let tx = self.connection.transaction()?;
+        let now = unix_epoch_ms()?;
+        let applied = {
+            let mut read_cursor = tx.prepare(
+                "SELECT cursor_sequence FROM journal_hooks
+                 WHERE hook_id = ?1 AND manifest_version = ?2 AND enabled = 1",
+            )?;
+            let mut insert_delivery = tx.prepare(
+                "INSERT OR IGNORE INTO journal_hook_deliveries(
+                   hook_id, manifest_version, event_id, event_sequence, attempt, state,
+                   next_attempt_at_ms, scheduled_at_ms
+                 ) VALUES(?1, ?2, ?3, ?4, 0, 'scheduled', ?5, ?5)",
+            )?;
+            let mut advance_cursor = tx.prepare(
+                "UPDATE journal_hooks SET cursor_sequence = ?3
+                 WHERE hook_id = ?1 AND manifest_version = ?2",
+            )?;
+            let mut applied = Vec::with_capacity(scans.len());
+            for scan in scans {
+                anyhow::ensure!(
+                    scan.scanned_to > scan.expected_cursor,
+                    "journal hook scan must advance its cursor"
+                );
+                let current = read_cursor
+                    .query_row(params![scan.hook_id, i64::from(scan.manifest_version)], |row| {
+                        row.get::<_, i64>(0)
+                    })
+                    .optional()?;
+                if current.map(u64::try_from).transpose()? != Some(scan.expected_cursor) {
+                    applied.push(false);
+                    continue;
+                }
+                for (event_id, sequence) in &scan.matches {
+                    insert_delivery.execute(params![
+                        scan.hook_id,
+                        i64::from(scan.manifest_version),
+                        event_id,
+                        i64::try_from(*sequence)?,
+                        i64::try_from(now)?,
+                    ])?;
+                }
+                advance_cursor.execute(params![
+                    scan.hook_id,
+                    i64::from(scan.manifest_version),
+                    i64::try_from(scan.scanned_to)?,
+                ])?;
+                applied.push(true);
+            }
+            applied
+        };
+        tx.commit()?;
+        Ok(applied)
+    }
+
+    /// The earliest `next_attempt_at_ms` of a scheduled delivery of an
+    /// enabled hook: the dispatcher's next retry deadline.
+    pub(crate) fn next_journal_hook_attempt_at_ms(&self) -> anyhow::Result<Option<u64>> {
+        let next: Option<i64> = self.connection.query_row(
+            "SELECT MIN(d.next_attempt_at_ms)
+             FROM journal_hook_deliveries d
+             JOIN journal_hooks h
+               ON h.hook_id = d.hook_id AND h.manifest_version = d.manifest_version
+             WHERE h.enabled = 1 AND d.state = 'scheduled'",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(next.map(|value| u64::try_from(value).unwrap_or(0)))
+    }
+
+    pub(crate) fn pending_journal_hook_deliveries(
+        &self,
+        now_ms: u64,
+        limit: usize,
+    ) -> anyhow::Result<Vec<JournalHookDelivery>> {
+        let mut statement = self.connection.prepare(
+            "WITH pending AS (
+               SELECT h.manifest_json, d.event_sequence, d.attempt,
+                      CAST(json_extract(h.manifest_json, '$.exec.max_parallel') AS INTEGER)
+                        AS max_parallel,
+                      ROW_NUMBER() OVER (
+                        PARTITION BY d.hook_id, d.manifest_version
+                        ORDER BY d.event_sequence ASC
+                      ) AS hook_slot
+               FROM journal_hook_deliveries d
+               JOIN journal_hooks h
+                 ON h.hook_id = d.hook_id AND h.manifest_version = d.manifest_version
+               WHERE h.enabled = 1
+                 AND d.state IN ('scheduled','executing')
+                 AND d.next_attempt_at_ms <= ?1
+             )
+             SELECT manifest_json, event_sequence, attempt
+             FROM pending
+             WHERE hook_slot <= max_parallel
+             ORDER BY event_sequence ASC
+             LIMIT ?2",
+        )?;
+        let rows = statement
+            .query_map(params![i64::try_from(now_ms)?, i64::try_from(limit)?], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(statement);
+        let sequences = rows
+            .iter()
+            .map(|(_, sequence, _)| u64::try_from(*sequence))
+            .collect::<Result<Vec<_>, _>>()?;
+        let events = query_session_journal_sequences(&self.connection, &sequences)?
+            .into_iter()
+            .map(|event| (event.sequence, event))
+            .collect::<HashMap<_, _>>();
+        rows.into_iter()
+            .map(|(manifest, sequence, attempt)| {
+                let sequence = u64::try_from(sequence)?;
+                let event = events
+                    .get(&sequence)
+                    .cloned()
+                    .context("hook delivery event is absent from the journal")?;
+                Ok(JournalHookDelivery {
+                    manifest: serde_json::from_str(&manifest)?,
+                    event,
+                    attempt: u16::try_from(attempt).context("hook attempt is invalid")?,
+                })
+            })
+            .collect()
+    }
+
+    pub(crate) fn start_journal_hook_deliveries(
+        &mut self,
+        deliveries: &[JournalHookDelivery],
+    ) -> anyhow::Result<Vec<JournalHookAttempt>> {
+        if deliveries.is_empty() {
+            return Ok(Vec::new());
+        }
+        let tx = self.connection.transaction()?;
+        let now = unix_epoch_ms()?;
+        let mut attempts = Vec::with_capacity(deliveries.len());
+        for delivery in deliveries {
+            let attempt = delivery.attempt.checked_add(1).context("hook attempt overflow")?;
+            let changed = tx.execute(
+                "UPDATE journal_hook_deliveries
+                 SET state = 'executing', attempt = ?4, started_at_ms = ?5,
+                     completed_at_ms = NULL, exit_code = NULL, error = NULL
+                 WHERE hook_id = ?1 AND manifest_version = ?2 AND event_id = ?3
+                   AND state IN ('scheduled','executing')",
+                params![
+                    delivery.manifest.hook_id,
+                    i64::from(delivery.manifest.manifest_version),
+                    delivery.event.event_id,
+                    i64::from(attempt),
+                    i64::try_from(now)?,
+                ],
+            )?;
+            anyhow::ensure!(changed == 1, "hook delivery is no longer pending");
+            let (_, causation_id) = append_hook_delivery_event(
+                &tx,
+                "hook.delivery.started",
+                delivery,
+                attempt,
+                json!({"attempt":attempt}),
+                now,
+            )?;
+            tx.execute(
+                "UPDATE journal_hook_deliveries
+                 SET started_event_id = ?4
+                 WHERE hook_id = ?1 AND manifest_version = ?2 AND event_id = ?3",
+                params![
+                    delivery.manifest.hook_id,
+                    i64::from(delivery.manifest.manifest_version),
+                    delivery.event.event_id,
+                    causation_id,
+                ],
+            )?;
+            attempts.push(JournalHookAttempt { attempt, causation_id });
+        }
+        tx.commit()?;
+        Ok(attempts)
+    }
+
+    pub(crate) fn finish_journal_hook_deliveries(
+        &mut self,
+        results: &[JournalHookDeliveryResult],
+    ) -> anyhow::Result<()> {
+        if results.is_empty() {
+            return Ok(());
+        }
+        let tx = self.connection.transaction()?;
+        let now = unix_epoch_ms()?;
+        for result in results {
+            let delivery = &result.delivery;
+            let attempt = result.attempt;
+            let exit_code = result.exit_code;
+            let error = result.error.as_deref();
+            let success = error.is_none() && exit_code == Some(0);
+            if success {
+                let changed = tx.execute(
+                    "UPDATE journal_hook_deliveries
+                     SET state = 'completed', completed_at_ms = ?5, exit_code = ?6, error = NULL
+                     WHERE hook_id = ?1 AND manifest_version = ?2 AND event_id = ?3
+                       AND state = 'executing' AND attempt = ?4",
+                    params![
+                        delivery.manifest.hook_id,
+                        i64::from(delivery.manifest.manifest_version),
+                        delivery.event.event_id,
+                        i64::from(attempt),
+                        i64::try_from(now)?,
+                        exit_code,
+                    ],
+                )?;
+                anyhow::ensure!(changed == 1, "hook delivery attempt is no longer executing");
+                append_hook_delivery_event(
+                    &tx,
+                    "hook.delivery.completed",
+                    delivery,
+                    attempt,
+                    json!({"attempt":attempt,"exit_code":exit_code}),
+                    now,
+                )?;
+            } else {
+                let exhausted = attempt >= delivery.manifest.delivery.retry.max_attempts;
+                let next_attempt_at = now.saturating_add(
+                    delivery.manifest.delivery.retry.backoff_ms.saturating_mul(u64::from(attempt)),
+                );
+                let changed = tx.execute(
+                    "UPDATE journal_hook_deliveries
+                     SET state = ?5, next_attempt_at_ms = ?6, completed_at_ms = ?7,
+                         exit_code = ?8, error = ?9
+                     WHERE hook_id = ?1 AND manifest_version = ?2 AND event_id = ?3
+                       AND state = 'executing' AND attempt = ?4",
+                    params![
+                        delivery.manifest.hook_id,
+                        i64::from(delivery.manifest.manifest_version),
+                        delivery.event.event_id,
+                        i64::from(attempt),
+                        if exhausted { "abandoned" } else { "scheduled" },
+                        i64::try_from(next_attempt_at)?,
+                        i64::try_from(now)?,
+                        exit_code,
+                        error,
+                    ],
+                )?;
+                anyhow::ensure!(changed == 1, "hook delivery attempt is no longer executing");
+                append_hook_delivery_event(
+                    &tx,
+                    "hook.delivery.failed",
+                    delivery,
+                    attempt,
+                    json!({"attempt":attempt,"exit_code":exit_code,"error":error,"retrying":!exhausted}),
+                    now,
+                )?;
+                if exhausted {
+                    append_hook_delivery_event(
+                        &tx,
+                        "hook.delivery.abandoned",
+                        delivery,
+                        attempt,
+                        json!({"attempt":attempt,"exit_code":exit_code,"error":error}),
+                        now,
+                    )?;
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+}
+
+impl WorkspaceRegistry {
     pub(crate) fn journal_checkpoint_receipt(
         &self,
         origin: &str,
@@ -1166,7 +2133,7 @@ impl WorkspaceRegistry {
         validate_identifier("journal checkpoint idempotency key", idempotency_key)?;
         let fingerprint = checkpoint_request_fingerprint();
         let Some(journal) = operation_receipt(
-            &self.connection.get(),
+            &self.connection,
             "session.journal.checkpoint.create",
             origin,
             idempotency_key,
@@ -1175,7 +2142,7 @@ impl WorkspaceRegistry {
         else {
             return Ok(None);
         };
-        let checkpoint_id = self.connection.get().query_row(
+        let checkpoint_id = self.connection.query_row(
             "SELECT json_extract(result_json, '$.checkpoint_id')
              FROM journal_operation_receipts
              WHERE operation = 'session.journal.checkpoint.create'
@@ -1183,7 +2150,7 @@ impl WorkspaceRegistry {
             params![origin, idempotency_key],
             |row| row.get::<_, String>(0),
         )?;
-        let checkpoint = query_journal_checkpoint(&self.connection.get(), &checkpoint_id)?
+        let checkpoint = query_journal_checkpoint(&self.connection, &checkpoint_id)?
             .context("checkpoint receipt points to a missing checkpoint")?;
         Ok(Some(JournalCheckpointCommit { checkpoint, journal }))
     }
@@ -1201,8 +2168,7 @@ impl WorkspaceRegistry {
         validate_identifier("journal checkpoint origin", origin)?;
         validate_identifier("journal checkpoint idempotency key", idempotency_key)?;
         let fingerprint = checkpoint_request_fingerprint();
-        let db = self.connection.get();
-        let tx = db.unchecked_transaction()?;
+        let tx = self.connection.transaction()?;
         if let Some(journal) = operation_receipt(
             &tx,
             "session.journal.checkpoint.create",
@@ -1286,7 +2252,6 @@ impl WorkspaceRegistry {
                 content: None,
                 resource_revision: None,
                 previous_resource_revision: None,
-                actor: None,
             },
         )?;
         let result = json!({
@@ -1321,6 +2286,45 @@ impl WorkspaceRegistry {
         })
     }
 
+    /// Store the exit snapshot for one terminal generation, best-effort and
+    /// idempotent. The exit latch is first-writer-wins, so at most one row
+    /// exists per terminal; a replayed store is a no-op. `covered_through` is
+    /// the output-store offset the snapshot covers (output_store.rs). Returns
+    /// whether a snapshot row was written.
+    pub(crate) fn put_terminal_exit_snapshot(
+        &mut self,
+        terminal_id: &str,
+        generation: &str,
+        covered_through: u64,
+        blob: &JournalContentBlob,
+    ) -> anyhow::Result<bool> {
+        if covered_through == 0 {
+            // The generation printed nothing; there is nothing to cover.
+            return Ok(false);
+        }
+        let tx = self.connection.transaction()?;
+        let now = unix_epoch_ms()?;
+        insert_journal_content_blob(&tx, blob, now)?;
+        let inserted = tx.execute(
+            "INSERT OR IGNORE INTO terminal_exit_snapshots(
+               terminal_id, generation, content_id, format, cols, rows,
+               covered_through, created_at_ms
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                terminal_id,
+                generation,
+                blob.reference.content_id,
+                blob.reference.format,
+                i64::from(blob.reference.cols.max(1)),
+                i64::from(blob.reference.rows.max(1)),
+                i64::try_from(covered_through)?,
+                i64::try_from(now)?,
+            ],
+        )?;
+        tx.commit()?;
+        Ok(inserted > 0)
+    }
+
     /// Load and verify one terminal's exit snapshot, decoded to replay bytes.
     pub(crate) fn terminal_exit_snapshot(
         &self,
@@ -1329,7 +2333,6 @@ impl WorkspaceRegistry {
         type SnapshotRow = (String, i64, i64, i64, String, String, Vec<u8>, i64, Vec<u8>);
         let Some(row) = self
             .connection
-            .get()
             .query_row(
                 "SELECT snapshot.generation, snapshot.covered_through, snapshot.cols,
                         snapshot.rows, snapshot.format, blob.codec, blob.content,
@@ -1412,8 +2415,7 @@ impl WorkspaceRegistry {
     }
 
     pub(crate) fn journal_checkpoints(&self) -> anyhow::Result<Vec<JournalCheckpointSummary>> {
-        let db = self.connection.get();
-        let mut statement = db.prepare(
+        let mut statement = self.connection.prepare(
             "SELECT checkpoint_id, source_sequence, reducer_version, content_refs_json,
                     sha256, created_at_ms
              FROM journal_checkpoints
@@ -1467,7 +2469,6 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<Option<JournalCheckpoint>> {
         let checkpoint_id = if selector == "latest" {
             self.connection
-                .get()
                 .query_row(
                     "SELECT checkpoint_id FROM journal_checkpoints
                      ORDER BY source_sequence DESC, created_at_ms DESC, checkpoint_id DESC LIMIT 1",
@@ -1480,10 +2481,423 @@ impl WorkspaceRegistry {
         };
         checkpoint_id
             .as_deref()
-            .map(|id| query_journal_checkpoint(&self.connection.get(), id))
+            .map(|id| query_journal_checkpoint(&self.connection, id))
             .transpose()
             .map(Option::flatten)
     }
+}
+
+impl WorkspaceRegistry {
+    pub(crate) fn migrate_journal_auto_vacuum(&self) -> anyhow::Result<bool> {
+        migrate_journal_auto_vacuum(&self.connection)
+    }
+
+    pub(crate) fn incremental_journal_vacuum(&self) -> anyhow::Result<()> {
+        // Fresh registries opt into SQLite's incremental auto-vacuum. This is
+        // intentionally a small step: journal sealing must release the
+        // registry writer quickly even when a busy VM has many free pages.
+        self.connection.execute_batch("PRAGMA incremental_vacuum(256);")?;
+        Ok(())
+    }
+
+    pub(crate) fn journal_segments(&self) -> anyhow::Result<Vec<JournalSegment>> {
+        let mut statement = self.connection.prepare(
+            "SELECT segment_id, start_sequence, end_sequence, record_count, codec,
+                    uncompressed_bytes, sha256, sealed_at_ms
+             FROM journal_segments ORDER BY start_sequence ASC LIMIT ?1",
+        )?;
+        statement
+            .query_map([JOURNAL_LIST_MAX_ITEMS as i64], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, Vec<u8>>(6)?,
+                    row.get::<_, i64>(7)?,
+                ))
+            })?
+            .map(|row| {
+                let (id, start, end, count, codec, bytes, digest, sealed_at) = row?;
+                Ok(JournalSegment {
+                    segment_id: id,
+                    start_sequence: u64::try_from(start)?,
+                    end_sequence: u64::try_from(end)?,
+                    record_count: u64::try_from(count)?,
+                    codec,
+                    uncompressed_bytes: u64::try_from(bytes)?,
+                    sha256: encode_hex(&digest),
+                    sealed_at_ms: u64::try_from(sealed_at)?,
+                })
+            })
+            .collect()
+    }
+
+    pub(crate) fn journal_segments_end(&self) -> anyhow::Result<u64> {
+        let end = self.connection.query_row(
+            "SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments",
+            [],
+            |row| row.get::<_, i64>(0),
+        )?;
+        Ok(u64::try_from(end)?)
+    }
+
+    pub(crate) fn begin_journal_segment_seal(
+        &mut self,
+        requested_through: u64,
+        origin: &str,
+        idempotency_key: &str,
+    ) -> anyhow::Result<JournalSegmentSealStart> {
+        anyhow::ensure!(requested_through > 0, "segment through sequence must be positive");
+        validate_identifier("journal segment origin", origin)?;
+        validate_identifier("journal segment idempotency key", idempotency_key)?;
+        let fingerprint: [u8; 32] = Sha256::digest(
+            canonical_json(&json!({"through_sequence":requested_through.to_string()}))?.as_bytes(),
+        )
+        .into();
+        let tx = self.connection.transaction()?;
+        if let Some(journal) = operation_receipt(
+            &tx,
+            "session.journal.segment.seal",
+            origin,
+            idempotency_key,
+            &fingerprint,
+        )? {
+            return Ok(JournalSegmentSealStart::Replay(journal_segment_receipt(
+                &tx,
+                origin,
+                idempotency_key,
+                journal,
+            )?));
+        }
+        let head = journal_head(&tx)?;
+        anyhow::ensure!(
+            requested_through <= head,
+            "segment through sequence is ahead of the journal"
+        );
+        let checkpoint_sequence = tx
+            .query_row(
+                "SELECT MAX(source_sequence) FROM journal_checkpoints
+                 WHERE source_sequence <= ?1",
+                [i64::try_from(requested_through)?],
+                |row| row.get::<_, Option<i64>>(0),
+            )?
+            .map(u64::try_from)
+            .transpose()?
+            .context("no checkpoint exists at or before the requested segment boundary")?;
+        let archived_end = tx.query_row(
+            "SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments",
+            [],
+            |row| row.get::<_, i64>(0),
+        )?;
+        let archived_end = u64::try_from(archived_end)?;
+        anyhow::ensure!(
+            checkpoint_sequence > archived_end,
+            "requested journal range is already sealed"
+        );
+        // A checkpoint can cover a very large prefix. Prepare and commit at
+        // most one storage segment per call so terminal writers only wait for
+        // a bounded delete/insert transaction; the caller can continue with
+        // the same checkpoint on its next maintenance tick.
+        let through_sequence = checkpoint_sequence
+            .min(archived_end.saturating_add(JOURNAL_SEGMENT_RECORD_LIMIT as u64));
+        tx.commit()?;
+        Ok(JournalSegmentSealStart::Prepare(JournalSegmentSealPlan {
+            requested_through,
+            through_sequence,
+            archived_end,
+            fingerprint,
+        }))
+    }
+
+    pub(crate) fn commit_journal_segment_seal(
+        &mut self,
+        prepared: PreparedJournalSegmentSeal,
+        origin: &str,
+        idempotency_key: &str,
+    ) -> anyhow::Result<Option<JournalSegmentSealCommit>> {
+        let PreparedJournalSegmentSeal { plan, segments: prepared_segments } = prepared;
+        let tx = self.connection.transaction()?;
+        if let Some(journal) = operation_receipt(
+            &tx,
+            "session.journal.segment.seal",
+            origin,
+            idempotency_key,
+            &plan.fingerprint,
+        )? {
+            return Ok(Some(journal_segment_receipt(&tx, origin, idempotency_key, journal)?));
+        }
+        let checkpoint_sequence = tx
+            .query_row(
+                "SELECT MAX(source_sequence) FROM journal_checkpoints
+                 WHERE source_sequence <= ?1",
+                [i64::try_from(plan.requested_through)?],
+                |row| row.get::<_, Option<i64>>(0),
+            )?
+            .map(u64::try_from)
+            .transpose()?;
+        let archived_end = u64::try_from(tx.query_row(
+            "SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments",
+            [],
+            |row| row.get::<_, i64>(0),
+        )?)?;
+        let through_sequence = checkpoint_sequence.map(|checkpoint| {
+            checkpoint.min(archived_end.saturating_add(JOURNAL_SEGMENT_RECORD_LIMIT as u64))
+        });
+        if through_sequence != Some(plan.through_sequence) || archived_end != plan.archived_end {
+            return Ok(None);
+        }
+        validate_prepared_journal_segments(&plan, &prepared_segments)?;
+        let segments =
+            prepared_segments.iter().map(|segment| segment.metadata.clone()).collect::<Vec<_>>();
+        for segment in prepared_segments {
+            let kinds = segment.kinds.clone();
+            tx.execute(
+                "INSERT INTO journal_segments(
+                   segment_id, start_sequence, end_sequence, record_count, codec, content,
+                   uncompressed_bytes, sha256, sealed_at_ms
+                 ) VALUES(?1, ?2, ?3, ?4, 'gzip-json-v1', ?5, ?6, ?7, ?8)",
+                params![
+                    segment.metadata.segment_id,
+                    i64::try_from(segment.metadata.start_sequence)?,
+                    i64::try_from(segment.metadata.end_sequence)?,
+                    i64::try_from(segment.metadata.record_count)?,
+                    segment.compressed,
+                    i64::try_from(segment.metadata.uncompressed_bytes)?,
+                    segment.digest,
+                    i64::try_from(segment.metadata.sealed_at_ms)?,
+                ],
+            )?;
+            for kind in kinds {
+                tx.execute(
+                    "INSERT INTO journal_segment_kinds(segment_id, kind) VALUES(?1, ?2)",
+                    params![segment.metadata.segment_id, kind],
+                )?;
+            }
+        }
+        tx.execute_batch("DROP TRIGGER IF EXISTS session_journal_reject_delete;")?;
+        let deleted = tx.execute(
+            "DELETE FROM session_journal WHERE sequence > ?1 AND sequence <= ?2",
+            params![i64::try_from(plan.archived_end)?, i64::try_from(plan.through_sequence)?],
+        )?;
+        anyhow::ensure!(
+            deleted == usize::try_from(plan.through_sequence - plan.archived_end)?,
+            "journal segment source range changed before commit"
+        );
+        tx.execute_batch(
+            "CREATE TRIGGER IF NOT EXISTS session_journal_reject_delete
+             BEFORE DELETE ON session_journal
+             BEGIN SELECT RAISE(ABORT, 'session journal is append-only'); END;",
+        )?;
+        let now = unix_epoch_ms()?;
+        let session_id = transaction_session_id(&tx)?;
+        let subjects = vec![JournalSubject { kind: "session".into(), id: session_id }];
+        let producer = JournalProducer { kind: "retention".into(), id: origin.into() };
+        let event_id = random_event_id("segment");
+        let payload = json!({
+            "through_sequence":plan.through_sequence.to_string(),
+            "segments":segments,
+        });
+        let sequence = append_journal_record(
+            &tx,
+            &JournalAppend {
+                event_id: &event_id,
+                schema_version: 1,
+                kind: "journal.segment.sealed",
+                class: JournalClass::Checkpoint,
+                replay: JournalReplayPolicy::Required,
+                occurred_at_ms: now,
+                producer: &producer,
+                authority: None,
+                causation_id: None,
+                correlation_id: Some(idempotency_key),
+                causation_depth: 0,
+                subjects: &subjects,
+                sensitivity: JournalSensitivity::Metadata,
+                payload: &payload,
+                content: None,
+                resource_revision: None,
+                previous_resource_revision: None,
+            },
+        )?;
+        let result = json!({
+            "through_sequence":plan.through_sequence.to_string(),
+            "segments":segments,
+            "sequence":sequence.to_string(),
+            "event_id":event_id,
+        });
+        insert_operation_receipt(
+            &tx,
+            "session.journal.segment.seal",
+            origin,
+            idempotency_key,
+            &plan.fingerprint,
+            sequence,
+            &result,
+        )?;
+        tx.commit()?;
+        Ok(Some(JournalSegmentSealCommit {
+            through_sequence: plan.through_sequence,
+            segments,
+            journal: JournalAppendCommit { sequence, event_id, replayed: false },
+        }))
+    }
+}
+
+impl JournalSegmentSealPlan {
+    pub(crate) fn prepare(
+        self,
+        reader: &SessionJournalReader,
+    ) -> anyhow::Result<PreparedJournalSegmentSeal> {
+        let sealed_at_ms = unix_epoch_ms()?;
+        let mut cursor = self.archived_end;
+        let mut segments = Vec::new();
+        while cursor < self.through_sequence {
+            let mut uncompressed =
+                Vec::with_capacity(MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES.min(1024 * 1024));
+            uncompressed.push(b'[');
+            let mut start_sequence = None;
+            let mut record_count = 0_u64;
+            let mut kinds = BTreeSet::new();
+            'segment: while cursor < self.through_sequence
+                && record_count < u64::try_from(JOURNAL_SEGMENT_RECORD_LIMIT)?
+            {
+                let page = reader.after(cursor, 1024)?;
+                let mut accepted = 0_usize;
+                for record in page
+                    .records
+                    .into_iter()
+                    .take_while(|record| record.sequence <= self.through_sequence)
+                {
+                    anyhow::ensure!(
+                        record.sequence == cursor.saturating_add(1),
+                        "journal segment range contains a gap before sequence {}",
+                        record.sequence
+                    );
+                    let sequence = record.sequence;
+                    let kind = record.kind.clone();
+                    let record = session_journal::journal_record_for_archive(&record);
+                    let record_bytes = serde_json::to_vec(&record)?;
+                    anyhow::ensure!(
+                        record_bytes.len().saturating_add(2)
+                            <= MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES,
+                        "journal record {sequence} is too large to seal"
+                    );
+                    let separator = usize::from(record_count != 0);
+                    if uncompressed
+                        .len()
+                        .saturating_add(separator)
+                        .saturating_add(record_bytes.len())
+                        .saturating_add(1)
+                        > MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES
+                    {
+                        break 'segment;
+                    }
+                    kinds.insert(kind);
+                    if separator != 0 {
+                        uncompressed.push(b',');
+                    }
+                    uncompressed.extend_from_slice(&record_bytes);
+                    start_sequence.get_or_insert(sequence);
+                    cursor = sequence;
+                    record_count += 1;
+                    accepted += 1;
+                    if record_count == u64::try_from(JOURNAL_SEGMENT_RECORD_LIMIT)? {
+                        break 'segment;
+                    }
+                }
+                anyhow::ensure!(
+                    accepted != 0,
+                    "journal segment range contains a gap after sequence {cursor}"
+                );
+            }
+            uncompressed.push(b']');
+            let start_sequence =
+                start_sequence.context("journal segment range contains no records")?;
+            let digest: [u8; 32] = Sha256::digest(&uncompressed).into();
+            let digest_hex = encode_hex(&digest);
+            let mut encoder =
+                flate2::GzBuilder::new().mtime(0).write(Vec::new(), flate2::Compression::fast());
+            encoder.write_all(&uncompressed)?;
+            let compressed = encoder.finish()?;
+            let segment_id = format!("segment_{start_sequence}_{cursor}_{digest_hex}");
+            segments.push(PreparedJournalSegment {
+                metadata: JournalSegment {
+                    segment_id,
+                    start_sequence,
+                    end_sequence: cursor,
+                    record_count,
+                    codec: "gzip-json-v1".into(),
+                    uncompressed_bytes: u64::try_from(uncompressed.len())?,
+                    sha256: digest_hex,
+                    sealed_at_ms,
+                },
+                compressed,
+                digest,
+                kinds: kinds.into_iter().collect(),
+            });
+        }
+        validate_prepared_journal_segments(&self, &segments)?;
+        Ok(PreparedJournalSegmentSeal { plan: self, segments })
+    }
+}
+
+fn validate_prepared_journal_segments(
+    plan: &JournalSegmentSealPlan,
+    segments: &[PreparedJournalSegment],
+) -> anyhow::Result<()> {
+    anyhow::ensure!(!segments.is_empty(), "journal segment preparation produced no segments");
+    let mut expected = plan.archived_end.saturating_add(1);
+    for segment in segments {
+        let metadata = &segment.metadata;
+        anyhow::ensure!(
+            metadata.start_sequence == expected && metadata.end_sequence >= expected,
+            "prepared journal segments are not contiguous"
+        );
+        anyhow::ensure!(
+            metadata.record_count
+                == metadata.end_sequence.saturating_sub(metadata.start_sequence).saturating_add(1),
+            "prepared journal segment record count is invalid"
+        );
+        anyhow::ensure!(
+            metadata.codec == "gzip-json-v1"
+                && metadata.sha256 == encode_hex(&segment.digest)
+                && metadata.uncompressed_bytes
+                    <= u64::try_from(MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES)?,
+            "prepared journal segment metadata is invalid"
+        );
+        anyhow::ensure!(!segment.compressed.is_empty(), "prepared journal segment is empty");
+        expected = metadata.end_sequence.saturating_add(1);
+    }
+    anyhow::ensure!(
+        expected == plan.through_sequence.saturating_add(1),
+        "prepared journal segment range ended early"
+    );
+    Ok(())
+}
+
+fn journal_segment_receipt(
+    transaction: &Transaction<'_>,
+    origin: &str,
+    idempotency_key: &str,
+    journal: JournalAppendCommit,
+) -> anyhow::Result<JournalSegmentSealCommit> {
+    let result = transaction.query_row(
+        "SELECT result_json FROM journal_operation_receipts
+         WHERE operation = 'session.journal.segment.seal'
+           AND origin = ?1 AND idempotency_key = ?2",
+        params![origin, idempotency_key],
+        |row| row.get::<_, String>(0),
+    )?;
+    let result: Value = serde_json::from_str(&result)?;
+    let through_sequence = result["through_sequence"]
+        .as_str()
+        .context("segment receipt omitted through_sequence")?
+        .parse()?;
+    let segments = serde_json::from_value(result["segments"].clone())?;
+    Ok(JournalSegmentSealCommit { through_sequence, segments, journal })
 }
 
 fn query_journal_checkpoint(
@@ -1549,8 +2963,7 @@ fn checkpoint_request_fingerprint() -> sha2::digest::Output<Sha256> {
 
 fn transaction_session_id(transaction: &Transaction<'_>) -> anyhow::Result<String> {
     transaction
-        .prepare_cached("SELECT value FROM meta WHERE key = 'session_public_id'")?
-        .query_row([], |row| row.get(0))
+        .query_row("SELECT value FROM meta WHERE key = 'session_public_id'", [], |row| row.get(0))
         .context("read journal session id")
 }
 
@@ -1564,6 +2977,61 @@ fn journal_head(transaction: &Transaction<'_>) -> anyhow::Result<u64> {
         |row| row.get::<_, i64>(0),
     )?;
     u64::try_from(value).context("journal head sequence is negative")
+}
+
+fn append_hook_delivery_event(
+    transaction: &Transaction<'_>,
+    kind: &str,
+    delivery: &JournalHookDelivery,
+    attempt: u16,
+    payload: Value,
+    occurred_at_ms: u64,
+) -> anyhow::Result<(u64, String)> {
+    let session_id = transaction_session_id(transaction)?;
+    let mut subjects = BTreeSet::from([
+        JournalSubject { kind: "session".into(), id: session_id },
+        JournalSubject { kind: "hook".into(), id: delivery.manifest.hook_id.clone() },
+    ]);
+    subjects.extend(delivery.event.subjects.iter().cloned());
+    let subjects = subjects.into_iter().collect::<Vec<_>>();
+    let producer =
+        JournalProducer { kind: "hook_dispatcher".into(), id: delivery.manifest.hook_id.clone() };
+    let event_id = random_event_id("hook_delivery");
+    let sequence = append_journal_record(
+        transaction,
+        &JournalAppend {
+            event_id: &event_id,
+            schema_version: 1,
+            kind,
+            class: JournalClass::Effect,
+            replay: JournalReplayPolicy::Never,
+            occurred_at_ms,
+            producer: &producer,
+            authority: None,
+            causation_id: Some(&delivery.event.event_id),
+            correlation_id: Some(&format!(
+                "{}:{}:{}",
+                delivery.manifest.hook_id,
+                delivery.manifest.manifest_version,
+                delivery.event.event_id
+            )),
+            causation_depth: delivery.event.causation_depth.saturating_add(1),
+            subjects: &subjects,
+            sensitivity: JournalSensitivity::Metadata,
+            payload: &json!({
+                "hook_id":delivery.manifest.hook_id,
+                "manifest_version":delivery.manifest.manifest_version,
+                "source_event_id":delivery.event.event_id,
+                "source_sequence":delivery.event.sequence.to_string(),
+                "attempt":attempt,
+                "outcome":payload,
+            }),
+            content: None,
+            resource_revision: None,
+            previous_resource_revision: None,
+        },
+    )?;
+    Ok((sequence, event_id))
 }
 
 fn default_hook_regex_field() -> String {
@@ -1784,14 +3252,13 @@ fn ingress_receipt(
     fingerprint: &[u8],
 ) -> anyhow::Result<Option<JournalAppendCommit>> {
     let stored = connection
-        .prepare_cached(
+        .query_row(
             "SELECT fingerprint, event_id, journal_sequence
              FROM journal_ingress_receipts
              WHERE producer_id = ?1 AND origin = ?2 AND idempotency_key = ?3",
-        )?
-        .query_row(params![producer_id, origin, idempotency_key], |row| {
-            Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
-        })
+            params![producer_id, origin, idempotency_key],
+            |row| Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?)),
+        )
         .optional()?;
     let Some((stored_fingerprint, event_id, sequence)) = stored else { return Ok(None) };
     anyhow::ensure!(
@@ -1842,10 +3309,208 @@ fn sensitivity_rank(value: JournalSensitivity) -> u8 {
     }
 }
 
-pub(super) fn random_event_id(category: &str) -> String {
+fn random_event_id(category: &str) -> String {
     format!("event_{category}_{}", new_uuid_v4().replace('-', ""))
 }
 
 #[cfg(test)]
-#[path = "journal_extensions_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    fn hook(manifest_version: u32) -> JournalHookManifest {
+        JournalHookManifest {
+            hook_id: "active_hook".into(),
+            manifest_version,
+            filter: JournalHookFilter::default(),
+            exec: JournalHookExec {
+                argv: vec!["/usr/bin/true".into()],
+                timeout_ms: 1_000,
+                max_parallel: 1,
+            },
+            delivery: JournalHookDeliveryPolicy {
+                start: "tail".into(),
+                retry: JournalHookRetry { max_attempts: 1, backoff_ms: 0 },
+            },
+            permissions: vec!["journal.read".into()],
+        }
+    }
+
+    /// A put of a `terminal_output` hook committed before output left the
+    /// journal still replays its receipt; a new one is refused.
+    #[test]
+    fn a_retired_terminal_output_hook_replays_its_receipt_and_new_ones_are_refused() {
+        let mut registry = WorkspaceRegistry::in_memory("retired-hook-field").unwrap();
+        let mut manifest = hook(1);
+        manifest.permissions.push("journal.read.sensitive".into());
+        manifest.filter.max_sensitivity = Some(JournalSensitivity::Sensitive);
+        manifest.filter.regex = Some(JournalHookRegex {
+            pattern: "error-[0-9]+".into(),
+            field: "terminal_output".into(),
+            case_sensitive: true,
+        });
+        let stored = registry
+            .put_journal_hook_admitting(&manifest, "client_test", "hook_before_upgrade", true)
+            .unwrap();
+        assert!(!stored.replayed);
+
+        let retried = registry.put_journal_hook(&manifest, "client_test", "hook_before_upgrade");
+        let retried = retried.expect("a retried put replays its receipt");
+        assert!(retried.replayed);
+        assert_eq!((retried.sequence, retried.event_id), (stored.sequence, stored.event_id));
+
+        let error =
+            registry.put_journal_hook(&manifest, "client_test", "hook_after_upgrade").unwrap_err();
+        assert!(error.to_string().contains("terminal_output is retired"), "{error:#}");
+    }
+
+    #[test]
+    fn journal_hook_states_exclude_disabled_manifest_history() {
+        let mut registry = WorkspaceRegistry::in_memory("active-hooks").unwrap();
+        registry.put_journal_hook(&hook(1), "client_test", "hook_v1").unwrap();
+        registry.put_journal_hook(&hook(2), "client_test", "hook_v2").unwrap();
+
+        let states = registry.journal_hook_states().unwrap();
+        assert_eq!(states.len(), 1);
+        assert_eq!(states[0].manifest.manifest_version, 2);
+        assert!(states[0].enabled);
+    }
+
+    #[test]
+    fn userland_producer_list_excludes_reserved_hook_manifest() {
+        let mut registry = WorkspaceRegistry::in_memory("userland-producers").unwrap();
+        let manifest = JournalProducerManifest {
+            producer_id: "screen_detector".into(),
+            namespace: "plugin.screen_detector".into(),
+            manifest_version: 1,
+            max_sensitivity: JournalSensitivity::Metadata,
+            permissions: vec!["journal.append.plugin.screen_detector".into()],
+            events: vec![JournalEventSchema {
+                kind: "plugin.screen_detector.agent.state.changed".into(),
+                schema_version: 1,
+                class: JournalClass::Observation,
+                replay: JournalReplayPolicy::Advisory,
+                sensitivity: JournalSensitivity::Metadata,
+                payload_schema: json!({"type":"object"}),
+            }],
+        };
+        registry.put_journal_producer(&manifest, "client_test", "producer_1").unwrap();
+
+        let all = registry.journal_producer_manifests().unwrap();
+        assert!(all.iter().any(|item| item.producer_id == crate::AGENT_HOOK_PRODUCER_ID));
+        assert!(all.iter().any(|item| item.producer_id == "screen_detector"));
+
+        let userland = registry.userland_journal_producer_manifests().unwrap();
+        assert_eq!(userland.len(), 1);
+        assert_eq!(userland[0], manifest);
+    }
+
+    #[test]
+    fn legacy_built_in_agent_manifest_is_migrated() {
+        let mut registry = WorkspaceRegistry::in_memory("legacy-agent-manifest").unwrap();
+        let current = crate::agent_hooks::built_in_agent_producer_manifest();
+        let mut legacy = current.clone();
+        legacy.events.retain(|event| event.kind != "agent.plugin.exited");
+        for event in &mut legacy.events {
+            event.payload_schema["properties"]["adapter"]["properties"]["id"]["pattern"] =
+                Value::String("^[a-z0-9_-]+$".into());
+        }
+        let legacy_json = canonical_json(&serde_json::to_value(&legacy).unwrap()).unwrap();
+        registry
+            .connection
+            .execute(
+                "UPDATE journal_producers SET manifest_json = ?1 WHERE producer_id = ?2",
+                params![legacy_json, crate::AGENT_HOOK_PRODUCER_ID],
+            )
+            .unwrap();
+
+        let transaction = registry.connection.transaction().unwrap();
+        ensure_built_in_agent_producer(&transaction).unwrap();
+        transaction.commit().unwrap();
+
+        let installed = registry
+            .connection
+            .query_row(
+                "SELECT manifest_json FROM journal_producers WHERE producer_id = ?1",
+                [crate::AGENT_HOOK_PRODUCER_ID],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap();
+        assert_eq!(serde_json::from_str::<JournalProducerManifest>(&installed).unwrap(), current);
+    }
+
+    #[test]
+    fn legacy_agent_manifest_with_plugin_exit_is_migrated() {
+        let mut registry = WorkspaceRegistry::in_memory("legacy-agent-plugin-exit").unwrap();
+        let current = crate::agent_hooks::built_in_agent_producer_manifest();
+        let legacy = legacy_built_in_agent_producer_manifests(&current).into_iter().nth(1).unwrap();
+        let legacy_json = canonical_json(&serde_json::to_value(&legacy).unwrap()).unwrap();
+        registry
+            .connection
+            .execute(
+                "UPDATE journal_producers SET manifest_json = ?1 WHERE producer_id = ?2",
+                params![legacy_json, crate::AGENT_HOOK_PRODUCER_ID],
+            )
+            .unwrap();
+
+        let transaction = registry.connection.transaction().unwrap();
+        ensure_built_in_agent_producer(&transaction).unwrap();
+        transaction.commit().unwrap();
+
+        let installed = registry
+            .journal_producer_manifests()
+            .unwrap()
+            .into_iter()
+            .find(|manifest| manifest.producer_id == crate::AGENT_HOOK_PRODUCER_ID)
+            .unwrap();
+        assert_eq!(installed, current);
+    }
+
+    #[test]
+    fn unknown_built_in_agent_manifest_still_fails_closed() {
+        let mut registry = WorkspaceRegistry::in_memory("unknown-agent-manifest").unwrap();
+        let mut tampered = crate::agent_hooks::built_in_agent_producer_manifest();
+        tampered.events[0].kind = "agent.untrusted".into();
+        let tampered_json = canonical_json(&serde_json::to_value(&tampered).unwrap()).unwrap();
+        registry
+            .connection
+            .execute(
+                "UPDATE journal_producers SET manifest_json = ?1 WHERE producer_id = ?2",
+                params![tampered_json, crate::AGENT_HOOK_PRODUCER_ID],
+            )
+            .unwrap();
+
+        let transaction = registry.connection.transaction().unwrap();
+        let error = ensure_built_in_agent_producer(&transaction).unwrap_err();
+        assert!(error.to_string().contains("does not match this binary"));
+    }
+
+    #[test]
+    fn checkpoint_digest_is_verified_when_read() {
+        let mut registry = WorkspaceRegistry::in_memory("checkpoint-integrity").unwrap();
+        let commit = registry
+            .create_journal_checkpoint(
+                0,
+                1,
+                &json!({"session_snapshot":{"cursor":{"revision":"0"}}}),
+                &[],
+                "client_test",
+                "checkpoint_1",
+            )
+            .unwrap();
+        registry
+            .connection
+            .execute_batch("DROP TRIGGER journal_checkpoints_reject_update;")
+            .unwrap();
+        registry
+            .connection
+            .execute(
+                "UPDATE journal_checkpoints SET state_json = '{\"tampered\":true}'
+                 WHERE checkpoint_id = ?1",
+                [&commit.checkpoint.checkpoint_id],
+            )
+            .unwrap();
+
+        let error = registry.journal_checkpoint(&commit.checkpoint.checkpoint_id).unwrap_err();
+        assert!(error.to_string().contains("digest"), "{error:#}");
+    }
+}

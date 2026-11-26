@@ -1,7 +1,36 @@
-import { bundledLanguages } from "shiki";
-import { diffLanguages, type DiffLanguageRegistry } from "./diff-languages/registry";
+export type DiffLanguageResolver = (fileName: string) => string | null | undefined;
 
+const textLanguage = "text";
 const markdownLanguages = new Set(["markdown", "mdx"]);
+
+const exactLanguageByName = new Map<string, string>([
+  [".env", "dotenv"],
+  ["appfile", "ruby"],
+  ["bun.lock", "toml"],
+  ["deliverfile", "ruby"],
+  ["fastfile", "ruby"],
+  ["gemfile", "ruby"],
+  ["jenkinsfile", "groovy"],
+  ["matchfile", "ruby"],
+  ["podfile", "ruby"],
+  ["pluginfile", "ruby"],
+  ["scanfile", "ruby"],
+  ["snapfile", "ruby"],
+]);
+
+const extensionLanguageByName = new Map<string, string>([
+  ["adoc", "asciidoc"],
+  ["asciidoc", "asciidoc"],
+  ["gradle", "groovy"],
+  ["markdown", "markdown"],
+  ["md", "markdown"],
+  ["mdown", "markdown"],
+  ["mdx", "mdx"],
+  ["mkd", "markdown"],
+  ["mkdn", "markdown"],
+  ["rst", "rst"],
+  ["toml", "toml"],
+]);
 
 const fencedLanguageByName = new Map<string, string>([
   ["bash", "shellscript"],
@@ -83,27 +112,38 @@ for (const language of [
 type DiffFileText = {
   additionLines?: unknown;
   deletionLines?: unknown;
-  hunks?: unknown;
 };
 
-/// The Shiki language for one file of a diff (`text` when none applies). `fileDiff` lends its
-/// first line to `#!` detection.
 export function resolveDiffFileLanguage(
   filePath: string,
   parsedLanguage?: unknown,
-  fileDiff?: DiffFileText | null,
-  registry: DiffLanguageRegistry = diffLanguages,
+  fallbackResolver?: DiffLanguageResolver,
 ): string {
-  return registry.detect({ path: filePath, parsedLanguage, firstLine: firstFileLine(fileDiff) });
+  const explicitLanguage = stringLanguage(parsedLanguage);
+  if (explicitLanguage != null && explicitLanguage !== textLanguage) {
+    return explicitLanguage;
+  }
+
+  const cmuxLanguage = cmuxLanguageForFileName(filePath);
+  if (cmuxLanguage != null) {
+    return cmuxLanguage;
+  }
+
+  const fallbackLanguage = stringLanguage(fallbackResolver?.(filePath));
+  if (fallbackLanguage != null) {
+    return fallbackLanguage;
+  }
+
+  return explicitLanguage ?? textLanguage;
 }
 
 export function resolveDiffPreloadLanguages(
   filePath: string,
   parsedLanguage: unknown,
   fileDiff: DiffFileText | null | undefined,
-  registry: DiffLanguageRegistry = diffLanguages,
+  fallbackResolver?: DiffLanguageResolver,
 ): string[] {
-  const fileLanguage = resolveDiffFileLanguage(filePath, parsedLanguage, fileDiff, registry);
+  const fileLanguage = resolveDiffFileLanguage(filePath, parsedLanguage, fallbackResolver);
   const languages = new Set([fileLanguage]);
   if (markdownLanguages.has(fileLanguage)) {
     for (const language of markdownFenceLanguages(fileDiff)) {
@@ -124,21 +164,29 @@ export function markdownFenceLanguages(fileDiff: DiffFileText | null | undefined
   return Array.from(languages);
 }
 
-/// Line 1 of either side, when a hunk starts there (a patch only carries hunk lines).
-export function firstFileLine(fileDiff: DiffFileText | null | undefined): string | undefined {
-  const hunk = Array.isArray(fileDiff?.hunks) ? (fileDiff.hunks[0] as Record<string, unknown> | undefined) : undefined;
-  const side = (start: unknown, index: unknown, lines: unknown) =>
-    start === 1 && typeof index === "number" && Array.isArray(lines) && typeof lines[index] === "string"
-      ? (lines[index] as string).replace(/\r?\n$/, "")
-      : undefined;
-  if (hunk == null) {
-    const lines = Array.isArray(fileDiff?.additionLines) ? fileDiff.additionLines : fileDiff?.deletionLines;
-    return Array.isArray(lines) && typeof lines[0] === "string" ? lines[0].replace(/\r?\n$/, "") : undefined;
+function cmuxLanguageForFileName(filePath: string): string | undefined {
+  const basename = filePath.split(/[\\/]/).at(-1)?.trim().toLowerCase() ?? "";
+  if (basename.length === 0) {
+    return undefined;
   }
-  return (
-    side(hunk.additionStart, hunk.additionLineIndex, fileDiff?.additionLines) ??
-    side(hunk.deletionStart, hunk.deletionLineIndex, fileDiff?.deletionLines)
-  );
+
+  const exactLanguage = exactLanguageByName.get(basename);
+  if (exactLanguage != null) {
+    return exactLanguage;
+  }
+
+  if (basename.startsWith(".env.")) {
+    return "dotenv";
+  }
+
+  const extension = basename.includes(".") ? basename.split(".").at(-1) : undefined;
+  return extension == null ? undefined : extensionLanguageByName.get(extension);
+}
+
+function stringLanguage(language: unknown): string | undefined {
+  return typeof language === "string" && language.trim().length > 0
+    ? language.trim()
+    : undefined;
 }
 
 function diffTextLines(fileDiff: DiffFileText | null | undefined): string[] {
@@ -169,8 +217,5 @@ function markdownFenceLanguage(line: string): string | undefined {
     .replace(/[},].*$/, "")
     .trim()
     .toLowerCase();
-  return (
-    fencedLanguageByName.get(rawLanguage) ??
-    (Object.prototype.hasOwnProperty.call(bundledLanguages, rawLanguage) ? rawLanguage : undefined)
-  );
+  return fencedLanguageByName.get(rawLanguage);
 }

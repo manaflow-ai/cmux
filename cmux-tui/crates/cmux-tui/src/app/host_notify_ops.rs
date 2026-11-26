@@ -1,22 +1,29 @@
 //! The App side of host terminal notifications (`crate::host_notify`): on a
-//! daemon notification it gathers what the gate needs (is the tab drawn, does
-//! the host window have focus, is the tab the TUI's own host terminal) and
-//! writes the gate's bytes to the host terminal under the stdout lock.
+//! daemon notification or a terminal bell it gathers what the gate needs (is
+//! the tab drawn, does the host window have focus, is the tab the TUI's own
+//! host terminal) and writes the gate's bytes to the host terminal under the
+//! stdout lock.
 
 use std::io::Write;
 use std::time::Instant;
 
-use cmux_tui_core::NotificationEvent;
+use cmux_tui_core::{NotificationEvent, SurfaceId};
 
-use crate::app::App;
+use super::App;
 use crate::host_notify::{HostNotifyContext, HostNotifyRequest};
 
 impl App {
-    /// A daemon notification, a terminal bell's `desktop: false` mark
-    /// included (the raw `MuxEvent::Bell` is not passed on, so one bell rings
-    /// the host once).
+    /// A daemon notification about a tab.
     pub(super) fn forward_notification_to_host(&mut self, notification: &NotificationEvent) {
         if let Some(bytes) = self.host_notification_bytes(notification, Instant::now()) {
+            self.write_host_notification(&bytes);
+        }
+    }
+
+    /// A terminal bell (BEL) in a tab: it asks for no desktop banner, so it
+    /// rings the host bell only with `notifications.bell` on.
+    pub(super) fn forward_bell_to_host(&mut self, surface: SurfaceId) {
+        if let Some(bytes) = self.host_bell_bytes(surface, Instant::now()) {
             self.write_host_notification(&bytes);
         }
     }
@@ -29,21 +36,32 @@ impl App {
         now: Instant,
     ) -> Option<Vec<u8>> {
         let surface = notification.surface?;
-        let context = self.host_notify_context(surface);
         let request = HostNotifyRequest {
             surface,
             title: &notification.title,
             body: &notification.body,
-            desktop: notification.desktop,
+            desktop: true,
         };
-        let config = self.config.notifications;
-        self.host_notify.decide(config, &request, context, now)
+        self.decide_host_notification(&request, now)
     }
 
-    pub(crate) fn host_notify_context(
-        &self,
-        surface: cmux_tui_core::SurfaceId,
-    ) -> HostNotifyContext {
+    /// What `forward_bell_to_host` writes for a bell in `surface` at `now`.
+    pub(crate) fn host_bell_bytes(&mut self, surface: SurfaceId, now: Instant) -> Option<Vec<u8>> {
+        let request = HostNotifyRequest { surface, title: "Bell", body: "", desktop: false };
+        self.decide_host_notification(&request, now)
+    }
+
+    fn decide_host_notification(
+        &mut self,
+        request: &HostNotifyRequest<'_>,
+        now: Instant,
+    ) -> Option<Vec<u8>> {
+        let context = self.host_notify_context(request.surface);
+        let config = self.config.notifications;
+        self.host_notify.decide(config, request, context, now)
+    }
+
+    pub(crate) fn host_notify_context(&self, surface: SurfaceId) -> HostNotifyContext {
         let host_terminal = self.host_notify.host().cmux_terminal.as_deref();
         let tabs = || {
             self.tree

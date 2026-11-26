@@ -1,4 +1,3 @@
-#if canImport(IrohLib)
 import Foundation
 import IrohLib
 
@@ -37,4 +36,3 @@ struct CmxIrohLibReceiveStream: CmxIrohReceiveStream {
         try? await driver.stop(errorCode: errorCode)
     }
 }
-#endif

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: blacksmith-testbox-target-prune.sh <target-dir> [max-bytes] [stale-days] [keep]
+# Usage: blacksmith-testbox-target-prune.sh <target-dir> [max-bytes] [stale-days]
 #
 # Bounds the warm cmux-tui target dir before the Testbox commits it as the
 # sticky disk of its branch family (`cmux-tui-target-v2-<family>`). Every box of
@@ -16,13 +16,6 @@
 #    least recently modified first, until under the bound. An empty dir is a
 #    valid outcome; the next box then builds cold once.
 #
-# <keep> (optional) names one top-level entry that step 3 never removes: the
-# triple a build leg just built, which the steps after its build still read
-# (scripts/ci/machine-channel-warm-target.sh record). Its dir is often the
-# least recently modified entry, so without this the prune removed the fresh
-# binaries first. When the kept entry alone is over the bound, nothing more is
-# removed, one line says so with the bytes, and the prune succeeds.
-#
 # The dir itself may be a mount point, so this only removes its contents.
 set -euo pipefail
 
@@ -38,13 +31,6 @@ stale_days="${3:-3}"
   echo "max-bytes and stale-days must be integers" >&2
   exit 2
 }
-keep="${4:-}"
-[[ -z "$keep" || "$keep" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]*$ ]] || {
-  echo "keep must be the name of one top-level entry" >&2
-  exit 2
-}
-keep_filter=()
-[[ -z "$keep" ]] || keep_filter=(! -name "$keep")
 if [[ ! -d "$target" ]]; then
   echo "prune: $target is absent; nothing to prune"
   exit 0
@@ -75,12 +61,8 @@ if (( size > max_bytes )); then
 fi
 
 while (( size > max_bytes )); do
-  oldest="$(find "$target" -mindepth 1 -maxdepth 1 ${keep_filter[@]+"${keep_filter[@]}"} -printf '%T@ %p\n' | sort -n | head -n 1 | cut -d ' ' -f 2-)"
-  if [[ -z "$oldest" ]]; then
-    [[ -z "$keep" || ! -e "$target/$keep" ]] \
-      || printf 'prune: still over the bound with only %s left (%s bytes, bound %s); nothing more is removed\n' "$keep" "$size" "$max_bytes"
-    break
-  fi
+  oldest="$(find "$target" -mindepth 1 -maxdepth 1 -printf '%T@ %p\n' | sort -n | head -n 1 | cut -d ' ' -f 2-)"
+  [[ -n "$oldest" ]] || break
   rm -rf -- "$oldest"
   size="$(size_of "$target")"
   printf 'prune: over the bound; removed %s, %s bytes now\n' "${oldest#"$target"/}" "$size"

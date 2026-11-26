@@ -3,9 +3,9 @@
 
 A string catalog is one large JSON object keyed by string id. Two branches that
 each add a different key collide positionally even though the keys are disjoint,
-because both insertions land in the same region of the file. On the former
-app string catalog (~6,700 entries) that produced 42 conflict hunks in a single
-pull request, none of them a semantic disagreement.
+because both insertions land in the same region of the file. On
+Resources/Localizable.xcstrings (~6,700 entries) that produced 42 conflict
+hunks in a single pull request, none of them a semantic disagreement.
 
 This driver merges per key instead of per line. It is deliberately conservative:
 when the same key is changed on both sides it exits non-zero after materializing
@@ -110,73 +110,12 @@ def _canonical(value: object) -> str:
     return json.dumps(value, sort_keys=True, ensure_ascii=False)
 
 
-def _shared_order(mapping: dict, shared: set[str]) -> list[str]:
-    return [key for key in mapping if key in shared]
-
-
-def ordering_side(base: dict, ours: dict, theirs: dict) -> str:
-    """Whose key order the merged keys follow: the side that reordered them.
-
-    Ours by default, so a pull request keeps its own order. But a merge must not
-    undo a reorder either: when the keys all three files share sit in ours in the
-    base's order and in theirs in a different one, theirs reordered them on
-    purpose and the result follows theirs. Merging the base into a branch whose
-    catalog the base reordered then lands the base's order, not an order that is
-    neither side's -- which every check passes and only `base...HEAD` shows.
-    If ours reordered them, or both did, ours wins as before.
-    """
-    shared = set(base) & set(ours) & set(theirs)
-    if len(shared) < 2:
-        return "ours"
-    base_order = _shared_order(base, shared)
-    ours_kept = _shared_order(ours, shared) == base_order
-    theirs_kept = _shared_order(theirs, shared) == base_order
-    return "theirs" if ours_kept and not theirs_kept else "ours"
-
-
 def merge_keys(
-    base: dict, ours: dict, theirs: dict, label: str, texts: tuple[dict, dict, dict] | None = None
+    base: dict, ours: dict, theirs: dict, label: str
 ) -> tuple[list[tuple[str, str]], list[str]]:
     """Three-way merge one mapping by key. Returns ((key, side) list, conflicts).
 
     `side` is "ours" or "theirs", naming which file the key's text comes from.
-    Keys keep the order of the side `ordering_side` names -- ours unless only
-    theirs reordered the shared keys -- and a key only the other side has goes
-    before the key that follows it there, so merging the base into a branch
-    leaves the base's order alone.
-    """
-    decided, conflicts = _decide_keys(base, ours, theirs, label, texts)
-    side_of = dict(decided)
-    if ordering_side(base, ours, theirs) == "ours":
-        skeleton, other = ours, theirs
-    else:
-        skeleton, other = theirs, ours
-    before: dict[str | None, list[str]] = {}
-    following: str | None = None
-    for key in reversed(list(other)):
-        if key in skeleton:
-            if key in side_of:
-                following = key
-        elif key in side_of:
-            before.setdefault(following, []).insert(0, key)
-    ordered: list[tuple[str, str]] = []
-    for key in [k for k in skeleton if k in side_of] + [None]:
-        ordered.extend((placed, side_of[placed]) for placed in before.get(key, []))
-        if key is not None:
-            ordered.append((key, side_of[key]))
-    return ordered, conflicts
-
-
-def _decide_keys(
-    base: dict, ours: dict, theirs: dict, label: str, texts: tuple[dict, dict, dict] | None = None
-) -> tuple[list[tuple[str, str]], list[str]]:
-    """Which side each surviving key's text comes from, and the conflicting keys.
-
-    `texts`, each side's verbatim block per key, decides a key neither side changed
-    in value: theirs when only theirs rewrote its text. A base that reformats the
-    catalog (#40447 compacted 458k lines to 267k) changes every key's text and no
-    key's value; taking ours there put the branch's old layout back over every key,
-    a 360k-line diff on a pull request that adds 8 keys (#50146).
     """
     ordered: list[tuple[str, str]] = []
     conflicts: list[str] = []
@@ -207,20 +146,8 @@ def _decide_keys(
             if in_theirs:
                 ordered.append((key, "theirs"))
             continue
-        ordered.append((key, "theirs" if texts is not None and _only_theirs_rewrote(texts, key) else "ours"))
+        ordered.append((key, "ours"))
     return ordered, conflicts
-
-
-def _only_theirs_rewrote(texts: tuple[dict, dict, dict], key: str) -> bool:
-    base_text, ours_text, theirs_text = (t.get(key) for t in texts)
-    return base_text is not None and ours_text == base_text and theirs_text not in (None, base_text)
-
-
-def _layout_side(layouts: dict[str, Layout]) -> str:
-    """Whose separators lay out the merged object: theirs when only theirs changed them."""
-    shape = lambda layout: (layout.lead, layout.separator, layout.tail)  # noqa: E731
-    base, ours, theirs = (shape(layouts[side]) for side in ("base", "ours", "theirs"))
-    return "theirs" if ours == base and theirs != base else "ours"
 
 
 def _strings_open_index(text: str, layout: Layout) -> int:
@@ -248,13 +175,9 @@ def merge_catalog_text(
     }
 
     ordered_strings, conflicts = merge_keys(
-        base_doc.get("strings", {}),
-        ours_doc.get("strings", {}),
-        theirs_doc.get("strings", {}),
-        "strings",
-        (strings["base"].blocks, strings["ours"].blocks, strings["theirs"].blocks),
+        base_doc.get("strings", {}), ours_doc.get("strings", {}), theirs_doc.get("strings", {}), "strings"
     )
-    strings_text = strings[_layout_side(strings)].assemble(
+    strings_text = strings["ours"].assemble(
         [(key, strings[side].blocks[key]) for key, side in ordered_strings]
     )
 

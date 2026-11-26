@@ -49,18 +49,17 @@ export function getRequestScopedStackUser(flow: string): Promise<RequestStackUse
 }
 
 export function isStackConfigured(): boolean {
-  return Boolean(projectId && secretServerKey);
+  return Boolean(projectId && publishableClientKey && secretServerKey);
 }
 
 export function getStackServerApp(): StackServerApp<true> {
-  if (!projectId || !secretServerKey) {
+  if (!projectId || !publishableClientKey || !secretServerKey) {
     throw new Error("Stack Auth is not configured");
   }
 
   stackServerAppCache ??= new StackServerApp({
     projectId,
-    // Omitted when unset: Stack then uses its public-client secret.
-    ...(publishableClientKey ? { publishableClientKey } : {}),
+    publishableClientKey,
     secretServerKey,
     tokenStore: "nextjs-cookie",
     urls: {
@@ -80,13 +79,12 @@ export function getStackServerApp(): StackServerApp<true> {
  * redirect.
  */
 export function createUncachedStackServerApp(): StackServerApp<true> {
-  if (!projectId || !secretServerKey) {
+  if (!projectId || !publishableClientKey || !secretServerKey) {
     throw new Error("Stack Auth is not configured");
   }
   return new StackServerApp({
     projectId,
-    // Omitted when unset: Stack then uses its public-client secret.
-    ...(publishableClientKey ? { publishableClientKey } : {}),
+    publishableClientKey,
     secretServerKey,
     // Never used: every call passes the session it checks.
     tokenStore: "memory",
@@ -98,14 +96,13 @@ export function createUncachedStackServerApp(): StackServerApp<true> {
 // Stack's normal Next.js redirect mode throws a redirect after sign-out, so
 // keep a separate app instance whose session mutations never redirect.
 export function getNonRedirectingStackServerApp(): StackServerApp<true> {
-  if (!projectId || !secretServerKey) {
+  if (!projectId || !publishableClientKey || !secretServerKey) {
     throw new Error("Stack Auth is not configured");
   }
 
   nonRedirectingStackServerAppCache ??= new StackServerApp({
     projectId,
-    // Omitted when unset: Stack then uses its public-client secret.
-    ...(publishableClientKey ? { publishableClientKey } : {}),
+    publishableClientKey,
     secretServerKey,
     tokenStore: "nextjs-cookie",
     redirectMethod: "none",

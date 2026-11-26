@@ -4,6 +4,7 @@ import { type DataTag, dehydrate, type DehydratedState, QueryClient, type QueryK
 import { dashboardRouter } from "@/orpc/server/dashboard/router";
 import { sessionQuery } from "./lib/session";
 import { dashboardBillingQuery, planQuery, teamBillingQuery } from "./queries/billing";
+import { cloudDevicesQuery } from "./queries/cloud";
 import { coderouterOverviewQuery } from "./queries/coderouter";
 import {
   settingsApiKeysQuery,
@@ -52,6 +53,8 @@ function routePrefetches(path: string, search: Search): Prefetch[] {
       return [query(testflightQuery, (client) => client.account.testflight())];
     case "coderouter":
       return [query(coderouterOverviewQuery(team), (client) => client.coderouter.overview({ team: team ?? null }))];
+    case "cloud":
+      return [query(cloudDevicesQuery, (client) => client.cloud.devices())];
     case "teams":
       if (!id) return [query(teamCatalogQuery, (client) => client.teams.catalog())];
       if (id === "new") return [];

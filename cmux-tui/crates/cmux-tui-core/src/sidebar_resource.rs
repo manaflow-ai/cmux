@@ -17,7 +17,6 @@ use crate::{
     Mux, RenderAttachStream, ResourceSelectors, ResourceTarget, Rgb, Surface, SurfaceKind,
     SurfaceRenderFrame,
 };
-use cmux_json::JsonSet as _;
 
 pub(crate) const SIDEBAR_VIEW_NAME: &str = "sidebar";
 
@@ -156,16 +155,16 @@ impl SidebarRenderClientState {
             "rows":rows,
         });
         if size_changed {
-            render.set("size", json!({"cols":frame.frame.size.0,"rows":frame.frame.size.1}));
+            render["size"] = json!({"cols":frame.frame.size.0,"rows":frame.frame.size.1});
         }
         if foreground_changed {
-            render.set("default_fg", json!(rgb_hex(frame.frame.default_colors.1)));
+            render["default_fg"] = json!(rgb_hex(frame.frame.default_colors.1));
         }
         if background_changed {
-            render.set("default_bg", json!(rgb_hex(frame.frame.default_colors.0)));
+            render["default_bg"] = json!(rgb_hex(frame.frame.default_colors.0));
         }
         if scrollback_changed {
-            render.set("scrollback_rows", json!(frame.scrollback_rows));
+            render["scrollback_rows"] = json!(frame.scrollback_rows);
         }
         self.size = frame.frame.size;
         self.default_colors = frame.frame.default_colors;
@@ -252,10 +251,10 @@ fn styled_run_json(run: &StyledRun) -> Value {
         "attrs":run.attrs,
     });
     if let Some(underline) = underline {
-        value.set("underline", json!(underline));
+        value["underline"] = json!(underline);
     }
     if let Some(width_hint) = run.width_hint {
-        value.set("width_hint", json!(width_hint));
+        value["width_hint"] = json!(width_hint);
     }
     value
 }
@@ -265,5 +264,92 @@ fn rgb_hex(color: Rgb) -> String {
 }
 
 #[cfg(test)]
-#[path = "sidebar_resource_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use crate::{SidebarPluginOptions, SurfaceOptions};
+    use std::time::{Duration, Instant};
+
+    fn session_id(value: u128) -> SessionPublicId {
+        SessionPublicId::parse(format!("session_{value:032x}")).unwrap()
+    }
+
+    #[test]
+    fn sidebar_identity_is_stable_and_type_separated() {
+        let session = session_id(7);
+        let first = sidebar_view_id(&session).unwrap();
+        let second = sidebar_view_id(&session).unwrap();
+        assert_eq!(first, second);
+        assert!(first.as_str().starts_with("sidebar_view_"));
+        assert!(!first.as_str().ends_with(&session.as_str()["session_".len()..]));
+    }
+
+    #[test]
+    fn stopped_sidebar_snapshot_preserves_last_nonzero_size() {
+        let session = session_id(8);
+        let id = sidebar_view_id(&session).unwrap();
+        assert_eq!(
+            sidebar_snapshot(&id, &session, (0, 0), None),
+            json!({
+                "id":id,
+                "session_id":session,
+                "cols":1,
+                "rows":1,
+                "running":false,
+            })
+        );
+    }
+
+    #[test]
+    fn scroll_uses_wire_decimal_offset_and_public_view_id() {
+        let id = sidebar_view_id(&session_id(9)).unwrap();
+        let value = SidebarRenderClientState::scroll(&id, u64::MAX, false);
+        assert_eq!(value["kind"], "scroll");
+        assert_eq!(value["sidebar_view_id"], id.as_str());
+        assert_eq!(value["scroll"]["offset"], u64::MAX.to_string());
+        assert_eq!(value["scroll"]["at_bottom"], false);
+    }
+
+    #[test]
+    fn fake_plugin_input_reaches_the_styled_render_attachment() {
+        let mux = Mux::new("sidebar-resource-fake-plugin", SurfaceOptions::default());
+        mux.configure_sidebar_plugin(Some(SidebarPluginOptions {
+            command: vec!["/bin/cat".to_string()],
+            cwd: None,
+        }));
+        let status = mux.ensure_sidebar_plugin(24, 5, false);
+        let surface = mux
+            .surface(status.surface.expect("configured fake plugin must start"))
+            .expect("sidebar surface must remain registered");
+        surface.write_bytes(b"sidebar-resource-e2e\n").unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            let text =
+                surface.try_with_terminal(|terminal| terminal.viewport_text()).unwrap().unwrap();
+            if text.contains("sidebar-resource-e2e") {
+                break;
+            }
+            assert!(Instant::now() < deadline, "fake plugin output did not reach its VT");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        let context = mux.local_resource_context().unwrap();
+        let id = sidebar_view_id(&context.session_id).unwrap();
+        let view = sidebar_snapshot(&id, &context.session_id, (24, 5), Some(&surface));
+        let attachment = attach_sidebar_render(id, view, &surface).unwrap();
+        let snapshot = sidebar_attach_snapshot(&attachment);
+        assert_eq!(snapshot["kind"], "snapshot");
+        assert_eq!(snapshot["sidebar_view"]["running"], true);
+        assert_eq!(snapshot["render"]["size"], json!({"cols":24,"rows":5}));
+        assert!(
+            snapshot["render"]["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .flat_map(|row| row["runs"].as_array().unwrap())
+                .filter_map(|run| run["text"].as_str())
+                .any(|text| text.contains("sidebar-resource-e2e"))
+        );
+        surface.kill();
+    }
+}

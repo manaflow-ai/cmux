@@ -224,9 +224,8 @@ def build_receipt(
     compile_outcome: str | None = None,
     seed_distance: int | None = None,
     fetch_seconds: float | None = None,
-    build_log: Path | None = None,
 ) -> dict[str, object]:
-    scheme_logs = [build_log] if build_log is not None else sorted(derived_data.glob("*-build.log"))
+    scheme_logs = sorted(derived_data.glob("*-build.log"))
     schemes = [parse_log(path) for path in scheme_logs]
 
     xcode = command_output("xcodebuild", "-version")
@@ -310,7 +309,6 @@ def write_summary(receipt: dict[str, object], stream) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("derived_data", type=Path)
-    parser.add_argument("--build-log", type=Path, help="Read this build attempt instead of discovering scheme logs")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--compile-seconds", type=float)
     parser.add_argument("--compile-outcome")
@@ -326,7 +324,6 @@ def main() -> int:
         compile_outcome=args.compile_outcome,
         seed_distance=args.seed_distance,
         fetch_seconds=args.fetch_seconds,
-        build_log=args.build_log,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")

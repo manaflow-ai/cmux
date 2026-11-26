@@ -1,11 +1,24 @@
 {
   "files": [
     {
+      "path": "REVIEW.md",
+      "description": "Mistakes cmux review keeps catching, mined from review comments that led to fix commits. Check every PR against it.",
+      "scope": [
+        "**/*"
+      ]
+    },
+    {
       "path": ".github/review-bot-rules/cloud-persistent-session-and-early-input.md",
       "description": "Source-of-truth cmux review rule for one persistent Cloud session, immediate empty Ghostty runtime, and ordered early input.",
       "scope": [
-        "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/**/*.swift",
-        "cmux-tui/crates/**/src/**/*.rs"
+        "Sources/Cloud/**/*.swift",
+        "Sources/Surfaces/**/*.swift",
+        "Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/**/*.swift",
+        "Sources/AppDelegate*.swift",
+        "Sources/Ghostty*.swift",
+        "cmux-tui/crates/**/src/**/*.rs",
+        "Sources/Workspace*.swift",
+        "Sources/TerminalSurfaceRuntimeWiring.swift"
       ]
     },
     {
@@ -31,6 +44,15 @@
       "scope": [
         "**/*.swift",
         "**/Package.swift"
+      ]
+    },
+    {
+      "path": ".github/review-bot-rules/browser-automation-webkit-waits-off-main.md",
+      "description": "Source-of-truth cmux review rule for keeping browser socket automation WebKit waits off the main actor.",
+      "scope": [
+        "Sources/TerminalController.swift",
+        "Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Wire/ControlCommandExecutionPolicy.swift",
+        "Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandExecutionPolicyTests.swift"
       ]
     },
     {
@@ -231,33 +253,6 @@
         "web/app/[locale]/(landing)/**/page.tsx",
         "web/app/sitemap.ts",
         "web/app/lib/agent-page-paths.ts"
-      ]
-    },
-    {
-      "path": ".github/review-bot-rules/native-chrome-layer.md",
-      "description": "Source-of-truth cmux review rule for which layer draws a surface: native chrome and Home are AppKit, only the agent chat pane and full tab pages are React.",
-      "scope": [
-        "Packages/macOS/CmuxNext/Sources/**/*.swift",
-        "webviews/src/**",
-        "scripts/cmux-next/react-pages.tsv"
-      ]
-    },
-    {
-      "path": "plans/cmux-next/language-layers.md",
-      "description": "The cmux NEXT layer rule and its decision test (Swift, React or Rust).",
-      "scope": [
-        "Packages/macOS/CmuxNext/Sources/**/*.swift",
-        "webviews/src/**"
-      ]
-    },
-    {
-      "path": ".github/review-bot-rules/pressed-state.md",
-      "description": "Source-of-truth cmux review rule: a pressed button changes only its background fill (no bold, size, scale, opacity or icon change).",
-      "scope": [
-        "Packages/macOS/CmuxNext/Sources/**/*.swift",
-        "cmux-next-ios/**/*.swift",
-        "webviews/src/**",
-        "agent-chat/src/**"
       ]
     }
   ]

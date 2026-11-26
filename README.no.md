@@ -14,6 +14,7 @@
 </p>
 
 <p align="center">
+  <a href="https://x.com/manaflowai"><img src="https://img.shields.io/badge/@manaflow-555?logo=x" alt="X / Twitter" /></a>
   <a href="https://discord.gg/xsgFEVrWCZ"><img src="https://img.shields.io/badge/Discord-555?logo=discord" alt="Discord" /></a>
   <a href="https://github.com/manaflow-ai/cmux"><img src="https://img.shields.io/github/stars/manaflow-ai/cmux?style=flat&logo=github&label=stars&color=4c71f2" alt="GitHub stars" /></a>
 </p>
@@ -383,7 +384,7 @@ Ja, cmux er gratis å bruke. Kildekoden er tilgjengelig på [GitHub](https://git
 
 ### Hvordan kan jeg støtte cmux?
 
-cmux er gratis og åpen kildekode, og vil alltid være det.
+cmux er gratis og åpen kildekode, og vil alltid være det. Hvis du vil støtte utviklingen og få tidlig tilgang til det som kommer, inkludert cmux AI, iOS-appen og Cloud VMs, sjekk ut [cmux Pro](https://cmux.com/api/billing/checkout?plan=pro).
 
 ### Jeg har en funksjonsforespørsel eller fant en feil?
 
@@ -403,7 +404,7 @@ Vi vil gjerne høre det. Åpne en [issue](https://github.com/manaflow-ai/cmux/is
 
 Måter å engasjere seg:
 
-- Følg oss på X for oppdateringer [@lawrencecchen](https://x.com/lawrencecchen) og [@austinywang](https://x.com/austinywang)
+- Følg oss på X for oppdateringer [@manaflowai](https://x.com/manaflowai), [@lawrencecchen](https://x.com/lawrencecchen), og [@austinywang](https://x.com/austinywang)
 - Bli med i samtalen på [Discord](https://discord.gg/xsgFEVrWCZ)
 - Opprett og delta i [GitHub-issues](https://github.com/manaflow-ai/cmux/issues) og [diskusjoner](https://github.com/manaflow-ai/cmux/discussions)
 - Fortell oss hva du bygger med cmux
@@ -413,6 +414,7 @@ Måter å engasjere seg:
 - [Discord](https://discord.gg/xsgFEVrWCZ)
 - [WhatsApp](https://chat.whatsapp.com/Fblh7FB58lOI2cx6ccdIqY?mode=gi_t)
 - [GitHub](https://github.com/manaflow-ai/cmux)
+- [X / Twitter](https://twitter.com/manaflowai)
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
@@ -421,6 +423,12 @@ Måter å engasjere seg:
   <strong>WeChat:</strong> Skann QR-koden for å bli med i fellesskapet.<br />
   <img src="./docs/assets/wechat-community-qr.jpg" alt="WeChat-QR-kode for å bli med i cmux-fellesskapet" width="240" />
 </p>
+
+## cmux Pro
+
+cmux er gratis, åpen kildekode, og vil alltid være det. Hvis du vil støtte utviklingen og få tidlig tilgang til det som kommer:
+
+**[Få cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)**
 
 ## Lisens
 

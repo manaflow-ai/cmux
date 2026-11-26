@@ -20,13 +20,13 @@ const STALLED_ROUTE_BUDGET: Duration = Duration::from_millis(20);
 /// records each failed route's error text by route index.
 struct PerRouteBudgetAttempt<'a> {
     attempts: Vec<RuntimeInitialRouteAttempt<'a>>,
-    failures: std::sync::Mutex<Vec<(usize, String)>>,
+    failures: Vec<(usize, String)>,
 }
 
 #[async_trait]
 impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for PerRouteBudgetAttempt<'_> {
     async fn bootstrap_ssh(
-        &self,
+        &mut self,
         endpoint: &Url,
         upgrade: bool,
     ) -> Result<(), InitialRouteAttemptError> {
@@ -34,7 +34,7 @@ impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for PerRouteBudgetAtte
     }
 
     async fn connect(
-        &self,
+        &mut self,
         index: usize,
         request: ConnectRequest,
     ) -> Result<(Arc<ClientConnection>, String), InitialRouteAttemptError> {
@@ -43,7 +43,7 @@ impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for PerRouteBudgetAtte
             InitialRouteAttemptError::Route { error, .. } | InitialRouteAttemptError::Fatal(error),
         ) = &result
         {
-            self.failures.lock().unwrap().push((index, format!("{error:#}")));
+            self.failures.push((index, format!("{error:#}")));
         }
         result
     }
@@ -70,16 +70,12 @@ async fn select_stalled_then_unix(
     let mut unix = stalled.clone();
     unix.reconnect.attempt_timeout = ROUTE_HANG_GUARD;
     let (_shutdown_tx, shutdown_rx) = watch::channel(false);
-    let attempt = PerRouteBudgetAttempt {
+    let mut attempt = PerRouteBudgetAttempt {
         attempts: vec![
-            RuntimeInitialRouteAttempt {
-                options: &stalled,
-                shutdown: shutdown_rx.clone(),
-                last_good: None,
-            },
-            RuntimeInitialRouteAttempt { options: &unix, shutdown: shutdown_rx, last_good: None },
+            RuntimeInitialRouteAttempt { options: &stalled, shutdown: shutdown_rx.clone() },
+            RuntimeInitialRouteAttempt { options: &unix, shutdown: shutdown_rx },
         ],
-        failures: Default::default(),
+        failures: Vec::new(),
     };
     let selected = tokio::time::timeout(
         ROUTE_HANG_GUARD,
@@ -89,7 +85,7 @@ async fn select_stalled_then_unix(
             stalled.lane_policy,
             client_auth_kind(&stalled.auth),
             false,
-            &attempt,
+            &mut attempt,
         ),
     )
     .await
@@ -97,16 +93,17 @@ async fn select_stalled_then_unix(
     .expect("the next initial route did not connect");
     // The stalled route must fail on its own 20 ms attempt timer, not on any
     // other fixed deadline below the Unix route's hang guard.
-    let failures = attempt.failures.into_inner().unwrap();
-    let (index, error) = failures.first().expect("the stalled route did not fail");
-    assert_eq!(*index, 0, "the first failure is not the stalled route's: {failures:?}");
-    // #40976 gave the lane open its own bound inside the attempt timer: "opening lane … did not
-    // finish within 20 ms" is the same 20 ms timer, worded where the open stalled.
+    let (index, error) = attempt.failures.first().expect("the stalled route did not fail");
+    assert_eq!(*index, 0, "the first failure is not the stalled route's: {:?}", attempt.failures);
     assert!(
-        error.contains("did not finish within 20 ms") || error.contains("timed out after 20ms"),
+        error.contains("timed out after 20ms"),
         "the stalled route did not fail on its 20 ms attempt timer: {error}"
     );
-    assert!(failures.iter().all(|(index, _)| *index == 0), "the Unix route failed: {failures:?}");
+    assert!(
+        attempt.failures.iter().all(|(index, _)| *index == 0),
+        "the Unix route failed: {:?}",
+        attempt.failures
+    );
     selected
 }
 

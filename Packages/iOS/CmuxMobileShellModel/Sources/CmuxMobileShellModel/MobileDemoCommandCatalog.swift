@@ -74,7 +74,6 @@ public struct MobileDemoCommandCatalog: Sendable {
                 "\r\nnothing to commit, working tree clean\r\n"
         case "log":
             return "\u{1B}[33mcommit 4c1f2ab\u{1B}[0m (HEAD -> main, origin/main)\r\n" +
-                // retry-prompt-ok: demo terminal output, not a prompt
                 "    webhook: retry delivery with exponential backoff\r\n" +
                 "\u{1B}[33mcommit 91d03fe\u{1B}[0m\r\n" +
                 "    tests: cover session-restore race\r\n" +

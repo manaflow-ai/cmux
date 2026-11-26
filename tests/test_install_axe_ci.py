@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""iOS E2E installs AXe from its pinned archive, and the installer refuses an archive whose sha256 differs.
+"""iOS simulator workflows install AXe from its pinned archive, and the installer refuses an archive whose sha256 differs.
 
 The Homebrew tap's formula uses a post-install DSL the runners' Homebrew lacks ("undefined method 'run' for an
 instance of Homebrew::InstallSteps::DSL", ios-e2e job 132861077367), so `brew install cameroncooke/axe/axe` failed
-every PR's prerequisites step. scripts/install-axe-ci.sh installs the formula's pinned archive instead.
+every run's prerequisites step. scripts/install-axe-ci.sh installs the formula's pinned archive instead (#43820).
 """
 
 from __future__ import annotations
@@ -16,15 +16,28 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKFLOW = ROOT / ".github" / "workflows" / "ios-e2e.yml"
+WORKFLOWS = [
+    ROOT / ".github" / "workflows" / "ios-e2e.yml",
+    ROOT / ".github" / "workflows" / "iroh-release-gate.yml",
+]
 INSTALLER = ROOT / "scripts" / "install-axe-ci.sh"
 
 
-class IosE2EInstallsAxeWithoutTheTap(unittest.TestCase):
-    def test_the_workflow_installs_axe_through_the_pinned_installer(self) -> None:
-        text = WORKFLOW.read_text()
-        self.assertNotIn("brew install cameroncooke/axe", text)
-        self.assertIn("./scripts/install-axe-ci.sh", text)
+class SimulatorWorkflowsInstallAxeWithoutTheTap(unittest.TestCase):
+    def test_each_workflow_installs_axe_through_the_pinned_installer(self) -> None:
+        for workflow in WORKFLOWS:
+            with self.subTest(workflow=workflow.name):
+                text = workflow.read_text()
+                self.assertNotIn("brew install cameroncooke/axe", text)
+                self.assertIn("./scripts/install-axe-ci.sh", text)
+
+
+class InstallerKeepsItsPin(unittest.TestCase):
+    def test_the_default_archive_and_sha256_are_pinned(self) -> None:
+        self.assertTrue(INSTALLER.is_file(), f"{INSTALLER} is missing")
+        text = INSTALLER.read_text()
+        self.assertIn("/releases/download/v2.0.4/AXe-macOS-homebrew-v2.0.4.tar.gz", text)
+        self.assertIn("4997a7305814d1bcbb925bf1f81667177e204fe58855d99c4896b85d749e181a", text)
 
 
 class InstallerRefusesAWrongChecksum(unittest.TestCase):
@@ -44,7 +57,7 @@ class InstallerRefusesAWrongChecksum(unittest.TestCase):
             runner_temp = work / "runner_temp"
             runner_temp.mkdir()
             env = {
-                # No axe on this PATH, so the installer has to fetch and check the archive.
+                # No axe on this PATH, so the installer has to fetch and check the archive (a local file: no network).
                 "PATH": "/usr/bin:/bin",
                 "HOME": str(work),
                 "RUNNER_TEMP": str(runner_temp),

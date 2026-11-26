@@ -1,10 +1,7 @@
 #if canImport(UIKit)
 import CmuxConversationCore
 import CmuxConversationGeometry
-import CmuxMobileSupport
-import PhotosUI
 import UIKit
-import UniformTypeIdentifiers
 
 /// Messages' New Message sheet: "New Message" with a glass X, the To: field
 /// (tokens, autocomplete, + Add Contact), the service line under it, and the
@@ -16,53 +13,18 @@ public final class ConversationComposeViewController: UIViewController {
     /// Called when the person picks + (Add Contact). Without a handler the
     /// sheet lists every contact the directory knows.
     public var onAddContact: (() -> Void)?
-    /// The sheet went away (the X, a swipe down, or the host's dismissal), before the host's
-    /// dismissal completion runs.
-    public var onDismiss: (() -> Void)?
-    /// An action row under To: was picked (``ConversationComposeAction``).
-    public var onAction: ((ConversationComposeAction) -> Void)?
-    /// The conversation the chosen people already have, shown under To: as
-    /// Messages and cmux's Mac New Message show it: the host returns its
-    /// controller (its own composer then replaces the sheet's, its header
-    /// slides under the To: field) or nil for the blank page. Asked again
-    /// each time the tokens change; `carrying` is what the sheet's composer
-    /// holds, for the conversation's composer to take.
-    public var existingConversation: ((_ recipients: [ConversationRecipient], _ carrying: ConversationComposeMessage) -> UIViewController?)?
 
     let recipientField = ComposeRecipientField()
     private lazy var recipientHeight = recipientField.heightAnchor.constraint(equalToConstant: recipientField.preferredHeight)
     let serviceTitle = UILabel()
     let serviceSubtitle = UILabel()
-    /// cmux Home's refusal line under To: (the Mac's `HomeNewMessageView.notice`), in place of Messages' alert.
-    let notice = UILabel()
     let suggestionsTable = UITableView(frame: .zero, style: .plain)
     let composer = ConversationComposerView()
-    /// Holds the existing conversation under To: (``existingConversation``).
-    private let existingContainer = ComposeExistingContainer()
-    private(set) var existingController: UIViewController?
-    private var existingKey: [String] = []
-    private let composerContainer = ComposerHostView()
+    private let composerContainer = UIView()
     private var composerHeight: NSLayoutConstraint?
-    /// The list starts under To: (or the refusal line) and ends at the composer, or at the keyboard
-    /// while the composer hides (``updateListFrame()``): nothing scrolls behind either bar.
-    private var listUnderField: NSLayoutConstraint?
-    private var listUnderNotice: NSLayoutConstraint?
-    private var listAboveComposer: NSLayoutConstraint?
-    private var listAboveKeyboard: NSLayoutConstraint?
-    /// The docked keyboard's top edge: the composer sits on it.
-    private var keyboardDock: MobileKeyboardDock?
-    /// The composer's record button: tap for the hold hint, hold to record, the recording sent as
-    /// the first message (``sendRecordedAudio(data:info:)``).
-    lazy var audioComposer = ConversationAudioComposer(controller: self)
-    private let keyboardTracker = MobileKeyboardFrameTracker()
-    /// The sheet's keyboard tracker: a conversation shown under To:
-    /// (``existingConversation``) takes it, since the keyboard rose before that
-    /// conversation existed and a new tracker would not know it is up.
-    public var keyboard: MobileKeyboardFrameTracker { keyboardTracker }
 
     public init(directory: any ConversationDirectory) {
         session = ConversationComposeSession(directory: directory)
-        if let listing = directory as? any ConversationComposeListing { session.listing = listing }
         super.init(nibName: nil, bundle: nil)
         title = String(localized: "conversation.compose.title", defaultValue: "New Message", bundle: .module)
     }
@@ -153,47 +115,17 @@ public final class ConversationComposeViewController: UIViewController {
         ))
         serviceSubtitle.attributedText = encrypted
 
-        notice.translatesAutoresizingMaskIntoConstraints = false
-        notice.font = .preferredFont(forTextStyle: .footnote)
-        notice.adjustsFontForContentSizeCategory = true
-        notice.textColor = .systemRed
-        notice.numberOfLines = 0
-        notice.textAlignment = .center
-        notice.isHidden = true
-        notice.accessibilityIdentifier = "conversation.compose.notice"
-        view.addSubview(notice)
-
         suggestionsTable.translatesAutoresizingMaskIntoConstraints = false
         suggestionsTable.dataSource = self
         suggestionsTable.delegate = self
         suggestionsTable.register(ComposeSuggestionCell.self, forCellReuseIdentifier: ComposeSuggestionCell.reuseID)
-        suggestionsTable.register(ComposeSectionCell.self, forCellReuseIdentifier: ComposeSectionCell.reuseID)
         suggestionsTable.rowHeight = ComposeSuggestionCell.height
-        // iOS 27's Messages ends the hairline 20 pt from the trailing edge; iOS 26's runs to it.
-        suggestionsTable.separatorInset = UIEdgeInsets(top: 0, left: ComposeSuggestionCell.textLeading, bottom: 0,
-                                                       right: ComposeMetrics.iOS27 ? 20 : 0)
+        suggestionsTable.separatorInset = UIEdgeInsets(top: 0, left: ComposeSuggestionCell.textLeading, bottom: 0, right: 0)
         suggestionsTable.keyboardDismissMode = .none
-        // Rows scrolling out at the list's top and bottom soften with UIKit's own scroll edge
-        // effect (never a drawn blur), so the list never ends in a hard cut.
-        if #available(iOS 26.0, *) {
-            suggestionsTable.topEdgeEffect.style = .soft
-            suggestionsTable.bottomEdgeEffect.style = .soft
-        }
         suggestionsTable.backgroundColor = ConversationTheme.background
         suggestionsTable.isHidden = true
         suggestionsTable.accessibilityIdentifier = "conversation.compose.suggestions"
-        // Rows size to the text size: a change redraws them.
-        registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (self: Self, _) in
-            self.suggestionsTable.reloadData()
-        }
         view.addSubview(suggestionsTable)
-
-        existingContainer.translatesAutoresizingMaskIntoConstraints = false
-        existingContainer.clipsToBounds = true
-        existingContainer.isHidden = true
-        existingContainer.accessibilityIdentifier = "conversation.compose.existing"
-        // Under the To: field and the list, so neither is ever covered.
-        view.insertSubview(existingContainer, at: 0)
 
         recipientField.translatesAutoresizingMaskIntoConstraints = false
         recipientField.delegate = self
@@ -203,19 +135,17 @@ public final class ConversationComposeViewController: UIViewController {
         view.addSubview(composerContainer)
         composer.translatesAutoresizingMaskIntoConstraints = false
         composer.delegate = self
-        // Messages' compose composer: no placeholder. The + (Camera, Photos) and the record
-        // button work before a conversation exists: what they add goes with the first message.
+        // Messages' compose composer: no placeholder, apps disabled until a conversation exists.
         composer.placeholderText = ""
+        composer.plusButton.isEnabled = false
         // The keyboard is up for the whole of New Message: the bar keeps
         // its keyboard side inset (16 pt), as Messages' does.
         composer.keyboardProgress = 1
         composerContainer.addSubview(composer)
-        audioComposer.installRecordButton()
         let composerHeight = composer.heightAnchor.constraint(equalToConstant: composer.preferredHeight)
         self.composerHeight = composerHeight
 
-        let keyboard = MobileKeyboardDock(view: view, usesBottomSafeArea: true, keyboard: keyboardTracker)
-        keyboardDock = keyboard
+        view.keyboardLayoutGuide.followsUndockedKeyboard = true
         let m = ComposeMetrics.self
         NSLayoutConstraint.activate([
             recipientField.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: m.fieldTopGap),
@@ -224,29 +154,20 @@ public final class ConversationComposeViewController: UIViewController {
             recipientHeight,
             // Measured: the service line starts 22 pt under the capsule.
             serviceTitle.topAnchor.constraint(equalTo: recipientField.bottomAnchor, constant: 22),
-            notice.topAnchor.constraint(equalTo: recipientField.bottomAnchor, constant: 12),
-            notice.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 28),
-            notice.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -28),
             serviceTitle.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             serviceTitle.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             serviceSubtitle.topAnchor.constraint(equalTo: serviceTitle.bottomAnchor, constant: 1),
             serviceSubtitle.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             serviceSubtitle.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-
+            suggestionsTable.topAnchor.constraint(equalTo: recipientField.bottomAnchor, constant: 8),
             suggestionsTable.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             suggestionsTable.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-
-            // From the sheet's top: the transcript scrolls under To: and the title, behind the
-            // system's scroll edge effect (the conversation starts below the field).
-            existingContainer.topAnchor.constraint(equalTo: view.topAnchor),
-            existingContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            existingContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            existingContainer.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            suggestionsTable.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
             composerContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             composerContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             // Like the conversation's docked composer: the field 16 pt above
             // the keyboard (Messages' New Message, iOS 27.0: 557 over 573).
-            composerContainer.bottomAnchor.constraint(equalTo: keyboard.guide.topAnchor, constant: -4 + ConversationKeyboardPinGeometry.dockedDrop),
+            composerContainer.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor, constant: -4 + ConversationKeyboardPinGeometry.dockedDrop),
             composer.topAnchor.constraint(equalTo: composerContainer.topAnchor),
             composer.leadingAnchor.constraint(equalTo: composerContainer.leadingAnchor),
             composer.trailingAnchor.constraint(equalTo: composerContainer.trailingAnchor),
@@ -254,15 +175,8 @@ public final class ConversationComposeViewController: UIViewController {
             composerHeight,
         ])
 
-        listUnderField = suggestionsTable.topAnchor.constraint(equalTo: recipientField.bottomAnchor, constant: 8)
-        listUnderNotice = suggestionsTable.topAnchor.constraint(equalTo: notice.bottomAnchor, constant: 8)
-        listAboveComposer = suggestionsTable.bottomAnchor.constraint(equalTo: composerContainer.topAnchor)
-        listAboveKeyboard = suggestionsTable.bottomAnchor.constraint(equalTo: keyboard.guide.topAnchor)
-        updateListFrame()
         session.onChange = { [weak self] change in self?.sessionDidChange(change) }
         sessionDidChange(.recipients)
-        // The listing's rows were made before this handler was set: show them now.
-        sessionDidChange(.rows)
         if let pendingDraft {
             self.pendingDraft = nil
             setDraft(pendingDraft)
@@ -271,52 +185,17 @@ public final class ConversationComposeViewController: UIViewController {
 
     public override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        // The sheet may be presented after its keyboard was already hidden.
-        // Reconcile before focusing To:, so an unannounced hide cannot leave
-        // the composer above empty space.
-        keyboardTracker.dropKeyboardWithoutOwner()
         recipientField.textField.becomeFirstResponder()
-    }
-
-    public override func viewDidDisappear(_ animated: Bool) {
-        super.viewDidDisappear(animated)
-        if isBeingDismissed || navigationController?.isBeingDismissed == true {
-            onDismiss?()
-            onDismiss = nil
-        }
-    }
-
-    public override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        keyboardDock?.refresh()
-    }
-
-    /// The list starts under To:, or under the refusal line while it shows (the Mac's
-    /// `HomeNewMessageView` lays its list under the notice, so the Chiefs never hide it), and ends
-    /// at the composer while it shows, else at the keyboard.
-    private func updateListFrame() {
-        guard let listUnderField, let listUnderNotice, let listAboveComposer, let listAboveKeyboard else { return }
-        let top = notice.isHidden ? listUnderField : listUnderNotice
-        let bottom = composerContainer.isHidden ? listAboveKeyboard : listAboveComposer
-        // The outgoing pair goes first, so two tops (or bottoms) are never active together.
-        NSLayoutConstraint.deactivate([listUnderField, listUnderNotice, listAboveComposer, listAboveKeyboard]
-            .filter { $0 !== top && $0 !== bottom })
-        NSLayoutConstraint.activate([top, bottom])
     }
 
     private func sessionDidChange(_ change: ConversationComposeSession.Change) {
         switch change {
         case .recipients:
             recipientField.update(draft: session.draft)
-            say(nil)
-            updateExisting()
             updateServiceLine()
         case .suggestions:
-            updateServiceLine()
-        case .rows:
             suggestionsTable.reloadData()
-            suggestionsTable.isHidden = session.rows.isEmpty
-            updateComposerVisibility()
+            suggestionsTable.isHidden = session.suggestions.isEmpty
             updateServiceLine()
         case .sending:
             composer.sendButton.isEnabled = !session.isSending
@@ -329,102 +208,14 @@ public final class ConversationComposeViewController: UIViewController {
         case .sms: String(localized: "conversation.compose.service.sms", defaultValue: "Text Message • SMS", bundle: .module)
         case .iMessage, nil: "iMessage"
         }
-        // cmux Home (a listing) has no service line: its people are not reached over iMessage or SMS.
-        let hidden = service == nil || session.listing != nil || !session.rows.isEmpty || existingController != nil || !notice.isHidden
+        let hidden = service == nil || !session.suggestions.isEmpty
         serviceTitle.isHidden = hidden
         serviceSubtitle.isHidden = hidden
     }
 
-    // MARK: Existing conversation
+    // MARK: Sending
 
-    /// The tokens changed: show the conversation the chosen people already
-    /// have (the host's controller), else the blank page with the sheet's
-    /// composer. A red or unresolved token means no one is settled yet: the
-    /// blank page. Text being typed in To: changes nothing (the Mac's
-    /// `existingConversation` reads the tokens only); the list shows over it.
-    private func updateExisting() {
-        let draft = session.draft
-        let key = draft.canSend ? draft.recipients.map(\.id) : []
-        guard key != existingKey else { return }
-        existingKey = key
-        let carrying = currentMessage()
-        let next = key.isEmpty ? nil : existingConversation?(draft.recipients, carrying)
-        guard next !== existingController else { return }
-        // The leaving conversation's typed text comes back to the blank page's box.
-        let returning = (existingController as? any ConversationComposeEmbeddable)?.composeDraftText
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if let old = existingController {
-            old.willMove(toParent: nil)
-            old.view.removeFromSuperview()
-            old.removeFromParent()
-        }
-        existingController = next
-        if let next {
-            addChild(next)
-            existingContainer.embedded = next
-            existingContainer.addSubview(next.view)
-            next.didMove(toParent: self)
-            attachEdgeEffect(to: next)
-            // The conversation's composer takes what was typed (the host gave it `carrying`).
-            if !carrying.isEmpty { composer.clearAfterSend() }
-        } else {
-            existingContainer.embedded = nil
-            detachEdgeEffect()
-            if !returning.isEmpty, composer.text.isEmpty { composer.text = returning }
-        }
-        existingContainer.isHidden = next == nil
-        updateComposerVisibility()
-        existingContainer.setNeedsLayout()
-    }
-
-    /// Messages hides the message bar while matches for typed text show (the list runs to the
-    /// keyboard) and while a conversation under To: has its own; otherwise the list ends above it.
-    private func updateComposerVisibility() {
-        let hidden = existingController != nil || (!session.draft.query.isEmpty && !session.rows.isEmpty)
-        guard composerContainer.isHidden != hidden else { return }
-        // A recording under a bar that goes away could never be stopped: it ends with the bar.
-        if hidden, audioComposer.isActive { audioComposer.cancel() }
-        composerContainer.isHidden = hidden
-        updateListFrame()
-    }
-
-    private var edgeInteraction: UIInteraction?
-
-    /// The To: field and the navigation bar sit over the embedded transcript's top edge: the
-    /// native scroll edge effect runs under both (`UIScrollEdgeElementContainerInteraction`,
-    /// `setContentScrollView`), and the transcript starts under the field.
-    private func attachEdgeEffect(to controller: UIViewController) {
-        guard let embeddable = controller as? any ConversationComposeEmbeddable else { return }
-        view.layoutIfNeeded()
-        let scroll = embeddable.composeEmbed(topInset: recipientField.frame.maxY + ComposeMetrics.existingGap)
-        detachEdgeEffect()
-        guard let scroll else { return }
-        setContentScrollView(scroll, for: .top)
-        if #available(iOS 26.0, *) {
-            let interaction = UIScrollEdgeElementContainerInteraction()
-            interaction.scrollView = scroll
-            interaction.edge = .top
-            recipientField.addInteraction(interaction)
-            edgeInteraction = interaction
-        }
-    }
-
-    private func detachEdgeEffect() {
-        if let edgeInteraction { recipientField.removeInteraction(edgeInteraction) }
-        edgeInteraction = nil
-        setContentScrollView(nil, for: .top)
-    }
-
-    /// Asks the host again for the conversation of the chosen people (its data arrived after the
-    /// tokens settled: a Mac Chief whose channel just opened).
-    public func reloadExistingConversation() {
-        guard existingController == nil else { return }
-        existingKey = []
-        updateExisting()
-    }
-
-    /// The sheet composer's text and images, as the first message.
-    private func currentMessage() -> ConversationComposeMessage {
+    private func sendFirstMessage() {
         let images = composer.attachments.filter { $0.file == nil }.map { attachment in
             ConversationComposeImage(
                 data: attachment.data,
@@ -433,23 +224,11 @@ public final class ConversationComposeViewController: UIViewController {
                 mimeType: attachment.mimeType
             )
         }
-        return ConversationComposeMessage(text: composer.text.trimmingCharacters(in: .whitespacesAndNewlines), images: images,
-                                          files: composer.attachments.compactMap(\.file))
-    }
-
-    // MARK: Sending
-
-    @discardableResult
-    private func sendFirstMessage(audio: ConversationComposeAudio? = nil) -> Bool {
-        var message = currentMessage()
-        message.audio = audio
-        guard !message.isEmpty, !session.isSending else { return false }
+        let message = ConversationComposeMessage(text: composer.text.trimmingCharacters(in: .whitespacesAndNewlines), images: images)
+        guard !message.isEmpty, !session.isSending else { return }
         if session.draft.recipients.isEmpty && session.draft.query.isEmpty {
-            if session.listing != nil {
-                say(String(localized: "conversation.compose.needsRecipient", defaultValue: "Add someone in To: first.", bundle: .module))
-            }
             recipientField.textField.becomeFirstResponder()
-            return false
+            return
         }
         Task { [weak self] in
             guard let self else { return }
@@ -461,41 +240,15 @@ public final class ConversationComposeViewController: UIViewController {
                 self.showSendError(error)
             }
         }
-        return true
-    }
-
-    /// The refusal line under To:, or nil to hide it.
-    public func say(_ text: String?) {
-        guard notice.text != text || notice.isHidden != (text == nil) else { return }
-        notice.text = text
-        notice.isHidden = text == nil
-        if text != nil { updateServiceLine() }
-        updateListFrame()
-        view.setNeedsLayout()
     }
 
     private func showSendError(_ error: any Error) {
         let invalid = (error as? ConversationBackendError)?.code == -32005
-        if session.listing != nil {
-            // cmux Home, as on the Mac: the reason under To:, which takes the keyboard back.
-            let message: String
-            if invalid, let red = session.draft.recipients.first(where: { $0.state == .invalid }) {
-                message = String(format: String(localized: "conversation.compose.unknownRecipient",
-                                                defaultValue: "No one named “%@”. Type their email address to invite them.",
-                                                bundle: .module), red.name)
-            } else {
-                message = (error as? ConversationBackendError)?.message ?? String(describing: error)
-            }
-            say(message)
-            recipientField.textField.becomeFirstResponder()
-            return
-        }
         let alert = UIAlertController(
             title: invalid
                 ? String(localized: "conversation.compose.invalid.title", defaultValue: "Not a Valid Address", bundle: .module)
                 : String(localized: "conversation.compose.failed.title", defaultValue: "Could Not Start Conversation", bundle: .module),
             message: invalid
-                // retry-prompt-ok: the person must fix the recipients first
                 ? String(localized: "conversation.compose.invalid.message", defaultValue: "Remove the red recipients and try again.", bundle: .module)
                 : String(describing: error),
             preferredStyle: .alert
@@ -534,10 +287,8 @@ public final class ConversationComposeViewController: UIViewController {
             guard let index = Int(arg), index < session.draft.recipients.count else { return "error no token" }
             session.select(session.draft.recipients[index].id)
         case "pick":
-            // The index counts the list's pickable rows (headers skipped), as a tap would reach them.
-            let pickable = session.rows.filter(\.isSelectable)
-            guard let index = Int(arg), index < pickable.count else { return "error no suggestion" }
-            activate(pickable[index])
+            guard let index = Int(arg), index < session.suggestions.count else { return "error no suggestion" }
+            session.add(session.suggestions[index])
         case "body":
             composer.textView.becomeFirstResponder()
             composer.text = arg
@@ -554,14 +305,7 @@ public final class ConversationComposeViewController: UIViewController {
         }
         let draft = session.draft
         let tokens = draft.recipients.map { r in "\(r.name)[\(r.state)]\(r.id == draft.selectedID ? "*" : "")" }.joined(separator: ",")
-        let rows = session.rows.map { row -> String in
-            switch row {
-            case let .header(title): "#\(title)"
-            case let .contact(contact): contact.name
-            case let .action(action): "+\(action.id)"
-            }
-        }.joined(separator: ",")
-        return "tokens=\(tokens) text=\(draft.text) suggestions=\(rows) service=\(draft.service?.rawValue ?? "-") existing=\(existingController != nil)"
+        return "tokens=\(tokens) text=\(draft.text) suggestions=\(session.suggestions.map(\.name).joined(separator: ",")) service=\(draft.service?.rawValue ?? "-")"
     }
 }
 
@@ -594,11 +338,7 @@ extension ConversationComposeViewController: ComposeRecipientFieldDelegate {
 
     func recipientFieldDidChangeHeight(_ field: ComposeRecipientField) {
         recipientHeight.constant = field.preferredHeight
-        UIView.animateUnlessReduceMotion(withDuration: 0.2) { self.view.layoutIfNeeded() }
-        // The transcript under To: starts below the field's new bottom.
-        if let embeddable = existingController as? any ConversationComposeEmbeddable {
-            _ = embeddable.composeEmbed(topInset: recipientField.frame.maxY + ComposeMetrics.existingGap)
-        }
+        UIView.animate(withDuration: 0.2) { self.view.layoutIfNeeded() }
     }
 }
 
@@ -614,14 +354,7 @@ extension ConversationComposeViewController: ConversationComposerViewDelegate {
         sendFirstMessage()
     }
 
-    func composerDidTapPlus(_ composer: ConversationComposerView) {
-        // While recording, "+" is the cancel button.
-        if audioComposer.isActive {
-            audioComposer.cancel()
-            return
-        }
-        presentAppsMenu()
-    }
+    func composerDidTapPlus(_ composer: ConversationComposerView) {}
 
     /// The New Message sheet has no Send with Effect (it sends the first message plain).
     func composerDidLongPressSend(_ composer: ConversationComposerView) {}
@@ -629,53 +362,19 @@ extension ConversationComposeViewController: ConversationComposerViewDelegate {
 
 extension ConversationComposeViewController: UITableViewDataSource, UITableViewDelegate {
     public func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        session.rows.count
-    }
-
-    public func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        guard indexPath.row < session.rows.count else { return ComposeSuggestionCell.height }
-        let traits = tableView.traitCollection
-        switch session.rows[indexPath.row] {
-        case .header: return ComposeSectionCell.height(traits)
-        case .contact: return ComposeSuggestionCell.height(traits)
-        case let .action(action): return ComposeSuggestionCell.height(action.title, width: tableView.bounds.width, traits: traits)
-        }
+        session.suggestions.count
     }
 
     public func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        switch session.rows[indexPath.row] {
-        case let .header(title):
-            let cell = tableView.dequeueReusableCell(withIdentifier: ComposeSectionCell.reuseID, for: indexPath)
-            (cell as? ComposeSectionCell)?.configure(title)
-            return cell
-        case let .contact(contact):
-            let cell = tableView.dequeueReusableCell(withIdentifier: ComposeSuggestionCell.reuseID, for: indexPath)
-            (cell as? ComposeSuggestionCell)?.configure(contact, query: session.draft.query)
-            return cell
-        case let .action(action):
-            let cell = tableView.dequeueReusableCell(withIdentifier: ComposeSuggestionCell.reuseID, for: indexPath)
-            (cell as? ComposeSuggestionCell)?.configure(action)
-            return cell
-        }
-    }
-
-    public func tableView(_ tableView: UITableView, shouldHighlightRowAt indexPath: IndexPath) -> Bool {
-        indexPath.row < session.rows.count && session.rows[indexPath.row].isSelectable
+        let cell = tableView.dequeueReusableCell(withIdentifier: ComposeSuggestionCell.reuseID, for: indexPath) as! ComposeSuggestionCell
+        cell.configure(session.suggestions[indexPath.row], query: session.draft.query)
+        return cell
     }
 
     public func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: false)
-        guard indexPath.row < session.rows.count else { return }
-        activate(session.rows[indexPath.row])
-    }
-
-    /// A row picked: a contact becomes a token, an action runs.
-    func activate(_ row: ConversationComposeRow) {
-        switch row {
-        case .header: break
-        case let .contact(contact): session.add(contact)
-        case let .action(action): onAction?(action)
-        }
+        guard indexPath.row < session.suggestions.count else { return }
+        session.add(session.suggestions[indexPath.row])
     }
 }
 
@@ -683,18 +382,10 @@ extension ConversationComposeViewController: UITableViewDataSource, UITableViewD
 /// the address that will be used under it.
 final class ComposeSuggestionCell: UITableViewCell {
     static let reuseID = "compose.suggestion"
-    /// The list under To:: iOS 26 measured 60 pt rows and a 40 pt avatar at x 16; iOS 27 is
-    /// 55.3 pt with 36 pt at x 20 (both put the name at x 68). The Contacts picker keeps 60/40.
-    static var height: CGFloat { ComposeMetrics.iOS27 ? 55.33 : 60 }
-    static let listedHeight: CGFloat = 60
+    static let height: CGFloat = 60
     static let avatarSize: CGFloat = 40
     static let textLeading: CGFloat = 16 + avatarSize + 12
-    /// This row is in the list under To: (not the Contacts picker).
-    private var suggestion = true
     private let avatar = ConversationAvatarView()
-    /// An action row's leading circle (New Chief, Invite) in place of the avatar.
-    private let symbolCircle = UIView()
-    private let symbol = UIImageView()
     private let name = UILabel()
     private let detail = UILabel()
 
@@ -702,18 +393,9 @@ final class ComposeSuggestionCell: UITableViewCell {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         backgroundColor = .clear
         contentView.addSubview(avatar)
-        symbolCircle.backgroundColor = .secondarySystemFill
-        symbolCircle.layer.cornerRadius = Self.avatarSize / 2
-        symbolCircle.isHidden = true
-        symbol.contentMode = .center
-        symbol.tintColor = .systemBlue
-        symbol.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 17, weight: .medium)
-        symbolCircle.addSubview(symbol)
-        contentView.addSubview(symbolCircle)
         name.font = .systemFont(ofSize: 17)
         detail.font = .systemFont(ofSize: 15)
         detail.textColor = .secondaryLabel
-        detail.adjustsFontForContentSizeCategory = false
         contentView.addSubview(name)
         contentView.addSubview(detail)
     }
@@ -721,99 +403,31 @@ final class ComposeSuggestionCell: UITableViewCell {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    /// Text size: 1 at the default size, larger with Dynamic Type (Messages' rows grow with it).
-    static func scale(_ traits: UITraitCollection) -> CGFloat {
-        max(1, UIFontMetrics(forTextStyle: .body).scaledValue(for: 17, compatibleWith: traits) / 17)
-    }
-
-    /// The measured height at the default size (55.33 on iOS 27), scaled up with larger text.
-    static func height(_ traits: UITraitCollection) -> CGFloat {
-        let s = scale(traits)
-        return s == 1 ? height : (height * s).rounded(.up)
-    }
-
-    /// An action row's height: one line, or two for a long title ("Invite … to <team>").
-    static func height(_ title: String, width: CGFloat, traits: UITraitCollection) -> CGFloat {
-        let s = scale(traits)
-        let text = NSAttributedString(string: title, attributes: [.font: UIFont.systemFont(ofSize: 17 * s)])
-        let lines = text.boundingRect(with: CGSize(width: max(1, width - textLeading - 16), height: .greatestFiniteMagnitude),
-                                      options: [.usesLineFragmentOrigin], context: nil).height
-        return max(height(traits), (min(lines, 2 * 22 * s) + 20 * s).rounded(.up))
-    }
-
-    private var s: CGFloat { Self.scale(traitCollection) }
-
     func configure(_ contact: ConversationContact, query: String) {
-        suggestion = true
-        avatar.isHidden = false
-        symbolCircle.isHidden = true
-        name.numberOfLines = 1
-        detail.font = .systemFont(ofSize: 15 * s)
         avatar.configure(initials: contact.initials, colorHex: contact.colorHex)
-        let text = NSMutableAttributedString(string: contact.name, attributes: [.font: UIFont.systemFont(ofSize: 17 * s), .foregroundColor: UIColor.label])
+        let text = NSMutableAttributedString(string: contact.name, attributes: [.font: UIFont.systemFont(ofSize: 17), .foregroundColor: UIColor.label])
         // Bold the matched word prefix, as Messages does.
         let words = contact.name.split(separator: " ")
         var offset = 0
         for word in words {
             if !query.isEmpty, word.lowercased().hasPrefix(query.lowercased()) {
-                text.addAttribute(.font, value: UIFont.systemFont(ofSize: 17 * s, weight: .semibold), range: NSRange(location: offset, length: query.count))
+                text.addAttribute(.font, value: UIFont.systemFont(ofSize: 17, weight: .semibold), range: NSRange(location: offset, length: query.count))
                 break
             }
             offset += word.count + 1
         }
         name.attributedText = text
         let handle = contact.handles.first
-        if let line = contact.detail, !contact.tintsWithService {
-            // cmux Home's line ("Chief · Main · Cloud", "Team"): where the person is, not an address.
-            detail.text = line
-            detail.textColor = .secondaryLabel
-        } else if let line = contact.detail {
-            // A typed address: Messages tints the name and its line with the service color.
-            detail.text = line
-            detail.textColor = contact.service == .iMessage ? .systemBlue : .systemGreen
-            if ComposeMetrics.iOS27 {
-                text.addAttribute(.foregroundColor, value: detail.textColor ?? .label, range: NSRange(location: 0, length: text.length))
-                name.attributedText = text
-            }
-        } else {
-            detail.text = handle.map { ComposeMetrics.iOS27 || $0.label.isEmpty ? $0.value : "\($0.label) \($0.value)" }
-            detail.textColor = contact.service == .iMessage ? .systemBlue : .systemGreen
-            if ComposeMetrics.iOS27 {
-                // iOS 27 tints the name with its address (bold prefix included).
-                text.addAttribute(.foregroundColor, value: detail.textColor ?? .label, range: NSRange(location: 0, length: text.length))
-                name.attributedText = text
-            }
-        }
+        detail.text = handle.map { "\($0.label) \($0.value)" }
+        detail.textColor = contact.service == .iMessage ? .systemBlue : .systemGreen
         accessibilityLabel = contact.name
-        accessibilityValue = contact.detail ?? handle?.value
-        accessibilityTraits = .button
+        accessibilityValue = handle?.value
         accessibilityIdentifier = "conversation.compose.suggestion.\(contact.id)"
-        setNeedsLayout()
-    }
-
-    /// An action row: the symbol in a gray circle, its title in the tint.
-    func configure(_ action: ConversationComposeAction) {
-        suggestion = true
-        avatar.isHidden = true
-        symbolCircle.isHidden = false
-        symbol.image = UIImage(systemName: action.systemImage)
-        name.numberOfLines = 2
-        name.attributedText = NSAttributedString(string: action.title, attributes: [.font: UIFont.systemFont(ofSize: 17 * s), .foregroundColor: UIColor.systemBlue])
-        detail.text = nil
-        accessibilityLabel = action.title
-        accessibilityValue = nil
-        accessibilityTraits = .button
-        accessibilityIdentifier = "conversation.compose.action.\(action.id)"
-        setNeedsLayout()
     }
 
     /// The Contacts list: no address line, the last name bold, the
     /// monogram on Messages' gray gradient.
     func configureListed(_ contact: ConversationContact) {
-        suggestion = false
-        avatar.isHidden = false
-        symbolCircle.isHidden = true
-        name.numberOfLines = 1
         avatar.configure(initials: contact.initials, colorHex: nil)
         let text = NSMutableAttributedString(string: contact.name, attributes: [.font: UIFont.systemFont(ofSize: 17), .foregroundColor: UIColor.label])
         let key = ComposeContactPickerController.sortKey(contact.name)
@@ -829,111 +443,13 @@ final class ComposeSuggestionCell: UITableViewCell {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let compact = suggestion && ComposeMetrics.iOS27
-        let size: CGFloat = compact ? 36 : Self.avatarSize
-        let leading = CGRect(x: compact ? 20 : 16, y: (bounds.height - size) / 2, width: size, height: size)
-        avatar.frame = leading
-        symbolCircle.frame = leading
-        symbolCircle.layer.cornerRadius = size / 2
-        // The symbol keeps clear of the circle: a wide one ("person.2.badge.plus") scales down
-        // into the inner box; a small one ("plus") stays at its own size, centered.
-        // About two thirds of the circle (the wide glyph filled about four fifths of it).
-        let box = symbolCircle.bounds.insetBy(dx: size * 0.17, dy: size * 0.17)
-        let natural = symbol.image?.size ?? .zero
-        symbol.contentMode = natural.width > box.width || natural.height > box.height ? .scaleAspectFit : .center
-        symbol.frame = box
+        let size = Self.avatarSize
+        avatar.frame = CGRect(x: 16, y: (bounds.height - size) / 2, width: size, height: size)
         let x = Self.textLeading
         let hasDetail = !(detail.text ?? "").isEmpty
-        let s = suggestion ? s : 1
-        let width = bounds.width - x - 16
-        if name.numberOfLines == 1 {
-            name.frame = CGRect(x: x, y: hasDetail ? (compact ? 8.3 : 9) * s : (bounds.height - 22 * s) / 2, width: width, height: 22 * s)
-        } else {
-            let fit = name.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
-            name.frame = CGRect(x: x, y: (bounds.height - fit) / 2, width: width, height: fit)
-        }
-        detail.frame = CGRect(x: x, y: (compact ? 28.7 : 31) * s, width: width, height: 19 * s)
+        name.frame = CGRect(x: x, y: hasDetail ? 9 : (bounds.height - 22) / 2, width: bounds.width - x - 16, height: 22)
+        detail.frame = CGRect(x: x, y: 31, width: bounds.width - x - 16, height: 19)
     }
-}
-
-/// A section title in the list under To: ("Chiefs", "Team"): the list's
-/// plain-style header, secondary text on the sheet's background; never picked.
-final class ComposeSectionCell: UITableViewCell {
-    static let reuseID = "compose.section"
-    static let height: CGFloat = 32
-    static func height(_ traits: UITraitCollection) -> CGFloat { (height * ComposeSuggestionCell.scale(traits)).rounded(.up) }
-    private let title = UILabel()
-
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
-        backgroundColor = .clear
-        selectionStyle = .none
-        title.font = .systemFont(ofSize: 15, weight: .semibold)
-        title.textColor = .secondaryLabel
-        contentView.addSubview(title)
-        // A header row draws no separator of its own.
-        separatorInset = UIEdgeInsets(top: 0, left: 10_000, bottom: 0, right: 0)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError() }
-
-    func configure(_ text: String) {
-        title.font = .systemFont(ofSize: 15 * ComposeSuggestionCell.scale(traitCollection), weight: .semibold)
-        title.text = text
-        accessibilityLabel = text
-        accessibilityTraits = .header
-        accessibilityIdentifier = "conversation.compose.section.\(text)"
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        let s = ComposeSuggestionCell.scale(traitCollection)
-        title.frame = CGRect(x: 16, y: bounds.height - 24 * s, width: bounds.width - 32, height: 20 * s)
-    }
-}
-
-/// Holds the existing conversation under To:. Its controller's own header
-/// would sit at the top of this view; the view is laid out that much higher,
-/// so the header slides under the To: field and the transcript starts right
-/// under it (the Mac's `HomeNewMessageClip`).
-final class ComposeExistingContainer: UIView {
-    weak var embedded: UIViewController?
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        guard let embedded else { return }
-        // Twice at most: the header's height is known once the controller has laid out at this width.
-        for _ in 0..<2 {
-            let header = (embedded as? any ConversationComposeEmbeddable)?.composeHeaderHeight ?? 0
-            let frame = CGRect(x: 0, y: -header, width: bounds.width, height: bounds.height + header)
-            guard embedded.view.frame != frame else { return }
-            embedded.view.frame = frame
-            embedded.view.layoutIfNeeded()
-        }
-    }
-}
-
-/// A controller New Message shows under To: tells how tall its own header is,
-/// so the sheet can hide that header under the field.
-@MainActor
-public protocol ConversationComposeEmbeddable: AnyObject {
-    var composeHeaderHeight: CGFloat { get }
-    /// Starts the transcript at `topInset` (under the sheet's To: field) and returns its scroll
-    /// view for the top edge effect.
-    func composeEmbed(topInset: CGFloat) -> UIScrollView?
-    /// What its own message box holds: it comes back to the sheet's when the conversation leaves
-    /// (the recipients changed), as the Mac's New Message keeps the typed text.
-    var composeDraftText: String { get }
-}
-
-extension ConversationViewController: ConversationComposeEmbeddable {
-    public var composeHeaderHeight: CGFloat { showsHeader ? headerMaxY : 0 }
-    public func composeEmbed(topInset: CGFloat) -> UIScrollView? {
-        embeddedTopInset = topInset
-        return transcriptScrollView
-    }
-    public var composeDraftText: String { composer.text }
 }
 
 /// + (Add Contact): a stacked "Contacts" sheet, sectioned by last name
@@ -972,7 +488,7 @@ final class ComposeContactPickerController: UITableViewController {
             self?.dismiss(animated: true)
         })
         tableView.register(ComposeSuggestionCell.self, forCellReuseIdentifier: ComposeSuggestionCell.reuseID)
-        tableView.rowHeight = ComposeSuggestionCell.listedHeight
+        tableView.rowHeight = ComposeSuggestionCell.height
         tableView.sectionHeaderHeight = 38
         tableView.sectionHeaderTopPadding = 0
         tableView.separatorInset = UIEdgeInsets(top: 0, left: ComposeSuggestionCell.textLeading, bottom: 0, right: 0)
@@ -1060,125 +576,6 @@ extension ConversationComposeViewController {
         }
         navigation.present(compose.makeSheet(), animated: true)
         return compose
-    }
-}
-// MARK: Apps and audio
-
-extension ConversationComposeViewController: ConversationAudioHost {
-    /// New Message has sent nothing yet: the record glyph follows the OS (Messages).
-    var hasSentAudio: Bool? { false }
-
-    func dismissPhotoDrawer() {}
-
-    /// Someone in To: and no first send on its way; otherwise say what is missing.
-    func canSendRecordedAudio() -> Bool {
-        guard !session.isSending else { return false }
-        guard session.draft.recipients.isEmpty && session.draft.query.isEmpty else { return true }
-        if session.listing != nil {
-            say(String(localized: "conversation.compose.needsRecipient", defaultValue: "Add someone in To: first.", bundle: .module))
-        }
-        return false
-    }
-
-    /// The recording is the first message: it goes with the chosen people, as a typed one does.
-    func sendRecordedAudio(data: Data, info: ConversationAudioInfo) -> Bool {
-        sendFirstMessage(audio: ConversationComposeAudio(data: data, info: info))
-    }
-
-    /// The conversation's apps menu, in its style: Camera (on a device with one), Photos, Files.
-    func presentAppsMenu() {
-        var items: [AppsMenuOverlay.Item] = []
-        if UIImagePickerController.isSourceTypeAvailable(.camera) {
-            items.append(.init(title: String(localized: "conversation.apps.camera", defaultValue: "Camera", bundle: .module), symbol: "camera.fill", color: .clear, artwork: SendMenuIcons.image(.camera)) { [weak self] in
-                self?.presentCamera()
-            })
-        }
-        items.append(.init(title: String(localized: "conversation.apps.photos", defaultValue: "Photos", bundle: .module), symbol: "photo.on.rectangle", color: .clear, artwork: SendMenuIcons.image(.photos)) { [weak self] in
-            self?.presentPhotoPicker()
-        })
-        items.append(.init(title: String(localized: "conversation.apps.files", defaultValue: "Files", bundle: .module), symbol: "folder.fill", color: .clear, artwork: SendMenuIcons.image(.files)) { [weak self] in
-            self?.presentFilePicker()
-        })
-        view.layoutIfNeeded()
-        let overlay = AppsMenuOverlay(frame: view.bounds, anchor: composer.plusGlassFrame(in: view),
-                                      plusImage: composer.plusButton.image(for: .normal), items: items)
-        if let keyboardDock { overlay.keyboardTop = keyboardDock.guide.layoutFrame.minY }
-        overlay.onDismissed = { [weak self] in self?.composer.isPlusGlassHidden = false }
-        view.addSubview(overlay)
-        composer.isPlusGlassHidden = true
-        overlay.present()
-    }
-
-    private func presentCamera() {
-        let picker = UIImagePickerController()
-        picker.sourceType = .camera
-        picker.delegate = self
-        present(picker, animated: true)
-    }
-
-    private func presentFilePicker() {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.data, .package], asCopy: true)
-        picker.delegate = self
-        present(picker, animated: true)
-    }
-
-    private func presentPhotoPicker() {
-        var configuration = PHPickerConfiguration()
-        configuration.filter = .images
-        configuration.selectionLimit = PhotoDrawerGeometry.selectionLimit(iOS27: ConversationComposerView.isIOS27)
-        configuration.selection = .ordered
-        let picker = PHPickerViewController(configuration: configuration)
-        picker.delegate = self
-        present(picker, animated: true)
-    }
-}
-
-extension ConversationComposeViewController: UIDocumentPickerDelegate {
-    /// A picked file joins the message as the conversation's does: a photo as a photo, anything
-    /// else as a document chip (``ConversationMediaDelegate/composerAttachment(for:traits:)``).
-    public func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-        let traits = traitCollection
-        Task { [weak self] in
-            for url in urls {
-                guard let attachment = await ConversationMediaDelegate.composerAttachment(for: url, traits: traits) else { continue }
-                self?.composer.addAttachment(attachment)
-            }
-        }
-    }
-}
-
-extension ConversationComposeViewController: PHPickerViewControllerDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
-    public func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
-        picker.dismiss(animated: true)
-        let providers = results.map(\.itemProvider)
-        // In the order picked, once every photo has loaded (they finish in any order).
-        Task { [weak self] in
-            var picked: [ComposerAttachment] = []
-            for provider in providers {
-                if let attachment = await Self.attachment(from: provider) { picked.append(attachment) }
-            }
-            guard let self else { return }
-            for attachment in picked { self.composer.addAttachment(attachment) }
-        }
-    }
-
-    /// A picked photo as a composer attachment: PNG stays PNG, HEIC and the rest go as JPEG,
-    /// the type every recipient reads.
-    private static func attachment(from provider: NSItemProvider) async -> ComposerAttachment? {
-        let png = provider.hasItemConformingToTypeIdentifier(UTType.png.identifier)
-        let type = (png ? UTType.png : UTType.image).identifier
-        let data: Data? = await withCheckedContinuation { continuation in
-            _ = provider.loadDataRepresentation(forTypeIdentifier: type) { data, _ in continuation.resume(returning: data) }
-        }
-        guard let data, let image = UIImage(data: data) else { return nil }
-        let bytes = png ? data : image.jpegData(compressionQuality: 0.92) ?? data
-        return ComposerAttachment(image: image, data: bytes, mimeType: png ? "image/png" : "image/jpeg")
-    }
-
-    public func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
-        picker.dismiss(animated: true)
-        guard let image = info[.originalImage] as? UIImage, let data = image.jpegData(compressionQuality: 0.92) else { return }
-        composer.addAttachment(ComposerAttachment(image: image, data: data, mimeType: "image/jpeg"))
     }
 }
 #endif

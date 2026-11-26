@@ -1,4 +1,0 @@
-{
-  "agent": "userOnly",
-  "why": "Compacting on a timer or before a cold wake, and batching the person's chats' wakes, spends their usage (one model call each) and delays delivery: their call."
-}

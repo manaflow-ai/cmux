@@ -114,7 +114,7 @@ import Testing
         )
 
         do {
-            _ = try await client.sendRequest(timedOut, timeoutNanoseconds: 250_000_000)
+            _ = try await client.sendRequest(timedOut, timeoutNanoseconds: 10_000_000)
             Issue.record("Expected first request to time out")
         } catch MobileShellConnectionError.requestTimedOut {
         } catch {

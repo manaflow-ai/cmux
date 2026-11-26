@@ -31,7 +31,7 @@ async function main() {
   if (!isStackConfigured()) {
     throw new Error(
       "Stack Auth is not configured (NEXT_PUBLIC_STACK_PROJECT_ID / " +
-        "STACK_SECRET_SERVER_KEY)",
+        "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY / STACK_SECRET_SERVER_KEY)",
     );
   }
   const app = getStackServerApp();

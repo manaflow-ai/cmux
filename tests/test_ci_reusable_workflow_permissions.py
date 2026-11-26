@@ -471,12 +471,24 @@ MANUAL_REF_RESOLVER = WORKFLOWS_DIR / "resolve-dispatch-ref.yml"
 MANUAL_REF_TARGETS = {
     "ios-screenshots.yml": {
         "screenshots": "ref: ${{ needs.resolve-ref.outputs.sha }}",
+        # The App Store Connect upload uses the Fastfile of the revision captured.
+        "app-store-upload": "ref: ${{ needs.resolve-ref.outputs.sha }}",
     },
     "iroh-release-gate.yml": {
         "tailscale-version-skew": "ref: ${{ needs.resolve-ref.outputs.sha }}",
+        "simulator-e2e": "ref: ${{ needs.resolve-ref.outputs.sha }}",
     },
     "reload-build.yml": {
         "build": "ref: ${{ needs.resolve-ref.outputs.sha }}",
+    },
+    "test-macos-suite.yml": {
+        "tests": "ref: ${{ needs.resolve-ref.outputs.sha }}",
+    },
+    "test-e2e.yml": {
+        # Both halves of the split check out the revision the dispatcher
+        # resolved, so the product is built from and tested at one revision.
+        "build": "ref: ${{ needs.resolve-ref.outputs.sha }}",
+        "test": "ref: ${{ needs.resolve-ref.outputs.sha }}",
     },
 }
 
@@ -495,7 +507,8 @@ def test_shared_manual_ref_resolver_normalizes_to_full_sha() -> None:
 
     assert "workflow_call:" in resolver
     assert "contents: read" in resolver
-    assert "'cmux-linux'" in resolver
+    # A Linux runner: the persistent pool label same-repository jobs name (#47956), or Blacksmith.
+    assert "'cmux-linux'" in resolver or "blacksmith-4vcpu-ubuntu-2404" in resolver
     assert "REQUESTED_REF: ${{ inputs.ref }}" in resolver
     assert "DEFAULT_SHA: ${{ github.sha }}" in resolver
     assert 'urllib.parse.quote(requested_ref, safe="")' in resolver
@@ -517,6 +530,16 @@ def test_manual_macos_workflows_resolve_before_checkout() -> None:
             assert "resolve-ref" in block, (filename, job)
             assert resolved_ref in block, (filename, job)
         assert "ref: ${{ inputs.ref || github.ref }}" not in workflow, filename
+
+    perf = (WORKFLOWS_DIR / "perf-activation.yml").read_text(encoding="utf-8")
+    activation_changes = _workflow_job_block(perf, "activation_changes")
+    benchmark = _workflow_job_block(perf, "activation-session-benchmark")
+    assert resolver_call in perf
+    assert "needs: resolve-ref" in activation_changes
+    assert "target_sha: ${{ needs.resolve-ref.outputs.sha }}" in activation_changes
+    assert "needs: activation_changes" in benchmark
+    assert "ref: ${{ needs.activation_changes.outputs.target_sha }}" in benchmark
+    assert "ref: ${{ inputs.ref || github.ref }}" not in perf
 
 
 def test_repository_workflows_stay_within_their_callers_grants() -> None:
@@ -551,73 +574,3 @@ if __name__ == "__main__":
         if name.startswith("test_") and callable(value):
             value()
     print("PASS: reusable workflow permission guard")
-
-
-GATE = ROOT / "scripts" / "cmux-next" / "prepush-gate.py"
-
-
-def _gate():
-    gate_spec = importlib.util.spec_from_file_location("cmux_prepush_gate_for_perms", GATE)
-    assert gate_spec and gate_spec.loader
-    gate = importlib.util.module_from_spec(gate_spec)
-    sys.modules[gate_spec.name] = gate
-    gate_spec.loader.exec_module(gate)
-    return gate
-
-
-def test_prepush_gate_refuses_a_push_that_adds_a_startup_failure() -> None:
-    """2026-11-25 #55503: base-coalesce's coalesce job gained `actions: read` (if-gated) and two callers granted none;
-    every feat-cmux-next run of both ended startup_failure. This detector then ran only in ci.yml's guard group, which a
-    feat-cmux-next pull request without full-ci never starts; the pre-push gate (REUSABLE_PERMS_CHECK) runs it locally
-    and names only what the push adds."""
-    gate = _gate()
-    tmp = tempfile.TemporaryDirectory()
-    _keepalive.append(tmp)
-    repo = Path(tmp.name)
-    env_git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.invalid"]
-    subprocess.run(["git", "init", "-q", str(repo)], check=True)
-    workflows = repo / ".github" / "workflows"
-    workflows.mkdir(parents=True)
-    callee = textwrap.dedent("""\
-        on:
-          workflow_call: {}
-        permissions: {}
-        jobs:
-          gated:
-            if: ${{ false }}
-            runs-on: ubuntu-latest
-            permissions:
-              actions: %s
-            steps:
-              - run: "true"
-        """)
-    caller = textwrap.dedent("""\
-        on: push
-        permissions: {}
-        jobs:
-          call:
-            uses: ./.github/workflows/callee.yml
-        """)
-
-    def commit(callee_scope: str) -> str:
-        (workflows / "callee.yml").write_text(callee % callee_scope)
-        (workflows / "caller.yml").write_text(caller)
-        subprocess.run([*env_git, "add", "-A"], check=True)
-        subprocess.run([*env_git, "commit", "-qm", callee_scope], check=True)
-        return subprocess.run([*env_git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
-
-    base = commit("none")
-    broken = commit("read")
-    found = gate.reusable_perms_drift(repo, base, broken)
-    assert len(found) == 1 and "caller.yml: job 'call'" in found[0] and "actions: read" in found[0], found
-    # A failure the base already had is the base's, not this push's: another workflow edit pushes through.
-    (workflows / "other.yml").write_text("on: push\njobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n      - run: \"true\"\n")
-    subprocess.run([*env_git, "add", "-A"], check=True)
-    subprocess.run([*env_git, "commit", "-qm", "other"], check=True)
-    again = subprocess.run([*env_git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
-    assert gate.reusable_perms_drift(repo, broken, again) == []
-    # A push that changes no workflow reads nothing.
-    (repo / "README").write_text("x")
-    subprocess.run([*env_git, "add", "-A"], check=True)
-    subprocess.run([*env_git, "commit", "-qm", "readme"], check=True)
-    assert gate.reusable_perms_drift(repo, again, "HEAD") == []

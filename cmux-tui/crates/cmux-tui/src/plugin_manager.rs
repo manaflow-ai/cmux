@@ -1,25 +1,16 @@
-use cmux_json::JsonSet as _;
 use std::collections::HashSet;
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::thread::{self, JoinHandle};
-#[cfg(test)]
-use std::time::Instant;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::thread;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-use crate::cli::BIN;
 use crate::config::{self, AgentPluginConfig, SidebarPluginConfig};
-
-mod build;
-use build::run_build_if_needed;
-#[cfg(test)]
-use build::{is_safe_plugin_build_env_name, is_sensitive_env_name, run_plugin_build_command};
 
 // A manifest is supplied by a repository that the user asks cmux to install.
 // Bound its parser input and argv shape before any build or plugin process is
@@ -30,9 +21,12 @@ const MAX_PLUGIN_COMMAND_ARGS: usize = 256;
 const MAX_PLUGIN_COMMAND_ARG_BYTES: usize = 4096;
 const MAX_PLUGIN_REGISTRY_METADATA_BYTES: usize = 16 * 1024;
 const MAX_PLUGIN_GIT_OUTPUT_BYTES: usize = 16 * 1024;
+/// Bound the number of filesystem entries inspected by one plugin-manager
+/// operation. The registry is user-controlled, so a malicious or stale data
+/// directory must not turn `list` or selector resolution into an unbounded
+/// scan and allocation.
+const MAX_INSTALLED_PLUGIN_ENTRIES: usize = 256;
 const ARTIFACT_HASH_BUFFER_BYTES: usize = 64 * 1024;
-const AUTO_UPDATE_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
-const AUTO_UPDATE_MARKER: &str = ".last-auto-update-check";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PluginKind {
@@ -61,221 +55,6 @@ impl PluginKind {
             Self::Agent => "agent_plugin_",
         }
     }
-}
-
-/// Start the daemon-owned, best-effort check for updates to installed plugins.
-///
-/// The worker is deliberately detached from daemon startup: a remote Git host
-/// must never delay the session socket or the first terminal. It checks at
-/// most once per day and only replaces clean installs from HTTPS or SSH
-/// origins. Local paths, file URLs, symlinks, and dirty checkouts remain under
-/// the user's control.
-pub(crate) fn start_auto_update() -> Option<JoinHandle<()>> {
-    let root = install_root(PluginKind::Sidebar).ok()?;
-    if !root.is_dir() || !auto_update_due(&root, unix_seconds()) {
-        return None;
-    }
-    thread::Builder::new()
-        .name("cmux-plugin-auto-update".to_string())
-        .spawn(|| {
-            if let Err(error) = auto_update_installed_plugins() {
-                eprintln!("{BIN}: automatic plugin update check failed: {error}");
-            }
-        })
-        .ok()
-}
-
-fn auto_update_installed_plugins() -> anyhow::Result<()> {
-    let root = install_root(PluginKind::Sidebar)?;
-    if !root.is_dir() {
-        return Ok(());
-    }
-    {
-        let _marker_lock = PluginUpdateLock::acquire(&root)?;
-        if !auto_update_due(&root, unix_seconds()) {
-            return Ok(());
-        }
-        // Record the attempt before doing network work. A broken remote must
-        // not turn every daemon launch into another potentially slow check.
-        write_auto_update_marker(&root, unix_seconds())?;
-    }
-
-    for kind in [PluginKind::Sidebar, PluginKind::Agent] {
-        let plugins = match installed_plugins(kind) {
-            Ok(plugins) => plugins,
-            Err(error) => {
-                eprintln!(
-                    "{BIN}: cannot inspect {} plugins for updates: {error}",
-                    kind.manifest_kind()
-                );
-                continue;
-            }
-        };
-        for plugin in plugins {
-            if let Err(error) = auto_update_plugin(&plugin, kind) {
-                eprintln!("{BIN}: automatic update for plugin {:?} failed: {error}", plugin.name);
-            }
-        }
-    }
-    Ok(())
-}
-
-fn auto_update_plugin(plugin: &InstalledPlugin, kind: PluginKind) -> anyhow::Result<()> {
-    // A symlink is commonly how a developer points cmux at a working tree.
-    // Never replace it, even when its origin is a hosted repository.
-    if fs::symlink_metadata(&plugin.dir)?.file_type().is_symlink() {
-        return Ok(());
-    }
-    let Some(source) = git_text(&plugin.dir, ["remote", "get-url", "origin"])
-        .filter(|source| is_auto_update_source(source))
-    else {
-        return Ok(());
-    };
-    if !auto_update_checkout_is_safe(&plugin.dir) {
-        return Ok(());
-    }
-    if validate_git_source(&source).is_err() {
-        return Ok(());
-    }
-    let Some(current) = git_text(&plugin.dir, ["rev-parse", "HEAD"]) else {
-        return Ok(());
-    };
-    let Some(remote) = git_text(&plugin.dir, ["ls-remote", source.as_str(), "HEAD"])
-        .and_then(|line| line.split_whitespace().next().map(str::to_owned))
-    else {
-        return Ok(());
-    };
-    if remote == current {
-        return Ok(());
-    }
-
-    let positionals = ["update".to_string(), plugin.id.clone()];
-    update_command_auto(&positionals, &CliOptions::default(), kind)
-        .map(|_| ())
-        .map_err(|error| anyhow::anyhow!(error.to_string()))
-}
-
-fn is_auto_update_source(source: &str) -> bool {
-    let source = source.trim();
-    if source.starts_with("file://") || is_local_git_path(source) {
-        return false;
-    }
-    source.starts_with("https://")
-        || source.starts_with("ssh://")
-        || source.starts_with("git://")
-        || source.starts_with("git@")
-}
-
-fn auto_update_status_is_safe(status: &str) -> bool {
-    let mut has_origin_upstream = false;
-    let mut has_ahead_behind = false;
-    for line in status.lines() {
-        if let Some(upstream) = line.strip_prefix("# branch.upstream ") {
-            has_origin_upstream = upstream.starts_with("origin/");
-            continue;
-        }
-        if let Some(ahead_behind) = line.strip_prefix("# branch.ab ") {
-            let mut fields = ahead_behind.split_whitespace();
-            let Some(ahead) = fields
-                .next()
-                .and_then(|value| value.strip_prefix('+'))
-                .and_then(|value| value.parse::<u64>().ok())
-            else {
-                return false;
-            };
-            if fields
-                .next()
-                .and_then(|value| value.strip_prefix('-'))
-                .and_then(|value| value.parse::<u64>().ok())
-                .is_none()
-            {
-                return false;
-            }
-            has_ahead_behind = ahead == 0;
-            continue;
-        }
-        if !line.is_empty() && !line.starts_with('#') {
-            return false;
-        }
-    }
-    has_origin_upstream && has_ahead_behind
-}
-
-fn auto_update_checkout_is_safe(dir: &Path) -> bool {
-    let Some(status) = git_text_allow_empty(
-        dir,
-        [
-            "status",
-            "--porcelain=v2",
-            "--branch",
-            "--untracked-files=all",
-            "--ignore-submodules=none",
-        ],
-    ) else {
-        return false;
-    };
-    auto_update_status_is_safe(&status)
-}
-
-struct PluginUpdateLock {
-    file: fs::File,
-}
-
-impl PluginUpdateLock {
-    fn acquire(root: &Path) -> anyhow::Result<Self> {
-        fs::create_dir_all(root)?;
-        let path = root.join(".plugin-update.lock");
-        // Only the advisory lock matters; the file holds no data, so opening it never truncates.
-        let file = fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .open(path)?;
-        fs4::FileExt::lock(&file)?;
-        Ok(Self { file })
-    }
-}
-
-impl Drop for PluginUpdateLock {
-    fn drop(&mut self) {
-        let _ = fs4::FileExt::unlock(&self.file);
-    }
-}
-
-fn auto_update_marker_path(root: &Path) -> PathBuf {
-    root.join(AUTO_UPDATE_MARKER)
-}
-
-fn auto_update_due(root: &Path, now: u64) -> bool {
-    let Ok(text) = fs::read_to_string(auto_update_marker_path(root)) else {
-        return true;
-    };
-    let Ok(previous) = text.trim().parse::<u64>() else {
-        return true;
-    };
-    now.saturating_sub(previous) >= AUTO_UPDATE_INTERVAL.as_secs()
-}
-
-fn write_auto_update_marker(root: &Path, now: u64) -> anyhow::Result<()> {
-    let marker = auto_update_marker_path(root);
-    let temporary =
-        root.join(format!(".{AUTO_UPDATE_MARKER}.{}-{}.tmp", std::process::id(), now_nanos()));
-    fs::write(&temporary, format!("{now}\n"))?;
-    if let Err(error) = fs::rename(&temporary, &marker) {
-        // Windows does not replace an existing file with rename. Removing
-        // the old marker is safe because a missing marker simply causes the
-        // next launch to perform one bounded check.
-        let _ = fs::remove_file(&marker);
-        fs::rename(&temporary, &marker).map_err(|retry_error| {
-            let _ = fs::remove_file(&temporary);
-            anyhow::anyhow!(
-                "failed to persist {}: {error}; retry failed: {retry_error}",
-                marker.display()
-            )
-        })?;
-    }
-    Ok(())
 }
 
 /// A userland plugin build must not hold the CLI forever.
@@ -316,7 +95,7 @@ impl ManagerError {
             Self::Validation { field, reason } => {
                 let mut details = json!({"reason": reason});
                 if let Some(field) = field {
-                    details.set("field", Value::String((*field).to_string()));
+                    details["field"] = Value::String((*field).to_string());
                 }
                 details
             }
@@ -437,7 +216,6 @@ fn install_command(
         .map_err(|error| ManagerError::validation(Some("git_url"), error.to_string()))?;
     let root = install_root(kind)?;
     fs::create_dir_all(&root)?;
-    let _update_lock = PluginUpdateLock::acquire(&root).map_err(ManagerError::Failure)?;
     let temp_dir = root.join(format!(".install-{}-{}", std::process::id(), now_nanos()));
     // Keep the user-supplied source after `--` so a value beginning with `-`
     // cannot become a git option. The destination remains a separate final
@@ -565,23 +343,6 @@ fn update_command(
     options: &CliOptions,
     kind: PluginKind,
 ) -> Result<Value, ManagerError> {
-    update_command_inner(positionals, options, kind, false)
-}
-
-fn update_command_auto(
-    positionals: &[String],
-    options: &CliOptions,
-    kind: PluginKind,
-) -> Result<Value, ManagerError> {
-    update_command_inner(positionals, options, kind, true)
-}
-
-fn update_command_inner(
-    positionals: &[String],
-    options: &CliOptions,
-    kind: PluginKind,
-    require_clean_checkout: bool,
-) -> Result<Value, ManagerError> {
     reject_plugin_flags(options, false, false, false)?;
     if positionals.len() != 2 {
         return Err(ManagerError::Usage(format!(
@@ -589,8 +350,6 @@ fn update_command_inner(
             kind.command_prefix()
         )));
     }
-    let root = install_root(kind).map_err(ManagerError::Failure)?;
-    let _update_lock = PluginUpdateLock::acquire(&root).map_err(ManagerError::Failure)?;
     let mut plugin = resolve_installed_plugin(&positionals[1], kind)?;
     let source = git_text(&plugin.dir, ["remote", "get-url", "origin"]).ok_or_else(|| {
         ManagerError::validation(
@@ -604,6 +363,7 @@ fn update_command_inner(
     // Build and validate a fresh clone before touching the active install.
     // Updating in place would let a failed pull or build leave the selected
     // plugin half-updated, which is unsafe for a daemon-owned process.
+    let root = install_root(kind)?;
     let temp_dir = root.join(format!(".update-{}-{}", std::process::id(), now_nanos()));
     let clone_result =
         run_git(["clone", "--depth", "1", "--", source.as_str()], Some(&temp_dir), None);
@@ -625,12 +385,6 @@ fn update_command_inner(
         run_build_if_needed(&manifest, &temp_dir)?;
         let command = resolved_run_command(&manifest, &temp_dir)?;
         verify_executable(&command[0])?;
-        if require_clean_checkout && !auto_update_checkout_is_safe(&plugin.dir) {
-            return Err(ManagerError::validation(
-                Some("plugin"),
-                format!("plugin {} changed while its update was prepared", plugin.name),
-            ));
-        }
         let metadata = PluginRegistryMetadata { id: plugin.id.clone() };
         let transaction =
             replace_plugin_install(&root, &plugin.name, &temp_dir, &plugin.dir, &metadata, kind)?;
@@ -686,8 +440,8 @@ fn remove_command(
     }
     fs::remove_dir_all(&installed.dir)?;
     remove_registry_metadata(&install_root(kind)?, &installed.name, kind)?;
-    plugin.set("active", Value::Bool(false));
-    plugin.set("enabled", Value::Bool(false));
+    plugin["active"] = Value::Bool(false);
+    plugin["enabled"] = Value::Bool(false);
     Ok(json!({"plugin": plugin}))
 }
 
@@ -814,16 +568,11 @@ fn installed_plugins(kind: PluginKind) -> anyhow::Result<Vec<InstalledPlugin>> {
     let root = install_root(kind)?;
     let selection = selected_plugin_config(kind)?;
     let mut plugins = Vec::new();
-    for entry in plugin_registry_entries(&root)? {
+    for entry in bounded_plugin_registry_entries(&root)? {
         if !entry.file_type()?.is_dir() {
             continue;
         }
         let dir = entry.path();
-        if kind == PluginKind::Sidebar
-            && dir.file_name().and_then(|name| name.to_str()) == Some("agent")
-        {
-            continue;
-        }
         if dir.file_name().and_then(|name| name.to_str()).is_some_and(|name| name.starts_with('.'))
         {
             continue;
@@ -843,10 +592,11 @@ fn installed_plugins(kind: PluginKind) -> anyhow::Result<Vec<InstalledPlugin>> {
     Ok(plugins)
 }
 
-/// Every entry of an installed plugin root. Installed plugins are not capped by
-/// count: each entry costs one directory entry here and one manifest read, itself
-/// bounded by [`MAX_PLUGIN_MANIFEST_BYTES`], a constant per plugin.
-fn plugin_registry_entries(root: &Path) -> anyhow::Result<Vec<fs::DirEntry>> {
+/// Read at most [`MAX_INSTALLED_PLUGIN_ENTRIES`] entries from an installed
+/// plugin root. Count every entry, including hidden transaction leftovers and
+/// the registry metadata directory, so an attacker cannot bypass the bound by
+/// creating entries the normal list path later ignores.
+fn bounded_plugin_registry_entries(root: &Path) -> anyhow::Result<Vec<fs::DirEntry>> {
     let entries = match fs::read_dir(root) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -857,7 +607,19 @@ fn plugin_registry_entries(root: &Path) -> anyhow::Result<Vec<fs::DirEntry>> {
             ));
         }
     };
-    entries.map(|entry| entry.map_err(anyhow::Error::from)).collect()
+
+    let mut bounded = Vec::with_capacity(MAX_INSTALLED_PLUGIN_ENTRIES);
+    for (index, entry) in entries.enumerate() {
+        if index >= MAX_INSTALLED_PLUGIN_ENTRIES {
+            anyhow::bail!(
+                "plugin registry {} exceeds the entry limit of {}",
+                root.display(),
+                MAX_INSTALLED_PLUGIN_ENTRIES
+            );
+        }
+        bounded.push(entry?);
+    }
+    Ok(bounded)
 }
 
 fn resolve_installed_plugin(
@@ -1102,6 +864,21 @@ fn validate_git_source(source: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
+fn is_sensitive_env_name(name: &str) -> bool {
+    let name = name.to_ascii_uppercase();
+    name.contains("TOKEN")
+        || name.contains("PASSWORD")
+        || name.contains("SECRET")
+        || name.contains("PRIVATE_KEY")
+        || name.contains("ACCESS_KEY")
+        || name.contains("AUTH_SOCK")
+        || name == "DOCKER_AUTH_CONFIG"
+        || name == "API_KEY"
+        || name.ends_with("_API_KEY")
+        || name == "AUTHORIZATION"
+}
+
 fn is_local_git_path(source: &str) -> bool {
     source.starts_with('/')
         || source.starts_with("./")
@@ -1111,6 +888,67 @@ fn is_local_git_path(source: &str) -> bool {
             && source.as_bytes()[0].is_ascii_alphabetic()
             && source.as_bytes()[1] == b':'
             && matches!(source.as_bytes()[2], b'/' | b'\\'))
+}
+
+fn is_safe_plugin_build_env_name(name: &str) -> bool {
+    matches!(
+        name,
+        "PATH"
+            | "HOME"
+            | "TMPDIR"
+            | "LANG"
+            | "LC_ALL"
+            | "LC_CTYPE"
+            | "TERM"
+            | "CI"
+            | "RUSTUP_HOME"
+            | "RUSTUP_TOOLCHAIN"
+            | "CARGO_HOME"
+            | "CARGO_BUILD_TARGET"
+            | "RUSTFLAGS"
+    ) || name.starts_with("LC_")
+}
+
+fn scrub_plugin_build_environment(command: &mut Command) {
+    for (key, _) in std::env::vars_os() {
+        if !is_safe_plugin_build_env_name(&key.to_string_lossy()) {
+            command.env_remove(key);
+        }
+    }
+}
+
+fn kill_plugin_build_process(child: &mut Child) {
+    #[cfg(unix)]
+    {
+        if let Ok(group) = libc::pid_t::try_from(child.id()) {
+            // The build runs in its own process group, so a timeout also
+            // removes descendants such as package-manager subprocesses.
+            // SAFETY: this is the process group created for this child.
+            unsafe {
+                libc::kill(-group, libc::SIGKILL);
+            }
+        }
+    }
+    let _ = child.kill();
+}
+
+fn run_plugin_build_command(command: &mut Command, timeout: Duration) -> anyhow::Result<()> {
+    let mut child = command.spawn()?;
+    let deadline = Instant::now() + timeout;
+    loop {
+        if let Some(status) = child.try_wait()? {
+            if !status.success() {
+                anyhow::bail!("build command failed with status {status}");
+            }
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            kill_plugin_build_process(&mut child);
+            let _ = child.wait();
+            anyhow::bail!("build command timed out after {:.1} seconds", timeout.as_secs_f64());
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
 }
 
 fn installed_name(
@@ -1143,6 +981,19 @@ fn validate_update_manifest_name(
         );
     }
     Ok(())
+}
+
+fn run_build_if_needed(manifest: &PluginManifest, dir: &Path) -> anyhow::Result<()> {
+    let Some(build) = &manifest.build else { return Ok(()) };
+    let mut command = Command::new(&build.command[0]);
+    command.args(&build.command[1..]).current_dir(dir).stdout(Stdio::null()).stderr(Stdio::null());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    scrub_plugin_build_environment(&mut command);
+    run_plugin_build_command(&mut command, PLUGIN_BUILD_TIMEOUT)
 }
 
 fn resolved_run_command(manifest: &PluginManifest, dir: &Path) -> anyhow::Result<Vec<String>> {
@@ -1219,25 +1070,14 @@ fn run_git<const N: usize>(
     Ok(())
 }
 
-/// A DEV build's own plugin folder (the Mac app sets it: BuildStatePaths `muxPluginsDirectoryKey`), so its
-/// plugins never land in `~/.local/share/cmux/mux-plugins`, which NIGHTLY and stable share.
-const PLUGINS_DIR_ENV: &str = "CMUX_NEXT_MUX_PLUGINS_DIR";
-
 fn install_root(kind: PluginKind) -> anyhow::Result<PathBuf> {
-    // A relative XDG_DATA_HOME (a quoted "~/.local/share") is ignored, as the
-    // XDG spec says; it would resolve against the caller's project directory.
-    let root =
-        if let Some(own) = non_empty_env_path(PLUGINS_DIR_ENV).filter(|path| path.is_absolute()) {
-            own
-        } else if let Some(data_home) =
-            non_empty_env_path("XDG_DATA_HOME").filter(|path| path.is_absolute())
-        {
-            data_home.join("cmux").join("mux-plugins")
-        } else {
-            let home = cmux_tui_core::platform::home_dir()
-                .ok_or_else(|| anyhow::anyhow!("could not resolve home directory"))?;
-            home.join(".local").join("share").join("cmux").join("mux-plugins")
-        };
+    let root = if let Some(data_home) = non_empty_env_path("XDG_DATA_HOME") {
+        data_home.join("cmux").join("mux-plugins")
+    } else {
+        let home = cmux_tui_core::platform::home_dir()
+            .ok_or_else(|| anyhow::anyhow!("could not resolve home directory"))?;
+        home.join(".local").join("share").join("cmux").join("mux-plugins")
+    };
     Ok(match kind {
         PluginKind::Sidebar => root,
         PluginKind::Agent => root.join("agent"),
@@ -1363,7 +1203,7 @@ fn plugin_json(plugin: &InstalledPlugin) -> Value {
         "extra": extra,
     });
     if let Some(revision) = revision {
-        snapshot.set("revision", Value::String(revision));
+        snapshot["revision"] = Value::String(revision);
     }
     snapshot
 }
@@ -1452,7 +1292,7 @@ impl PluginInstallTransaction {
             && let Err(error) = remove_path_if_present(&backup)
         {
             eprintln!(
-                "{BIN}: installed plugin {:?}, but could not remove backup {}: {error}",
+                "cmux-tui: installed plugin {:?}, but could not remove backup {}: {error}",
                 self.name,
                 backup.display()
             );
@@ -1461,7 +1301,7 @@ impl PluginInstallTransaction {
             && let Err(error) = remove_path_if_present(&backup)
         {
             eprintln!(
-                "{BIN}: installed plugin {:?}, but could not remove metadata backup {}: {error}",
+                "cmux-tui: installed plugin {:?}, but could not remove metadata backup {}: {error}",
                 self.name,
                 backup.display()
             );
@@ -1670,10 +1510,6 @@ fn validate_plugin_id(id: &str) -> anyhow::Result<()> {
 }
 
 fn git_text<const N: usize>(dir: &Path, args: [&str; N]) -> Option<String> {
-    git_text_allow_empty(dir, args).filter(|value| !value.is_empty())
-}
-
-fn git_text_allow_empty<const N: usize>(dir: &Path, args: [&str; N]) -> Option<String> {
     let mut child = Command::new("git")
         .arg("-c")
         .arg("protocol.file.allow=always")
@@ -1687,7 +1523,7 @@ fn git_text_allow_empty<const N: usize>(dir: &Path, args: [&str; N]) -> Option<S
         String::from_utf8(read_bounded_child_stdout(&mut child, MAX_PLUGIN_GIT_OUTPUT_BYTES)?)
             .ok()?;
     let value = value.trim_end_matches(['\r', '\n']);
-    Some(value.to_string())
+    (!value.is_empty()).then(|| value.to_string())
 }
 
 /// Read child stdout with a hard allocation bound. The extra byte detects
@@ -1733,14 +1569,572 @@ fn non_empty_env_path(name: &str) -> Option<PathBuf> {
     std::env::var_os(name).filter(|value| !value.is_empty()).map(PathBuf::from)
 }
 
-fn unix_seconds() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
-}
-
 fn now_nanos() -> u128 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos()
 }
 
 #[cfg(test)]
-#[path = "plugin_manager_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    fn manifest_text(name: &str) -> String {
+        format!(
+            r#"
+            [plugin]
+            name = "{name}"
+            kind = "sidebar"
+            version = "0.1.0"
+            description = "test plugin"
+
+            [run]
+            command = ["bin/sidebar"]
+            "#
+        )
+    }
+
+    #[test]
+    fn manifest_parse_validates_required_fields() {
+        let manifest = parse_manifest(&manifest_text("fzf")).unwrap();
+        assert_eq!(manifest.plugin.name, "fzf");
+        assert_eq!(manifest.plugin.kind, "sidebar");
+        assert_eq!(manifest.run.command, vec!["bin/sidebar"]);
+    }
+
+    #[test]
+    fn manifest_rejects_bad_kind() {
+        let text = manifest_text("fzf").replace("sidebar", "pane");
+        let error = parse_manifest(&text).unwrap_err().to_string();
+        assert!(error.contains("plugin.kind"));
+    }
+
+    #[test]
+    fn manifest_rejects_bad_name_chars() {
+        let error = parse_manifest(&manifest_text("../bad")).unwrap_err().to_string();
+        assert!(error.contains("[a-z0-9-_]+"));
+    }
+
+    #[test]
+    fn manifest_rejects_overlong_name() {
+        let name = "a".repeat(MAX_PLUGIN_NAME_BYTES + 1);
+        let error = parse_manifest(&manifest_text(&name)).unwrap_err().to_string();
+        assert!(error.contains("[a-z0-9-_]+"));
+    }
+
+    #[test]
+    fn manifest_rejects_missing_run_command() {
+        let text = r#"
+            [plugin]
+            name = "fzf"
+            kind = "sidebar"
+        "#;
+        let error = parse_manifest(text).unwrap_err().to_string();
+        assert!(error.contains("missing field `run`") || error.contains("run.command"));
+    }
+
+    #[test]
+    fn manifest_platforms_are_validated_and_current_platform_is_admitted() {
+        let current = current_plugin_platform();
+        if current == "other" {
+            return;
+        }
+        let text = manifest_text("fzf").replace(
+            "description = \"test plugin\"",
+            &format!("description = \"test plugin\"\n            platforms = [\"{current}\"]"),
+        );
+        let manifest = parse_manifest(&text).unwrap();
+        ensure_manifest_platform_supported(&manifest).unwrap();
+
+        let unsupported = if current == "macos" { "linux" } else { "macos" };
+        let text = manifest_text("fzf").replace(
+            "description = \"test plugin\"",
+            &format!("description = \"test plugin\"\n            platforms = [\"{unsupported}\"]"),
+        );
+        let manifest = parse_manifest(&text).unwrap();
+        assert!(ensure_manifest_platform_supported(&manifest).is_err());
+    }
+
+    #[test]
+    fn manifest_rejects_unknown_and_duplicate_platforms() {
+        for platforms in
+            ["platforms = [\"plan9\"]", "platforms = [\"linux\", \"linux\"]", "platforms = []"]
+        {
+            let text = manifest_text("fzf").replace(
+                "description = \"test plugin\"",
+                &format!("description = \"test plugin\"\n            {platforms}"),
+            );
+            assert!(parse_manifest(&text).is_err(), "{platforms}");
+        }
+    }
+
+    #[test]
+    fn manifest_rejects_unknown_fields_and_unsafe_argv() {
+        let unknown = manifest_text("fzf").replace(
+            "description = \"test plugin\"",
+            "description = \"test plugin\"\n            unexpected = true",
+        );
+        assert!(parse_manifest(&unknown).is_err(), "unknown manifest fields must fail closed");
+
+        let empty_executable = manifest_text("fzf")
+            .replace("command = [\"bin/sidebar\"]", "command = [\"\", \"kept\"]");
+        assert!(parse_manifest(&empty_executable).is_err());
+
+        let nul_argument = manifest_text("fzf").replace(
+            "command = [\"bin/sidebar\"]",
+            "command = [\"bin/sidebar\", \"bad\\u0000arg\"]",
+        );
+        assert!(parse_manifest(&nul_argument).is_err());
+
+        let too_many = (0..=MAX_PLUGIN_COMMAND_ARGS)
+            .map(|index| format!("\"arg-{index}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let too_many = manifest_text("fzf").replace(
+            "command = [\"bin/sidebar\"]",
+            &format!("command = [\"bin/sidebar\", {too_many}]"),
+        );
+        assert!(parse_manifest(&too_many).is_err());
+    }
+
+    #[test]
+    fn relative_run_command_cannot_escape_plugin_directory() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-plugin-command-boundary-{}-{}",
+            std::process::id(),
+            now_nanos()
+        ));
+        let plugin_dir = root.join("plugin");
+        let outside_dir = root.join("outside");
+        fs::create_dir_all(&plugin_dir).unwrap();
+        fs::create_dir_all(&outside_dir).unwrap();
+        let outside_executable = outside_dir.join("agent");
+        fs::write(&outside_executable, b"#!/bin/sh\n").unwrap();
+
+        let mut manifest = parse_manifest(&manifest_text("fzf")).unwrap();
+        manifest.run.command[0] = "../outside/agent".into();
+        let error = resolved_run_command(&manifest, &plugin_dir).unwrap_err().to_string();
+        assert!(error.contains("escapes plugin directory"), "{error}");
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn bounded_manifest_reader_rejects_oversized_files() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-plugin-manifest-limit-{}-{}",
+            std::process::id(),
+            now_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("cmux-plugin.toml");
+        fs::write(&path, vec![b'x'; MAX_PLUGIN_MANIFEST_BYTES + 1]).unwrap();
+        let error = read_manifest(&root, PluginKind::Sidebar).unwrap_err().to_string();
+        assert!(error.contains("manifest limit"), "{error}");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn bounded_plugin_text_reader_rejects_oversized_files() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-plugin-text-limit-{}-{}",
+            std::process::id(),
+            now_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("plugin.json");
+        fs::write(&path, b"four").unwrap();
+        let error = read_bounded_plugin_text(&path, 3).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("3-byte limit"), "{error}");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn bounded_child_stdout_reader_rejects_oversized_output() {
+        let mut exact = Command::new("sh")
+            .args(["-c", "printf four"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        assert_eq!(read_bounded_child_stdout(&mut exact, 4), Some(b"four".to_vec()));
+
+        let mut oversized = Command::new("sh")
+            .args(["-c", "printf four"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        assert_eq!(read_bounded_child_stdout(&mut oversized, 3), None);
+        assert!(oversized.try_wait().unwrap().is_some());
+    }
+
+    #[test]
+    fn plugin_registry_rejects_an_unbounded_entry_count() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-plugin-registry-entry-limit-{}-{}",
+            std::process::id(),
+            now_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        for index in 0..=MAX_INSTALLED_PLUGIN_ENTRIES {
+            fs::create_dir(root.join(format!("plugin-{index}"))).unwrap();
+        }
+
+        let error = bounded_plugin_registry_entries(&root).unwrap_err().to_string();
+        assert!(error.contains("plugin registry") && error.contains("entry limit"), "{error}");
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn artifact_digest_handles_multiple_read_chunks() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-plugin-artifact-digest-{}-{}",
+            std::process::id(),
+            now_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("plugin");
+        let bytes = (0..(ARTIFACT_HASH_BUFFER_BYTES * 2 + 17))
+            .map(|index| (index % 251) as u8)
+            .collect::<Vec<_>>();
+        fs::write(&path, &bytes).unwrap();
+
+        let mut actual = Sha256::new();
+        update_file_digest(fs::File::open(&path).unwrap(), &mut actual).unwrap();
+        assert_eq!(actual.finalize(), Sha256::digest(&bytes));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn installed_name_uses_manifest_or_override() {
+        let manifest = parse_manifest(&manifest_text("fzf")).unwrap();
+        assert_eq!(installed_name(&manifest, None).unwrap(), "fzf");
+        assert_eq!(installed_name(&manifest, Some("custom-name")).unwrap(), "custom-name");
+        assert!(installed_name(&manifest, Some("Bad")).is_err());
+    }
+
+    #[test]
+    fn update_preserves_an_explicit_install_alias() {
+        let installed_manifest = parse_manifest(&manifest_text("fzf")).unwrap();
+        let updated_manifest = parse_manifest(&manifest_text("fzf")).unwrap();
+        let installed = InstalledPlugin {
+            id: "sidebar_plugin_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
+            name: "custom-name".into(),
+            manifest: installed_manifest,
+            dir: PathBuf::from("/tmp/custom-name"),
+            selected: false,
+        };
+
+        validate_update_manifest_name(&installed, &updated_manifest).unwrap();
+        assert_eq!(installed.name, "custom-name");
+    }
+
+    #[test]
+    fn update_rejects_a_manifest_identity_change_even_for_an_alias() {
+        let installed_manifest = parse_manifest(&manifest_text("fzf")).unwrap();
+        let updated_manifest = parse_manifest(&manifest_text("other")).unwrap();
+        let installed = InstalledPlugin {
+            id: "sidebar_plugin_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
+            name: "custom-name".into(),
+            manifest: installed_manifest,
+            dir: PathBuf::from("/tmp/custom-name"),
+            selected: false,
+        };
+
+        let error =
+            validate_update_manifest_name(&installed, &updated_manifest).unwrap_err().to_string();
+        assert!(error.contains("changed its manifest name"), "{error}");
+    }
+
+    #[test]
+    fn registry_assigns_and_persists_secure_opaque_ids() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-plugin-registry-test-{}-{}",
+            std::process::id(),
+            now_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+
+        let first = PluginRegistryMetadata { id: random_plugin_id().unwrap() };
+        replace_registry_metadata(&root, "first", &first, PluginKind::Sidebar).unwrap();
+        let replay = read_registry_metadata(&root, "first", PluginKind::Sidebar).unwrap();
+        let second = PluginRegistryMetadata { id: random_plugin_id().unwrap() };
+        replace_registry_metadata(&root, "second", &second, PluginKind::Sidebar).unwrap();
+        assert_eq!(first.id, replay.id);
+        assert_ne!(first.id, second.id);
+        validate_plugin_id(&first.id).unwrap();
+        validate_plugin_id(&second.id).unwrap();
+        assert_eq!(
+            serde_json::from_str::<PluginRegistryMetadata>(
+                &fs::read_to_string(registry_metadata_path(&root, "first")).unwrap()
+            )
+            .unwrap()
+            .id,
+            first.id
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn install_transaction_restores_the_previous_artifact_and_identity() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-plugin-transaction-test-{}-{}",
+            std::process::id(),
+            now_nanos()
+        ));
+        let target = root.join("agent-view");
+        let staged = root.join(".staged");
+        fs::create_dir_all(target.join("bin")).unwrap();
+        fs::write(target.join("bin/old"), "old artifact").unwrap();
+        fs::create_dir_all(staged.join("bin")).unwrap();
+        fs::write(staged.join("bin/new"), "new artifact").unwrap();
+
+        let old_metadata =
+            PluginRegistryMetadata { id: "sidebar_plugin_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into() };
+        replace_registry_metadata(&root, "agent-view", &old_metadata, PluginKind::Sidebar).unwrap();
+        let new_metadata =
+            PluginRegistryMetadata { id: "sidebar_plugin_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into() };
+
+        let transaction = replace_plugin_install(
+            &root,
+            "agent-view",
+            &staged,
+            &target,
+            &new_metadata,
+            PluginKind::Sidebar,
+        )
+        .unwrap();
+        assert!(target.join("bin/new").is_file());
+        assert_eq!(
+            read_registry_metadata(&root, "agent-view", PluginKind::Sidebar).unwrap().id,
+            new_metadata.id
+        );
+
+        transaction.rollback().unwrap();
+        assert!(target.join("bin/old").is_file());
+        assert!(!target.join("bin/new").exists());
+        assert_eq!(
+            read_registry_metadata(&root, "agent-view", PluginKind::Sidebar).unwrap().id,
+            old_metadata.id
+        );
+        assert!(!staged.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn plugin_snapshot_matches_the_closed_catalog_shape() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-plugin-snapshot-test-{}-{}",
+            std::process::id(),
+            now_nanos()
+        ));
+        let bin = root.join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        let executable = bin.join("sidebar");
+        fs::write(&executable, "#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let snapshot = plugin_json(&InstalledPlugin {
+            id: "sidebar_plugin_11111111111111111111111111111111".into(),
+            name: "custom-name".into(),
+            manifest: parse_manifest(&manifest_text("manifest-name")).unwrap(),
+            dir: root.clone(),
+            selected: true,
+        });
+        let keys = snapshot
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            keys,
+            ["active", "enabled", "extra", "id", "name", "source"].into_iter().collect()
+        );
+        assert_eq!(snapshot["id"], "sidebar_plugin_11111111111111111111111111111111");
+        assert_eq!(snapshot["name"], "custom-name");
+        assert_eq!(snapshot["active"], true);
+        assert_eq!(snapshot["enabled"], true);
+        assert_eq!(snapshot["extra"]["manifest_name"], "manifest-name");
+        assert!(snapshot.get("revision").is_none());
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn plugin_source_never_exposes_url_credentials() {
+        assert_eq!(
+            sanitized_git_source("https://user:secret@example.com/team/plugin.git?token=secret"),
+            "https://example.com/team/plugin.git"
+        );
+        assert_eq!(
+            sanitized_git_source("ssh://git@example.com/team/plugin.git"),
+            "ssh://example.com/team/plugin.git"
+        );
+        assert_eq!(
+            sanitized_git_source("git@example.com:team/plugin.git"),
+            "git@example.com:team/plugin.git"
+        );
+    }
+
+    #[test]
+    fn git_source_rejects_embedded_credentials_and_query_tokens() {
+        for source in [
+            "https://user:secret@example.com/team/plugin.git",
+            "https://user@example.com/team/plugin.git",
+            "https://example.com/team/plugin.git?token=secret",
+            "http://example.com/team/plugin.git#token",
+        ] {
+            assert!(
+                validate_git_source(source).is_err(),
+                "unsafe source must be rejected: {source}"
+            );
+        }
+
+        for source in [
+            "ssh://git@example.com/team/plugin.git",
+            "git@example.com:team/plugin.git",
+            "/tmp/plugin.git",
+        ] {
+            assert!(
+                validate_git_source(source).is_ok(),
+                "normal source must remain valid: {source}"
+            );
+        }
+    }
+
+    #[test]
+    fn git_source_rejects_custom_transports_and_helpers() {
+        for source in [
+            "ext::sh -c 'curl https://attacker.invalid'",
+            "hg::https://example.com/team/plugin",
+            "ftp://example.com/team/plugin.git",
+            "git://token@example.com/team/plugin.git",
+            "--separate-git-dir=/tmp/attacker",
+            "ssh://-oProxyCommand=id/repo.git",
+            "ssh://git@-oProxyCommand=id/repo.git",
+            "ssh://-oProxyCommand=id@trusted-host/repo.git",
+        ] {
+            assert!(
+                validate_git_source(source).is_err(),
+                "custom Git transport must be rejected: {source}"
+            );
+        }
+        assert!(validate_git_source("/tmp/plugin:variant@repo").is_ok());
+        assert!(validate_git_source("C:\\tmp\\plugin:variant@repo").is_ok());
+        assert!(validate_git_source("https://[2001:db8::1]/team/plugin.git").is_ok());
+        assert!(validate_git_source("ssh://git@[::1]/team/plugin.git").is_ok());
+    }
+
+    #[test]
+    fn plugin_build_environment_scrubs_secret_values() {
+        for name in [
+            "GITHUB_TOKEN",
+            "AWS_SECRET_ACCESS_KEY",
+            "SERVICE_PASSWORD",
+            "OPENAI_API_KEY",
+            "SSH_PRIVATE_KEY",
+            "AWS_ACCESS_KEY_ID",
+            "DOCKER_AUTH_CONFIG",
+            "SSH_AUTH_SOCK",
+        ] {
+            assert!(is_sensitive_env_name(name), "secret environment name: {name}");
+            assert!(!is_safe_plugin_build_env_name(name), "secret environment name: {name}");
+        }
+        for name in ["PATH", "HOME", "RUSTUP_HOME"] {
+            assert!(!is_sensitive_env_name(name), "build environment name: {name}");
+        }
+        assert!(is_safe_plugin_build_env_name("PATH"));
+        assert!(is_safe_plugin_build_env_name("LC_CTYPE"));
+        for name in
+            ["RUSTUP_HOME", "RUSTUP_TOOLCHAIN", "CARGO_HOME", "CARGO_BUILD_TARGET", "RUSTFLAGS"]
+        {
+            assert!(is_safe_plugin_build_env_name(name), "toolchain environment name: {name}");
+        }
+    }
+
+    #[test]
+    fn selection_matching_uses_id_then_path_or_command_migrations() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-plugin-selection-test-{}-{}",
+            std::process::id(),
+            now_nanos()
+        ));
+        let dir = root.join("agent-view");
+        let executable = dir.join("bin/sidebar");
+        fs::create_dir_all(executable.parent().unwrap()).unwrap();
+        fs::write(&executable, "#!/bin/sh\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let manifest = parse_manifest(&manifest_text("agent-view")).unwrap();
+        let id = "sidebar_plugin_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+        let by_id = SelectedPluginConfig { id: Some(id.into()), ..Default::default() };
+        assert!(plugin_is_selected(Some(&by_id), id, &manifest, &dir));
+
+        let by_path = SelectedPluginConfig { cwd: Some(dir.clone()), ..Default::default() };
+        assert!(plugin_is_selected(Some(&by_path), "other", &manifest, &dir));
+
+        let shared_cwd_with_other_command = SelectedPluginConfig {
+            cwd: Some(dir.clone()),
+            command: Some(vec!["/tmp/other-plugin".into()]),
+            ..Default::default()
+        };
+        assert!(!plugin_is_selected(
+            Some(&shared_cwd_with_other_command),
+            "other",
+            &manifest,
+            &dir
+        ));
+
+        let command = resolved_run_command(&manifest, &dir).unwrap();
+        let by_command = SelectedPluginConfig { command: Some(command), ..Default::default() };
+        assert!(plugin_is_selected(Some(&by_command), "other", &manifest, &dir));
+
+        let by_relative_command = SelectedPluginConfig {
+            command: Some(vec!["bin/sidebar".into()]),
+            cwd: Some(dir.clone()),
+            ..Default::default()
+        };
+        assert!(plugin_is_selected(Some(&by_relative_command), "other", &manifest, &dir));
+
+        let sibling_command = SelectedPluginConfig {
+            command: Some(vec![dir.join("bin/other").display().to_string()]),
+            ..Default::default()
+        };
+        assert!(!plugin_is_selected(Some(&sibling_command), "other", &manifest, &dir));
+
+        let unrelated_command = SelectedPluginConfig {
+            command: Some(vec!["/tmp/plugin".into(), "different".into()]),
+            ..Default::default()
+        };
+        assert!(!plugin_is_selected(Some(&unrelated_command), id, &manifest, &dir));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn plugin_build_timeout_is_finite_and_positive() {
+        assert!(PLUGIN_BUILD_TIMEOUT.as_nanos() > 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn plugin_build_command_terminates_after_timeout() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "while :; do :; done"]);
+        let started = Instant::now();
+        let error = run_plugin_build_command(&mut command, Duration::from_millis(20))
+            .expect_err("a busy build must time out");
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(error.to_string().contains("timed out"));
+    }
+}

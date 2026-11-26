@@ -46,14 +46,19 @@ done
 OUT="${GITHUB_OUTPUT:-/dev/stdout}"
 now() { date +%s; }
 mkdir -p "$REPORTS"
-mapfile -t variants < "$VARIANTS_FILE"
+# bash 3.2 (a Mac mini's /bin/bash) has no mapfile and no associative arrays:
+# read the lines into an indexed array, and keep each variant's state file,
+# deadline and result in arrays indexed like variants.
+variants=()
+while IFS= read -r line || [ -n "$line" ]; do variants+=("$line"); done < "$VARIANTS_FILE"
 if [ "${#variants[@]}" -eq 0 ]; then
   printf 'decided=false\nouter_variants=[]\n' >> "$OUT"
   exit 0
 fi
 start="$(now)"
-declare -A state_of deadline_of result_of
-for variant in "${variants[@]}"; do
+state_of=() deadline_of=() result_of=()
+for i in "${!variants[@]}"; do
+  variant="${variants[$i]}"
   env_file="$REPORTS/$variant.env"
   if ! python3 "$REPO_ROOT/scripts/ci/resolve-notarization-recovery.py" \
       "$ROOT/$variant/cmux-nightly-notarization-recovery.json" "$SOURCE_RUN_ID" "$SOURCE_HEAD_SHA" "$CHANNEL" "$variant" \
@@ -62,38 +67,39 @@ for variant in "${variants[@]}"; do
     exit 1
   fi
   state="$(awk -F= '$1 == "STATE_FILE" { print substr($0, index($0, "=") + 1) }' "$env_file")"
-  state_of[$variant]="$state"
+  state_of[$i]="$state"
   if grep -Fxq 'stapled_app=true' "$state"; then
     submitted="$(awk -F= '$1 == "stapled_submitted_at" { print $2; exit }' "$state")"
     [[ "$submitted" =~ ^[0-9]+$ ]] || { echo "$variant: the stapled-app state records no submit time" >&2; exit 1; }
-    deadline_of[$variant]=$((submitted + FALLBACK_SECONDS))
+    deadline_of[$i]=$((submitted + FALLBACK_SECONDS))
   else
-    deadline_of[$variant]=""
+    deadline_of[$i]=""
   fi
-  result_of[$variant]=pending
+  result_of[$i]=pending
 done
 while :; do
   pending=false
-  for variant in "${variants[@]}"; do
-    [ "${result_of[$variant]}" = pending ] || continue
+  for i in "${!variants[@]}"; do
+    variant="${variants[$i]}"
+    [ "${result_of[$i]}" = pending ] || continue
     # shellcheck disable=SC2086
-    $POLL_TOOL "${state_of[$variant]}" --output "$REPORTS/$variant.log" > "$REPORTS/$variant.out" 2>&1
+    $POLL_TOOL "${state_of[$i]}" --output "$REPORTS/$variant.log" > "$REPORTS/$variant.out" 2>&1
     status=$?
     cat "$REPORTS/$variant.out"
-    deadline="${deadline_of[$variant]}"
+    deadline="${deadline_of[$i]}"
     if [ "$status" -eq 0 ]; then
-      result_of[$variant]=accepted
+      result_of[$i]=accepted
     elif [ -n "$deadline" ]; then
       # Queued, refused or not answered: only the deadline decides.
       if [ "$(now)" -ge "$deadline" ]; then
-        result_of[$variant]=fallback
+        result_of[$i]=fallback
         echo "::warning::$variant: the DMG around the stapled app is not Accepted 6 h after its submission; its continuation ships the accepted first DMG"
       else
         pending=true
       fi
     elif [ "$status" -eq 2 ] || [ "$status" -eq 3 ]; then
       if [ $(( $(now) - start )) -ge "$OUTER_POLL_SECONDS" ]; then
-        result_of[$variant]=stalled
+        result_of[$i]=stalled
         echo "::warning::$variant: the outer DMG is still In Progress; continue it with resume-nightly-notarization.yml"
       else
         pending=true
@@ -101,18 +107,19 @@ while :; do
     else
       # Refused, or the query itself is broken: this variant fails; the
       # others are still decided.
-      result_of[$variant]=failed
+      result_of[$i]=failed
       echo "::error::$variant: the outer DMG submission failed or could not be queried"
     fi
   done
   [ "$pending" = true ] || break
   current="$(now)"
   if [ $((current - start)) -ge "$BUDGET_SECONDS" ]; then
-    for variant in "${variants[@]}"; do
-      deadline="${deadline_of[$variant]}"
-      if [ "${result_of[$variant]}" = pending ] && [ -n "$deadline" ] && [ "$deadline" -le $((current + SLACK_SECONDS)) ]; then
+    for i in "${!variants[@]}"; do
+      variant="${variants[$i]}"
+      deadline="${deadline_of[$i]}"
+      if [ "${result_of[$i]}" = pending ] && [ -n "$deadline" ] && [ "$deadline" -le $((current + SLACK_SECONDS)) ]; then
         # Due within the slack: its continuation waits for the deadline.
-        result_of[$variant]=fallback
+        result_of[$i]=fallback
         echo "::warning::$variant: the DMG around the stapled app is not Accepted and its 6 h deadline is $(date -u -d "@$deadline" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -r "$deadline" +%Y-%m-%dT%H:%M:%SZ) (epoch $deadline); its continuation waits for it and ships the accepted first DMG"
       fi
     done
@@ -122,9 +129,10 @@ while :; do
   # The next poll: one interval later, or the nearest deadline, or the end of
   # the budget, whichever comes first.
   wake=$((current + INTERVAL_SECONDS))
-  for variant in "${variants[@]}"; do
-    deadline="${deadline_of[$variant]}"
-    if [ "${result_of[$variant]}" = pending ] && [ -n "$deadline" ] && [ "$deadline" -lt "$wake" ]; then
+  for i in "${!variants[@]}"; do
+    variant="${variants[$i]}"
+    deadline="${deadline_of[$i]}"
+    if [ "${result_of[$i]}" = pending ] && [ -n "$deadline" ] && [ "$deadline" -lt "$wake" ]; then
       wake="$deadline"
     fi
   done
@@ -133,15 +141,17 @@ while :; do
   sleep $((wake - current))
 done
 decided=()
-for variant in "${variants[@]}"; do
-  echo "$variant: ${result_of[$variant]}"
-  case "${result_of[$variant]}" in accepted|fallback) decided+=("$variant") ;; esac
+for i in "${!variants[@]}"; do
+  variant="${variants[$i]}"
+  echo "$variant: ${result_of[$i]}"
+  case "${result_of[$i]}" in accepted|fallback) decided+=("$variant") ;; esac
 done
 json="$(printf '%s\n' ${decided[@]+"${decided[@]}"} | python3 -c 'import json,sys; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))')"
 if [ "${#decided[@]}" -gt 0 ]; then echo "decided=true" >> "$OUT"; else echo "decided=false" >> "$OUT"; fi
 echo "outer_variants=$json" >> "$OUT"
-for variant in "${variants[@]}"; do
-  if [ "${result_of[$variant]}" = failed ]; then
+for i in "${!variants[@]}"; do
+  variant="${variants[$i]}"
+  if [ "${result_of[$i]}" = failed ]; then
     echo "At least one outer DMG failed or could not be queried; the decided variants above still continue." >&2
     exit 1
   fi

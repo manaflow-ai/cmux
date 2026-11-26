@@ -17,23 +17,15 @@ parsing, test compilation, executed tests and runtime evidence.
 
 | Task | Skill |
 | --- | --- |
-| Try any change in a running cmux before building or testing it (the hot loop) | [cmux-hot-loop](cmux-hot-loop/SKILL.md) |
 | Setup, tagged builds, project normalization | [cmux-dev-workflow](cmux-dev-workflow/SKILL.md) |
 | Tests, verification scope, target wiring | [cmux-testing](cmux-testing/SKILL.md) |
 | Which commit broke a test on main, stale test or regression | [cmux-test-bisect](cmux-test-bisect/SKILL.md) |
 | Package boundaries, Swift APIs and concurrency | [cmux-architecture](cmux-architecture/SKILL.md) |
 | Backend APIs, providers, database and migrations | [cmux-backend](cmux-backend/SKILL.md) |
-| cmux-next cloud backend migrations (`backend/`, PlanetScale `cmux-next`) | [cmux-backend-migrations](cmux-backend-migrations/SKILL.md) |
 | Billing implementation, Stripe and entitlements | [cmux-billing](cmux-billing/SKILL.md) |
 | Instrumentation and app/runtime implementation bugs | [cmux-debugging](cmux-debugging/SKILL.md) |
 | User-facing strings and localization | [cmux-localization](cmux-localization/SKILL.md) |
-| The cmux-next iPhone app (`cmux-next-ios/`): fleet simulator tests, App Review gate, TestFlight, iOS merges | [cmux-ios](cmux-ios/SKILL.md) |
-| An iPhone flow's speed and motion next to Claude, Codex and other chat apps, frame by frame (`compare-mobile FLOW`) | [compare-mobile](compare-mobile/SKILL.md) |
 | CLI/socket implementation, threading and focus | [cmux-socket-policy](cmux-socket-policy/SKILL.md) |
-| Any cmux-next feature, action, setting, op or agent capability (standing rules) | [cmux-next-feature](cmux-next-feature/SKILL.md) |
-| Agent session partitioning, ACPM coordination and daemon-local mailbox policy | [cmux-acpmux](cmux-acpmux/SKILL.md) |
-| Run Claude Code or Codex agents in background cmux terminals, detect turn ends (OSC 7501 and fallbacks), read answers, continue them | [cmux-terminal-agents](cmux-terminal-agents/SKILL.md) |
-| Triage tester bug reports (screenshots + notes): split, dedup, score, fix now / batch / skip, spawn tasks | [cmux-bug-triage](cmux-bug-triage/SKILL.md) |
 | Shared actions across multiple entry points | [cmux-shared-behavior](cmux-shared-behavior/SKILL.md) |
 | Ghostty submodule or GhosttyKit | [cmux-ghostty](cmux-ghostty/SKILL.md) |
 | Versions, changelog and release artifacts | [cmux-release](cmux-release/SKILL.md) |
@@ -47,25 +39,15 @@ parsing, test compilation, executed tests and runtime evidence.
 | Work in the caller's existing workspace without disrupting it | [cmux-workspace](cmux-workspace/SKILL.md) |
 | Browser automation | [cmux-browser](cmux-browser/SKILL.md) |
 | Operate Cloud machines and their persistent workspaces | [cmux-cloud-vm](cmux-cloud-vm/SKILL.md) |
-| Desktop apps on any of your machines (cmux Computer Use) | [cmux-computer-use](cmux-computer-use/SKILL.md) |
+| Native computer use when requested | [cmux-cua](cmux-cua/SKILL.md) |
+| Screenshot or record a cmux window as evidence | [cmux-capture](cmux-capture/SKILL.md) |
 | Settings values and validation | [cmux-settings](cmux-settings/SKILL.md) |
-| Long-term memory shared by agent sessions, on one machine or several | [cmux-agent-memory](cmux-agent-memory/SKILL.md) |
-| Find cmux operations a few at a time instead of loading every tool | [cmux-code-mode](cmux-code-mode/SKILL.md) |
 | Shortcuts, key bindings and templates | [cmux-keyboard-shortcuts](cmux-keyboard-shortcuts/SKILL.md) |
 | Actions, commands and layouts | [cmux-customization](cmux-customization/SKILL.md) |
-| Write an extension of its own (section, pane, widget, New Tab page, command, composer `/` or `@`) with `cmux ext dev` | [cmux-extension-author](cmux-extension-author/SKILL.md) |
+| Build a custom sidebar | [cmux-custom-sidebar](cmux-custom-sidebar/SKILL.md) |
 | Diagnose installed hooks, settings, restore or socket access | [cmux-diagnostics](cmux-diagnostics/SKILL.md) |
 | Display a Markdown file in a viewer | [cmux-markdown](cmux-markdown/SKILL.md) |
-| Edit cmux's own web UI while it runs: saved edits show at once, no build | [cmux-live](cmux-live/SKILL.md) |
-| Doing UI work: live mode, a preview tab cmux pictures before and after each turn, how to try it at turn end | [cmux-ui-preview](cmux-ui-preview/SKILL.md) |
 
 Start with diagnostics for a user's broken installation; use debugging when
 investigating or changing the source implementation. Similarly, Cloud VM operations
 belong to `cmux-cloud-vm`, while its service implementation belongs to `cmux-backend`.
-
-## Adding a skill
-
-Claude Code finds a repo skill only through `.claude/skills/<name>`, a link to `../../skills/<name>`
-(Codex reads `skills/` through `.agents/skills`). Add the link with the skill:
-`ln -s ../../skills/<name> .claude/skills/<name>`. `python3 scripts/validate-cmux-browser-skill.py`
-checks every skill has one; `cmux-hot-loop` and `cmux-live` shipped without it.

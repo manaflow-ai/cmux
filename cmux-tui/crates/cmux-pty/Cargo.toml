@@ -1,6 +1,6 @@
 [package]
 name = "cmux-pty"
-version.workspace = true
+version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -14,10 +14,3 @@ workspace = true
 anyhow.workspace = true
 libc.workspace = true
 portable-pty.workspace = true
-
-[target.'cfg(windows)'.dependencies]
-windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_Console", "Win32_System_JobObjects"] }
-
-[target.'cfg(windows)'.dev-dependencies]
-# The Ctrl+C test starts its probe as the terminal owner is started.
-cmux-process.workspace = true

@@ -17,6 +17,15 @@ public enum BillingPurchasePhase: Sendable, Equatable {
     /// The purchase failed.
     case failed(BillingFailure)
 
+    /// True while a pending or server-awaiting purchase of `productID` waits
+    /// for its transaction to be delivered.
+    func isWaiting(for productID: String) -> Bool {
+        switch self {
+        case .pending(let waiting), .awaitingServer(let waiting): waiting == productID
+        default: false
+        }
+    }
+
     /// True while a purchase call is running.
     public var isPurchasing: Bool {
         if case .purchasing = self { return true }

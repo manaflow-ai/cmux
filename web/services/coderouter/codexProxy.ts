@@ -3,7 +3,6 @@ import { noAccountConfiguredMessage } from "./noAccountMessage";
 import {
   authenticateRouteToken,
   hasConfiguredAccount,
-  hasRefreshingAccount,
   markAccountCooldown,
   nextCapacityAvailableAt,
   selectAccountForRequest,
@@ -92,12 +91,6 @@ type CodexResponsesDependencies = {
    * terminal 403 instead of a retryable 503.
    */
   readonly hasConfiguredAccount?: typeof hasConfiguredAccount;
-  /**
-   * Whether an account the caller can see has a credential refresh in flight
-   * (seconds). Selection skips such an account, so an empty pool is only
-   * terminal when this answers false. Without it the answer stays retryable.
-   */
-  readonly hasRefreshingAccount?: typeof hasRefreshingAccount;
 };
 
 /** Runtime seams used by tests to exercise request-wide timeout behavior. */
@@ -191,7 +184,6 @@ export const proxyCodexRequest = createCodexResponsesProxy({
   cooldown: markAccountCooldown,
   nextAvailableAt: nextCapacityAvailableAt,
   hasConfiguredAccount,
-  hasRefreshingAccount,
 });
 
 /**
@@ -205,7 +197,7 @@ async function capacityRetryAfterMs(
   identity: RouteTokenIdentity,
   request: Request,
   deadlineAt: number,
-): Promise<number | null | undefined | "deadline"> {
+): Promise<number | null | undefined> {
   if (!dependencies.nextAvailableAt) return null;
   const lookup = dependencies.nextAvailableAt;
   try {
@@ -223,8 +215,7 @@ async function capacityRetryAfterMs(
     return availableAt === null ? null : Math.max(0, availableAt.getTime() - runtime.wallNow());
   } catch (error) {
     if (request.signal.aborted) throw error;
-    // The request ran out of time, which says nothing about the accounts.
-    if (error instanceof CoderouterOperationDeadlineError) return "deadline";
+    if (error instanceof CoderouterOperationDeadlineError) return null;
     reportCoderouterFailure("rds", error, { provider: "codex", operation: "next_capacity_available_at" });
     return undefined;
   }
@@ -285,20 +276,6 @@ async function proxyCodexRequestWith(
   /** False when the round's last failure needs a human (broken credential). */
   let lastFailureTransient = true;
   const hold = new CapacityHold(runtime, runtime.now(), runtime.capacityHoldBudgetMs, upstreamHeaderDeadlineAt);
-  /** The last cooldown lookup: when the soonest account recovers, for the terminal answer's `resets_at`. */
-  let soonestRecoveryMs: number | null | undefined;
-  /**
-   * The last cooldown lookup gave a definite answer (a recovery time, or none
-   * at all). A lookup that failed or hit the deadline says nothing about the
-   * accounts, so the request keeps the retryable 503.
-   */
-  let holdLookupKnown = false;
-  /**
-   * An account this round failed for a transient reason that did not cool it
-   * (a dropped connection, a refresh in progress). It is excluded only for the
-   * round, so an empty selection after it is not an empty pool.
-   */
-  let roundHadTransientMiss = false;
   /**
    * Holds before a new round. The cooldown lookup covers the accounts this
    * round just cooled too, so the wait honors their `retry-after`. When it
@@ -306,10 +283,7 @@ async function proxyCodexRequestWith(
    * failed), plain backoff still applies.
    */
   const holdForNextRound = async (): Promise<boolean> => {
-    const lookup = await capacityRetryAfterMs(dependencies, runtime, identity, request, upstreamHeaderDeadlineAt);
-    holdLookupKnown = lookup === null || typeof lookup === "number";
-    const cooldownMs = lookup === "deadline" ? null : lookup;
-    soonestRecoveryMs = cooldownMs;
+    const cooldownMs = await capacityRetryAfterMs(dependencies, runtime, identity, request, upstreamHeaderDeadlineAt);
     const retryAfterMs = attempted.length > 0 && lastFailureTransient ? cooldownMs ?? undefined : cooldownMs;
     if (!(await hold.wait(retryAfterMs, request.signal))) return false;
     addCoderouterBreadcrumb("routing", "Holding Codex request for capacity", {
@@ -317,7 +291,6 @@ async function proxyCodexRequestWith(
       held_ms: hold.heldMs,
     }, "warning");
     attempted.length = 0;
-    roundHadTransientMiss = false;
     return true;
   };
   let refreshRetries = 0;
@@ -325,16 +298,9 @@ async function proxyCodexRequestWith(
     "account_selection";
   let upstream: Response | null = null;
   let noAccountConfigured = false;
-  /**
-   * Selection found no usable account and the hold will not wait for one: the
-   * only exit that is terminal for the client. Deadlines and transport
-   * failures stay a retryable 503.
-   */
-  let noUsableAccount = false;
   for (let attempt = 0; ; attempt++) {
     throwIfRequestAborted(request);
     if (attempted.length >= MAX_ACCOUNTS_PER_ROUND) {
-      // Eight accounts tried is not proof the pool is empty; a later one may serve.
       if (await holdForNextRound()) continue;
       break;
     }
@@ -395,13 +361,7 @@ async function proxyCodexRequestWith(
         noAccountConfigured = true;
         break;
       }
-      // Terminal only on proof: no account this round was excluded for a
-      // transient miss, the cooldown lookup answered, and no account is
-      // mid-refresh.
-      const transientMiss = roundHadTransientMiss;
       if (await holdForNextRound()) continue;
-      noUsableAccount = !transientMiss && holdLookupKnown &&
-        await noRefreshingCodexAccount(dependencies, identity, request.signal, upstreamHeaderDeadlineAt, runtime.now);
       break;
     }
     attempted.push(account.id);
@@ -450,10 +410,7 @@ async function proxyCodexRequestWith(
         },
       });
       if (error instanceof CoderouterOperationDeadlineError) break;
-      if (tag === "CodeRouterRefreshBusy") {
-        roundHadTransientMiss = true;
-        continue;
-      }
+      if (tag === "CodeRouterRefreshBusy") continue;
       if (tag === "CodeRouterCredentialBroken") {
         lastFailureTransient = false;
         continue;
@@ -502,7 +459,6 @@ async function proxyCodexRequestWith(
         attempt: attempt + 1,
         request_id: requestId,
       });
-      roundHadTransientMiss = true;
       continue;
     }
     if (upstream.status === 401) {
@@ -716,7 +672,7 @@ async function proxyCodexRequestWith(
       identity,
       request,
       startedAt,
-      status: noUsableAccount ? 429 : 503,
+      status: 503,
       attempted: attemptCount,
       hold: holdStats(hold),
       refreshRetries,
@@ -724,7 +680,6 @@ async function proxyCodexRequestWith(
       failureStage,
       responseStreamed: false,
     });
-    if (noUsableAccount) return noUsableCodexAccountResponse(soonestRecoveryMs, runtime.wallNow());
     return jsonError(
       "no_usable_account",
       503,
@@ -896,7 +851,7 @@ async function probeCodexCapacity(
     await reader.cancel().catch(() => undefined);
     throw error;
   }
-  const buffered = chunks.slice();
+  let buffered = chunks.slice();
   let upstreamDone = false;
   const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
@@ -1512,29 +1467,6 @@ function unauthorizedError(reason: RouteTokenAuthFailure): Response {
   );
 }
 
-/** True only when the lookup proves no account the caller can see is refreshing. */
-async function noRefreshingCodexAccount(
-  dependencies: { readonly hasRefreshingAccount?: typeof hasRefreshingAccount },
-  identity: RouteTokenIdentity,
-  requestSignal: AbortSignal,
-  deadlineAt: number,
-  now: () => number,
-): Promise<boolean> {
-  const lookup = dependencies.hasRefreshingAccount;
-  if (!lookup) return false;
-  try {
-    return !await withCoderouterOperationDeadline(requestSignal, deadlineAt, now, (signal) => lookup({
-      teamId: identity.teamId,
-      provider: RESPONSES_PROVIDERS,
-      access: accountAccessForIdentity(identity),
-      signal,
-    }));
-  } catch (error) {
-    if (requestSignal.aborted) throw error;
-    return false;
-  }
-}
-
 /**
  * False only when the lookup proves the caller can see no Codex-family
  * account. An unknown answer keeps the retryable 503 rather than telling a
@@ -1596,39 +1528,6 @@ function noCodexAccountResponse(identity: RouteTokenIdentity): Response {
       code: "no_account_configured",
     },
   }, { status: 403, headers: { "cache-control": "no-store" } });
-}
-
-/** Codex prints this header after "You've hit your usage limit." and before ", or try again ...". */
-export const NO_USABLE_CODEX_ACCOUNT_HINT =
-  "No team Codex account can take requests right now (check `cr`, or add one with `cr add codex`)";
-
-/**
- * Every Codex account the caller can reach is unusable, and none recovers
- * within the capacity hold. This used to be a retryable 503 with
- * `retry-after: 15`, which Codex honors: 4 request retries inside each of 5
- * stream retries, so a chat sat on "Reconnecting... 1/5" for minutes with no
- * message (cmux#28111). A 429 `usage_limit_reached` is terminal for Codex
- * (stock and the cmux fork): the turn ends at once and Codex prints
- * "You've hit your usage limit. <x-codex-promo-message>, or try again
- * <at resets_at | later>." `error.code` keeps the `no_usable_account` reason
- * for scripts and the canary.
- */
-function noUsableCodexAccountResponse(recoveryMs: number | null | undefined, wallNowMs: number): Response {
-  const resetsAt = typeof recoveryMs === "number" && Number.isFinite(recoveryMs)
-    ? Math.ceil((wallNowMs + Math.max(0, recoveryMs)) / 1_000)
-    : undefined;
-  return Response.json({
-    error: {
-      message: "No healthy Codex subscription is currently available. Check `cr`, add an account with `cr add codex`, or retry later.",
-      type: "usage_limit_reached",
-      code: "no_usable_account",
-      ...(resetsAt === undefined ? {} : { resets_at: resetsAt }),
-    },
-    retryable: false,
-  }, {
-    status: 429,
-    headers: { "cache-control": "no-store", "x-codex-promo-message": NO_USABLE_CODEX_ACCOUNT_HINT },
-  });
 }
 
 function jsonError(

@@ -42,12 +42,6 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Validate the optional Windows TUI and relay packages.",
     )
-    parser.add_argument(
-        "--notices-dir",
-        type=Path,
-        required=True,
-        help="package_notices.py generate output; every platform package and wheel must carry its notice unchanged.",
-    )
     parser.add_argument("--npm", default="npm", help="npm executable")
     args = parser.parse_args()
     if args.npm_packages is None and args.pypi_wheels is None:
@@ -82,9 +76,8 @@ def _pack_npm_packages(
     install_package: str | None,
     install_relay_package: str | None,
     include_windows: bool,
-    notices_dir: Path,
 ) -> None:
-    validate_npm_tree(packages_dir, version, include_windows=include_windows, notices_dir=notices_dir)
+    validate_npm_tree(packages_dir, version, include_windows=include_windows)
     with tempfile.TemporaryDirectory(prefix="cmux-tui-npm-contract-") as temp:
         temp_root = Path(temp)
         packed_dir = temp_root / "packed"
@@ -162,43 +155,13 @@ def _pack_npm_packages(
             launcher = install_dir / "node_modules" / ".bin" / "cmux"
             if not launcher.is_file():
                 raise PackageContractError(f"npm install did not create launcher: {launcher}")
-            version_result = _run([str(launcher), "--version"], env=env)
-            _require_release_version(version_result.stdout, version, "cmux --version")
-            autocloud_result = _run([str(launcher), "autocloud", "--help"], env=env)
-            _require_autocloud(autocloud_result.stdout, "cmux autocloud --help")
+            _run([str(launcher), "--version"], env=env)
         if install_relay_package is not None:
             _smoke_relay_launcher(
                 install_dir,
                 env,
                 temp_root,
             )
-
-
-# What `cmux autocloud --help` must say: the AutoCloud chat (RFD 0139, cmux-autocloud) ships
-# inside the cmux binary these packages carry, so `npx cmux autocloud` and `uvx cmux autocloud`
-# start a chat on an AutoCloud machine with nothing else to install.
-AUTOCLOUD_HELP_MARKERS = ("An agent chat on any machine", "login")
-
-
-def _require_autocloud(output: str, label: str) -> None:
-    missing = [marker for marker in AUTOCLOUD_HELP_MARKERS if marker not in output]
-    if missing:
-        raise PackageContractError(
-            f"{label} must show the AutoCloud chat (RFD 0139): missing {missing!r} in {output[:400]!r}"
-        )
-
-
-def _require_release_version(output: str, version: str, label: str) -> None:
-    """The binary must name the release it ships in: `cmux X.Y.Z` or `cmux X.Y.Z (...)`.
-
-    Tester bug reports quote this line; the 0.13.4 binary printed `cmux 0.1.0`.
-    """
-    first = output.strip().splitlines()[0] if output.strip() else ""
-    if first != f"cmux {version}" and not first.startswith(f"cmux {version} ("):
-        raise PackageContractError(
-            f"{label} must report release {version}: found {first!r} "
-            "(stamp CMUX_TUI_DISTRIBUTION_VERSION into the build)"
-        )
 
 
 def _smoke_relay_launcher(
@@ -336,13 +299,8 @@ def _validate_npm_archive(archive: Path, package_name: str) -> None:
 
     from package_contract import (
         NPM_LAUNCHER_FILES,
-        NPM_LICENSE_FILE,
         NPM_RELAY_LAUNCHER_FILES,
         NPM_SSH_MANIFEST,
-        NOTICE_FILE,
-        SCREEN_DETECTION_BINARY,
-        TERMINAL_HOST_BINARY,
-        npm_companion_binaries,
     )
 
     if package_name == "cmux":
@@ -354,29 +312,19 @@ def _validate_npm_archive(archive: Path, package_name: str) -> None:
         expected = frozenset(
             {
                 "package.json",
-                NPM_LICENSE_FILE,
                 f"bin/chatmux-relay{extension}",
                 f"bin/cmux-tui{extension}",
-                NOTICE_FILE,
             }
         )
     else:
-        os_name = "win32" if "win32" in package_name else "linux" if "-linux-" in package_name else "darwin"
-        extension = ".exe" if os_name == "win32" else ""
+        extension = ".exe" if "win32" in package_name else ""
         expected = frozenset(
             {
                 "package.json",
-                NPM_LICENSE_FILE,
                 f"bin/cmux-tui{extension}",
                 f"bin/cmux-tui-hook{extension}",
                 NPM_SSH_MANIFEST,
-                NOTICE_FILE,
             }
-            # The Windows package also packs the per-terminal host (cx-1vlzr);
-            # the macOS and Linux packages pack the agent screen-detection
-            # plugin the daemon runs from beside its own executable, and the
-            # Linux packages the slim terminal host (CMUX-571).
-            | {f"bin/{name}{extension}" for name in npm_companion_binaries(os_name)}
         )
     expected_names = {f"package/{path}" for path in expected}
     try:
@@ -401,9 +349,6 @@ def _validate_npm_archive(archive: Path, package_name: str) -> None:
                 or member.name.endswith("/bin/cmux-tui-hook")
                 or member.name.endswith("/bin/cmux-tui.exe")
                 or member.name.endswith("/bin/cmux-tui-hook.exe")
-                or member.name.endswith("/bin/cmux-tui-host.exe")
-                or member.name.endswith(f"/bin/{SCREEN_DETECTION_BINARY}")
-                or member.name.endswith(f"/bin/{TERMINAL_HOST_BINARY}")
                 or member.name.endswith("/bin/chatmux-relay")
                 or member.name.endswith("/bin/chatmux-relay.exe")
                 or member.name.endswith("/bin/cmux-tui")
@@ -428,10 +373,9 @@ def main() -> None:
                 args.install_npm_package,
                 args.install_npm_relay_package,
                 args.include_windows,
-                args.notices_dir.resolve(),
             )
         if args.pypi_wheels is not None:
-            validate_pypi_wheels(args.pypi_wheels.resolve(), args.version, args.notices_dir.resolve())
+            validate_pypi_wheels(args.pypi_wheels.resolve(), args.version)
     except PackageContractError as error:
         raise SystemExit(str(error)) from error
 

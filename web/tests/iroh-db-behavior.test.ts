@@ -580,7 +580,7 @@ describe("Iroh trust broker database behavior", () => {
           ${userId},
           ${randomUUID()},
           ${randomUUID()},
-          'dev.cmux.app.demo',
+          'dev.cmux.app.classic',
           'stable',
           'ios',
           ${"3b".repeat(32)},
@@ -602,15 +602,15 @@ describe("Iroh trust broker database behavior", () => {
       rows.map((row) => [row.clientNamespace, row.id]),
     );
 
-    const demo = await Effect.runPromise(repo.discoverySnapshot({
+    const classic = await Effect.runPromise(repo.discoverySnapshot({
       userId,
-      clientNamespace: "dev.cmux.app.demo",
-      callerBindingId: idByNamespace.get("dev.cmux.app.demo")!,
+      clientNamespace: "dev.cmux.app.classic",
+      callerBindingId: idByNamespace.get("dev.cmux.app.classic")!,
       callerPlatform: "ios",
       now: NOW,
     }));
-    expect(demo.bindings.map((row) => row.id).sort()).toEqual([
-      idByNamespace.get("dev.cmux.app.demo"),
+    expect(classic.bindings.map((row) => row.id).sort()).toEqual([
+      idByNamespace.get("dev.cmux.app.classic"),
       idByNamespace.get("mac:stable"),
     ].sort());
 
@@ -2747,10 +2747,6 @@ describe("Iroh trust broker database behavior", () => {
         from iroh_endpoint_bindings
         where user_id = ${userId}
       `;
-      // The index exists to read one user's revoked rows already in (revoked_at, id) order. On
-      // a near-empty table user_idx plus a Sort costs about the same, so the planner flips between
-      // them; with sorting priced out, only an index that serves the order wins.
-      await planSql`set local enable_sort = off`;
       const revokedCleanupPlan = await planSql`
         explain (format json)
         select id

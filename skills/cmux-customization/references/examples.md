@@ -1,10 +1,8 @@
 # cmux Customization Examples
 
-This file is the catalog of workflow recipes. (`cmux docs workflows` was removed with the Swift CLI.)
+Use `cmux docs workflows` for the human-readable index or `cmux docs workflows --json` for the machine-readable catalog. This file holds the concrete recipes referenced by that catalog.
 
-Most recipes here were written for classic cmux. cmux-next reads `~/.config/cmux/cmux-next.json` only, and does not yet run `workspaceCommand` or `workspace` actions, `commands` layouts, `ui.newWorkspace.*`, Dock files or project-local `.cmux/cmux.json`; see [the skill](../SKILL.md#choose-the-right-surface). Use a recipe on cmux-next only when it needs none of those.
-
-Merge only the relevant top-level keys into `~/.config/cmux/cmux-next.json` (classic recipes name `cmux.json` or `.cmux/cmux.json`). Preserve unrelated sections, then run `cmux settings reload-configuration`.
+Merge only the relevant top-level keys into the file named above each block. Unlabeled JSON targets `cmux.json`. Preserve unrelated sections, then run `cmux reload-config`. Prefer project-local `.cmux/cmux.json` for team workflows and global `~/.config/cmux/cmux.json` for personal preferences.
 
 ## Worktree Agents
 
@@ -74,7 +72,8 @@ Terminals plus browser preview plus persistent Dock controls.
 ```json
 {
   "controls": [
-    { "id": "git", "title": "Git", "command": "lazygit", "cwd": ".", "height": 320 }
+    { "id": "git", "title": "Git", "command": "lazygit", "cwd": ".", "height": 320 },
+    { "id": "feed", "title": "Feed", "command": "cmux feed tui --opentui", "height": 260 }
   ]
 }
 ```
@@ -133,7 +132,7 @@ Docs server, markdown viewer, and browser preview. Adjust command, URL, and mark
       "layout": { "direction": "horizontal", "split": 0.45, "children": [
         { "direction": "vertical", "children": [
           { "pane": { "surfaces": [{ "type": "terminal", "name": "Docs Server", "command": "bun run docs:dev" }] } },
-          { "pane": { "surfaces": [{ "type": "terminal", "name": "Markdown", "command": "less docs/README.md; exec ${SHELL:-/bin/zsh} -l" }] } }
+          { "pane": { "surfaces": [{ "type": "terminal", "name": "Markdown", "command": "cmux markdown open docs/README.md --direction right --focus false; exec ${SHELL:-/bin/zsh} -l" }] } }
         ]},
         { "pane": { "surfaces": [{ "type": "browser", "name": "Docs Preview", "url": "http://localhost:3000/docs" }] } }
       ]}
@@ -200,7 +199,8 @@ Long-running monitors belong in Dock controls, not workspace panes.
 ```json
 {
   "controls": [
-    { "id": "gh-runs", "title": "GitHub Runs", "command": "gh run list --limit 10 && exec ${SHELL:-/bin/zsh} -l", "cwd": ".", "height": 260 }
+    { "id": "gh-runs", "title": "GitHub Runs", "command": "gh run list --limit 10 && exec ${SHELL:-/bin/zsh} -l", "cwd": ".", "height": 260 },
+    { "id": "feed", "title": "Feed", "command": "cmux feed tui --opentui", "height": 260 }
   ]
 }
 ```

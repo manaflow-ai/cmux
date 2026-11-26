@@ -1,6 +1,4 @@
 import Foundation
-
-#if canImport(Network)
 import Network
 
 /// A real HTTP/1.1 server on 127.0.0.1 that stands in for the sign-in
@@ -185,7 +183,6 @@ final class LocalStackHTTPServer: @unchecked Sendable {
         }
     }
 }
-#endif
 
 private final class LockedFlag: @unchecked Sendable {
     private let lock = NSLock()

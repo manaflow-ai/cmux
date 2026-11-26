@@ -73,6 +73,16 @@ class ClassicApiGuardTests(unittest.TestCase):
             code, _ = guard.check(CFG, "main", "", [path])
             self.assertEqual(code, 1, path)
 
+    def test_renames_do_not_hide_a_truncated_listing(self) -> None:
+        paths = [f"Sources/F{i}.swift" for i in range(3000)] + ["Sources/Old.swift"]
+        code, _ = guard.check(CFG, "main", "", paths, expected_files=3001, listed_records=3000)
+        self.assertEqual(code, 1)
+
+    def test_build_inputs_the_ignore_script_names_are_guarded(self) -> None:
+        for path in ("workers/presence/src/generated/managedRelayCatalog.ts", "web/data/model-catalog/snapshot.json"):
+            code, _ = guard.check(CFG, "main", "", [path])
+            self.assertEqual(code, 1, path)
+
     def test_truncated_listing_fails_into_main(self) -> None:
         code, _ = guard.check(CFG, "main", "", ["Sources/A.swift"], expected_files=3500)
         self.assertEqual(code, 1)
@@ -108,60 +118,26 @@ class ClassicApiGuardTests(unittest.TestCase):
                 self.assertIn(key, deploy, deploy.get("id"))
         self.assertTrue(any(d["guarded"] for d in data["deploys"]))
 
-    def test_renames_do_not_hide_a_truncated_listing(self) -> None:
-        paths = [f"Sources/F{i}.swift" for i in range(3000)] + ["Sources/Old.swift"]
-        code, _ = guard.check(CFG, "main", "", paths, expected_files=3001, listed_records=3000)
-        self.assertEqual(code, 1)
-
-    def test_build_inputs_the_ignore_script_names_are_guarded(self) -> None:
-        for path in ("workers/presence/src/generated/managedRelayCatalog.ts", "web/data/model-catalog/snapshot.json"):
-            code, _ = guard.check(CFG, "main", "", [path])
-            self.assertEqual(code, 1, path)
-
-    def test_workflow_runs_the_base_copy_on_both_bases(self) -> None:
+    def test_workflow_runs_the_base_copy_on_pull_request_target(self) -> None:
         text = WORKFLOW.read_text()
-        # Into main on its own; into feat-cmux-next through pr-router.yml (one router per push), which
-        # calls it for a change that reaches a guarded path and routes the edits it reads.
-        self.assertIn("branches: [main]\n", text)
-        self.assertIn("workflow_call:", text)
-        router = (ROOT / ".github" / "workflows" / "pr-router.yml").read_text()
-        self.assertIn("uses: ./.github/workflows/classic-api-guard.yml", router)
-        for read in ("github.event.changes.base",
-                     "contains(github.event.pull_request.body, 'Classic API change:')",
-                     "contains(github.event.changes.body.from, 'Classic API change:')"):
-            self.assertIn(read, router)
-        manifest = json.loads((ROOT / "scripts" / "ci" / "pr_router.json").read_text())["callees"]
-        self.assertIn("edited", manifest["classic-api-guard.yml"]["types"])
+        self.assertIn("pull_request_target:", text)
+        self.assertNotIn("\n  pull_request:", text)
+        self.assertIn("branches: [main]", text)
         self.assertIn("edited", text)
-        # An edit skips the check only when neither the old nor the new body has a reason line, so
-        # adding, changing or removing `Classic API change:` always re-runs it (pattern
-        # pr-edit-fans-out-ci: a HOLD-line edit takes no runner).
-        for read in ("contains(github.event.pull_request.body, 'Classic API change:')",
-                     "contains(github.event.changes.body.from, 'Classic API change:')"):
-            self.assertEqual(text.count(read), 3, read)  # the group, the name and the if
+        self.assertNotIn("changes.body", text)
         self.assertIn("--expected-files", text)
         self.assertIn("--listed-records", text)
-        self.assertIn("grep -q -- '--listed-records' scripts/ci/classic_api_guard.py", text)
         self.assertIn("ref: ${{ github.event.pull_request.base.sha }}", text)
         self.assertIn("scripts/ci/classic_api_guard.py", text)
-        self.assertNotIn("pull_request_target", text)
-
-    def test_the_router_starts_it_for_every_guarded_path(self) -> None:
-        # pr_router.json's `affects` for this guard is by directory; a guarded path added to
-        # classic-auto-deploy.json outside them would never start it into feat-cmux-next.
-        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
-        import workflow_paths_cover_inputs as filters
-
-        affects = json.loads((ROOT / "scripts" / "ci" / "pr_router.json").read_text())["callees"][
-            "classic-api-guard.yml"]["affects"]
-        config = json.loads(CONFIG.read_text())
-        for deploy in config["deploys"]:
-            if not deploy.get("guarded"):
-                continue
-            for pattern in deploy["paths"]:
-                sample = pattern.replace("**", "x/y").replace("*", "x")
-                self.assertTrue(filters.admits("paths", affects, sample),
-                                f"{pattern} ({deploy['id']}) is guarded but pr_router.json's affects misses {sample}")
+        for head_ref in ("head.sha", "head.ref", "refs/pull", "merge_commit_sha"):
+            self.assertNotIn(head_ref, text)
+        # The one secret is the cmux-bot App key, and only the pinned mint action reads it.
+        self.assertEqual(text.count("${{ secrets"), 1)
+        mint = text.split("- name: Mint the cmux-bot read token", 1)[1].split("\n\n", 1)[0]
+        self.assertIn("private-key: ${{ secrets.CMUX_BOT_APP_KEY }}", mint)
+        self.assertIn("uses: actions/create-github-app-token@", mint)
+        self.assertNotIn("permission-", mint.replace("permission-contents: read", "").replace(
+            "permission-pull-requests: read", ""))
 
 
 if __name__ == "__main__":

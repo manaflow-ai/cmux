@@ -83,6 +83,10 @@ Prior review resolutions:
   server-flagged Demo Mac and the prepared review Mac described below. The Demo
   Mac is available immediately after sign-in, while the prepared Mac verifies
   the live pairing path.
+- The rejection of submission 40f744df-e0fc-4782-9dac-aa0c79281b9f for the
+  system VPN API is resolved in this build. The App Store binary no longer
+  contains the CloudVPN packet tunnel extension or any Network Extension or
+  VPN entitlement, and the app no longer offers a system VPN.
 
 Demo account:
 - Use the demo account email in the App Review demo account field.
@@ -130,8 +134,17 @@ Optional permissions:
 - Notifications are optional and can be enabled or disabled from the app.
 
 Payments:
-- This App Store build has no purchase, upgrade, checkout, or billing-management
-  links. Existing paid access from web or desktop accounts is read-only.
+- cmux Go, Pro, and Max are monthly auto-renewable subscriptions in the
+  subscription group "cmux Plans", sold only through In-App Purchase.
+- To review them, open Settings > Account > Plan (or Cloud > Upgrade). The plans
+  screen shows each plan with its App Store price, Restore Purchases, Manage
+  Subscription, the auto-renewal terms, and links to the Terms of Use and
+  Privacy Policy.
+- Purchases use the Sandbox Apple Account on the review device. The server
+  verifies the signed transaction and grants the plan to the signed-in cmux
+  account. The demo account has no web subscription, so the purchase buttons
+  are enabled.
+- The app has no Stripe, external checkout, or external billing links.
 
 Support during review:
 - Contact <REVIEW_CONTACT_EMAIL> or <REVIEW_CONTACT_PHONE> if the prepared Mac

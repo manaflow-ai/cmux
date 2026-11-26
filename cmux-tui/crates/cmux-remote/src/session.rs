@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -12,29 +12,8 @@ use cmux_remote_protocol::{
 use tokio::sync::{mpsc, oneshot};
 
 use crate::link::{FrameLink, LinkError};
-use crate::per_lane::PerLane;
 
 const RECONNECT_CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
-
-/// Unacknowledged frames one lane may have in flight by default.
-const DEFAULT_DELIVERY_FRAMES_PER_LANE: usize = 1_024;
-/// Unacknowledged encoded bytes one lane may have in flight by default.
-///
-/// This window caps one lane's throughput at window / RTT, so it must cover the
-/// bandwidth-delay product of a slow link: 256 KiB held `cmux remote cp` to
-/// about 1.6 MiB/s at 100 ms RTT, where kernel TCP did 26.6 MiB/s. 7 MiB
-/// allows about 50 MiB/s of base64 file data at 100 ms and 8 MiB/s at 600 ms.
-///
-/// The peer acknowledges a frame once it leaves the link's ingress queue, and
-/// that queue holds `INGRESS_BYTES_PER_LANE`, counting each frame as at least
-/// `INGRESS_ACCOUNTING_FLOOR_BYTES`. A full window therefore always fits, so one
-/// lane's window never makes the peer stop reading the shared transport.
-const DEFAULT_DELIVERY_BYTES_PER_LANE: usize = 7 * 1024 * 1024;
-const _: () = assert!(
-    DEFAULT_DELIVERY_BYTES_PER_LANE
-        + DEFAULT_DELIVERY_FRAMES_PER_LANE * crate::link::INGRESS_ACCOUNTING_FLOOR_BYTES
-        <= crate::link::INGRESS_BYTES_PER_LANE
-);
 
 #[derive(Debug, Clone, Copy)]
 pub struct SessionLimits {
@@ -51,8 +30,8 @@ impl Default for SessionLimits {
         Self {
             replay_frames_per_lane: 4_096,
             replay_bytes_per_lane: 16 * 1024 * 1024,
-            delivery_frames_per_lane: DEFAULT_DELIVERY_FRAMES_PER_LANE,
-            delivery_bytes_per_lane: DEFAULT_DELIVERY_BYTES_PER_LANE,
+            delivery_frames_per_lane: 64,
+            delivery_bytes_per_lane: 256 * 1024,
             queued_frames_per_lane: 256,
             queued_bytes_per_lane: 8 * 1024 * 1024,
         }
@@ -74,7 +53,7 @@ pub struct ReliableSession {
     shared: Arc<SharedState>,
     link: Arc<dyn FrameLink>,
     scheduler: ScheduledSender,
-    ack_senders: PerLane<mpsc::Sender<()>>,
+    ack_senders: [mpsc::Sender<()>; 4],
     closed: Arc<AtomicBool>,
     generation: u64,
 }
@@ -127,11 +106,11 @@ impl PreparedReconnect {
             close_uncommitted,
             original_generation,
         } = self;
-        let mut state = shared.lock_state();
+        let mut state = shared.state.lock().unwrap();
         state.require_generation(original_generation)?;
         *state = staged;
         drop(state);
-        for progress in shared.outbound_progress.iter() {
+        for progress in &shared.outbound_progress {
             progress.notify_waiters();
         }
         close_uncommitted.disarm();
@@ -157,8 +136,8 @@ impl ReliableSession {
             session,
             limits,
             transition: Arc::new(tokio::sync::RwLock::new(())),
-            lane_sends: PerLane::from_fn(|_| tokio::sync::Mutex::new(())),
-            outbound_progress: PerLane::from_fn(|_| tokio::sync::Notify::new()),
+            lane_sends: std::array::from_fn(|_| tokio::sync::Mutex::new(())),
+            outbound_progress: std::array::from_fn(|_| tokio::sync::Notify::new()),
             state: Mutex::new(ReliabilityState::new()),
         });
         Self::from_parts(shared, link, 0)
@@ -166,7 +145,7 @@ impl ReliableSession {
 
     fn from_parts(shared: Arc<SharedState>, link: Arc<dyn FrameLink>, generation: u64) -> Self {
         let scheduler = ScheduledSender::spawn(link.clone(), shared.limits);
-        let ack_senders = PerLane::from_fn(|lane| {
+        let ack_senders = Lane::ALL.map(|lane| {
             let (sender, receiver) = mpsc::channel(1);
             tokio::spawn(run_ack_sender(
                 shared.clone(),
@@ -196,7 +175,7 @@ impl ReliableSession {
     }
 
     pub fn resume_cursors(&self) -> BTreeMap<Lane, u64> {
-        let state = self.shared.lock_state();
+        let state = self.shared.state.lock().unwrap();
         Lane::ALL
             .into_iter()
             .map(|lane| {
@@ -210,57 +189,32 @@ impl ReliableSession {
             .collect()
     }
 
-    /// The Control lane's unacknowledged frames as a reconnect at `generation` would replay
-    /// them, oldest first and at most `max_bytes` encoded: an IK link's early data
-    /// (`cmux_braid_session::may_send_early`). Encoding them leaves the session unchanged; the
-    /// reconnect's own replay sends the same frames again, and the peer's dedupe keeps one copy.
-    pub(crate) fn early_replay(&self, generation: u64, max_bytes: usize) -> Vec<Bytes> {
-        let lane = Lane::Control;
-        let state = self.shared.lock_state();
-        let acknowledgement = state.inbound(lane).contiguous;
-        let mut early = Vec::new();
-        let mut total = 0_usize;
-        for entry in &state.outbound(lane).replay {
-            let mut frame = entry.frame.clone();
-            frame.generation = generation;
-            frame.acknowledgement = acknowledgement;
-            frame.flags = frame.flags.union(FrameFlags::REPLAY);
-            let Ok(encoded) = frame.encode() else { break };
-            total = total.saturating_add(encoded.len());
-            if total > max_bytes {
-                break;
-            }
-            early.push(Bytes::from(encoded));
-        }
-        early
-    }
-
     pub fn outstanding_reliable_frames(&self, lane: Lane) -> usize {
-        self.shared.lock_state().outbound(lane).replay.len()
+        self.shared.state.lock().unwrap().outbound(lane).replay.len()
     }
 
     pub fn next_outbound_sequence(&self, lane: Lane) -> u64 {
-        self.shared.lock_state().outbound(lane).next_sequence
+        self.shared.state.lock().unwrap().outbound(lane).next_sequence
     }
 
     /// Compatibility hook for callers that reserved a sequence before an
     /// unscheduled failure. `send` already performs this rollback for queue
     /// admission failures; reconnectable failures stay in replay.
     pub fn rollback_unscheduled(&self, lane: Lane, sequence: u64) -> bool {
-        let Ok(_lane_send) = self.shared.lane_sends.get(lane).try_lock() else {
+        let Ok(_lane_send) = self.shared.lane_sends[lane_index(lane)].try_lock() else {
             return false;
         };
         let Ok(_transition) = self.shared.transition.try_read() else {
             return false;
         };
-        let mut state = self.shared.lock_state();
+        let mut state = self.shared.state.lock().unwrap();
         if state.generation != self.generation {
             return false;
         }
         let rolled_back = state.rollback_unscheduled(lane, sequence);
         drop(state);
         if rolled_back {
-            self.shared.outbound_progress.get(lane).notify_waiters();
+            self.shared.outbound_progress[lane_index(lane)].notify_waiters();
         }
         rolled_back
     }
@@ -278,13 +232,13 @@ impl ReliableSession {
         if payload.len() > MAX_FRAME_PAYLOAD {
             return Err(SessionError::PayloadTooLarge(payload.len()));
         }
-        let _lane_send = self.shared.lane_sends.get(lane).lock().await;
+        let _lane_send = self.shared.lane_sends[lane_index(lane)].lock().await;
         let _transition = self.shared.transition.read().await;
         if self.closed.load(Ordering::Acquire) {
             return Err(SessionError::Link(LinkError::Closed));
         }
         let (sequence, encoded) = {
-            let mut state = self.shared.lock_state();
+            let mut state = self.shared.state.lock().unwrap();
             state.require_generation(self.generation)?;
             let acknowledgement = state.inbound(lane).contiguous;
             let outbound = state.outbound_mut(lane);
@@ -310,13 +264,13 @@ impl ReliableSession {
             Ok(()) => Ok(sequence),
             Err(error) => {
                 if error.is_definitely_unscheduled() {
-                    let mut state = self.shared.lock_state();
+                    let mut state = self.shared.state.lock().unwrap();
                     if state.generation == self.generation {
                         let rolled_back = state.rollback_unscheduled(lane, sequence);
                         debug_assert!(rolled_back);
                         drop(state);
                         if rolled_back {
-                            self.shared.outbound_progress.get(lane).notify_waiters();
+                            self.shared.outbound_progress[lane_index(lane)].notify_waiters();
                         }
                     }
                 }
@@ -336,7 +290,7 @@ impl ReliableSession {
     ) -> Result<u64, SessionError> {
         let frame_overhead = MAX_WIRE_FRAME_BYTES - MAX_FRAME_PAYLOAD;
         loop {
-            let progress = self.shared.outbound_progress.get(lane).notified();
+            let progress = self.shared.outbound_progress[lane_index(lane)].notified();
             tokio::pin!(progress);
             progress.as_mut().enable();
             match self.send(lane, stream, payload.clone(), flags).await {
@@ -397,10 +351,10 @@ impl ReliableSession {
 
             let _transition = self.shared.transition.read().await;
             let deliver = {
-                let mut state = self.shared.lock_state();
+                let mut state = self.shared.state.lock().unwrap();
                 state.require_generation(self.generation)?;
                 if state.apply_ack(frame.lane, frame.acknowledgement)? {
-                    self.shared.outbound_progress.get(frame.lane).notify_waiters();
+                    self.shared.outbound_progress[lane_index(frame.lane)].notify_waiters();
                 }
                 if frame.flags.contains(FrameFlags::ACK_ONLY) {
                     false
@@ -458,7 +412,7 @@ impl ReliableSession {
             // ACK production is coalesced on a dedicated lane actor. Delivering
             // application bytes does not wait for the reverse socket write,
             // which keeps terminal input latency independent of ACK flushing.
-            let _ = self.ack_senders.get(frame.lane).try_send(());
+            let _ = self.ack_senders[lane_index(frame.lane)].try_send(());
             return Ok(Some(ReceivedFrame {
                 generation: frame.generation,
                 lane: frame.lane,
@@ -501,7 +455,7 @@ impl ReliableSession {
     ) -> Result<PreparedReconnect, SessionError> {
         let transition = self.shared.transition.clone().write_owned().await;
         let (staged, replay) = {
-            let state = self.shared.lock_state();
+            let state = self.shared.state.lock().unwrap();
             state.require_generation(self.generation)?;
             if generation <= self.generation {
                 return Err(SessionError::StaleGeneration {
@@ -563,7 +517,7 @@ impl ReliableSession {
 
     pub async fn close(&self) -> Result<(), SessionError> {
         self.closed.store(true, Ordering::Release);
-        for progress in self.shared.outbound_progress.iter() {
+        for progress in &self.shared.outbound_progress {
             progress.notify_waiters();
         }
         self.link.close().await.map_err(SessionError::Link)
@@ -572,7 +526,7 @@ impl ReliableSession {
 
 fn encode_ack(shared: &SharedState, generation: u64, lane: Lane) -> Result<Bytes, SessionError> {
     let acknowledgement = {
-        let state = shared.lock_state();
+        let state = shared.state.lock().unwrap();
         state.require_generation(generation)?;
         state.inbound(lane).contiguous
     };
@@ -609,29 +563,25 @@ struct SharedState {
     session: SessionId,
     limits: SessionLimits,
     transition: Arc<tokio::sync::RwLock<()>>,
-    lane_sends: PerLane<tokio::sync::Mutex<()>>,
-    outbound_progress: PerLane<tokio::sync::Notify>,
+    lane_sends: [tokio::sync::Mutex<()>; 4],
+    outbound_progress: [tokio::sync::Notify; 4],
     state: Mutex<ReliabilityState>,
-}
-
-impl SharedState {
-    /// The reliability state. A poisoned lock only means another thread
-    /// panicked while holding it; the state stays usable.
-    fn lock_state(&self) -> MutexGuard<'_, ReliabilityState> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
-    }
 }
 
 #[derive(Clone)]
 struct ReliabilityState {
     generation: u64,
-    outbound: PerLane<OutboundLane>,
-    inbound: PerLane<InboundLane>,
+    outbound: BTreeMap<Lane, OutboundLane>,
+    inbound: BTreeMap<Lane, InboundLane>,
 }
 
 impl ReliabilityState {
     fn new() -> Self {
-        Self { generation: 0, outbound: PerLane::default(), inbound: PerLane::default() }
+        Self {
+            generation: 0,
+            outbound: Lane::ALL.into_iter().map(|lane| (lane, OutboundLane::default())).collect(),
+            inbound: Lane::ALL.into_iter().map(|lane| (lane, InboundLane::default())).collect(),
+        }
     }
 
     fn require_generation(&self, generation: u64) -> Result<(), SessionError> {
@@ -643,19 +593,19 @@ impl ReliabilityState {
     }
 
     fn outbound(&self, lane: Lane) -> &OutboundLane {
-        self.outbound.get(lane)
+        self.outbound.get(&lane).expect("all lanes initialized")
     }
 
     fn outbound_mut(&mut self, lane: Lane) -> &mut OutboundLane {
-        self.outbound.get_mut(lane)
+        self.outbound.get_mut(&lane).expect("all lanes initialized")
     }
 
     fn inbound(&self, lane: Lane) -> &InboundLane {
-        self.inbound.get(lane)
+        self.inbound.get(&lane).expect("all lanes initialized")
     }
 
     fn inbound_mut(&mut self, lane: Lane) -> &mut InboundLane {
-        self.inbound.get_mut(lane)
+        self.inbound.get_mut(&lane).expect("all lanes initialized")
     }
 
     fn apply_ack(&mut self, lane: Lane, acknowledgement: u64) -> Result<bool, SessionError> {
@@ -669,19 +619,19 @@ impl ReliabilityState {
         }
         let delivery_len = outbound.delivery.len();
         while outbound.delivery.front().is_some_and(|entry| entry.sequence <= acknowledgement) {
-            let Some(entry) = outbound.delivery.pop_front() else { break };
+            let entry = outbound.delivery.pop_front().unwrap();
             outbound.delivery_bytes = outbound.delivery_bytes.saturating_sub(entry.bytes);
         }
         while outbound.replay.front().is_some_and(|entry| entry.frame.sequence <= acknowledgement) {
-            let Some(entry) = outbound.replay.pop_front() else { break };
+            let entry = outbound.replay.pop_front().unwrap();
             outbound.replay_bytes = outbound.replay_bytes.saturating_sub(entry.bytes);
         }
         Ok(outbound.delivery.len() != delivery_len)
     }
 
     fn reset_lane_for_generation(&mut self, lane: Lane) {
-        *self.outbound.get_mut(lane) = OutboundLane::default();
-        *self.inbound.get_mut(lane) = InboundLane::default();
+        self.outbound.insert(lane, OutboundLane::default());
+        self.inbound.insert(lane, InboundLane::default());
     }
 
     fn rollback_unscheduled(&mut self, lane: Lane, sequence: u64) -> bool {
@@ -697,54 +647,15 @@ impl ReliabilityState {
         {
             return false;
         }
-        // Both back entries were checked above.
-        if let Some(delivery) = outbound.delivery.pop_back() {
-            outbound.delivery_bytes = outbound.delivery_bytes.saturating_sub(delivery.bytes);
-        }
-        if lane.replays_across_generations()
-            && let Some(entry) = outbound.replay.pop_back()
-        {
+        let delivery = outbound.delivery.pop_back().expect("back entry was checked");
+        outbound.delivery_bytes = outbound.delivery_bytes.saturating_sub(delivery.bytes);
+        if lane.replays_across_generations() {
+            let entry = outbound.replay.pop_back().expect("back entry was checked");
             outbound.replay_bytes = outbound.replay_bytes.saturating_sub(entry.bytes);
         }
         outbound.next_sequence = sequence;
         true
     }
-}
-
-/// The early frames (an IK link's first message, `ReliableSession::early_replay`) a daemon keeps
-/// for a reconnect's link group, to read ahead of the group's link once it commits: each must be a
-/// reliable Control frame of `session` at `generation`, or the link is refused. Frames the session
-/// already holds (at or below `contiguous`) and any after a gap are dropped, so what is kept
-/// always applies in order; the client's replay after the commit brings the rest.
-pub(crate) fn admit_early_frames(
-    frames: &[Bytes],
-    session: SessionId,
-    generation: u64,
-    contiguous: u64,
-) -> Result<Vec<Bytes>, String> {
-    let mut kept = Vec::new();
-    let mut expected = contiguous.saturating_add(1);
-    for encoded in frames {
-        let frame = WireFrame::decode(encoded).map_err(|error| format!("early frame: {error}"))?;
-        if frame.session != session || frame.generation != generation {
-            return Err("an early frame names another session or generation".into());
-        }
-        if frame.lane != Lane::Control
-            || frame.sequence == 0
-            || frame.flags.contains(FrameFlags::ACK_ONLY)
-        {
-            return Err("early data carries reliable Control frames only".into());
-        }
-        if frame.sequence < expected {
-            continue;
-        }
-        if frame.sequence > expected {
-            break;
-        }
-        kept.push(encoded.clone());
-        expected = expected.saturating_add(1);
-    }
-    Ok(kept)
 }
 
 #[derive(Clone)]
@@ -822,7 +733,7 @@ struct DeliveryEntry {
 #[derive(Clone)]
 struct ScheduledSender {
     queues: Arc<QueueSenders>,
-    budgets: Arc<PerLane<AtomicUsize>>,
+    budgets: Arc<[AtomicUsize; 4]>,
     limits: SessionLimits,
 }
 
@@ -838,7 +749,7 @@ impl ScheduledSender {
             bulk: bulk_tx,
             tunnel: tunnel_tx,
         });
-        let budgets = Arc::new(PerLane::from_fn(|_| AtomicUsize::new(0)));
+        let budgets = Arc::new(std::array::from_fn(|_| AtomicUsize::new(0)));
         let (failed_tx, failed_rx) = tokio::sync::watch::channel(false);
         // Each lane owns an independent physical send loop. LaneMuxLink can
         // therefore progress dedicated carriers concurrently; a FrameLink
@@ -862,7 +773,7 @@ impl ScheduledSender {
     }
 
     async fn send(&self, lane: Lane, frame: Bytes) -> Result<(), ScheduleError> {
-        let budget = self.budgets.get(lane);
+        let budget = &self.budgets[lane_index(lane)];
         budget
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
                 current
@@ -888,7 +799,7 @@ async fn run_lane_sender(
     link: Arc<dyn FrameLink>,
     lane: Lane,
     mut receiver: mpsc::Receiver<ScheduledFrame>,
-    budgets: Arc<PerLane<AtomicUsize>>,
+    budgets: Arc<[AtomicUsize; 4]>,
     failed_tx: tokio::sync::watch::Sender<bool>,
     mut failed_rx: tokio::sync::watch::Receiver<bool>,
 ) {
@@ -908,7 +819,7 @@ async fn run_lane_sender(
             }
         };
         debug_assert_eq!(scheduled.lane, lane);
-        budgets.get(lane).fetch_sub(scheduled.frame.len(), Ordering::AcqRel);
+        budgets[lane_index(lane)].fetch_sub(scheduled.frame.len(), Ordering::AcqRel);
         let result = link.send(scheduled.frame).await.map_err(|error| error.to_string());
         let failed = result.is_err();
         let _ = scheduled.completion.send(result);
@@ -922,11 +833,11 @@ async fn run_lane_sender(
 
 fn fail_pending(
     receiver: &mut mpsc::Receiver<ScheduledFrame>,
-    budgets: &PerLane<AtomicUsize>,
+    budgets: &[AtomicUsize; 4],
     message: &str,
 ) {
     while let Ok(frame) = receiver.try_recv() {
-        budgets.get(frame.lane).fetch_sub(frame.frame.len(), Ordering::AcqRel);
+        budgets[lane_index(frame.lane)].fetch_sub(frame.frame.len(), Ordering::AcqRel);
         let _ = frame.completion.send(Err(message.into()));
     }
 }
@@ -970,6 +881,10 @@ struct ScheduledFrame {
     lane: Lane,
     frame: Bytes,
     completion: oneshot::Sender<Result<(), String>>,
+}
+
+fn lane_index(lane: Lane) -> usize {
+    lane as usize
 }
 
 fn lane_priority_order() -> [Lane; 4] {
@@ -1032,5 +947,674 @@ impl fmt::Display for SessionError {
 impl std::error::Error for SessionError {}
 
 #[cfg(test)]
-#[path = "session_window_tests.rs"]
-mod window_tests;
+mod tests {
+    use std::sync::atomic::AtomicBool;
+
+    use async_trait::async_trait;
+    use tokio::sync::{Mutex as AsyncMutex, Semaphore, oneshot};
+
+    use super::*;
+    use crate::link::{LaneMuxLink, LinkRoute, test_support};
+
+    struct GatedRecordingLink {
+        first: AtomicBool,
+        closed: AtomicBool,
+        entered: Semaphore,
+        release: Semaphore,
+        sent: AsyncMutex<Vec<Lane>>,
+    }
+
+    struct RejectingLink;
+
+    struct ReceiveThenRejectAckLink {
+        incoming: AsyncMutex<Option<Bytes>>,
+    }
+
+    struct GatedAckLink {
+        incoming: AsyncMutex<mpsc::UnboundedReceiver<Bytes>>,
+        send_entered: Semaphore,
+    }
+
+    #[async_trait]
+    impl FrameLink for RejectingLink {
+        fn description(&self) -> &str {
+            "rejecting"
+        }
+
+        fn maximum_frame_bytes(&self) -> usize {
+            128 * 1024
+        }
+
+        async fn send(&self, _frame: Bytes) -> Result<(), LinkError> {
+            Err(LinkError::Closed)
+        }
+
+        async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+            std::future::pending().await
+        }
+
+        async fn close(&self) -> Result<(), LinkError> {
+            Ok(())
+        }
+    }
+
+    #[async_trait]
+    impl FrameLink for ReceiveThenRejectAckLink {
+        fn description(&self) -> &str {
+            "receive-then-reject-ack"
+        }
+
+        fn maximum_frame_bytes(&self) -> usize {
+            128 * 1024
+        }
+
+        async fn send(&self, _frame: Bytes) -> Result<(), LinkError> {
+            Err(LinkError::Transport("reverse path closed".into()))
+        }
+
+        async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+            Ok(self.incoming.lock().await.take())
+        }
+
+        async fn close(&self) -> Result<(), LinkError> {
+            Ok(())
+        }
+    }
+
+    #[async_trait]
+    impl FrameLink for GatedAckLink {
+        fn description(&self) -> &str {
+            "gated-ack"
+        }
+
+        fn maximum_frame_bytes(&self) -> usize {
+            128 * 1024
+        }
+
+        async fn send(&self, _frame: Bytes) -> Result<(), LinkError> {
+            self.send_entered.add_permits(1);
+            std::future::pending().await
+        }
+
+        async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+            Ok(self.incoming.lock().await.recv().await)
+        }
+
+        async fn close(&self) -> Result<(), LinkError> {
+            Ok(())
+        }
+    }
+
+    impl GatedRecordingLink {
+        fn new() -> Self {
+            Self {
+                first: AtomicBool::new(true),
+                closed: AtomicBool::new(false),
+                entered: Semaphore::new(0),
+                release: Semaphore::new(0),
+                sent: AsyncMutex::new(Vec::new()),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl FrameLink for GatedRecordingLink {
+        fn description(&self) -> &str {
+            "gated-recording"
+        }
+
+        fn maximum_frame_bytes(&self) -> usize {
+            128 * 1024
+        }
+
+        async fn send(&self, frame: Bytes) -> Result<(), LinkError> {
+            if self.first.swap(false, Ordering::AcqRel) {
+                self.entered.add_permits(1);
+                self.release.acquire().await.unwrap().forget();
+            }
+            self.sent.lock().await.push(WireFrame::decode(&frame).unwrap().lane);
+            Ok(())
+        }
+
+        async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+            std::future::pending().await
+        }
+
+        async fn close(&self) -> Result<(), LinkError> {
+            self.closed.store(true, Ordering::Release);
+            self.release.add_permits(1);
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn blocked_bulk_send_does_not_block_interactive_lane() {
+        let link = Arc::new(GatedRecordingLink::new());
+        let session =
+            ReliableSession::new(SessionId([1; 16]), link.clone(), SessionLimits::default());
+
+        let first = tokio::spawn({
+            let session = session.clone();
+            async move {
+                session.send(Lane::Bulk, 1, Bytes::from_static(b"first"), FrameFlags::empty()).await
+            }
+        });
+        link.entered.acquire().await.unwrap().forget();
+
+        let input = tokio::spawn({
+            let session = session.clone();
+            async move {
+                session
+                    .send(Lane::Interactive, 2, Bytes::from_static(b"key"), FrameFlags::empty())
+                    .await
+            }
+        });
+        tokio::time::timeout(Duration::from_secs(1), input)
+            .await
+            .expect("interactive send waited for blocked bulk")
+            .unwrap()
+            .unwrap();
+        assert!(!first.is_finished());
+        assert_eq!(*link.sent.lock().await, [Lane::Interactive]);
+
+        link.release.add_permits(1);
+
+        first.await.unwrap().unwrap();
+        let sent = link.sent.lock().await.clone();
+        assert_eq!(sent, [Lane::Interactive, Lane::Bulk]);
+    }
+
+    #[tokio::test]
+    async fn committed_frame_is_delivered_when_its_ack_write_fails() {
+        let session_id = SessionId([15; 16]);
+        let frame = WireFrame {
+            session: session_id,
+            generation: 0,
+            lane: Lane::Control,
+            flags: FrameFlags::RELIABLE.union(FrameFlags::SESSION_CLOSE),
+            sequence: 1,
+            acknowledgement: 0,
+            stream: 0,
+            payload: Vec::new(),
+        };
+        let link = Arc::new(ReceiveThenRejectAckLink {
+            incoming: AsyncMutex::new(Some(Bytes::from(frame.encode().unwrap()))),
+        });
+        let session = ReliableSession::new(session_id, link, SessionLimits::default());
+
+        let received = session.receive().await.unwrap().unwrap();
+        assert_eq!(received.sequence, 1);
+        assert!(received.flags.contains(FrameFlags::SESSION_CLOSE));
+    }
+
+    #[tokio::test]
+    async fn duplicate_replay_ack_failure_does_not_hide_admitted_session_close() {
+        let session_id = SessionId([17; 16]);
+        let (incoming_tx, incoming_rx) = mpsc::unbounded_channel();
+        let physical = Arc::new(GatedAckLink {
+            incoming: AsyncMutex::new(incoming_rx),
+            send_entered: Semaphore::new(0),
+        });
+        let mux = Arc::new(
+            LaneMuxLink::new(
+                "duplicate replay terminal drain",
+                vec![LinkRoute { lanes: Lane::ALL.to_vec(), link: physical.clone() }],
+            )
+            .unwrap(),
+        );
+        let session = ReliableSession::new(session_id, mux.clone(), SessionLimits::default());
+        let first = WireFrame {
+            session: session_id,
+            generation: 0,
+            lane: Lane::Control,
+            flags: FrameFlags::RELIABLE,
+            sequence: 1,
+            acknowledgement: 0,
+            stream: 2,
+            payload: b"once".to_vec(),
+        };
+        incoming_tx.send(Bytes::from(first.encode().unwrap())).unwrap();
+        assert_eq!(session.receive().await.unwrap().unwrap().payload, b"once".as_slice());
+        physical.send_entered.acquire().await.unwrap().forget();
+
+        let duplicate = WireFrame { flags: first.flags.union(FrameFlags::REPLAY), ..first };
+        let close = WireFrame {
+            session: session_id,
+            generation: 0,
+            lane: Lane::Control,
+            flags: FrameFlags::RELIABLE.union(FrameFlags::SESSION_CLOSE),
+            sequence: 2,
+            acknowledgement: 0,
+            stream: 0,
+            payload: Vec::new(),
+        };
+        incoming_tx.send(Bytes::from(duplicate.encode().unwrap())).unwrap();
+        incoming_tx.send(Bytes::from(close.encode().unwrap())).unwrap();
+        drop(incoming_tx);
+
+        let received = tokio::time::timeout(Duration::from_secs(1), session.receive())
+            .await
+            .expect("session close remained hidden behind duplicate ACK")
+            .expect("duplicate ACK failure hid the admitted session close")
+            .expect("session ended before the admitted session close");
+        assert_eq!(received.sequence, 2);
+        assert!(received.flags.contains(FrameFlags::SESSION_CLOSE));
+    }
+
+    async fn assert_replay_full_does_not_skip_sequence(session_byte: u8) {
+        let limits = SessionLimits { replay_frames_per_lane: 1, ..SessionLimits::default() };
+        let (sender_link, peer_link) = test_support::pair(128 * 1024);
+        let sender =
+            ReliableSession::new(SessionId([session_byte; 16]), Arc::new(sender_link), limits);
+        let peer = ReliableSession::new(SessionId([session_byte; 16]), Arc::new(peer_link), limits);
+
+        assert_eq!(
+            sender
+                .send(Lane::Control, 7, Bytes::from_static(b"one"), FrameFlags::empty())
+                .await
+                .unwrap(),
+            1
+        );
+        assert_eq!(peer.receive().await.unwrap().unwrap().sequence, 1);
+
+        assert!(matches!(
+            sender.send(Lane::Control, 7, Bytes::from_static(b"two"), FrameFlags::empty()).await,
+            Err(SessionError::ReplayFull(Lane::Control))
+        ));
+        assert_eq!(sender.next_outbound_sequence(Lane::Control), 2);
+        assert_eq!(sender.outstanding_reliable_frames(Lane::Control), 1);
+
+        peer.send(Lane::Control, 8, Bytes::from_static(b"ack carrier"), FrameFlags::empty())
+            .await
+            .unwrap();
+        assert_eq!(sender.receive().await.unwrap().unwrap().payload, b"ack carrier".as_slice());
+        assert_eq!(sender.outstanding_reliable_frames(Lane::Control), 0);
+
+        assert_eq!(
+            sender
+                .send(Lane::Control, 7, Bytes::from_static(b"two"), FrameFlags::empty())
+                .await
+                .unwrap(),
+            2
+        );
+        let received = peer.receive().await.unwrap().unwrap();
+        assert_eq!(received.sequence, 2);
+        assert_eq!(received.payload, b"two".as_slice());
+    }
+
+    #[tokio::test]
+    async fn client_replay_full_then_success_does_not_create_sequence_gap() {
+        assert_replay_full_does_not_skip_sequence(11).await;
+    }
+
+    #[tokio::test]
+    async fn server_replay_full_then_success_does_not_create_sequence_gap() {
+        assert_replay_full_does_not_skip_sequence(12).await;
+    }
+
+    #[tokio::test]
+    async fn closing_session_releases_replay_backpressure_waiters() {
+        let limits = SessionLimits { replay_frames_per_lane: 1, ..SessionLimits::default() };
+        let (sender_link, peer_link) = test_support::pair(128 * 1024);
+        let sender = ReliableSession::new(SessionId([18; 16]), Arc::new(sender_link), limits);
+        let peer = ReliableSession::new(SessionId([18; 16]), Arc::new(peer_link), limits);
+
+        sender.send(Lane::Bulk, 7, Bytes::from_static(b"one"), FrameFlags::empty()).await.unwrap();
+        assert_eq!(peer.receive().await.unwrap().unwrap().payload, b"one".as_slice());
+        let blocked = tokio::spawn({
+            let sender = sender.clone();
+            async move {
+                sender
+                    .send_with_backpressure(
+                        Lane::Bulk,
+                        7,
+                        Bytes::from_static(b"two"),
+                        FrameFlags::empty(),
+                    )
+                    .await
+            }
+        });
+        tokio::task::yield_now().await;
+        assert!(!blocked.is_finished());
+
+        sender.close().await.unwrap();
+        let error = tokio::time::timeout(Duration::from_secs(1), blocked)
+            .await
+            .expect("replay backpressure waiter survived session close")
+            .unwrap()
+            .unwrap_err();
+        assert!(matches!(error, SessionError::Link(LinkError::Closed)));
+    }
+
+    #[tokio::test]
+    async fn tunnel_delivery_window_backpressures_until_ack() {
+        let limits = SessionLimits::default();
+        let (sender_link, peer_link) = test_support::pair(128 * 1024);
+        let sender = ReliableSession::new(SessionId([19; 16]), Arc::new(sender_link), limits);
+        let peer = ReliableSession::new(SessionId([19; 16]), Arc::new(peer_link), limits);
+        let payload = Bytes::from(vec![0; MAX_FRAME_PAYLOAD]);
+
+        for expected_sequence in 1..=5 {
+            assert_eq!(
+                sender
+                    .send_with_backpressure(Lane::Tunnel, 7, payload.clone(), FrameFlags::empty(),)
+                    .await
+                    .unwrap(),
+                expected_sequence
+            );
+            assert_eq!(peer.receive().await.unwrap().unwrap().sequence, expected_sequence);
+        }
+
+        let blocked = tokio::spawn({
+            let sender = sender.clone();
+            let payload = payload.clone();
+            async move {
+                sender.send_with_backpressure(Lane::Tunnel, 7, payload, FrameFlags::empty()).await
+            }
+        });
+        tokio::task::yield_now().await;
+        assert!(!blocked.is_finished(), "unacknowledged tunnel bytes escaped the delivery window");
+
+        let receive_acks = tokio::spawn({
+            let sender = sender.clone();
+            async move { sender.receive().await }
+        });
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(1), blocked)
+                .await
+                .expect("tunnel send remained blocked after its delivery acknowledgement")
+                .unwrap()
+                .unwrap(),
+            6
+        );
+        receive_acks.abort();
+        assert_eq!(peer.receive().await.unwrap().unwrap().sequence, 6);
+    }
+
+    #[tokio::test]
+    async fn queue_admission_failure_rolls_back_sequence_and_replay() {
+        let limits = SessionLimits { queued_bytes_per_lane: 512, ..SessionLimits::default() };
+        let (sender_link, peer_link) = test_support::pair(128 * 1024);
+        let sender = ReliableSession::new(SessionId([13; 16]), Arc::new(sender_link), limits);
+        let peer = ReliableSession::new(SessionId([13; 16]), Arc::new(peer_link), limits);
+
+        assert!(matches!(
+            sender.send(Lane::Control, 1, Bytes::from(vec![0; 1_024]), FrameFlags::empty()).await,
+            Err(SessionError::QueueFull(Lane::Control))
+        ));
+        assert_eq!(sender.next_outbound_sequence(Lane::Control), 1);
+        assert_eq!(sender.outstanding_reliable_frames(Lane::Control), 0);
+
+        assert_eq!(
+            sender
+                .send(Lane::Control, 1, Bytes::from_static(b"fits"), FrameFlags::empty())
+                .await
+                .unwrap(),
+            1
+        );
+        let received = peer.receive().await.unwrap().unwrap();
+        assert_eq!(received.sequence, 1);
+        assert_eq!(received.payload, b"fits".as_slice());
+
+        assert!(matches!(
+            sender.send(Lane::Tunnel, 2, Bytes::from(vec![0; 1_024]), FrameFlags::empty()).await,
+            Err(SessionError::QueueFull(Lane::Tunnel))
+        ));
+        assert_eq!(sender.next_outbound_sequence(Lane::Tunnel), 1);
+        assert_eq!(
+            sender
+                .send(Lane::Tunnel, 2, Bytes::from_static(b"tunnel fits"), FrameFlags::empty())
+                .await
+                .unwrap(),
+            1
+        );
+        let tunnel = peer.receive().await.unwrap().unwrap();
+        assert_eq!(tunnel.sequence, 1);
+        assert_eq!(tunnel.payload, b"tunnel fits".as_slice());
+    }
+
+    #[tokio::test]
+    async fn reconnect_replays_only_frames_after_peer_cursor() {
+        let (client_link, server_link) = test_support::pair(128 * 1024);
+        let client = ReliableSession::new(
+            SessionId([2; 16]),
+            Arc::new(client_link),
+            SessionLimits::default(),
+        );
+        let server = ReliableSession::new(
+            SessionId([2; 16]),
+            Arc::new(server_link),
+            SessionLimits::default(),
+        );
+        client
+            .send(Lane::Control, 7, Bytes::from_static(b"one"), FrameFlags::empty())
+            .await
+            .unwrap();
+        assert_eq!(server.receive().await.unwrap().unwrap().payload, b"one".as_slice());
+        client
+            .send(Lane::Control, 7, Bytes::from_static(b"two"), FrameFlags::empty())
+            .await
+            .unwrap();
+
+        let (new_client_link, new_server_link) = test_support::pair(128 * 1024);
+        let client = client
+            .reconnect(Arc::new(new_client_link), &BTreeMap::from([(Lane::Control, 1)]))
+            .await
+            .unwrap();
+        let server = server.reconnect(Arc::new(new_server_link), &BTreeMap::new()).await.unwrap();
+        let replay = server.receive().await.unwrap().unwrap();
+        assert_eq!(replay.sequence, 2);
+        assert_eq!(replay.payload, b"two".as_slice());
+        assert!(replay.flags.contains(FrameFlags::REPLAY));
+        assert_eq!(client.outstanding_reliable_frames(Lane::Control), 1);
+    }
+
+    #[tokio::test]
+    async fn failed_reconnect_keeps_old_session_usable_and_retryable() {
+        let (old_link, old_peer) = test_support::pair(128 * 1024);
+        let session =
+            ReliableSession::new(SessionId([14; 16]), Arc::new(old_link), SessionLimits::default());
+        session
+            .send(Lane::Control, 1, Bytes::from_static(b"one"), FrameFlags::empty())
+            .await
+            .unwrap();
+        let first = WireFrame::decode(&old_peer.receive().await.unwrap().unwrap()).unwrap();
+        assert_eq!(first.sequence, 1);
+
+        assert!(matches!(
+            session.reconnect(Arc::new(RejectingLink), &BTreeMap::new()).await,
+            Err(SessionError::LinkMessage(_))
+        ));
+        assert_eq!(session.generation(), 0);
+        assert_eq!(session.next_outbound_sequence(Lane::Control), 2);
+        assert_eq!(session.outstanding_reliable_frames(Lane::Control), 1);
+
+        assert_eq!(
+            session
+                .send(Lane::Control, 1, Bytes::from_static(b"two"), FrameFlags::empty())
+                .await
+                .unwrap(),
+            2
+        );
+        let second = WireFrame::decode(&old_peer.receive().await.unwrap().unwrap()).unwrap();
+        assert_eq!(second.generation, 0);
+        assert_eq!(second.sequence, 2);
+
+        let (retry_link, retry_peer) = test_support::pair(128 * 1024);
+        let replacement = session.reconnect(Arc::new(retry_link), &BTreeMap::new()).await.unwrap();
+        assert_eq!(replacement.generation(), 1);
+        for expected in [b"one".as_slice(), b"two".as_slice()] {
+            let replay = WireFrame::decode(&retry_peer.receive().await.unwrap().unwrap()).unwrap();
+            assert_eq!(replay.generation, 1);
+            assert!(replay.flags.contains(FrameFlags::REPLAY));
+            assert_eq!(replay.payload, expected);
+        }
+    }
+
+    #[tokio::test]
+    async fn cancelled_reconnect_can_retry_at_a_later_generation() {
+        let (old_link, _old_peer) = test_support::pair(128 * 1024);
+        let session =
+            ReliableSession::new(SessionId([16; 16]), Arc::new(old_link), SessionLimits::default());
+        session
+            .send(Lane::Control, 1, Bytes::from_static(b"replay me"), FrameFlags::empty())
+            .await
+            .unwrap();
+
+        let blocked = Arc::new(GatedRecordingLink::new());
+        let attempt = tokio::spawn({
+            let session = session.clone();
+            let blocked = blocked.clone();
+            async move { session.reconnect_to(blocked, &BTreeMap::new(), 1).await }
+        });
+        blocked.entered.acquire().await.unwrap().forget();
+        attempt.abort();
+        assert!(attempt.await.unwrap_err().is_cancelled());
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while !blocked.closed.load(Ordering::Acquire) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("cancelled reconnect did not close its uncommitted link");
+
+        let (retry_link, retry_peer) = test_support::pair(128 * 1024);
+        let replacement =
+            session.reconnect_to(Arc::new(retry_link), &BTreeMap::new(), 2).await.unwrap();
+        assert_eq!(replacement.generation(), 2);
+        let replay = WireFrame::decode(&retry_peer.receive().await.unwrap().unwrap()).unwrap();
+        assert_eq!(replay.generation, 2);
+        assert_eq!(replay.payload, b"replay me");
+        assert!(replay.flags.contains(FrameFlags::REPLAY));
+    }
+
+    #[tokio::test]
+    async fn cancelled_prepared_reconnect_leaves_shared_state_unchanged() {
+        let (old_link, old_peer) = test_support::pair(128 * 1024);
+        let session =
+            ReliableSession::new(SessionId([17; 16]), Arc::new(old_link), SessionLimits::default());
+        session
+            .send(Lane::Control, 1, Bytes::from_static(b"keep me"), FrameFlags::empty())
+            .await
+            .unwrap();
+        let first = WireFrame::decode(&old_peer.receive().await.unwrap().unwrap()).unwrap();
+        assert_eq!(first.generation, 0);
+
+        let candidate = Arc::new(GatedRecordingLink::new());
+        let (prepared_tx, prepared_rx) = oneshot::channel();
+        let attempt = tokio::spawn({
+            let session = session.clone();
+            let candidate = candidate.clone();
+            async move {
+                let prepared =
+                    session.prepare_reconnect_to(candidate, &BTreeMap::new(), 1).await.unwrap();
+                prepared_tx.send(()).unwrap();
+                std::future::pending::<()>().await;
+                let _ = prepared.commit();
+            }
+        });
+
+        candidate.entered.acquire().await.unwrap().forget();
+        candidate.release.add_permits(1);
+        prepared_rx.await.unwrap();
+        attempt.abort();
+        assert!(attempt.await.unwrap_err().is_cancelled());
+
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while !candidate.closed.load(Ordering::Acquire) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("cancelled prepared reconnect did not close its candidate link");
+
+        // Cancellation before commit must not advance the shared reliability
+        // epoch. The original session remains usable and keeps its sequence.
+        assert_eq!(session.generation(), 0);
+        let sequence = session
+            .send(Lane::Control, 1, Bytes::from_static(b"still here"), FrameFlags::empty())
+            .await
+            .unwrap();
+        assert_eq!(sequence, 2);
+        let second = WireFrame::decode(&old_peer.receive().await.unwrap().unwrap()).unwrap();
+        assert_eq!(second.generation, 0);
+        assert_eq!(second.sequence, 2);
+    }
+
+    #[tokio::test]
+    async fn reconnect_discards_ambiguous_tunnel_frame_and_starts_a_new_sequence_epoch() {
+        let (client_link, _old_server_link) = test_support::pair(128 * 1024);
+        let client = ReliableSession::new(
+            SessionId([3; 16]),
+            Arc::new(client_link),
+            SessionLimits::default(),
+        );
+        let ambiguous = client
+            .send(Lane::Tunnel, 9, Bytes::from_static(b"possibly delivered"), FrameFlags::empty())
+            .await
+            .unwrap();
+        assert_eq!(ambiguous, 1);
+        assert_eq!(client.outstanding_reliable_frames(Lane::Tunnel), 0);
+
+        let (new_client_link, new_server_link) = test_support::pair(128 * 1024);
+        let client = client
+            .reconnect(Arc::new(new_client_link), &BTreeMap::from([(Lane::Tunnel, 0)]))
+            .await
+            .unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(25), new_server_link.receive())
+                .await
+                .is_err(),
+            "ambiguous tunnel bytes were replayed"
+        );
+
+        let next = client
+            .send(Lane::Tunnel, 11, Bytes::from_static(b"new tunnel"), FrameFlags::empty())
+            .await
+            .unwrap();
+        assert_eq!(next, 1);
+        let frame = WireFrame::decode(&new_server_link.receive().await.unwrap().unwrap()).unwrap();
+        assert_eq!(frame.generation, 1);
+        assert_eq!(frame.sequence, 1);
+        assert_eq!(frame.payload, b"new tunnel");
+        assert!(!frame.flags.contains(FrameFlags::REPLAY));
+    }
+
+    #[tokio::test]
+    async fn duplicate_reliable_frame_is_acknowledged_but_not_delivered_twice() {
+        let (client_link, server_link) = test_support::pair(128 * 1024);
+        let server = ReliableSession::new(
+            SessionId([5; 16]),
+            Arc::new(server_link),
+            SessionLimits::default(),
+        );
+        let frame = WireFrame {
+            session: SessionId([5; 16]),
+            generation: 0,
+            lane: Lane::Control,
+            flags: FrameFlags::RELIABLE,
+            sequence: 1,
+            acknowledgement: 0,
+            stream: 2,
+            payload: b"once".to_vec(),
+        };
+        let encoded = Bytes::from(frame.encode().unwrap());
+        client_link.send(encoded.clone()).await.unwrap();
+        assert_eq!(server.receive().await.unwrap().unwrap().payload, b"once".as_slice());
+        client_link.send(encoded).await.unwrap();
+        assert!(tokio::time::timeout(Duration::from_millis(25), server.receive()).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn stale_connection_is_generation_fenced() {
+        let (left, _right) = test_support::pair(128 * 1024);
+        let original =
+            ReliableSession::new(SessionId([4; 16]), Arc::new(left), SessionLimits::default());
+        let (new_left, _new_right) = test_support::pair(128 * 1024);
+        let _replacement = original.reconnect(Arc::new(new_left), &BTreeMap::new()).await.unwrap();
+        assert!(matches!(
+            original.send(Lane::Control, 0, Bytes::new(), FrameFlags::empty()).await,
+            Err(SessionError::StaleGeneration { .. })
+        ));
+    }
+}

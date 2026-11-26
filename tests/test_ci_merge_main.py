@@ -33,15 +33,7 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import last_green_base  # noqa: E402
 import merge_main  # noqa: E402
-import merge_main_resolver  # noqa: E402
 import run_ci_guards  # noqa: E402
-# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
-import importlib.util as _git_fixture_importlib  # noqa: E402
-from os import path as _git_fixture_path  # noqa: E402
-_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
-    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
-git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
-_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 GIT_ENV = {
     "GIT_CONFIG_NOSYSTEM": "1",
@@ -242,81 +234,6 @@ class MergeTests(TempRepoCase):
         self.assertIn(red[:11], output)
         self.assertIn("Merge main", git(self.repo, "log", "-1", "--format=%s"))
 
-    def test_the_repos_own_hooks_run_on_the_merge_commit(self) -> None:
-        # 2026-11-15: the resolver ran git with `-c core.hooksPath=/dev/null` and `commit --no-verify`; the lane git
-        # guard refuses both as a hook bypass, so `merge-main.sh --remote origin` failed there.
-        self.assertFalse([arg for arg in merge_main_resolver.GIT if "hookspath" in arg.lower()])
-        hooks = self.scratch / "hooks"
-        hooks.mkdir()
-        ran = self.scratch / "pre-commit-ran"
-        hook = hooks / "pre-commit"
-        hook.write_text(f"#!/bin/sh\ntouch '{ran}'\n")
-        hook.chmod(hook.stat().st_mode | stat.S_IXUSR)
-        git(self.repo, "config", "core.hooksPath", str(hooks))
-        commit(self.repo, "branch work", {"feature.txt": "feature\n"})
-        ran.unlink()
-        green = self.main_commit("green", {"green.txt": "green\n"})
-        code, output = self.run_merge({green: "success"}, guards=False)
-        self.assertEqual(code, 0, output)
-        self.assertEqual(git(self.repo, "rev-parse", "HEAD^2"), green)
-        self.assertTrue(ran.exists(), "the pre-commit hook did not run on the merge commit")
-
-    def test_a_feat_cmux_next_pr_merges_feat_cmux_next_not_main(self) -> None:
-        # 2026-10-29: merge-main.sh could merge only main, so a pull request into feat-cmux-next (#27454) was
-        # brought current with a raw `git merge origin/feat-cmux-next`. feat-cmux-next pushes run no CI fast
-        # guards and its base reds never hold a merge, so --base feat-cmux-next merges that branch's tip
-        # without reading any verdict.
-        git(self.remote, "checkout", "-q", "-b", "feat-cmux-next")
-        feat = commit(self.remote, "feat work", {"feat.txt": "feat\n"})
-        git(self.remote, "checkout", "-q", "main")
-        on_main = self.main_commit("main only", {"main.txt": "main\n"})
-        commit(self.repo, "branch work", {"feature.txt": "feature\n"})
-
-        def no_verdicts(shas: list[str]) -> dict[str, str]:
-            raise AssertionError(f"a feat-cmux-next merge read guard verdicts for {shas}")
-        opts = merge_main.Options(repo=self.repo, remote="origin", guards=False, base="feat-cmux-next")
-        lines: list[str] = []
-        code = merge_main.merge_main(opts, source=no_verdicts, output=lines.append, stamps=self.scratch / "stamps")
-        output = "\n".join(lines)
-        self.assertEqual(code, 0, output)
-        self.assertEqual(git(self.repo, "rev-parse", "HEAD^2"), feat)
-        self.assertTrue((self.repo / "feat.txt").exists())
-        self.assertFalse((self.repo / "main.txt").exists(), "main must not come with a feat-cmux-next merge")
-        self.assertNotEqual(git(self.repo, "rev-parse", "HEAD^2"), on_main)
-        self.assertIn("Merge feat-cmux-next", git(self.repo, "log", "-1", "--format=%s"))
-        # Run again: already current, nothing merged.
-        head = git(self.repo, "rev-parse", "HEAD")
-        lines.clear()
-        self.assertEqual(merge_main.merge_main(opts, source=no_verdicts, output=lines.append), 0)
-        self.assertEqual(git(self.repo, "rev-parse", "HEAD"), head)
-        self.assertIn("already contains feat-cmux-next's tip", "\n".join(lines))
-
-    def test_a_feat_cmux_next_merge_never_reports_mains_guards_passed(self) -> None:
-        # Review of #27543: the tip of a base with no CI fast guards verdict must read as "missing", or the guard
-        # report says "main's CI fast guards passed on that commit" about a feat-cmux-next commit.
-        git(self.remote, "checkout", "-q", "-b", "feat-cmux-next")
-        feat = commit(self.remote, "feat work", {"feat.txt": "feat\n"})
-        git(self.remote, "checkout", "-q", "main")
-        seen = []
-        with mock.patch.object(merge_main.merge_main_resolver, "merge_and_resolve",
-                               lambda *a, **k: mock.Mock(status="merged", head_after=feat, resolved=[], blocking=[])), \
-                mock.patch.object(merge_main, "run_guards", lambda *a, **k: mock.Mock(failures=[], introduced=False,
-                                                                                         complete=True)), \
-                mock.patch.object(merge_main, "classify", lambda *a, **k: None), \
-                mock.patch.object(merge_main, "guard_report", lambda run, base, verdict: seen.append(verdict) or []):
-            opts = merge_main.Options(repo=self.repo, remote="origin", base="feat-cmux-next")
-            self.assertEqual(merge_main.merge_main(opts, source=lambda shas: {}, guard_command=["true"],
-                                                   output=lambda line: None), 0)
-        self.assertEqual(seen, ["missing"])
-
-    def test_the_default_base_stays_main(self) -> None:
-        self.assertEqual(merge_main.Options(repo=self.repo).base, "main")
-        seen = []
-        with mock.patch.object(merge_main, "merge_main", lambda options: seen.append(options) or 0):
-            self.assertEqual(merge_main.main(["--repo", str(self.repo)]), 0)
-            self.assertEqual(merge_main.main(["--repo", str(self.repo), "--base", "feat-cmux-next"]), 0)
-        self.assertEqual([o.base for o in seen], ["main", "feat-cmux-next"])
-
     def test_tip_flag_merges_the_red_tip(self) -> None:
         self.main_commit("green", {"green.txt": "green\n"})
         red = self.main_commit("red", {"red.txt": "red\n"})
@@ -399,35 +316,6 @@ class LocalResolverTests(TempRepoCase):
         self.assertEqual(git(self.repo, "rev-parse", "HEAD"), before)
         self.assertEqual(git(self.repo, "status", "--porcelain"), "")
 
-
-    def test_former_web_bundles_stay_out_of_a_tree_that_builds_them(self) -> None:
-        """cx-vn5: the cmux-next web bundles are build output. Main still commits the
-        webviews app; a sync into feat-cmux-next keeps it deleted, new files included."""
-        chunk = "Resources/markdown-viewer/webviews-app/chunks/vendor.mjs"
-        self.seed(chunk, "base chunk\n")
-        git(self.repo, "rm", "-q", chunk)
-        commit(self.repo, "build output", {
-            "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/GENERATED.md": "placeholder\n"})
-        green = self.main_commit("main rebuilds the app", {
-            chunk: "main chunk\n", "Resources/markdown-viewer/webviews-app/chunks/new.mjs": "new\n",
-            "main.txt": "main\n"})
-        code, output = self.run_merge({green: "success"})
-        self.assertEqual(code, 0, output)
-        self.assertEqual(git(self.repo, "rev-parse", "HEAD^2"), green)
-        self.assertEqual(git(self.repo, "ls-files", "--", "Resources/markdown-viewer/webviews-app"), "")
-        self.assertEqual(git(self.repo, "ls-files", "--", "main.txt"), "main.txt")
-        self.assertIn("web bundle build output since cx-vn5: 2 file(s) kept out of the index", output)
-
-    def test_a_tree_that_commits_the_bundles_still_stops_on_their_conflicts(self) -> None:
-        chunk = "Resources/markdown-viewer/webviews-app/chunks/vendor.mjs"
-        self.seed(chunk, "base chunk\n")
-        git(self.repo, "rm", "-q", chunk)
-        before = commit(self.repo, "delete the chunk", {"feature.txt": "feature\n"})
-        green = self.main_commit("main chunk", {chunk: "main chunk\n"})
-        code, output = self.run_merge({green: "success"})
-        self.assertEqual(code, 1, output)
-        self.assertIn("deleted on one side and changed on the other", output)
-        self.assertEqual(git(self.repo, "rev-parse", "HEAD"), before)
 
 
 class ClassificationTests(TempRepoCase):
@@ -549,18 +437,6 @@ class RemoteTests(unittest.TestCase):
             git(repo, "remote", "add", "mf", "git@github.com:manaflow-ai/cmux.git")
             self.assertEqual(merge_main.cmux_remote(repo), "mf")
             git(repo, "remote", "set-url", "origin", "https://github.com/manaflow-ai/cmux")
-            self.assertEqual(merge_main.cmux_remote(repo), "origin")
-
-    def test_detects_a_partial_clone_remote(self) -> None:
-        # 2026-11-15 huge-blue: a blobless clone's `git remote -v` prints "origin URL (fetch) [blob:none]", four
-        # words, and the old parser skipped that line: "no git remote points at github.com/manaflow-ai/cmux".
-        with tempfile.TemporaryDirectory() as scratch, mock.patch.dict(os.environ, GIT_ENV):
-            repo = Path(scratch)
-            git(repo, "init", "-q")
-            git(repo, "remote", "add", "origin", "https://github.com/manaflow-ai/cmux.git")
-            git(repo, "config", "remote.origin.promisor", "true")
-            git(repo, "config", "remote.origin.partialclonefilter", "blob:none")
-            self.assertIn("[blob:none]", git(repo, "remote", "-v"))
             self.assertEqual(merge_main.cmux_remote(repo), "origin")
 
 

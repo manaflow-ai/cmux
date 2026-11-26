@@ -10,8 +10,8 @@ import { dashboardBillingQuery } from "../../queries/billing";
 import { BillingPageFrame } from "./billing-frame";
 import { personalPlanCards, type SwitchPlanId } from "./plan-model";
 import { PlanPicker } from "./plan-picker";
-import { CloudIntroWelcome, PlanWelcome, welcomePlan } from "./plan-welcome";
-import { CLOUD_INTRO_CHECKOUT_PLAN } from "@/services/billing/cloudIntro";
+import { PlanWelcome, welcomePlan } from "./plan-welcome";
+import { NextCloudPlans } from "./next-cloud-plans";
 import { TeamBillingPanel } from "./team-billing-panel";
 
 export type BillingScreenSearch = {
@@ -29,6 +29,7 @@ export type BillingScreenSearch = {
  */
 export function BillingScreen({ search }: { search: BillingScreenSearch }) {
   const t = useTranslations("dashboard.billing");
+  const locale = useLocale();
   const { data } = useSuspenseQuery(dashboardBillingQuery(search.team));
   const banner = billingBanner(search.billing);
   const welcome = welcomePlan(search.welcome);
@@ -41,12 +42,12 @@ export function BillingScreen({ search }: { search: BillingScreenSearch }) {
         </div>
       ) : null}
       {welcome && data.personal ? <PlanWelcome plan={welcome} /> : null}
-      {search.welcome === CLOUD_INTRO_CHECKOUT_PLAN && data.personal?.cloudIntroEnabled ? <CloudIntroWelcome /> : null}
       {data.personal ? (
         <PersonalBilling data={data.personal} change={search.change} />
       ) : data.team ? (
         <TeamBillingPanel view={data.team} welcome={search.welcome === "team"} />
       ) : null}
+      {data.next ? <NextCloudPlans next={data.next} returnTo={localeHref(locale, "/dashboard/billing")} /> : null}
     </BillingPageFrame>
   );
 }
@@ -135,6 +136,7 @@ const BILLING_BANNERS = [
   "team_not_found",
   "authorization_unavailable",
   "personal_team_not_upgradable_to_team",
+  "plan_unavailable",
 ] as const;
 
 function billingBanner(value: string | undefined): (typeof BILLING_BANNERS)[number] | null {

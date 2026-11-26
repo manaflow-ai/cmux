@@ -17,16 +17,6 @@ import urllib.request
 
 
 DEFAULT_NAME_PREFIX = "cmux-nightly-macos-"
-# The cmux-next release source archive (nightly.yml, "Publish the cmux-next
-# source archive"). Each nightly-next app's MPL-2.0 source offer names
-# cmux-next-source-<build>.tar.gz, so the archive belongs to <build> and goes
-# only together with that build's app assets, never on its own and never by
-# age. Channel-independent like the daemon assets: other channels have none.
-SOURCE_ARCHIVE_PATTERN = re.compile(r"^cmux-next-source-(?P<build>\d+)\.tar\.gz$")
-
-
-def is_source_archive(name: str) -> bool:
-    return SOURCE_ARCHIVE_PATTERN.match(name) is not None
 
 
 def immutable_asset_patterns(name_prefix: str) -> list[re.Pattern[str]]:
@@ -45,8 +35,6 @@ def immutable_asset_patterns(name_prefix: str) -> list[re.Pattern[str]]:
         re.compile(r"^cmuxd-remote-(?:darwin|linux)-(?:arm64|amd64)-(?P<build>\d+)$"),
         re.compile(r"^cmuxd-remote-checksums-(?P<build>\d+)\.txt$"),
         re.compile(r"^cmuxd-remote-manifest-(?P<build>\d+)\.json$"),
-        re.compile(r"^cmuxd-remote-THIRD_PARTY_LICENSES-(?P<build>\d+)\.txt$"),
-        SOURCE_ARCHIVE_PATTERN,
     ])
     if name_prefix == DEFAULT_NAME_PREFIX:
         # Pre-variant nightly naming that still exists on the nightly release.
@@ -264,36 +252,25 @@ def collect_immutable_assets(
     return immutable_assets, ignored_assets
 
 
-def deletion_order(asset: ReleaseAsset) -> tuple[bool, str]:
-    """Within one build the source archive goes last, so an interrupted pass
-    leaves an archive with no app, never an app with no archive."""
-    return (is_source_archive(asset.name), asset.name)
+# Nightly builds arm64 only; Intel (x86_64) and universal ship from the stable
+# release. The x86_64, universal and legacy nightly feeds and download aliases
+# stay at the last build that had those variants, so that build is never pruned:
+# deleting it would make the frozen feeds and the universal download link 404.
+FROZEN_VARIANTS = ("x86_64", "universal")
+_VARIANT_DMG = re.compile(r"-(?P<variant>arm64|x86_64|universal)-(?P<build>\d+)\.dmg$")
 
 
-def check_source_archive_retention(
-    assets: list[ReleaseAsset], to_delete: list[ReleaseAsset]
-) -> None:
-    """Refuse a plan that deletes a source archive while an app asset that
-    names it (any other asset of its build) stays on the release."""
-    deleted = {asset.asset_id for asset in to_delete}
-    for archive in to_delete:
-        if not is_source_archive(archive.name):
+def frozen_feed_builds(assets: list[ReleaseAsset]) -> set[int]:
+    """The newest build of every frozen variant (x86_64, universal)."""
+    newest: dict[str, int] = {}
+    for asset in assets:
+        match = _VARIANT_DMG.search(asset.name)
+        if not match or match.group("variant") not in FROZEN_VARIANTS:
             continue
-        kept = sorted(
-            asset.name
-            for asset in assets
-            if asset.build == archive.build and asset.asset_id not in deleted
-        )
-        if kept:
-            raise RuntimeError(
-                f"refusing to delete {archive.name}: build {archive.build} still has "
-                f"{', '.join(kept)}, whose source offer names it"
-            )
-
-
-# The newest builds no rule deletes: the newest and the one a feed rollback serves
-# (nightly-next-rollback.yml checks that the build it falls back to is downloadable).
-ROLLBACK_FLOOR = 2
+        build = int(match.group("build"))
+        if build == asset.build and build > newest.get(match.group("variant"), -1):
+            newest[match.group("variant")] = build
+    return set(newest.values())
 
 
 def partition_assets(
@@ -304,25 +281,29 @@ def partition_assets(
         assets_by_build[asset.build].append(asset)
 
     ordered_builds = sorted(assets_by_build, reverse=True)
+    pinned = frozen_feed_builds(assets)
     to_delete: list[ReleaseAsset] = []
     for build in ordered_builds[keep_builds:]:
-        to_delete.extend(sorted(assets_by_build[build], key=deletion_order))
+        if build in pinned:
+            continue
+        to_delete.extend(sorted(assets_by_build[build], key=lambda asset: asset.name))
 
     assets_after_prune = total_assets - len(to_delete)
-    for build in reversed(ordered_builds[ROLLBACK_FLOOR:keep_builds]):
+    for build in reversed(ordered_builds[:keep_builds]):
         if assets_after_prune <= max_assets:
             break
-        build_assets = sorted(assets_by_build[build], key=deletion_order)
+        if build in pinned:
+            continue
+        build_assets = sorted(assets_by_build[build], key=lambda asset: asset.name)
         to_delete.extend(build_assets)
         assets_after_prune -= len(build_assets)
 
     if assets_after_prune > max_assets:
         raise RuntimeError(
             f"Cannot reduce release from {total_assets} to {max_assets} assets "
-            f"without deleting the newest {ROLLBACK_FLOOR} immutable builds"
+            f"without deleting the newest immutable build"
         )
 
-    check_source_archive_retention(assets, to_delete)
     return to_delete, ordered_builds
 
 
@@ -348,9 +329,8 @@ def is_rate_limit_error(error: GitHubAPIError | subprocess.CalledProcessError) -
 
 def main() -> int:
     args = parse_args()
-    if args.keep_builds < ROLLBACK_FLOOR:
-        print(f"--keep-builds must be at least {ROLLBACK_FLOOR} (the newest build and the one a rollback serves)",
-              file=sys.stderr)
+    if args.keep_builds < 1:
+        print("--keep-builds must be at least 1", file=sys.stderr)
         return 2
     if args.max_assets < 1:
         print("--max-assets must be at least 1", file=sys.stderr)

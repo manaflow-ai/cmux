@@ -1,4 +1,0 @@
-{
-  "agent": "network",
-  "why": "The room address chooses the network endpoint that receives that capture."
-}

@@ -8,9 +8,7 @@ import UIKit
 ///
 /// Camera and Photos use Messages' own images, read by name from the
 /// system ChatKit bundle's asset catalog (`send-menu-camera-glass`,
-/// `send-menu-photos-glass`, `-calistoga` variants on iOS 27), the bundle
-/// the app hands in as `ConversationSystemArt.bundle` (never in the App
-/// Store build, which draws them). Only public
+/// `send-menu-photos-glass`, `-calistoga` variants on iOS 27). Only public
 /// API is called (`Bundle(path:)`, `UIImage(named:in:compatibleWith:)`); no
 /// private code is loaded. When that bundle or image is missing, the same
 /// plate is drawn in code. Messages has no Files row, so Files is always
@@ -34,8 +32,16 @@ enum SendMenuIcons {
         }
     }
 
+    private static let chatKit: Bundle? = {
+        var path = "/System/Library/PrivateFrameworks/ChatKit.framework"
+        #if targetEnvironment(simulator)
+        if let root = ProcessInfo.processInfo.environment["IPHONE_SIMULATOR_ROOT"] { path = root + path }
+        #endif
+        return Bundle(path: path)
+    }()
+
     private static func systemImage(_ base: String) -> UIImage? {
-        guard let chatKit = ConversationSystemArt.bundle else { return nil }
+        guard let chatKit else { return nil }
         let name = base + (isIOS27 ? "-glass-calistoga" : "-glass")
         guard let image = UIImage(named: name, in: chatKit, compatibleWith: nil),
               image.size == CGSize(width: SendMenuGeometry.iconSize, height: SendMenuGeometry.iconSize) else { return nil }

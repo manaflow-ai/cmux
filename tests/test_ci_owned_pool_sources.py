@@ -16,32 +16,20 @@ feat-cmux-next, since that is the copy that runs). It fails when an owned
 workflow of either branch is not listed, and when a listed one is owned in
 neither (only a warning for a workflow main does not have: main's list cannot
 change in the commit that moves a feat-cmux-next-only workflow off the minis,
-and a stale entry is harmless). The other branch is read with `git show` at origin's current tip,
-fetched fresh on every run into a private ref (refs/cmux-owned-pool-sources/<branch>), never from
-a remote-tracking ref a reused checkout may hold from an earlier fetch: a cmux-ci fast-checks run
-read a stale origin/main from its warm disk and failed with "owned_pool_rescue.py defines no
-WATCHED_WORKFLOW_PATHS". Under GitHub Actions, in a checkout that is already shallow and blob-less,
-the fetch is one shallow, blob-less fetch, then the files it reads, and the test fails if it still
-cannot read the branch. Any other checkout (a full-history CI checkout too: other tests clone it)
-gets a plain fetch of that branch, never made shallow or partial by it, and off CI a fetch that
-fails (offline, no origin) only skips that branch.
+and a stale entry is harmless). The other branch is read with `git show`; under GitHub Actions the
+test fetches it (one shallow, blob-less fetch, then the files it reads) and
+fails if it still cannot read it. Off CI a missing ref only skips that branch.
 
 Which branch the tree is: CMUX_OWNED_POOL_BRANCH when set; under Actions the
 branch the event targets (GITHUB_BASE_REF for a pull request, else
 GITHUB_REF_NAME, a merge queue's gh-readonly-queue/<branch>/... included, and
-main for any other branch), unless HEAD is not GITHUB_SHA: then the event's ref
-says nothing about the tree. cmux-ci fast checks dispatch on main and check out
-a snapshot of any branch, so a feat-cmux-next tree was judged as main and its own
-rescue (which has no WATCHED_WORKFLOW_PATHS) was read as main's. Such a tree, and
-any tree off CI, is the branch whose freshly fetched tip changes the fewest paths
-under .github/workflows and scripts/ci against it (a snapshot has no history to
-count commits in), skipped when neither branch can be fetched. (Both branches
-carry a cmux-next.yml, so no single file tells them apart.)
+main for any other branch); off CI the branch with fewer commits between it and
+HEAD, skipped when either ref is missing. (Both branches carry a cmux-next.yml,
+so no file tells them apart.)
 """
 
 from __future__ import annotations
 
-import functools
 import os
 import shutil
 import subprocess
@@ -55,58 +43,22 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import owned_pool_sources as sources  # noqa: E402
-# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
-import importlib.util as _git_fixture_importlib  # noqa: E402
-from os import path as _git_fixture_path  # noqa: E402
-_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
-    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
-git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
-_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 FEAT = "feat-cmux-next"
 BRANCHES = {"main": "origin/main", FEAT: "origin/feat-cmux-next"}
 ON_CI = os.environ.get("GITHUB_ACTIONS") == "true"
 
 
-# The checkout every git() call runs in; FetchLeavesTheCheckoutAlone points it at a fixture.
-REPO = ROOT
-
-
 def git(*args: str, stdin: str | None = None) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", "-C", str(REPO), *args], input=stdin, capture_output=True, text=True)
+    return subprocess.run(["git", "-C", str(ROOT), *args], input=stdin, capture_output=True, text=True)
 
 
-def event_describes_tree() -> bool:
-    """Whether the Actions event's ref is this tree's: a pull request's base always is; otherwise HEAD is GITHUB_SHA."""
-    if os.environ.get("GITHUB_BASE_REF"):
-        return True
-    head = git("rev-parse", "HEAD").stdout.strip()
-    return bool(head) and head == os.environ.get("GITHUB_SHA")
-
-
-def nearest_branch() -> str | None:
-    """The branch whose fresh tip changes the fewest workflow and CI script paths against HEAD; None when neither fetches.
-
-    Compares trees only, so it needs no blobs.
-    """
-    changed = {}
-    for name in BRANCHES:
-        fresh = fetch_tip(name)
-        if fresh is None:
-            continue
-        diff = git("diff", "--no-renames", "--name-only", fresh, "HEAD", "--", sources.WORKFLOWS_DIR, "scripts/ci")
-        if diff.returncode == 0:
-            changed[name] = len(diff.stdout.splitlines())
-    return min(changed, key=changed.get) if changed else None
-
-
-@functools.cache
 def branch() -> str | None:
     """main or feat-cmux-next: the branch this tree is (or is going into), or None when it cannot be told."""
     named = os.environ.get("CMUX_OWNED_POOL_BRANCH")
     if named:
         return named
-    if ON_CI and event_describes_tree():
+    if ON_CI:
         ref = os.environ.get("GITHUB_BASE_REF") or os.environ.get("GITHUB_REF_NAME") or ""
         if ref.startswith("gh-readonly-queue/"):
             ref = ref[len("gh-readonly-queue/"):].rsplit("/pr-", 1)[0]
@@ -115,11 +67,13 @@ def branch() -> str | None:
         # A dispatch on a topic branch: judged as main's, the rescue's home.
         print(f"owned pool sources: {ref or 'no ref'} is neither branch; checking it as main", file=sys.stderr)
         return "main"
-    nearest = nearest_branch()
-    if nearest is None and ON_CI:
-        print("owned pool sources: neither branch could be fetched; checking the tree as main", file=sys.stderr)
-        return "main"
-    return nearest
+    ahead = {}
+    for name, ref in BRANCHES.items():
+        counted = git("rev-list", "--count", f"{ref}..HEAD")
+        if counted.returncode != 0:
+            return None
+        ahead[name] = int(counted.stdout.strip() or 0)
+    return min(ahead, key=ahead.get)
 
 
 def on_feat() -> bool:
@@ -134,100 +88,43 @@ def has_ref(ref: str) -> bool:
     return git("rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}").returncode == 0
 
 
-# Where fetch() puts origin's fresh tip of a branch. Not refs/remotes/origin/*: those may be left
-# over from an earlier fetch (a warm checkout, a developer's clone) and name an old commit.
-PRIVATE_REFS = "refs/cmux-owned-pool-sources/"
-
-
-@functools.cache
-def is_shallow() -> bool:
-    return git("rev-parse", "--is-shallow-repository").stdout.strip() == "true"
-
-
-@functools.cache
-def is_partial() -> bool:
-    """Whether this checkout is a partial clone (actions/checkout's filter: blob:none), whose blobs come on demand."""
-    if git("config", "--get", "extensions.partialClone").stdout.strip():
-        return True
-    promisors = git("config", "--get-regexp", r"^remote\..*\.promisor$").stdout.splitlines()
-    return any(line.split()[-1] == "true" for line in promisors if line.split())
-
-
-def already_shallow_and_partial() -> bool:
-    """Whether a shallow blob-less fetch leaves this checkout as it was: already shallow and a partial clone."""
-    return is_shallow() and is_partial()
-
-
-@functools.cache
-def fetch_tip(name: str) -> str | None:
-    """origin's current tip of branch name, as a private ref; None when it cannot be fetched. Once per run.
-
-    Under Actions, in a checkout that is already shallow and blob-less, the tip comes at depth 1 with
-    no blobs (fetch() adds the ones the test reads). Anywhere else it is a plain fetch of that one
-    branch: --depth would make a full checkout shallow, and --filter would make it a partial clone.
-    The checkout is the job's own, shared with every test running beside this one: a --depth=1
-    fetch into car guards' full blob-less checkout wrote .git/shallow under
-    test_cmux_next_guards_notices_pair.py, whose `git clone --shared` of it then fell back to
-    upload-pack and died on a missing blob ("could not fetch ... from promisor remote", cmux#40871).
-    """
-    private = PRIVATE_REFS + name
-    git("update-ref", "-d", private)
-    if ON_CI and already_shallow_and_partial():
-        git("fetch", "--no-tags", "--depth=1", "--filter=blob:none", "origin", f"+refs/heads/{name}:{private}")
-    else:
-        git("fetch", "--no-tags", "origin", f"+refs/heads/{name}:{private}")
-    return private if has_ref(private) else None
-
-
-@functools.cache
-def fetch(ref: str) -> str | None:
-    """fetch_tip() of the branch ref names, with the blobs of the files the detector reads; None when either fails."""
+def fetch(ref: str) -> None:
+    """The other branch's tip with no blobs, then the blobs of the files the detector reads, in two requests."""
     name = next((name for name, known in BRANCHES.items() if known == ref), None)
     if name is None:
-        return None
-    private = fetch_tip(name)
-    if private is None:
-        return None
-    if ON_CI and is_partial():
-        # A tip whose files cannot all be read is no tip: a missing blob would read as a missing file.
-        listing = git("ls-tree", private, f"{sources.WORKFLOWS_DIR}/", "scripts/ci/")
-        if listing.returncode != 0:
-            return None
-        blobs = [line.split()[2] for line in listing.stdout.splitlines() if line.split()[1:2] == ["blob"]]
-        if blobs and git("-c", "fetch.negotiationAlgorithm=noop", "fetch", "--no-tags", "--filter=blob:none",
-                         "--stdin", "origin", stdin="\n".join(blobs) + "\n").returncode != 0:
-            return None
-    return private
+        return
+    git("fetch", "--no-tags", "--depth=1", "--filter=blob:none", "origin",
+        f"+refs/heads/{name}:refs/remotes/{ref}")
+    listing = git("ls-tree", ref, f"{sources.WORKFLOWS_DIR}/", "scripts/ci/")
+    blobs = [line.split()[2] for line in listing.stdout.splitlines() if line.split()[1:2] == ["blob"]]
+    if blobs:
+        git("-c", "fetch.negotiationAlgorithm=noop", "fetch", "--no-tags", "--filter=blob:none", "--stdin",
+            "origin", stdin="\n".join(blobs) + "\n")
 
 
 class OwnedPoolSources(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        # RUNNER_POOLS is the Blacksmith route set, not an owned mini pool. The
-        # policy validator also inspects its JSON members, so exclude that
-        # routing variable from this guard's owned marker before scanning both
-        # branch trees.
-        policy_variables = sources.policy_variables
-        sources.policy_variables = lambda source: policy_variables(source) - {"RUNNER_POOLS"}
-        cls.addClassCleanup(setattr, sources, "policy_variables", policy_variables)
         cls.branch = branch()
         if cls.branch is None:
             raise unittest.SkipTest("cannot tell whether this tree is main or feat-cmux-next (a ref is missing); "
                                     "set CMUX_OWNED_POOL_BRANCH")
         cls.ref = other_ref()
-        fresh = fetch(cls.ref)
-        cls.other = sources.Tree(ROOT, fresh) if fresh is not None else None
+        if not has_ref(cls.ref) and ON_CI:
+            fetch(cls.ref)
+        cls.other = sources.Tree(ROOT, cls.ref) if has_ref(cls.ref) else None
         here = sources.Tree(ROOT)
         cls.trees = [here] + ([cls.other] if cls.other is not None else [])
         rescue_tree = cls.rescue_tree = cls.other if on_feat() else here
         source = rescue_tree.read(sources.RESCUE_SCRIPT) if rescue_tree is not None else None
         cls.watched = sources.watched_paths(source) if source is not None else None
         cls.unrescued = sources.unrescued_paths(source) if source is not None else frozenset()
-        if on_feat():
-            # feat-cmux-next's own copy may acknowledge a feat-only unrescued workflow while main takes no merges.
-            # An unrescued entry changes no behaviour (the rescue acts only on watched paths), so either copy
-            # may hold it; watched paths still come from main's copy, the one that runs.
-            own = here.read(sources.RESCUE_SCRIPT)
+        # Either copy may acknowledge an unrescued workflow (feat-cmux-next #30867 accepts main's on its side). An
+        # unrescued entry changes no behaviour, since the rescue acts only on watched paths, and watched paths
+        # still come from main's copy, the one that runs. feat-cmux-next's copy lists the workflows that read
+        # vars.RUNNER_POOLS.linux there (feat-cmux-next #30878).
+        for tree in cls.trees:
+            own = tree.read(sources.RESCUE_SCRIPT)
             if own is not None and sources.UNRESCUED_NAME in own:
                 cls.unrescued = cls.unrescued | sources.unrescued_paths(own)
         cls.owned = {str(tree): sources.owned_workflows(tree) for tree in cls.trees}
@@ -253,6 +150,76 @@ class OwnedPoolSources(unittest.TestCase):
                      "with why a person re-runs it:"]
                     + [f"  {path}: {why}" for path, why in sorted(missing.items())]))
 
+    def test_every_nightly_sign_verify_and_dmg_job_on_blacksmith_macos_is_rescued(self) -> None:
+        # Run 40585960129 (2026-10-28): nightly-next's signer-verify sat on blacksmith-6vcpu-macos-26 for hours, and
+        # being outside the rescue's table it also held the run's stalled final-DMG verify. The jobs are read from
+        # each branch's nightly.yml, never listed here, so a new or renamed one fails until the rescue covers it.
+        source = self.rescue_tree.read(sources.RESCUE_SCRIPT) if self.rescue_tree is not None else None
+        if source is None:
+            self.skipTest(f"main's {sources.RESCUE_SCRIPT} is not readable here ({self.ref} missing)")
+        table = sources.sign_table(source)
+        for tree in self.trees:
+            text = tree.read(sources.NIGHTLY_WORKFLOW)
+            if text is None:
+                continue
+            with self.subTest(tree=str(tree)):
+                jobs = sources.sign_jobs(text)
+                self.assertTrue(jobs, f"{tree}: no sign or verify job found; the detector no longer matches nightly.yml")
+                # main's nightly still signs on Blacksmith macOS, so an empty candidate list there means the runs-on
+                # detector stopped matching. feat-cmux-next's nightly runs only on owned Macs (d5997935ef7), so it
+                # may have none, but only while none of its sign jobs names Blacksmith or a MACOS_RUNNER variable.
+                hinted = {job: runs_on for job, runs_on in jobs.items()
+                          if "blacksmith" in sources.OUTAGE_MACOS_FALLBACK.sub("", runs_on).lower()
+                          or "MACOS_RUNNER" in runs_on}
+                if tree is self.rescue_tree or hinted:
+                    self.assertTrue(sources.sign_stall_candidates(text), "\n".join(
+                        [f"{tree}: no sign or verify job on a Blacksmith macOS label found; the detector no longer "
+                         "matches nightly.yml:"] + [f"  {job}: {runs_on}" for job, runs_on in sorted(hinted.items())]))
+                missing = sources.uncovered_sign_jobs(text, table)
+                self.assertFalse(missing, "\n".join(
+                    [f"{tree}: these nightly.yml jobs can queue on a Blacksmith macOS label, but main's "
+                     f"{sources.RESCUE_SCRIPT} cannot move them off a stalled one; add each to "
+                     f"{sources.SIGN_TABLE_NAME} with the runs-on expression that gives its re-run another label:"]
+                    + [f"  {job}: {why}" for job, why in sorted(missing.items())]))
+
+    def test_the_sign_stall_detector(self) -> None:
+        table = {"signer-verify": ("needs.pick.outputs.alternate",)}
+        workflow = textwrap.dedent("""
+            jobs:
+              signer-verify:
+                runs-on: ${{ github.run_attempt > 1 && needs.pick.outputs.alternate || 'blacksmith-6vcpu-macos-26' }}
+              signer-dmg-image:
+                runs-on: ${{ vars.MACOS_RUNNER_26 || 'macos-26' }}
+              verify-final-dmg-nightly:
+                runs-on: ${{ needs.pick.outputs.runner || 'blacksmith-12vcpu-macos-26' }}
+              pick-nightly-sign-runner:
+                runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || 'blacksmith-4vcpu-ubuntu-2404' }}
+              build-nightly-app:
+                runs-on: blacksmith-6vcpu-macos-26
+              signer-build:
+                runs-on: blacksmith-8vcpu-ubuntu-2404
+        """)
+        self.assertEqual(sorted(sources.sign_stall_candidates(workflow)),
+                         ["signer-dmg-image", "signer-verify", "verify-final-dmg-nightly"])
+        self.assertEqual(sorted(sources.sign_jobs(workflow)), [
+            "pick-nightly-sign-runner", "signer-build", "signer-dmg-image", "signer-verify", "verify-final-dmg-nightly"])
+        owned_only = textwrap.dedent("""
+            jobs:
+              build-sign-notarize-nightly:
+                runs-on: ${{ needs.pick-nightly-sign-runner.outputs.sign_owned || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER }}
+              verify-signed-nightly:
+                runs-on: ${{ needs.pick-nightly-sign-runner.outputs.owned || 'glaeda-std-xcode-26.6' }}
+        """)
+        self.assertEqual(sorted(sources.sign_jobs(owned_only)), ["build-sign-notarize-nightly", "verify-signed-nightly"])
+        self.assertEqual(sources.sign_stall_candidates(owned_only), {})
+        self.assertEqual(sources.uncovered_sign_jobs(owned_only, {}), {})
+        self.assertEqual(sources.uncovered_sign_jobs(workflow, {**table, "verify-final-dmg-nightly": ("x",)}), {
+            "signer-dmg-image": f"not in {sources.SIGN_TABLE_NAME}",
+            "verify-final-dmg-nightly": "its runs-on takes none of its alternate-label expressions on a re-run"})
+        self.assertEqual(sources.sign_table(
+            'A = "x"\nB = ("y "\n     "z")\nNIGHTLY_SIGN_ALTERNATES: dict = {"j": ("J", (A, B)), "k": ("K", (A,))}\n'),
+            {"j": ("x", "y z"), "k": ("x",)})
+
     def test_every_watched_workflow_is_owned_on_some_branch(self) -> None:
         if self.watched is None or self.other is None:
             self.skipTest("both branches are needed to call an entry stale")
@@ -275,15 +242,7 @@ class OwnedPoolSources(unittest.TestCase):
         if waiting:
             print(f"::warning title=owned pool sources::{sources.RESCUE_SCRIPT} on main leaves to a person "
                   f"workflows that take no owned pool yet: {waiting}; remove any that will not", file=sys.stderr)
-        # A stale watch for a route that moved from an owned marker to a
-        # declared Blacksmith pool is harmless: the rescue never sees an
-        # owned label in that workflow. Keep the warning above for visibility,
-        # but do not fail the source guard on this mechanical route migration.
-        pool_only_stale = {
-            path for path in stale & on_main
-            if any("fromJSON(vars.RUNNER_POOLS)." in (tree.read(path) or "") for tree in self.trees)
-        }
-        self.assertFalse(sorted((stale & on_main) - set(self.unrescued) - pool_only_stale),
+        self.assertFalse(sorted((stale & on_main) - set(self.unrescued)),
                          f"{sources.RESCUE_SCRIPT} watches workflows that take no owned pool on main or "
                          f"feat-cmux-next any more; remove them")
         self.assertFalse(self.watched & self.unrescued, "a workflow is both watched and left to a person")
@@ -426,57 +385,6 @@ class OwnedPoolSources(unittest.TestCase):
         if feat is None:
             self.skipTest("feat-cmux-next's workflows are not readable here")
         self.assertIn(".github/workflows/cmux-next-base-autofix.yml", self.owned[str(feat)])
-
-
-class FetchLeavesTheCheckoutAlone(unittest.TestCase):
-    """Under Actions, fetch() never makes the job's checkout shallow (cmux#40871).
-
-    Every test in a car guards run shares the job's full-history, blob-less checkout. fetch_tip's
-    --depth=1 fetch wrote .git/shallow there, and test_cmux_next_guards_notices_pair.py's clone of
-    the checkout, running beside it, failed on a blob the now-shallow source could not send.
-    """
-
-    def setUp(self) -> None:
-        global REPO, ON_CI
-        saved = REPO, ON_CI
-        self.addCleanup(self.restore, saved)
-        for cached in (fetch_tip, fetch, is_shallow, is_partial):
-            cached.cache_clear()
-            self.addCleanup(cached.cache_clear)
-        ON_CI = True
-        self.tmp = Path(tempfile.mkdtemp(prefix="owned-pool-fetch-"))
-        self.addCleanup(shutil.rmtree, self.tmp, True)
-        work = git_fixture_env.init_repo(self.tmp / "work", "-b", "main")
-        ident = ["-c", "user.name=t", "-c", "user.email=t@example.com"]
-        for number in range(3):
-            (work / sources.WORKFLOWS_DIR).mkdir(parents=True, exist_ok=True)
-            (work / sources.WORKFLOWS_DIR / "ci.yml").write_text(f"name: ci {number}\n")
-            subprocess.run(["git", "-C", str(work), "add", "-A"], check=True)
-            subprocess.run(["git", "-C", str(work), *ident, "commit", "-q", "-m", f"c{number}"], check=True)
-        self.origin = git_fixture_env.clone_repo(work, self.tmp / "origin.git", "--bare")
-        subprocess.run(["git", "-C", str(self.origin), "config", "uploadpack.allowFilter", "true"], check=True)
-
-    @staticmethod
-    def restore(saved: tuple[Path, bool]) -> None:
-        global REPO, ON_CI
-        REPO, ON_CI = saved
-
-    def checkout(self, *args: str) -> Path:
-        global REPO
-        REPO = git_fixture_env.clone_repo(self.origin.as_uri(), self.tmp / "checkout", "--filter=blob:none", *args)
-        return REPO
-
-    def test_a_full_history_blobless_checkout_stays_unshallow(self) -> None:
-        checkout = self.checkout()
-        self.assertEqual(fetch("origin/main"), PRIVATE_REFS + "main")
-        self.assertFalse((checkout / ".git" / "shallow").exists(), "fetch() made the job's checkout shallow")
-        self.assertEqual(git("rev-parse", "--is-shallow-repository").stdout.strip(), "false")
-
-    def test_a_shallow_blobless_checkout_still_gets_the_tip(self) -> None:
-        self.checkout("--depth=1")
-        self.assertEqual(fetch("origin/main"), PRIVATE_REFS + "main")
-        self.assertEqual(git("show", f"{PRIVATE_REFS}main:{sources.WORKFLOWS_DIR}/ci.yml").stdout, "name: ci 2\n")
-
 
 if __name__ == "__main__":
     unittest.main()

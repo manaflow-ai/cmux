@@ -1,0 +1,791 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A3685C2E2FCA3B3700009F1B /* CMUX ExtKit Sample Sidebar Extension.appex in Embed ExtensionKit Extensions */ = {isa = PBXBuildFile; fileRef = A3685C242FCA3B2500009F1B /* CMUX ExtKit Sample Sidebar Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		C0DE47000000000000000001 /* CmuxExtensionKit in Frameworks */ = {isa = PBXBuildFile; productRef = C0DE47000000000000000002 /* CmuxExtensionKit */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A3685BF72FCA3AF000009F1B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A3685BE12FCA3AEE00009F1B /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A3685BE82FCA3AEE00009F1B;
+			remoteInfo = SampleSidebarExtensionApp;
+		};
+		A3685C012FCA3AF000009F1B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A3685BE12FCA3AEE00009F1B /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A3685BE82FCA3AEE00009F1B;
+			remoteInfo = SampleSidebarExtensionApp;
+		};
+		A3685C2F2FCA3B3700009F1B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A3685BE12FCA3AEE00009F1B /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A3685C232FCA3B2500009F1B;
+			remoteInfo = SampleSidebarExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		A3685C312FCA3B3700009F1B /* Embed ExtensionKit Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(EXTENSIONS_FOLDER_PATH)";
+			dstSubfolderSpec = 16;
+			files = (
+				A3685C2E2FCA3B3700009F1B /* CMUX ExtKit Sample Sidebar Extension.appex in Embed ExtensionKit Extensions */,
+			);
+			name = "Embed ExtensionKit Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		A3685BE92FCA3AEE00009F1B /* SampleSidebarExtensionApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = SampleSidebarExtensionApp.app; path = "CMUX ExtKit Sample Sidebar.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		A3685BF62FCA3AF000009F1B /* SampleSidebarExtensionAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SampleSidebarExtensionAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A3685C002FCA3AF000009F1B /* SampleSidebarExtensionAppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SampleSidebarExtensionAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A3685C242FCA3B2500009F1B /* CMUX ExtKit Sample Sidebar Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; path = "CMUX ExtKit Sample Sidebar Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		A3685C292FCA3B2500009F1B /* Exceptions for "SampleSidebarExtension" folder in "SampleSidebarExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = A3685C232FCA3B2500009F1B /* SampleSidebarExtension */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		A3685BEB2FCA3AEE00009F1B /* SampleSidebarExtensionApp */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = SampleSidebarExtensionApp;
+			sourceTree = "<group>";
+		};
+		A3685BF92FCA3AF000009F1B /* SampleSidebarExtensionAppTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = SampleSidebarExtensionAppTests;
+			sourceTree = "<group>";
+		};
+		A3685C032FCA3AF000009F1B /* SampleSidebarExtensionAppUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = SampleSidebarExtensionAppUITests;
+			sourceTree = "<group>";
+		};
+		A3685C252FCA3B2500009F1B /* SampleSidebarExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				A3685C292FCA3B2500009F1B /* Exceptions for "SampleSidebarExtension" folder in "SampleSidebarExtension" target */,
+			);
+			path = SampleSidebarExtension;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A3685BE62FCA3AEE00009F1B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A3685BF32FCA3AF000009F1B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A3685BFD2FCA3AF000009F1B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A3685C212FCA3B2500009F1B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C0DE47000000000000000001 /* CmuxExtensionKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A3685BE02FCA3AEE00009F1B = {
+			isa = PBXGroup;
+			children = (
+				A3685BEB2FCA3AEE00009F1B /* SampleSidebarExtensionApp */,
+				A3685BF92FCA3AF000009F1B /* SampleSidebarExtensionAppTests */,
+				A3685C032FCA3AF000009F1B /* SampleSidebarExtensionAppUITests */,
+				A3685C252FCA3B2500009F1B /* SampleSidebarExtension */,
+				A3685C2D2FCA3B3700009F1B /* Frameworks */,
+				A3685BEA2FCA3AEE00009F1B /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A3685BEA2FCA3AEE00009F1B /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A3685BE92FCA3AEE00009F1B /* SampleSidebarExtensionApp.app */,
+				A3685BF62FCA3AF000009F1B /* SampleSidebarExtensionAppTests.xctest */,
+				A3685C002FCA3AF000009F1B /* SampleSidebarExtensionAppUITests.xctest */,
+				A3685C242FCA3B2500009F1B /* CMUX ExtKit Sample Sidebar Extension.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A3685C2D2FCA3B3700009F1B /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A3685BE82FCA3AEE00009F1B /* SampleSidebarExtensionApp */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A3685C0A2FCA3AF000009F1B /* Build configuration list for PBXNativeTarget "SampleSidebarExtensionApp" */;
+			buildPhases = (
+				A3685BE52FCA3AEE00009F1B /* Sources */,
+				A3685BE62FCA3AEE00009F1B /* Frameworks */,
+				A3685BE72FCA3AEE00009F1B /* Resources */,
+				A3685C312FCA3B3700009F1B /* Embed ExtensionKit Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A3685C302FCA3B3700009F1B /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A3685BEB2FCA3AEE00009F1B /* SampleSidebarExtensionApp */,
+			);
+			name = SampleSidebarExtensionApp;
+			packageProductDependencies = (
+			);
+			productName = SampleSidebarExtensionApp;
+			productReference = A3685BE92FCA3AEE00009F1B /* SampleSidebarExtensionApp.app */;
+			productType = "com.apple.product-type.application";
+		};
+		A3685BF52FCA3AF000009F1B /* SampleSidebarExtensionAppTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A3685C0D2FCA3AF000009F1B /* Build configuration list for PBXNativeTarget "SampleSidebarExtensionAppTests" */;
+			buildPhases = (
+				A3685BF22FCA3AF000009F1B /* Sources */,
+				A3685BF32FCA3AF000009F1B /* Frameworks */,
+				A3685BF42FCA3AF000009F1B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A3685BF82FCA3AF000009F1B /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A3685BF92FCA3AF000009F1B /* SampleSidebarExtensionAppTests */,
+			);
+			name = SampleSidebarExtensionAppTests;
+			packageProductDependencies = (
+			);
+			productName = SampleSidebarExtensionAppTests;
+			productReference = A3685BF62FCA3AF000009F1B /* SampleSidebarExtensionAppTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		A3685BFF2FCA3AF000009F1B /* SampleSidebarExtensionAppUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A3685C102FCA3AF000009F1B /* Build configuration list for PBXNativeTarget "SampleSidebarExtensionAppUITests" */;
+			buildPhases = (
+				A3685BFC2FCA3AF000009F1B /* Sources */,
+				A3685BFD2FCA3AF000009F1B /* Frameworks */,
+				A3685BFE2FCA3AF000009F1B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A3685C022FCA3AF000009F1B /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A3685C032FCA3AF000009F1B /* SampleSidebarExtensionAppUITests */,
+			);
+			name = SampleSidebarExtensionAppUITests;
+			packageProductDependencies = (
+			);
+			productName = SampleSidebarExtensionAppUITests;
+			productReference = A3685C002FCA3AF000009F1B /* SampleSidebarExtensionAppUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		A3685C232FCA3B2500009F1B /* SampleSidebarExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A3685C2A2FCA3B2500009F1B /* Build configuration list for PBXNativeTarget "SampleSidebarExtension" */;
+			buildPhases = (
+				A3685C202FCA3B2500009F1B /* Sources */,
+				A3685C212FCA3B2500009F1B /* Frameworks */,
+				A3685C222FCA3B2500009F1B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				A3685C252FCA3B2500009F1B /* SampleSidebarExtension */,
+			);
+			name = SampleSidebarExtension;
+			packageProductDependencies = (
+				C0DE47000000000000000002 /* CmuxExtensionKit */,
+			);
+			productName = SampleSidebarExtension;
+			productReference = A3685C242FCA3B2500009F1B /* CMUX ExtKit Sample Sidebar Extension.appex */;
+			productType = "com.apple.product-type.extensionkit-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A3685BE12FCA3AEE00009F1B /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2650;
+				LastUpgradeCheck = 2650;
+				TargetAttributes = {
+					A3685BE82FCA3AEE00009F1B = {
+						CreatedOnToolsVersion = 26.5;
+					};
+					A3685BF52FCA3AF000009F1B = {
+						CreatedOnToolsVersion = 26.5;
+						TestTargetID = A3685BE82FCA3AEE00009F1B;
+					};
+					A3685BFF2FCA3AF000009F1B = {
+						CreatedOnToolsVersion = 26.5;
+						TestTargetID = A3685BE82FCA3AEE00009F1B;
+					};
+					A3685C232FCA3B2500009F1B = {
+						CreatedOnToolsVersion = 26.5;
+					};
+				};
+			};
+			buildConfigurationList = A3685BE42FCA3AEE00009F1B /* Build configuration list for PBXProject "SampleSidebarExtensionApp" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A3685BE02FCA3AEE00009F1B;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				C0DE47000000000000000003 /* XCLocalSwiftPackageReference "../../Packages/macOS/CmuxExtensionKit" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = A3685BEA2FCA3AEE00009F1B /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A3685BE82FCA3AEE00009F1B /* SampleSidebarExtensionApp */,
+				A3685BF52FCA3AF000009F1B /* SampleSidebarExtensionAppTests */,
+				A3685BFF2FCA3AF000009F1B /* SampleSidebarExtensionAppUITests */,
+				A3685C232FCA3B2500009F1B /* SampleSidebarExtension */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A3685BE72FCA3AEE00009F1B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A3685BF42FCA3AF000009F1B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A3685BFE2FCA3AF000009F1B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A3685C222FCA3B2500009F1B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A3685BE52FCA3AEE00009F1B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A3685BF22FCA3AF000009F1B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A3685BFC2FCA3AF000009F1B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A3685C202FCA3B2500009F1B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A3685BF82FCA3AF000009F1B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A3685BE82FCA3AEE00009F1B /* SampleSidebarExtensionApp */;
+			targetProxy = A3685BF72FCA3AF000009F1B /* PBXContainerItemProxy */;
+		};
+		A3685C022FCA3AF000009F1B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A3685BE82FCA3AEE00009F1B /* SampleSidebarExtensionApp */;
+			targetProxy = A3685C012FCA3AF000009F1B /* PBXContainerItemProxy */;
+		};
+		A3685C302FCA3B3700009F1B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A3685C232FCA3B2500009F1B /* SampleSidebarExtension */;
+			targetProxy = A3685C2F2FCA3B3700009F1B /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		A3685C082FCA3AF000009F1B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		A3685C092FCA3AF000009F1B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		A3685C0B2FCA3AF000009F1B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CMUX_SIDEBAR_EXTENSION_POINT_ID = com.cmuxterm.app.cmux.sidebar;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				CMUX_BUNDLE_ID_SUFFIX = "";
+				PRODUCT_BUNDLE_IDENTIFIER = "co.manaflow.CMUXExtKitSampleSidebarApp$(CMUX_BUNDLE_ID_SUFFIX)";
+				PRODUCT_NAME = "CMUX ExtKit Sample Sidebar";
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		A3685C0C2FCA3AF000009F1B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CMUX_SIDEBAR_EXTENSION_POINT_ID = com.cmuxterm.app.cmux.sidebar;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				CMUX_BUNDLE_ID_SUFFIX = "";
+				PRODUCT_BUNDLE_IDENTIFIER = "co.manaflow.CMUXExtKitSampleSidebarApp$(CMUX_BUNDLE_ID_SUFFIX)";
+				PRODUCT_NAME = "CMUX ExtKit Sample Sidebar";
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		A3685C0E2FCA3AF000009F1B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = co.manaflow.SampleSidebarExtensionAppTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SampleSidebarExtensionApp.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/SampleSidebarExtensionApp";
+			};
+			name = Debug;
+		};
+		A3685C0F2FCA3AF000009F1B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = co.manaflow.SampleSidebarExtensionAppTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SampleSidebarExtensionApp.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/SampleSidebarExtensionApp";
+			};
+			name = Release;
+		};
+		A3685C112FCA3AF000009F1B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = co.manaflow.SampleSidebarExtensionAppUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = SampleSidebarExtensionApp;
+			};
+			name = Debug;
+		};
+		A3685C122FCA3AF000009F1B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = co.manaflow.SampleSidebarExtensionAppUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = SampleSidebarExtensionApp;
+			};
+			name = Release;
+		};
+		A3685C2B2FCA3B2500009F1B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CMUX_SIDEBAR_EXTENSION_POINT_ID = com.cmuxterm.app.cmux.sidebar;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				ENABLE_APP_SANDBOX = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = SampleSidebarExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "CMUX ExtKit Sample Sidebar$(CMUX_DISPLAY_NAME_SUFFIX)";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				CMUX_BUNDLE_ID_SUFFIX = "";
+				CMUX_DISPLAY_NAME_SUFFIX = "";
+				PRODUCT_BUNDLE_IDENTIFIER = "co.manaflow.CMUXExtKitSampleSidebarApp$(CMUX_BUNDLE_ID_SUFFIX).Extension";
+				PRODUCT_NAME = "CMUX ExtKit Sample Sidebar Extension";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		A3685C2C2FCA3B2500009F1B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CMUX_SIDEBAR_EXTENSION_POINT_ID = com.cmuxterm.app.cmux.sidebar;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				ENABLE_APP_SANDBOX = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = SampleSidebarExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "CMUX ExtKit Sample Sidebar$(CMUX_DISPLAY_NAME_SUFFIX)";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				CMUX_BUNDLE_ID_SUFFIX = "";
+				CMUX_DISPLAY_NAME_SUFFIX = "";
+				PRODUCT_BUNDLE_IDENTIFIER = "co.manaflow.CMUXExtKitSampleSidebarApp$(CMUX_BUNDLE_ID_SUFFIX).Extension";
+				PRODUCT_NAME = "CMUX ExtKit Sample Sidebar Extension";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A3685BE42FCA3AEE00009F1B /* Build configuration list for PBXProject "SampleSidebarExtensionApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A3685C082FCA3AF000009F1B /* Debug */,
+				A3685C092FCA3AF000009F1B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A3685C0A2FCA3AF000009F1B /* Build configuration list for PBXNativeTarget "SampleSidebarExtensionApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A3685C0B2FCA3AF000009F1B /* Debug */,
+				A3685C0C2FCA3AF000009F1B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A3685C0D2FCA3AF000009F1B /* Build configuration list for PBXNativeTarget "SampleSidebarExtensionAppTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A3685C0E2FCA3AF000009F1B /* Debug */,
+				A3685C0F2FCA3AF000009F1B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A3685C102FCA3AF000009F1B /* Build configuration list for PBXNativeTarget "SampleSidebarExtensionAppUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A3685C112FCA3AF000009F1B /* Debug */,
+				A3685C122FCA3AF000009F1B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A3685C2A2FCA3B2500009F1B /* Build configuration list for PBXNativeTarget "SampleSidebarExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A3685C2B2FCA3B2500009F1B /* Debug */,
+				A3685C2C2FCA3B2500009F1B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		C0DE47000000000000000003 /* XCLocalSwiftPackageReference "../../Packages/macOS/CmuxExtensionKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../../Packages/macOS/CmuxExtensionKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		C0DE47000000000000000002 /* CmuxExtensionKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0DE47000000000000000003 /* XCLocalSwiftPackageReference "../../Packages/macOS/CmuxExtensionKit" */;
+			productName = CmuxExtensionKit;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = A3685BE12FCA3AEE00009F1B /* Project object */;
+}

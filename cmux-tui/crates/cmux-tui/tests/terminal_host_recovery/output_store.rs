@@ -1,25 +1,23 @@
-//! Terminal output lives in the output store, never in the session journal
-//! (cmux-tui-core output_store.rs), with `terminal.persistence.mode`:
-//! `memory` (nothing on disk), `snapshot` (default: one compressed screen
-//! per terminal, written only when it changed) or `full` (also every byte in
-//! compressed segment files).
+//! Terminal output lives in the daemon's output store, never in the session
+//! journal (port of feat #22937). `CMUX_TUI_TERMINAL_PERSISTENCE` selects
+//! `memory` (nothing on disk) or `snapshot` (the default: one compressed
+//! screen per terminal, written only when it changed).
 //!
 //! An agent TUI that waits for input redraws its cursor about 40 times a
-//! second. Each redraw used to be one `terminal.output` journal row with a
-//! synced commit: about 25 MB/s of disk writes from three idle agents, and a
-//! 41.6 GB registry. These tests run the real daemon and check, at its files
-//! and its socket:
-//! - idle redrawing terminals change no file in the state folder in any mode
-//!   and add no journal row: the terminal's `last_output` time is a live
-//!   fact for the open streams, not a commit (`mux/terminal_live.rs`);
-//! - after the daemon and its terminal hosts are killed (a reboot), the
-//!   respawned terminal shows its earlier screen in `snapshot` and `full`,
-//!   and nothing of it in `memory`, which leaves no output file on disk.
+//! second. Each redraw was one `terminal.output` journal row with a synced
+//! commit: about 25 MB/s of disk writes from three idle agents. Output that
+//! never stops also kept the journal head moving, so a checkpoint could not
+//! find a stable cut, and one flooding terminal filled the shared terminal
+//! lane and dropped the output of every other terminal. These tests run the
+//! real daemon and check, at its files and its socket:
+//! - idle redrawing terminals change no file in the state folder, and the
+//!   journal holds no output;
+//! - a checkpoint succeeds while a terminal floods output;
+//! - a terminal that prints while another one floods (with the journal
+//!   writer held) keeps its output.
 //!
-//! `CMUX_OUTPUT_STORE_IDLE_SECS` sets the idle window (default 10 s); a
-//! measurement run uses 60 and `--nocapture` for the numbers.
+//! `CMUX_OUTPUT_STORE_IDLE_SECS` sets the idle window (default 10 s).
 
-use super::pty_custody::{kill_shell_then_host, send_line};
 use super::*;
 
 /// The frame an idle agent TUI repeats (from a NIGHTLY journal): a
@@ -27,6 +25,11 @@ use super::*;
 const REDRAW_SCRIPT: &str = "while :; do printf '\\033[?2026h\\033[39m\\033[49m\\033[0m\\033[20;3H\\033[?25h\\033[?2026l'; sleep 0.025; done";
 const IDLE_TERMINALS: usize = 3;
 const SNAPSHOT_INTERVAL_MS: &str = "300";
+/// Output that does not stop: 256 KiB blocks with no pause.
+const FLOOD_SCRIPT: &str =
+    "while :; do /usr/bin/head -c 262144 /dev/zero | /usr/bin/tr '\\0' x; done";
+/// The journal's terminal lane holds 1024 chunks (journal_ingress.rs).
+const TERMINAL_LANE_CHUNKS: u64 = 1024;
 
 fn idle_window() -> Duration {
     Duration::from_secs(
@@ -100,54 +103,7 @@ fn journal_output_rows(state: &Path) -> i64 {
         .unwrap()
 }
 
-/// (bytes written by write calls, CPU time) of `pid` (Linux; `None` elsewhere).
-fn process_io(pid: u32) -> Option<(u64, Duration)> {
-    if !cfg!(target_os = "linux") {
-        return None;
-    }
-    let io = fs::read_to_string(format!("/proc/{pid}/io")).ok()?;
-    let wchar = io.lines().find_map(|line| line.strip_prefix("wchar: "))?.trim().parse().ok()?;
-    let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-    let fields = stat.rsplit(')').next()?.split_whitespace().collect::<Vec<_>>();
-    let ticks: u64 = fields.get(11)?.parse::<u64>().ok()? + fields.get(12)?.parse::<u64>().ok()?;
-    // SAFETY: sysconf has no preconditions.
-    let hertz = u64::try_from(unsafe { libc::sysconf(libc::_SC_CLK_TCK) }).ok()?.max(1);
-    Some((wchar, Duration::from_millis(ticks * 1000 / hertz)))
-}
-
-/// The journal's row count per kind.
-fn journal_kinds(state: &Path) -> std::collections::BTreeMap<String, i64> {
-    let connection = rusqlite::Connection::open_with_flags(
-        registry_path(state),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .unwrap();
-    let mut statement =
-        connection.prepare("SELECT kind, count(*) FROM session_journal GROUP BY kind").unwrap();
-    statement
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
-        .unwrap()
-        .map(Result::unwrap)
-        .collect()
-}
-
-/// Whether `path` is the registry database or its WAL or shared-memory file.
-fn is_registry_file(path: &Path) -> bool {
-    path.file_name().and_then(|name| name.to_str()).is_some_and(|name| {
-        name.strip_prefix("workspace-registry.sqlite3")
-            .is_some_and(|rest| rest.is_empty() || rest == "-wal" || rest == "-shm")
-    })
-}
-
-/// Whether `path` is the daemon's slow request log or its older file (cmux-tui-core
-/// diagnostics/request_log.rs): a record of a slow request or a long lock hold, never output.
-fn is_slow_request_log(path: &Path) -> bool {
-    path.file_name()
-        .is_some_and(|name| name == "slow-requests.jsonl" || name == "slow-requests.jsonl.1")
-}
-
 fn idle_terminals_write_nothing(mode: &str) {
-    let _exclusive = exclusive_process_test();
     let harness = harness(&format!("output-idle-{mode}"), mode);
     for index in 0..IDLE_TERMINALS {
         request(
@@ -161,57 +117,12 @@ fn idle_terminals_write_nothing(mode: &str) {
     wait_for_host_records(&harness.host_root(), IDLE_TERMINALS);
     // First frames, the first snapshots and the startup commits settle.
     std::thread::sleep(Duration::from_secs(3));
-    let pid = harness.child.as_ref().unwrap().id();
-    let journal_before = journal_kinds(&harness.state);
     let before = file_states(&harness.state);
-    let io_before = process_io(pid);
-    let window = idle_window();
-    std::thread::sleep(window);
+    std::thread::sleep(idle_window());
     let after = file_states(&harness.state);
-    let io_after = process_io(pid);
-    if let (Some((written_before, cpu_before)), Some((written_after, cpu_after))) =
-        (io_before, io_after)
-    {
-        eprintln!(
-            "output-store idle {mode}: {IDLE_TERMINALS} redrawing terminals for {}s: daemon \
-             write() {} bytes ({:.1} B/s), CPU {} ms ({:.2}% of one core)",
-            window.as_secs(),
-            written_after - written_before,
-            (written_after - written_before) as f64 / window.as_secs_f64(),
-            (cpu_after - cpu_before).as_millis(),
-            (cpu_after - cpu_before).as_secs_f64() * 100.0 / window.as_secs_f64(),
-        );
-    }
-    // The terminals' last_output time is a live fact: it adds no journal row.
-    let journal_after = journal_kinds(&harness.state);
-    let grown = journal_after
-        .iter()
-        .filter_map(|(kind, rows)| {
-            let added = rows - journal_before.get(kind).copied().unwrap_or(0);
-            (added != 0).then(|| (kind.clone(), added))
-        })
-        .collect::<std::collections::BTreeMap<_, _>>();
-    assert!(
-        grown.is_empty(),
-        "idle redrawing terminals added journal rows in {mode} mode: {grown:?}"
-    );
-    // A request or a lock hold that passes the 100 ms limit of the slow request log in the window
-    // (a loaded host) adds a record there. That file is diagnostics, not terminal output: it is
-    // printed here and is not part of the assert below.
-    for (path, len, _) in after.iter().filter(|state| !before.contains(state)) {
-        if is_slow_request_log(path) {
-            let text = fs::read_to_string(path).unwrap_or_default();
-            eprintln!(
-                "output-store idle {mode}: the slow request log changed in the idle window (not \
-                 part of this assert): {} ({len} bytes)\n{text}",
-                path.display()
-            );
-        }
-    }
     let changed = after
         .iter()
         .filter(|state| !before.contains(state))
-        .filter(|(path, _, _)| !is_registry_file(path) && !is_slow_request_log(path))
         .map(|(path, len, _)| format!("{} ({len} bytes)", path.display()))
         .collect::<Vec<_>>();
     assert!(
@@ -235,347 +146,141 @@ fn idle_redrawing_terminals_write_nothing_in_snapshot_mode() {
     idle_terminals_write_nothing("snapshot");
 }
 
+/// #39865 open item 2 (run 3): with output in the journal, a terminal that
+/// never stops printing moves the journal head during every capture
+/// attempt, and `session.journal.checkpoint.create` fails with "session
+/// changed during checkpoint capture". Output is not in the journal, so the
+/// cut is stable while the terminal prints.
 #[test]
-fn idle_redrawing_terminals_write_nothing_in_full_mode() {
-    idle_terminals_write_nothing("full");
-}
-
-/// The line a respawn writes below the previous screen.
-const RESPAWN_MARKER: &str = "session restored (previous process ended)";
-
-/// A plain `sh` in a new workspace: (public terminal id, incarnation, surface).
-fn start_shell(harness: &RecoveryHarness, name: &str) -> (String, String, u64) {
-    let workspace = create_empty_workspace(&harness.socket, &format!("{name}-workspace"), name);
-    let run = resource_request(
+fn checkpoint_succeeds_while_a_terminal_floods_output() {
+    let harness = RecoveryHarness::start("output-store-flood-checkpoint");
+    let created = request(
         &harness.socket,
-        &format!("{name}-run"),
-        "workspace.run",
         serde_json::json!({
-            "machine":"current",
-            "session":"current",
-            "workspace":workspace,
-            "argv":["/bin/sh"],
+            "id":1,"cmd":"run","argv":["/bin/sh","-c",FLOOD_SCRIPT],
+            "new_workspace":true,"cols":120,"rows":40,
         }),
-        Some(&format!("{name}-run")),
     );
-    let terminal_id = run["value"]["terminal_id"].as_str().unwrap().to_string();
-    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
-    loop {
-        let resolved = request(
-            &harness.socket,
-            serde_json::json!({"cmd":"resolve-terminal","terminal_id":terminal_id}),
-        );
-        if let Some(surface) = resolved["surface"].as_u64() {
-            let incarnation = resolved["terminal_incarnation"].as_str().unwrap().to_string();
-            return (terminal_id, incarnation, surface);
-        }
-        assert!(Instant::now() < deadline, "the shell has no surface: {resolved}");
-        std::thread::sleep(Duration::from_millis(25));
-    }
-}
-
-/// The surface of `terminal_id` once it runs an incarnation other than `old`.
-fn respawned_surface(harness: &RecoveryHarness, terminal_id: &str, old: &str) -> u64 {
-    let deadline = Instant::now() + test_timeout(Duration::from_secs(15));
-    loop {
-        let resolved = request(
-            &harness.socket,
-            serde_json::json!({"cmd":"resolve-terminal","terminal_id":terminal_id}),
-        );
-        let incarnation = resolved["terminal_incarnation"].as_str().unwrap_or_default();
-        if !incarnation.is_empty()
-            && incarnation != old
-            && let Some(surface) = resolved["surface"].as_u64()
-        {
-            return surface;
-        }
-        assert!(Instant::now() < deadline, "the terminal was not respawned: {resolved}");
-        std::thread::sleep(Duration::from_millis(50));
-    }
-}
-
-/// Lines the restore tests print: more than the in-memory output tail
-/// (64 KiB) holds, so the oldest are only in full mode's segment files.
-const RESTORE_LINES: usize = 20_000;
-
-struct Restored {
-    /// `terminal.output_read` from offset 0 just before the crash.
-    oldest_read: serde_json::Value,
-    /// The respawned terminal's screen.
-    screen: String,
-    state: PathBuf,
-    /// Kept alive: dropping it removes the state folder.
-    _harness: RecoveryHarness,
-}
-
-/// Print [`RESTORE_LINES`] numbered lines and a marker, wait for the
-/// writer, read the oldest output, then kill the daemon, the shell and its
-/// host (a crash, then a reboot) and start a new daemon.
-fn restore_after_reboot(mode: &str) -> Restored {
-    let mut harness = harness(&format!("output-restore-{mode}"), mode);
-    let (terminal_id, incarnation, surface) = start_shell(&harness, "restore");
-    send_line(&harness.socket, surface, &format!("seq -f 'restore-line-%g' 1 {RESTORE_LINES}"));
-    send_line(&harness.socket, surface, "printf 'restore-%s\\n' marker");
-    wait_for_screen(&harness.socket, surface, "restore-marker\n");
-    // The writer runs one interval after the last output.
-    std::thread::sleep(Duration::from_millis(SNAPSHOT_INTERVAL_MS.parse::<u64>().unwrap() * 5));
-    let oldest_read =
-        output_read(&harness.socket, "restore-oldest", &terminal_id, Some("0"), Some(4096));
-    let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
-    harness.signal_daemon(libc::SIGSTOP);
-    kill_shell_then_host(&record_path, &record);
-    harness.sigkill();
-    harness.restart();
-    let surface = respawned_surface(&harness, &terminal_id, &incarnation);
-    let screen = wait_for_screen(&harness.socket, surface, RESPAWN_MARKER);
-    let state = harness.state.clone();
-    Restored { oldest_read, screen, state, _harness: harness }
-}
-
-#[test]
-fn snapshot_mode_restores_the_screen_after_a_crash_and_reboot() {
-    let _exclusive = exclusive_process_test();
-    let restored = restore_after_reboot("snapshot");
+    let surface = created["surface"].as_u64().unwrap();
+    // The flood runs before the first checkpoint.
     assert!(
-        restored.screen.contains("restore-marker"),
-        "the screen was not restored: {}",
-        restored.screen
+        wait_for_screen(&harness.socket, surface, "xxxxxxxx").contains("xxxxxxxx"),
+        "the flooding terminal printed nothing"
     );
-    // The in-memory tail holds only the newest output.
-    assert_ne!(restored.oldest_read["start_offset"], "0", "{}", restored.oldest_read);
-    assert!(!files_named(&restored.state, "snap").is_empty(), "snapshot mode wrote no snapshot");
-    assert!(files_named(&restored.state, "seg").is_empty(), "snapshot mode wrote segments");
-    assert_eq!(journal_output_rows(&restored.state), 0, "the journal holds terminal output");
-}
-
-/// The screen after a quit and a reboot: the daemon prints a line (its
-/// generation's first snapshot), then a marker the snapshot interval (600
-/// s) leaves to the tail, and stops on SIGTERM (an update, a logout). The
-/// shell and its host die (the reboot) and a new daemon starts: the
-/// respawned terminal shows the marker only if the quit stored it. Returns
-/// (the screen, whether a tail file outlived the quit). Other builds as the
-/// reader: kill_all_restore.rs, `quit_then_reboot_matrix`.
-fn screen_after_quit_then_reboot(name: &str) -> (String, bool) {
-    let mut harness = RecoveryHarness::start_unstarted(name);
-    harness.extra_env.push(("CMUX_TUI_TERMINAL_PERSISTENCE".into(), "snapshot".into()));
-    harness.extra_env.push(("CMUX_TUI_TEST_OUTPUT_SNAPSHOT_INTERVAL_MS".into(), "600000".into()));
-    harness.restart();
-    let (terminal_id, incarnation, surface) = start_shell(&harness, "quit-reboot");
-    send_line(&harness.socket, surface, "printf 'first-%s\\n' line");
-    wait_for_screen(&harness.socket, surface, "first-line\n");
-    // The generation's first snapshot is written at once; the tail
-    // continues it from the next output.
-    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
-    while files_named(&harness.state, "snap").is_empty() {
-        assert!(Instant::now() < deadline, "no snapshot of the new terminal");
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    send_line(&harness.socket, surface, "printf 'quit-%s\\n' marker");
-    wait_for_screen(&harness.socket, surface, "quit-marker\n");
-    let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
-    harness.terminate();
-    let tail_kept = !files_named(&harness.state, "tail").is_empty();
-    kill_shell_then_host(&record_path, &record);
-    harness.restart();
-    let surface = respawned_surface(&harness, &terminal_id, &incarnation);
-    (wait_for_screen(&harness.socket, surface, RESPAWN_MARKER), tail_kept)
-}
-
-#[test]
-fn the_screen_a_quit_stores_survives_a_reboot() {
-    let _exclusive = exclusive_process_test();
-    let (screen, tail_kept) = screen_after_quit_then_reboot("quit-reboot-same");
-    assert!(screen.contains("quit-marker"), "the quit lost the last output: {screen}");
-    assert!(screen.contains("first-line"), "the quit lost the snapshot's screen: {screen}");
-    assert!(tail_kept, "the quit rewrote the snapshot instead of keeping the tail");
-}
-
-/// A terminal on the alternate screen at quit gets a snapshot, not only its
-/// tail: a build before ed6ab5728d8c (2026-11-10) rebuilds a snapshot plus a
-/// tail that ends on the alternate screen without the primary screen and its
-/// scrollback (the rollback matrix in kill_all_restore.rs lost 64 of 64
-/// lines with reader 91caaf25), and a snapshot of this build keeps both.
-#[test]
-fn a_quit_stores_a_terminal_on_the_alternate_screen_in_a_snapshot() {
-    let _exclusive = exclusive_process_test();
-    let mut harness = RecoveryHarness::start_unstarted("quit-alt-snapshot");
-    harness.extra_env.push(("CMUX_TUI_TERMINAL_PERSISTENCE".into(), "snapshot".into()));
-    harness.extra_env.push(("CMUX_TUI_TEST_OUTPUT_SNAPSHOT_INTERVAL_MS".into(), "600000".into()));
-    harness.restart();
-    let (_, _, surface) = start_shell(&harness, "quit-alt");
-    send_line(&harness.socket, surface, "printf 'primary-%s\\n' line");
-    wait_for_screen(&harness.socket, surface, "primary-line\n");
-    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
-    while files_named(&harness.state, "snap").is_empty() {
-        assert!(Instant::now() < deadline, "no snapshot of the new terminal");
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    send_line(
-        &harness.socket,
-        surface,
-        "printf '\\033[?1049h\\033[2J\\033[H'; printf 'alt-%s' shown; read x",
-    );
-    wait_for_screen(&harness.socket, surface, "alt-shown");
-    // Past the tail's flush: the alternate screen's bytes are in the tail.
-    std::thread::sleep(Duration::from_millis(500));
-    let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
-    harness.terminate();
-    let tails = files_named(&harness.state, "tail")
-        .into_iter()
-        .filter(|path| fs::metadata(path).is_ok_and(|metadata| metadata.len() > 0))
-        .collect::<Vec<_>>();
-    assert!(
-        tails.is_empty(),
-        "the quit left a terminal on the alternate screen to its tail: {tails:?}"
-    );
-    kill_shell_then_host(&record_path, &record);
-}
-
-#[test]
-fn full_mode_keeps_every_byte_and_restores_the_screen_after_a_crash_and_reboot() {
-    let _exclusive = exclusive_process_test();
-    let restored = restore_after_reboot("full");
-    assert!(
-        restored.screen.contains("restore-marker"),
-        "the screen was not restored: {}",
-        restored.screen
-    );
-    // The oldest output comes back from the segment files.
-    assert_eq!(restored.oldest_read["start_offset"], "0", "{}", restored.oldest_read);
-    assert!(
-        restored.oldest_read["text"].as_str().unwrap().contains("restore-line-1\n"),
-        "full mode lost the oldest output: {}",
-        restored.oldest_read
-    );
-    assert!(!files_named(&restored.state, "seg").is_empty(), "full mode wrote no segment file");
-    assert_eq!(journal_output_rows(&restored.state), 0, "the journal holds terminal output");
-}
-
-#[test]
-fn memory_mode_keeps_no_output_on_disk_and_loses_it_after_a_reboot() {
-    let _exclusive = exclusive_process_test();
-    let restored = restore_after_reboot("memory");
-    assert!(
-        !restored.screen.contains("restore-marker") && !restored.screen.contains("restore-line-"),
-        "memory mode restored output from disk: {}",
-        restored.screen
-    );
-    let stored =
-        [files_named(&restored.state, "snap"), files_named(&restored.state, "seg")].concat();
-    assert!(stored.is_empty(), "memory mode wrote output files: {stored:?}");
-    assert_eq!(journal_output_rows(&restored.state), 0, "the journal holds terminal output");
-}
-
-/// History rows `surface` can scroll back to.
-fn history_rows(harness: &RecoveryHarness, surface: u64) -> u64 {
-    request(
-        &harness.socket,
-        serde_json::json!({"cmd":"read-scrollback","surface":surface,"start":0,"count":1}),
-    )["total"]
-        .as_u64()
-        .unwrap()
-}
-
-/// Past `terminal.scrollback.maxTotalMemoryBytes` the terminals that printed
-/// least recently give back scrollback first; the most recent keeps its own
-/// Ghostty `scrollback-limit`.
-#[test]
-fn idle_terminals_give_back_scrollback_past_the_total_memory_budget() {
-    let _exclusive = exclusive_process_test();
-    let mut harness = RecoveryHarness::start_unstarted("output-memory-budget");
-    harness
-        .extra_env
-        .push(("CMUX_TUI_TEST_OUTPUT_SNAPSHOT_INTERVAL_MS".into(), SNAPSHOT_INTERVAL_MS.into()));
-    // 16 MiB for four terminals that each fill a 10 MB scrollback.
-    harness
-        .extra_env
-        .push(("CMUX_TUI_TERMINAL_SCROLLBACK_MEMORY_BYTES".into(), (16 << 20).to_string()));
-    harness.restart();
-    let mut surfaces = Vec::new();
-    for index in 0..4 {
-        let done = format!("budget-done-{index}");
-        let created = request(
+    for attempt in 0..3 {
+        let key = format!("output-store-flood-checkpoint-{attempt}");
+        let checkpoint = request_response(
             &harness.socket,
             serde_json::json!({
-                "id":index,"cmd":"run",
-                "argv":["/bin/sh","-c",format!(
-                    "seq -f 'budget line %g padded to look like a long build log line' 1 40000; \
-                     echo {done}; exec sleep 600"
-                )],
-                "new_workspace":true,"cols":120,"rows":40,
+                "protocol":"cmux.protocol/2",
+                "type":"request",
+                "id":key,
+                "operation":"session.journal.checkpoint.create",
+                "params":{"machine":"current","session":"current"},
+                "idempotency_key":key,
             }),
         );
-        let surface = created["surface"].as_u64().unwrap();
-        wait_for_screen(&harness.socket, surface, &done);
-        surfaces.push(surface);
+        assert_eq!(
+            checkpoint["ok"], true,
+            "checkpoint {attempt} failed while a terminal flooded output: {checkpoint}"
+        );
     }
-    let first_full = history_rows(&harness, surfaces[3]);
-    // The writer's pass runs one interval after the last output.
-    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    close_terminal_surface(&harness.socket, surface, 2);
+}
+
+/// #39865 open item 3 (fairness): the journal's terminal lane is shared.
+/// With the journal writer held (a slow disk), one flooding terminal filled
+/// it, and a second terminal that printed one line then lost that line: the
+/// line went to a gap, and `terminal.output_read` never had it. Output is
+/// kept per terminal in the output store, so the flood cannot take the
+/// other terminal's output.
+#[test]
+fn flooding_terminal_does_not_drop_another_terminals_output() {
+    let harness = RecoveryHarness::start_with_terminal_journal_hold("output-store-fair");
+    let pid = std::process::id();
+    // Both terminals wait for one input line, so neither prints before the
+    // test is ready.
+    let flood = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":1,"cmd":"run",
+            "argv":["/bin/sh","-c",format!(
+                "read line; /usr/bin/head -c 100663296 /dev/zero | /usr/bin/tr '\\0' x; \
+                 printf '\\n%s-%s\\n' flood done-{pid}; exec sleep 600"
+            )],
+            "new_workspace":true,"cols":120,"rows":40,
+        }),
+    );
+    let quiet = request(
+        &harness.socket,
+        serde_json::json!({
+            "id":2,"cmd":"run",
+            "argv":["/bin/sh","-c","read line; printf '%s-%s\\n' quiet \"$line\"; exec sleep 600"],
+            "new_workspace":true,"cols":120,"rows":40,
+        }),
+    );
+    let flood_surface = flood["surface"].as_u64().unwrap();
+    let quiet_surface = quiet["surface"].as_u64().unwrap();
+    let flood_terminal = terminal_resource_id(&harness.socket, flood_surface, 3);
+    let quiet_terminal = terminal_resource_id(&harness.socket, quiet_surface, 4);
+
+    let started = terminal_input_request(
+        &harness.socket,
+        "output-store-fair-flood",
+        "terminal.input.write",
+        serde_json::json!({"text":"go\n"}),
+        &flood_terminal,
+    );
+    assert_eq!(started["ok"], true, "starting the flood failed: {started}");
+    // The flood is past the journal's terminal lane when the lane is full
+    // (output in the journal) or the flood has ended (output in the store).
+    let flood_done = format!("flood-done-{pid}");
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(120));
     loop {
-        let oldest = history_rows(&harness, surfaces[0]);
-        let newest = history_rows(&harness, surfaces[3]);
-        if oldest * 3 < newest {
-            assert_eq!(newest, first_full, "the most recent terminal lost scrollback");
+        let stats = request(&harness.socket, serde_json::json!({"id":5,"cmd":"server-stats"}));
+        let queued = stats["journal_writer"]["terminal_queued"].as_u64().unwrap_or(0);
+        if queued >= TERMINAL_LANE_CHUNKS {
+            break;
+        }
+        let screen = request(
+            &harness.socket,
+            serde_json::json!({"cmd":"read-screen","surface":flood_surface}),
+        )["text"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        if screen.contains(&flood_done) {
             break;
         }
         assert!(
             Instant::now() < deadline,
-            "the idle terminal kept {oldest} rows next to {newest} over the memory budget"
+            "the flood neither filled the terminal lane nor ended: {stats}"
         );
-        std::thread::sleep(Duration::from_millis(100));
+        std::thread::sleep(Duration::from_millis(50));
     }
-}
 
-/// The total budget holds while terminals print, not one writer interval
-/// later (P-AUSTIN B8, #27693, #27702). The budget pass used to run only on
-/// the snapshot writer's timer (30 s), so a flood grew the daemon past the
-/// budget for that whole interval: 16 terminals at 1 MB/s with a 1 GB
-/// `scrollback-limit` took the daemon to 2.25 GB against the 256 MiB budget
-/// before the pass cut it back (cmux20, 2026-10-30). The interval here is one
-/// hour, so only the growth itself can start the pass.
-#[test]
-fn the_total_memory_budget_holds_while_terminals_print_not_one_interval_later() {
-    let _exclusive = exclusive_process_test();
-    let mut harness = RecoveryHarness::start_unstarted("output-memory-budget-growth");
-    harness
-        .extra_env
-        .push(("CMUX_TUI_TEST_OUTPUT_SNAPSHOT_INTERVAL_MS".into(), (3_600_000).to_string()));
-    // 16 MiB for four terminals that each fill a 10 MB scrollback.
-    harness
-        .extra_env
-        .push(("CMUX_TUI_TERMINAL_SCROLLBACK_MEMORY_BYTES".into(), (16 << 20).to_string()));
-    harness.restart();
-    let mut surfaces = Vec::new();
-    for index in 0..4 {
-        let done = format!("growth-done-{index}");
-        let created = request(
-            &harness.socket,
-            serde_json::json!({
-                "id":index,"cmd":"run",
-                "argv":["/bin/sh","-c",format!(
-                    "seq -f 'budget line %g padded to look like a long build log line' 1 40000; \
-                     echo {done}; exec sleep 600"
-                )],
-                "new_workspace":true,"cols":120,"rows":40,
-            }),
-        );
-        let surface = created["surface"].as_u64().unwrap();
-        wait_for_screen(&harness.socket, surface, &done);
-        surfaces.push(surface);
-    }
-    let deadline = Instant::now() + test_timeout(Duration::from_secs(30));
-    loop {
-        let oldest = history_rows(&harness, surfaces[0]);
-        let newest = history_rows(&harness, surfaces[3]);
-        if oldest * 3 < newest {
-            break;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "four full terminals kept {oldest} and {newest} rows over the 16 MiB budget: \
-             the budget waited for the writer's interval instead of the growth"
-        );
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    // The input line is not echoed under `sh -c`; only the printf prints
+    // the marker.
+    let marker = format!("quiet-marker-{pid}");
+    let typed = terminal_input_request(
+        &harness.socket,
+        "output-store-fair-quiet",
+        "terminal.input.write",
+        serde_json::json!({"text":format!("marker-{pid}\n")}),
+        &quiet_terminal,
+    );
+    assert_eq!(typed["ok"], true, "typing into the quiet terminal failed: {typed}");
+    assert!(
+        wait_for_screen(&harness.socket, quiet_surface, &marker).contains(&marker),
+        "the quiet terminal did not print its marker"
+    );
+
+    harness.release_terminal_journal();
+    let read = output_read(&harness.socket, "output-store-fair-read", &quiet_terminal, None, None);
+    assert!(
+        read["text"].as_str().unwrap().contains(&marker),
+        "a flooding terminal dropped another terminal's output: {read}"
+    );
+    close_terminal_surface(&harness.socket, flood_surface, 6);
+    close_terminal_surface(&harness.socket, quiet_surface, 7);
 }

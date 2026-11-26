@@ -21,9 +21,7 @@ The TUI depends on three provider concepts:
 
 A descriptor has a process-local key, a provider-stable id, a display name, an optional subtitle, and one of `running`, `connecting`, `sleeping`, `stopped`, or `unavailable`. Keys route UI actions only and must not be persisted. Provider-stable ids own deduplication and reconnection.
 
-Descriptors may also carry optional `platform` (`os` and `arch`) and capability-name metadata after the client opt-in described below. Missing metadata means unknown. These fields grant no connection, execution, or lifecycle authority. A provider-stable opaque id is not the native owner's canonical `identify.machine_id`; a connected route binds to that owner through the native handshake.
-
-The app owns focus, selection, the shared rail renderer, terminal mirrors, and minimum layout sizes. A provider owns discovery, authentication, authorization, lifecycle operations, and connection establishment. A connector owns message framing and process cleanup. The mux does not own provider discovery or lifecycle operations. Its resource API may expose a bounded catalog projection published by a verified app; that projection grants no transport or session access.
+The app owns focus, selection, the shared rail renderer, terminal mirrors, and minimum layout sizes. A provider owns discovery, authentication, authorization, lifecycle operations, and connection establishment. A connector owns message framing and process cleanup. The mux server remains unaware of the catalog.
 
 ## Implemented v0
 
@@ -57,8 +55,6 @@ The connector generates a fresh cryptographically random bearer for every contro
 The successful `hello` response envelope may advertise additive string capabilities. `machine-lifecycle-v1` enables `machine_lifecycle_snapshot`, `rename_machine`, `delete_machine`, `restore_machine`, and `purge_machine`. `workspace-lifecycle-v1` enables `workspace_snapshot`, `rename_workspace`, `delete_workspace`, `restore_workspace`, and `purge_workspace`. `workspace-mirror-authority-v1` lets `open_machine` bind a provider-owned workspace catalog to the selected mux. `durable-notices-v1` enables `subscribe_notices` and `acknowledge_notice`. `connect-external-machine-v1` enables the typed `connect_external_machine` mutation. `client-capability-negotiation-v1` lets an updated client call `negotiate_client_capabilities` immediately after `hello` and before its first snapshot. The provider returns the accepted subset and scopes it to that control generation. Missing or unknown capabilities are safe: a client must not send a gated request unless the matching capability was advertised for that control generation. A client connected to a legacy or rolled-back v1 provider therefore uses the base snapshot and hides managed lifecycle actions. Response-envelope metadata accepts unknown fields, so legacy clients ignore capabilities advertised by a newer provider.
 
 `provider-action-targets-v1` is a client capability. A provider may serialize non-scope `ProviderAction.target` values only after accepting that capability. Before negotiation, or when an older client proceeds directly from `hello` to `snapshot`, the provider must remove targeted actions and omit the default `scope` target from retained actions. The same filtering applies to every `SnapshotResult`, including snapshots nested in `select_scope`. This preserves strict older v1 decoders, which reject an unknown `target` field. Updated clients also discard unnegotiated targeted actions from a nonconforming provider. `connection-progress-v1` is an optional client capability that permits advisory `connection_progress` events while `open_machine` is in flight.
-
-`machine-metadata-v1` is a separate client capability for the optional machine `platform` and `capabilities` fields. An updated client offers it only when `hello` advertises `client-capability-negotiation-v1`. A provider must omit both fields from every snapshot-shaped response unless it accepted this capability for the current control generation. The protocol helper `SnapshotResult.retain_actions_for_client_capabilities` filters these fields as well as action targets; its existing name remains source compatible. Older clients never offer the new capability, so their strict descriptor decoders receive the original shape. Updated clients discard unsolicited metadata from legacy providers and providers that declined the capability. Reconnection resets the accepted set; acceptance on a previous generation grants nothing on the next.
 
 The Unix connector opens the configured socket for control and each machine stream. The command connector starts one control process and a new stream process per ticket. The SSH connector starts its control process with `ControlMaster=yes` and each stream with `ControlMaster=no`, all using one unpredictable socket path inside a mode-0700 directory. A new provider generation receives a new bearer and SSH master path. Closing a connection terminates its child process; releasing the generation removes the private directory.
 
@@ -97,20 +93,6 @@ durability boundary. A later snapshot refresh failure must not turn an
 accepted mutation into a failed mutation or cause the client to issue it
 again.
 
-The client keeps a mutation's `mutation_id` until it sees a definite answer:
-success or a non-retryable provider failure. After a timeout, disconnect,
-protocol error, or retryable failure the outcome is unknown, so the next
-identical request, such as a second click on `new machine` in the same scope,
-replays the same id and receives the one committed result instead of creating
-a second machine.
-The client never forgets an unsettled `mutation_id` to make room. It keeps up
-to 32 at once; while 32 wait for an answer, a request with a new intent fails
-with a clear error before it reaches the provider, and a retry of a waiting
-request still replays its id. A definite answer frees that request's slot.
-Every mutation, `connect_external_machine` included, takes this one path. A
-first attempt that fails before its frame is written (the provider does not
-advertise the capability, or the client is not authenticated) holds no slot.
-
 The provider emits `snapshot_changed`, `connection_closed`, `notice`, and `connection_progress` events. Snapshot changes are invalidations: the client fetches the latest snapshot instead of applying deltas. A bounded full subscriber queue may coalesce invalidations without unsubscribing. Provider disconnect cancels pending requests and closes subscribers.
 
 When the client offers `connection-progress-v1` in `negotiate_client_capabilities` and the provider accepts it, the provider may emit `connection_progress` events while an `open_machine` request is in flight. Each event carries the machine id and a short human-readable stage ("resuming the machine", "waiting for sshd") that the client renders on the connection interstitial. The events are advisory and additive: they never replace the `open_machine` response, arrive only between the request and its response for that machine, and a client that did not negotiate the capability receives none. Ordering within one open is the provider's narration order; a client must tolerate zero events, and must clear rendered progress when the open settles either way.
@@ -136,7 +118,7 @@ scoped per-frontend or per-operation capabilities.
 
 A provider-authorized mux starts in provider-managed mode before accepting its first control connection. Ordinary rename and close commands are blocked immediately. The provider frontend includes the authority only in the private mirror handshake and post-provider rename or close commit; the mux compares it in constant time. This prevents an ordinary control-socket client from claiming ownership or forging a mirror commit after a provider mutation succeeds.
 
-Control requests time out after 30 seconds. `create_machine` and `create_workspace` wait up to 150 seconds, above a cloud create's 120 second reservation, so a slow create finishes instead of showing an error while the machine is still coming up. Machine open may wait up to five minutes for provisioning or wake. Each request kind names its bound in the client, and a test fails when a request carrying a `mutation_id` stays on the 30 second bound without a listed reason. Control frames are limited to 1 MiB, while machine transport frames are limited to 64 MiB for browser and scrollback payloads. Opaque ids, external-machine specifiers, and bearer values are bounded. Bearer, external-machine specifier, and mux-authority debug output is redacted. Their owned allocations and serialized control buffers are overwritten when no longer needed.
+Control requests time out after 30 seconds. Machine open may wait up to five minutes for provisioning or wake. Control frames are limited to 1 MiB, while machine transport frames are limited to 64 MiB for browser and scrollback payloads. Opaque ids, external-machine specifiers, and bearer values are bounded. Bearer, external-machine specifier, and mux-authority debug output is redacted. Their owned allocations and serialized control buffers are overwritten when no longer needed.
 
 On Linux, a mux with `CMUX_PROVIDER_WORKSPACE_AUTHORITY` must set `PR_SET_DUMPABLE=0` before retaining the authority, overwrite the value in the original environment block, and unset the variable before spawning terminals or helpers. Startup fails closed when the non-dumpable state cannot be established. This blocks same-UID host-workspace shells from reading the authority through `/proc/<pid>/environ`, `/proc/<pid>/mem`, or ptrace. The VM's root user remains trusted and can replace or inspect the mux process.
 

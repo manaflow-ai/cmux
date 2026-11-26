@@ -30,15 +30,6 @@ import select
 import signal
 import sys
 import time
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cmux-next'))
-try:
-    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
-except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
-    def safe_print(*args, **kwargs):
-        try:
-            print(*args, **kwargs)
-        except (BrokenPipeError, OSError, ValueError):
-            pass
 
 
 def main() -> int:
@@ -51,7 +42,7 @@ def main() -> int:
     if argv and argv[0] == "--":
         argv = argv[1:]
     if not argv:
-        safe_print("pty-run.py: no command given", file=sys.stderr)
+        sys.stderr.write("pty-run.py: no command given\n")
         return 126
 
     pid, master = pty.fork()
@@ -61,7 +52,7 @@ def main() -> int:
         try:
             os.execvp(argv[0], argv)
         except OSError as exc:
-            safe_print(f"pty-run.py: cannot run {argv[0]}: {exc}", file=sys.stderr)
+            sys.stderr.write(f"pty-run.py: cannot run {argv[0]}: {exc}\n")
             os._exit(126)
 
     deadline = time.monotonic() + args.timeout if args.timeout > 0 else None

@@ -7,10 +7,9 @@
 //! notifications will hook in later.
 
 use std::collections::{HashMap, HashSet};
-use std::time::Instant;
 
-use cmux_tui_core::{AgentStatus, BrowserStatus, Rect, ShownProgramStatus, SurfaceKind};
-use ghostty_vt::{ProgramStatusState, RenderState};
+use cmux_tui_core::{AgentStatus, BrowserStatus, Rect, SurfaceKind};
+use ghostty_vt::RenderState;
 use ratatui::Frame;
 use ratatui::style::{Color, Modifier, Style};
 use unicode_width::UnicodeWidthStr;
@@ -39,29 +38,6 @@ fn border_style(app: &App, focused: bool) -> Style {
         app.chrome.border_fg
     };
     Style::default().fg(color)
-}
-
-/// The OSC 7501 mark after a tab's title: a working program's progress
-/// (`40%`, or `⋯` without one), `!` while it waits on the user, `✗` after it
-/// failed. A finished program shows nothing; its notification marks the tab.
-fn program_status_mark(status: ShownProgramStatus) -> Option<String> {
-    match status.state {
-        ProgramStatusState::Working => {
-            Some(status.progress.map_or_else(|| "⋯".to_owned(), |progress| format!("{progress}%")))
-        }
-        ProgramStatusState::Blocked => Some("!".to_owned()),
-        ProgramStatusState::Error => Some("✗".to_owned()),
-        _ => None,
-    }
-}
-
-/// Waiting and failed programs tint their tab like a warning or an error.
-fn program_status_color(theme: &Theme, status: ShownProgramStatus) -> Option<Color> {
-    match status.state {
-        ProgramStatusState::Blocked => Some(theme.notification_warning),
-        ProgramStatusState::Error => Some(theme.notification_error),
-        _ => None,
-    }
 }
 
 fn notification_color(theme: &Theme, notification: TabNotificationView) -> Color {
@@ -128,22 +104,11 @@ pub fn draw_all(app: &mut App, frame: &mut Frame) -> DrawCursors {
     app.rendered_pane_content_generations.retain(|surface, _| visible_surfaces.contains(surface));
     let mut input_cursor = None;
     let mut terminal_cursor = None;
-    let floating_start = (!app.docks.floating_panes.is_empty())
-        .then(|| {
-            app.pane_areas.iter().position(|area| app.docks.floating_panes.contains(&area.pane))
-        })
-        .flatten();
     // PaneArea is Copy, so take one snapshot per iteration instead of cloning
     // the entire vector on every frame. The copy also ends the borrow before
     // the drawing helpers mutate the app's render hit maps.
     for index in 0..app.pane_areas.len() {
         let area = app.pane_areas[index];
-        if Some(index) == floating_start {
-            // Floating docks draw over the stage: the stage's hits under
-            // them must not win the first-match lookup.
-            let floating = app.docks.floating_rects().collect::<Vec<_>>();
-            app.hits.retain(|(rect, _)| !floating.iter().any(|over| rects_overlap(*rect, *over)));
-        }
         let focused = panes_accept_focus && Some(area.pane) == active_pane;
         draw_box(app, frame, &area, focused);
         if area.bar.is_some() {
@@ -162,13 +127,6 @@ pub fn draw_all(app: &mut App, frame: &mut Frame) -> DrawCursors {
     DrawCursors { input: input_cursor, terminal: terminal_cursor }
 }
 
-fn rects_overlap(a: Rect, b: Rect) -> bool {
-    a.x < b.x.saturating_add(b.width)
-        && b.x < a.x.saturating_add(a.width)
-        && a.y < b.y.saturating_add(b.height)
-        && b.y < a.y.saturating_add(a.height)
-}
-
 /// The pane's border box. The top row is left to the tab bar; here we
 /// draw the left/right/bottom edges and the corners.
 fn draw_box(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool) {
@@ -179,17 +137,15 @@ fn draw_box(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool) {
     let screen = frame.area();
     let theme = app.config.theme;
     let buf = frame.buffer_mut();
-    let active_tab = app.tree.pane(area.pane).and_then(|pane| pane.tabs.get(pane.active_tab));
-    let marked = active_tab.is_some_and(|tab| tab.attention.is_some());
-    let notification =
-        active_tab.and_then(|tab| tab.notification).filter(|notification| notification.unread);
-    let style = if marked {
-        Style::default().fg(theme.notification_warning)
-    } else {
-        notification
-            .map(|notification| Style::default().fg(notification_color(&theme, notification)))
-            .unwrap_or_else(|| border_style(app, focused))
-    };
+    let notification = app
+        .tree
+        .pane(area.pane)
+        .and_then(|pane| pane.tabs.get(pane.active_tab))
+        .and_then(|tab| tab.notification)
+        .filter(|notification| notification.unread);
+    let style = notification
+        .map(|notification| Style::default().fg(notification_color(&theme, notification)))
+        .unwrap_or_else(|| border_style(app, focused));
     let glyphs = theme.border_style.glyphs();
     let (x0, y0) = (rect.x, rect.y);
     let (x1, y1) = (rect.x + rect.width - 1, rect.y + rect.height - 1);
@@ -275,10 +231,10 @@ fn tab_scroll_for_active(
 
 fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool) {
     let Some(bar) = area.bar else { return };
-    // A docked workspace's panes draw beside the active screen's.
-    let Some(pane) = app.tree.pane(area.pane) else { return };
+    let Some(screen_view) = app.tree.active_screen() else { return };
+    let Some(pane) = screen_view.pane(area.pane) else { return };
     let tab_cfg = app.config.tabs.clone();
-    let tabs: Vec<(String, Option<String>, Option<AgentStatus>)> = pane
+    let tabs: Vec<(String, Option<AgentStatus>)> = pane
         .tabs
         .iter()
         .enumerate()
@@ -291,15 +247,7 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
             {
                 label.push_str(" •");
             }
-            // An agent's `cmux attention request` mark reads like a program
-            // that waits on the user.
-            let mark = t.program_status.and_then(program_status_mark);
-            let mark = if t.attention.is_some() && mark.as_deref() != Some("!") {
-                Some(mark.map_or_else(|| "!".to_owned(), |mark| format!("{mark} !")))
-            } else {
-                mark
-            };
-            (label, mark, agent)
+            (label, agent)
         })
         .collect();
     let active_tab = pane.active_tab;
@@ -395,15 +343,11 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     // Each label, and the cell offset of its agent status glyph.
     let (labels, agent_glyphs): (Vec<String>, Vec<Option<(u16, AgentStatus)>>) = tabs
         .iter()
-        .map(|(t, mark, agent)| {
-            // The agent's status leads; the program status mark follows the
-            // truncated title so both always show.
-            let glyph = agent.map(crate::sidebar_status::status_glyph);
-            let label = match (glyph, mark) {
-                (Some(glyph), Some(mark)) => format!(" {glyph} {} {mark} ", truncate(t, 16)),
-                (Some(glyph), None) => format!(" {glyph} {} ", truncate(t, 16)),
-                (None, Some(mark)) => format!(" {} {mark} ", truncate(t, 16)),
-                (None, None) => format!(" {} ", truncate(t, 16)),
+        .map(|(t, agent)| {
+            // The agent's status glyph leads the truncated title.
+            let label = match agent.map(crate::sidebar_status::status_glyph) {
+                Some(glyph) => format!(" {glyph} {} ", truncate(t, 16)),
+                None => format!(" {} ", truncate(t, 16)),
             };
             // Pad to the configured minimum width, keeping the text centered-ish.
             let short = min_w.saturating_sub(label.width());
@@ -454,16 +398,10 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         }
         let is_active = i == active_tab;
         let mut style = if is_active { active_style } else { base };
-        if pane.tabs.get(i).is_some_and(|tab| tab.attention.is_some()) {
-            style = style.fg(theme.notification_warning);
-        } else if let Some(notification) =
+        if let Some(notification) =
             pane.tabs[i].notification.filter(|notification| notification.unread)
         {
             style = style.fg(notification_color(&theme, notification));
-        } else if let Some(color) =
-            pane.tabs[i].program_status.and_then(|status| program_status_color(&theme, status))
-        {
-            style = style.fg(color);
         }
         if tab_drag.is_some_and(|drag| pane.tabs[i].surface == drag.surface) {
             style = style.add_modifier(Modifier::DIM);
@@ -585,12 +523,7 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         .render_states
         .entry(area.surface)
         .or_insert_with(|| RenderState::new().expect("render state alloc"));
-    // A synchronized update draws as one frame (app/synchronized_output.rs).
-    let synchronized = surface.synchronized_update();
-    let Ok(render) =
-        app.synchronized_output
-            .frame(area.surface, synchronized, Instant::now(), || surface.render_frame(rs))
-    else {
+    let Ok(render) = surface.render_frame(rs) else {
         return DrawCursors::default();
     };
     let source_x = area.content_source_x();
@@ -831,5 +764,93 @@ fn push_resize_hits(app: &mut App, area: &PaneArea) {
 }
 
 #[cfg(test)]
-#[path = "pane_tests.rs"]
-mod tests;
+mod tests {
+    use super::{client_border_labels, clip_tab_bar_rect, tab_scroll_for_active};
+    use crate::session::{ClientInfo, ClientSizeInfo};
+    use cmux_tui_core::Rect;
+
+    #[test]
+    fn offscreen_tab_hit_clipping_returns_none_without_underflow() {
+        let bar = Rect { x: 0, y: 0, width: 8, height: 1 };
+        let logical = Rect { x: 1, y: 0, width: 3, height: 1 };
+        assert_eq!(clip_tab_bar_rect(logical, bar, 10), None);
+    }
+
+    #[test]
+    fn tab_scroll_preserves_requested_offset_when_active_range_fits() {
+        assert_eq!(tab_scroll_for_active(&[4, 5, 6, 7], 2, 1, 15, 1, 1), 1);
+    }
+
+    #[test]
+    fn tab_scroll_advances_to_the_first_offset_that_fits_active_tab() {
+        assert_eq!(tab_scroll_for_active(&[4, 5, 6, 7], 3, 0, 16, 1, 1), 2);
+    }
+
+    #[test]
+    fn tab_scroll_handles_a_large_tab_set_without_changing_selection_semantics() {
+        let widths = vec![3; 100_000];
+        assert_eq!(tab_scroll_for_active(&widths, 99_999, 0, 12, 1, 1), 99_997);
+    }
+
+    fn client(id: u64, surface: u64, size: Option<(u16, u16)>) -> ClientInfo {
+        ClientInfo {
+            client: id,
+            transport: "unix".to_string(),
+            name: None,
+            kind: Some("tui".to_string()),
+            connected_seconds: 0,
+            attached: vec![surface],
+            sizes: vec![ClientSizeInfo {
+                surface,
+                cols: size.map(|size| size.0),
+                rows: size.map(|size| size.1),
+                size_participating: true,
+            }],
+            is_self: id == 1,
+        }
+    }
+
+    #[test]
+    fn attached_but_hidden_client_does_not_show_on_pane_border() {
+        let clients = vec![client(1, 9, Some((80, 24))), client(2, 9, None)];
+        assert_eq!(client_border_labels(&clients).get(&9), None);
+    }
+
+    #[test]
+    fn client_button_shows_shared_minimum_after_all_sizes_arrive() {
+        let clients = vec![client(1, 9, Some((120, 30))), client(2, 9, Some((80, 40)))];
+        assert_eq!(
+            client_border_labels(&clients).get(&9).map(String::as_str),
+            Some(" 2 clients · 80×30 min ")
+        );
+    }
+
+    #[test]
+    fn client_button_shows_fallback_minimum_when_every_viewer_is_excluded() {
+        let mut clients = vec![client(1, 9, Some((120, 30))), client(2, 9, Some((80, 40)))];
+        for client in &mut clients {
+            client.sizes[0].size_participating = false;
+        }
+
+        assert_eq!(
+            client_border_labels(&clients).get(&9).map(String::as_str),
+            Some(" 2 clients · 80×30 min ")
+        );
+    }
+
+    #[test]
+    fn unsized_participant_suppresses_excluded_report_fallback() {
+        let mut clients =
+            vec![client(1, 9, Some((120, 30))), client(2, 9, Some((80, 40))), client(3, 9, None)];
+        clients[0].sizes[0].size_participating = false;
+        clients[1].sizes[0].size_participating = false;
+
+        assert_eq!(client_border_labels(&clients).get(&9), None);
+    }
+
+    #[test]
+    fn client_visible_on_another_tab_does_not_show_on_this_pane_border() {
+        let clients = vec![client(1, 9, Some((120, 30))), client(2, 10, Some((80, 40)))];
+        assert_eq!(client_border_labels(&clients).get(&9), None);
+    }
+}

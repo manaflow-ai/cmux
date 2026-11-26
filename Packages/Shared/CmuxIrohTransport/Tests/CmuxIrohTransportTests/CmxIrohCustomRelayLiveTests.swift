@@ -1,10 +1,5 @@
-#if canImport(IrohLib)
 import CMUXMobileCore
-#if canImport(CryptoKit)
 import CryptoKit
-#else
-import Crypto
-#endif
 import Foundation
 import Testing
 @testable import CmuxIrohTransport
@@ -520,4 +515,3 @@ struct CmxIrohCustomRelayLiveTests {
         return result
     }
 }
-#endif

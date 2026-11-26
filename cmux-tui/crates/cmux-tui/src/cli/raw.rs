@@ -18,63 +18,35 @@ pub(super) struct RawCommandPlan {
     pub stream: bool,
 }
 
-/// The commands whose reply names a terminal or view: `cmux raw` declares
-/// `terminal-public-ids-v1` before them, so the reply carries the public
-/// ids (`terminal_resource_id`, `tab_id`, ...) every selector takes (W5-P).
-const PUBLIC_ID_COMMANDS: &[&str] = &[
-    "run",
-    "create-terminal",
-    "resolve-terminal",
-    "move-terminal",
-    "new-tab",
-    "new-browser-tab",
-    "new-workspace",
-    "new-screen",
-    "new-pane",
-    "new-pane-right",
-    "split",
-    "new-row",
-];
-
-/// The id of the `set-client-info` line that declares the capability; its
-/// reply is not the raw request's.
-const DECLARE_ID: &str = "cmux-raw-terminal-public-ids";
-
-/// The line that declares `terminal-public-ids-v1` before `request`, for a
-/// command whose reply names a terminal or view; `None` for other commands.
-fn capability_line(request: &Value) -> Option<Vec<u8>> {
-    let cmd = request.get("cmd").and_then(Value::as_str)?;
-    if !PUBLIC_ID_COMMANDS.contains(&cmd) {
-        return None;
-    }
-    let declare = json!({
-        "id": DECLARE_ID,
-        "cmd": "set-client-info",
-        "capabilities": [cmux_tui_core::server::TERMINAL_PUBLIC_IDS_CAPABILITY],
-    });
-    serde_json::to_vec(&declare).ok()
-}
-
 pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
     let expected_id = plan.request.get("id").cloned();
     let encoded = match serde_json::to_vec(&plan.request) {
         Ok(encoded) if encoded.len() <= MAX_MESSAGE_BYTES => encoded,
         Ok(_) => {
-            eprintln!("cmux: raw request exceeds the 4 MiB protocol limit");
+            eprintln!(
+                "{}: raw request exceeds the 4 MiB protocol limit",
+                crate::cli::program_name()
+            );
             return 2;
         }
         Err(error) => {
-            eprintln!("cmux: cannot encode raw request: {error}");
+            eprintln!("{}: cannot encode raw request: {error}", crate::cli::program_name());
             return 2;
         }
     };
-    let (socket, socket_is_derived) = match super::wire::resolve_socket_or_report(&global) {
+    let (socket, socket_is_derived) = match super::wire::resolve_socket_with_origin(&global) {
         Ok(resolved) => resolved,
-        Err(code) => return code,
+        Err(_) => {
+            eprintln!("{}", crate::localization::catalog().startup.invalid_session_name);
+            return 2;
+        }
     };
     let stream = match cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived) {
         Ok(stream) => stream,
-        Err(error) => return super::wire::report_connect_failure(&socket, &error, global.output),
+        Err(error) => {
+            eprintln!("cannot connect to session socket {}: {error}", socket.display());
+            return 3;
+        }
     };
     let _ = stream.set_read_timeout(if plan.stream { None } else { Some(Duration::from_secs(10)) });
     #[cfg(unix)]
@@ -82,16 +54,9 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
         return 3;
     }
     let mut reader = BufReader::new(stream);
-    // The daemon runs one connection's requests in order, so the capability
-    // applies to the request; an older daemon ignores a capability it lacks.
-    let mut lines = capability_line(&plan.request).unwrap_or_default();
-    if !lines.is_empty() {
-        lines.push(b'\n');
-    }
-    lines.extend_from_slice(&encoded);
     if let Err(error) = reader
         .get_mut()
-        .write_all(&lines)
+        .write_all(&encoded)
         .and_then(|_| reader.get_mut().write_all(b"\n"))
         .and_then(|_| reader.get_mut().flush())
     {
@@ -137,9 +102,7 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
             }
             continue;
         }
-        if expected_id.as_ref().is_some_and(|id| value.get("id") != Some(id))
-            || value.get("id").and_then(Value::as_str) == Some(DECLARE_ID)
-        {
+        if expected_id.as_ref().is_some_and(|id| value.get("id") != Some(id)) {
             continue;
         }
         if value.get("ok").and_then(Value::as_bool) == Some(true) {
@@ -229,5 +192,28 @@ fn read_line_limited(
 }
 
 #[cfg(test)]
-#[path = "raw_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn raw_plan_keeps_the_exact_private_object() {
+        let request = json!({"id": 7, "cmd": "private-operation", "opaque": {"x": true}});
+        let plan = RawCommandPlan { request: request.clone(), stream: false };
+        assert_eq!(plan.request, request);
+    }
+
+    #[test]
+    fn explicit_session_precedes_ambient_socket_fallbacks() {
+        let global = GlobalArgs { session: Some("session-alpha".into()), ..GlobalArgs::default() };
+        let socket = super::super::wire::resolve_socket_with_env(&global, |_| {
+            Some("/tmp/stale.sock".into())
+        })
+        .expect("session socket path should resolve");
+
+        assert_eq!(
+            socket.0,
+            cmux_tui_core::server::try_default_socket_path("session-alpha")
+                .expect("session socket path should resolve")
+        );
+    }
+}

@@ -11,67 +11,23 @@ import CmuxHomeRender
 public final class MessagesLabHomeView: NSView {
     let controller: ChatController
     let projection: HomeProjection
-    /// The app supplies its existing person-input classifier; an unconfigured view grants nothing.
-    public var isPersonApprovalEvent: (NSEvent) -> Bool {
-        get { projection.isPersonApprovalEvent }
-        set { projection.isPersonApprovalEvent = newValue }
-    }
-    public var approvals: (any HomeApprovalDeciding)? {
-        get { projection.approvals }
-        set { projection.approvals = newValue }
-    }
-    /// A message field took the keyboard (its `becomeFirstResponder` succeeded), with the field: the host app's
-    /// launch mark for "the window takes keys" (cmux NEXT's `window_usable`). Nil: nothing is told.
-    public var onComposerFocused: ((NSView) -> Void)?
     private var warmed = false
-    private var appliedComposerSpellChecking: Bool?
-    /// The palette generation this view's rows were last refreshed for (applyTheme).
-    private var appliedPalette = -1
-    /// The strings bundle this view's text was last drawn with (useStrings).
-    private var appliedStrings = ObjectIdentifier(MessagesLabLocalization.bundle)
 
     /// - Parameters:
     ///   - store: the app's HomeStore (one per daemon session; the view never creates one).
     ///   - wake: the engine clock's one-shot timer (CmuxNext: DemandTimer).
-    ///   - diagrams: draws ```` ```mermaid ```` fences as diagram bubbles (CmuxNext: the
-    ///     JavaScriptCore Ondine renderer); nil keeps them as text.
-    ///   - replies: how an agent's running reply shows: ``HomeReplyDisplay/wholeMessages`` (default:
-    ///     typing dots, then each message whole) or the older token-by-token stream bubble.
-    public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, wake: any ChatWakeScheduler,
-                diagrams: (any HomeDiagramRendering)? = nil,
-                replies: HomeReplyDisplay = .wholeMessages) {
+    public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, wake: any ChatWakeScheduler) {
         MessagesLabHomeView.liveFormatting()
         HomeMarkdownPolicy.install()
-        // Before the projection maps its first messages, so a diagram never shows as text first.
-        if let diagrams { HomeDiagramRowProvider.install(diagrams) }
-        // An agent's pipe tables as full-width table and plan cards (Leo 2026-10-20).
-        HomeTableRowProvider.install()
-        // Agent-message folds as muted caption lines, not bubbles (user 2026-10-31).
-        HomeAgentFoldRowProvider.install()
         controller = ChatController(wake: wake)
         // Link cards fetch their preview (title, image) for links the user or an agent sent (README).
         projection = HomeProjection(store: store, conversation: conversation, me: me, controller: controller,
-                                    linkPreviews: HomeLinkPreviews(), replies: replies)
+                                    linkPreviews: HomeLinkPreviews())
         super.init(frame: .zero)
         wantsLayer = true
         addSubview(controller.host)
-        HomeApprovalRowProvider.install()
-        HomeTurnFailureRowProvider.install()
         projection.start()
-        // Reduce Motion changes (the system setting or the host's pin) still or restart the loops
-        // already running (MessagesLabHomeView+Motion.swift).
-        motionObservers = observeReduceMotion()
     }
-
-    /// The Reduce Motion observers (weak: a closed view's turn is a no-op).
-    private var motionObservers: [any NSObjectProtocol] = []
-    /// An open came before the message field existed: the field takes the keyboard when it is
-    /// installed, if the keyboard is still on `openKeyboardFrom` (the responder then) or nowhere.
-    private var openKeyboardWaits = false
-    private weak var openKeyboardFrom: NSResponder?
-    private var opensOnInstall = false
-    /// DEBUG drive `swipe_trail`: the last played swipe's events, each as the swipe took or passed it.
-    var debugSwipeTrail: [String] = []
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
@@ -100,52 +56,9 @@ public final class MessagesLabHomeView: NSView {
         controller.host.refreshWindowPlaceIfMoved()
     }
 
-    /// cmux: the Chief chat's zoom (Agent Chat Zoom, `agentPane.zoom`; Cmd-= / Cmd-- / Cmd-0 on Home). The
-    /// transcript keeps MessagesLab's metrics: it is laid out at this view's size over the zoom and this view's
-    /// bounds draw it magnified, as NSScrollView magnification does, so its text, bubbles and field grow together
-    /// and the rows wrap to the narrower width. Its bitmaps render at the window's scale times the zoom, so the
-    /// magnified text stays sharp. Clamped to 0.5-3: Home draws the chat at its default size (1.5) times Agent Chat
-    /// Zoom (0.5-2).
-    public var zoom: CGFloat {
-        get { controller.host.contentZoom }
-        set {
-            let next = newValue.isFinite ? min(max(newValue, 0.5), 3) : 1
-            guard next != controller.host.contentZoom else { return }
-            controller.host.contentZoom = next
-            applyZoomBounds()
-            controller.followWindowScale()
-            // The field moved with the zoom (the host is now frame / zoom tall) without a frame change here: lay out
-            // now so `fieldTop` is current, and tell the host, which lays out what it keeps above the field.
-            needsLayout = true
-            layoutSubtreeIfNeeded()
-            controller.onFieldTopChange?()
-        }
-    }
-
-    public override func setFrameSize(_ newSize: NSSize) {
-        super.setFrameSize(newSize)
-        applyZoomBounds()
-    }
-
-    /// The bounds that draw the host at `zoom`: the frame's size over the zoom, from the origin.
-    private func applyZoomBounds() {
-        let size = NSSize(width: frame.width / zoom, height: frame.height / zoom)
-        guard bounds.size != size || bounds.origin != .zero else { return }
-        // A new scale realigns the transcript's clip view to the new pixels: the model's move, not the reader's
-        // scroll (TranscriptScrollView.placing; first-run audit row 8).
-        controller.host.scrollView.placing {
-            if bounds.size != size { setBoundsSize(size) }
-            if bounds.origin != .zero { setBoundsOrigin(.zero) }
-        }
-    }
-
     public override func layout() {
         super.layout()
         if controller.host.frame != bounds { controller.host.frame = bounds }
-        if let compose = controller.demo?.compose, appliedComposerSpellChecking != composerSpellCheckingEnabled {
-            compose.textView.view.setSpellCheckingEnabled(composerSpellCheckingEnabled)
-            appliedComposerSpellChecking = composerSpellCheckingEnabled
-        }
         if !warmed, window != nil, controller.demo != nil {
             warmed = true
             // MessagesLab warms the first send's one-time costs at idle after
@@ -162,42 +75,10 @@ public final class MessagesLabHomeView: NSView {
         set { projection.notice = newValue }
     }
 
-    /// The Chief's live plan for the plan cards' state pills and owner links (the host copies its
-    /// ``ChiefPlanBoard`` here whenever it changes).
-    public static func publish(plan: ChiefPlan) {
-        HomePlanRowProvider.plan = plan
-    }
-
     /// H17: offline the user can type; tapbacks are off and a send waits as "sending".
     public var isSendEnabled: Bool {
         get { projection.isSendEnabled }
         set { projection.isSendEnabled = newValue }
-    }
-
-    /// Whether the native composer opts into the system spell checker. The host owns this
-    /// preference; the default is off so opening Home never changes the user's typing behavior.
-    public var composerSpellCheckingEnabled = false {
-        didSet {
-            guard composerSpellCheckingEnabled != oldValue else { return }
-            controller.demo?.compose.textView.view.setSpellCheckingEnabled(composerSpellCheckingEnabled)
-        }
-    }
-
-    /// How the Chief's running indicator reads (``HomeTurnProgressStyle``), asked at each of its ticks:
-    /// the host passes its Debug Settings value so a change shows within a second.
-    public var turnProgressStyle: () -> HomeTurnProgressStyle {
-        get { projection.liveLine.style }
-        set { projection.liveLine.style = newValue }
-    }
-
-    /// The folders a Chief chat's `/` menu lists skills from (``SlashSkillCatalog``); nil: no menu
-    /// (a channel, a DM, a Chief whose host runs elsewhere).
-    public var slashSkillCatalog: SlashSkillCatalog? {
-        get { controller.slashSkills?.catalog }
-        set {
-            guard newValue != controller.slashSkills?.catalog else { return }
-            controller.slashSkills = newValue.map(SlashSkillSource.init(catalog:))
-        }
     }
 
     /// The Chief works: the compose bar offers Stop (the button, Esc, Cmd-.).
@@ -206,43 +87,18 @@ public final class MessagesLabHomeView: NSView {
         set { controller.isWorking = newValue }
     }
 
+    /// cmux-classic: a typing indicator that goes away leaves at once, with no fade-out ghost
+    /// (MessagesLab fades it as Messages does; the Chief's ended turns and approval waits must not
+    /// leave a faint bubble under the card or the last reply).
+    public var typingLeavesAtOnce: Bool {
+        get { controller.typingLeavesAtOnce }
+        set { controller.typingLeavesAtOnce = newValue }
+    }
+
     /// The host's shared stop action.
     public var onStop: (() -> Void)? {
         get { controller.onStop }
         set { controller.onStop = newValue }
-    }
-
-    /// Runs after the daemon accepts a Chief stop, when the stop button
-    /// becomes Continue.
-    public var onContinue: (() -> Void)? {
-        get { controller.onContinue }
-        set { controller.onContinue = newValue }
-    }
-
-    /// Whether the stopped Chief can be continued from the stop button.
-    public var continueAvailable: Bool {
-        get { controller.continueAvailable }
-        set { controller.continueAvailable = newValue }
-    }
-
-    /// The host's Stop all agents: Option-click on the stop button.
-    public var onStopAll: (() -> Void)? {
-        get { controller.onStopAll }
-        set { controller.onStopAll = newValue }
-    }
-
-    /// A committed person message in a Chief conversation asks the Chief to
-    /// answer that message again. The app supplies the `chief.retry` bridge;
-    /// ordinary Home conversations leave it unset.
-    public var onChiefRetry: ((MessageID) -> Void)? {
-        get { projection.onChiefRetry }
-        set { projection.onChiefRetry = newValue }
-    }
-
-    /// The stop button's tooltip while the Chief works; nil: "Stop".
-    public var stopToolTip: String? {
-        get { controller.stopToolTip }
-        set { controller.stopToolTip = newValue }
     }
 
     /// The window is key and visible (read cursor).
@@ -251,238 +107,56 @@ public final class MessagesLabHomeView: NSView {
         set { projection.isVisibleToUser = newValue }
     }
 
-    /// The theme's palette (the key window's: every Home window draws its
-    /// bubbles with it in both key states, MessagesLab 806ef0c / macOS 27), with
-    /// this chat's Chat Colors. Each view draws with its own palette
-    /// (`PaletteScope`): two chats on screen with different bubble colours keep
-    /// their own rows. The process palette (`Fixture.theme` outside a view's
-    /// work: its composer and send) is the first view's, then the chat the
-    /// person types or clicks in.
+    /// The theme's palettes for the key and the non-key window. One theme
+    /// per app: the palette is process-wide (`Fixture.theme`).
     /// `measuredAccent`: the theme names no accent, so sent bubbles keep
     /// MessagesLab's measured blue and gradient.
-    public func applyTheme(active: HomePalette, measuredAccent: Bool = false) {
-        let theme = FixtureTheme(active: active, measuredAccent: measuredAccent)
-        let box = PaletteScope.box(for: theme)
-        // The new palette first: the appearance change below redraws every row, and in the old palette it drew each
-        // row once more in the old colours, a bitmap that could land after the new one (the light welcome in dark).
-        controller.demo?.setPalette(box)
-        // Link cards follow a light theme (MessagesLab 02519e9: Messages' light card, #E9E9EB).
-        if let demo = controller.demo { demo.setLightAppearance(theme.active.isLight) } else { Fixture.lightAppearance = theme.active.isLight }
-        let focused = (controller.host.window?.firstResponder as? NSView)?.isDescendant(of: controller.host) ?? false
-        if PaletteScope.process == nil || focused { PaletteScope.claimProcess(box) }
-        PaletteScope.with(box) {
+    public func applyTheme(active: HomePalette, inactive: HomePalette, measuredAccent: Bool = false) {
+        let theme = FixtureTheme(active: active, inactive: inactive, measuredAccent: measuredAccent)
+        defer {
+            // Per view: a second Home tab finds the process-wide theme set.
             controller.host.headerBackdrop.setTint(Fixture.background)
+            // cmux: the window background is per view too; a view made after the
+            // process-wide theme was set would keep the one it was made with.
             controller.demo?.backgroundColor = Fixture.background
-            controller.host.fieldChrome.applyTheme(light: theme.active.isLight, symbol: theme.active.composeText, edge: theme.active.fieldEdge,
-                                                    fill: theme.active.fieldFill)
+            controller.host.fieldChrome.applyTheme(light: theme.active.isLight, symbol: theme.active.incomingText)
+            controller.host.fieldChrome.applyGlassTint(FieldChrome.glassTint(light: theme.active.isLight, background: theme.active.background))
             controller.host.paneHeader.light = theme.active.isLight
         }
-        // This view draws again whenever its rows were made with another palette (its own applied generation).
-        let generation = Fixture.generation(of: box)
-        guard let demo = controller.demo, appliedPalette != generation else { return }
-        appliedPalette = generation
-        demo.scope {
-            demo.chrome.setNeedsDisplay(); demo.refreshVisibleCells()
-            demo.compose.rescale()  // the placeholder, waveform and chips are drawn once with the palette
-        }
-        controller.intents?.rowsPlaced()  // layers over rows (table skeleton shimmers) take the new colours
-    }
-
-    /// This package's own strings bundle (every MessagesLab catalog: Localizable, AppKitNative, CmuxHome).
-    /// A host that picks the language itself hands ``useStrings(_:)`` that bundle's `.lproj`
-    /// (CmuxNext: `Bundle.inAppLanguage`, the `app.language` setting).
-    public static var packageStrings: Bundle { .module }
-
-    /// Every MessagesLab string (the composer's placeholder, receipts, day separators, menus, Home's
-    /// own rows) from `bundle` from now on, and this view's drawn text again in it: a host's language
-    /// switch, live. The strings bundle is one for the process; each view redraws once per bundle.
-    public func useStrings(_ bundle: Bundle) {
-        let id = ObjectIdentifier(bundle)
-        guard id != appliedStrings else { return }
-        appliedStrings = id
-        if MessagesLabLocalization.bundle !== bundle {
-            MessagesLabLocalization.bundle = bundle
-            RowBitmaps.shared.removeAll()  // row bitmaps hold the old language's words (receipts, separators)
-        }
-        guard let demo = controller.demo else { return }
-        demo.scope {
-            demo.compose.stringsChanged()
-            demo.chrome.setNeedsDisplay()
-            demo.chrome.subviews.forEach { $0.setNeedsDisplay() }
-            demo.refreshVisibleCells()
+        // Link cards follow a light theme (MessagesLab 02519e9: Messages' light card, #E9E9EB).
+        if let demo = controller.demo { demo.setLightAppearance(theme.active.isLight) } else { Fixture.lightAppearance = theme.active.isLight }
+        guard Fixture.theme != theme else { return }
+        Fixture.theme = theme
+        RowBitmaps.shared.removeAll()
+        if let demo = controller.demo {
+            let inactiveNow = Fixture.inactive
+            demo.setInactive(!inactiveNow)
+            demo.setInactive(inactiveNow)
+            demo.backgroundColor = Fixture.background
+            // The placeholder, waveform and chips are drawn once with the palette.
+            demo.compose.rescale()
         }
     }
 
-    /// The composer's placeholder, as its field's accessibility label (drawn and labelled together; tests).
-    var composerPlaceholder: String? { controller.demo?.compose.textView.view.accessibilityLabel() }
-
-    /// cmux: a click on a cmux app link in agent text (`URL.isCmuxAppLink`); the host
+    /// cmux: a click on a Chief subagent's link in agent text (`URL.isChiefSubagentLink`); the host
     /// opens it in the app (`link.open`). Nil: the link opens nothing.
     public var onAppLink: ((URL) -> Void)? {
         get { controller.onAppLink }
         set { controller.onAppLink = newValue }
     }
 
-    /// cmux: a click on an agent's pill in an agents row: the host opens that agent (the agent's id, `a12`,
-    /// and the pill's frame in window coordinates, for a card over it). Nil: a click on the row opens and
-    /// closes its messages.
-    public var onAgentPill: ((String, CGRect) -> Void)? {
-        get { controller.onAgentPill }
-        set { controller.onAgentPill = newValue }
-    }
-
-    #if DEBUG
-    /// cmux: agent `peer`'s drawn pill in window coordinates, nil when none shows (`debug.home.drive`).
-    public func debugAgentPillFrame(_ peer: String) -> CGRect? { controller.debugAgentPillFrame(peer) }
-    #endif
-
-    /// cmux: the context menu of an agent's pill (its id): the host's items for that agent, such as Start now
-    /// on a queued one. None or nil: the message's own menu.
-    public var agentPillMenu: ((String) -> [NSMenuItem])? {
-        get { controller.agentPillMenu }
-        set { controller.agentPillMenu = newValue }
-    }
-
-    /// cmux: the pointer moved over the transcript, in screen coordinates (nil: it left). The
-    /// host's hover cards for link chips follow it (``linkChip(atScreenPoint:)``).
-    public var onPointerMoved: ((CGPoint?) -> Void)? {
-        get { controller.onPointerMoved }
-        set { controller.onPointerMoved = newValue }
-    }
-
-    /// cmux: the field's height changed, so ``fieldTop`` moved without a size change (a long
-    /// draft, an attachment, a send). The host lays out what it keeps above the field.
-    public var onFieldTopChange: (() -> Void)? {
-        get { controller.onFieldTopChange }
-        set { controller.onFieldTopChange = newValue }
-    }
-
-    /// cmux: the link chip under `screenPoint` with its pill's frame on screen, or nil (no chip
-    /// there, or the transcript is not in a window). The same hit test as a click.
-    public func linkChip(atScreenPoint screenPoint: CGPoint) -> HomeLinkChipHit? {
-        let host = controller.host
-        guard let window = host.window else { return nil }
-        let p = host.convert(window.convertPoint(fromScreen: screenPoint), from: nil)
-        guard var hit = controller.linkChip(at: p) else { return nil }
-        hit.rect = window.convertToScreen(host.convert(hit.rect, to: nil))
-        return hit
-    }
-
-    /// cmux: a press on a link that moved past the drag slop, with the pointer's screen point; true
-    /// when the host took the drag (it drops the link into a split or a pane). Nil: such a press
-    /// selects text, as before.
-    public var onDragLink: ((_ url: URL, _ screenPoint: CGPoint) -> Bool)? {
-        get { controller.onDragLink }
-        set { controller.onDragLink = newValue }
-    }
-
-    /// cmux: a click on any other link in the transcript (`otherTarget`: Shift-Command held).
-    /// Defaults to the system; the host routes it (cmux: its link setting).
-    public var onOpenLink: (_ url: URL, _ otherTarget: Bool) -> Void {
-        get { controller.onOpenLink }
-        set { controller.onOpenLink = newValue }
-    }
-
-    /// cmux: where an attachment opens and what its right-click menu offers (held weakly).
-    /// Nil: the system opens it ("Open in Default App").
-    public var fileHost: HomeFileHost? {
-        get { controller.fileHost }
-        set { controller.fileHost = newValue }
-    }
-
     /// A click (or Space/Return with the keyboard) on the header's name
-    /// pill: cmux shows the Chief's settings popover under it.
+    /// pill: cmux shows the Chief's settings sidebar there.
     public var onNamePill: () -> Void {
         get { controller.host.paneHeader.onContact }
         set { controller.host.paneHeader.onContact = newValue }
     }
-
-    /// The header's name pill: the view a popover from it anchors to.
-    public var namePill: NSView { controller.host.paneHeader.pill }
-    /// The header views a click on which runs ``onNamePill``: the pill and the avatar.
-    public var namePillToggles: [NSView] { [controller.host.paneHeader.pill, controller.host.paneHeader.avatar] }
-
-    /// cmux: room kept clear above the oldest message, in this view's points (Home's pinned Needs you
-    /// section under the header): scrolled to its top, the transcript rests its first row below it.
-    /// 0: none.
-    public var rowsTopClearance: CGFloat {
-        get { controller.host.extraRowsTop }
-        set {
-            let next = newValue.isFinite ? max(0, newValue) : 0
-            guard next != controller.host.extraRowsTop else { return }
-            controller.host.extraRowsTop = next
-            controller.host.needsLayout = true
-        }
-    }
-
-    /// cmux: how far the rows are scrolled from the top of their range, in this view's points; 0 at the oldest row.
-    public var scrolledFromTop: CGFloat {
-        controller.demo.map { max(0, $0.collection.contentOffset.y - $0.minOffset) * zoom } ?? 0
-    }
-
-    /// cmux: runs when the rows' scroll position changes (what scrolls with them, Home's Set Up cmux card).
-    public var onScrolled: (() -> Void)? {
-        get { controller.onScrolled }
-        set { controller.onScrolled = newValue }
-    }
-
-    /// cmux: a wheel event over something that scrolls with the rows scrolls the rows.
-    public func scrollRows(with event: NSEvent) { controller.host.scrollView.scrollWheel(with: event) }
-
-    /// cmux: room kept clear under the newest message, in this view's points (Home's toasts over the
-    /// chat, CmuxToastReserving): pinned to its newest message, the transcript rests its last row above
-    /// it; scrolled up, the rows stay where they are and only the scroll range grows. 0: none.
-    public var rowsBottomClearance: CGFloat { controller.host.extraRowsBottom }
-
-    /// Sets ``rowsBottomClearance``; the rows slide there over `duration` seconds (the toasts' own
-    /// move), or move at once when it is 0 (Reduce Motion, animations off).
-    public func setRowsBottomClearance(_ value: CGFloat, duration: TimeInterval) {
-        let next = value.isFinite ? max(0, value) : 0
-        guard next != controller.host.extraRowsBottom else { return }
-        controller.host.setExtraRowsBottom(next, duration: duration.isFinite ? max(0, duration) : 0)
-    }
-
-    /// cmux: controls at the header's top right (Home's panel toggles), on the avatar's line.
-    /// They get their own clicks; the header's empty space still drags the window. Sized by its
-    /// `intrinsicContentSize`; hidden in a pane too narrow to keep it clear of the avatar. Nil: none.
-    public var headerTrailingAccessory: NSView? {
-        get { controller.host.paneHeader.trailingAccessory }
-        set {
-            controller.host.paneHeader.trailingAccessory = newValue
-            // With no header the rows' top follows the accessory (`HostView.bareRowsTop`).
-            controller.host.needsLayout = true
-        }
-    }
-
-    /// cmux: who else has the conversation open, as faces beside the header's name pill (chat
-    /// multiplayer); empty shows none. `label` is what VoiceOver reads for them.
-    public func setHeaderFaces(_ faces: [PaneHeaderFace], label: String) {
-        controller.host.paneHeader.faces = faces
-        controller.host.paneHeader.facesLabel = label
-    }
-
-    #if DEBUG || CMUX_BENCH_HOOKS
-    /// The header's faces as drawn now, and their VoiceOver label (tests and `debug.home.drive`).
-    public var debugHeaderFaces: (faces: [PaneHeaderFace], shown: Bool, label: String) {
-        let header = controller.host.paneHeader
-        return (header.faces, !header.facesView.isHidden && header.facesView.frame.width > 0, header.facesLabel)
-    }
-    #endif
 
     /// The header avatar's text (one or two characters, an emoji); nil
     /// shows the conversation's initials.
     public var avatarText: String? {
         get { projection.initialsOverride }
         set { projection.initialsOverride = newValue }
-    }
-
-    /// The letters the header's monogram shows: ``avatarText``, else the monogram of the header's name.
-    public var shownInitials: String { controller.host.paneHeader.initials }
-
-    /// The header's name; nil shows the conversation's title.
-    public var headerTitle: String? {
-        get { projection.titleOverride }
-        set { projection.titleOverride = newValue }
     }
 
     /// The header avatar's picture, drawn over `avatarText` and the
@@ -492,114 +166,20 @@ public final class MessagesLabHomeView: NSView {
         set { projection.pictureOverride = newValue }
     }
 
-    /// A sender's chosen avatar beside a group's bubbles (``setSenderAvatars(_:)``).
-    public enum SenderAvatar: Hashable, Sendable {
-        /// A picture file.
-        case picture(URL)
-        /// One or two letters or an emoji, on the grey disc.
-        case text(String)
-    }
-
-    /// Chosen avatars by participant id (each Chief's, as Home's row draws it), beside a group's
-    /// bubbles; anyone not listed draws their initials. A new value redraws those bubbles.
-    public func setSenderAvatars(_ avatars: [String: SenderAvatar]) {
-        projection.senderAvatars = avatars.mapValues {
-            switch $0 {
-            case .picture(let url): .image(url.absoluteString)
-            case .text(let text): .monogram(text)
-            }
-        }
-    }
-
     /// The name pill's VoiceOver help (what a click on it does).
     public func setNamePillHelp(_ help: String) {
         controller.host.paneHeader.pill.setAccessibilityHelp(help)
         controller.host.paneHeader.pill.refusesFirstResponder = false
     }
 
+    /// cmux: the name pill's hover tooltip (which brain answers); nil
+    /// shows its accessibility label, as before.
+    public func setNamePillToolTip(_ toolTip: String?) {
+        controller.host.paneHeader.pillToolTip = toolTip
+    }
+
     /// The field's text view (the pane's primary input).
     public var primaryInput: NSView { controller.demo?.compose.textView.view ?? self }
-
-    /// Where the pane's keyboard goes when it gets focus or a key typed elsewhere in it: the open picture viewer
-    /// (its Esc, arrows and letters are its own), else ``primaryInput``.
-    public var keyboardTarget: NSView { controller.keyboardTarget ?? self }
-
-    /// Whether focusing this view should move the keyboard from `responder`
-    /// to ``primaryInput``.
-    ///
-    /// False only while the keyboard is on a text view or text field (the
-    /// field itself, the thread header's field, a find field) or on the
-    /// transcript while the person makes or holds a text selection there.
-    /// - Parameter responder: The window's first responder now.
-    /// - Returns: True when the host should make ``primaryInput`` first responder.
-    public func primaryInputShouldTakeKeyboard(from responder: NSResponder?) -> Bool {
-        controller.composeShouldTakeKeyboard(from: responder)
-    }
-
-    /// Whether ``pasteIntoPrimaryInput(_:)`` has something to paste: text, or
-    /// files and pictures Home's attachment intake takes.
-    public var canPasteIntoPrimaryInput: Bool { controller.canPasteIntoCompose() }
-
-    /// Cmd+V from a part of Home that is not a text field: the message box
-    /// takes the keyboard, then the paste (text, files and pictures, as a
-    /// paste in the box or a drop does).
-    /// - Parameter sender: The paste's sender, passed to the box's `paste(_:)`.
-    public func pasteIntoPrimaryInput(_ sender: Any?) { controller.pasteIntoCompose(sender) }
-
-    /// After a drop on Home or the file picker: the message box takes the
-    /// keyboard with the caret at the end of the draft, and its window
-    /// becomes key, so the person can type at once. Call it only for an
-    /// entry point aimed at Home (never for automation).
-    public func focusPrimaryInputForTyping() { controller.focusComposeForTyping() }
-
-    /// Whether a plain Up or Down arrow from `responder`, while Home has the
-    /// keyboard, recalls sent messages in the message box: not from a text
-    /// input (it moves its own caret) and not from a transcript text selection.
-    /// The box itself answers false: its own key handling recalls there.
-    /// - Parameter responder: The window's first responder now.
-    /// - Returns: True when the host should call ``recallPrimaryInputHistory(older:)``.
-    public func primaryInputHistoryTakesArrowKeys(from responder: NSResponder?) -> Bool {
-        controller.historyTakesArrowKeys(from: responder)
-    }
-
-    /// Up (`older`) or Down from outside the message box: the box takes the
-    /// keyboard, and Up shows the newest sent message (each further Up an
-    /// older one; Down steps back toward the draft, which is kept).
-    /// - Parameter older: True for Up, false for Down.
-    /// - Returns: True when the box took the key.
-    @discardableResult
-    public func recallPrimaryInputHistory(older: Bool) -> Bool {
-        controller.recallHistoryFromOutside(older ? .older : .newer)
-    }
-
-    /// The person opened this conversation (a click on its row or pinned tile, Return in the list,
-    /// a switch key): the message field takes the keyboard, as in Messages. While the first page
-    /// is still loading the field does not exist yet; it takes the keyboard once installed, unless
-    /// the keyboard moved somewhere else in between (a click in another field, a text selection).
-    /// Never brings the window forward.
-    public func takeKeyboardOnOpen() {
-        guard !ChatController.noFocus, let window else { return }
-        if let field = controller.demo?.compose.textView.view {
-            openKeyboardWaits = false
-            if window.firstResponder !== field { window.makeFirstResponder(field) }
-            return
-        }
-        openKeyboardWaits = true
-        openKeyboardFrom = window.firstResponder
-        guard !opensOnInstall else { return }
-        opensOnInstall = true
-        controller.onInstalled.append { [weak self] _ in self?.finishOpenKeyboard() }
-    }
-
-    /// The field is installed: it takes the keyboard for an open that waited, if nothing else took it.
-    private func finishOpenKeyboard() {
-        guard openKeyboardWaits else { return }
-        openKeyboardWaits = false
-        guard let window, let field = controller.demo?.compose.textView.view else { return }
-        let now = window.firstResponder
-        guard now == nil || now === window || (openKeyboardFrom != nil && now === openKeyboardFrom) else { return }
-        window.makeFirstResponder(field)
-    }
 
     /// Puts text in the field (first-run suggestions).
     public func setDraft(_ text: String) {
@@ -617,46 +197,43 @@ public final class MessagesLabHomeView: NSView {
         get { projection.onRowsChange }
         set { projection.onRowsChange = newValue }
     }
+    /// cmux-classic: an approval card waits for the user's answer (the header shows "Waiting for
+    /// you", the field "Allow or deny above to continue"); the host's sidebar can say so too.
+    public var isWaitingForApproval: Bool { projection.isWaitingForApproval }
+    public var onWaitingForApprovalChange: (Bool) -> Void {
+        get { projection.onWaitingForApprovalChange }
+        set { projection.onWaitingForApprovalChange = newValue }
+    }
     public var onRefusal: (HomeIntent, HomeRejection) -> Void {
         get { projection.onRefusal }
         set { projection.onRefusal = newValue }
     }
-
-    /// Forward… in a bubble's context menu: the host routes the bubble's text to another chat
-    /// (cmux-next's `home.sendSelectionTo`); nil leaves Forward… out of the menu.
-    public var onForward: ((String) -> Void)? {
-        get { projection.onForward }
-        set { projection.onForward = newValue }
+    /// cmux-classic: a Chief Cloud result card's Open Workspace: the host opens machine
+    /// workspace `workspace` (`ws_…`) of `machine` as a local workspace.
+    public var onOpenCloudWorkspace: (_ machine: String, _ workspace: String) -> Void {
+        get { projection.onOpenCloudWorkspace }
+        set { projection.onOpenCloudWorkspace = newValue }
+    }
+    /// cmux-classic: a Chief Cloud result card's Open Desktop: the host opens the
+    /// machine's interactive display in cmux for inspection or control.
+    public var onOpenCloudDesktop: (_ machine: String) -> Void {
+        get { projection.onOpenCloudDesktop }
+        set { projection.onOpenCloudDesktop = newValue }
     }
 
-    /// Automation and tests: chooses `title` in the context menu of the shown bubble whose text
-    /// is `text`, built and chosen by the right-click's path. False when no such bubble or row shows.
-    public func debugChooseMenuItem(_ title: String, onBubble text: String) -> Bool {
-        guard let hit = debugBubble(text: text), let menu = controller.menu(at: CGPoint(x: hit.body.midX, y: hit.body.midY)) else { return false }
-        controller.menuHighlight?.discard(); controller.menuHighlight = nil // never shown
-        guard let item = menu.items.first(where: { ($0 as? MenuAction)?.label == title || $0.title == title }),
-              let action = item.action else { return false }
-        NSApp.sendAction(action, to: item.target, from: item)
-        return true
+    /// cmux-classic: a failed turn's Try Again: run the last message again, then call the
+    /// completion with whether that started (ChiefNoticeRows.swift).
+    public var onRetryLastTurn: (_ completion: @escaping (Bool) -> Void) -> Void {
+        get { projection.onRetryLastTurn }
+        set { projection.onRetryLastTurn = newValue }
     }
 
-    /// Chooses `title` in the menu of the red "!" beside my Not Delivered bubble showing `text`
-    /// (the click's own path, `failedMarkMenu(at:)`); false when there is no mark or no such row.
-    public func debugChooseFailedMarkItem(_ title: String, onBubble text: String) -> Bool {
-        guard let hit = debugBubble(text: text),
-              let menu = controller.failedMarkMenu(at: CGPoint(x: hit.body.minX - 14, y: hit.body.midY)),
-              let item = menu.items.first(where: { ($0 as? MenuAction)?.label == title || $0.title == title }),
-              let action = item.action else { return false }
-        NSApp.sendAction(action, to: item.target, from: item)
-        return true
+    /// cmux-classic: a saved note's Undo: forget the note `fact`, then call the completion with
+    /// whether it was forgotten (ChiefNoticeRows.swift).
+    public var onUndoMemory: (_ fact: String, _ completion: @escaping (Bool) -> Void) -> Void {
+        get { projection.onUndoMemory }
+        set { projection.onUndoMemory = newValue }
     }
-
-    /// The localized titles of a failed send's Try Again and Delete rows.
-    public static var tryAgainMenuTitle: String { CmuxStrings.tryAgain }
-    public static var deleteFailedMenuTitle: String { CmuxStrings.deleteFailed }
-
-    /// The localized title of a bubble's Forward… row.
-    public static var forwardMenuTitle: String { CmuxStrings.forward }
 
     // MARK: Attachments (lane 16)
 
@@ -665,48 +242,16 @@ public final class MessagesLabHomeView: NSView {
         get { projection.onPickAttachments }
         set { projection.onPickAttachments = newValue }
     }
-    /// The "+" button's menu (the host builds and shows it at `anchor`, the button). Nil: the "+"
-    /// opens ``onPickAttachments`` at once.
-    public var onPlusMenu: ((_ anchor: NSView) -> Void)? {
-        get { projection.onPlusMenu }
-        set { projection.onPlusMenu = newValue }
-    }
-    /// Text from the + menu (a clipboard row): the message box takes the keyboard and the text
-    /// goes in at its caret, replacing a selection, as typing it would (the end of the draft
-    /// when the box did not hold the keyboard).
-    /// - Parameter text: The text to insert.
-    public func insertIntoPrimaryInput(_ text: String) { controller.insertIntoCompose(text) }
-    /// A paste in the field: true when the host's intake took the pasteboard.
+    /// A paste in the field or a drop on the pane: true when the host's
+    /// intake took the pasteboard.
     public var onAttachmentPasteboard: (NSPasteboard) -> Bool {
         get { projection.onAttachmentPasteboard }
         set { projection.onAttachmentPasteboard = newValue }
     }
-    /// The words a paste the intake took carries beside its attachments (nil: none): the
-    /// field inserts them at the caret.
-    public var attachmentPasteText: (NSPasteboard) -> String? {
-        get { projection.onAttachmentPasteText }
-        set { projection.onAttachmentPasteText = newValue }
-    }
-    /// Whether a paste would be taken (types only).
+    /// While dragging (types only): whether a drop would be taken.
     public var acceptsAttachmentDrag: (NSPasteboard) -> Bool {
         get { projection.acceptsAttachmentDrag }
         set { projection.acceptsAttachmentDrag = newValue }
-    }
-    /// A drop on the field: true when the host's intake took the drag's pasteboard
-    /// (nil: as a paste). A drop on the rest of the pane reaches the host's own view.
-    public var onAttachmentDrop: ((NSPasteboard) -> Bool)? {
-        get { projection.onAttachmentDrop }
-        set { projection.onAttachmentDrop = newValue }
-    }
-    /// While dragging over the field (types only): whether a drop would be taken (nil: as a paste).
-    public var acceptsAttachmentDrop: ((NSPasteboard) -> Bool)? {
-        get { projection.acceptsAttachmentDrop }
-        set { projection.acceptsAttachmentDrop = newValue }
-    }
-    /// The field became (true) or stopped being (false) the target of a drag the host takes.
-    public var onAttachmentDropTarget: (Bool) -> Void {
-        get { projection.onAttachmentDropTarget }
-        set { projection.onAttachmentDropTarget = newValue }
     }
     /// The store refused a send's attachment before logging it; the text
     /// and attachments are back in the field.
@@ -718,12 +263,6 @@ public final class MessagesLabHomeView: NSView {
     public var onDraftTextChange: () -> Void {
         get { projection.onDraftTextChange }
         set { projection.onDraftTextChange = newValue }
-    }
-    /// The ids of the field's chips (``draftAttachmentIDs``), in order, each time they change: a
-    /// chip added or removed, or the draft sent.
-    public var onDraftAttachmentsChange: ([String]) -> Void {
-        get { projection.onDraftAttachmentsChange }
-        set { projection.onDraftAttachmentsChange = newValue }
     }
     /// Cancel Upload in a bubble's menu (`HomeStoreBinding.cancelSend`).
     public var onCancelSend: (IdempotencyKey) -> Bool {
@@ -748,13 +287,8 @@ public final class MessagesLabHomeView: NSView {
 
     /// The field's attachments, in the order they arrived.
     public var draftAttachments: [LocalAttachment] { projection.draftAttachments }
-    /// The field's chips' ids, in the order of `draftAttachments`: a chip's content hash, or
-    /// `hash#N` for another copy of the same picture (each paste is its own chip, #50984).
-    public var draftAttachmentIDs: [String] { projection.draftAttachmentIDs }
-    public var isRestoringDraftAttachments: Bool { projection.isRestoringDraftAttachments }
 
-    /// Takes chip `id` out of the field: its content hash, or `hash#N` for another copy of it.
-    public func removeDraftAttachment(_ id: String) { projection.removeDraft(id) }
+    public func removeDraftAttachment(_ hash: String) { projection.removeDraft(hash) }
 
     /// The field's text.
     public var draftText: String { controller.store?.state.ui.draft.text ?? "" }
@@ -764,273 +298,20 @@ public final class MessagesLabHomeView: NSView {
     @discardableResult
     public func sendDraft() -> String? { projection.send() }
 
-    /// Automation (DEBUG socket): a love tapback on the newest incoming (or,
-    /// with `mine`, my newest) message through the picker's path (`ChatIntents.react`).
-    public func debugTapbackNewestIncoming(mine: Bool = false) -> Bool {
-        guard let hit = controller.demo?.lastTextRow(mine: mine) else { return false }
-        projection.react(hit.row.ref, .tapback("love"))
-        return true
-    }
 
-    /// Automation (DEBUG socket): the context menu at the newest text bubble
-    /// (mine or incoming), built by the right-click's path
-    /// (`ChatController.menu(at:)`): item titles, "-" for a separator,
-    /// "[palette]" for a tapback row.
-    public func debugMenuTitles(mine: Bool) -> [String]? {
-        guard let hit = controller.demo?.lastTextRow(mine: mine),
-              let menu = controller.menu(at: CGPoint(x: hit.body.midX, y: hit.body.midY)) else { return nil }
-        controller.menuHighlight?.discard(); controller.menuHighlight = nil // never shown
-        return menu.items.map { $0.isSeparatorItem ? "-" : $0.submenu != nil ? "[palette]" : ($0 as? MenuAction)?.label ?? $0.title }
-    }
-
-    /// Automation (DEBUG socket): the field's height and, for the newest
-    /// receipt row with a row under it, its top to that row's body (macOS 27
-    /// Messages: the field is 30 pt after a send and 31 pt from the first key; 20 pt), and
-    /// where the transcript rests (`scrollOffset`, `scrollBottom`, `scrollTop`, `pinned`).
-    public func debugGeometry() -> [String: Double] {
-        guard let demo = controller.demo else { return [:] }
-        var out: [String: Double] = ["fieldHeight": Double(demo.compose.fieldRect.height)]
-        // Where the transcript rests: its offset, the bottom (newest message) and top ends, and the pin.
-        out["scrollOffset"] = Double(demo.collection.contentOffset.y)
-        out["scrollBottom"] = Double(demo.pinnedOffset)
-        out["scrollTop"] = Double(demo.minOffset)
-        out["pinned"] = demo.store.state.ui.scroll.pinnedToBottom && demo.store.state.atNewest ? 1 : 0
-        let rows = demo.model.rows
-        // crash program: no index math.
-        for (i, row) in rows.enumerated().reversed().dropFirst() where !row.ghost {
-            guard case .receipt = row.spec.kind, let next = rows.enumerated().dropFirst(i + 1).first(where: { !$0.element.ghost })?.offset else { continue }
-            out["receiptToNextBody"] = Double(demo.layout.contentTop(next) - demo.layout.contentTop(i))
-            out["receiptHeight"] = Double(row.spec.height)
-            break
-        }
-        out.merge(debugScaleGeometry()) { $1 }  // the per-view render scale (MessagesLabHomeView+ScaleDebug.swift)
-        return out
-    }
-
-    /// Automation (DEBUG socket): the typing bubble's body (RowCell.typingBody) in window
-    /// coordinates (AppKit: origin at the bottom left), nil when no typing row shows.
-    public func debugTypingBubbleFrame() -> CGRect? {
-        guard let demo = controller.demo, controller.host.window != nil, let hostLayer = controller.host.layer else { return nil }
-        for case let cell as RowCell in demo.collection.visibleCells {
-            guard case .typing? = cell.spec?.kind, !cell.isHidden else { continue }
-            let inHost = cell.typingBody.convert(cell.typingBody.bounds, to: hostLayer)
-            return controller.host.convert(inHost, to: nil)
-        }
-        return nil
-    }
-
-    /// Automation (DEBUG socket): the visible rows as drawn, in window coordinates (AppKit: origin
-    /// at the bottom left), top to bottom. A message part gives its bubble body (RowDraw.bodyRect in
-    /// the row's content, which RowCell.snapRow moves onto the window's device pixels) and its drawn
-    /// balloon (RowDraw.balloon: an outgoing text balloon lies a little inside the body on macOS 27);
-    /// a thread preview and any other row give the row's content box (both).
-    public func debugRowFrames() -> [(kind: String, key: String, outgoing: Bool, frame: CGRect, balloon: CGRect)] {
-        guard let demo = controller.demo, controller.host.window != nil, let hostLayer = controller.host.layer else { return [] }
-        var rows: [(kind: String, key: String, outgoing: Bool, frame: CGRect, balloon: CGRect)] = []
-        for case let cell as RowCell in demo.collection.visibleCells where !cell.isHidden {
-            guard let spec = cell.spec else { continue }
-            let content = cell.contentView.layer
-            let kind: String, outgoing: Bool, rect: CGRect, drawn: CGRect
-            switch spec.kind {
-            case let .part(p):
-                kind = { if case .text = p.part { return "text" }; return "part" }()
-                outgoing = p.outgoing
-                rect = RowDraw.bodyRect(spec)
-                drawn = RowDraw.balloon(rect, row: p, scale: demo.renderScale)  // this pane's own scale (258b385)
-            case .threadPreview(let pv):
-                kind = "preview"; outgoing = pv.outgoing
-                rect = CGRect(origin: .zero, size: content.bounds.size); drawn = rect
-            default:
-                kind = "other"; outgoing = false
-                rect = CGRect(origin: .zero, size: content.bounds.size); drawn = rect
-            }
-            func inWindow(_ r: CGRect) -> CGRect { controller.host.convert(content.convert(r, to: hostLayer), to: nil) }
-            rows.append((kind, spec.key, outgoing, inWindow(rect), inWindow(drawn)))
-        }
-        return rows.sorted { $0.frame.maxY > $1.frame.maxY }
-    }
-
-    /// Automation (DEBUG socket): MessagesLab's width pass counters (every window view): passes run and
-    /// passes deferred to the next display frame (WindowView's resize pacing).
-    public var debugWidthPasses: (passes: Int, deferred: Int) {
-        (MessagesWindowView.widthPasses, MessagesWindowView.widthPassesDeferred)
-    }
-    /// MessagesLab's frame budget for width passes (s): a later width change in a display frame runs at once
-    /// while that frame's passes cost less (f11642b resize-pace).
-    public var debugWidthPassBudget: Double { Double(MessagesWindowView.widthPassFrameBudget) }
-
-    /// The window view's origin in window points (bottom-left origin), for automation.
-    public var debugHostOrigin: CGPoint { controller.host.convert(CGPoint.zero, to: nil) }
-    /// The window view's frame in window points (bottom-left origin), for automation (its right edge: a pane
-    /// whose width is a fraction of a device pixel).
-    public var debugHostFrame: CGRect { controller.host.convert(controller.host.bounds, to: nil) }
-
-    /// Automation (DEBUG socket): the text of the newest `limit` messages
-    /// this view holds (its own store), oldest first.
-    public func debugMessageTexts(limit: Int = 10) -> [String] {
-        guard let store = controller.store else { return [] }
-        return store.state.conversation.messages.suffix(limit).map { message in
-            message.parts.compactMap { part in
-                if case let .text(text, _) = part { return text }
-                return nil
-            }.joined(separator: "\n")
-        }
-    }
-
-    /// Automation (DEBUG socket): opens picture `index` of the newest table card in the large picture viewer
-    /// through the click's path (``ChatController/openTablePicture(_:at:width:)``); `compare` shows its row's
-    /// Before and After; `mark` draws a box, an arrow and a word on it; `style` and `show` (``HomePictureViewer/Key/before``
-    /// or `after`) set the comparison. False when no table has a loaded picture.
-    func debugOpenTablePicture(index: Int, compare: Bool, mark: Bool, style: HomePictureCompare.Style? = nil, show: HomePictureViewer.Key? = nil) -> Bool {
-        guard let store = controller.store else { return false }
-        for m in store.state.conversation.messages.reversed() {
-            for part in m.parts {
-                guard case let .custom(custom) = part, custom.kind == HomeTableRowProvider.kind,
-                      let payload = HomeTableRowProvider.payload(custom) else { continue }
-                let width: CGFloat = 700
-                let grid = HomeTableGrid(payload.table, available: width)
-                let loaded = grid.pictureRects(at: grid.cardOrigin(.zero)).filter { !$0.loading }
-                guard let target = loaded[checked: min(max(0, index), loaded.count - 1)],
-                      controller.openTablePicture(custom, at: CGPoint(x: target.rect.midX, y: target.rect.midY), width: width),
-                      let viewer = controller.pictureViewer else { continue }
-                // task-owner: the viewer; marks go on once its picture loaded.
-                Task { @MainActor [weak viewer] in
-                    guard let viewer else { return }
-                    await viewer.loaded()
-                    if compare { viewer.handle(.compare) }
-                    if let style { viewer.showCompareStyle(style) }
-                    if let show { viewer.handle(show) }
-                    if mark, let size = viewer.markedImage().map({ CGSize(width: $0.width, height: $0.height) }) {
-                        viewer.addMark(.box(CGRect(x: size.width * 0.18, y: size.height * 0.2, width: size.width * 0.42, height: size.height * 0.36)))
-                        viewer.addMark(.arrow(from: CGPoint(x: size.width * 0.86, y: size.height * 0.84), to: CGPoint(x: size.width * 0.62, y: size.height * 0.58)))
-                        viewer.addMark(.text(at: CGPoint(x: size.width * 0.18, y: size.height * 0.6), "this moved"))
-                    }
-                }
-                return true
-            }
-        }
-        return false
-    }
-
-    /// Automation (DEBUG socket): plays or pauses the newest video bubble
-    /// through the click's path (`ChatIntents.toggleVideo`).
-    public func debugToggleNewestVideo() -> Bool {
-        guard let store = controller.store else { return false }
-        for m in store.state.conversation.messages.reversed() {
-            for (i, part) in m.parts.enumerated() {
-                if case let .attachment(a) = part, a.kind == "video" {
-                    projection.toggleVideo(PartRef(messageId: m.id, partIndex: i), a.id)
-                    return true
-                }
-            }
-        }
-        return false
-    }
-
-    /// Automation: opens the newest video bubble in the large viewer through the double-click's
-    /// path (`ChatIntents.openVideo`).
-    public func debugOpenNewestVideo() -> Bool {
-        guard let store = controller.store else { return false }
-        for m in store.state.conversation.messages.reversed() {
-            for (i, part) in m.parts.enumerated() {
-                if case let .attachment(a) = part, a.kind == "video" {
-                    projection.openVideo(PartRef(messageId: m.id, partIndex: i), a.id)
-                    return true
-                }
-            }
-        }
-        return false
-    }
-
-    /// Automation (DEBUG socket): clicks the first shown link whose URL starts with `prefix`,
-    /// through the click's path (`ChatController.openLink`, so an app link goes to
-    /// `onAppLink`); the clicked URL, or nil when no shown link matches.
-    public func debugClickLink(prefix: String) -> String? {
-        guard let demo = controller.demo else { return nil }
-        let b = controller.host.bounds
-        for y in stride(from: b.minY, to: b.maxY, by: 3) {
-            for x in stride(from: b.minX, to: b.maxX, by: 3) {
-                let p = CGPoint(x: x, y: y)
-                guard let url = controller.linkURL(at: p), url.absoluteString.hasPrefix(prefix), let hit = demo.hit(p) else { continue }
-                return controller.openLink(hit, at: p) ? url.absoluteString : nil
-            }
-        }
-        return nil
-    }
-
-    /// Automation (DEBUG socket): a click on the newest thread's "N Replies" or
-    /// thread preview through the click's path (`ChatController.clicked`). The
-    /// open thread's root (its transcript id) after the click, nil when none opened.
-    public func debugOpenNewestThread() -> String? {
-        guard let demo = controller.demo else { return nil }
-        let cells = demo.collection.visibleCells.compactMap { $0 as? RowCell }
-            .map { $0.convert($0.bounds, to: demo) }.sorted { $0.maxY > $1.maxY }
-        for r in cells {
-            for y in stride(from: r.maxY, to: r.minY, by: -3) {
-                for x in stride(from: r.minX, to: r.maxX, by: 3) {
-                    let p = CGPoint(x: x, y: y)
-                    guard demo.repliesHit(p) != nil else { continue }
-                    controller.clicked(p)
-                    return debugOpenThread
-                }
-            }
-        }
-        return nil
-    }
-
-    /// Automation (DEBUG socket): the open thread's root (its transcript id), nil when none is open.
-    public var debugOpenThread: String? { controller.store?.state.ui.openThread?.messageId }
-
-    /// Automation (DEBUG socket): Esc through the field's path (`ChatController.escape`).
-    public func debugEscape() { controller.escape() }
-
-    /// Automation (DEBUG socket): Reply… in the context menu at the newest text bubble (mine or
-    /// incoming), built and chosen by the right-click's path. The open thread's root after it.
-    public func debugReplyNewest(mine: Bool) -> String? {
-        guard let hit = controller.demo?.lastTextRow(mine: mine),
-              let menu = controller.menu(at: CGPoint(x: hit.body.midX, y: hit.body.midY)) else { return nil }
-        controller.menuHighlight?.discard(); controller.menuHighlight = nil // never shown
-        guard let item = menu.items.first(where: { ($0 as? MenuAction)?.label == Strings.menuReplyEllipsis }),
-              let action = item.action else { return nil }
-        NSApp.sendAction(action, to: item.target, from: item)
-        return debugOpenThread
-    }
-
-    /// Automation (DEBUG socket): a real Esc key press posted to the app's event queue (local
-    /// monitors see it), with the key focus on the window itself (`outside`, as when a terminal
-    /// or the sidebar has it) or where it is.
-    public func debugPostEscape(outside: Bool) {
-        guard let window else { return }
-        if outside { window.makeFirstResponder(nil) }
-        for type in [NSEvent.EventType.keyDown, .keyUp] {
-            if let e = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                                        windowNumber: window.windowNumber, context: nil, characters: "\u{1b}",
-                                        charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53) {
-                NSApp.postEvent(e, atStart: false)
-            }
-        }
-    }
-
-    /// Automation (DEBUG socket): scrolls the transcript by `dy` points
-    /// through AppKit's scroll view.
-    public func debugScroll(by dy: CGFloat) {
-        guard let demo = controller.demo else { return }
-        controller.host.scrollView.scroll(toModelOffset: demo.collection.contentOffset.y + dy)
+    /// `y` within `min ... max` (`min` when the range is empty or not finite). Pure, for tests.
+    static func clampedScrollOffset(_ y: CGFloat, min lo: CGFloat, max hi: CGFloat) -> CGFloat {
+        guard y.isFinite, lo.isFinite, hi.isFinite else { return lo.isFinite ? lo : 0 }
+        return Swift.min(Swift.max(y, lo), Swift.max(lo, hi))
     }
 
     /// Returns when every bubble picture asked for so far is ready (tests).
     public func mediaSettled() async { await projection.media.settled() }
 
-    /// The top of the area under the header (the first-run panel's top); with no header
-    /// (``setBareTop()``), the rows' top. In this view's frame (zoomed) points.
-    public var headerHeight: CGFloat { (controller.host.bareTop ? controller.host.bareRowsTop : Fixture.headerHeight) * zoom }
-    /// cmux: where the newest row ends with no ``rowsBottomClearance``, in this view's frame (zoomed) points: the
-    /// rows' anchor, which can sit under the field's top (a receipt row's lines run past it).
-    public var restingRowsBottom: CGFloat {
-        controller.demo.map { ($0.anchorY + $0.rowsBottomInset) * zoom } ?? frame.height
-    }
-    /// The field's top in this view's frame (zoomed) points (the first-run panel's bottom).
-    public var fieldTop: CGFloat { controller.demo.map { $0.fieldTop * zoom } ?? frame.height }
+    /// The top of the area under the header (the first-run panel's top).
+    public var headerHeight: CGFloat { Fixture.headerHeight }
+    /// The field's top in this view (the first-run panel's bottom).
+    public var fieldTop: CGFloat { controller.demo?.fieldTop ?? bounds.height }
 
     /// Nothing animates and no wake-up is pending (tests, the harness).
     public var isIdle: Bool { controller.isIdle }

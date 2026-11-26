@@ -57,30 +57,12 @@ is not a supply-chain safety attestation and does not replace required CI.
 A reviewed checkout can come from a fork. After reviewing the exact source that
 merged-tree checks execute, run `scripts/gh-merge-green OWNER/REPO#NUMBER
 --trust-fork-head FULL_SHA --squash` from the trusted helper checkout. The flag
-records source trust for that commit only; a different current head is refused. Into
-`feat-cmux-next`, a maintainer adds `ready-to-land` after reviewing that exact head instead, and
-`next-autoland` lands it; a later push needs a new label.
+records source trust for that commit only; a different current head is refused.
 It does not waive CI, frozen paths, mergeability, or merged-tree validation.
 No coordinator acknowledgement or duplicate upstream PR is needed solely because
 the branch is in a fork. Leave unfamiliar code untrusted.
 
 ## PR check progression
-
-Treat a check result as evidence about one exact commit, not a property of a
-branch name: a push supersedes earlier results. Classify each non-green result
-before changing source:
-
-| Result | Action |
-| --- | --- |
-| Changed-file defect | Repair the changed file or its focused test. |
-| Same finding on the parent/base | Link the base run in a PR comment; it does not block. Route the fix to its owner. |
-| Derived wrapper | Follow the root check; do not debug the wrapper separately. |
-| Cancelled, queued, or coordinator-blocked | Retry the same head after capacity or coordinator state recovers. |
-
-Required source, compile, security, and repository gate checks block a merge
-when the failure is the PR's own. Screenshot/gallery and full webview jobs are useful retained evidence
-when they run, but should stay advisory unless the change explicitly promotes
-them.
 
 PR workflows run Fast static checks beside workflow guards and routed Linux checks.
 Applicable macOS compile admission and native checks wait for the static checks and
@@ -108,11 +90,8 @@ suite runner for packages whose CI uses it; it preserves per-suite failures and
 reports timeout retries. Do not treat its aggregate result as a latency sample
 without including the retry.
 
-The app itself is `Packages/macOS/CmuxNext`; test one module with
-`swift test --package-path Packages/macOS/CmuxNext --filter <Module>Tests`.
-
 Package tests establish package behavior, not app wiring. After changing a public
-interface, compile its consumers as below.
+interface, compile the consumers and app-host test target below.
 
 ## 3. Compile the app and tests without launching them
 
@@ -133,12 +112,19 @@ features available. `--build-only` validates a temporary bundle without stopping
 replacing the running tag, then removes the bundle. Use your own tag and retain its
 DerivedData for incremental checks.
 
-An app build does not compile the tests. Compile the app package tests with
-`swift build --build-tests --package-path Packages/macOS/CmuxNext`; CLI tests
-(`cmuxCLITests`, scheme `cmux-cli-tests`) run on CI. See the
+An app build does not compile all tests. In a separate, stable verification directory,
+compile the app-host unit test product:
+
+```bash
+./scripts/test-unit.sh -derivedDataPath "$PWD/.build/contributor-tests" build-for-testing
+```
+
+The wrapper uses the same test-module settings as CI. This is compilation only;
+do not open its untagged product. For UI or dedicated test schemes, follow the
 [test guide](../skills/cmux-testing/references/local-vs-ci-validation.md).
-Compilation proves that the tests build, **not** that any test ran. It does not
-replace the tagged runtime step below or required CI checks.
+Confirm the command succeeded and preserve the build log. `build-for-testing`
+proves that the selected app and test product compile, **not** that any test ran. It does not replace the tagged runtime
+step below or required CI checks.
 
 ## 4. Exercise an isolated runtime
 
@@ -196,10 +182,33 @@ last-used/global socket if the tagged socket is unavailable. `reload.sh` checks
 socket startup; a failed launch is a failure to investigate, not a reason to point
 the test at the regular app.
 
-For tests that launch an application, use a dedicated disposable macOS GUI
-session. A plain `xcodebuild test` on your everyday desktop can launch/focus the
-app under test. If that environment is unavailable, report the missing runtime
-check and ask a maintainer to run it on your pushed revision.
+For app-host or UI tests that launch an application, use the repository's isolated
+CI harness or a dedicated disposable macOS GUI session. A compilation-only product
+is not automatically a safely isolated test runtime. A plain `xcodebuild test` on
+your everyday desktop can launch/focus the app under test. UI tests also need a
+logged-in GUI session and any permissions or display setup their fixture requires.
+If that environment is unavailable, report the missing runtime check and ask a
+maintainer to run the exact selected test on your pushed revision. That is not a
+reason to hold back the pull request: CI runs the app-host suites your diff
+touches once it is open.
+
+### Maintainer option: dispatch a selected test
+
+Contributors do not need GitHub Actions dispatch permission or a private Mac fleet.
+A maintainer with access can use the existing exact-revision dispatcher:
+
+```bash
+python3 scripts/ci/dispatch-focused-test.py cmuxTests/SessionPersistenceTests --ref <pushed-commit-sha> --wait
+```
+
+Replace the selector with the regression; UI selectors use
+`cmuxUITests/ClassName[/methodName]`. The dispatcher validates the revision/selector
+and prints the run URL. For UI tests, `scripts/ui-test ClassName` does the same and then shows
+one frame per test action ([guide](../skills/cmux-testing/references/ui-test-frames.md)).
+This path needs authenticated `gh` access to the upstream
+workflow and its runner capacity. It does not grant access to contributors or
+replace the PR's required checks. Preserve the selected-test count, run URL,
+revision, failures, cancellations and retries in the verification record.
 
 ## 5. Finish with the physical behavior the change affects
 
@@ -210,8 +219,7 @@ or a screenshot alone may not establish keyboard focus, input delivery, persiste
 across restart, or real display behavior. State exactly what you exercised.
 
 For iPhone changes, a simulator pass does not establish physical input, networking,
-or reconnection behavior. The iPhone app is `cmux-next-ios/` (the classic `ios/` app
-is retired). Use `cmux-next-ios/scripts/review.sh --help` and the project's
+or reconnection behavior. Use `ios/scripts/reload.sh --help` and the project's
 [development workflow](../skills/cmux-dev-workflow/SKILL.md) to build the same-tag
 Mac companion and install on an authorized physical device. Team sign-in/pairing
 uses personal credentials outside the repository; it is not a prerequisite for

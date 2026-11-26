@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Pin the lean macOS checkout of the two iOS TestFlight upload workflows.
+"""Pin the lean macOS checkout of the iOS TestFlight upload workflow.
 
-ios-testflight.yml (CMUX INTERNAL, every 20 min) and ios-appstore-upload.yml
-(cmux.app, hourly) used to clone with fetch-depth 0 + recursive submodules
+ios-appstore-upload.yml (cmux CLASSIC, hourly; its INTERNAL sibling
+ios-testflight.yml is retired) used to clone with fetch-depth 0 + recursive submodules
 (~12 min) and install zig unconditionally (~6 min) on the constrained macOS
 pool. The policy now is:
 
@@ -25,23 +25,10 @@ from pathlib import Path
 
 import yaml
 
-# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
-import importlib.util as _git_fixture_importlib  # noqa: E402
-from os import path as _git_fixture_path  # noqa: E402
-_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
-    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
-git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
-_git_fixture_spec.loader.exec_module(git_fixture_env)
-# tests/workflow_jobs.py, imported by name, never loaded by path: scripts/ci imports it by name too, and a load
-# by path makes a second module object for the one file (tests/test_script_module_loads.py). `python3 -I` puts
-# no script folder on sys.path, so this file adds its own folder.
-if str(Path(__file__).resolve().parent) not in sys.path:
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
-import workflow_jobs  # noqa: E402
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = {
-    "ios-testflight.yml": "upload",
     "ios-appstore-upload.yml": "upload",
 }
 FETCH_SCRIPT = ROOT / "ios/scripts/fetch-testflight-notes-history.sh"
@@ -64,8 +51,81 @@ def run_text(step):
     return step.get("run") or ""
 
 
+OFFICIAL_UPLOAD = ROOT / ".github/workflows/ios-appstore-upload.yml"
+CLASSIC_APP_ID = "6799000001"
+# The decide step accepts only a 40-hex SHA as upload evidence.
+BASE_SHA = "b" * 40
+HEAD_SHA = "c" * 40
+PREVIOUS_SHA = "d" * 40
+
+
+def decide_step(name):
+    steps = yaml.safe_load(OFFICIAL_UPLOAD.read_text(encoding="utf-8"))["jobs"]["decide"]["steps"]
+    return steps[step_index(steps, name)]
+
+
+class ClassicConfigurationTests(unittest.TestCase):
+    """cmux CLASSIC switches on only once its repository variables exist."""
+
+    def run_config(self, event, app_id="", group_id=""):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output, summary = root / "output", root / "summary"
+            output.touch()
+            summary.touch()
+            result = subprocess.run(
+                ["bash", "-c", decide_step("Check the cmux CLASSIC configuration")["run"]],
+                env={**os.environ, "GITHUB_OUTPUT": str(output), "GITHUB_STEP_SUMMARY": str(summary),
+                     "EVENT_NAME": event, "CLASSIC_APP_ID": app_id, "CLASSIC_GROUP_ID": group_id},
+                capture_output=True, text=True,
+            )
+            outputs = dict(line.split("=", 1) for line in output.read_text().splitlines() if "=" in line)
+            return result, outputs, summary.read_text()
+
+    def test_unconfigured_schedule_skips_cleanly_and_names_the_variables(self):
+        for app_id, group_id in (("", ""), (CLASSIC_APP_ID, ""), ("", "group")):
+            with self.subTest(app_id=app_id, group_id=group_id):
+                result, outputs, summary = self.run_config("schedule", app_id, group_id)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(outputs, {"configured": "false"})
+                self.assertIn("IOS_CLASSIC_ASC_APP_ID", summary)
+                self.assertIn("IOS_CLASSIC_INTERNAL_GROUP_ID", summary)
+
+    def test_unconfigured_dispatch_fails_with_the_same_message(self):
+        result, outputs, summary = self.run_config("workflow_dispatch")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(outputs, {"configured": "false"})
+        self.assertIn("IOS_CLASSIC_ASC_APP_ID", result.stdout)
+
+    def test_configured_runs(self):
+        result, outputs, _ = self.run_config("schedule", CLASSIC_APP_ID, "group")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(outputs, {"configured": "true"})
+
+    def test_refuses_the_com_cmux_app_record_and_non_numeric_ids(self):
+        for app_id in ("6783338052", "dev.cmux.app.classic"):
+            for event in ("schedule", "workflow_dispatch"):
+                with self.subTest(app_id=app_id, event=event):
+                    result, outputs, _ = self.run_config(event, app_id, "group")
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertNotIn("configured", outputs)
+
+    def test_every_later_decide_step_waits_for_the_configuration(self):
+        steps = yaml.safe_load(OFFICIAL_UPLOAD.read_text(encoding="utf-8"))["jobs"]["decide"]["steps"]
+        # The GitHub API wait (tests/test_scheduled_workflow_gh_retry.py) comes first and needs no configuration.
+        wrapper = {"Checkout the GitHub API wait", "Wait through GitHub API rate limits and 5xx in this job"}
+        steps = [step for step in steps if step.get("name") not in wrapper]
+        self.assertEqual(steps[0]["name"], "Check the cmux CLASSIC configuration")
+        self.assertIn("steps.config.outputs.configured == 'true'", decide_step("Skip an unchanged scheduled revision")["if"])
+        # The batching steps run only when the decide step said upload, which
+        # it cannot without the configuration.
+        for step in steps[2:]:
+            self.assertIn("steps.decide.outputs.upload == 'true'", step["if"])
+
+
 class PublicUploadDecisionTests(unittest.TestCase):
-    def decision(self, files=None, event="schedule", baseline="base", broken=False, retry=False):
+    def decision(self, files=None, event="schedule", baseline=BASE_SHA, broken=False, retry=False,
+                 marker_app_id=CLASSIC_APP_ID):
         import json
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -73,7 +133,7 @@ class PublicUploadDecisionTests(unittest.TestCase):
             fake.write_text("#!/usr/bin/env python3\n" + r"""
 import json, os, sys
 args = ' '.join(sys.argv[1:])
-if 'compare/' in args and '/compare/' + os.environ['BASE'] + '...head' not in args:
+if 'compare/' in args and '/compare/' + os.environ['BASE'] + '...' + os.environ['HEAD_SHA'] not in args:
     raise SystemExit('wrong upload comparison baseline')
 if 'compare/' in args:
     if os.environ['BROKEN'] == '1': sys.exit(1)
@@ -85,9 +145,9 @@ elif '/runs/123/artifacts' in args:
 elif sys.argv[1:3] == ['run', 'download']:
     from pathlib import Path
     target = Path(sys.argv[sys.argv.index('--dir') + 1])
-    (target / 'upload.json').write_text(json.dumps({'sha': 'head', 'app_id': '6783338052', 'build_number': '12345'}))
+    (target / 'upload.json').write_text(json.dumps({'sha': os.environ['HEAD_SHA'], 'app_id': os.environ['MARKER_APP_ID'], 'build_number': '12345'}))
 elif 'status=success' in args:
-    print('previous-skipped-run')
+    print(os.environ['PREVIOUS_SHA'])
 elif 'status=completed' in args:
     if os.environ['RETRY'] == '1': print('123')
 else:
@@ -97,11 +157,12 @@ else:
             output = root / "output"
             summary = root / "summary"
             result = subprocess.run(
-                ["bash", "-c", load("ios-appstore-upload.yml")["jobs"]["decide"]["steps"][0]["run"]],
+                ["bash", "-c", decide_step("Skip an unchanged scheduled revision")["run"]],
                 env={**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
                      "GITHUB_OUTPUT": str(output), "GITHUB_STEP_SUMMARY": str(summary),
-                     "RUNNER_TEMP": str(root), "REPOSITORY": "test/repo", "HEAD_SHA": "head",
+                     "RUNNER_TEMP": str(root), "REPOSITORY": "test/repo", "HEAD_SHA": HEAD_SHA, "PREVIOUS_SHA": PREVIOUS_SHA,
                      "EVENT_NAME": event, "BASE": baseline, "BROKEN": str(int(broken)), "RETRY": str(int(retry)),
+                     "APP_ID": CLASSIC_APP_ID, "MARKER_APP_ID": marker_app_id,
                      "FILES": json.dumps(files if files is not None else [])},
                 capture_output=True, text=True,
             )
@@ -113,12 +174,18 @@ else:
             with self.subTest(path=path):
                 self.assertEqual(self.decision([{"filename": path}])["upload"], "false")
 
+    def test_retry_ignores_a_marker_for_another_app_record(self):
+        # A marker left by the old com.cmux.app lane is not cmux CLASSIC evidence.
+        output = self.decision([{"filename": "ios/app.swift"}], retry=True, marker_app_id="6783338052")
+        self.assertEqual(output.get("upload"), "true")
+        self.assertNotIn("retry_build_number", output)
+
     def test_public_retry_assignment_precedes_irrelevant_change_skip(self):
         output = self.decision([{"filename": "web/page.tsx"}], retry=True)
-        self.assertEqual(output, {"last_upload_sha": "base", "upload": "false", "retry_build_number": "12345"})
+        self.assertEqual(output, {"last_upload_sha": BASE_SHA, "upload": "false", "retry_build_number": "12345"})
 
     def test_public_preserves_build_inputs(self):
-        for path in ["ios/CmuxiOS/Package.swift", "Packages/macOS/CmuxPhonePush/Package.swift",
+        for path in ["ios/cmuxPackage/Package.swift", "Packages/macOS/CmuxPhonePush/Package.swift",
                      "Packages/Shared/CMUXMobileCore/Protocol.swift", "Sources/Mobile/Host.swift",
                      "scripts/lib/verify-ios-release-origins.sh", ".github/scripts/install-app-store-provisioning-profile.sh",
                      ".github/workflows/ios-appstore-upload.yml", "ghostty", "unknown-new-input"]:
@@ -140,9 +207,7 @@ class WorkflowPolicyTests(unittest.TestCase):
     def test_macos_checkouts_are_shallow_without_submodules(self):
         for name in WORKFLOWS:
             for job_name, job in load(name)["jobs"].items():
-                # Each matrix cell is read as its values; a matrix value nothing resolves may be a Mac.
-                cells = workflow_jobs.runs_on_cells(job)
-                if cells is not None and not any("macos" in runs_on.lower() for runs_on in cells):
+                if "macos" not in str(job.get("runs-on", "")).lower():
                     continue
                 for step in job.get("steps", []):
                     if not str(step.get("uses", "")).startswith("actions/checkout@"):
@@ -231,28 +296,9 @@ class WorkflowPolicyTests(unittest.TestCase):
                     [ghostty_sha, "3", "300"],
                 )
 
-    def test_testflight_fetches_only_the_notes_range(self):
-        steps = load("ios-testflight.yml")["jobs"]["upload"]["steps"]
-        distribution = step_index(steps, "Resolve TestFlight distribution")
-        history = step_index(steps, "Fetch TestFlight notes history")
-        upload = step_index(steps, "Archive, export, and upload to TestFlight")
-        self.assertLess(distribution, history)
-        self.assertLess(history, upload)
-        step = steps[history]
-        self.assertIn("needs.decide.outputs.last_uploaded_sha != ''", step["if"])
-        self.assertIn("marketing_version_override", step["if"])
-        self.assertEqual(
-            step["env"]["LAST_UPLOADED_SHA"], "${{ needs.decide.outputs.last_uploaded_sha }}"
-        )
-        self.assertIn("./ios/scripts/fetch-testflight-notes-history.sh", run_text(step))
-        # Best effort and bounded: a slow or failed fetch never blocks the upload.
-        self.assertLessEqual(int(step["timeout-minutes"]), 5)
-        self.assertIs(step["continue-on-error"], True)
-        self.assertIn('--notes-from-range "$LAST_UPLOADED_SHA"', run_text(steps[upload]))
-
     def test_appstore_lane_fetches_only_the_notes_range(self):
-        # The official lane mirrors the INTERNAL lane's generated "What to
-        # Test" notes: the only history it reads is the notes range, fetched
+        # The cmux CLASSIC lane generates "What to Test" notes from the
+        # commit range: the only history it reads is the notes range, fetched
         # bounded and best effort so it can never hold or fail an upload.
         steps = load("ios-appstore-upload.yml")["jobs"]["upload"]["steps"]
         checkout = step_index(steps, "Checkout")

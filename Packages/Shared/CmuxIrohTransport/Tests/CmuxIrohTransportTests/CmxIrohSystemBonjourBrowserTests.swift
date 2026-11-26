@@ -1,4 +1,3 @@
-#if canImport(dnssd)
 import Foundation
 import Testing
 import dnssd
@@ -254,4 +253,3 @@ struct CmxIrohSystemBonjourBrowserTests {
         }
     }
 }
-#endif

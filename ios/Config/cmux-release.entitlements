@@ -22,6 +22,13 @@
 	<key>com.apple.developer.usernotifications.time-sensitive</key>
 	<true/>
 
+	<!-- The optional Cloud system VPN (CloudVPN.appex). The app saves and
+	     starts the packet tunnel configuration; the extension runs it. -->
+	<key>com.apple.developer.networking.networkextension</key>
+	<array>
+		<string>packet-tunnel-provider</string>
+	</array>
+
 	<key>keychain-access-groups</key>
 	<array>
 		<string>$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)</string>

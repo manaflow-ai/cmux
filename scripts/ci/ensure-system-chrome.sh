@@ -13,8 +13,8 @@
 # --optional: where Chrome is missing or old and cannot be installed, warn and exit 0 (a fleet
 # step's browser lane then skips Chromium, as it skips any engine that cannot launch).
 #
-# Headless launches use Chrome for Testing's chrome-headless-shell at $shell_pin, not whatever is
-# stable today (the engine Playwright's own headless launches use, so tests keep its rendering and timing; full
+# Headless launches use Chrome for Testing's chrome-headless-shell at the current stable version
+# (the engine Playwright's own headless launches use, so tests keep its rendering and timing; full
 # Chrome's new headless mode fails timing-sensitive tests, run 41567413265). It is fetched into
 # $CMUX_CI_CACHE_DIR (or ~/.cache/cmux-ci), needs no install rights, and its path is written as
 # CMUX_CHROME_HEADLESS_SHELL to $GITHUB_ENV when set and printed as the last line
@@ -22,12 +22,6 @@
 set -euo pipefail
 
 min="156.0.8078.73"
-# The headless shell is pinned: a new stable can change how the BeginFrame clock answers. On 158.0.8127.36
-# a HeadlessExperimental.beginFrame sent to a page with nothing new to draw went unanswered for a minute
-# (63.6 s seen), so the send motion contract's settle never saw its 12 still frames and two Chromium
-# cases hung to their 400 s limit; on 157.0.8103.78 the same commit passes (agent-pane-send-motion-
-# contract.test.ts, 2026-11-18). Move the pin by hand, with that file green on the new version.
-shell_pin="157.0.8103.78"
 optional=0
 [ "${1:-}" = --optional ] && optional=1
 
@@ -70,10 +64,10 @@ playwright_cli() {
 }
 
 
-# chrome-headless-shell from Chrome for Testing, at $shell_pin. Best effort: prints nothing
+# chrome-headless-shell from Chrome for Testing, at stable (>= $min). Best effort: prints nothing
 # when it cannot be fetched, and launches then fall back to channel "chrome".
 ensure_headless_shell() {
-  local platform version url cache dir bin
+  local platform json version url cache dir bin
   case "$(uname -s)-$(uname -m)" in
     Darwin-arm64) platform=mac-arm64 ;;
     Darwin-x86_64) platform=mac-x64 ;;
@@ -82,15 +76,25 @@ ensure_headless_shell() {
     *) return 0 ;;
   esac
   cache="${CMUX_CI_CACHE_DIR:-$HOME/.cache/cmux-ci}"
-  version="$shell_pin"
+  # A cached shell new enough is used without asking the network.
+  local candidates
+  candidates="$(printf '%s\n' "$cache"/chrome-headless-shell-* | sort -V -r)"
+  for dir in $candidates; do
+    version="${dir##*/chrome-headless-shell-}"
+    bin="$dir/chrome-headless-shell-$platform/chrome-headless-shell"
+    if at_least "$version" "$min" && [ -x "$bin" ]; then
+      echo "$bin"
+      return 0
+    fi
+  done
+  json="$(curl -fsS --retry 3 -m 30 https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json)" || return 0
+  read -r version url < <(printf '%s' "$json" | python3 -c '
+import json, sys
+stable = json.load(sys.stdin)["channels"]["Stable"]
+urls = {d["platform"]: d["url"] for d in stable["downloads"].get("chrome-headless-shell", [])}
+print(stable["version"], urls.get(sys.argv[1], ""))' "$platform") || return 0
+  at_least "$version" "$min" && [ -n "$url" ] || return 0
   dir="$cache/chrome-headless-shell-$version"
-  # The pinned shell, once cached, is used without asking the network; any other cached version is not.
-  bin="$dir/chrome-headless-shell-$platform/chrome-headless-shell"
-  if [ -x "$bin" ]; then
-    echo "$bin"
-    return 0
-  fi
-  url="https://storage.googleapis.com/chrome-for-testing-public/$version/$platform/chrome-headless-shell-$platform.zip"
   mkdir -p "$cache"
   local tmp
   tmp="$(mktemp -d "$cache/.chs.XXXXXX")"
@@ -120,25 +124,14 @@ ensure_chrome() {
     # The install runs apt-get update, which fails on a hash mismatch when Google republishes its
     # apt repository mid-fetch (job 127181004735: "Hashes of received file ... do not match"); one
     # more try a little later reads the new index.
-    # Playwright fetches the 140 MB .deb with one plain `curl -L -O`, no retry: a stream cut
-    # mid-transfer failed the shard's engine gate (job 131599730461, 2026-11-13: "curl: (92) HTTP/2
-    # stream 1 was not closed cleanly"), the shard ran 24 more min to a red, and its rerun made the
-    # head's verdict 51 min. A cut transfer is tried again: curl exit 18 (partial file), 28 (timed
-    # out), 35 (TLS connect), 52 (empty reply), 56 (receive failure), 92 (HTTP/2 stream). A 404
-    # (curl 22) or a name that does not resolve is not: another try does not fix it.
-    local log attempt delay="${CMUX_CHROME_INSTALL_RETRY_SECONDS:-15}"
+    local log attempt
     log="$(mktemp)"
-    for attempt in 1 2 3; do
+    for attempt in 1 2; do
       # shellcheck disable=SC2046
       if CI=1 $(playwright_cli) install --with-deps chrome 2>&1 | tee "$log"; then break; fi
       if [ "$attempt" = 1 ] && grep -qE 'Hash Sum mismatch|Hashes of received file' "$log"; then
-        echo "warning: apt index changed during the fetch; trying once more in $delay s" >&2
-        sleep "$delay"
-        continue
-      fi
-      if [ "$attempt" -lt 3 ] && grep -qE 'curl: \((18|28|35|52|56|92)\)' "$log"; then
-        echo "warning: the Chrome download was cut off; trying again in $delay s (try $((attempt + 1)) of 3)" >&2
-        sleep "$delay"
+        echo "warning: apt index changed during the fetch; trying once more in 15 s" >&2
+        sleep 15
         continue
       fi
       echo "warning: Chrome stable install failed" >&2

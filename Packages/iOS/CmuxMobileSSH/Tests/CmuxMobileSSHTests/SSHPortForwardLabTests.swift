@@ -1,8 +1,5 @@
 import CmuxMobileSSH
 import Foundation
-#if canImport(FoundationNetworking)
-import FoundationNetworking
-#endif
 import Testing
 
 @Suite(.enabled(if: ProcessInfo.processInfo.environment["CMUX_SSH_LAB"] != nil))

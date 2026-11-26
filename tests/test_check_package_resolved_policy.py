@@ -21,27 +21,13 @@ Cases:
   (g) Removing an Xcode product linkage passes without a lockfile diff because
       product linkage does not change the resolved package graph.
   (h) Changing an Xcode remote requirement still fails without a lockfile diff.
-  (i) A leaf package whose only `.package(url:)` sits inside the Linux package
-      jobs' CMUX_SWIFTPM_TARGET_LINUX gate needs no Package.resolved, and its
-      dependents need no lockfile diff: no Apple build resolves it.
-  (j) The same dependency under a bare `#if os(Linux)` still fails: the fleet
-      evaluates that on a Linux host for an Apple build.
-  (k) The same dependency inside a gate on another variable still fails.
-  (l) A gate whose block does not close at its own indentation is read whole,
-      so a remote dependency after it still fails.
 """
 
 import os
 import subprocess
 import sys
 import tempfile
-# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
-import importlib.util as _git_fixture_importlib  # noqa: E402
-from os import path as _git_fixture_path  # noqa: E402
-_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
-    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
-git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
-_git_fixture_spec.loader.exec_module(git_fixture_env)
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GUARD = os.path.join(ROOT_DIR, "scripts", "check-package-resolved-policy.py")
@@ -116,24 +102,6 @@ def manifest(name, dependencies):
         f"{joined}"
         "    ]\n"
         ")\n"
-    )
-
-
-LINUX_GATE = 'if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {'
-LINUX_ONLY_DEPENDENCY = (
-    'package.dependencies.append(.package(url: "https://github.com/apple/swift-crypto.git", exact: "3.15.1"))'
-)
-
-
-def linux_only_manifest(name, gate, closing="}"):
-    return (
-        manifest(name, [])
-        + "\n#if os(Linux)\n"
-        + f"{gate}\n"
-        + f"    {LINUX_ONLY_DEPENDENCY}\n"
-        + f'    package.targets.first {{ $0.name == "{name}" }}?.dependencies.append(.product(name: "Crypto", package: "swift-crypto"))\n'
-        + f"{closing}\n"
-        + "#endif\n"
     )
 
 
@@ -256,22 +224,6 @@ def add_remote_bearing_path_package(repo):
     )
 
 
-def add_linux_gated_leaf(text):
-    def mutate(repo):
-        write_text(
-            os.path.join(repo, "Packages/Shared/CmuxCryptoLeaf/Package.swift"), text
-        )
-        write_text(
-            shell_ui_manifest(repo),
-            manifest(
-                "CmuxMobileShellUI",
-                [REMOTE_DEPENDENCY, '.package(path: "../../Shared/CmuxCryptoLeaf")'],
-            ),
-        )
-
-    return mutate
-
-
 def add_remote_package(repo):
     write_text(
         shell_ui_manifest(repo),
@@ -392,34 +344,6 @@ def main():
     ok &= expect(
         "(h) changing an Xcode remote requirement still needs a lockfile diff",
         scenario(change_xcode_remote_requirement),
-        1,
-    )
-
-    ok &= expect(
-        "(i) a dependency only inside the CMUX_SWIFTPM_TARGET_LINUX gate needs no lockfile",
-        scenario(add_linux_gated_leaf(linux_only_manifest("CmuxCryptoLeaf", LINUX_GATE))),
-        0,
-    )
-    ok &= expect(
-        "(j) the same dependency under a bare #if os(Linux) still needs lockfiles",
-        scenario(add_linux_gated_leaf(
-            manifest("CmuxCryptoLeaf", [])
-            + f"\n#if os(Linux)\n{LINUX_ONLY_DEPENDENCY}\n#endif\n"
-        )),
-        1,
-    )
-    ok &= expect(
-        "(k) a gate on another variable still needs lockfiles",
-        scenario(add_linux_gated_leaf(linux_only_manifest(
-            "CmuxCryptoLeaf", LINUX_GATE.replace("CMUX_SWIFTPM_TARGET_LINUX", "CMUX_OTHER")
-        ))),
-        1,
-    )
-    ok &= expect(
-        "(l) a gate that does not close at its own indentation is read whole",
-        scenario(add_linux_gated_leaf(linux_only_manifest(
-            "CmuxCryptoLeaf", LINUX_GATE, closing="    }"
-        ) + "}\n")),
         1,
     )
 
