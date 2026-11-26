@@ -590,7 +590,7 @@ describe("cmux-rd (the cmux.rd/1 Linux host, role desktop; release cmux-rd-v<V> 
       const program = { ...cmuxRdReleaseShape("0.1.0"), sha256, size: bytes.length, url: `file://${archive}`, checksumsUrl: undefined, checksumsName: undefined };
       const store = path.join(dir, "store");
       const command = programInstallCommand(program).replaceAll("/opt/cmux/store", store).replaceAll("/tmp/cmux-dl", path.join(dir, "dl"));
-      const r = await runChild("bash", ["-c", command], { timeout: 60_000 });
+      const r = await runChild("bash", ["-c", command], { timeout: 60_000, env: { ...process.env, CMUX_PINNED_MIRROR: "" } });
       expect(r.stderr).toBe("");
       expect(r.status).toBe(0);
       const entry = path.join(store, sha256);

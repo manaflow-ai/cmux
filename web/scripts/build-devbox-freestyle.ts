@@ -100,6 +100,7 @@ import {
   resolveCmuxTuiSource,
 } from "../services/vms/drivers/cmuxTuiDaemon";
 import {
+  retryFreestyleOverload,
   devboxDaemonUnit,
   CMUX_TUI_STATE_IMAGE_PATH,
   CMUX_TUI_STATE_MOUNT_HELPER_PATH,
@@ -224,11 +225,11 @@ const WORK_HOME = DEVBOX_WORK_HOME;
 const instanceIdCommand = DEVBOX_INSTANCE_ID_COMMAND;
 
 const builderSnapshot = process.env.CMUX_FREESTYLE_BUILDER_SNAPSHOT?.trim() || "freestyle/ubuntu-sm";
-const { vm, vmId } = await fs.vms.create({
+const { vm, vmId } = await retryFreestyleOverload("vm start", () => fs.vms.create({
   snapshotId: builderSnapshot,
   displayName: `cmux-devbox-builder ${slug}`,
   firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] },
-});
+}));
 console.log(`builder VM ${vmId} (base ${builderSnapshot}, desktop=${withDesktop})`);
 
 async function deleteBuilder(): Promise<void> {
