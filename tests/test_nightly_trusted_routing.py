@@ -622,7 +622,8 @@ class NightlyTrustedRouting(unittest.TestCase):
                                    'vars.CI_CLOUD_OVERFLOW_SAVED': '{"probe":"x"}',
                                    'needs.prepare-nightly-variant-primary.result': primary}
                         allowed = ({hosted_route(name, attempt)} if name in HOSTED_SECRET_JOBS or name in HOSTED_PREFLIGHT_JOBS
-                                   else {CMUX_LINUX} if name in CMUX_LINUX_JOBS else OUR_LABELS - {HOSTED})
+                                   else {CMUX_LINUX} if name in CMUX_LINUX_JOBS
+                                   else OUR_LABELS - {HOSTED})
                         with self.subTest(job=name, runner=runner, attempt=attempt, primary=primary):
                             self.assertIn(evaluate(parse_expression(source), context), allowed)
                         if name in NIGHTLY_NEXT_ONLY_OWNED:
