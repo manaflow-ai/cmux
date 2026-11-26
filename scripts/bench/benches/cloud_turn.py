@@ -58,8 +58,8 @@ class CloudTurn(Bench):
         )
         # One build, both routes back to back.
         command = (
-            "set -o pipefail; cd cmux-tui && "
-            f"{{ {bench} --route local && {bench} --route relay; }} | tee \"$FAST_CHECKS_OUT/cloud-turn.log\""
+            "set -o pipefail; { exec 2>&1; cd cmux-tui && "
+            f"{{ {bench} --route local && {bench} --route relay; }}; }} | tee \"$FAST_CHECKS_OUT/out.txt\" \"$FAST_CHECKS_OUT/cloud-turn.log\""
         )
         cmd = ["cmux-ci", "test", "--timeout", "3600", "--artifact", str(out), "--", "bash", "-c", command]
         if ctx.dry_run:
@@ -67,7 +67,9 @@ class CloudTurn(Bench):
             raise BenchError("dry run")
         log = ctx.workdir / "cloud-turn.log"
         with log.open("w", encoding="utf-8") as f:
-            subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, text=True, check=False)
+            result = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, text=True, check=False)
+        if result.returncode:
+            raise BenchError(f"cloud-turn failed ({result.returncode}); see {log} and {out}")
         full = out / "cloud-turn.log"
         ctx.host.update({"name": "linux-ci", "os": "Linux"})
         self.ingest(ctx, full if full.exists() else log)

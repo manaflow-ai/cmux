@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import sys
+import os
+import subprocess
 import unittest
+import tempfile
 from pathlib import Path
 
 BENCH_DIR = Path(__file__).resolve().parents[1]
@@ -66,8 +69,28 @@ class TypingTest(unittest.TestCase):
         script = cmd[-1]
         self.assertIn("bun bench/composer-typing.bench.ts --mode L0,L1 --engines chromium --lengths 60 --keys 300 "
                       "--gap 20", script)
-        self.assertIn('tee "${FAST_CHECKS_OUT:-/tmp}/composer-typing.log"', script)
+        self.assertIn('tee "${FAST_CHECKS_OUT:-/tmp}/out.txt" "${FAST_CHECKS_OUT:-/tmp}/composer-typing.log"', script)
         self.assertTrue((BENCH_DIR.parents[1] / BENCH.harness).exists())
+
+    def test_failing_measurement_preserves_stderr_and_exit_without_rows(self):
+        command = BENCH.command(context(modes="L0,L1", engines="chromium", keys="300"))[-1]
+        measurement = "cd webviews && bun install --frozen-lockfile && bun bench/composer-typing.bench.ts --mode L0,L1 --engines chromium --lengths 60 --keys 300 --gap 20"
+        self.assertIn(measurement, command)
+        command = command.replace(measurement, "printf 'measurement stdout\\n'; printf 'measurement stderr\\n' >&2; exit 7")
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d)
+            env = {**os.environ, "FAST_CHECKS_OUT": str(out)}
+            result = subprocess.run(["bash", "-c", command], env=env, capture_output=True, text=True, check=False)
+            self.assertEqual(result.returncode, 7)
+            self.assertEqual(result.stderr, "")
+            expected = "measurement stdout\nmeasurement stderr\n"
+            self.assertEqual(result.stdout, expected)
+            self.assertEqual((out / "out.txt").read_text(), expected)
+            self.assertEqual((out / "composer-typing.log").read_text(), expected)
+            ctx = context()
+            with self.assertRaises(BenchError):
+                BENCH.ingest(ctx, out / "out.txt")
+            self.assertEqual(ctx.rows, [])
 
 
 if __name__ == "__main__":

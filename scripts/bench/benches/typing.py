@@ -65,8 +65,8 @@ class Typing(Bench):
         opt = {k: ctx.arg(k) or v for k, v in DEFAULTS.items()}
         bench = ["bun", "bench/composer-typing.bench.ts", "--mode", opt["modes"], "--engines", opt["engines"],
                  "--lengths", opt["lengths"], "--keys", opt["keys"], "--gap", opt["gap_ms"]]
-        script = (f"set -o pipefail; cd webviews && bun install --frozen-lockfile && {shlex.join(bench)} 2>&1"
-                  f' | tee "${{FAST_CHECKS_OUT:-/tmp}}/{LOG}"')
+        script = (f"set -o pipefail; {{ exec 2>&1; cd webviews && bun install --frozen-lockfile && {shlex.join(bench)}; }}"
+                  f' | tee "${{FAST_CHECKS_OUT:-/tmp}}/out.txt" "${{FAST_CHECKS_OUT:-/tmp}}/{LOG}"')
         return ["cmux-ci", "test", "--setup", "playwright", "--timeout", str(ctx.arg("timeout") or 2400),
                 "--artifact", str(ctx.workdir / "artifact"), "--", "bash", "-c", script]
 
@@ -77,7 +77,9 @@ class Typing(Bench):
             raise BenchError("dry run")
         log = ctx.workdir / LOG
         with log.open("w", encoding="utf-8") as f:
-            subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, text=True, check=False)
+            result = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, text=True, check=False)
+        if result.returncode:
+            raise BenchError(f"typing failed ({result.returncode}); see {log} and {ctx.workdir / 'artifact'}")
         full = ctx.workdir / "artifact" / LOG
         ctx.host.update({"name": "linux-ci", "os": "Linux"})
         self.ingest(ctx, full if full.exists() else log)
