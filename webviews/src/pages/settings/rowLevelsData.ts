@@ -17,6 +17,7 @@ export const ROW_LEVELS: {
     // The other Updates rows live in cmux-next.json only (page_hidden in updates.json; Leo 2026-11-22).
     "updates.liveWebReload": "more",
     "updates.showFeatureTips": "more",
+    "updates.checkExtensions": "more",
     "appearance.themeEdits": "hidden",
     "appearance.favoriteThemes": "hidden",
     "appearance.rotateFavoriteThemes": "more",
