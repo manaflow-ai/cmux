@@ -752,6 +752,7 @@ public final class CmuxMobileAuthModel {
                 try await purgeServiceData()
             } catch {
                 authModelLog.error("account deletion: service data purge failed: \(String(describing: error), privacy: .public)")
+                // retry-prompt-ok: account deletion is permanent; asking again is the person's choice
                 throw AccountDeletionError.serviceData("Couldn't remove your devices from the cmux service. Check your connection and try again.")
             }
         }
@@ -760,16 +761,18 @@ public final class CmuxMobileAuthModel {
             authModelLog.info("account deleted (\(result == .completed ? "complete" : "cleanup pending", privacy: .public))")
         } catch let error as AccountDeletionRequestError {
             authModelLog.error("account deletion failed: \(String(describing: error), privacy: .public)")
+            // retry-prompt-ok: account deletion is permanent; asking again is the person's choice
             switch error {
             case .localTransportFailure:
                 throw AccountDeletionError.account("You're offline. Connect to the internet and try again.")
-            case .completionUnknown, .timedOut:
+            case .completionUnknown, .timedOut: // retry-prompt-ok: account deletion, the person's choice
                 throw AccountDeletionError.account("Couldn't confirm the account was deleted. Try again in a moment.")
-            default:
+            default: // retry-prompt-ok: account deletion, the person's choice
                 throw AccountDeletionError.account("Your account couldn't be deleted. Try again, or contact support from cmux.com.")
             }
         } catch {
             authModelLog.error("account deletion failed: \(String(describing: error), privacy: .public)")
+            // retry-prompt-ok: account deletion is permanent; asking again is the person's choice
             throw AccountDeletionError.account("Your account couldn't be deleted. Try again.")
         }
         let hook = willSignOut
@@ -802,10 +805,12 @@ public final class CmuxMobileAuthModel {
     public static func message(for error: any Error, provider: Provider) -> String? {
         if let error = error as? ASAuthorizationError, error.code == .canceled { return nil }
         if error is CancellationError { return nil }
+        // retry-prompt-ok: signing in needs the person (the provider's sheet, their account)
         switch AuthError(displaySafe: error) {
         case .cancelled: return nil
         case .offline: return "You're offline. Check your connection and try again."
-        case .networkError: return "Couldn't reach the sign-in service. Check your connection and try again."
+        case .networkError: return "Couldn't reach the sign-in service. Check your connection and try again." // retry-prompt-ok: sign-in needs the person
+        // retry-prompt-ok: signing in needs the person (the provider's sheet, their account)
         case .timedOut: return "Sign-in timed out. Check your connection and try again."
         default: return "Couldn't sign in with \(provider.displayName). Try again."
         }
@@ -824,6 +829,7 @@ public final class CmuxMobileAuthModel {
         case .invalidName: return "Team names are 1 to 120 characters."
         case .failed, nil: break
         }
+        // retry-prompt-ok: a sign-in or team creation the person made; doing it again is theirs
         return "Something went wrong. Try again."
     }
 }
