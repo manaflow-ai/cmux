@@ -177,9 +177,21 @@ behind_since() {
     git fetch --quiet --deepen=50 "$remote" "$(git rev-parse HEAD)" 2>/dev/null || return 1
   done
   git merge-base --is-ancestor "$sha" HEAD 2>/dev/null || return 1
-  first="$(git log --reverse --format=%ct "$sha..HEAD" -- "${specs[@]}" | head -n 1)"
-  [[ "$first" =~ ^[0-9]+$ ]] || return 1
-  echo "$first"
+  # A treeless clone (app-ffi-repin.yml) fetches each commit's tree lazily here, and one stalled fetch fails the
+  # read (re-pin run 45714815881: "could not fetch ... from promisor remote"). Each try keeps the trees it got,
+  # so up to three tries; only a read that fails all three leaves the pin undated.
+  # CMUX_APP_FFI_PIN_RETRY_SLEEP: the wait between tries, for the test.
+  local try
+  for try in 1 2 3; do
+    if first="$(git log --reverse --format=%ct "$sha..HEAD" -- "${specs[@]}")"; then
+      first="${first%%$'\n'*}"
+      [[ "$first" =~ ^[0-9]+$ ]] || return 1
+      echo "$first"
+      return 0
+    fi
+    (( try < 3 )) && sleep "${CMUX_APP_FFI_PIN_RETRY_SLEEP:-5}"
+  done
+  return 1
 }
 behind_note=""
 if [[ "$stale_grace" -gt 0 && "$own_change" -eq 1 ]] && ! git diff --quiet "$sha" HEAD -- "${specs[@]}"; then
