@@ -10,6 +10,7 @@
 // transform only, placed at once under Reduce Motion). Every pick keeps the layout: example lines hold
 // one line each, the hero tile keeps its box and only its faces change.
 import { useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import { Button } from "../../ui/Button";
 import { DialogButton } from "../../ui/DialogButton";
 import { KeyHint } from "../../ui/KeyHint";
 import { SlidingIndicator } from "../../ui/motion/SlidingIndicator";
@@ -261,16 +262,15 @@ function TuneStep({ layout, outer }: { layout: WalkTuneLayout; outer: boolean })
           onPick={(id) => store.call("cmux.onboarding.makeItYours.density", { value: id })}
         />
         {layout === "three" && (
-          <button
-            type="button"
-            className="ui-button ui-btn onb-walk-more-button"
-            data-variant="ghost"
-            data-size="sm"
+          <Button
+            className="onb-walk-more-button"
+            variant="ghost"
+            size="sm"
             aria-expanded={showOuter}
             onClick={() => setShowOuter((open) => !open)}
           >
             {showOuter ? "Fewer" : "More"}
-          </button>
+          </Button>
         )}
       </div>
       {layout === "twoTone" && (
@@ -496,16 +496,15 @@ export function WalkArmScreen({ arm }: { arm: WalkArm }) {
         extra={
           arm.more ? (
             <div className="onb-walk-disclosure" data-open={open || undefined}>
-              <button
-                type="button"
-                className="ui-button ui-btn onb-walk-more-button"
-                data-variant="ghost"
-                data-size="sm"
+              <Button
+                className="onb-walk-more-button"
+                variant="ghost"
+                size="sm"
                 aria-expanded={open}
                 onClick={() => setOpen((value) => !value)}
               >
                 {open ? "Fewer" : "More: agents and notifications"}
-              </button>
+              </Button>
               {open && trust}
             </div>
           ) : undefined
