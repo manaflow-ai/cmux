@@ -86,10 +86,10 @@ case "$publisher" in
 esac
 if [[ -n "$why" ]]; then
   echo "tree_pending=false" >> "$GITHUB_OUTPUT"
-  echo "::warning title=cmux-tui tree::tree $key of the tip is not published and nothing will publish it in time ($why); the resolver builds the newest commit whose tree is published"
+  echo "::warning title=cmux-tui tree::tree $key of the tip is not published and nothing will publish it in time ($why); the resolver builds the tip with the newest published tree whose daemon-capabilities.json matches (older-tree-for-tip.sh), else the newest commit whose tree is published"
   {
     echo "### Nightly build commit"
-    echo "- the tip \`$TIP_SHA\`: its cmux-tui tree \`$key\` is not published and nothing will publish it in time ($why); building the newest published tree instead"
+    echo "- the tip \`$TIP_SHA\`: its cmux-tui tree \`$key\` is not published and nothing will publish it in time ($why); the resolver picks an older published tree"
   } >> "$GITHUB_STEP_SUMMARY"
   exit 0
 fi
