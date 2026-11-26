@@ -12,7 +12,12 @@
 // cost what 1,000 do. Rows are memoized on their conversation and a few plain values (the time's
 // text, the author's name, the offset) with stable handlers, so a selection, a new message or a
 // parent render draws only the rows whose text changed.
-import { memo, useCallback, useMemo, useRef, useState, type FocusEvent, type ReactNode } from "react";
+// A row away from the window is still reached as when every row was mounted: a new selection (a
+// link, the palette, Option-Up/Down, the host's next conversation) scrolls its row into view, and
+// the browser's Tab and Shift-Tab go to the next row in list order (each row is a tab stop) and into
+// the list at its first or last conversation, as the focused row's neighbours and the first and last
+// rows stay mounted.
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type ReactNode } from "react";
 import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import { useStableHandlers } from "../../agent-session/acpmux/stableHandlers";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
@@ -106,6 +111,13 @@ export function ConversationList({
   const [focusedRow, setFocusedRow] = useState<string | undefined>(undefined);
   const selectedItem = selected === undefined ? -1 : (list.index.get(selected) ?? -1);
   const focusedItem = focusedRow === undefined ? -1 : (list.index.get(focusedRow) ?? -1);
+  const tabStops = [
+    focusedItem,
+    focusedItem < 0 ? -1 : rowFrom(list.items, focusedItem - 1, -1),
+    focusedItem < 0 ? -1 : rowFrom(list.items, focusedItem + 1, 1),
+    rowFrom(list.items, 0, 1),
+    rowFrom(list.items, list.items.length - 1, -1),
+  ];
   // One function per list: TanStack places every item again when it changes.
   const itemKey = useCallback((index: number) => itemKeyOf(list.items[index]), [list]);
   // The first mounted item of each kind sizes every one not yet mounted, so the rows a scroll brings
@@ -121,10 +133,12 @@ export function ConversationList({
     },
     getItemKey: itemKey,
     overscan: OVERSCAN,
-    // The Pinned label (its list names it), the active row and the focused row stay mounted.
+    // The Pinned label (its list names it), the active row and the focused row stay mounted; so do
+    // the focused row's neighbours and the first and last rows, the browser's next tab stops: Tab
+    // and Shift-Tab go on in list order, and into the list at its first or last conversation.
     rangeExtractor: (range: Range) => {
       const indexes = defaultRangeExtractor(range);
-      for (const kept of [pinned.length > 0 ? 0 : -1, selectedItem, focusedItem])
+      for (const kept of [pinned.length > 0 ? 0 : -1, selectedItem, ...tabStops])
         if (kept >= 0 && kept < list.items.length && !indexes.includes(kept)) {
           indexes.push(kept);
           indexes.sort((a, b) => a - b);
@@ -152,6 +166,15 @@ export function ConversationList({
     const id = (event.target as HTMLElement).closest<HTMLElement>("[data-list-row]")?.dataset.listRow;
     if (id !== undefined) setFocusedRow(id);
   };
+  // A new selection scrolls its row into view (each row was in the page when all were mounted). A
+  // selection whose conversation has not come yet (a link opened before the inbox reply) is revealed
+  // when it comes.
+  const revealed = useRef<string | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (selected === revealed.current || (selected !== undefined && selectedItem < 0)) return;
+    revealed.current = selected;
+    if (selectedItem >= 0) virtualizer.scrollToIndex(selectedItem, { align: "auto" });
+  });
 
   // Only the mounted items: each row's plain values are read here, from its own conversation.
   let section: ReactNode = null;
@@ -332,6 +355,11 @@ const DIVIDER: ListItem = { kind: "divider" };
 const itemKeyOf = (item: ListItem | undefined) =>
   item === undefined || item.kind !== "row" ? (item?.kind ?? "") : item.row.id;
 
+/** The first row from `index` on in the direction `step` (past the Pinned label and the line), or -1. */
+function rowFrom(items: readonly ListItem[], index: number, step: 1 | -1): number {
+  for (let at = index; at >= 0 && at < items.length; at += step) if (items[at]!.kind === "row") return at;
+  return -1;
+}
 /** The list as it shows, built once per change of the conversations: the Pinned label and my pins,
  * the line after them, then the rest; and each conversation's place in it. */
 function listModel(conversations: Iterable<HomeConversation>) {
