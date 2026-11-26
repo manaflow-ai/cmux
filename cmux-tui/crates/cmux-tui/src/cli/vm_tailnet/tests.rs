@@ -559,3 +559,40 @@ fn leave_drops_only_the_signed_out_node_from_the_vault() {
     assert!(store.node.borrow().is_none());
     assert_eq!(store.lease().unwrap().holder, None);
 }
+
+#[test]
+fn connect_is_a_join_for_the_one_stable_node() {
+    let env = |name: &str| (name == "USER").then(|| "Leo.Smith".to_owned());
+    let args = parse_connect(&words("vm_1 --oauth --key-stdin --tag tag:cmux"), &env).unwrap();
+    assert!(args.request.ssh && !args.request.ephemeral && args.oauth);
+    assert_eq!(args.request.hostname.as_deref(), Some("leo-smith-cmux"));
+    let named = parse_connect(&words("vm_1 --key-stdin --hostname box"), &env).unwrap();
+    assert_eq!(named.request.hostname.as_deref(), Some("box"));
+    let why = parse_connect(&words("vm_1 --key-stdin --ephemeral"), &env).unwrap_err();
+    assert!(why.contains("never --ephemeral"), "{why}");
+    let why = parse_connect(&words("vm_1"), &env).unwrap_err();
+    assert!(why.contains("tailnet connect needs"), "{why}");
+}
+
+#[test]
+fn the_stable_name_is_a_dns_label() {
+    let name = |user: &str| {
+        let user = user.to_owned();
+        stable_name(&move |key: &str| (key == "USER").then(|| user.clone()))
+    };
+    assert_eq!(name("leo"), "leo-cmux");
+    assert_eq!(name("  Ann_Lee--"), "ann-lee-cmux");
+    assert_eq!(name("!!!"), "cmux");
+    assert_eq!(stable_name(&|_: &str| None), "cmux");
+    assert!(name(&"a".repeat(80)).len() <= 63);
+}
+
+#[test]
+fn connect_refuses_while_the_vault_keeps_a_node() {
+    let store = kept("leo-cmux", "c3RhdGU=");
+    let why = may_connect(&store, "vm_2").unwrap_err();
+    assert!(why.contains("keeps your node leo-cmux") && why.contains("adopt vm_2"), "{why}");
+    let empty = kept("x", "c3RhdGU=");
+    *empty.node.borrow_mut() = None;
+    assert_eq!(may_connect(&empty, "vm_2"), Ok(()));
+}
