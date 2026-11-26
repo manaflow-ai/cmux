@@ -6,18 +6,18 @@
 //!
 //! Format (mode 0600, replaced through a temp file and a rename):
 //! `{"version":1,"daemons":{"<daemon key, hex>":{"route":"<sha256 of the route URL, hex>",
-//!   "at":<ms>}}}`. The route is kept as a hash: a route URL can carry a capability in its
-//! path or query, and only "is this candidate the one that worked" is ever asked of it.
+//!   "at":<ms>,"networks":{"<network fingerprint, hex>":{"route":...,"at":...}}}}}`. The top
+//! level is the latest winner on any network; `networks` keeps the winner per network
+//! (RFD 0164 B2, `cmux_braid_path::Fingerprint`), so the route that won at home comes first
+//! again at home after a day at the office. Files from before B2 read as a latest only. The
+//! route is kept as a hash: a route URL can carry a capability in its path or query, and only
+//! "is this candidate the one that worked" is ever asked of it.
 //!
 //! A remembered route that is not among the candidates, or older than [`STALE_AFTER`], is
 //! ignored. One that fails is forgotten at once, so a stale memory costs at most one attempt.
 //! A connect with no pinned daemon key (an invitation, a carrier discovery) keeps none.
 //!
-//! Per network (Chromium keeps QUIC's winner per network the same way): an entry is filed
-//! under `"<daemon>@<network>"` ([`cmux_braid_path::NetworkId`], hashed), so the route that
-//! won at home is not assumed on a café's Wi-Fi, and back home it leads again. An entry
-//! written before this (plain `"<daemon>"`) is read on any network until a connect files one
-//! under the network. A route that fails is marked broken on this network for the process
+//! A route that fails is also marked broken on this network for the process
 //! ([`cmux_braid_path::LastGood::failed`]: 5 min, doubling, cleared by a success or a network
 //! change); a broken route is raced after the others ([`LastGoodRoute::late`]), never skipped.
 //!
@@ -45,14 +45,25 @@ const MAX_BYTES: u64 = 1024 * 1024;
 /// machine not dialed for a month has likely moved networks.
 pub(super) const STALE_AFTER: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 
+/// One remembered route.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct Entry {
+struct Route {
     route: String,
     at: u64,
     /// How long the route's last connect took, in ms (the race's stagger follows it). Absent
     /// in files written before it.
     #[serde(default, rename = "connectMs", skip_serializing_if = "Option::is_none")]
     connect_ms: Option<u64>,
+}
+
+/// One daemon's memory: the latest winner on any network (its fields at the top level, as
+/// files before B2 wrote them), and the winner per network fingerprint.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+struct Entry {
+    #[serde(flatten)]
+    latest: Option<Route>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    networks: BTreeMap<String, Route>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -65,48 +76,78 @@ struct File {
     legs: BTreeMap<String, BTreeMap<String, u64>>,
 }
 
+/// The route a dial puts first, and whether it won on this network (not only on another).
+#[derive(Debug, Clone)]
+struct Remembered {
+    route: Route,
+    here: bool,
+}
+
+/// What a write changes in this daemon's entry.
+enum Change {
+    Connected(Route),
+    Failed(String),
+}
+
+/// The most networks kept per daemon; the oldest goes first.
+const MAX_NETWORKS: usize = 16;
+
 /// One daemon's remembered route, loaded once per first connect and written on each change.
+/// The route is the one that won on the network the machine is on now (RFD 0164 B2), or,
+/// when none did here yet, the latest winner anywhere (the memory before B2).
 #[derive(Debug)]
 pub(super) struct LastGoodRoute {
     path: Option<PathBuf>,
-    /// The entry's name in the file: `"<daemon>@<network>"` (the daemon alone off any network).
     daemon: String,
-    /// The plain `"<daemon>"` entry an older client wrote, dropped once this one writes.
-    legacy: Option<String>,
-    remembered: Mutex<Option<Entry>>,
+    /// This machine's network fingerprint at open (`None`: offline or switched off).
+    network: Option<String>,
+    remembered: Mutex<Option<Remembered>>,
     /// The routes broken on this network (keyed by route hash).
     broken: cmux_braid_path::LastGood<(), String>,
 }
 
 impl LastGoodRoute {
     /// The memory of the daemon pinned to `daemon_key`, in `state_dir` (`None`: in memory
-    /// only). No key: nothing names the daemon, so nothing is kept.
+    /// only), for the network this machine is on now. No key: nothing names the daemon, so
+    /// nothing is kept.
     pub(super) fn open(state_dir: Option<&Path>, daemon_key: Option<[u8; 32]>) -> Option<Self> {
-        Self::open_on(state_dir, daemon_key, cmux_braid_path::NetworkId::current)
+        let network = cmux_braid_path::Fingerprint::current().map(|network| network.to_hex());
+        Some(
+            Self::open_on(state_dir, daemon_key, network)?
+                .watching(cmux_braid_path::Fingerprint::current),
+        )
     }
 
-    /// [`Self::open`] on the network `network` reads (tests: a network switched by hand).
+    /// This memory, its broken marks kept for the network `probe` reads before each use (a
+    /// change of network clears them). [`Self::open_on`] alone keeps one set for the process.
+    pub(super) fn watching(
+        mut self,
+        probe: impl Fn() -> Option<cmux_braid_path::Fingerprint> + Send + Sync + 'static,
+    ) -> Self {
+        self.broken = cmux_braid_path::LastGood::new(STALE_AFTER).on_network(probe);
+        self
+    }
+
+    /// [`Self::open`] on the network named `network`.
     pub(super) fn open_on(
         state_dir: Option<&Path>,
         daemon_key: Option<[u8; 32]>,
-        network: impl Fn() -> Option<cmux_braid_path::NetworkId> + Send + Sync + 'static,
+        network: Option<String>,
     ) -> Option<Self> {
-        let plain = to_hex(&daemon_key?);
-        let (daemon, legacy) = match network() {
-            Some(cmux_braid_path::NetworkId(id)) => (format!("{plain}@{id:016x}"), Some(plain)),
-            None => (plain, None),
-        };
+        let daemon = to_hex(&daemon_key?);
         let path = state_dir.map(|dir| dir.join(FILE_NAME));
+        let entry = path.as_deref().and_then(read).and_then(|mut daemons| daemons.remove(&daemon));
         let fresh =
-            |entry: &Entry| now_ms().saturating_sub(entry.at) <= STALE_AFTER.as_millis() as u64;
-        let remembered = path.as_deref().and_then(read).and_then(|mut daemons| {
-            daemons
-                .remove(&daemon)
-                .filter(fresh)
-                .or_else(|| legacy.as_ref().and_then(|plain| daemons.remove(plain)).filter(fresh))
+            |route: &Route| now_ms().saturating_sub(route.at) <= STALE_AFTER.as_millis() as u64;
+        let remembered = entry.and_then(|mut entry| {
+            let here = network.as_ref().and_then(|network| entry.networks.remove(network));
+            match here.filter(fresh) {
+                Some(route) => Some(Remembered { route, here: true }),
+                None => entry.latest.filter(fresh).map(|route| Remembered { route, here: false }),
+            }
         });
-        let broken = cmux_braid_path::LastGood::new(STALE_AFTER).on_network(network);
-        Some(Self { path, daemon, legacy, remembered: Mutex::new(remembered), broken })
+        let broken = cmux_braid_path::LastGood::new(STALE_AFTER);
+        Some(Self { path, daemon, network, remembered: Mutex::new(remembered), broken })
     }
 
     /// The candidate to dial first: the remembered one, when it is still a candidate. `None`
@@ -119,7 +160,7 @@ impl LastGoodRoute {
         // The attempts see each candidate as its connect request names it (normalized).
         routes.iter().position(|candidate| {
             super::normalize_carrier_endpoint(candidate.endpoint.clone())
-                .is_ok_and(|endpoint| route_hash(&endpoint) == remembered.route)
+                .is_ok_and(|endpoint| route_hash(&endpoint) == remembered.route.route)
         })
     }
 
@@ -153,7 +194,7 @@ impl LastGoodRoute {
     /// How long the remembered route's last connect took, when known.
     pub(super) fn connect_time(&self) -> Option<Duration> {
         let remembered = self.remembered.lock().unwrap_or_else(|e| e.into_inner());
-        remembered.as_ref()?.connect_ms.map(Duration::from_millis)
+        remembered.as_ref()?.route.connect_ms.map(Duration::from_millis)
     }
 
     /// `endpoint` connected: remember it.
@@ -169,56 +210,84 @@ impl LastGoodRoute {
 
     fn remember(&self, endpoint: &Url, connect_ms: Option<u64>) {
         self.broken.record((), route_hash(endpoint), Duration::ZERO);
-        let entry = Entry { route: route_hash(endpoint), at: now_ms(), connect_ms };
+        let route = Route { route: route_hash(endpoint), at: now_ms(), connect_ms };
         {
             let mut remembered = self.remembered.lock().unwrap_or_else(|e| e.into_inner());
-            if remembered.as_ref().is_some_and(|old| old.route == entry.route) {
-                // The same route again: the stamp alone is not worth a write until it ages,
-                // nor a connect time within a quarter of the one kept.
-                let fresh = remembered.as_ref().is_some_and(|old| {
-                    entry.at.saturating_sub(old.at) < STALE_AFTER.as_millis() as u64 / 2
-                        && close_enough(old.connect_ms, entry.connect_ms)
-                });
-                if fresh {
-                    return;
-                }
+            // The same route again on this network: the stamp alone is not worth a write
+            // until it ages, nor a connect time within a quarter of the one kept. A route
+            // remembered from another network is written for this one.
+            let fresh = remembered.as_ref().is_some_and(|old| {
+                (old.here || self.network.is_none())
+                    && old.route.route == route.route
+                    && route.at.saturating_sub(old.route.at) < STALE_AFTER.as_millis() as u64 / 2
+                    && close_enough(old.route.connect_ms, route.connect_ms)
+            });
+            if fresh {
+                return;
             }
-            *remembered = Some(entry.clone());
+            *remembered = Some(Remembered { route: route.clone(), here: self.network.is_some() });
         }
-        self.write(Some(entry));
+        self.write(Change::Connected(route));
     }
 
-    /// `endpoint` failed: forget it when it is the remembered one.
+    /// `endpoint` failed: forget it when it is the remembered one, on this network and as
+    /// the latest; what it won on other networks stays theirs.
     pub(super) fn failed(&self, endpoint: &Url) {
-        self.broken.failed(&(), &route_hash(endpoint));
+        let hash = route_hash(endpoint);
+        self.broken.failed(&(), &hash);
         {
             let mut remembered = self.remembered.lock().unwrap_or_else(|e| e.into_inner());
-            if remembered.as_ref().is_none_or(|old| old.route != route_hash(endpoint)) {
+            if remembered.as_ref().is_none_or(|old| old.route.route != hash) {
                 return;
             }
             *remembered = None;
         }
-        self.write(None);
+        self.write(Change::Failed(hash));
     }
 
-    fn write(&self, entry: Option<Entry>) {
+    fn write(&self, change: Change) {
         let Some(path) = &self.path else { return };
         // Other daemons' entries are read again here, so two clients of two daemons keep both.
         let mut file =
             read_file(path).unwrap_or_else(|| File { version: VERSION, ..File::default() });
-        if let Some(plain) = &self.legacy {
-            file.daemons.remove(plain);
+        let mut entry = file.daemons.remove(&self.daemon).unwrap_or_default();
+        apply(&mut entry, self.network.as_deref(), change);
+        if entry != Entry::default() {
+            file.daemons.insert(self.daemon.clone(), entry);
         }
-        match entry {
-            Some(entry) => file.daemons.insert(self.daemon.clone(), entry),
-            None => file.daemons.remove(&self.daemon),
-        };
-        // Entries of networks not seen for the staleness bound go, so the file stays small.
-        let now = now_ms();
-        file.daemons
-            .retain(|_, entry| now.saturating_sub(entry.at) <= STALE_AFTER.as_millis() as u64);
         // A memory that cannot be saved only costs the next launch the candidates' own order.
         let _ = write_json(path, &file);
+    }
+}
+
+/// `change` applied to one daemon's `entry`, seen from `network`.
+fn apply(entry: &mut Entry, network: Option<&str>, change: Change) {
+    match change {
+        Change::Connected(route) => {
+            if let Some(network) = network {
+                entry.networks.insert(network.to_owned(), route.clone());
+                while entry.networks.len() > MAX_NETWORKS {
+                    let oldest = entry
+                        .networks
+                        .iter()
+                        .min_by_key(|(_, route)| route.at)
+                        .map(|(network, _)| network.clone());
+                    let Some(oldest) = oldest else { break };
+                    entry.networks.remove(&oldest);
+                }
+            }
+            entry.latest = Some(route);
+        }
+        Change::Failed(hash) => {
+            if let Some(network) = network {
+                if entry.networks.get(network).is_some_and(|route| route.route == hash) {
+                    entry.networks.remove(network);
+                }
+            }
+            if entry.latest.as_ref().is_some_and(|route| route.route == hash) {
+                entry.latest = None;
+            }
+        }
     }
 }
 

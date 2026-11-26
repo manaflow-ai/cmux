@@ -7,8 +7,8 @@
 //! attempt again. An entry lasts [`LastGood::ttl`]; a peer whose every attempt failed is
 //! forgotten.
 //!
-//! Winners are kept per network ([`NetworkId`], the default route's interface, gateway and
-//! source addresses), as Chromium keeps QUIC's per network: the leg that won at home is not
+//! Winners are kept per network ([`Fingerprint`], the routing table's IPv4 source and IPv6
+//! /64), as Chromium keeps QUIC's per network: the leg that won at home is not
 //! the one tried first on a café's Wi-Fi that blocks UDP, and back home the home winner leads
 //! again. A route that fails on a network is marked broken there with exponential backoff
 //! (Chromium's broken alternative services: [`BROKEN_FIRST`], doubling each failure, at most
@@ -20,7 +20,7 @@ use std::hash::Hash;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::network::NetworkId;
+use crate::network::Fingerprint;
 
 /// One remembered winner.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -54,12 +54,12 @@ struct Broken<A> {
 }
 
 /// Which network the process is on now (`None`: not known, one shared bucket).
-type NetworkProbe = Arc<dyn Fn() -> Option<NetworkId> + Send + Sync>;
+type NetworkProbe = Arc<dyn Fn() -> Option<Fingerprint> + Send + Sync>;
 
 struct State<K, A> {
     /// The network the last call saw; a different one clears `broken`.
-    network: Option<NetworkId>,
-    entries: HashMap<(Option<NetworkId>, K), Remembered<A>>,
+    network: Option<Fingerprint>,
+    entries: HashMap<(Option<Fingerprint>, K), Remembered<A>>,
     broken: HashMap<K, Vec<Broken<A>>>,
 }
 
@@ -109,19 +109,19 @@ impl<K: Eq + Hash + Clone, A: Clone + PartialEq> LastGood<K, A> {
         }
     }
 
-    /// A memory with [`DEFAULT_TTL`] on this computer's network ([`NetworkId::current`]), off
+    /// A memory with [`DEFAULT_TTL`] on this computer's network ([`Fingerprint::current`]), off
     /// when [`ENV_SWITCH`] is `0`.
     #[must_use]
     pub fn from_env() -> Self {
         let enabled = std::env::var(ENV_SWITCH).map_or(true, |value| value.trim() != "0");
-        Self { enabled, ..Self::new(DEFAULT_TTL).on_network(NetworkId::current) }
+        Self { enabled, ..Self::new(DEFAULT_TTL).on_network(Fingerprint::current) }
     }
 
     /// This memory, reading the network it is on from `probe` before each use.
     #[must_use]
     pub fn on_network(
         mut self,
-        probe: impl Fn() -> Option<NetworkId> + Send + Sync + 'static,
+        probe: impl Fn() -> Option<Fingerprint> + Send + Sync + 'static,
     ) -> Self {
         self.probe = Arc::new(probe);
         self
@@ -154,7 +154,7 @@ impl<K: Eq + Hash + Clone, A: Clone + PartialEq> LastGood<K, A> {
 
     /// The state, with the network read now: on a different network than the last call saw,
     /// every broken mark is cleared (a route that failed on the old network gets a fresh try).
-    fn state(&self) -> (std::sync::MutexGuard<'_, State<K, A>>, Option<NetworkId>) {
+    fn state(&self) -> (std::sync::MutexGuard<'_, State<K, A>>, Option<Fingerprint>) {
         let network = (self.probe)();
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if state.network != network {
@@ -287,7 +287,7 @@ pub fn broken_for(strikes: u32) -> Duration {
 
 fn fresh<K: Eq + Hash + Clone, A: Clone>(
     state: &mut State<K, A>,
-    network: Option<NetworkId>,
+    network: Option<Fingerprint>,
     key: &K,
     ttl: Duration,
 ) -> Option<Remembered<A>> {

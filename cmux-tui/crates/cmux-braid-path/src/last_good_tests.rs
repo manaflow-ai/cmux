@@ -40,8 +40,10 @@ fn switchable()
 -> (std::sync::Arc<std::sync::atomic::AtomicU64>, LastGood<&'static str, &'static str>) {
     let now = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(1));
     let read = now.clone();
-    let memory = LastGood::new(Duration::from_secs(600))
-        .on_network(move || Some(crate::NetworkId(read.load(std::sync::atomic::Ordering::SeqCst))));
+    let memory = LastGood::new(Duration::from_secs(600)).on_network(move || {
+        let network = read.load(std::sync::atomic::Ordering::SeqCst) as u32;
+        crate::Fingerprint::of(Some(std::net::Ipv4Addr::from(network)), None)
+    });
     (now, memory)
 }
 
