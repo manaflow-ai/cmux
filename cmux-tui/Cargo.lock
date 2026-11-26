@@ -3432,6 +3432,7 @@ dependencies = [
  "base64",
  "cmux-cloud-environment",
  "cmux-cloud-wire",
+ "cmux-egress",
  "cmux-json",
  "serde",
  "serde_json",
