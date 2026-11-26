@@ -356,6 +356,47 @@ import UIKit
         #expect(snapshots.store.record(Self.key("agent"))?.pixelWidth == 402)
     }
 
+    /// A chat shorter than its page rests on the composer, below the part of the page a card
+    /// shows: its card was one flat colour and was never kept (Leo, 2026-11-24: "there are too
+    /// many empty previews in the safari grid thing"; measured on the fleet simulator, 402x566,
+    /// 0 pixels off the background, while the whole page drew its text). In a card its rows sit
+    /// inside the slice.
+    @Test func aShortChatsCardShowsItsRows() throws {
+        var turn = AgentTurn(id: "t", prompt: "Card", promptAt: Date(timeIntervalSince1970: 0))
+        turn.items = [.message(id: "m", markdown: "Reply")]
+        turn.status = .completed
+        let feed = AgentCardFeed(store: AgentChatStore(source: Silent()))
+        let page = CGSize(width: 402, height: 874)
+        for scheme in [ColorScheme.dark, .light] {
+            let key = AgentCardRasterKey.current(feed, turns: [turn], colorScheme: scheme, page: page, visibleHeight: 566,
+                                                 topInset: 70, bottomInset: 110, scale: 1)
+            let image = try #require(AgentCardRasterizer.render(feed, key))
+            #expect(!CardPictureGate.isPlaceholder(image), "a short chat's card is one flat colour (\(scheme))")
+        }
+    }
+
+    /// Where a card's rows rest: on the slice's bottom edge when the page would rest them below
+    /// it, under the header when they are taller than the slice, and as the page (no move on
+    /// open) once they fill the page.
+    @Test func aCardsRowsRestInsideItsSlice() {
+        func top(_ rows: CGFloat, slice: CGFloat? = 566) -> CGFloat {
+            AgentChatPreviewPlacement.rowsTop(pageHeight: 874, rowsHeight: rows, topInset: 70, bottomInset: 110, cardSlice: slice)
+        }
+        // The page at rest (no slice): on the composer's gap.
+        #expect(top(100, slice: nil) == 664)
+        // A short chat: wholly inside the slice, on its bottom edge.
+        #expect(top(100) + 100 <= 566 && top(100) >= 70)
+        let onTheSlicesEdge: CGFloat = 566 - 8 - 100
+        #expect(top(100) == onTheSlicesEdge)
+        // Taller than the slice: from under the header.
+        #expect(top(600) == 70)
+        // Filling the page: as the page rests it.
+        #expect(top(700) == 64)
+        #expect(top(3000) == top(3000, slice: nil))
+        // No step between the cases.
+        #expect(abs(top(487) - top(489)) <= 2 && abs(top(693) - top(695)) <= 2)
+    }
+
     /// What a card draws: a still whenever one exists, the live page of transcript only when none does.
     @Test func aCardShowsAStillWheneverOneExists() {
         typealias Card = AgentTabCard

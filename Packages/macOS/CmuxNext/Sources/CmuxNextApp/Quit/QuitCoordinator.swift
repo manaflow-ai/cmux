@@ -220,7 +220,7 @@ final class QuitCoordinator {
                         // the step waits for them: every quit, Keep included, waits for a step past its limit.
                         services.incognitoChats.closingForQuit(services)
                         await services.windows.prepareForTermination()
-                        await services.incognitoChats.drain()
+                        await services.incognitoChats.drain(); await services.daemon.connection?.flushLaunchSnapshot()
                     },
                     stopSavingWindows: { services.windows.stopSavingForTermination() },
                     sidebar: { await services.sidebarSnapshots.flush() },
