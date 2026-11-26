@@ -512,14 +512,18 @@ describe("cmux VM image /tmp writer after clean (image roll 42888042827: /tmp/op
       expect(waited.status).toBe(0);
       expect(waited.stdout).toMatch(/acpmux-probes-quiet after [1-9]\d*s/);
       short.kill("SIGKILL");
-      // A probe still running at the bound: fail, naming it.
+      // A probe still running at the bound (a cursor-agent probe, image rolls 45732114266 and 45762865802):
+      // the builder ends it, names it, and goes on.
       const stuck = spawn("sleep", ["300"], { cwd: dir, stdio: "ignore" });
+      const ended = new Promise<NodeJS.Signals | null>((r) => stuck.once("exit", (_code, signal) => r(signal)));
       try {
         await new Promise((r) => setTimeout(r, 200));
         const late = await run(2);
-        expect(late.status).not.toBe(0);
-        expect(late.stderr).toContain("model probes still run after 2s");
-        expect(late.stderr).toContain(`probe pid ${stuck.pid}: sleep 300`);
+        expect(late.status).toBe(0);
+        expect(late.stdout).toContain("model probes still run after 2s; ending them");
+        expect(late.stdout).toContain(`probe pid ${stuck.pid}: sleep 300`);
+        expect(late.stdout).toContain("ended the probes left at the bound");
+        expect(await ended).toBe("SIGKILL");
       } finally {
         stuck.kill("SIGKILL");
       }

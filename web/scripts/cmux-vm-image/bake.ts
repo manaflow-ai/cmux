@@ -1163,7 +1163,11 @@ export function acpmuxHarnessChecksDoneCommand(limitSeconds = 180): string {
  * which writes under /tmp (/tmp/opencode, /tmp/claude-<uid>, /tmp/cursor-agent-logs-<uid>), for up to 60 s before
  * acpmux kills it. A probe still running at clean writes again after tmp-empty and fails tmp-no-writer. Every probe
  * runs in `<acpmux home>/unattended` (protected_folders.rs unattended_cwd), so wait until no process of the daemon
- * user has its cwd there. On timeout, name the probes still running. `unattended` is for tests.
+ * user has its cwd there. acpmux can start probes again after a catalog reload (catalog_reload.rs) or a client's
+ * allow_probes, and a cursor-agent probe outlived the bound in image rolls 45732114266 and 45762865802, so on timeout
+ * the builder ends the probes still running (they are model probes of this throwaway builder, which a clone does not
+ * need), names them, and fails only if one survives SIGKILL. tmp-no-writer still guards /tmp after clean.
+ * `unattended` is for tests.
  */
 export function acpmuxProbesQuietCommand(limitSeconds = 120, unattended?: string): string {
   const dir = unattended === undefined ? '"$CMUX_TUI_HOME/.acpmux/unattended"' : sq(unattended);
@@ -1178,8 +1182,12 @@ export function acpmuxProbesQuietCommand(limitSeconds = 120, unattended?: string
     `dir=${dir}`,
     `probes() {\n${probes}\n}`,
     `i=0; while [ "$i" -lt ${limitSeconds} ] && [ -n "$(probes)" ]; do i=$((i + 1)); sleep 1; done`,
-    `left="$(probes)"; if [ -n "$left" ]; then echo "acpmux's model probes still run after ${limitSeconds}s:" >&2; printf '%s\\n' "$left" >&2; exit 1; fi`,
-    'echo "acpmux-probes-quiet after ${i}s"',
+    `left="$(probes)"; if [ -z "$left" ]; then echo "acpmux-probes-quiet after \${i}s"; exit 0; fi`,
+    `echo "acpmux's model probes still run after ${limitSeconds}s; ending them:"; printf '%s\\n' "$left"`,
+    `printf '%s\\n' "$left" | sed -n 's/^  probe pid \\([0-9]*\\):.*/\\1/p' | xargs -r kill -KILL 2>/dev/null; true`,
+    'j=0; while [ "$j" -lt 10 ] && [ -n "$(probes)" ]; do j=$((j + 1)); sleep 1; done',
+    `left="$(probes)"; if [ -n "$left" ]; then echo "acpmux's model probes still run after ${limitSeconds}s and SIGKILL:" >&2; printf '%s\\n' "$left" >&2; exit 1; fi`,
+    'echo "acpmux-probes-quiet after ${i}s (ended the probes left at the bound)"',
   ].join(" && ");
 }
 
