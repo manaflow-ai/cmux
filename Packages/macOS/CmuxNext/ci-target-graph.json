@@ -1452,6 +1452,15 @@
       ],
       "packages": []
     },
+    "CmuxNextFocusTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextFocusTests",
+      "targets": [
+        "CmuxNextFocus"
+      ],
+      "packages": [],
+      "reads": []
+    },
     "CmuxNextFocusUI": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFocusUI",
