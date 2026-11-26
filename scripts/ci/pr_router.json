@@ -162,6 +162,17 @@
     ".github/workflows/ios-link-ffi-linux.yml"
    ],
    "affects_why": "The linkage receipt (RFD 0051 route 2) breaks when the FFI surface, the checked-in binding, the kit manifest's Linux module, these tests, the script or the toolchain change. A change deeper in the crates the FFI compiles (cmux-mobile-link, cmux-tui/crates) is caught by the feat-cmux-next push run, which keeps the broad path filter, so a pull request touching only those does not start a 40-minute Rust and Swift build."
+  },
+  "cmux-next-fast-gates.yml": {
+   "types": [
+    "opened",
+    "synchronize",
+    "reopened",
+    "ready_for_review",
+    "labeled"
+   ],
+   "draft": true,
+   "affects_why": "No path filter (it had none as its own pull_request trigger): every head the router starts anything for starts it, and its jobs' own `if:`s keep their tier rules (a draft, a cheap or a not-yet-landing head skips resolve as before), so `draft` only lets those `if:`s decide. A head the router starts nothing for (head_tier's `none`: an idle or green-head base merge) starts none of its jobs; until 11-26 each such head still started its jobs (cmux-next-fast-gates.yml 32k runner-minutes in the 24 h to 2026-11-26; Leo, 2026-11-21: \"de facto, im asking for 99% fewer minutes of ci time, period.\"). `labeled` is listed as its trigger had it; the router turns an added ready-to-land or full-ci into ready_for_review and skips any other label."
   }
  }
 }
