@@ -694,6 +694,22 @@ impl Platform for Http {
     }
 }
 
+/// The signed-in platform client `common` names, or the error answer.
+async fn http_for(common: &Common) -> Result<Http, Value> {
+    let (token, issued_by) = backend_credential(&common.token, common.team.as_deref())
+        .await
+        .map_err(|e| error_json("auth.no_token", &e))?;
+    let origin = platform_for(common.platform.as_deref(), issued_by.as_deref())
+        .map_err(|e| error_json("cli.invalid_args", &e))?;
+    let client = cmux_egress::client_builder("cmux_tui::cli::runnable_link")
+        .redirect(reqwest::redirect::Policy::none())
+        .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
+        .timeout(Duration::from_secs(60))
+        .build()
+        .map_err(|e| error_json("cli.http_client", &e.to_string()))?;
+    Ok(Http { client, origin, team: common.team.clone(), token: Zeroizing::new(token) })
+}
+
 /// The running app through this binary's own app steps.
 struct RunningApp(super::GlobalArgs);
 
@@ -793,27 +809,10 @@ pub(crate) fn run(words: &[String], json_flag: bool) -> i32 {
         }
     };
     let answer = runtime.block_on(async {
-        let common = &parsed.common;
-        let (token, issued_by) =
-            match backend_credential(&common.token, common.team.as_deref()).await {
-                Ok(t) => t,
-                Err(e) => return error_json("auth.no_token", &e),
-            };
-        let origin = match platform_for(common.platform.as_deref(), issued_by.as_deref()) {
-            Ok(p) => p,
-            Err(e) => return error_json("cli.invalid_args", &e),
+        let mut http = match http_for(&parsed.common).await {
+            Ok(http) => http,
+            Err(answer) => return answer,
         };
-        let client = match reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
-            .timeout(Duration::from_secs(60))
-            .build()
-        {
-            Ok(c) => c,
-            Err(e) => return error_json("cli.http_client", &e.to_string()),
-        };
-        let mut http =
-            Http { client, origin, team: common.team.clone(), token: Zeroizing::new(token) };
         let yes = parsed.yes;
         let mut confirm = |lines: &[String]| ask(lines, yes);
         match &parsed.verb {
@@ -843,3 +842,7 @@ fn put(v: &mut Value, key: &str, value: Value) {
 #[cfg(test)]
 #[path = "runnable_link_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "runnable_link_seeded_tests.rs"]
+mod seeded_tests;

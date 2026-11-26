@@ -146,7 +146,16 @@ pub struct State {
 impl State {
     pub fn new(cfg: Config) -> Result<Arc<Self>, String> {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let http = reqwest::Client::builder()
+        // The hosts the operator named on the command line (--upstream, --edge, --peer, the crates.io
+        // overrides) are theirs to reach; the defaults are docs/privacy.md rows.
+        for named in [&cfg.upstream, &cfg.crates_index, &cfg.crates_dl]
+            .into_iter()
+            .chain(cfg.edge.as_ref())
+            .chain(&cfg.peers)
+        {
+            cmux_egress::allow_named(named);
+        }
+        let http = cmux_egress::client_builder("cmux_git_cache::server")
             .connect_timeout(Duration::from_secs(15))
             .redirect(reqwest::redirect::Policy::limited(5))
             .user_agent("git/cmux-git-cache")
@@ -795,3 +804,7 @@ async fn serve_local(
         .body(Body::from_stream(stream))
         .map_err(|e| e.to_string())
 }
+
+#[cfg(test)]
+#[path = "server_seeded_tests.rs"]
+mod seeded_tests;
