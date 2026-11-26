@@ -26,7 +26,7 @@ use crate::usage_stats::{DAY_MS, HOUR_MS, Models, Source, Tracker};
 use cmux_chat_index::{AdapterKind, ChatChange, ChatKey};
 use cmux_tag_cache::{Stamp, TagCache};
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
@@ -170,15 +170,39 @@ impl UsageCache {
 /// The harness whose transcripts a chat of `family` writes: Claude Code's for `claude` and a
 /// profile named for a Claude Code wrapper (`claude-sr2`, `claude-sr2-pipe` declare
 /// `family = "claude-sr2"` and run Claude Code, which writes its own transcript), Codex's for
-/// `codex`; None for any other family, whose usage nothing here reads. Before this, a
-/// `claude-sr2` chat had no `usageStats`, so its machine read as unmetered.
+/// `codex` and a profile named for a Codex wrapper (`codex-review-box` declares
+/// `family = "codex-review-box"` and runs Codex in a box); None for any other family, whose
+/// usage nothing here reads. Before this, a `claude-sr2` chat had no `usageStats`, so its
+/// machine read as unmetered, and so did a `codex-review-box` reviewer's.
 pub(super) fn transcript_family(family: &str) -> Option<&'static str> {
     match family {
-        "codex" => Some("codex"),
+        f if f == "codex" || f.starts_with("codex-") || f.starts_with("codex_") => Some("codex"),
         f if f == "claude" || f.starts_with("claude-") || f.starts_with("claude_") => {
             Some("claude")
         }
         _ => None,
+    }
+}
+
+/// A profile env var naming a folder that holds one Codex home per chat: the chat's rollouts
+/// are under `<folder>/<chat id>/sessions/`, so its Codex home is `<folder>/<chat id>`.
+/// leo-workspace's codex-review-box sets it: its reviewer runs Codex in a box whose own home is
+/// RAM, and the box binds only `<folder>/<chat id>/sessions` of the host's, read and write, so
+/// one reviewer sees its own transcripts and nothing else of the host's.
+pub(crate) const CODEX_HOMES_PER_CHAT: &str = "ACPMUX_CODEX_HOMES_PER_CHAT";
+
+/// Points a Codex chat's read at its own home when its profile keeps one per chat
+/// ([`CODEX_HOMES_PER_CHAT`]): `CODEX_HOME` becomes `<folder>/<chat id>`. A chat id that is
+/// not one plain path component leaves the env as it was.
+pub(super) fn per_chat_codex_home(env: &mut BTreeMap<String, String>, chat_id: &str) {
+    let Some(root) = env.get(CODEX_HOMES_PER_CHAT).filter(|r| !r.is_empty()) else { return };
+    let plain = !chat_id.is_empty()
+        && chat_id != "."
+        && chat_id != ".."
+        && !chat_id.contains(['/', '\\', '\0']);
+    if plain {
+        let home = std::path::Path::new(root).join(chat_id).display().to_string();
+        env.insert("CODEX_HOME".to_owned(), home);
     }
 }
 
@@ -321,7 +345,10 @@ impl Hub {
                 .to_owned();
             let sid = m.agent_session_id.clone().unwrap_or_default();
             let (claude_stdio, env) = self.harness_env(&m).await;
-            let env = crate::route_account::spawn_env(&m, env);
+            let mut env = crate::route_account::spawn_env(&m, env);
+            if family == "codex" {
+                per_chat_codex_home(&mut env, &m.id);
+            }
             // Only an argv this daemon started it with says how it runs: a watched chat runs in
             // another app, and one never started here (adopted, revived) ran with unknown flags.
             let argv = m.spawn_argv.clone().filter(|_| m.watching.is_none());
@@ -472,7 +499,8 @@ impl Hub {
         // The background subagents the hub follows (`subagents.rs`): a Codex child, which its
         // rollout does not name, and a Claude one its transcript has not shown yet.
         let followed = session.subagents.try_lock().ok().map(|t| t.background_running() as u64);
-        stats.subagents_live = match (m.family.as_deref(), stats.subagents_live, followed) {
+        let family = transcript_family(m.family.as_deref().unwrap_or_default());
+        stats.subagents_live = match (family, stats.subagents_live, followed) {
             (_, Some(read), Some(followed)) => Some(read.max(followed)),
             (Some("codex"), None, followed) => followed,
             (_, read, _) => read,

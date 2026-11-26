@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "prompt.failure.trustUntrusted" : {
+      "comment" : "Agent pane: under prompts acpmux refused because the person answered Not now to the folder's trust question; the Trust folder button follows",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لم يُرسَل لأنك اخترت «ليس الآن» لهذا المجلد."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nije poslano jer ste za ovu fasciklu odabrali „Ne sada”."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ikke sendt, fordi du valgte Ikke nu for denne mappe."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nicht gesendet, weil du für diesen Ordner „Nicht jetzt“ gewählt hast."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not sent because you chose Not now for this folder."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "No enviado porque elegiste Ahora no para esta carpeta."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Non envoyé, car vous avez choisi « Pas maintenant » pour ce dossier."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Non inviato perché hai scelto Non ora per questa cartella."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "このフォルダで「後で」を選んだため、送信されていません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "មិនបានផ្ញើទេ ព្រោះអ្នកបានជ្រើស «មិនមែនឥឡូវ» សម្រាប់ថតនេះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 폴더에 '나중에'를 선택해서 보내지 않았습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ikke sendt fordi du valgte Ikke nå for denne mappen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nie wysłano, bo dla tego folderu wybrano „Nie teraz”."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Não enviado porque você escolheu Agora não para esta pasta."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Не отправлено: для этой папки вы выбрали «Не сейчас»."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ไม่ได้ส่ง เพราะคุณเลือก ไม่ใช่ตอนนี้ สำหรับโฟลเดอร์นี้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu klasör için Şimdi değil seçtiğiniz için gönderilmedi."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Не надіслано, бо для цієї папки ви вибрали «Не зараз»."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chưa gửi vì bạn đã chọn Để sau cho thư mục này."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "未发送，因为你对此文件夹选择了“以后再说”。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "未傳送，因為你對此資料夾選擇了「稍後再說」。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
