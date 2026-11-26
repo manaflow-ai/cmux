@@ -25,6 +25,8 @@ mod record_ffi;
 mod session;
 mod session_ffi;
 mod upstream_ffi;
+pub mod view;
+mod view_ffi;
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -42,6 +44,7 @@ pub use record_ffi::*;
 pub use session::{MAX_STREAMS, STALL_AFTER_US, Session, SessionError};
 pub use session_ffi::*;
 pub use upstream_ffi::*;
+pub use view_ffi::*;
 
 /// Version of the C ABI (`CMUX_RD_FFI_ABI_VERSION`).
 pub const ABI_VERSION: u32 = 9;
@@ -522,3 +525,7 @@ mod session_tests;
 mod tests;
 #[cfg(test)]
 mod upstream_tests;
+#[cfg(test)]
+mod view_session_tests;
+#[cfg(test)]
+mod view_tests;

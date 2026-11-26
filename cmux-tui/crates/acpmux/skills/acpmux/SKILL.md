@@ -530,7 +530,10 @@ sign-in), `harness`, `capabilities`,
 `stdio`, `cli-agent`, `uniichat-agent`, `pr-wait` and `ci` (wait on a pull request's checks or a
 workflow run with one shared poller), `scorecard` (tokens and steering per settled pull request),
 `fetch` (one large download over parallel ranges), `channel` (named byte channels to an agent on
-another machine: `channel listen SERVICE`, `channel open PEER SERVICE`), and `skill` (this guide).
+another machine: `channel listen SERVICE`, `channel open PEER SERVICE`), `listen` (read a
+teammate's agent address while its grant lets you), `memory` (the fleet memory mount), `succeed`
+(make a session the successor of ones that died or moved), `role` (claim `goal:SLUG`-style
+addresses), and `skill` (this guide).
 
 ## 8. Output
 
