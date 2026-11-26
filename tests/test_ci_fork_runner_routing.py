@@ -160,9 +160,11 @@ GATE_SMALL_TRUSTED_RUNNER_EXPRESSION = SMALL_TRUSTED_RUNNER_EXPRESSION.replace(
 # trusted selector unchanged after it, so it can only ever add that one literal label.
 PR_CONTROL_FIRST_OPERAND = "vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || "
 REPAIR_FIRST_OPERAND = "vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || "
+# Secret-bearing Linux jobs lead with the secret one-job JIT label (tests/test_ci_secret_jobs_secret_jit.py).
+SECRET_FIRST_OPERAND = "vars.CI_SECRET_SKIP_FLEET != '1' && 'cmux-gcp-secret-jit-x64' || "
 JIT_FIRST_TRUSTED_RUNNER_EXPRESSIONS = tuple(
     base.replace("'ubuntu-24.04' || ", "'ubuntu-24.04' || " + operand, 1)
-    for operand in (PR_CONTROL_FIRST_OPERAND, REPAIR_FIRST_OPERAND)
+    for operand in (PR_CONTROL_FIRST_OPERAND, REPAIR_FIRST_OPERAND, SECRET_FIRST_OPERAND)
     for base in (TRUSTED_RUNNER_EXPRESSION, CLA_TRUSTED_RUNNER_EXPRESSION, SMALL_TRUSTED_RUNNER_EXPRESSION))
 TRUSTED_RUNNER_EXPRESSIONS = (TRUSTED_RUNNER_EXPRESSION, CLA_TRUSTED_RUNNER_EXPRESSION,
                               SMALL_TRUSTED_RUNNER_EXPRESSION,
@@ -173,7 +175,8 @@ TRUSTED_RUNNER_EXPRESSIONS = (TRUSTED_RUNNER_EXPRESSION, CLA_TRUSTED_RUNNER_EXPR
 # picker's one re-run route, never 16 or 32 vCPU), else Blacksmith 2 vCPU, never
 # GitHub-hosted. No input can select a persistent runner.
 FAST_CHECKS_ADMISSION_EXPRESSION = (
-    "${{ contains(fromJSON('[\"blacksmith-8vcpu-ubuntu-2404\"]'), inputs.runner) && inputs.runner || 'blacksmith-2vcpu-ubuntu-2404' }}"
+    "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + SECRET_FIRST_OPERAND
+    + "contains(fromJSON('[\"blacksmith-8vcpu-ubuntu-2404\"]'), inputs.runner) && inputs.runner || 'blacksmith-2vcpu-ubuntu-2404' }}"
 )
 TRUSTED_RUNNER_LINE = re.compile(
     r"^\s*runs-on:\s*(?:" + "|".join(map(re.escape, TRUSTED_RUNNER_EXPRESSIONS)) + r")\s*(?:#.*)?$"
@@ -243,11 +246,13 @@ FLEET_EPHEMERAL_LABELS = frozenset({"cmux-fleet-linux-x64"})
 JIT_FIRST_OPERANDS = {
     "CI_REPAIR_SKIP_FLEET": "cmux-gcp-repair-jit-x64",
     "CI_PR_CONTROL_SKIP_FLEET": "cmux-gcp-pr-control-jit-x64",
+    "CI_SECRET_SKIP_FLEET": "cmux-gcp-secret-jit-x64",
 }
 FLEET_FIRST_OPERAND = re.compile(
     r"(?:\(github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch' && !inputs\.run_id\) && )?"
     r"(?:vars\.CI_REPAIR_SKIP_FLEET != '1' && '(?:" + "|".join(map(re.escape, sorted(FLEET_EPHEMERAL_LABELS | {JIT_FIRST_OPERANDS["CI_REPAIR_SKIP_FLEET"]}))) + r")'"
-    r"|vars\.CI_PR_CONTROL_SKIP_FLEET != '1' && '" + re.escape(JIT_FIRST_OPERANDS["CI_PR_CONTROL_SKIP_FLEET"]) + r"') \|\| "
+    r"|vars\.CI_PR_CONTROL_SKIP_FLEET != '1' && '" + re.escape(JIT_FIRST_OPERANDS["CI_PR_CONTROL_SKIP_FLEET"]) + r"'"
+    r"|vars\.CI_SECRET_SKIP_FLEET != '1' && '" + re.escape(JIT_FIRST_OPERANDS["CI_SECRET_SKIP_FLEET"]) + r"') \|\| "
 )
 FORK_BRANCH_PREFIX = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
 # The queue-management jobs' on switch for the reserved queue label (tests/test_ci_write_token_jit_label.py
