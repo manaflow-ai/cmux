@@ -5498,7 +5498,9 @@
     "errorInvalidTotp": "Taj kod za dvofaktorsku provjeru nije ispravan.",
     "errorSignUpNotAllowed": "Novi računi se trenutno ne mogu napraviti.",
     "errorPasskey": "Prijava pristupnim ključem nije završena. Pokušaj ponovo ili koristi drugi način.",
-    "errorGeneric": "Nešto nije u redu. Pokušaj ponovo."
+    "errorGeneric": "Nešto nije u redu. Pokušaj ponovo.",
+    "errorRedirectNotAllowed": "Adresa za prijavu ove verzije nije dozvoljena na {backend}.",
+    "backendDevelopment": "razvojnom backendu"
   },
   "MobileRelease106": {
     "title": "Novosti u verziji 1.0.6",

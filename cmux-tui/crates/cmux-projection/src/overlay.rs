@@ -402,6 +402,9 @@ pub struct Overlay {
     /// replaces one ([`Overlay::swap_to_link`]), so no lookup pairs the old kind with the new
     /// number.
     swap: RwLock<()>,
+    /// The access list this overlay records and replays ([`replay`]); `None` unless
+    /// [`Overlay::with_replay`] asked for it.
+    replay: Option<replay::Replay>,
 }
 
 /// Keys this thread is fetching; dropping it lets others waiting on them go on.
@@ -707,6 +710,7 @@ impl Overlay {
             pins_file,
             pin_reserve: pin::DEFAULT_PIN_RESERVE,
             swap: RwLock::new(()),
+            replay: None,
         };
         // Pins an earlier daemon recorded hold before anything is evicted (their paths are
         // resolved in this manifest; one it no longer has pins nothing).
@@ -1326,6 +1330,7 @@ impl Overlay {
             Kind::Link => return Err(EINVAL),
             Kind::File => {}
         }
+        self.replay_touch(index);
         let total = entry.size;
         let end = total.min(offset.saturating_add(u64::from(size)));
         if offset >= end {
@@ -1530,8 +1535,13 @@ impl Overlay {
             return Ok(bytes);
         }
         let mut batch = vec![index];
-        // A source with no cache answers one file at a time: read ahead would be thrown away.
-        if self.fetch.cache() && !self.cache_failing.load(Ordering::Relaxed) {
+        // A source with no cache answers one file at a time: read ahead would be thrown away. With
+        // a replayed access list, the folder is read ahead only during a scan ([`replay`]).
+        // The replay check runs first: it counts the misses that detect a scan.
+        if self.fetch.cache()
+            && self.replay_read_ahead(index)
+            && !self.cache_failing.load(Ordering::Relaxed)
+        {
             let picked = {
                 let inner = self.lock();
                 read_ahead(&self.manifest, index, |other, entry| {
@@ -2335,6 +2345,9 @@ mod swap;
 
 #[path = "overlay_content.rs"]
 pub mod content;
+
+#[path = "overlay_replay.rs"]
+pub mod replay;
 
 #[path = "overlay_shared.rs"]
 pub mod shared;
