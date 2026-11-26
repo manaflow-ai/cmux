@@ -6512,17 +6512,7 @@ jobs:
       - name: Build the deltas without the key
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          feed="appcast.xml"
-          if [ "$NIGHTLY_VARIANT" != "universal" ]; then
-            feed="appcast-${NIGHTLY_VARIANT}.xml"
-          fi
-          ./.publish-tooling/scripts/ci/generate-nightly-deltas.sh \
-            "$RUNNER_TEMP/nightly-delta/input/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-${NIGHTLY_BUILD}.dmg" \
-            "$RUNNER_TEMP/nightly-delta/input/$feed" nightly-delta/prebuilt
-          rm -f nightly-delta/prebuilt/*.xml
-          ls -l nightly-delta/prebuilt
+        run: bash .publish-tooling/scripts/ci/nightly-steps/build-deltas-keyless.sh
       - name: Upload the prebuilt deltas
         id: upload-the-prebuilt-deltas
         continue-on-error: true
@@ -6949,7 +6939,6 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
-        # The script makes the signing keychain (signing-keychain.sh create) and deletes it after the signature.
         run: |
           [ -f scripts/ci/nightly-next-pkg.sh ] || { echo "next-pkg: the build ref predates nightly-next-pkg.sh; no package"; exit 0; }
           ./scripts/ci/nightly-next-pkg.sh "nightly-pkg/input/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-${NIGHTLY_BUILD}.dmg" nightly-pkg/output
@@ -7661,8 +7650,7 @@ jobs:
     if: "!cancelled() && needs.build-live-code-variant.outputs.built == 'true'"
     continue-on-error: true
     environment: ${{ needs.decide.outputs.environment }}
-    # nightly-next-one's route: the signer label, a literal, narrowed to the picked signer's runner on the pick's
-    # attempt. Why: docs/ci/nightly-workflow-notes.md#note-33
+    # nightly-next-one's signer route. Why: docs/ci/nightly-workflow-notes.md#note-33
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-next-signer.outputs.attempt == github.run_attempt && needs.pick-nightly-next-signer.outputs.pin && fromJSON(needs.pick-nightly-next-signer.outputs.pin) || 'glaeda-trusted-next-signing' }}
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 270 || 160 }}
     permissions:
