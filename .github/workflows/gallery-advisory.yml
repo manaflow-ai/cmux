@@ -290,6 +290,8 @@ jobs:
             cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
             bun install --frozen-lockfile
             "$GITHUB_WORKSPACE/scripts/ci/ensure-system-chrome.sh"
+            # The Mac's UI face on Linux: Inter, not DejaVu Sans (pin-browser-test-font.sh, as gallery-health).
+            "$GITHUB_WORKSPACE/scripts/ci/pin-browser-test-font.sh"
           }
           for part in head_build base_build browser_setup; do
             ( set -euo pipefail; "$part" ) > "$RUNNER_TEMP/$part.log" 2>&1 &
