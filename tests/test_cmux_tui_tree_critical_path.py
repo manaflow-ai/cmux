@@ -359,12 +359,12 @@ def main():
                 "point-machine-channel-early-linux"} & set(all_jobs), "no thin machine-channel job waits in this workflow")
     channel = yaml.safe_load(Path(ROOT, ".github/workflows/cmux-machine-channel.yml").read_text())
     # LINUX_X86_64_FIRST: the x86_64 point waits for the x86_64 leg alone, not the aarch64 one.
-    # Every channel job also waits for `plan` (#56753, #58025: a PR head builds only on key-changing heads).
+    # `plan` (does the channel need this commit) runs before either leg, so it adds no wait.
     _check(needs(channel["jobs"]["point-x86_64"]) == ["plan", "build-x86_64"],
            f"its x86_64 point waits for the thin x86_64 leg only ({needs(channel['jobs']['point-x86_64'])})")
     _check(needs(channel["jobs"]["point-linux"]) == ["plan", "build-x86_64", "build-aarch64", "point-x86_64"],
            f"its Linux point waits for both thin legs ({needs(channel['jobs']['point-linux'])})")
-    # A push run is never cancelled; a newer pull_request head's run replaces its own PR's older one (#56753).
+    # A pull request head (PR_HEAD_FAST_LANE) is superseded by its newer head; a push never cancels.
     _check("coalesce" not in channel["jobs"]
            and channel["concurrency"]["cancel-in-progress"] in (False, "${{ github.event_name == 'pull_request' }}"),
            "one run builds and one waits per ref, with no coalesce window")
@@ -393,9 +393,10 @@ def main():
                                                      "needs.tree-preflight.outputs.darwin_builder": "mac"})),
            "darwin-fallback-plan plans nothing when the committed builder is mac (no second builder)")
     fallback = all_jobs["build-darwin-fallback"]
-    # #53881: the plan picks the builder (a leg lost before its link rebuilds on Linux); it defaults to mac.
+    # FALLBACK_RETRIES_LOST_LEGS_ON_LINUX: the plan names the builder, a Mac unless every failed leg
+    # never reached its link (then Linux, once, on attempt 1).
     _check(fallback["with"]["darwin_builder"] == "${{ needs.darwin-fallback-plan.outputs.builder }}"
-           and plan["outputs"]["builder"] == "${{ steps.plan.outputs.builder || 'mac' }}",
+           and "builder=mac\n" in plan_steps,
            "missing macOS targets from the Linux cross build are rebuilt on a Mac")
     _check(fallback["with"]["target_set"] == "${{ needs.darwin-fallback-plan.outputs.target_set }}",
            "the fallback builds only the macOS targets the plan found missing")

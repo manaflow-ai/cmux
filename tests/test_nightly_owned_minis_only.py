@@ -93,10 +93,6 @@ HOSTED_TAIL_JOBS = {
 # 2-89 s in the same runs' tails. It holds the push group as before, so a slow JIT VM start would hold it too: the
 # stated cost.
 HOSTED_LOOP_JOBS = {
-    # #56483: they mint cmux-bot and the CI pool App tokens so a refused dispatch moves to another hour; App keys
-    # take the one-job JIT VM, never the shared persistent cmux-linux pool.
-    "wake-nightly-next-tick": "dispatches main's tick with the CI pool's App tokens (#56483)",
-    "dispatch-published-in": "dispatches the post-publication run with the CI pool's App tokens (#56483)",
     "publish-nightly-next-github": "uploads only, with the release App key that publish-release-notes already takes to "
                                    "an ephemeral JIT VM; on the signer it held the whole Mac",
 }
@@ -110,11 +106,18 @@ HOSTED_PREFLIGHT_JOBS: dict[str, str] = {}
 CMUX_LINUX_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"
 CMUX_LINUX_JOBS = ("resolve-nightly-ghostty-cli-helper", "resolve-nightly-cmux-tui-client",
                    "prepare-nightly-variant-primary", "prepare-nightly-variant", "await-nightly-tree-marker",
-                   "check-nightly-app-store-shelf", "published-build")
+                   "check-nightly-app-store-shelf", "report-nightly-shelf-red", "published-build")
 # RFD 0021 route by need: of those, the essential ones take the nightly's reserved label on the first run, before a rerun or loop retry.
 NIGHTLY_PINNED_JOBS = ("resolve-nightly-cmux-tui-client", "prepare-nightly-variant-primary", "prepare-nightly-variant",
                        "published-build")
 NIGHTLY_PINNED_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry == '') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}"
+# The post-feed dispatchers (#56483) mint App tokens (cmux-bot and the CI pools), so they left the nightly mini for the
+# same reserved-label route: the keys stay off the mini, and a refused dispatch moves to another installation's hour.
+# Unlike CMUX_LINUX_JOBS they hold a secret; their route is exactly NIGHTLY_PINNED_RUNS_ON. job -> why.
+NIGHTLY_LINUX_CONTROLS = {
+    "wake-nightly-next-tick": "dispatches main's nightly-next tick with App tokens (#56483)",
+    "dispatch-published-in": "dispatches the post-publication run with App tokens (#56483)",
+}
 # Jobs on our minis for nightly-next only. Every other track (classic, RC) goes to the JIT label (GitHub-hosted until
 # 2026-11-21) through this short-circuit, as before #38596: its release uploads may wait out the API rate limit for up to 360 min, which must
 # not hold the exclusive signing Mac. job -> why.
@@ -200,6 +203,10 @@ class EveryJobOnOurMinis(unittest.TestCase):
                 if workflow_jobs.runs_on_cells(job) != [expected] or workflow_jobs.secret_names(job):
                     failures[name] = "a cmux-linux control takes only cmux-linux and holds no secret"
                 continue
+            if name in NIGHTLY_LINUX_CONTROLS:
+                if workflow_jobs.runs_on_cells(job) != [NIGHTLY_PINNED_RUNS_ON]:
+                    failures[name] = "a nightly Linux control takes only the reserved label, then cmux-linux"
+                continue
             # Each matrix cell (`${{ matrix.pool }}` read as its values) is a route of its own.
             cells, routes = workflow_jobs.runs_on_cells(job), manaflow_routes(name)
             if cells is None or routes is None:
@@ -273,9 +280,7 @@ class EveryJobOnOurMinis(unittest.TestCase):
         # Leo's override covers this one job only, and only on an ephemeral VM: no variable, pick or one-mini mode may
         # put the release App key on a mini without the whole-Mac claim, so its route is the literal JIT label on every
         # attempt (the fork branch keeps GitHub-hosted Ubuntu).
-        # #56483's two dispatches hold the CI pool's App keys, not the release key, on the same JIT route.
-        self.assertEqual(set(HOSTED_LOOP_JOBS),
-                         {"publish-nightly-next-github", "wake-nightly-next-tick", "dispatch-published-in"})
+        self.assertEqual(set(HOSTED_LOOP_JOBS), {"publish-nightly-next-github"})
         for name in HOSTED_LOOP_JOBS:
             job = JOBS[name]
             resolved = workflow_jobs.resolve(job, name)
@@ -283,8 +288,6 @@ class EveryJobOnOurMinis(unittest.TestCase):
                 self.assertEqual(resolved.runs_on_cells,
                                  ["${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
                                   f"'{JIT_LABEL}' }}}}"])
-                if name != "publish-nightly-next-github":
-                    continue
                 self.assertIn("secrets.CMUX_RELEASE_APP_KEY", json.dumps(job))
                 self.assertIn("release-next", resolved.environments)
                 self.assertEqual(resolved.environments_unresolved, set())
