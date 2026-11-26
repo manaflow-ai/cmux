@@ -1056,7 +1056,15 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     if is_token_create(&plan) && !has_own_credential(&env) {
         return Some(mint_through_app(&global, &plan));
     }
-    Some(run_in_process(plan, scope, &env))
+    let code = run_in_process(plan, scope, &env);
+    if code == 0
+        && let [verb, vm_id, ..] = rest
+        && matches!(verb.as_str(), "resume" | "start")
+        && !vm_id.starts_with('-')
+    {
+        super::vm_tailnet::stand_down_if_moved(vm_id, &env);
+    }
+    Some(code)
 }
 
 /// `cmux vm pool …`: the CI runner pool's surge, idle pause and scheduler (crate cmux-vm-pool). It talks to

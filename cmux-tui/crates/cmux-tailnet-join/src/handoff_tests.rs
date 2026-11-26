@@ -102,3 +102,13 @@ fn check_state_bounds_what_the_vault_hands_back() {
     assert!(check_state(&"A".repeat(MAX_STATE_BYTES + 1)).is_err());
     assert_eq!(staged_contents(&Secret::new(STATE)), format!("{STATE}\n"));
 }
+
+#[test]
+fn stand_down_stops_the_node_and_deletes_its_state_without_signing_out() {
+    let command = stand_down_command();
+    assert!(command.contains("pkill -x tailscaled"));
+    assert!(command.contains(STATE_FILE));
+    assert!(!command.contains("tailscale logout"), "the new holder runs this node");
+    assert!(!command.contains("cmux-tailnet-state"), "the state is never printed");
+    assert!(command.ends_with("echo cmux-tailnet-stood-down"));
+}
