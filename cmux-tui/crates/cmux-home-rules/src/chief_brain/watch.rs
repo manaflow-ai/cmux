@@ -362,10 +362,10 @@ pub fn step(state: WatchState, event: WatchEvent) -> (WatchState, Vec<WatchEffec
         WatchEvent::LockRead { locked } => m.lock_read(locked),
         WatchEvent::LockChanged { folder } => m.lock_changed(folder),
         WatchEvent::Exited { pid, locked, shutdown_marker, now_ms } => {
-            m.exited(pid, locked, shutdown_marker, now_ms)
+            m.exited(pid, locked, shutdown_marker, now_ms);
         }
         WatchEvent::Restarted { next, shutdown_marker, next_is_host, locked, launcher } => {
-            m.restarted(next, shutdown_marker, next_is_host, locked, launcher)
+            m.restarted(next, shutdown_marker, next_is_host, locked, launcher);
         }
         WatchEvent::Stop => m.stop(),
     }
