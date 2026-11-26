@@ -6,7 +6,7 @@ import Foundation
 /// caps, the cursor shape, follow mode's focus producer) answered by the app's Rust library
 /// (cmux-rd-screen through cmux-layout-reducer-ffi's `screen_*` ops), handed to every host and
 /// capture this app starts (``MacScreenStreamChild``, ``MacScreenRdHost``, ``MacDisplayCapture``).
-enum MacScreenRules {
+nonisolated enum MacScreenRules {
     static var rules: ScreenRules {
         ScreenRules { operation, data in call(operation, data) }
     }
