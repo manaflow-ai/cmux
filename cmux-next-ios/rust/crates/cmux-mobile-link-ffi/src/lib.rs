@@ -858,6 +858,45 @@ mod channel_write_tests {
     }
 
     #[tokio::test]
+    async fn a_concurrent_rpc_follows_every_chunk_of_the_observed_prompt() {
+        tokio::time::timeout(Duration::from_secs(15), async {
+            let (local, peer) = tokio::io::duplex(4096);
+            let phone = Link::new(local, Role::Phone, LinkConfig::default(), None);
+            let handle = open(&phone).await;
+            let prompt = serde_json::to_vec(&serde_json::json!({"prompt": "a".repeat(2 << 20)})).unwrap();
+            let other = serde_json::to_vec(&serde_json::json!({"other": "b".repeat(1 << 20)})).unwrap();
+            let watch = ChannelWriteWatch::new();
+            let first = tokio::spawn({
+                let (handle, data, watch) = (handle.clone(), prompt.clone(), watch.clone());
+                async move { handle.send_observed(data, watch).await }
+            });
+            while !watch.take_progress() {
+                tokio::task::yield_now().await;
+            }
+            let second = tokio::spawn({
+                let (handle, data) = (handle.clone(), other.clone());
+                async move { handle.send(data).await }
+            });
+            let mac = Link::new(peer, Role::Mac, LinkConfig::default(), None);
+            let mut incoming = mac.accept().await.unwrap().channel;
+            let mut received = Vec::new();
+            while received.len() < prompt.len() + other.len() {
+                match incoming.recv().await {
+                    Some(ChannelEvent::Data(bytes)) => received.extend_from_slice(&bytes),
+                    value => panic!("incomplete RPC messages: {value:?}"),
+                }
+            }
+            first.await.unwrap().unwrap();
+            second.await.unwrap().unwrap();
+            assert_eq!(&received[..prompt.len()], prompt);
+            assert_eq!(&received[prompt.len()..], other);
+            assert_eq!(watch.accepted.load(Ordering::Relaxed), prompt.len() as u64);
+        })
+        .await
+        .expect("the two full messages arrive and the writes return");
+    }
+
+    #[tokio::test]
     async fn cancelling_a_partial_rpc_retires_only_its_channel_before_the_next_write() {
         tokio::time::timeout(Duration::from_secs(15), async {
             let (local, peer) = tokio::io::duplex(4096);
