@@ -27,6 +27,29 @@ pub(crate) const SETTING_DAYS: &str = "agents.chats.cloudOffloadAfterDays";
 const DEFAULT_DAYS: u64 = 14;
 /// The tag that keeps a chat local and whole (as `history_delete.rs`).
 const KEPT_TAG: &str = "pinned";
+/// How long a chat that began opening stays kept before its agent shows as busy.
+const OPENING_KEPT: std::time::Duration = std::time::Duration::from_secs(600);
+
+/// Agent session ids of chats that began opening ([`Hub::restore_transcripts`]), and when. A
+/// pass asks again right before each removal, so a chat opened after the pass began keeps its
+/// transcript even while its agent is not yet up.
+static OPENING: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>,
+> = std::sync::LazyLock::new(Default::default);
+
+fn mark_opening(sid: &str) {
+    let mut opening = OPENING.lock().unwrap_or_else(|e| e.into_inner());
+    opening.retain(|_, at| at.elapsed() < OPENING_KEPT);
+    opening.insert(sid.to_string(), std::time::Instant::now());
+}
+
+fn opening(sid: &str) -> bool {
+    OPENING
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(sid)
+        .is_some_and(|at| at.elapsed() < OPENING_KEPT)
+}
 
 /// What the settings ask: None when the copy is off.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,13 +103,21 @@ impl Hub {
     /// The agent session ids no pass removes: pinned chats, and any with an agent, a client, a
     /// turn or a queue.
     fn transcript_keep(&self) -> std::collections::HashSet<String> {
+        self.transcript_keep_where(|_| true)
+    }
+
+    /// [`Self::transcript_keep`] for the session ids `want` names.
+    fn transcript_keep_where(
+        &self,
+        want: impl Fn(&str) -> bool,
+    ) -> std::collections::HashSet<String> {
         let hosted = Self::live_host_sessions();
         let now = now_ms();
         self.session_handles()
             .into_iter()
             .filter_map(|session| {
                 let meta = session.meta();
-                let sid = meta.agent_session_id.clone()?;
+                let sid = meta.agent_session_id.clone().filter(|sid| want(sid))?;
                 let pinned = meta.pinned
                     || meta
                         .tags
@@ -156,6 +187,15 @@ impl Hub {
             older_than_ms: settings.days.saturating_mul(86_400_000),
             delete_local: settings.delete_local,
             keep: self.transcript_keep(),
+            kept_now: {
+                let hub = Arc::downgrade(self);
+                cmux_session_cloud::transcripts::KeptNow(Some(Arc::new(move |sid: &str| {
+                    opening(sid)
+                        || hub
+                            .upgrade()
+                            .is_none_or(|hub| !hub.transcript_keep_where(|s| s == sid).is_empty())
+                })))
+            },
             now_ms: now_ms(),
         };
         let hub = Arc::downgrade(self);
@@ -185,6 +225,7 @@ impl Hub {
     /// the start goes on (the agent then starts as it would with the file gone).
     pub(super) async fn restore_transcripts(&self, session: &Session) {
         let Some(sid) = session.meta().agent_session_id.clone() else { return };
+        mark_opening(&sid);
         let Some((home, state)) = folders() else { return };
         let result = tokio::task::spawn_blocking(move || -> anyhow::Result<usize> {
             if !cmux_session_cloud::transcripts::needs_restore(&home, &state, &sid) {
