@@ -446,7 +446,10 @@ jobs:
         shell: bash
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
-            git reset -q --hard HEAD
+            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
           fi
 
       # CI_POOL_FIRST: the superseded check's REST reads go out on a CI pool App first. On a spent github.token the
@@ -1089,7 +1092,10 @@ jobs:
         shell: bash
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
-            git reset -q --hard HEAD
+            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
           fi
 
       - name: Wait for the owning tree publisher
@@ -1767,7 +1773,10 @@ jobs:
         shell: bash
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
-            git reset -q --hard HEAD
+            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
           fi
 
       # CI_POOL_FIRST: this job's API calls go out on a CI pool App first (each its own installation hour; on
@@ -2054,7 +2063,10 @@ jobs:
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
             git sparse-checkout disable 2>/dev/null || true
-            git reset -q --hard HEAD
+            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
           fi
 
       # A push can be superseded while this job queues. It asks again now that it has a runner (tree-
@@ -2411,7 +2423,10 @@ jobs:
         shell: bash
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
-            git reset -q --hard HEAD
+            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
           fi
 
       - name: Download the dSYMs
@@ -2475,7 +2490,10 @@ jobs:
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
             git sparse-checkout disable 2>/dev/null || true
-            git reset -q --hard HEAD
+            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
           fi
 
       - name: Download cmux-tui binaries
@@ -3663,7 +3681,10 @@ jobs:
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
             git sparse-checkout disable 2>/dev/null || true
-            git reset -q --hard HEAD
+            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
           fi
 
       - name: Verify published Unix manifests
@@ -3730,7 +3751,10 @@ jobs:
         shell: bash
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
-            git reset -q --hard HEAD
+            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
           fi
 
       - name: Prepare the commit prefix from the published tree
@@ -3944,7 +3968,10 @@ jobs:
         shell: bash
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
-            git reset -q --hard HEAD
+            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
           fi
 
       # As notify-unpublished-tree's hand-off: a rate-limited workflow token
@@ -4015,7 +4042,10 @@ jobs:
         shell: bash
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
-            git reset -q --hard HEAD
+            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
           fi
 
       # Two runs skip the check. A deferring run whose owner has not published
@@ -4353,7 +4383,10 @@ jobs:
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
             git sparse-checkout disable 2>/dev/null || true
-            git reset -q --hard HEAD
+            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
           fi
 
       - name: Download the macOS arm64 cmux-tui
@@ -4931,7 +4964,10 @@ jobs:
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
             git sparse-checkout disable 2>/dev/null || true
-            git reset -q --hard HEAD
+            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
           fi
 
       - name: Write the daemon-tests marker
@@ -4998,7 +5034,10 @@ jobs:
         shell: bash
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
-            git reset -q --hard HEAD
+            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
           fi
 
       # As request-image-roll: a rate-limited github.token moves the dispatch to the cmux-bot App's
@@ -5087,7 +5126,10 @@ jobs:
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
             git sparse-checkout disable 2>/dev/null || true
-            git reset -q --hard HEAD
+            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
           fi
 
       - name: Point the channel at this tree once it is daemon-tested
@@ -5136,7 +5178,10 @@ jobs:
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
             git sparse-checkout disable 2>/dev/null || true
-            git reset -q --hard HEAD
+            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
           fi
 
       - name: Point the Windows channel at this tree
@@ -5191,7 +5236,10 @@ jobs:
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
             git sparse-checkout disable 2>/dev/null || true
-            git reset -q --hard HEAD
+            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
           fi
 
       - name: Write the tree-commit markers
@@ -5281,7 +5329,10 @@ jobs:
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
             git sparse-checkout disable 2>/dev/null || true
-            git reset -q --hard HEAD
+            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
           fi
 
       # As notify-unpublished-tree's hand-off: a rate-limited workflow token
@@ -5344,7 +5395,10 @@ jobs:
         shell: bash
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
-            git reset -q --hard HEAD
+            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
           fi
 
       # As notify-unpublished-tree's hand-off: a rate-limited workflow token
@@ -5466,7 +5520,10 @@ jobs:
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
             git sparse-checkout disable 2>/dev/null || true
-            git reset -q --hard HEAD
+            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
           fi
 
       - name: Sign and upload the channel
@@ -5596,7 +5653,10 @@ jobs:
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
             git sparse-checkout disable 2>/dev/null || true
-            git reset -q --hard HEAD
+            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
           fi
 
       # cmuxterm-hq docs/design/nightly-live-updates.md step 1: cmux-tui/<sha>/mac-live.json (written once; `cmux app
@@ -5680,7 +5740,10 @@ jobs:
         shell: bash
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
-            git reset -q --hard HEAD
+            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
           fi
 
       # publish's own dispatch and this one both failed on "HTTP 403: API rate limit exceeded for
@@ -5752,7 +5815,10 @@ jobs:
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
             git sparse-checkout disable 2>/dev/null || true
-            git reset -q --hard HEAD
+            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
           fi
 
       # As request-image-roll: a rate-limited github.token moves each gh call to the cmux-bot App's
@@ -5833,7 +5899,10 @@ jobs:
         shell: bash
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
-            git reset -q --hard HEAD
+            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
           fi
 
       # CI_POOL_FIRST: this job's API calls go out on a CI pool App first (each its own installation hour; on
@@ -5939,7 +6008,10 @@ jobs:
         shell: bash
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
-            git reset -q --hard HEAD
+            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
           fi
 
       - name: Mint the drop's token
