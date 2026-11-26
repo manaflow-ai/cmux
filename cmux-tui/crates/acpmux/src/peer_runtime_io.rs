@@ -548,13 +548,17 @@ impl Peer {
             // `run` moves the epoch on before it clears `connected` and takes the link down, so
             // a link that dropped meanwhile is seen here: it is not made ready again, and never
             // left reading connected.
+            let mut down_ms = None;
             let live = me.with_link(|l| {
                 let live = me.link_epoch() == link;
                 if live {
                     me.connected.store(true, Ordering::SeqCst);
                     me.linked_once.store(true, Ordering::SeqCst);
                     me.slow_banner.store(false, Ordering::SeqCst);
-                    l.ready(crate::store::now_ms());
+                    let now = crate::store::now_ms();
+                    // The outage this link ends, drop to ready (none on a first connect).
+                    down_ms = l.down_since.map(|at| now.saturating_sub(at));
+                    l.ready(now);
                 }
                 live
             });
@@ -563,10 +567,16 @@ impl Peer {
                 return Ok(());
             }
             let (frames, text) = me.received.read();
+            // `down_ms`: the outage, drop to ready. `reconnect_ms`: from the sleep or network
+            // change that sent the attempt (`reconnect_cause`) to ready. Both absent when unknown.
+            let took = me.reconnect_took();
             tracing::info!(
                 peer = %me.name,
                 frame_bytes = frames,
                 text_bytes = text,
+                down_ms,
+                reconnect_ms = took.map(|(d, _)| d.as_millis() as u64),
+                reconnect_cause = took.map(|(_, c)| c),
                 "connected to {}",
                 lift_query_token(&me.url).0
             );
