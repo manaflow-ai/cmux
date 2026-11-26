@@ -3856,9 +3856,12 @@ name = "cmux-vnc"
 version = "0.1.0"
 dependencies = [
  "aes",
+ "base64",
  "flate2",
  "getrandom 0.3.4",
  "num-bigint",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
