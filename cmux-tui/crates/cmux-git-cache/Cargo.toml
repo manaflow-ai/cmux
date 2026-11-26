@@ -11,6 +11,8 @@ description = "Per-machine git smart-HTTP cache: an agent's plain `git clone htt
 workspace = true
 
 [dependencies]
+# Every upstream, edge and peer request goes through the egress gate.
+cmux-egress.workspace = true
 cmux-process.workspace = true
 cmux-scope.workspace = true
 axum.workspace = true
@@ -28,4 +30,5 @@ tokio = { workspace = true, features = ["fs", "io-util", "macros", "net", "proce
 tokio-util = { workspace = true, features = ["io"] }
 
 [dev-dependencies]
+cmux-egress = { workspace = true, features = ["capture"] }
 tempfile = "3"

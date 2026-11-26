@@ -146,7 +146,15 @@ pub struct State {
 impl State {
     pub fn new(cfg: Config) -> Result<Arc<Self>, String> {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let http = reqwest::Client::builder()
+        // The person configured these (`--upstream`, `--edge`, `--peer`, `--crates-*`).
+        for named in [&cfg.upstream, &cfg.crates_index, &cfg.crates_dl]
+            .into_iter()
+            .chain(cfg.edge.as_ref())
+            .chain(&cfg.peers)
+        {
+            cmux_egress::allow_named(named);
+        }
+        let http = cmux_egress::client_builder("cmux_git_cache::server")
             .connect_timeout(Duration::from_secs(15))
             .redirect(reqwest::redirect::Policy::limited(5))
             .user_agent("git/cmux-git-cache")

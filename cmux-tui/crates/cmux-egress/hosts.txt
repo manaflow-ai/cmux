@@ -346,6 +346,11 @@ html.duckduckgo.com
 # when: when you press Play in the radio player
 # off: remove the widget (a customize template you installed)
 ice2.somafm.com
+# crates.io's sparse index, when a Cloud machine's crates cache fetches a crate's index file it does not hold yet
+# sends: the crate names cargo asks for
+# when: only on a Cloud machine, when cargo on it needs a crate index file the cache has not kept
+# off: turn off the machine's crates cache (`/etc/cmux/crates-cache.disabled`)
+index.crates.io
 # images in agent replies
 # sends: an image request (your IP address and the image's URL)
 # when: when a GitHub page or agent reply you open shows an image
@@ -446,6 +451,11 @@ share.cmux.dev
 # when: when the radio player widget shows stations
 # off: remove the widget (a customize template you installed)
 somafm.com
+# crates.io's crate downloads, when a Cloud machine's crates cache fetches a crate it does not hold yet
+# sends: the crate name and version cargo asks for
+# when: only on a Cloud machine, when cargo on it needs a crate the cache has not kept
+# off: turn off the machine's crates cache (`/etc/cmux/crates-cache.disabled`)
+static.crates.io
 # a STUN server for the phone and remote-desktop links when the link names none: it learns only the device's public address, no session traffic
 # sends: a STUN probe: only the device's public address
 # when: when a phone or remote-desktop link starts and names no STUN server

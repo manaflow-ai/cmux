@@ -212,3 +212,19 @@ fn mint_key_needs_out_and_a_mint_kind_and_never_overwrites() {
 fn form_fields_are_escaped() {
     assert_eq!(form_escape("a b&c=d+e"), "a%20b%26c%3Dd%2Be");
 }
+
+#[test]
+fn seeded_secrets_ride_only_where_tailscale_needs_them() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    cmux_egress::capture::install().unwrap();
+    let tail = "SEEDtailnetOauthSecret7f3a";
+    let client_secret = Secret::new(format!("tskey-client-kSEEDclient-{tail}"));
+    let call = mint::tailscale_token_call(&client_secret).unwrap();
+    // The capture server answers `200 {}`: no token comes back, which does not matter here.
+    let _ = send(&call);
+    let sent = cmux_egress::capture::requests_to("api.tailscale.com");
+    assert!(!sent.is_empty(), "the token call reached the capture server");
+    let places = cmux_egress::capture::leaks(tail);
+    assert!(!places.is_empty(), "{sent:?}");
+    assert!(places.iter().all(|p| p.ends_with(" /api/v2/oauth/token: body")), "{places:?}");
+}
