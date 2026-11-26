@@ -3824,6 +3824,14 @@ jobs:
             echo "registry-key=cmux-next-fast-tier-cargo-registry-v1-$inputs"
             echo "registry=${CARGO_HOME:-$HOME/.cargo}/registry"
           } >> "$GITHUB_OUTPUT"
+          # Why: docs/ci/cmux-next-workflow-notes/2026-11-25-fast-tier-zig-cache.md
+          zig_prefix="cmux-next-fast-tier-ghostty-vt-zig-v1-$workspace-$("${CMUX_ZIG:-zig}" version)-"
+          {
+            echo "zig-prefix=$zig_prefix"
+            echo "zig-key=$zig_prefix$(git rev-parse HEAD:ghostty-next | cut -c1-16)"
+            echo "zig-cache=$RUNNER_TEMP/ghostty-vt-zig-cache"
+          } >> "$GITHUB_OUTPUT"
+          echo "ZIG_LOCAL_CACHE_DIR=$RUNNER_TEMP/ghostty-vt-zig-cache" >> "$GITHUB_ENV"
 
       - name: Restore the cargo build from R2
         id: r2-cargo-target
@@ -3852,6 +3860,21 @@ jobs:
           path: ${{ steps.r2-cargo-key.outputs.registry }}
           key: ${{ steps.r2-cargo-key.outputs.registry-key }}
           restore-keys: ${{ steps.r2-cargo-key.outputs.registry-prefix }}
+
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-25-fast-tier-zig-cache.md
+      - name: Restore the libghostty-vt zig cache from R2
+        id: r2-zig-cache
+        if: ${{ steps.r2-cargo-key.outputs.zig-key != '' }}
+        timeout-minutes: 4
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: ${{ steps.r2-cargo-key.outputs.zig-cache }}
+          key: ${{ steps.r2-cargo-key.outputs.zig-key }}
+          restore-keys: ${{ github.event_name == 'pull_request' && steps.r2-cargo-key.outputs.zig-prefix || '' }}
 
       - name: Run the fast tier (cargo and script entries)
         if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
@@ -3915,6 +3938,22 @@ jobs:
           backend: r2
           path: ${{ steps.r2-cargo-key.outputs.registry }}
           key: ${{ steps.r2-cargo-key.outputs.registry-key }}
+
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-25-fast-tier-zig-cache.md
+      - name: Save the libghostty-vt zig cache to R2
+        if: ${{ success() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.r2-cargo-key.outputs.zig-key != '' && steps.r2-zig-cache.outputs.cache-hit != 'true' }}
+        timeout-minutes: 6
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        with:
+          backend: r2
+          path: ${{ steps.r2-cargo-key.outputs.zig-cache }}
+          key: ${{ steps.r2-cargo-key.outputs.zig-key }}
 
       - name: Upload fast-tier timing receipt
         if: ${{ (always()) && steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
