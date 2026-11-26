@@ -16,6 +16,7 @@ import os
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Callable
@@ -40,8 +41,13 @@ def github_api(repo: str, token: str) -> Api:
             f"https://api.github.com/repos/{repo}/{path}",
             headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
         )
-        with urllib.request.urlopen(req, timeout=30) as r:
-            return json.load(r)
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                return json.load(r)
+        except urllib.error.HTTPError as exc:
+            # The refusal's own words: a spent quota and a missing permission are both a 403.
+            body = exc.read(300).decode("utf-8", "replace").replace("\n", " ")
+            raise RuntimeError(f"{path}: HTTP {exc.code}: {body}") from exc
 
     return get
 

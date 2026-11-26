@@ -123,7 +123,9 @@ class CloudChatProofTests(unittest.TestCase):
                     signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
                     self.fail("the cut-off handler must end the proof")
                 elif words == ["cloud", "list-machines", "--json"]:
-                    value = {"loaded": True, "machines": [
+                    # The app's own sign-in (CloudHandlers.listAccount): what a shipped build names its user by.
+                    value = {"loaded": True, "account": {"signed_in": True, "user_id": "stack-user-1", "team_id": "team-1"},
+                             "machines": [
                         {"machine_id": "machine-proof", "title": "proof-test"},
                         {"machine_id": "machine-other", "title": "another-run"}]}
                 elif words[:2] == ["cloud", "start-chat"]:
@@ -255,6 +257,18 @@ class CloudChatProofTests(unittest.TestCase):
         self.assertFalse(any(words[:2] == ["app", "call"] for words in calls))
         steps = {step["step"]: step for step in evidence["steps"]}
         self.assertEqual(steps["selected backend active and signed in"]["exit"], 0)
+
+    def test_a_shipped_nightly_caches_the_login_for_the_user_its_machine_list_names(self):
+        # Run 45797490933: the shipped path read sign-in from list-machines but the cache step read `actual`,
+        # set only by the dev build's auth.status (NameError). The list's account names the same user and team.
+        code, evidence, calls = self.run_proof(backend_name="prod", shipped=True, grant=True, login="pass", cache=True)
+        self.assertEqual(code, 0, evidence)
+        self.assertEqual(evidence["result"], "pass")
+        self.assertFalse(any(words[:2] == ["app", "call"] for words in calls))
+        self.assertEqual(evidence["claude_login"]["cached"], True)
+        entries = [claude_login_cache.name("stack-user-1", "team-1"), claude_login_cache.name("stack-user-1", None)]
+        self.assertEqual([words[3] for words in calls if words[:3] == ["cloud", "secret", "set"]], entries)
+        self.assertEqual(sorted(words[3] for words in calls if words[:3] == ["cloud", "secret", "rm"]), sorted(entries))
 
     def test_grant_claude_login_gives_the_launch_its_consent_and_the_chat_its_login(self):
         # CI's unattended Claude chat on either backend: the consent a Release build's headless start waits for,
