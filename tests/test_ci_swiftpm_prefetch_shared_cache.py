@@ -147,7 +147,7 @@ class EveryOwnedMacKeepStepSeeds(unittest.TestCase):
 
 
 class DownloadsThroughTheControllerWhileGitHubRefuses(unittest.TestCase):
-    """GitHub answered every release download from the office Macs 403 (cmux23, 2026-11-26), so SwiftPM ended
+    """GitHub answered every release download from the office Macs 403 (2026-11-26), so SwiftPM ended
     "binary target 'CCmuxAppFFI' could not be mapped"; the worker then names the controller's release proxy."""
 
     PROXY = {"CMUX_CI_GITHUB_RELEASE_PROXY": "http://ctl:18765/v1/github-release/"}
