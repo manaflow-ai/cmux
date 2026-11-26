@@ -3,7 +3,7 @@
 import { Checkbox } from "@base-ui-components/react/checkbox";
 import { Dialog } from "@base-ui-components/react/dialog";
 import { useTranslations } from "next-intl";
-import posthog from "posthog-js";
+import { POSTHOG_API_HOST, POSTHOG_PROJECT_KEY } from "../../lib/posthog-client";
 import { useRef, useState } from "react";
 import {
   WAITLIST_EARLY_ACCESS_FLAGS,
@@ -41,9 +41,11 @@ async function recordWaitlistSignup(
   platforms: WaitlistPlatform[],
   location: string,
 ): Promise<boolean> {
-  const host = posthog.config?.api_host;
-  const token = posthog.config?.token;
-  if (!host || !token) return false;
+  // The constants, not `posthog.config`: PostHog is not initialized for a
+  // visitor who has not accepted analytics, and this form submission is the
+  // visitor asking to be told, which works either way.
+  const host = POSTHOG_API_HOST;
+  const token = POSTHOG_PROJECT_KEY;
   const enrollment = Object.fromEntries(
     platforms.map((p) => [
       `$feature_enrollment/${WAITLIST_EARLY_ACCESS_FLAGS[p]}`,

@@ -105,9 +105,9 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                                           "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": configured,
                                           # One-mini mode off (tests/test_classic_nightly_one_mini.py).
                                           "vars.CI_CLASSIC_NIGHTLY_MINI": ""})
-                    self.assertTrue(label.startswith("glaeda-nightly-"), label)
-                    self.assertEqual(label, configured if configured.startswith("glaeda-nightly-")
-                                     else "glaeda-nightly-std-xcode-26.6")
+                    # 2026-11-25: main's keyless decide runs on the owned Linux JIT pool on every
+                    # attempt, never a Mac (a busy mini held the cutover) and never Blacksmith.
+                    self.assertEqual(label, "cmux-gcp-nightly-jit-x64")
         # Main uses the shared nightly slot; its admission hook does not
         # accept RC or branch dogfood refs. They take the one-job JIT nightly
         # VM on a first attempt (no vendor queue, 2026-11-20) and keep their

@@ -219,6 +219,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import contextlib
 import dataclasses
 import datetime as dt
 import gzip
@@ -235,7 +236,7 @@ import urllib.parse
 import urllib.request
 import zipfile
 import zlib
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
@@ -4277,73 +4278,74 @@ def cancel_plan(
     A lost run at an open pull request's head (`open_head`) has its jobs read again first and is cancelled
     only while its lost jobs are still unassigned (open_head_jobs_moved(), against `jobs_by_run`, the
     sweep's inventory); one whose jobs cannot be read again is left alone."""
-    results: dict[int, str] = {}
-    failures = 0
-    for candidate in candidates:
-        run_id = candidate.run["id"]
-        try:
-            # The inventory is seconds old; drop anything that finished, moved
-            # to a new head or was re-run (a new attempt) in between.
-            current = github.run(run_id)
-            if current.get("status") not in IN_FLIGHT_RUN_STATUSES:
-                results[run_id] = f"skipped (now {current.get('status')})"
-                continue
-            if current.get("head_sha") != candidate.run.get("head_sha"):
-                results[run_id] = "skipped (head changed)"
-                continue
-            if int(current.get("run_attempt") or 1) != int(candidate.run.get("run_attempt") or 1):
-                results[run_id] = f"skipped (now attempt {current.get('run_attempt')})"
-                continue
-        except RuntimeError as error:
-            failures += 1
-            results[run_id] = f"failed: {error}"
-            continue
-        if candidate.open_head:
-            # GitHub.jobs() lists the latest attempt: a re-run someone starts between the read above and this
-            # one lists the new attempt's jobs, whose ids match nothing in the inventory. So a job of another
-            # attempt, or a run read again afterwards at another attempt or head, means no cancel.
-            attempt = int(candidate.run.get("run_attempt") or 1)
+    with github.cancel_reads():
+        results: dict[int, str] = {}
+        failures = 0
+        for candidate in candidates:
+            run_id = candidate.run["id"]
             try:
-                now_jobs = github.jobs(run_id)
-                again = github.run(run_id)
+                # The inventory is seconds old; drop anything that finished, moved
+                # to a new head or was re-run (a new attempt) in between.
+                current = github.run(run_id)
+                if current.get("status") not in IN_FLIGHT_RUN_STATUSES:
+                    results[run_id] = f"skipped (now {current.get('status')})"
+                    continue
+                if current.get("head_sha") != candidate.run.get("head_sha"):
+                    results[run_id] = "skipped (head changed)"
+                    continue
+                if int(current.get("run_attempt") or 1) != int(candidate.run.get("run_attempt") or 1):
+                    results[run_id] = f"skipped (now attempt {current.get('run_attempt')})"
+                    continue
             except RuntimeError as error:
-                results[run_id] = f"skipped (its jobs could not be read again at the open PR head: {error})"
-                continue
-            other = next((job.get("run_attempt") for job in now_jobs
-                          if job.get("run_attempt") not in (None, attempt)), None)
-            if other is not None or int(again.get("run_attempt") or 1) != attempt:
-                results[run_id] = f"skipped (now attempt {other or again.get('run_attempt')})"
-                continue
-            if again.get("head_sha") != candidate.run.get("head_sha"):
-                results[run_id] = "skipped (head changed)"
-                continue
-            if again.get("status") not in IN_FLIGHT_RUN_STATUSES:
-                results[run_id] = f"skipped (now {again.get('status')})"
-                continue
-            moved = open_head_jobs_moved((jobs_by_run or {}).get(run_id, ()), now_jobs, candidate.rerun_job)
-            if moved:
-                results[run_id] = f"skipped ({moved})"
-                continue
-        try:
-            github.cancel(run_id)
-            results[run_id] = "cancelled"
-        except RuntimeError as error:
-            if not _cancel_refused(error):
                 failures += 1
-                results[run_id] = f"{CANCEL_SENT}{error}"
+                results[run_id] = f"failed: {error}"
                 continue
+            if candidate.open_head:
+                # GitHub.jobs() lists the latest attempt: a re-run someone starts between the read above and this
+                # one lists the new attempt's jobs, whose ids match nothing in the inventory. So a job of another
+                # attempt, or a run read again afterwards at another attempt or head, means no cancel.
+                attempt = int(candidate.run.get("run_attempt") or 1)
+                try:
+                    now_jobs = github.jobs(run_id)
+                    again = github.run(run_id)
+                except RuntimeError as error:
+                    results[run_id] = f"skipped (its jobs could not be read again at the open PR head: {error})"
+                    continue
+                other = next((job.get("run_attempt") for job in now_jobs
+                              if job.get("run_attempt") not in (None, attempt)), None)
+                if other is not None or int(again.get("run_attempt") or 1) != attempt:
+                    results[run_id] = f"skipped (now attempt {other or again.get('run_attempt')})"
+                    continue
+                if again.get("head_sha") != candidate.run.get("head_sha"):
+                    results[run_id] = "skipped (head changed)"
+                    continue
+                if again.get("status") not in IN_FLIGHT_RUN_STATUSES:
+                    results[run_id] = f"skipped (now {again.get('status')})"
+                    continue
+                moved = open_head_jobs_moved((jobs_by_run or {}).get(run_id, ()), now_jobs, candidate.rerun_job)
+                if moved:
+                    results[run_id] = f"skipped ({moved})"
+                    continue
             try:
-                github.force_cancel(run_id)
-            except RuntimeError as force_error:
-                if not _cancel_refused(force_error):
+                github.cancel(run_id)
+                results[run_id] = "cancelled"
+            except RuntimeError as error:
+                if not _cancel_refused(error):
                     failures += 1
-                    results[run_id] = f"{CANCEL_SENT}{force_error}"
+                    results[run_id] = f"{CANCEL_SENT}{error}"
+                    continue
+                try:
+                    github.force_cancel(run_id)
+                except RuntimeError as force_error:
+                    if not _cancel_refused(force_error):
+                        failures += 1
+                        results[run_id] = f"{CANCEL_SENT}{force_error}"
+                    else:
+                        results[run_id] = (f"stuck: GitHub refused cancel and force-cancel "
+                                           f"(cancel refused: {error}; {force_error})")
                 else:
-                    results[run_id] = (f"stuck: GitHub refused cancel and force-cancel "
-                                       f"(cancel refused: {error}; {force_error})")
-            else:
-                results[run_id] = f"force-cancelled (cancel refused: {error})"
-    return results, failures
+                    results[run_id] = f"force-cancelled (cancel refused: {error})"
+        return results, failures
 
 
 def cancel_orphans(
@@ -4360,44 +4362,45 @@ def cancel_orphans(
     way (ios-testflight.yml has met these) is reported, not counted as a
     failure: nothing the next sweep does differently would change that.
     """
-    results: dict[int, str] = {}
-    failures = 0
-    pending: list[Orphan] = []
-    for decision in decisions:
-        if decision.action != "cancel":
-            continue
-        orphan = decision.orphan
-        run_id = orphan.run["id"]
-        try:
-            current = github.run(run_id)
-            if current.get("status") not in IN_FLIGHT_RUN_STATUSES:
-                results[run_id] = f"skipped (now {current.get('status')})"
+    with github.cancel_reads():
+        results: dict[int, str] = {}
+        failures = 0
+        pending: list[Orphan] = []
+        for decision in decisions:
+            if decision.action != "cancel":
                 continue
-        except RuntimeError as error:
-            failures += 1
-            results[run_id] = f"failed: {error}"
-            continue
-        try:
-            github.cancel(run_id)
-        except RuntimeError as error:
-            results[run_id] = _force_cancel(github, orphan, f"cancel refused: {error}")
-            continue
-        pending.append(orphan)
-    if pending:
-        (sleep or time.sleep)(recheck_seconds)
-    for orphan in pending:
-        run_id = orphan.run["id"]
-        try:
-            status = github.run(run_id).get("status")
-        except RuntimeError as error:
-            failures += 1
-            results[run_id] = f"failed: {error}"
-            continue
-        if status not in IN_FLIGHT_RUN_STATUSES:
-            results[run_id] = "cancelled"
-        else:
-            results[run_id] = _force_cancel(github, orphan, f"cancel left it {status}")
-    return results, failures
+            orphan = decision.orphan
+            run_id = orphan.run["id"]
+            try:
+                current = github.run(run_id)
+                if current.get("status") not in IN_FLIGHT_RUN_STATUSES:
+                    results[run_id] = f"skipped (now {current.get('status')})"
+                    continue
+            except RuntimeError as error:
+                failures += 1
+                results[run_id] = f"failed: {error}"
+                continue
+            try:
+                github.cancel(run_id)
+            except RuntimeError as error:
+                results[run_id] = _force_cancel(github, orphan, f"cancel refused: {error}")
+                continue
+            pending.append(orphan)
+        if pending:
+            (sleep or time.sleep)(recheck_seconds)
+        for orphan in pending:
+            run_id = orphan.run["id"]
+            try:
+                status = github.run(run_id).get("status")
+            except RuntimeError as error:
+                failures += 1
+                results[run_id] = f"failed: {error}"
+                continue
+            if status not in IN_FLIGHT_RUN_STATUSES:
+                results[run_id] = "cancelled"
+            else:
+                results[run_id] = _force_cancel(github, orphan, f"cancel left it {status}")
+        return results, failures
 
 
 # --- orphaned dispatches on long-lived branches come back ------------------------------------------------------
@@ -4723,6 +4726,24 @@ class GitHub:
         if read_token and read_token not in (self._token, self.fallback_token):
             self.read_token = read_token
 
+    # True while cancel_plan() and cancel_orphans() run (cancel_reads()): their GETs go on `token`, as the cancel does.
+    cancel_phase = False
+
+    @contextlib.contextmanager
+    def cancel_reads(self) -> Iterator[None]:
+        """Make the reads that guard a capped cancel (each candidate's run and jobs, read again just before its cancel
+        POST, at most a few per cancel and DEFAULT_MAX_CANCELS cancels a cap) on `token`, cmux-bot's own budget, which
+        the cancel itself already spends. On the read token they met READ_TOKEN_FLOOR the listing had just reached: at
+        19:05Z on 2026-11-24 sweep 45464022363 found 22 closed or merged pull requests' runs and lost-assignment runs
+        queued 6 h 51 min, then every cancel ended "failed: GET .../actions/runs/ID not sent: ... READ_TOKEN_FLOOR",
+        so the janitor found the dead runs every sweep and cancelled none (289 glaeda-side-std-xcode-26.6 jobs queued,
+        oldest 461 min). The listing still stops at the floor; these few reads do not drain the read installation."""
+        previous, self.cancel_phase = self.cancel_phase, True
+        try:
+            yield
+        finally:
+            self.cancel_phase = previous
+
     def read_token_floor_reached(self) -> bool:
         """Whether the read token's installation has read_token_floor calls or fewer left this hour, as its newest
         response said. That installation (glaeda-route, 164690637) also pays the Linux runner scaler's JIT creates:
@@ -4763,7 +4784,8 @@ class GitHub:
         if data is not None:
             headers["Content-Type"] = "application/json"
         # A GET goes on the read token while there is one (use_read_token()); writes, GraphQL and app_only never do.
-        read_token = self.read_token if method == "GET" and not app_only else ""
+        # A read guarding a cancel goes on `token` too (cancel_reads()).
+        read_token = self.read_token if method == "GET" and not app_only and not self.cancel_phase else ""
         if read_token and self.read_token_floor_reached():
             left = self.rate_limits["core (read token)"]["remaining"]
             limited = RateLimited(f"{method} {path.split('?')[0]} not sent: the read token's installation has {left} "

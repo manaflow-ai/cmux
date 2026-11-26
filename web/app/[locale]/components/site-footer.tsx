@@ -6,6 +6,7 @@ import {
 } from "../../../i18n/locale-availability";
 import type { Locale } from "../../../i18n/routing";
 import { LanguageSwitcher } from "./language-switcher";
+import { AnalyticsSettingsButton } from "./analytics-consent-banner";
 import { ContentLocaleLink } from "./content-locale-link";
 import { getCurrentYear } from "@/app/lib/current-year";
 
@@ -145,6 +146,10 @@ export async function SiteFooter() {
             >
               {t("openSource")}
             </a>
+            <span aria-hidden className="mx-2">
+              ·
+            </span>
+            <AnalyticsSettingsButton className="hover:text-foreground transition-colors" />
           </p>
           <LanguageSwitcher />
         </div>

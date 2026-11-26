@@ -431,5 +431,73 @@ class WiringTests(unittest.TestCase):
         self.assertIn("actions: read", text[text.index("  guard:"):text.index("  nightly:")])
 
 
+class RequestErrors(unittest.TestCase):
+    """_request says what GitHub answered with an HTTP error, and waits out a short rate-limit reset."""
+
+    def answer(self, answers: list[object]) -> tuple[object, list[float]]:
+        import email.message
+        import urllib.error
+        import urllib.request
+
+        slept: list[float] = []
+
+        def fake_urlopen(request, timeout=0):  # noqa: ANN001
+            got = answers.pop(0)
+            if isinstance(got, tuple):
+                code, headers, body = got
+                msg = email.message.Message()
+                for k, v in headers.items():
+                    msg[k] = v
+                raise urllib.error.HTTPError(request.full_url, code, "Forbidden", msg, io.BytesIO(body))
+            return contextlib.nullcontext(io.BytesIO(json.dumps(got).encode()))
+
+        original = urllib.request.urlopen
+        urllib.request.urlopen = fake_urlopen
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                return guard._request("https://api.github.com/repos/o/r/x", "t", sleep=slept.append), slept
+        finally:
+            urllib.request.urlopen = original
+
+    def test_a_403_says_what_github_answered(self) -> None:
+        body = json.dumps({"message": "Resource not accessible by integration"}).encode()
+        with self.assertRaises(guard.Unreadable) as caught:
+            self.answer([(403, {"x-ratelimit-remaining": "812", "x-ratelimit-resource": "core"}, body)])
+        self.assertIn("Resource not accessible by integration", str(caught.exception))
+        self.assertIn("x-ratelimit-remaining 812", str(caught.exception))
+
+    def test_a_short_rate_limit_is_waited_out(self) -> None:
+        body = json.dumps({"message": "API rate limit exceeded for installation"}).encode()
+        got, slept = self.answer([(403, {"retry-after": "30", "x-ratelimit-remaining": "0"}, body), {"ok": 1}])
+        self.assertEqual(got, {"ok": 1})
+        self.assertEqual(slept, [30.0])
+
+    def test_a_long_rate_limit_still_refuses_and_says_so(self) -> None:
+        import time
+
+        body = json.dumps({"message": "API rate limit exceeded for installation"}).encode()
+        reset = str(int(time.time()) + 1800)
+        with self.assertRaises(guard.Unreadable) as caught:
+            self.answer([(403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": reset}, body)])
+        self.assertIn("rate limit exceeded", str(caught.exception))
+
+    def test_retry_after_zero_cannot_spin(self) -> None:
+        body = json.dumps({"message": "secondary rate limit"}).encode()
+        answers = [(429, {"retry-after": "0"}, body)] * 10
+        with self.assertRaises(guard.Unreadable):
+            self.answer(answers)
+        self.assertEqual(len(answers), 10 - 1 - guard.RATE_LIMIT_RETRIES)
+
+    def test_a_rate_limit_named_only_in_the_message_waits_a_minute(self) -> None:
+        body = json.dumps({"message": "You have exceeded a secondary rate limit"}).encode()
+        got, slept = self.answer([(403, {}, body), {"ok": 2}])
+        self.assertEqual((got, slept), ({"ok": 2}, [60.0]))
+
+    def test_a_body_that_is_not_json_is_shown_raw(self) -> None:
+        with self.assertRaises(guard.Unreadable) as caught:
+            self.answer([(403, {}, b"<html>denied</html>")])
+        self.assertIn("<html>denied</html>", str(caught.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -542,7 +542,7 @@ def is_active_delivery_run(workflow: str, branch: str | None, run: dict) -> bool
         title = run.get("display_title", "")
         if "17 */6" in title:
             return False
-        if "47 8" in title:
+        if "2,17,32,47 * * * *" in title or "17 * * * *" in title or "47 8" in title:
             return True
         # Legacy unnamed schedules fail closed during rollout: never dispatch
         # a competing classic publication while its purpose is ambiguous.

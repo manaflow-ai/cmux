@@ -730,6 +730,22 @@ jobs:
         if: ${{ steps.suite.outputs.full_suite == 'true' }}
         run: echo "full-suite coverage selected"
 
+      - name: Mint the cmux-bot read token (even runs)
+        # Even run ids read on cmux-bot's installation budget, odd ones on
+        # manaflow-glaeda-route's, so per-PR reads stop draining the build
+        # controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h).
+        id: route-token-bot
+        if: ((github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name == github.repository || contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name)) || github.event_name == 'workflow_dispatch') && vars.CI_PR_POOL_OWNED == '1' && vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != '' && (endsWith(format('{0}', github.run_id), '0') || endsWith(format('{0}', github.run_id), '2') || endsWith(format('{0}', github.run_id), '4') || endsWith(format('{0}', github.run_id), '6') || endsWith(format('{0}', github.run_id), '8'))
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
       - name: Mint the owned-pool routing token
         id: route-token
         # The org's manaflow-glaeda-route App, read-only on runners, so the
@@ -741,7 +757,7 @@ jobs:
         # yet, the App not installed, or the App without that organization
         # permission) leaves the token empty, and the choice falls back to the
         # janitor snapshot and CI_OWNED_POOL_SLOTS.
-        if: (github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name == github.repository || contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name)) || github.event_name == 'workflow_dispatch') && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
+        if: ((github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name == github.repository || contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name)) || github.event_name == 'workflow_dispatch') && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '') && steps.route-token-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -751,12 +767,27 @@ jobs:
           permission-administration: read
           permission-organization-self-hosted-runners: read
 
+      - name: Mint the cmux-bot read token (even runs)
+        # Even run ids read on cmux-bot's installation budget, odd ones on
+        # manaflow-glaeda-route's, so per-PR reads stop draining the build
+        # controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h).
+        id: route-token-repo-bot
+        if: (steps.route-token.outcome == 'failure') && vars.CMUX_BOT_APP_ID != '' && (endsWith(format('{0}', github.run_id), '0') || endsWith(format('{0}', github.run_id), '2') || endsWith(format('{0}', github.run_id), '4') || endsWith(format('{0}', github.run_id), '6') || endsWith(format('{0}', github.run_id), '8'))
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-administration: read
+
       - name: Mint the routing token without the org permission
         id: route-token-repo
         # The mint is all or nothing: an App not yet granted the organization
         # self-hosted runners permission gets no token above. This one asks
         # for the repository permission alone, as before.
-        if: steps.route-token.outcome == 'failure'
+        if: (steps.route-token.outcome == 'failure') && steps.route-token-repo-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -769,11 +800,11 @@ jobs:
       # rate_limit read): the installation is shared, so the delta between `before`
       # and `after` is this step's reads plus whatever else ran meanwhile.
       - name: Log the glaeda-route App budget before
-        if: ${{ (steps.route-token.outputs.token || steps.route-token-repo.outputs.token) != '' }}
+        if: ${{ ((steps.route-token-bot.outputs.token || steps.route-token.outputs.token) || (steps.route-token-repo-bot.outputs.token || steps.route-token-repo.outputs.token)) != '' }}
         continue-on-error: true
         timeout-minutes: 1
         env:
-          GH_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
+          GH_TOKEN: ${{ (steps.route-token-bot.outputs.token || steps.route-token.outputs.token) || (steps.route-token-repo-bot.outputs.token || steps.route-token-repo.outputs.token) }}
           PROBE: ${{ github.workflow }}/changes-route/before
         run: >-
           gh api rate_limit --jq
@@ -795,7 +826,7 @@ jobs:
           MACOS_RUNNER_PR: ${{ vars.MACOS_RUNNER_PR }}
           DEFAULT_RUNNER: ${{ vars.MACOS_RUNNER_PR }}
           # Empty unless the step above minted it: idle owned runners, live.
-          ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
+          ROUTE_TOKEN: ${{ (steps.route-token-bot.outputs.token || steps.route-token.outputs.token) || (steps.route-token-repo-bot.outputs.token || steps.route-token-repo.outputs.token) }}
           CI_PR_POOL_OVERFLOW: ${{ vars.CI_PR_POOL_OVERFLOW }}
           # The Blacksmith macOS switch: not `on`, an owned pick names no Blacksmith retry_runner.
           CI_BLACKSMITH_MACOS: ${{ vars.CI_BLACKSMITH_MACOS }}
@@ -828,11 +859,11 @@ jobs:
         run: python3 scripts/ci/simple_pool_picker.py
 
       - name: Log the glaeda-route App budget after
-        if: ${{ !cancelled() && (steps.route-token.outputs.token || steps.route-token-repo.outputs.token) != '' }}
+        if: ${{ !cancelled() && ((steps.route-token-bot.outputs.token || steps.route-token.outputs.token) || (steps.route-token-repo-bot.outputs.token || steps.route-token-repo.outputs.token)) != '' }}
         continue-on-error: true
         timeout-minutes: 1
         env:
-          GH_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
+          GH_TOKEN: ${{ (steps.route-token-bot.outputs.token || steps.route-token.outputs.token) || (steps.route-token-repo-bot.outputs.token || steps.route-token-repo.outputs.token) }}
           PROBE: ${{ github.workflow }}/changes-route/after
         run: >-
           gh api rate_limit --jq
@@ -1067,9 +1098,26 @@ jobs:
       # Reads go through the manaflow-glaeda-route App's own budget, not the GITHUB_TOKEN
       # budget every workflow shares (it ran out on 2026-10-25 and the nightly publish
       # failed). No key (a fork) or a failed mint leaves it empty: GITHUB_TOKEN reads.
+      - name: Mint the cmux-bot read token (even runs)
+        # Even run ids read on cmux-bot's installation budget, odd ones on
+        # manaflow-glaeda-route's, so per-PR reads stop draining the build
+        # controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h).
+        id: admitted-read-token-bot
+        if: ((steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' && (steps.suite.outputs.unit_suite != 'true' || steps.suite.outputs.unit_canary == 'true') && steps.unchanged_inputs.outputs.compile_admitted != 'true') && vars.CMUX_BOT_APP_ID != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && vars.CMUX_BOT_APP_ID != '' && (endsWith(format('{0}', github.run_id), '0') || endsWith(format('{0}', github.run_id), '2') || endsWith(format('{0}', github.run_id), '4') || endsWith(format('{0}', github.run_id), '6') || endsWith(format('{0}', github.run_id), '8'))
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: read
+          permission-pull-requests: read
+          skip-token-revoke: true
+
       - name: Mint the glaeda read token
         id: admitted-read-token
-        if: ${{ (steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' && (steps.suite.outputs.unit_suite != 'true' || steps.suite.outputs.unit_canary == 'true') && steps.unchanged_inputs.outputs.compile_admitted != 'true') && vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        if: ((steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' && (steps.suite.outputs.unit_suite != 'true' || steps.suite.outputs.unit_canary == 'true') && steps.unchanged_inputs.outputs.compile_admitted != 'true') && vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && steps.admitted-read-token-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -1084,11 +1132,11 @@ jobs:
       # rate_limit read): the installation is shared, so the delta between `before`
       # and `after` is this step's reads plus whatever else ran meanwhile.
       - name: Log the glaeda-route App budget before
-        if: ${{ (steps.admitted-read-token.outputs.token) != '' }}
+        if: ${{ ((steps.admitted-read-token-bot.outputs.token || steps.admitted-read-token.outputs.token)) != '' }}
         continue-on-error: true
         timeout-minutes: 1
         env:
-          GH_TOKEN: ${{ steps.admitted-read-token.outputs.token }}
+          GH_TOKEN: ${{ (steps.admitted-read-token-bot.outputs.token || steps.admitted-read-token.outputs.token) }}
           PROBE: ${{ github.workflow }}/changes-admitted/before
         run: >-
           gh api rate_limit --jq
@@ -1099,7 +1147,7 @@ jobs:
         continue-on-error: true
         if: ${{ steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' && (steps.suite.outputs.unit_suite != 'true' || steps.suite.outputs.unit_canary == 'true') && steps.unchanged_inputs.outputs.compile_admitted != 'true' }}
         env:
-          GH_TOKEN: ${{ steps.admitted-read-token.outputs.token || github.token }}
+          GH_TOKEN: ${{ (steps.admitted-read-token-bot.outputs.token || steps.admitted-read-token.outputs.token) || github.token }}
           BRANCH: ${{ github.head_ref }}
           FINGERPRINT: ${{ steps.inputs.outputs.fingerprint }}
         run: |
@@ -1108,11 +1156,11 @@ jobs:
             --fingerprint "$FINGERPRINT" --current-run-id "$GITHUB_RUN_ID" --github-output "$GITHUB_OUTPUT"
 
       - name: Log the glaeda-route App budget after
-        if: ${{ !cancelled() && (steps.admitted-read-token.outputs.token) != '' }}
+        if: ${{ !cancelled() && ((steps.admitted-read-token-bot.outputs.token || steps.admitted-read-token.outputs.token)) != '' }}
         continue-on-error: true
         timeout-minutes: 1
         env:
-          GH_TOKEN: ${{ steps.admitted-read-token.outputs.token }}
+          GH_TOKEN: ${{ (steps.admitted-read-token-bot.outputs.token || steps.admitted-read-token.outputs.token) }}
           PROBE: ${{ github.workflow }}/changes-admitted/after
         run: >-
           gh api rate_limit --jq

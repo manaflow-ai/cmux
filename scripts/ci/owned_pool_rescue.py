@@ -524,18 +524,13 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/agent-brands.yml",  # feat-cmux-next only
     ".github/workflows/app-host-test-rerun.yml",
     ".github/workflows/auth-refresh-tests.yml",
-    ".github/workflows/billing.yml",
+    ".github/workflows/billing.yml",  # feat-cmux-next: ios-billing still takes the billing pool picker
     ".github/workflows/billing-nightly.yml",  # calls billing.yml (ios-billing); feat-cmux-next has its own
     ".github/workflows/cloud-command-deadlines.yml",
     ".github/workflows/cloud-machine-tests.yml",
-    ".github/workflows/cloud-task-local-tests.yml",
     ".github/workflows/app-platform.yml",  # feat-cmux-next only
     ".github/workflows/cmux-next-base-autofix.yml",  # feat-cmux-next only
     ".github/workflows/cmux-next-batch.yml",  # feat-cmux-next only
-    # Main's Cua Driver SDK, dev helper and remote browser host publishers: their unsigned build
-    # takes the side label on attempt 1 of the dispatch (run 43645667029 sat on a Blacksmith queue).
-    ".github/workflows/cmux-next-cua-driver-sdk-publish.yml",
-    ".github/workflows/cmux-next-cua-helper-dev-sign.yml",
     # feat-cmux-next only; its Computer Use helper check takes the side label on attempt 1.
     ".github/workflows/cmux-next-cua-helper-identity.yml",
     ".github/workflows/cmux-next-frame-pacing.yml",  # feat-cmux-next only
@@ -543,9 +538,6 @@ SIDE_WORKFLOW_PATHS = frozenset({
     # feat-cmux-next only; its ci-web.yml call's react-apps-base-check reads vars.CI_LINUX_GATE_OWNED_RUNNER.
     ".github/workflows/cmux-next-post-merge.yml",
     ".github/workflows/cmux-next-pr-autofix.yml",  # feat-cmux-next only
-    # feat-cmux-next only; its ci-web.yml call's react-apps-base-check reads vars.CI_LINUX_GATE_OWNED_RUNNER.
-    ".github/workflows/cmux-next-post-merge.yml",
-    ".github/workflows/cmux-next-remote-browser-host-publish.yml",
     # feat-cmux-next only; its zsh git HEAD watcher job takes the side label on attempt 1.
     ".github/workflows/cmux-next-shell-integration.yml",
     ".github/workflows/cmux-next-terminal.yml",  # feat-cmux-next only
@@ -562,15 +554,15 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/cmux-rd-windows.yml",
     ".github/workflows/cmux-tui-artifacts.yml",
     ".github/workflows/cmux-tui.yml",
-    ".github/workflows/iroh-v2.yml",
     # The post-publication canary's Mac job takes the side label on attempt 1.
     ".github/workflows/nightly-next-canary.yml",
     # The post-publish launch smoke's Mac job takes the side label on attempt 1.
     ".github/workflows/nightly-next-cua-signed-host.yml",  # feat-cmux-next only
     ".github/workflows/nightly-next-launch-smoke.yml",
+    # feat-cmux-next only; calls pr-pipeline.yml, whose ios job takes the ios-runner pool picker's output.
+    ".github/workflows/pr-router.yml",
     ".github/workflows/macos-cross-parity.yml",
     ".github/workflows/relay-tls.yml",
-    ".github/workflows/reload-build.yml",
     ".github/workflows/remote-daemon.yml",
     ".github/workflows/terminal-hang-diagnostics.yml",
     # Its full-text job takes the side label on attempt 1 (on both branches).
@@ -770,6 +762,12 @@ OPEN_HEAD_FAILOVER = "open-head failover"
 # took glaeda-side-std-xcode-26.6, which was not dark (11 runners busy) but held 55 jobs, the oldest for 21 hours;
 # attempt 2 was the last placement, so nothing placed them again once Blacksmith moved.
 OWNED_REPLACE_SECONDS = 20 * 60
+# A pull request whose body has a `Leo-ask: ask-...` line, or that carries this label, is one of Leo's asks: its Mac job is placed again after the shortest
+# PRIORITY_REPLACE_SECONDS (10 min, half of OWNED_REPLACE_SECONDS), not after OWNED_REPLACE_SECONDS. The placement
+# re-run still picks the route (an owned label with room, else overflow), so nothing here names a provider, and
+# a job that waits on a label with room again goes back to the minis on the next placement.
+PRIORITY_LABEL = "leo-ask"
+PRIORITY_REPLACE_SECONDS = 10 * 60
 # The light move (light_wait()): a cmux-next pull request run's Mac job that has waited this long on the std side
 # label, while the fleet gates show a light side runner listening and nothing queued there, has its run placed
 # again, when the head shows the job fits a light mini (it reads the placement's light_jobs on the attempt the
@@ -2730,6 +2728,8 @@ class Target:
     # `side_label`), or "" (Blacksmith macOS on, or not known): open_head_failover() never re-places a long wait
     # onto the label it waits on.
     rerun_side: str = ""
+    # The pull request carries PRIORITY_LABEL (priority_pull()): its long owned wait is PRIORITY_REPLACE_SECONDS.
+    priority: bool = False
 
     @property
     def picker_job(self) -> str:
@@ -4441,6 +4441,24 @@ def places_again(target: "Target") -> bool:
     return target.attempt <= REFUSAL_RESCUE_ATTEMPT or target.dispatched
 
 
+LEO_ASK_LINE = re.compile(r"^\s*Leo-ask:\s*ask-[0-9a-f]{10}", re.I | re.M)
+
+
+def priority_pull(pull: Mapping[str, Any] | None) -> bool:
+    """Whether a pull request (the API's object) is one of Leo's asks: its body has the `Leo-ask: ask-...` line the
+    asks-reconciler's brief puts there (asks-board's own rule for a PR that does an ask), or it carries
+    PRIORITY_LABEL. The line is written for every ask PR, so nothing has to apply the label."""
+    pull = pull or {}
+    return (bool(LEO_ASK_LINE.search(str(pull.get("body") or "")))
+            or any(isinstance(label, Mapping) and str(label.get("name") or "") == PRIORITY_LABEL
+                   for label in pull.get("labels") or []))
+
+
+def owned_replace_seconds(target: "Target") -> int:
+    """How long a cmux-next Mac job waits on an owned label before it is placed again: Leo's asks go first."""
+    return PRIORITY_REPLACE_SECONDS if target.priority else OWNED_REPLACE_SECONDS
+
+
 def long_owned_wait(target: "Target", job: Mapping[str, Any], label: str, now: dt.datetime,
                     first_seen: dt.datetime | None = None) -> bool:
     """Whether a cmux-next pull request run's Mac job has waited OWNED_REPLACE_SECONDS on an owned (glaeda-) label,
@@ -4448,7 +4466,7 @@ def long_owned_wait(target: "Target", job: Mapping[str, Any], label: str, now: d
     dark: a saturated one whose queue the job is not getting through is as stuck for the job."""
     return (target.path == CMUX_NEXT_WORKFLOW_PATH and bool(target.pr_number)
             and places_again(target) and label.startswith("glaeda-")
-            and queued_seconds(job, now, first_seen) >= OWNED_REPLACE_SECONDS)
+            and queued_seconds(job, now, first_seen) >= owned_replace_seconds(target))
 
 
 def light_room(snapshot: Mapping[str, Any], label: str, now: dt.datetime) -> int:
@@ -4637,6 +4655,7 @@ def open_head_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
     planned = False
     seen: dict[Any, dt.datetime] = dict(first_seen or {})
     light_to: dict[Any, str] = {}
+    looked_priority = False
     for look in (1, 2):
         try:
             snapshot = reader(now())
@@ -4661,6 +4680,13 @@ def open_head_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
                 seen.setdefault(job_key(job), at)
         dead = [(job, label) for job, label in waiting if started_nothing(pools, label)
                 or label_quiet(snapshot, label, wait_start(job, seen.get(job_key(job))))]
+        if not dead and waiting and target.pr_number and not target.priority and not looked_priority \
+                and any(queued_seconds(job, at, seen.get(job_key(job))) >= PRIORITY_REPLACE_SECONDS
+                        for job, _ in waiting):
+            # One read of the pull request, only once a job has waited long enough to matter: Leo's asks go first.
+            looked_priority = True
+            if priority_pull(read(lambda: api.pull(target.pr_number), sleep, log)):
+                target = dataclasses.replace(target, priority=True)
         # A cmux-next job that has waited OWNED_REPLACE_SECONDS on an owned label, busy or not, is placed again,
         # but only by a placement re-run (checked below, once the plan is read).
         long_wait = [] if dead else [(job, label) for job, label in waiting
@@ -4737,7 +4763,7 @@ def open_head_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
                     else "has started nothing since it queued" if dead is not long_wait
                     else (f"has not started it in {int(waited // 60)} min while `{light_to[job_key(job)]}` has "
                           "a runner listening (light move)") if job_key(job) in light_to
-                    else f"has not started it in {OWNED_REPLACE_SECONDS // 60} min")
+                    else f"has not started it in {owned_replace_seconds(target) // 60} min")
             stuck = f"{job.get('name') or job.get('id')} has waited {int(waited // 60)} min on `{label}`, which {idle}"
             if settled:
                 return Failover(f"no job of attempt {target.attempt} is running ({len(jobs) - 1} of {len(jobs)} "
