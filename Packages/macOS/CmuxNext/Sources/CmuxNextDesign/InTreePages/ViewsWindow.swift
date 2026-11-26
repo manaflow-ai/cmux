@@ -5,8 +5,9 @@ import ObjectiveC
 /// (cmuxterm-hq artifacts/in-tree-pages/approaches/views-window). It is a prototype on top of in-tree pages.
 ///
 /// With the fork's `--cmux-views-window` switch (fork branch cmux/chromium-views-window, CMUX.md "Views window"), the
-/// fork adopts the cmux window as a Chromium Views widget window at its first in-tree page. It isa-swizzles the window
-/// to a runtime subclass named `<class>_CmuxViews` and puts Views' content view in the window's ``ViewsWindowSlotView``.
+/// fork adopts the cmux window as a Chromium Views widget window at its first in-tree page. The window's class gets
+/// Chromium's widget window protocol (acting only for adopted windows; the window answers `isKind(of:)` for
+/// `NativeWidgetMacNSWindow` while its widget lives) and Views' content view goes in the window's ``ViewsWindowSlotView``.
 /// Each page is then a `views::WebView` of that widget at its container's rect, not a subview of the container: the
 /// fork names the container on the page's `WebContentsViewCocoa`, and ``viewsContainer(of:)`` reads it back for the
 /// window's focus rules. The switch is on for a dev build tagged `views-window…` (or `…-views-window…`) or with `CMUX_NEXT_VIEWS_WINDOW=1`, and it
@@ -21,8 +22,6 @@ extension InTreePages {
     public nonisolated static let viewsWindowTagPrefix = "views-window"
     /// The identifier of the slot the fork puts Views' content view in.
     public nonisolated static let viewsWindowSlotIdentifier = "cmux-views-slot"
-    /// The suffix of the runtime class the fork gives an adopted window.
-    public nonisolated static let viewsWindowClassSuffix = "_CmuxViews"
 
     /// Whether the views window switch is on: the environment first, then the build tag.
     public nonisolated static func viewsWindowRequested(tag: String?, environment: [String: String]) -> Bool {
@@ -33,10 +32,23 @@ extension InTreePages {
         }
     }
 
-    /// Whether the fork adopted `window` as a Views widget window. Such a window answers `isKind(of:)` for
-    /// `NativeWidgetMacNSWindow` while its widget lives, so a rule about Chromium's own windows must skip it.
-    public static func isViewsWindowAdopted(_ window: NSWindow) -> Bool {
-        NSStringFromClass(type(of: window)).hasSuffix(viewsWindowClassSuffix)
+    /// Whether `window`'s own class is `widgetClass` (Chromium's `NativeWidgetMacNSWindow`) or a subclass of it: one of
+    /// Chromium's own windows. A window the fork adopted answers `isKind(of:)` for that class while its widget lives,
+    /// but its class chain stays cmux's, so a rule about Chromium's windows asks this instead.
+    public static func isReally(_ window: NSWindow, kindOf widgetClass: AnyClass) -> Bool {
+        var current: AnyClass? = object_getClass(window)
+        while let cls = current {
+            if cls === widgetClass { return true }
+            current = class_getSuperclass(cls)
+        }
+        return false
+    }
+
+    /// Whether the fork adopted `window` as a Views widget window (it answers `isKind(of:)` for `widgetClass` with
+    /// a class of its own).
+    public static func isViewsWindowAdopted(_ window: NSWindow, widgetClass: AnyClass?) -> Bool {
+        guard let widgetClass else { return false }
+        return window.isKind(of: widgetClass) && !isReally(window, kindOf: widgetClass)
     }
 
     /// The key of the fork's `cmuxViewsContainer` associated object (the selector's address, as the fork uses).

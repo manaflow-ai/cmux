@@ -44,7 +44,8 @@ import Testing
         bridged.addSubview(page)
         let content = FakePageView(frame: page.bounds)
         page.addSubview(content)
-        objc_setAssociatedObject(page, sel_registerName("cmuxViewsContainer"), container, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        let key = unsafeBitCast(sel_registerName("cmuxViewsContainer"), to: UnsafeRawPointer.self)
+        objc_setAssociatedObject(page, key, container, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         container.shows = true
         return Fixture(window: window, container: container, slot: slot, page: page, content: content)
     }
@@ -135,20 +136,24 @@ import Testing
         }
     }
 
-    @Test func anAdoptedWindowIsKnownByItsRuntimeClass() {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10), styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        defer { window.close() }
-        #expect(!InTreePages.isViewsWindowAdopted(window))
-        let name = NSStringFromClass(NSWindow.self) + InTreePages.viewsWindowClassSuffix
-        let adopted: AnyClass = NSClassFromString(name) ?? {
-            let made: AnyClass = objc_allocateClassPair(NSWindow.self, name, 0)!
-            objc_registerClassPair(made)
-            return made
-        }()
-        object_setClass(window, adopted)
-        defer { object_setClass(window, NSWindow.self) }
-        #expect(InTreePages.isViewsWindowAdopted(window), "the fork's runtime class was not recognized")
+    /// Chromium's widget window class, and a cmux window the fork adopted: it answers `isKind(of:)` for that class.
+    final class FakeWidgetWindow: NSWindow {}
+    final class AdoptedWindow: NSWindow {
+        override func isKind(of aClass: AnyClass) -> Bool { aClass === FakeWidgetWindow.self || super.isKind(of: aClass) }
+    }
+
+    @Test func anAdoptedWindowIsNotOneOfChromiumsOwn() {
+        let frame = NSRect(x: 0, y: 0, width: 10, height: 10)
+        let adopted = AdoptedWindow(contentRect: frame, styleMask: [.titled], backing: .buffered, defer: false)
+        let chromium = FakeWidgetWindow(contentRect: frame, styleMask: [.titled], backing: .buffered, defer: false)
+        let plain = NSWindow(contentRect: frame, styleMask: [.titled], backing: .buffered, defer: false)
+        for window in [adopted, chromium, plain] { window.isReleasedWhenClosed = false }
+        defer { for window in [adopted, chromium, plain] { window.close() } }
+        #expect(InTreePages.isViewsWindowAdopted(adopted, widgetClass: FakeWidgetWindow.self))
+        #expect(!InTreePages.isReally(adopted, kindOf: FakeWidgetWindow.self), "the guard would close cmux's window")
+        #expect(InTreePages.isReally(chromium, kindOf: FakeWidgetWindow.self))
+        #expect(!InTreePages.isViewsWindowAdopted(chromium, widgetClass: FakeWidgetWindow.self))
+        #expect(!InTreePages.isViewsWindowAdopted(plain, widgetClass: FakeWidgetWindow.self))
+        #expect(!InTreePages.isViewsWindowAdopted(adopted, widgetClass: nil))
     }
 }
