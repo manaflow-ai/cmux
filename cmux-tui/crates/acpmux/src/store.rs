@@ -61,9 +61,9 @@ pub use session_records::{
 
 mod session_meta;
 pub use session_meta::{
-    AuthChange, ColdPreview, CreatedBy, CreatorKind, Lineage, PreviewMessage,
+    AuthChange, ColdPreview, CreatedBy, CreatorKind, Lineage, MadeWorktree, PreviewMessage,
     RETIRED_AGENT_SESSION_IDS, SessionMeta, StartLevel, SubagentForkOf, SubsessionLimits,
-    MadeWorktree, SubsessionLink, ToolInventory, ToolRow, TurnUsage,
+    SubsessionLink, ToolInventory, ToolRow, TurnUsage,
 };
 
 /// One chat store root a spawn's env named: `harness` is a chat index
