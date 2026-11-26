@@ -974,7 +974,7 @@ jobs:
   # went red on tests they never touched and merged past them as the base's.
   base-red-notice:
     needs: kit-tests
-    if: ${{ !cancelled() && github.event_name == 'push' && github.repository == 'manaflow-ai/cmux' && needs.kit-tests.result == 'failure' }}
+    if: ${{ !cancelled() && github.event_name == 'push' && github.repository == 'manaflow-ai/cmux' && (needs.kit-tests.result == 'failure' || needs.kit-tests.result == 'cancelled') }}
     runs-on: cmux-linux
     timeout-minutes: 10
     permissions:
