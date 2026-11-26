@@ -357,6 +357,14 @@ fn bundled_cli_is_executable(path: &std::path::Path) -> bool {
     path.is_file()
 }
 
+/// `ACPMUX_PEER_SEND_WINDOW_KB`: the bytes of a peer link's bulk lane its transport may hold
+/// (`outbound.rs` `Outbound::set_window`). Unset or 0: [`super::super::outbound::BULK_WINDOW`],
+/// as every connection before it.
+fn peer_send_window() -> Option<usize> {
+    let kb = std::env::var("ACPMUX_PEER_SEND_WINDOW_KB").ok()?.trim().parse::<usize>().ok()?;
+    (kb > 0).then(|| kb << 10)
+}
+
 /// What an `initialize` sets on its connection for the requests after it: the client's name,
 /// and whether a Mac lends this machine its GitHub login. Set in order, before the next request
 /// on the connection is spawned (`server/mod.rs`), so a peer link's `_acpmux/watch` sent with
@@ -369,6 +377,9 @@ pub(in crate::server) fn note_initialize(conn: &Conn, params: &Value) {
             format!("{} {name} {}", super::super::origin_usage_key(conn.origin), conn.id),
             !link,
         );
+        if link && let Some(bytes) = peer_send_window() {
+            conn.out.set_window(bytes);
+        }
     }
     // Only over a link that read this machine's peer token over ssh, never a paired device's
     // (`hub/github_owner.rs`). It counts from its `_acpmux/watch`, once the Mac's side of the
