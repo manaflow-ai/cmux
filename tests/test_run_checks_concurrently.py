@@ -8,6 +8,7 @@ whole and in order, and any failure fails the step by name.
 """
 
 import os
+import re
 import subprocess
 import tempfile
 import time
@@ -99,7 +100,9 @@ class RunChecksConcurrently(unittest.TestCase):
         document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
         start = next(s for s in document["jobs"]["checks"]["steps"]
                      if "run-checks-concurrently.sh --start" in str(s.get("run", "")))
-        commands = [line.strip() for line in start["run"].split("<<'CHECKS'", 1)[1].splitlines()
+        listed = re.search(r"< (scripts/ci/\S+)\s*$", start["run"], re.M)
+        self.assertIsNotNone(listed, "the start reads its check list from a file under scripts/ci/")
+        commands = [line.strip() for line in (ROOT / listed.group(1)).read_text(encoding="utf-8").splitlines()
                     if line.strip() and not line.strip().startswith(("[", "#"))]
         # Its four parts (tests/unittest_shard.py; tests/test_unittest_shard.py) start first, each once.
         parts = [f"python3 tests/test_cmux_next_prepush_gate.py --shard {i}/4" for i in range(1, 5)]
@@ -125,7 +128,9 @@ class RunChecksConcurrently(unittest.TestCase):
         self.assertLess(checks.index(start), checks.index(step))
         self.assertIn("""scripts/ci/run-checks-concurrently.sh --start "$RUNNER_TEMP/background-checks" """,
                       start["run"])
-        listed = start["run"].split("[script-tests]", 1)[1]
+        list_file = re.search(r"< (scripts/ci/\S+)\s*$", start["run"], re.M)
+        self.assertIsNotNone(list_file, "the start reads its check list from a file under scripts/ci/")
+        listed = (ROOT / list_file.group(1)).read_text(encoding="utf-8").split("[script-tests]", 1)[1]
         # The waits these two assert run on a virtual clock, so the wide pool cannot slow them into a failure.
         for script in ("pin-cmux-tui-run-check.test.sh", "pin-cmux-tui-probe.test.sh"):
             self.assertIn(f"bash scripts/cmux-next/tests/{script}", listed.split("[", 1)[0])

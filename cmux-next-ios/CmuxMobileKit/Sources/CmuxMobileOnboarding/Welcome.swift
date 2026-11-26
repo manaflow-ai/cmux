@@ -405,6 +405,12 @@ private struct ProviderButton<Icon: View>: View {
         .modifier(ProviderGlass(isPrimary: isPrimary))
         .buttonBorderShape(.capsule)
         .controlSize(.large)
+        // One plain button element, framed by this row's layout. The
+        // prominent glass style's own element reported its frame unconverted
+        // in the iPhone app's scaled window on iPad (VoiceOver's focus ring and
+        // XCUITest read (20, -29.5, 350, 217.5) for a row drawn at about
+        // (232, 528, 568, 354), App Review gate run 45632944865).
+        .accessibilityRepresentation { Button(title, action: action) }
         // The busy row keeps its look (spinner, full colour) but takes no
         // second tap; the others are disabled until the sign-in ends.
         .disabled(signInBusy && !isBusy)
