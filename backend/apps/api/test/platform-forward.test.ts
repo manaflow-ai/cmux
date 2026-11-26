@@ -83,6 +83,11 @@ const requests: ReadonlyArray<readonly [string, () => Request]> = [
   ["start trace read", () => new Request(`${ORIGIN}/v1/cloud/start-traces/0af7651916cd43dd8448eb211c80319c`)],
   ["start trace chrome", () => new Request(`${ORIGIN}/v1/cloud/start-traces/0af7651916cd43dd8448eb211c80319c/chrome`)],
   ["start trace spans", () => post("/v1/cloud/start-traces/0af7651916cd43dd8448eb211c80319c/spans", '{"spans":[]}')],
+  // The end-to-end encrypted vault (cmux-platform SealedVaultRoute.ts): an empty 404 here before it was listed.
+  ["vault snapshot", () => new Request(`${ORIGIN}/v1/cloud/vault?vault=personal`)],
+  ["vault device add", () => post("/v1/cloud/vault/devices", '{"vault":"personal"}')],
+  ["vault item put", () => new Request(`${ORIGIN}/v1/cloud/vault/items/it_1`, { method: "PUT", body: '{"vault":"personal"}' })],
+  ["vault machine read", () => new Request(`${ORIGIN}/v1/cloud/vault/machine`)],
   ["Native network target", () => new Request(`${ORIGIN}/v1/host/network/target`)],
   ["login copy switch", () => new Request(`${ORIGIN}/v1/cloud/harness-login-copy`)],
   // The platform's client config: the app's origins and the backend's capabilities (machine_create.bootstrap).

@@ -339,7 +339,9 @@ jobs:
           ref: ${{ github.sha }}
           path: .fast-checks-tools
           persist-credentials: false
-          sparse-checkout: scripts/ci/swiftpm_prefetch_binary_artifacts.py
+          sparse-checkout: |
+            scripts/ci/swiftpm_prefetch_binary_artifacts.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Prefetch SwiftPM binary artifacts
