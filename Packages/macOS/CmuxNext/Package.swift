@@ -1170,7 +1170,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextComputerUsePreview",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextAgentPane",
+                "CmuxNextCompat",
                 "CmuxNextDaemon",
+                "CmuxNextDesign",
+                "CmuxNextSettings",
                 "CmuxNextTerminal",
             ],
             swiftSettings: uiSwiftSettings
