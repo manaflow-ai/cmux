@@ -115,15 +115,13 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
         group = jobs["ci-guard-group"]
         self.assertTrue(group["if"].startswith(  # then the land tier (tests/test_head_tier.py)
                         "${{ ((github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && "
-                        "needs.fast-check-route.outputs.ci_guard_group != 'false' && "
-                        "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) && "),
+                        "needs.fast-check-route.outputs.ci_guard_group != 'false')) && "),
+                        # no Tier B skip clause: a routed pull request runs it (a guard it breaks must go red on it)
                         group["if"])
-        # The route feeds only the group and own-change-checks, both skipped on a pull request into feat-cmux-next
-        # without full-ci, so the route skips there too (1,115 runner starts in 5.1 h of 11-25 no job read).
-        self.assertIn("(github.event_name == 'pull_request' && (github.event_name != 'pull_request' || "
-                      "!startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || "
-                      "contains(github.event.pull_request.labels.*.name, 'full-ci')))",
-                      jobs["fast-check-route"]["if"])
+        self.assertNotIn("startsWith(github.event.pull_request.base.ref, 'feat-cmux-next')", group["if"])
+        # The route feeds the group and own-change-checks, which now run on a routed pull request into feat-cmux-next,
+        # so the route carries no Tier B skip clause either (else they would never be routed there).
+        self.assertNotIn("startsWith(github.event.pull_request.base.ref, 'feat-cmux-next')", jobs["fast-check-route"]["if"])
         steps = {step.get("name"): step for step in group["steps"]}
         script = steps["Run the ci guard group and the routed groups"]["run"]
         calls = [line for line in script.splitlines() if "scripts/ci/guards-local.sh" in line and "--list" not in line]
