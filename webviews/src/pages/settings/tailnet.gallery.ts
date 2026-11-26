@@ -17,6 +17,11 @@ const fill = (key: string): PageFixtureStep[] => [
   { selector: "[data-tailnet-join-vm]", action: "input", value: "vm_studio" },
   { selector: "[data-tailnet-join-key]", action: "input", value: key },
 ];
+const openConnect: PageFixtureStep[] = [cloudShown, { selector: "[data-tailnet-vm-connect]", action: "click" }];
+const connectFill = (key: string): PageFixtureStep[] => [
+  { selector: "[data-tailnet-connect-vm]", action: "input", value: "vm_studio" },
+  { selector: "[data-tailnet-connect-key]", action: "input", value: key },
+];
 const signIn = "https://login.tailscale.com/a/1a2b3c4d5e";
 const cloudHost: Partial<HostLists> = {
   machines: [{ id: "vm_studio", title: "Studio Cloud", subtitle: "Online", active: true }],
@@ -27,7 +32,10 @@ export default settingsPageEntry({
   title: "Settings This Mac on Your Tailnet",
   area: "Settings",
   height: 560,
-  covers: ["pages/settings/components/TailnetCard.tsx#TailnetCard"],
+  covers: [
+    "pages/settings/components/TailnetCard.tsx#TailnetCard",
+    "pages/settings/components/TailnetCard.tsx#TailnetConnectDialog",
+  ],
   anchors: [{ selector: '[data-card="tailnet"]' }],
   variants: {
     "signed-out": variant({ state: "stopped" }, "Not signed in: what signing in does, and Sign In…."),
@@ -99,6 +107,47 @@ export default settingsPageEntry({
       host: cloudHost,
       steps: [...openSheet, ...fill("hskey-auth-0123")],
       note: "A plain-http Headscale server: Join stays off until Allow plain HTTP is ticked for that server.",
+    },
+    "cloud-connect-sheet": {
+      section: "devices",
+      options: { values: { "tailnet.join.enabled": true, "tailnet.join.tags": ["tag:cmux"] } },
+      host: cloudHost,
+      steps: openConnect,
+      note: "RFD 0169 Connect Your Tailnet: Cloud machine, key, optional name, and the policy lines from `cmux vm tailnet acl` with Copy.",
+    },
+    "cloud-connect-copied": {
+      section: "devices",
+      options: { values: { "tailnet.join.enabled": true, "tailnet.join.tags": ["tag:cmux"] } },
+      host: cloudHost,
+      steps: [
+        ...openConnect,
+        ...connectFill("tskey-auth-kONCE"),
+        { selector: "[data-tailnet-acl-copy]", action: "click" },
+      ],
+      note: "Filled in and the policy lines copied: Copy reads Copied, Connect is on.",
+    },
+    "cloud-connected": {
+      section: "devices",
+      options: { values: { "tailnet.join.enabled": true, "tailnet.join.tags": ["tag:cmux"] } },
+      host: cloudHost,
+      steps: [
+        ...openConnect,
+        ...connectFill("tskey-auth-kONCE"),
+        { selector: "[data-tailnet-connect-submit]", action: "click" },
+        { selector: "[data-tailnet-vm-leave]", action: "focus" },
+      ],
+      note: "Connected: the stable node YOU-cmux, online, tagged tag:cmux, and Leave; the Connect row steps aside.",
+    },
+    "cloud-connect-kept": {
+      section: "devices",
+      options: { values: { "tailnet.join.enabled": true, "tailnet.join.tags": ["tag:cmux"] } },
+      host: cloudHost,
+      steps: [
+        ...openConnect,
+        ...connectFill("tskey-auth-KEPT"),
+        { selector: "[data-tailnet-connect-submit]", action: "click" },
+      ],
+      note: "The vault already keeps a node: the CLI's refusal names adopt, so no second device is made.",
     },
     "cloud-other-tailnet": {
       section: "devices",

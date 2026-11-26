@@ -596,3 +596,31 @@ fn connect_refuses_while_the_vault_keeps_a_node() {
     *empty.node.borrow_mut() = None;
     assert_eq!(may_connect(&empty, "vm_2"), Ok(()));
 }
+
+#[test]
+fn the_acl_snippet_owns_reaches_and_lets_ssh_into_the_tag() {
+    assert_eq!(parse_acl(&[]).unwrap(), "tag:cmux");
+    assert_eq!(parse_acl(&words("--tag tag:dev")).unwrap(), "tag:dev");
+    assert_eq!(parse_acl(&words("--tag=dev")).unwrap(), "dev");
+    assert!(parse_acl(&words("--tag")).is_err());
+    assert!(parse_acl(&words("vm_1")).is_err());
+
+    let acl = cmux_tailnet_join::acl_snippet("dev").unwrap();
+    let lines: Vec<&str> = acl.lines().collect();
+    assert_eq!(lines.len(), 3, "{acl}");
+    assert!(lines[0].starts_with("\"tagOwners\": {\"tag:dev\""), "{acl}");
+    assert!(
+        lines[1].starts_with("\"grants\": ") && lines[1].contains("\"dst\": [\"tag:dev\"]"),
+        "{acl}"
+    );
+    assert!(
+        lines[2].starts_with("\"ssh\": ") && lines[2].contains("\"action\": \"accept\""),
+        "{acl}"
+    );
+    // Each line is one key of a policy file: wrapped in braces, the three parse as JSON.
+    let whole = format!("{{{}}}", acl.trim_end_matches(','));
+    let policy: serde_json::Value =
+        serde_json::from_str(&whole).expect("the snippet is policy JSON");
+    assert_eq!(policy["grants"][0]["src"][0], "autogroup:member");
+    assert!(cmux_tailnet_join::acl_snippet("tag:9bad").is_err());
+}

@@ -31,3 +31,18 @@
 .tailnet-join-warning { color: var(--warning, var(--danger)); }
 .tailnet-join-error { color: var(--danger); }
 .tailnet-join-content .accounts-buttons { justify-content: flex-end; }
+/* The Connect sheet's policy lines (TailnetConnectDialog): read-only, copied whole. */
+.tailnet-acl { display: flex; flex-direction: column; gap: var(--ds-space-2); }
+.tailnet-acl-head { display: flex; align-items: center; justify-content: space-between; gap: var(--ds-space-2); }
+.tailnet-acl pre {
+  margin: 0;
+  padding: var(--ds-space-2) var(--ds-space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-control);
+  background: var(--input-bg);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-caption, 0.85em);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
