@@ -48,8 +48,8 @@ private extension GitHubConnections {
     static var refresh: String { String(localized: "github.refresh", defaultValue: "Refresh", table: "GitHubConnection", bundle: .localizedModule) }
     static var detail: String { String(localized: "github.detail", defaultValue: "Connect the cmux GitHub App. Choose repositories and review permissions in GitHub.", table: "GitHubConnection", bundle: .localizedModule) }
     static var signIn: String { String(localized: "github.signIn", defaultValue: "Sign in to cmux to connect GitHub.", table: "GitHubConnection", bundle: .localizedModule) }
-    static var cliSignIn: String { String(localized: "github.cliSignIn", defaultValue: "Use my gh login instead", table: "GitHubConnection", bundle: .localizedModule) }
-    static var cliSignInDetail: String { String(localized: "github.cliSignInDetail", defaultValue: "The GitHub App can access repositories, pull requests, and checks. Use a personal login only if you need gh or git.", table: "GitHubConnection", bundle: .localizedModule) }
+    static var cliSignIn: String { String(localized: "github.cliSignIn", defaultValue: "Use GitHub CLI", table: "GitHubConnection", bundle: .localizedModule) }
+    static var cliSignInDetail: String { String(localized: "github.cliSignInDetail", defaultValue: "Optional personal login for gh and git.", table: "GitHubConnection", bundle: .localizedModule) }
     static var unavailable: String { String(localized: "github.unavailable", defaultValue: "GitHub connections are unavailable on this deployment.", table: "GitHubConnection", bundle: .localizedModule) }
     static var pendingText: String { String(localized: "github.pending", defaultValue: "Finish connecting in your browser, then refresh.", table: "GitHubConnection", bundle: .localizedModule) }
     static var failed: String { String(localized: "github.failed", defaultValue: "GitHub could not be updated. Refresh to try again.", table: "GitHubConnection", bundle: .localizedModule) }

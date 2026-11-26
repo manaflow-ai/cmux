@@ -15,6 +15,7 @@ import { t } from "../strings";
 import { TeamsGroup } from "./AccountsTeams";
 import { AccountSignInSection } from "./AccountSignInSection";
 import { GitHubAccountsCard } from "./GitHubAccountsCard";
+import { SlackAccountsCard } from "./SlackAccountsCard";
 import { TeamAgentKeysCard } from "./TeamAgentKeysCard";
 import { useSettingsSignIn } from "./useSettingsSignIn";
 
@@ -91,6 +92,7 @@ function AccountsBody() {
       {accounts.teams && <ActiveTeam teams={accounts.teams} />}
       {accounts.teamList && <TeamsGroup list={accounts.teamList} />}
       <TeamAgentKeysCard />
+      <SlackAccountsCard />
       {accounts.groups.map((group) => (
         <section className="group" key={group.id} data-accounts-group={group.id}>
           <h3 className="group-title">{group.title}</h3>
