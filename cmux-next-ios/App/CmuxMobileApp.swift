@@ -105,7 +105,9 @@ struct CmuxMobileApp: App {
         WindowGroup {
             Group {
             #if DEBUG
-            if BrowserEventsDemoRoot.isRequested {
+            if B8bIOSHarnessRoot.isRequested {
+                B8bIOSHarnessRoot()
+            } else if BrowserEventsDemoRoot.isRequested {
                 BrowserEventsDemoRoot()
             } else if BrowserPlacementDemoRoot.isRequested {
                 BrowserPlacementDemoRoot()
