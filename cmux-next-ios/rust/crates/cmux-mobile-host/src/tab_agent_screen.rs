@@ -14,9 +14,13 @@
 //! read that fails leaves the last capture in place.
 
 use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, Instant, SystemTime};
 
 use serde_json::{Value, json};
+use tokio::sync::Semaphore;
+use tokio::task::JoinSet;
 
 use crate::config::AcpmuxTarget;
 use crate::tab_snapshots::Tabs;
@@ -27,10 +31,22 @@ pub const MAX_AGENT_SCREEN_BYTES: usize = 4 << 10;
 pub const AGENT_SCREEN_TURNS: usize = 3;
 /// The width an agent tab's text is laid out to, in characters.
 pub const AGENT_SCREEN_COLS: usize = 80;
+/// An agent tab's log is looked at again at least this often.
+pub(crate) const AGENT_INTERVAL: Duration = Duration::from_secs(5);
+/// A tab a daemon event named is looked at again at most this often.
+pub(crate) const AGENT_EVENT_INTERVAL: Duration = Duration::from_secs(1);
+/// A captured tab whose log is not on this disk (another Mac's chat, an acpmux
+/// known only by its address) is asked again at most this often unless an event names it.
+pub(crate) const AGENT_UNSTAMPED_INTERVAL: Duration = Duration::from_secs(60);
+/// The agent tabs' reads one feeder runs at once; the rest wait their turn.
+pub(crate) const MAX_CONCURRENT_READS: usize = 4;
 /// The newest records read for the last turns.
-const TAIL_RECORDS: usize = 1024;
-/// The most JSON that page may hold.
-const TAIL_BYTES: usize = 1 << 20;
+const TAIL_RECORDS: usize = 512;
+/// The most JSON that page may hold: three turns' text is at most 4 KiB, the
+/// rest of the page is the tool calls between them.
+const TAIL_BYTES: usize = 256 << 10;
+/// The most JSON the one-record probe of the newest transcript seq may hold.
+const PROBE_BYTES: usize = 64 << 10;
 /// The newest seq `_acpmux/events` can be asked to read before (2^53 - 1).
 const BEFORE_ANY: u64 = crate::catch_up::TAIL_BEFORE_SEQ;
 
@@ -182,49 +198,261 @@ fn newest_seq(page: &Value) -> u64 {
         .unwrap_or(0)
 }
 
-/// The agent tabs' reads in flight and the newest record each session's
-/// capture was made from, shared by one feeder pass.
+/// The folder acpmux keeps its chats' logs in on this Mac
+/// (`<ACPMUX_HOME>/sessions/<id>/events/NNNNNN.ndjson`), where a stat tells
+/// whether a chat's log moved with no query. None for an acpmux only known by
+/// its address (a URL, or an app that named no home): every look is a probe query then.
+pub(crate) fn sessions_root(target: &AcpmuxTarget) -> Option<PathBuf> {
+    match target {
+        AcpmuxTarget::Home(home) => Some(home.join("sessions")),
+        // The app names its acpmux's home (`MobileHostLaunch.acpmuxHome`); never a
+        // guess: a build other than NIGHTLY keeps its chats under `~/.acpmux/builds/<key>`.
+        AcpmuxTarget::Supplied(_) => std::env::var_os("CMUX_MOBILE_ACPMUX_HOME")
+            .filter(|home| !home.is_empty())
+            .map(|home| PathBuf::from(home).join("sessions")),
+        AcpmuxTarget::Fixed { .. } => None,
+    }
+}
+
+/// What a stat of a chat's log says, compared from one look to the next: a
+/// record appended grows the newest segment, a new segment or one sealed
+/// changes the folder.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum LogStamp {
+    /// The chat's folder holds no live log (none yet, or archived cold).
+    NoLog,
+    Segment { folder: Option<SystemTime>, path: PathBuf, len: u64, modified: Option<SystemTime> },
+}
+
+/// The stamp of chat `session`'s log under `root`: two stats when the log's
+/// folder did not change since `last`, a listing of it when it did. None when
+/// the chat has no folder here (another home, an alias): it is probed over
+/// acpmux instead.
+pub(crate) fn log_stamp(root: &Path, session: &str, last: Option<&LogStamp>) -> Option<LogStamp> {
+    if session.is_empty() || session == "." || session == ".." || session.contains(['/', '\\']) {
+        return None;
+    }
+    let chat = root.join(session);
+    let events = chat.join("events");
+    let Ok(folder) = std::fs::metadata(&events) else {
+        return std::fs::metadata(&chat).is_ok_and(|m| m.is_dir()).then_some(LogStamp::NoLog);
+    };
+    let folder = folder.modified().ok();
+    let stamp = |path: PathBuf| {
+        let meta = std::fs::metadata(&path).ok()?;
+        Some(LogStamp::Segment { folder, path, len: meta.len(), modified: meta.modified().ok() })
+    };
+    if let Some(LogStamp::Segment { folder: was, path, .. }) = last
+        && *was == folder
+        && let Some(same) = stamp(path.clone())
+    {
+        return Some(same);
+    }
+    Some(newest_segment(&events).and_then(stamp).unwrap_or(LogStamp::NoLog))
+}
+
+/// The newest of a log's segments (`NNNNNN.ndjson`, named in order).
+fn newest_segment(events: &Path) -> Option<PathBuf> {
+    std::fs::read_dir(events)
+        .ok()?
+        .flatten()
+        .map(|entry| entry.file_name())
+        .filter(|name| name.to_str().is_some_and(|n| n.ends_with(".ndjson")))
+        .max()
+        .map(|name| events.join(name))
+}
+
+/// One read [`AgentSchedule::due`] asks for: the tab, its chat, its agent's
+/// name, and the stamp its log had when the read was asked for.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct AgentRead {
+    pub tab_id: String,
+    pub session: String,
+    pub agent: String,
+    pub stamp: Option<LogStamp>,
+}
+
+/// When each agent tab's log is looked at, for one feeder pass. A look is a
+/// stat; only a log that moved since its tab's capture is read (a query).
 #[derive(Default)]
+pub(crate) struct AgentSchedule {
+    /// By tab: the chat it shows and its agent's name.
+    agents: HashMap<String, (String, String)>,
+    /// By tab: when its log was last looked at.
+    looked: HashMap<String, Instant>,
+    /// By tab: the stamp that look saw (so the next one is two stats).
+    observed: HashMap<String, LogStamp>,
+    /// Tabs a daemon event named since their last look.
+    named: HashSet<String>,
+    /// By tab whose log has no stamp: when it was last asked for.
+    asked: HashMap<String, Instant>,
+}
+
+impl AgentSchedule {
+    /// The agent tabs listed now: a new one is looked at on the next tick.
+    pub(crate) fn listed(&mut self, agents: HashMap<String, (String, String)>, reads: &AgentReads) {
+        self.agents = agents;
+        let listed = |id: &String| self.agents.contains_key(id);
+        self.looked.retain(|id, _| listed(id));
+        self.observed.retain(|id, _| listed(id));
+        self.named.retain(|id| listed(id));
+        self.asked.retain(|id, _| listed(id));
+        reads.retain(&self.agents);
+    }
+
+    /// A daemon event named `tab_id`: it is looked at within [`AGENT_EVENT_INTERVAL`].
+    pub(crate) fn named(&mut self, tab_id: &str) {
+        if self.agents.contains_key(tab_id) {
+            self.named.insert(tab_id.to_owned());
+        }
+    }
+
+    /// The reads due at `now`. A tab is looked at when it was never looked at,
+    /// [`AGENT_INTERVAL`] after its last look, or [`AGENT_EVENT_INTERVAL`]
+    /// after it when an event named it; a look under `root` that finds its log
+    /// as its capture saw it asks for nothing. So idle tabs cost two stats
+    /// each per [`AGENT_INTERVAL`] and no query, whatever their number. A
+    /// captured tab with no stamp is asked again only when an event names it
+    /// or every [`AGENT_UNSTAMPED_INTERVAL`].
+    pub(crate) fn due(&mut self, now: Instant, root: Option<&Path>, reads: &AgentReads) -> Vec<AgentRead> {
+        let mut due = Vec::new();
+        for (id, (session, agent)) in &self.agents {
+            let since = self.looked.get(id).map(|at| now.saturating_duration_since(*at));
+            let named = self.named.contains(id);
+            let look = since.is_none_or(|since| {
+                since >= AGENT_INTERVAL || (since >= AGENT_EVENT_INTERVAL && named)
+            });
+            if !look {
+                continue;
+            }
+            self.named.remove(id);
+            self.looked.insert(id.clone(), now);
+            let stamp = root.and_then(|root| log_stamp(root, session, self.observed.get(id)));
+            match &stamp {
+                Some(stamp) => {
+                    self.observed.insert(id.clone(), stamp.clone());
+                    if reads.captured_at(id).as_ref() == Some(stamp) {
+                        continue;
+                    }
+                }
+                None => {
+                    let recent = self
+                        .asked
+                        .get(id)
+                        .is_some_and(|at| now.saturating_duration_since(*at) < AGENT_UNSTAMPED_INTERVAL);
+                    if !named && recent && reads.captured(id) {
+                        continue;
+                    }
+                    self.asked.insert(id.clone(), now);
+                }
+            }
+            due.push(AgentRead { tab_id: id.clone(), session: session.clone(), agent: agent.clone(), stamp });
+        }
+        due
+    }
+}
+
+/// A tab's last capture: the newest transcript seq and the log stamp it was made from.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct Capture {
+    seq: u64,
+    stamp: Option<LogStamp>,
+}
+
+/// The agent tabs' reads in flight and the capture each tab's text was made
+/// from, shared by one feeder pass. Keyed by tab, not chat: two tabs on one
+/// chat each get its text.
 pub(crate) struct AgentReads {
     inflight: Mutex<HashSet<String>>,
-    seen: Mutex<HashMap<String, u64>>,
+    captures: Mutex<HashMap<String, Capture>>,
+    permits: Semaphore,
+}
+
+impl Default for AgentReads {
+    fn default() -> Self {
+        Self {
+            inflight: Mutex::default(),
+            captures: Mutex::default(),
+            permits: Semaphore::new(MAX_CONCURRENT_READS),
+        }
+    }
+}
+
+/// Takes a tab out of the reads in flight when its read ends, however it ends
+/// (done, failed, aborted with the feeder, panicked).
+struct Inflight<'a> {
+    reads: &'a AgentReads,
+    tab_id: &'a str,
+}
+
+impl Drop for Inflight<'_> {
+    fn drop(&mut self) {
+        self.reads.inflight.lock().unwrap_or_else(PoisonError::into_inner).remove(self.tab_id);
+    }
 }
 
 impl AgentReads {
-    /// Reads tab `tab_id`'s chat `session` again, off the feeder's loop (a
-    /// slow acpmux never holds the terminals' screens). One read per tab at a
-    /// time; the tail is read only when the log has a newer record than the
-    /// last capture's. A read that fails sets nothing: the last capture stays.
-    pub(crate) fn spawn(
-        self: &Arc<Self>,
-        tabs: &Arc<Tabs>,
-        target: AcpmuxTarget,
-        tab_id: String,
-        session: String,
-        agent: String,
-    ) {
-        if !self.inflight.lock().unwrap_or_else(PoisonError::into_inner).insert(tab_id.clone()) {
+    /// The stamp tab `tab_id`'s capture was made from.
+    fn captured_at(&self, tab_id: &str) -> Option<LogStamp> {
+        self.captures.lock().unwrap_or_else(PoisonError::into_inner).get(tab_id).and_then(|c| c.stamp.clone())
+    }
+
+    /// Whether tab `tab_id` has a capture.
+    fn captured(&self, tab_id: &str) -> bool {
+        self.captures.lock().unwrap_or_else(PoisonError::into_inner).contains_key(tab_id)
+    }
+
+    /// Whether tab `tab_id`'s capture was made from transcript seq `newest`.
+    fn fresh(&self, tab_id: &str, newest: u64) -> bool {
+        self.captures.lock().unwrap_or_else(PoisonError::into_inner).get(tab_id).is_some_and(|c| c.seq == newest)
+    }
+
+    fn record(&self, tab_id: &str, seq: u64, stamp: Option<LogStamp>) {
+        self.captures
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(tab_id.to_owned(), Capture { seq, stamp });
+    }
+
+    /// Forgets the captures of tabs no longer listed.
+    fn retain(&self, agents: &HashMap<String, (String, String)>) {
+        self.captures.lock().unwrap_or_else(PoisonError::into_inner).retain(|id, _| agents.contains_key(id));
+    }
+
+    /// Reads `read`'s chat again in `tasks`, off the feeder's loop (a slow
+    /// acpmux never holds the terminals' screens). The feeder owns `tasks`, so
+    /// its reads end with it. One read per tab at a time, at most
+    /// [`MAX_CONCURRENT_READS`] at once; the tail is read only when the log
+    /// has a newer transcript record than the tab's capture. A read that fails
+    /// sets nothing: the last capture stays.
+    pub(crate) fn spawn(self: &Arc<Self>, tasks: &mut JoinSet<()>, tabs: &Arc<Tabs>, target: AcpmuxTarget, read: AgentRead) {
+        if !self.inflight.lock().unwrap_or_else(PoisonError::into_inner).insert(read.tab_id.clone()) {
             return;
         }
         let (reads, tabs) = (Arc::clone(self), Arc::clone(tabs));
-        tokio::spawn(async move {
-            reads.read(&tabs, &target, &tab_id, &session, &agent).await;
-            reads.inflight.lock().unwrap_or_else(PoisonError::into_inner).remove(&tab_id);
+        tasks.spawn(async move {
+            let _inflight = Inflight { reads: &reads, tab_id: &read.tab_id };
+            let Ok(_permit) = reads.permits.acquire().await else { return };
+            reads.read(&tabs, &target, read.clone()).await;
         });
     }
 
-    async fn read(&self, tabs: &Tabs, target: &AcpmuxTarget, tab_id: &str, session: &str, agent: &str) {
+    async fn read(&self, tabs: &Tabs, target: &AcpmuxTarget, read: AgentRead) {
+        let AgentRead { tab_id, session, agent, stamp } = read;
         let page = |limit: usize, bytes: usize| {
             json!({"sessionId": session, "limit": limit, "kinds": ["transcript"], "maxBytes": bytes,
                    "beforeSeq": BEFORE_ANY})
         };
         let Some(probe) =
-            crate::services::trusted_session_query(target, "_acpmux/events", page(1, 64 << 10)).await
+            crate::services::trusted_session_query(target, "_acpmux/events", page(1, PROBE_BYTES)).await
         else {
             return;
         };
         let newest = newest_seq(&probe);
-        if self.seen.lock().unwrap_or_else(PoisonError::into_inner).get(session) == Some(&newest) {
+        if self.fresh(&tab_id, newest) {
+            // The log moved by records the text does not show: the next look
+            // compares with this stamp.
+            self.record(&tab_id, newest, stamp);
             return;
         }
         let Some(tail) =
@@ -234,12 +462,13 @@ impl AgentReads {
             return;
         };
         let records = tail.get("events").and_then(Value::as_array).cloned().unwrap_or_default();
-        let Some(text) = agent_screen(&turns_of(&records, agent)) else { return };
-        if tabs.set_screen(tab_id, text) || tabs.has_screen(tab_id) {
-            self.seen
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .insert(session.to_owned(), newest_seq(&tail));
+        let Some(text) = agent_screen(&turns_of(&records, &agent)) else {
+            // Nothing said yet: read again only once the log moves.
+            self.record(&tab_id, newest_seq(&tail), stamp);
+            return;
+        };
+        if tabs.set_screen(&tab_id, text) || tabs.has_screen(&tab_id) {
+            self.record(&tab_id, newest_seq(&tail), stamp);
         }
     }
 }

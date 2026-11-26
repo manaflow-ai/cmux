@@ -13,8 +13,9 @@
 //! has `tabs` open: the tab list (refetched on the daemon's tree events) and
 //! each terminal's screen text (read again on `surface-output`, at most once
 //! a second per terminal), and each agent tab's last turns, read from
-//! acpmux (`tab_agent_screen`) when it is listed, when an event names it, and
-//! every [`AGENT_INTERVAL`] if its log moved. It stops when the last phone leaves. Its daemon
+//! acpmux (`tab_agent_screen`) when it is listed, and when an event names it or
+//! every 5 s (`tab_agent_screen::AGENT_INTERVAL`) only if a stat says
+//! its log moved. It stops when the last phone leaves. Its daemon
 //! connections say `remote: true`, so the daemon hides incognito workspaces
 //! from it as from a phone. Favicons and thumbnails come from the Mac app:
 //! it writes each to a file in its own cache folder and names it on a
@@ -56,11 +57,14 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 use tokio::sync::{mpsc, watch};
+use tokio::task::JoinSet;
 
 use crate::config::AcpmuxTarget;
 use crate::control::SessionExposure;
 use crate::services::Refusal;
-use crate::tab_agent_screen::{AGENT_SCREEN_COLS, AgentReads, agent_name, agent_session};
+use crate::tab_agent_screen::{
+    AGENT_SCREEN_COLS, AgentReads, AgentSchedule, agent_name, agent_session, sessions_root,
+};
 
 /// How many revs a reconnecting phone can resume from.
 const HISTORY_CAP: usize = 256;
@@ -84,8 +88,6 @@ const MAX_PHONE_FRAME: usize = 1 << 20;
 const SCREEN_INTERVAL: Duration = Duration::from_secs(1);
 /// How often the feeder acts on what the daemon said changed.
 const FEED_TICK: Duration = Duration::from_millis(100);
-/// An agent tab's log is checked for new records at least this often.
-const AGENT_INTERVAL: Duration = Duration::from_secs(5);
 const QUERY_WAIT: Duration = Duration::from_secs(5);
 const RECONNECT_WAIT: Duration = Duration::from_secs(1);
 
@@ -946,11 +948,12 @@ async fn feed_once(tabs: &Arc<Tabs>, socket: &Path) -> Result<(), String> {
     let mut list_dirty = true;
     let mut dirty: HashSet<String> = HashSet::new();
     let mut last_read: HashMap<String, Instant> = HashMap::new();
-    // Agent tabs: by id, the chat each shows and its agent's name.
-    let mut agents: HashMap<String, (String, String)> = HashMap::new();
-    let mut agent_dirty: HashSet<String> = HashSet::new();
-    let mut agent_read: HashMap<String, Instant> = HashMap::new();
+    // Agent tabs: when each one's log is looked at, and its reads. The reads
+    // are this pass's tasks: they end with it (a lost daemon, the last phone
+    // gone), never left running past it.
+    let mut agents = AgentSchedule::default();
     let agent_reads = Arc::new(AgentReads::default());
+    let mut agent_tasks: JoinSet<()> = JoinSet::new();
     let mut tick = tokio::time::interval(FEED_TICK);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
@@ -958,10 +961,8 @@ async fn feed_once(tabs: &Arc<Tabs>, socket: &Path) -> Result<(), String> {
             line = events.next_line() => {
                 let Some(line) = line.map_err(|e| e.to_string())? else { return Err("closed".to_owned()) };
                 let Ok(value) = serde_json::from_str::<Value>(&line) else { continue };
-                if let Some(surface) = value.get("surface").and_then(Value::as_u64)
-                    && agents.contains_key(&surface.to_string())
-                {
-                    agent_dirty.insert(surface.to_string());
+                if let Some(surface) = value.get("surface").and_then(Value::as_u64) {
+                    agents.named(&surface.to_string());
                 }
                 match value.get("event").and_then(Value::as_str) {
                     Some("surface-output") => {
@@ -987,28 +988,22 @@ async fn feed_once(tabs: &Arc<Tabs>, socket: &Path) -> Result<(), String> {
                         listed.iter().filter(|t| t.kind == Kind::Terminal).map(|t| t.id.as_str()).collect();
                     dirty.retain(|id| terminals.contains(id.as_str()));
                     last_read.retain(|id, _| terminals.contains(id.as_str()));
-                    agents = listed
-                        .iter()
-                        .filter(|t| t.kind == Kind::Agent)
-                        .filter_map(|t| Some((t.id.clone(), (agent_session(&t.raw)?, agent_name(&t.raw)))))
-                        .collect();
-                    agent_dirty.extend(agents.keys().filter(|id| !agent_read.contains_key(*id)).cloned());
-                    agent_dirty.retain(|id| agents.contains_key(id));
-                    agent_read.retain(|id, _| agents.contains_key(id));
+                    agents.listed(
+                        listed
+                            .iter()
+                            .filter(|t| t.kind == Kind::Agent)
+                            .filter_map(|t| Some((t.id.clone(), (agent_session(&t.raw)?, agent_name(&t.raw)))))
+                            .collect(),
+                        &agent_reads,
+                    );
                     tabs.set_tabs(listed);
                 }
                 let now = Instant::now();
+                while agent_tasks.try_join_next().is_some() {}
                 if let Some(target) = tabs.acpmux() {
-                    for (id, (session, agent)) in &agents {
-                        let since = agent_read.get(id).map(|at| now.saturating_duration_since(*at));
-                        let due = since.is_none_or(|since| {
-                            since >= AGENT_INTERVAL || (since >= SCREEN_INTERVAL && agent_dirty.contains(id))
-                        });
-                        if due {
-                            agent_dirty.remove(id);
-                            agent_read.insert(id.clone(), now);
-                            agent_reads.spawn(tabs, target.clone(), id.clone(), session.clone(), agent.clone());
-                        }
+                    let root = sessions_root(&target);
+                    for read in agents.due(now, root.as_deref(), &agent_reads) {
+                        agent_reads.spawn(&mut agent_tasks, tabs, target.clone(), read);
                     }
                 }
                 let due: Vec<String> = dirty
