@@ -103,9 +103,11 @@ class CompileTestPlanTests(unittest.TestCase):
 
     def test_local_package_change_compiles_it_and_its_dependents(self) -> None:
         plan = self.plan(["Packages/Shared/CMUXAuthCore/Sources/CMUXAuthCore/AuthTokens.swift"])
-        # CMUXAuthCore and CmuxAuthRuntime are in the macOS package lane; CmuxNext uses both.
-        self.assertIsNone(plan.get("Packages/Shared/CMUXAuthCore", "missing"))
-        self.assertIsNone(plan.get("Packages/Shared/CmuxAuthRuntime", "missing"))
+        # CmuxHomeRender, in the macOS package lane, uses CMUXAuthCore; so does CmuxNext. CMUXAuthCore and
+        # CmuxAuthRuntime run on Linux (scripts/ci/swift-linux-packages.txt), so no macOS build compiles them here.
+        self.assertIsNone(plan.get("Packages/Shared/CmuxHomeRender", "missing"))
+        self.assertNotIn("Packages/Shared/CMUXAuthCore", plan)
+        self.assertNotIn("Packages/Shared/CmuxAuthRuntime", plan)
         self.assertIn(CMUXNEXT, plan)
         self.assertTrue(plan[CMUXNEXT], "the CmuxNext test targets that use CMUXAuthCore")
 
@@ -128,7 +130,7 @@ class CompileTestPlanTests(unittest.TestCase):
         self.assertEqual(dict(self.module.plan(ROOT, PR_23360, skip)), {})
         plan = dict(self.module.plan(ROOT, ["Packages/Shared/CMUXAuthCore/Sources/CMUXAuthCore/AuthTokens.swift"], skip))
         self.assertNotIn(CMUXNEXT, plan)
-        self.assertIn("Packages/Shared/CMUXAuthCore", plan)
+        self.assertIn("Packages/Shared/CmuxHomeRender", plan)
         # Without the skip (the tip compile, a hand-run compile-tests) CmuxNext stays.
         self.assertIn(CMUXNEXT, self.plan(PR_23360))
 

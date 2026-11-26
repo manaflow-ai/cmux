@@ -176,7 +176,7 @@ The helper builds with the Zig the Ghostty submodule pins (0.16.0) and links aga
 
 retry-nightly-next, the loop's retry:
 
-The nightly-next loop's retry (Leo, 2026-11-06: one nightly at a time, the newest head next; a failed run is retried at the newest commit, not at its own). When this run built and failed to publish, and nightly-next still points at its commit, it asks for one more run of the push group: GitHub keeps that group's one pending place for the newest arrival, so a push that lands meanwhile takes it instead and nothing waits beside the loop. The retry builds again from scratch: a dispatch runs at the head when it is dispatched, so a push that lands between the check and the dispatch (and loses its pending place to the retry) is still the commit the retry builds; resuming this run's unsigned app would publish the older commit for it. At most two retries in a row.
+The nightly-next loop's retry (Leo, 2026-11-06: one nightly at a time, the newest head next; a failed run is retried at the newest commit, not at its own). When this run built and failed to publish, and nightly-next still points at its commit, it asks for one more run of the push group: GitHub keeps that group's one pending place for the newest arrival, so a push that lands meanwhile takes it instead and nothing waits beside the loop. The retry builds again from scratch: a dispatch runs at the head when it is dispatched, so a push that lands between the check and the dispatch (and loses its pending place to the retry) is still the commit the retry builds; resuming this run's unsigned app would publish the older commit for it. At most two retries in a row. When feat-cmux-next has moved past the failed commit, there is no retry of it: the job asks main's tick to promote the newest buildable commit instead, whose push run builds it (run 45589863477 retried 92c8d92d9, whose source the tip had already fixed, while 6c8931ce2 waited). Only a failed commit that is still the tip, likely a flake, is retried as itself.
 
 ## note-25
 
@@ -455,6 +455,18 @@ skips a webview red (early on the built commit, or the Mac's `webview_red`), whi
 waits for a new commit instead. Route: check-nightly-webviews' owned nightly-only pool, not Linux, since
 test_nightly_owned_minis_only allows a JIT Linux label only for Leo's listed tail and loop jobs.
 
+## note-53
+
+Leo, 2026-11-25 (ask-0275618397): "after one nightly is done, they got to go to the next nightly and the next
+nightly ... Just keep the train going like 24/7, constantly." Measured on 11-25 (runs 45670426505, 45680718388,
+45631022085): nightly-next-one held its signing Mac 27-43 min, of which notarization was 4.5-5.6 min and the work
+after the feed was 8-14 min, mostly the nearest deltas (266-337 s) and the bundle size report (85-101 s). Only two
+Macs sign (cmux15, ultra1), so that tail spaces the train. When nightly-next has already moved past the build's
+commit, a newer push is waiting and replaces this item within one build, so after the feed is written
+`newer-push-waiting.sh` sets NEWER_PUSH_WAITING and both skip: the live item stays full-only until the next one,
+and the Mac goes to the next build 6-7 min sooner. The dSYMs, variant artifacts and cleanup still run (later jobs
+and the next build's warm workspace need them). A ref read that fails keeps the tail.
+
 ## note-52
 
 Above `check-nightly-app-store-shelf:` in `.github/workflows/nightly.yml`.
@@ -465,8 +477,7 @@ paths, and nothing read it before a publish: a tree whose shelf was red could st
 (feat-cmux-next's shelf runs failed 2026-11-23 19:39-20:02Z). This job runs the same
 `scripts/ci/app-store-shelf-check.sh` on the exact build commit, beside the build in both modes: about
 14-26 min on Linux against a build, sign and notarize of tens of minutes, so it adds no time to a green run.
-The final publication gate (`nightly_publish_guard.py shelf-verdict`) refuses a build without it green:
-publish-nightly reads the job through its needs; nightly-next-one, which does not wait on it, reads the job
-in this run (`SHELF_SOURCE=run`), waiting up to 30 min for it to finish; a recovered build needs it green
-in the run that built it. Route: resolve-nightly-cmux-tui-client's `cmux-linux`, since it has no secret
-and the cargo build would otherwise take a nightly Mac.
+A red shelf no longer holds a publish (Leo, 2026-11-25: "we need to make sure we can just have stuff be ok"): a
+NIGHTLY blocks on four things (compiles, signed and notarized, launch smoke, update from the previous NIGHTLY).
+`report-nightly-shelf-red` opens or updates "NIGHTLY App Store shelf is red". Webview checks: stale part unless
+`NIGHTLY_COMPONENT_GATES=block`. Route: resolve-nightly-cmux-tui-client's `cmux-linux` (no secret, no Mac).
