@@ -1315,6 +1315,23 @@ class GateWorkflowTests(unittest.TestCase):
                              "Packages/Shared/CmuxTheme/Sources/X.swift", ".github/workflows/ios-review-gate.yml"):
                     self.assertTrue(github_paths_match(patterns, path), path)
 
+    def test_a_refused_package_fetch_never_ends_a_device_leg(self) -> None:
+        # Run 45746201444 lost both device legs to `swift-crypto.git: ... returned error: 403`
+        # inside build-for-testing, though the kept DerivedData slot held every clone.
+        import yaml  # noqa: PLC0415
+
+        doc = yaml.safe_load((ROOT / ".github/workflows/ios-review-gate.yml").read_text())
+        steps = doc["jobs"]["reviewer-path"]["steps"]
+        names = [step.get("name") for step in steps]
+        resolve = steps[names.index("Resolve packages")]["run"]
+        build = steps[names.index("Build the app and the gate for testing")]["run"]
+        self.assertLess(names.index("Resolve packages"), names.index("Build the app and the gate for testing"))
+        self.assertIn("-resolvePackageDependencies", resolve)
+        self.assertIn("for wait_s in 0 30 90", resolve)
+        self.assertIn("resolve -skipPackageUpdates", resolve)
+        self.assertIn("-skipPackageUpdates", build)
+        self.assertNotIn("xcodegen generate", build)
+
     def test_notes_and_verify_evidence_alone_never_start_the_kit_tests(self) -> None:
         # cmux#43251 changed only cmux-next-ios/SECURITY.md and verify/parity-mac.md under the
         # app and still ran CmuxMobileKit's tests, then went red on kit tests it never touched.

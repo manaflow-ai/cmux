@@ -719,12 +719,59 @@ jobs:
           path: ${{ runner.temp }}/link-ffi-out
           retention-days: 1
           if-no-files-found: ignore
-      - name: Build the app and the gate for testing
+      # Package resolution is its own step so a refused GitHub fetch never ends
+      # the leg. Run 45746201444 lost both device legs (cmux9, cmux10) to
+      # `xcodebuild: error: Could not resolve package dependencies: ... swift-crypto.git:
+      # The requested URL returned error: 403`. Their kept DerivedData slot already held
+      # every clone, but Xcode refetches each remote before it builds. As test-ios.yml does,
+      # a stamp of the Xcode version and every package manifest the app pulls in lets the
+      # same inputs resolve offline (-skipPackageUpdates). Otherwise the step fetches with
+      # three tries, and as a last resort resolves from whatever clones the slot keeps.
+      - name: Resolve packages
         if: env.UDID != ''
         working-directory: cmux-next-ios
         run: |
           set -euo pipefail
           xcodegen generate -q
+          dest="$(python3 -I ../.review-gate/cmux-next-ios/scripts/app_review_pick_simulator.py --family iphone --print-destination)"
+          spm="$DERIVED/SourcePackages"
+          stamp="$spm/.cmux-review-gate-resolved-sha256"
+          inputs_sha="$( { xcodebuild -version; cat project.yml;
+            git -C .. ls-files -z -- 'cmux-next-ios/**/Package.swift' 'cmux-next-ios/**/Package.resolved' \
+              'Packages/**/Package.swift' 'Packages/**/Package.resolved' | sort -z | (cd .. && xargs -0 cat); } \
+            | shasum -a 256 | cut -d' ' -f1)"
+          resolve() {
+            xcodebuild -project CmuxMobileApp.xcodeproj -scheme CmuxMobileApp \
+              -destination "$dest,arch=arm64" -derivedDataPath "$DERIVED" "$@" -resolvePackageDependencies \
+              > "$RESULTS/resolve.log" 2>&1
+          }
+          if [ "$(cat "$stamp" 2>/dev/null)" = "$inputs_sha" ] && resolve -skipPackageUpdates; then
+            echo "packages: resolved offline from the kept clones (inputs $inputs_sha)"
+          else
+            rm -f "$stamp"
+            ok=false
+            for wait_s in 0 30 90; do
+              sleep "$wait_s"
+              if resolve; then ok=true; break; fi
+              echo "::warning::package resolution failed (next wait after ${wait_s}s): $(grep -m1 -E 'error|fatal' "$RESULTS/resolve.log" | cut -c1-300)"
+            done
+            if [ "$ok" != true ] && [ -d "$spm/repositories" ] && resolve -skipPackageUpdates; then
+              echo "::warning::GitHub refused every fetch; resolved from the clones this slot keeps"
+              ok=true
+            fi
+            if [ "$ok" != true ]; then
+              cat "$RESULTS/resolve.log"
+              echo "::error::could not resolve package dependencies (3 tries and the kept clones)"
+              exit 1
+            fi
+            mkdir -p "$spm"
+            printf '%s\n' "$inputs_sha" > "$stamp"
+          fi
+      - name: Build the app and the gate for testing
+        if: env.UDID != ''
+        working-directory: cmux-next-ios
+        run: |
+          set -euo pipefail
           dest="$(python3 -I ../.review-gate/cmux-next-ios/scripts/app_review_pick_simulator.py --family iphone --print-destination)"
           # Debug: the mock account the walk signs in with is DEBUG only.
           # CMUX_MOBILE_APPLE_SIGN_IN=YES shows Sign in with Apple, as the
@@ -736,6 +783,7 @@ jobs:
           # 8 iPad tests that wait for the tab bar ("the shell must show") on that layout.
           xcodebuild -project CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Debug \
             -destination "$dest,arch=arm64" -derivedDataPath "$DERIVED" -enableCodeCoverage NO \
+            -skipPackageUpdates \
             CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
             CMUX_MOBILE_APPLE_SIGN_IN=YES TARGETED_DEVICE_FAMILY=1 \
             build-for-testing 2>&1 | tee "$RESULTS/build.log" | { grep -E 'error:|BUILD' || true; }
