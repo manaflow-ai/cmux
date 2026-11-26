@@ -2616,8 +2616,12 @@ dependencies = [
 name = "cmux-rd-core"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "cmux-rd-proto",
+ "p256",
  "proptest",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2673,6 +2677,16 @@ name = "cmux-rd-proto"
 version = "0.1.0"
 dependencies = [
  "proptest",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-rd-screen"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "p256",
  "serde",
  "serde_json",
 ]
