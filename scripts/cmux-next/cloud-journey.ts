@@ -3631,7 +3631,7 @@ export function launchCredentialStartProgram(session: string, agent: string, nam
   // The send's W3C trace id (cmux#55505 perf_trace.rs reads params._meta.traceId); only hex, so it is safe inline.
   const trace = traceId && /^[0-9a-f]{32}$/.test(traceId) ? JSON.stringify(traceId) : "None";
   return `python3 -I - <<'CMUX_JOURNEY_START'
-import json, os, socket, sys, uuid
+import json, os, socket, sys, time, uuid
 params = json.loads(${JSON.stringify(params)})
 first = ${first}
 trace = ${trace}
@@ -3647,24 +3647,43 @@ def call(f, s, i, method, p):
         m = json.loads(line)
         if m.get('id') == i:
             if m.get('error'):
-                raise RuntimeError(method + ': ' + json.dumps(m['error'])[:400])
+                err = m['error']
+                text = method + ': ' + json.dumps(err)[:400]
+                raise (Retryable if ((err.get('data') or {}).get('retryable') is True) else RuntimeError)(text)
             return m.get('result')
-errors = []
-for path in paths:
-    if not os.path.exists(path):
-        continue
-    try:
-        s = socket.socket(socket.AF_UNIX)
-        s.settimeout(110)
-        s.connect(path)
-        f = s.makefile('r')
-        call(f, s, 1, 'initialize', {'protocolVersion': 1, 'clientCapabilities': {}, 'clientInfo': {'name': 'cloud-journey', 'version': '1'}})
-        r = call(f, s, 2, 'session/new', params)
-        sid = (r or {}).get('sessionId')
-        print('@@session ' + str(sid), flush=True)
-    except Exception as e:
-        errors.append(path + ': ' + str(e))
-        continue
+class Retryable(RuntimeError):
+    pass
+# acpmux answers a start cut by its own restart with data.retryable (daemon.restarting: "Send the request again in a
+# few seconds"); the start sends it again for up to RETRY_S, as the app does, and gives up on anything else.
+RETRY_S = 45
+deadline = time.monotonic() + RETRY_S
+while True:
+    errors = []
+    sid = None
+    retry = False
+    for path in paths:
+        if not os.path.exists(path):
+            continue
+        try:
+            s = socket.socket(socket.AF_UNIX)
+            s.settimeout(110)
+            s.connect(path)
+            f = s.makefile('r')
+            call(f, s, 1, 'initialize', {'protocolVersion': 1, 'clientCapabilities': {}, 'clientInfo': {'name': 'cloud-journey', 'version': '1'}})
+            r = call(f, s, 2, 'session/new', params)
+            sid = (r or {}).get('sessionId')
+            print('@@session ' + str(sid), flush=True)
+            break
+        except Retryable as e:
+            errors.append(path + ': ' + str(e))
+            retry = True
+        except Exception as e:
+            errors.append(path + ': ' + str(e))
+    if sid is not None or not retry or time.monotonic() >= deadline:
+        break
+    print('@@retry ' + '; '.join(errors)[:400], flush=True)
+    time.sleep(2)
+if sid is not None:
     if first is None:
         sys.exit(0)
     # The session exists now: a failed prompt never starts a second session on another socket.

@@ -3462,6 +3462,65 @@ open(out, 'w').write(json.dumps(seen))
     expect(r.status).toBe(2);
     expect(seen.filter((m: any) => m.method === "session/new")).toHaveLength(1);
   });
+  // Run 45881843733 (own-host microVM, 2026-11-26): session/new came back daemon.restarting, retryable, "Send the
+  // request again in a few seconds", and the start gave up as @@nostart. It sends again now, and still stops on a
+  // refusal that is not retryable.
+  const FAKE_ACPMUX_RESTARTING = String.raw`
+import json, os, socket, sys
+path, out, mode = sys.argv[1], sys.argv[2], sys.argv[3]
+srv = socket.socket(socket.AF_UNIX); srv.bind(path); srv.listen(4)
+seen = []
+news = 0
+while True:
+    c, _ = srv.accept(); f = c.makefile('r')
+    def send(m): c.sendall((json.dumps(m) + '\n').encode())
+    done = False
+    for line in f:
+        m = json.loads(line); seen.append(m['method'])
+        if m['method'] == 'session/new':
+            news += 1
+            if news == 1:
+                data = {'errorKind': 'daemon.restarting', 'retryable': True} if mode == 'retryable' else {'errorKind': 'refused', 'retryable': False}
+                send({'jsonrpc': '2.0', 'id': m['id'], 'error': {'code': -32000, 'message': 'acpmux is restarting', 'data': data}})
+                done = mode != 'retryable'
+                break
+            send({'jsonrpc': '2.0', 'id': m['id'], 'result': {'sessionId': 's-2'}})
+            done = True
+            break
+        send({'jsonrpc': '2.0', 'id': m['id'], 'result': {}})
+    c.close()
+    if done:
+        break
+open(out, 'w').write(json.dumps(seen))
+`;
+  const runRestarting = (mode: "retryable" | "refused") => {
+    const home = mkdtempSync("/tmp/jr-");
+    try {
+      mkdirSync(join(home, ".cmux/acpmux"), { recursive: true });
+      writeFileSync(join(home, "fake.py"), FAKE_ACPMUX_RESTARTING);
+      const sock = join(home, ".cmux/acpmux/acpmux.sock");
+      const program = launchCredentialStartProgram("s", "claude", "CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-x");
+      const script = `python3 -I fake.py ${sock} seen.json ${mode} & for i in $(seq 50); do [ -S ${sock} ] && break; sleep 0.1; done\n${program}\nrc=$?\nwait\nexit $rc`;
+      const r = spawnSync("bash", ["-c", script], { cwd: home, env: { PATH: process.env.PATH, HOME: home }, encoding: "utf8", timeout: 20_000 });
+      return { r, seen: JSON.parse(readFileSync(join(home, "seen.json"), "utf8")) as string[] };
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  };
+  test("a start cut by acpmux's restart (retryable) is sent again and starts", { timeout: 30_000 }, () => {
+    const { r, seen } = runRestarting("retryable");
+    expect(r.stdout).toContain("@@retry ");
+    expect(r.stdout).toContain("@@session s-2");
+    expect(r.status).toBe(0);
+    expect(seen.filter((m) => m === "session/new")).toHaveLength(2);
+  });
+  test("a start refused for good (not retryable) is never sent again", { timeout: 30_000 }, () => {
+    const { r, seen } = runRestarting("refused");
+    expect(r.stdout).not.toContain("@@retry");
+    expect(r.stdout).toContain("@@nostart");
+    expect(r.status).toBe(1);
+    expect(seen.filter((m) => m === "session/new")).toHaveLength(1);
+  });
   test("no acpmux socket is a failed start that names the paths it tried", () => {
     const home = mkdtempSync(join(tmpdir(), "journey-launch-"));
     try {
