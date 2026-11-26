@@ -18,6 +18,8 @@ use std::fmt;
 
 pub mod handoff;
 
+pub mod mint;
+
 use serde::{Deserialize, Serialize};
 
 /// Where the join script finds the credential: a tmpfs file, written 0600 by the caller, deleted

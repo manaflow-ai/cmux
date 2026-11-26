@@ -20,6 +20,9 @@
   "chatmux_relay::session": {
    "todo": true
   },
+  "cmux_autocloud::login": {
+   "test": "cmux-tui/crates/cmux-autocloud/src/login.rs::seeded_secrets_ride_only_where_stack_needs_them"
+  },
   "cmux_cloud_api::http": {
    "test": "cmux-tui/crates/cmux-cloud-api/src/http_seeded_tests.rs::seeded_secrets_go_only_where_the_rule_allows"
   },
@@ -79,6 +82,9 @@
   },
   "cmux_tui::cli::cloud_journey": {
    "todo": true
+  },
+  "cmux_tui::cli::cloud_start_chat::direct": {
+   "test": "cmux-tui/crates/cmux-tui/src/cli/cloud_start_chat/direct_seeded_tests.rs::seeded_secrets_ride_only_where_the_cmux_api_needs_them"
   },
   "cmux_tui::cli::customize::pr": {
    "todo": true
