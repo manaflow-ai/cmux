@@ -251,7 +251,9 @@ pub fn ordering(order: &[Id], members: &[Id]) -> Vec<Id> {
     listed.sort_by_key(|(position, _)| *position);
     let mut ordered = members.to_vec();
     for (slot, (_, id)) in slots.into_iter().zip(listed) {
-        ordered[slot] = id.clone();
+        if let Some(entry) = ordered.get_mut(slot) {
+            *entry = id.clone();
+        }
     }
     ordered
 }
@@ -282,8 +284,12 @@ pub fn loose_insertion(old: &[Section], new: &[Section]) -> Option<Place> {
         }
         let (before, after) = (&before.nodes, &after.nodes);
         // The first node that differs is the new one; every node after it is the old one before it.
-        let k = (0..before.len()).find(|&i| before[i] != after[i]).unwrap_or(before.len());
-        if !matches!(after[k], Node::Workspace(_)) || after[k + 1..] != before[k..] {
+        let k = before.iter().zip(after).position(|(b, a)| b != a).unwrap_or(before.len());
+        let Some((Node::Workspace(_), tail)) = after.get(k..).and_then(<[Node]>::split_first)
+        else {
+            return None;
+        };
+        if before.get(k..) != Some(tail) {
             return None;
         }
         found = Some(Place { section: s, node: k });
@@ -311,20 +317,27 @@ pub fn loose_move(old: &[Section], new: &[Section]) -> Option<Move> {
     if old.len() != new.len() {
         return None;
     }
-    let changed: Vec<usize> = (0..old.len()).filter(|&s| old[s] != new[s]).collect();
+    let changed: Vec<usize> = old
+        .iter()
+        .zip(new)
+        .enumerate()
+        .filter(|(_, (before, after))| before != after)
+        .map(|(s, _)| s)
+        .collect();
     if changed.len() != 1 && changed.len() != 2 {
         return None;
     }
-    for &s in changed.iter().filter(|&&s| old[s].nodes.len() >= new[s].nodes.len()) {
-        let (before, after) = (&old[s].nodes, &new[s].nodes);
-        // The moved node is where the nodes first differ (it moved down) or last differ (it moved up).
-        let first = (0..before.len()).find(|&i| i >= after.len() || before[i] != after[i]);
-        let (mut i, mut j) = (before.len() as isize - 1, after.len() as isize - 1);
-        while i >= 0 && j >= 0 && before[i as usize] == after[j as usize] {
-            i -= 1;
-            j -= 1;
+    for &s in &changed {
+        let (Some(old_section), Some(new_section)) = (old.get(s), new.get(s)) else { continue };
+        if old_section.nodes.len() < new_section.nodes.len() {
+            continue;
         }
-        let last = (i >= 0).then_some(i as usize);
+        let (before, after) = (&old_section.nodes, &new_section.nodes);
+        // The moved node is where the nodes first differ (it moved down) or last differ (it moved up).
+        let first = (0..before.len()).find(|&i| before.get(i) != after.get(i));
+        let common =
+            before.iter().rev().zip(after.iter().rev()).take_while(|(b, a)| b == a).count();
+        let last = before.len().checked_sub(common).and_then(|n| n.checked_sub(1));
         let mut candidates: Vec<usize> = Vec::new();
         for k in [first, last].into_iter().flatten() {
             if !candidates.contains(&k) {
@@ -332,11 +345,16 @@ pub fn loose_move(old: &[Section], new: &[Section]) -> Option<Move> {
             }
         }
         for k in candidates {
-            let Node::Workspace(moved) = &before[k] else { continue };
+            let Some(Node::Workspace(moved)) = before.get(k) else { continue };
             let mut middle = old.to_vec();
-            middle[s].nodes.remove(k);
+            let Some(section) = middle.get_mut(s) else { continue };
+            section.nodes.remove(k);
             let Some(added) = loose_insertion(&middle, new) else { continue };
-            let Node::Workspace(back) = &new[added.section].nodes[added.node] else { continue };
+            let Some(Node::Workspace(back)) =
+                new.get(added.section).and_then(|section| section.nodes.get(added.node))
+            else {
+                continue;
+            };
             if back.id != moved.id {
                 continue;
             }
@@ -376,7 +394,9 @@ pub fn loose_edits(old: &[Section], new: &[Section]) -> Option<Vec<Edit>> {
         let (mut i, mut j) = (0, 0);
         let (mut removed, mut inserted) = (Vec::new(), Vec::new());
         while i < before.len() || j < after.len() {
-            if i < before.len() && j < after.len() && before[i] == after[j] {
+            if let (Some(b), Some(a)) = (before.get(i), after.get(j))
+                && b == a
+            {
                 i += 1;
                 j += 1;
             } else if let Some(id) = before.get(i).and_then(Node::loose_workspace_id)

@@ -133,14 +133,14 @@ fn percent_decoded(text: &str) -> Option<String> {
     let bytes = text.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index] == b'%' {
+    while let Some(&byte) = bytes.get(index) {
+        if byte == b'%' {
             let hex = bytes.get(index + 1..index + 3)?;
             let hex = std::str::from_utf8(hex).ok()?;
             out.push(u8::from_str_radix(hex, 16).ok()?);
             index += 3;
         } else {
-            out.push(bytes[index]);
+            out.push(byte);
             index += 1;
         }
     }
@@ -155,10 +155,8 @@ pub fn is_openable(url: &str, enterprise_host: Option<&str>) -> bool {
     if url.contains(['?', '#']) || !url.is_ascii() || url.contains(char::is_whitespace) {
         return false;
     }
-    let (authority, path) = match rest.find('/') {
-        Some(slash) => (&rest[..slash], &rest[slash..]),
-        None => (rest, ""),
-    };
+    let (authority, path) =
+        rest.find('/').and_then(|slash| rest.split_at_checked(slash)).unwrap_or((rest, ""));
     if authority.contains('@') {
         return false; // a user (and maybe a password)
     }
@@ -186,22 +184,23 @@ pub fn is_openable(url: &str, enterprise_host: Option<&str>) -> bool {
     let plain = |s: &str| {
         !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
     };
-    parts.len() == 5
-        && parts[0].is_empty()
-        && plain(parts[1])
-        && plain(parts[2])
-        && parts[3] == "pull"
-        && !parts[4].is_empty()
-        && parts[4].chars().all(|c| c.is_ascii_digit())
+    matches!(
+        parts.as_slice(),
+        ["", owner, repo, "pull", number]
+            if plain(owner)
+                && plain(repo)
+                && !number.is_empty()
+                && number.chars().all(|c| c.is_ascii_digit())
+    )
 }
 
 /// `owner/repo` of a `https://<host>/owner/repo/pull/N` URL; empty for another.
 pub fn repository_of(url: &str) -> String {
     let parts: Vec<&str> = url.split('/').filter(|part| !part.is_empty()).collect();
-    if parts.len() < 6 || parts[0] != "https:" || parts[4] != "pull" {
-        return String::new();
+    match parts.as_slice() {
+        ["https:", _, owner, repo, "pull", _, ..] => format!("{owner}/{repo}"),
+        _ => String::new(),
     }
-    format!("{}/{}", parts[2], parts[3])
 }
 
 // MARK: Tree
