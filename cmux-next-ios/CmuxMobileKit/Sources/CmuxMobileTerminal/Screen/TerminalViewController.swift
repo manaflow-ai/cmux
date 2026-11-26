@@ -296,6 +296,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private static let jumpAwaitsFrame = !CommandLine.arguments.contains("-CmuxMobileNoJumpAwait")
     private var refreshAfterTUI = false
     private(set) var started = false
+    #if DEBUG
+    /// The offline duress player's feed of this page (`TerminalDuress`; nil unless `CmuxMobileDuress` is set).
+    private var duressPlayback: AnyObject?
+    #endif
     private var fling: FlingAnimator?
     /// Jump to bottom's animated scroll, while it runs (CMUX-10).
     private var glide: BottomGlide?
@@ -1207,6 +1211,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         super.viewIsAppearing(animated)
         registerEdgeEffectScrollView()
         #if DEBUG
+        ComposerProof.start(self, screen: "terminal")
         frameLog.start()
         TerminalScrollBench.install(self)
         #endif
@@ -1596,6 +1601,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         bottomBacking.isHidden = !dock.showsKeyRow && !dock.showsComposer
     }
 
+    /// Where the rows end: the stack's top, less the attachment strip's reach
+    /// above the field's own height. The strip draws over the rows behind it;
+    /// adding or removing attachments moves no row (Leo, 2026-11-23: "no
+    /// shift, nothing.").
+    private var contentBottomEdge: CGFloat {
+        bottomStack.frame.minY + (dock.showsComposer ? model.composerField.stripOverlap : 0)
+    }
+
     private var composerGrowth: CGFloat {
         dock.showsComposer ? max(0, composerHost.view.bounds.height - restingComposerHeight) : 0
     }
@@ -1790,6 +1803,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // live before the attach, scrolls and takes keys (they wait for it). The Mac's
             // replay, a full reset first, replaces it.
             if let seed = model.takeSeed() { surface.feed(seed) }
+            #if DEBUG
+            // Offline duress (cmux-next-ios/design/duress-sim.md): its history goes in before the
+            // session's own output, so what the session draws stays at the bottom.
+            duressPlayback = TerminalDuress.attach? { [weak self] data in self?.sessionEvent(.output(data)) }
+            #endif
             model.session.start { [weak self] event in self?.sessionEvent(event) }
             #if DEBUG
             if model.demoFinalColumns != nil { startSettleProbe() }
@@ -3015,7 +3033,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // Insets: content starts under the toolbar and ends above the composer.
         let top = chromeTop
         // The last row rests 8 pt above the composer card (SPEC M3).
-        var bottom = TerminalDocumentLayout.bottomInset(pageHeight: bounds.height, composerTop: bottomStack.frame.minY)
+        var bottom = TerminalDocumentLayout.bottomInset(pageHeight: bounds.height, composerTop: contentBottomEdge)
         // A grid shorter than the page pins to the top: its last row rests
         // above the letterbox, not on the composer.
         let pins = pinsHostGrid
@@ -4611,7 +4629,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // The reader scrolls itself while it is open; a zoomed grid pans under one finger.
             return model.isTUI && surface.superview === tuiHost && !tuiReader.isOpen && !tuiZoomActive
         }
-        // Settings → Terminal → Plain Scroll in Full-Screen Apps (off by default).
+        // Settings → Terminal → Plain Scroll in Full-Screen Apps (on by default; off keeps line-by-line wheel scroll).
         tuiScroll.readerOpens = { [weak self] in
             CmuxMobilePreferences.terminalPlainScroll() && self?.openTUIReader() == true
         }
@@ -5577,4 +5595,22 @@ final class FlingAnimator {
         if abs(velocity) < 8 { stop() }
     }
 }
+
+#if DEBUG
+/// `-cmux-mobile-composer-proof`: the composer's cap and the strip's zero shift
+/// (`ComposerProof`, ComposerHeightCapUITests).
+extension TerminalViewController: ComposerProofHost {
+    var proofView: UIView { view }
+    var proofCardFrame: CGRect { composerHost.view.convert(composerHost.view.bounds, to: nil) }
+    var proofContentY: CGFloat? { scrollView.convert(CGPoint.zero, to: nil).y }
+    func proofSetText(_ text: String) { model.composerText = text }
+    func proofSetAttachments(_ count: Int) {
+        model.attachments = (0..<count).map { ComposerAttachment(kind: .file, name: "proof-\($0).log", byteCount: 4_096) }
+    }
+    func proofSetKeyboard(_ up: Bool) {
+        if up { model.focusComposer() } else { view.endEditing(true) }
+    }
+    var proofField: ComposerReturnTextView? { model.composerField.view }
+}
+#endif
 #endif
