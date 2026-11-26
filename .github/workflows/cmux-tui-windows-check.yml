@@ -186,13 +186,15 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          # Into feat-cmux-next, full-ci (the land tier's handoff) routes by the graph; into another base it runs every job.
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           base=""
           if [[ "$EVENT_NAME" == pull_request ]]; then
             base=$(git rev-parse HEAD^1 2>/dev/null || true)
           fi
           python3 scripts/ci/affected_jobs.py route --workflow .github/workflows/cmux-tui-windows-check.yml \
-            --base "$base" --head HEAD --event "$EVENT_NAME" --labels "${LABELS:-[]}"
+            --base "$base" --head HEAD --event "$EVENT_NAME" --labels "${LABELS:-[]}" --base-ref "$BASE_REF"
 
   windows-gnu-check:
     name: cargo check (x86_64-pc-windows-gnu)

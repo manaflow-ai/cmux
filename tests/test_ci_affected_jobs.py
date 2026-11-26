@@ -158,13 +158,33 @@ class Routes(unittest.TestCase):
         self.assertTrue(all(route([".github/workflows/w.yml"])[0].values()))
 
     def test_everything_runs_on_a_push_the_label_a_router_change_or_an_unknown_path(self):
-        for kwargs, changed in (({"event": "push"}, []), ({"labels": ["full-ci"]}, []), ({}, None),
+        for kwargs, changed in (({"event": "push"}, []), ({"labels": ["full-ci"], "base_ref": "main"}, []),
+                                ({"labels": [jobs.UNREADABLE_LABELS]}, []), ({}, None),
                                 ({}, ["scripts/ci/affected_jobs.py"]), ({}, ["scripts/ci/affected-jobs.json"]),
                                 ({}, ["cmux-tui/scripts/tool.sh"])):
             with self.subTest(kwargs=kwargs, changed=changed):
                 run, result = route(changed, **kwargs)
                 self.assertTrue(all(run.values()), result.lines())
                 self.assertTrue(result.everything)
+
+    def test_full_ci_into_feat_cmux_next_routes_by_the_graph(self):
+        # land-judge adds full-ci to every lane land into feat-cmux-next as the land tier's handoff (cmux#55766).
+        # Routing every job there ran acpmux tests, sims and conformance on webviews-only lane PRs (2026-11-26).
+        # A job none of whose inputs the change touches still skips; one it touches still runs.
+        for base_ref in ("feat-cmux-next", "feat-cmux-next-ios"):
+            with self.subTest(base_ref=base_ref):
+                run, result = route(["webviews/src/App.tsx"], labels=["full-ci"], base_ref=base_ref)
+                self.assertFalse(any(run.values()), result.lines())
+                self.assertEqual(result.everything, "")
+                run, result = route(["scripts/run-app.sh"], labels=["full-ci", "ready-to-land"], base_ref=base_ref)
+                self.assertEqual(run, {"app-tests": True, "app-sim": False, "core-check": False}, result.lines())
+
+    def test_unreadable_labels_run_everything_on_any_base(self):
+        for base_ref in ("feat-cmux-next", "main"):
+            with self.subTest(base_ref=base_ref):
+                run, result = route(["webviews/src/App.tsx"], labels=[jobs.UNREADABLE_LABELS], base_ref=base_ref)
+                self.assertTrue(all(run.values()), result.lines())
+                self.assertEqual(result.everything, "the labels cannot be read")
 
     def test_a_markdown_file_no_crate_names_runs_nothing(self):
         self.assertFalse(any(route(["cmux-tui/README.md", "cmux-tui/docs/x.md"])[0].values()))
@@ -717,7 +737,11 @@ class TheRepository(unittest.TestCase):
             result = jobs.route(tree, outside, map_text=map_text, workflow=workflow)
             self.assertFalse(any(result.run.values()), result.lines())
         self.assertTrue(jobs.gate(ROOT, outside, workflow, event="push", map_text=map_text)[0])
-        self.assertTrue(jobs.gate(ROOT, outside, workflow, labels=[jobs.FULL_LABEL], map_text=map_text)[0])
+        self.assertTrue(jobs.gate(ROOT, outside, workflow, labels=[jobs.FULL_LABEL], map_text=map_text,
+                                  base_ref="main")[0])
+        # Into feat-cmux-next full-ci is the land tier's handoff: the gate still passes over a change outside it.
+        self.assertFalse(jobs.gate(ROOT, outside, workflow, labels=[jobs.FULL_LABEL], map_text=map_text)[0])
+        self.assertTrue(jobs.gate(ROOT, outside, workflow, labels=[jobs.UNREADABLE_LABELS], map_text=map_text)[0])
         self.assertTrue(jobs.gate(ROOT, None, workflow, map_text=map_text)[0])
 
     def test_fix_writes_a_missing_path_in_the_entry_style(self):

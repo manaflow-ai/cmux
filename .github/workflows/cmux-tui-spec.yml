@@ -192,19 +192,23 @@ jobs:
       # workflow's push paths, a crate manifest or Rust source anywhere, or what `check` reads (the routed and
       # skipped workflows, the map, the router). A pull request that touches none skips the graph, its checkout
       # and the check (240 of the last 397 feat-cmux-next merges, 2026-11-24; about 50 s of this job's 63 s p50 went
-      # to them): every routed job reads `false`, and the feat-cmux-next push still runs them all. A push, a dispatch, the full-ci label or no base: needed.
+      # to them): every routed job reads `false`, and the feat-cmux-next push still runs them all. A push, a dispatch, the full-ci label into a base other than
+      # feat-cmux-next or no base: needed. Into feat-cmux-next full-ci is the land tier's handoff (cmux#55766), and
+      # the gate and the graph still route it.
       - name: Does the change need the crate graph?
         id: gate
         env:
           EVENT_NAME: ${{ github.event_name }}
           LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          # Into feat-cmux-next, full-ci (the land tier's handoff) routes by the graph; into another base it runs every job.
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           base=""
           if [[ "$EVENT_NAME" == pull_request ]]; then
             base=$(git rev-parse HEAD^1 2>/dev/null || true)
           fi
           python3 scripts/ci/affected_jobs.py gate --workflow .github/workflows/cmux-tui-spec.yml \
-            --base "$base" --head HEAD --event "$EVENT_NAME" --labels "${LABELS:-[]}"
+            --base "$base" --head HEAD --event "$EVENT_NAME" --labels "${LABELS:-[]}" --base-ref "$BASE_REF"
 
       # The dirs the graph reads blobs under (the crate graph's manifests and sources, the map, the scripts):
       # one batched fetch of their blobs, about 32 s (2026-11-24). A full depth-2 checkout of the whole tree
@@ -239,7 +243,8 @@ jobs:
 
       # The heavy test jobs route by the crate graph, not by the paths above: each runs when the change
       # touches an input of a crate it tests (scripts/ci/affected-jobs.json; the crate, its path
-      # dependencies and the files their sources name). A push, a dispatch, the full-ci label, a change to
+      # dependencies and the files their sources name). A push, a dispatch, the full-ci label into a base other
+      # than feat-cmux-next (into it, the land tier's handoff: the graph routes), a change to
       # the router and a path it cannot place run every job. A failed router runs them all (the jobs read
       # `!= 'false'`).
       - name: Which test jobs can the change affect (crate graph)
@@ -248,13 +253,15 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          # Into feat-cmux-next, full-ci (the land tier's handoff) routes by the graph; into another base it runs every job.
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           base=""
           if [[ "$EVENT_NAME" == pull_request ]]; then
             base=$(git rev-parse HEAD^1 2>/dev/null || true)
           fi
           python3 scripts/ci/affected_jobs.py route --workflow .github/workflows/cmux-tui-spec.yml \
-            --base "$base" --head HEAD --event "$EVENT_NAME" --labels "${LABELS:-[]}"
+            --base "$base" --head HEAD --event "$EVENT_NAME" --labels "${LABELS:-[]}" --base-ref "$BASE_REF"
 
       # acpmux tests run on a pull request only when the change touches acpmux's own crates or the job's own
       # inputs, not when it reaches them through a path dependency (CI 10x, 2026-11-21: 2.87% of pull request

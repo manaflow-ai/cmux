@@ -405,15 +405,17 @@ jobs:
           fi
           exit "$status"
 
-      # A pull request plans a workspace only for a change to its own paths (--own-only; the full-ci label plans
-      # the whole reach); a push plans every workspace the change reaches through path dependencies too, so a red
-      # a dependency causes shows on feat-cmux-next (CI 10x, 2026-11-21).
+      # A pull request plans a workspace only for a change to its own paths (--own-only; the full-ci label into a
+      # base other than feat-cmux-next plans the whole reach); a push plans every workspace the change reaches
+      # through path dependencies too, so a red a dependency causes shows on feat-cmux-next (CI 10x, 2026-11-21).
+      # Into feat-cmux-next, full-ci is the land tier's handoff land-judge adds to every lane land (cmux#55766):
+      # it plans the workspaces the change's own paths touch, not the whole reach.
       - name: Plan the workspaces this change reaches
         id: plan
         env:
           BASE_SHA: ${{ steps.base.outputs.sha }}
           # Into feat-cmux-next it runs only for a file a workspace reads (reads above): plan those alone.
-          OWN_ONLY: ${{ github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && (startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') && '--reads-only' || '--own-only') || '' }}
+          OWN_ONLY: ${{ github.event_name == 'pull_request' && (startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') && (contains(github.event.pull_request.labels.*.name, 'full-ci') && '--own-only' || '--reads-only') || !contains(github.event.pull_request.labels.*.name, 'full-ci') && '--own-only') || '' }}
         run: |
           # shellcheck disable=SC2086 # empty or one flag
           jobs=$(python3 .github/scripts/rust-workspaces.py plan --base "$BASE_SHA" $OWN_ONLY)
