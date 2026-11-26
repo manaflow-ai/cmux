@@ -6,15 +6,15 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { installDom } from "../settings/testDom";
-import { createStrings } from "../shared/i18n";
-import { makeItYoursState } from "./fixtures";
 import table from "./generated/strings.json";
-import { OnboardingPage } from "./Onboarding";
-import { OPS } from "./ops";
-import { OnboardingStore } from "./store";
 
 const restore = installDom();
 afterAll(restore);
+const { createStrings } = await import("../shared/i18n");
+const { makeItYoursState } = await import("./fixtures");
+const { OnboardingPage } = await import("./Onboarding");
+const { OPS } = await import("./ops");
+const { OnboardingStore } = await import("./store");
 const strings = createStrings(table, ["en"]);
 
 async function mount(screen?: "look" | "work" | "trust" | "tune", introWalk = true) {
