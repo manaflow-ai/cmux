@@ -110,6 +110,7 @@ final class CEFHostView: NSView {
     override func viewDidEndLiveResize() {
         super.viewDidEndLiveResize()
         layerHosting.windowLiveResize(active: false)
+        inTree.resizeMotionEnded(windowResized: true)
         updateBackground()
     }
 

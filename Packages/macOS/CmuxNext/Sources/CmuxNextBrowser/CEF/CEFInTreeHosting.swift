@@ -331,24 +331,41 @@ final class CEFInTreeHosting {
     /// full screen transitions held theirs (defects.md 5, 6).
     func pageViewResized() { // perf-hot: 0.05ms cef-geometry (each in-tree page, each motion frame)
         // The page's drawing layer follows its view exactly in the fork (cef#48 one window, `cmux_in_tree_display`).
-        guard page != nil, let browser else { return }
-        guard let fence = calls?.resizeFence, let view, let window = view.window,
-              let layer = view.layer else { return }
+        guard page != nil, browser != nil, let window = view?.window else { return }
         let windowSize = window.frame.size
         let windowResized = windowSizeAtLastResize.map { $0 != windowSize } ?? false
         windowSizeAtLastResize = windowSize
+        // `release` (a bench arm, ``CEFFenceMode``): no fence while a person's drag moves; one when it ends.
+        if resizeFences.mode == .release, window.inLiveResize || view?.layerHosting.inPaneDrag == true { return }
+        joinFence(windowResized: windowResized || window.inLiveResize)
+    }
+
+    /// A person's window resize or pane drag ended (`CEFHostView.viewDidEndLiveResize`, the end of
+    /// `CEFLayerHosting.paneResizeDrag`). With ``CEFFenceMode/release`` the page joins a fence on its final size: the
+    /// commit after the drag shows the page's frame at that size (at once when it is on screen already).
+    func resizeMotionEnded(windowResized: Bool) {
+        guard resizeFences.mode == .release, page != nil, browser != nil else { return }
+        joinFence(windowResized: windowResized)
+    }
+
+    /// Joins this turn's window fence with the page's wait (``pageViewResized()``).
+    private func joinFence(windowResized: Bool) {
+        guard let browser, let fence = calls?.resizeFence, let view, let window = view.window,
+              let layer = view.layer else { return }
         let refreshMs = (NSScreen.screens.map(\.minimumRefreshInterval).min() ?? 1.0 / 60) * 1_000
-        guard let wait = Self.fenceTimeoutMs(windowResized: windowResized || window.inLiveResize,
+        guard let wait = Self.fenceTimeoutMs(windowResized: windowResized,
                                              fullScreenTransition: Motion.isFullScreenTransitioning(window),
                                              refreshMs: refreshMs) else { return }
         var timeout = CEFLayerHosting.resizeFenceTimeoutOverrideMs > 0 ? CEFLayerHosting.resizeFenceTimeoutOverrideMs : wait
+        // `commit` (a bench arm): the GPU's wait runs from the window's commit, two refreshes.
+        if resizeFences.mode == .commit { timeout = Int32((2 * refreshMs).rounded(.up)) }
         // The adaptive pace (`CMUX_NEXT_CEF_FENCE_PACE=adaptive`, a bench arm): waits longer while the window's pages
         // keep up, none while they fall behind.
         let pace: CEFFencePace? = CEFFencePace.isOn ? resizeFences.pace : nil
         let paceKey = ObjectIdentifier(window)
         if let pace {
             guard let paced = pace.wait(window: paceKey, base: timeout, refreshMs: refreshMs,
-                                        windowResized: windowResized || window.inLiveResize) else { return }
+                                        windowResized: windowResized) else { return }
             timeout = paced
         }
         resizeFences.join(window: window, layer: layer, timeoutMs: timeout, refreshMs: refreshMs) { [timeout] port, done in

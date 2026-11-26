@@ -501,7 +501,7 @@ private final class LiveResizeWindow: NSWindow {
         return refs
     }
 
-    func makeHosted(_ enabled: Bool = true) -> (CEFLayerHosting, NSView, NSWindow) {
+    func makeHosted(_ enabled: Bool = true, mode: CEFFenceMode = .each) -> (CEFLayerHosting, NSView, NSWindow) {
         let window = NSWindow(contentRect: NSRect(x: -4000, y: -4000, width: 400, height: 300),
                               styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -513,7 +513,7 @@ private final class LiveResizeWindow: NSWindow {
         let hosting = CEFLayerHosting(isEnabled: { enabled }, schedule: { $0() },
                                       makePage: { CEFHostedPageView(frame: $0, makeLayerHost: { _ in CALayer() }) },
                                       refreshIntervals: { [1.0 / 60] },
-                                      resizeFences: CEFResizeFences(clock: clock, makePort: { _ in ports.make() }))
+                                      resizeFences: CEFResizeFences(clock: clock, makePort: { _ in ports.make() }, mode: mode))
         hosting.view = view
         hosting.pageWindowCreated(browser: 3, fork: fork.fork)
         return (hosting, view, window)
@@ -713,6 +713,38 @@ private final class LiveResizeWindow: NSWindow {
         #expect(ports.made.count == 2)
         for done in fork.dones { done(true) }
         endTurn()
+    }
+
+    /// `commit` (a bench arm, ``CEFFenceMode``): the page's GPU gets the fence only after the window's commit (the
+    /// fence's port already holds that commit), and the fence goes once its page reported, as in every mode.
+    @Test func aCommitModeFenceReachesThePageAfterTheCommit() throws {
+        let (hosting, _, window) = makeHosted(mode: .commit)
+        defer { window.close() }
+        hosting.paneResizeDrag(active: true)
+        hosting.pageViewResized()
+        let port = try #require(ports.made.first)
+        #expect(fork.fences.isEmpty, "the page got the fence before the window's commit")
+        endTurn()
+        #expect(fork.fences.count == 1, "the page never got the fence after the commit")
+        #expect(fork.fences.first?.port == port)
+        #expect(sendRights(port) == 1)
+        for done in fork.dones { done(true) }
+        #expect(sendRights(port) == 0)
+    }
+
+    /// `commit`: a fence whose page never reports still goes at its deadline, counted from the commit.
+    @Test func aCommitModeFenceGoesAtItsDeadline() async throws {
+        let (hosting, _, window) = makeHosted(mode: .commit)
+        defer { window.close() }
+        hosting.paneResizeDrag(active: true)
+        hosting.pageViewResized()
+        let port = try #require(ports.made.first)
+        endTurn()
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(40))
+        let until = Date().addingTimeInterval(2)
+        while sendRights(port) != 0, Date() < until { usleep(1_000) }
+        #expect(sendRights(port) == 0, "a commit-mode fence outlived its deadline")
     }
 
     /// A fence no page joined goes at the end of its turn.
