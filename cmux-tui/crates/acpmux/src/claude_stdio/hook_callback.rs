@@ -22,6 +22,12 @@ pub(super) const fn deadline(timeout_s: u64) -> Duration {
     Duration::from_millis(timeout_s.saturating_mul(800))
 }
 
+#[cfg(test)]
+tokio::task_local! {
+    /// A test's stand-in for every deadline: a blocking answer keeps tokio's paused clock still.
+    pub(super) static DEADLINE: Duration;
+}
+
 /// `answer` within `deadline`, or `default` past it, counted in `gauges.hookAnswers.misses`. A
 /// blocking task behind `answer` runs on but no longer holds the reply.
 pub(super) async fn within<T>(
@@ -29,6 +35,8 @@ pub(super) async fn within<T>(
     answer: impl std::future::Future<Output = T>,
     default: T,
 ) -> T {
+    #[cfg(test)]
+    let deadline = DEADLINE.try_with(|d| *d).unwrap_or(deadline);
     match tokio::time::timeout(deadline, answer).await {
         Ok(answer) => answer,
         Err(_) => {

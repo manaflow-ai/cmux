@@ -78,12 +78,14 @@ async fn registered_pre_tool_callback_waits_and_failed_sync_returns_denial() {
     );
 }
 
-/// A repository sync that never finishes still gets an answer inside the callback's timeout: the
-/// safe default (`{}`, the tool runs), with the miss counted in `gauges.hookAnswers`.
+/// A repository sync that never finishes still gets an answer before the callback's deadline:
+/// the safe default (`{}`, the tool runs), with the miss counted in `gauges.hookAnswers`. The
+/// deadline is shortened, as the blocking wait holds a paused clock still.
 #[cfg(unix)]
-#[tokio::test(start_paused = true)]
-async fn a_stalled_sync_answers_the_safe_default_inside_its_timeout() {
+#[tokio::test]
+async fn a_stalled_sync_answers_the_safe_default_at_its_deadline() {
     use cmux_git::sync_barrier::Sync;
+    use std::time::Duration;
     let root = tempfile::tempdir().unwrap();
     let repo = root.path().canonicalize().unwrap().join("repo");
     let sync = Sync::begin(&repo).unwrap();
@@ -93,12 +95,13 @@ async fn a_stalled_sync_answers_the_safe_default_inside_its_timeout() {
     call["request"]["input"]["cwd"] = json!(repo);
     let answers = crate::gauges::hook_answers();
     let misses = answers.misses();
-    let started = tokio::time::Instant::now();
-    t.answer_hook_callback("stalled", &call["request"]).await;
+    let started = std::time::Instant::now();
+    let deadline = Duration::from_millis(200);
+    let answer = t.answer_hook_callback("stalled", &call["request"]);
+    hook_callback::DEADLINE.scope(deadline, answer).await;
     let took = started.elapsed();
     sync.complete().unwrap();
-    assert_eq!(took, hook_callback::deadline(hook_callback::SYNC_TIMEOUT_S));
-    assert!(took < std::time::Duration::from_secs(hook_callback::SYNC_TIMEOUT_S));
+    assert!(took >= deadline && took < cmux_git::native_hook::WAIT, "{took:?}");
     assert_eq!(
         t.take_stdin_replies().await,
         vec![json!({"type": "control_response", "response": {
