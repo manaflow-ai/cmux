@@ -50,29 +50,32 @@ if [ "$TRACK" = nightly-next ]; then
   echo "NIGHTLY_NEXT_WRITER read live: mac; this pipeline publishes nightly-next"
   # No nightly from a tree whose webview checks are red (check-nightly-webviews, beside the build): #32056's
   # TS2448 broke every agent pane and was published on 2026-11-02. A refusal publishes nothing; a later green tip does.
+  # publish-nightly no longer needs check-nightly-webviews, so it reads the job in this run (source run). Under
+  # NIGHTLY_COMPONENT_GATES=block it waits for the job; otherwise it reads it once, only to note a red as a stale part.
+  # The one-Mac publisher passes its own WEBVIEW_CHECK.
   status=0
-  verdict=""
-  # publish-nightly no longer needs check-nightly-webviews; it reads the check only under NIGHTLY_COMPONENT_GATES=block,
-  # from this run (WEBVIEW_SOURCE=run), waiting for it. The one-Mac publisher passes its own WEBVIEW_CHECK.
-  if [ -n "${WEBVIEW_CHECK:-}" ] || [ "${NIGHTLY_COMPONENT_GATES:-}" = block ]; then
-  web_source="$SOURCE" web_run="${RECOVERED_RUN_ID:-}"
+  web_source="$SOURCE" web_run="${RECOVERED_RUN_ID:-}" web_wait=0
   if [ -z "${WEBVIEW_CHECK:-}" ] && [ "$SOURCE" = own ]; then web_source=run web_run="${WEBVIEW_RUN_ID:-}"; fi
+  if [ "${NIGHTLY_COMPONENT_GATES:-}" = block ]; then web_wait="${WEBVIEW_WAIT_SECONDS:-1800}"; fi
   verdict="$(python3 "$PUBLISH_TOOLING/ci/nightly_publish_guard.py" webview-verdict --source "$web_source" \
     --result "${WEBVIEW_CHECK:-}" --checked-sha "${WEBVIEW_CHECK_SHA:-}" --build-sha "$BUILD_SHA" \
-    --run-id "$web_run" --wait-seconds "${WEBVIEW_WAIT_SECONDS:-1800}" \
-    --repo "$GITHUB_REPOSITORY")" || status=$?
+    --run-id "$web_run" --wait-seconds "$web_wait" --repo "$GITHUB_REPOSITORY")" || status=$?
   # Leo, 2026-11-25: "are we able to decouple". A red webview check no longer holds the publish: the build
   # ships with a "Nightly stale part" warning NOW shows. NIGHTLY_COMPONENT_GATES=block restores the hold.
   if [ "$status" != 0 ] && [ "${NIGHTLY_COMPONENT_GATES:-}" != block ]; then
     note="${verdict:-the webview check verdict is unreadable}"
     note="${note//[$'\r\n']/ }"
-    echo "::warning title=Nightly stale part::webview-checks: $note; published anyway (NIGHTLY_COMPONENT_GATES is not block)"
-    echo "- stale part, webview-checks: $note" >> "$GITHUB_STEP_SUMMARY"
+    case "$note" in
+      *"still running"*) echo "webview-checks: $note; the publish does not wait for it" ;;
+      *)
+        echo "::warning title=Nightly stale part::webview-checks: $note; published anyway (NIGHTLY_COMPONENT_GATES is not block)"
+        echo "- stale part, webview-checks: $note" >> "$GITHUB_STEP_SUMMARY"
+        ;;
+    esac
     status=0
   fi
   [ "$status" = 0 ] || refuse "${verdict:-the webview check verdict is unreadable}"
   echo "$verdict"
-  fi
   # The App Store shelf (check-nightly-app-store-shelf) no longer holds a publish (Leo, 2026-11-25: "some of these checks
   # are they too frivolous to block nightly on?"): it runs beside the build and report-nightly-shelf-red files its red.
   # A listed bad commit without its fix (.github/nightly-known-bad.json, read live): held, not a failure.

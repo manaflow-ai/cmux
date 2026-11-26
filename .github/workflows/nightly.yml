@@ -5849,7 +5849,7 @@ jobs:
           SOURCE: ${{ steps.source.outputs.source }}
           BUILD_SHA: ${{ steps.source.outputs.build_sha }}
           # The webview and App Store shelf checks run beside the build and report after it (report-nightly-fix-forward,
-          # report-nightly-shelf-red); the publish waits on neither (Leo, 2026-11-25).
+          # report-nightly-shelf-red); the gate reads the webview job in this run, waiting only under block (Leo, 2026-11-25).
           NIGHTLY_COMPONENT_GATES: ${{ vars.NIGHTLY_COMPONENT_GATES }}
           WEBVIEW_RUN_ID: ${{ github.run_id }}
           RECOVERED_RUN_ID: ${{ steps.source.outputs.run_id }}
