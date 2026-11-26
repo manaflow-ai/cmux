@@ -106,6 +106,7 @@ cmux-tui/crates/cmux-config/src/managed/mod.rs	com.cmuxterm.app"	1	keep	MDM forc
 cmux-tui/crates/cmux-config/src/managed/policy.rs	com.cmuxterm.app 	1	keep	MDM forced prefs from the legacy domain
 cmux-tui/crates/cmux-config/src/schema/json_schema.rs	.config/cmux/	2	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-customize-recipes/src/lib.rs	.local/state/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
+cmux-tui/crates/cmux-home-rules/src/chief_home/build.rs	com.cmuxterm.app"	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-host/src/cloud/daemon_noise_key.rs	.local/state/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-host/src/cloud/gateway_token.rs	.config/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-host/src/daemon_spec.rs	/tmp/cmux-tui-{uid}/{SESSION}.sock	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
