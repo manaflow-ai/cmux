@@ -49,6 +49,51 @@ fn prompt(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_peer_inbox_delivery_is_accepted_before_the_agent_probe_times_out() {
+    let (hub, s) = chat().await;
+    // Once the chat has run its first turn, an ordinary peer message goes to its inbox.
+    let (first_tx, _first_accepted) = tokio::sync::oneshot::channel();
+    let first = prompt(&hub, &s, "initial-work", "first", first_tx);
+    tokio::time::timeout(WAIT, first).await.unwrap().unwrap().unwrap();
+
+    let child = s.child.lock().await;
+    let (tx, receipt) = tokio::sync::oneshot::channel();
+    let opts = PromptOptions {
+        prompt_id: Some("peer-delivery".into()),
+        provenance: Some(json!({"kind": "session_message", "from": "acp:peer",
+                                "fromName": "peer", "to": format!("acp:{}", s.id)})),
+        agent: Some("peer".into()),
+        inbox: true,
+        on_accepted: Some(Box::new(move |v| {
+            let _ = tx.send(v);
+        })),
+        ..PromptOptions::default()
+    };
+    let blocks = vec![json!({"type": "text", "text": "peer update"})];
+    let mut delivery = Box::pin(hub.prompt_with(&s, blocks, "test", false, opts));
+    let accepted = tokio::select! {
+        receipt = tokio::time::timeout(prompt_admission::ADMISSION_BOUND, receipt) =>
+            receipt.expect("inbox acceptance waited for the agent probe").unwrap(),
+        result = &mut delivery => panic!("delivery ended before inbox acceptance: {result:?}"),
+    };
+    assert_eq!(accepted["promptId"], "peer-delivery");
+    assert_eq!(accepted["inbox"], true);
+    let records = hub.events(&s.id, 0, 1000).unwrap();
+    assert_eq!(
+        records
+            .iter()
+            .filter(|r| r.kind == "inbox" && r.msg["promptId"] == "peer-delivery")
+            .count(),
+        1
+    );
+    assert!(matches!(hub.inbox_unsend(&s, "peer-delivery"), inbox::Unsend::Unsent));
+    drop(child);
+    let answer = tokio::time::timeout(WAIT, delivery).await.unwrap().unwrap();
+    assert_eq!(answer["_meta"]["acpmux"]["withdrawn"], true);
+    hub.shutdown_all().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_prompt_behind_one_about_to_start_its_turn_is_accepted_queued_at_once() {
     let (hub, s) = chat().await;
     // The first prompt holds the turn lock, stopped before its turn shows.
