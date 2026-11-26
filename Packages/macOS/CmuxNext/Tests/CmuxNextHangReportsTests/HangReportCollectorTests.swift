@@ -57,7 +57,7 @@ struct HangReportCollectorTests {
 
     @Test func anAggregateSurvivesEncodingAndMerges() throws {
         var aggregate = StallAggregate()
-        aggregate.count(durationMs: 70)
+        aggregate.count(bucket: 0)
         aggregate.keep(HangSample(source: .watchdog, kind: .stall, durationMs: 400, frames: [.other]))
         let decoded = try JSONDecoder().decode(StallAggregate.self, from: JSONEncoder().encode(aggregate))
         #expect(decoded == aggregate)
@@ -91,7 +91,7 @@ struct HangReportCollectorTests {
     }
 
     @Test func coarseCountsAreBuckets() {
-        #expect([0, 1, 2, 5, 6, 10, 11, 30, 31, 100, 101, 5_000].map(CoarseCounts.bucket)
-            == ["0", "1", "2-5", "2-5", "6-10", "6-10", "11-30", "11-30", "31-100", "31-100", "101+", "101+"])
+        let counts = CoarseCounts(windows: 1, workspaces: 24, panes: 6, tabs: 5_000)
+        #expect([counts.windows, counts.workspaces, counts.panes, counts.tabs] == ["1", "11-30", "6-10", "101+"])
     }
 }

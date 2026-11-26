@@ -153,9 +153,9 @@ import PackageDescription
 //   CmuxNextSessionTransfer -> Design, Settings (Move Sessions from Another cmux Build: the
 //     transferable session and peer values, the picker and the toast text; no AppKit, no daemon;
 //     the App's SessionTransferService discovers peers and moves sessions; cx-yxmkh)
-//   CmuxNextHangReports -> Compat, system frameworks, MetricKit (opt-in hang reports for NIGHTLY:
-//     MetricKit and watchdog inputs, allow-list redaction, leak scan, rotating install id, outbox,
-//     upload; no UI, no daemon; plans/cmux-next/hang-reports-DESIGN.md)
+//   CmuxNextHangReports -> AppFFI, Compat, system frameworks, MetricKit (opt-in hang reports for
+//     NIGHTLY: MetricKit and watchdog inputs, outbox, upload; the redaction, leak scan and every
+//     rule are Rust's cmux-hang-report; no UI, no daemon; plans/cmux-next/hang-reports-DESIGN.md)
 
 /// Settings shared by every UI target: Swift 6 mode, main-actor by default.
 let uiSwiftSettings: [SwiftSetting] = [
@@ -2308,6 +2308,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextHangReports",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
                 "CmuxNextCompat",
                 .product(name: "CmuxEgress", package: "CmuxEgress"),
             ],

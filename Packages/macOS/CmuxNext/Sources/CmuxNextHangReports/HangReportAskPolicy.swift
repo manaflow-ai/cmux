@@ -34,8 +34,23 @@ public nonisolated struct HangReportAskPolicy: Sendable {
     ///   - invited: The one-time invitation was shown before on this Mac (any answer).
     ///   - telemetryOptIn: The anonymous telemetry choice (off until the person turns it on).
     /// - Returns: What to do now.
+    ///   Rust decides (``HangReportRules``); ``Decision/off`` when the rules do not answer.
     public func decision(settingOn: Bool, consented: Bool, invited: Bool, telemetryOptIn: Bool) -> Decision {
-        if settingOn { return consented ? .send : .confirm }
-        return !invited && telemetryOptIn ? .invite : .off
+        struct Request: Encodable {
+            var settingOn: Bool
+            var consented: Bool
+            var invited: Bool
+            var telemetryOptIn: Bool
+        }
+        struct Reply: Decodable {
+            var decision: String
+        }
+        let request = Request(settingOn: settingOn, consented: consented, invited: invited, telemetryOptIn: telemetryOptIn)
+        return switch HangReportRules.call("ask", request, as: Reply.self)?.decision {
+        case "send": .send
+        case "confirm": .confirm
+        case "invite": .invite
+        default: .off
+        }
     }
 }

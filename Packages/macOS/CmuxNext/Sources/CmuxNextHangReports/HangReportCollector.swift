@@ -5,10 +5,11 @@ import Foundation
 /// that ``HangReportService`` drains into each report.
 ///
 /// ``noteStall(durationNanos:cpuNanos:addresses:)`` runs on the main thread at the end of each
-/// stall over the watchdog's threshold: off, it is one atomic load; on, a lock over a few integer
-/// adds. Only a stall that earns a stack slot (250 ms and up, among the longest 8) leaves the
-/// main thread: its addresses are reduced to ``HangReportFrame``s on a utility task (`resolve`, which
-/// reads dyld and the classifier) and kept after that. Sampled stalls wait in a short list for the
+/// stall over the watchdog's threshold: off, it is one atomic load; on, a lock over one pure
+/// `hang_report_note_stall` call (``HangReportRules``). Only a stall that earns a stack slot
+/// (250 ms and up, among the longest 8) leaves the main thread: its addresses are reduced to
+/// ``HangReportFrame``s on a utility task (`resolve`, which reads dyld and asks the frame rules)
+/// and kept after that. Sampled stalls wait in a short list for the
 /// one resolution job running: the main thread starts a job only when none is pending, so a burst
 /// of stalls under load costs it one job, not one per stall (a 2.0 s hang inside the job's start,
 /// hq#18810). Nothing here runs while the app is idle.
@@ -56,27 +57,42 @@ public final class HangReportCollector: Sendable {
         if !on { _ = drain() }
     }
 
-    /// One finished stall (main thread, from the watchdog's `onStall`).
+    /// One finished stall (main thread, from the watchdog's `onStall`). The rules (`note_stall`)
+    /// name its histogram bucket and whether it earns a stack slot; a stall of a hang's length is
+    /// only counted (its stack came from `noteHang`, sampled while it ran).
     public func noteStall(durationNanos: UInt64, cpuNanos: UInt64, addresses: [UInt]) {
         guard isEnabled else { return }
-        let ms = Self.milliseconds(durationNanos)
-        // A stall of a hang's length is only counted: its stack came from `noteHang`, sampled
-        // while it ran, which shows where it was stuck rather than where it started.
-        let sample = aggregate.withLock { aggregate in
-            aggregate.count(durationMs: ms)
-            return !addresses.isEmpty && ms < StallAggregate.hangMs && aggregate.wantsStallSample(durationMs: ms)
+        struct Request: Encodable {
+            var durationNanos: UInt64
+            var cpuNanos: UInt64
+            var hasAddresses: Bool
+            var stallCount: Int
+            var lastStallMs: Int?
         }
-        guard sample else { return }
-        keepLater(HangSample(source: .watchdog, kind: .stall, durationMs: ms, cpuMs: Self.milliseconds(cpuNanos), frames: []),
-                  addresses: addresses)
+        let sample = aggregate.withLock { aggregate -> HangSample? in
+            let request = Request(durationNanos: durationNanos, cpuNanos: cpuNanos, hasAddresses: !addresses.isEmpty,
+                                  stallCount: aggregate.stalls.count, lastStallMs: aggregate.stalls.last?.durationMs)
+            guard let noted = HangReportRules.call("note_stall", request, as: HangReportRules.Noted.self) else { return nil }
+            if let bucket = noted.bucket { aggregate.count(bucket: bucket) }
+            return noted.sample
+        }
+        if let sample { keepLater(sample, addresses: addresses) }
     }
 
     /// One hang still running (watchdog thread, from the watchdog's `onHang`).
     public func noteHang(durationNanos: UInt64, addresses: [UInt]) {
         guard isEnabled, !addresses.isEmpty else { return }
-        let ms = Self.milliseconds(durationNanos)
-        guard aggregate.withLock({ $0.wantsHangSample(durationMs: ms) }) else { return }
-        keepLater(HangSample(source: .watchdog, kind: .hang, durationMs: ms, frames: []), addresses: addresses)
+        struct Request: Encodable {
+            var durationNanos: UInt64
+            var hasAddresses: Bool
+            var hangCount: Int
+            var lastHangMs: Int?
+        }
+        let sample = aggregate.withLock { aggregate in
+            HangReportRules.call("note_hang", Request(durationNanos: durationNanos, hasAddresses: true, hangCount: aggregate.hangs.count,
+                                                      lastHangMs: aggregate.hangs.last?.durationMs), as: HangReportRules.Noted.self)?.sample
+        }
+        if let sample { keepLater(sample, addresses: addresses) }
     }
 
     /// ``noteStall(durationNanos:cpuNanos:addresses:)`` with the watchdog's durations.
@@ -141,6 +157,4 @@ public final class HangReportCollector: Sendable {
         }
         schedule { [self] in resolvePending() }
     }
-
-    static func milliseconds(_ nanos: UInt64) -> Int { Int(min(nanos / 1_000_000, UInt64(HistogramBucket.maxMs))) }
 }

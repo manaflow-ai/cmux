@@ -13,11 +13,4 @@ struct HangReportWireFormatTests {
         #expect(String(decoding: encoded, as: UTF8.self) == Self.golden)
         #expect(PrivacyLeakScanner(forbiddenTerms: HangReportFixtures.forbiddenTerms).findings(in: encoded).isEmpty)
     }
-
-    @Test func theBuilderWritesTheGoldensShape() throws {
-        // Every interval category the builder may send is one the server accepts (the golden's).
-        let report = try JSONDecoder().decode(HangReport.self, from: Data(Self.golden.utf8))
-        #expect(report.intervals.allSatisfy { HangReportSignposts.allows(category: $0.category, name: $0.name) })
-        #expect(HangReportSignposts.categories == ["action", "motion", "key", "switch", "create", "cef", "launch"])
-    }
 }

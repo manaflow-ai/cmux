@@ -8,7 +8,7 @@ struct PrivacyLeakScannerTests {
     private let scanner = PrivacyLeakScanner(forbiddenTerms: HangReportFixtures.forbiddenTerms + ["cmux"])
 
     private func findings(planting value: String, at key: String = "image") -> [PrivacyLeakScanner.Finding] {
-        var report = HangReportFixtures.builder().build(context: HangReportFixtures.context(), watchdog: StallAggregate(), metricKit: [])
+        guard var report = try? JSONDecoder().decode(HangReport.self, from: Data(HangReportWireFormatTests.golden.utf8)) else { return [] }
         report.hangs = [HangSample(source: .watchdog, kind: .stall, durationMs: 300,
                                    frames: [HangReportFrame(image: key == "image" ? value : "AppKit", uuid: key == "uuid" ? value : nil, offset: 1)])]
         return scanner.findings(in: (try? HangReport.encoder.encode(report)) ?? Data())

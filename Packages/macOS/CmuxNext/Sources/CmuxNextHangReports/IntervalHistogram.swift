@@ -1,7 +1,7 @@
 /// One allowlisted Release signpost interval as MetricKit aggregated it (`MXSignpostMetric`):
 /// how often it ran and how long it took, never a single event.
 public nonisolated struct IntervalHistogram: Codable, Sendable, Equatable {
-    /// One of ``HangReportSignposts/categories``.
+    /// One of the allowlisted categories (cmux-tui/crates/cmux-hang-report).
     public var category: String
     /// A static identifier (`[a-z0-9_.-]{1,48}`).
     public var name: String
@@ -17,7 +17,7 @@ public nonisolated struct IntervalHistogram: Codable, Sendable, Equatable {
         self.category = category
         self.name = name
         self.count = max(0, count)
-        self.buckets = HistogramBucket.normalized(buckets)
+        self.buckets = buckets
         self.hitchMsPerS = hitchMsPerS
     }
 }

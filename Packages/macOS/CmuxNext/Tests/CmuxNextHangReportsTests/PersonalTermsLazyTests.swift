@@ -18,11 +18,14 @@ struct PersonalTermsLazyTests {
 
     @Test func makingTheClassifierAndTheScannerReadsNoTerms() {
         let reads = Reads()
-        let classifier = ImageClassifier(appBundlePath: nil, forbiddenTerms: reads.terms())
+        let classifier = ImageClassifier(appBundlePath: nil, forbiddenTerms: reads.terms(), systemImageExists: { _ in true })
         let scanner = PrivacyLeakScanner(forbiddenTerms: reads.terms())
+        let builder = HangReportBuilder(classifier: classifier, resolver: HangReportFixtures.FakeResolver(images: [
+            LoadedImage(path: "/usr/lib/libalice.dylib", uuid: HangReportFixtures.imeUUID, base: 0x1000, size: 0x1000),
+            LoadedImage(path: "/usr/lib/libdispatch.dylib", uuid: HangReportFixtures.appKitUUID, base: 0x4000, size: 0x1000),
+        ]))
         #expect(reads.value == 0)
-        #expect(classifier.sendableName("/usr/lib/libalice.dylib") == nil)
-        #expect(classifier.sendableName("/usr/lib/libdispatch.dylib") == "libdispatch.dylib")
+        #expect(builder.frames(addresses: [0x1010, 0x4010]).map(\.image) == [HangReportFrame.otherImage, "libdispatch.dylib"])
         #expect(!scanner.findings(in: Data(#"{"name":"alice"}"#.utf8)).isEmpty)
         #expect(reads.value > 0)
     }

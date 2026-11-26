@@ -7623,31 +7623,30 @@ CmuxNextFocusUI	enum	WhichKeyStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sour
 CmuxNextFocusUI	struct	WhichKeyRow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextFocusUI/WhichKey/WhichKeyRow.swift	AppKit key/window/HUD plumbing (event tap, Carbon hot key, overlay, key window)
 CmuxNextFocusUI	class	NoActivateKeyboardGuard	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextFocusUI/NoActivateKeyboardGuard.swift	NSEvent keyboard guard while the app is not active (moved from CmuxNextApp by #31707)
 CmuxNextHangReports	struct	CPUExceptionSample	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/CPUExceptionSample.swift	MetricKit sample types
-CmuxNextHangReports	struct	CallStackTreeReader	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/CallStackTreeReader.swift	MetricKit sample types
-CmuxNextHangReports	struct	CoarseCounts	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/CoarseCounts.swift	coarse count buckets
+CmuxNextHangReports	struct	CoarseCounts	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/CoarseCounts.swift	wire type; buckets asked of Rust (counts op)
 CmuxNextHangReports	struct	DyldImageResolver	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/DyldImageResolver.swift	dyld image resolver
-CmuxNextHangReports	struct	HangReport	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/HangReport.swift	hang report schema, ask policy, allow-list builder, collector, frame, service
-CmuxNextHangReports	struct	HangReportAskPolicy	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/HangReportAskPolicy.swift	hang report schema, ask policy, allow-list builder, collector, frame, service
-CmuxNextHangReports	struct	HangReportBuilder	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/HangReportBuilder.swift	hang report schema, ask policy, allow-list builder, collector, frame, service
-CmuxNextHangReports	class	HangReportCollector	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/HangReportCollector.swift	hang report schema, ask policy, allow-list builder, collector, frame, service
-CmuxNextHangReports	struct	HangReportFrame	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/HangReportFrame.swift	hang report schema, ask policy, allow-list builder, collector, frame, service
-CmuxNextHangReports	actor	HangReportService	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/HangReportService.swift	hang report schema, ask policy, allow-list builder, collector, frame, service
-CmuxNextHangReports	struct	HangReportSignposts	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/HangReportSignposts.swift	AppKit/SwiftUI view or platform code
-CmuxNextHangReports	actor	HangReportStore	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/HangReportStore.swift	hang report files, outbox, daily cap
+CmuxNextHangReports	struct	HangReport	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/HangReport.swift	hang report wire schema (Rust cmux-hang-report owns the rules)
+CmuxNextHangReports	struct	HangReportAskPolicy	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/HangReportAskPolicy.swift	asks Rust ask op
+CmuxNextHangReports	struct	HangReportBuilder	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/HangReportBuilder.swift	dladdr/disk facts; compose, preview, frames via Rust
+CmuxNextHangReports	class	HangReportCollector	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/HangReportCollector.swift	watchdog sample capture; note_stall via Rust
+CmuxNextHangReports	struct	HangReportFrame	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/HangReportFrame.swift	hang report wire type
+CmuxNextHangReports	enum	HangReportRules	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/HangReportRules.swift	FFI call helper and wire structs of cmux-hang-report ops
+CmuxNextHangReports	actor	HangReportService	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/HangReportService.swift	timers, I/O, transport; rules via Rust
+CmuxNextHangReports	actor	HangReportStore	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/HangReportStore.swift	files and mtimes; send_slot, outbox_plan via Rust
 CmuxNextHangReports	protocol	HangReportTransport	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/HangReportTransport.swift	AppKit/SwiftUI view or platform code
 CmuxNextHangReports	enum	HangReportTransportResult	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/HangReportTransportResult.swift	AppKit/SwiftUI view or platform code
-CmuxNextHangReports	struct	HangSample	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/HangSample.swift	hang sample
-CmuxNextHangReports	struct	HardwareClass	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/HardwareClass.swift	sysctl hardware class
-CmuxNextHangReports	struct	HistogramBucket	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/HistogramBucket.swift	histogram bucket, image classifier (privacy rule)
-CmuxNextHangReports	struct	ImageClassifier	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/ImageClassifier.swift	histogram bucket, image classifier (privacy rule)
+CmuxNextHangReports	struct	HangSample	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/HangSample.swift	hang report wire type
+CmuxNextHangReports	struct	HardwareClass	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/HardwareClass.swift	wire type; sysctl read, class asked of Rust (hardware op)
+CmuxNextHangReports	struct	HistogramBucket	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/HistogramBucket.swift	hang report wire type
+CmuxNextHangReports	struct	ImageClassifier	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/ImageClassifier.swift	personal terms (NSFullUserName, gethostname), disk probe
 CmuxNextHangReports	protocol	ImageResolving	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/ImageResolving.swift	AppKit/SwiftUI view or platform code
-CmuxNextHangReports	struct	InstallIdentity	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/InstallIdentity.swift	install identity rotation, interval histogram
-CmuxNextHangReports	struct	IntervalHistogram	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/IntervalHistogram.swift	install identity rotation, interval histogram
+CmuxNextHangReports	struct	InstallIdentity	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/InstallIdentity.swift	UserDefaults; install_id via Rust
+CmuxNextHangReports	struct	IntervalHistogram	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/IntervalHistogram.swift	hang report wire type
 CmuxNextHangReports	struct	LoadedImage	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/LoadedImage.swift	AppKit/SwiftUI view or platform code
 CmuxNextHangReports	struct	MetricKitInput	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/MetricKitInput.swift	AppKit/SwiftUI view or platform code
 CmuxNextHangReports	class	MetricKitSubscriber	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/MetricKitSubscriber.swift	AppKit/SwiftUI view or platform code
-CmuxNextHangReports	struct	PrivacyLeakScanner	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/PrivacyLeakScanner.swift	privacy leak scanner, stall aggregate
-CmuxNextHangReports	struct	StallAggregate	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/StallAggregate.swift	privacy leak scanner, stall aggregate
+CmuxNextHangReports	struct	PrivacyLeakScanner	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/PrivacyLeakScanner.swift	asks Rust scan op
+CmuxNextHangReports	struct	StallAggregate	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/StallAggregate.swift	value held between Rust aggregate ops
 CmuxNextHangReports	class	NoRedirects	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/URLSessionHangReportTransport.swift	from struct URLSessionHangReportTransport:7: AppKit/SwiftUI view or platform code
 CmuxNextHangReports	struct	URLSessionHangReportTransport	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/URLSessionHangReportTransport.swift	AppKit/SwiftUI view or platform code
 CmuxNextHibernation	struct	HibernationPlanner	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHibernation/HibernationPlanner.swift	Hibernation planning, probe history, keep-awake persistence

@@ -1,19 +1,10 @@
 /// The watchdog's findings since the last report: a histogram of finished stalls and the stacks
 /// of the longest ones (already reduced to ``HangReportFrame``s, so the aggregate can be saved and sent
-/// after a relaunch).
+/// after a relaunch). Its rules (the buckets, which samples are kept, the merge) are Rust's,
+/// asked through ``HangReportRules``; this is the value Swift holds between calls.
 public nonisolated struct StallAggregate: Codable, Sendable, Equatable {
-    /// Histogram edges in milliseconds: buckets are `[50, 100)`, `[100, 250)`, ...,
-    /// `[10000, one day)`.
-    public static let bucketEdgesMs = [50, 100, 250, 500, 1_000, 2_000, 5_000, 10_000]
-    /// The shortest stall whose stack is kept.
-    public static let sampledStallMs = 250
-    /// The hang length (the watchdog's `hangThreshold`).
-    public static let hangMs = 2_000
-    /// The most stall stacks and hang stacks kept per report.
-    public static let maxSamples = 8
-
-    /// One count per bucket of ``bucketEdgesMs``.
-    public private(set) var counts: [Int] = Array(repeating: 0, count: StallAggregate.bucketEdgesMs.count)
+    /// One count per histogram bucket (Rust's `BUCKET_EDGES_MS`: `[50, 100)`, ..., `[10000, one day)`).
+    public private(set) var counts: [Int] = Array(repeating: 0, count: 8)
     /// The longest sampled stalls, longest first.
     public private(set) var stalls: [HangSample] = []
     /// The longest hangs, longest first.
@@ -22,54 +13,46 @@ public nonisolated struct StallAggregate: Codable, Sendable, Equatable {
     /// Makes the value from its parts.
     public init() {}
 
-    /// Whether nothing was recorded.
-    public var isEmpty: Bool { counts.allSatisfy { $0 == 0 } && stalls.isEmpty && hangs.isEmpty }
+    /// Whether nothing was recorded (true when the rules do not answer: nothing is sent).
+    public var isEmpty: Bool { summary?.isEmpty ?? true }
 
-    /// Counts a finished stall of `durationMs`.
-    public mutating func count(durationMs: Int) {
-        guard let index = Self.bucketIndex(durationMs) else { return }
-        counts[index] += 1
-    }
+    /// The histogram as report buckets (nonzero only).
+    public var histogram: [HistogramBucket] { summary?.histogram ?? [] }
 
-    /// Whether a stall of `durationMs` would get a stack slot (so the caller resolves its stack).
-    public func wantsStallSample(durationMs: Int) -> Bool {
-        durationMs >= Self.sampledStallMs && (stalls.count < Self.maxSamples || durationMs > (stalls.last?.durationMs ?? 0))
-    }
-
-    /// Whether a hang of `durationMs` would get a stack slot.
-    public func wantsHangSample(durationMs: Int) -> Bool {
-        hangs.count < Self.maxSamples || durationMs > (hangs.last?.durationMs ?? 0)
+    /// Counts one stall in the bucket `note_stall` named.
+    mutating func count(bucket: Int) {
+        guard counts.indices.contains(bucket) else { return }
+        counts[bucket] += 1
     }
 
     /// Keeps `sample` when it is among the longest (a stall or a hang by its kind).
     public mutating func keep(_ sample: HangSample) {
-        if sample.kind == .hang { Self.insert(sample, into: &hangs) } else { Self.insert(sample, into: &stalls) }
+        struct Request: Encodable {
+            var aggregate: StallAggregate
+            var sample: HangSample
+        }
+        if let kept = HangReportRules.call("keep", Request(aggregate: self, sample: sample), as: HangReportRules.Aggregate.self) {
+            self = kept.aggregate
+        }
     }
 
     /// Adds another aggregate (the one saved by the previous launch).
     public mutating func merge(_ other: StallAggregate) {
-        for (index, count) in other.counts.enumerated() where index < counts.count { counts[index] += count }
-        other.stalls.forEach { Self.insert($0, into: &stalls) }
-        other.hangs.forEach { Self.insert($0, into: &hangs) }
-    }
-
-    /// The histogram as report buckets (nonzero only).
-    public var histogram: [HistogramBucket] {
-        counts.enumerated().compactMap { index, count in
-            guard count > 0 else { return nil }
-            let high = index + 1 < Self.bucketEdgesMs.count ? Self.bucketEdgesMs[index + 1] : HistogramBucket.maxMs
-            return HistogramBucket(lowMs: Self.bucketEdgesMs[index], highMs: high, count: count)
+        struct Request: Encodable {
+            var aggregate: StallAggregate
+            var other: StallAggregate
+        }
+        if let merged = HangReportRules.call("merge", Request(aggregate: self, other: other), as: HangReportRules.Aggregate.self) {
+            self = merged.aggregate
         }
     }
 
-    static func bucketIndex(_ durationMs: Int) -> Int? {
-        guard durationMs >= bucketEdgesMs[0] else { return nil }
-        return (bucketEdgesMs.lastIndex { durationMs >= $0 })
+    private struct Summary: Decodable {
+        var isEmpty: Bool
+        var histogram: [HistogramBucket]
     }
 
-    private static func insert(_ sample: HangSample, into list: inout [HangSample]) {
-        let index = list.firstIndex { $0.durationMs < sample.durationMs } ?? list.endIndex
-        list.insert(sample, at: index)
-        if list.count > maxSamples { list.removeLast(list.count - maxSamples) }
+    private var summary: Summary? {
+        HangReportRules.call("aggregate", HangReportRules.Aggregate(aggregate: self), as: Summary.self)
     }
 }
