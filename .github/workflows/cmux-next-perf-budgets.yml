@@ -367,10 +367,23 @@ jobs:
           persist-credentials: false
           submodules: false
 
+      # The state read goes out on a CI pool token first (each its own installation hour), then github.token
+      # (scripts/ci/ci_pool_tokens.py; perf-cron.py next_spare moves a refused read to the next at once). On
+      # github.token alone a result run waited up to an hour for the spent hour's reset (--wait-limit 3600).
+      - name: Mint the CI pool's tokens
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
+          CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
+          CI_POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+        run: python3 scripts/ci/ci_pool_tokens.py
+
       - name: Read the state and pick this tick's work
         id: plan
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN || github.token }}
+          GH_TOKEN_SPARES: ${{ env.CI_POOL_GH_TOKEN_SPARES }} ${{ github.token }}
           MAC_GATEWAY: ${{ vars.CI_PERF_CRON_GATEWAY }}
           MAC_CONTROLLER: ${{ vars.CMUX_NEXT_PERF_CRON_CONTROLLER }}
           LINUX_CONTROLLER: ${{ vars.CMUX_NEXT_PERF_CRON_LINUX_CONTROLLER }}

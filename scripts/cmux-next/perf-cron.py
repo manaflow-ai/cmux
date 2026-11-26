@@ -2407,6 +2407,22 @@ def gh_shape(path):
     return re.sub(r"/[0-9a-f]{40}(\.\.\.[0-9a-f]{40})?|/\d+", "/N", path.split("?")[0].replace("https://api.github.com", ""))
 
 
+def next_spare():
+    """Move GH_TOKEN to the next of GH_TOKEN_SPARES (whitespace-separated, each another installation's hour: the CI
+    pool's tokens, scripts/ci/ci_pool_tokens.py, then github.token). True when there was one: a refused call takes it
+    at once instead of waiting out the spent hour (the result run waited up to an hour on github.token alone)."""
+    spares = os.environ.get("GH_TOKEN_SPARES", "").split()
+    while spares:
+        token = spares.pop(0)
+        if token != os.environ.get("GH_TOKEN"):
+            os.environ["GH_TOKEN"] = token
+            os.environ["GH_TOKEN_SPARES"] = " ".join(spares)
+            print(f"perf-cron: rate limited; {len(spares) + 1} spare token(s) left, moving to the next", flush=True)
+            return True
+    os.environ["GH_TOKEN_SPARES"] = ""
+    return False
+
+
 def gh_request(path, method="GET", body=None, raw=False, timeout=30):
     api = os.environ.get("GITHUB_API_URL", "https://api.github.com")
     url = path if path.startswith("http") else f"{api}{path}"
@@ -2420,6 +2436,8 @@ def gh_request(path, method="GET", body=None, raw=False, timeout=30):
             payload = r.read()
     except urllib.error.HTTPError as error:
         if rate_limited(error):
+            if next_spare():
+                return gh_request(path, method, body, raw, timeout)
             raise refused_for_the_limit(f"{method} {gh_shape(path)}", error) from error
         raise
     return payload if raw else (json.loads(payload) if payload else {})
@@ -2531,6 +2549,8 @@ def download_redirected(url, timeout=120):
             return r.read()
     except urllib.error.HTTPError as error:
         if rate_limited(error):
+            if next_spare():
+                return download_redirected(url, timeout)
             raise refused_for_the_limit(f"GET {gh_shape(url)}", error) from error
         if error.code not in (301, 302, 303, 307, 308) or not error.headers.get("Location"):
             raise

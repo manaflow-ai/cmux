@@ -86,6 +86,14 @@ rate_limit_wait() {
 # rate limit. `gh api` is asked with --include, so a refusal's headers say how long to wait; only its body is printed.
 gh_retry() {
   local out status attempt=0 what="${*:1:3}" arg wait_s wait_why
+  # A read on READ_TOKEN refused for the rate limit moves at once to the next of READ_TOKEN_SPARES (the CI pool's
+  # tokens, then github.token; scripts/ci/ci_pool_tokens.py), each another installation's hour, before any wait.
+  local -a spares=()
+  local token="${GH_TOKEN:-}"  # the token this call asks with; a spare replaces it here, never in the caller's GH_TOKEN
+  local moved=0  # 1 after a move: each ask runs with GH_TOKEN=$token, else the caller's environment as it is
+  if [[ -n "${READ_TOKEN:-}" && "${GH_TOKEN:-}" == "$READ_TOKEN" ]]; then
+    read -ra spares <<<"${READ_TOKEN_SPARES:-}"
+  fi
   # A call that already gave up on the rate limit ends this run (rate_limit_gate): no more calls into the limit.
   [[ -s "$rate_limit_failed" ]] && return 1
   out="$(mktemp "$RUNNER_TEMP/gh-retry.XXXXXX")"
@@ -93,13 +101,21 @@ gh_retry() {
   while :; do
     status=0
     if [[ "$1" == gh && "${2:-}" == api ]]; then
-      "$1" api --include "${@:3}" >"$out" 2>"$out.err" || status=$?
+      if ((moved)); then GH_TOKEN="$token" "$1" api --include "${@:3}"; else "$1" api --include "${@:3}"; fi >"$out" 2>"$out.err" || status=$?
     else
-      "$@" >"$out" 2>"$out.err" || status=$?
+      if ((moved)); then GH_TOKEN="$token" "$@"; else "$@"; fi >"$out" 2>"$out.err" || status=$?
     fi
     split_include "$out"
     if ((status == 0)) || ! rate_limited "$out"; then
       break
+    fi
+    while ((${#spares[@]})) && [[ "${spares[0]}" == "$token" ]]; do spares=("${spares[@]:1}"); done
+    if ((${#spares[@]})); then
+      echo "rate limit: GitHub refused $what on the read token; asking again at once on the next spare (${#spares[@]} left)" >&3
+      token="${spares[0]}"
+      moved=1
+      spares=("${spares[@]:1}")
+      continue
     fi
     attempt=$((attempt + 1))
     if ! rate_limit_wait "$out.headers" "$attempt"; then
