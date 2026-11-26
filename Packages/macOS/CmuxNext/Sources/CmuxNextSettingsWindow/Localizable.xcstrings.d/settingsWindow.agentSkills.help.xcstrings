@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.agentSkills.help" : {
+      "comment" : "Settings > Agents > Claude Code & Codex > Skills: what the list is.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The skills and slash commands Claude Code and Codex load. Edit opens a file in cmux; the switch changes the agent's setting."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "المهارات وأوامر الشرطة المائلة التي يحمّلها Claude Code وCodex من مجلداتهما. يفتح «تحرير» الملف في cmux، ويغيّر المفتاح إعداد الوكيل نفسه."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vještine i slash komande koje Claude Code i Codex učitavaju iz svojih foldera. Uredi otvara datoteku u cmuxu; prekidač mijenja postavku samog agenta."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "De færdigheder og skråstregskommandoer, Claude Code og Codex indlæser fra deres egne mapper. Rediger åbner en fil i cmux; kontakten ændrer agentens egen indstilling."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Die Skills und Slash-Befehle, die Claude Code und Codex aus ihren eigenen Ordnern laden. Bearbeiten öffnet eine Datei in cmux; der Schalter ändert die Einstellung des Agenten selbst."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Las habilidades y los comandos de barra que Claude Code y Codex cargan desde sus propias carpetas. Editar abre un archivo en cmux; el interruptor cambia el ajuste del propio agente."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les compétences et commandes slash que Claude Code et Codex chargent depuis leurs propres dossiers. Modifier ouvre un fichier dans cmux ; l’interrupteur change le réglage de l’agent lui-même."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le competenze e i comandi slash che Claude Code e Codex caricano dalle proprie cartelle. Modifica apre un file in cmux; l’interruttore cambia l’impostazione dell’agente stesso."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Claude Code と Codex が自身のフォルダから読み込むスキルとスラッシュコマンドです。「編集」でファイルを cmux で開き、スイッチでエージェント自身の設定を変更します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ជំនាញ និងពាក្យបញ្ជា slash ដែល Claude Code និង Codex ផ្ទុកពីថតរបស់ពួកវា។ កែសម្រួល បើកឯកសារក្នុង cmux; កុងតាក់ប្តូរការកំណត់ផ្ទាល់របស់ភ្នាក់ងារ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Claude Code와 Codex가 자체 폴더에서 불러오는 스킬과 슬래시 명령입니다. 편집은 cmux에서 파일을 열고, 스위치는 에이전트 자체 설정을 바꿉니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ferdighetene og skråstrekkommandoene Claude Code og Codex laster fra egne mapper. Rediger åpner en fil i cmux; bryteren endrer agentens egen innstilling."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Umiejętności i polecenia z ukośnikiem, które Claude Code i Codex wczytują z własnych folderów. Edytuj otwiera plik w cmux; przełącznik zmienia ustawienie samego agenta."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "As habilidades e os comandos de barra que o Claude Code e o Codex carregam das próprias pastas. Editar abre um arquivo no cmux; o botão muda o ajuste do próprio agente."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Навыки и слэш-команды, которые Claude Code и Codex загружают из своих папок. «Изменить» открывает файл в cmux; переключатель меняет собственную настройку агента."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ทักษะและคำสั่งสแลชที่ Claude Code และ Codex โหลดจากโฟลเดอร์ของตัวเอง แก้ไขจะเปิดไฟล์ใน cmux สวิตช์จะเปลี่ยนการตั้งค่าของเอเจนต์เอง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Claude Code ve Codex'in kendi klasörlerinden yüklediği beceriler ve eğik çizgi komutları. Düzenle dosyayı cmux'ta açar; anahtar ajanın kendi ayarını değiştirir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Навички та слеш-команди, які Claude Code і Codex завантажують зі своїх папок. «Змінити» відкриває файл у cmux; перемикач змінює власне налаштування агента."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Các kỹ năng và lệnh gạch chéo mà Claude Code và Codex nạp từ thư mục riêng. Sửa mở tệp trong cmux; công tắc đổi thiết lập riêng của tác tử."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Claude Code 和 Codex 从各自文件夹加载的技能和斜杠命令。“编辑”在 cmux 中打开文件；开关会更改智能体自己的设置。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Claude Code 與 Codex 從各自資料夾載入的技能與斜線指令。「編輯」會在 cmux 中開啟檔案；開關會變更代理自己的設定。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

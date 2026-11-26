@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.browser.newTabPage.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An address such as https://example.com. Empty opens a blank page."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "https://example.com などのアドレス。空欄なら空白のページを開きます。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "عنوان مثل https://example.com. يفتح الحقل الفارغ صفحة فارغة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Adresa poput https://example.com. Prazno otvara praznu stranicu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En adresse som https://example.com. Tomt åbner en tom side."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Eine Adresse wie https://example.com. Leer öffnet eine leere Seite."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una dirección como https://example.com. Si está vacío, se abre una página en blanco."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Une adresse comme https://example.com. Vide ouvre une page blanche."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un indirizzo come https://example.com. Se vuoto, apre una pagina vuota."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "អាសយដ្ឋានដូចជា https://example.com។ ប្រសិនបើទទេ នឹងបើកទំព័រទទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "https://example.com 같은 주소. 비워 두면 빈 페이지가 열립니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En adresse som https://example.com. Tomt åpner en tom side."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Adres, np. https://example.com. Puste pole otwiera pustą stronę."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Um endereço como https://example.com. Vazio abre uma página em branco."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Адрес вида https://example.com. Если пусто, открывается пустая страница."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ที่อยู่ เช่น https://example.com หากเว้นว่างจะเปิดหน้าว่าง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "https://example.com gibi bir adres. Boş bırakılırsa boş sayfa açılır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Адреса на кшталт https://example.com. Якщо порожньо, відкривається порожня сторінка."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Địa chỉ như https://example.com. Để trống sẽ mở trang trống."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "例如 https://example.com 的地址。留空则打开空白页。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "例如 https://example.com 的位址。留空則開啟空白頁面。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
