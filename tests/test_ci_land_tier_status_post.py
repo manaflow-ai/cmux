@@ -29,6 +29,9 @@ WORKFLOW = ROOT / ".github/workflows/pr-router.yml"
 
 FAKE_GH = """#!/bin/sh
 echo "$GH_TOKEN $*" >> "$CALLS"
+for arg in "$@"; do case "$arg" in description=*)
+  [ "${#arg}" -le 152 ] || { echo "gh: Validation failed: Description is too long (maximum is 140 characters)" >&2; exit 1; };;
+esac; done
 case " $FAIL_TOKENS " in *" $GH_TOKEN "*)
   echo "gh: API rate limit exceeded for installation." >&2; exit 1;;
 esac
@@ -60,6 +63,14 @@ class LandTierStatusPost(unittest.TestCase):
             done = subprocess.run(["bash", "-e", "-c", script], env=env, capture_output=True, text=True, timeout=30)
             lines = calls.read_text().splitlines() if calls.exists() else []
         return done.returncode, lines, done.stdout + done.stderr
+
+    def test_each_states_description_fits_githubs_140(self) -> None:
+        # the regression: the success description was 154 characters, GitHub refused it on every try (422), and the
+        # full tier's heads kept the cheap tier's `pending` (run 45841266692, 2026-11-26 14:40Z)
+        for state in ("success", "pending"):
+            code, calls, out = self.run_post("app", fail="", state=state)
+            self.assertEqual(code, 0, out)
+            self.assertEqual(len(calls), 1, calls)
 
     def test_the_app_token_posts_first(self) -> None:
         code, calls, _ = self.run_post("app", fail="")
