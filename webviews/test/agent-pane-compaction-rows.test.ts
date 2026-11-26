@@ -12,6 +12,31 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { CompactionNote } from "../src/agent-session/acpmux/conversation/CompactionNote";
 import { compactTokens } from "../src/agent-session/acpmux/conversation/compactionNoteModel";
 
+import { compactionOf } from "../src/agent-session/acpmux/direct/sessionUpdates";
+import { setExperimentSwitches } from "../src/experiments/switches";
+
+test("the threshold insight needs opt-in and an observed automatic boundary", () => {
+  const draw = (fields: Record<string, unknown> = {}) => {
+    const compaction = compactionOf({ state: "completed", trigger: "auto", preTokens: 386_000, ...fields })!;
+    return renderToStaticMarkup(createElement(CompactionNote, { compaction }));
+  };
+  const message = "Automatic compaction at 386k tokens";
+  try {
+    setExperimentSwitches({});
+    expect(draw()).not.toContain(message);
+    setExperimentSwitches({ compactionThresholdInsight: true });
+    expect(draw()).toContain(message);
+    for (const fields of [{ trigger: "manual" }, { trigger: undefined }, { reason: "cache_expiry" },
+      { state: "running" }, { state: "failed" }, { preTokens: undefined }, { preTokens: -1 }]) {
+      expect(draw(fields)).not.toContain("smaller auto-compact window");
+    }
+    setExperimentSwitches({ compactionThresholdInsight: false });
+    expect(draw()).not.toContain(message);
+  } finally {
+    setExperimentSwitches({});
+  }
+});
+
 const CHAT = "0190a000-0000-7000-8000-0000000000c7";
 const START = Date.UTC(2026, 9, 18, 9, 0, 0);
 type Step = [dir: string, kind: string, msg: Record<string, unknown>, hostSeq?: number];

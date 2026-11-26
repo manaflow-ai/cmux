@@ -1,0 +1,17 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.experiments.compactionThresholdInsight.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show when Claude automatically compacted a chat and how to lower the context it carries between turns."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

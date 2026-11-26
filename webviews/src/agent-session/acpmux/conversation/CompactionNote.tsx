@@ -16,9 +16,11 @@ import { type StringKey, useT } from "../i18n";
 import type { AcpmuxCompaction, AcpmuxFailover, AcpmuxPolicyUnenforced } from "../model";
 import { ArrowRight, Lock, Spinner, SummaryToggle } from "./icons";
 import { CACHE_EXPIRY_REASON } from "./cacheCompaction";
+import { useExperimentSwitch } from "../../../experiments/switches";
 import { compactTokens } from "./compactionNoteModel";
 export function CompactionNote({ compaction }: { compaction: AcpmuxCompaction }) {
   const t = useT();
+  const showThreshold = useExperimentSwitch("compactionThresholdInsight");
   const { state, inferred, reason, error, preTokens, postTokens } = compaction;
   // How it ended was never heard: neither a failure nor a completion is claimed.
   const unheard = state === "failed" && inferred === true && !error;
@@ -43,11 +45,17 @@ export function CompactionNote({ compaction }: { compaction: AcpmuxCompaction })
     if (preTokens !== undefined && postTokens !== undefined)
       text = t("compaction.withSizes", { text, before: compactTokens(preTokens), after: compactTokens(postTokens) });
   }
+  const showInsight =
+    showThreshold && state === "completed" && compaction.trigger === "auto" && !reason &&
+    preTokens !== undefined && Number.isSafeInteger(preTokens) && preTokens > 0;
   return (
     <div className="cv-tools">
       <div className="cv-tool cv-compaction" data-state={unheard ? "ended" : state}>
         <span className="cv-tool__icon">{state === "running" ? <Spinner /> : <SummaryToggle />}</span>
-        <span className="cv-tool__text">{text}</span>
+        <span className="cv-tool__text">
+          {text}
+          {showInsight && <> {t("compaction.thresholdInsight", { before: compactTokens(preTokens) })}</>}
+        </span>
       </div>
     </div>
   );
