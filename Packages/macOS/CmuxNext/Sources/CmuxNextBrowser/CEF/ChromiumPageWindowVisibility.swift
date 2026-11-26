@@ -28,6 +28,13 @@ import ObjectiveC
 /// Space. A covered cmux window is still on the active Space, so its pages
 /// stay drawn, as Chromium's own windows' pages do. A page window that is not embedded, or not a child window yet
 /// (a detached page, a page before it shows), keeps Chromium's answer.
+///
+/// Chromium reads `isOnActiveSpace` on each visibility change of a page, and a
+/// pane's layout shows and hides one (the New Tab spare) during a divider drag.
+/// The parent's own `-isOnActiveSpace` is a synchronous window-server round
+/// trip, so with ``spaceFromOcclusionKnob`` a visible parent answers from its
+/// occlusion state (a visible window is on a visible Space) and only a parent
+/// out of sight is asked.
 nonisolated enum ChromiumPageWindowVisibility {
     static let occlusionSelector = #selector(getter: NSWindow.occlusionState)
     static let activeSpaceSelector = #selector(getter: NSWindow.isOnActiveSpace)
@@ -82,8 +89,13 @@ nonisolated enum ChromiumPageWindowVisibility {
             return state(parent, occlusionSel)
         }
         let space: @convention(block) (AnyObject) -> Bool = { window in
-            guard let parent = embeddingParent(window),
-                  let onSpace = implementation(of: spaceSel, in: parent, as: Query.self) else { return ownSpace(window, spaceSel) }
+            guard let parent = embeddingParent(window) else { return ownSpace(window, spaceSel) }
+            // A visible window is on a visible Space. AppKit keeps occlusionState from the window server's own
+            // notices (no round trip), while -isOnActiveSpace asks the window server for the window's Spaces
+            // (SLSWindowServerClientCopySpacesForWindows), synchronously, on each of Chromium's reads.
+            if spaceFromOcclusion, let state = implementation(of: occlusionSel, in: parent, as: StateQuery.self),
+               NSWindow.OcclusionState(rawValue: state(parent, occlusionSel)).contains(.visible) { return true }
+            guard let onSpace = implementation(of: spaceSel, in: parent, as: Query.self) else { return ownSpace(window, spaceSel) }
             return onSpace(parent, spaceSel)
         }
         class_replaceMethod(pageClass, occlusionSel, imp_implementationWithBlock(occlusion),
