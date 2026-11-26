@@ -12,11 +12,15 @@ fn words(text: &str) -> Vec<String> {
 fn parses_each_verb() {
     assert_eq!(
         parse(&words("plan ssh:box --out p.json")).unwrap(),
-        Command::Plan { source: "ssh:box".into(), out: Some("p.json".into()) }
+        Command::Plan { source: "ssh:box".into(), out: Some("p.json".into()), preview: false }
     );
     assert_eq!(
         parse(&words("plan gitpod ./app")).unwrap(),
-        Command::Plan { source: "gitpod:./app".into(), out: None }
+        Command::Plan { source: "gitpod:./app".into(), out: None, preview: false }
+    );
+    assert_eq!(
+        parse(&words("plan laptop --out p.json --preview")).unwrap(),
+        Command::Plan { source: "laptop".into(), out: Some("p.json".into()), preview: true }
     );
     assert_eq!(
         parse(&words("apply plan.json --only a --only b --headless --backend dev")).unwrap(),

@@ -36,86 +36,36 @@ public struct AutoCloudMove {
 public struct MoveToAutoCloudImport {
     static let moveButton = "move"
     static let identifier = "cmux.dialog.moveToAutoCloud"
-    /// The most project names the preview lists before an ellipsis.
-    static let listedProjects = 8
     static let planTimeout = Duration.seconds(120)
     /// Each project's machine is made in turn; the run ends when they all are.
     static let applyTimeout = Duration.seconds(3_600)
 
-    /// The part of `cmux migrate`'s plan (cmux-migrate `plan.rs`) the preview shows.
-    nonisolated struct Plan: Decodable, Equatable, Sendable {
-        nonisolated struct Project: Decodable, Equatable, Sendable {
-            var key: String
-            var name: String
-            var checked: Bool = true
-
-            init(key: String, name: String, checked: Bool = true) {
-                self.key = key
-                self.name = name
-                self.checked = checked
-            }
-
-            init(from decoder: any Decoder) throws {
-                let values = try decoder.container(keyedBy: CodingKeys.self)
-                key = try values.decode(String.self, forKey: .key)
-                name = try values.decode(String.self, forKey: .name)
-                checked = try values.decodeIfPresent(Bool.self, forKey: .checked) ?? true
-            }
-
-            enum CodingKeys: String, CodingKey { case key, name, checked }
-        }
-        nonisolated struct Carry: Decodable, Equatable, Sendable {
-            var checked: Bool = true
-
-            init(checked: Bool = true) { self.checked = checked }
-
-            init(from decoder: any Decoder) throws {
-                checked = try decoder.container(keyedBy: CodingKeys.self).decodeIfPresent(Bool.self, forKey: .checked) ?? true
-            }
-
-            enum CodingKeys: String, CodingKey { case checked }
-        }
-        nonisolated struct Unsupported: Decodable, Equatable, Sendable {
-            var what: String
-            var why: String
-        }
-
-        var projects: [Project] = []
-        var carry: [Carry] = []
+    /// `cmux migrate plan laptop --preview --json`'s answer (cmux-migrate `preview.rs`): which
+    /// projects move, what an earlier run already moved and how much of each list shows are the
+    /// CLI's; this only words it.
+    nonisolated struct Preview: Decodable, Equatable, Sendable {
+        var moving = 0
+        var names: [String] = []
+        var more = false
+        var carry = 0
         var warnings: [String] = []
-        var unsupported: [Unsupported] = []
+        var left = 0
+        var leftRows: [String] = []
 
-        init(projects: [Project] = [], carry: [Carry] = [], warnings: [String] = [], unsupported: [Unsupported] = []) {
-            self.projects = projects
-            self.carry = carry
-            self.warnings = warnings
-            self.unsupported = unsupported
-        }
-
-        init(from decoder: any Decoder) throws {
-            let values = try decoder.container(keyedBy: CodingKeys.self)
-            projects = try values.decodeIfPresent([Project].self, forKey: .projects) ?? []
-            carry = try values.decodeIfPresent([Carry].self, forKey: .carry) ?? []
-            warnings = try values.decodeIfPresent([String].self, forKey: .warnings) ?? []
-            unsupported = try values.decodeIfPresent([Unsupported].self, forKey: .unsupported) ?? []
-        }
-
-        enum CodingKeys: String, CodingKey { case projects, carry, warnings, unsupported }
-
-        /// The projects apply makes machines for.
-        var moving: [Project] { projects.filter(\.checked) }
+        enum CodingKeys: String, CodingKey { case moving, names, more, carry, warnings, left, leftRows = "left_rows" }
     }
 
-    /// How one `cmux` run ended: its exit status and its last stderr line.
+    /// How one `cmux` run ended: its exit status, its stdout and its last stderr line.
     nonisolated struct Ran: Equatable, Sendable {
         var status: Int32
+        var output = Data()
         var reason: String
     }
 
     /// Runs `cmux <arguments>` within the timeout (a test's fake).
     let cli: @MainActor ([String], Duration) async throws -> Ran
     /// Shows the preview; true when the person pressed Move.
-    let confirm: @MainActor (Plan) async -> Bool
+    let confirm: @MainActor (Preview) async -> Bool
     /// Where the plan is written between the dry run and apply.
     let folder: URL
 
@@ -126,19 +76,21 @@ public struct MoveToAutoCloudImport {
             let result = try await ProcessRunner.run(executable: binary, arguments: arguments, environment: nil, timeout: timeout,
                                                      clock: ContinuousClock())
             let stderr = String(decoding: result.stderr, as: UTF8.self)
-            return Ran(status: result.status, reason: stderr.split(separator: "\n").last.map(String.init) ?? "exit \(result.status)")
+            return Ran(status: result.status, output: result.stdout,
+                       reason: stderr.split(separator: "\n").last.map(String.init) ?? "exit \(result.status)")
         }, confirm: { await Self.showPreview($0) })
     }
 
     init(cli: @escaping @MainActor ([String], Duration) async throws -> Ran,
-         confirm: @escaping @MainActor (Plan) async -> Bool,
+         confirm: @escaping @MainActor (Preview) async -> Bool,
          folder: URL = FileManager.default.temporaryDirectory) {
         self.cli = cli
         self.confirm = confirm
         self.folder = folder
     }
 
-    /// Runs the move; returns how many projects it moved, nil when the person declined.
+    /// Runs the move; returns how many projects it moved, nil when the person declined or
+    /// nothing was left to move.
     /// A failure shows its toast, then throws.
     public func run(progress: (@MainActor (Double) -> Void)? = nil) async throws -> Int? {
         let file = folder.appending(path: "cmux-move-to-autocloud-\(UUID().uuidString.lowercased()).json", directoryHint: .notDirectory)
@@ -159,27 +111,26 @@ public struct MoveToAutoCloudImport {
     }
 
     private func moving(_ file: URL, progress: (@MainActor (Double) -> Void)?) async throws -> Int? {
-        let planned = try await cli(["migrate", "plan", "laptop", "--out", file.path], Self.planTimeout)
+        let planned = try await cli(["migrate", "plan", "laptop", "--out", file.path, "--preview", "--json"], Self.planTimeout)
         guard planned.status == 0 else { throw MoveToAutoCloudFailure.plan(planned.reason) }
-        // Read and decoded off the main thread: a Mac with many checkouts writes a long plan.
-        let plan = try await Task.detached(priority: .userInitiated) { try JSONDecoder().decode(Plan.self, from: Data(blockingContentsOf: file)) }.value
-        guard !plan.moving.isEmpty else {
+        let preview = try JSONDecoder().decode(Preview.self, from: planned.output)
+        guard preview.moving > 0 else {
             Self.toast(MoveToAutoCloudStrings.nothing)
-            return 0
+            return nil
         }
-        guard await confirm(plan) else { return nil }
+        guard await confirm(preview) else { return nil }
         let applied = try await cli(["migrate", "apply", file.path], Self.applyTimeout)
         guard applied.status == 0 else { throw MoveToAutoCloudFailure.apply(applied.reason) }
         progress?(1)
         Self.toast(MoveToAutoCloudStrings.moved)
-        return plan.moving.count
+        return preview.moving
     }
 
-    private static func showPreview(_ plan: Plan) async -> Bool {
+    private static func showPreview(_ preview: Preview) async -> Bool {
         let window = NSApp.keyWindow ?? NSApp.mainWindow
         let spec = CmuxDialogSpec(usesTransientMaterial: true,
             title: MoveToAutoCloudStrings.previewTitle,
-            lines: previewLines(plan),
+            lines: previewLines(preview),
             buttons: [.cancel(), CmuxDialogButton(id: moveButton, title: MoveToAutoCloudStrings.previewButton, role: .default)],
             identifier: identifier
         )
@@ -188,19 +139,15 @@ public struct MoveToAutoCloudImport {
 
     /// The projects first (count, then each machine's name), then what comes along, the plan's
     /// warnings as the CLI wrote them, what stays on this Mac and that nothing here changes.
-    static func previewLines(_ plan: Plan) -> [String] {
-        let moving = plan.moving
-        var lines = [MoveToAutoCloudStrings.projects(moving.count)]
-        for project in moving.prefix(listedProjects) { lines.append("• \(String(project.name.prefix(64)))") }
-        if moving.count > listedProjects { lines.append("• …") }
-        let carry = plan.carry.filter(\.checked).count
-        if carry > 0 { lines.append(MoveToAutoCloudStrings.carry(carry)) }
-        for warning in plan.warnings.prefix(listedProjects) { lines.append(String(warning.prefix(200))) }
-        if !plan.unsupported.isEmpty {
-            lines.append(MoveToAutoCloudStrings.unsupported(plan.unsupported.count))
-            for item in plan.unsupported.prefix(listedProjects) {
-                lines.append("• \(String(item.what.prefix(64))): \(String(item.why.prefix(120)))")
-            }
+    static func previewLines(_ preview: Preview) -> [String] {
+        var lines = [MoveToAutoCloudStrings.projects(preview.moving)]
+        lines += preview.names.map { "• \($0)" }
+        if preview.more { lines.append("• …") }
+        if preview.carry > 0 { lines.append(MoveToAutoCloudStrings.carry(preview.carry)) }
+        lines += preview.warnings
+        if preview.left > 0 {
+            lines.append(MoveToAutoCloudStrings.unsupported(preview.left))
+            lines += preview.leftRows.map { "• \($0)" }
         }
         lines.append(MoveToAutoCloudStrings.unchanged)
         return lines
