@@ -240,6 +240,7 @@ impl Hub {
                 if !hub.shutting_down()
                     && hub.adoption_checkpoint(&session, &incarnation, &inputs).is_none()
                 {
+                    let _probe = crate::gauges::global().phase("TEMP prime: fold");
                     hub.catch_up(&session);
                     let settled = hub.settled_seq(&session);
                     if let Some(point) = hub.fold_checkpoint(&session, &incarnation, settled) {
