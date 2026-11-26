@@ -1000,8 +1000,8 @@ jobs:
           TAG: ${{ needs.build.outputs.tag }}
           CHECKSUM: ${{ needs.build.outputs.checksum }}
           # A stalled git transfer (a lazy tree fetch of this treeless clone, or `git fetch origin $previous`) aborts
-          # after 60 s under 1 KB/s instead of hanging the job to its timeout; the script treats a failed read as before.
-          GIT_HTTP_LOW_SPEED_LIMIT: "1000"
+          # after 60 s with no byte instead of hanging the job to its timeout; the script treats a failed read as before.
+          GIT_HTTP_LOW_SPEED_LIMIT: "1"
           GIT_HTTP_LOW_SPEED_TIME: "60"
         shell: bash
         run: bash scripts/cmux-next/publish-app-ffi-repin.sh

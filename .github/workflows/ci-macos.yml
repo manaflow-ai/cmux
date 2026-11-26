@@ -2586,6 +2586,25 @@ jobs:
           ended="$(date +%s)"
           echo "compile_seconds=$((ended - started))" >> "$GITHUB_OUTPUT"
 
+      # Restoring CompilationCache.noindex on CI is not a use Xcode's cache was
+      # designed for, so this summary puts the CAS hit and miss counts (per
+      # target, where macros and bridging headers show up as misses) beside
+      # the restore seconds ("Cache restore") and compile seconds above.
+      - name: Report Release compilation cache hits
+        if: always() && !cancelled() && steps.build-release.outcome != 'skipped'
+        continue-on-error: true
+        env:
+          COMPILE_SECONDS: ${{ steps.build-release.outputs.compile_seconds }}
+          COMPILE_OUTCOME: ${{ steps.build-release.outcome }}
+        run: |
+          set -euo pipefail
+          args=(build-universal --output "$RUNNER_TEMP/release-build-metrics.json"
+            --compile-outcome "$COMPILE_OUTCOME" --summary "$GITHUB_STEP_SUMMARY")
+          if [[ "$COMPILE_SECONDS" =~ ^[0-9]+$ ]]; then
+            args+=(--compile-seconds "$COMPILE_SECONDS")
+          fi
+          python3 scripts/ci/build_metrics.py "${args[@]}"
+
       - name: Download Release Ghostty CLI helper
         if: steps.restore-release-product.outputs.hit != 'true'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0

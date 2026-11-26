@@ -739,7 +739,7 @@ jobs:
             exit 1
           fi
           helper="$RUNNER_TEMP/git_fetch_retry.py"
-          git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 show "$GITHUB_SHA:scripts/ci/git_fetch_retry.py" > "$helper" 2>/dev/null \
+          git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 show "$GITHUB_SHA:scripts/ci/git_fetch_retry.py" > "$helper" 2>/dev/null \
             || curl -fsSL --retry 5 --retry-all-errors --max-time 60 -o "$helper" "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/scripts/ci/git_fetch_retry.py"
           if [[ "$GITHUB_REF" == refs/heads/* ]]; then target=(-B "$GITHUB_REF_NAME"); else target=(--detach); fi
           python3 "$helper" --stop-on-refusal --tries 3 --timeout 180 --backoff 15,30 -- git checkout --progress --force "${target[@]}" "$GITHUB_SHA"
@@ -933,7 +933,7 @@ jobs:
             exit 1
           fi
           helper="$RUNNER_TEMP/git_fetch_retry.py"
-          git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 show "$GITHUB_SHA:scripts/ci/git_fetch_retry.py" > "$helper" 2>/dev/null \
+          git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 show "$GITHUB_SHA:scripts/ci/git_fetch_retry.py" > "$helper" 2>/dev/null \
             || curl -fsSL --retry 5 --retry-all-errors --max-time 60 -o "$helper" "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/scripts/ci/git_fetch_retry.py"
           if [[ "$GITHUB_REF" == refs/heads/* ]]; then target=(-B "$GITHUB_REF_NAME"); else target=(--detach); fi
           python3 "$helper" --stop-on-refusal --tries 3 --timeout 180 --backoff 15,30 -- git checkout --progress --force "${target[@]}" "$GITHUB_SHA"
@@ -1074,6 +1074,10 @@ jobs:
           workspaces: cmux-tui
           # rust-cache deletes ~/.cargo/bin otherwise (tests/test_ci_rust_cache_keeps_runner_bin.py).
           cache-bin: false
+          # Save the build even when the journey goes red: the first run after #56495 built in 13 min but its
+          # journey ran past the job's 50 (job 139905166641), and a cancelled job never runs the save, so the
+          # cache would stay cold forever.
+          cache-on-failure: true
       - name: Build Linux cmux-tui for the headless journey
         id: build-cmux-tui
         working-directory: cmux-tui
@@ -1104,6 +1108,8 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Cloud journey (staging)
+        # Under the job's 50 so a slow journey fails as a step and rust-cache's post step still saves the build.
+        timeout-minutes: 32
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
@@ -1162,7 +1168,7 @@ jobs:
             exit 1
           fi
           helper="$RUNNER_TEMP/git_fetch_retry.py"
-          git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 show "$GITHUB_SHA:scripts/ci/git_fetch_retry.py" > "$helper" 2>/dev/null \
+          git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 show "$GITHUB_SHA:scripts/ci/git_fetch_retry.py" > "$helper" 2>/dev/null \
             || curl -fsSL --retry 5 --retry-all-errors --max-time 60 -o "$helper" "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/scripts/ci/git_fetch_retry.py"
           if [[ "$GITHUB_REF" == refs/heads/* ]]; then target=(-B "$GITHUB_REF_NAME"); else target=(--detach); fi
           python3 "$helper" --stop-on-refusal --tries 3 --timeout 180 --backoff 15,30 -- git checkout --progress --force "${target[@]}" "$GITHUB_SHA"
