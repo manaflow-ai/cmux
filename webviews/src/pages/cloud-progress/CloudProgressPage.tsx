@@ -192,6 +192,7 @@ export function CloudProgressView({
   if (arm === "card") {
     return (
       <div className="cloud-progress" data-look="card" data-stage={state.stage} data-slow={slow || undefined}>
+        {/* oxlint-disable-next-line jsx-a11y/aria-role -- Panel's role selects the Instrument surface, not an ARIA role */}
         <Panel role="card" className="cloud-progress__card">
           <h1 className="cloud-progress__title">{title}</h1>
           {status}

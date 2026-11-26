@@ -187,17 +187,17 @@ Each is off unless asked for; without it a piece renders the markup it always di
 They let a host that keeps its own sheet (the customize scene renderer) draw with the kit at its
 current values. Gallery: `kit.primitives` `scene-parity`.
 
-| Piece    | Prop or name                         | What it does                                                                                                                                                                      |
-| -------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Button` | `bare`                               | Only the caller's `className`: no `ui-button ui-btn`, no `data-variant`/`data-size`. Base UI's behavior stays.                                                                    |
-| `Row`    | `ref`                                | The row element: the `button` with `onSelect`, else the static `div`.                                                                                                             |
-| `Row`    | any other attribute or handler       | Goes onto the row element (`draggable`, `onDragStart`, `data-*`). `onSelect` stays the click; `label` wins `aria-label`.                                                          |
-| `Row`    | `subtitleSize`                       | `caption` (default) or `detail` (`--text-detail`), the scene's second line.                                                                                                       |
-| `Row`    | `--kit-row-selected-fill`            | Set on the row (its own class) to give the selection the host's fill; unset, `--ds-color-selection`.                                                                              |
-| `Pill`   | `size="xs"`                          | The scene badge: min-height `--grid-icon-box` (16), padding `--grid-base`, `--text-detail`, neutral fill `currentColor` 14%.                                                      |
-| `Pill`   | `--kit-pill-radius`                  | xs only: the corner; default `--ds-radius-full`, and any class of the host's sets it.                                                                                             |
-| Tokens   | `grid(name)`, `GRID`                 | The layout grid's `--grid-*` (base, half-step, gap, glyph, icon-box, pill, pill-inset, row, and comfortables), which follow `--cmux-interface-scale` where `space()` is fixed px. |
-| Tokens   | `--ds-radius-full`, `radius("full")` | 999px: a capsule at any height. Tailwind's own `rounded-full` is left as it is.                                                                                                   |
+| Piece    | Prop or name                         | What it does                                                                                                                                                                                                                                        |
+| -------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Button` | `bare`                               | Only the caller's `className`: no `ui-button ui-btn`, no `data-variant`/`data-size`. Base UI's behavior stays.                                                                                                                                      |
+| `Row`    | `ref`                                | The row element: the `button` with `onSelect`, else the static `div`.                                                                                                                                                                               |
+| `Row`    | any other attribute or handler       | Goes onto the row element (`draggable`, `onDragStart`, `data-*`). `onSelect` stays the click; `label` wins `aria-label`.                                                                                                                            |
+| `Row`    | `subtitleSize`                       | `caption` (default) or `detail` (`--text-detail`), the scene's second line.                                                                                                                                                                         |
+| `Row`    | `--kit-row-selected-fill`            | Set on the row (its own class) to give the selection the host's fill; unset, `--ds-color-selection`.                                                                                                                                                |
+| `Pill`   | `size="xs"`                          | The scene badge: min-height `--grid-icon-box` (16), padding `--grid-base`, `--text-detail`, neutral fill `currentColor` 14%.                                                                                                                        |
+| `Pill`   | `--kit-pill-radius`                  | xs only: the corner; default `--ds-radius-full`, and any class of the host's sets it.                                                                                                                                                               |
+| Tokens   | `grid(name)`, `GRID`                 | The layout grid's `--grid-*` (base, half-step, gap, glyph, icon-box, pill, pill-inset, row, and comfortables), at the current interface scale. The `space()` steps also respond to page density in Settings and on pages using `data-page-density`. |
+| Tokens   | `--ds-radius-full`, `radius("full")` | 999px: a capsule at any height. Tailwind's own `rounded-full` is left as it is.                                                                                                                                                                     |
 
 ## Gallery
 
@@ -251,6 +251,23 @@ Choose the API for the host that will render the view:
   [`skills/cmux-customization/SKILL.md`](../../../skills/cmux-customization/SKILL.md), "Make a view".
 - `cmux-extension-sdk`, for extensions (`cmux ext new`): its scene DSL and widget helpers,
   [`cmux-tui/crates/cmux-extension-sdk/README.md`](../../../cmux-tui/crates/cmux-extension-sdk/README.md).
+
+In a scene, the constructors and modifiers compose directly. This view uses the renderer’s
+standard panel, row, button, menu, glass material and motion preset:
+
+```js
+Panel({ title: "Focus" }, [
+  Row({ title: "Focus timer", subtitle: "Ready" }),
+  Button("Start", start).help("Start the timer"),
+  Menu("Presets", [Button("20 minutes", () => setMinutes(20))]),
+])
+  .glass("chrome")
+  .animation("smooth");
+```
+
+Use `Badge(text, tone)` for a scene status mark and `.help(text)` for a text tip. The web
+gallery also shows an anchored hover card, pill sizes, and a tooltip with detail and a
+shortcut. Those options are available on the web components.
 
 From an extension folder, run `cmux ext dev --once --json`. The `scene` field shows what
 rendered. The `design` findings flag raw hex colors and spacing or type sizes outside the
