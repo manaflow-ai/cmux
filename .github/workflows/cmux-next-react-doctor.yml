@@ -72,6 +72,7 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /scripts/ci/
+            /.gitmodules
       - name: "Pool mirror: checkout the merge commit's router"
         if: ${{ startsWith(runner.name, 'cmux-runner-pool-') }}
         env:
