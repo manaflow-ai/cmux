@@ -25,7 +25,6 @@ pub mod pack;
 pub mod plan;
 pub mod pointer;
 pub mod public;
-pub mod seed;
 pub mod store;
 
 pub use id::Id;
