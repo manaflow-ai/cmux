@@ -41,32 +41,7 @@ import Testing
         #expect(LaunchFrameFiles.isFileSafe("tab_0f9e-1"))
     }
 
-    /// cmux#57419: a picture keeps its pixels per point (its file name's), so a stand-in draws it at its own size on a
-    /// display of another scale; and a read right after a save gets the new picture, never the file it replaces (the
-    /// read's lane can run before the write's).
-    @Test func aPictureKeepsItsScaleAndAReadAfterASaveGetsTheNewOne() async throws {
-        let folder = Self.folder()
-        defer { try? FileManager.default.removeItem(at: folder) }
-        #expect(LaunchFrameFiles.scale(of: "tab_ab12@3x.jpg") == 3)
-        #expect(LaunchFrameFiles.scale(of: "tab_ab12@2x.jpg.sb-1234") == nil)
-        let old = try #require(BrowserPageFrames.encoded(try Self.picture(0.1, size: 100)))
-        BrowserPageFrames.write(old, key: "tab_a", scale: 1, to: folder, capacity: 1 << 20)
-        let frames = BrowserPageFrames(directory: folder), work = BackgroundWork()
-        await frames.prefetch(on: work).value
-        let saved = try Self.picture(0.9, size: 300)
-        frames.save(saved, for: "tab_a", scale: 3)
-        let read = try #require(await frames.lastFrame("tab_a"))
-        #expect(read.image.width == 300 && read.scale == 3, "a read right after a save got the picture it replaced")
-        // The write's own lane slot runs in order: an item posted after it runs once it is written.
-        await withCheckedContinuation { (written: CheckedContinuation<Void, Never>) in work.post(.bestEffort, mayBlock: .files) { written.resume() } }
-        #expect(BrowserPageFrames.readFrame("tab_a", in: folder)?.scale == 3, "the file is not the new picture's")
-        let nextRun = BrowserPageFrames(directory: folder)
-        await nextRun.prefetch(on: BackgroundWork()).value
-        let taken = try #require(nextRun.takeFrame("tab_a"))
-        #expect(taken.image.width == 300 && taken.scale == 3, "the next run lost the picture's scale")
-    }
-
-    @Test func aWriteReplacesTheTabsPictureAndAReadHandsItOutOnce() async throws {
+    @Test func aWriteReplacesTheTabsPictureAndTheLaunchReadKeepsIt() async throws {
         let folder = Self.folder()
         defer { try? FileManager.default.removeItem(at: folder) }
         let data = try #require(BrowserPageFrames.encoded(try Self.picture()))
@@ -77,10 +52,10 @@ import Testing
         let frames = BrowserPageFrames(directory: folder)
         await frames.prefetch(on: BackgroundWork()).value
         #expect(frames.hasPicture("tab_a"))
-        let image = try #require(frames.take("tab_a"))
+        let image = try #require(await frames.lastPicture("tab_a"))
         #expect(image.width == 200)
-        #expect(frames.take("tab_a") == nil, "handed out once: the live page draws from then on")
-        #expect(frames.take("tab_none") == nil)
+        #expect(frames.hasPicture("tab_a"), "a read keeps it")
+        #expect(await frames.lastPicture("tab_none") == nil)
     }
 
     @Test func theFolderKeepsItsBudgetLeastRecentlyWrittenOutFirst() throws {
@@ -140,7 +115,7 @@ import Testing
         let frames = BrowserPageFrames(directory: nil)
         await frames.prefetch(on: BackgroundWork()).value
         frames.save(try Self.picture(), for: "tab_a")
-        #expect(frames.take("tab_a") == nil)
+        #expect(await frames.lastPicture("tab_a") == nil)
     }
 
     private func until(_ condition: () -> Bool) async throws {

@@ -84,15 +84,8 @@ extension BrowserHibernation {
         }
         // The new page starts unmuted: a tab muted when it slept wakes muted.
         if asleep.state.isAudioMuted, let muting = page as? BrowserAudioMuting { muting.setAudioMuted(true) }
-        // Its last frame stays over the new page until the page paints: no blank frame on a wake.
-        // The pixels the placeholder shows now are already decoded, so the cover has them in the
-        // swap's own frame. A page that cannot show one (a Chromium page in its own child window) is counted.
-        let shown = asleep.shownPicture
-        if let picture = shown ?? snapshots.image(for: key) {
-            let covered = (page as? any BrowserWakeStandIn)?.showStandIn(picture, decoded: shown != nil, cap: Self.standInCap,
-                                                                         clock: standInClock, scale: asleep.snapshotScale) ?? false
-            if !covered { uncoveredWakes += 1 }
-        }
+        // The new page shows its own background until it paints, as Chrome shows a discarded tab it reloads: never
+        // its last snapshot over it, which drew the loading page blurry and at the wrong size (cmux#57419).
         cache.swapPage(key, with: page, asleep: asleep.state)
         cache.dormantTabs.set(key, false)
         // The live page now; a later sleep takes a new picture.
@@ -126,20 +119,20 @@ extension BrowserHibernation {
         }
     }
 
-    /// A fresh picture (never one from an earlier sleep), compressed whole into `snapshots`, with its pixels per point.
+    /// A fresh picture (never one from an earlier sleep), compressed whole into `snapshots`.
     func snapshot(_ tab: any BrowserTab, key: String) async -> HibernationSnapshots.Picture? {
-        guard let image = await capture(tab) else { return await leaveFrame(tab, key: key) }; return await HibernationSnapshots.picture(of: image, pointsWide: tab.contentView.bounds.width)
+        guard let image = await capture(tab) ?? leavePicture(tab, key: key) else { return nil }
+        return await HibernationSnapshots.compress(image)
     }
 
-    /// Chromium: its leave picture of its URL now at full size, the file that capture wrote (`BrowserPageFrames`), not the 640 px
-    /// hover thumbnail that woke blurry (cmux#57419) unless it has no frame (incognito, dropped). None is counted (`snapshot_missing`).
-    private func leaveFrame(_ tab: any BrowserTab, key: String) async -> HibernationSnapshots.Picture? {
-        let pictured = cache?.pageThumbnailURLs[key], current = tab.state.url?.absoluteString, width = tab.contentView.bounds.width
-        let frame = await (pictured != nil && pictured == current && cache?.keepsFrameOnDisk(key) == true ? cache?.pageFrames?.lastFrame(key) : nil)
-        if pictured != nil, pictured == current, tab.state.url?.absoluteString == current, let image = frame?.image ?? cache?.pageThumbnails.image(for: key) {
-            return await HibernationSnapshots.picture(of: image, data: frame?.data, scale: frame.map { CGFloat($0.scale) }, pointsWide: width)
-        }
-        snapshots.noteMissing(pictured: pictured, current: tab.state.url?.absoluteString) // never shown or blank, of an earlier URL, or dropped
+    /// Chromium: its leave picture of the URL it has now (its title, load state aside). A page that gets none is
+    /// counted by why (`debug.surfaces` `snapshot_missing`), so a bench tells a page never pictured from a picture
+    /// of an earlier URL and from one the 16 MB leave-picture budget dropped.
+    private func leavePicture(_ tab: any BrowserTab, key: String) -> CGImage? {
+        guard let cache else { return nil }
+        let pictured = cache.pageThumbnailURLs[key], current = tab.state.url?.absoluteString
+        if pictured != nil, pictured == current, let image = cache.pageThumbnails.image(for: key) { return image }
+        snapshots.noteMissing(pictured: pictured, current: current) // never shown or blank, of an earlier URL, or dropped
         return nil
     }
 }

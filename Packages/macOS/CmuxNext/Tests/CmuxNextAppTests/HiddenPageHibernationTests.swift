@@ -187,56 +187,36 @@ import CmuxNextTestSupport
     /// behind a picture of its earlier URL, and one whose title or load state moved while hidden keeps its picture
     /// (a mail tab counting unread kept none, so every such page woke blank). A page that sleeps with no picture is
     /// counted by why (`snapshot_missing`): the infinite-tabs bench's 137 of 500 blank sleeps could not tell an
-    /// earlier URL from a dropped leave picture.
-    ///
-    /// cmux#57419: the leave picture it sleeps behind is the page at its full size (the frame the same capture wrote
-    /// to disk, `BrowserPageFrames`, even while its write is still queued), with its pixels per point, never the 640 px
-    /// hover card thumbnail, which drew the page blurry over the whole pane until the woken page painted. Only a page
-    /// with no full-size frame (`missing`: the frames' budget dropped it, or an incognito page's never written) falls
-    /// back to the thumbnail, at its own scale (it fills the page area, as before, rather than none).
-    @Test(arguments: ["current", "retitled", "stale", "missing"])
-    func aPageWithNoPictureOfItsOwnHibernatesBehindItsCurrentFullSizeLeaveFrameOnly(state: String) async throws {
+    /// earlier URL from a dropped leave picture (`evicted`: the 16 MB leave-picture budget dropped it).
+    @Test(arguments: ["current", "retitled", "stale", "evicted"])
+    func aPageWithNoPictureOfItsOwnHibernatesBehindItsCurrentLeavePictureOnly(state: String) async throws {
         let current = state == "current" || state == "retitled"
         let rig = try Rig()
         defer { rig.close() }
         rig.hibernation.capture = { _ in nil } // the engine gives no picture of a hidden page (Chromium)
         rig.hibernation.pressureDidChange(.normal) // nothing hibernates until the leave picture is set below
-        let cache = rig.services.cache
-        let framesFolder = rig.folder.appendingPathComponent("page-frames", isDirectory: true)
-        let frames = BrowserPageFrames(directory: framesFolder)
-        await frames.prefetch(on: BackgroundWork()).value
-        cache.pageFrames = frames
         let page = try await rig.page(state, body: "<p>leave picture</p>")
         let key = try await rig.hide(page)
+        let cache = rig.services.cache
         try await rig.until("the leave capture ended") { cache.pageCapturesInFlight.isEmpty }
-        // The leave capture: the page at its full size on disk, its hover card thumbnail in memory.
-        // Not awaited on disk: hibernation must find the frame even while its write is still queued.
-        let frame = try Self.picture(shade: 0.6, width: 1600, height: 1000)
-        frames.save(frame, for: key, scale: 2)
-        let thumbnail = try Self.picture(shade: 0.3, width: 640, height: 400)
-        cache.pageThumbnails.insert(thumbnail, for: key)
+        let leave = try Self.picture(shade: 0.3, width: 640, height: 400)
+        cache.pageThumbnails.insert(leave, for: key)
         cache.pageThumbnailVersions[key] = state == "current" ? page.state.pictureVersion : page.state.pictureVersion &+ 1
         cache.pageThumbnailURLs[key] = state == "stale" ? "https://earlier.example/" : page.state.url?.absoluteString
-        if state == "missing" { frames.remove(key) }
+        if state == "evicted" { cache.pageThumbnails.remove(key) }
         rig.hibernation.pressureDidChange(.critical)
         rig.skipped += .seconds(HibernationPlanner.Pace.critical.minimumHidden)
         rig.hibernation.replan()
         try await rig.until("the page hibernated") { rig.isHibernated(key) || rig.exemption(key) != nil }
         try #require(rig.isHibernated(key))
-        let asleep = cache.browsers[key]?.tab as? HibernatedBrowserTab
-        let snapshot = asleep?.snapshotImage
+        let snapshot = (cache.browsers[key]?.tab as? HibernatedBrowserTab)?.snapshotImage
         if current {
-            #expect(snapshot?.width == 1600 && snapshot?.height == 1000,
-                    "a hibernated page slept behind \(snapshot.map { "a \($0.width) x \($0.height) picture" } ?? "no picture"), not its full-size leave frame")
-            #expect(asleep?.snapshotScale == 2, "the frame's pixels per point were lost: it would draw at the window's scale")
+            #expect(snapshot?.width == 640, "a hibernated page with no engine picture kept no picture")
             #expect(rig.hibernation.snapshots.missing.isEmpty, "a page that kept its picture was counted as missing one")
-        } else if state == "missing" {
-            #expect(snapshot?.width == 640, "a page with no full-size frame slept blank instead of behind its thumbnail")
-            let width = page.contentView.bounds.width
-            if width > 0 { #expect(abs((asleep?.snapshotScale ?? 0) - 640 / width) < 0.01, "the thumbnail is not drawn over the page area it pictures") }
         } else {
-            #expect(snapshot == nil, "a page hibernated behind a picture of an earlier URL")
-            #expect(Set(rig.hibernation.snapshots.missing.keys) == ["url_moved"], "a blank sleep was not counted by its cause")
+            #expect(snapshot == nil, "a page hibernated behind a picture of an earlier URL or one no longer kept")
+            let reason = state == "stale" ? "url_moved" : "leave_picture_evicted"
+            #expect(Set(rig.hibernation.snapshots.missing.keys) == [reason], "a blank sleep was not counted by its cause")
         }
     }
 
@@ -489,39 +469,9 @@ import CmuxNextTestSupport
         try await rig.until("the woken page loaded") { rig.hibernation.wakeLog.records.last?.loadedMs != nil }
         let wake = try #require(rig.hibernation.wakeLog.records.last)
         #expect(wake.tab == key && wake.engine == .webkit && wake.visible, "the wake was not the shown page's: \(wake)")
-        #expect(wake.snapshot, "the pane had no snapshot while the page came back")
+        #expect(wake.snapshot, "the page kept no snapshot for its previews")
         #expect((wake.mountedMs ?? .max) <= (wake.loadedMs ?? 0), "the page loaded before it was back: \(wake)")
         #expect(rig.hibernation.snapshots.count == 0, "the woken page's snapshot stayed in the store")
-    }
-
-    /// "Shows its last frame in under 100 ms" had no number: the log timed the page being back and
-    /// loaded, never the picture. A wake now carries when the pane got its last frame (`picture_ms`).
-    @Test func aWakeCarriesWhenItsLastFrameShowed() throws {
-        var log = HibernationWakes()
-        let start = ContinuousClock.now
-        log.start("a", engine: .cef, snapshot: true, at: start)
-        log.pictureShown("a", at: start.advanced(by: .milliseconds(18)))
-        log.mounted("a", visible: true, at: start.advanced(by: .milliseconds(60)))
-        #expect(log.records.last?.pictureMs == 18 && log.records.last?.mountedMs == 60)
-        // A picture already on screen when the wake starts counts as 0; a wake with none says none.
-        log.pictureShown("b", at: start)
-        log.start("b", engine: .cef, snapshot: true, at: start.advanced(by: .milliseconds(5)))
-        log.mounted("b", visible: true, at: start.advanced(by: .milliseconds(40)))
-        #expect(log.records.last?.pictureMs == 0)
-        log.start("c", engine: .webkit, snapshot: false, at: start)
-        log.mounted("c", visible: true, at: start.advanced(by: .milliseconds(9)))
-        #expect(log.records.last?.tab == "c" && log.records.last?.pictureMs == nil)
-        // A page closed asleep leaves no picture time for a later page of the same key.
-        log.pictureShown("d", at: start)
-        log.forget("d")
-        log.start("d", engine: .cef, snapshot: false, at: start)
-        log.mounted("d", visible: true, at: start.advanced(by: .milliseconds(3)))
-        #expect(log.records.last?.pictureMs == nil)
-        guard case .array(let rows) = log.json, case .object(let first)? = rows.first else {
-            Issue.record("the wake log's JSON is not a list of objects")
-            return
-        }
-        #expect(first["picture_ms"] == .number(18))
     }
 
     /// Leo (PR 23083): a hibernated page comes back where it was, with what its fields held.

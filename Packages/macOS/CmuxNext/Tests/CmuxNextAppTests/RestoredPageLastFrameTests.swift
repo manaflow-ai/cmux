@@ -10,8 +10,9 @@ import Testing
 
 /// Leo 2026-11-22: "this is so fucked. constant rerenders on every fucking page still." A restored Chromium tab first
 /// shown after a relaunch had no page while Chromium made it (`browser(for:)` returned nil): the pane showed nothing,
-/// the omnibar "Search or type URL", then a cold load. It now shows its last picture from the run before
-/// (`BrowserPageFrames`) and its recorded address in the frame of the switch, and the page goes under that picture.
+/// the omnibar "Search or type URL", then a cold load. It now shows its recorded address in the frame of the switch.
+/// Its pane shows the page background until the page paints, as Chrome does after a relaunch: never the last run's
+/// picture over it, which drew the loading page blurry and at the wrong size (cmux#57419).
 @MainActor @Suite(.serialized) struct RestoredPageLastFrameTests {
     private static let address = "https://github.com/manaflow-ai/cmux/pull/1"
 
@@ -50,7 +51,7 @@ import Testing
         }
     }
 
-    @Test func aRestoredTabShowsItsPictureAndAddressWhileItsPageIsMade() async throws {
+    @Test func aRestoredTabShowsItsAddressAndNoPictureWhileItsPageIsMade() async throws {
         let cache = cache()
         let tab = restoredTab(81)
         let (frames, folder) = try await frames(with: tab.id)
@@ -66,11 +67,11 @@ import Testing
         }
         let entry = try #require(cache.browser(for: tab), "the switch has a page to show in its own frame")
         let placeholder = try #require(entry.tab as? DeferredBrowserTab)
-        #expect(placeholder.picture != nil, "the last run's picture")
-        #expect(placeholder.contentView is BrowserPictureView)
+        #expect(placeholder.contentView.subviews.isEmpty && placeholder.contentView.layer?.contents == nil,
+                "the last run's picture is drawn over the loading page")
         #expect(placeholder.state.url?.absoluteString == Self.address, "the omnibar keeps the recorded address, never blank")
         #expect(cache.isRestoring(tab.id))
-        #expect(!frames.hasPicture(tab.id), "handed out once")
+        #expect(frames.hasPicture(tab.id), "the last run's picture stays for the phones and the hover card")
 
         try await until { release != nil }
         release?.resume()
@@ -92,7 +93,6 @@ import Testing
             return page
         }
         let entry = try #require(cache.browser(for: tab))
-        #expect((entry.tab as? DeferredBrowserTab)?.picture == nil, "no picture kept: the stand-in still shows the address")
         #expect(entry.tab.state.url?.absoluteString == Self.address)
         let typed = try #require(URL(string: "https://example.com/typed"))
         entry.tab.load(typed)
@@ -154,7 +154,7 @@ import Testing
         #expect(!cache.keepsFrameOnDisk(tab.id), "the stand-in's picture is not the page's")
     }
 
-    @Test func aRestoredWebKitTabIsCoveredByItsPicture() async throws {
+    @Test func aRestoredWebKitTabShowsItsPageNotItsPicture() async throws {
         let cache = cache()
         cache.browserTabs.cefUnavailable = { .notBundled }
         let tab = restoredTab(87, engine: "webkit")
@@ -162,8 +162,8 @@ import Testing
         defer { cache.release(tab.id); try? FileManager.default.removeItem(at: folder) }
         cache.pageFrames = frames
         let page = try #require(cache.browser(for: tab)?.tab as? WebKitTab)
-        #expect(page.standIn != nil, "its last picture covers the page until it paints")
-        #expect(!frames.hasPicture(tab.id))
+        #expect(!page.contentView.subviews.contains { $0 is NSImageView }, "the last run's picture is drawn over the loading page")
+        #expect(frames.hasPicture(tab.id), "the last run's picture stays for the phones and the hover card")
     }
 
     /// Leo 2026-11-24: "there are too many empty previews in the safari grid thing we ought to be able to simply
@@ -190,7 +190,7 @@ import Testing
         known = true
         cache.phonePictures?.heldChanged()
         try await until { sent() }
-        #expect(frames.hasPicture(tab.id), "the restored tab's first show still gets its picture")
+        #expect(frames.hasPicture(tab.id), "the picture stays")
         withExtendedLifetime(iphone) {}
     }
 
@@ -216,8 +216,7 @@ import Testing
 
     /// cmux#56141: after a relaunch no browser tab's hover card showed a picture. A tab not shown since has no page
     /// (Chromium makes it on the first show) and no picture in memory, so `previewImage` gave nil though its last
-    /// picture was on disk. The card now shows that picture, scaled to the card, and hovering never hands it out: the
-    /// tab's first show still covers its page with it.
+    /// picture was on disk. The card now shows that picture, scaled to the card, and hovering never drops it.
     @Test func aTabNotShownSinceTheRelaunchHoverCardShowsItsLastPicture() async throws {
         let cache = cache()
         let tab = restoredTab(43)
@@ -227,6 +226,6 @@ import Testing
         #expect(cache.existingBrowser(tab.id) == nil, "the tab has no page")
         let picture = try #require(await cache.previewImage(for: tab.id, maxPixelSize: CGSize(width: 60, height: 60)))
         #expect(picture.width == 60 && picture.height == 45, "scaled to the card")
-        #expect(frames.hasPicture(tab.id), "a hover never hands out the picture the first show covers the page with")
+        #expect(frames.hasPicture(tab.id), "a hover keeps the picture")
     }
 }

@@ -34,10 +34,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// (`CEFDownloads`): its address turned into a download in the run before, and every relaunch downloaded it
     /// again. A person's gesture, load, reload or history step, or a committed document, ends it.
     @ObservationIgnored public var refusesDownloadsUntilGesture = false
-    /// A tab's last frame over its new page until the page paints (`CEFTab+StandIn`).
-    @ObservationIgnored var standIn: NSView?
-    /// The stand-in's cap (`showStandIn`).
-    @ObservationIgnored var standInCap: DemandTimer?
 
     /// Chromium browser identifier once created.
     @ObservationIgnored public private(set) var browserID: Int32?
@@ -417,7 +413,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
             guard painted == true, !hasDocument else { return }
             host.lifecycleTrace.record(id, "paint-query painted")
             documentPainted = true
-            removeStandIn()
             documentMayTakeKeys()
         }
     }
@@ -434,7 +429,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // Chromium's own load (its `.loadingState(true)`), not the app's: a load the app asked for before Chromium began
         // it is no load yet, and a paint then is the document before it.
         if !committedThisLoad { paintBeforeCommit = chromiumLoading } else { documentPainted = true }
-        if documentPainted, contentful { removeStandIn() } // the new page drew content over its last frame
         if !hasDocument { host.lifecycleTrace.record(id, "cef-first-paint\(contentful ? "" : " frame-only") committed=\(committedThisLoad) loading=\(chromiumLoading)") }
         documentMayTakeKeys()
     }
@@ -873,7 +867,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         faviconTask?.cancel()
         documentFaviconRead?.cancel()
         dismissPrompts()
-        removeStandIn()
         if let browserID {
             runtime.shim?.close(browserID)
         } else {

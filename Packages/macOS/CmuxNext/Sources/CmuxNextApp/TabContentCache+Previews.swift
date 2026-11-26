@@ -107,11 +107,9 @@ extension TabContentCache {
     }
 }
 
-/// A restored browser tab shows its page's last picture from the run before in the frame of its first show (Leo
-/// 2026-11-22: "constant rerenders on every fucking page still"): `BrowserPageFrames`, then the new page under it.
+/// Browser pages' last pictures on disk (`BrowserPageFrames`), for the phones' tab overview and the next run's
+/// cards. A restored tab's pane shows the page background until its page paints, as Chrome does (cmux#57419).
 extension TabContentCache {
-    /// A cold load after a relaunch takes seconds, a wake hundreds of ms (`BrowserHibernation.standInCap`).
-    static let relaunchStandInCap: Duration = .seconds(3)
     /// A browser page that is not incognito.
     func keepsFrameOnDisk(_ key: String) -> Bool {
         guard let page = browsers[key]?.tab, page is CEFTab || page is WebKitTab else { return false }
@@ -125,18 +123,10 @@ extension TabContentCache {
     /// The stand-in page of restored Chromium tab `tab` while its page is made; nil for a tab opened here.
     func restoringStandIn(_ tab: TabModel, url: URL?) -> DeferredBrowserTab? {
         guard !browserTabs.wasOpenedHere(tab), browsers[tab.id] == nil else { return nil }
-        let frame = pageFrames?.takeFrame(tab.id), page = DeferredBrowserTab(id: BrowserTabID(rawValue: tab.id), engine: .cef, profile: browserProfile?(tab.id) ?? .default, url: url,
-            title: tab.titleText.isEmpty ? nil : tab.titleText, picture: frame?.image, pictureScale: frame.map { CGFloat($0.scale) }, restoresPage: true) // at its own size (cmux#57419)
+        let page = DeferredBrowserTab(id: BrowserTabID(rawValue: tab.id), engine: .cef, profile: browserProfile?(tab.id) ?? .default, url: url,
+                                      title: tab.titleText.isEmpty ? nil : tab.titleText, restoresPage: true)
         install(page, for: tab.id)
         return page
-    }
-
-    /// A restored tab's page made now (WebKit): its last picture covers it until it paints.
-    func coverRestored(_ entry: BrowserEntry, _ tab: TabModel) -> BrowserEntry {
-        if !browserTabs.wasOpenedHere(tab), let frame = pageFrames?.takeFrame(tab.id) {
-            (entry.tab as? any BrowserWakeStandIn)?.showStandIn(frame.image, decoded: true, cap: Self.relaunchStandInCap, clock: ContinuousClock(), scale: CGFloat(frame.scale))
-        }
-        return entry
     }
 
     /// Whether `key` shows a restored tab's stand-in while its page is made (automation waits for the page).

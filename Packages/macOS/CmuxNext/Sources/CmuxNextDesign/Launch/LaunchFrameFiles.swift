@@ -12,16 +12,11 @@ public nonisolated struct LaunchFrameFiles {
 
     /// The tab key of a saved frame (`<key>@<scale>x.jpg`, scale 1 to 3); nil for any other file, such as Foundation's
     /// atomic-write file beside one before its rename (`<key>@2x.jpg.sb-<id>`).
-    public static func owner(of file: String) -> String? { parts(of: file)?.key }
-
-    /// The pixels per point (1 to 3) of a saved frame's file; nil for any other file.
-    public static func scale(of file: String) -> Int? { parts(of: file)?.scale }
-
-    private static func parts(of file: String) -> (key: String, scale: Int)? {
+    public static func owner(of file: String) -> String? {
         guard file.hasSuffix("x.jpg"), let at = file.lastIndex(of: "@") else { return nil }
         let scale = file[file.index(after: at)..<file.index(file.endIndex, offsetBy: -"x.jpg".count)]
-        guard scale.count == 1, let digit = scale.first, ("1"..."3").contains(digit), let value = Int(String(digit)) else { return nil }
-        return (String(file[..<at]), value)
+        guard scale.count == 1, let digit = scale.first, ("1"..."3").contains(digit) else { return nil }
+        return String(file[..<at])
     }
 
     /// A frame's file data: a PNG when it shows clear pixels (unfiltered: cheap for flat colors and text), else a JPEG
