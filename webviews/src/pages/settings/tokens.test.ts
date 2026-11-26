@@ -27,7 +27,8 @@ test("a token's expiry and last use read plainly", () => {
 
 // The lines shown once after Create Token: what a person pastes next.
 test("a new token's paste lines", () => {
-  expect(exportLine("cmux_pat_x")).toBe("export CMUX_TOKEN=cmux_pat_x");
+  expect(exportLine("cmux_pat_x")).toBe("export CMUX_TOKEN='cmux_pat_x'");
+  expect(exportLine("cmux pat'x")).toBe("export CMUX_TOKEN='cmux pat'\"'\"'x'");
   expect(curlExample(["machines"], "https://platform.example/")).toBe(
     'curl -H "Authorization: Bearer $CMUX_TOKEN" https://platform.example/v1/machines',
   );
@@ -51,7 +52,10 @@ test("repository and branch fields", () => {
   expect(branchOf("refs/heads/release/*")).toBe("release/*");
   expect(spendCapOf("$50")).toBe(50);
   expect(spendCapOf("1000000.00")).toBe(1_000_000);
-  expect(spendCapOf("1000000.01")).toBeNull();
+  expect(spendCapOf("1000000.01")).toBe(1_000_000.01);
+  expect(spendCapOf("0.50")).toBe(0.5);
+  expect(spendCapOf("90071992547409.91")).toBe(90071992547409.91);
+  expect(spendCapOf("90071992547409.92")).toBeNull();
   expect(spendCapOf("0")).toBeNull();
   expect(spendCapOf("")).toBeNull();
 });

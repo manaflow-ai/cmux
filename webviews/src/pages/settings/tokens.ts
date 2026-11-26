@@ -11,7 +11,6 @@ export const TOKEN_SCOPES: readonly TokenScope[] = ["machines", "chats", "usage"
 /** The Expiration choices, in days; null never expires. 90 is the platform's default. */
 export const TOKEN_EXPIRATIONS: ReadonlyArray<number | null> = [30, 90, 365, null];
 export const DEFAULT_EXPIRATION = 90;
-export const MAX_SPEND_CAP_USD = 1_000_000;
 
 /** Where a curl example points when the list named no platform (the CLI's production origin). */
 export const PRODUCTION_PLATFORM = "https://cmux-platform-production.debussy.workers.dev";
@@ -57,7 +56,7 @@ export function capText(usd: number, locale: string): string {
 
 /** The new token's shell line. */
 export function exportLine(token: string): string {
-  return `export CMUX_TOKEN=${token}`;
+  return `export CMUX_TOKEN='${token.replaceAll("'", "'\"'\"'")}'`;
 }
 
 /** A first request the new token can make, or null when its scopes have no list to read. */
@@ -108,10 +107,11 @@ export function branchOf(ref: string | undefined): string | null {
   return ref.startsWith("refs/heads/") ? ref.slice("refs/heads/".length) : ref;
 }
 
-/** A spend cap typed in the form: a positive amount, or null for none (an unreadable one is null too). */
+/** A spend cap typed in the form: a positive amount with at most two decimals, or null for none. */
 export function spendCapOf(text: string): number | null {
-  const value = Number(text.trim().replace(/^\$/, ""));
-  return text.trim() && Number.isFinite(value) && value > 0 && value <= MAX_SPEND_CAP_USD
-    ? Math.round(value * 100) / 100
-    : null;
+  const input = text.trim();
+  const match = input.match(/^\$?(\d+)(?:\.(\d{1,2}))?$/);
+  if (!match) return null;
+  const cents = BigInt(match[1]) * 100n + BigInt((match[2] ?? "").padEnd(2, "0"));
+  return cents > 0n && cents <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(cents) / 100 : null;
 }
