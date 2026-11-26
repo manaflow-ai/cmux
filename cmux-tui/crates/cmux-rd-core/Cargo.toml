@@ -10,8 +10,14 @@ description = "cmux remote desktop engine core: FEC, packetizer, reassembly, flo
 [lints]
 workspace = true
 
+[features]
+# The Mac app's rules over JSON (`rd_devices`: device setup, the hub link, Settings > Devices, Your Devices).
+app = ["dep:serde", "dep:serde_json", "cmux-rd-proto/serde"]
+
 [dependencies]
 cmux-rd-proto = { path = "../cmux-rd-proto" }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
 
 [dev-dependencies]
 proptest = { version = "1", default-features = false, features = ["std"] }

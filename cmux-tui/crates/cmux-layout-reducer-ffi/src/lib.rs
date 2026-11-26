@@ -92,6 +92,7 @@ pub mod focus;
 mod imessage;
 pub mod input;
 pub mod keychain;
+mod rd_devices;
 pub mod scroll;
 pub mod shown_resize;
 pub mod sidebar_caps;
@@ -614,6 +615,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if cloud_machine::handles(operation) => {
                 cloud_machine::respond(operation, request)?
             }
+            operation if rd_devices::handles(operation) => rd_devices::respond(operation, request)?,
             operation if tab_discard::handles(operation) => {
                 tab_discard::respond(operation, request)?
             }
