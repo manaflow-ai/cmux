@@ -1,5 +1,6 @@
 public import CmuxNextDaemon
 import CmuxNextWakeups
+import CmuxNextWindowRules
 
 /// Agent-finished banners that land in one burst, per workspace (cx-kz6m0.1, parity with the old
 /// app's coalescing queue; RFC #20891 proposal 3). The first finished turn in a workspace opens a
@@ -14,20 +15,18 @@ public final class FinishedBannerBursts {
     public static let window: Duration = .seconds(10)
 
     /// A finished turn's banner becomes a digest of `count` agents, replacing the banners `replacing`.
-    public struct Digest: Equatable, Sendable {
+    public struct Digest: Equatable, Sendable, Decodable {
         public var count: Int
         public var replacing: [String]
     }
 
-    private struct Burst {
+    /// A workspace's open burst: its one-shot timer and what cmux-window-rules `desktop_bursts` keeps of it.
+    private struct Open {
         let timer: DemandTimer
-        /// Unread tabs whose agents finished in this burst.
-        var tabs: Set<String> = []
-        /// The burst's banners still showing, with the tab each is filed under.
-        var showing: [(id: String, tab: String)] = []
+        var burst: Burst
     }
 
-    private var bursts: [String: Burst] = [:]
+    private var bursts: [String: Open] = [:]
     /// Banner ids a digest replaced, newest last (bounded; for tests and `debug.notifications`).
     public private(set) var replaced: [String] = []
 
@@ -38,35 +37,34 @@ public final class FinishedBannerBursts {
 
     /// Adds `notification`, on `tab` in `workspace`, to the burst when it is a finished turn without
     /// a reply field, opening one if none is open. A digest only while another unread agent's
-    /// banner is still showing; nil: the banner posts on its own.
+    /// banner is still showing; nil: the banner posts on its own (and when the rule does not answer).
     public func join(_ notification: DaemonNotification, workspace: String, tab: String, clock: any Clock<Duration>) -> Digest? {
-        guard notification.isFinishedTurn, !notification.reply else { return nil }
-        let banner = "cmux-notification-\(notification.notification.rawValue)"
-        var burst = bursts[workspace] ?? {
+        let open = bursts[workspace]
+        let ask = JoinAsk(burst: open?.burst, notification: notification.notification.rawValue,
+                          finishedTurn: notification.isFinishedTurn, reply: notification.reply, tab: tab)
+        guard let joined = WindowRules().call("window_notifications_desktop_burst_join", ask, as: Joined.self),
+              let burst = joined.burst else { return nil }
+        let timer = open?.timer ?? {
             let timer = DemandTimer(owner: "notifications.finishedBurst", clock: clock)
             timer.schedule(after: Self.window) { @MainActor [weak self] in self?.bursts[workspace] = nil }
-            return Burst(timer: timer)
+            return timer
         }()
-        burst.tabs.insert(tab)
-        let previous = burst.showing
-        let others = previous.contains { $0.tab != tab }
-        burst.showing = others ? [(banner, tab)] : previous + [(banner, tab)]
-        bursts[workspace] = burst
-        guard others else { return nil }
-        replaced = Array((replaced + previous.map { $0.id }).suffix(64))
-        return Digest(count: burst.tabs.count, replacing: previous.map { $0.id })
+        bursts[workspace] = Open(timer: timer, burst: burst)
+        guard let digest = joined.digest else { return nil }
+        replaced = Array((replaced + digest.replacing).suffix(64))
+        return digest
     }
 
     /// The user read `tab`: its agent leaves its burst, and a burst left empty closes.
     public func read(tab: String) {
-        for (workspace, var burst) in bursts where burst.tabs.contains(tab) {
-            burst.tabs.remove(tab)
-            burst.showing.removeAll { $0.tab == tab }
-            if burst.tabs.isEmpty {
-                burst.timer.cancel()
+        for (workspace, open) in bursts where open.burst.tabs.contains(tab) {
+            guard let left = WindowRules().call("window_notifications_desktop_burst_read", ReadAsk(burst: open.burst, tab: tab),
+                                                as: Left.self) else { continue }
+            if left.closes {
+                open.timer.cancel()
                 bursts[workspace] = nil
             } else {
-                bursts[workspace] = burst
+                bursts[workspace] = Open(timer: open.timer, burst: left.burst)
             }
         }
     }

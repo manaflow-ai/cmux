@@ -95,9 +95,10 @@ package final class DesktopNotifier: NSObject {
     package nonisolated static let nativeNotificationsVariable = "CMUX_NEXT_NATIVE_NOTIFICATIONS"
 
     /// Whether a launch with `environment` uses the system notification center: every launch but
-    /// an automation one, and an automation one that sets `CMUX_NEXT_NATIVE_NOTIFICATIONS=1`.
+    /// an automation one, and an automation one that sets `CMUX_NEXT_NATIVE_NOTIFICATIONS=1`
+    /// (cmux-window-rules `desktop_center`).
     package nonisolated static func usesSystemCenter(in environment: [String: String]) -> Bool {
-        optsIntoNativeNotifications(environment) || !WindowDrawPolicy.isAutomationLaunch(environment)
+        launch(environment).usesSystemCenter
     }
 
     /// Whether a launch with `environment` asks macOS for notification permission and answers
@@ -105,7 +106,7 @@ package final class DesktopNotifier: NSObject {
     /// GUI job (`NX_REMOTE=1`, `CMUX_TEST_REQUIRE_GUI=1`: the banner would catch its clicks) that did not
     /// opt in with `CMUX_NEXT_NATIVE_NOTIFICATIONS=1`.
     package nonisolated static func asksPermission(in environment: [String: String]) -> Bool {
-        usesSystemCenter(in: environment) && (optsIntoNativeNotifications(environment) || !isGUIJob(environment))
+        launch(environment).asksPermission
     }
 
     /// An automation launch that opted in to the system center (`CMUX_NEXT_NATIVE_NOTIFICATIONS=1`): it starts
@@ -115,11 +116,7 @@ package final class DesktopNotifier: NSObject {
     /// Whether a launch with `environment` removes this bundle's delivered notifications when it first uses the
     /// system center: only an automation launch that opted in, never a user's launch.
     package nonisolated static func startsWithoutDeliveredBanners(in environment: [String: String]) -> Bool {
-        optsIntoNativeNotifications(environment) && WindowDrawPolicy.isAutomationLaunch(environment)
-    }
-
-    nonisolated private static func optsIntoNativeNotifications(_ environment: [String: String]) -> Bool {
-        environment[nativeNotificationsVariable] == "1"
+        launch(environment).startsWithoutDeliveredBanners
     }
     /// Authorization as the center last reported it ("authorized", "denied", ...);
     /// "automation" when this launch never asks.
@@ -139,10 +136,10 @@ package final class DesktopNotifier: NSObject {
               defaultSound: Bool, attachment: Data? = nil, reply: Bool = false, approval: Bool = false, alwaysAllow: Bool = false,
               category: String? = nil, incognito: Bool = false) {
         // An incognito window's banner names nothing of it (DesktopNotifier+Incognito); `posted` records what it shows.
+        let shape = Self.shape(approval: approval, alwaysAllow: alwaysAllow, reply: reply, incognito: incognito, category: category)
+        let incognito = shape.redacted, approval = shape.approval, category = shape.category
         let title = incognito ? Self.incognitoTitle : title, subtitle = incognito ? nil : subtitle, body = incognito ? Self.incognitoBody : body
-        let attachment = incognito ? nil : attachment, approval = approval && !incognito
-        let approvalCategory = alwaysAllow ? AgentApprovalBanners.alwaysCategory : AgentApprovalBanners.category
-        let category = category ?? (approval ? approvalCategory : reply ? Self.replyCategory : Self.defaultCategory)
+        let attachment = incognito ? nil : attachment
         posted.append(Posted(id: id, title: title, subtitle: subtitle, body: body, surface: surface,
                              sound: defaultSound ? "default" : nil, attachment: attachment, reply: reply,
                              approval: approval, category: category, incognito: incognito))
@@ -343,11 +340,7 @@ package final class DesktopNotifier: NSObject {
         return center
     }
 
-    nonisolated private static func isGUIJob(_ environment: [String: String]) -> Bool {
-        ["NX_REMOTE", "CMUX_TEST_REQUIRE_GUI"].contains { environment[$0] == "1" }
-    }
-
-    nonisolated private static var asksPermission: Bool { asksPermission(in: ProcessInfo.processInfo.environment) }
+    nonisolated private static let asksPermission = asksPermission(in: ProcessInfo.processInfo.environment)
 
     /// The permission `notifications.status` reads and `notifications.request` asks for, on the
     /// banners' own center. A launch that never asks (an automation launch, a GUI job, not the
@@ -410,17 +403,14 @@ extension DesktopNotifier: UNUserNotificationCenterDelegate {
         let info = response.notification.request.content.userInfo
         let id = info["notification"] as? String ?? response.notification.request.identifier
         let surface = (info["surface"] as? NSNumber)?.uint64Value
-        let isDefault = [UNNotificationDefaultActionIdentifier, IPhonePairNotices.reviewAction, Self.openAction, Self.showAction].contains(response.actionIdentifier)
-        let markRead = response.actionIdentifier == Self.markReadAction
-        let replied = response.actionIdentifier == Self.replyAction ? (response as? UNTextInputNotificationResponse)?.userText : nil
-        let approved = AgentApprovalBanners.decision(response.actionIdentifier)
-        let always = AgentApprovalBanners.isAlways(response.actionIdentifier)
+        let action = Self.action(response.actionIdentifier, systemDefault: response.actionIdentifier == UNNotificationDefaultActionIdentifier)
+        let replied = action.reply ? (response as? UNTextInputNotificationResponse)?.userText : nil
         Task { @MainActor [weak self] in
-            if isDefault { self?.open(id: id, surface: surface) }
+            if action.open { self?.open(id: id, surface: surface) }
             if let replied { self?.reply(id: id, surface: surface, text: replied) }
-            if let approved { self?.approve(id: id, surface: surface, allow: approved) }
-            if always { self?.approve(id: id, surface: surface, allow: true, always: true) }
-            if markRead { self?.markRead(id: id, surface: surface) }
+            if let approved = action.approve { self?.approve(id: id, surface: surface, allow: approved) }
+            if action.always { self?.approve(id: id, surface: surface, allow: true, always: true) }
+            if action.markRead { self?.markRead(id: id, surface: surface) }
         }
         completionHandler()
     }

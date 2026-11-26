@@ -107,15 +107,4 @@ public final class AgentApprovalBanners {
                                    hiddenPreviewsBodyPlaceholder: hidden, options: [])
         }
     }
-
-    /// A banner action's answer: true for Allow once, false for Deny, nil for any other action
-    /// (Always allow is ``isAlways(_:)``).
-    public nonisolated static func decision(_ action: String) -> Bool? {
-        action == allowAction ? true : action == denyAction ? false : nil
-    }
-
-    /// Whether a banner action is Always allow.
-    public nonisolated static func isAlways(_ action: String) -> Bool {
-        action == alwaysAction
-    }
 }
