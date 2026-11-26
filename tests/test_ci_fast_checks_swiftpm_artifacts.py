@@ -62,6 +62,76 @@ class WorkflowTests(unittest.TestCase):
             self.assertIn("if: contains(inputs.command, 'swift')", step(name))
 
 
+class MacWorkflowTests(unittest.TestCase):
+    """checks-mac (setup kernel-free, #57062): the mini's anonymous github.com requests get HTTP 403, so the
+    job resolves the command's packages with its read token before the command, which never sees it."""
+
+    def mac_job(self) -> str:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        return text[text.index("\n  checks-mac:\n"):]
+
+    def test_prefetch_runs_after_the_checkout_and_before_the_command(self) -> None:
+        job = self.mac_job()
+        order = [job.index(marker) for marker in (
+            "- name: Clear stale checkout metadata\n", "path: .fast-checks-checkout\n",
+            "- name: Check out the SwiftPM artifact prefetch on the Mac\n",
+            "- name: Prefetch SwiftPM dependencies on the Mac\n", "- name: Run fast checks\n")]
+        self.assertEqual(order, sorted(order))
+        self.assertIn("rm -rf -- .fast-checks-checkout/.git .fast-checks-tools/.git", job)
+
+    def test_the_script_comes_from_the_workflow_commit(self) -> None:
+        body = step("Check out the SwiftPM artifact prefetch on the Mac")
+        self.assertIn("ref: ${{ github.sha }}", body)
+        self.assertIn("path: .fast-checks-tools", body)
+        self.assertIn("persist-credentials: false", body)
+        self.assertIn("sparse-checkout: scripts/ci/swiftpm_prefetch_binary_artifacts.py", body)
+
+    def test_resolves_with_the_token_only_in_its_own_step(self) -> None:
+        body = step("Prefetch SwiftPM dependencies on the Mac")
+        self.assertIn("if: contains(inputs.command, 'swift')", body)
+        self.assertIn("continue-on-error: true", body)
+        self.assertIn("CMUX_SWIFTPM_GITHUB_TOKEN: ${{ github.token }}", body)
+        self.assertIn('echo "::add-mask::$auth"', body)
+        self.assertIn("http.https://github.com/.extraheader", body)
+        self.assertIn("swiftpm_prefetch_binary_artifacts.py\" --resolve", body)
+        self.assertIn('--command "$FAST_CHECKS_COMMAND" --directory "$FAST_CHECKS_DIRECTORY"', body)
+        self.assertNotIn("--store", body)  # the Mac store, shared with cmux-next.yml's Mac tiers
+        # Scoped to checks-mac: the job names the token once, in this step, so its command never sees it.
+        self.assertEqual(self.mac_job().count("github.token"), 1)
+        self.assertEqual(prefetch.GITHUB_TOKEN_ENV, "CMUX_SWIFTPM_GITHUB_TOKEN")
+
+
+class AuthAndResolveTests(unittest.TestCase):
+    def test_the_token_goes_to_github_com_only(self) -> None:
+        env = {prefetch.GITHUB_TOKEN_ENV: "ghs_abc"}
+        self.assertEqual(prefetch.curl_auth_config("https://github.com/o/r/releases/download/v/A.zip", env),
+                         'header = "Authorization: Bearer ghs_abc"\n')
+        self.assertIsNone(prefetch.curl_auth_config("https://example.com/A.zip", env))
+        self.assertIsNone(prefetch.curl_auth_config("https://github.com.evil/A.zip", env))
+        self.assertIsNone(prefetch.curl_auth_config("https://github.com/A.zip", {}))
+        self.assertIsNone(prefetch.curl_auth_config("https://github.com/A.zip", {prefetch.GITHUB_TOKEN_ENV: 'a"b'}))
+
+    def test_resolve_runs_each_package_and_never_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            good, bad, empty = Path(tmp, "good"), Path(tmp, "bad"), Path(tmp, "empty")
+            for package in (good, bad):
+                package.mkdir()
+                (package / "Package.swift").write_text("")
+            empty.mkdir()
+            calls = []
+
+            class Done:
+                def __init__(self, code):
+                    self.returncode = code
+
+            def run(argv, env, timeout):
+                calls.append(argv)
+                return Done(1 if str(bad) in argv else 0)
+            self.assertEqual(prefetch.resolve([good, bad, empty], "swift", {"A": "1"}, run=run), 1)
+        self.assertEqual(calls, [["swift", "package", "resolve", "--package-path", str(good)],
+                                 ["swift", "package", "resolve", "--package-path", str(bad)]])
+
+
 class CacheNameTests(unittest.TestCase):
     def test_matches_swiftpm_mangling(self) -> None:
         # TSCUtility's spm_mangledToC99ExtendedIdentifier, which SwiftPM's BinaryArtifactsManager keys on.
@@ -92,6 +162,8 @@ class CommandCacheTests(unittest.TestCase):
         self.assertEqual(prefetch.command_cache_path("swift test --cache-path /x/spm"), "/x/spm")
         self.assertEqual(prefetch.command_cache_path("swift test --cache-path=rel", "/w"), "/w/rel")
         self.assertIsNone(prefetch.command_cache_path("swift test -- --cache-path /x"))
+        self.assertEqual(prefetch.command_cache_path("bash -c 'cd P && swift test --cache-path c'", "/w"), "/w/P/c")
+        self.assertEqual(prefetch.command_env("bash -c 'cd P && A=1 swift test'"), {"A": "1"})
         self.assertEqual(prefetch.swiftpm_artifact_cache({"HOME": "/h"}, "/x/spm"), Path("/x/spm/artifacts"))
 
     def test_main_seeds_the_cache_the_command_reads(self) -> None:
@@ -116,6 +188,13 @@ class CommandTests(unittest.TestCase):
             "swift build --package-path=Packages/A": ["Packages/A"],
             "env FOO=1 swift-test": ["."],
             "CMUX_X=1 swift test --filter Y && echo done": ["."],
+            # cmux-ci test -- bash -c '...' (#57062's checks-mac): the shell's script, after its cd.
+            "bash -c 'set -o pipefail; cd Packages/macOS/CmuxNext && swift test --filter X'":
+                ["Packages/macOS/CmuxNext"],
+            "bash -ec 'swift test'": ["."],
+            "bash -o pipefail -c 'cd P && swift build | tee log'": ["P"],
+            "cd A && swift build; cd ../B && swift test": ["A", "B"],
+            "sh -c \"bash -c 'cd Q && swift test --package-path R'\"": ["Q/R"],
         }
         for command, expected in cases.items():
             self.assertEqual(prefetch.package_paths(command), expected, command)
@@ -129,7 +208,8 @@ class CommandTests(unittest.TestCase):
 
     def test_other_commands_seed_nothing(self) -> None:
         for command in ("swift package dump-package", "swift test --help", "swift --version", "cargo test",
-                        "bash -c 'swift test'", "swift test 'unterminated"):
+                        "bash -c 'swift test --help'", "bash scripts/x.sh swift test", "echo swift test",
+                        "swift test 'unterminated"):
             self.assertEqual(prefetch.package_paths(command), [], command)
 
 
