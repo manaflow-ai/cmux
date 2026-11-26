@@ -150,7 +150,7 @@ while IFS=$'\t' read -r name look envline; do
   fi
   sleep "$settle"
   prev="" ok=0
-  for i in $(seq 1 "$tries"); do
+  for _ in $(seq 1 "$tries"); do
     if shoot "$out/$name.png.tmp"; then
       h=$(hash_of "$out/$name.png.tmp")
       if [ "$h" = "$prev" ]; then ok=1; break; fi
