@@ -6748,6 +6748,9 @@
         "answers": {
           "description": "A question's answers, by question."
         },
+        "forkCheckpoint": {
+          "description": "Fork first (fork_risky.rs): the copy the app made before allowing, `{machine, fork, forkMs}`."
+        },
         "optionId": {
           "description": "The option chosen; absent cancels the request.",
           "type": [
