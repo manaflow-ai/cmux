@@ -111,6 +111,7 @@ pub mod sidebar_mirror;
 mod tab_discard;
 pub mod tab_drag;
 mod tab_drag_rules;
+mod tab_groups;
 mod tab_strip;
 pub mod typed;
 pub mod window_close_selection;
@@ -373,6 +374,13 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&capability::answer(request)).map_err(|_| ERR_INVALID)?
             }
+            // A held create's approval: the next session call to make, or the outcome (cmux-cloud-start-core approval_answer).
+            b"cloud_approval_next" => {
+                use cmux_cloud_start_core::approval_answer;
+                let request: approval_answer::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&approval_answer::next(&request)).map_err(|_| ERR_INVALID)?
+            }
             b"cloud_capability_drop" => {
                 cmux_cloud_start_core::capability::forget();
                 b"{}".to_vec()
@@ -629,6 +637,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if cloud_machine::handles(operation) => {
                 cloud_machine::respond(operation, request)?
             }
+            operation if tab_groups::handles(operation) => tab_groups::respond(operation, request)?,
             operation if screen::handles(operation) => screen::respond(operation, request)?,
             operation if tab_discard::handles(operation) => {
                 tab_discard::respond(operation, request)?
@@ -642,6 +651,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if window_rules::handles(operation) => {
                 window_rules::respond(operation, request)?
             }
+            b"mobile_host" => cmux_mobile_host_core::respond(request).map_err(|_| ERR_INVALID)?,
             operation if tab_strip::handles(operation) => tab_strip::respond(operation, request)?,
             _ => return Err(ERR_INVALID),
         };
