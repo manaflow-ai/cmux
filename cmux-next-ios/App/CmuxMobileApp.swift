@@ -86,6 +86,11 @@ struct CmuxMobileApp: App {
             .notice("launch: isReduceMotionEnabled=\(UIAccessibility.isReduceMotionEnabled, privacy: .public)")
         // Screenshot rig: CMUX_MOBILE_FEED_LIVE_FIXTURE=1 fills the Feed from a fixed Mac.
         LiveFeedFixture.shared.startIfRequested()
+        // Swift live code in the simulator (scripts/live-code/ios-sim.sh): watches the folder
+        // CMUX_LIVE_CODE_DIR names and applies each patch without a rebuild or relaunch.
+        let liveCode = LiveCodeRedraw()
+        liveCode.startFromEnvironment()
+        _liveCode = State(initialValue: liveCode)
         // Input responsiveness: main-thread hitches with stacks, keyboard windows, key and send latency.
         InputLatencyTrace.startIfRequested()
         if let trace = InputLatencyTrace.shared {
