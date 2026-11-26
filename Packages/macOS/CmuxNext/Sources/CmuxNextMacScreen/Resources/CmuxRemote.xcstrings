@@ -7,127 +7,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يمكن لوكلائك على أجهزتك الخاصة عندها تشغيل مشاركة الشاشة والتحكم أو إيقافهما لأجهزة Mac دون أن يسألوا. يظهر لكل تغيير إشعار مع زر إيقاف، والمشاركة التي شغّلها وكيل تتوقف بعد بضع دقائق دون مشاهد. ويظل الآخرون ووكلاؤهم يطلبون الإذن."
+            "value": "يمكن لوكلائك تشغيل المشاركة والتحكم في أجهزة Mac الخاصة بك أو إيقافهما دون سؤال، ويظهر إشعار عند كل تغيير. أما الآخرون فما زالوا يسألون."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vaši agenti na vašim uređajima tada mogu uključiti ili isključiti dijeljenje ekrana i kontrolu za vaše Mac računare bez pitanja. Svaka promjena prikazuje obavijest s opcijom Isključi, a dijeljenje koje je uključio agent isključuje se nakon nekoliko minuta bez gledalaca. Drugi ljudi i njihovi agenti i dalje pitaju."
+            "value": "Vaši agenti mogu uključiti ili isključiti dijeljenje i upravljanje vašim Macovima bez pitanja; svaka promjena prikazuje obavijest. Ostali i dalje pitaju."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dine agenter på dine egne enheder kan så slå skærmdeling og styring til eller fra for dine Mac-computere uden at spørge. Hver ændring viser en meddelelse med Slå fra, og deling, som en agent har slået til, slås fra efter nogle minutter uden seere. Andre personer og deres agenter spørger stadig."
+            "value": "Dine egne agenter kan slå deling og styring af dine Mac'er til eller fra uden at spørge; hver ændring viser en meddelelse. Andre spørger stadig."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Deine Agenten auf deinen eigenen Geräten können dann Bildschirmfreigabe und Steuerung für deine Macs ohne Nachfrage ein- oder ausschalten. Jede Änderung zeigt eine Mitteilung mit „Ausschalten“, und eine von einem Agenten eingeschaltete Freigabe endet nach einigen Minuten ohne Zuschauer. Andere Personen und ihre Agenten fragen weiterhin."
+            "value": "Deine eigenen Agenten können Freigabe und Steuerung deiner Macs ohne Nachfrage ein- oder ausschalten; jede Änderung zeigt einen Hinweis. Andere fragen weiterhin."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your agents on your own devices can then turn screen sharing and control on or off for your Macs without asking. Each change shows a notice with Turn Off, and sharing an agent turned on turns off after a few minutes with no viewer. Other people and their agents still ask."
+            "value": "Your own agents can turn sharing and control of your Macs on or off without asking; each change shows a notice. Others still ask."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tus agentes en tus propios dispositivos podrán activar o desactivar compartir pantalla y el control de tus Mac sin preguntar. Cada cambio muestra un aviso con Desactivar, y lo que un agente comparte se desactiva tras unos minutos sin espectadores. Otras personas y sus agentes seguirán preguntando."
+            "value": "Tus propios agentes pueden activar o desactivar el uso compartido y el control de tus Mac sin preguntar; cada cambio muestra un aviso. Los demás siguen preguntando."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vos agents sur vos propres appareils pourront alors activer ou désactiver le partage d’écran et le contrôle de vos Mac sans demander. Chaque changement affiche une notification avec Désactiver, et un partage activé par un agent s’arrête après quelques minutes sans spectateur. Les autres personnes et leurs agents demandent toujours."
+            "value": "Vos propres agents peuvent activer ou désactiver le partage et le contrôle de vos Mac sans demander ; chaque changement affiche un avis. Les autres demandent toujours."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "I tuoi agenti sui tuoi dispositivi potranno attivare o disattivare la condivisione dello schermo e il controllo dei tuoi Mac senza chiedere. Ogni modifica mostra un avviso con Disattiva, e la condivisione attivata da un agente si disattiva dopo alcuni minuti senza spettatori. Le altre persone e i loro agenti continuano a chiedere."
+            "value": "I tuoi agenti possono attivare o disattivare condivisione e controllo dei tuoi Mac senza chiedere; ogni modifica mostra un avviso. Gli altri chiedono ancora."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "自分のデバイス上のエージェントが、確認なしでMacの画面共有と操作をオン・オフできるようになります。変更のたびに「オフにする」付きの通知が表示され、エージェントがオンにした共有は視聴者がいない状態が数分続くとオフになります。他の人やそのエージェントは引き続き確認を求めます。"
+            "value": "自分のエージェントは確認なしで Mac の共有と操作をオン・オフできます。変更のたびに通知が表示されます。他の人は引き続き確認が必要です。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ភ្នាក់ងាររបស់អ្នកនៅលើឧបករណ៍ផ្ទាល់ខ្លួនអាចបើក ឬបិទការចែករំលែកអេក្រង់ និងការគ្រប់គ្រងសម្រាប់ Mac របស់អ្នកដោយមិនចាំបាច់សួរ។ ការផ្លាស់ប្ដូរនីមួយៗបង្ហាញការជូនដំណឹងជាមួយប៊ូតុងបិទ ហើយការចែករំលែកដែលភ្នាក់ងារបានបើកនឹងបិទបន្ទាប់ពីប៉ុន្មាននាទីដែលគ្មានអ្នកមើល។ អ្នកដទៃ និងភ្នាក់ងាររបស់ពួកគេនៅតែត្រូវសួរ។"
+            "value": "ភ្នាក់ងាររបស់អ្នកអាចបើក ឬបិទការចែករំលែក និងការគ្រប់គ្រង Mac របស់អ្នកដោយមិនសួរ។ ការផ្លាស់ប្តូរនីមួយៗបង្ហាញការជូនដំណឹង។ អ្នកផ្សេងនៅតែសួរ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "내 기기의 에이전트가 묻지 않고 내 Mac의 화면 공유와 제어를 켜거나 끌 수 있습니다. 변경할 때마다 끄기 버튼이 있는 알림이 표시되며, 에이전트가 켠 공유는 보는 사람이 없으면 몇 분 뒤 꺼집니다. 다른 사람과 그 에이전트는 계속 허락을 구합니다."
+            "value": "내 에이전트는 묻지 않고 내 Mac의 공유와 제어를 켜거나 끌 수 있으며, 변경할 때마다 알림이 표시됩니다. 다른 사람은 계속 요청해야 합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agentene dine på dine egne enheter kan da slå skjermdeling og styring av eller på for Mac-ene dine uten å spørre. Hver endring viser et varsel med Slå av, og deling en agent slo på, slås av etter noen minutter uten seere. Andre personer og agentene deres spør fortsatt."
+            "value": "Dine egne agenter kan slå deling og styring av Mac-ene dine av eller på uten å spørre; hver endring viser et varsel. Andre spør fortsatt."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Twoi agenci na Twoich urządzeniach będą mogli bez pytania włączać i wyłączać udostępnianie ekranu oraz sterowanie Twoimi Macami. Każda zmiana pokazuje powiadomienie z przyciskiem Wyłącz, a udostępnianie włączone przez agenta wyłącza się po kilku minutach bez widzów. Inne osoby i ich agenci nadal pytają."
+            "value": "Twoi agenci mogą bez pytania włączać i wyłączać udostępnianie oraz sterowanie Twoimi Macami; każda zmiana pokazuje powiadomienie. Inni nadal pytają."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Seus agentes nos seus próprios dispositivos poderão ativar ou desativar o compartilhamento de tela e o controle dos seus Macs sem perguntar. Cada mudança mostra um aviso com Desativar, e o compartilhamento ativado por um agente é desativado após alguns minutos sem espectadores. Outras pessoas e seus agentes continuam pedindo."
+            "value": "Seus próprios agentes podem ativar ou desativar o compartilhamento e o controle dos seus Macs sem perguntar; cada mudança mostra um aviso. Os demais continuam pedindo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ваши агенты на ваших устройствах смогут без запроса включать и выключать общий экран и управление вашими Mac. Каждое изменение показывает уведомление с кнопкой «Выключить», а доступ, открытый агентом, выключается через несколько минут без зрителей. Другие люди и их агенты по-прежнему спрашивают."
+            "value": "Ваши агенты могут включать и выключать общий доступ и управление вашими Mac без запроса; каждое изменение показывает уведомление. Остальные по-прежнему спрашивают."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เอเจนต์บนอุปกรณ์ของคุณเองจะเปิดหรือปิดการแชร์หน้าจอและการควบคุม Mac ของคุณได้โดยไม่ต้องถาม การเปลี่ยนแปลงแต่ละครั้งจะแสดงการแจ้งเตือนพร้อมปุ่มปิด และการแชร์ที่เอเจนต์เปิดจะปิดเองหลังจากไม่มีผู้ดูสักครู่ คนอื่นและเอเจนต์ของพวกเขายังต้องขอเหมือนเดิม"
+            "value": "เอเจนต์ของคุณเปิดหรือปิดการแชร์และการควบคุม Mac ของคุณได้โดยไม่ต้องถาม ทุกการเปลี่ยนแปลงจะแสดงการแจ้งเตือน คนอื่นยังต้องขอ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kendi aygıtlarınızdaki ajanlarınız, Mac’leriniz için ekran paylaşımını ve denetimi sormadan açıp kapatabilir. Her değişiklik Kapat düğmeli bir bildirim gösterir ve bir ajanın açtığı paylaşım birkaç dakika izleyen olmayınca kapanır. Diğer kişiler ve ajanları yine sorar."
+            "value": "Kendi ajanlarınız Mac'lerinizin paylaşımını ve denetimini sormadan açıp kapatabilir; her değişiklik bir bildirim gösterir. Diğerleri yine sorar."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ваші агенти на ваших пристроях зможуть без запиту вмикати й вимикати спільний екран і керування вашими Mac. Кожна зміна показує сповіщення з кнопкою «Вимкнути», а доступ, відкритий агентом, вимикається через кілька хвилин без глядачів. Інші люди та їхні агенти й далі питають."
+            "value": "Ваші агенти можуть вмикати й вимикати спільний доступ і керування вашими Mac без запиту; кожна зміна показує сповіщення. Інші й далі питають."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tác tử trên thiết bị của bạn có thể bật hoặc tắt chia sẻ màn hình và điều khiển cho máy Mac của bạn mà không cần hỏi. Mỗi thay đổi hiện một thông báo có nút Tắt, và chia sẻ do tác tử bật sẽ tự tắt sau vài phút không có người xem. Người khác và tác tử của họ vẫn phải hỏi."
+            "value": "Tác tử của bạn có thể bật hoặc tắt chia sẻ và điều khiển các máy Mac của bạn mà không cần hỏi; mỗi thay đổi đều hiện thông báo. Người khác vẫn phải hỏi."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你自己设备上的智能体随后可以无需询问就开启或关闭你的 Mac 的屏幕共享和控制。每次更改都会显示带有“关闭”的通知，智能体开启的共享在无人观看几分钟后会自动关闭。其他人及其智能体仍需询问。"
+            "value": "你自己的代理无需询问即可开启或关闭你 Mac 的共享与控制；每次更改都会显示通知。其他人仍需询问。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "你自己裝置上的代理之後可以無需詢問就開啟或關閉你的 Mac 的螢幕共享與控制。每次變更都會顯示含「關閉」的通知，代理開啟的共享在無人觀看幾分鐘後會自動關閉。其他人及其代理仍需詢問。"
+            "value": "你自己的代理無需詢問即可開啟或關閉你 Mac 的共享與控制；每次變更都會顯示通知。其他人仍需詢問。"
           }
         }
       }
