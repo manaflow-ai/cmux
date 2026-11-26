@@ -516,6 +516,7 @@ dependencies = [
  "cmux-focus-core",
  "cmux-imessage",
  "cmux-layout-reducer",
+ "cmux-mobile-host-core",
  "cmux-rd-screen",
  "cmux-tab-discard",
  "cmux-tasks-core",
@@ -538,6 +539,14 @@ dependencies = [
  "hmac",
  "sha2",
  "subtle",
+]
+
+[[package]]
+name = "cmux-mobile-host-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -589,6 +598,7 @@ dependencies = [
  "cmux-rd-engine",
  "cmux-rd-proto",
  "cmux-remote-browser",
+ "cmux-share-approval",
  "serde",
  "serde_json",
 ]
@@ -646,6 +656,14 @@ version = "0.1.0"
 dependencies = [
  "cbindgen",
  "cmux-sdk",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-share-approval"
+version = "0.1.0"
+dependencies = [
+ "serde",
  "serde_json",
 ]
 
