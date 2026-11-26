@@ -64,6 +64,11 @@
       "path": "workers/presence/scripts/local-proof.sh",
       "match": "while [ \"$(date +%s)\" -lt \"$DEADLINE\" ]; do",
       "reason": "A local proof of the presence worker: waits for its own SSE transcript to show the alarm-driven offline event, bounded by a 90 s deadline after the last heartbeat. No GitHub call, and it runs on a developer machine that may lack glaeda-gh."
+    },
+    {
+      "path": ".github/workflows/auto-resume-nightly-notarization.yml",
+      "match": "import json",
+      "reason": "Not a wait: the publish guard's Python heredoc reads one release through gh api at most 4 times, 10/20/30 s apart, only on HTTP 403/429/5xx or a gh timeout; a 404 or any other error stops at once. It runs in a CI job with no glaeda-gh (added by #59218/#59305 after run 45868119309 died on a bare 403)."
     }
   ]
 }
