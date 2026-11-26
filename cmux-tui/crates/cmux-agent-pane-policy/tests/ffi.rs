@@ -413,6 +413,22 @@ fn c_abi_runs_the_pick_corpus() {
         json!({"digest": null})
     );
     assert_eq!(call(none, "canonical_digest", json!({})), Err(ERR_INVALID));
+    // The text canonical_digest hashes: keys in UTF-8 byte order, no
+    // whitespace, only quote, backslash and control characters escaped.
+    assert_eq!(
+        call(
+            none,
+            "canonical_json",
+            json!({"value": {"é": "\u{1}", "Which one?": "B", "a/b": [1, 2.0, true, null]}})
+        )
+        .unwrap(),
+        json!({"json": "{\"Which one?\":\"B\",\"a/b\":[1,2,true,null],\"é\":\"\\u0001\"}"})
+    );
+    assert_eq!(
+        call(none, "canonical_json", json!({"value": {"q": 1.5}})).unwrap(),
+        json!({"json": null})
+    );
+    assert_eq!(call(none, "canonical_json", json!({})), Err(ERR_INVALID));
     assert_eq!(call(none, "pick", json!({"method": 1})), Err(ERR_INVALID));
     assert_eq!(call(none, "pick", json!({"method": "m", "params": []})), Err(ERR_INVALID));
 }

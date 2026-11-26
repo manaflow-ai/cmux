@@ -29,14 +29,15 @@ class Clock:
 
 
 def run(answers, wait=1500, no_record=600, per_read=5):
-    """answers: list of (code, body), the last repeated."""
+    """answers: list of (code, body[, Retry-After[, seconds the read takes]]), the last repeated."""
     clock = Clock()
     urls = []
 
     def fetch(url, timeout):
         urls.append(url)
-        clock.t += per_read
-        return answers[min(len(urls) - 1, len(answers) - 1)]
+        answer = answers[min(len(urls) - 1, len(answers) - 1)]
+        clock.t += answer[3] if len(answer) > 3 else per_read
+        return answer[:3]
 
     word, why = f.read(SHA, REPO, "12", wait, no_record, fetch=fetch, now=clock.now, sleep=clock.sleep)
     return word, why, urls, clock.t
@@ -75,6 +76,47 @@ class ReadTest(unittest.TestCase):
         self.assertEqual(word, "none")
         self.assertIn("down", why)
         self.assertLess(t, 200)
+
+    def test_a_controller_that_does_not_answer_is_down_within_one_cdn_timeout(self):
+        # 2026-11-23 10:34Z, job 137633284444: every read ended in the CDN's 524 at about 100 s; the old bound,
+        # counted from the end of the first failed read, said "none" after 383 s, and the compile then waited
+        # 5 min more on the same controller.
+        word, why, urls, t = run([(524, None, None, 100)])
+        self.assertEqual(word, "down")
+        self.assertIn("524", why)
+        self.assertEqual(len(urls), 1)
+        self.assertLessEqual(t, 100)
+
+    def test_a_read_that_times_out_is_down_too(self):
+        word, why, _, t = run([(f.NO_ANSWER, None, None, 75)])
+        self.assertEqual(word, "down")
+        self.assertLessEqual(t, 75 + 30 + 75)
+
+    def test_a_service_that_cannot_be_reached_compiles_as_before(self):
+        # The tunnel down (530) or no connection says nothing of the controller's own address.
+        for code in (530, 502, 0):
+            word, why, _, t = run([(code, None, None, 1)])
+            self.assertEqual(word, "none", code)
+            self.assertIn("results service down", why)
+            self.assertLess(t, 100)
+
+    def test_down_only_when_every_failed_read_went_unanswered(self):
+        self.assertEqual(run([(530, None, None, 1), (524, None, None, 100)])[0], "none")
+
+    def test_one_524_then_an_answer_is_a_blip(self):
+        word, _, _, _ = run([(524, None, None, 40), (200, rec("pass"), None, 1)])
+        self.assertEqual(word, "pass")
+
+    def test_too_many_waiters_is_an_answer_not_an_outage(self):
+        word, _, urls, _ = run([(429, None, None, 1)] * 3 + [(200, rec("pass"), None, 1)])
+        self.assertEqual(word, "pass")
+        self.assertEqual(len(urls), 4)
+
+    def test_a_held_read_stays_inside_the_cdn_bound(self):
+        # The CDN ends a request with no answer at 100 s; the service holds a pending read for its wait.
+        _, _, urls, _ = run([(200, rec("running"))], wait=900, no_record=300)
+        holds = {int(u.rsplit("wait=", 1)[1]) for u in urls}
+        self.assertLessEqual(max(holds), 60)
 
     def test_busy_is_pending_not_down(self):
         # hq#24624: job 138782761400 read the service's 429 (long-poll slots full) as "down" after two minutes and
