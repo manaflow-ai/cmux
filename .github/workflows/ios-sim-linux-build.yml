@@ -129,14 +129,16 @@ jobs:
           add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-next-ios/rust
-          key: ios-sim-linux-build
+          key: ios-sim-linux-build-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-next-ios/rust/Cargo.lock', '.cargo/config.toml') }}
+          # A lane branch's entry is read only by that branch again: save from feat-cmux-next, restore everywhere.
+          save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
       - name: Build CmuxMobileLinkFFI.xcframework
         if: steps.ffi.outputs.cache-hit != 'true'
         env:
           JOBS: "6"
         run: bash cmux-next-ios/rust/scripts/build-xcframework.sh
       - name: Save the framework for later runs
-        if: steps.ffi-key.outputs.key != '' && steps.ffi.outputs.cache-hit != 'true' && github.event_name != 'pull_request'
+        if: steps.ffi-key.outputs.key != '' && steps.ffi.outputs.cache-hit != 'true' && github.event_name != 'pull_request' && github.ref == 'refs/heads/feat-cmux-next'
         # Another job saving the same key first is not a failure.
         continue-on-error: true
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
