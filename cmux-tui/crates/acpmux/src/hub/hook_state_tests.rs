@@ -19,13 +19,13 @@ fn a_moved_sessions_hook_state_lands_under_its_own_name() {
     put(&src.path().join("notes-first/sessions").join(format!("{SID}.json.tmp")), "{}");
     put(&src.path().join("notes-first").join(format!("{SID}.json")), "{}");
 
-    let bundle = tempfile::tempdir().unwrap();
-    assert_eq!(bundle(src.path(), Some(SID), bundle.path()).unwrap(), 1);
+    let bdir = tempfile::tempdir().unwrap();
+    assert_eq!(bundle(src.path(), Some(SID), bdir.path()).unwrap(), 1);
     let rel = format!("{BUNDLE_DIR}/notes-first/{SID}.json");
     assert!(is_bundle_path(&rel));
 
     let dst = tempfile::tempdir().unwrap();
-    assert_eq!(restore(bundle.path(), dst.path(), Some(SID)).unwrap(), 1);
+    assert_eq!(restore(bdir.path(), dst.path(), Some(SID)).unwrap(), 1);
     let landed = dst.path().join("notes-first/sessions").join(format!("{SID}.json"));
     assert_eq!(std::fs::read_to_string(&landed).unwrap(), state);
     #[cfg(unix)]
@@ -39,26 +39,26 @@ fn a_moved_sessions_hook_state_lands_under_its_own_name() {
 /// A target that holds the session's state already (the chat ran there before) keeps its own.
 #[test]
 fn a_state_file_the_target_holds_is_kept() {
-    let bundle = tempfile::tempdir().unwrap();
-    put(&bundle.path().join(BUNDLE_DIR).join("notes-first").join(format!("{SID}.json")), "new");
+    let bdir = tempfile::tempdir().unwrap();
+    put(&bdir.path().join(BUNDLE_DIR).join("notes-first").join(format!("{SID}.json")), "new");
     let dst = tempfile::tempdir().unwrap();
     let here = dst.path().join("notes-first/sessions").join(format!("{SID}.json"));
     put(&here, "mine");
-    assert_eq!(restore(bundle.path(), dst.path(), Some(SID)).unwrap(), 0);
+    assert_eq!(restore(bdir.path(), dst.path(), Some(SID)).unwrap(), 0);
     assert_eq!(std::fs::read_to_string(&here).unwrap(), "mine");
 }
 
 /// Only the session's own file of a plain tool folder is placed; nothing climbs out of the cache.
 #[test]
 fn a_bundle_cannot_place_other_files() {
-    let bundle = tempfile::tempdir().unwrap();
-    let dir = bundle.path().join(BUNDLE_DIR);
+    let bdir = tempfile::tempdir().unwrap();
+    let dir = bdir.path().join(BUNDLE_DIR);
     put(&dir.join("notes-first/someone-else-1234.json"), "{}");
     put(&dir.join(".hidden").join(format!("{SID}.json")), "{}");
     let dst = tempfile::tempdir().unwrap();
-    assert_eq!(restore(bundle.path(), dst.path(), Some(SID)).unwrap(), 0);
-    assert_eq!(restore(bundle.path(), dst.path(), Some("../../x")).unwrap(), 0);
-    assert_eq!(restore(bundle.path(), dst.path(), None).unwrap(), 0);
+    assert_eq!(restore(bdir.path(), dst.path(), Some(SID)).unwrap(), 0);
+    assert_eq!(restore(bdir.path(), dst.path(), Some("../../x")).unwrap(), 0);
+    assert_eq!(restore(bdir.path(), dst.path(), None).unwrap(), 0);
     for bad in [
         "hook-state/notes-first/../x.json",
         "hook-state/.hidden/x.json",
