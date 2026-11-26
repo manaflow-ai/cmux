@@ -38,7 +38,7 @@ import { pullTabCounts } from "../subagents/trayPullTabModel";
 import { isWaitingForWords, type Dictation } from "../dictation";
 import { SIDE_COMMAND } from "../composer/sendMenuModel";
 import { DictationNotice } from "../DictationNotice";
-import { ACTIVITY_LINE, DATE, THINKING, WORKING } from "../conversation/turns";
+import { DATE, THINKING, WORKING } from "../conversation/turns";
 import { switchForks } from "../conversation/messageMenu";
 import { DEFAULT_PICK_MODEL, lastPick } from "../lastPick";
 import { cloudAgentPick } from "../cloudAgentPick";
@@ -87,7 +87,7 @@ import { hatShows, type HatQuestion } from "../question/hatModel";
 import { keptInChat, removeQueued, sendWhenTaken, heldRefusal, heldGoesAfterTrust, type SentFrom } from "./sendHost";
 import { keptAttachments } from "./draftHost";
 import { withdrawForTypedReply } from "./hatHost";
-import type { AcpmuxSnapshot, AcpmuxPlanEntry, AcpmuxRow, AcpmuxPermission } from "../model";
+import type { AcpmuxSnapshot, AcpmuxRow, AcpmuxPermission } from "../model";
 import type { RunMode, SandboxRun, SandboxTab, AutoRow } from "../sandboxRun";
 import type { CloudEnvironmentPick } from "../cloudEnvironmentChoice";
 import type { CloudChatHintState } from "../cloudChatHintModel";
@@ -256,8 +256,6 @@ export type PaneComposerDeps = {
   trayNode: React.JSX.Element | null;
   trayList: TrayItem[];
   waitingAgents: Set<string>;
-  hatPlan: readonly AcpmuxPlanEntry[] | undefined;
-  hatKept: boolean;
   trayHandle: TrayHandleSide;
   /// Where the tucked hat's pill stands: trayHandle, or aside when the jump stack takes the center
   /// line (hatSide, hatPillPlace.experiment.ts).
@@ -519,8 +517,6 @@ export function drawPaneComposer({
   trayNode,
   trayList,
   waitingAgents,
-  hatPlan,
-  hatKept,
   trayHandle,
   hatHandle,
   hatPillArm,
@@ -980,7 +976,6 @@ export function drawPaneComposer({
             <TrayPullTab
               chat={shownSessionId}
               {...pullTabCounts(trayList, waitingAgents)}
-              working={hatPlan !== undefined && hatPlan.length > 0 && !hatKept}
               side={hatHandle}
               quiet={hatPillQuiet(hatPillArm) && (hatHandle !== trayHandle || hatPillInMiddle(hatPillArm))}
             />
@@ -1212,7 +1207,7 @@ export function drawPaneComposer({
                     .join("\n\n");
                   const anchor = [...turnRowsShown]
                     .reverse()
-                    .find((row) => ![WORKING, THINKING, ACTIVITY_LINE, DATE].includes(row.kind));
+                    .find((row) => ![WORKING, THINKING, DATE].includes(row.kind));
                   const client = directClient.current;
                   btwNotes.ask(
                     snapshot.sessionId,
