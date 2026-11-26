@@ -1125,6 +1125,7 @@ function ComposerFrame({
     plainFooter,
     attachmentView,
     followUpMode,
+    composerPlaceholder,
   } = useComposerSettings();
   // Modal vim in the prompt (composer/vimKeys.ts), when `agentPane.composerVimKeys` is on. The state
   // lives in a ref so a key reads the latest; the mode alone renders (the indicator).
@@ -2657,9 +2658,11 @@ function ComposerFrame({
             ? COMPOSER_LABELS.placeholderSteerQuick
             : COMPOSER_LABELS.placeholder;
   // A side session's idle prompt reads "Reply in this session…" (the `placeholder` prop); the
-  // mid-turn and Esc hints still win, since they say what a key does now.
+  // mid-turn and Esc hints still win, since they say what a key does now. Otherwise
+  // `agentPane.composerPlaceholder` (empty by default) replaces cmux's own idle text.
+  const idlePlaceholder = placeholder || composerPlaceholder;
   const placeholderText =
-    placeholder && placeholderKey === COMPOSER_LABELS.placeholder ? placeholder : t(placeholderKey);
+    idlePlaceholder && placeholderKey === COMPOSER_LABELS.placeholder ? idlePlaceholder : t(placeholderKey);
   // An idle new chat suggests the open PR another chat in this checkout made, Tab to take it
   // (promptSuggestion.ts; Leo 2026-10-18). It never sends: Tab writes it, Return sends it.
   const cwd = snapshot.summary?.cwd;
