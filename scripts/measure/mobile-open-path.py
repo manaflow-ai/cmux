@@ -295,7 +295,9 @@ def make_terminal(daemon, lines, index):
     surface = terminal_id = None
     for _, tab in daemon.tabs():
         if tab.get("name") == f"open-path-{index}":
-            surface, terminal_id = tab["surface"], tab.get("terminal_id")
+            # The id the phone holds: the public one when listed (LiveCoordinator+Links.swift
+            # terminalSession: `resourceID ?? id`), which resolve-terminal and the fence both take.
+            surface, terminal_id = tab["surface"], tab.get("terminal_resource_id") or tab.get("terminal_id")
     if surface is None or terminal_id is None:
         fail(f"could not find the new terminal (surface and terminal_id) in list-workspaces (run reply: {created!r})")
     want = f"OPENPATH_2_{index}"
