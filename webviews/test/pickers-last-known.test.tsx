@@ -51,6 +51,10 @@ beforeEach(() => {
       },
     IS_REACT_ACT_ENVIRONMENT: true,
   });
+  // The cloud repository list is windowed (ui/VirtualList): jsdom has no layout, so its viewport
+  // gets a height and width, or no row would be in view.
+  Object.defineProperty(dom.window.HTMLElement.prototype, "offsetHeight", { configurable: true, get: () => 260 });
+  Object.defineProperty(dom.window.HTMLElement.prototype, "offsetWidth", { configurable: true, get: () => 344 });
 });
 
 afterEach(async () => {
