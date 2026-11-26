@@ -139,8 +139,10 @@ function shared(value: unknown): unknown {
 
 /** `session` with its `modes` and `configOptions` the page's shared copies (`shared`). */
 export function withSharedShapes<S extends Summary>(session: S): S {
-  if (session.modes !== undefined) session.modes = shared(session.modes);
-  if (session.configOptions !== undefined) session.configOptions = shared(session.configOptions);
+  // A generic S has no index signature of its own, so its fields are read through Summary.
+  const shapes: Summary = session;
+  if (shapes.modes !== undefined) shapes.modes = shared(shapes.modes);
+  if (shapes.configOptions !== undefined) shapes.configOptions = shared(shapes.configOptions);
   return session;
 }
 
