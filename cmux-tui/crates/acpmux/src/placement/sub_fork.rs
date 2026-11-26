@@ -696,6 +696,7 @@ fn scope() -> &'static cmux_scope::Scope {
     SCOPE.get_or_init(|| cmux_scope::Scope::new("sub_fork runner"))
 }
 
-#[cfg(test)]
+// Forks are git checkouts whose executable bits the tests compare: unix only.
+#[cfg(all(test, unix))]
 #[path = "sub_fork_tests.rs"]
 pub(crate) mod tests;
