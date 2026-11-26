@@ -65,7 +65,7 @@ jobs:
   # plan that fails runs every group (`*`).
   plan:
     name: Swift packages on Linux plan
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     outputs:
       groups: ${{ steps.reach.outputs.groups || '*' }}
@@ -132,6 +132,8 @@ jobs:
           - group: ios-kit
             packages: cmux-next-ios/CmuxMobileKit
           # Whole packages that pass on Linux; CmuxIrohTransport's IrohLib and dnssd suites run on a Mac in relay-tls.yml.
+          - group: CmuxAgentBrands
+            packages: Packages/Shared/CmuxAgentBrands
           - group: CmuxChiefList
             packages: Packages/Shared/CmuxChiefList
           - group: CmuxConnectivityTelemetry
@@ -422,12 +424,13 @@ jobs:
 
   # The Mac fallback: reruns, on a Mac of the owned pool, exactly the packages that failed on Linux. A
   # package green here and red on Linux is a Linux-specific failure: logged, and the run stays green. Red
-  # here too is a real failure, and this job fails the run.
+  # here too is a real failure, and this job fails the run. A fork's run never gets here (fallback-plan
+  # runs only in manaflow-ai and a fork pull request hands nothing over); its hosted branches only say so.
   mac-fallback:
     name: Swift packages Mac fallback
     needs: fallback-plan
     if: ${{ !cancelled() && needs.fallback-plan.outputs.needed == '1' }}
-    runs-on: ${{ vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || fromJSON(vars.RUNNER_POOLS).macos_15 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || fromJSON(vars.RUNNER_POOLS).macos_15 }}
     timeout-minutes: 40
     defaults:
       run:

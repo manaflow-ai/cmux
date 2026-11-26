@@ -51,10 +51,7 @@ extension UpdaterService {
         let prewarm = StagedUpdatePrewarm(installations: UpdateInstallPreflight.stagedInstallations(bundleIdentifier: bundleIdentifier),
                                           bundleIdentifier: bundleIdentifier, build: build)
         let runner = prewarmRunner, log = log, work = work
-        // The build's first launch records itself as pre-warmed (`cmux app launch-times`); no test writes the person's marker.
-        let process = ProcessInfo.processInfo
-        let marker = UpdateLogFile.isTestProcess(name: process.processName, environment: process.environment)
-            ? nil : StagedUpdatePrewarm.launchMarkerURL(bundleIdentifier: bundleIdentifier)
+        let marker = prewarmMarker(bundleIdentifier: bundleIdentifier)
         // task-owner: one pre-warm per staged build; ends after its last process (each stopped at its timeout).
         // Best effort until an install click waits for it (``installAfterPrewarm(_:)`` raises `urgency`); its folder
         // scan runs on a files lane slot of its own
@@ -123,12 +120,25 @@ extension UpdaterService {
         waiting.install()
     }
 
-    /// Logs why the staged build's pre-warm did not start, once per build and reason, and returns the reason.
+    /// Logs why the staged build's pre-warm did not start, once per build and reason, and leaves it in the build's
+    /// marker, so its first launch records why it was not pre-warmed (`skipped:<why>` in `cmux app launch-times`).
     private func skipPrewarm(of build: String?, _ reason: String) -> String {
         let key = "\(build ?? "")|\(reason)"
         guard prewarmSkipLogged != key else { return reason }
         prewarmSkipLogged = key
         log.append("launch pre-warm: skipped (\(reason))")
+        // Never the running build: its next launch is a relaunch, which reads `no_record`.
+        guard let build, !build.isEmpty, build != identity.build, let bundleIdentifier = identity.bundleIdentifier,
+              let marker = prewarmMarker(bundleIdentifier: bundleIdentifier) else { return reason }
+        work.post(.userVisible, mayBlock: .files) { StagedUpdatePrewarm.writeLaunchMarker(build: build, step: .skipped(reason), at: marker) }
         return reason
+    }
+
+    /// The app's pre-warm marker; nil in a test process, so no test writes the person's marker. The build's first
+    /// launch records what it says (`cmux app launch-times`' `prewarmed` and `prewarm_reason`).
+    private func prewarmMarker(bundleIdentifier: String) -> URL? {
+        let process = ProcessInfo.processInfo
+        return UpdateLogFile.isTestProcess(name: process.processName, environment: process.environment)
+            ? nil : StagedUpdatePrewarm.launchMarkerURL(bundleIdentifier: bundleIdentifier)
     }
 }
