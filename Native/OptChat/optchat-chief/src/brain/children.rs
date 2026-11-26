@@ -603,9 +603,9 @@ pub(super) fn notice_only(events: &[AcpmuxEvent]) -> bool {
 }
 
 pub(super) fn has_task_prompt(events: &[AcpmuxEvent]) -> bool {
-    events.iter().any(|event| {
-        event.dir == "mux" && event.kind == "user_message" && !is_notice(&event.msg)
-    })
+    events
+        .iter()
+        .any(|event| event.dir == "mux" && event.kind == "user_message" && !is_notice(&event.msg))
 }
 
 fn is_notice(msg: &serde_json::Map<String, Value>) -> bool {

@@ -183,11 +183,13 @@ fn chief_prompts(h: &Harness) -> usize {
 
 #[test]
 fn an_empty_first_report_creates_no_outcome_and_a_later_result_still_reports() {
-    let mut harness = Harness::new(script(|| vec![
-        json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
-        said(" \n\t"),
-        json!({"dir": "mux", "kind": "turn_end", "msg": {}}),
-    ]));
+    let mut harness = Harness::new(script(|| {
+        vec![
+            json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+            said(" \n\t"),
+            json!({"dir": "mux", "kind": "turn_end", "msg": {}}),
+        ]
+    }));
     harness.connect();
     let session_id = spawn(&mut harness, false);
     let prompts_before = chief_prompts(&harness);
@@ -199,14 +201,20 @@ fn an_empty_first_report_creates_no_outcome_and_a_later_result_still_reports() {
     assert_eq!(subagent.reported_ms, 0);
     assert!(subagent.last_report.is_empty());
     assert!(subagent.floor > 0);
-    harness.brain.step(Input::from(AgentEvent::Up(vec![session(&session_id, "idle")])));
+    harness.brain.step(Input::from(AgentEvent::Up(vec![session(
+        &session_id,
+        "idle",
+    )])));
     assert!(harness.brain.untold_outcomes().is_empty());
 
-    harness.agents.append_events(&session_id, vec![
-        json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
-        said("Done: the command printed slept."),
-        json!({"dir": "mux", "kind": "turn_end", "msg": {}}),
-    ]);
+    harness.agents.append_events(
+        &session_id,
+        vec![
+            json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+            said("Done: the command printed slept."),
+            json!({"dir": "mux", "kind": "turn_end", "msg": {}}),
+        ],
+    );
     changed(&mut harness, &session_id, "running");
     changed(&mut harness, &session_id, "idle");
     let delivered = reports(&harness);

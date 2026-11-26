@@ -1500,12 +1500,18 @@ impl Brain {
             && !stopped
             && previously_told
             && !events.is_some_and(has_task_prompt)
+            && crate::auto_resume::error_line(&report).is_some_and(|line| report.trim() == line)
             && matches!(
                 crate::auto_resume::classify(&report, false),
-                crate::auto_resume::StopKind::Transient(_) | crate::auto_resume::StopKind::Network(_)
+                crate::auto_resume::StopKind::Transient(_)
+                    | crate::auto_resume::StopKind::Network(_)
             );
         if late_retry_error {
-            self.settle_without_report(id, floor, "a late retryable error after its outcome was told");
+            self.settle_without_report(
+                id,
+                floor,
+                "a late retryable error after its outcome was told",
+            );
             return;
         }
         // Every run end starts as no wait; `finish_sub` marks a wait after.
