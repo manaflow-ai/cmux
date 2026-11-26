@@ -244,6 +244,8 @@ impl Hub {
     }
 
     fn read_log(self: &Arc<Self>, session: &Arc<Session>, recover: bool) {
+        let __all = std::time::Instant::now();
+        let __g = PhaseAll(session.id.clone(), __all);
         let loaded = session.log_load.lock().unwrap_or_else(|e| e.into_inner());
         // Persistence takes this same lock before draining metadata and sealing. A blocking
         // restore already under way finishes first; none begins after the shutdown fence.
@@ -260,7 +262,9 @@ impl Hub {
             // crash-allow: debug-build test seam; the test asks for this panic, like a corrupt log
             panic!("ACPMUX_TEST_PANIC_IN_LOAD_LOGS");
         }
+        let __t = std::time::Instant::now();
         self.catch_up(session);
+        phase_note(&session.id, "catch_up", __t);
         if !session.caught_up.load(Ordering::SeqCst) {
             // What an earlier run kept on disk did not read (`take_back_kept`): nothing recovers
             // or rebuilds its queue without it (review of #37284 at 23e76b07, F2). The log stays
@@ -274,8 +278,11 @@ impl Hub {
         // the log's start (`restore_point.rs`); `read_to` is the seq they read through. A load
         // for a journal restore reads the whole log: its recovery runs later, on the records the
         // restore puts back.
+        let __t = std::time::Instant::now();
         let point = if recover { self.read_restore_point(session) } else { None };
+        phase_note(&session.id, "read_point", __t);
         let read_to = self.settled_seq(session);
+        let __t = std::time::Instant::now();
         let epoch = match self.restore_ownership_epoch_after(session, point.as_ref()) {
             Ok(epoch) => Some(epoch),
             Err(error) => {
@@ -284,7 +291,10 @@ impl Hub {
                 None
             }
         };
+        phase_note(&session.id, "epoch", __t);
+        let __t = std::time::Instant::now();
         let authority = self.restore_transfer_authority_after(session, point.as_ref());
+        phase_note(&session.id, "authority", __t);
         if !recover {
             // Read, with its recovery still to run: the restore that asked runs it.
             session.recovery_pending.store(true, Ordering::SeqCst);
@@ -293,15 +303,19 @@ impl Hub {
         }
         let hosted =
             self.load_plan.lock().unwrap_or_else(|e| e.into_inner()).hosted.contains(&session.id);
+        let __t = std::time::Instant::now();
         let quiet = self.recover_log(session, None, point.as_ref());
+        phase_note(&session.id, "recover_log", __t);
         // Read here, off the first prompt's start (`seed_prompt_stops`). Records kept apart from
         // the journal are left to that prompt's read, which reads them too.
         if !Self::keeps_unstored(session) {
+            let __t = std::time::Instant::now();
             self.seed_prompt_stops(
                 session,
                 point.as_ref().map_or(0, |p| p.seq),
                 point.as_ref().and_then(|p| p.prompt_stops.as_deref()),
             );
+            phase_note(&session.id, "seed_prompt_stops", __t);
         }
         // Quiet: every fold read through `read_to` and ended with nothing waiting, nothing was
         // appended meanwhile, and nothing is kept apart from the journal. The next load begins
@@ -338,7 +352,9 @@ impl Hub {
                 crate::qos::background(|| drop(session.inbox()));
             });
         }
+        let __t = std::time::Instant::now();
         self.resume_loaded(session, hosted);
+        phase_note(&session.id, "resume_loaded", __t);
     }
 
     /// Whether `session` holds records apart from its journal (`kept_unstored`): a restore point
@@ -388,7 +404,9 @@ impl Hub {
         // What was written while a restore owns the chat is in the journal first (its own
         // records, never marked as recovery): the recovery reads it, and rebuilds the queue. One
         // the store refuses is read after the journal (`kept_unstored`).
+        let __t = std::time::Instant::now();
         self.write_parked(session);
+        phase_note(&session.id, "write_parked", __t);
         #[cfg(test)]
         super::journal_restore::test_after_drain(&session.id);
         let _marked = super::restore_writer::Recovering::start();
@@ -406,7 +424,9 @@ impl Hub {
         // it is a watched chat's, the other app's). Read for a hosted chat too: a restore point
         // is saved only where no turn is open.
         let closed = session.status() == SessionStatus::Closed;
+        let __t = std::time::Instant::now();
         let open = if closed { None } else { self.open_turn(session, after) };
+        phase_note(&session.id, "open_turn", __t);
         let continued = match &open {
             Some(Some(turn)) if !hosted && session.meta().watching.is_none() => {
                 self.settle_open_turn(session, turn.clone(), from_copy.is_some())
@@ -414,7 +434,9 @@ impl Hub {
             _ => None,
         };
         // A subagent retry the restart dropped, hosted or not (`subagent_retry.rs`).
+        let __t = std::time::Instant::now();
         self.settle_subagent_retries(session);
+        phase_note(&session.id, "subagent_retries", __t);
         let carry = if let Some(from_copy) = from_copy {
             self.restore_queue(session);
             self.replace_queue(session, Vec::new(), from_copy);
@@ -426,24 +448,30 @@ impl Hub {
                 self.restore_inbox(session);
                 session.inbox_loaded.store(true, Ordering::Release);
             }
-            self.restore_queue_after(session, None, point.map(|p| (p.seq, &p.queue)))
+            { let __t = std::time::Instant::now(); let r = self.restore_queue_after(session, None, point.map(|p| (p.seq, &p.queue))); phase_note(&session.id, "restore_queue_after", __t); r }
         };
         // A change of the queue made meanwhile is rebuilt in (`settle_queue_changes`).
+        let __t = std::time::Instant::now();
         self.settle_queue_changes(session, from_copy.unwrap_or(&Default::default()));
+        phase_note(&session.id, "settle_queue_changes", __t);
         // A copy's first start runs none of what waited (`clone_boot.rs`).
         self.drop_cloned_queue(session);
         self.drop_unsent_subagent_retries(session);
         // A crash may leave a durable prompt/queue record before its acceptance
         // callback writes `_acpmux/message`; reconstruct those projections before
         // clients can attach or the restored queue resumes.
+        let __t = std::time::Instant::now();
         let written = super::message_events::recover_message_events_after(self, session, after);
+        phase_note(&session.id, "message_events", __t);
         // A cut turn goes on before what waited behind it (`restart_resume.rs`).
         if let Some(prompt_id) = continued {
             let _ = self.move_queued(session, &prompt_id, 0, None);
         }
         // A watched chat goes on following its transcript where it stopped (`watch.rs`).
         if tokio::runtime::Handle::try_current().is_ok() {
-            self.start_watch(session);
+            let __t = std::time::Instant::now();
+        self.start_watch(session);
+        phase_note(&session.id, "start_watch", __t);
         }
         let open_quiet = !closed && matches!(open, Some(None));
         (from_copy.is_none() && written && open_quiet).then_some(carry).flatten()
@@ -859,4 +887,19 @@ struct OpenTurn {
     prompt_id: Value,
     trigger: bool,
     hidden: bool,
+}
+
+// TEMP-PHASE: phase timings for the size sweep; not committed.
+pub(crate) fn phase_note(id: &str, what: &str, since: std::time::Instant) {
+    if let Some(path) = std::env::var_os("ACPMUX_PHASE_LOG") {
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+            let _ = writeln!(f, "{} {} {} {}us", std::process::id(), id, what, since.elapsed().as_micros());
+        }
+    }
+}
+
+struct PhaseAll(String, std::time::Instant);
+impl Drop for PhaseAll {
+    fn drop(&mut self) { phase_note(&self.0, "read_log", self.1); }
 }

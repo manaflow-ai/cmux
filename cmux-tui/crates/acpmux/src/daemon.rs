@@ -1184,24 +1184,24 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
                 {
                     let _adopted = crate::hub::AdoptionReady(&hub.adoption_ready);
                     let _phase = gauges.phase("live chat logs");
-                    hub.load_live_logs_async().await;
+                    let __t = std::time::Instant::now(); hub.load_live_logs_async().await; crate::hub::phase_note("-", "live_logs", __t);
                     drop(_phase);
                     let _phase = gauges.phase("adopt agent hosts");
-                    hub.adopt_agent_hosts().await;
+                    let __t = std::time::Instant::now(); hub.adopt_agent_hosts().await; crate::hub::phase_note("-", "adopt", __t);
                     drop(_phase);
                     let _phase = gauges.phase("settle unadopted");
-                    hub.settle_unadopted().await;
+                    let __t = std::time::Instant::now(); hub.settle_unadopted().await; crate::hub::phase_note("-", "settle_unadopted", __t);
                 }
                 {
                     let _phase = gauges.phase("recover workflows");
-                    hub.recover_workflows().await;
+                    let __t = std::time::Instant::now(); hub.recover_workflows().await; crate::hub::phase_note("-", "recover_workflows", __t);
                 }
                 {
                     let hub = hub.clone();
                     hub.clone().scope.spawn_until_cancelled("restore-chat-logs", async move {
                         {
                             let _phase = gauges.phase("all chat logs");
-                            hub.load_logs_async().await;
+                            let __t = std::time::Instant::now(); hub.load_logs_async().await; crate::hub::phase_note("-", "all_logs", __t);
                         }
                         if hub.shutting_down() {
                             return;
