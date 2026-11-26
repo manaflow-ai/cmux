@@ -1,0 +1,96 @@
+name: Customize copy-paste prompts (cold model, nightly)
+
+# Every copy-paste prompt in skills/cmux-extension-author/prompts/ handed, as a person would paste it, to a fresh
+# Claude Code in an empty folder (scripts/cmux-next/ext-recipe-cold-model.py --prompts). A prompt passes only when
+# the folder it leaves ends in a working customization: `cmux ext dev --once --headless --json` exits 0 (the real
+# QuickJS app host loads and renders it, no cmux running) and its scene shows the text the page's prompt-check names.
+#
+# Leo: "good docs for agents and good copy-paste prompts for agents"
+#
+# The schedule registers from main; the prompts, the script and the cmux client always come from feat-cmux-next.
+on:
+  schedule:
+    - cron: "41 8 * * *"
+  workflow_dispatch:
+    inputs:
+      prompts:
+        description: space-separated prompt names (sidebar-show clone-app-flow ...); default every prompt
+        default: ""
+      model:
+        description: the Claude model the cold agent runs on
+        default: haiku
+
+permissions:
+  contents: read
+
+concurrency:
+  group: customize-prompts-cold-model
+  cancel-in-progress: false
+
+jobs:
+  prompts:
+    if: github.repository_owner == 'manaflow-ai'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: feat-cmux-next
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+      - name: Install feat-cmux-next's published cmux-tui client
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          head="$(git rev-parse HEAD)"
+          # The client published for this tree (resolve-exact, as gateway-e2e.yml does), waited for up to 30 minutes.
+          resolved="$(CMUX_TUI_TREE_WAIT_SECONDS=1800 CMUX_TUI_TREE_PUBLISHER_SHA="$head" scripts/cmux-next/pin-cmux-tui.sh resolve-exact)"
+          printf '%s\n' "$resolved"
+          client_commit="$(sed -n 's/^commit=//p' <<<"$resolved")"
+          [[ "$client_commit" =~ ^[0-9a-f]{40}$ ]]
+          bundle="$RUNNER_TEMP/cmux-tui-prebuilt"
+          mkdir -p "$bundle/Contents"
+          env -u CMUX_TUI_CLIENT_LOCAL scripts/install-cmux-tui-client.sh "$bundle" --arch native \
+            --manifest-url "https://files.cmux.com/cmux-tui/$client_commit/manifest.json" \
+            --expected-commit "$client_commit" \
+            --attest-signer-workflow "$GITHUB_REPOSITORY/.github/workflows/cmux-tui-artifacts.yml"
+          echo "$bundle/Contents/Resources/bin" >> "$GITHUB_PATH"
+          "$bundle/Contents/Resources/bin/cmux" customize prompts >/dev/null
+      - name: Install Claude Code
+        run: npm install --global --no-fund --no-audit @anthropic-ai/claude-code@2.1.284
+      - name: Paste every prompt into a cold agent
+        timeout-minutes: 60
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PROMPTS: ${{ inputs.prompts }}
+          MODEL: ${{ inputs.model || 'haiku' }}
+        run: |
+          set -uo pipefail
+          picks=()
+          for name in $PROMPTS; do picks+=(--recipe "$name"); done
+          python3 scripts/cmux-next/ext-recipe-cold-model.py --prompts --headless --json --model "$MODEL" "${picks[@]}" \
+            > "$RUNNER_TEMP/prompts.json"
+          status=$?
+          python3 - "$RUNNER_TEMP/prompts.json" >> "$GITHUB_STEP_SUMMARY" <<'PY' || true
+          import json, sys
+          rows = json.load(open(sys.argv[1]))
+          print("| prompt | result | wall s | source reads | guesses | docs reads | why |\n|---|---|---|---|---|---|---|")
+          for r in rows:
+              print(f"| {r['recipe']} | {'pass' if r['passed'] else 'FAIL'} | {r.get('wallSeconds')} | {r.get('sourceReads')}"
+                    f" | {r.get('guesses')} | {r.get('docReads')} | {(r.get('why') or '').replace('|', '/')} |")
+          print("\nEvery source read and every guess is a docs bug: fix the page or `cmux customize docs`.")
+          PY
+          cat "$RUNNER_TEMP/prompts.json"
+          exit "$status"
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: customize-prompts-cold-model
+          path: ${{ runner.temp }}/prompts.json
+          if-no-files-found: ignore
+          retention-days: 3

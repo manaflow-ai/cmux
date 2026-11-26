@@ -48,6 +48,11 @@ const messagesByLocale = {
 
 type AccessMessageKey = keyof typeof englishMessages.cloudPublicationAccess;
 
+// Pull requests maintain English and Japanese. The other locales are filled on
+// main by .github/workflows/localization-fill.yml; until it runs, a missing key
+// falls back to English, so they may omit keys but every present key is checked.
+const maintainedLocales = new Set(["en", "ja"]);
+
 const englishAccess = englishMessages.cloudPublicationAccess;
 const accessKeys = Object.keys(englishAccess).sort() as AccessMessageKey[];
 const signInCopyKeys = ["title", "signIn", "switchAccount"] as const;
@@ -65,13 +70,18 @@ describe("cloud publication access localization", () => {
 
   for (const [locale, messages] of Object.entries(messagesByLocale)) {
     test(`${locale} provides every non-empty access message with matching placeholders`, () => {
-      const access = messages.cloudPublicationAccess;
+      const access = (messages.cloudPublicationAccess ?? {}) as Partial<Record<AccessMessageKey, string>>;
+      const keys = Object.keys(access).sort() as AccessMessageKey[];
 
-      expect(Object.keys(access).sort()).toEqual(accessKeys);
-      for (const key of accessKeys) {
+      if (maintainedLocales.has(locale)) {
+        expect(keys).toEqual(accessKeys);
+      } else {
+        expect(keys.filter((key) => !accessKeys.includes(key))).toEqual([]);
+      }
+      for (const key of keys) {
         expect(access[key]).toBeString();
-        expect(access[key].trim().length).toBeGreaterThan(0);
-        expect(placeholders(access[key])).toEqual(placeholders(englishAccess[key]));
+        expect(String(access[key]).trim().length).toBeGreaterThan(0);
+        expect(placeholders(String(access[key]))).toEqual(placeholders(englishAccess[key]));
       }
     });
 
