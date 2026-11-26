@@ -190,6 +190,12 @@ impl HoldSender {
         }
     }
 
+    /// Drop a send the caller routes another way now (no socket, no answer in time); a late `held` for it
+    /// is then not this sender's business, and the Mac's spent ids keep the two routes to one effect.
+    pub fn forget(&mut self, id: &str) {
+        self.pending.remove(&id.to_lowercase());
+    }
+
     /// Forget delivered sends (their ids live on in the Mac's inbox).
     pub fn prune_delivered(&mut self) {
         self.pending.retain(|_, p| p.state != SendState::Delivered);

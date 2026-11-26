@@ -22,6 +22,9 @@ fn row(id: &str, name: &str, status: &str, host: Option<&str>) -> Row {
         name: Some(name.into()),
         status: status.into(),
         host: host.map(Into::into),
+        created_at: None,
+        running_since: None,
+        size: None,
     }
 }
 
@@ -178,7 +181,30 @@ fn an_existing_machine_answers_that_it_existed() {
     };
     let done = run(&mut DirectRunner { inner: &mut inner, cloud: &mut cloud }, &asked);
     let Outcome::Done(answer) = done else { panic!("{done:?}") };
-    assert_eq!(answer["machine_origin"], json!({"from": "existing"}), "{answer}");
+    assert_eq!(
+        answer["machine_origin"],
+        json!({"from": "existing", "status_before": "running"}),
+        "{answer}"
+    );
+}
+
+#[test]
+fn a_reused_machine_records_its_uptime_age_and_size() {
+    let now = 1_800_000_000_000;
+    let mut vm = row("vm-1", "dev", "running", Some("h-1"));
+    vm.created_at = Some(now - 7_200_000);
+    vm.running_since = Some(now - 600_000);
+    vm.size = Some(json!({"cpu": 2, "memory_mb": 4096, "disk_mb": 20480}));
+    assert_eq!(
+        vm.reused(now),
+        json!({"from": "existing", "status_before": "running", "uptime_s": 600, "age_s": 7200,
+            "size": {"cpu": 2, "memory_mb": 4096, "disk_mb": 20480}})
+    );
+    // A paused machine has no uptime (it is resumed for the start); a clock behind the
+    // platform's records no negative age.
+    vm.status = "paused".into();
+    assert_eq!(vm.reused(now)["uptime_s"], Value::Null);
+    assert_eq!(vm.reused(now - 10_000_000)["age_s"], Value::Null);
 }
 
 #[test]

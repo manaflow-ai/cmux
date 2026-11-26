@@ -1514,7 +1514,7 @@
    (a menu closed with Esc hands focus back here) draws the same pill and a hairline in the row's
    own ink, never the bright shared ring; Increase Contrast keeps the shared ring. The step back is 88%, the
    most it can be and keep 4.5:1 (68% drew "High" at 3.03:1 light, 3.99:1 dark). */
-.acpmux-composer-foot .acpmux-model .acpmux-model-detail { color: color-mix(in srgb, currentcolor 88%, transparent); }
+.acpmux-composer-foot .acpmux-model .acpmux-model-detail { color: color-mix(in srgb, currentcolor var(--instrument-ink-effort-label, 88%), transparent); }
 /* The shared ring (pages/shared/desktop.css) draws from these two tokens with !important, so the
    button narrows them on itself. */
 @media not (prefers-contrast: more) {
@@ -1584,10 +1584,12 @@
   --acpmux-density-text: var(--cmux-density-text-scale, var(--cmux-interface-scale, 1));
   /* The grid steps the composer reads, restated at its density: a token computed on :root keeps the
      page scale, so the composer redeclares the ones it uses. */
-  --grid-composer-inset: calc(8px * var(--acpmux-density));
+  /* A look's `appearance.metrics.composerPadding` and `composerMinHeight` (the host sets --cmux-composer-inset and
+     --cmux-composer-box only when a look sets them; Leo 2026-11-19: "the layout and proportions as well"). */
+  --grid-composer-inset: var(--cmux-composer-inset, calc(8px * var(--acpmux-density)));
   --grid-composer-control: calc(28px * var(--acpmux-density));
   --grid-composer-block-inset: calc(10px * var(--acpmux-density));
-  --grid-composer-box: calc(48px * var(--acpmux-density));
+  --grid-composer-box: var(--cmux-composer-box, calc(48px * var(--acpmux-density)));
   /* Claude Code's modest corner, concentric with the + chip in it: the chip's 8 corner plus the inset, 16 at
      Default (layout-grid.json composer-radius; ask-7e26f58612, Leo 2026-11-23: "now the composer is a bit too
      round i think"; ask-bfa9b41590: "just do the claude code roundedness"). The hat over it (the running tray),
@@ -2168,9 +2170,6 @@
   max-height: 100%;
   overflow: auto;
 }
-/* A resizable Cloud environment menu scrolls its rows in the menu's scroller, not the popup, so the
-   grips on the popup's edges stay put while the rows scroll. */
-.acpmux-menu.acpmux-location-menu.acpmux-cloud-env-menu[data-resizable] { overflow: visible; }
 /* A popup that clips (overflow hidden) keeps its grips wholly inside its edges. */
 .acpmux-folder-popover,
 .acpmux-location-menu[data-resized-height]:not(.ui-menu) { --ui-popup-resize-out: 0px; }

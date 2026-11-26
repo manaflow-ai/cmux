@@ -23,7 +23,7 @@ public nonisolated enum SettingsSchema {
             + AgentPaneEditedFilesSettingsSchema.descriptors + AgentPaneComposerSettingsSchema.descriptors + AgentPaneZoomSettingsSchema.descriptors
             + AgentDefaultsSettingsSchema.descriptors + AgentDefaultsSettingsSchema.toolsDescriptors + HangReportsSettingsSchema.descriptors + DeveloperToolsSettingsSchema.descriptors
             + DeveloperToolsSettingsSchema.internalDeveloperMode
-            + MachineSettingsSchema.macScreen + MachineSettingsSchema.macScreenViewing + MachineSettingsSchema.macScreenDebug + MachineSettingsSchema.remote
+            + MachineSettingsSchema.macScreen + MachineSettingsSchema.macScreenViewing + MachineSettingsSchema.macScreenDebug + MachineSettingsSchema.remote + MachineSettingsSchema.remoteDesktop
             + MachineSettingsSchema.deviceHub + GeneralSettingsSchema.menus + MachineSettingsSchema.imessage + TailnetJoinSettingsSchema.descriptors
         return next.map { sharedWithBrowser.contains($0.id) ? $0.consumed(by: [.cmuxNext, .cmuxBrowser]) : $0 }
             + BrowserAppSettingsSchema.descriptors

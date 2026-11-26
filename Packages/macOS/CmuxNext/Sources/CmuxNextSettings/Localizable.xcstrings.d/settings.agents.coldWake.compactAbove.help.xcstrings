@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agents.coldWake.compactAbove.help" : {
+      "comment" : "Settings > General > Prompt Cache: help under the cold-compaction threshold field",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تُوقَظ المحادثات الباردة ذات السياق الأقل من هذا دون ضغط."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hladni chatovi s manje konteksta od ovoga bude se bez sažimanja."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kolde chats med mindre kontekst end dette vækkes uden komprimering."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kalte Chats mit weniger Kontext werden ohne Komprimierung geweckt."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cold chats with less context than this are woken without compacting."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los chats fríos con menos contexto que esto se activan sin compactar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les chats froids ayant moins de contexte que cela sont réveillés sans compactage."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le chat fredde con meno contesto di questo vengono risvegliate senza compattarle."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コンテキストがこれより少ないコールドチャットは、圧縮せずに起動します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ការជជែកត្រជាក់ដែលមានបរិបទតិចជាងនេះ ត្រូវបានដាស់ដោយមិនបង្រួម។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "컨텍스트가 이보다 적은 콜드 채팅은 압축하지 않고 깨웁니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kalde chatter med mindre kontekst enn dette vekkes uten komprimering."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zimne czaty z mniejszym kontekstem są wybudzane bez kompaktowania."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chats frios com menos contexto que isso são ativados sem compactar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Холодные чаты с меньшим контекстом пробуждаются без сжатия."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แชตที่เย็นซึ่งมีบริบทน้อยกว่านี้จะถูกปลุกโดยไม่บีบอัด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bundan daha az bağlamı olan soğuk sohbetler sıkıştırılmadan uyandırılır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Холодні чати з меншим контекстом пробуджуються без стискання."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cuộc trò chuyện nguội có ngữ cảnh ít hơn mức này được đánh thức mà không nén."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上下文少于此值的冷聊天在唤醒时不压缩。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上下文少於此值的冷聊天在喚醒時不壓縮。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

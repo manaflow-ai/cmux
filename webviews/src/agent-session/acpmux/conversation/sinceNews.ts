@@ -56,12 +56,14 @@ export function isOthersNews(row: AcpmuxRow): boolean {
 /// like dont mark it as new if it's still going". While the agent's turn runs, what it writes is
 /// not new, and a turn that ends while the reader is at its bottom was read as it came
 /// (`SinceTurnHold`). Only other people's and agents' messages in a held span count (`isOthersNews`).
-export type HeldSpan = { from: number; to: number };
+/// `seen`: rows that came in while the reader was at the latest row; none of them counts, others'
+/// messages included.
+export type HeldSpan = { from: number; to: number; seen?: true };
 const NO_SPANS: readonly HeldSpan[] = [];
 
 /// Whether `row` at `at` is news to the line: held rows count only when they came from others.
 const newsAt = (row: AcpmuxRow, at: number, held: readonly HeldSpan[]): boolean => {
-  for (const span of held) if (at >= span.from && at < span.to) return isOthersNews(row);
+  for (const span of held) if (at >= span.from && at < span.to) return !span.seen && isOthersNews(row);
   return isNews(row);
 };
 
@@ -142,7 +144,12 @@ export function runningTurnFrom(rows: readonly AcpmuxRow[], index: number): numb
 ///   banner, while others' messages in it still do;
 /// - when it ends with the reader at the latest row, they read it as it came: it stays held for that
 ///   mark, so the line does not light up over it after the fact;
-/// - when it ends with the reader scrolled away, it is let go: what they did not see is new.
+/// - when it ends with the reader scrolled away, it is let go: what they did not see is new;
+/// - any news that comes in under the line while the reader is at the latest row (another agent's
+///   message, a reply after the turn) they read as it came: held too, so no line, count or banner
+///   lights up at the bottom they are looking at (Leo, 2026-11-25: "idk why it even happened in the
+///   first place for new to appear at the bottom"). What was under the line when it was placed stays
+///   news.
 /// Rows are kept by id, so a page loaded above or shed rows never move a span. O(spans) per render,
 /// plus one bounded scan back to the running turn's start while one runs.
 export class SinceTurnHold {
@@ -150,7 +157,17 @@ export class SinceTurnHold {
   /// The running turn's first news row under the line, while one runs.
   private running?: string;
   /// Turns that ended while the reader followed: their first and last news rows.
-  private read: { from: string; through: string; hints: [{ current: number }, { current: number }] }[] = [];
+  private read: {
+    from: string;
+    through: string;
+    hints: [{ current: number }, { current: number }];
+    seen?: true;
+  }[] = [];
+  /// The latest news row under the line as of the last read, and whether it has been read yet.
+  private latest?: string;
+  private latestHint = { current: -1 };
+  /// Whether `latest` has been read with the line drawn (what was under it then stays news).
+  private based = false;
 
   spans(
     rows: readonly AcpmuxRow[],
@@ -163,8 +180,12 @@ export class SinceTurnHold {
       this.mark = mark;
       this.running = undefined;
       this.read = [];
+      this.latest = undefined;
+      this.latestHint = { current: -1 };
+      this.based = false;
     }
     if (mark === undefined || index < 0) return NO_SPANS;
+    this.followArrivals(rows, index, following);
     if (!working && this.running !== undefined) {
       // The turn's own news it ended on: its first and last reply (ids that stay, never a live line's).
       const hint = { current: -1 };
@@ -180,7 +201,8 @@ export class SinceTurnHold {
     for (const turn of this.read) {
       const from = indexOfRow(rows, turn.from, turn.hints[0]);
       const through = indexOfRow(rows, turn.through, turn.hints[1]);
-      if (from >= 0 && through >= from) spans.push({ from, to: through + 1 });
+      if (from >= 0 && through >= from)
+        spans.push({ from, to: through + 1, ...(turn.seen && { seen: true as const }) });
     }
     if (working) {
       const from = runningTurnFrom(rows, index);
@@ -192,5 +214,45 @@ export class SinceTurnHold {
       }
     }
     return spans.length > 0 ? spans : NO_SPANS;
+  }
+
+  /// News that came in under the line since the last read, with the reader at the latest row: read
+  /// as it came. A run of such arrivals grows one span. Bounded: one scan back from the end to the
+  /// latest news row (at most SINCE_NEWS_REACH rows), one to where the new run starts.
+  private followArrivals(rows: readonly AcpmuxRow[], index: number, following: boolean): void {
+    const floor = Math.max(index, rows.length - 1 - SINCE_NEWS_REACH);
+    let latestAt = -1;
+    for (let at = rows.length - 1; at > floor && latestAt < 0; at -= 1) if (isNews(rows[at]!)) latestAt = at;
+    const latest = latestAt >= 0 ? rows[latestAt]!.id : undefined;
+    const before = this.latest;
+    const beforeAt = before === undefined ? -1 : indexOfRow(rows, before, this.latestHint);
+    this.latest = latest;
+    this.latestHint = { current: latestAt };
+    const based = this.based;
+    this.based = true;
+    if (!based || !following || latest === undefined || latest === before) return;
+    // Only rows that came in after the last news row read: a page of history loaded under the line
+    // (the last one read gone, or now below the latest) is never taken as seen. Where the run starts:
+    // the first news row after the last one read, else the latest alone, never more than came in.
+    if (before !== undefined && beforeAt >= 0 && beforeAt > latestAt) return;
+    let fromAt = latestAt;
+    if (before === undefined || beforeAt >= 0)
+      for (let at = Math.max(beforeAt, index) + 1; at < latestAt; at += 1)
+        if (isNews(rows[at]!)) {
+          fromAt = at;
+          break;
+        }
+    const last = this.read[this.read.length - 1];
+    if (last?.seen && before !== undefined && last.through === before) {
+      last.through = latest;
+      last.hints[1] = { current: latestAt };
+      return;
+    }
+    this.read.push({
+      from: rows[fromAt]!.id,
+      through: latest,
+      hints: [{ current: fromAt }, { current: latestAt }],
+      seen: true,
+    });
   }
 }

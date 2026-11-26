@@ -123,9 +123,22 @@ public final class TitlebarBandButton: ClickableButton {
         // shape at every density (Lucas 2026-11-15: the tab's radius on a smaller button went nearly round at Spacious);
         // in a tab row, as the tabs beside it (Lawrence 2026-11-20).
         layer?.cornerRadius = roundsAsTabBarControl ? Metrics.tabBarControlCornerRadius(fitting: bounds.size)
-            : Metrics.buttonCornerRadius(proportionalTo: bounds.height)
+            : Metrics.toolbarButtonCornerRadius(side: bounds.height)
         let size = min(Metrics.space3, bounds.height)
         badgeLabel.frame = NSRect(x: bounds.maxX - size, y: bounds.maxY - size, width: size, height: size)
+    }
+
+    /// The look metrics a band button's layout reads besides its side (`appearance.metrics.toolbarButtonGap` and
+    /// `toolbarButtonCornerRadius`): a window observes them and lays its buttons out again (``relayoutAll(in:)``).
+    public static var lookMetrics: [CGFloat] { [TopRowSpacing.groupGap, Metrics.toolbarButtonCornerRadius(side: side)] }
+
+    /// Lays out every band button under `root` again, so a look's toolbar button corner
+    /// (`appearance.metrics.toolbarButtonCornerRadius`) reaches buttons whose size did not change, live.
+    public static func relayoutAll(in root: NSView) {
+        for view in root.subviews {
+            if let button = view as? TitlebarBandButton { button.needsLayout = true }
+            relayoutAll(in: view)
+        }
     }
 
     /// The width needed for the control's current symbol and optional text.

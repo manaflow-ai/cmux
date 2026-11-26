@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "e3be564a907b381713600261d9b705ccea89c5d327eb05c653ce132afdef0008";
+inline constexpr std::string_view kProtocolIrSha256 = "904084da7c7269d2c068894336d66cb1aa68bb6f467a7992efd2ee435a2ad886";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -647,6 +647,7 @@ struct AgentInventoryChangedEvent;
 struct AgentInventoryWatchEndedEvent;
 struct AgentPresenceChangedEvent;
 struct AgentSessionShareChangedEvent;
+struct AppsCloudMachineEvent;
 struct BellEvent;
 struct BookmarksChangedEvent;
 struct BrowserStateEvent;
@@ -769,6 +770,7 @@ enum class CopyRequestMode;
 enum class IdsRequestKind;
 enum class SubscribeRequestTreeEvents;
 enum class ZoomPaneRequestMode;
+enum class AppsCloudMachineEventKind;
 enum class BrowserStateEventStatus;
 enum class ChiefChangedEventChange;
 enum class ClientAttachedEventTransport;
@@ -1003,6 +1005,24 @@ struct ApplyLayoutResult {
     std::vector<AppliedPane> panes{};
     Id screen{};
     friend bool operator==(const ApplyLayoutResult&, const ApplyLayoutResult&) = default;
+};
+
+enum class AppsCloudMachineEventKind {
+    record,
+    live,
+    lost,
+};
+
+struct JsonValue {
+    Json value{};
+    friend bool operator==(const JsonValue&, const JsonValue&) = default;
+};
+
+struct AppsCloudMachineEvent {
+    AppsCloudMachineEventKind kind{};
+    std::string machine{};
+    std::optional<JsonValue> record{};
+    friend bool operator==(const AppsCloudMachineEvent&, const AppsCloudMachineEvent&) = default;
 };
 
 enum class AttachSurfaceRequestMode {
@@ -1356,11 +1376,6 @@ struct ChiefInspectRequest {
     std::string path{};
     std::optional<std::map<std::string, std::string, std::less<>>> query{};
     friend bool operator==(const ChiefInspectRequest&, const ChiefInspectRequest&) = default;
-};
-
-struct JsonValue {
-    Json value{};
-    friend bool operator==(const JsonValue&, const JsonValue&) = default;
 };
 
 struct ChiefInspectResult {
@@ -2889,6 +2904,11 @@ struct CreateWorkspaceGroupRequest {
     friend bool operator==(const CreateWorkspaceGroupRequest&, const CreateWorkspaceGroupRequest&) = default;
 };
 
+enum class NameSource {
+    user,
+    auto_,
+};
+
 struct WorkspaceFirstTabBrowser {
     std::optional<bool> activate{};
     Field<std::uint16_t> cols{};
@@ -2916,6 +2936,7 @@ struct CreateWorkspaceRequest {
     Field<std::string> key{};
     Field<std::string> mutation_id{};
     Field<std::string> name{};
+    Field<NameSource> name_source{};
     Field<std::string> origin{};
     friend bool operator==(const CreateWorkspaceRequest&, const CreateWorkspaceRequest&) = default;
 };
@@ -4287,11 +4308,6 @@ struct MoveWorkspaceToGroupRequest {
     Field<std::string> origin{};
     Field<Id> workspace{};
     friend bool operator==(const MoveWorkspaceToGroupRequest&, const MoveWorkspaceToGroupRequest&) = default;
-};
-
-enum class NameSource {
-    user,
-    auto_,
 };
 
 struct NewBrowserTabRequest {
@@ -10636,6 +10652,12 @@ struct Codec<AgentSessionShareChangedEvent> {
 };
 
 template <>
+struct Codec<AppsCloudMachineEvent> {
+    static Result<Json> encode(const AppsCloudMachineEvent& value);
+    static Result<AppsCloudMachineEvent> decode(const Json& value);
+};
+
+template <>
 struct Codec<BellEvent> {
     static Result<Json> encode(const BellEvent& value);
     static Result<BellEvent> decode(const Json& value);
@@ -11365,6 +11387,12 @@ template <>
 struct Codec<ZoomPaneRequestMode> {
     static Result<Json> encode(const ZoomPaneRequestMode& value);
     static Result<ZoomPaneRequestMode> decode(const Json& value);
+};
+
+template <>
+struct Codec<AppsCloudMachineEventKind> {
+    static Result<Json> encode(const AppsCloudMachineEventKind& value);
+    static Result<AppsCloudMachineEventKind> decode(const Json& value);
 };
 
 template <>
