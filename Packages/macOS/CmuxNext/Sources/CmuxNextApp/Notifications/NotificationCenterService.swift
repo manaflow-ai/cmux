@@ -304,10 +304,10 @@ final class NotificationCenterService {
 
     /// Opens the tab of `surface` (banner click) and reads it per policy.
     func open(surface: SurfaceID?) {
-        guard let services, let surface, let located = locate(surface: surface, in: services.daemon.store) else { return }
-        let context = AppActionContext(services: services)
-        context.reveal(located, front: true); services.agentTabs.existingView(located.tab.id)?.focusAsk()
-        interacted(.open, tabID: located.tab.id)
+        guard let services, let surface else { return } // a launch click can land before its tab loads: wait up to 15 s
+        desktop.whenFound(limit: .seconds(15), find: { [weak self] in _ = services.daemon.store.tabListRevision; return self?.locate(surface: surface, in: services.daemon.store) }, missed: { [weak self] in self?.note("open: surface \(surface.rawValue) not found after 15 s") }) { [weak self] located in
+            AppActionContext(services: services).reveal(located, front: true); services.agentTabs.existingView(located.tab.id)?.focusAsk(); self?.interacted(.open, tabID: located.tab.id)
+        }
     }
 
     /// A reply banner's text (`notify --reply`) for the terminal of `surface`:
