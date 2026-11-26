@@ -31,6 +31,7 @@ import {
   useTranscriptViewContext,
 } from "./transcriptDisclosureModel";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
+import { scrollListTo } from "./motionOwner";
 import { WriteLabel } from "./WriteLabel";
 import { writeCall } from "./writeLabelModel";
 import { ToolLabel } from "./ToolVerb";
@@ -211,12 +212,12 @@ function keepView(list: HTMLElement, before: ViewAnchor | undefined): ViewAnchor
     const moved = edge(before) - before.at;
     if (Math.abs(moved) >= 0.5) {
       const want = scroller.scrollTop + moved;
-      scroller.scrollTop = want;
+      scrollListTo(scroller, want);
       // Cut short by the transcript's height (not yet as tall as the run): once more on the next
       // frame, after it has grown. One try only.
       if (Math.abs(scroller.scrollTop - want) >= 0.5)
         list.ownerDocument.defaultView?.requestAnimationFrame(() => {
-          if (Math.abs(scroller.scrollTop - want) >= 0.5) scroller.scrollTop = want;
+          if (Math.abs(scroller.scrollTop - want) >= 0.5) scrollListTo(scroller, want);
         });
     }
   }
