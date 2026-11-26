@@ -30,7 +30,7 @@ enum DebugBrowserImportOffer {
         case "reset": offer.reset()
         default: break
         }
-        return state(services)
+        return offer.readout()
     }
 
     private static func target(_ key: String?, _ services: AppServices) -> BrowserEntry? {
@@ -38,16 +38,5 @@ enum DebugBrowserImportOffer {
         return services.cache.browsers.values.first { $0.chrome.map { $0.window != nil && !$0.isHiddenOrHasHiddenAncestor } == true }
     }
 
-    private static func state(_ services: AppServices) -> JSONValue {
-        let offer = services.onboarding.browserImportOffer
-        let shownOn = services.cache.browsers.filter { $0.value.chrome?.showsCookieImportOffer == true }.map(\.key).sorted()
-        return .object([
-            "dismissed": .bool(services.settings?.snapshot.browserImportCookieBanner == false), "offered": .bool(offer.isOffered), "showing": .bool(!shownOn.isEmpty),
-            "imported": .bool(offer.state.imported),
-            "shown_this_launch": .bool(offer.shownThisLaunch),
-            "shown_on": .array(shownOn.map(JSONValue.string)),
-            "browsers": offer.browsers.map { found in JSONValue.array(found.map { JSONValue.string($0.browser.displayName) }) } ?? .null,
-        ])
-    }
 }
 #endif
