@@ -89,6 +89,14 @@ name = "cmux-config/once#LEDGER_VERSION"
 policy = "unreviewed"
 
 [[format]]
+file = "crates/cmux-customize/src/library/doctor.rs"
+const = "STATE_VERSION"
+name = "customize-doctor-state"
+about = "doctor.json: which settings-doctor findings were already announced or dismissed, by fingerprint"
+policy = "rebuild"
+why = "only notice state: a version this build cannot read starts empty, so a finding is said once more and its dismissal resets; no settings or user data is in it, and older versions (0, 1) upgrade in place"
+
+[[format]]
 file = "crates/cmux-customize/src/setup/check.rs"
 const = "SCHEMA_VERSION"
 name = "cmux-customize/check#SCHEMA_VERSION"
