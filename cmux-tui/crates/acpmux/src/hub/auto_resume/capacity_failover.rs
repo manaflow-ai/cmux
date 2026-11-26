@@ -9,8 +9,8 @@
 //!   model: the catalog's newest Sonnet for a chat on Opus or Fable
 //!   ([`crate::model_catalog::capacity_fallback`]); a chat on Sonnet or Haiku, or on a model the
 //!   catalog does not know, stays where it is. `N` is `capacityFallbackAfter` in config.json,
-//!   else Settings' `agents.autoRetry.capacityFallbackAfter`, default 1; 0 never switches
-//!   ([`super::settings::capacity_fallback_after`]).
+//!   else Settings' `agents.autoRetry.capacityFallbackAfter`, default 0: never switches
+//!   ([`super::settings::capacity_fallback_after`]; cmux#57784).
 //! - The switch is made as the attempt fires, after its wait: a Stop, close or the person's
 //!   prompt during the wait takes the mark as before, and nothing switches. The queue is kept;
 //!   the session goes on.
@@ -19,6 +19,9 @@
 //!   puts it back. A chat already on its fallback does not switch again.
 //! - A turn that ends well on the fallback model puts the chat's own model back. A chat whose
 //!   model someone changed meanwhile keeps theirs.
+//! - A chat left on its fallback when switching is off (turned off since, or a chat the gateway's
+//!   own 503s cut on every turn, so none ended well: cmux#57784) gets its own model back before
+//!   its next capacity attempt fires, instead of staying on the fallback for good.
 //! - One line says each switch, in the daemon's log and as a notice row in the transcript:
 //!   `capacity_failover` `{from, to, attempt, promptId, text}` and `capacity_restored`
 //!   `{from, to, text}`.
@@ -106,7 +109,18 @@ impl Hub {
         attempt: usize,
     ) {
         let configured = self.config.read().await.capacity_fallback_after;
-        if !fails_over_at(attempt, super::settings::capacity_fallback_after(configured)) {
+        let after = super::settings::capacity_fallback_after(configured);
+        if !fails_over_at(attempt, after) {
+            // Switching is off, or not yet due: a chat a past switch left on its fallback goes
+            // back to its own model before this attempt, instead of waiting for a turn that ends
+            // well, which a gateway that cuts every turn never gives (cmux#57784).
+            if after == 0 {
+                let fallback =
+                    session.meta.lock().unwrap_or_else(|e| e.into_inner()).capacity_fallback.take();
+                if let Some(fallback) = fallback {
+                    self.put_back(session, fallback).await;
+                }
+            }
             return;
         }
         let Some((from, to)) = self.capacity_fallback_target(session).await else { return };
@@ -154,28 +168,35 @@ impl Hub {
             {
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }
-            let CapacityFallback { from, to } = fallback;
-            let running = Self::running_model(&session);
-            let entry = hub.failover_entry(&session, &from).await;
-            // Someone chose another model meanwhile: theirs stays.
-            if running.as_deref().is_none_or(|r| !model_catalog::same_model(entry.as_ref(), r, &to))
-            {
-                tracing::info!(session = %session.id, ?running, "capacity-failover: {} kept its model; {from} not put back", Self::who(&session));
-                let _ = hub.save_meta_answered(&session);
-                return;
-            }
-            if let Err(e) = hub.set_model(&session, &from).await {
-                tracing::warn!(session = %session.id, "capacity-failover: back to {from} refused: {}", e.message);
-                // The next turn that ends well tries again.
-                let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-                meta.capacity_fallback.get_or_insert(CapacityFallback { from, to });
-                return;
-            }
-            let _ = hub.save_meta_answered(&session);
-            let text = restored_text(&from, &to);
-            tracing::info!(session = %session.id, "capacity-failover: {} {text}", Self::who(&session));
-            hub.append_retry(&session, RESTORED_RECORD, json!({"from": to, "to": from, "text": text}));
+            hub.put_back(&session, fallback).await;
         });
+    }
+
+    /// Puts `session`'s own model (`fallback.from`) back when it still runs its fallback
+    /// (`fallback.to`), with one `capacity_restored` notice; `fallback` is already taken from its
+    /// meta. A chat someone moved to another model meanwhile keeps theirs; a switch the harness
+    /// refuses keeps the fallback recorded, for the next try.
+    async fn put_back(self: &Arc<Self>, session: &Arc<Session>, fallback: CapacityFallback) {
+        let CapacityFallback { from, to } = fallback;
+        let running = Self::running_model(session);
+        let entry = self.failover_entry(session, &from).await;
+        // Someone chose another model meanwhile: theirs stays.
+        if running.as_deref().is_none_or(|r| !model_catalog::same_model(entry.as_ref(), r, &to)) {
+            tracing::info!(session = %session.id, ?running, "capacity-failover: {} kept its model; {from} not put back", Self::who(session));
+            let _ = self.save_meta_answered(session);
+            return;
+        }
+        if let Err(e) = self.set_model(session, &from).await {
+            tracing::warn!(session = %session.id, "capacity-failover: back to {from} refused: {}", e.message);
+            // The next turn that ends well, or the next attempt, tries again.
+            let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            meta.capacity_fallback.get_or_insert(CapacityFallback { from, to });
+            return;
+        }
+        let _ = self.save_meta_answered(session);
+        let text = restored_text(&from, &to);
+        tracing::info!(session = %session.id, "capacity-failover: {} {text}", Self::who(session));
+        self.append_retry(session, RESTORED_RECORD, json!({"from": to, "to": from, "text": text}));
     }
 }
 
