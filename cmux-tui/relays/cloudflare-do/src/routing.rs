@@ -19,7 +19,7 @@ enum AdmissionRoute<'a> {
     Circuit { circuit: &'a str },
 }
 
-pub(crate) async fn route(mut request: Request, env: Env) -> Result<Response> {
+pub(crate) async fn route(request: Request, env: Env) -> Result<Response> {
     let path = request.path();
     if path == "/healthz" {
         return Response::ok("ok");
@@ -58,6 +58,10 @@ pub(crate) async fn route(mut request: Request, env: Env) -> Result<Response> {
             // The caller's place (the viewer's on a connect, the daemon's on a control socket) goes to the
             // slot beside the request, never from the caller: what it sent is dropped.
             let caller = hint_of(&request);
+            // The request the runtime hands the Worker has immutable headers: `headers_mut` on it is an
+            // error, and so a 500 on every slot upgrade (staging, 2026-11-25 22:28Z to the fix). A copy
+            // (`new Request(request)`) carries the same upgrade, ticket and body, with headers it may edit.
+            let mut request = request.clone_mut()?;
             let headers = request.headers_mut()?;
             headers.delete(REGION_HEADER)?;
             if let Some(region) = caller {

@@ -184,6 +184,12 @@ jobs:
       - name: Validate Wrangler deployment bundle
         run: npx --no-install wrangler deploy --dry-run --outdir "$RUNNER_TEMP/cmux-cloudflare-relay"
 
+      # The built Worker under workerd (`wrangler dev`): a daemon registers, clients connect, join and forward.
+      # cargo test has no workerd, so a runtime-only fault (2026-11-25: every slot upgrade a 500 on staging)
+      # passed every step above. deploy-staging needs this job, so such a Worker is never deployed.
+      - name: Relay behavior under workerd
+        run: tests/run_behavior.sh
+
   # What this run deploys, where, and whether it needs the migration approval. No secrets.
   plan:
     if: ${{ (github.repository == 'manaflow-ai/cmux' && (github.event_name == 'workflow_dispatch' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
