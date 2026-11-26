@@ -23,11 +23,18 @@ export const postNewChatDraft = () =>
 const hostKeptAttachments: KeptAttachments = {
   read: (sessionId) =>
     callNative<unknown>("chat.draftAttachments.get", { sessionId }).then(
-      (kept) => (Array.isArray(kept) ? (kept as ComposerAttachment[]) : []),
+      (kept) => {
+        if (!Array.isArray(kept)) throw new Error("Invalid draft attachment list");
+        return kept as ComposerAttachment[];
+      },
       (error: unknown) => {
         if (
           error instanceof NativeError &&
-          (error.code === "native.unsupported" || error.code === "cmux.protocol.unknown_op")
+          (error.code === "unsupported" ||
+            error.code === "native.unsupported" ||
+            error.code === "cmux.protocol.unknown_op" ||
+            (error.code === "native.invalid_request" &&
+              (error.details as { protocol?: unknown } | undefined)?.protocol === "cmux.protocol.unknown_op"))
         ) {
           return [];
         }
