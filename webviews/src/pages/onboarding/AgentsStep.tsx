@@ -34,7 +34,8 @@ import { useSignInStrings } from "../shared/signIn/strings";
 export type AgentsLook = "cards" | "list" | "compact";
 export const DEFAULT_AGENTS_LOOK: AgentsLook = "list";
 
-/** The row's trailing control: Sign In, Install (or Try Again), the install spinner, or nothing. */
+/** The row's trailing control: Sign In, Install (or Try Again), the install spinner, or nothing.
+ *  retry-prompt-ok: Try Again runs the agent's install again, an install the person chooses. */
 type Trailing = "signIn" | "install" | "retry" | "installing" | "none";
 
 export function trailingFor(row: AgentRow): Trailing {
@@ -55,6 +56,7 @@ function AgentListRow({ row, look }: { row: AgentRow; look: AgentsLook }) {
   const signInLabel = strings.t("onboarding.agents.signIn");
   const labels = [signInLabel, strings.t("onboarding.agents.install"), strings.t("onboarding.agents.installAgain")];
   const action = trailing === "signIn" ? "signIn" : trailing === "install" || trailing === "retry" ? "install" : null;
+  // retry-prompt-ok: a failed install's Try Again installs the agent again, an install the person chooses.
   const label =
     trailing === "install"
       ? strings.t("onboarding.agents.install")
