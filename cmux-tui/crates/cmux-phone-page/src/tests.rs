@@ -88,7 +88,10 @@ fn a_request_round_trips_and_its_answer_matches_by_id() {
 #[test]
 fn a_bad_request_is_answered_with_its_id_when_it_has_one() {
     for params in [json!({}), json!({"tab": null}), json!({"tab": 7})] {
-        let line = request_line(9, "browser.page.state", &params);
+        let line = serde_json::to_vec(&json!({
+            "id": 9, "method": "browser.page.state", "params": params,
+        }))
+        .unwrap();
         let (id, refusal) = parse_request(&line).unwrap_err();
         assert_eq!((id, refusal.code), (Some(9), BAD_REQUEST));
     }
