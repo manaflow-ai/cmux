@@ -82,6 +82,12 @@ const GLOBAL_FLAG_ARGUMENTS: &[(&str, &str, &str)] = &[
     ),
 ];
 
+/// Flags `app::run_action` rewrites into another argument before the request goes out
+/// (`cli/app.rs`): `--contents-file FILE` is sent as `contents` (the file's text, so it
+/// never sits in argv), `--yes` as `confirm`. A call site using one is checked against the
+/// argument the app gets, not the flag's own name.
+const REWRITTEN_FLAGS: &[(&str, &str)] = &[("contents-file", "contents"), ("yes", "confirm")];
+
 /// Flags a CLI scope takes for itself before the words reach the app: `chat
 /// send`'s `--from`/`--as` (the sender label) and `--class` are read by
 /// chief/chat_scope.rs, which rewrites the words without them.
@@ -534,7 +540,12 @@ fn drift_in(path: &Path, actions: &[Action], reaches_app: &dyn Fn(&str) -> bool)
                         *name == actions[action].cli_name && flags.contains(&flag)
                     });
                     if !CLI_FLAGS.contains(&flag) && !scope_flag {
-                        report(*line, action, wire_name(flag), &mut drift);
+                        let sent =
+                            REWRITTEN_FLAGS.iter().find(|(cli, _)| *cli == flag).map_or_else(
+                                || wire_name(flag),
+                                |(_, argument)| (*argument).to_owned(),
+                            );
+                        report(*line, action, sent, &mut drift);
                     }
                 }
             }
