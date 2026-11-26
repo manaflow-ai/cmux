@@ -14,7 +14,14 @@ import { preserveScrollAnchorTop } from "../conversation/scrollAnchor";
 import { turnViewFrom, type TurnView } from "../conversation/turns";
 import { layoutConversation, type AcpmuxRow, type AcpmuxSnapshot, type ConversationLayout } from "../model";
 import { acpmuxSendCall } from "../conversation/acpmuxSends";
-import { MARK_STEP, ROW_GAP_LOOKS, TRANSCRIPT_BLOCK_GAP, TRANSCRIPT_TURN_GAP, transcriptGap } from "../transcriptGrid";
+import {
+  MARK_STEP,
+  ROW_GAP_LOOKS,
+  TRANSCRIPT_BLOCK_GAP,
+  TRANSCRIPT_TURN_GAP,
+  transcriptGap,
+  TRANSCRIPT_RUN_GAP,
+} from "../transcriptGrid";
 import { STARTED_LINE_NAMES, withSubagentLines, type DoneLineCache } from "../subagents/runningTray";
 import { SUBAGENT_STARTED } from "../subagents/subagentRows";
 import { subagentNamed } from "../subagents/subsessions";
@@ -421,18 +428,26 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
       if (!probe || !above) continue;
       const gap = probe.drawnGap ?? probe.gap;
       // A person's prompt takes the turn gap; another agent's line (a notice, a message) the block gap
-      // under the turn before (transcriptSpacing.ts footer-to-received, by design).
-      const want = probe.received ? TRANSCRIPT_BLOCK_GAP : TRANSCRIPT_TURN_GAP;
+      // under the turn before's reply, the run gap under its footer row (transcriptSpacing.ts
+      // footer-to-received; transcriptGrid.ts FOOTER_WORKING_GAP_LOOKS), by design.
+      const wantUnder = (row: RowProbe | undefined) =>
+        probe.received
+          ? row?.kind === "turnSummary"
+            ? TRANSCRIPT_RUN_GAP
+            : TRANSCRIPT_BLOCK_GAP
+          : TRANSCRIPT_TURN_GAP;
+      const want = wantUnder(above);
       // The turn's "Working for" (or "Worked for") line drawn over the message that opened it (turns.ts
       // `shapeLiveTurn`): that line is the turn's top, so it stands the gap under the turn before.
       if (probe.opens && (above.id === `working-${probe.id}` || above.id === `worked-${probe.id}`)) {
         const before = (above as RowProbe & { above?: RowProbe }).above;
         const headGap = above.drawnGap ?? above.gap;
-        if (before && headGap < want - 0.5)
+        const headWant = wantUnder(before);
+        if (before && headGap < headWant - 0.5)
           flag(
             "a-turn-gap",
             above.id,
-            `${above.kind} over ${probe.kind} opens turn ${probe.turn} ${headGap}px under ${before.kind} ${before.id} (want >= ${want})`,
+            `${above.kind} over ${probe.kind} opens turn ${probe.turn} ${headGap}px under ${before.kind} ${before.id} (want >= ${headWant})`,
           );
         continue;
       }

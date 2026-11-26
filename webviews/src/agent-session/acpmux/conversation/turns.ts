@@ -1882,6 +1882,15 @@ export function foldSegments(opener: AcpmuxRow, rows: readonly AcpmuxRow[], inOr
   const pieces: { anchor: AcpmuxRow; rows: AcpmuxRow[] }[] = [{ anchor: opener, rows: [] }];
   for (const row of drawn) {
     const piece = pieces.at(-1)!;
+    // A compaction that ended under the person's steer (they steered while it ran: direct.ts puts its
+    // note where its live line stood) stays with the stretch the steer closed, in sight above the
+    // steer's one Worked for, never folded into it (Leo, 2026-11-25: "the worked for collapsing the
+    // compaction and then the next worked for + thinking is weird").
+    const parent = pieces.at(-2);
+    if (inOrder && parent && row.kind === "compaction" && !piece.rows.length && isOwnSteer(piece.anchor)) {
+      parent.rows.push(row);
+      continue;
+    }
     if (!inOrder || !startsFold(row, piece.rows.some(repliesInFold))) piece.rows.push(row);
     else if (isOwnSteer(row)) {
       piece.rows.push(row);
@@ -3580,7 +3589,9 @@ function shapeLiveRows(
   // for for collapsing the compaction and then the next worked for + thinking is weird").
   const steer = compactedSteer(drawn);
   if (steer) {
-    const below = shaped.findIndex((row) => row.id === steer.id);
+    let below = shaped.findIndex((row) => row.id === steer.id);
+    // The note of a compaction that ended under the steer stays over the header, as the ended turn draws it.
+    while (below >= 0 && shaped[below + 1]?.kind === "compaction") below += 1;
     if (below >= 0) {
       header.id = `${WORKED}-${steer.id}`;
       header.at = steer.at + clockOffset;
