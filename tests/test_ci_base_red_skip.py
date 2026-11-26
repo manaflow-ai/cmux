@@ -169,6 +169,41 @@ class BaseRedSkip(unittest.TestCase):
         self.assertEqual(brs.decide_many(args(job=["a", "b"], audit_percent=100), PR, now=NOW, read=red),
                          ["red_jobs=[]"])
 
+    def test_get_json_tries_a_slow_or_5xx_read_again(self):
+        answers = [TimeoutError("slow"), (502, b"", {}), (200, b'{"ok": 1}', {})]
+        calls, pauses = [], []
+
+        def request(req, deadline):
+            calls.append(deadline.seconds)
+            answer = answers.pop(0)
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+        saved = brs.deadline_http.request
+        brs.deadline_http.request = request
+        try:
+            got = brs.get_json("/x", "t", brs.deadline_http.Deadline(90.0), sleep=pauses.append)
+        finally:
+            brs.deadline_http.request = saved
+        self.assertEqual(got, {"ok": 1})
+        self.assertEqual(len(calls), 3)
+        self.assertTrue(all(s <= brs.READ_S for s in calls), calls)  # one slow read cannot eat the whole budget
+        self.assertEqual(pauses, [2.0, 4.0])
+
+    def test_get_json_gives_up_after_its_tries_and_on_a_hard_status(self):
+        def request(req, deadline):
+            raise TimeoutError("slow")
+        saved = brs.deadline_http.request
+        brs.deadline_http.request = request
+        try:
+            with self.assertRaisesRegex(RuntimeError, "slow"):
+                brs.get_json("/x", "t", brs.deadline_http.Deadline(90.0), sleep=lambda s: None)
+            brs.deadline_http.request = lambda req, deadline: (403, b"", {})
+            with self.assertRaisesRegex(RuntimeError, "HTTP 403"):
+                brs.get_json("/x", "t", brs.deadline_http.Deadline(90.0), sleep=lambda s: None)
+        finally:
+            brs.deadline_http.request = saved
+
     def test_workflows_wire_the_switch_and_full_ci(self):
         wired = {
             "cmux-next-guards.yml": ["tooling-tests"],
