@@ -93,6 +93,11 @@ fn destructive_exec(argv: &[String], home: Option<&Path>) -> Option<String> {
     None
 }
 
+/// [`destructive_exec`] for other checks of a program run (`fork_risky.rs`).
+pub(crate) fn destructive_exec_reason(argv: &[String], home: Option<PathBuf>) -> Option<String> {
+    destructive_exec(argv, home.as_deref())
+}
+
 /// `p` with symlinks resolved when it exists (the form `resolve` gives).
 fn canon(p: PathBuf) -> PathBuf {
     std::fs::canonicalize(&p).unwrap_or(p)

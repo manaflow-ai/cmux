@@ -16,7 +16,8 @@ import sys
 from pathlib import Path
 
 SOURCES = "schemas/settings/source"
-CATALOG = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings"
+# One file per key (scripts/cmux-next/string_catalogs.py): `<key>.xcstrings`, its `check` holding each name to its key.
+CATALOG = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings.d"
 
 
 def text_keys(node, path: str = ""):
@@ -32,7 +33,7 @@ def text_keys(node, path: str = ""):
 
 
 def missing(root: Path) -> list[str]:
-    catalog = set(json.loads((root / CATALOG).read_text())["strings"])
+    catalog = {p.name[: -len(".xcstrings")] for p in (root / CATALOG).glob("*.xcstrings")}
     found = []
     for source in sorted((root / SOURCES).glob("*.json")):
         for key, where in text_keys(json.loads(source.read_text())):

@@ -186,12 +186,20 @@ fn an_identity_attach_to_a_reopened_terminal_streams_under_its_tab_surface() {
     .unwrap();
     let first_event = next_event(&outbound, Duration::from_secs(5)).expect("vt-state");
     assert_eq!(first_event["event"], "vt-state", "{first_event}");
-    assert_eq!(first_event["surface"], json!(view), "the replay names the tab's surface: {first_event}");
+    assert_eq!(
+        first_event["surface"],
+        json!(view),
+        "the replay names the tab's surface: {first_event}"
+    );
     mux.surface(view).unwrap().inject_output_for_test(b"after reopen\r\n");
     loop {
         let event = next_event(&outbound, Duration::from_secs(5)).expect("output");
         if event["event"] == "output" {
-            assert_eq!(event["surface"], json!(view), "live output names the tab's surface: {event}");
+            assert_eq!(
+                event["surface"],
+                json!(view),
+                "live output names the tab's surface: {event}"
+            );
             break;
         }
     }

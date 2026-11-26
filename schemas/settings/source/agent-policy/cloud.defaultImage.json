@@ -1,0 +1,4 @@
+{
+  "agent": "userOnly",
+  "why": "The Cloud environment every new Cloud chat boots in, with its setup script, secrets and network access: only the person picks it (PR https://github.com/manaflow-ai/cmux/pull/51769)."
+}

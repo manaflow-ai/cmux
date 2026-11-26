@@ -142,7 +142,7 @@ class FixtureTests(unittest.TestCase):
     def test_a_claude_start_passes_a_login_only_when_asked(self):
         self.assertEqual(self.args.login, "")
         self.assertEqual(matrix.start_login("claude", self.args.login), [])
-        self.assertEqual(matrix.start_login("claude", "none"), ["--login", "none"])
+        self.assertEqual(matrix.start_login("claude", "none"), [])
         self.assertEqual(matrix.start_login("codex", "none"), [])
 
     def test_a_stale_machine_list_refusal_is_asked_again(self):
@@ -225,20 +225,28 @@ class GrantTests(unittest.TestCase):
             calls.append((command[1:], input))
             self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", env)
             self.assertNotIn(token, " ".join(command))
-            return subprocess.CompletedProcess(command, 0, "", "")
+            out = ""
+            if command[1:4] == ["cloud", "connect", "claude"]:
+                self.assertEqual(input, token)
+                out = json.dumps({"connection": {"id": "conn-1", "serves_cloud": True},
+                                  "keychain": {"account": "claude-token-0a1b2c3d"}})
+            return subprocess.CompletedProcess(command, 0, out, "")
 
         with patch.object(m, "cmux", return_value=(0, json.dumps({"result": status}), "")), \
                 patch("subprocess.Popen"), patch("subprocess.run", side_effect=run):
             self.assertEqual(m.launch(), "")
             entries = [matrix.claude_login_cache.name("stack-user-1", "team-1"),
                        matrix.claude_login_cache.name("stack-user-1", None)]
-            self.assertEqual([words for words, _ in calls], [["cloud", "secret", "set", e] for e in entries])
-            self.assertTrue(all(json.loads(stdin)["credential"] for _, stdin in calls))
+            sets = [(words, stdin) for words, stdin in calls if words[:2] == ["cloud", "secret"]]
+            self.assertEqual([words for words, _ in sets], [["cloud", "secret", "set", e] for e in entries])
+            self.assertTrue(all(json.loads(stdin)["credential"] for _, stdin in sets))
+            self.assertEqual(calls[-1][0][:3], ["cloud", "connect", "claude"], "the gate's connection, after the cache")
             calls.clear()
             m.launcher = None
             m.quit()
-            self.assertEqual(sorted(words for words, _ in calls), sorted(["cloud", "secret", "rm", e] for e in entries))
-        self.assertEqual(matrix.start_login("claude", "pass"), ["--login", "pass"])
+            self.assertEqual(sorted(words for words, _ in calls), sorted([["cloud", "secret", "rm", e] for e in entries]
+                             + [["cloud", "connections", "--remove", "conn-1", "--keychain-account", "claude-token-0a1b2c3d"]]))
+        self.assertEqual(matrix.start_login("claude", "pass"), [])
 
 
 class TrustTests(unittest.TestCase):

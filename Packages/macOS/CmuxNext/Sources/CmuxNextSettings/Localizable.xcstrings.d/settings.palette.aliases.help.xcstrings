@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.palette.aliases.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A word for a command, such as \"vs\": \"splitRight\"."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "كلمة لأمر، مثل \"vs\": \"splitRight\"."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Riječ za naredbu, npr. \"vs\": \"splitRight\"."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Et ord for en kommando, fx \"vs\": \"splitRight\"."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ein Wort für einen Befehl, etwa \"vs\": \"splitRight\"."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una palabra para un comando, como \"vs\": \"splitRight\"."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un mot pour une commande, comme \"vs\": \"splitRight\"."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una parola per un comando, come \"vs\": \"splitRight\"."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "コマンドを指す単語です（例: \"vs\": \"splitRight\"）。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ពាក្យសម្រាប់ពាក្យបញ្ជា ដូចជា \"vs\": \"splitRight\"។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "명령을 가리키는 단어입니다(예: \"vs\": \"splitRight\")."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Et ord for en kommando, for eksempel \"vs\": \"splitRight\"."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Słowo dla polecenia, np. \"vs\": \"splitRight\"."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uma palavra para um comando, como \"vs\": \"splitRight\"."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Слово для команды, например \"vs\": \"splitRight\"."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "คำที่ใช้เรียกคำสั่ง เช่น \"vs\": \"splitRight\""
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bir komut için bir sözcük, örneğin \"vs\": \"splitRight\"."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Слово для команди, наприклад \"vs\": \"splitRight\"."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Một từ đặt tên cho lệnh, như \"vs\": \"splitRight\"."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "指代命令的词，例如 \"vs\": \"splitRight\"。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "指稱指令的詞，例如 \"vs\": \"splitRight\"。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
