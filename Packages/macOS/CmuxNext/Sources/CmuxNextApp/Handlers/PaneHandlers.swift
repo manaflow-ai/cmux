@@ -240,7 +240,7 @@ enum PaneHandlers {
         guard order.count > 1, let index = order.firstIndex(of: pane.layoutPaneID) else {
             return ctx.refuseQuietly(RefusalStrings.screenHasOnePane)
         }
-        focusByKey(order[(index + offset + order.count) % order.count], in: content, invocation)
+        if let next = WindowRules().step(index, by: offset, count: order.count) { focusByKey(order[next], in: content, invocation) }
     }
 
     // MARK: Sizing

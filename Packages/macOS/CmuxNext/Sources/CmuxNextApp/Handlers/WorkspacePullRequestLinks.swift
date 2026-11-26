@@ -1,5 +1,6 @@
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextWindowRules
 import Foundation
 
 /// The web links of a workspace's status entries (Open All Workspace PR
@@ -9,18 +10,14 @@ struct WorkspacePullRequestLinks {
     let urls: [URL]
 
     init(_ entries: [WorkspaceStatus.Entry]) {
-        let ordered = entries.filter { $0.key == SidebarMapping.pullRequestKey } + entries.filter { $0.key != SidebarMapping.pullRequestKey }
-        var seen = Set<String>()
-        var urls: [URL] = []
-        for entry in ordered {
-            for url in Self.links(in: entry.text) where seen.insert(url.absoluteString).inserted { urls.append(url) }
-        }
-        self.urls = urls
+        // Rust's `handlers_verbs::pr_links` orders, filters and dedupes what the detector finds.
+        let found = entries.map { WindowRules.StatusLinks(key: $0.key, links: Self.links(in: $0.text)) }
+        urls = WindowRules().prLinks(found, prKey: SidebarMapping.pullRequestKey).compactMap(URL.init(string:))
     }
 
-    private static func links(in text: String) -> [URL] {
+    private static func links(in text: String) -> [String] {
         guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return [] }
         let range = NSRange(text.startIndex..., in: text)
-        return detector.matches(in: text, range: range).compactMap(\.url).filter { ["http", "https"].contains($0.scheme?.lowercased()) }
+        return detector.matches(in: text, range: range).compactMap(\.url?.absoluteString)
     }
 }

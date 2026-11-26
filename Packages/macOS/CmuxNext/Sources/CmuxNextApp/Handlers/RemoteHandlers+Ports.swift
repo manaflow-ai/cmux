@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextRemote
+import CmuxNextWindowRules
 import Foundation
 
 /// Forward Port…, List Forwarded Ports and Stop Forwarding Port… for an SSH machine: each asks the machine's link on
@@ -27,7 +28,7 @@ extension RemoteHandlers {
                     case "machine.portList":
                         let answered = await admin.portList()
                         guard case .success(let forwards) = answered else { throw fail(answered.reason) }
-                        return CloudAnswer(title: title, text: forwards.isEmpty ? RemoteStrings.noForwardedPorts(name) : forwards.map { "\($0.port) → \($0.url)" }.joined(separator: "\n"),
+                        return CloudAnswer(title: title, text: WindowRules().portListText(forwards.map { .init(port: $0.port, url: $0.url) }) ?? RemoteStrings.noForwardedPorts(name),
                                            fields: ["forwards": .array(forwards.map { .object(forwardFields($0)) })])
                     default:
                         switch await admin.portClose(port: port) {
@@ -41,12 +42,11 @@ extension RemoteHandlers {
         }
     }
 
-    /// `--port N`, 1 to 65535.
+    /// `--port N`, 1 to 65535 (Rust's `handlers_verbs::port_argument`).
     static func portArgument(_ invocation: ActionInvocation) throws -> Int {
         let value = invocation["port"]
-        guard let port = value?.intValue ?? value?.stringValue.flatMap({ Int($0.trimmingCharacters(in: .whitespaces)) }), (1...65535).contains(port) else {
-            throw ActionFailure(message: RemoteStrings.needsPort)
-        }
+        let port = value?.intValue.map(WindowRules.PortValue.int) ?? value?.stringValue.map(WindowRules.PortValue.text)
+        guard let port = WindowRules().portArgument(port) else { throw ActionFailure(message: RemoteStrings.needsPort) }
         return port
     }
 

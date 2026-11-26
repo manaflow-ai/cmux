@@ -106,13 +106,13 @@ enum TabHandlers {
 
     /// What Duplicate Tab does with each of `ids` (Rust's `tabs::duplicate`), else why it copies none. Another Mac's chat is skipped as a page is (its session never leaves that Mac).
     private static func duplicates(_ ids: [StripTabID], in pane: PaneController, _ ctx: AppActionContext) -> (actions: [String], refusal: String?) {
-        let chats = ctx.services.agentTabs, actions = WindowRules().duplicate(ids.map { id in
-            let tab = pane.tab(id)
-            return WindowRules.DuplicateFacts(browser: tab?.kind == .browser, localBrowser: id.rawValue.hasPrefix(LocalBrowserTab.prefix),
-                                              agent: ctx.services.agentTabs.isAgentTab(id.rawValue),
-                                              localPage: id.rawValue.hasPrefix(LocalPageTab.prefix), page: tab?.page != nil)
-        })?.enumerated().map { $1 == "agent" && chats.lookup(ids[$0].rawValue)?.record.host != chats.localHost ? "elsewhere" : $1 } ?? []
-        return actions.contains { !["skip", "elsewhere"].contains($0) } ? (actions, nil) : ([], actions.contains("elsewhere") ? RefusalStrings.agentTabOtherHost : RefusalStrings.pageTabOpensOnce)
+        let chats = ctx.services.agentTabs, plan = WindowRules().duplicatePlan(ids.map { id in
+            let tab = pane.tab(id), agent = chats.isAgentTab(id.rawValue)
+            return .init(WindowRules.DuplicateFacts(browser: tab?.kind == .browser, localBrowser: id.rawValue.hasPrefix(LocalBrowserTab.prefix), agent: agent,
+                                                    localPage: id.rawValue.hasPrefix(LocalPageTab.prefix), page: tab?.page != nil),
+                         otherHost: agent && chats.lookup(id.rawValue)?.record.host != chats.localHost)
+        })
+        return plan.map { $0.refusal == nil ? ($0.actions, nil) : ([], $0.refusal == .agentTabOtherHost ? RefusalStrings.agentTabOtherHost : RefusalStrings.pageTabOpensOnce) } ?? ([], RefusalStrings.pageTabOpensOnce)
     }
 
     private static func bindSelection(_ registry: ActionRegistry, _ ctx: AppActionContext) {
@@ -228,14 +228,14 @@ enum TabHandlers {
             ("moveSurfaceToPaneUp", toward(.up)), ("moveSurfaceToPaneDown", toward(.down)),
         ]
         // Move Tab to Pane Left/Right/Above/Below at the screen's edge makes that split (Move Tab to New Split), as a
-        // person who asks to "move to right split" means: only a tab alone in its pane, with no pane that way, stays.
-        let splits: [ActionID: String] = ["moveSurfaceToPaneLeft": "left", "moveSurfaceToPaneRight": "right", "moveSurfaceToPaneUp": "up", "moveSurfaceToPaneDown": "down"]
+        // person who asks to "move to right split" means: only a tab alone in its pane, with no pane that way, stays
+        // (Rust's `handlers_verbs::move_split`).
         for (id, (none, destination)) in moves {
-            let split = splits[id]
+            let splitOf = { (pane: PaneController) in WindowRules().moveSplit(id.rawValue, tabsInPane: pane.pane.tabs.count) }
             registry.bind(id, invoke: { invocation in
                 guard let (pane, tab) = ctx.tab(invocation) else { return }
                 guard let (target, index) = destination(pane, tab) else {
-                    guard let split, pane.pane.tabs.count > 1 else { return ctx.refuseQuietly(none) }
+                    guard let split = splitOf(pane) else { return ctx.refuseQuietly(none) }
                     var forwarded = invocation.onMachine(pane.daemon.machineID)
                     forwarded.target = ActionTargetRef(kind: .tab, id: pane.tab(tab)?.id ?? tab.rawValue)
                     forwarded.arguments["direction"] = .string(split)
@@ -245,7 +245,7 @@ enum TabHandlers {
                 pane.move(tab, toPane: target, index: index)
             })
             ctx.setTargetReason(id) { invocation in
-                ctx.tab(invocation).flatMap { pane, tab in destination(pane, tab) == nil && (split == nil || pane.pane.tabs.count < 2) ? none : nil }
+                ctx.tab(invocation).flatMap { pane, tab in destination(pane, tab) == nil && splitOf(pane) == nil ? none : nil }
             }
         }
     }
@@ -257,7 +257,7 @@ enum TabHandlers {
     private static func siblingPane(of pane: PaneController, offset: Int) -> PaneController? {
         guard let content = pane.workspace, let order = content.layoutModel.screen(containing: pane.layoutPaneID)?.visualPanes,
               order.count > 1, let index = order.firstIndex(of: pane.layoutPaneID) else { return nil }
-        return content.panes[order[(index + offset + order.count) % order.count]]
+        return WindowRules().step(index, by: offset, count: order.count).flatMap { content.panes[order[$0]] }
     }
 
     /// The pane next to `pane` in `direction`; nil at the screen's edge.
