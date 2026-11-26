@@ -258,7 +258,7 @@ pub fn order_rows(source: &Source) -> (Vec<Item>, BTreeMap<String, Item>) {
     for row in &source.rows {
         match row.kind.as_str() {
             "workspace" if source.selectable.contains(&row.id) => {
-                rows.push(Item::Workspace(row.id.clone()))
+                rows.push(Item::Workspace(row.id.clone()));
             }
             "item" => rows.push(Item::TopItem(row.id.clone())),
             "block" if !source.collapsed_blocks.contains(&row.id) => {
