@@ -146,7 +146,9 @@ test("three subagent-report wakes in a row draw flat: no Worked for, no 0s, no d
     ...[0, 1, 2].flatMap((index) => report(index, 300)),
   ];
   const shown = view(rows);
-  expect(shown.some((r) => r.kind === WORKED)).toBe(false);
+  // The person's own reply-only turn keeps its "Worked for" (`holdsHeader`, so its reply doesn't move up
+  // when the turn ends); the wakes after it draw none.
+  expect(shown.filter((r) => r.kind === WORKED).map((r) => r.id)).toEqual(["worked-ask"]);
   expect(shown.some((r) => r.kind === "turnSummary" && r.id.startsWith("bt-") && footerLabel(t, r))).toBe(false);
 });
 
