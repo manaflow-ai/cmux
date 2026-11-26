@@ -65,3 +65,27 @@ fn a_surgery_run_declares_the_boundary() {
     assert!(b["harnessMagic"][FEATURE].get("collapses").is_none());
     forget(id);
 }
+
+#[test]
+fn off_drops_the_harness_per_call_counts_too() {
+    let mut msg = result(0, 95_000);
+    msg["harnessMagic"] = json!({"cacheAlarm": {"callChurn": 1}, "dedupe": {"readsStubbed": 2}});
+    observe("cache-alarm-off", &mut msg, 0, false);
+    assert!(msg["harnessMagic"].get(FEATURE).is_none(), "{msg}");
+    assert_eq!(msg["harnessMagic"]["dedupe"]["readsStubbed"], 2);
+    let mut only = result(0, 95_000);
+    only["harnessMagic"] = json!({"cacheAlarm": {"callChurn": 1}});
+    observe("cache-alarm-off", &mut only, 0, false);
+    assert!(only.get("harnessMagic").is_none(), "{only}");
+}
+
+#[test]
+fn on_keeps_the_per_call_counts_beside_the_turn_ones() {
+    let id = "cache-alarm-on-call";
+    let mut msg = result(90_000, 1_000);
+    msg["harnessMagic"] = json!({"cacheAlarm": {"callChurn": 1}});
+    observe(id, &mut msg, 0, true);
+    assert_eq!(msg["harnessMagic"][FEATURE]["callChurn"], 1);
+    assert_eq!(msg["harnessMagic"][FEATURE]["observed"], 1);
+    forget(id);
+}
