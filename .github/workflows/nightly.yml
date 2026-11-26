@@ -5938,6 +5938,24 @@ jobs:
           R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
         run: bash .publish-tooling/scripts/ci/nightly-steps/publish-next-download.sh
 
+      # Clean-sheet CI RFD hq#26225: a write-once manifest per app-input digest beside the build. Nothing reads it yet;
+      # it cannot fail or change the publish (the script exits 0 on any error, each call is time-bounded).
+      - name: Write the build manifest for this app-input digest
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && steps.next_downloads.outcome == 'success' && !env.LEFT_SLOT
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          APP_INPUT_DIGEST: ${{ needs.decide.outputs.app_input_digest }}
+          HEAD_SHA: ${{ needs.decide.outputs.head_sha }}
+          BUILD_SHA: ${{ steps.source.outputs.build_sha }}
+          DMG: nightly-out/${{ env.CHANNEL_DMG_PREFIX }}-arm64-${{ env.NIGHTLY_BUILD }}.dmg
+          RUN_ID: ${{ github.run_id }}
+        run: python3 .publish-tooling/scripts/ci/app_build_manifest.py || true
+
       # Why: docs/ci/nightly-workflow-notes.md#note-3
       - name: Download the Chromium runtime pack
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.source.outputs.cef == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
@@ -7496,7 +7514,8 @@ jobs:
   wake-nightly-next-tick:
     needs: [decide, resolve-nightly-cmux-tui-client, nightly-next-one, early-nightly-webviews]
     if: "always() && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.one_job == 'true' && (needs.nightly-next-one.result != 'skipped' || needs.early-nightly-webviews.outputs.red_sha != '')"
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    # The nightly's Linux label, not the mini: the job holds App keys (below), and they stay off the nightly mini.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry == '') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
     # Room for gh_budget_wait.sh's wait through a rate limit, and for glaeda's capacity wait on the mini.
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 190 || 70 }}
     continue-on-error: true
@@ -7510,16 +7529,44 @@ jobs:
           sparse-checkout: |
             scripts/ci
             scripts/cmux-next/lib
+      # Run 45562645699 (2026-11-25): github.token's hour was spent, so this dispatch and dispatch-published-in's
+      # slept in gh_budget_wait.sh until its reset (18.4 and 12.9 min, both out at 07:54Z) though the feed was
+      # live at 44.9 min. Each App installation has its own hour: a refused dispatch moves to cmux-bot, then the CI
+      # pools, at once (GH_TOKEN_SPARE, GH_TOKEN_SPARES), and waits for a reset only when every one refuses.
+      - &mint-dispatch-pools
+        name: Mint the CI pool's tokens
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
+          CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
+          CI_POOL_PERMISSIONS: '{"actions":"write"}'
+        run: python3 scripts/ci/ci_pool_tokens.py
+      - &mint-dispatch-spare
+        name: Mint the dispatch's spare token
+        id: cmux-bot-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
       - *wait-through-github-api-rate-l
       - name: Ask main's nightly-next tick
-        env:
+        env: &dispatch-pools
           GH_TOKEN: ${{ github.token }}
+          GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}
+          GH_TOKEN_SPARES: ${{ env.CI_POOL_GH_TOKEN }} ${{ env.CI_POOL_GH_TOKEN_SPARES }}
         run: gh workflow run nightly-next-tick.yml --repo "$GITHUB_REPOSITORY" --ref main
       # nightly-next-one left without waiting for the promotion on the signing Mac; the wait is the retry's, off it.
       - name: Retry the commit that left the slot unless nightly-next moved
         if: "!cancelled() && needs.nightly-next-one.outputs.left_pending == 'true'"
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}
+          GH_TOKEN_SPARES: ${{ env.CI_POOL_GH_TOKEN }} ${{ env.CI_POOL_GH_TOKEN_SPARES }}
           TIP_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.tip_sha }}
           REPOSITORY: ${{ github.repository }}
           RETRY: ${{ inputs.nightly_next_loop_retry }}
@@ -7747,7 +7794,8 @@ jobs:
     # The build jobs too: the record says whether any of them failed (push_clean).
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, build-sign-notarize-nightly, resolve-nightly-cmux-tui-client, publish-nightly, published-build, publish-nightly-next-github, nightly-next-one]
     if: "!cancelled() && (needs.publish-nightly.result == 'success' || needs.nightly-next-one.result == 'success') && needs.published-build.result == 'success' && needs.published-build.outputs.run_tail != 'true'"
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    # The nightly's Linux label, not the mini: the job holds App keys (wake-nightly-next-tick's), kept off the mini.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry == '') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
     # Room for gh_budget_wait.sh's wait through a rate limit, and for glaeda's capacity wait on the mini.
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 190 || 70 }}
     permissions:
@@ -7764,6 +7812,8 @@ jobs:
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci
+      - *mint-dispatch-pools
+      - *mint-dispatch-spare
       - *wait-through-github-api-rate-l
       - name: Record the published build
         env:
@@ -7795,6 +7845,7 @@ jobs:
         # One try, no loop (tests/test_ci_no_github_token_polling.py): a failed dispatch fails this job, which
         # report-nightly-failure lists, and a retry after an accepted dispatch would start a second tail. Only a
         # refusal for the rate limit, which did nothing, waits and goes again (gh_budget_wait.sh).
+        env: *dispatch-pools
         run: |
           set -euo pipefail
           gh workflow run nightly.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" \
