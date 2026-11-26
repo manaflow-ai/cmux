@@ -3765,6 +3765,7 @@ async fn dispatch_request_with_identity(
                         quiet_hidden,
                         left_out: 0,
                         left_from: 0,
+                        stream_sent: 0,
                     },
                 );
                 let detail = hub.session_detail(&s);
@@ -3825,6 +3826,7 @@ async fn dispatch_request_with_identity(
                     quiet_hidden,
                     left_out: 0,
                     left_from: 0,
+                    stream_sent: 0,
                 },
             );
             let settled_key = match settled {
