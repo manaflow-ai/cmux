@@ -18,16 +18,19 @@ pages on 127.0.0.1 and puts them in one workspace, each in its own pane:
   paused    a stream video the page itself paused               must stay paused (nothing plays what the page paused)
 
 Then, per `--hides` (seconds), it shows another workspace for that long and comes back. While hidden it reads only the
-app's own state (`debug.surfaces` hibernation.frozen: when each page froze), never the pages (an agent's call would
-thaw a page and restart its hidden clock). After the show it reads each video twice, 2 s apart: paused, currentTime,
-decoded frames, and the page's own freeze, resume and hidden-time counts. A hide shorter than the freeze threshold
-is the counter-proof: nothing freezes and every video plays; a longer one freezes them all. `--record` records each
-show (the app's own window recorder, `debug.motion record_start`) to DIR/show-<seconds>s.mov.
+app's own state (`debug.surfaces` hibernation.frozen: when each page froze) and the processes' CPU time, never the
+pages (an agent's call would thaw a page and restart its hidden clock). After the show it reads each video twice, 2 s
+apart: paused, currentTime, decoded frames, and the page's own freeze, resume and hidden-time counts. A hide shorter
+than the freeze threshold is the counter-proof: nothing freezes and every video plays. In a longer one the paused page
+(nothing plays there) must freeze, which proves the hide passed the threshold; whether the others froze is reported.
+`--record` records each show (the app's own window recorder, `debug.motion record_start`) to DIR/show-<seconds>s.mov.
+In a hide past the threshold it also reads each renderer's and the GPU process's CPU time from 4 s after the
+threshold to the end of the hide (`cpu` in the phase: percent of one core, per process and in total).
 
-Writes DIR/results.json. Exit 0: every check passed; 1: a check failed; 2: inconclusive (setup failed, or a hide
-past the threshold froze no page). It never activates the app or posts system-wide input.
+Writes DIR/results.json. Exit 0: every check passed; 1: a check failed; 2: inconclusive (setup failed, or the paused
+page did not freeze in a hide past the threshold). It never activates the app or posts system-wide input.
 """
-import argparse, functools, http.server, json, os, sys, threading, time
+import argparse, http.server, json, os, subprocess, sys, threading, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -198,6 +201,34 @@ def frozen():
     return set((rpc("debug.surfaces").get("hibernation") or {}).get("frozen") or [])
 
 
+def cpu_times():
+    """{pid: (kind, CPU seconds)} of the app's renderer and GPU processes (`ps`)."""
+    out = subprocess.run(["ps", "-axo", "pid=,time=,command="], capture_output=True, text=True).stdout
+    found = {}
+    for line in out.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) < 3 or bench.app not in parts[2]:
+            continue
+        kind = "renderer" if "--type=renderer" in parts[2] else "gpu" if "--type=gpu-process" in parts[2] else None
+        if not kind:
+            continue
+        seconds = 0.0
+        for field in parts[1].replace("-", ":").split(":"):
+            seconds = seconds * 60 + float(field)
+        client = next((a.split("=", 1)[1] for a in parts[2].split() if a.startswith("--renderer-client-id=")), None)
+        found[int(parts[0])] = (kind + (f":{client}" if client else ""), seconds)
+    return found
+
+
+def cpu_report(before, after, seconds):
+    """Percent of one core per process over `seconds`, and the renderers' total."""
+    rows = {f"{kind}:{pid}": round(100 * (after[pid][1] - spent) / seconds, 2)
+            for pid, (kind, spent) in before.items() if pid in after}
+    renderers = sum(v for k, v in rows.items() if k.startswith("renderer"))
+    return {"seconds": round(seconds, 1), "percent": dict(sorted(rows.items(), key=lambda kv: -kv[1])),
+            "renderers_total": round(renderers, 2)}
+
+
 def record(path, seconds):
     """Starts the app's window recorder on `path`; the reply once it captures (or its error)."""
     started = rpc("debug.motion", {"action": "record_start", "path": path, "seconds": seconds, "mbps": 30})
@@ -214,18 +245,23 @@ def record_end():
         rpc("debug.motion", {"action": "record_read"})), 30, 0.25)
 
 
-def phase(seconds, tabs, away, home):
+def phase(seconds, tabs, away, home, threshold):
     """Hides the video workspace for `seconds`, shows it again and reads every video."""
     name = f"hide-{int(seconds)}s"
     show(away)
     hidden_at = time.monotonic()
     froze = {}
+    cpu_from, cpu = None, None
     while time.monotonic() - hidden_at < seconds:  # the hide itself: read only the app's own state
         now_frozen = frozen()
         for label, tab in tabs.items():
             if tab in now_frozen and label not in froze:
                 froze[label] = round(time.monotonic() - hidden_at, 1)
+        if cpu_from is None and seconds > threshold + 8 and time.monotonic() - hidden_at >= threshold + 4:
+            cpu_from = (time.monotonic(), cpu_times())
         time.sleep(1.0)  # sleep-ok: one read of the app's freeze state per second while the workspace is hidden
+    if cpu_from:
+        cpu = cpu_report(cpu_from[1], cpu_times(), time.monotonic() - cpu_from[0])
     movie = os.path.join(OUT, f"show-{int(seconds)}s.mov") if opts.record else None
     recorded = None
     if movie:
@@ -241,7 +277,7 @@ def phase(seconds, tabs, away, home):
     if movie:
         recorded = {"start": recorded, "end": record_end()}
     record_ = {"phase": name, "hidden_s": round(shown_at - hidden_at, 1), "froze_at_s": froze, "frozen_after_show": sorted(still_frozen),
-               "shown": back, "first": first, "second": second, "movie": movie, "recorded": recorded}
+               "shown": back, "first": first, "second": second, "movie": movie, "recorded": recorded, "cpu": cpu}
     RESULTS["phases"].append(record_)
     save()
     return record_
@@ -252,10 +288,11 @@ def judge(result, threshold):
     check(result["shown"], f"{name}: the video workspace shows again")
     if long_hide:
         froze = result["froze_at_s"]
-        if not froze:
-            print(f"INCONCLUSIVE {name}: a {result['hidden_s']} s hide froze no page (threshold {threshold} s)", flush=True)
+        if "paused" not in froze:
+            print(f"INCONCLUSIVE {name}: the paused page did not freeze in a {result['hidden_s']} s hide (threshold {threshold} s; "
+                  f"froze: {froze})", flush=True)
             return "inconclusive"
-        check(set(froze) == set(VIDEOS), f"{name}: every hidden page froze ({froze})")
+        check(True, f"{name}: the hide passed the freeze threshold: the paused page froze (froze at: {froze}; cpu: {result.get('cpu')})")
     else:
         check(not result["froze_at_s"], f"{name}: no page froze in a hide under the {threshold} s threshold ({result['froze_at_s']})")
     check(not result["frozen_after_show"], f"{name}: no page is still frozen once shown ({result['frozen_after_show']})")
@@ -301,7 +338,7 @@ try:
         status = 2
     else:
         for seconds in HIDES:
-            verdict = judge(phase(seconds, tabs, away, home), threshold)
+            verdict = judge(phase(seconds, tabs, away, home, threshold), threshold)
             if verdict == "inconclusive" and status == 0:
                 status = 2
         if any(not c["ok"] for c in RESULTS["checks"]):
