@@ -132,7 +132,8 @@ done
 # The pages the first window never shows are stored raw-deflated and inflated in memory when a page
 # asks for them (scripts/pages/pack-pages.mjs, CmuxNextPages PagePackedFile.swift; CMUX-570). Home,
 # what the first window shows with it (its messages, the sidebar's chats, the setup card) and the
-# first-run onboarding stay as they are, with every chunk they can load.
+# first-run onboarding stay as they are, with every chunk they import statically; their dynamic
+# imports (KaTeX, emoji data, the palette, the highlighter) are packed and inflated on first use.
 bun scripts/pages/pack-pages.mjs "$WORK" "$WORK/metafile.json" --keep "$UNPACKED_PAGES" $PAGES
 for page in $PAGES; do
   out="$OUT_ROOT/$page/index.html"

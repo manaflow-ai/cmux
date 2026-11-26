@@ -148,7 +148,7 @@ fn page_policy(host: Option<&str>) -> String {
 
 /// Suffix of a page file the pages builder stores raw-deflated (CMUX-570,
 /// app size): webviews/scripts/pages/pack-pages.mjs replaces a `__shared`
-/// script no first-window page loads by `<name>.js.deflate`.
+/// script no first-window page imports statically by `<name>.js.deflate`.
 const PACKED_SUFFIX: &str = ".deflate";
 
 /// The file `target` names and its bytes: the file itself, else its packed

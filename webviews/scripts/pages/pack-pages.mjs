@@ -9,16 +9,18 @@
 //    `__shared/page-<page>.js`, and its index.html imports it from there. Its imports already name
 //    `../__shared/...`, which resolves the same from both folders, and no entry names a sibling
 //    (`./x`) or reads `import.meta.url`, which the move would change; either fails the build.
-// 2. Every `__shared` script that no --keep page can reach, statically or by a dynamic import,
-//    is replaced by `<name>.js.deflate` (raw DEFLATE, level 9; the same format cmux#45934 stores
-//    Shiki's grammars in) when that is smaller.
+// 2. Every `__shared` script that no --keep page loads through static imports alone is replaced by
+//    `<name>.js.deflate` (raw DEFLATE, level 9; the same format cmux#45934 stores Shiki's grammars
+//    in) when that is smaller. A kept page's dynamic imports (KaTeX, emoji data, the palette, the
+//    syntax highlighter, the string-table fallbacks behind the per-locale scripts) are packed too:
+//    they load after first paint, when the page first needs them, and are inflated then.
 //
 // Why `__shared`: both engines ask the app for every file there (Chromium through the `__shared`
 // dynamic prefix, FirstPartyPageSchemes; WebKit through PageSchemeHandler), so the app inflates a
 // packed file when the page asks for it (PagePackedFile.swift), in memory, and never writes page
 // code outside the signed bundle. A page's own folder is read from disk by Chromium's shim, which
 // is why the entry moves. The --keep pages (Home and what the first window shows with it) and
-// everything they load stay as they were: first paint reads no packed byte.
+// everything they import statically stay as they were: first paint reads no packed byte.
 import { deflateRawSync } from "node:zlib";
 import { existsSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -29,19 +31,21 @@ const ENTRY_IMPORT = 'import "./app.js";';
 // A string an entry would resolve beside itself: an import of `./x` or `import.meta.url`.
 const SIBLING_REFERENCE = /(?:from|import)\s*\(?\s*["']\.\/|import\.meta\.url/;
 
-/** Output path (absolute) to the absolute paths it imports, of every kind. */
-export function importGraph(metafile, cwd = process.cwd()) {
+/** Output path (absolute) to the absolute paths it imports; `staticOnly` leaves out dynamic imports. */
+export function importGraph(metafile, cwd = process.cwd(), { staticOnly = false } = {}) {
   const graph = new Map();
   for (const [file, output] of Object.entries(metafile.outputs)) {
     graph.set(
       path.resolve(cwd, file),
-      output.imports.filter((item) => !item.external).map((item) => path.resolve(cwd, item.path)),
+      output.imports
+        .filter((item) => !item.external && !(staticOnly && item.kind === "dynamic-import"))
+        .map((item) => path.resolve(cwd, item.path)),
     );
   }
   return graph;
 }
 
-/** Every file reachable from `entries` through `graph` (static and dynamic imports). */
+/** Every file reachable from `entries` through `graph`. */
 export function reachable(graph, entries) {
   const seen = new Set(entries);
   const queue = [...entries];
@@ -90,7 +94,8 @@ export function packFile(file) {
 }
 
 export function packPages({ outdir, metafile, keep, pages, cwd = process.cwd() }) {
-  const graph = importGraph(metafile, cwd);
+  // What first paint can read: the kept pages' entries and their static imports.
+  const graph = importGraph(metafile, cwd, { staticOnly: true });
   const shared = path.join(outdir, "__shared");
   const kept = reachable(
     graph,

@@ -3,8 +3,8 @@ import Foundation
 
 /// The pages the first window never shows ship raw-deflated (CMUX-570, app size): the pages
 /// builder (webviews/scripts/pages/pack-pages.mjs) replaces each `pages/__shared` script that Home
-/// and the first window cannot reach, every packed page's entry (`__shared/page-<page>.js`)
-/// included, by `<name>.js.deflate`. Both engines ask ``PageSchemeHandler`` for every `__shared`
+/// and the first window do not import statically (their dynamic imports, and every packed page's
+/// entry, `__shared/page-<page>.js`, included) by `<name>.js.deflate`. Both engines ask ``PageSchemeHandler`` for every `__shared`
 /// file, so ``PageSchemeHandler/read(_:)`` serves a missing file from its packed copy through this.
 ///
 /// A file is inflated in memory each time a page asks for it; Settings' first paint inflates about

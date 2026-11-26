@@ -1,5 +1,5 @@
 // pack-pages.mjs (CMUX-570, app size): pages outside --keep get their entry moved into __shared and
-// every script no kept page reaches is stored raw-deflated; what Home loads stays as it was.
+// every script no kept page imports statically is stored raw-deflated; what Home's first paint loads stays as it was.
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -25,10 +25,15 @@ function tree() {
   file("__shared/chunk-lazy.js", `export const lazy = 1; // ${BIG}`);
   file("__shared/chunk-settings.js", `export const settings = 1; // ${BIG}`);
   file("__shared/tiny.js", "1");
-  const output = (imports: string[]) => ({ imports: imports.map((item) => ({ path: path.join(out, item) })) });
+  const output = (imports: string[], dynamic: string[] = []) => ({
+    imports: [
+      ...imports.map((item) => ({ path: path.join(out, item), kind: "import-statement" })),
+      ...dynamic.map((item) => ({ path: path.join(out, item), kind: "dynamic-import" })),
+    ],
+  });
   const metafile = {
     outputs: {
-      [path.join(out, "home/app.js")]: output(["__shared/chunk-common.js", "__shared/chunk-lazy.js"]),
+      [path.join(out, "home/app.js")]: output(["__shared/chunk-common.js"], ["__shared/chunk-lazy.js"]),
       [path.join(out, "settings/app.js")]: output(["__shared/chunk-common.js", "__shared/chunk-settings.js"]),
       [path.join(out, "__shared/chunk-common.js")]: output([]),
       [path.join(out, "__shared/chunk-lazy.js")]: output([]),
@@ -40,19 +45,21 @@ function tree() {
 }
 
 describe("pack-pages", () => {
-  test("packs what only other pages load and keeps what Home loads", () => {
+  test("packs what only other pages or Home's dynamic imports load and keeps what Home imports statically", () => {
     const { out, metafile } = tree();
     const settingsEntry = readFileSync(path.join(out, "settings/app.js"));
     const result = packPages({ outdir: out, metafile, keep: ["home"], pages: ["home", "settings"] });
     expect(result.moved).toBe(1);
-    expect(result.files).toBe(2);
+    expect(result.files).toBe(3);
     expect(result.stored).toBeLessThan(result.raw);
 
-    // Home: untouched, and everything it loads (lazy chunks too) stays plain.
+    // Home: untouched, and what it imports statically stays plain; its lazy chunk is packed.
     expect(readFileSync(path.join(out, "home/index.html"), "utf8")).toContain('import "./app.js";');
-    for (const name of ["home/app.js", "__shared/chunk-common.js", "__shared/chunk-lazy.js"]) {
+    for (const name of ["home/app.js", "__shared/chunk-common.js"]) {
       expect(existsSync(path.join(out, name))).toBe(true);
     }
+    expect(existsSync(path.join(out, "__shared/chunk-lazy.js"))).toBe(false);
+    expect(existsSync(path.join(out, "__shared/chunk-lazy.js" + PACKED_SUFFIX))).toBe(true);
     // Settings: its document imports its entry from __shared, which is packed with its own chunk.
     expect(readFileSync(path.join(out, "settings/index.html"), "utf8")).toContain(
       'import "../__shared/page-settings.js";',
