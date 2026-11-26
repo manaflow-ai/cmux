@@ -8,6 +8,8 @@
 //!                           [--keep DIR] [--trees DIR] [--ready-file FILE] [--allow-other]
 //! cmux-projection git-unmount --at PATH
 //! cmux-projection seed --git-dir MIRROR --listen ADDR [--rate BYTES_PER_S] [--conns N]
+//! cmux-projection share --listen ADDR --allow CIDR[,CIDR...]
+//! cmux-projection share-mount --from HOST[:PORT] --path FOLDER --at DIR [--keep DIR] [--ready-file FILE]
 //!                      [--yield-lock FILE]... [--heartbeat URL --repo OWNER/NAME
 //!                      [--advertise URL] [--zone ZONE]]
 //! ```
@@ -48,6 +50,10 @@
 //! `CMUX_PROJECTION_SEED_YIELD_LOCKS` (colon-separated), `CMUX_PROJECTION_SEED_HEARTBEAT_URL`,
 //! `CMUX_PROJECTION_SEED_TOKEN_FILE` (the heartbeat's bearer token), `CMUX_PROJECTION_SEED_REPO`
 //! and `CMUX_PROJECTION_ZONE`.
+//!
+//! `share` serves this machine's readable folders, read only and under machine_read's policy, to
+//! the peers `--allow` admits; `share-mount` mounts one of another machine's folders read only
+//! (`cmux_projection::share`).
 //! `s3-push` puts MIRROR's blobs into an S3-compatible bucket. It signs each HEAD and PUT with
 //! the configured store keys, skips blobs already held, and prints one JSON result line.
 //!
@@ -102,7 +108,10 @@ mod cli {
                          cmux-projection s3-push --git-dir MIRROR --to BASE [--commit REV]\n       \
                          cmux-projection repo-archive-publish --source SRC --url URL --branch B... \
                          [--default B] [--store STORE] [--max-age-hours H] [--max-increment-mb M]\n       \
-                         cmux-projection repo-archive-fetch --url URL --at DIR [--branch B] [--store STORE]";
+                         cmux-projection repo-archive-fetch --url URL --at DIR [--branch B] [--store STORE]\n       \
+                         cmux-projection share --listen IP:PORT --allow CIDR[,CIDR...]\n       \
+                         cmux-projection share-mount --from HOST[:PORT] --path FOLDER --at DIR \
+                         [--keep DIR] [--ready-file FILE]";
 
     #[derive(Default)]
     struct Args {
@@ -182,6 +191,9 @@ mod cli {
     }
 
     fn run_other(command: &str, rest: &[String]) -> anyhow::Result<()> {
+        if command == "share" || command == "share-mount" {
+            return cmux_projection::share::cli(command, rest);
+        }
         let args = parse(rest)?;
         if command == "seed" {
             return seed(&args);
