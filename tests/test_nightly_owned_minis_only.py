@@ -394,7 +394,7 @@ class OwnedWorkdirSteps(unittest.TestCase):
     """The clean and wipe steps, run: they empty the workspace (and the temp dir, but the runner's own) on an
     owned Mac, and touch nothing on an ephemeral runner."""
 
-    def run_step(self, step: dict, runner: str) -> tuple[set, set]:
+    def run_step(self, step: dict, runner: str, runner_os: str) -> tuple[set, set]:
         with tempfile.TemporaryDirectory() as temp:
             ws, tmp = Path(temp) / "ws", Path(temp) / "tmp"
             for directory in (ws / "nightly-out", ws / ".publish-tooling", tmp / "gh-app-token", tmp / "_runner_file_commands"):
@@ -403,19 +403,39 @@ class OwnedWorkdirSteps(unittest.TestCase):
             (tmp / "gh-app-token" / "token").write_text("x")
             subprocess.run(["/bin/bash", "-e", "-c", str(step["run"])], check=True,
                            env={"PATH": "/usr/bin:/bin", "HOME": temp, "RUNNER_NAME": runner,
+                                "RUNNER_OS": runner_os,
                                 "GITHUB_WORKSPACE": str(ws), "RUNNER_TEMP": str(tmp)})
             return {p.name for p in ws.iterdir()}, {p.name for p in tmp.iterdir()}
 
+    def run_claim_gate(self, runner: str, runner_os: str, claim: str = "") -> tuple[subprocess.CompletedProcess, str]:
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / "github-output"
+            env = {"PATH": "/usr/bin:/bin", "HOME": temp, "RUNNER_NAME": runner,
+                   "RUNNER_OS": runner_os, "GITHUB_OUTPUT": str(output)}
+            if claim:
+                env["GLAEDA_JOB_CLAIM"] = claim
+            result = subprocess.run(["/bin/bash", "-e", "-c", str(steps("publish-nightly")[0]["run"])],
+                                    capture_output=True, text=True, env=env)
+            return result, output.read_text() if output.exists() else ""
+
+    def test_claim_gate_does_not_treat_a_linux_shared_path_as_owned(self) -> None:
+        result, output = self.run_claim_gate("GitHub Actions 12", "Linux")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(output, "")
+        result, output = self.run_claim_gate("glaeda-runner-cmux7-glaeda-nightly-only-4", "Linux", "exclusive")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(output, "claim=owned\n")
+
     def test_clean_empties_the_workspace_on_an_owned_mac(self) -> None:
         clean = steps("publish-nightly")[1]
-        self.assertEqual(self.run_step(clean, "glaeda-runner-cmux15-glaeda-nightly-only-3"),
+        self.assertEqual(self.run_step(clean, "glaeda-runner-cmux15-glaeda-nightly-only-3", "macOS"),
                          (set(), {"gh-app-token", "_runner_file_commands"}))
-        self.assertEqual(self.run_step(clean, "GitHub Actions 12")[0], {"nightly-out", ".publish-tooling", "appcast.xml"})
+        self.assertEqual(self.run_step(clean, "GitHub Actions 12", "Linux")[0], {"nightly-out", ".publish-tooling", "appcast.xml"})
 
     def test_wipe_removes_tokens_and_files_but_the_runners_own(self) -> None:
         wipe = steps("publish-nightly")[-1]
-        self.assertEqual(self.run_step(wipe, "glaeda-runner-cmux7s-glaeda-nightly-only-4"), (set(), {"_runner_file_commands"}))
-        self.assertEqual(self.run_step(wipe, "GitHub Actions 12")[1], {"gh-app-token", "_runner_file_commands"})
+        self.assertEqual(self.run_step(wipe, "glaeda-runner-cmux7s-glaeda-nightly-only-4", "macOS"), (set(), {"_runner_file_commands"}))
+        self.assertEqual(self.run_step(wipe, "GitHub Actions 12", "Linux")[1], {"gh-app-token", "_runner_file_commands"})
 
 
 class RecoveryTakesAnOwnedPick(unittest.TestCase):
