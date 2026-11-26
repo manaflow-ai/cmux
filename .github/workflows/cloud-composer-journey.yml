@@ -132,7 +132,7 @@ jobs:
       label: ${{ steps.pool.outputs.label }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        if: github.run_attempt == 1
+        if: github.run_attempt == 1 && vars.CI_BLACKSMITH_MACOS == 'on'
         with:
           sparse-checkout: |
             scripts/ci/e2e_runner_pool.py
@@ -146,7 +146,8 @@ jobs:
           persist-credentials: false
       - name: Pick the Blacksmith macOS 26 pool
         id: pool
-        if: github.run_attempt == 1
+        # Why: note-350 (Blacksmith macOS is off unless vars.CI_BLACKSMITH_MACOS is `on`).
+        if: github.run_attempt == 1 && vars.CI_BLACKSMITH_MACOS == 'on'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -165,7 +166,7 @@ jobs:
     environment:
       name: ${{ inputs.backend == 'prod' && 'cmux-next-cloud-journey' || 'cmux-next-vm-image-dev' }}
       deployment: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-runner.outputs.label || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-runner.outputs.label || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 240
     permissions:
       contents: read

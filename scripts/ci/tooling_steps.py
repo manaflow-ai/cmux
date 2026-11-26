@@ -768,7 +768,7 @@ def run_one(step: RunStep, environ: dict[str, str], scratch: Path) -> RunResult:
             try:
                 os.killpg(proc.pid, signal.SIGKILL)
             except (ProcessLookupError, PermissionError):
-                pass  # gone already, or a macOS zombie group
+                pass  # the group already exited, or (macOS) its leader is a zombie: EPERM, nothing left to kill
             proc.wait()
             code = 124
             with log.open("ab") as tail:
