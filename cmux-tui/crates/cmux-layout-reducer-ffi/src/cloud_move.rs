@@ -3,8 +3,8 @@
 //! defaults and the disk, observes its main-actor state, and asks here what each means.
 
 use cmux_cloud_start_core::moves::{
-    autosize, cli, folder, ledger, machine_update, pin, place, priority, progress, seed, settle,
-    targets, wait,
+    autosize, cli, folder, ledger, machine_update, pin, place, priority, progress, seed,
+    session_transfer, settle, targets, wait,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -130,6 +130,104 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                 "unit": machine_update::unit(&request.nonce),
                 "url": machine_update::url(&request.pin),
             })
+        }
+        // Moving sessions between builds: a classic workspace's split tree.
+        b"cloud_move_transfer_layout" => {
+            #[derive(Deserialize)]
+            struct Request {
+                #[serde(default)]
+                layout: Value,
+                #[serde(default)]
+                terminals: usize,
+            }
+            let request: Request = read(request)?;
+            json!({ "layout": session_transfer::Layout::parse(&request.layout, request.terminals) })
+        }
+        // A classic peer's `surface.list` surfaces as movable items (the others dropped).
+        b"cloud_move_transfer_classic_items" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                #[serde(default)]
+                surfaces: Vec<Value>,
+                workspace: String,
+                #[serde(default)]
+                fallback_cwd: Option<String>,
+            }
+            let request: Request = read(request)?;
+            let items: Vec<_> = request
+                .surfaces
+                .iter()
+                .filter_map(|surface| {
+                    session_transfer::classic_item(
+                        surface,
+                        &request.workspace,
+                        request.fallback_cwd.as_deref(),
+                    )
+                })
+                .collect();
+            json!({ "items": items })
+        }
+        // A peer's `system.identify` answer; `identity` null for this build itself.
+        b"cloud_move_transfer_identity" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                #[serde(default)]
+                answer: Value,
+                own_pid: i64,
+            }
+            let request: Request = read(request)?;
+            json!({ "identity": session_transfer::identity(&request.answer, request.own_pid) })
+        }
+        // A chat move: its acpmux arguments, its session here, what its failure means.
+        b"cloud_move_transfer_chat" => {
+            #[derive(Deserialize)]
+            struct Request {
+                session: String,
+                to: String,
+                #[serde(default)]
+                interrupt: bool,
+                #[serde(default)]
+                cwd: Option<String>,
+            }
+            let request: Request = read(request)?;
+            json!({ "arguments": session_transfer::transfer_arguments(&request.session, &request.to, request.interrupt, request.cwd.as_deref()) })
+        }
+        b"cloud_move_transfer_chat_result" => {
+            #[derive(Deserialize)]
+            struct Request {
+                session: String,
+                #[serde(default)]
+                status: i32,
+                #[serde(default)]
+                stdout: String,
+                #[serde(default)]
+                stderr: String,
+            }
+            let request: Request = read(request)?;
+            if request.status == 0 {
+                json!({ "session": session_transfer::moved_session(&request.stdout, &request.session) })
+            } else {
+                json!({ "failure": session_transfer::acpmux_failure(&request.stderr, request.status) })
+            }
+        }
+        // Reopening a terminal: the SSH command, and whether a peer's error means an older build.
+        b"cloud_move_transfer_ssh_command" => {
+            #[derive(Deserialize)]
+            struct Request {
+                target: String,
+            }
+            let request: Request = read(request)?;
+            json!({ "command": session_transfer::ssh_command(&request.target) })
+        }
+        b"cloud_move_transfer_missing_method" => {
+            #[derive(Deserialize)]
+            struct Request {
+                code: String,
+            }
+            let request: Request = read(request)?;
+            json!({ "missing": session_transfer::is_missing_transfer_method(&request.code) })
         }
         // The legacy update's pin: the bundled manifest's for `build`, else the CLI's answer.
         b"cloud_move_pin" => {

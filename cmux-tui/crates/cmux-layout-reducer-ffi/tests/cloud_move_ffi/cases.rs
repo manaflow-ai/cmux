@@ -621,3 +621,77 @@ fn a_legacy_run_steps_through_its_execs() {
     assert!(commands["wait"].as_str().unwrap().contains("r=/var/lib/cmux-tui-upgrade/app-n"));
     assert!(commands["install"].as_str().unwrap().ends_with("--version\n"));
 }
+
+#[test]
+fn a_transfer_layout_parses_or_is_null() {
+    let tree = json!({"split": "down", "ratio": 2, "first": {"terminals": [1]}, "second": {"terminals": [0]}});
+    let body = ok(c"cloud_move_transfer_layout", json!({"layout": tree, "terminals": 2}));
+    assert_eq!(body["layout"]["kind"], "split");
+    assert_eq!(body["layout"]["ratio"], 0.5);
+    assert_eq!(body["layout"]["second"], json!({"kind": "pane", "terminals": [0]}));
+    assert_eq!(
+        ok(c"cloud_move_transfer_layout", json!({"layout": tree, "terminals": 3}))["layout"],
+        json!(null)
+    );
+    assert_eq!(ok(c"cloud_move_transfer_layout", json!({}))["layout"], json!(null));
+}
+
+#[test]
+fn classic_surfaces_become_items() {
+    let body = ok(
+        c"cloud_move_transfer_classic_items",
+        json!({"workspace": "w", "fallbackCwd": "/w", "surfaces": [
+            {"id": "a", "type": "terminal", "resume_binding": {"kind": "codex", "command": "codex resume x1"}},
+            {"id": "b", "type": "browser"},
+            {"id": "c", "type": "pty", "initial_command": "ssh -p 1 host"},
+        ]}),
+    );
+    let items = body["items"].as_array().unwrap();
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0]["kind"], "agent");
+    assert_eq!(items[0]["agentSessionID"], "x1");
+    assert_eq!(items[0]["agentHarness"], "codex");
+    assert_eq!(items[1]["sshTarget"], "host");
+    assert_eq!(items[1]["cwd"], "/w");
+    let (code, _) = call(c"cloud_move_transfer_classic_items", &json!({"surfaces": []}));
+    assert_eq!(code, ERR_INVALID);
+}
+
+#[test]
+fn a_peer_identity_and_chat_move_answer() {
+    assert_eq!(
+        ok(c"cloud_move_transfer_identity", json!({"answer": {"pid": 3}, "ownPid": 3}))["identity"],
+        json!(null)
+    );
+    let peer =
+        ok(c"cloud_move_transfer_identity", json!({"answer": {"version": "1"}, "ownPid": 3}));
+    assert_eq!(
+        peer["identity"],
+        json!({"app": "cmux", "build": "1", "tag": null, "bundleIdentifier": null, "pid": 0})
+    );
+    let arguments =
+        ok(c"cloud_move_transfer_chat", json!({"session": "s", "to": "/t", "interrupt": true}));
+    assert_eq!(
+        arguments["arguments"],
+        json!(["--json", "transfer", "s", "--to", "/t", "--interrupt"])
+    );
+    let moved = ok(
+        c"cloud_move_transfer_chat_result",
+        json!({"session": "s", "status": 0, "stdout": "{\"sessionId\":\"n\"}"}),
+    );
+    assert_eq!(moved, json!({"session": "n"}));
+    let failed = ok(
+        c"cloud_move_transfer_chat_result",
+        json!({"session": "s", "status": 1, "stderr": "{\"error\":{\"detail\":\"cwd_missing\",\"data\":{\"cwd\":\"/x\"}}}"}),
+    );
+    assert_eq!(failed, json!({"failure": {"kind": "folderMissing", "folder": "/x"}}));
+    assert_eq!(
+        ok(c"cloud_move_transfer_ssh_command", json!({"target": "h"}))["command"],
+        "exec ssh -- 'h'"
+    );
+    assert_eq!(
+        ok(c"cloud_move_transfer_missing_method", json!({"code": "unsupported"}))["missing"],
+        true
+    );
+    assert_eq!(ok(c"cloud_move_transfer_missing_method", json!({"code": "x"}))["missing"], false);
+}
