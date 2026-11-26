@@ -30,6 +30,9 @@ import {
   withCloudMachines,
   withCloudSleep,
   type CloudMachine,
+  currentCloudLastSeenAt,
+  freshCloudMachine,
+  useCloudLastSeenAt,
 } from "./cloudMachines";
 import {
   environmentReady,
@@ -380,6 +383,9 @@ export function ComposerContext({
   const pageGitHub = useGitHubPicker();
   const github = githubSeam ?? pageGitHub;
   const shownMachines = cloudMachines ?? accountMachines;
+  // The kept list's age (cloudMachines.ts lastSeenAt): only the app's list has one, never a seam's.
+  const accountLastSeenAt = useCloudLastSeenAt();
+  const cloudLastSeenAt = cloudMachines ? undefined : accountLastSeenAt;
   // The page's own acpmux by name: this Mac, or the machine a remote route reaches (chatMachine.ts).
   const ownName = ownMachineName(summary, localName, peerKinds, route);
   // Every machine acpmux lists (`_acpmux/status` peers) and every host its chats ran on, with each
@@ -769,13 +775,22 @@ export function ComposerContext({
   // paused machine is one pick, not a pick, a wait and the same pick again.
   const pickCloudMachine = (id: string, folder?: string) => {
     const machine = computers.find((computer) => computer.id === id)?.cloudMachine;
-    if (machine && !readOnly) {
-      onCloudMachinePicked?.(machine);
+    const run = (picked: CloudMachine) => {
+      onCloudMachinePicked?.(picked);
       // Folders are the machine's: the pick drops this machine's at once, not when (or if) it arrives (cmux#34527).
       if (extraFolders?.draft) extraFolders.onChange(undefined);
-      onCloudMachine(machine);
-      setWaiting({ key: pickKey, id: machine.id, name: machine.name, folder });
+      onCloudMachine(picked);
+      setWaiting({ key: pickKey, id: picked.id, name: picked.name, folder });
       if (folder) onCloudFolderWaiting?.(true);
+    };
+    // A row of the list kept from the last launch (cloudMachines.ts lastSeenAt) never acts on it: one
+    // fresh read first, then the machine as that read lists it; still kept, or gone, does nothing.
+    if (machine && !readOnly) {
+      if (!cloudMachines && currentCloudLastSeenAt() !== undefined)
+        void freshCloudMachine(machine).then((fresh) => {
+          if (fresh) run(fresh);
+        });
+      else run(machine);
     }
     return machine !== undefined;
   };
@@ -974,6 +989,7 @@ export function ComposerContext({
     // A fresh home may not have a Cloud list reply yet: EnvironmentPicker offers Sign in for Cloud
     // (in place of Cloud) only once the app said signed out, never before it knows.
     cloudSignedIn,
+    ...(cloudLastSeenAt !== undefined ? { cloudLastSeenAt } : {}),
     ...(savedRows ? { saved: savedRows } : {}),
     ...(onRefreshMachines ? { onOpen: onRefreshMachines } : {}),
     ...(runMode && !readOnly

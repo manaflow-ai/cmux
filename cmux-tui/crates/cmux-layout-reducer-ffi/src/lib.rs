@@ -101,6 +101,7 @@ mod cloud_config;
 mod cloud_handler;
 mod cloud_handoff;
 mod cloud_hybrid;
+mod cloud_last_seen;
 mod cloud_launch;
 mod cloud_machine;
 mod cloud_move;

@@ -6,7 +6,10 @@ import { ContextMenu } from "../../ui/ContextMenu";
 import { KeyHint } from "../../ui/KeyHint";
 import { Popover } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
-import { translate as t, type StringKey } from "./i18n";
+import { translate as t, type StringKey, usePaneLanguage } from "./i18n";
+import { experimentArm } from "../../experiments/experiment";
+import { cloudLastSeenLook } from "./cloudLastSeen.experiment";
+import { goalUpdatedText } from "./taskGoalStripModel";
 import {
   type ConnectKind,
   type Environment,
@@ -24,7 +27,7 @@ import {
   savedEnvironmentLabel,
   environmentPickable,
 } from "./environments";
-import { isCloudMachineRow } from "./cloudMachines";
+import { isCloudMachineRow, refreshCloudMachines } from "./cloudMachines";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { machineColor } from "./machineColor";
 import type { PickerCard } from "./machineCardModel";
@@ -74,6 +77,10 @@ export type EnvironmentFaceStyle = "label" | "icon" | "chip";
 /// cloud toggle, "Where should this chat run?" over This Mac and Cloud. Cloud picked has no list of
 /// its own: Send reuses the person's machine or makes one (Leo, 2026-11-04).
 export type EnvironmentRows = "combined" | "where" | "machines" | "run";
+/// How Cloud machine rows read while they are the list kept from the last launch (`cloudLastSeenAt`;
+/// cloudLastSeen.experiment.ts): dimmed under a "Last seen" caption, a "last seen" note in place of
+/// each row's stage, or a "Can't reach cmux Cloud" banner with Retry over the list.
+export type LastSeenLook = "dimmed-header" | "row-note" | "banner";
 /// The cloud toggle's rows' second lines (a gallery arm copying ChatGPT Work; the shipped picker
 /// has none, design/environment-picker.md rule 0).
 export type RunRowDetails = { local: string; cloud: string };
@@ -141,6 +148,8 @@ export function EnvironmentPicker({
   card,
   otherDevices = false,
   cloudDevices = false,
+  cloudLastSeenAt,
+  lastSeenLook,
 }: {
   label: string;
   /// The name automation opens it by (`openPicker`).
@@ -211,7 +220,14 @@ export function EnvironmentPicker({
   /// specific machine (the user, 2026-11-24: three pickers, "folder, (local, cloud or autocloud or
   /// machine), environment"); no machine chip of its own.
   cloudDevices?: boolean;
+  /// When the server last answered the Cloud machines shown, while they are the list the app kept
+  /// from the last launch (cloudMachines.ts `lastSeenAt`); absent once a fresh list landed.
+  cloudLastSeenAt?: number;
+  /// How those rows read meanwhile (LastSeenLook); the experiment's arm, `dimmed-header`, by default.
+  lastSeenLook?: LastSeenLook;
 }) {
+  const lang = usePaneLanguage();
+  const lastSeenStyle = lastSeenLook ?? experimentArm(cloudLastSeenLook);
   // A picked saved environment is the current row: every machine row is then a change. One that is
   // only a folder on this computer leaves This Mac the current row.
   const listedSaved = useMemo(
@@ -695,6 +711,14 @@ export function EnvironmentPicker({
   const drawn = useRef(new Map<string, React.ReactNode>());
   // Cloud's row shows Sandboxed instead while ⌥ is held (or, once picked, until it is).
   const sandboxFace = offersSandbox && sandboxed !== alternate;
+  // The kept list's Cloud rows (cloudLastSeenAt) and their age, as the pane's language words it.
+  const lastSeenWhen = cloudLastSeenAt !== undefined ? goalUpdatedText(Date.now(), cloudLastSeenAt, lang) : undefined;
+  const keptCloudRow = (value: string) => {
+    const environment = positions.get(value)?.environment;
+    return lastSeenWhen !== undefined && environment !== undefined && isCloudMachineRow(environment);
+  };
+  // The first one heads the caption (dimmed-header); any shows the banner.
+  const firstKeptRow = lastSeenWhen !== undefined ? suggestions.find(keptCloudRow) : undefined;
 
   const latest = useRef({ ordered, current: checkedRow, onPick, persistent });
   latest.current = { ordered, current: checkedRow, onPick, persistent };
@@ -1098,6 +1122,8 @@ export function EnvironmentPicker({
     const ready = environmentPickable(environment, groupedAt);
     // An account Cloud machine acpmux does not list is a pick (it resumes or opens), not greyed.
     const greyed = !ready && !isCloudMachineRow(environment);
+    // A Cloud row of the list kept from the last launch, drawn as `lastSeenStyle` says.
+    const kept = keptCloudRow(value) ? lastSeenStyle : undefined;
     return (
       <WithFacts
         facts={[
@@ -1113,6 +1139,10 @@ export function EnvironmentPicker({
             {...facts}
             className="acpmux-location-row acpmux-env-row"
             data-kind={environment.kind}
+            data-last-seen={kept}
+            {...(kept === "dimmed-header" && value === firstKeptRow && lastSeenWhen !== undefined
+              ? { "data-section": t("composer.envLastSeenCaption", { when: lastSeenWhen }) }
+              : {})}
             data-current={environment.id === checkedRow || (savedLocal && isLocal(environment)) ? "" : undefined}
             data-ready={greyed ? "false" : undefined}
             aria-disabled={greyed ? true : undefined}
@@ -1139,7 +1169,13 @@ export function EnvironmentPicker({
             </span>
             {/* A machine a chat cannot start on yet says why, greyed; one that can shows a status dot.
             Only an SSH or Cloud machine acpmux lists has a status; this Mac never shows one. */}
-            {!ready && <span className="acpmux-env-state">{environmentStateLabel(environment)}</span>}
+            {!ready && (
+              <span className="acpmux-env-state">
+                {kept === "row-note" && lastSeenWhen !== undefined
+                  ? t("composer.envLastSeenNote", { when: lastSeenWhen })
+                  : environmentStateLabel(environment)}
+              </span>
+            )}
             {ready && environment.loadWarning && (
               <span className="acpmux-env-state" data-warning="true">
                 {environment.loadWarning}
@@ -1259,6 +1295,20 @@ export function EnvironmentPicker({
                     : "composer.auto",
             )}
           </button>
+        )}
+        {lastSeenStyle === "banner" && firstKeptRow !== undefined && lastSeenWhen !== undefined && (
+          <output className="acpmux-env-heading acpmux-env-last-seen-banner">
+            <span className="acpmux-env-last-seen-text">
+              {t("composer.envCloudUnreachable", { when: lastSeenWhen })}
+            </span>
+            <button
+              type="button"
+              className="acpmux-env-last-seen-retry ui-ghost ui-ghost-sm"
+              onClick={() => void refreshCloudMachines()}
+            >
+              {t("composer.envCloudRetry")}
+            </button>
+          </output>
         )}
         <Combobox
           suggestions={presence.rows}
