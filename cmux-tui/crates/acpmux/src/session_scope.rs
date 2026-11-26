@@ -170,16 +170,44 @@ pub(crate) struct SessionLimits {
     pub disk_mb: Option<u64>,
 }
 
+/// The daemon config's `session` limits. It reads config.json's `session` alone: a whole
+/// `Config::load` also found every profile and harness and parsed the cached ACP Registry, on each
+/// budget check, 225 MB of transient blocks over a 1 GB chat's restart (dhat, `chat_size_sweep`).
+/// A config that does not read gives the defaults, as before.
 pub(crate) fn daemon_limits() -> SessionLimits {
     #[cfg(not(target_os = "linux"))]
     return SessionLimits::default();
     #[cfg(target_os = "linux")]
-    crate::config::Config::load()
-        .map_or_else(|_| SessionLimits::default(), |config| session_limits_from_config(&config))
+    daemon_session_config(&crate::config::Config::path())
+        .map_or_else(SessionLimits::default, |session| session_limits_from(&session))
 }
 
+/// config.json's `session`: none when the file does not read or parse, the default one when it is
+/// missing or names none.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn daemon_session_config(path: &std::path::Path) -> Option<crate::config::SessionResourceConfig> {
+    use std::io::Read as _;
+    #[derive(serde::Deserialize)]
+    struct OnlySession {
+        #[serde(default)]
+        session: crate::config::SessionResourceConfig,
+    }
+    match std::fs::symlink_metadata(path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Some(Default::default()),
+        Err(_) => return None,
+        Ok(_) => {}
+    }
+    let mut text = String::new();
+    crate::config::private_state_file(path).ok()?.read_to_string(&mut text).ok()?;
+    serde_json::from_str::<OnlySession>(&text).ok().map(|c| c.session)
+}
+
+#[cfg(test)]
 fn session_limits_from_config(config: &crate::config::Config) -> SessionLimits {
-    let session = &config.session;
+    session_limits_from(&config.session)
+}
+
+fn session_limits_from(session: &crate::config::SessionResourceConfig) -> SessionLimits {
     SessionLimits {
         memory_mb: session.memory_mb,
         swap_mb: session.swap_mb,
@@ -1144,5 +1172,24 @@ mod tests {
         cfg.set_session_resource("session.tasks_max", "3000").unwrap();
         cfg.set_session_resource("session.sessions_tasks_max", "100000").unwrap();
         assert_eq!(session_limits_from_config(&cfg), config);
+    }
+
+    #[test]
+    fn the_daemon_limits_read_the_configs_session_as_a_whole_load_does() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("config.json");
+        assert_eq!(daemon_session_config(&path), Some(Default::default()), "no file: defaults");
+        let mut cfg = crate::config::Config::default();
+        cfg.set_session_resource("session.tasks_max", "3000").unwrap();
+        cfg.set_session_resource("session.memory_mb", "6144").unwrap();
+        std::fs::write(&path, serde_json::to_vec(&cfg).unwrap()).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let whole = crate::config::Config::load_from(&path).unwrap();
+        let session = daemon_session_config(&path).unwrap();
+        assert_eq!(session, whole.session);
+        assert_eq!(session_limits_from(&session), session_limits_from_config(&whole));
+        std::fs::write(&path, b"{not json").unwrap();
+        assert_eq!(daemon_session_config(&path), None, "a config that does not read: defaults");
     }
 }
