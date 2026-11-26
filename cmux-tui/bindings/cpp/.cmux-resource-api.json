@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "2582ead72d78273f086fa65ebecdb4dab6dda9c96954ef0023a08f18ac20e4d5",
+  "catalog_sha256": "f4c0bbcc1f479ee707c44a56484dcbdc19687e8d7c5dd95ef8a9be266265e5c9",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -226,8 +226,17 @@
     "cloud.owner.github_app": {
       "class": "read"
     },
+    "cloud.owner.github_clone_token": {
+      "class": "mutation"
+    },
+    "cloud.owner.github_complete": {
+      "class": "mutation"
+    },
     "cloud.owner.github_connect": {
       "class": "mutation"
+    },
+    "cloud.owner.github_list": {
+      "class": "read"
     },
     "cloud.owner.github_repos": {
       "class": "read"
@@ -796,6 +805,9 @@
     "settings.get": {
       "class": "read"
     },
+    "settings.history": {
+      "class": "read"
+    },
     "settings.list": {
       "class": "read"
     },
@@ -803,6 +815,12 @@
       "class": "mutation"
     },
     "settings.reset_all": {
+      "class": "mutation"
+    },
+    "settings.reset_group": {
+      "class": "mutation"
+    },
+    "settings.restore": {
       "class": "mutation"
     },
     "settings.schema": {
@@ -813,6 +831,9 @@
     },
     "settings.snapshot": {
       "class": "read"
+    },
+    "settings.undo": {
+      "class": "mutation"
     },
     "sidebar.adopt": {
       "class": "mutation"
@@ -1046,6 +1067,9 @@
       "class": "read"
     },
     "theme.scheme.from_image": {
+      "class": "read"
+    },
+    "theme.slots.resolve": {
       "class": "read"
     },
     "window_record.delete": {
