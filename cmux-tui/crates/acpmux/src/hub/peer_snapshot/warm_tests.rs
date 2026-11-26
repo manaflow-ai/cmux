@@ -31,7 +31,8 @@ fn a_round_reads_the_peers_open_chats_that_changed_last() {
         row("day-old", 9, WARM_WITHIN_MS + 1),
         row("newer", 6, 2_000),
     ];
-    let (asks, planned, later) = plan(PEER, &rows, &HashMap::new(), &HashMap::new(), (NOW_MS, now));
+    let (asks, planned, later) =
+        plan(PEER, &rows, &Covers::default(), &HashMap::new(), (NOW_MS, now));
     // At most WARM_PER_PEER (2 in tests), newest change first; never a closed, stale, empty or
     // day-old one.
     assert_eq!(muxes(&asks), ["newest", "newer"]);
@@ -53,13 +54,15 @@ fn a_round_reads_the_peers_open_chats_that_changed_last() {
 fn a_copy_is_read_past_what_it_covers_or_replaced_when_too_far_behind_or_of_another_session() {
     let now = Instant::now();
     let rows = [row("a", 500, 0), row("b", 900, 1)];
-    let caught_up = HashMap::from([("a".to_owned(), (Some(42), 500))]);
+    let caught_up = Covers::kept(HashMap::from([("a".to_owned(), (Some(42), 500))]));
     let (asks, planned, _) = plan(PEER, &rows[..1], &caught_up, &HashMap::new(), (NOW_MS, now));
     assert!(asks.is_empty(), "a copy that covers the row's last seq is not read again");
     assert!(planned.contains("a"));
 
-    let covers =
-        HashMap::from([("a".to_owned(), (Some(42), 450)), ("b".to_owned(), (Some(42), 100))]);
+    let covers = Covers::kept(HashMap::from([
+        ("a".to_owned(), (Some(42), 450)),
+        ("b".to_owned(), (Some(42), 100)),
+    ]));
     let (asks, ..) = plan(PEER, &rows, &covers, &HashMap::new(), (NOW_MS, now));
     assert_eq!(muxes(&asks), ["a", "b"]);
     assert_eq!(asks[0].params["afterSeq"], json!(450), "within a page: only what is new");
@@ -68,12 +71,12 @@ fn a_copy_is_read_past_what_it_covers_or_replaced_when_too_far_behind_or_of_anot
 
     // Review of #28626 at 112a7bf: a copy past the row (a peer back on an older disk with the same
     // session) is read again from the newest page, which replaces it.
-    let ahead = HashMap::from([("a".to_owned(), (Some(42), 520))]);
+    let ahead = Covers::kept(HashMap::from([("a".to_owned(), (Some(42), 520))]));
     let (asks, ..) = plan(PEER, &rows[..1], &ahead, &HashMap::new(), (NOW_MS, now));
     assert_eq!(asks[0].params["beforeSeq"], json!(NEWEST));
     assert!(asks[0].params.get("afterSeq").is_none());
 
-    let recreated = HashMap::from([("a".to_owned(), (Some(41), 499))]);
+    let recreated = Covers::kept(HashMap::from([("a".to_owned(), (Some(41), 499))]));
     let (asks, ..) = plan(PEER, &rows[..1], &recreated, &HashMap::new(), (NOW_MS, now));
     assert_eq!(asks[0].params["beforeSeq"], json!(NEWEST), "a copy of the session before");
 }
@@ -83,17 +86,127 @@ fn a_chat_read_within_the_interval_waits_for_its_end_and_is_then_read() {
     let now = Instant::now();
     let rows = [row("a", 5, 0), row("b", 5, 1)];
     let read_at = HashMap::from([((PEER.to_owned(), "a".to_owned()), (42, now))]);
-    let (asks, planned, later) = plan(PEER, &rows, &HashMap::new(), &read_at, (NOW_MS, now));
+    let (asks, planned, later) = plan(PEER, &rows, &Covers::default(), &read_at, (NOW_MS, now));
     assert_eq!(muxes(&asks), ["b"]);
     assert!(planned.contains("a"), "still planned, so its read time is kept");
     assert_eq!(later, Some(now + WARM_EVERY));
-    let (asks, _, later) = plan(PEER, &rows, &HashMap::new(), &read_at, (NOW_MS, now + WARM_EVERY));
+    let (asks, _, later) =
+        plan(PEER, &rows, &Covers::default(), &read_at, (NOW_MS, now + WARM_EVERY));
     assert_eq!(muxes(&asks), ["a", "b"]);
     assert_eq!(later, None);
     // Review of #28626 at 112a7bf: a read of the session before a recreation holds none back.
     let recreated = HashMap::from([((PEER.to_owned(), "a".to_owned()), (41, now))]);
-    let (asks, _, later) = plan(PEER, &rows, &HashMap::new(), &recreated, (NOW_MS, now));
+    let (asks, _, later) = plan(PEER, &rows, &Covers::default(), &recreated, (NOW_MS, now));
     assert_eq!((muxes(&asks), later), (vec!["a", "b"], None));
+}
+
+#[test]
+fn a_chat_a_bound_evicted_is_not_read_ahead_and_a_kept_one_waits_the_longer_interval() {
+    let now = Instant::now();
+    let rows = [row("a", 500, 0), row("b", 900, 1)];
+    // cosmic-gray 11-25: with a fleet's chats past the store's bound, each evicted chat that moved
+    // was read again, started a copy and evicted another, every round.
+    let covers = Covers {
+        kept: HashMap::from([("b".to_owned(), (Some(42), 890))]),
+        evicted: HashMap::from([("a".to_owned(), 42)]),
+    };
+    let (asks, planned, _) = plan(PEER, &rows, &covers, &HashMap::new(), (NOW_MS, now));
+    assert_eq!(muxes(&asks), ["b"], "the evicted chat is not read, though it moved");
+    assert!(planned.contains("b"));
+    // A session recreated since its eviction is read as any other.
+    let recreated = Covers { evicted: HashMap::from([("a".to_owned(), 41)]), ..Covers::default() };
+    let (asks, ..) = plan(PEER, &rows[..1], &recreated, &HashMap::new(), (NOW_MS, now));
+    assert_eq!(muxes(&asks), ["a"]);
+
+    // A kept copy is brought up to date at most each WARM_AGAIN: each read rewrites its file.
+    let read_at = HashMap::from([((PEER.to_owned(), "b".to_owned()), (42, now))]);
+    let kept = Covers::kept(covers.kept.clone());
+    let (asks, _, later) = plan(PEER, &rows[1..], &kept, &read_at, (NOW_MS, now + WARM_EVERY));
+    assert!(asks.is_empty(), "read within WARM_AGAIN");
+    assert_eq!(later, Some(now + WARM_AGAIN));
+    let (asks, ..) = plan(PEER, &rows[1..], &kept, &read_at, (NOW_MS, now + WARM_AGAIN));
+    assert_eq!(muxes(&asks), ["b"]);
+}
+
+/// cosmic-gray 11-25, the try of #55956: a fleet whose working chats do not fit the store's
+/// bound, every chat moving each round (in small: the test build keeps about 6 copies and
+/// remembers [`EVICTED_KEYS`] evicted ones, so 2 peers of 7 chats). Once the store is full, a round creates no copy and
+/// removes none: the chats it keeps are followed, the ones it evicted are left alone.
+#[test]
+fn a_fleet_past_the_store_bound_settles_instead_of_evicting_every_round() {
+    use crate::peer::PeerNotice;
+    let (peers, per_round, rounds) = (2usize, 20u64, 8u64);
+    let dir = cmux_unix_socket::short_test_dir("acpmux-pw");
+    let hub = hub_at(dir.path());
+    let links: Vec<_> = (0..peers)
+        .map(|i| {
+            let (tx, rx) = tokio::sync::mpsc::channel(8);
+            std::mem::forget(rx);
+            let name = format!("lane-{i}");
+            let peer = crate::peer::Peer::new(&name, "ws://127.0.0.1:9", None, None, tx);
+            hub.peers.lock().unwrap().insert(name, peer.clone());
+            peer
+        })
+        .collect();
+    let chats: Vec<String> = (0..7).map(|i| format!("m{i}")).collect();
+    let record = |mux: &str, seq: u64| {
+        json!({"sessionId": mux, "seq": seq, "at": seq, "dir": "agent",
+               "kind": "agent_message_chunk", "msg": {"text": "a line of a working turn"}})
+    };
+    let held = || -> HashSet<(String, String)> {
+        links
+            .iter()
+            .flat_map(|p| {
+                let covers = hub.peer_snapshots.covers(&p.name).unwrap_or_default();
+                covers.kept.into_keys().map(|m| (p.name.clone(), m)).collect::<Vec<_>>()
+            })
+            .collect()
+    };
+    let (mut kept_before, mut evicted_reads) = (HashSet::new(), 0u64);
+    for round in 1..=rounds {
+        let last = per_round * round;
+        let now = now_ms();
+        let rows: Vec<Value> = chats
+            .iter()
+            .map(|mux| {
+                json!({"sessionId": mux, "name": mux, "status": "running", "createdAt": 42,
+                       "lastSeq": last, "updatedAt": now})
+            })
+            .collect();
+        for peer in &links {
+            let name = peer.name.as_str();
+            hub.apply_peer_notice(
+                name,
+                peer.generation,
+                PeerNotice::sessions_from_values(rows.clone()),
+            );
+            let covers = hub.peer_snapshots.covers(name).unwrap_or_default();
+            let (asks, ..) =
+                plan(name, &rows, &covers, &HashMap::new(), (now_ms(), Instant::now()));
+            for ask in asks {
+                evicted_reads += u64::from(covers.evicted.contains_key(&ask.mux));
+                let after = ask.params.get("afterSeq").and_then(Value::as_u64);
+                let from = match after {
+                    Some(after) => after + 1,
+                    None => last.saturating_sub(SESSION_EVENTS as u64 - 1).max(1),
+                };
+                let events: Vec<Value> = (from..=last).map(|s| record(&ask.mux, s)).collect();
+                let page = json!({"events": events, "hasMore": from > 1, "lastSeq": last,
+                                  "pageThrough": last, "createdAt": 42});
+                let on = (name, peer.generation, peer.link_epoch(), Some(ask.generation));
+                hub.capture_peer_page_ahead(on, &ask.mux, &ask.params, &page);
+            }
+        }
+        hub.peer_snapshots.flush_now();
+        let kept = held();
+        assert!(!kept.is_empty(), "round {round} keeps some copies");
+        assert!(kept.len() < peers * chats.len(), "the fleet is past the store's bound");
+        if round > 2 {
+            assert_eq!(kept, kept_before, "round {round} evicted or created copies");
+        }
+        kept_before = kept;
+    }
+    assert_eq!(evicted_reads, 0, "no chat a bound evicted is read ahead again");
 }
 
 #[test]
@@ -156,7 +269,7 @@ fn a_newest_page_is_kept_and_the_store_says_what_it_covers() {
                       "pageThrough": 9, "createdAt": 42});
     hub.capture_peer_page(on, ("m2", true), &both, &page);
     let covers = hub.peer_snapshots.covers(PEER).unwrap();
-    assert_eq!(covers, HashMap::from([("m1".to_owned(), (Some(42), 11))]));
+    assert_eq!(covers.kept, HashMap::from([("m1".to_owned(), (Some(42), 11))]));
     let got = hub.peer_snapshot(&json!({"sessionId": "far-box/m1"})).unwrap();
     let seqs: Vec<u64> =
         got["events"].as_array().unwrap().iter().map(|e| e["seq"].as_u64().unwrap()).collect();
@@ -246,7 +359,7 @@ fn a_read_ahead_gives_way_to_a_store_behind_and_costs_the_peer_no_copy() {
         json!({"events": events, "hasMore": true, "lastSeq": 9, "pageThrough": 9, "createdAt": 42})
     };
     assert!(hub.capture_peer_page_ahead(on, "m1", &newest, &page("m1")));
-    assert_eq!(hub.peer_snapshots.covers(PEER).unwrap().len(), 1);
+    assert_eq!(hub.peer_snapshots.covers(PEER).unwrap().kept.len(), 1);
 
     let snapshots = &hub.peer_snapshots;
     snapshots.queued.fetch_add(WARM_QUEUED_BYTES, Ordering::AcqRel);
@@ -255,12 +368,12 @@ fn a_read_ahead_gives_way_to_a_store_behind_and_costs_the_peer_no_copy() {
     assert!(snapshots.dropped().peers.is_empty(), "no loss of the peer");
     snapshots.queued.fetch_sub(WARM_QUEUED_BYTES, Ordering::AcqRel);
     assert_eq!(
-        snapshots.covers(PEER).unwrap(),
+        snapshots.covers(PEER).unwrap().kept,
         HashMap::from([("m1".to_owned(), (Some(42), 9))]),
         "the copy it had stays; the passed-over page kept nothing"
     );
     assert!(hub.capture_peer_page_ahead(on, "m2", &newest, &page("m2")));
-    assert_eq!(snapshots.covers(PEER).unwrap().len(), 2);
+    assert_eq!(snapshots.covers(PEER).unwrap().kept.len(), 2);
 }
 
 /// Process CPU time (user and system) so far.
@@ -350,7 +463,7 @@ fn warm_rounds(peers: usize, old: bool) -> [Phase; 3] {
                     let name = peer.name.as_str();
                     let covers = match hub.peer_snapshots.covers(name) {
                         Some(covers) => covers,
-                        None if old => HashMap::new(),
+                        None if old => Covers::default(),
                         None => return,
                     };
                     let reads = HashMap::new();
@@ -383,7 +496,7 @@ fn warm_rounds(peers: usize, old: bool) -> [Phase; 3] {
         phase.read += bytes.into_inner();
         for name in &names {
             let covers = hub.peer_snapshots.covers(name).unwrap_or_default();
-            phase.missing += chats.len() - covers.len().min(chats.len());
+            phase.missing += chats.len() - covers.kept.len().min(chats.len());
         }
         phase.cpu += cpu_time() - started;
     }
@@ -464,12 +577,11 @@ fn peer_copies_follow_bench() {
             std::mem::forget(rx);
             let name = format!("lane-{i}");
             let peer = crate::peer::Peer::new(&name, "ws://127.0.0.1:9", None, None, tx);
-            peer.set_vm_boundary(true);
             hub.peers.lock().unwrap().insert(name, peer.clone());
             peer
         })
         .collect();
-    let chats: Vec<String> = (0..WARM_PER_PEER).map(|i| format!("m{i}")).collect();
+    let chats: Vec<String> = (0..7).map(|i| format!("m{i}")).collect();
     let record = |mux: &str, seq: u64| {
         json!({"sessionId": mux, "seq": seq, "at": seq, "dir": "agent",
                "kind": "agent_message_chunk", "msg": {"text": "a line of a working turn"}})
@@ -505,7 +617,7 @@ fn peer_copies_follow_bench() {
                 let after = ask.params.get("afterSeq").and_then(Value::as_u64);
                 let from = match after {
                     Some(after) => after + 1,
-                    None => last.saturating_sub(WARM_LIMIT - 1).max(1),
+                    None => last.saturating_sub(SESSION_EVENTS as u64 - 1).max(1),
                 };
                 let events: Vec<Value> = (from..=last).map(|s| record(&ask.mux, s)).collect();
                 round_records += events.len() as u64;
@@ -532,8 +644,10 @@ fn peer_copies_follow_bench() {
             steady = (steady.0 + round_reads, steady.1 + round_records, steady.2 + spent);
         }
     }
-    let held: usize =
-        links.iter().map(|p| hub.peer_snapshots.covers(&p.name).unwrap_or_default().len()).sum();
+    let held: usize = links
+        .iter()
+        .map(|p| hub.peer_snapshots.covers(&p.name).unwrap_or_default().kept.len())
+        .sum();
     let per_read = steady.2 / u32::try_from(steady.0.max(1)).unwrap_or(u32::MAX);
     eprintln!(
         "peer-copies-follow: {peers} peers x {} chats, {per_round} records/chat/round, {rounds} rounds: \
