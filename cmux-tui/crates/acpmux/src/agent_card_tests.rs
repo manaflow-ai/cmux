@@ -80,7 +80,7 @@ fn a_cloud_card_says_edits_sync_back_and_the_machine_grows_and_ends_with_its_num
     assert!(text.contains("browser pane"), "{text}");
     assert!(text.contains("GitHub repository"), "{text}");
     assert!(text.contains("details: `cmux capabilities`"), "{text}");
-    let numbers = "This machine now: 4 vCPU, 8.2 GB RAM, 41 GB disk free of 64 GB. Tools on PATH: git, node, cargo.";
+    let numbers = "This machine now: 4 vCPU, 8.2 GB RAM, 41 GB disk free of 64 GB, no GPU. Tools on PATH: git, node, cargo.";
     assert!(text.contains(numbers), "{text}");
     // The numbers come last, so a prompt cache keeps everything before them.
     let last = text.lines().rev().nth(1).unwrap();
