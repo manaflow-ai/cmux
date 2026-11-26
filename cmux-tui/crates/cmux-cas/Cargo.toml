@@ -22,6 +22,10 @@ path = "src/bin/cas-publish-public.rs"
 name = "cas-dedup"
 path = "src/bin/cas-dedup.rs"
 
+[[bin]]
+name = "cas-lazy-bench"
+path = "src/bin/cas-lazy-bench.rs"
+
 [dependencies]
 blake3 = "1"
 cmux-signed-envelope = { path = "../cmux-signed-envelope" }
