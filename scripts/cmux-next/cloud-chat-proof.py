@@ -113,6 +113,22 @@ if args.cleanup_tag and args.cleanup_machine:
     parser.error("--cleanup-tag and --cleanup-machine are separate runs")
 
 CLI = str(Path(args.app) / "Contents/Resources/bin/cmux")
+# The published cmux NIGHTLY (cloud-chat-proof.yml's production half): a shipped build, whose socket refuses
+# `cmux app call`.
+SHIPPED_APP_IDS = {"com.cmuxterm.app.nightly"}
+
+
+def bundle_id(app: str) -> str | None:
+    try:
+        import plistlib
+        with open(Path(app) / "Contents/Info.plist", "rb") as handle:
+            value = plistlib.load(handle).get("CFBundleIdentifier")
+        return value if isinstance(value, str) else None
+    except (OSError, ValueError):
+        return None
+
+
+SHIPPED_APP = bundle_id(args.app) in SHIPPED_APP_IDS
 SOCKET_PATH = f"/tmp/cmux-debug-{args.tag}.sock"
 ENV = {
     **os.environ,
@@ -162,6 +178,7 @@ BROWSER_PROOF_REPLY = f"{BROWSER_PROOF_MARKER} title=Example Domain h1=Example D
 FOLDER_PROOF_FILE = "cmux-folder-proof.txt"
 FOLDER_PROOF_WORD = f"folder{secrets.token_hex(6)}"
 FOLDER_PROOF_DIR = None
+FOLDER_TRUSTED = False
 if args.from_folder and not args.cleanup_machine:
     FOLDER_PROOF_DIR = os.path.realpath(tempfile.mkdtemp(prefix="cmux-proof-folder-"))
     Path(FOLDER_PROOF_DIR, FOLDER_PROOF_FILE).write_text(FOLDER_PROOF_WORD + "\n", encoding="utf-8")
@@ -288,6 +305,10 @@ def finish(result: str) -> None:
         record("remove claude connection", code, "", err)
         if code != 0 and result == "pass":
             result = "fail: claude connection not removed"
+    if FOLDER_TRUSTED:
+        # Forget the run's trust record while the app's daemon still answers, so an owned Mac keeps none.
+        code, out, err = cmux("setup", "trust", FOLDER_PROOF_DIR, "--level", "unknown", timeout=60)
+        record("forget proof folder trust", code, out, err)
     if app_launcher is not None:
         # Quit only the bundle this proof identified, then wait for the open -W helper we started.
         # Its exit is the launch service's completion event, not a fixed sleep between backends.
@@ -711,11 +732,19 @@ if args.cleanup_machine:
     record("cloud machine-status after kill", after_code, "", after_detail, machine_status=after_summary)
     finish("pass" if killed else "fail: kill-machine failed twice")
 
-actual = wait_for("selected backend active and signed in", ("app", "call", "auth.status", "--json"),
-                  lambda value: value.get("cloud_environment") == args.cloud_backend
-                  and value.get("backend", "").rstrip("/") == args.expected_api_origin.rstrip("/")
-                  and value.get("signed_in") is True)
-evidence["api_origin"] = actual.get("backend")
+if SHIPPED_APP:
+    # A shipped build refuses `cmux app call` (app.call_debug_only), so its sign-in is read the way a person sees
+    # it: `cloud list-machines` answers `loaded: true` only for a signed-in Cloud account. A shipped NIGHTLY talks
+    # to production by construction (its bundle id, checked by the workflow), so its origin is the expected one.
+    wait_for("selected backend active and signed in", ("cloud", "list-machines", "--json"),
+             lambda value: value.get("loaded") is True)
+    evidence["api_origin"] = args.expected_api_origin if args.cloud_backend == "prod" else None
+else:
+    actual = wait_for("selected backend active and signed in", ("app", "call", "auth.status", "--json"),
+                      lambda value: value.get("cloud_environment") == args.cloud_backend
+                      and value.get("backend", "").rstrip("/") == args.expected_api_origin.rstrip("/")
+                      and value.get("signed_in") is True)
+    evidence["api_origin"] = actual.get("backend")
 
 if args.cleanup_tag:
     evidence["machine_cleanup"] = kill_run_machines()
@@ -941,6 +970,14 @@ if START_LOGIN:
         record("cloud start-chat takes no --login (dropped)", 0, "", "")
         evidence["claude_login"]["login"] = None
         START_LOGIN = ()
+# A Cloud start refuses a folder this Mac doesn't trust (#41079), and the proof's folder is a new temp
+# directory, so the proof trusts it the person's way first (run 45750166181 failed on that refusal).
+if FOLDER_PROOF_DIR:
+    code, out, err = cmux("setup", "trust", FOLDER_PROOF_DIR, "--level", "trusted", timeout=60)
+    record("trust proof folder", code, out, err)
+    if code != 0:
+        finish("fail: trust proof folder")
+    FOLDER_TRUSTED = True
 chat_started = time.monotonic()
 chat_deadline = chat_started + 600
 while True:  # bounded: the same start-chat again while its machine is still being made
