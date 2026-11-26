@@ -495,6 +495,14 @@ EXCLUSIVE_EXEMPT: dict[tuple[str, str], str] = {
     ("release.yml", "build-sign-notarize-blacksmith"):
         "build-sign-notarize's Blacksmith twin (rule 3): the same steps, so the same gate, on Blacksmith labels only",
     # The one entry that may keep an owned route: the keychain guard's rule 7b proves it (GATED_SECRET_JOBS).
+    # Leo: "freeing up the Mac's from doing things that don't need Mac's". The publishers sign nothing on a
+    # Mac: they upload and write the feed from the one-job Linux VM, where the claim script exits 0 (no glaeda runner).
+    ("nightly.yml", "publish-nightly"):
+        "publishes from the one-job Linux VM (cmux-gcp-nightly-jit-x64) only; no route reaches an owned Mac",
+    ("nightly.yml", "keep-published-dsyms"):
+        "keeps dSYMs from the one-job Linux VM (cmux-gcp-nightly-jit-x64) only; no route reaches an owned Mac",
+    ("nightly.yml", "republish-nightly-deltas"):
+        "republishes deltas from the one-job Linux VM (cmux-gcp-nightly-jit-x64) only; no route reaches an owned Mac",
     ("stable-next.yml", "sign"):
         "rule 7b (keychain guard GATED_SECRET_JOBS): it reads its signing secrets only when SIGN is developer-id, "
         "and that condition picks a literal Blacksmith label; its owned route runs the ad-hoc dry run with no key",
@@ -1615,7 +1623,8 @@ class PresenceConditionTests(unittest.TestCase):
                 self.assertRegex(runs_on, r"vars\.CI_NIGHTLY_MINI\s*!=\s*''\s*&&\s*"
                                           r"(?:vars\.CI_NIGHTLY_SIGN_RUNNER|'glaeda-trusted-next-signing')")
                 self.assertNotIn("CI_NIGHTLY_MINI", self.label_variables(runs_on))
-        self.assertGreaterEqual(seen, 6, "one-mini mode is gone from the signing jobs; re-check this test")
+        # 5 since promote-nightly-next and the publishers moved to the one-job Linux VM (#57336).
+        self.assertGreaterEqual(seen, 5, "one-mini mode is gone from the signing jobs; re-check this test")
 
 
 class OwnedRouteVariableTests(unittest.TestCase):
