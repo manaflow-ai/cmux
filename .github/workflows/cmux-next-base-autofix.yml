@@ -155,6 +155,22 @@ on:
 
 permissions: {}
 
+# One push run at a time on the branch, and at most one waiting (ci-min-per-pr-14, Leo 2026-11-21: "de facto,
+# im asking for 99% fewer minutes of ci time, period"). The `window` job's hold needs a GitHub read, and on
+# 2026-11-26 20-22:30Z every window read failed on the pool runners ("runs unreadable (fail open)", the
+# repository GITHUB_TOKEN hour spent; other jobs there read HTTP 403), so every push repaired: 20 autofix runs
+# in 2.5 h, each about 28 minutes and each red on a base red it cannot repair (swift_parity), plus 25 red Mac
+# export runs, about 280 runner-minutes an hour. GitHub's own queue holds this with no API call: a newer push
+# replaces the waiting run (cancelled before it starts, which costs nothing), and base-autofix-since.sh passes
+# over a cancelled run, so the next run diffs from the last successful one and covers every replaced push, as
+# the window's held runs do. A started run is never cancelled (no push stops mid-way). The bot's own repair
+# pushes, which skip every job, queue in their own group so they never replace a real push's waiting run; a
+# dispatch gets a group of its own and runs as before.
+concurrency:
+  group: >-
+    cmux-next-base-autofix-${{ github.event_name == 'push' && format('{0}-{1}', github.ref_name, (github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) && 'bot' || 'push') || format('run-{0}', github.run_id) }}
+  cancel-in-progress: false
+
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'

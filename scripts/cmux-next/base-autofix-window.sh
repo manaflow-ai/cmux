@@ -43,12 +43,17 @@ since="$(date -u -d "@$((now - window * 60))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" 
   exit 0
 }
 
-# One read: this workflow's push runs on BRANCH created within the window, newest first.
+# One read: this workflow's push runs on BRANCH created within the window, newest first. Its error, one line,
+# goes in why=: on 2026-11-26 every read on the pool runners failed and the summary could not say why.
+err="$(mktemp 2>/dev/null || echo /dev/null)"
 rows="$(gh api "repos/$repo/actions/workflows/cmux-next-base-autofix.yml/runs?branch=$branch&event=push&created=%3E%3D$since&per_page=100" \
-  --jq '.workflow_runs[] | [.id, .status, (.conclusion // ""), .display_title] | map(tostring) | join("\u001f")' 2>/dev/null)" || {
-  say true "runs unreadable (fail open)"
+  --jq '.workflow_runs[] | [.id, .status, (.conclusion // ""), .display_title] | map(tostring) | join("\u001f")' 2>"$err")" || {
+  why="$(tr -s '\r\n\t' '   ' <"$err" 2>/dev/null | cut -c1-200)"
+  [[ "$err" == /dev/null ]] || rm -f "$err"
+  say true "runs unreadable (fail open)${why:+: $why}"
   exit 0
 }
+[[ "$err" == /dev/null ]] || rm -f "$err"
 
 # Fields split on the unit separator: a tab is whitespace to read, so an empty conclusion would vanish.
 while IFS=$'\x1f' read -r id status conclusion title; do

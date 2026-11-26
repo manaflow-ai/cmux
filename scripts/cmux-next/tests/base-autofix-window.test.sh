@@ -12,7 +12,7 @@ mkdir -p "$tmp/bin"
 cat > "$tmp/bin/gh" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$GH_STUB_LOG"
-[[ -n "${GH_STUB_FAIL:-}" ]] && exit 1
+[[ -n "${GH_STUB_FAIL:-}" ]] && { printf 'HTTP 403: API rate limit exceeded\n(retry later)\n' >&2; exit 1; }
 # The caller's --jq turns the runs into id, status, conclusion, title rows; the stub serves them as such.
 cat "$GH_STUB_ROWS"
 EOF
@@ -54,7 +54,7 @@ expect true "no run repaired"
 
 # 4. Fail open: an unreadable list, a window of 0 or garbage, a dispatch and a re-run all run.
 rows "499|completed|success|fix: a"
-GH_STUB_FAIL=1 expect true "runs unreadable"
+GH_STUB_FAIL=1 expect true "runs unreadable (fail open): HTTP 403: API rate limit exceeded (retry later)"
 NEXT_BASE_AUTOFIX_WINDOW_MINUTES=0 expect true "window off"
 NEXT_BASE_AUTOFIX_WINDOW_MINUTES=abc expect true "window off"
 GITHUB_EVENT_NAME=workflow_dispatch expect true "event workflow_dispatch"
