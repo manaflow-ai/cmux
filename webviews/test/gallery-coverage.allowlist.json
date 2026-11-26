@@ -96,7 +96,6 @@
     "agent-session/acpmux/rows/PromptCoachRow.tsx#ReadOnlyPromptCoachRow",
     "agent-session/acpmux/rows/SubagentStartedRow.tsx#SubagentStartedRow",
     "agent-session/acpmux/rows/WalkthroughRow.tsx#WalkthroughRow",
-    "agent-session/acpmux/session-info/AlsoHereSection.tsx#AlsoHereSection",
     "agent-session/acpmux/session-info/WindowedRows.tsx#WindowedRows",
     "agent-session/acpmux/started/SessionStatusLine.tsx#SessionStatusLine",
     "agent-session/acpmux/subagents/BackgroundTaskTail.tsx#BackgroundTaskTail",
