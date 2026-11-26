@@ -932,7 +932,7 @@ jobs:
           INPUT_KEY: ${{ steps.step-keys.outputs.defaults-snapshot }}
         run: python3 scripts/ci/receipt_input_key.py record static-checks-defaults-snapshot --input-key "$INPUT_KEY" --out "$RUNNER_TEMP/ci-step-receipt/defaults-snapshot/receipt.json"
       - name: Save the defaults snapshot step's receipt (shadow)
-        if: ${{ !cancelled() && steps.defaults-snapshot-record.outcome == 'success' }}
+        if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.defaults-snapshot-record.outcome == 'success' }}
         continue-on-error: true
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -959,7 +959,7 @@ jobs:
           INPUT_KEY: ${{ steps.step-keys.outputs.group-menus }}
         run: python3 scripts/ci/receipt_input_key.py record static-checks-group-menus --input-key "$INPUT_KEY" --out "$RUNNER_TEMP/ci-step-receipt/group-menus/receipt.json"
       - name: Save the group menus step's receipt (shadow)
-        if: ${{ !cancelled() && steps.group-menus-record.outcome == 'success' }}
+        if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.group-menus-record.outcome == 'success' }}
         continue-on-error: true
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -1007,7 +1007,7 @@ jobs:
           INPUT_KEY: ${{ steps.step-keys.outputs.page-strings }}
         run: python3 scripts/ci/receipt_input_key.py record static-checks-page-strings --input-key "$INPUT_KEY" --out "$RUNNER_TEMP/ci-step-receipt/page-strings/receipt.json"
       - name: Save the page strings step's receipt (shadow)
-        if: ${{ !cancelled() && steps.page-strings-record.outcome == 'success' }}
+        if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.page-strings-record.outcome == 'success' }}
         continue-on-error: true
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:

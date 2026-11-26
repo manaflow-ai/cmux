@@ -285,7 +285,8 @@ jobs:
           workspaces: |
             cmux-tui -> target
             cmux-tui/crates/cmux-app-ffi -> target
-          key: app-ffi-unit-tests
+          # The toolchain and both workspaces' lockfiles: a fixed key restores its first entry forever.
+          key: app-ffi-unit-tests-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', 'cmux-tui/crates/cmux-app-ffi/Cargo.lock', '.cargo/config.toml') }}
 
       - name: Test the reducer
         working-directory: cmux-tui
