@@ -113,6 +113,9 @@ describe("explicit team checkout", () => {
     expect((params.subscription_data as { metadata: unknown }).metadata).toMatchObject({ stackTeamId: "team-b", stackUserId: USER_ID });
     expect(currentUser?.hasPermission).toHaveBeenCalledWith(teamB, "team_admin");
     expect(createCustomer).toHaveBeenCalledWith({ name: "Team B", metadata: { stackTeamId: "team-b", app: "cmux" } });
+    // The session is created under a key for this team, plan and interval, so a repeated request reuses it.
+    const options = (createSession.mock.calls[0] as unknown[])[1] as { idempotencyKey?: string };
+    expect(options.idempotencyKey).toStartWith("checkout/team/team-b/team/month/");
   });
 
   test("allows checkout for a Team whose member count exceeds Stripe's default adjustable maximum", async () => {

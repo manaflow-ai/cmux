@@ -69,7 +69,7 @@ fn prompt_text(h: &Harness, turn: usize) -> String {
 fn until_prompt(h: &mut Harness, n: usize) -> Duration {
     let asked = Instant::now();
     while h.agents.inner.lock().unwrap().prompts.len() < n {
-        h.step();
+        h.poll_step();
     }
     asked.elapsed()
 }

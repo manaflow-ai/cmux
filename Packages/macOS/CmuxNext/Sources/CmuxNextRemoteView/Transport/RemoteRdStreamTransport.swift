@@ -21,6 +21,8 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
     let hello: RemoteRdHello
     private let startKey: String
     private let control: Bool
+    /// Whether this viewer offered `clipboard.text` in its hello (the caller's decision).
+    private let offersClipboard: Bool
     private let nowMicros: @Sendable () -> UInt64
     // internal for the +Service extension file
     let queue = DispatchQueue(label: "cmux.remote-view.rd-transport")
@@ -38,6 +40,7 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         var cursors: AsyncStream<RemoteCursorState>.Continuation?
         var services: AsyncStream<RemoteRdJSON>.Continuation?
         var hostStats: AsyncStream<RemoteRdHostStats>.Continuation?
+        var clipboardTexts: AsyncStream<String>.Continuation?
         /// Host stats reports seen (one in five is logged).
         var statsReports = 0
         /// rb/1 popup surface streams and their buffered units.
@@ -59,6 +62,9 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         var splitter = RemoteRdStreamSplitter()
         /// Created from the welcome's caps; ends with the session.
         var upstream: RemoteUpstreamConsent?
+        /// Clipboard text sync: created at the welcome when this viewer offered `clipboard.text`
+        /// and the host listed it; freed with the session.
+        var clipboard: RemoteRdClipboard?
         /// Why the path closed (the carrier's reason, or rejected bytes); nil until it did.
         var endReason: String?
         /// The carrier's latest progress text while the path opens; cleared once it is ready.
@@ -74,21 +80,27 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
     /// A transport to a host on this Mac's loopback.
     public convenience init?(
         endpoint: RemoteRdLoopbackEndpoint, hello: RemoteRdHello, startKey: String, control: Bool = false,
+        clipboard: Bool = false,
         nowMicros: @escaping @Sendable () -> UInt64 = RemoteRdStreamTransport.monotonicMicros
     ) {
-        self.init(carrier: RemoteRdLoopbackCarrier(endpoint: endpoint), hello: hello, startKey: startKey, control: control, nowMicros: nowMicros)
+        self.init(carrier: RemoteRdLoopbackCarrier(endpoint: endpoint), hello: hello, startKey: startKey, control: control,
+                  clipboard: clipboard, nowMicros: nowMicros)
     }
 
     /// `startKey` and `control` form the start message (`mode` view or
-    /// control); `nowMicros` is a monotonic clock (injected for tests). Nil
+    /// control); `clipboard` adds `clipboard.text` to the hello (the caller decided the setting and
+    /// the own-device rule allow it); `nowMicros` is a monotonic clock (injected for tests). Nil
     /// only when the Rust core cannot allocate its state.
     public init?(
         carrier: any RemoteRdByteCarrier, hello: RemoteRdHello, startKey: String, control: Bool = false,
+        clipboard: Bool = false,
         nowMicros: @escaping @Sendable () -> UInt64 = RemoteRdStreamTransport.monotonicMicros
     ) {
         guard let core = RemoteRdSession(carrier: .stream), let input = RemoteRdInput(carrier: .stream) else { return nil }
         var streamHello = hello
         streamHello.udpPort = nil
+        if clipboard, !streamHello.caps.contains(RemoteRdHello.clipboardTextCap) { streamHello.caps.append(RemoteRdHello.clipboardTextCap) }
+        offersClipboard = clipboard
         self.carrier = carrier
         self.hello = streamHello
         self.startKey = startKey
@@ -189,10 +201,18 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         requestKeyframe(stream: 0)
     }
 
-    /// The decode time rides the next feedback to the host (its median, `decode_us`).
+    /// The decode time rides the next feedback to the host (its median, `decode_us`) and
+    /// fills the stage ledger's Decode.
     public func noteDecoded(frame: UInt32, decodeMicros: UInt32, decodedAtMicros: UInt64) {
         queue.async { [self] in
-            try? engine.core.noteDecode(stream: 0, micros: decodeMicros)
+            _ = try? engine.core.noteFrameDecoded(stream: 0, frame: frame, decodeMicros: decodeMicros, decodedAtMicros: decodedAtMicros)
+        }
+    }
+
+    /// The picture reached the glass: the stage ledger's Present and Total.
+    public func notePresented(frame: UInt32, presentedAtMicros: UInt64) {
+        queue.async { [self] in
+            _ = try? engine.core.noteFramePresented(stream: 0, frame: frame, presentedAtMicros: presentedAtMicros)
         }
     }
 
@@ -262,6 +282,9 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         for sender in engine.upstream?.activeSenders ?? [] {
             out += (try? sender.datagrams()) ?? []
         }
+        while let frame = engine.clipboard?.popFrame(nowMicros: now) {
+            out.append(frame)
+        }
         for bytes in out {
             sendRaw(bytes)
         }
@@ -278,6 +301,10 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         Self.logger.info(
             "host: \(stats.kbps, privacy: .public) kbps, encode p50 \(stats.encodeMsP50, format: .fixed(precision: 1), privacy: .public) ms, cpu \(stats.cpuPercent, format: .fixed(precision: 0), privacy: .public)%, loss \(stats.lossPercent, format: .fixed(precision: 1), privacy: .public)%, frames \(stats.frames, privacy: .public), keyframes \(stats.keyframes, privacy: .public)"
         )
+        // The per-stage table (cmux.rd-stage-ledger/1), on the same 5 s cadence.
+        if let ledger = engine.core.stageLedger() {
+            Self.logger.info("stage ledger: \(ledger, privacy: .public)")
+        }
     }
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "remote-view-rd")
@@ -287,6 +314,9 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         while let message = try? engine.core.popMessage() {
             switch message {
             case let .control(json):
+                if let text = engine.clipboard?.receive(control: json) {
+                    _ = state.withLock { $0.clipboardTexts?.yield(text) }
+                }
                 guard let control = try? RemoteRdControl.parse(json) else { continue }
                 if case let .service(service, body) = control, service == hello.service, !engine.handshake.isEnded {
                     applySurfaceStreams(body)
@@ -300,6 +330,10 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
                     state.withLock { state in
                         if let cursor = state.cursorFeed.receive(shape: shape) { state.cursors?.yield(cursor) }
                     }
+                }
+                // Clock probes only when the host lists `clock` (an older host refuses them).
+                if case let .welcome(welcome) = control, welcome.caps?.contains(RemoteRdHello.clockCap) == true {
+                    _ = try? engine.core.enableClock()
                 }
                 engine.handshake.receive(control)
                 handleUpstream(control)
@@ -332,6 +366,9 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         if engine.upstream == nil, let welcome = engine.handshake.welcome {
             engine.upstream = RemoteUpstreamConsent(welcomeCaps: welcome.caps ?? [])
         }
+        if engine.clipboard == nil, offersClipboard, let caps = engine.handshake.welcome?.caps, caps.contains(RemoteRdHello.clipboardTextCap) {
+            engine.clipboard = RemoteRdClipboard()
+        }
         guard let consent = engine.upstream else { return }
         switch control {
         case let .streamOpened(stream):
@@ -350,7 +387,7 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
     }
 
     private func armTimer(now: UInt64) {
-        let deadlines = [engine.core.nextDeadlineMicros, engine.input.nextDeadlineMicros].compactMap { $0 }
+        let deadlines = [engine.core.nextDeadlineMicros, engine.input.nextDeadlineMicros, engine.clipboard?.nextDeadlineMicros].compactMap { $0 }
         guard let next = deadlines.min() else {
             timer.cancel()
             return
@@ -402,6 +439,7 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
     private func finish() {
         // Session end, host stop or disconnect: revoke and free every sender.
         engine.upstream?.endSession()
+        engine.clipboard = nil
         timer.cancel()
         carrier.cancel()
         state.withLock { state in
@@ -409,6 +447,7 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
             state.cursors?.finish()
             state.services?.finish()
             state.hostStats?.finish()
+            state.clipboardTexts?.finish()
             state.surfaces.endAll()
             state.statuses?.finish()
         }

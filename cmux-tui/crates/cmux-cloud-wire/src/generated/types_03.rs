@@ -5,6 +5,86 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeMessage {
+    pub id: MessageId,
+    pub conversation: ConversationId,
+    pub seq: i64,
+    pub client_msg_id: ClientToken,
+    pub author: ParticipantId,
+    pub parts: Vec<HomePart>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_to: Option<HomePartRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_root: Option<MessageId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread: Option<HomeThreadState>,
+    pub created_at: Timestamp,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edited_at: Option<Timestamp>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retracted_at: Option<Timestamp>,
+    pub reactions: Vec<HomeReaction>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum HomePart {
+    Text(HomePartText),
+    Work(HomePartWork),
+    Attachment(HomePartAttachment),
+    LinkPreview(HomePartLinkPreview),
+    /// A member this build does not know (a newer backend), kept verbatim.
+    Unknown(Value),
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomePartText {
+    pub r#type: LitText,
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runs: Option<Vec<HomeTextRun>>,
+}
+
+wire_enum! {
+    HomePartWorkStatus {
+        Running = "running",
+        Done = "done",
+        Failed = "failed",
+        Waiting = "waiting",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomePartWork {
+    pub r#type: LitWork,
+    pub session: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    pub status: HomePartWorkStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomePartAttachment {
+    pub r#type: LitAttachment,
+    pub hash: HomeSha256,
+    pub name: String,
+    pub mime_type: String,
+    pub byte_count: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub poster: Option<HomeAttachmentPoster>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<HomeAttachmentPreview>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HomePartLinkPreview {
     pub r#type: LitLinkPreview,
     pub url: String,
@@ -818,85 +898,4 @@ pub enum Step {
 pub struct StepSleep {
     pub r#type: LitSleep,
     pub seconds: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct StepNote {
-    pub r#type: LitNote,
-    pub text: String,
-}
-
-wire_enum! {
-    StepOpOp {
-        AutomationList = "automation.list",
-        AutomationGet = "automation.get",
-        AutomationRunsList = "automation.runs.list",
-        AutomationRun = "automation.run",
-        UsageSummary = "usage.summary",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct StepOp {
-    pub r#type: LitOp,
-    pub op: StepOpOp,
-    pub params: Value,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct StepMachine {
-    pub r#type: LitMachine,
-    pub machine: MachineId,
-    pub command: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub input_from: Option<i64>,
-    pub timeout_seconds: i64,
-}
-
-wire_enum! {
-    StepAgentHarness {
-        Claude = "claude",
-        Codex = "codex",
-        Opencode = "opencode",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct StepAgent {
-    pub r#type: LitAgent,
-    pub machine: MachineId,
-    pub harness: StepAgentHarness,
-    pub prompt: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub input_from: Option<i64>,
-    pub timeout_seconds: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
-pub enum TargetPolicy {
-    CloudVm(TargetPolicyCloudVm),
-    Host(TargetPolicyHost),
-    /// A member this build does not know (a newer backend), kept verbatim.
-    Unknown(Value),
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TargetPolicyCloudVm {
-    pub kind: LitCloudVm,
-}
-
-wire_enum! {
-    TargetPolicyHostFallback {
-        CloudVm = "cloud_vm",
-        Wait = "wait",
-        Fail = "fail",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TargetPolicyHost {
-    pub kind: LitHost,
-    pub host: HostId,
-    pub fallback: TargetPolicyHostFallback,
 }

@@ -34,11 +34,10 @@ public nonisolated protocol AgentPaneHostProviding: Sendable {
     /// app's. Only while `owner`, the binary the refusal named, still holds the socket. True when
     /// it stopped.
     func restartAcpmux(owner: AcpmuxSocketOwner) async -> Bool
-    /// A person asked to restart this app's own acpmux while the pane of `sessionId` waits for it
-    /// (the pane's "Restart agent service"): stops that daemon, keeping its sessions, so the next
-    /// handshake starts a new one. Only the host the pane's handshake goes to, only one that
-    /// starts its daemon, and only while a lookup waits on it. True when it stopped.
-    func restartStuckAcpmux(sessionId: String?) async -> Bool
+    /// One event each time this host's own acpmux answers a lookup (any pane's, a restart's): a pane
+    /// whose handshake loop stopped asks again then (AgentPaneView `observeAcpmuxAnswers`). Nil when
+    /// this host has no daemon of its own.
+    func acpmuxAnswers() -> AsyncStream<Void>?
     /// The person's click on a request this app's running acpmux lacks (it is older than the app):
     /// restarts this app's own daemon on the app's build, keeping its chats, and answers the socket of
     /// the new one. Nil when nothing restarted: no daemon of this host's own, an attached or Chief
@@ -72,8 +71,8 @@ extension AgentPaneHostProviding {
     /// Hosts without a daemon have none to restart.
     public func restartAcpmux(owner: AcpmuxSocketOwner) async -> Bool { false }
 
-    /// Hosts without a daemon have none to restart.
-    public func restartStuckAcpmux(sessionId: String?) async -> Bool { false }
+    /// Hosts without a daemon have no answers to tell.
+    public nonisolated func acpmuxAnswers() -> AsyncStream<Void>? { nil }
 
     /// Hosts without a daemon have none to restart.
     public func restartOutdatedAcpmux(sessionId: String?) async -> String? { nil }
@@ -162,6 +161,13 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     private var environment: AcpmuxEnvironment?
     /// The lookup in flight, by whether it may start a daemon.
     private var inFlight: [Bool: Task<AcpmuxWebEndpoint, any Error>] = [:]
+    /// When each lookup in ``inFlight`` is overdue (its ``lookupBound`` plus ``lookupGrace``): no
+    /// caller waits past it, and the host drops a lookup still running then, so the next caller
+    /// starts a fresh one.
+    private var inFlightOverdue: [Bool: ContinuousClock.Instant] = [:]
+    /// The whole lookup's deadline (``lookupDeadline``) and its grace (``lookupGrace``); tests shorten them.
+    private let lookupBound: Duration
+    private let lookupOverdueGrace: Duration
     /// The prewarm's finished lookup, kept for the next handshake (CMUX-571): a restored chat's page
     /// asked a second after the prewarm found the daemon, and paid the whole lookup again before its
     /// chat could draw. One handshake takes it, only while fresh (``AcpmuxPrewarmedEndpoint``); a
@@ -169,7 +175,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     private var prewarmed = AcpmuxPrewarmedEndpoint()
     /// The last lookup's settling (``lookupSettled()``).
     private var settling: Task<Void, Never>?
-    /// Runs one lookup; nil: ``findOrStart(_:daemons:startsDaemon:owned:heal:startOwner:approver:)``
+    /// Runs one lookup; nil: ``findOrStart(_:daemons:startsDaemon:owned:heal:startOwner:approver:adoption:deadline:)``
     /// (a recorder in tests).
     private let lookup: (@Sendable (AcpmuxEnvironment, Bool) async throws -> AcpmuxWebEndpoint)?
     /// False for a daemon this app does not own (the Chief home's, which the
@@ -189,7 +195,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// The app's local daemons (``AcpmuxLocalDaemons``): its marks say restarting in Settings while
     /// a handoff runs; it keeps two Restart acpmux from stopping two daemons.
     private let daemons: AcpmuxLocalDaemons
-    /// Stops this app's own daemon when a person asks (``restartStuckAcpmux(sessionId:)``); one per host.
+    /// Stops this app's own daemon for ``restartOutdatedAcpmux(sessionId:)``; one per host.
     private let daemonStop = AcpmuxDaemonStop()
     /// Gets this Mac's approver key to each daemon this host connects (``AgentPanePeerApprover``); nil: none.
     private let peerApprover: AgentPanePeerApprover?
@@ -218,6 +224,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         self.peerApprover = peerApprover
         self.adoption = .live
         self.lookup = nil
+        self.lookupBound = Self.lookupDeadline
+        self.lookupOverdueGrace = Self.lookupGrace
     }
 
     /// Looks for acpmux (bundled, PATH, install directories) on the actor,
@@ -247,7 +255,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
          },
          peerApprover: AgentPanePeerApprover? = nil,
          lookup: (@Sendable (AcpmuxEnvironment, Bool) async throws -> AcpmuxWebEndpoint)? = nil,
-         adoption: AcpmuxAdoptionGate = .live) {
+         adoption: AcpmuxAdoptionGate = .live, lookupDeadline: Duration = AcpmuxHost.lookupDeadline,
+         lookupGrace: Duration = AcpmuxHost.lookupGrace) {
         self.resolveEnvironment = resolve
         self.offersSessionTools = offersSessionTools
         self.agentPairGuard = agentPairGuard
@@ -259,6 +268,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         self.peerApprover = peerApprover
         self.lookup = lookup
         self.adoption = adoption
+        self.lookupBound = lookupDeadline
+        self.lookupOverdueGrace = lookupGrace
     }
 
     public func handshake(sessionId: String?) async throws -> AgentPaneHandshake {
@@ -301,9 +312,19 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         // starts another daemon; the tab store already prewarms its own host.
         // Waits for the lookup like a pane; a picker shows that the other Macs are not loaded yet
         // while it waits (AgentChatDestinations.updates), and the caller's cancel ends this wait.
-        _ = try await endpoint(startsDaemon: false)
+        // One deadline covers the lookup's wait and the peers read: a daemon that never answers
+        // ends as the picker's "could not list" row (reopening it asks again), never a picker
+        // waiting forever. It is the lookup's own bound, so a loaded daemon is waited out (#28083).
+        let deadline = ContinuousClock.now + lookupBound
+        _ = try await endpoint(startsDaemon: false, until: deadline)
         guard let environment else { throw AgentPaneHostError.acpmuxNotFound }
-        return try await AcpmuxStatusClient.chatPeers(socketPath: environment.socketPath)
+        let left = deadline - .now
+        guard left > .zero else { throw AgentPaneHostError.timedOut }
+        do {
+            return try await AcpmuxStatusClient.chatPeers(socketPath: environment.socketPath, deadline: left)
+        } catch is AgentPaneDeadlineExceeded {
+            throw AgentPaneHostError.timedOut
+        }
     }
 
     public func peerSnapshot(sessionId: String) async -> Data? {
@@ -344,17 +365,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         return await AcpmuxSocketOwner.takeOver(environment: environment, owner: owner, daemons: daemons)
     }
 
-    /// The person's "Restart agent service" while a pane waits for this host's daemon: only this
-    /// app's own daemon (never an attached one, never the Chief home's), and only while a lookup
-    /// waits on it, so the page cannot stop a daemon that answers. The lookup that waits ends when
-    /// the daemon exits, and the page's next handshake starts a new one.
-    public func restartStuckAcpmux(sessionId: String?) async -> Bool {
-        guard startsDaemons, !inFlight.isEmpty else { return false }
-        if environment == nil { environment = resolveEnvironment() }
-        guard let environment, !environment.isAttached else { return false }
-        prewarmed.drop()
-        daemons.noteStoppedByPerson(home: environment.home)
-        return await daemonStop.restart(environment)
+    public nonisolated func acpmuxAnswers() -> AsyncStream<Void>? {
+        daemons.answers()
     }
 
     /// Restarts this app's own daemon after a request it lacked, then starts the bundled one (a
@@ -379,7 +391,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         // let it settle, then look up again, which starts the bundled daemon.
         if let old = inFlight[true] {
             _ = await old.result
-            if inFlight[true] == old { inFlight[true] = nil }
+            settled(old, startsDaemon: true)
         }
         guard (try? await endpoint(startsDaemon: true)) != nil else { return nil }
         return environment.socketPath
@@ -412,7 +424,10 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         return environment
     }
 
-    private func endpoint(startsDaemon asked: Bool) async throws -> AcpmuxWebEndpoint {
+    /// The endpoint of this host's daemon, from the shared lookup. `callerDeadline`: this caller's
+    /// own; it stops waiting then (``AgentPaneHostError/timedOut``) while the lookup goes on for the
+    /// others. No caller waits past the lookup's own deadline plus ``lookupGrace``.
+    private func endpoint(startsDaemon asked: Bool, until callerDeadline: ContinuousClock.Instant? = nil) async throws -> AcpmuxWebEndpoint {
         if environment == nil { environment = resolveEnvironment() }
         guard var environment else {
             // The chat's line says only that the service is missing; the folders searched are said here.
@@ -422,13 +437,13 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         // An attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) is another app's: only look, as the Chief's tabs do.
         let owned = startsDaemons && !environment.isAttached
         let startsDaemon = asked && owned
-        // A lookup waits for a slow daemon's answer (``findOrStart(_:startsDaemon:owned:heal:startOwner:approver:)``):
+        // A lookup waits for a slow daemon's answer (``findOrStart(_:daemons:startsDaemon:owned:heal:startOwner:approver:adoption:deadline:)``):
         // every caller shares it, and each one may stop its own wait (its cancel) while the
         // lookup goes on for the others.
-        if let task = inFlight[startsDaemon] { return try await AcpmuxSharedWait.value(of: task) }
+        if let task = inFlight[startsDaemon] { return try await join(task, startsDaemon: startsDaemon, until: callerDeadline) }
         // A reconnect during a start waits for that daemon instead of
         // reporting it stopped.
-        if !startsDaemon, let task = inFlight[true] { return try await AcpmuxSharedWait.value(of: task) }
+        if !startsDaemon, let task = inFlight[true] { return try await join(task, startsDaemon: true, until: callerDeadline) }
         environment.offersSessionTools = offersSessionTools()
         environment.agentPairGuard = agentPairGuard()
         (environment.agentPairCap, environment.agentPairWindowSeconds) = agentPairCap()
@@ -440,27 +455,68 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         }
         let (startOwner, approver, daemons, adoption) = (startOwner, peerApprover, daemons, adoption)
         let lookup = lookup
+        // One deadline for the whole lookup, passed down to every status call in it (the launch
+        // keeps its own stall bound, ``AcpmuxDaemonLauncher/launch(_:deadline:)``).
+        let deadline = ContinuousClock.now + lookupBound
+        let overdue = deadline + lookupOverdueGrace
         let task = Task {
             let endpoint = if let lookup { try await lookup(environment, startsDaemon) } else {
                 try await Self.findOrStart(environment, daemons: daemons, startsDaemon: startsDaemon, owned: owned,
-                                           heal: heal, startOwner: startOwner, approver: approver, adoption: adoption)
+                                           heal: heal, startOwner: startOwner, approver: approver, adoption: adoption,
+                                           deadline: deadline)
             }
             Self.markLookup("lookup_end", owned: owned)
+            // A pane whose handshake loop stopped asks again now that acpmux answers (AgentPaneView
+            // `observeAcpmuxAnswers`): the event that ends its terminal state, never a tick.
+            daemons.noteAnswered()
             return endpoint
         }
         inFlight[startsDaemon] = task
+        inFlightOverdue[startsDaemon] = overdue
         // The lookup leaves `inFlight` when it settles, not when this caller stops waiting: a
-        // caller that cancels must not let the next one start a second lookup beside it.
-        // task-owner: one per lookup; ends when the lookup settles
+        // caller that cancels must not let the next one start a second lookup beside it. One still
+        // running when it is overdue (a step that ignored its deadline) is cancelled and left, so
+        // the next caller starts a fresh lookup instead of joining one that cannot end.
+        // task-owner: one per lookup; ends when the lookup settles or is overdue
         settling = Task { [weak self] in
-            _ = await task.result
-            await self?.settled(task, startsDaemon: startsDaemon)
+            let ended = await Self.ended(task, by: overdue)
+            await self?.settled(task, startsDaemon: startsDaemon, overdue: !ended)
         }
-        return try await AcpmuxSharedWait.value(of: task)
+        return try await join(task, startsDaemon: startsDaemon, until: callerDeadline)
     }
 
-    private func settled(_ task: Task<AcpmuxWebEndpoint, any Error>, startsDaemon: Bool) {
-        if inFlight[startsDaemon] == task { inFlight[startsDaemon] = nil }
+    /// Whether `task` ended (either way) by `instant`.
+    private nonisolated static func ended(_ task: Task<AcpmuxWebEndpoint, any Error>, by instant: ContinuousClock.Instant) async -> Bool {
+        do {
+            _ = try await AcpmuxSharedWait.value(of: task, until: instant)
+        } catch is AgentPaneDeadlineExceeded {
+            return false
+        } catch {}
+        return true
+    }
+
+    /// One caller's wait for the shared lookup `task`: until the caller's own deadline or the
+    /// lookup's overdue time, whichever comes first, then ``AgentPaneHostError/timedOut``.
+    private func join(_ task: Task<AcpmuxWebEndpoint, any Error>, startsDaemon: Bool,
+                      until callerDeadline: ContinuousClock.Instant?) async throws -> AcpmuxWebEndpoint {
+        let overdue = inFlightOverdue[startsDaemon]
+        let until = [callerDeadline, overdue].compactMap { $0 }.min()
+        do {
+            return try await AcpmuxSharedWait.value(of: task, until: until)
+        } catch is AgentPaneDeadlineExceeded {
+            Self.logger.error("acpmux lookup unanswered by this caller's deadline startsDaemon=\(startsDaemon, privacy: .public)")
+            throw AgentPaneHostError.timedOut
+        }
+    }
+
+    private func settled(_ task: Task<AcpmuxWebEndpoint, any Error>, startsDaemon: Bool, overdue: Bool = false) {
+        guard inFlight[startsDaemon] == task else { return }
+        if overdue {
+            Self.logger.error("acpmux lookup still running past its deadline startsDaemon=\(startsDaemon, privacy: .public); dropped, the next caller looks up again")
+            task.cancel()
+        }
+        inFlight[startsDaemon] = nil
+        inFlightOverdue[startsDaemon] = nil
     }
 
     /// Whether the enroll after a launch may hand the daemon off. Only a daemon this launch
@@ -474,23 +530,29 @@ public actor AcpmuxHost: AgentPaneHostProviding {
 
     /// The pane's endpoint from `_acpmux/status` read on a connection whose server peer is the
     /// acpmux this app runs (cx-fcaq review P3-1): a squatter on the unix socket cannot point the
-    /// pane at another daemon's WebSocket. It waits for the answer however long a loaded daemon
+    /// pane at another daemon's WebSocket. It waits for the answer as long as a loaded daemon
     /// takes (``findOrStart`` says why). Another cmux install's daemon (NIGHTLY shares
     /// `~/.acpmux` with older builds) is accepted under ``AcpmuxServerPeer``'s rules 1 and 2; it is never
     /// enrolled, so its allows stay refused. (The pane also checks the port's listener and the
     /// accepted end before its first frame.)
-    private static func verifiedEndpoint(_ environment: AcpmuxEnvironment) async throws -> AcpmuxWebEndpoint {
-        let deadline = ContinuousClock.now + .seconds(3)
+    /// `deadline`: the lookup's; past it ``AgentPaneHostError/timedOut``.
+    private static func verifiedEndpoint(_ environment: AcpmuxEnvironment, until deadline: ContinuousClock.Instant) async throws -> AcpmuxWebEndpoint {
+        let handoffEnds = ContinuousClock.now + .seconds(3)
         var delay: Duration = .milliseconds(100)
         // wakeup-allow: bounded retry while the daemon recreates its Unix socket; this exits at the deadline or on any non-transient refusal.
         while true {
+            let left = deadline - .now
+            guard left > .zero else { throw AgentPaneHostError.timedOut }
             do {
                 let result = try await AcpmuxServerPeer.call(socketPath: environment.socketPath, method: "_acpmux/status",
                                                              params: [:], executable: environment.executable,
-                                                             allowForeign: true, deadline: nil)
+                                                             allowForeign: true, deadline: left)
                 return try AcpmuxStatus(result).endpoint()
-            } catch let refusal as AcpmuxServerPeer.Refusal where refusal.isTransientRestart && ContinuousClock.now < deadline {
-                let remaining = deadline - ContinuousClock.now
+            } catch AcpmuxServerPeer.Refusal.timedOut {
+                logger.error("acpmux endpoint status unanswered by the lookup's deadline socket=\(environment.socketPath, privacy: .public)")
+                throw AgentPaneHostError.timedOut
+            } catch let refusal as AcpmuxServerPeer.Refusal where refusal.isTransientRestart && ContinuousClock.now < handoffEnds {
+                let remaining = handoffEnds - ContinuousClock.now
                 // wakeup-allow: bounded backoff for the transient socket handoff; the deadline limits this sleep to three seconds.
                 try await Task.sleep(for: min(delay, remaining))
                 delay = min(delay * 2, .milliseconds(500))
@@ -562,8 +624,21 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     }
 
     /// How long each of the lookup's status calls waits before it asks again on a new connection;
-    /// the last one waits for its answer however long it takes.
+    /// the last one waits for its answer until the lookup's deadline (``lookupDeadline``).
     static let lookupStatusAttempts: [Duration] = [.seconds(5), .seconds(10), .seconds(20)]
+
+    /// The whole lookup's deadline, shared by every status call in it and by every caller that
+    /// waits on it. A slow daemon is not a dead one (rule R5): this is long enough for one that is
+    /// loaded (Austin, 2026-10-29, answers after seconds) and the same 150 s the app gives
+    /// cmux-tui's restore (`DaemonLauncher.ensureRestoreCap`). Past it the lookup ends as
+    /// ``AgentPaneHostError/timedOut``, which stops or starts nothing: the page asks again with a
+    /// fresh lookup, and its waiting line offers Restart agent service meanwhile (hostRetry.ts).
+    /// Before it, a status call made just before the daemon restarted waited on a connection
+    /// nothing would answer, and every pane waited on it with no end (no-hangs, 2026-11-24).
+    public static let lookupDeadline: Duration = .seconds(150)
+    /// How long past ``lookupDeadline`` the host waits for a lookup whose step ignored it before it
+    /// drops that lookup, so no caller joins one that cannot end.
+    static let lookupGrace: Duration = .seconds(5)
 
     /// The lookup's `_acpmux/status`. A call that hears nothing in a few seconds is asked again on
     /// a new connection: one made just before the daemon restarted waited on a socket nothing would
@@ -571,31 +646,42 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// was up (Leo, 2026-11-06). A late answer still decides nothing (#28083, rule R5): a call
     /// that missed its time is only asked again, never read as a daemon to stop or start, and the
     /// last call waits as long as the daemon takes.
-    static func lookupStatus(socketPath: String, attempts: [Duration] = lookupStatusAttempts) async throws -> AcpmuxStatus {
+    /// `deadline`: the lookup's; the last call waits until it, then ``AgentPaneDeadlineExceeded``.
+    static func lookupStatus(socketPath: String, attempts: [Duration] = lookupStatusAttempts,
+                             until deadline: ContinuousClock.Instant = .now + lookupDeadline) async throws -> AcpmuxStatus {
         for attempt in attempts {
+            let left = deadline - .now
+            guard left > .zero else { break }
             do {
-                return try await AcpmuxStatusClient.status(socketPath: socketPath, deadline: attempt)
+                return try await AcpmuxStatusClient.status(socketPath: socketPath, deadline: min(attempt, left))
             } catch is AgentPaneDeadlineExceeded {
                 try Task.checkCancellation()
                 logger.info("acpmux status unanswered after \(attempt.components.seconds, privacy: .public)s; asking again")
             }
         }
-        return try await AcpmuxStatusClient.status(socketPath: socketPath, deadline: nil)
+        let left = deadline - .now
+        guard left > .zero else { throw AgentPaneDeadlineExceeded(label: "acpmux _acpmux/status") }
+        return try await AcpmuxStatusClient.status(socketPath: socketPath, deadline: left)
     }
 
     /// `_acpmux/status` of a daemon that just started, or won the start: waits up to 3 s while
-    /// its socket is still being bound, as ``verifiedEndpoint(_:)`` does, then for its answer
-    /// however long it takes. Nil when none answers.
-    private static func startedStatus(_ environment: AcpmuxEnvironment) async -> AcpmuxStatus? {
-        let deadline = ContinuousClock.now + .seconds(3)
+    /// its socket is still being bound, as ``verifiedEndpoint(_:until:)`` does, then for its answer
+    /// until the lookup's `deadline`. Nil when none answers.
+    private static func startedStatus(_ environment: AcpmuxEnvironment, until deadline: ContinuousClock.Instant) async -> AcpmuxStatus? {
+        let bindEnds = ContinuousClock.now + .seconds(3)
         var delay: Duration = .milliseconds(100)
         // wakeup-allow: bounded retry while the started daemon binds its Unix socket; this exits at the deadline or on any other failure.
         while true {
+            let left = deadline - .now
+            guard left > .zero else {
+                logger.error("acpmux status after a start unanswered by the lookup's deadline")
+                return nil
+            }
             do {
-                return try await AcpmuxStatusClient.status(socketPath: environment.socketPath, deadline: nil)
-            } catch AcpmuxStatusClient.Failure.unreachable where ContinuousClock.now < deadline {
+                return try await AcpmuxStatusClient.status(socketPath: environment.socketPath, deadline: left)
+            } catch AcpmuxStatusClient.Failure.unreachable where ContinuousClock.now < bindEnds {
                 // wakeup-allow: bounded backoff for the socket bind; the deadline limits this sleep to three seconds.
-                do { try await Task.sleep(for: min(delay, deadline - ContinuousClock.now)) } catch { return nil }
+                do { try await Task.sleep(for: min(delay, bindEnds - ContinuousClock.now)) } catch { return nil }
                 delay = min(delay * 2, .milliseconds(500))
             } catch {
                 logger.error("acpmux status after a start failed error=\(String(describing: error), privacy: .public)")
@@ -610,8 +696,10 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// a dead one (rule R5: no timer decides correctness): under load (Austin, 2026-10-29, about
     /// 80 agents, load 150 to 252) acpmux answered after the 2 s status deadline, and stopping it
     /// then made every chat reload and the load worse. So the status calls here wait for the
-    /// answer, and a daemon that exits closes the connection, which ends the wait; the pane shows
-    /// that it is connecting meanwhile, and every pane that asks shares this one lookup.
+    /// answer until the lookup's `deadline` (``lookupDeadline``), and a daemon that exits closes
+    /// the connection, which ends the wait sooner; the pane shows that it is connecting meanwhile,
+    /// and every pane that asks shares this one lookup. Past the deadline the lookup ends as
+    /// ``AgentPaneHostError/timedOut``, stopping or starting nothing; the next ask looks up again.
     /// - Parameters:
     ///   - daemons: where a handoff or takeover marks the home restarting (Settings' daemon line).
     ///   - approver: gets this Mac's approver key to the daemon found or started; nil: none.
@@ -625,7 +713,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                                     heal: (@Sendable (Int32) async -> Bool)?,
                                     startOwner: (@Sendable () async -> Bool)? = nil,
                                     approver: AgentPanePeerApprover? = nil,
-                                    adoption: AcpmuxAdoptionGate = .live) async throws -> AcpmuxWebEndpoint {
+                                    adoption: AcpmuxAdoptionGate = .live,
+                                    deadline: ContinuousClock.Instant) async throws -> AcpmuxWebEndpoint {
         Self.markLookup("lookup_start", owned: owned)
         // cmux NEXT adopts its old acpmux home before it asks or starts a daemon (cx-is1kf.9): the
         // adoption stops a daemon of a home it moves. A home it no longer changes (every relaunch
@@ -642,7 +731,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         var handedOff = false
         defer { if handedOff { daemons.mark(home: environment.home, restarting: false) } }
         do {
-            let status = try await Self.lookupStatus(socketPath: environment.socketPath)
+            let status = try await Self.lookupStatus(socketPath: environment.socketPath, until: deadline)
             Self.markLookup("status_answered", owned: owned)
             // A daemon of another acpmux home answers on this socket: it is another app's or
             // tag's. Never hand it off, stop it or use it.
@@ -671,7 +760,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                     }
                 }
                 do {
-                    return try await Self.verifiedEndpoint(environment)
+                    return try await Self.verifiedEndpoint(environment, until: deadline)
                 } catch let refusal as AcpmuxServerPeer.Refusal {
                     // Only a refusal is a failure to reach acpmux; a replaced daemon that serves its chats is not.
                     if replaced, let pid = status.pid {
@@ -691,7 +780,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             let stopped = stale ? true : await AcpmuxPersonKey.enroll(status, environment: environment)
             guard stopped else {
                 approver?.register(environment)
-                return try await Self.verifiedEndpoint(environment)
+                return try await Self.verifiedEndpoint(environment, until: deadline)
             }
         } catch AcpmuxStatusClient.Failure.unreachable {
             logger.info("acpmux status unreachable socket=\(environment.socketPath, privacy: .public) startsDaemon=\(startsDaemon, privacy: .public)")
@@ -721,12 +810,17 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             throw failure(environment, .noWebSocket, detail: environment.socketPath)
         } catch let error as AgentPaneHostError {
             throw error
+        } catch is AgentPaneDeadlineExceeded {
+            // No answer by the lookup's deadline: a slow daemon is not a dead one, so nothing is
+            // stopped or started; the page asks again with a fresh lookup (``AgentPaneHostError/timedOut``).
+            logger.error("acpmux status unanswered by the lookup's deadline socket=\(environment.socketPath, privacy: .public)")
+            throw AgentPaneHostError.timedOut
         } catch let refusal as AcpmuxServerPeer.Refusal {
             throw Self.refused(refusal, environment, startsDaemons: owned)
         } catch AcpmuxStatusClient.Failure.closed
             where crashed(environment.home) || AcpmuxServerPeer.socketPeer(socketPath: environment.socketPath) == nil {
-            // The daemon exited while this lookup waited for its answer (the wait has no deadline,
-            // so its close is how the wait ends): a crash leaves its daemon.pid, a SIGTERM removes it
+            // The daemon exited while this lookup waited for its answer (its close ends the wait
+            // before the lookup's deadline): a crash leaves its daemon.pid, a SIGTERM removes it
             // and nothing listens on the socket then. The pane asks again, and that lookup starts one.
             logger.error("acpmux exited while a lookup waited socket=\(environment.socketPath, privacy: .public)")
             throw failure(environment, .exited, detail: "it exited while the app waited for its answer")
@@ -739,7 +833,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             let launched = try await AcpmuxDaemonLauncher.launchReporting(environment, adoption: adoption)
             Self.markLookup("spawn_ready", owned: owned)
             // A signed daemon ignores the spawn key: it takes the key by this app's signature.
-            if let status = await Self.startedStatus(environment), status.serves(home: environment.home) {
+            if let status = await Self.startedStatus(environment, until: deadline), status.serves(home: environment.home) {
                 _ = await AcpmuxPersonKey.enroll(status, environment: environment,
                                                  mayHandOff: Self.mayHandOff(after: launched))
                 approver?.register(environment)
@@ -754,13 +848,13 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             // so every Allow stayed refused until the app relaunched (cosmic-gray, 2026-10-24).
             // A reconnect's rule: this branch never stops the winner (`mayHandOff: false`).
             do {
-                guard let status = await Self.startedStatus(environment) else {
+                guard let status = await Self.startedStatus(environment, until: deadline) else {
                     throw failure(environment, .exited, detail: "no daemon answers after the launch exited")
                 }
                 guard status.serves(home: environment.home) else { throw Self.foreignHome(status, environment) }
                 _ = await AcpmuxPersonKey.enroll(status, environment: environment, mayHandOff: false)
                 approver?.register(environment)
-                return try await Self.verifiedEndpoint(environment)
+                return try await Self.verifiedEndpoint(environment, until: deadline)
             } catch let error as AgentPaneHostError {
                 throw error
             } catch let refusal as AcpmuxServerPeer.Refusal {

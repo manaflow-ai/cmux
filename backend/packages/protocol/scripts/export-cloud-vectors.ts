@@ -432,6 +432,20 @@ const ALLOTMENT: Json = {
   names: { user_vec_1: "Ada", user_vec_2: "Sam" }
 }
 kase("allotment.get", "cloud.allotment.get", {}, [readOk("cloud.allotment.get", ALLOTMENT, "14")])
+// The team's usage this month, priced by the billing owner: 10 vCPU-hours, 20 GiB-hours awake, 30 GiB-days held.
+const USAGE = {
+  period: "2026-11",
+  as_of: 1792000000000,
+  metered_since: 1790000000000,
+  vcpu_seconds: 36000,
+  memory_gib_seconds: 72000,
+  stored_gib_seconds: 2592000,
+  usd: { vcpu: 0.45, memory: 0.29, stored: 0.1, total: 0.84 },
+  gaps: [],
+  payment_method: { attached: true, brand: "visa", last4: "4242" },
+  stripe_mode: "test"
+}
+kase("usage.current", "cloud.usage.current", {}, [readOk("cloud.usage.current", USAGE, "12")])
 kase("billing.checkout", "cloud.billing.checkout", { plan: PLAN_ID }, [opOk("cloud.billing.checkout", "key-checkout-1", { url: "https://checkout.example.com/session/cs_vector_0001" }, "13")], {
   key: "key-checkout-1"
 })

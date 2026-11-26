@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Foundation
 
 /// One eligible local-interface address and its subnet mask.
@@ -96,11 +100,11 @@ public struct CmxIrohSystemLANInterfaceSnapshotProvider: CmxIrohLANInterfaceSnap
         while let current = cursor?.pointee {
             defer { cursor = current.ifa_next }
             let flags = Int32(bitPattern: current.ifa_flags)
-            guard flags & IFF_UP != 0,
-                  flags & IFF_RUNNING != 0,
-                  flags & IFF_MULTICAST != 0,
-                  flags & IFF_LOOPBACK == 0,
-                  flags & IFF_POINTOPOINT == 0,
+            guard flags & Int32(IFF_UP) != 0,
+                  flags & Int32(IFF_RUNNING) != 0,
+                  flags & Int32(IFF_MULTICAST) != 0,
+                  flags & Int32(IFF_LOOPBACK) == 0,
+                  flags & Int32(IFF_POINTOPOINT) == 0,
                   let addressPointer = current.ifa_addr,
                   let maskPointer = current.ifa_netmask else { continue }
             let family = Int32(clamping: addressPointer.pointee.sa_family)
@@ -139,11 +143,22 @@ public struct CmxIrohSystemLANInterfaceSnapshotProvider: CmxIrohLANInterfaceSnap
         return false
     }
 
+    private static func socketAddressLength(_ pointer: UnsafePointer<sockaddr>) -> Int {
+        #if canImport(Darwin)
+        Int(pointer.pointee.sa_len)
+        #else
+        // Glibc's sockaddr has no length field; it follows from the family.
+        Int32(pointer.pointee.sa_family) == AF_INET6
+            ? MemoryLayout<sockaddr_in6>.size
+            : MemoryLayout<sockaddr_in>.size
+        #endif
+    }
+
     private static func numericAddress(_ pointer: UnsafePointer<sockaddr>) -> String? {
         var host = [CChar](repeating: 0, count: Int(clamping: NI_MAXHOST))
         let result = getnameinfo(
             pointer,
-            socklen_t(pointer.pointee.sa_len),
+            socklen_t(Self.socketAddressLength(pointer)),
             &host,
             socklen_t(host.count),
             nil,

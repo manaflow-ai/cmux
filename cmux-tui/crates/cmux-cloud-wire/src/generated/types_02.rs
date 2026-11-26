@@ -5,6 +5,40 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudSessionView {
+    pub key: String,
+    pub team: TeamId,
+    pub vm: CloudSessionVm,
+    pub session: CloudSessionId,
+    pub kind: CloudSessionKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<CloudSessionId>,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub harness: Option<String>,
+    pub owner: UserId,
+    pub owner_name: Option<String>,
+    pub assignee: UserId,
+    pub assignee_name: Option<String>,
+    pub machine_state: CloudSessionMachineState,
+    pub activity: CloudSessionActivity,
+    pub last_activity_at: i64,
+    pub created_at: i64,
+    pub archived: bool,
+    pub followers: Vec<UserId>,
+    pub follower_count: i64,
+    pub following: bool,
+    pub assigned_to_you: bool,
+    pub viewers: Vec<UserId>,
+    pub can_reassign: bool,
+    pub can_archive: bool,
+    pub link: String,
+}
+
+/// The Cloud machine the session runs on.
+pub type CloudSessionVm = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CloudSnapshot {
     pub id: SnapshotId,
     pub machine: MachineId,
@@ -65,6 +99,44 @@ wire_enum! {
         Created = "created",
         Queued = "queued",
         Refused = "refused",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudUsageCurrent {
+    pub period: String,
+    pub as_of: i64,
+    pub metered_since: Option<i64>,
+    pub vcpu_seconds: WireNumber,
+    pub memory_gib_seconds: WireNumber,
+    pub stored_gib_seconds: WireNumber,
+    pub usd: CloudUsageCurrentUsd,
+    pub gaps: Vec<String>,
+    pub payment_method: CloudUsageCurrentPaymentMethod,
+    pub stripe_mode: CloudUsageCurrentStripeMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudUsageCurrentUsd {
+    pub vcpu: WireNumber,
+    pub memory: WireNumber,
+    pub stored: WireNumber,
+    pub total: WireNumber,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudUsageCurrentPaymentMethod {
+    pub attached: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub brand: Option<Option<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub last4: Option<Option<String>>,
+}
+
+wire_enum! {
+    CloudUsageCurrentStripeMode {
+        Test = "test",
+        Live = "live",
     }
 }
 
@@ -821,84 +893,4 @@ wire_enum! {
         ImageJpeg = "image/jpeg",
         ImageWebp = "image/webp",
     }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeMessage {
-    pub id: MessageId,
-    pub conversation: ConversationId,
-    pub seq: i64,
-    pub client_msg_id: ClientToken,
-    pub author: ParticipantId,
-    pub parts: Vec<HomePart>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reply_to: Option<HomePartRef>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub thread_root: Option<MessageId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub thread: Option<HomeThreadState>,
-    pub created_at: Timestamp,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub edited_at: Option<Timestamp>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub retracted_at: Option<Timestamp>,
-    pub reactions: Vec<HomeReaction>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
-pub enum HomePart {
-    Text(HomePartText),
-    Work(HomePartWork),
-    Attachment(HomePartAttachment),
-    LinkPreview(HomePartLinkPreview),
-    /// A member this build does not know (a newer backend), kept verbatim.
-    Unknown(Value),
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomePartText {
-    pub r#type: LitText,
-    pub text: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub runs: Option<Vec<HomeTextRun>>,
-}
-
-wire_enum! {
-    HomePartWorkStatus {
-        Running = "running",
-        Done = "done",
-        Failed = "failed",
-        Waiting = "waiting",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomePartWork {
-    pub r#type: LitWork,
-    pub session: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub host: Option<String>,
-    pub status: HomePartWorkStatus,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub preview: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomePartAttachment {
-    pub r#type: LitAttachment,
-    pub hash: HomeSha256,
-    pub name: String,
-    pub mime_type: String,
-    pub byte_count: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub width: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub height: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub duration_ms: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub poster: Option<HomeAttachmentPoster>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub preview: Option<HomeAttachmentPreview>,
 }

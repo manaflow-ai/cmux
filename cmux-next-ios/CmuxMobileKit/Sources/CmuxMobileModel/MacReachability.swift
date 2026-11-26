@@ -56,8 +56,10 @@ public enum MacReachability: Equatable, Sendable {
         case .authRequired: return .authRequired
         case .notAllowed: return .notAllowed
         case .serviceDown: return .serviceDown
+        // A Mac the service lists offline is offline, whatever the dial said: its title says so,
+        // with when it was last seen (cmux#52200: "<host> is offline" + last seen, not "didn't answer").
         case .hostUnreachable where connection != .connected && connection != .connecting:
-            return .noAnswer(listedOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)
+            return mac.isOnline ? .noAnswer(listedOnline: true, lastSeenAt: mac.lastSeenAt) : .offline(lastSeenAt: mac.lastSeenAt)
         default: break
         }
         switch connection {
@@ -108,7 +110,7 @@ public enum MacReachability: Equatable, Sendable {
         case .slow(let quiet): "Not responding · heard \(Self.span(quiet)) ago"
         case .offline(let seen): RelativeStamp(now: now).presence(isOnline: false, lastSeenAt: seen)
         case .noAnswer(let online, let seen):
-            online ? "Online · Didn't answer" : "Didn't answer · " + RelativeStamp(now: now).presence(isOnline: false, lastSeenAt: seen)
+            online ? "Online · Not responding" : RelativeStamp(now: now).presence(isOnline: false, lastSeenAt: seen)
         case .serviceDown: "Reached · cmux not answering"
         case .authRequired: "Signed out"
         case .notAllowed: "Didn't allow this iPhone"
@@ -123,7 +125,9 @@ public enum MacReachability: Equatable, Sendable {
         case .notConnected: "\(macName) isn't connected"
         case .slow: "\(macName) isn't responding"
         case .offline: "\(macName) is offline"
-        case .noAnswer(let online, _): online ? "\(macName) is online but didn't answer" : "\(macName) didn't answer"
+        // Listed online but not answering (frozen, overloaded, a half-open socket): the same words as
+        // a Mac whose heartbeat went quiet. A Mac listed offline is offline.
+        case .noAnswer(let online, _): online ? "\(macName) isn't responding" : "\(macName) is offline"
         case .serviceDown: "cmux on \(macName) isn't answering"
         case .authRequired: "Sign in again"
         case .notAllowed: "\(macName) didn't allow this iPhone"
@@ -147,14 +151,30 @@ public enum MacReachability: Equatable, Sendable {
         case .offline(let date):
             "The cmux service lost touch with \(macName).\(seen(date)) Retry to try reaching it directly; if it doesn't answer, make sure the Mac is awake and cmux is open."
         case .noAnswer(true, _):
-            "The cmux service sees \(macName), but it didn't answer this iPhone. It may be busy or overloaded. Retry, or quit and reopen cmux on the Mac."
+            "The cmux service lists \(macName) as online, but it isn't responding to this iPhone. It may be frozen, busy or overloaded. Retry, or quit and reopen cmux on the Mac."
         case .noAnswer(false, let date):
-            "This iPhone reached the cmux service, but \(macName) didn't answer.\(seen(date)) The Mac may be asleep, overloaded, or cmux may have quit. Check it, then retry."
+            "The cmux service lost touch with \(macName).\(seen(date)) The Mac may be asleep, or cmux on it may have quit. Make sure it's awake and cmux is open, then retry."
         case .serviceDown:
             "This iPhone reached \(macName), but cmux on it didn't respond. Your sessions stay on the Mac. Retry, or quit and reopen cmux on the Mac."
         case .authRequired: "The cmux service refused this iPhone's session. Sign in again to reach \(macName)."
         case .notAllowed: "Allow this iPhone on \(macName), then retry."
         case .phoneOffline: "Connect to Wi-Fi or cellular. \(macName) reconnects on its own when the network is back."
+        }
+    }
+
+    /// A few words for the page's subtitle while the Mac's view shows this state in full (the panel
+    /// carries the last-seen time and what to do), so the header never truncates mid-sentence.
+    public var shortStatus: String {
+        switch self {
+        case .connected: "Online"
+        case .connecting: "Connecting…"
+        case .notConnected: "Not connected"
+        case .slow, .noAnswer(true, _): "Not responding"
+        case .offline, .noAnswer(false, _): "Offline"
+        case .serviceDown: "cmux not answering"
+        case .authRequired: "Signed out"
+        case .notAllowed: "Not allowed"
+        case .phoneOffline: "iPhone offline"
         }
     }
 
@@ -229,6 +249,19 @@ public struct MacRecoveryAttempt: Equatable, Sendable {
         return nil
     }
 
+    /// One Retry over several Macs (All Macs): running while any runs, at the furthest step any
+    /// reached; connected once one connected; else failed at the furthest step. Nil with none.
+    public static func combined(_ attempts: [MacRecoveryAttempt]) -> MacRecoveryAttempt? {
+        guard !attempts.isEmpty else { return nil }
+        if attempts.contains(where: { $0.result == .connected }) {
+            return MacRecoveryAttempt(step: .session, result: .connected)
+        }
+        let running = attempts.filter(\.isRunning)
+        if let furthest = running.map(\.step).max() { return MacRecoveryAttempt(step: furthest) }
+        let step = attempts.map(\.step).max() ?? .service
+        return MacRecoveryAttempt(step: step, result: .failed(step))
+    }
+
     /// The attempt after the link showed `observation`, once the service step passed.
     public func advanced(by observation: Observation) -> MacRecoveryAttempt {
         guard isRunning, step >= .mac else { return self }
@@ -259,7 +292,7 @@ public struct MacRecoveryAttempt: Equatable, Sendable {
         case .connected: "Connected. Your sessions are back."
         case .failed(.service): "Couldn't reach the cmux service. Check this iPhone's connection, then retry."
         case .failed(.mac): "Reached the cmux service, but not \(macName). Make sure it's awake and cmux is open, then retry."
-        case .failed(.session): "Reached \(macName), but cmux on it didn't answer. Quit and reopen cmux on the Mac, then retry."
+        case .failed(.session): "Reached \(macName), but cmux on it isn't responding. Quit and reopen cmux on the Mac, then retry."
         }
     }
 }

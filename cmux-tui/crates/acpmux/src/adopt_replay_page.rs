@@ -48,6 +48,9 @@ pub struct ClaudePage {
     pub start: u64,
     /// How many bytes of the file the page read.
     pub read: u64,
+    /// Where Claude Code compacted the conversation (its `isCompactSummary` line), as the index
+    /// of the turn after it (`turns.len()` for one after the page's last turn), ascending.
+    pub compactions: Vec<usize>,
 }
 
 /// The page of `file` (a Claude Code transcript) that ends at `end` (the file's end when `None`,
@@ -62,6 +65,94 @@ pub fn claude_page(file: &Path, end: Option<u64>, want: usize) -> ClaudePage {
 fn claude_page_open(f: &mut File, end: Option<u64>, want: usize) -> ClaudePage {
     let len = f.metadata().map(|m| m.len()).unwrap_or(0);
     let end = end.map_or(len, |end| end.min(len));
+    read_claude_page(f, end, want).unwrap_or_default()
+}
+
+fn read_claude_page(f: &mut File, end: u64, want: usize) -> std::io::Result<ClaudePage> {
+    let raw = scan_page(f, end, want, false, parse, |record| Prompt::from(is_prompt(record)))?;
+    let RawPage { lines, start, read, has_prompt, .. } = raw;
+    let mut turns: Vec<PastTurn> = Vec::new();
+    // Beside `turns`: whether a compaction came just before each.
+    let mut compacted: Vec<bool> = Vec::new();
+    let mut pending = false;
+    if !has_prompt && !lines.is_empty() {
+        // Part of one turn whose prompt is older than the page.
+        turns.push(PastTurn::default());
+        compacted.push(false);
+    }
+    for (offset, record) in lines.into_iter().rev() {
+        if offset < start {
+            continue;
+        }
+        if record.get("isCompactSummary").and_then(Value::as_bool) == Some(true) {
+            pending = true;
+        }
+        let at = record_time(&record);
+        if let [only] = turns.as_mut_slice()
+            && only.prompt.is_empty()
+            && only.prompt_at.is_none()
+        {
+            only.prompt_at = at;
+            only.answer_at = at;
+        }
+        for step in claude_steps(&record, at) {
+            add(&mut turns, step, at);
+            while compacted.len() < turns.len() {
+                compacted.push(std::mem::take(&mut pending));
+            }
+        }
+    }
+    let mut kept = Vec::with_capacity(turns.len());
+    let mut compactions = Vec::new();
+    for (turn, after) in turns.into_iter().zip(compacted) {
+        if after {
+            compactions.push(kept.len());
+        }
+        if !turn.prompt.is_empty() || !turn.tools.is_empty() || !turn.answer.is_empty() {
+            kept.push(turn);
+        }
+    }
+    if pending {
+        compactions.push(kept.len());
+    }
+    compactions.dedup();
+    Ok(ClaudePage { turns: kept, start, read, compactions })
+}
+
+pub(super) struct RawPage {
+    pub lines: Vec<(u64, Value)>,
+    pub start: u64,
+    pub read: u64,
+    pub has_prompt: bool,
+    /// A completed line whose older bytes lie beyond the page budget.
+    pub clipped_head: Option<std::ops::Range<u64>>,
+    /// The newest newline encountered, expressed as the offset immediately after it.
+    pub last_break: Option<u64>,
+}
+
+#[derive(PartialEq)]
+pub(super) enum Prompt {
+    New,
+    Mirror,
+    Other,
+}
+
+impl From<bool> for Prompt {
+    fn from(is_prompt: bool) -> Self {
+        if is_prompt { Self::New } else { Self::Other }
+    }
+}
+
+/// One scanner for adopted Claude chats and terminal transcripts. Errors stay distinguishable
+/// from day one for clients using a byte cursor.
+pub(super) fn scan_page(
+    f: &mut File,
+    end: u64,
+    want: usize,
+    codex: bool,
+    parse: impl Fn(&[u8]) -> Option<Value>,
+    mut classify: impl FnMut(&Value) -> Prompt,
+) -> std::io::Result<RawPage> {
     let want = want.max(1);
     // The page's lines, newest first, with their offsets.
     let mut lines: Vec<(u64, Value)> = Vec::new();
@@ -76,27 +167,32 @@ fn claude_page_open(f: &mut File, end: Option<u64>, want: usize) -> ClaudePage {
     let mut skip = true;
     // A whole line was read (parsed or not).
     let mut whole = false;
+    let mut boundary = None;
+    let mut last_break = None;
+    let mut clipped_head = None;
     let start = 'scan: loop {
         if pos == 0 {
             // `head` begins the file: its line is whole.
             if let Some(record) = parse(&head) {
-                if is_prompt(&record) {
-                    oldest_prompt = Some(0);
+                match classify(&record) {
+                    Prompt::New => oldest_prompt = Some(0),
+                    Prompt::Mirror if boundary.is_some() => boundary = Some(0),
+                    _ => {}
                 }
                 lines.push((0, record));
             }
-            break 'scan 0;
+            break 'scan boundary.unwrap_or(0);
         }
         let take = CHUNK.min(pos);
         pos -= take;
         let mut buf = vec![0u8; take as usize];
-        if f.seek(SeekFrom::Start(pos)).is_err() || f.read_exact(&mut buf).is_err() {
-            return ClaudePage::default();
-        }
+        f.seek(SeekFrom::Start(pos))?;
+        f.read_exact(&mut buf)?;
         buf.extend_from_slice(&head);
         if skip {
             match memchr::memrchr(b'\n', &buf) {
                 Some(i) => {
+                    last_break = Some(pos + i as u64 + 1);
                     buf.truncate(i + 1);
                     skip = false;
                 }
@@ -122,14 +218,27 @@ fn claude_page_open(f: &mut File, end: Option<u64>, want: usize) -> ClaudePage {
             let line_start = memchr::memrchr(b'\n', before).map_or(0, |i| i + 1);
             let offset = pos + line_start as u64;
             whole = true;
-            if let Some(record) = before.get(line_start..).and_then(parse) {
-                let prompt = is_prompt(&record);
+            if let Some(record) = before.get(line_start..).and_then(&parse) {
+                let prompt = classify(&record);
+                // A legacy Codex turn may have both an event prompt and a response-item prompt.
+                // Read through its mirror before publishing a cursor between logical turns.
+                if let Some(previous) = boundary {
+                    if prompt == Prompt::New {
+                        break 'scan previous;
+                    }
+                    if prompt == Prompt::Mirror {
+                        boundary = Some(offset);
+                    }
+                }
                 lines.push((offset, record));
-                if prompt {
+                if prompt == Prompt::New {
                     prompts += 1;
                     oldest_prompt = Some(offset);
                     if prompts >= want {
-                        break 'scan offset;
+                        if !codex {
+                            break 'scan offset;
+                        }
+                        boundary = Some(offset);
                     }
                 }
             }
@@ -141,37 +250,25 @@ fn claude_page_open(f: &mut File, end: Option<u64>, want: usize) -> ClaudePage {
         }
         let read = end - pos;
         if let Some(prompt) = oldest_prompt.filter(|_| read >= PAGE_BYTES) {
-            break 'scan prompt;
+            break 'scan boundary.unwrap_or(prompt);
         }
         if read >= PAGE_MAX_BYTES {
             // One turn bigger than a page: its newest part, from the oldest whole line read. With
             // no whole line, one line bigger than a page: the next page goes on from inside it.
+            if !whole && let Some(break_at) = last_break {
+                clipped_head = Some(pos..break_at);
+            }
             break 'scan oldest_prompt.unwrap_or(if whole { pos + head.len() as u64 } else { pos });
         }
     };
-    let mut turns: Vec<PastTurn> = Vec::new();
-    if oldest_prompt.is_none() && !lines.is_empty() {
-        // Part of one turn whose prompt is older than the page.
-        turns.push(PastTurn::default());
-    }
-    for (offset, record) in lines.into_iter().rev() {
-        if offset < start {
-            continue;
-        }
-        let at = record_time(&record);
-        if let [only] = turns.as_mut_slice()
-            && only.prompt.is_empty()
-            && only.prompt_at.is_none()
-        {
-            only.prompt_at = at;
-            only.answer_at = at;
-        }
-        for step in claude_steps(&record, at) {
-            add(&mut turns, step, at);
-        }
-    }
-    turns.retain(|t| !t.prompt.is_empty() || !t.tools.is_empty() || !t.answer.is_empty());
-    ClaudePage { turns, start, read: end - pos }
+    Ok(RawPage {
+        lines,
+        start,
+        read: end - pos,
+        has_prompt: oldest_prompt.is_some(),
+        clipped_head,
+        last_break,
+    })
 }
 
 /// The newest page of `file` that holds turns: pages that hold none (the end of a line bigger
@@ -230,7 +327,7 @@ pub(crate) fn newest_prompt_start_open(file: &mut File, want: usize) -> Option<u
 
 /// A line that can add to a turn: a `user` or `assistant` record. Others (progress, snapshots,
 /// summaries) are not parsed: neither word appears in them as a whole JSON string.
-fn parse(line: &[u8]) -> Option<Value> {
+pub(super) fn parse(line: &[u8]) -> Option<Value> {
     let finder = |needle: &[u8]| memchr::memmem::find(line, needle).is_some();
     if !finder(b"\"user\"") && !finder(b"\"assistant\"") {
         return None;
@@ -239,180 +336,11 @@ fn parse(line: &[u8]) -> Option<Value> {
 }
 
 /// Whether `record` starts a turn (the rules `claude_steps` uses).
-fn is_prompt(record: &Value) -> bool {
+pub(super) fn is_prompt(record: &Value) -> bool {
     record.get("type").and_then(Value::as_str) == Some("user")
         && claude_steps(record, None).iter().any(|s| matches!(s, Step::Prompt(_)))
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-    use std::io::Write;
-
-    fn scratch(name: &str) -> std::path::PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("acpmux-claude-page-{}-{name}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir.join("s.jsonl")
-    }
-
-    fn prompt(n: usize) -> String {
-        json!({"type": "user", "timestamp": "2026-10-29T10:00:00.000Z",
-            "message": {"role": "user", "content": format!("prompt {n}")}})
-        .to_string()
-    }
-
-    fn answer(n: usize) -> String {
-        json!({"type": "assistant", "timestamp": "2026-10-29T10:00:01.000Z",
-            "message": {"role": "assistant", "stop_reason": "end_turn",
-                "content": [{"type": "text", "text": format!("answer {n}")}]}})
-        .to_string()
-    }
-
-    /// `turns` turns, each a prompt, a progress line of `pad` bytes and an answer.
-    fn transcript(file: &Path, turns: usize, pad: usize) {
-        let mut f = std::io::BufWriter::new(File::create(file).unwrap());
-        let filler = "x".repeat(pad);
-        for n in 0..turns {
-            writeln!(f, "{}", prompt(n)).unwrap();
-            writeln!(f, "{}", json!({"type": "progress", "data": filler})).unwrap();
-            writeln!(f, "{}", answer(n)).unwrap();
-        }
-    }
-
-    fn prompts(page: &ClaudePage) -> Vec<String> {
-        page.turns.iter().map(|t| t.prompt.clone()).collect()
-    }
-
-    #[test]
-    fn a_page_is_the_newest_turns_and_paging_back_reads_each_once() {
-        let file = scratch("paging");
-        transcript(&file, 70, 10);
-        let page = claude_page(&file, None, 30);
-        let want: Vec<String> = (40..70).map(|n| format!("prompt {n}")).collect();
-        assert_eq!(prompts(&page), want);
-        assert_eq!(page.turns[29].answer, "answer 69");
-        assert!(page.start > 0);
-        let mut all = prompts(&page);
-        let mut end = page.start;
-        while end > 0 {
-            let older = claude_page(&file, Some(end), 30);
-            assert!(older.start < end, "a page moves back");
-            let mut got = prompts(&older);
-            got.extend(all);
-            all = got;
-            end = older.start;
-        }
-        let every: Vec<String> = (0..70).map(|n| format!("prompt {n}")).collect();
-        assert_eq!(all, every);
-    }
-
-    #[test]
-    fn a_page_of_a_big_transcript_reads_only_its_tail() {
-        let file = scratch("big");
-        // 600 turns of 100 KiB: about 60 MB.
-        transcript(&file, 600, 100 << 10);
-        let len = std::fs::metadata(&file).unwrap().len();
-        let page = claude_page(&file, None, PAGE_TURNS);
-        assert_eq!(page.turns.last().unwrap().prompt, "prompt 599");
-        assert!(page.read <= PAGE_BYTES + CHUNK, "read {} of {len}", page.read);
-        assert!(page.start > len - PAGE_BYTES - CHUNK);
-        // Every turn of the page is whole: it starts at a prompt.
-        assert!(page.turns.iter().all(|t| t.prompt.starts_with("prompt ")));
-    }
-
-    #[test]
-    fn a_line_still_being_written_waits() {
-        let file = scratch("partial");
-        transcript(&file, 3, 4);
-        let mut f = std::fs::OpenOptions::new().append(true).open(&file).unwrap();
-        write!(f, "{}", &prompt(3)[..20]).unwrap();
-        let page = claude_page(&file, None, 30);
-        assert_eq!(prompts(&page), ["prompt 0", "prompt 1", "prompt 2"]);
-        assert_eq!(page.start, 0);
-    }
-
-    #[test]
-    fn a_turn_bigger_than_a_page_shows_its_newest_part() {
-        let file = scratch("one-turn");
-        let mut f = std::io::BufWriter::new(File::create(&file).unwrap());
-        writeln!(f, "{}", prompt(0)).unwrap();
-        let filler = "y".repeat(1 << 20);
-        for _ in 0..20 {
-            writeln!(f, "{}", json!({"type": "progress", "data": filler})).unwrap();
-        }
-        writeln!(f, "{}", answer(0)).unwrap();
-        drop(f);
-        let page = claude_page(&file, None, 30);
-        assert!(page.read <= PAGE_MAX_BYTES + CHUNK, "read {}", page.read);
-        assert!(page.start > 0);
-        assert_eq!(page.turns.len(), 1);
-        assert_eq!(page.turns[0].prompt, "");
-        assert_eq!(page.turns[0].answer, "answer 0");
-        // The older page holds the prompt.
-        let older = claude_page(&file, Some(page.start), 30);
-        assert_eq!(prompts(&older), ["prompt 0"]);
-    }
-
-    #[test]
-    fn a_turn_bigger_than_a_page_is_followed_from_its_prompt() {
-        let file = scratch("one-turn-watch");
-        let mut f = std::io::BufWriter::new(File::create(&file).unwrap());
-        writeln!(f, "{}", prompt(0)).unwrap();
-        writeln!(f, "{}", answer(0)).unwrap();
-        let at = f.get_ref().metadata().unwrap().len() + f.buffer().len() as u64;
-        writeln!(f, "{}", prompt(1)).unwrap();
-        let filler = "y".repeat(1 << 20);
-        for _ in 0..20 {
-            writeln!(f, "{}", json!({"type": "progress", "data": filler})).unwrap();
-        }
-        writeln!(f, "{}", answer(1)).unwrap();
-        drop(f);
-        // The newest page has no prompt; the one before it starts at prompt 1.
-        assert!(claude_page(&file, None, 1).turns[0].prompt.is_empty());
-        assert_eq!(newest_prompt_start(&file, 1), Some(at));
-    }
-
-    /// One complete line bigger than a page, after turns: each page moves back, and the newest
-    /// page with turns is the one before it.
-    #[test]
-    fn a_line_bigger_than_a_page_is_paged_past() {
-        let file = scratch("big-line");
-        transcript(&file, 5, 4);
-        let mut f = std::fs::OpenOptions::new().append(true).open(&file).unwrap();
-        writeln!(f, "{}", json!({"type": "progress", "data": "z".repeat(20 << 20)})).unwrap();
-        drop(f);
-        let len = std::fs::metadata(&file).unwrap().len();
-        let page = claude_page(&file, None, 30);
-        assert!(page.turns.is_empty());
-        assert!(page.start < len, "a page moves back: {} of {len}", page.start);
-        assert!(page.read <= PAGE_MAX_BYTES + CHUNK, "read {}", page.read);
-        let newest = newest_claude_page(&file, 30);
-        let want: Vec<String> = (0..5).map(|n| format!("prompt {n}")).collect();
-        assert_eq!(prompts(&newest), want);
-        assert_eq!(newest.start, 0);
-    }
-
-    /// A last line still being written that is bigger than a page: the page stays within its cap.
-    #[test]
-    fn an_unfinished_line_bigger_than_a_page_keeps_the_cap() {
-        let file = scratch("big-partial");
-        transcript(&file, 5, 4);
-        let mut f = std::fs::OpenOptions::new().append(true).open(&file).unwrap();
-        write!(f, "{{\"type\":\"progress\",\"data\":\"{}", "z".repeat(20 << 20)).unwrap();
-        drop(f);
-        let len = std::fs::metadata(&file).unwrap().len();
-        let page = claude_page(&file, None, 30);
-        assert!(page.read <= PAGE_MAX_BYTES + CHUNK, "read {}", page.read);
-        assert!(page.start < len);
-        assert_eq!(prompts(&newest_claude_page(&file, 30)).len(), 5);
-    }
-
-    #[test]
-    fn an_unreadable_file_is_an_empty_page() {
-        let page = claude_page(Path::new("/nonexistent/acpmux/s.jsonl"), None, 30);
-        assert_eq!(page, ClaudePage::default());
-    }
-}
+#[path = "adopt_replay_page_tests.rs"]
+mod tests;

@@ -88,10 +88,10 @@ pub(super) fn parse(params: &Value) -> Result<MintAsk, RpcError> {
         return Err(refused("invalid_arguments", "kind must be cloudflare-r2"));
     }
     let bucket = params["bucket"].as_str().unwrap_or_default();
-    if !((3..=63).contains(&bucket.len())
-        && bucket.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
-        && !bucket.starts_with('-')
-        && !bucket.ends_with('-'))
+    if !(3..=63).contains(&bucket.len())
+        || !bucket.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        || bucket.starts_with('-')
+        || bucket.ends_with('-')
     {
         return Err(bad("bucket"));
     }
@@ -281,8 +281,9 @@ pub(super) async fn mint(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<
                     format!("no machine named {machine:?}; see acpmux machine ls"),
                 )
             })?;
-            let answer =
-                peer.request(method::MUX_KEYS_MINT, ask.onward()).await.map_err(link_error)?;
+            let answer = super::peer_targeted::request(&peer, method::MUX_KEYS_MINT, ask.onward())
+                .await
+                .map_err(link_error)?;
             // The next hop's reply, held to the same fields again.
             reply(&answer)
                 .ok_or_else(|| refused("keys_refused", "the machine answered without a whole key"))

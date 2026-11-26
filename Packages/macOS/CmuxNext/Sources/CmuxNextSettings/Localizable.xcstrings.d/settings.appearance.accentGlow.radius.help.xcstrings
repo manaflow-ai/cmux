@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.accentGlow.radius.help" : {
+      "comment" : "Settings row help for the accent glow radius.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "How far the accent glow spreads from the focused pane."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "مدى امتداد توهج التمييز من اللوحة المحددة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Koliko se sjaj akcenta širi od fokusiranog okna."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hvor langt accentgløden breder sig fra den fokuserede rude."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wie weit sich das Akzentleuchten vom fokussierten Bereich ausbreitet."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hasta dónde se extiende el resplandor de acento desde el panel enfocado."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jusqu'où le halo d'accent s'étend autour du panneau actif."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quanto si estende il bagliore dell'accento dal riquadro attivo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アクセントグローがフォーカス中のペインから広がる距離です。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ចម្ងាយដែលពន្លឺរះពណ៌សង្កត់រាលដាលពីផ្ទាំងដែលផ្ដោត។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "강조 광채가 포커스된 패널에서 퍼지는 정도입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hvor langt aksentgløden brer seg fra den fokuserte ruten."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jak daleko poświata akcentu rozchodzi się od aktywnego panelu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Até onde o brilho de destaque se espalha a partir do painel em foco."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Как далеко акцентное свечение распространяется от панели в фокусе."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แสงเรืองสีเน้นแผ่ออกจากบานหน้าต่างที่โฟกัสไกลแค่ไหน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vurgu parıltısının odaklanan bölmeden ne kadar yayıldığı."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Як далеко акцентне сяйво поширюється від панелі у фокусі."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quầng sáng nhấn lan ra xa khung đang được tiêu điểm đến đâu."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "强调光晕从聚焦窗格向外扩散的距离。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "強調光暈從聚焦窗格向外擴散的距離。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

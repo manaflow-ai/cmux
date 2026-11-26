@@ -229,6 +229,14 @@ class TransitionTests(unittest.TestCase):
         self.assertEqual(row["first_frame_ms"], 0)
         self.assertEqual(row["pane_width_change"], -400.0)
 
+    def test_a_static_round_the_trace_missed_is_timed_by_its_pixels(self):
+        t, sent = self.aligned([1000, 1000, 1000, 1000, 1000, 1000])
+        frames = [frame(10, ob=0.2, of=0.1, cb=0.3, cf=0.4)] + [frame(40 + i * 8, ob=0.2, cb=0.3) for i in range(8)]
+        row = ssm.transition(self.strip(sent, frames), t, static=True)
+        self.assertNotIn("error", row)
+        self.assertIsNotNone(row["first_frame_ms"])
+        self.assertEqual(row["settled_ms"], row["pixel_settled_ms"])
+
     def test_a_failed_strip_fails_the_round(self):
         t, sent = self.aligned([1000, 1000, 800, 700, 700])
         row = ssm.transition({"error": "no frames"}, t, static=True)

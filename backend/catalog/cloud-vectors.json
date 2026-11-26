@@ -2558,6 +2558,49 @@
       ]
     },
     {
+      "name": "usage.current",
+      "op": "cloud.usage.current",
+      "class": "read",
+      "principal": {
+        "kind": "install"
+      },
+      "params": {},
+      "responses": [
+        {
+          "http": {
+            "path": "/v1/read",
+            "status": 200
+          },
+          "body": {
+            "op": "cloud.usage.current",
+            "value": {
+              "period": "2026-11",
+              "as_of": 1792000000000,
+              "metered_since": 1790000000000,
+              "vcpu_seconds": 36000,
+              "memory_gib_seconds": 72000,
+              "stored_gib_seconds": 2592000,
+              "usd": {
+                "vcpu": 0.45,
+                "memory": 0.29,
+                "stored": 0.1,
+                "total": 0.84
+              },
+              "gaps": [],
+              "payment_method": {
+                "attached": true,
+                "brand": "visa",
+                "last4": "4242"
+              },
+              "stripe_mode": "test"
+            },
+            "stream": "cloud:team_t0000000000000000001",
+            "revision": "12"
+          }
+        }
+      ]
+    },
+    {
       "name": "billing.checkout",
       "op": "cloud.billing.checkout",
       "class": "mutation",

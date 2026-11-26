@@ -71,8 +71,18 @@ final class BillingStoreKitTests: XCTestCase {
     }
 
     /// Upgrade Pro Monthly to Max Monthly: the Max transaction is posted and
-    /// granted at once, the Pro transaction comes back marked upgraded, and
-    /// the plans screen shows Max as current.
+    /// granted at once, StoreKit marks the Pro transaction upgraded, and the
+    /// plans screen shows Max as current.
+    ///
+    /// StoreKit Testing usually re-delivers the upgraded Pro transaction on
+    /// `Transaction.updates` too, but not always: in about 2 of 10 runs, on a
+    /// Mac mini and on a 6 vCPU Blacksmith runner alike (runs 45320509297 and
+    /// 45320534930), no upgraded copy ever reached the app. The plan does not
+    /// depend on it (the server grants the newer Max transaction of the same
+    /// subscription, and hears of the upgrade from Apple), so a re-delivery is
+    /// checked only when it arrives: it is posted marked upgraded.
+    /// BillingTransactionDeliverer's unit tests pin that such a copy is never
+    /// dropped by an older post of the same id.
     func testUpgradeProToMax() async throws {
         let proID = try await buy(CmuxProduct.proMonthly)
         let maxID = try await buy(CmuxProduct.maxMonthly)
@@ -84,16 +94,25 @@ final class BillingStoreKitTests: XCTestCase {
         let proPost = try XCTUnwrap(rig.server.purchasePosts.first { $0.payload.transactionID == proID }?.payload)
         XCTAssertEqual(maxPost.originalTransactionID, proPost.originalTransactionID,
                        "one subscription group: the upgrade keeps the original transaction")
-        try await rig.waitUntil("the upgraded Pro transaction is posted") {
-            self.rig.server.posts.contains { $0.payload.transactionID == proID && $0.payload.isUpgraded == true }
+        try await rig.eventually("StoreKit marks the Pro transaction upgraded") {
+            for await verification in Transaction.all {
+                if case .verified(let transaction) = verification, transaction.id == proID, transaction.isUpgraded {
+                    return true
+                }
+            }
+            return false
         }
         try await rig.waitUntil("the account shows Max with the Max product current") {
             self.rig.model.account.account?.currentPlan.planID == .max
                 && self.rig.model.currentAppleProductID == CmuxProduct.maxMonthly
         }
         XCTAssertEqual(rig.model.currentAppleTransactionID, maxID)
-        let entitled = await rig.entitledProductIDs()
-        XCTAssertEqual(entitled, [CmuxProduct.maxMonthly])
+        try await rig.eventually("only Max entitled") { await self.rig.entitledProductIDs() == [CmuxProduct.maxMonthly] }
+        let proPosts = rig.server.posts.filter { $0.payload.transactionID == proID }
+        let upgradedPosts = proPosts.filter { $0.payload.isUpgraded == true }
+        print("[storekit] the upgraded Pro transaction was re-delivered and posted \(upgradedPosts.count) time(s)")
+        XCTAssertTrue(upgradedPosts.allSatisfy { $0.payload.productId == CmuxProduct.proMonthly })
+        try await rig.eventually("every delivered transaction finished") { await self.rig.unfinishedIDs().isEmpty }
         await PlansSnapshot.attach(rig.model, name: "10-upgraded-to-max", to: self)
     }
 
@@ -135,19 +154,47 @@ final class BillingStoreKitTests: XCTestCase {
         let postsBeforeExpiry = rig.server.posts.count
         try rig.session.expireSubscription(productIdentifier: CmuxProduct.proMonthly)
         rig.dump("after expireSubscription")
-        try await rig.eventually("the expired entitlement dropped") { await self.rig.entitledProductIDs().isEmpty }
+        // StoreKit Testing can still renew at expireSubscription although its
+        // renewal info already says auto-renew is off (run 45344114175: a
+        // RENEWAL #1 with autoRenew=true appeared at expiry). Each such
+        // renewal gets auto-renew off and is expired in turn, so the test
+        // still ends on an expired subscription. The wait ends only when no
+        // entitlement is listed and no Pro transaction is still unexpired, so
+        // a renewal that lands after the entitlement dropped is not missed;
+        // more than three stray renewals fail at once.
+        var expiredRenewals: Set<UInt> = [testTransaction.identifier]
+        try await rig.eventually("the expired entitlement dropped") {
+            let live = self.rig.testTransactions(CmuxProduct.proMonthly).filter {
+                !expiredRenewals.contains($0.identifier) && ($0.expirationDate ?? .distantPast) > Date()
+            }
+            if live.isEmpty, await self.rig.entitledProductIDs().isEmpty { return true }
+            for renewal in live {
+                expiredRenewals.insert(renewal.identifier)
+                guard expiredRenewals.count <= 4 else {
+                    XCTFail("StoreKit kept renewing at expiry with auto-renew off: \(expiredRenewals.sorted())")
+                    throw CancellationError()
+                }
+                print("[storekit] StoreKit renewed #\(renewal.identifier) at expiry with auto-renew off; expiring it")
+                try? self.rig.session.disableAutoRenewForTransaction(identifier: renewal.identifier)
+                try? self.rig.session.expireSubscription(productIdentifier: CmuxProduct.proMonthly)
+            }
+            return false
+        }
         let expiryPosts = rig.server.posts.dropFirst(postsBeforeExpiry)
-        XCTAssertTrue(expiryPosts.allSatisfy { $0.payload.transactionID == transactionID && $0.payload.revocationDate == nil },
-                      "expiry creates no transaction")
-        print("[storekit] expiry re-delivered the transaction \(expiryPosts.count) time(s)")
+        XCTAssertTrue(expiryPosts.allSatisfy { $0.payload.revocationDate == nil }, "expiry revokes nothing")
+        XCTAssertTrue(expiryPosts.allSatisfy {
+            $0.payload.transactionID == transactionID
+                || ($0.payload.originalTransactionID == cancelled.originalTransactionID && $0.payload.transactionReason == "RENEWAL")
+        }, "expiry creates no transaction but StoreKit Testing's stray renewal of the same subscription")
+        print("[storekit] expiry re-delivered the transaction \(expiryPosts.filter { $0.payload.transactionID == transactionID }.count) "
+            + "time(s); stray renewals posted: \(expiryPosts.filter { $0.payload.transactionID != transactionID }.count)")
 
         rig.server.receiveExpiredNotification(originalTransactionID: cancelled.originalTransactionID)
         await rig.model.refresh()
         XCTAssertEqual(rig.model.account.account?.currentPlan, BillingCurrentPlan(planID: .free, source: .none))
         XCTAssertNil(rig.model.currentAppleProductID)
         XCTAssertNil(rig.model.currentAppleTransactionID)
-        let unfinished = await rig.unfinishedIDs()
-        XCTAssertEqual(unfinished, [], "every re-delivery was finished")
+        try await rig.eventually("every re-delivery finished") { await self.rig.unfinishedIDs().isEmpty }
         await PlansSnapshot.attach(rig.model, name: "05-expired-free", to: self)
     }
 
@@ -174,8 +221,11 @@ final class BillingStoreKitTests: XCTestCase {
                 && self.rig.model.currentAppleTransactionID == nil
         }
         XCTAssertNil(rig.model.currentAppleProductID)
-        let unfinished = await rig.unfinishedIDs()
-        XCTAssertFalse(unfinished.contains(transactionID), "the revocation is finished after the server accepted it")
+        // The revocation is finished after the server accepted it; another
+        // delivery's account reload can show free first.
+        try await rig.eventually("the revocation finished") {
+            await !self.rig.unfinishedIDs().contains(transactionID)
+        }
         try await rig.eventually("the refunded entitlement dropped") { await self.rig.entitledProductIDs().isEmpty }
         await PlansSnapshot.attach(rig.model, name: "06-refunded-free", to: self)
     }
@@ -202,8 +252,12 @@ final class BillingStoreKitTests: XCTestCase {
             self.rig.model.currentAppleTransactionID == renewal.transactionID
         }
         XCTAssertEqual(rig.model.account.account?.currentPlan.planID, .pro)
-        let unfinished = await rig.unfinishedIDs()
-        XCTAssertFalse(unfinished.contains(renewal.transactionID))
+        // Another delivery's account reload can move the refund target to the
+        // renewal (it reads the entitlements) before the renewal's own post
+        // finishes it (run 45320509297), so this waits for the finish.
+        try await rig.eventually("the renewal finished") {
+            await !self.rig.unfinishedIDs().contains(renewal.transactionID)
+        }
         await PlansSnapshot.attach(rig.model, name: "07-renewed-pro", to: self)
     }
 

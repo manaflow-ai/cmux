@@ -1,5 +1,5 @@
 import { useRef, useState, type ReactNode } from "react";
-import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator, Submenu } from "../../ui/Menu";
+import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator, Submenu } from "../../kit";
 import type { NativePopupDescription, NativePopupEvent, NativePopupRow } from "../../ui/nativePopup";
 import type { SceneDispatch } from "./SceneRenderer";
 import { SceneSymbol } from "./SceneSymbol";
@@ -174,7 +174,7 @@ export function SceneContextMenu({
           </MenuButton>
         </span>
       ) : null}
-      <MenuPopup finalFocus={target}>
+      <MenuPopup atPointer finalFocus={target}>
         <MenuRows items={menu.items} pick={menu.pick} />
       </MenuPopup>
     </Menu>

@@ -321,14 +321,19 @@ impl Reconciled {
 impl Pending<Unknown> {
     /// Reconcile this subject with a fresh authoritative Cloud record. No
     /// lifecycle action is available on `Unknown` until this succeeds.
-    #[allow(clippy::result_large_err)] // The Err hands this Unknown subject back so the caller can reconcile again.
-    pub fn reconcile(mut self, record: CloudMachine) -> Result<Reconciled, (Self, ObserveError)> {
+    // The error hands the unreconciled subject back so its caller can retry.
+    #[allow(clippy::result_large_err)]
+    /// The Err hands this Unknown subject back, boxed, so the caller can reconcile again.
+    pub fn reconcile(
+        mut self,
+        record: CloudMachine,
+    ) -> Result<Reconciled, Box<(Self, ObserveError)>> {
         let status = match validate_record(self.state.payload(), &record) {
             Ok(status) => status,
-            Err(error) => return Err((self, error)),
+            Err(error) => return Err(Box::new((self, error))),
         };
         if self.revision().trim_start_matches('0') == record.revision.trim_start_matches('0') {
-            return Err((self, ObserveError::InvalidRevision));
+            return Err(Box::new((self, ObserveError::InvalidRevision)));
         }
         let original_revision = self.revision().to_owned();
         self.state.vm.payload_mut().revision = record.revision;

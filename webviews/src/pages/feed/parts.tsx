@@ -6,7 +6,7 @@ import { ConnectionChip } from "../../ui/ConnectionChip";
 import { cx } from "../../ui/cx";
 import type { Strings } from "../shared/i18n";
 import { VirtualList } from "../../ui/VirtualList";
-import { AnswerControls } from "./AnswerControls";
+import { SnapAnswerControls } from "./AnswerControls";
 import { DiffLines, shownLine } from "./DiffLines";
 import { FeedIcon, type FeedIconSize } from "./icons";
 import {
@@ -365,7 +365,7 @@ export function RequestCard({ item, store, snap, strings }: FeedProps & { item: 
       </div>
       <div className="feed-card-body">
         <PromptSummary item={item} />
-        <AnswerControls item={item} store={store} snap={snap} strings={strings} density="inline" />
+        <SnapAnswerControls item={item} store={store} snap={snap} strings={strings} density="inline" />
       </div>
     </div>
   );

@@ -90,7 +90,7 @@ export function useRowState(key: string): RowState {
   );
 }
 
-function shallowEqual<T extends object>(a: T, b: T): boolean {
+export function shallowEqual<T extends object>(a: T, b: T): boolean {
   for (const key in a) if (!Object.is(a[key], b[key])) return false;
   return true;
 }
