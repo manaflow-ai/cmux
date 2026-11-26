@@ -84,7 +84,7 @@ async fn chat(c: &mut TestClient) -> String {
 }
 
 /// The prompts the session's Claude conversation held before the probe (fake_claude.py's
-/// "history-probe"), less a fork's priming turn.
+/// "history-probe").
 async fn conversation(hub: &Arc<Hub>, c: &mut TestClient, id: &str) -> Value {
     let before = hub.events(id, 0, 10_000).unwrap().last().map_or(0, |e| e.seq);
     let probe = json!({"sessionId": id, "prompt": [{"type": "text", "text": "history-probe"}]});
@@ -98,13 +98,18 @@ async fn conversation(hub: &Arc<Hub>, c: &mut TestClient, id: &str) -> Value {
         .collect();
     let prompts =
         serde_json::from_str::<Value>(&text).unwrap_or_else(|e| panic!("{e}: {text}"))["prompts"]
+            .clone();
+    // A forked Claude process is primed with one prompt so it learns its new id (lifecycle.rs);
+    // that prompt is the daemon's, not the chat's conversation.
+    Value::Array(
+        prompts
             .as_array()
+            .unwrap_or_else(|| panic!("{text}"))
+            .iter()
+            .filter(|p| p.as_str().is_none_or(|p| !p.starts_with("This session was just forked")))
             .cloned()
-            .unwrap_or_default();
-    // The fork's priming turn (`lifecycle.rs`: a forked Claude learns its id on its first turn)
-    // is the fork's own, as `fork_through.rs` reads it.
-    let own = |p: &Value| p.as_str().is_some_and(|p| p.starts_with("This session was just forked"));
-    Value::Array(prompts.into_iter().filter(|p| !own(p)).collect())
+            .collect(),
+    )
 }
 
 fn live_fork(id: &str, request: &str) -> Value {
