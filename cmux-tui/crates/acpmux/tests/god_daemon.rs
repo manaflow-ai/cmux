@@ -2474,6 +2474,9 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let restart_send = send_first_token(&mut rpc, &id, &format!("size {label} restarted"));
     let (restart_rss, restart_peak_rss) = daemon.rss();
     let restart_maps = daemon.rss_maps();
+    // The restarted daemon's own startup phases (`gauges.rs`): where its time to adopt went.
+    let restart_startup =
+        rpc.call("_acpmux/status", json!({})).ok().map(|s| s["gauges"]["startup"].clone());
     drop(rpc);
     daemon.stop();
     let restart_heap = restart_profile.as_deref().map(attribute);
@@ -2528,6 +2531,7 @@ fn size_run(label: &str, bytes: u64) -> Value {
         "restartSendFirstTokenUs": restart_send.as_ref().ok(),
         "restartSendError": restart_send.as_ref().err(),
         "restartRss": restart_rss, "restartPeakRss": restart_peak_rss,
+        "restartStartup": restart_startup,
         "restartMaps": restart_maps, "restartHeap": restart_heap,
         "secondRestartAttachMs": second_attach_ms,
         "secondRestartAttachError": second_attach.as_ref().err(),
