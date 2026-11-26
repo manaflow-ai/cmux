@@ -1,0 +1,4 @@
+{
+  "agent": "settable",
+  "why": "Dock icon and Cmd-Tab entry with no window open; ends no work."
+}

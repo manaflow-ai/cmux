@@ -682,6 +682,48 @@ impl Daemon {
         (field("VmRSS:"), field("VmHWM:"))
     }
 
+    /// `RssAnon` and `RssFile` of the daemon, in bytes: heap against mapped file pages.
+    fn rss_split(&self) -> (u64, u64) {
+        let status = std::fs::read_to_string(format!("/proc/{}/status", self.child.id()))
+            .unwrap_or_default();
+        let field = |name: &str| {
+            status
+                .lines()
+                .find(|l| l.starts_with(name))
+                .and_then(|l| l.split_whitespace().nth(1))
+                .and_then(|kib| kib.parse::<u64>().ok())
+                .map_or(0, |kib| kib * 1024)
+        };
+        (field("RssAnon:"), field("RssFile:"))
+    }
+
+    /// The daemon's largest resident mappings (`/proc/PID/smaps`): `[name or path, rss bytes,
+    /// size bytes]`, anonymous ones named `[anon]`, so a size's extra memory has a place.
+    fn rss_maps(&self) -> Value {
+        let smaps =
+            std::fs::read_to_string(format!("/proc/{}/smaps", self.child.id())).unwrap_or_default();
+        let mut maps: Vec<(String, u64, u64)> = Vec::new();
+        for line in smaps.lines() {
+            let mut words = line.split_whitespace();
+            let first = words.next().unwrap_or_default();
+            if first.contains('-') && first.chars().all(|c| c.is_ascii_hexdigit() || c == '-') {
+                let (lo, hi) = first.split_once('-').unwrap_or_default();
+                let size = u64::from_str_radix(hi, 16)
+                    .unwrap_or(0)
+                    .saturating_sub(u64::from_str_radix(lo, 16).unwrap_or(0));
+                let name = words.nth(4).map_or("[anon]".to_owned(), str::to_owned);
+                maps.push((name, 0, size));
+            } else if first == "Rss:" {
+                if let Some(last) = maps.last_mut() {
+                    last.1 = words.next().and_then(|k| k.parse::<u64>().ok()).unwrap_or(0) * 1024;
+                }
+            }
+        }
+        maps.sort_by_key(|m| std::cmp::Reverse(m.1));
+        maps.truncate(12);
+        json!(maps)
+    }
+
     /// SIGTERM, then the exit: the daemon writes its heap profile on the way out.
     fn stop(&mut self) {
         if self.child.try_wait().unwrap().is_some() {
@@ -1273,10 +1315,12 @@ async fn run_with(shape: Shape, dhat: bool, batches: bool) -> Value {
 /// with the function and its file and line.
 /// With line tables, a generic frame (`poll<acpmux::...>`, `call_mut<...>`) names acpmux in its
 /// type and a std file as its place: only a frame whose file is under `acpmux/src/` is acpmux's.
-/// The site is the first three such frames, innermost first.
+/// The site is the first three such frames, innermost first (`ACPMUX_GOD_DHAT_FRAMES` more).
 fn acpmux_frame(frames: &[&str]) -> String {
+    let depth =
+        std::env::var("ACPMUX_GOD_DHAT_FRAMES").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
     let own: Vec<String> =
-        frames.iter().filter(|f| own_file(f)).take(3).map(|f| place(f)).collect();
+        frames.iter().filter(|f| own_file(f)).take(depth).map(|f| place(f)).collect();
     if own.is_empty() {
         return frames.get(1).map_or_else(|| "[unknown]".to_owned(), |f| short_frame(f));
     }
@@ -1403,6 +1447,12 @@ async fn god_and_small_homes_in_one_harness() {
         let shape = match name.trim() {
             "small" => Shape::small(),
             "god" => Shape::god_from_env(),
+            // The god chat in a home of 50, 500 or 5,000 chats: the app's attach and list at
+            // each size, one harness (Leo, 2026-11-19: the GUI too coupled to load, size and
+            // history).
+            "sessions50" => Shape { name: "sessions50", chats: 50, ..Shape::god_from_env() },
+            "sessions500" => Shape { name: "sessions500", chats: 500, ..Shape::god_from_env() },
+            "sessions5000" => Shape { name: "sessions5000", chats: 5000, ..Shape::god_from_env() },
             other => panic!("ACPMUX_GOD_SHAPES: no shape {other}"),
         };
         let result = run(shape, dhat).await;
@@ -1957,6 +2007,12 @@ const SIZE_ALL_LOGS: Duration = Duration::from_secs(1800);
 const OLDER_PAGE_LIMIT: u64 = 2000;
 const OLDER_PAGE_BYTES: u64 = 1 << 20;
 
+/// The bytes a measured page asks for. A 1 MB chat's whole transcript is 452 KB of JSON, so at
+/// the app's 1 MiB budget its pages held 565 records and 452 KB against 1,200 records and 945 KB
+/// at 100 MB and 1 GB: the 2x of every page row was the page's size (the daemon reads 16 to 20 ms
+/// per 452 KB at 1 MB and 22 to 34 ms per 945 KB at 1 GB). 256 KiB is full at every size.
+const SWEEP_PAGE_BYTES: u64 = 256 << 10;
+
 /// The repeated settled turns after a coord-sim chat's settlement (a quarter of the history when
 /// that is less). A page counts only transcript kinds' bytes, so 1 MiB of them reaches back past
 /// several MiB of log: at 2 MiB the 1 GB and 4 GB newest pages were 26% and 37% settlement
@@ -1976,8 +2032,26 @@ fn app_attach(id: &str) -> Value {
 
 fn older_params(id: &str, before: u64) -> Value {
     json!({"sessionId": id, "beforeSeq": before, "limit": OLDER_PAGE_LIMIT,
-           "maxBytes": OLDER_PAGE_BYTES,
+           "maxBytes": SWEEP_PAGE_BYTES,
            "kinds": ["transcript", "preset_approval_request", "preset_approval_decision"]})
+}
+
+/// The first `beforeSeq` whose older page is full: the seq after the chat's oldest page of
+/// [`older_params`]' kinds and bytes, read forward from the start. A chat that holds less than one
+/// such page has none: `last + 1`, its newest page, which is all of it.
+fn full_page_before(rpc: &mut Rpc, id: &str, last: u64) -> u64 {
+    let oldest = rpc.call(
+        "_acpmux/events",
+        json!({"sessionId": id, "afterSeq": 0, "limit": OLDER_PAGE_LIMIT,
+               "maxBytes": SWEEP_PAGE_BYTES,
+               "kinds": ["transcript", "preset_approval_request", "preset_approval_decision"]}),
+    );
+    rpc.notes.clear();
+    oldest
+        .ok()
+        .filter(|page| page["hasMore"].as_bool() == Some(true))
+        .and_then(|page| page["events"].as_array()?.iter().filter_map(|e| e["seq"].as_u64()).max())
+        .map_or(last + 1, |newest| newest + 1)
 }
 
 /// `4G`, `100M`, `1M`, `512K` or bytes.
@@ -2047,6 +2121,7 @@ fn timed_rounds(
     let (mut times, mut records, mut error) = (vec![], Value::Null, Value::Null);
     let mut returned_records = vec![];
     let mut original_records = vec![];
+    let mut page_bytes = vec![];
     for round in 0..rounds {
         let asked = Instant::now();
         let reply = rpc.call_until(method, params(round), Some(asked + STEP));
@@ -2066,6 +2141,7 @@ fn timed_rounds(
                 records = json!(count);
                 returned_records.push(count);
                 original_records.push(original);
+                page_bytes.push(reply.to_string().len());
             }
             Err(e) => {
                 error = e;
@@ -2077,6 +2153,7 @@ fn timed_rounds(
     if let Some(timing) = timing.as_object_mut() {
         timing.insert("returnedRecords".into(), json!(returned_records));
         timing.insert("originalRecords".into(), json!(original_records));
+        timing.insert("pageBytes".into(), json!(page_bytes));
     }
     (timing, records, error)
 }
@@ -2257,8 +2334,12 @@ fn size_run(label: &str, bytes: u64) -> Value {
         std::fs::read_dir(home.join("sessions").join(&id).join("events")).map_or(0, |d| d.count());
 
     // Cold: a daemon that has never read this chat, so no kind copy, restore point or settled
-    // view exists. The open is the pane's attach, as soon as the socket answers.
-    let mut daemon = Daemon::start(&scratch, &home, None);
+    // view exists. The open is the pane's attach, as soon as the socket answers. With
+    // `ACPMUX_GOD_DHAT=1` (a `dhat-heap` build) this daemon records its heap until its stop.
+    let profile = std::env::var("ACPMUX_GOD_DHAT")
+        .is_ok_and(|v| v == "1")
+        .then(|| scratch.join("dhat-heap.json"));
+    let mut daemon = Daemon::start(&scratch, &home, profile.as_deref());
     let mut rpc = Rpc::connect(&daemon.socket);
     rpc.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "size-sweep"}}))
         .unwrap();
@@ -2295,6 +2376,8 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let (attach_us, attach_records, attach_error) =
         timed_rounds(&mut rpc, "_acpmux/attach", rounds, &prepared, |_| app_attach(&id));
     let (rss_idle, _) = daemon.rss();
+    let (rss_idle_anon, rss_idle_file) = daemon.rss_split();
+    let rss_idle_maps = daemon.rss_maps();
     let (newest_us, newest_records, newest_error) =
         timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
             older_params(&id, last + 1)
@@ -2303,29 +2386,46 @@ fn size_run(label: &str, bytes: u64) -> Value {
     // Moving 2,000 raw sequences every round exhausted the 1 MB baseline (empty pages and
     // future forward cursors) while large chats still returned content. Keep each workload
     // nonempty and report its returned record counts alongside its latency distribution.
+    // Every depth reads a full page where the chat holds one: a 1 MB chat's page before
+    // `last / 20` held 30 records (595 us) against 1,180 in a 100 MB or 1 GB chat (19 to 22 ms),
+    // a 36x that was the page's size, not the chat's. A cursor nearer the start than a full
+    // page reaches reads the oldest full page instead (`full_page_before`).
+    let full_from = full_page_before(&mut rpc, &id, last);
+    let depth = |seq: u64| seq.max(full_from).min(last + 1);
+    let (recent_before, mid_before, deep_before) =
+        (depth(last * 9 / 10), depth(last / 2), depth(last / 20));
     let (recent_us, _, recent_error) =
         timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
-            older_params(&id, (last * 9 / 10).max(2))
+            older_params(&id, recent_before)
         });
     let (mid_us, _, mid_error) =
         timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
-            older_params(&id, (last / 2).max(2))
+            older_params(&id, mid_before)
         });
     let (deep_us, _, deep_error) =
         timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
-            older_params(&id, (last / 20).max(2))
+            older_params(&id, deep_before)
         });
-    // The rail's prompt index (direct.ts `readPromptIndex`).
+    // The rail's prompt index (direct.ts `readPromptIndex`): its first bounded page, reported.
     let (prompt_index_us, prompt_index_rows, prompt_index_error) =
         timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
             json!({"sessionId": id, "beforeSeq": last + 1, "promptIndex": true,
                    "kinds": ["user_message"], "limit": 5000, "maxBytes": 256 << 10})
         });
+    // The same index read for a fixed number of prompts, the one compared across sizes. The page
+    // above holds every prompt up to 256 KB: 5 rows in the 1 MB chat (220 us) against 492 in
+    // 100 MB and 538 in 1 GB (2.0 to 2.2 ms, about 4 us a row at every size), a 10x that was the
+    // reply's row count, not the chat's size (the scroll depths' full page, `full_page_before`).
+    let (prompt_page_us, prompt_page_rows, prompt_page_error) =
+        timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
+            json!({"sessionId": id, "beforeSeq": last + 1, "promptIndex": true,
+                   "kinds": ["user_message"], "limit": PROMPT_PAGE_ROWS, "maxBytes": 256 << 10})
+        });
     // A forward read from the middle (a reconnect's catch-up, a rail jump's `loadThrough`).
     let (forward_us, _, forward_error) =
         timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
             json!({"sessionId": id, "afterSeq": last / 2,
-               "limit": OLDER_PAGE_LIMIT, "maxBytes": OLDER_PAGE_BYTES})
+               "limit": OLDER_PAGE_LIMIT, "maxBytes": SWEEP_PAGE_BYTES})
         });
     let (rss_after_reads, _) = daemon.rss();
 
@@ -2352,7 +2452,9 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let stopped = Instant::now();
     daemon.stop();
     let shutdown_ms = ms(stopped);
-    let mut daemon = Daemon::start(&scratch, &home, None);
+    let heap = profile.as_deref().map(attribute);
+    let restart_profile = profile.as_ref().map(|_| scratch.join("dhat-restart-heap.json"));
+    let mut daemon = Daemon::start(&scratch, &home, restart_profile.as_deref());
     let mut rpc = Rpc::connect(&daemon.socket);
     rpc.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "size-sweep"}}))
         .unwrap();
@@ -2371,8 +2473,10 @@ fn size_run(label: &str, bytes: u64) -> Value {
         .is_some_and(|(seq, before)| seq > before);
     let restart_send = send_first_token(&mut rpc, &id, &format!("size {label} restarted"));
     let (restart_rss, restart_peak_rss) = daemon.rss();
+    let restart_maps = daemon.rss_maps();
     drop(rpc);
     daemon.stop();
+    let restart_heap = restart_profile.as_deref().map(attribute);
 
     // A second restart: the first adoption left whatever it saves for the next one, so this
     // reads what a chat costs on every restart after its first.
@@ -2405,10 +2509,16 @@ fn size_run(label: &str, bytes: u64) -> Value {
         "scrollRecentUs": recent_us, "scrollRecentError": recent_error,
         "scrollMidUs": mid_us, "scrollMidError": mid_error,
         "scrollDeepUs": deep_us, "scrollDeepError": deep_error,
+        "fullPageFromSeq": full_from,
+        "scrollBeforeSeqs": {"recent": recent_before, "mid": mid_before, "deep": deep_before},
         "promptIndexUs": prompt_index_us, "promptIndexRows": prompt_index_rows,
         "promptIndexError": prompt_index_error,
+        "promptPageUs": prompt_page_us, "promptPageRows": prompt_page_rows,
+        "promptPageError": prompt_page_error,
         "forwardPageUs": forward_us, "forwardPageError": forward_error,
-        "rssIdle": rss_idle, "rssAfterReads": rss_after_reads,
+        "rssIdle": rss_idle, "rssIdleAnon": rss_idle_anon, "rssIdleFile": rss_idle_file,
+        "rssIdleMaps": rss_idle_maps,
+        "rssAfterReads": rss_after_reads, "heap": heap,
         "firstSendFirstTokenMs": first_send_ms, "sendFirstTokenUs": spread(later_sends),
         "sendError": send_error,
         "rss": rss, "peakRss": peak_rss, "shutdownMs": shutdown_ms,
@@ -2418,6 +2528,7 @@ fn size_run(label: &str, bytes: u64) -> Value {
         "restartSendFirstTokenUs": restart_send.as_ref().ok(),
         "restartSendError": restart_send.as_ref().err(),
         "restartRss": restart_rss, "restartPeakRss": restart_peak_rss,
+        "restartMaps": restart_maps, "restartHeap": restart_heap,
         "secondRestartAttachMs": second_attach_ms,
         "secondRestartAttachError": second_attach.as_ref().err(),
         "secondRestartAllLogsMs": second_all_logs.as_ref().ok(),
@@ -2444,6 +2555,30 @@ fn size_run(label: &str, bytes: u64) -> Value {
     result
 }
 
+/// One compact line of what a page is at this size (records and JSON bytes of the last round, the
+/// p50 time), so a time that differs between sizes can be told from a page that does.
+fn page_cost_line(label: &str, result: &Value) -> String {
+    let rows: Vec<String> = [
+        ("newest", "newestPageUs"),
+        ("recent", "scrollRecentUs"),
+        ("mid", "scrollMidUs"),
+        ("deep", "scrollDeepUs"),
+    ]
+    .iter()
+    .map(|(name, key)| {
+        let at = |field: &str| result[*key][field].as_array().and_then(|a| a.last()).cloned();
+        format!(
+            "{name}={}rec/{}B/{}orig/{}us",
+            at("returnedRecords").unwrap_or(Value::Null),
+            at("pageBytes").unwrap_or(Value::Null),
+            at("originalRecords").unwrap_or(Value::Null),
+            result[*key]["p50"]
+        )
+    })
+    .collect();
+    format!("CHAT-SIZE-PAGE {label} bytesPerRecord={} {}", result["bytesPerRecord"], rows.join(" "))
+}
+
 fn size_failure(result: &Value) -> Option<String> {
     if !result["skipped"].is_null() {
         return Some(format!("skipped: {}", result["skipped"]));
@@ -2463,6 +2598,9 @@ fn size_failure(result: &Value) -> Option<String> {
     None
 }
 
+/// Prompts in the size sweep's fixed prompt-index page: as many as the 1 MB fixture holds.
+const PROMPT_PAGE_ROWS: u64 = 5;
+
 /// What each size costs against the first (1 MB): the numbers of the goal (open, scroll,
 /// typing, memory), and the startup loads beside them, which are not in the max.
 const SIZE_RATIO_KEYS: [&str; 16] = [
@@ -2473,7 +2611,7 @@ const SIZE_RATIO_KEYS: [&str; 16] = [
     "/scrollRecentUs/p50",
     "/scrollMidUs/p50",
     "/scrollDeepUs/p50",
-    "/promptIndexUs/p50",
+    "/promptPageUs/p50",
     "/forwardPageUs/p50",
     "/sendFirstTokenUs/p50",
     "/sendFirstTokenUs/p95",
@@ -2529,6 +2667,7 @@ fn chat_size_sweep() {
     for label in sizes.split(',').map(str::trim).filter(|s| !s.is_empty()) {
         let result = size_run(label, parse_size(label));
         println!("CHAT-SIZE {result}");
+        println!("{}", page_cost_line(label, &result));
         if let Some(base) = results
             .first()
             .filter(|base| size_failure(base).is_none() && size_failure(&result).is_none())
@@ -2588,7 +2727,7 @@ fn incomplete_chat_sizes_cannot_be_reported_as_success() {
     let complete = json!({"size": "4G", "coldAttachMs": 10,
         "attachUs": {"p50": 20, "p95": 30}, "newestPageUs": {"p50": 20},
         "scrollRecentUs": {"p50": 20}, "scrollMidUs": {"p50": 20},
-        "scrollDeepUs": {"p50": 20}, "promptIndexUs": {"p50": 20},
+        "scrollDeepUs": {"p50": 20}, "promptPageUs": {"p50": 20},
         "forwardPageUs": {"p50": 20}, "sendFirstTokenUs": {"p50": 20, "p95": 30},
         "restartAttachMs": 10, "restartSendFirstTokenUs": 20,
         "rssIdle": 100, "peakRss": 200, "restartPeakRss": 200});

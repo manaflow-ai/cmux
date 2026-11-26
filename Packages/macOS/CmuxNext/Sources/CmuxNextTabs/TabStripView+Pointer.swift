@@ -54,10 +54,10 @@ extension TabStripView {
         hoveredID = id
         if let id { cells[id]?.isHovered = true }
         onHoverTab?(id)
+        goo?.hover(id, in: self)
     }
 
-    /// `moved`: a pointer event (true) or content that moved under a still
-    /// pointer (false, `geometryDidChange`).
+    /// `moved`: a pointer event (true) or content that moved under a still pointer (false, `geometryDidChange`).
     func updateHover(at point: CGPoint, moved: Bool) {
         // No hover (or hover card) while any drag involves this strip.
         let dragging = drag != nil || detachedID != nil || dropPlaceholderIndex != nil
@@ -279,7 +279,7 @@ extension TabStripView {
     public override func menu(for event: NSEvent) -> NSMenu? {
         let menu = contextMenu(for: event)
         if let menu { menuTracking.begin(menu) }
-        return menu
+        return NSMenu.withoutSystemItems(menu)
     }
 
     private func contextMenu(for event: NSEvent) -> NSMenu? {

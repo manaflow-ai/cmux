@@ -2119,6 +2119,19 @@ RULES = (
          "// generic-class-allow: <why this class is not main-actor isolated> (`concurrency-allow:` also works)",
          matcher_rule(Matcher(CLASS_DECL, GENERIC_CLASS_ALLOW, implicit_deinit)),
          scope=(SOURCES, TESTS)),
+    Rule("expect-keypath-call",
+         "A `#expect` / `#require` whose whole condition is a call with a key-path argument "
+         "(`#expect(xs.allSatisfy(\\.isActive))`)",
+         "Xcode 26.6's swift-testing expands it into `__checkFunctionCall` with the key path as a throwing function "
+         "argument, so the expansion fails with \"call can throw, but it is not marked with 'try'\" and the whole "
+         "CmuxNext test build stops on macOS 27 hosts (2026-11-26: HoverCardBodyHandOffTests from #57323 broke every "
+         "suite step on the fleet; Xcode 26.3 CI compiled it)",
+         "pass a closure instead of the key path (`xs.allSatisfy { $0.isActive }`), or read it into a `let` first",
+         None,
+         # No `?` in the receiver: swift-testing leaves an optional chain unexpanded, and
+         # `try #require(a.first?.items.map(\\.id))` compiles on 26.6.
+         line_rule(r"#(?:expect|require)\(\s*(?:try\s+)?(?:await\s+)?[\w.!\[\]]+\.\w+\(\s*(?:\w+:\s*)?\\\.[\w.]+\s*\)\s*[,)]", None),
+         scope=(TESTS,)),
     Rule("action-wait", "An action handler that can wait: an untyped bind (`invoke:` / `run:` / `handler:` / a trailing closure) "
          "or a `.waiting` effect",
          "an untyped handler can start a Task that awaits the daemon before anything shows, and nothing in its type says so: the "
@@ -3122,8 +3135,12 @@ def owner_route(repo: Path, ranges: list, listing=None, coordinator: str | None 
         fallback = live.is_fallback(how)
         text = (live.unheld_notice if fallback else live.notice)(area, cell, files, head, branch, doc)
         # A fallback hears of an unheld area once a UTC day, not every push into it (the coordinator flood of
-        # 2026-11-20); a holder hears of each pushed head.
-        failed = live.notify(who, area, time.strftime("day %Y-%m-%d", time.gmtime()) if fallback else head, text)
+        # 2026-11-20); a holder hears of each branch once a UTC day, not each pushed head: on 2026-11-24 one
+        # branch's rebases sent its holder seven notices in 35 s and 20 branches sent 30. The notice names the
+        # branch, so the later heads are a `git log` away. A detached push (no branch) keys on its head.
+        day = time.strftime("day %Y-%m-%d", time.gmtime())
+        key = day if fallback else (f"{branch} {day}" if branch and branch != "HEAD" else head)
+        failed = live.notify(who, area, key, text)
         out.append(f"owner: {area} is held by {who} ({how}); "
                    + (f"not told: {failed}" if failed else "told of this push"))
     return out

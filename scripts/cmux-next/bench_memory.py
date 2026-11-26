@@ -19,6 +19,11 @@ N Chromium tabs in the launch workspace's focused pane, one URL each from --urls
 page each, so a run is deterministic; `real`: 20 well-known public sites; or a
 comma list). Each count is sampled after --settle seconds.
 
+--settled-at SECONDS adds a second sample of the empty app and of each count, SECONDS after the launch
+and after the count's last open (`settled-launch`, `settled-N`, the same --measure window): what is
+left once the app's idle work is done. With 150, that is past the 60 s release of hidden chat pages
+and the 120 s hibernate of idle harnesses, which the --settle sample (20 s in the cron) comes before.
+
 --axis page-hidden|page-visible (perf-10x-idle.sh axes=) opens Chromium pages that ask for every animation
 frame, each on its own site (a renderer each), hidden (a workspace each, the launch workspace shown) or visible
 (a pane each). Each sample then has `page_frames` (the frames per second the pages got, by visibility: a hidden
@@ -136,8 +141,12 @@ def _diff_tab_cells():
     return diff_tab_cells
 
 
-_libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
-_libsystem = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+if os.path.dirname(os.path.abspath(__file__)) not in sys.path:  # `python3 -I` leaves this folder off
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import macos_libs  # noqa: E402  (beside this file: a stand-in off a Mac, so the benches import anywhere)
+
+_libproc = macos_libs.library("/usr/lib/libproc.dylib")
+_libsystem = macos_libs.library("/usr/lib/libSystem.B.dylib")
 try:
     _responsible = _libsystem.responsibility_get_pid_responsible_for_pid
     _responsible.restype = ctypes.c_int
@@ -152,12 +161,13 @@ class _Timebase(ctypes.Structure):
     _fields_ = [("numer", ctypes.c_uint32), ("denom", ctypes.c_uint32)]
 
 
-_timebase = _Timebase()
-_libsystem.mach_timebase_info(ctypes.byref(_timebase))
+_timebase = macos_libs.timebase_of(_libsystem, _Timebase())
 
 
 def usage(pid: int):
-    """(resident, footprint, lifetime max footprint, cpu ns, wakeups), or None once the pid is gone."""
+    """(resident, footprint, lifetime max footprint, cpu ns, wakeups, package-idle wakeups), or None once the pid is
+    gone. wakeups is package-idle plus interrupt wakeups; a busy Mac's package is never idle, so under load the first
+    kind reads near 0 for the same wakes."""
     buf = (ctypes.c_uint64 * 64)()
     if _libproc.proc_pid_rusage(ctypes.c_int(pid), ctypes.c_int(4), ctypes.byref(buf)) != 0:
         return None
@@ -165,7 +175,7 @@ def usage(pid: int):
     # idle wakeups, interrupt wakeups, pageins, wired (7), resident (8),
     # phys_footprint (9), ... ri_lifetime_max_phys_footprint (30).
     cpu_ns = (buf[2] + buf[3]) * _timebase.numer // _timebase.denom
-    return buf[8], buf[9], buf[30], cpu_ns, buf[4] + buf[5]
+    return buf[8], buf[9], buf[30], cpu_ns, buf[4] + buf[5], buf[4]
 
 
 class _TaskInfo(ctypes.Structure):
@@ -356,7 +366,7 @@ def exe_path(pid: int) -> str | None:
     buf = ctypes.create_string_buffer(4096)
     try:
         size = _libproc.proc_pidpath(ctypes.c_int(pid), buf, ctypes.c_uint32(4096))
-    except (AttributeError, TypeError, ctypes.ArgumentError):
+    except (AttributeError, TypeError, ctypes.ArgumentError, OSError):  # OSError: off a Mac (macos_libs.OffMac)
         return None
     if not isinstance(size, int) or size <= 0:
         return None
@@ -443,6 +453,7 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
         if SAMPLE_GPU:
             gpu = GpuSampler(GPU_INTERVAL_S)
             gpu.start()
+            files_before = store_files(bundle)
         time.sleep(measure)  # sleep-ok: the measured idle CPU/wakeup window (`measure` s between the two rusage reads)
     rows = []
     for pid, (kind, cmd) in owned(app_pid, bundle).items():
@@ -495,7 +506,101 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
               "processes": rows}
     if gpu is not None:
         result["gpu"] = gpu.finish()
+        result["files_written"] = files_written(files_before, store_files(bundle))
     return result
+
+
+# The launch's scratch HOME (`launch`), whose stores an idle window's writes land in; None for an attached app.
+STORE_HOME: str | None = None
+
+
+def store_roots(bundle: str) -> list[str]:
+    """Where the app and its acpmux keep state: the launch's scratch HOME (all of it: it holds only this launch's
+    files), the bundle's saved daemon state under the account's real home (saved_state_dir: the app reads that home,
+    not HOME), and the real home's cmux folders."""
+    home = os.path.expanduser("~")
+    roots = [STORE_HOME] if STORE_HOME else []
+    saved = saved_state_dir(bundle)
+    if saved:
+        roots.append(saved)
+    roots += [os.path.join(home, ".acpmux"), os.path.join(home, ".cmux")]
+    for parent in ("Library/Application Support", "Library/Caches"):
+        try:
+            roots += [os.path.join(home, parent, name) for name in os.listdir(os.path.join(home, parent))
+                      if "cmux" in name.lower()]
+        except OSError:
+            pass
+    # Nested roots are walked once (the saved state sits under Application Support/cmux-next).
+    roots = sorted({os.path.realpath(r) for r in roots if os.path.isdir(r)})
+    return [r for r in roots if not any(r != o and r.startswith(o + os.sep) for o in roots)]
+
+
+def store_files(bundle: str, limit: int = 200_000) -> dict[str, tuple[int, int]]:
+    """Path -> (size, mtime ns) under store_roots(), at most `limit` files (a busy fleet home has many)."""
+    files = {}
+    for root in store_roots(bundle):
+        for top, _, names in os.walk(root):
+            for name in names:
+                path = os.path.join(top, name)
+                try:
+                    st = os.lstat(path)
+                except OSError:
+                    continue
+                files[path] = (st.st_size, st.st_mtime_ns)
+                if len(files) >= limit:
+                    return files
+    return files
+
+
+def files_written(before: dict, after: dict, top: int = 25) -> dict:
+    """Files the window created or modified (mtime moved), largest growth first: which store the idle writes go
+    to. `grew` is the size change (an append's bytes); `bytes` the size now (a rewrite of a 100 KB file reads 100 KB)."""
+    home = os.path.expanduser("~")
+    changed = []
+    for path, (size, mtime) in after.items():
+        old = before.get(path)
+        if old is None or old[1] != mtime:
+            changed.append((path, size, size - (old[0] if old else 0)))
+    changed.sort(key=lambda item: (-item[2], -item[1]))
+    def short(path: str) -> str:
+        if STORE_HOME and path.startswith(os.path.realpath(STORE_HOME)):
+            return "$HOME" + path[len(os.path.realpath(STORE_HOME)):]
+        return path.replace(home, "~", 1)
+    return {"count": len(changed), "bytes": sum(size for _, size, _ in changed),
+            "grew": sum(max(grew, 0) for _, _, grew in changed), "scanned": len(after),
+            "top": [{"path": short(path), "bytes": size, "grew": grew} for path, size, grew in changed[:top]]}
+
+
+def keep_daemon_logs(bundle: str, out: str | None) -> None:
+    """Copies acpmux's daemon.log (scratch HOME and the saved state) beside --out before the scratch goes, and
+    prints how often its sessions hibernated and woke: a wake and hibernate cycle is the idle disk suspect."""
+    if not out:
+        return
+    dest = os.path.join(os.path.dirname(os.path.abspath(out)), "acpmux-logs")
+    counts = {"hibernated": 0, "woke": 0, "causes": {}}
+    for root in store_roots(bundle):
+        if not (STORE_HOME and root.startswith(os.path.realpath(STORE_HOME))) and root != os.path.realpath(saved_state_dir(bundle) or "/nonexistent"):
+            continue
+        for top, _, names in os.walk(root):
+            for name in names:
+                if not name.startswith("daemon.log"):
+                    continue
+                path = os.path.join(top, name)
+                os.makedirs(dest, exist_ok=True)
+                shutil.copy2(path, os.path.join(dest, path.replace(os.sep, "_").strip("_")[-150:]))
+                try:
+                    with open(path, errors="replace") as handle:
+                        for line in handle:
+                            if "hibernated:" in line:
+                                counts["hibernated"] += 1
+                            elif " woke" in line:
+                                counts["woke"] += 1
+                                cause = re.search(r"cause=(\S+)", line)
+                                key = cause.group(1) if cause else "?"
+                                counts["causes"][key] = counts["causes"].get(key, 0) + 1
+                except OSError:
+                    pass
+    print(f"PERF-IDLE-WAKES {json.dumps(counts)} logs={dest}", flush=True)
 
 
 IO_KEYS = ("disk_read_mb_per_h", "disk_write_mb_per_h", "logical_write_mb_per_h")
@@ -914,10 +1019,33 @@ class FakeChats:
 
     @staticmethod
     def acpmux_socket(bundle: str) -> str:
+        # The daemon's own home socket: `~/.acpmux/builds/<bundle id>/acpmux.sock`. A Debug
+        # build's daemon may not carry `bin/acpmux` in its command line (it can run as the
+        # multi-call `bin/cmux`, or under the DEV Files helper), so the process match below
+        # alone missed a daemon that was up and serving.
+        home_socket = None
+        try:
+            with open(os.path.join(bundle, "Contents", "Info.plist"), "rb") as handle:
+                bundle_id = plistlib.load(handle).get("CFBundleIdentifier")
+            if bundle_id:
+                import pwd
+                home_socket = os.path.join(pwd.getpwuid(os.getuid()).pw_dir, ".acpmux", "builds", bundle_id, "acpmux.sock")
+        except (OSError, plistlib.InvalidFileException):
+            pass
         deadline = time.monotonic() + 90
         while time.monotonic() < deadline:
+            if home_socket and os.path.exists(home_socket):
+                probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                try:
+                    probe.settimeout(2)
+                    probe.connect(home_socket)
+                    return home_socket
+                except OSError:
+                    pass
+                finally:
+                    probe.close()
             for pid, _, cmd in process_table():
-                if in_bundle(cmd, bundle) is not None and "/bin/acpmux daemon run" in cmd:
+                if in_bundle(cmd, bundle) is not None and " daemon run" in cmd:
                     listed = subprocess.run(["lsof", "-a", "-p", str(pid), "-U", "-Fn"],
                                             capture_output=True, text=True, timeout=30).stdout
                     # `<home>/acpmux.sock`, or `/tmp/acpmux-<uid>/<hash>.sock` when that path is too long.
@@ -926,6 +1054,26 @@ class FakeChats:
                     if paths:
                         return paths[0]
             time.sleep(1)  # test script: waiting for the app's acpmux to listen
+        # Say why, so a fleet step's log answers it: which acpmux processes run (the bundle's
+        # and any other), and the newest acpmux daemon.log tails under ~/.acpmux.
+        for pid, ppid, cmd in process_table():
+            if "acpmux" in cmd or "cmux-files-host" in cmd or " daemon run" in cmd or in_bundle(cmd, bundle) is not None:
+                mark = "bundle" if in_bundle(cmd, bundle) is not None else "other"
+                print(f"   bench-memory: acpmux process ({mark}) pid={pid} ppid={ppid} {cmd[:300]}",
+                      file=sys.stderr, flush=True)
+        import pwd
+        logs = set()
+        for home in {pwd.getpwuid(os.getuid()).pw_dir, os.path.expanduser("~")}:
+            root = os.path.join(home, ".acpmux")
+            builds = os.path.join(root, "builds")
+            logs.add(os.path.join(root, "daemon.log"))
+            logs.update(os.path.join(builds, name, "daemon.log") for name in (os.listdir(builds) if os.path.isdir(builds) else []))
+        logs = sorted((p for p in logs if os.path.isfile(p)), key=os.path.getmtime, reverse=True)[:2]
+        for path in logs:
+            with open(path, "rb") as handle:
+                handle.seek(max(0, os.path.getsize(path) - 4000))
+                tail = handle.read().decode("utf-8", "replace")
+            print(f"   bench-memory: tail of {path}:\n{tail}", file=sys.stderr, flush=True)
         raise SystemExit("bench-memory: the app's acpmux opened no socket within 90 s")
 
     def workspace_ids(self) -> set[str]:
@@ -1080,28 +1228,144 @@ def heap_summary(pages: list, replies: dict) -> dict:
             "per_page": sorted(rows, key=lambda r: -r["total_mb"])[:40], "errors": errors[:5], "error_count": len(errors)}
 
 
+# --js-heap's DOM read, one per page: the page's live DOM (every node of the document and its open shadow roots)
+# and its <img> elements. A loaded image (complete, with a natural size) has been decoded at least once; its bitmap
+# at 4 bytes a pixel is the most it can hold, since Chromium may drop a hidden page's decoded copy and redecode on
+# show. CSS background images and canvases are not counted. Returns a JSON string, so one reply is one value.
+DOM_FACTS_JS = r"""(() => {
+  let nodes = 0, elements = 0, shadowRoots = 0, images = 0, loaded = 0, pixels = 0;
+  const walk = (root) => {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ALL);
+    for (let node = walker.currentNode; node; node = walker.nextNode()) {
+      nodes++;
+      if (node.nodeType !== 1) continue;
+      elements++;
+      if (node.localName === "img") {
+        images++;
+        if (node.complete && node.naturalWidth > 0) { loaded++; pixels += node.naturalWidth * node.naturalHeight; }
+      }
+      if (node.shadowRoot) { shadowRoots++; walk(node.shadowRoot); }
+    }
+  };
+  walk(document);
+  return JSON.stringify({nodes, elements, shadow_roots: shadowRoots, images, decoded_images: loaded, decoded_pixels: pixels});
+})()"""
+
+
+def devtools_json(app: App, browser, method: str, params: dict, timeout: float = 20) -> dict:
+    """One DevTools call on a cmux page, its parsed reply or {"error": ...}."""
+    reply = app.call("debug.cef_page_devtools", {"browser": browser, "method": method, "params": params}, timeout=timeout)
+    if reply.get("error") or not isinstance(reply.get("result"), str):
+        return {"error": str(reply.get("error") or "no reply")}
+    try:
+        return json.loads(reply["result"])
+    except ValueError as error:
+        return {"error": str(error)}
+
+
+def dom_facts_of(reply: dict) -> dict:
+    """A page's DOM_FACTS_JS from its `Runtime.evaluate` reply (pure), or {"error": ...}."""
+    if reply.get("error"):
+        return {"error": str(reply["error"])}
+    if reply.get("exceptionDetails"):
+        return {"error": str((reply["exceptionDetails"].get("exception") or {}).get("description") or "exception")[:120]}
+    value = (reply.get("result") or {}).get("value")
+    try:
+        facts = json.loads(value) if isinstance(value, str) else None
+    except ValueError:
+        facts = None
+    return facts if isinstance(facts, dict) else {"error": "no DOM facts in the reply"}
+
+
+def dom_summary(pages: list, facts: dict, counters: dict) -> dict:
+    """--js-heap (pure): each cmux page's live DOM nodes and decoded images, summed over pages and per hidden page.
+
+    `facts` maps a page's browser id to its DOM_FACTS_JS dict. Unlike the V8 heap, a page's DOM is its own, so pages
+    sum. `counters` maps a renderer id to its `Memory.getDOMCounters` reply: the renderer's whole count, live and
+    detached nodes alike, so a renderer whose `renderer_nodes` stays far above its pages' live nodes holds detached
+    DOM. A page whose read failed is counted under `errors`, never as 0."""
+    rows, errors = [], []
+    for page in pages:
+        if not isinstance(page, dict) or not str(page.get("origin", "")).startswith("cmux-page://"):
+            continue
+        fact = facts.get(page.get("browser")) or {}
+        if not isinstance(fact.get("nodes"), (int, float)):
+            errors.append(str(fact.get("error") or "no DOM facts")[:120])
+            continue
+        clients = sorted(int(c) for c in (page.get("renderer_clients") or []) if isinstance(c, (int, float)))
+        rows.append({"browser": page.get("browser"), "path": str(page.get("path") or "/"), "hidden": bool(page.get("hidden")),
+                     "renderer": clients[0] if clients else None, "nodes": int(fact["nodes"]),
+                     "elements": int(fact.get("elements") or 0), "images": int(fact.get("images") or 0),
+                     "decoded_images": int(fact.get("decoded_images") or 0),
+                     "decoded_mb": round(float(fact.get("decoded_pixels") or 0) * 4 / MB, 1)})
+
+    def totals(subset):
+        return {"pages": len(subset), "nodes": sum(r["nodes"] for r in subset),
+                "images": sum(r["images"] for r in subset),
+                "decoded_images": sum(r["decoded_images"] for r in subset),
+                "decoded_mb": round(sum(r["decoded_mb"] for r in subset), 1)}
+
+    out = totals(rows)
+    hidden = [r for r in rows if r["hidden"]]
+    out["hidden_pages"] = len(hidden)
+    if hidden:
+        out["per_hidden_page"] = {"nodes": round(sum(r["nodes"] for r in hidden) / len(hidden)),
+                                  "decoded_images": round(sum(r["decoded_images"] for r in hidden) / len(hidden), 1),
+                                  "decoded_mb": round(sum(r["decoded_mb"] for r in hidden) / len(hidden), 1)}
+    paths: dict = {}
+    for row in rows:
+        paths.setdefault(row["path"], []).append(row)
+    out["by_path"] = {path: totals(subset) for path, subset in sorted(paths.items(), key=lambda item: -len(item[1]))}
+    by_renderer = []
+    for renderer, reply in sorted(counters.items(), key=lambda item: str(item[0])):
+        if not isinstance(reply, dict) or not isinstance(reply.get("nodes"), (int, float)):
+            errors.append(str((reply or {}).get("error") or "no DOM counters")[:120])
+            continue
+        live = sum(r["nodes"] for r in rows if r["renderer"] == renderer)
+        by_renderer.append({"renderer": renderer, "documents": reply.get("documents"), "renderer_nodes": int(reply["nodes"]),
+                            "live_nodes": live, "listeners": reply.get("jsEventListeners")})
+    out["by_renderer"] = sorted(by_renderer, key=lambda r: -r["renderer_nodes"])[:12]
+    out["per_page"] = sorted(rows, key=lambda r: -r["nodes"])[:40]
+    out["errors"], out["error_count"] = errors[:5], len(errors)
+    return out
+
+
 def js_heaps(app: App) -> dict:
     """--js-heap: every cmux page's V8 heap (DevTools `Runtime.getHeapUsage`, which needs no domain enabled
-    and runs no script), read after the sample's window so the read is not in it. A bench or DEV build has
-    `debug.cef_pages`; an app without it gives {"error": ...}."""
+    and runs no script), its live DOM node and decoded-image count (`dom`: one `Runtime.evaluate` of DOM_FACTS_JS
+    a page, and `Memory.getDOMCounters` once a renderer), read after the sample's window so the reads are not in
+    it. A bench or DEV build has `debug.cef_pages`; an app without it gives {"error": ...}."""
     pages = (app.call("debug.cef_pages", timeout=30) or {}).get("pages")
     if not isinstance(pages, list):
         return {"error": "no debug.cef_pages (a bench or DEV build has it)"}
 
     def read(page):
-        reply = app.call("debug.cef_page_devtools", {"browser": page["browser"], "method": "Runtime.getHeapUsage",
-                                                     "params": {}}, timeout=20)
-        if reply.get("error") or not isinstance(reply.get("result"), str):
-            return page["browser"], {"error": str(reply.get("error") or "no reply")}
-        try:
-            return page["browser"], json.loads(reply["result"])
-        except ValueError as error:
-            return page["browser"], {"error": str(error)}
+        return page["browser"], devtools_json(app, page["browser"], "Runtime.getHeapUsage", {})
+
+    def read_dom(page):
+        reply = devtools_json(app, page["browser"], "Runtime.evaluate",
+                              {"expression": DOM_FACTS_JS, "returnByValue": True, "silent": True})
+        return page["browser"], dom_facts_of(reply)
 
     own = [p for p in pages if isinstance(p, dict) and "browser" in p and str(p.get("origin", "")).startswith("cmux-page://")]
+    # Memory.getDOMCounters answers for the page's whole renderer: one page per renderer asks.
+    first_of: dict = {}
+    for page in own:
+        clients = sorted(int(c) for c in (page.get("renderer_clients") or []) if isinstance(c, (int, float)))
+        if clients:
+            first_of.setdefault(clients[0], page["browser"])
+
+    def read_counters(item):
+        renderer, browser = item
+        return renderer, devtools_json(app, browser, "Memory.getDOMCounters", {})
+
     with ThreadPoolExecutor(max_workers=8) as pool:
         replies = dict(pool.map(read, own))
-    return heap_summary(own, replies)
+        facts = dict(pool.map(read_dom, own))
+        counters = dict(pool.map(read_counters, first_of.items()))
+    summary = heap_summary(own, replies)
+    summary["dom"] = dom_summary(own, facts, counters)
+    return summary
 
 
 def percentile(values: list[float], share: float) -> float | None:
@@ -1288,11 +1552,41 @@ def end_bundle(bundle: str):
     there after CLONE_CLEANUP_WAIT_S."""
     apps = {pid for pid, _, cmd in process_table() if is_app_process(cmd, bundle)}
     bundle_pids(bundle)  # notes the daemons before they go, for their terminal hosts
+    # By executable and owner too (bundle_processes), taken while the daemon still runs: the terminal hosts
+    # and the holder start with a bare argv[0], and once their daemon is gone only their executable (or
+    # nothing, for the holder's copy) ties them to the bundle. Missed here, they outlived the run and the
+    # next launch of the bundle counted them as its own: the 99 terminal hosts "at launch" of cmux#46732.
+    started = {pid: cmd for pid, _, cmd in process_table()}
+    bare = {pid for pid in bundle_processes(process_table(), bundle, exe_path) if pid in started}
     end_processes(apps)
     cleanups = {pid for pid, _, cmd in process_table() if in_bundle(cmd, bundle) is not None and is_clone_cleanup(cmd)}
-    end_processes(bundle_pids(bundle) - cleanups)
+    now_cmd = {pid: cmd for pid, _, cmd in process_table()}
+    # Only a pid whose command line is unchanged: one that exited meanwhile may be another process now.
+    bare = {pid for pid in bare if now_cmd.get(pid) == started[pid]}
+    end_processes((bundle_pids(bundle) | bare | set(bundle_processes(process_table(), bundle, exe_path))) - cleanups)
     deadline = time.monotonic() + CLONE_CLEANUP_WAIT_S
     end_processes(still_running(cleanups, max(0.0, deadline - time.monotonic())))
+
+
+def end_leftovers(bundle: str) -> dict:
+    """Ends the bundle's processes an earlier run left behind that a command-line match (bundle_pids) does
+    not see: terminal hosts and holders with a bare argv[0], found by their executable (bundle_processes).
+    A sample counts every process of the bundle by executable (owned), so without this a launch counted an
+    earlier run's hosts as its own (cmux#46732: 99 terminal hosts, 174 MB, "at launch, before any terminal
+    opens"; RFD 0062). Prints one PERF-IDLE-LEFTOVER line with what it found and returns it."""
+    found = bundle_processes(process_table(), bundle, exe_path)
+    kinds: dict[str, int] = {}
+    footprint = 0
+    for pid, (kind, _cmd) in found.items():
+        kinds[kind] = kinds.get(kind, 0) + 1
+        got = usage(pid)
+        footprint += got[1] if got else 0
+    info = {"n": len(found), "kinds": kinds, "footprint_mb": round(footprint / MB, 1)}
+    print(f"PERF-IDLE-LEFTOVER {json.dumps(info)}", flush=True)
+    if found:
+        end_processes(set(found))
+        info["left"] = sorted(still_running(set(found), 0))
+    return info
 
 
 def gone(pid: int) -> bool:
@@ -1478,6 +1772,8 @@ def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: boo
     if running and not relaunch:
         raise SystemExit(f"bench-memory: processes from {bundle} are running ({sorted(running)}); end them first")
     if not relaunch:
+        end_leftovers(bundle)
+    if not relaunch:
         clear_saved_state(bundle)
     scratch = scratch or tempfile.mkdtemp(prefix="bench-memory-")
     home = os.path.join(scratch, "home")
@@ -1497,7 +1793,7 @@ def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: boo
     # Sparkle would otherwise download a newer nightly into the bundle under
     # test mid-run (and its installer counts as the bundle's process).
     with open(env["CMUX_NEXT_CONFIG_FILE"], "w") as handle:
-        json.dump(merged({"updates": {"checkAutomatically": False, "downloadAutomatically": False}}, config), handle)
+        json.dump(merged({"updates": {"automatic": "off"}}, config), handle)
     log_path = os.path.join(scratch, "app.log")
     launched_at = time.time()
     if direct:
@@ -1926,6 +2222,9 @@ def main():
     parser.add_argument("--workspaces", default="1,10,30")
     parser.add_argument("--mix", default="terminal+chat,terminal+browser,terminal")
     parser.add_argument("--settle", type=float, default=30)
+    parser.add_argument("--settled-at", type=float, default=0, metavar="SECONDS",
+                        help="also sample the empty app and each count SECONDS after the launch and the count's "
+                             "last open (settled-launch, settled-N; 0: no such sample)")
     parser.add_argument("--measure", type=float, default=0,
                         help="seconds of idle CPU and wakeup measurement after each settle (0: memory only)")
     parser.add_argument("--churn-minutes", type=float, default=0)
@@ -1973,7 +2272,8 @@ def main():
                              "in the window (the daemon's git runs); none when the run's own check of the read fails")
     parser.add_argument("--js-heap", action="store_true",
                         help="after each sample: every cmux page's V8 heap (Runtime.getHeapUsage), summed by page path "
-                             "(`js_heap` in the sample; a bench or DEV build)")
+                             "(`js_heap` in the sample; a bench or DEV build), and each page's live DOM node and "
+                             "decoded-image count (`js_heap.dom`, with a per hidden page average)")
     parser.add_argument("--app-vm", action="store_true",
                         help="after the idle-launch sample: the app process's vmmap --summary, footprint and "
                              "heap --sortBySize (`app_vm` in the sample, APP-VM lines)")
@@ -2072,6 +2372,8 @@ def main():
             config = merged(config, chat_renderer_crash.CONFIG)
         extra.update(pair.split("=", 1) for pair in args.env)
         launched, socket_path, scratch = launch(bundle, config, extra)
+        global STORE_HOME
+        STORE_HOME = os.path.join(scratch, "home")
         if args.relaunch_restored:
             try:
                 launched, socket_path, relaunch = relaunch_restored(bundle, config, extra, socket_path, scratch,
@@ -2098,10 +2400,10 @@ def main():
     if gpu_no_app is not None:
         report["gpu_no_app"] = gpu_no_app
 
-    def settle_and_sample(label, diff_tab=None):
+    def settle_and_sample(label, diff_tab=None, settle=None):
         # sleep-ok: the sample is defined as memory --settle s after the step (the report's settle_s); runs compare at the
-        # same age, so the duration is the measured condition, not a stand-in for an event.
-        time.sleep(args.settle)
+        # same age, so the duration is the measured condition, not a stand-in for an event. --settled-at passes its own.
+        time.sleep(args.settle if settle is None else settle)
         measure, scroller = args.measure, None
         if diff_tab is not None:
             # What the page says now decides the window: its timer is 4 s with the focus and 30 s without it.
@@ -2141,6 +2443,12 @@ def main():
             print(f"   JS heap: {heap.get('pages', 0)} cmux pages ({heap.get('hidden_pages', 0)} hidden) in "
                   f"{heap.get('renderers', 0)} renderers, used {heap.get('used_mb', 0)} MB, total {heap.get('total_mb', 0)} MB "
                   f"{json.dumps(heap.get('by_renderer') or heap.get('error'))[:600]}", flush=True)
+            dom = heap.get("dom")
+            if isinstance(dom, dict):
+                print(f"   DOM: {dom.get('nodes', 0)} nodes, {dom.get('decoded_images', 0)} decoded images "
+                      f"({dom.get('decoded_mb', 0)} MB at 4 B/px) in {dom.get('pages', 0)} cmux pages; per hidden page "
+                      f"{json.dumps(dom.get('per_hidden_page'))}; errors {dom.get('error_count', 0)} "
+                      f"{json.dumps(dom.get('by_renderer'))[:400]}", flush=True)
         if args.app_vm and label == "idle-launch":
             result["app_vm"] = app_vm(app_pid)
             if args.app_vm_stacks:
@@ -2170,14 +2478,22 @@ def main():
         print_vmmap(result, args.vmmap_kinds)
         return result
 
+    def settled_sample(label, since):
+        """The --settled-at sample: `label`, --settled-at seconds after `since` (time.monotonic())."""
+        if args.settled_at <= 0:
+            return None
+        return settle_and_sample(label, settle=max(0.0, since + args.settled_at - time.monotonic()))
+
     global PAGES
     if args.axis and args.axis.startswith("page-"):
         PAGES = PageFrames()
     try:
+        launched_at = time.monotonic()
         if args.fake_agent:
             chats = FakeChats(app, bundle, args.fake_agent)
         launch_workspaces = sorted(workspace_ids(app)) if args.axis else []
         settle_and_sample("idle-launch")["items"] = 0
+        settled_sample("settled-launch", launched_at)
         if args.axis:
             report["axis"] = args.axis
             report["axis_made"] = run_axis(app, chats, args.axis, sorted(int(n) for n in args.items.split(",") if n),
@@ -2214,6 +2530,7 @@ def main():
                 if workspace is None:
                     break
                 opened.append(workspace)
+            last_open = time.monotonic()
             diff_tab = None
             if args.diff_tab:
                 # In the launch's scratch; an attached app has none, so in a folder of its own. Both are removed at the end.
@@ -2222,6 +2539,7 @@ def main():
                 diff_tab = {"repository": cells.make_repository(repository, args.diff_tab)}
                 diff_tab["open"] = cells.open_tab(app, repository)
             result = settle_and_sample(f"idle-{count}", diff_tab)
+            settled_sample(f"settled-{count}", last_open)
             if chat_renderer_crash.enabled() and chats:
                 result["chat_renderers"] = chat_renderer_crash.renderers(app)
                 print(f"CHAT-RENDERERS phase=open agents={count} {json.dumps(result['chat_renderers'])}", flush=True)
@@ -2302,6 +2620,8 @@ def main():
             with open(args.out, "w") as handle:
                 json.dump(report, handle, indent=2)
             print(f"bench-memory: wrote {args.out}")
+        if scratch and SAMPLE_GPU:
+            keep_daemon_logs(bundle, args.out)
         if scratch:
             shutil.rmtree(scratch, ignore_errors=True)
         if diff_scratch and diff_scratch != scratch:

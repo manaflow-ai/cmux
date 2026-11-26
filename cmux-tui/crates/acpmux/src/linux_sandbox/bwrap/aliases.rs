@@ -371,6 +371,13 @@ fn home_views_listed(
         if view.starts_with(home) || home.starts_with(&view) {
             continue;
         }
+        // A deeper mount over the view hides the HOME there: under systemd
+        // PrivateTmp the root mount would show a HOME below /tmp at
+        // /tmp/systemd-private-*/tmp/..., a path the session cannot reach
+        // and bwrap cannot create under its read-only root.
+        if covered(&view, mount, &mounts)? {
+            continue;
+        }
         // A view a mount below covers (systemd's PrivateTmp under `/tmp`) is out of reach, and
         // the plan could not make its folders: no view.
         if covered_below(&view, mount, &mounts)? {
@@ -664,6 +671,23 @@ mod tests {
         assert!(views(&subtree).is_empty());
         let nested = format!("{ROOT}3 1 8:1 /home/u /home/u/loop rw - ext4 root rw\n");
         assert!(views(&nested).is_empty());
+    }
+
+    /// systemd PrivateTmp with the HOME below /tmp: the root mount holds the
+    /// HOME at /tmp/systemd-private-*/tmp/..., but the service's /tmp mount
+    /// covers that path, so it is no view to rebuild (bwrap could not even
+    /// create it). The same HOME also bound at /mnt/leak stays a view.
+    #[test]
+    fn regression_private_tmp_home_has_no_view_under_the_covered_tmp() {
+        let private = "/tmp/systemd-private-97259c5-runner.service-DVpdTq/tmp";
+        let home = Path::new("/tmp/acpmux-bwrap-test/home");
+        let info = format!("{ROOT}2 1 8:1 {private} /tmp rw - ext4 root rw\n");
+        assert_eq!(home_views(home, 2, &info).unwrap(), Vec::<HomeView>::new());
+        let leak = format!("{info}3 1 8:1 {private} /mnt/leak rw - ext4 root rw\n");
+        assert_eq!(
+            home_views(home, 2, &leak).unwrap(),
+            [(3, PathBuf::from("/mnt/leak/acpmux-bwrap-test/home"))]
+        );
     }
 
     #[test]

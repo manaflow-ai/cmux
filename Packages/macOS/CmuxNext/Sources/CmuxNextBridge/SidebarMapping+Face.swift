@@ -238,11 +238,15 @@ extension SidebarMapping {
             folder: facts.bucket
         )
         row.focusedTab = focused.map { TabID($0.id) }
+        // Who the row's agent is (acpmux `displayName`, `formerNames`): its hover card's agent line.
+        if let ref = agentTab?.agentSession {
+            row.agentDisplayName = AgentTurnStateStore.shared.displayName(for: ref)
+            row.agentFormerName = AgentTurnStateStore.shared.formerName(for: ref)
+        }
         row.paneShape = Self.paneShape(workspace)
         row.iconFromShownTab = ownIcon == nil && row.icon != nil
         row.activityFromProgram = indicator.primary?.source == .program
         row.presence = presence(tabs)
-        row.startsInCloud = page?.startsInCloud ?? false
         row.audio = SidebarWorkspaceAudio.merge(tabs.lazy.map { browserFaces[$0.id]?.audio })
         row.lastMessage = at(facts.chat)?.agentSession.flatMap(AgentTurnStateStore.shared.lastMessage(for:))
         // The chat the face picked: when it last changed what it does, its row's age (`SidebarWorkspace.rowAge`).
@@ -266,18 +270,20 @@ extension SidebarMapping {
         row.detail = detail(tabs: tabs, indicator: indicator.state, agentTab: agentTab, front: front,
                             notification: row.notificationText)
         row.detail.origin = Self.origin(workspace.createdBy)
+        // Only the row's own chat lists its subagents: another chat open in this workspace has a row of its own,
+        // often nested under this one, which lists its own. Gathering every chat's here showed a nested chat's
+        // subagents twice, once under its parent and once under itself (Leo, 2026-11-25 screenshot).
+        row.subagents = Self.subagents(agentTab.map { [$0] } ?? [])
         return row
     }
 
-    /// The mark the row draws for the agent tab the face picked: a custom harness's own icon (user 12922; a mark
-    /// it names is a brand, anything else the row's `agentIcon`), else the tab's brand.
-    static func agentMark(_ tab: TabModel?, harnessIcons: HarnessIconLookup) -> (brand: String?, icon: SidebarAgentIcon?) {
+    /// The mark the row draws for the agent tab the face picked: the icon its session set for itself (acpmux
+    /// `icon`), else a custom harness's own icon (user 12922; a mark it names is a brand, anything else the row's
+    /// `agentIcon`), else the tab's brand.
+    static func agentMark(_ tab: TabModel?, harnessIcons: HarnessIconLookup,
+                          turns: AgentTurnStateStore = .shared) -> (brand: String?, icon: SidebarAgentIcon?) {
         guard let tab else { return (nil, nil) }
-        switch harnessIcons.custom(for: tab.agentSession?.harness) {
-        case .brand(let brand)?: return (brand, nil)
-        case .symbol(let name)?: return (nil, .symbol(name))
-        case .image(_, let favicon)?: return (nil, .image(favicon))
-        case nil: return (tab.agentBrand, nil)
-        }
+        let art = tab.agentSession.flatMap(turns.iconArt(for:)) ?? harnessIcons.custom(for: tab.agentSession?.harness)
+        return art.map(HarnessIconLookup.sidebarMark) ?? (tab.agentBrand, nil)
     }
 }

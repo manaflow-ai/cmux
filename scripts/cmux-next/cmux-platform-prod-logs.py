@@ -108,10 +108,19 @@ PLATFORM_MSGS = frozenset({
     "cloud.claim_fence_retry_write_failed",
     "cloud.connect.read",
     "cloud.create.attach_after_bind",
+    # One line per create or start pass (cmux-platform src/server/cloud/CloudCore.ts createTrace): the ms at which each
+    # step ended. Kept as TRACE_STEPS only (trace_fields), so a never_bound create says which step it last reached.
+    "cloud.create.submit",
+    "cloud.create.trace",
     "cloud.create.trace_unsent",
+    "cloud.start.submit",
+    "cloud.start.trace",
     "cloud.entitlement.profile_heal_failed",
     "cloud.entitlement.read_failed",
     "cloud.fork_snapshot_delete_failed",
+    # Why an overdue running machine was not paused, once per machine per change (cmux-platform src/server/cloud
+    # IdleKept.ts). Kept only as its idle_kept() projection: cmux#54889's timer-only `workload` lines.
+    "cloud.idle.kept",
     "cloud.image.cache.failed",
     "cloud.image.follow",
     "cloud.image.follow.read_failed",
@@ -150,6 +159,8 @@ PLATFORM_MSGS = frozenset({
     "cloud.spend_cap.read_failed",
     "cloud.spend_cap.record_failed",
     "cloud.spend_cap.warning",
+    # A submit answer cut off with its intent still pending (cmux-platform CloudCore, retro r2b92b756): op and ms waited.
+    "cloud.submit.cut_off",
     "cloud_environment.vault_edge_grants",
     "config.team_id_kind",
     "connector.repo_token.requested",
@@ -296,10 +307,134 @@ PUBLIC_FIELDS = {"team": ID, "teamId": ID, "machine": ID, "machineId": ID, "vm":
                  "outcome": TOKEN, "code": TOKEN, "type": TOKEN, "step": TOKEN, "op": TOKEN, "kind": TOKEN,
                  "site": TOKEN, "phase": TOKEN, "status": INT, "attempts": INT, "fails": INT, "ms": INT,
                  "spares": INT, "wanted": INT, "live": INT, "total": INT, "failure": TOKEN, "reason": TOKEN,
-                 "mode": TOKEN}
+                 "mode": TOKEN, "attempt": INT, "total_ms": INT}
 # Booleans a kept line may keep, only as true or false (cloud.spare.gateway_read, cmux-platform#1629: what a spare
-# claim's gateway check read: the shared route, a gateway host here, and whether the team's creates lack a rule).
-PUBLIC_BOOLS = ("lacks", "shared", "host")
+# claim's gateway check read: the shared route, a gateway host here, and whether the team's creates lack a rule;
+# cloud.machine.start_overdue and power_overdue: whether the machine's create or call was still running).
+PUBLIC_BOOLS = ("lacks", "shared", "host", "create_running", "call_running")
+
+# The step names a create or start trace marks (cmux-platform CloudCore.ts `trace.mark("...")`), each kept with its
+# ms. Any other name is dropped, so a step a newer platform adds prints nothing until it is listed here.
+TRACE_MSGS = frozenset({"cloud.create.submit", "cloud.create.trace", "cloud.start.submit", "cloud.start.trace"})
+TRACE_STEPS = frozenset({
+    "adopt", "answer", "attach_network", "bind_committed", "bind_file", "bind_wait", "budget", "carrier", "claim_prep",
+    "driver", "edge", "ensure", "entitlements", "images", "needs_rule", "network", "plan_read", "power",
+    "prepare_network", "principal", "rate_limit", "real_state", "resources", "scaler", "setup", "spare_claim",
+    "stale_submit", "submit",
+})
+
+
+def trace_steps(steps):
+    """A trace's steps as {listed step: ms}; a non-int or unlisted step is dropped."""
+    if not isinstance(steps, dict):
+        return None
+    out = {k: v for k, v in steps.items() if k in TRACE_STEPS and base.typed(INT, v) is not None}
+    return dict(sorted(out.items(), key=lambda kv: kv[1]))
+
+
+# cloud.machine.start_overdue's bind_probe (cmux-platform NeverBoundProbe.ts): the guest's own read of why it never
+# bound. Its `out` holds addresses, hosts and curl's words, so only typed facts leave: whether the bind file is there,
+# an uptime band, whether the API host and the coderouter edge resolved, and each HTTPS try's status or curl error.
+BIND_PROBE_OUTCOMES = frozenset({"ran", "failed", "bound", "no_route"})
+UPTIME_BANDS = ((60, "lt60s"), (300, "60s-300s"), (900, "300s-900s"))
+CURL_ERROR = re.compile(r"curl: \((\d{1,3})\)")
+HTTP_CODE = re.compile(r"(?:^|\s)http=(\d{3})(?:\s|$)")
+
+
+def probe_facts(out):
+    """The typed facts of a bind probe's out text, in NeverBoundProbe.ts's order: dns api then edge, https api then
+    edge. Every value is a fixed word, a band or a small int."""
+    facts = {}
+    dns, https = [], []
+    for raw in out.splitlines():
+        ln = raw.strip()
+        if ln in ("bind_file=present", "bind_file=missing"):
+            facts["bind_file"] = ln.split("=", 1)[1]
+        elif ln.startswith("uptime_s="):
+            try:
+                up = float(ln.split("=", 1)[1])
+            except ValueError:
+                continue
+            if up >= 0:
+                facts["uptime"] = next((band for limit, band in UPTIME_BANDS if up < limit), "ge900s")
+        elif ln.startswith("nameservers="):
+            facts["nameservers"] = len([n for n in ln.split("=", 1)[1].split(",") if n])
+        elif ln.startswith("route="):
+            facts["route"] = "default" if ln.split("=", 1)[1].strip() else "none"
+        elif ln.startswith("dns ") and "=" in ln:
+            dns.append("unresolved" if ln.rsplit("=", 1)[1].strip() in ("", "unresolved") else "resolved")
+        elif ln.startswith("https "):
+            err = CURL_ERROR.search(ln)
+            code = HTTP_CODE.search(ln)
+            if err:
+                https.append(f"curl_{int(err.group(1))}")
+            elif code and code.group(1) != "000":
+                https.append(int(code.group(1)))
+            else:
+                https.append("no_answer")
+        elif ln == "curl=absent":
+            https = ["curl_absent", "curl_absent"]
+    for name, got in (("dns", dns), ("https", https)):
+        for target, v in zip(("api", "edge"), got):
+            facts[f"{name}_{target}"] = v
+    return facts
+
+
+def bind_probe(p):
+    """bind_probe's typed projection: outcome, ms, exit, truncated, the provider error code and probe_facts."""
+    if not isinstance(p, dict):
+        return None
+    out = {"outcome": p.get("outcome") if p.get("outcome") in BIND_PROBE_OUTCOMES else "other"}
+    for k in ("ms", "exit"):
+        v = base.typed(INT, p.get(k))
+        if v is not None:
+            out[k] = v
+    if isinstance(p.get("truncated"), bool):
+        out["truncated"] = p["truncated"]
+    if "error" in p:
+        out["error"] = base.typed(TOKEN, p["error"]) or True
+    if isinstance(p.get("out"), str):
+        out.update(probe_facts(p["out"]))
+    return out
+
+
+# cloud.idle.kept's reasons (IdleKept.ts idleKept, first match); anything else prints as "other".
+IDLE_KEPT_WHY = frozenset({"not_allowed", "changing", "no_report", "no_activity", "held", "sessions", "workload",
+                           "no_turns", "recent"})
+# cmux#54889: every image since cmux#50074 (2026-11-22) installs cmux-chief-update.timer disabled, and the guest's
+# workload reader counted it as the person's work, so a machine whose only workload was that timer never paused idle.
+CHIEF_UPDATE_TIMERS = frozenset({"systemd:cmux-chief-update.timer", "cmux-chief-update.timer"})
+# A daemon version: digits first, then version characters. Anything hex-like prints hashed, as a token does.
+DAEMON_VERSION = re.compile(r"^[0-9][0-9A-Za-z.+_-]{0,47}$")
+# How long the machine had run since its last power when the line was written: a coarse band, never the number.
+RUNNING_BANDS = ((3600, "lt1h"), (6 * 3600, "1h-6h"), (24 * 3600, "6h-24h"))
+
+
+def idle_kept(j):
+    """cloud.idle.kept's typed projection: why, a timer_only flag for `workload`, the daemon version and a running
+    band. The line's team and machine are ids and its process, port and timer names are the guest's own words: only
+    whether the names were exactly cmux-chief-update.timer leaves the line."""
+    why = j.get("why")
+    out = {"msg": "cloud.idle.kept", "why": why if why in IDLE_KEPT_WHY else "other"}
+    for k in ("team", "machine"):
+        v = base.typed(ID, j.get(k))
+        if v is not None:
+            out[k] = v
+    w = j.get("workload")
+    if why == "workload" and isinstance(w, dict):
+        names = w.get("timer_names")
+        quiet = all(not w.get(k) for k in ("busy", "listening", "process_names", "ports"))
+        out["timer_only"] = bool(quiet and isinstance(names, list) and names
+                                 and all(isinstance(n, str) and n in CHIEF_UPDATE_TIMERS for n in names))
+    d = j.get("daemon")
+    if isinstance(d, str) and DAEMON_VERSION.match(d):
+        out["daemon"] = base.tag(d) if base.ID_LIKE.search(d) else d
+    elif d is None and "daemon" in j:
+        out["daemon"] = "null"
+    s = j.get("running_s")
+    if isinstance(s, int) and not isinstance(s, bool) and s >= 0:
+        out["running"] = next((band for limit, band in RUNNING_BANDS if s < limit), "ge24h")
+    return out
 
 
 def public_log(j):
@@ -309,6 +444,8 @@ def public_log(j):
     msg = j.get("msg")
     if not isinstance(msg, str) or msg not in PLATFORM_MSGS:
         return None, "unlisted"
+    if msg == "cloud.idle.kept":
+        return idle_kept(j), None
     out = {"msg": msg}
     for k, kind in PUBLIC_FIELDS.items():
         if k in j:
@@ -321,6 +458,14 @@ def public_log(j):
     # A gateway mode the claim could not read is null on the line; kept as "null", told apart from no field.
     if msg == "cloud.spare.gateway_read" and "mode" in j and j["mode"] is None:
         out["mode"] = "null"
+    if msg in TRACE_MSGS:
+        steps = trace_steps(j.get("steps"))
+        if steps is not None:
+            out["steps"] = steps
+    if msg == "cloud.machine.start_overdue" and "bind_probe" in j:
+        probe = bind_probe(j["bind_probe"])
+        if probe is not None:
+            out["bind_probe"] = probe
     if "error" in j:
         out["error"] = True
     return out, None
@@ -524,6 +669,13 @@ def window_totals(events, needles):
     return head, rows[:MAX_ROWS]
 
 
+def window_needle(needles):
+    """A window read asks the query for one msg's events when its only needle is an allowlisted platform msg literal:
+    a busy production hour holds more events than PAGES pages, and cloud.idle.kept is a few of them (cmux#54889).
+    The literal is our own constant, never a tenant's word; any other needle filters only the rows, as before."""
+    return needles[0] if len(needles) == 1 and needles[0] in PLATFORM_MSGS else None
+
+
 def query(token, service, frm, to, offset=None, needle=None):
     body = {"queryId": f"cmux-platform-prod-logs-{int(time.time())}", "timeframe": {"from": frm, "to": to},
             "view": "events", "limit": 1000,
@@ -588,7 +740,7 @@ def main():
     token = sys.stdin.readline().strip()
     events, offset, pages, complete = [], None, 0, False
     while pages < PAGES:
-        got = base.dig(query(token, service, frm, to, offset, needle=None if kind == WINDOW else ident),
+        got = base.dig(query(token, service, frm, to, offset, needle=window_needle(needles) if kind == WINDOW else ident),
                        "result", "events", "events") or []
         events += got
         pages += 1

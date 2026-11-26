@@ -16,8 +16,9 @@ import Testing
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"),
         .closesItsWindows)
 struct TopPageTitlebarDragTests {
-    @Test(arguments: [InternalPageID.stats])
-    func aTopPagesTitleRowMovesTheWindowAndItsControlsKeepTheirPress(_ id: InternalPageID) async throws {
+    // CmuxNextPages' type by its module: the app's typealias of the same name made @Test's expansion ambiguous.
+    @Test(arguments: [CmuxNextPages.InternalPageID.stats])
+    func aTopPagesTitleRowMovesTheWindowAndItsControlsKeepTheirPress(_ id: CmuxNextPages.InternalPageID) async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in
             let controller = try #require(services.windows.active)
             let window = try #require(controller.window)

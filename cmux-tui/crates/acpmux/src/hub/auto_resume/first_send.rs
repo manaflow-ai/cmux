@@ -73,6 +73,7 @@ impl Hub {
             trust_gate: cut.trust_gate,
             full_access_device: None,
             from: cut.from.map(str::to_owned),
+            person: false,
         };
         let (root, cut_turn) = (root.to_owned(), cut.turn_id.to_owned());
         let (hub, session) = (self.clone(), session.clone());

@@ -1,3 +1,4 @@
+import AppKit
 public import CmuxNextControl
 import CmuxNextDevices
 import Foundation
@@ -15,12 +16,16 @@ import CmuxNextSettings
 ///   `has_frame` (a picture is up in this connection), `path` (Direct, Relayed, ...);
 /// - `started_by`: who started the view without a person's click (the agent session's title or the
 ///   calling app, else `agent`), null for a tab a person opened or one waiting at the Connect card;
+/// - `waits_to_show` (a scope is held until the tab is shown, so nothing was asked of the hub yet);
 /// - `connect_started_at` (ISO 8601, when this session's connect began) and `first_frame_ms`
 ///   (from it to the first decoded frame reaching the screen; null until then);
 /// - `fps`, `target_fps`, `rtt_ms` (latest), `frames_decoded`, `frames_dropped` (frames the other
 ///   Mac numbered that never showed here), `frame` (the stream's pixel size);
 /// - `rtt_ms_window`, `frame_interval_ms` and `present_ms` (decoded to shown): {count, p50, p95,
 ///   max} over the last 60 round trips and 120 frames; null before the first sample.
+/// - `window_pid`, `window_id` (the pane's window, for a screen capture of it to time the presented
+///   frame: screen-share-vs.py `--app-viewer`), `window_on_primary_display`; `hub_session` and
+///   `session_scope` (the hub's session id and the scope it streams), `transport` (the stream's carrier).
 /// And `hub` (``hubStateRow``): this Mac's device hub, whether it runs, is registered and shares.
 /// No credential, no device address, no pixel of the screen. Nothing here connects, disconnects or
 /// sends input: those stay the person's clicks in the pane (and `debug.mac_screen` in DEV builds).
@@ -124,6 +129,11 @@ extension MacScreenPages {
         row["hub_phase"] = hubPhase.map { .string(hubPhaseName($0)) } ?? .null
         row["scope"] = hubPhase.flatMap(Self.scope).map { .string($0.rawValue) } ?? .null
         row["error"] = errorText(pane.model).map(JSONValue.string) ?? .null
+        // Waiting for Connect to show: the hub holds a scope to resume.
+        row["waits_to_show"] = .bool(pane.model.hub?.resumeScope != nil)
+        row.merge(windowFields(pane.view.window)) { $1 }
+        row["hub_session"] = pane.model.hub?.phase.sessionID.map(JSONValue.string) ?? .null
+        row["session_scope"] = pane.model.hub?.phase.streamingScope.map { .string($0.rawValue) } ?? .null
         guard let session = pane.session else { return .object(row) }
         // A session that never connected sits in its initial `.ended`: no stream, not one that ended.
         let started = session.timings.startedAt != nil || session.phase != .ended
@@ -132,7 +142,14 @@ extension MacScreenPages {
         // Where a connect is (no_answer, no_link, no_frame, shown), and where one that timed out stopped.
         row["connect_stage"] = .string(session.connectStage.name)
         row["timed_out_at"] = session.timedOutStage.map { .string($0.name) } ?? .null
+        // Why it failed, in the words of the side that knew (the host's grant, display list or helper; this Mac's link).
+        row["failure"] = switch session.failureCause {
+        case let .host(reason)?: ["by": "host", "reason": .string(reason)]
+        case let .link(reason)?: ["by": "link", "reason": .string(reason)]
+        case nil: .null
+        }
         row["path"] = .string(session.streamPath)
+        row["transport"] = session.transportCarrier.map(JSONValue.string) ?? .null
         let timings = session.timings
         row["connect_started_at"] = timings.startedAt.map { .string($0.formatted(.iso8601)) } ?? .null
         row["first_frame_ms"] = timings.firstFrameMs.map(JSONValue.number) ?? .null
@@ -154,6 +171,22 @@ extension MacScreenPages {
         row["glass_ms"] = frames.map { summary($0.glass) } ?? .null
         row["decode_present_ms"] = frames.map { summary($0.decodePresent) } ?? .null
         return .object(row)
+    }
+
+    /// The pane's window as a screen capture finds it: this process and the window number, and whether it
+    /// sits wholly on the main display (a capture of display 1 sees it). Null with no window on screen.
+    static func windowFields(_ window: NSWindow?) -> [String: JSONValue] {
+        guard let window, window.windowNumber > 0 else {
+            return ["window_pid": .null, "window_id": .null, "window_on_primary_display": false]
+        }
+        let main = NSScreen.screens.first { screenID($0) == CGMainDisplayID() }
+        let onMain = main.map { screenID(window.screen) == CGMainDisplayID() && $0.frame.contains(window.frame) } ?? false
+        return ["window_pid": .number(Double(ProcessInfo.processInfo.processIdentifier)),
+                "window_id": .number(Double(window.windowNumber)), "window_on_primary_display": .bool(onMain)]
+    }
+
+    private static func screenID(_ screen: NSScreen?) -> CGDirectDisplayID? {
+        (screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber).map { CGDirectDisplayID($0.uint32Value) }
     }
 
     private static func summary(_ samples: MacScreenRollingSamples) -> JSONValue {
