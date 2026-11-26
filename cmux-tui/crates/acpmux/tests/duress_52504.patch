@@ -1,0 +1,465 @@
+diff --git a/cmux-tui/crates/acpmux/src/hub/list_guard.rs b/cmux-tui/crates/acpmux/src/hub/list_guard.rs
+index 8cc92cfe9de..3b2cff98381 100644
+--- a/cmux-tui/crates/acpmux/src/hub/list_guard.rs
++++ b/cmux-tui/crates/acpmux/src/hub/list_guard.rs
+@@ -17,6 +17,7 @@ use super::session_pages::PageRow;
+ use super::*;
+ use cmux_json::JsonSet as _;
+ use std::collections::HashSet;
++#[cfg(test)]
+ use std::ops::Range;
+ 
+ /// The hub's event channel. Every send is a change some list shows.
+@@ -442,6 +443,7 @@ pub(super) fn reaches_other_rows(dir: &str, kind: &str) -> bool {
+ }
+ 
+ /// Where each row of a list's text is, and the paging keys of each (`at` its place).
++#[cfg(test)]
+ pub(crate) type Built = (String, Vec<Range<usize>>, Vec<Value>);
+ 
+ /// The reply to `params` that has no `limit` (the whole list, or a filter of it), of `sorted`
+@@ -547,6 +549,7 @@ pub(crate) fn page_text<R: AsRef<str>>(next: Option<String>, rows: &[R]) -> Stri
+ /// cut short by its bytes ends with the `nextCursor` of its last row, as a page of that many rows
+ /// would: 1000 rows of a busy host with usage were more than one message, refused whole on every
+ /// retry. A row larger than `budget` alone is trimmed ([`row_text`]).
++#[cfg(test)]
+ pub(crate) fn cut_page(
+     (text, spans): (&str, &[Range<usize>]),
+     rows: &[Value],
+@@ -572,11 +575,13 @@ pub(crate) fn cut_page(
+ 
+ /// A list row built for a page (`Hub::session_page_rows`): this daemon's as a tree, or a peer's
+ /// as its text (`PeerRow::listed`) with its row, whose paging keys are kept typed: never parsed.
++#[cfg(test)]
+ pub(crate) enum BuiltRow {
+     Tree(Value),
+     Peer(String, Arc<RemoteSession>),
+ }
+ 
++#[cfg(test)]
+ impl PageRow for BuiltRow {
+     fn session_id(&self) -> &str {
+         match self {
+@@ -608,11 +613,13 @@ impl PageRow for BuiltRow {
+ }
+ 
+ /// A row [`serialize_in_order`] writes: its text, and its paging keys.
++#[cfg(test)]
+ pub(crate) trait InOrder {
+     fn write(&self, out: &mut Vec<u8>);
+     fn paging_keys(&self, at: usize) -> Value;
+ }
+ 
++#[cfg(test)]
+ impl InOrder for Value {
+     fn write(&self, out: &mut Vec<u8>) {
+         // A Value always serializes, and Vec's writer cannot fail.
+@@ -624,6 +631,7 @@ impl InOrder for Value {
+     }
+ }
+ 
++#[cfg(test)]
+ impl InOrder for BuiltRow {
+     fn write(&self, out: &mut Vec<u8>) {
+         match self {
+@@ -645,6 +653,7 @@ impl InOrder for BuiltRow {
+ 
+ /// `rows`, in the order given (not sorted), as a list's text, where each is in it, and the
+ /// paging keys of each (`at` its place): what [`cut_page`] cuts.
++#[cfg(test)]
+ pub(crate) fn serialize_in_order<R: InOrder>(rows: &[R]) -> Built {
+     let prefix = br#"{"sessions":["#;
+     let mut whole = Vec::from(&prefix[..]);
+@@ -668,6 +677,7 @@ pub(crate) fn serialize_in_order<R: InOrder>(rows: &[R]) -> Built {
+ pub(crate) const LINE_ROOM: usize = 256;
+ 
+ /// Row `key` of `text` ([`fit_row`]).
++#[cfg(test)]
+ fn row_text<'a>(
+     text: &'a str,
+     spans: &[Range<usize>],
+@@ -684,7 +694,7 @@ fn row_text<'a>(
+ /// `row` (whose paging keys are `key`): whole when it fits in `budget`, else trimmed to fit, its
+ /// largest fields first (`reply_fit.rs`), or as [`too_large_stub`] when even the fields it keeps
+ /// do not.
+-fn fit_row<'a, K: PageRow + ?Sized>(
++pub(crate) fn fit_row<'a, K: PageRow + ?Sized>(
+     row: &'a str,
+     key: &K,
+     budget: usize,
+@@ -717,10 +727,10 @@ pub(crate) fn fit_text(row: String, budget: usize) -> String {
+ 
+ /// The cursor of the page after `last`: a census's (`orderBy`, `s:<id>`) or the list's
+ /// (`session_pages::cursor_after`).
+-fn page_cursor(params: &Value, last: &Value) -> String {
++pub(crate) fn page_cursor<K: PageRow + ?Sized>(params: &Value, last: &K) -> String {
+     let census = params.get("orderBy").and_then(Value::as_str).is_some_and(|o| !o.is_empty());
+     if census {
+-        format!("s:{}", last.get("sessionId").and_then(Value::as_str).unwrap_or(""))
++        format!("s:{}", last.session_id())
+     } else {
+         super::session_pages::cursor_after(last)
+     }
+diff --git a/cmux-tui/crates/acpmux/src/hub/page_first.rs b/cmux-tui/crates/acpmux/src/hub/page_first.rs
+index 9b24f455209..9fc7814b6c4 100644
+--- a/cmux-tui/crates/acpmux/src/hub/page_first.rs
++++ b/cmux-tui/crates/acpmux/src/hub/page_first.rs
+@@ -19,6 +19,7 @@
+ //! they go, and it stops at its page's bytes. Leo, 2026-11-12: "Delete the pacer, the snapshot
+ //! variants, watch_delta.rs and Known."
+ 
++#[cfg(test)]
+ use super::list_guard::BuiltRow;
+ use super::session_pages::{PageRow, Picked, pick_page};
+ use super::*;
+@@ -206,9 +207,66 @@ impl Hub {
+         ListRows { rows, states: self.peer_link_states() }
+     }
+ 
++    /// The page `params` asks for (`session_pages::pick_page`: filters, cursor, order and
++    /// `limit`), picked, none of its rows built yet: [`Hub::session_page_text`] builds them as its
++    /// reply's bytes take them.
++    pub(crate) fn session_page(&self, params: &Value) -> Result<PickedPage, RpcError> {
++        let (list, Picked { rows, next }) = self.picked_page(params)?;
++        Ok(PickedPage { list, rows, next, made: Default::default() })
++    }
++
++    /// `page`'s reply text: its rows in reply order, each built (with tools when `with_tools`)
++    /// only when it goes, as many as fit in `budget` bytes, at least one, with the `nextCursor` of
++    /// the rest (`list_guard::cut_page` cuts the same way). A row larger than `budget` alone is
++    /// trimmed (`list_guard::fit_row`).
++    ///
++    /// Rows are built as the bytes take them, not every picked row first: `acpmux ls` asks for
++    /// pages of 1000 rows and more, of which a page of 4 KB rows sends about 260 in its 1 MB, and
++    /// building every picked row first made each page cost up to 1000 rows, and a whole list of
++    /// N rows about N²/520 row builds (docs/findings/2026-11-23-acpmux-cli-startup-tax.md in
++    /// cmuxterm-hq: 355 ms for 833 rows). A row built for a larger `budget` is not built again
++    /// for a smaller one (`list_reply.rs` `within_limit`).
++    pub(crate) fn session_page_text(
++        &self,
++        page: &PickedPage,
++        params: &Value,
++        with_tools: bool,
++        budget: usize,
++    ) -> String {
++        let mut next = page.next.clone();
++        let (mut texts, mut used) = (Vec::<Arc<str>>::with_capacity(64), 0_usize);
++        let mut last: Option<&Unbuilt> = None;
++        for &at in &page.rows {
++            let Some(row) = page.list.rows().get(at) else { continue };
++            let text = page
++                .made
++                .borrow_mut()
++                .entry(at)
++                .or_insert_with(|| page.list.text(self, row, with_tools))
++                .clone();
++            let text: Arc<str> = match super::list_guard::fit_row(&text, row, budget) {
++                std::borrow::Cow::Borrowed(_) => text,
++                std::borrow::Cow::Owned(fitted) => fitted.into(),
++            };
++            // One more byte for the comma between rows.
++            let total = used.saturating_add(text.len()).saturating_add(1);
++            if let Some(last) = last
++                && total > budget
++            {
++                next = Some(Value::String(super::list_guard::page_cursor(params, last)));
++                break;
++            }
++            used = total;
++            texts.push(text);
++            last = Some(row);
++        }
++        super::list_guard::page_text(next.map(|next| next.to_string()), &texts)
++    }
++
+     /// The rows of the page `params` asks for (`session_pages::pick_page`: filters, cursor, order
+     /// and `limit`), each built, with tools when `with_tools`, in reply order, and the page's
+     /// `nextCursor`. No row outside the page is built.
++    #[cfg(test)]
+     pub(crate) fn session_page_rows(
+         &self,
+         params: &Value,
+@@ -306,6 +364,16 @@ pub(crate) struct ClosedListed {
+     pub(crate) remote: usize,
+ }
+ 
++/// A page by `limit` picked ([`Hub::session_page`]): the rows it is picked from, its rows' places
++/// among them in reply order, its `nextCursor` (null when the list ends there), and the rows'
++/// texts built so far, by place.
++pub(crate) struct PickedPage {
++    list: ListRows,
++    rows: Vec<usize>,
++    next: Option<Value>,
++    made: std::cell::RefCell<HashMap<usize, Arc<str>>>,
++}
++
+ /// The rows a window of the kept order holds past a page's `limit`: a filter or two may leave a
+ /// few of them out without a second read.
+ pub(super) const WINDOW_ROOM: usize = 64;
+diff --git a/cmux-tui/crates/acpmux/src/hub/session_pages_bench_tests.rs b/cmux-tui/crates/acpmux/src/hub/session_pages_bench_tests.rs
+index beca3887bed..e1f7fb71b86 100644
+--- a/cmux-tui/crates/acpmux/src/hub/session_pages_bench_tests.rs
++++ b/cmux-tui/crates/acpmux/src/hub/session_pages_bench_tests.rs
+@@ -251,3 +251,114 @@ async fn a_page_of_its_own_rows_is_the_whole_lists_page() {
+         assert_eq!(page, expect(&params), "{params}");
+     }
+ }
++
++/// A hub on a memory store like [`seeded`], each row about `row_bytes` wide (its `cwd`), its
++/// closed and idle chats interleaved, newest first, as a lane VM's list is.
++fn seeded_wide(closed: usize, idle: usize, row_bytes: usize) -> Arc<Hub> {
++    let mut cfg = crate::config::Config::default();
++    cfg.store.mode = crate::config::StoreMode::Memory;
++    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
++    let total = closed + idle;
++    for i in 0..total {
++        // Every k-th chat is idle, the rest closed.
++        let status = if i * idle / total != (i + 1) * idle / total { "idle" } else { "closed" };
++        let meta = json!({"schema": "acpmux.session.v1", "id": format!("w-{i:05}"),
++            "name": format!("chat-{i}"), "harness": "claude",
++            "cwd": format!("/work/{}", "d".repeat(row_bytes)),
++            "status": status, "createdAt": 1, "updatedAt": 1_000 + i});
++        store.save(&serde_json::from_value(meta).unwrap()).unwrap();
++    }
++    Hub::new(cfg, store)
++}
++
++/// The page path before 2026-11-23 (cmuxterm-hq docs/findings/2026-11-23-acpmux-cli-startup-tax.md),
++/// kept to measure against: every row a `limit=1000` page picks is built, then the page is cut to
++/// its bytes. Returns (pages, rows built, ms) for a whole read.
++fn old_whole_paged_read(hub: &Arc<Hub>) -> (usize, usize, f64) {
++    use crate::hub::list_guard::{cut_page, serialize_in_order};
++    use std::sync::atomic::Ordering::SeqCst;
++    let budget = crate::rpc::REPLY_PAGE_BYTES - (16 << 10);
++    let before = hub.summaries_built.load(SeqCst);
++    let start = Instant::now();
++    let (mut pages, mut params) = (0_usize, json!({"limit": 1000, "localOnly": true}));
++    loop {
++        let (rows, next) = hub.session_page_rows(&params, false).unwrap();
++        let (text, spans, keys) = serialize_in_order(&rows);
++        let page: Value = serde_json::from_str(&cut_page(
++            (text.as_str(), spans.as_slice()),
++            &keys,
++            next,
++            &params,
++            budget,
++        ))
++        .unwrap();
++        pages += 1;
++        match page["nextCursor"].as_str() {
++            Some(cursor) => params["cursor"] = json!(cursor),
++            None => break,
++        }
++    }
++    (
++        pages,
++        (hub.summaries_built.load(SeqCst) - before) as usize,
++        start.elapsed().as_secs_f64() * 1000.0,
++    )
++}
++
++/// docs/findings/2026-11-23-acpmux-cli-startup-tax.md (cmuxterm-hq): a lane VM's whole local
++/// `acpmux ls` (833 chats, 4 KB rows, 512 closed) took 355 ms, 8x one row. `ls` reads pages of
++/// 1000 rows and more; a page's 1 MB holds about 260 of these rows, and the daemon built every
++/// picked row before cutting the page to its bytes, so each page built up to 1000 rows to send
++/// 260, and the whole read built its live rows about twice over (N²/520 rows). The whole read, at
++/// 833 chats and at 3,332, builds each row about once: what it sends.
++#[tokio::test]
++async fn a_whole_paged_read_builds_each_row_once_not_per_page() {
++    use std::sync::atomic::Ordering::SeqCst;
++    let mut times = Vec::new();
++    for (closed, idle) in [(512_usize, 321_usize), (2_048, 1_284)] {
++        let n = closed + idle;
++        let hub = seeded_wide(closed, idle, 4_000);
++        // Warm the closed rows' cache, as a long-running daemon has it.
++        let _ =
++            read_whole(&hub, "_acpmux/sessions", json!({"limit": 1000, "localOnly": true})).await;
++        let before = hub.summaries_built.load(SeqCst);
++        let (mut pages, mut params, mut ids, mut ms) =
++            (0_usize, json!({"limit": 1000, "localOnly": true}), Vec::new(), 0.0);
++        loop {
++            let (page, _, time) = read(&hub, "_acpmux/sessions", params.clone()).await;
++            pages += 1;
++            ms += time;
++            for row in page["sessions"].as_array().unwrap() {
++                ids.push(row["sessionId"].as_str().unwrap().to_owned());
++            }
++            match page["nextCursor"].as_str() {
++                Some(cursor) => params["cursor"] = json!(cursor),
++                None => break,
++            }
++        }
++        let built = (hub.summaries_built.load(SeqCst) - before) as usize;
++        println!(
++            "PERF whole-paged-read chats={n} live={idle} pages={} built={built} ms={ms:.1}",
++            pages
++        );
++        let (old_pages, old_built, old_ms) = old_whole_paged_read(&hub);
++        println!(
++            "PERF whole-paged-read-before chats={n} live={idle} pages={old_pages} \
++             built={old_built} ms={old_ms:.1} (every picked row built, then cut to the page bytes)"
++        );
++        assert_eq!(old_pages, pages, "{n} chats: the old and new paths page alike");
++        times.push((n, built, ms));
++        assert!(pages > 1, "{n} chats: one page; the rows are too narrow to test cutting");
++        let unique: std::collections::HashSet<&String> = ids.iter().collect();
++        assert_eq!(unique.len(), n, "{n} chats: every chat once");
++        assert_eq!(ids.len(), n, "{n} chats: no chat twice");
++        // Each live row is built for the page that sends it; a closed one is its cached bytes.
++        // One more per page: the row a page's bytes stop at may be built and not sent.
++        assert!(
++            built <= idle + pages,
++            "{n} chats ({idle} live): the whole read built {built} rows in {} pages",
++            pages
++        );
++    }
++    println!("PERF whole-paged-read {times:?} (chats, rows built, ms)");
++}
+diff --git a/cmux-tui/crates/acpmux/src/server/list_reply.rs b/cmux-tui/crates/acpmux/src/server/list_reply.rs
+index 03674f8590a..9b7b425213c 100644
+--- a/cmux-tui/crates/acpmux/src/server/list_reply.rs
++++ b/cmux-tui/crates/acpmux/src/server/list_reply.rs
+@@ -99,8 +99,9 @@ async fn send_list(hub: &Hub, conn: &Conn, text: Arc<String>) -> Result<Value, R
+ }
+ 
+ /// A page by `limit`, or a census in its own order (`orderBy`): its own rows, picked before any is
+-/// built (`Hub::session_page_rows`), at most `limit` of them and at most [`LIST_PAGE_BYTES`]
+-/// (`list_guard::cut_page`): a page of five costs five rows, whatever the list's size.
++/// built (`Hub::session_page`), at most `limit` of them and at most [`LIST_PAGE_BYTES`], each
++/// built only when the page's bytes take it (`Hub::session_page_text`): a page of five costs five
++/// rows, whatever the list's size, and a page of 1000 cut to 260 by its bytes costs 260.
+ async fn page(
+     hub: &Hub,
+     conn: &Conn,
+@@ -108,14 +109,13 @@ async fn page(
+     tools: bool,
+     cursor: Option<Cursor>,
+ ) -> Result<Value, RpcError> {
+-    use crate::hub::list_guard::{cut_page, serialize_in_order};
+     let raw = conn.raw_text;
+-    let (rows, next) = hub.session_page_rows(params, tools)?;
+-    let (text, spans, keys) = serialize_in_order(&rows);
+-    drop(rows);
+-    let text = within_limit(raw, LIST_PAGE_BYTES, |budget| {
+-        Ok(cut_page((text.as_str(), spans.as_slice()), &keys, next.clone(), params, budget))
+-    })?;
++    let text = {
++        let picked = hub.session_page(params)?;
++        within_limit(raw, LIST_PAGE_BYTES, |budget| {
++            Ok(hub.session_page_text(&picked, params, tools, budget))
++        })?
++    };
+     send_list(hub, conn, with_watch_cursor(hub, text, cursor)).await
+ }
+ 
+diff --git a/scripts/measure/acpmux-ls-latency.py b/scripts/measure/acpmux-ls-latency.py
+new file mode 100755
+index 00000000000..34700ec7eff
+--- /dev/null
++++ b/scripts/measure/acpmux-ls-latency.py
+@@ -0,0 +1,105 @@
++#!/usr/bin/env python3
++"""acpmux ls latency against a running daemon: the harness of cmuxterm-hq
++docs/findings/2026-11-23-acpmux-cli-startup-tax.md, as a tool.
++
++Runs each command N times, alternating, after one warm-up, and prints its stdout bytes, median and
++p95 wall time, and median child CPU (RUSAGE_CHILDREN: the launched acpmux only, not the daemon).
++It also times the daemon's `_acpmux/sessions` pages over the socket alone (no CLI), the part a
++list's row count scales: `raw limit=1000` is one page as `acpmux ls` asks for it.
++
++Read-only: it lists, never changes a session. Run on any host with a daemon:
++  python3 scripts/measure/acpmux-ls-latency.py [--samples 20] [--acpmux acpmux]
++    [--socket ~/.acpmux/acpmux.sock] [--json OUT]
++"""
++
++import argparse
++import json
++import os
++import resource
++import socket
++import statistics
++import subprocess
++import time
++
++COMMANDS = [
++    ("version", ["--version"]),
++    ("ls limit 1", ["--json", "ls", "--machine", "local", "--limit", "1", "--fields", "name,status"]),
++    ("ls limit 100", ["--json", "ls", "--machine", "local", "--limit", "100", "--fields", "name,status"]),
++    ("ls local", ["--json", "ls", "--machine", "local", "--fields", "name,status"]),
++    ("ls local full rows", ["--json", "ls", "--machine", "local"]),
++]
++
++RAW = [
++    ("raw limit=1", {"limit": 1, "localOnly": True}),
++    ("raw limit=1000", {"limit": 1000, "localOnly": True}),
++]
++
++
++def p95(values):
++    ordered = sorted(values)
++    return ordered[min(len(ordered) - 1, round(0.95 * (len(ordered) - 1)))]
++
++
++def run(acpmux, argv):
++    before = resource.getrusage(resource.RUSAGE_CHILDREN)
++    start = time.perf_counter()
++    done = subprocess.run([acpmux, *argv], capture_output=True, check=False)
++    wall = (time.perf_counter() - start) * 1000
++    after = resource.getrusage(resource.RUSAGE_CHILDREN)
++    cpu = ((after.ru_utime - before.ru_utime) + (after.ru_stime - before.ru_stime)) * 1000
++    return wall, cpu, len(done.stdout)
++
++
++def raw(path, params):
++    with socket.socket(socket.AF_UNIX) as conn:
++        conn.connect(path)
++        start = time.perf_counter()
++        line = {"jsonrpc": "2.0", "id": 1, "method": "_acpmux/sessions", "params": params}
++        conn.sendall((json.dumps(line) + "\n").encode())
++        buf = bytearray()
++        while not buf.endswith(b"\n"):
++            chunk = conn.recv(1 << 20)
++            if not chunk:
++                break
++            buf += chunk
++        wall = (time.perf_counter() - start) * 1000
++    result = json.loads(buf).get("result") or {}
++    return wall, len(buf), len(result.get("sessions") or [])
++
++
++def main():
++    parser = argparse.ArgumentParser()
++    parser.add_argument("--samples", type=int, default=20)
++    parser.add_argument("--acpmux", default="acpmux")
++    parser.add_argument("--socket", default=os.path.expanduser("~/.acpmux/acpmux.sock"))
++    parser.add_argument("--json")
++    args = parser.parse_args()
++    samples = {label: [] for label, _ in COMMANDS + RAW}
++    for _, argv in COMMANDS:
++        run(args.acpmux, argv)
++    for _ in range(args.samples):
++        for label, argv in COMMANDS:
++            samples[label].append(run(args.acpmux, argv))
++        for label, params in RAW:
++            samples[label].append(raw(args.socket, params))
++    print("| command | stdout bytes | rows | median wall | p95 wall | median child CPU |")
++    print("| --- | ---: | ---: | ---: | ---: | ---: |")
++    out = {}
++    for label, rows in samples.items():
++        walls = [r[0] for r in rows]
++        if label.startswith("raw"):
++            size, count, cpu = rows[-1][1], rows[-1][2], None
++        else:
++            size, count, cpu = rows[-1][2], None, statistics.median(r[1] for r in rows)
++        out[label] = {"bytes": size, "rows": count, "median_ms": statistics.median(walls),
++                      "p95_ms": p95(walls), "child_cpu_ms": cpu}
++        cpu_text = "-" if cpu is None else f"{cpu:.2f} ms"
++        print(f"| {label} | {size:,} | {count if count is not None else '-'} | "
++              f"{statistics.median(walls):.2f} ms | {p95(walls):.2f} ms | {cpu_text} |")
++    if args.json:
++        with open(args.json, "w") as f:
++            json.dump(out, f, indent=2)
++
++
++if __name__ == "__main__":
++    main()
