@@ -734,7 +734,15 @@ final class CEFOffscreenPageView: NSView, InTreePageContainer, NSTextInputClient
     // MARK: Focus
 
     override func becomeFirstResponder() -> Bool {
+        // The page view took the cmux window's keyboard (a press in it, or cmux's grant): Chromium hears it as focus
+        // cmux granted. CEF's SetFocus asks back through OnSetFocus at once (UI thread is the main thread), and the
+        // focus handler refuses every ask made outside a grant (CEFTab.chromiumRequestsFocus); a press's focus was
+        // refused, so the page never had GotFocus/SetActive (document.hasFocus() false, no select popup).
+        let tab = CEFRuntime.shared.tabsByBrowser[browser]
+        let wasGranting = tab?.isGrantingFocus ?? false
+        tab?.isGrantingFocus = true
         CEFRuntime.shared.shim?.setFocus(browser, 1)
+        tab?.isGrantingFocus = wasGranting
         return true
     }
 
