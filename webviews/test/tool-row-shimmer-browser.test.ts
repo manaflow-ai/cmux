@@ -155,6 +155,51 @@ await requireBrowserLane("tool-row-shimmer-browser.test.ts", async () => {
     expect(rows[1]!.color).not.toBe(rows[3]!.color);
   });
 
+  // Leo, 2026-11-25 (ask-1487309410): "when the glimmer happens the thinking the tool call there's a
+  // timer number that appears at the end and overlaps?" The running time keeps its own space: the band's
+  // clip is the words' box, so at every step of its pass it ends before the timer starts.
+  for (const width of [820, 360])
+    test(`at ${width} px the band ends before each running row's timer`, async () => {
+      const page = await browser.newPage({ viewport: { width, height: 400 }, reducedMotion: "no-preference" });
+      try {
+        const port = (vite.httpServer!.address() as { port: number }).port;
+        await page.goto(`http://127.0.0.1:${port}/test/browser/tool-row-shimmer.html`);
+        await page.waitForFunction(
+          () => document.querySelectorAll("[data-fixture-state=running] .is-shimmer-active").length === 3,
+        );
+        const rows = await page.evaluate(() =>
+          [...document.querySelectorAll<HTMLElement>("[data-fixture-state=running] .cv-tool")].map((row) => {
+            const clip = row.querySelector<HTMLElement>(".cv-row-shimmer")!;
+            const band = clip.querySelector<HTMLElement>(".cv-row-shimmer__band")!;
+            const timer = row.querySelector<HTMLElement>(".cv-command__elapsed");
+            band.style.animation = "none";
+            const ends: number[] = [];
+            // The pass from its first step to its last (translateX -50% to 125% of the band's width).
+            for (const at of [-50, 0, 50, 100, 125]) {
+              band.style.transform = `translateX(${at}%)`;
+              const lit = clip.getBoundingClientRect();
+              const painted = band.getBoundingClientRect();
+              ends.push(Math.min(lit.right, painted.right));
+            }
+            return {
+              id: row.dataset.toolId!,
+              clipOverflow: getComputedStyle(clip).overflow,
+              end: Math.max(...ends),
+              timerLeft: timer ? timer.getBoundingClientRect().left : null,
+            };
+          }),
+        );
+        expect(rows.map((row) => row.id)).toEqual(["monitor", "read", "command"]);
+        for (const row of rows) {
+          expect(row.timerLeft, `timer: ${row.id}`).not.toBeNull();
+          expect(row.clipOverflow, `clip: ${row.id}`).toBe("hidden");
+          expect(row.end, `band past the timer: ${row.id}`).toBeLessThanOrEqual(row.timerLeft! + 0.5);
+        }
+      } finally {
+        await page.close();
+      }
+    });
+
   for (const [name, reduced, motion] of [
     ["Reduce Motion", "reduce", undefined],
     ["the motion gate (reduced)", "no-preference", "reduced"],

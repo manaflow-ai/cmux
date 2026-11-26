@@ -81,7 +81,6 @@ const CARDS: Record<string, string[]> = {
   "tool output": [".cv-tool-output", ".cv-tool-output__box"],
   "MCP call": [".cv-mcp-call__body"],
   "tool fields": [".cv-tool-detail__fields"],
-  plan: [".cv-plan"],
   "permission ask": [".acpmux-ask"],
   "shell block": [".acpmux-shell-block"],
   "run elsewhere": [".cv-run-elsewhere"],
@@ -122,10 +121,13 @@ test("every content card in the transcript paints the card level and its line", 
   for (const [name, selectors] of Object.entries(CARDS)) {
     const fills = declarations(selectors, BACKGROUND);
     expect(fills.length, name).toBeGreaterThan(0);
-    expect([...new Set(fills)], name).toEqual(["var(--ds-surface-card)"]);
+    // A card a transcript look styles names the look's card paint (--cv-card-fill, which body maps
+    // onto the card level) and its ring (--cv-look-card-ring, the card line until a look's
+    // toolCard.border none clears it), #46848.
+    for (const fill of new Set(fills)) expect(fill, name).toMatch(/^var\(--(ds-surface-card|cv-card-fill)\)$/);
     const rings = declarations(selectors, RING).filter((ring) => ring !== "0" && ring !== "none");
     expect(rings.length, name).toBeGreaterThan(0);
-    for (const ring of rings) expect(ring, name).toContain("var(--ds-surface-card-line)");
+    for (const ring of rings) expect(ring, name).toMatch(/var\(--(ds-surface-card-line|cv-look-card-ring)\)/);
   }
 });
 

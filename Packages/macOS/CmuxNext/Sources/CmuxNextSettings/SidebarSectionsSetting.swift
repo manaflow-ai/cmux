@@ -50,6 +50,8 @@ public nonisolated enum SidebarSectionsSetting {
         result.showSpaces = flag(root, showSpacesPath, fallback: showSpacesDefault, &diagnostics)
         result.showProfileControl = flag(root, showProfileControlPath, fallback: showProfileControlDefault, &diagnostics)
         result.showSearchButton = flag(root, showSearchButtonPath, fallback: showSearchButtonDefault, &diagnostics)
+        result.showLiveToggle = flag(root, showLiveTogglePath, fallback: showLiveToggleDefault, &diagnostics)
+        result.presenceLive = flag(root, presenceLivePath, fallback: presenceLiveDefault, &diagnostics)
         result.showNewWorkspaceChooser = flag(root, showNewWorkspaceChooserPath, fallback: showNewWorkspaceChooserDefault, &diagnostics)
         result.workspacesAsTabs = flag(root, workspacesAsTabsPath, fallback: workspacesAsTabsDefault, &diagnostics)
         result.chromeGroups = flag(root, chromeGroupsPath, fallback: chromeGroupsDefault, &diagnostics)
@@ -60,6 +62,9 @@ public nonisolated enum SidebarSectionsSetting {
         result.minimal = flag(root, minimalPath, fallback: minimalDefault, &diagnostics)
         result.detailedStatusIcons = flag(root, detailedStatusIconsPath, fallback: detailedStatusIconsDefault, &diagnostics)
         result.showTimestamps = flag(root, showTimestampsPath, fallback: showTimestampsDefault, &diagnostics)
+        result.settleFinished = flag(root, settleFinishedPath, fallback: settleFinishedDefault, &diagnostics)
+        result.showAutomaticSessions = flag(root, showAutomaticSessionsPath, fallback: showAutomaticSessionsDefault, &diagnostics)
+        result.showAgentSessions = flag(root, showAgentSessionsPath, fallback: showAgentSessionsDefault, &diagnostics)
         result.showColors = flag(root, showColorsPath, fallback: showColorsDefault, &diagnostics)
         result.workspaceColorIndicator = WorkspaceColorsSetting.parseIndicatorStyle(root, fallback: WorkspaceColorsSetting.indicatorStyleDefault, &diagnostics)
         result.showLocalMachine = flag(root, showLocalMachinePath, fallback: showLocalMachineDefault, &diagnostics)
@@ -78,6 +83,7 @@ public nonisolated enum SidebarSectionsSetting {
         result.style = ColumnLayoutSettings.choice(root, stylePath, fallback: styleDefault, diagnostics: &diagnostics)
         result.showChats = flag(root, showChatsPath, fallback: showChatsDefault, &diagnostics)
         result.projection = SidebarProjectionCustomizationResolver.parse(root, diagnostics: &diagnostics)
+        result.nav = SidebarNavResolver.parse(root, diagnostics: &diagnostics)
         return result
     }
 

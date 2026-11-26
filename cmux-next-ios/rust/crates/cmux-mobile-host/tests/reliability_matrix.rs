@@ -81,6 +81,9 @@ struct Toxics {
 #[derive(Clone)]
 struct ToxicControl {
     offline: watch::Sender<bool>,
+    /// Mac to phone only: the phone's downlink stalls, its uplink works (a slow or
+    /// starved download with a free upload).
+    downstream_stalled: watch::Sender<bool>,
 }
 
 impl ToxicControl {
@@ -91,6 +94,14 @@ impl ToxicControl {
     fn come_back(&self) {
         let _ = self.offline.send(false);
     }
+
+    fn stall_downstream(&self) {
+        let _ = self.downstream_stalled.send(true);
+    }
+
+    fn resume_downstream(&self) {
+        let _ = self.downstream_stalled.send(false);
+    }
 }
 
 /// Two stream ends (phone, Mac) joined through the toxics.
@@ -100,13 +111,27 @@ fn toxic_pipe(toxics: Toxics, seed: u64) -> (DuplexStream, DuplexStream, ToxicCo
     let (offline, offline_rx) = watch::channel(false);
     let (phone_read, phone_write) = tokio::io::split(phone_inner);
     let (mac_read, mac_write) = tokio::io::split(mac_inner);
-    tokio::spawn(pump(phone_read, mac_write, toxics, offline_rx.clone(), seed));
-    tokio::spawn(pump(mac_read, phone_write, toxics, offline_rx, seed.wrapping_mul(31).wrapping_add(7)));
-    (phone, mac, ToxicControl { offline })
+    let (downstream_stalled, downstream_rx) = watch::channel(false);
+    tokio::spawn(pump(phone_read, mac_write, toxics, offline_rx.clone(), None, seed));
+    tokio::spawn(pump(
+        mac_read,
+        phone_write,
+        toxics,
+        offline_rx,
+        Some(downstream_rx),
+        seed.wrapping_mul(31).wrapping_add(7),
+    ));
+    (phone, mac, ToxicControl { offline, downstream_stalled })
 }
 
-async fn pump<R, W>(mut read: R, mut write: W, toxics: Toxics, mut offline: watch::Receiver<bool>, seed: u64)
-where
+async fn pump<R, W>(
+    mut read: R,
+    mut write: W,
+    toxics: Toxics,
+    mut offline: watch::Receiver<bool>,
+    mut stalled: Option<watch::Receiver<bool>>,
+    seed: u64,
+) where
     R: tokio::io::AsyncRead + Unpin + Send + 'static,
     W: tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
@@ -145,6 +170,13 @@ where
         while *offline.borrow() {
             if offline.changed().await.is_err() {
                 break;
+            }
+        }
+        if let Some(stalled) = stalled.as_mut() {
+            while *stalled.borrow() {
+                if stalled.changed().await.is_err() {
+                    break;
+                }
             }
         }
         if write.write_all(&chunk).await.is_err() {
@@ -243,13 +275,16 @@ async fn daemon_client(stream: tokio::net::UnixStream, state: Arc<DaemonState>) 
         let Ok(request) = serde_json::from_str::<Value>(&line) else { continue };
         let mut answer = json!({"id": request["id"], "ok": true, "data": request});
         match request["cmd"].as_str() {
-            Some("list-workspaces") => answer["data"] = workspace_tree(state.workspaces.load(Ordering::Relaxed)),
+            Some("list-workspaces") => {
+                answer["data"] = workspace_tree(state.workspaces.load(Ordering::Relaxed));
+            }
             Some("list-personal") => answer["data"] = json!({"groups": [], "workspaces": []}),
             Some("send") => {
                 let text = request["text"].as_str().unwrap_or_default();
                 if let Some(spec) = text.strip_prefix("FLOOD:") {
                     let parts: Vec<u64> = spec.split(':').filter_map(|p| p.parse().ok()).collect();
-                    let (count, size, delay) = (parts[0], parts[1] as usize, parts.get(2).copied().unwrap_or(0));
+                    let (count, size, delay) =
+                        (parts[0], parts[1] as usize, parts.get(2).copied().unwrap_or(0));
                     let write = Arc::clone(&write);
                     let id = request["id"].clone();
                     // The flood runs beside this reader, so the daemon keeps
@@ -294,6 +329,10 @@ struct Rig {
 
 impl Rig {
     async fn start(workspaces: usize, toxics: Toxics) -> Self {
+        Self::start_acpmux(workspaces, toxics, "ws://127.0.0.1:1/".into()).await
+    }
+
+    async fn start_acpmux(workspaces: usize, toxics: Toxics, acpmux_url: String) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let daemon = FakeDaemon::start(dir.path(), workspaces);
         let config = Arc::new(ServiceConfig {
@@ -301,13 +340,14 @@ impl Rig {
             default_session: "main".into(),
             default_socket: None,
             file_roots: vec![],
-            acpmux: AcpmuxTarget::Fixed { url: "ws://127.0.0.1:1/".into(), token: None },
+            acpmux: AcpmuxTarget::Fixed { url: acpmux_url, token: None },
             pairing: None,
             agent_tab_host: None,
             uploads_dir: dir.path().join("uploads"),
             chief_socket: None,
             browser: cmux_mobile_host::browser::BrowserConfig::new(None, 1),
             surface: cmux_mobile_host::surface::SurfaceConfig::new(None, 1),
+            viewport_sync: None,
         });
         let (phone_stream, mac_stream, toxic) = toxic_pipe(toxics, 0x5eed);
         let phone = Link::new(phone_stream, Role::Phone, LinkConfig::default(), None);
@@ -323,6 +363,9 @@ impl Rig {
                         session_id: "matrix-session".into(),
                         video: None,
                         session_exposure: None,
+                        route: None,
+                        path: None,
+                        viewport: None,
                     },
                     Arc::new(LinkAuth::default()),
                     incoming,
@@ -363,7 +406,9 @@ impl Lines {
             }
             match channel.recv().await {
                 Some(ChannelEvent::Data(data)) => self.buffered.extend_from_slice(&data),
-                Some(ChannelEvent::Closed(info)) => return Err(format!("closed {}: {}", info.code, info.reason)),
+                Some(ChannelEvent::Closed(info)) => {
+                    return Err(format!("closed {}: {}", info.code, info.reason));
+                }
                 None => return Err("channel ended".into()),
             }
         }
@@ -450,7 +495,8 @@ async fn cell_scale_session_list() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "iOS reliability matrix cell: timed, run alone in release by ios-reliability-matrix.yml (--ignored)"]
 async fn cell_network_high_latency_and_loss() {
-    let toxics = Toxics { latency: Duration::from_millis(80), stall_chance: 0.03, stall: Duration::from_millis(250) };
+    let toxics =
+        Toxics { latency: Duration::from_millis(80), stall_chance: 0.03, stall: Duration::from_millis(250) };
     let mut results = Vec::new();
     for (variant, count) in [("small-1", 1usize), ("god-1000", 1000)] {
         let rig = Rig::start(count, toxics).await;
@@ -492,8 +538,11 @@ async fn head_of_line(cell: &str, lane: Lane) {
         let rig = Rig::start(1, toxics).await;
         let mut output = rig.daemon_channel(Lane::Bulk).await;
         let mut output_lines = Lines::new();
-        send_line(&output, &json!({"id": "flood", "cmd": "send", "surface": 13, "text": format!("FLOOD:{lines}:{size}:0")}))
-            .await;
+        send_line(
+            &output,
+            &json!({"id": "flood", "cmd": "send", "surface": 13, "text": format!("FLOOD:{lines}:{size}:0")}),
+        )
+        .await;
         // Let the flood get under way first.
         tokio::time::sleep(Duration::from_millis(30)).await;
         let mut samples = Vec::new();
@@ -511,10 +560,11 @@ async fn head_of_line(cell: &str, lane: Lane) {
             channel.close("eof", "matrix").await;
         }
         // The output arrives whole: every line once, in order.
-        let (_, events) = tokio::time::timeout(Duration::from_secs(60), output_lines.until_reply(&mut output, "flood"))
-            .await
-            .expect("tool output delivered within 60 s")
-            .expect("tool output");
+        let (_, events) =
+            tokio::time::timeout(Duration::from_secs(60), output_lines.until_reply(&mut output, "flood"))
+                .await
+                .expect("tool output delivered within 60 s")
+                .expect("tool output");
         let seqs: Vec<u64> = events.iter().filter_map(|e| e["seq"].as_u64()).collect();
         assert_eq!(seqs, (0..lines).collect::<Vec<_>>(), "tool output lost, duplicated or reordered lines");
         let p50 = median(samples);
@@ -611,13 +661,20 @@ async fn backlog_after_outage(cell: &str, per_delta: Duration) {
         );
         rig.finish().await;
         assert!(link_up, "{cell} {variant}: the link closed during a 3 s outage");
-        assert!(ping_ms < 2000.0, "{cell} {variant}: a ping took {ping_ms:.0} ms behind the backlog (the phone's probe gives up at 2 s and redials)");
+        assert!(
+            ping_ms < 2000.0,
+            "{cell} {variant}: a ping took {ping_ms:.0} ms behind the backlog (the phone's probe gives up at 2 s and redials)"
+        );
         assert!(
             matches!(drained, Ok(Ok(()))),
             "{cell} {variant}: the feed ended before its backlog: {drained:?} after {} of {deltas} deltas",
             seqs.len()
         );
-        assert_eq!(seqs.len() as u64, deltas, "{cell} {variant}: deltas lost or duplicated across the outage");
+        assert_eq!(
+            seqs.len() as u64,
+            deltas,
+            "{cell} {variant}: deltas lost or duplicated across the outage"
+        );
         assert!(in_order, "{cell} {variant}: deltas reordered across the outage");
         results.push(fresh_ms);
     }
@@ -679,7 +736,12 @@ async fn cell_host_daemon_restart() {
 
 /// The Mac sleeps under a live link (the stream goes silent and stays
 /// silent). The phone's link must notice and say so: closed within the
-/// keepalive bound, so the app redials instead of showing a frozen session.
+/// keepalive bound (one 15 s ping interval plus `KEEPALIVE_TIMEOUT`, 45 s
+/// since it outlasts a 30 s blackout: about 62 s, was 37 s), and not before
+/// the timeout, so a blackout the network comes back from keeps its link.
+/// It must turn suspect long before: within one ping interval plus
+/// `SUSPECT_AFTER` (about 20 s with no app probes; the app's own
+/// foreground probes make it about 5 s).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "iOS reliability matrix cell: timed, run alone in release by ios-reliability-matrix.yml (--ignored)"]
 async fn cell_host_mac_asleep_link_notices() {
@@ -688,12 +750,891 @@ async fn cell_host_mac_asleep_link_notices() {
     rig.toxic.go_offline();
     let began = Instant::now();
     let mut closed = rig.phone.closed_state();
+    let mut suspect = rig.phone.suspect_state();
     let config = LinkConfig::default();
-    let bound = config.keepalive.unwrap_or_default() + config.keepalive_timeout + Duration::from_secs(2);
-    let noticed = tokio::time::timeout(bound, closed.wait_for(Option::is_some)).await.is_ok();
+    let interval = config.keepalive.unwrap_or_default();
+    let suspect_bound = interval + config.suspect_after.unwrap_or_default() + Duration::from_secs(2);
+    let suspected = tokio::time::timeout(suspect_bound, suspect.wait_for(|suspect| *suspect)).await.is_ok();
+    let suspect_after = began.elapsed();
+    assert!(suspected, "a silent link was not suspect after {suspect_after:?}");
+    let bound = interval + config.keepalive_timeout + Duration::from_secs(2);
+    let noticed = tokio::time::timeout_at(began + bound, closed.wait_for(Option::is_some)).await.is_ok();
     let elapsed = began.elapsed();
+    assert!(elapsed >= config.keepalive_timeout || !noticed, "closed after {elapsed:?}, inside the timeout");
     let reason = closed.borrow().clone();
-    report("host_mac_asleep_link_notices", "small", json!({"noticed_ms": ms(elapsed), "reason": reason}));
+    report(
+        "host_mac_asleep_link_notices",
+        "small",
+        json!({"suspect_ms": ms(suspect_after), "noticed_ms": ms(elapsed), "reason": reason}),
+    );
     assert!(noticed, "a silent link stayed open for {elapsed:?}");
     rig.finish().await;
+}
+
+// ---------------------------------------------------------------------------
+// Chat: a prompt must not wait behind bulk output (contract point 5)
+// ---------------------------------------------------------------------------
+
+/// A fake acpmux WebSocket. An `_acpmux/status` request makes it push `frames` event frames of
+/// `size` bytes down that connection; `_acpmux/info` is answered; the moment a
+/// `session/prompt` arrives is sent on `prompt_seen`.
+async fn fake_acpmux(
+    frames: usize,
+    size: usize,
+    prompt_seen: mpsc::UnboundedSender<Instant>,
+) -> (String, tokio::task::JoinHandle<()>) {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("ws://{}/", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move {
+        loop {
+            let Ok((stream, _)) = listener.accept().await else { return };
+            let prompt_seen = prompt_seen.clone();
+            tokio::spawn(async move {
+                let Ok(socket) = tokio_tungstenite::accept_async(stream).await else { return };
+                let (mut sink, mut source) = socket.split();
+                let (out, mut queue) = mpsc::channel::<Message>(1);
+                tokio::spawn(async move {
+                    while let Some(message) = queue.recv().await {
+                        if sink.send(message).await.is_err() {
+                            return;
+                        }
+                    }
+                });
+                while let Some(Ok(frame)) = source.next().await {
+                    let Message::Text(text) = frame else { continue };
+                    let Ok(request) = serde_json::from_str::<Value>(&text) else { continue };
+                    match request["method"].as_str() {
+                        Some("_acpmux/info") => {
+                            let session = request["params"]["sessionId"].clone();
+                            let reply = json!({"jsonrpc": "2.0", "id": request["id"], "result": {"sessionId": session}});
+                            if out.send(Message::Text(reply.to_string().into())).await.is_err() {
+                                return;
+                            }
+                        }
+                        Some("session/prompt") => {
+                            let _ = prompt_seen.send(Instant::now());
+                        }
+                        Some("_acpmux/status") => {
+                            let out = out.clone();
+                            tokio::spawn(async move {
+                                let pad = "x".repeat(size);
+                                for seq in 0..frames {
+                                    let event = json!({"jsonrpc": "2.0", "method": "_acpmux/event",
+                                        "params": {"sessionId": "s1", "seq": seq, "pad": pad}});
+                                    if out.send(Message::Text(event.to_string().into())).await.is_err() {
+                                        return;
+                                    }
+                                }
+                            });
+                        }
+                        _ => {}
+                    }
+                }
+            });
+        }
+    });
+    (url, task)
+}
+
+/// Chat, phone to Mac while the Mac pushes bulk to the phone: 16 MB of event frames flood
+/// down while the phone's downlink is stalled (the uplink works), then the phone sends
+/// `session/prompt`. Measures prompt-sent to the fake acpmux receiving it. One relay loop
+/// that waits for room to push a frame to the phone stops reading the phone's prompt
+/// until the phone drains; two independent halves do not. The flood still arrives whole.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "iOS reliability matrix cell: timed, run alone in release by ios-reliability-matrix.yml (--ignored)"]
+async fn cell_chat_prompt_behind_bulk_downstream() {
+    let toxics = Toxics { latency: Duration::from_millis(20), ..Toxics::default() };
+    let (frames, size) = (64usize, 256 * 1024usize);
+    let (seen_tx, mut seen) = mpsc::unbounded_channel();
+    let (url, acpmux) = fake_acpmux(frames, size, seen_tx).await;
+    let rig = Rig::start_acpmux(1, toxics, url).await;
+    let mut channel = rig.phone.open_on("acpmux", json!({}), Lane::Bulk).await.expect("open acpmux channel");
+    // The phone's downlink is starved (a weak cell, a stalled app) while its uplink works.
+    rig.toxic.stall_downstream();
+    channel
+        .send(Bytes::from(json!({"jsonrpc": "2.0", "id": 1, "method": "_acpmux/status"}).to_string()))
+        .await
+        .unwrap();
+    // The phone reads nothing for 1.5 s; the link and the relay fill meanwhile.
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    let sent = Instant::now();
+    let prompt = json!({"jsonrpc": "2.0", "id": 2, "method": "session/prompt",
+        "params": {"sessionId": "s1", "prompt": [{"type": "text", "text": "hi"}]}});
+    channel.send(Bytes::from(prompt.to_string())).await.unwrap();
+    let arrived = tokio::time::timeout(Duration::from_millis(1100), seen.recv()).await;
+    let prompt_ms = arrived.ok().flatten().map(|at| ms(at - sent));
+    tokio::time::sleep(
+        Duration::from_millis(1500).saturating_sub(sent.elapsed() + Duration::from_millis(400)),
+    )
+    .await;
+    rig.toxic.resume_downstream();
+    // Now the phone drains. The flood arrives whole and in order.
+    let mut pending = Vec::new();
+    let mut got = 0usize;
+    let drained = tokio::time::timeout(Duration::from_secs(60), async {
+        while got < frames {
+            match channel.recv().await {
+                Some(ChannelEvent::Data(data)) => pending.extend_from_slice(&data),
+                other => {
+                    println!(
+                        "NETCOND-ERROR phone channel ended after {got} frames: {:?}",
+                        other.map(|e| match e {
+                            ChannelEvent::Closed(info) => format!("closed {}: {}", info.code, info.reason),
+                            _ => "data".into(),
+                        })
+                    );
+                    break;
+                }
+            }
+            let mut stream = serde_json::Deserializer::from_slice(&pending).into_iter::<Value>();
+            let mut used = 0;
+            while let Some(Ok(event)) = stream.next() {
+                assert_eq!(
+                    event["params"]["seq"],
+                    got,
+                    "flood lost, duplicated or reordered an event: {}",
+                    event.to_string().chars().take(300).collect::<String>()
+                );
+                got += 1;
+                used = stream.byte_offset();
+            }
+            pending.drain(..used);
+        }
+    })
+    .await;
+    let prompt_ms_final = match prompt_ms {
+        Some(value) => Some(value),
+        None => tokio::time::timeout(Duration::from_secs(30), seen.recv())
+            .await
+            .ok()
+            .flatten()
+            .map(|at| ms(at - sent)),
+    };
+    println!(
+        "NETCOND {}",
+        json!({"surface": "chat", "profile": "duplex-20ms@1", "phase": "warm", "scale": "1x",
+               "metric": "prompt_behind_bulk_ms", "value": prompt_ms_final, "run": 0, "seed": 0x5eed})
+    );
+    report(
+        "chat_prompt_behind_bulk_downstream",
+        "flood-16MB",
+        json!({"prompt_to_acpmux_ms": prompt_ms_final, "flood_frames": got}),
+    );
+    assert!(drained.is_ok() && got == frames, "flood delivered {got}/{frames} frames");
+    rig.finish().await;
+    acpmux.abort();
+    assert!(
+        prompt_ms.is_some_and(|value| value < 300.0),
+        "prompt took {prompt_ms:?} ms to reach acpmux behind bulk output (bound 300 ms)"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Reliable link: 100 seeded carrier cuts under terminal, chat and list
+// ---------------------------------------------------------------------------
+
+/// One carrier between phone and Mac the test can pause (a stall: bytes held,
+/// not lost) and cut (a dropped path: whatever is in flight is gone). It moves
+/// at most one 16 KB chunk per millisecond (about 16 MB/s), so a cut always
+/// lands with bytes in flight. Counts the bytes it delivers each way.
+struct Carrier {
+    pumps: Vec<tokio::task::JoinHandle<()>>,
+    offline: watch::Sender<bool>,
+}
+
+impl Carrier {
+    fn cut(self) {
+        for pump in self.pumps {
+            pump.abort();
+        }
+    }
+}
+
+/// `[down (Mac to phone), up]` bytes delivered.
+type Wire = Arc<[std::sync::atomic::AtomicU64; 2]>;
+
+fn carrier(wire: &Wire) -> (DuplexStream, DuplexStream, Carrier) {
+    let (phone, phone_inner) = tokio::io::duplex(64 * 1024);
+    let (mac_inner, mac) = tokio::io::duplex(64 * 1024);
+    let (offline, offline_rx) = watch::channel(false);
+    let (phone_read, phone_write) = tokio::io::split(phone_inner);
+    let (mac_read, mac_write) = tokio::io::split(mac_inner);
+    let pumps = vec![
+        tokio::spawn(carrier_pump(phone_read, mac_write, offline_rx.clone(), Arc::clone(wire), 1)),
+        tokio::spawn(carrier_pump(mac_read, phone_write, offline_rx, Arc::clone(wire), 0)),
+    ];
+    (phone, mac, Carrier { pumps, offline })
+}
+
+async fn carrier_pump<R, W>(
+    mut read: R,
+    mut write: W,
+    mut offline: watch::Receiver<bool>,
+    wire: Wire,
+    way: usize,
+) where
+    R: tokio::io::AsyncRead + Unpin,
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    let mut buffer = vec![0u8; 16 * 1024];
+    loop {
+        let n = match read.read(&mut buffer).await {
+            Ok(0) | Err(_) => return,
+            Ok(n) => n,
+        };
+        tokio::time::sleep(Duration::from_millis(1)).await;
+        while *offline.borrow() {
+            if offline.changed().await.is_err() {
+                return;
+            }
+        }
+        if write.write_all(&buffer[..n]).await.is_err() {
+            return;
+        }
+        wire[way].fetch_add(n as u64, Ordering::Relaxed);
+    }
+}
+
+/// A stand-in acpmux that answers a global request (`_acpmux/models`, one
+/// the host forwards with no session) by streaming `n` chunk notifications
+/// (an agent's reply as it is written), then the reply.
+async fn streaming_acpmux() -> String {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("ws://{}/", listener.local_addr().unwrap());
+    tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                let Ok(socket) = tokio_tungstenite::accept_async(stream).await else { return };
+                let (mut sink, mut source) = socket.split();
+                while let Some(Ok(message)) = source.next().await {
+                    let Message::Text(text) = message else { continue };
+                    let Ok(request) = serde_json::from_str::<Value>(&text) else { continue };
+                    if request["method"] != "_acpmux/models" {
+                        continue;
+                    }
+                    let count = request["params"]["n"].as_u64().unwrap_or(0);
+                    let pad = "c".repeat(request["params"]["pad"].as_u64().unwrap_or(0) as usize);
+                    for seq in 0..count {
+                        let chunk = json!({"jsonrpc": "2.0", "method": "matrix/chunk", "params": {"id": request["id"], "seq": seq, "text": pad}});
+                        if sink.send(Message::Text(chunk.to_string().into())).await.is_err() {
+                            return;
+                        }
+                    }
+                    let done = json!({"jsonrpc": "2.0", "id": request["id"], "result": {"n": count}});
+                    if sink.send(Message::Text(done.to_string().into())).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    url
+}
+
+const SURFACES: [&str; 3] = ["terminal", "chat", "list"];
+const PHASES: [&str; 4] = ["reconnect", "addr-change", "stall3s", "blackout30s"];
+
+/// What one surface received in a round: each item (event or reply) by key,
+/// with how often it came.
+#[derive(Default)]
+struct Got {
+    items: std::collections::HashMap<String, u64>,
+    order_ok: bool,
+    last: std::collections::HashMap<String, i64>,
+    bytes: u64,
+    done: bool,
+}
+
+impl Got {
+    fn new() -> Self {
+        Self { order_ok: true, ..Self::default() }
+    }
+
+    /// `stream`/`seq`: an item in an ordered stream (must arrive in order).
+    fn item(&mut self, key: String, stream: &str, seq: Option<u64>) {
+        *self.items.entry(key).or_default() += 1;
+        if let Some(seq) = seq {
+            let last = self.last.entry(stream.to_owned()).or_insert(-1);
+            if seq as i64 != *last + 1 {
+                self.order_ok = false;
+            }
+            *last = seq as i64;
+        }
+    }
+}
+
+/// One round's requests, from its seed.
+#[derive(Clone, Copy)]
+struct Ask {
+    seed: u64,
+    terminal_lines: u64,
+    chat_chunks: u64,
+    workspaces: usize,
+}
+
+impl Ask {
+    fn expected(&self, surface: &str) -> Vec<String> {
+        let s = self.seed;
+        match surface {
+            "terminal" => (0..self.terminal_lines)
+                .map(|i| format!("t{s}:{i}"))
+                .chain([format!("reply:t{s}"), format!("reply:e{s}")])
+                .collect(),
+            "chat" => {
+                (0..self.chat_chunks).map(|i| format!("c{s}:{i}")).chain([format!("reply:c{s}")]).collect()
+            }
+            _ => vec![format!("reply:l{s}")],
+        }
+    }
+}
+
+struct Surfaces {
+    terminal: Channel,
+    chat: Channel,
+    list: Channel,
+}
+
+impl Surfaces {
+    async fn open(phone: &Link) -> Self {
+        Self {
+            terminal: phone.open_on("daemon", json!({}), Lane::Bulk).await.expect("open terminal"),
+            chat: phone.open("acpmux", json!({})).await.expect("open chat"),
+            list: phone.open_on("daemon", json!({}), Lane::Bulk).await.expect("open list"),
+        }
+    }
+
+    fn id(&self, surface: &str) -> u32 {
+        match surface {
+            "terminal" => self.terminal.id(),
+            "chat" => self.chat.id(),
+            _ => self.list.id(),
+        }
+    }
+
+    /// Sends the round's requests, only those of surfaces in `which`.
+    async fn ask(&self, ask: &Ask, which: &[&str]) {
+        let s = ask.seed;
+        if which.contains(&"terminal") {
+            let flood = format!("FLOOD:{}:512:0", ask.terminal_lines);
+            send_line(
+                &self.terminal,
+                &json!({"id": format!("t{s}"), "cmd": "send", "surface": 13, "text": flood}),
+            )
+            .await;
+            // Upstream: a keystroke-sized write, answered once.
+            send_line(
+                &self.terminal,
+                &json!({"id": format!("e{s}"), "cmd": "send", "surface": 13, "text": format!("echo-{s}")}),
+            )
+            .await;
+        }
+        if which.contains(&"chat") {
+            let request = json!({"jsonrpc": "2.0", "id": format!("c{s}"), "method": "_acpmux/models", "params": {"n": ask.chat_chunks, "pad": 200}});
+            self.chat.send(Bytes::from(request.to_string())).await.expect("send chat");
+        }
+        if which.contains(&"list") {
+            send_line(&self.list, &json!({"id": format!("l{s}"), "cmd": "list-workspaces"})).await;
+        }
+    }
+}
+
+/// Reads one surface until its round is whole or the channel ends. Returns
+/// whether the channel closed.
+async fn collect(
+    surface: &'static str,
+    mut channel: Channel,
+    ask: Ask,
+    mut got: Got,
+) -> (Channel, Got, bool) {
+    let s = ask.seed;
+    let mut buffered: Vec<u8> = Vec::new();
+    let mut waiting: std::collections::HashSet<String> = match surface {
+        "terminal" => [format!("t{s}"), format!("e{s}")].into(),
+        "chat" => [format!("c{s}")].into(),
+        _ => [format!("l{s}")].into(),
+    };
+    for key in got.items.keys() {
+        if let Some(id) = key.strip_prefix("reply:") {
+            waiting.remove(id);
+        }
+    }
+    while !waiting.is_empty() {
+        let bytes = match channel.recv().await {
+            Some(ChannelEvent::Data(bytes)) => bytes,
+            _ => return (channel, got, true),
+        };
+        got.bytes += bytes.len() as u64;
+        buffered.extend_from_slice(&bytes);
+        // Daemon lines end in a newline; acpmux messages are back to back.
+        let mut stream = serde_json::Deserializer::from_slice(&buffered).into_iter::<Value>();
+        let mut used = 0;
+        let mut values = Vec::new();
+        while let Some(next) = stream.next() {
+            match next {
+                Ok(value) => {
+                    used = stream.byte_offset();
+                    values.push(value);
+                }
+                Err(error) if error.is_eof() => break,
+                Err(error) => panic!("{surface}: bad message: {error}"),
+            }
+        }
+        buffered.drain(..used);
+        for value in values {
+            if let Some(seq) = value["seq"].as_u64().filter(|_| value["event"] == "output") {
+                got.item(format!("t{s}:{seq}"), "t", Some(seq));
+            } else if value["method"] == "matrix/chunk" {
+                let seq = value["params"]["seq"].as_u64().unwrap_or(u64::MAX);
+                got.item(format!("c{s}:{seq}"), "c", Some(seq));
+            } else if let Some(id) = value["id"].as_str() {
+                if surface == "list" {
+                    let count = value["data"]["workspaces"].as_array().map(Vec::len).unwrap_or_default();
+                    assert_eq!(count, ask.workspaces, "list {id}: {count} workspaces");
+                }
+                if id == format!("e{s}") {
+                    assert_eq!(
+                        value["data"]["text"],
+                        format!("echo-{s}"),
+                        "the upstream write came back changed"
+                    );
+                }
+                got.item(format!("reply:{id}"), "reply", None);
+                waiting.remove(id);
+            }
+        }
+    }
+    got.done = true;
+    (channel, got, false)
+}
+
+/// Totals per (surface, phase).
+#[derive(Default, Clone, Copy)]
+struct Tally {
+    dups: u64,
+    holes: u64,
+    resume_bytes: u64,
+    unacked_at_drop_bytes: u64,
+    resume_round_trips: u64,
+    resumes: u64,
+    round_trips: u64,
+    reattaches: u64,
+    rounds: u64,
+}
+
+struct LinkRig {
+    _dir: tempfile::TempDir,
+    _daemon: FakeDaemon,
+    phone: Link,
+    reliable: bool,
+    carrier: Option<Carrier>,
+    macs: mpsc::UnboundedSender<DuplexStream>,
+    mac: Arc<std::sync::Mutex<Option<Link>>>,
+    wire: Wire,
+    host: tokio::task::JoinHandle<()>,
+}
+
+impl LinkRig {
+    async fn start(reliable: bool, workspaces: usize) -> Self {
+        let dir = tempfile::tempdir().unwrap();
+        let daemon = FakeDaemon::start(dir.path(), workspaces);
+        let config = Arc::new(ServiceConfig {
+            tui_socket_dir: dir.path().to_owned(),
+            default_session: "main".into(),
+            default_socket: None,
+            file_roots: vec![],
+            acpmux: AcpmuxTarget::Fixed { url: streaming_acpmux().await, token: Some("acp-token".into()) },
+            pairing: None,
+            agent_tab_host: None,
+            uploads_dir: dir.path().join("uploads"),
+            chief_socket: None,
+            browser: cmux_mobile_host::browser::BrowserConfig::new(None, 1),
+            surface: cmux_mobile_host::surface::SurfaceConfig::new(None, 1),
+            viewport_sync: None,
+        });
+        let registry = Arc::new(cmux_mobile_link::ResumeRegistry::default());
+        let mac_config = link_config(reliable, Some(registry));
+        let (macs, mut mac_streams) = mpsc::unbounded_channel::<DuplexStream>();
+        let mac = Arc::new(std::sync::Mutex::new(None::<Link>));
+        let published = Arc::clone(&mac);
+        let host = tokio::spawn(async move {
+            let mut links = tokio::task::JoinSet::new();
+            while let Some(stream) = mac_streams.recv().await {
+                let link = if reliable {
+                    match Link::accept_reliable(stream, mac_config.clone(), None).await {
+                        Ok(cmux_mobile_link::Accepted::New(link)) => link,
+                        Ok(cmux_mobile_link::Accepted::Resumed(_)) => continue,
+                        Err(error) => panic!("the Mac refused a carrier: {error}"),
+                    }
+                } else {
+                    Link::new(stream, Role::Mac, mac_config.clone(), None)
+                };
+                *published.lock().unwrap() = Some(link.clone());
+                let config = Arc::clone(&config);
+                links.spawn(async move {
+                    let mut services = tokio::task::JoinSet::new();
+                    while let Some(incoming) = link.accept().await {
+                        services.spawn(serve(
+                            Arc::clone(&config),
+                            Peer {
+                                device_id: "matrix-phone".into(),
+                                session_id: "matrix-session".into(),
+                                video: None,
+                                session_exposure: None,
+                                route: None,
+                                path: None,
+                                viewport: None,
+                            },
+                            Arc::new(LinkAuth::default()),
+                            incoming,
+                        ));
+                    }
+                    services.shutdown().await;
+                });
+            }
+            links.shutdown().await;
+        });
+        let wire: Wire = Arc::new(Default::default());
+        let (phone_stream, mac_stream, carrier) = carrier(&wire);
+        let _ = macs.send(mac_stream);
+        let phone = Link::new(phone_stream, Role::Phone, link_config(reliable, None), None);
+        // The Mac takes the link once the phone's hello is in.
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while mac.lock().unwrap().is_none() {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        })
+        .await
+        .expect("the Mac accepted the link");
+        Self { _dir: dir, _daemon: daemon, phone, reliable, carrier: Some(carrier), macs, mac, wire, host }
+    }
+
+    fn mac(&self) -> Link {
+        self.mac.lock().unwrap().clone().expect("the Mac accepted the link")
+    }
+
+    /// A new carrier: the reliable phone resumes over it (returns the round
+    /// trips); today's phone dials a new link (returns None).
+    async fn new_carrier(&mut self) -> Option<u64> {
+        let (phone_stream, mac_stream, carrier) = carrier(&self.wire);
+        self.carrier = Some(carrier);
+        let _ = self.macs.send(mac_stream);
+        if self.reliable {
+            let report = self.phone.resume_carrier(phone_stream, None).await.expect("the link resumed");
+            Some(report.round_trips)
+        } else {
+            self.phone = Link::new(phone_stream, Role::Phone, link_config(false, None), None);
+            None
+        }
+    }
+
+    async fn finish(self) {
+        self.phone.close("matrix done");
+        self.host.abort();
+        let _ = self.host.await;
+    }
+}
+
+fn link_config(reliable: bool, registry: Option<Arc<cmux_mobile_link::ResumeRegistry>>) -> LinkConfig {
+    LinkConfig {
+        // The phone's resume is driven by the test, as the app's supervisor
+        // drives it on a stall; the keepalive would only race it.
+        keepalive: None,
+        reliable: reliable.then(|| cmux_mobile_link::ReliableConfig { registry, ..Default::default() }),
+        ..LinkConfig::default()
+    }
+}
+
+/// Seeded rounds over persistent terminal, chat and list channels; each round
+/// cuts the carrier once mid-stream in one of four ways, then gets it back.
+/// Durations are scaled down so 100 rounds fit a test: the stall holds the
+/// path 300 ms (for 3 s), the blackout lasts 1 s (for 30 s), the address change
+/// is a cut with a new carrier at once, the reconnect a cut and 50 ms. A
+/// carrier is cut, not only paused, in every phase: what was in flight is
+/// gone, as on a real path change.
+async fn reliable_rounds(
+    reliable: bool,
+    seeds: u64,
+) -> std::collections::BTreeMap<(&'static str, &'static str), Tally> {
+    let workspaces = 20;
+    let mut rig = LinkRig::start(reliable, workspaces).await;
+    let mut surfaces = Some(Surfaces::open(&rig.phone).await);
+    let mut tallies = std::collections::BTreeMap::<(&'static str, &'static str), Tally>::new();
+    let mut rng: u64 = 7;
+    let mut next = move || {
+        rng ^= rng << 13;
+        rng ^= rng >> 7;
+        rng ^= rng << 17;
+        rng
+    };
+    let resumed = |link: &Link, id: u32| link.channel_resume(id).unwrap_or_default();
+    for seed in 0..seeds {
+        let phase = PHASES[(seed % 4) as usize];
+        let ask = Ask { seed, terminal_lines: 50 + next() % 400, chat_chunks: 20 + next() % 200, workspaces };
+        let open = surfaces.take().expect("surfaces");
+        let ids: Vec<u32> = SURFACES.iter().map(|surface| open.id(surface)).collect();
+        let before_stats: Vec<_> = if reliable {
+            ids.iter().map(|id| (resumed(&rig.phone, *id), resumed(&rig.mac(), *id))).collect()
+        } else {
+            Vec::new()
+        };
+        open.ask(&ask, &SURFACES).await;
+        let Surfaces { terminal, chat, list } = open;
+        let tasks = [
+            tokio::spawn(collect("terminal", terminal, ask, Got::new())),
+            tokio::spawn(collect("chat", chat, ask, Got::new())),
+            tokio::spawn(collect("list", list, ask, Got::new())),
+        ];
+        // The cut lands mid-stream, at a seeded moment.
+        tokio::time::sleep(Duration::from_millis(2 + next() % 20)).await;
+        let carrier = rig.carrier.take().expect("carrier");
+        match phase {
+            "stall3s" => {
+                let _ = carrier.offline.send(true);
+                tokio::time::sleep(Duration::from_millis(300)).await;
+                carrier.cut();
+            }
+            "blackout30s" => {
+                carrier.cut();
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+            "reconnect" => {
+                carrier.cut();
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            _ => carrier.cut(),
+        }
+        let mut gots = Vec::new();
+        let round_trips = if reliable {
+            let trips = rig.new_carrier().await;
+            for task in tasks {
+                let (channel, got, closed) = tokio::time::timeout(Duration::from_secs(30), task)
+                    .await
+                    .expect("round within 30 s")
+                    .unwrap();
+                assert!(!closed, "seed {seed} {phase}: a channel closed on a reliable link");
+                gots.push((channel, got));
+            }
+            trips
+        } else {
+            // Today: the link is gone; every channel ends. The app redials,
+            // reopens each channel and asks again for what had not arrived.
+            for task in tasks {
+                let (channel, got, _) = tokio::time::timeout(Duration::from_secs(30), task)
+                    .await
+                    .expect("old channels end")
+                    .unwrap();
+                gots.push((channel, got));
+            }
+            None
+        };
+        let mut refetch: Vec<&str> = Vec::new();
+        if !reliable {
+            tokio::time::timeout(Duration::from_secs(10), rig.phone.closed())
+                .await
+                .expect("today's link closes with its carrier");
+            rig.new_carrier().await;
+            let fresh = Surfaces::open(&rig.phone).await;
+            refetch = SURFACES
+                .iter()
+                .zip(&gots)
+                .filter(|(_, (_, got))| !got.done)
+                .map(|(surface, _)| *surface)
+                .collect();
+            // Holes: what the cut lost before the refetch.
+            for (surface, (_, got)) in SURFACES.iter().zip(&gots) {
+                let tally = tallies.entry((surface, phase)).or_default();
+                tally.holes +=
+                    ask.expected(surface).iter().filter(|key| !got.items.contains_key(*key)).count() as u64;
+                tally.reattaches += 1;
+            }
+            fresh.ask(&ask, &refetch).await;
+            let Surfaces { terminal, chat, list } = fresh;
+            let mut again = Vec::new();
+            for ((surface, channel), (_, got)) in SURFACES.iter().zip([terminal, chat, list]).zip(gots) {
+                let got = if refetch.contains(surface) {
+                    let (channel, got, closed) = tokio::time::timeout(
+                        Duration::from_secs(30),
+                        collect(surface, channel, ask, Got { done: false, ..got }),
+                    )
+                    .await
+                    .expect("refetch within 30 s");
+                    assert!(!closed);
+                    again.push(channel);
+                    got
+                } else {
+                    again.push(channel);
+                    got
+                };
+                again_got(&mut tallies, surface, phase, &ask, &got, false);
+            }
+            let mut again = again.into_iter();
+            surfaces = Some(Surfaces {
+                terminal: again.next().unwrap(),
+                chat: again.next().unwrap(),
+                list: again.next().unwrap(),
+            });
+        } else {
+            let mut channels = Vec::new();
+            for (index, (surface, (channel, got))) in SURFACES.iter().zip(gots).enumerate() {
+                again_got(&mut tallies, surface, phase, &ask, &got, true);
+                let (phone_before, mac_before) = before_stats[index];
+                let (phone_now, mac_now) = (resumed(&rig.phone, ids[index]), resumed(&rig.mac(), ids[index]));
+                let replayed = phone_now.replayed_bytes - phone_before.replayed_bytes
+                    + mac_now.replayed_bytes
+                    - mac_before.replayed_bytes;
+                let unacked = phone_now.unacked_at_drop_bytes - phone_before.unacked_at_drop_bytes
+                    + mac_now.unacked_at_drop_bytes
+                    - mac_before.unacked_at_drop_bytes;
+                assert!(
+                    replayed <= unacked,
+                    "seed {seed} {surface}: replayed {replayed} of {unacked} unacked"
+                );
+                let tally = tallies.entry((surface, phase)).or_default();
+                tally.resume_bytes += replayed;
+                tally.unacked_at_drop_bytes += unacked;
+                tally.resume_round_trips += round_trips.unwrap_or_default();
+                tally.resumes += 1;
+                channels.push(channel);
+            }
+            let mut channels = channels.into_iter();
+            surfaces = Some(Surfaces {
+                terminal: channels.next().unwrap(),
+                chat: channels.next().unwrap(),
+                list: channels.next().unwrap(),
+            });
+        }
+        for surface in &refetch {
+            tallies.entry((surface, phase)).or_default().round_trips += 1;
+        }
+    }
+    if reliable {
+        for (side, link) in [("phone", rig.phone.clone()), ("mac", rig.mac())] {
+            let stats = link.reliable_stats().expect("reliable stats");
+            println!("reliable {side} {stats:?}");
+            assert_eq!(stats.duplicates_dropped, 0, "{side}: only what the peer lacked was replayed");
+            assert!(stats.replayed_bytes <= stats.unacked_at_drop_bytes, "{side}: {stats:?}");
+        }
+        assert!(!rig.phone.is_closed(), "the reliable link never closed");
+    }
+    let wire = [rig.wire[0].load(Ordering::Relaxed), rig.wire[1].load(Ordering::Relaxed)];
+    println!("wire {} down {} up {}", if reliable { "after" } else { "before" }, wire[0], wire[1]);
+    rig.finish().await;
+    tallies.entry(("all", "all")).or_default().resume_bytes = wire[0];
+    tallies.entry(("all", "all")).or_default().unacked_at_drop_bytes = wire[1];
+    tallies
+}
+
+/// Dups and holes of one surface's round once it is whole, and the reliable
+/// oracle: every item exactly once, in order.
+fn again_got(
+    tallies: &mut std::collections::BTreeMap<(&'static str, &'static str), Tally>,
+    surface: &'static str,
+    phase: &'static str,
+    ask: &Ask,
+    got: &Got,
+    strict: bool,
+) {
+    let expected = ask.expected(surface);
+    let holes = expected.iter().filter(|key| !got.items.contains_key(*key)).count() as u64;
+    let dups: u64 = got.items.values().map(|count| count.saturating_sub(1)).sum();
+    let unexpected = got.items.keys().filter(|key| !expected.contains(key)).count();
+    let tally = tallies.entry((surface, phase)).or_default();
+    tally.dups += dups;
+    tally.rounds += 1;
+    if strict {
+        tally.holes += holes;
+        if holes > 0 {
+            let missing: Vec<&String> = expected.iter().filter(|key| !got.items.contains_key(*key)).collect();
+            eprintln!(
+                "seed {} {surface}: missing {:?}..{:?} of {}, got {} bytes",
+                ask.seed,
+                missing.first(),
+                missing.last(),
+                expected.len(),
+                got.bytes
+            );
+        }
+        assert_eq!(
+            (dups, holes, unexpected),
+            (0, 0, 0),
+            "seed {} {surface} {phase}: dups, holes, strays",
+            ask.seed
+        );
+        assert!(got.order_ok, "seed {} {surface} {phase}: out of order", ask.seed);
+    }
+}
+
+fn netcond(prefix: &str, surface: &str, phase: &str, metric: &str, value: Option<f64>) {
+    let line = json!({
+        "surface": surface, "profile": "matrix-cut@1", "phase": phase, "scale": "1x",
+        "metric": metric, "value": value, "run": 0, "seed": 7,
+    });
+    println!("{prefix} NETCOND {line}");
+}
+
+/// The reliable link under 100 seeded carrier cuts (stall, address change,
+/// blackout, reconnect) while terminal output, an agent's streamed reply and
+/// the session list flow, against today's link in the same rounds. AFTER:
+/// every channel's items arrive exactly once and in order, both ways, with no
+/// channel closed and no reattach; only unacked bytes are replayed, in one
+/// round trip. BEFORE: the link and every channel close, the phone reattaches
+/// and asks again (holes until it does, duplicates of what it had).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "iOS reliability matrix cell: timed, run alone in release by ios-reliability-matrix.yml (--ignored)"]
+async fn cell_reliable_link_resumes_every_channel_across_cuts() {
+    let seeds = std::env::var("MATRIX_SEEDS").ok().and_then(|s| s.parse().ok()).unwrap_or(100);
+    let before = reliable_rounds(false, seeds).await;
+    let after = reliable_rounds(true, seeds).await;
+    for (prefix, tallies) in [("before", &before), ("after", &after)] {
+        for ((surface, phase), tally) in tallies.iter() {
+            if *surface == "all" {
+                netcond(prefix, "terminal", "reconnect", "bytes_down", Some(tally.resume_bytes as f64));
+                netcond(
+                    prefix,
+                    "terminal",
+                    "reconnect",
+                    "bytes_up",
+                    Some(tally.unacked_at_drop_bytes as f64),
+                );
+                continue;
+            }
+            let reliable = prefix == "after";
+            netcond(prefix, surface, phase, "dups", Some(tally.dups as f64));
+            netcond(prefix, surface, phase, "holes", Some(tally.holes as f64));
+            netcond(prefix, surface, phase, "reattaches", Some(tally.reattaches as f64));
+            netcond(prefix, surface, phase, "round_trips", Some(tally.round_trips as f64));
+            netcond(prefix, surface, phase, "resume_bytes", reliable.then_some(tally.resume_bytes as f64));
+            netcond(
+                prefix,
+                surface,
+                phase,
+                "unacked_at_drop_bytes",
+                reliable.then_some(tally.unacked_at_drop_bytes as f64),
+            );
+            netcond(
+                prefix,
+                surface,
+                phase,
+                "resume_round_trips",
+                (reliable && tally.resumes > 0)
+                    .then(|| tally.resume_round_trips as f64 / tally.resumes as f64),
+            );
+            report(
+                "reliable_link_resumes_every_channel_across_cuts",
+                &format!("{prefix}-{surface}-{phase}"),
+                json!({"rounds": tally.rounds, "dups": tally.dups, "holes": tally.holes, "reattaches": tally.reattaches,
+                       "resume_bytes": tally.resume_bytes, "unacked_at_drop_bytes": tally.unacked_at_drop_bytes}),
+            );
+        }
+    }
+    for ((surface, _), tally) in &after {
+        if *surface != "all" {
+            assert_eq!((tally.dups, tally.holes, tally.reattaches), (0, 0, 0));
+        }
+    }
 }

@@ -522,7 +522,18 @@ async fn a_chief_turn_gets_cmux_and_folded_acpmux_tools() {
                 .unwrap();
             let names: Vec<_> = allowed["value"].as_str().unwrap().split(',').collect();
             assert_eq!(names, acpmux::agent_tools::CHIEF_TURN_TOOLS.split(',').collect::<Vec<_>>());
-            for tool in ["send", "send_status", "ls", "last", "info", "inbox_read", "inbox_reply"] {
+            for tool in [
+                "send",
+                "send_status",
+                "ls",
+                "last",
+                "info",
+                "inbox_read",
+                "inbox_reply",
+                "watch_add",
+                "watch_ls",
+                "watch_rm",
+            ] {
                 assert!(names.contains(&format!("acpmux_{tool}").as_str()), "{names:?}");
             }
             assert!(!names.iter().any(|name| name.starts_with("acpmux_bg_")));
@@ -556,6 +567,13 @@ async fn a_brain_turn_runs_from_the_chiefs_own_brain_home() {
         "{env}"
     );
     assert_eq!(env["MUX_HOME"], mux.display().to_string(), "{env}");
+    // Its own gateway rendezvous, never the user's own Hermes gateway (optchat-chief runs the
+    // gateway on the same dir).
+    assert_eq!(
+        env["HERMES_GATEWAY_LOCK_DIR"],
+        mux.join("optchat/brains/hermes/gateway-locks").display().to_string(),
+        "{env}"
+    );
     assert!(env.get("CLAUDE_CODE_DISABLE_CLAUDE_MDS").is_none(), "{env}");
     // No key of the person's reaches the brain: its models go through the Chief's gateway.
     assert_eq!(env["OPENROUTER_API_KEY"], "", "{env}");

@@ -12,6 +12,15 @@
 # nightly-next runs are pushes to nightly-next; their PRs merge into feat-cmux-next.
 set -euo pipefail
 read -ra feeds <<< "$NIGHTLY_FEEDS"
+# `prefetch` (nightly-next-one's one-job.sh deltas-start, in the background beside the bundle's checks, with no
+# token): only the git fetch of the span the notes cover, from the same live-feed commit as below, so this
+# step's own fetch finds it there. Run 44893172356 spent 30 s of this step's 91 s on it (2026-11-21).
+if [ "${1:-}" = prefetch ]; then
+  since="$(python3 "$PUBLISH_TOOLING/ci/nightly_version.py" published-source --feed "${NIGHTLY_NEXT_FEED_BASE}/${feeds[0]}")" \
+    || since="${PUBLISHED_SHA:-}"
+  [[ "$since" =~ ^[0-9a-f]{40}$ && "$since" != "$NOTES_HEAD" ]] || exit 0
+  exec ./scripts/cmux-next/fetch-release-notes-span.sh origin "$NOTES_HEAD" nightly-next "$since"
+fi
 # nightly-next: the previous published commit is the live feed's newest cmux:sourceCommit. The feed is written
 # by the publishing job itself (a compare-and-swap that only moves to a descendant source); the release body and
 # tag that decide read come from the previous run's tail, after its feed, and the push slot no longer waits for
@@ -32,9 +41,19 @@ if [ "$NIGHTLY_TRACK" = nightly-next ] && [ -n "${NIGHTLY_NEXT_FEED_BASE:-}" ] &
   fi
 fi
 echo "published_sha=${PUBLISHED_SHA:-}" >> "$GITHUB_OUTPUT"
+# The appcast's and release body's PR list start here. With no published commit (an unreadable feed, or this
+# build's own source already newest on a re-attempt, and none from decide) it is the commit of the live
+# feed's newest item below this build, so a publish never ships without its PR list.
+span_since="${PUBLISHED_SHA:-}"
+if [ -z "$span_since" ] && [ "$NIGHTLY_TRACK" = nightly-next ] && [ -n "${NIGHTLY_NEXT_FEED_BASE:-}" ] && [ "${#feeds[@]}" -gt 0 ]; then
+  span_since="$(python3 "$PUBLISH_TOOLING/ci/nightly_version.py" published-source --before "$NIGHTLY_BUILD" \
+    --feed "${NIGHTLY_NEXT_FEED_BASE}/${feeds[0]}" || true)"
+  [[ "$span_since" =~ ^[0-9a-f]{40}$ ]] || span_since=""
+  echo "::notice title=PR list span::no published commit recorded; the PR list starts at the feed's previous build ${span_since:-<none>}"
+fi
 download="https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}"
 arm64_line="- [Apple silicon: ${CHANNEL_DMG_PREFIX}-arm64.dmg](${download}/${CHANNEL_DMG_PREFIX}-arm64.dmg), feed \`appcast-arm64.xml\`"
-if [ "$NIGHTLY_TRACK" = nightly-next ]; then
+if [ "$NIGHTLY_TRACK" != rc ]; then
   downloads="**${NOTES_APP_NAME}** ships for Apple silicon only (bundle ID \`${NOTES_BUNDLE_ID}\`):
 ${arm64_line}"
 else
@@ -76,8 +95,8 @@ python3 "$PUBLISH_TOOLING/ci/nightly_release_notes.py" \
 # changelog of the user-facing commit subjects since the previous
 # published build (New / Fixed / Changed, at most 8 lines, plain
 # text; cx-lntk). The app shows the same lines from the signed notes.
-if [ "$NIGHTLY_TRACK" = nightly-next ] && [ -n "$PUBLISHED_SHA" ] && [ "$PUBLISHED_SHA" != "$NOTES_HEAD" ]; then
-  ./scripts/cmux-next/fetch-release-notes-span.sh origin "$NOTES_HEAD" nightly-next "$PUBLISHED_SHA"
+if [ "$NIGHTLY_TRACK" = nightly-next ] && [ -n "$span_since" ] && [ "$span_since" != "$NOTES_HEAD" ]; then
+  ./scripts/cmux-next/fetch-release-notes-span.sh origin "$NOTES_HEAD" nightly-next "$span_since"
   # The changelog gate (2026-10-20, Lawrence: "the change log needs to be better at all
   # times"): before any asset uploads, the span's What's New digest must validate, so a
   # malformed entry fails here. A span with nothing user-facing publishes the generic
@@ -86,20 +105,20 @@ if [ "$NIGHTLY_TRACK" = nightly-next ] && [ -n "$PUBLISHED_SHA" ] && [ "$PUBLISH
   gate_dir="$(mktemp -d)"
   python3 scripts/cmux-next/release-notes.py build --build "$NIGHTLY_BUILD" \
     --short "1.0.0-nightly.$NIGHTLY_BUILD" --date "$(date -u +%Y-%m-%d)" \
-    --head "$NOTES_HEAD" --since "$PUBLISHED_SHA" --out "$gate_dir" --pr-descriptions >/dev/null
+    --head "$NOTES_HEAD" --since "$span_since" --out "$gate_dir" --pr-descriptions >/dev/null
   python3 scripts/cmux-next/release-notes.py check --notes "$gate_dir/$NIGHTLY_BUILD.json"
   rm -rf "$gate_dir"
-  python3 scripts/cmux-next/release-notes.py appcast --head "$NOTES_HEAD" --since "$PUBLISHED_SHA" \
+  python3 scripts/cmux-next/release-notes.py appcast --head "$NOTES_HEAD" --since "$span_since" \
     --appcasts nightly-out --build "$NIGHTLY_BUILD" --feeds "${feeds[@]}"
   # The GitHub release body lists the same span's PRs (the two release
   # metadata steps below append it), so a nightly names what it contains.
-  python3 scripts/cmux-next/release-notes.py prs --head "$NOTES_HEAD" --since "$PUBLISHED_SHA" \
+  python3 scripts/cmux-next/release-notes.py prs --head "$NOTES_HEAD" --since "$span_since" \
     --repo "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/nightly-prs.md"
   # Next.js-style credits: a "Thank you" section naming each outside contributor whose PR is in the
   # span, and their profile's company. It prints nothing with no outside contributor, and a GitHub
   # error leaves the credits out with a warning instead of failing the publish.
   if thanks="$(python3 scripts/ci/release_thanks.py --repo "$GITHUB_REPOSITORY" \
-      --head "$NOTES_HEAD" --since "$PUBLISHED_SHA")"; then
+      --head "$NOTES_HEAD" --since "$span_since")"; then
     if [ -n "$thanks" ]; then printf '\n%s\n' "$thanks" >> "$RUNNER_TEMP/nightly-prs.md"; fi
   else
     echo "::warning::release_thanks.py failed; this build's notes have no Thank you section"

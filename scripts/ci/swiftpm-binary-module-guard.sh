@@ -39,7 +39,9 @@
 #   Package.swift and its local dependencies; an Xcode project root without a
 #   manifest counts every Packages/**/Package.swift) and, on a change, removes
 #   every build output in DERIVED_DATA but SourcePackages
-#   (clear-stale-scheme-build-state.sh). The glaeda scheme job reused a .pcm of
+#   (clear-stale-scheme-build-state.sh). It resolves from the kept packages
+#   first, without fetching (-skipPackageUpdates), and sets
+#   xcode_binary_module_guard_offline=1 when that sufficed. The glaeda scheme job reused a .pcm of
 #   the old CCmuxAppFFI header after the pin moved, and Swift saw the old
 #   declarations: "cannot find type 'CmuxFocusReply'" on every push from
 #   2026-10-18T06:50Z (cmux17, cmux18, cmux24, cmux-austin-mini-1), which the
@@ -237,9 +239,27 @@ xcode_binary_module_guard() {
   shift 2
   stamp="$derived/$swiftpm_binary_module_inputs_file"
   resolve_log="$(mktemp)"
+  xcode_binary_module_guard_offline=0
+  # Kept packages first, with no fetch: a plain resolve asks github.com for
+  # updates of every cached package repository, anonymously, from the fleet's
+  # shared address. On 2026-11-26 00:00-08:00Z GitHub answered those with 403
+  # and about 430 Release compiles failed in 1-2 min, each one also emptying
+  # its kept DerivedData below (the next build on that host cold, past the
+  # job's 60 min). -skipPackageUpdates resolves the pins from the kept
+  # SourcePackages when they hold them (compile-app-host-test-product.sh
+  # resolves its kept packages the same way); a pin they lack, or no kept
+  # packages, fails it and the resolve below fetches as before. The caller
+  # passes -skipPackageUpdates to its build too when this succeeds
+  # (xcode_binary_module_guard_offline=1), so the build fetches nothing either.
+  if [ "${CMUX_XCODE_RESOLVE_OFFLINE_FIRST:-1}" != 0 ] && [ -d "$scratch/repositories" ] \
+      && (cd "$root" && xcodebuild "$@" -derivedDataPath "$derived" -skipPackageUpdates \
+        -resolvePackageDependencies < /dev/null >"$resolve_log" 2>&1); then
+    xcode_binary_module_guard_offline=1
+    echo "ci-phase resolved the packages from the kept SourcePackages (no fetch)"
+    digest="$(swiftpm_binary_module_digest "$root" "$scratch")"
   # As above: when resolution fails the artifacts may be the old commit's, so
   # the digest proves nothing; build cold and let the build report why.
-  if ! (cd "$root" && xcodebuild "$@" -derivedDataPath "$derived" \
+  elif ! (cd "$root" && xcodebuild "$@" -derivedDataPath "$derived" \
       -resolvePackageDependencies < /dev/null >"$resolve_log" 2>&1); then
     digest=""
     echo "ci-phase xcodebuild -resolvePackageDependencies failed; its last lines:"
@@ -291,6 +311,21 @@ swiftpm_purge_build_outputs() {
       *) rm -rf -- "$entry" ;;
     esac
   done
+}
+
+# swiftpm_unverified_build SCRATCH: the fleet worker kept this .build after a
+# step whose build never finished (stopped at its max-run, cancelled, or failed)
+# and marked it unverified (hq build-fleet cmd/worker step_warm.go,
+# warmUnverifiedFile). SwiftPM resumes such a build where it stopped: the
+# 2026-11-21 CmuxNext suite steps on lent minis were stopped at 180 min with 27
+# of 13,437-15,760 targets left, and the worker used to drop the .build, so the
+# next step compiled all of them again. When a build on an unverified .build
+# fails, the caller builds once more from clean outputs, so a bad leftover (the
+# 2026-10-10 undefined-symbols link) never reports red. A complete build
+# removes the marker (record_built_ref, run-swift-testing-suites.sh). The worker
+# keeps an unfinished .build only for a step whose script calls this function.
+swiftpm_unverified_build() {
+  [ -f "$1/.cmux-ci-unverified" ]
 }
 
 swiftpm_stale_module_failure() {

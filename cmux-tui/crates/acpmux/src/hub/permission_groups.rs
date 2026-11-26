@@ -17,6 +17,8 @@ const WINDOW: Duration = Duration::from_millis(100);
 /// way (`AskInFlight`); one later than that forms a group of its own.
 const LANDING_BOUND: Duration = Duration::from_secs(2);
 const MAX_ITEMS: usize = 32;
+/// Measured: advertised as `batching.maxPendingGroups` (spec/acpmux-protocol.json); each ask
+/// scans every group's items under the permission lock, 64 x MAX_ITEMS = 2,048 at most.
 const MAX_GROUPS: usize = 64;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -111,6 +113,36 @@ pub(super) fn option(request: &Value, kind: &str) -> Option<String> {
     })
 }
 
+/// The input a request's call carries: its tool call's, else a command subject's.
+fn ask_input(request: &Value) -> Option<&Value> {
+    let subject = request.get("subject");
+    let subject_is =
+        |kind: &str| subject.and_then(|s| s.get("type")).and_then(Value::as_str) == Some(kind);
+    let tool = request.get("toolCall").or_else(|| {
+        subject_is("tool_call").then(|| subject.and_then(|s| s.get("toolCall"))).flatten()
+    });
+    match tool {
+        Some(tool) => tool.get("rawInput").filter(|v| v.is_object()),
+        None => subject.filter(|_| subject_is("command")),
+    }
+}
+
+/// What a request's call does in the agent's own words: the one-line `description` a shell
+/// call carries (Claude Code's Bash), never the command itself.
+pub(super) fn ask_summary(request: &Value) -> Option<String> {
+    let line = ask_input(request)?.get("description")?.as_str()?.lines().next()?.trim();
+    (!line.is_empty()).then(|| line.chars().take(200).collect())
+}
+
+/// A shell call's command without acpmux's subagent mark, so the person reads what the agent
+/// wrote and approves exactly that; `None` when nothing was stripped and the client can read
+/// the command itself.
+pub(super) fn ask_command(request: &Value) -> Option<String> {
+    let command = ask_input(request)?.get("command")?.as_str()?;
+    let bare = crate::bg_hook::without_subagent_mark(command);
+    (bare.len() != command.len()).then(|| bare.to_owned())
+}
+
 impl Group {
     fn terminal(&self) -> bool {
         matches!(self.state, "resolved" | "cancelled")
@@ -138,6 +170,8 @@ impl Group {
                     permission_id: i.id.clone(),
                     request: i.request.clone(),
                     state: i.state,
+                    summary: ask_summary(&i.request),
+                    command: ask_command(&i.request),
                 })
                 .collect(),
             decisions: if can_allow {
@@ -693,6 +727,31 @@ mod plain_tool_ask_tests {
         ] {
             assert!(!plain_tool_ask(&ask(not_plain.clone())), "{not_plain}");
         }
+    }
+}
+
+#[cfg(test)]
+mod ask_display_tests {
+    use super::{ask_command, ask_summary};
+    use serde_json::json;
+
+    /// A subagent's shell ask reads as what it does, and its command as the agent wrote it,
+    /// never the `export ACPMUX_CALLER_SUBAGENT=...` line acpmux put first (Leo 2026-11-23).
+    #[test]
+    fn a_subagents_shell_ask_shows_its_description_and_unmarked_command() {
+        let ask = json!({"toolCall": {"kind": "execute", "rawInput": {
+            "command": "export ACPMUX_CALLER_SUBAGENT=general-purpose:a1b2\ncmux agent last desktop-helper",
+            "description": "Read the newest desktop-helper message\nmore"}}});
+        assert_eq!(ask_summary(&ask).as_deref(), Some("Read the newest desktop-helper message"));
+        assert_eq!(ask_command(&ask).as_deref(), Some("cmux agent last desktop-helper"));
+        let plain = json!({"toolCall": {"kind": "execute", "rawInput": {"command": "ls"}}});
+        assert_eq!(ask_command(&plain), None);
+        assert_eq!(ask_summary(&plain), None);
+        let blank = json!({"toolCall": {"rawInput": {"command": "ls", "description": "  "}}});
+        assert_eq!(ask_summary(&blank), None);
+        let subject = json!({"subject": {"type": "command",
+            "command": "export ACPMUX_CALLER_SUBAGENT=Explore:x9\ngit status"}});
+        assert_eq!(ask_command(&subject).as_deref(), Some("git status"));
     }
 }
 

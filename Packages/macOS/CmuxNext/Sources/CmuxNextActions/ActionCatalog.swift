@@ -43,6 +43,7 @@ nonisolated extension [ActionDescriptor] {
     }
 }
 
+#if canImport(AppKit)
 extension ActionRegistry {
     /// A registry seeded with the full cmux catalog and legacy aliases whose runs are not timed.
     ///
@@ -59,3 +60,4 @@ extension ActionRegistry {
         ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases, runTiming: runTiming)
     }
 }
+#endif

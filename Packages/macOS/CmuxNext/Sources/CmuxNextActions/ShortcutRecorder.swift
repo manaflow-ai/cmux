@@ -239,7 +239,9 @@ public import AppKit
 extension ShortcutRecorder {
     /// The recorder's view of a key-down: the base key (Cmd-Shift-[ is `[`
     /// with Shift, as catalog shortcuts are written) and its modifiers.
-    public static func shortcut(for event: NSEvent) -> Shortcut {
+    /// With `qwerty` (`app.shortcutLayout` Keep QWERTY Positions), a Command or Control key is its US QWERTY key.
+    public static func shortcut(for event: NSEvent, qwerty: Bool = false) -> Shortcut {
+        if let key = Shortcut.qwertyKey(for: event, qwerty: qwerty) { return Shortcut(key, modifiers: event.modifierFlags) }
         let base = event.characters(byApplyingModifiers: [])?.lowercased()
         let key = base.flatMap { $0.isEmpty ? nil : $0 } ?? event.charactersIgnoringModifiers?.lowercased() ?? ""
         return Shortcut(key, modifiers: event.modifierFlags)

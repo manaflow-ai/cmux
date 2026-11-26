@@ -107,6 +107,11 @@ uint8_t cmux_pane_edge_split_axis(uint8_t edge);
  * the home owner serves, rows keep the order drawn at launch.
  *   {hold, lists:[{key, reference?, next}]} -> {lists:[{key, order, reference, moved}]}
  * Called once per structural sidebar pass while the hold is on, once at its end. */
+/* The sidebar's nav block, operation "sidebar_nav" of cmux_layout_reducer_json
+ * (cmux-layout-reducer sidebar_nav.rs): the sidebar.nav setting as written.
+ *   {nav} -> {rows:[{action, title?, symbol?}], problems:[{path, why}]}
+ * action is a canonical catalog id; an unknown, debug-only or destructive action, a
+ * duplicate or a row past 12 is a problem. Called once per settings change. */
 /* A workspace row's own layout, operation "sidebar_row_layout" of
  * cmux_layout_reducer_json (cmux-layout-reducer sidebar_row_layout.rs): the
  * sidebar.workspaceRow.lines / linesByKind / linesByAgent settings as written.
@@ -1172,7 +1177,8 @@ typedef struct CmuxSidebarFaceRow {
     uint8_t notice;
     uint8_t progress;
     uint8_t progress_error;
-    uint8_t reserved[2];
+    uint8_t agent_in_terminal; /* 1: the agent tab's agent runs in a terminal, not a chat */
+    uint8_t reserved[1];
     uint32_t listed_start;     /* index into reply->listed: one per tab of the workspace */
     uint32_t kept_entry_start; /* index into reply->kept_entries: the status block's entries */
     uint32_t kept_entry_count;

@@ -245,6 +245,13 @@ pub enum AgentEvent {
         permission_id: String,
         request: Value,
     },
+    /// A turn Claude Code ran on its own (acpmux `background_turn`: a
+    /// background task ended, a wakeup, a hook) in a session no turn of this
+    /// host runs now: `state` is `started` or `ended`.
+    BackgroundTurn {
+        session_id: String,
+        state: String,
+    },
 }
 
 /// The wait for a steer's answer (`AgentPort::start_steer`).
@@ -284,6 +291,10 @@ pub trait AgentPort: Send + Sync {
     fn end_session(&self, session: &str) -> Result<(), String>;
     /// A session's id by name.
     fn find(&self, name: &str) -> Result<Option<String>, String>;
+    /// The names of every session this daemon holds (`_acpmux/sessions`).
+    fn session_names(&self) -> Result<Vec<String>, String> {
+        Ok(Vec::new())
+    }
     /// A session's summary by id (None: no such session).
     fn session(&self, _id: &str) -> Result<Option<SessionSummary>, String> {
         Ok(None)
@@ -304,6 +315,13 @@ pub trait AgentPort: Send + Sync {
     /// longer waits (it ran or was removed).
     fn remove_queued(&self, _session: &str, _prompt_id: &str) -> Result<bool, String> {
         Err("removing queued prompts is not supported".into())
+    }
+    /// Moves the session's running foreground work to the background
+    /// (`_acpmux/process/background`, Claude Code's Ctrl-B): the call runs
+    /// on, its result comes when it ends, and the agent reads a waiting
+    /// message now. True when something moved.
+    fn background_work(&self, _session: &str) -> Result<bool, String> {
+        Ok(false)
     }
     /// Takes back a steer the harness has not read yet (`_acpmux/queue_edit
     /// op=withdraw`, Claude Code's `cancel_async_message`): true when it was
@@ -946,6 +964,20 @@ fn route(turns: &Mutex<HashMap<String, TurnRoute>>, sink: &Sink, n: Notification
             let mut turns = turns
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if kind == "background_turn" && !turns.contains_key(session) {
+                let state = n
+                    .params
+                    .pointer("/msg/state")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_owned();
+                drop(turns);
+                sink(AgentEvent::BackgroundTurn {
+                    session_id: session.to_owned(),
+                    state,
+                });
+                return;
+            }
             if let Some(turn) = turns.get_mut(session) {
                 // Chunks are noise but for the first one, which says the
                 // response started (the compactor's single-flight waits for it).
@@ -1326,6 +1358,14 @@ pub fn new_session_watching(
     keep_waiting: &mut dyn FnMut(Duration) -> bool,
 ) -> Result<String, String> {
     let mut meta = session_meta(spec, preset);
+    // A Cloud machine's Chief: its own Claude sessions sign in with the host's credential, as a
+    // Cloud chat's launch does (turn_credential.rs). Only here, at the send: `session_meta` has
+    // other readers.
+    if let Some(credentials) =
+        crate::turn_credential::meta_for(spec, crate::turn_credential::current())
+    {
+        meta["credentials"] = credentials;
+    }
     let deadline = if waits_on_harness(spec) {
         START_WAIT_CEILING
     } else {
@@ -1508,6 +1548,13 @@ impl AgentPort for Acpmux {
         find_named(&*self.client()?, name)
     }
 
+    fn session_names(&self) -> Result<Vec<String>, String> {
+        Ok(sessions(&*self.client()?)?
+            .into_iter()
+            .map(|s| s.name)
+            .collect())
+    }
+
     fn session(&self, id: &str) -> Result<Option<SessionSummary>, String> {
         session_info(&*self.client()?, id)
     }
@@ -1517,6 +1564,17 @@ impl AgentPort for Acpmux {
             .request("session/cancel", json!({"sessionId": session}))
             .map(|_| ())
             .map_err(|e| format!("cancel: {e}"))
+    }
+
+    fn background_work(&self, session: &str) -> Result<bool, String> {
+        self.client()?
+            .request_within(
+                "_acpmux/process/background",
+                json!({"sessionId": session}),
+                WITHDRAW_WAIT,
+            )
+            .map(|v| v.get("backgrounded").and_then(Value::as_bool) == Some(true))
+            .map_err(|e| format!("background work: {e}"))
     }
 
     fn withdraw_steer(&self, session: &str, prompt_id: &str) -> Result<bool, String> {

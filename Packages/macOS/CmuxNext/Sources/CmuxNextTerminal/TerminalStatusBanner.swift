@@ -227,19 +227,6 @@ final class TerminalStatusBanner: NSView {
     /// "Restoring…" shows only after `restoringRevealDelay`, so an attach
     /// that answers at once (the usual case) never flashes the label.
     static let restoringRevealDelay: CFTimeInterval = 0.5
-    /// "Reconnecting…" and "Reconnecting to the shell…" show only after
-    /// `reconnectingRevealDelay`: a version handoff marks every tab adopting
-    /// while the new daemon takes its host back (a slow host costs up to 1 s
-    /// of connect retries and 2 s of handshake, after up to 2 s waiting for
-    /// the owner to say ready), and a dropped view re-attaches at once. Those
-    /// clear within it and never show; one that lasts still shows, and the
-    /// stopped states show at once. The shared connection quiet time
-    /// (``QuietHold/connectionDelay``, 10 s), the bound the app waits out for
-    /// the same daemon everywhere else (its startup deadline, its drop
-    /// grace, the sidebar's "Connecting…" hold): a restart or a short drop
-    /// the person can do nothing about marks no pane (Leo, 2026-11-14: "i
-    /// also want all our connectivity stuff to shut the f*** up"). It was 5 s.
-    static let reconnectingRevealDelay: CFTimeInterval = QuietHold.connectionDelaySeconds
     /// "Disconnected: …" over the last frame shows only after `disconnectedRevealDelay`, the same
     /// shared quiet time: a daemon restart drops every pane's link, a hidden pane's drop or quiet
     /// re-attaches that ran out still heal on a click, a key or the link back, so a drop that heals
@@ -259,13 +246,13 @@ final class TerminalStatusBanner: NSView {
     /// before it fades in; nil shows it at once. Only transient states wait.
     static func revealDelay(for status: TerminalConnectionStatus, stall: TerminalShellStall?) -> CFTimeInterval? {
         if let stall = shownStall(status, stall) {
-            return stall == .reconnecting ? reconnectingRevealDelay : nil
+            return nil
         }
         switch status {
         case .restoring: return restoringRevealDelay
         case .starting: return startingRevealDelay
         case .disconnected(.turnedOffByOrganization, _): return nil
-        case .disconnected(_, reconnecting: true): return reconnectingRevealDelay
+        case .disconnected(_, reconnecting: true): return nil  // never said (``text(for:hostLoss:cause:stall:strings:)``)
         case .disconnected(_, reconnecting: false): return disconnectedRevealDelay
         case .connected, .exited: return nil
         }
@@ -340,7 +327,10 @@ final class TerminalStatusBanner: NSView {
         case .disconnected(.turnedOffByOrganization, _):
             return strings.text("terminal.link.turnedOffByOrganization", defaultValue: "Turned off by your organization")
         case .disconnected(_, reconnecting: true):
-            return strings.text("terminal.link.reconnecting", defaultValue: "Reconnecting…")
+            // A reattach on its way says nothing, however long it takes: the last frame stays (Leo, 2026-11-24:
+            // "let's just keep optimistically connecting and reinforcing the connection and sync-ups can be
+            // satisfying instead of making the user think they're constsntly suspended in a state of connection limbo").
+            return nil
         case .disconnected(let cause, reconnecting: false):
             let reason = switch cause {
             case .streamEnded:
@@ -359,10 +349,11 @@ final class TerminalStatusBanner: NSView {
         }
     }
 
-    /// The stall the banner names: any, unless the terminal exited or an
-    /// administrator turned the link off.
+    /// The stall the banner names: any but a redial on its way (the daemon reconnecting to the shell says
+    /// nothing, as a reattach does), unless the terminal exited or an administrator turned the link off.
     private static func shownStall(_ status: TerminalConnectionStatus, _ stall: TerminalShellStall?) -> TerminalShellStall? {
-        guard status != .exited, status != .disconnected(.turnedOffByOrganization, reconnecting: false) else { return nil }
+        guard status != .exited, status != .disconnected(.turnedOffByOrganization, reconnecting: false),
+              stall != .reconnecting else { return nil }
         return stall
     }
 

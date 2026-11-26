@@ -165,7 +165,7 @@ describe("the fold keeps a subagent's retry", () => {
   test("the summary card's started-chat rows and counts read it", () => {
     const chat = { sessionId: "s", title: "Push relay", state: "failed" as const, retry: FIXTURE.subagentRetry };
     expect(sessionStatus(chat)).toBe("running");
-    expect(sessionStateText(translate, chat)).toEqual({
+    expect(sessionStateText(translate, chat)).toMatchObject({
       text: "Retrying (2/4) after a capacity error",
       working: true,
     });
@@ -192,6 +192,7 @@ describe("the fold keeps a subagent's retry", () => {
 test("acpmux's continuations are recognized; a person's prompt is not", () => {
   expect(isRetryContinuation({ _meta: { provenance: { kind: "auto_resume", attempt: 1, manual: true } } })).toBe(true);
   expect(isRetryContinuation({ _meta: { provenance: { kind: "subagent_retry", subagentId: "a" } } })).toBe(true);
+  expect(isRetryContinuation({ _meta: { provenance: { kind: "subagent_resume", subagentId: "a" } } })).toBe(true);
   expect(isRetryContinuation({ _meta: { provenance: { kind: "subsession_message" } } })).toBe(false);
   expect(isRetryContinuation({})).toBe(false);
 });

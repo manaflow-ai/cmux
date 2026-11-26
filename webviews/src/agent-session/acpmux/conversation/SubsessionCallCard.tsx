@@ -36,6 +36,7 @@ import { RawToggle, SentMessageLine } from "./SentMessageLine";
 import type { SubsessionCall, SubsessionDelivery, SubsessionReply } from "./subsessionCalls";
 import "./SubsessionCallCard.css";
 import { sessionLine } from "./subsessionCallCardModel";
+import { orderedCountWords } from "../session-info/subagentsSectionModel";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 const toolActivity = (tool: Tool): AcpmuxActivity => ({ kind: "tool", text: tool.title, tool });
@@ -48,10 +49,12 @@ export type StartedGroupEntry = {
 export function SubsessionCallCard({
   call,
   tool,
+  messageAt,
   group,
 }: {
   call?: SubsessionCall;
   tool?: Tool;
+  messageAt?: number;
   group?: readonly StartedGroupEntry[];
 }) {
   if (group) return <StartedGroup entries={group} />;
@@ -60,7 +63,7 @@ export function SubsessionCallCard({
     case "start":
       return <StartedCard call={call} tool={tool} />;
     case "send":
-      return <SentLine call={call} tool={tool} />;
+      return <SentLine call={call} tool={tool} messageAt={messageAt} />;
     case "wait":
     case "list":
       return <SessionCards call={call} tool={tool} />;
@@ -87,14 +90,11 @@ function StartedGroup({ entries }: { entries: readonly StartedGroupEntry[] }) {
     else if (child?.state === "done") done++;
     else if (entries[index]?.call.running) working = true;
   }
-  const status = [
-    waiting ? t("summary.subagents.waiting", { n: waiting }) : undefined,
-    failed ? t("summary.subagents.failed", { n: failed }) : undefined,
-    working ? t("subsession.state.working") : undefined,
-    children.length > 0 && done === children.length ? t("subagents.state.completed") : undefined,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const status = orderedCountWords(
+    { waiting, failed, running: working ? 1 : 0, done: children.length > 0 && done === children.length ? done : 0 },
+    t,
+    { words: { running: () => t("subsession.state.working"), done: () => t("subagents.state.completed") } },
+  ).join(" · ");
   return (
     <DisclosureRow
       disclosureKey={`subsession-group:${entries[0]?.tool.id}`}
@@ -332,7 +332,15 @@ function deliveryText(t: Translate, delivery: SubsessionDelivery): string {
 
 /// "Sent message to tests" and the first line, the row a shell `acpmux send` draws too
 /// (SentMessageLine.tsx); it opens to the whole message and the call's Raw.
-function SentLine({ call, tool }: { call: Extract<SubsessionCall, { tool: "send" }>; tool: Tool }) {
+function SentLine({
+  call,
+  tool,
+  messageAt,
+}: {
+  call: Extract<SubsessionCall, { tool: "send" }>;
+  tool: Tool;
+  messageAt?: number;
+}) {
   const t = useT();
   const live = useSubsessionInfo(call.sessionId);
   // Its name from the session list, else from the call that started it (a chat that left the list
@@ -342,6 +350,7 @@ function SentLine({ call, tool }: { call: Extract<SubsessionCall, { tool: "send"
   return (
     <SentMessageLine
       tool={tool}
+      messageAt={messageAt}
       state={call.running ? "sending" : "sent"}
       target={live?.name ?? started ?? shortId(call.sessionId)}
       text={call.text}

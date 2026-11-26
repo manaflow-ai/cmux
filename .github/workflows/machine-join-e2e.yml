@@ -31,6 +31,13 @@ name: Machine join E2E (development)
 # see the machine, and the hub must refuse its request for it by device id. Its
 # numbers (online wait, first frame bound, Mbit/s) and the guest's result are in
 # the evidence.
+#
+# share_install: channel (with share) tests the install path instead of the
+# commit: no cmux-rd is placed before the join, and right after it the join
+# line's own cmux-rd step (cmux-tui/scripts/machine-join.sh, CMUX_JOIN_STEP=
+# cmux-rd) installs it from the feat-cmux-next channel. The host's
+# ~/.local/bin/cmux-rd must then be a regular file with the channel's sha256,
+# and the share must pass as above. The viewer still uses the run's build.
 on:
   workflow_dispatch:
     inputs:
@@ -58,9 +65,21 @@ on:
         required: false
         default: false
         type: boolean
+      share_install:
+        description: "with share: where the joined machine's cmux-rd comes from. build: the run's commit, linked into place before the join (tests the commit). channel: nothing is placed; the join line's own cmux-rd step installs it from the feat-cmux-next channel, which must carry cmux-rd"
+        required: false
+        default: build
+        type: choice
+        options:
+          - build
+          - channel
 
 permissions:
   contents: read
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
   e2e:
@@ -100,8 +119,14 @@ jobs:
         env:
           NAME_INPUT: ${{ inputs.name }}
           ACPMUX_REF_INPUT: ${{ inputs.acpmux_ref }}
+          SHARE: ${{ inputs.share }}
+          SHARE_INSTALL: ${{ inputs.share_install }}
         run: |
           set -euo pipefail
+          if [ "$SHARE_INSTALL" = channel ] && [ "$SHARE" != true ]; then
+            echo "::error::share_install: channel goes with share: true"
+            exit 1
+          fi
           name="${NAME_INPUT:-ci-join-$GITHUB_RUN_ID}"
           if ! printf '%s' "$name" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$'; then
             echo "::error::name must be 1-63 letters, digits, dot, underscore or dash"
@@ -117,11 +142,21 @@ jobs:
 
       - name: Install Linux build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config
+          fi
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -144,7 +179,9 @@ jobs:
       # units need; the runner image has none (run 44004680060: no bus after 30 s).
       - name: Install the share's display server
         if: inputs.share
-        run: sudo apt-get install -y xvfb dbus-user-session
+        run: |
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s xvfb dbus-user-session >/dev/null 2>&1; then echo "xvfb dbus-user-session: already installed"; else sudo apt-get install -y xvfb dbus-user-session; fi
 
       - name: Build cmux-rd
         id: cmuxrd
@@ -161,7 +198,11 @@ jobs:
         id: user
         run: |
           set -euo pipefail
-          base="$(mktemp -d /tmp/machine-join-e2e.XXXXXX)"
+          # Under /srv, not /tmp: a fleet runner's unit has a /tmp of its own (PrivateTmp), which the
+          # joined user's user manager (started by PID 1) does not see. With the home there the manager
+          # found no unit file in it (run 44970728746: "Unit file cmux-screen-host.service does not exist").
+          sudo install -d -o root -g root -m 0755 /srv
+          base="$(sudo mktemp -d /srv/machine-join-e2e.XXXXXX)"
           user="cmuxjoin-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           {
             echo "user=$user"
@@ -242,8 +283,10 @@ jobs:
             exit 1
           fi
 
-      # With share: the run's cmux-rd root-owned beside acpmux and linked where the host's user unit runs it
-      # (~/.local/bin/cmux-rd, where the joined machine's daemon looks for it); the joined user's user manager running (lingering,
+      # With share: the run's cmux-rd root-owned beside acpmux (the viewer's) and, with share_install: build, linked
+      # where the host's user unit runs it (~/.local/bin/cmux-rd, where the joined machine's daemon looks for it).
+      # With share_install: channel, nothing there: the join script root-owned beside acpmux, and the channel's
+      # sha256 for this machine's cmux-rd, which the join must install; the joined user's user manager running (lingering,
       # started explicitly so a failure names its reason, as that user's ssh login would start it: the daemon's setup installs and starts the host unit through it, and
       # the host starts the virtual display through it); and a second disposable user for the viewer, with
       # its own empty home. Nothing of the share itself runs here. No secret here.
@@ -256,6 +299,7 @@ jobs:
           JOIN_BASE: ${{ steps.user.outputs.base }}
           JOIN_HOME: ${{ steps.user.outputs.home }}
           CMUX_RD_BIN: ${{ steps.cmuxrd.outputs.bin }}
+          SHARE_INSTALL: ${{ inputs.share_install }}
         run: |
           set -euo pipefail
           viewer="cmuxview-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
@@ -265,8 +309,26 @@ jobs:
             echo "viewer_home=$JOIN_BASE/viewer"
           } >> "$GITHUB_OUTPUT"
           sudo install -o root -g root -m 0755 "$CMUX_RD_BIN" "$JOIN_BASE/bin/cmux-rd"
-          sudo -n -u "$JOIN_USER" -- /usr/bin/env -i HOME="$JOIN_HOME" PATH=/usr/bin:/bin \
-            /bin/sh -c 'mkdir -p "$HOME/.local/bin" && ln -s "$1" "$HOME/.local/bin/cmux-rd"' sh "$JOIN_BASE/bin/cmux-rd"
+          if [ "$SHARE_INSTALL" = channel ]; then
+            # The install path: nothing at ~/.local/bin/cmux-rd; the join line's cmux-rd step (root-owned, from the
+            # run's commit) installs it from the channel, which must carry cmux-rd for this machine.
+            sudo install -o root -g root -m 0644 cmux-tui/scripts/machine-join.sh "$JOIN_BASE/bin/machine-join.sh"
+            case "$(uname -m)" in
+              x86_64 | amd64) rd_target=x86_64-unknown-linux-gnu ;;
+              aarch64 | arm64) rd_target=aarch64-unknown-linux-gnu ;;
+              *) echo "::error::no cmux-rd build for $(uname -m)"; exit 1 ;;
+            esac
+            rd_sha="$(curl --proto '=https' --tlsv1.2 -fsSL https://files.cmux.com/cmux-tui/channels/feat-cmux-next.json |
+              jq -r --arg n "cmux-tui-rd-$rd_target" '.binaries[$n] // empty' | tr -cd '0-9a-f')"
+            if [ "${#rd_sha}" -ne 64 ]; then
+              echo "::error::the feat-cmux-next channel carries no cmux-rd-$rd_target yet; share_install: channel needs a channel that does"
+              exit 1
+            fi
+            echo "rd_sha256=$rd_sha" >> "$GITHUB_OUTPUT"
+          else
+            sudo -n -u "$JOIN_USER" -- /usr/bin/env -i HOME="$JOIN_HOME" PATH=/usr/bin:/bin \
+              /bin/sh -c 'mkdir -p "$HOME/.local/bin" && ln -s "$1" "$HOME/.local/bin/cmux-rd"' sh "$JOIN_BASE/bin/cmux-rd"
+          fi
           sudo useradd --no-create-home --home-dir "$JOIN_BASE/viewer" --shell /usr/sbin/nologin --user-group "$viewer"
           sudo install -d -o "$viewer" -g "$viewer" -m 0700 "$JOIN_BASE/viewer"
           # The viewer's decoder (Cisco's OpenH264, a one-time download) before the share, so the first-frame
@@ -275,6 +337,9 @@ jobs:
             "$JOIN_BASE/bin/cmux-rd" openh264-install
           # The X socket directory both displays use (the host's from :99, the viewer's :42).
           sudo install -d -o root -g root -m 1777 /tmp/.X11-unix
+          # The host's display is started by its user manager, which sees PID 1's /tmp, not this job's
+          # own (PrivateTmp on a fleet runner): the same directory there. One /tmp on a hosted runner.
+          sudo nsenter -t 1 -m -- install -d -o root -g root -m 1777 /tmp/.X11-unix
           # What runs the user manager here: PID 1 and logind (one line each, in every run's log).
           echo "pid 1: $(ps -o comm= -p 1); system: $(systemctl is-system-running 2>&1 || true); logind: $(systemctl is-active systemd-logind.service 2>&1 || true)"
           systemctl is-active --quiet systemd-logind.service || sudo systemctl start systemd-logind.service
@@ -363,6 +428,8 @@ jobs:
           SHARE: ${{ inputs.share }}
           VIEWER_USER: ${{ steps.share.outputs.viewer }}
           VIEWER_HOME: ${{ steps.share.outputs.viewer_home }}
+          SHARE_INSTALL: ${{ inputs.share_install }}
+          RD_SHA256: ${{ steps.share.outputs.rd_sha256 }}
         # exec: bun is the step's process, so a cancel's SIGINT reaches it and it revokes at once.
         run: |
           bench=()
@@ -370,6 +437,9 @@ jobs:
           share=()
           if [ "$SHARE" = true ]; then
             share=(--share-cmux-rd "$JOIN_BASE/bin/cmux-rd" --viewer-user "$VIEWER_USER" --viewer-home "$VIEWER_HOME" --device-hub "$DEVICE_HUB")
+            if [ "$SHARE_INSTALL" = channel ]; then
+              share+=(--share-install-script "$JOIN_BASE/bin/machine-join.sh" --share-rd-sha256 "$RD_SHA256")
+            fi
           fi
           exec bun scripts/cmux-next/machine-join-e2e.ts --origin "$HUB_ORIGIN" --acpmux "$JOIN_BASE/bin/acpmux" \
             --user "$JOIN_USER" --home "$JOIN_HOME" --name "$JOIN_NAME" \

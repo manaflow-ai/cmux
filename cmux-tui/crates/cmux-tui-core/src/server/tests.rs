@@ -539,8 +539,10 @@ fn run_json_command(mux: &Arc<Mux>, request: Value) -> anyhow::Result<Value> {
 }
 
 mod activity_roster_replay;
+mod agent_app_control;
 mod agent_hook_at_rest_receipt;
 mod agent_reply_append;
+mod classic_import_transport;
 mod detach_and_browser;
 mod detector_journal_filter_at_rest;
 #[cfg(unix)]
@@ -567,11 +569,13 @@ mod reply_value;
 mod resource_attach;
 mod resource_waits;
 mod send_expect_agent_replay;
+mod send_typed_submit;
 mod session_streams;
 mod shutdown_refusal;
 mod sizing;
 mod slow_request_log;
 mod socket_and_render;
+mod stop_if_idle;
 mod subscribe_cap;
 mod subscribe_scroll_on_attach;
 mod terminal_close_if_unplaced;

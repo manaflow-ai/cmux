@@ -431,6 +431,38 @@ async fn held_messages_survive_a_restart() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A paused pair holds any number of messages: past the old limit of 50, each is held, a
+/// restart restores them all in order, and the resume delivers every one.
+#[tokio::test]
+async fn a_paused_pair_holds_past_fifty_and_a_restart_keeps_them() {
+    let dir = std::env::temp_dir().join(format!("acpmux-pairs-{}", uuid::Uuid::now_v7()));
+    let hub = hub_in(Some(&dir));
+    let mut c = Client::open(&hub);
+    let (a, b) = (c.new_session().await, c.new_session().await);
+    for i in 0..2 {
+        c.message(&a, &b, &format!("m{i}"), "please check the build").await;
+    }
+    for i in 2..62 {
+        let reply = c.message(&a, &b, &format!("m{i}"), "please check the build").await;
+        assert!(held(&reply), "m{i}: {reply}");
+    }
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+
+    let hub = hub_in(Some(&dir));
+    let mut c = Client::open(&hub);
+    let mut person = Client::person(&hub).await;
+    let resumed = person.call(RESUME, json!({"sessionId": b})).await;
+    assert_eq!(resumed["delivered"], 60, "{resumed}");
+    c.wait_ran(&b, "m61").await;
+    let ids = c.ran_ids(&b).await;
+    let at = |id: &str| ids.iter().position(|x| x == id).unwrap();
+    assert!((2..61).all(|i| at(&format!("m{i}")) < at(&format!("m{}", i + 1))), "{ids:?}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// While a resume delivers what a pair held, a new message in the pair waits behind it.
 #[tokio::test]
 async fn a_new_message_never_overtakes_held_ones() {

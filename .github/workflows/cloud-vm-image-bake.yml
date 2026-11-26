@@ -34,6 +34,12 @@ name: Cloud VM image bake
 # candidate records it, as the member `large` of channel-dev.json. The image's own snapshot, id, smoke and
 # candidate fields are the same with it on or off, and a large image that fails is a warning, never a red run:
 # nothing boots it yet (creates still boot the image and grow it).
+# qcow2 (off by default; RFD 0100 step 6) also exports the smoked image as a compressed qcow2 disk with its sha256,
+# the second format beside the Freestyle snapshot chain, for hosts that run agent VMs themselves: one VM booted from
+# the snapshot tars its root filesystem to R2 through a presigned URL (qcow2-export.ts), the runner builds the qcow2
+# (scripts/ci/vm-image-qcow2.sh) and uploads cmux-vm-image/<tag>/cmux-vm-<tag>.qcow2 and .qcow2.sha256 to the
+# private cmux-fleet-artifacts bucket. Nothing is public: a host fetches them with presigned GET URLs. A failed
+# export is a warning, never a red bake.
 on:
   workflow_dispatch:
     inputs:
@@ -97,6 +103,11 @@ on:
         required: false
         default: false
         type: boolean
+      qcow2:
+        description: Also export the smoked image as a compressed qcow2 with a sha256 to the private R2 bucket (cmux-fleet-artifacts, cmux-vm-image/<tag>/), for self-hosted agent VM hosts (RFD 0100). Adds one VM and about 20 runner minutes
+        required: false
+        default: false
+        type: boolean
   # The image roll (cloud-vm-image-roll.yml) calls the bake with roll: true: it pins cmux_tui_commit into this
   # checkout's lock first (when set), and hands the gated candidate back as outputs. Nothing else differs.
   workflow_call:
@@ -108,6 +119,7 @@ on:
       agent_tools: { type: boolean, required: false, default: true }
       layered: { type: boolean, required: false, default: true }
       large_image: { type: boolean, required: false, default: false }
+      qcow2: { type: boolean, required: false, default: false }
       roll: { type: boolean, required: false, default: false }
       cmux_tui_commit: { type: string, required: false, default: "" }
     # The Freestyle key and the UI test login are repository secrets, which a called workflow gets only when its
@@ -138,12 +150,16 @@ concurrency:
   group: cloud-vm-image-bake-${{ github.ref }}${{ inputs.mode == 'first-session' && '-probe' || '' }}${{ inputs.roll && '-roll' || '' }}
   cancel-in-progress: false
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   # prod-copy only, before any job names the production environment (a job that names a missing
   # environment creates it, unprotected): it must exist and allow feat-cmux-next only.
   prod-gate:
     if: inputs.mode == 'prod-copy'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     env:
       GH_TOKEN: ${{ github.token }}
@@ -165,7 +181,7 @@ jobs:
     needs: prod-gate
     # Every mode but prod-copy skips prod-gate and runs as before; prod-copy runs only after it passed.
     if: ${{ !cancelled() && (needs.prod-gate.result == 'success' || (inputs.mode != 'prod-copy' && needs.prod-gate.result == 'skipped')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || inputs.roll && vars.CI_DEPLOY_SKIP_FLEET != '1' && 'cmux-gcp-deploy-jit-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # The cmux-next dev Freestyle account only (D-A7): never the shared classic account.
     # prod-copy alone bakes on the production account, in its own environment.
     # Both environments allow only feat-cmux-next.
@@ -216,21 +232,61 @@ jobs:
           echo "::error title=Cloud image::agent_tools is required; every new Cloud Native image must include the cmux-rd desktop closure" >&2
           exit 1
 
+      # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
+      # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
+      - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        working-directory: ${{ github.workspace }}
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ -e "$GITHUB_WORKSPACE/.git" ] || exit 0
+          cd "$GITHUB_WORKSPACE"
+          why=""
+          if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
+            why="sparse"
+          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+            why="skip-worktree entries"
+          elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
+            why="HEAD does not resolve"
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+            why="a ref names a missing object"
+          else
+            exit 0
+          fi
+          echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
 
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
       # web/'s install was 3.4 of the run's 14 min with a cold package cache (run 41857345925). The cache holds
       # package tarballs only, no secret; this job runs on feat-cmux-next only, so only that branch writes it.
       - name: Cache Bun package cache
+        if: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-vm-image-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          restore-keys: |
+            bun-vm-image-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Cache Bun package cache (restore only off base branches)
+        if: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: bun-vm-image-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
@@ -428,6 +484,7 @@ jobs:
              + (if ($b[0].inputsSha256 // null) != null then {inputs_sha256: $b[0].inputsSha256} else {} end)
              + (if ($b[0].daemonIdentify.capabilities // [] | type) == "array" then {cmux_tui: {commit: ($b[0].daemonIdentify.build_commit // $sha), committed_at: (now|todate), capabilities: $b[0].daemonIdentify.capabilities}} else {} end)
              + (if $b[0].teamFilesRoot then {team_files_root: $b[0].teamFilesRoot} else {} end)
+             + (if ($b[0].disk // null) != null then {disk: $b[0].disk} else {} end)
              + (if $large != null then {large: $large} else {} end)' \
             > "$candidate"
           cat "$candidate"
@@ -577,6 +634,25 @@ jobs:
           snapshot="${DEV_SNAPSHOT:-$(jq -r '.snapshot_id' ../images/cmux-vm/channels/dev.json)}"
           bun ../images/cmux-vm/first-session.ts --snapshot "$snapshot" --tag "$TAG" --out-dir "$OUT_DIR" | tee "$OUT_DIR/first-session.out"
 
+      # RFD 0100 step 6: the image as a qcow2 disk with its sha256, beside the snapshot chain. Opt-in (inputs.qcow2),
+      # after a passed smoke. The guest gets only presigned URLs, never the R2 key.
+      - name: Export the qcow2 image
+        if: inputs.mode == 'bake' && inputs.qcow2 && steps.smoke.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 60
+        env:
+          FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
+          SNAPSHOT: ${{ steps.bake.outputs.snapshot }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          # Private: no r2.dev, no custom domain (fleet-artifact-cdn.yml checks it). A dev image is never
+          # published; readers get presigned GET URLs.
+          R2_BUCKET: cmux-fleet-artifacts
+        # scripts/ci/vm-image-qcow2-publish.sh: the same export the image roll runs for every rolled image.
+        run: bash ../scripts/ci/vm-image-qcow2-publish.sh
+
       # Deletes every id the ledger recorded and did not delete yet: the bake
       # snapshot, and any builder or clone a failed or cancelled step left.
       - name: Delete everything this run created
@@ -651,7 +727,7 @@ jobs:
   # clone, toolchains and a cold build of this run's commit (first-build.ts --mode before), while the bake runs.
   first-build-before:
     if: inputs.mode == 'bake' && inputs.dev_tree
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
@@ -663,16 +739,46 @@ jobs:
       OUT_DIR: ${{ github.workspace }}/cmux-vm-image-out
       TAG: ci-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
+      # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
+      # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
+      - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        working-directory: ${{ github.workspace }}
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ -e "$GITHUB_WORKSPACE/.git" ] || exit 0
+          cd "$GITHUB_WORKSPACE"
+          why=""
+          if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
+            why="sparse"
+          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+            why="skip-worktree entries"
+          elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
+            why="HEAD does not resolve"
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+            why="a ref names a missing object"
+          else
+            exit 0
+          fi
+          echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
 
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -708,21 +814,51 @@ jobs:
 
   # The before/after table in the run summary (first-build.ts --report; no Freestyle access).
   first-build-report:
-    if: always() && inputs.mode == 'bake' && inputs.dev_tree
+    if: ${{ !cancelled() && inputs.mode == 'bake' && inputs.dev_tree }}
     needs: [bake, first-build-before]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
+      # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
+      # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
+      - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        working-directory: ${{ github.workspace }}
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ -e "$GITHUB_WORKSPACE/.git" ] || exit 0
+          cd "$GITHUB_WORKSPACE"
+          why=""
+          if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
+            why="sparse"
+          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+            why="skip-worktree entries"
+          elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
+            why="HEAD does not resolve"
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+            why="a ref names a missing object"
+          else
+            exit 0
+          fi
+          echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
 
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
       - name: Download the measurements
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0

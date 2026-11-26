@@ -341,14 +341,11 @@ fn steer_with_the_text_of_a_queued_prompt_keeps_the_queued_row() {
     let t = applied(&records[..4], &[]);
     assert_eq!(
         user_rows(&t),
-        vec![
-            ("go".into(), false, false),
-            ("same".into(), false, true),
-            ("same".into(), true, false)
-        ],
+        vec![("go".into(), false, false), ("same".into(), true, false)],
         "{:?}",
         t.items
     );
+    assert_eq!(docked(&t), [("same", Some("pb"))]);
     let t = applied(&records, &[]);
     assert_eq!(
         user_rows(&t),
@@ -434,8 +431,46 @@ fn a_hibernation_and_its_wake_draw_no_row() {
     assert_eq!(t.items.len(), 2, "{:?}", t.items);
 }
 
+/// An agent that quit on its own reads as an exit with its reason, never as "agent stopped"; a Stop still reads "agent stopped" (Leo, 2026-11-21: "i dont
+/// think 429 should just cause a process to just exit on its own, this is pretty weird").
+#[test]
+fn an_exit_nobody_asked_for_says_why_and_never_reads_as_a_stop() {
+    let mux = |seq: u64, kind: &str, msg: Value| json!({"seq": seq, "at": 1_000 + seq, "dir": "mux", "kind": kind, "msg": msg});
+    let mut t = Transcript::default();
+    let line =
+        "API Error: Request rejected (429) · This request would exceed your account's rate limit";
+    t.apply_event(&mux(1, "exited", json!({"code": 0, "reason": "rate_limit", "error": line})));
+    t.apply_event(&mux(2, "exited", json!({"code": 0})));
+    t.apply_event(&mux(3, "stopped", json!({"code": 0})));
+    let texts: Vec<String> = t
+        .items
+        .iter()
+        .filter_map(|i| match i {
+            Item::Status { text } => Some(text.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        texts,
+        [
+            format!(
+                "agent exited unexpectedly (code 0, rate limited): {line}; the next message resumes it"
+            ),
+            "agent exited unexpectedly (code 0); the next message resumes it".to_owned(),
+            "agent stopped".to_owned(),
+        ]
+    );
+    // The TUI shows every status that starts so with system chatter hidden (`tui/render`).
+    assert!(texts[..2].iter().all(|t| t.starts_with("agent exited unexpectedly")));
+}
+
 fn user(seq: u64, text: &str) -> Value {
     json!({"seq": seq, "at": 1_000 + seq, "dir": "mux", "kind": "user_message", "msg": {"text": text}})
+}
+
+/// The dock: each queued prompt's text and promptId, oldest first.
+fn docked(t: &Transcript) -> Vec<(&str, Option<&str>)> {
+    t.queue.iter().map(|q| (q.text.as_str(), q.prompt_id.as_deref())).collect()
 }
 
 fn user_texts(t: &Transcript) -> Vec<&str> {
@@ -520,14 +555,13 @@ fn prepend_keeps_pending_rows_as_shown_and_their_echo_lands_once() {
     );
 
     assert_eq!(t.prepend_events(&[user(10, "one")]), 1);
+    assert_eq!(docked(&t), [("next", None)]);
     assert!(
-        matches!(t.items.get(2), Some(Item::User { text, queued: true, steer: false }) if text == "next")
-    );
-    assert!(
-        matches!(t.items.get(3), Some(Item::User { text, steer: true, queued: false }) if text == "look\n[image: a.png]")
+        matches!(t.items.get(2), Some(Item::User { text, steer: true, queued: false }) if text == "look\n[image: a.png]")
     );
 
-    // The queued message's turn starts: its row moves to the end, once, and its echo is used up.
+    // The queued message's turn starts: it leaves the dock for the end, once, and its echo is
+    // used up.
     t.apply_event(&user(21, "next"));
     assert_eq!(user_texts(&t), ["one", "three", "look\n[image: a.png]", "next"]);
     assert_eq!(t.optimistic, ["look"]);
@@ -552,4 +586,93 @@ fn a_plain_transcript_keeps_no_records() {
     let mut paged = Transcript::paging();
     paged.apply_event(&user(1, "x"));
     assert_eq!(paged.raw_events.len(), 1);
+}
+
+/// Two queued prompts with the same text are told apart by promptId: the daemon may deliver the
+/// second first (`hub/queue.rs` reorders by priority), and each delivery takes its own entry.
+#[test]
+fn two_same_text_queued_prompts_deliver_by_prompt_id_in_order() {
+    let records = numbered(vec![
+        ("user_message", prompt("go", "p1", "t1")),
+        ("turn_started", turn("start", "t1")),
+        ("queued", prompt("same", "pa", "ta")),
+        ("queued", prompt("same", "pb", "tb")),
+        ("turn_end", turn("end", "t1")),
+        ("user_message", prompt("same", "pb", "tb")),
+        ("turn_started", turn("start", "tb")),
+        ("chunk", json!("b's reply")),
+        ("turn_end", turn("end", "tb")),
+        ("user_message", prompt("same", "pa", "ta")),
+    ]);
+    let t = applied(&records[..4], &[]);
+    assert_eq!(user_rows(&t), vec![("go".into(), false, false)], "{:?}", t.items);
+    assert_eq!(docked(&t), [("same", Some("pa")), ("same", Some("pb"))]);
+    let t = applied(&records[..9], &[]);
+    assert_eq!(docked(&t), [("same", Some("pa"))], "pb's delivery took pb's entry");
+    let t = applied(&records, &[]);
+    assert!(t.queue.is_empty());
+    let shown: Vec<String> =
+        t.items.iter().filter(|i| !matches!(i, Item::TurnEnd { .. })).map(item_text).collect();
+    assert_eq!(shown, ["go", "same", "b's reply", "same"], "{:?}", t.items);
+
+    // Delivered in queue order, each takes the oldest entry with its id.
+    let mut in_order = records.clone();
+    in_order[5]["msg"] = prompt("same", "pa", "ta");
+    in_order[9]["msg"] = prompt("same", "pb", "tb");
+    let t = applied(&in_order[..9], &[]);
+    assert_eq!(docked(&t), [("same", Some("pb"))]);
+}
+
+/// Agent rows that arrive after a prompt was queued draw above the dock: the queued prompt is
+/// no row in `items` until it is delivered, and then it lands after them, where it arrived.
+#[test]
+fn agent_rows_after_a_queued_prompt_stay_above_the_dock() {
+    let records = numbered(vec![
+        ("user_message", prompt("go", "p1", "t1")),
+        ("turn_started", turn("start", "t1")),
+        ("chunk", json!("first")),
+        ("queued", prompt("next", "pn", "tn")),
+        ("chunk", json!(" and more")),
+        ("turn_end", turn("end", "t1")),
+        ("user_message", prompt("next", "pn", "tn")),
+    ]);
+    let t = applied(&records[..5], &[]);
+    assert_eq!(user_rows(&t), vec![("go".into(), false, false)], "no inline queued row");
+    assert!(matches!(t.items.last(), Some(Item::Assistant { text }) if text == "first and more"));
+    assert_eq!(docked(&t), [("next", Some("pn"))]);
+    let t = applied(&records, &[]);
+    assert!(t.queue.is_empty());
+    assert_eq!(
+        user_rows(&t),
+        vec![("go".into(), false, false), ("next".into(), false, false)],
+        "{:?}",
+        t.items
+    );
+    assert!(matches!(t.items.last(), Some(Item::User { text, .. }) if text == "next"));
+}
+
+/// The TUI's own queued send docks as its local echo; the daemon's `queued` record adopts that
+/// entry (one row, not two), and a withdrawal (`queue_removed`) takes it and its echo away.
+#[test]
+fn a_local_queued_echo_is_adopted_once_and_withdrawn_by_prompt_id() {
+    let records = numbered(vec![
+        ("user_message", prompt("go", "p1", "t1")),
+        ("turn_started", turn("start", "t1")),
+        ("queued", prompt("later", "pl", "tl")),
+        ("queue_removed", json!({"promptId": "pl", "turnId": "tl", "queued": 0})),
+    ]);
+    let mut t = Transcript::default();
+    t.apply_event(&records[0]);
+    t.apply_event(&records[1]);
+    t.push_optimistic(
+        "later".into(),
+        Item::User { text: "later".into(), steer: false, queued: true },
+    );
+    assert_eq!(docked(&t), [("later", None)]);
+    assert_eq!(user_rows(&t), vec![("go".into(), false, false)]);
+    t.apply_event(&records[2]);
+    assert_eq!(docked(&t), [("later", Some("pl"))]);
+    t.apply_event(&records[3]);
+    assert!(t.queue.is_empty());
+    assert!(t.optimistic.is_empty());
 }

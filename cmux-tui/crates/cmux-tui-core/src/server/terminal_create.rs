@@ -196,7 +196,21 @@ impl ConnectionSurfaceScheduler {
         // On the dispatcher thread of the connection, which runs its requests
         // in the order of their arrival: a page's request takes its slot there too.
         let hole = pending.request.cmd.admit_tab_place(mux, client);
-        let prelaunch = PrelaunchRequest::of(&pending.request.cmd, frontend_shell(mux, client));
+        let frontend_shell = frontend_shell(mux, client);
+        // A plain-shell new tab that may start lazily launches no host ahead
+        // (mux/terminal_respawn/lazy.rs): the create decides.
+        let lazy_tab = match &pending.request.cmd {
+            Command::NewTab(params) => {
+                params.may_start_lazily(frontend_shell)
+                    && !crate::mux::terminal_respawn::lazy::actor_shows_what_it_creates(
+                        &origin_gate::connection_actor(mux, client),
+                    )
+                    && mux.lazy_tab_skips_prelaunch(params.pane)
+            }
+            _ => false,
+        };
+        let prelaunch =
+            PrelaunchRequest::of(&pending.request.cmd, frontend_shell).filter(|_| !lazy_tab);
         let label = match (&pending.request.cmd, prelaunch.is_some()) {
             (Command::NewTab { .. }, true) => "new-tab",
             (_, true) => "pane-create",
@@ -611,19 +625,5 @@ impl MessageSink for OrderedReplySink {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The prelaunched host runs the program the create commits, so it
-    /// resolves `terminal-frontend-shell-integration-v1` the same way.
-    #[test]
-    fn prelaunch_follows_the_frontend_shell_flag() {
-        let command: Command = serde_json::from_value(json!({
-            "cmd": "new-tab", "env": {"SHELL": "/opt/frontend/bin/zsh"},
-        }))
-        .unwrap();
-        let frontend = PrelaunchRequest::of(&command, true).unwrap();
-        assert_eq!(frontend.argv, Some(vec!["/opt/frontend/bin/zsh".to_string()]));
-        assert_eq!(PrelaunchRequest::of(&command, false).unwrap().argv, None);
-    }
-}
+#[path = "terminal_create_tests.rs"]
+mod tests;
