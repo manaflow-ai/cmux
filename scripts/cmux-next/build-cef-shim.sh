@@ -104,8 +104,9 @@ done
   "$OUT_DIR/obj/shim/shim_background.mm.o" "$OUT_DIR/obj/shim/shim_bookmarks.mm.o" \
   "$OUT_DIR/obj/shim/shim_permissions.mm.o" "$OUT_DIR/obj/shim/shim_helper_host.mm.o" \
   "$OUT_DIR/obj/shim/shim_file_dialog.mm.o" "$OUT_DIR/obj/shim/shim_in_tree.mm.o" \
-  "$OUT_DIR/obj/shim/shim_js_dialog.mm.o" \
-  "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface -lobjc -lz
+  "$OUT_DIR/obj/shim/shim_js_dialog.mm.o" "$OUT_DIR/obj/shim/shim_offscreen.mm.o" \
+  "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface -framework Metal \
+  -framework QuartzCore -lobjc -lz
 
 # The helpers are copied into five helper apps each. -dead_strip (as CEF's own
 # CMake links every target) keeps only the wrapper code each one reaches. The

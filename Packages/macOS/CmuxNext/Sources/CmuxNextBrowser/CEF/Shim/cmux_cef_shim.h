@@ -1039,6 +1039,76 @@ CMUX_SHIM_EXPORT int cmux_shim_page_resource_respond_page(int token, int status,
 // (the live web loop, web-dev.json). Any thread; applies to the next request.
 CMUX_SHIM_EXPORT void cmux_shim_page_scheme_set_live(int live);
 
+
+// Off-screen pages (approach 5, prototype; shim_offscreen.mm). A windowless
+// (Alloy style) browser with shared textures: Chromium hands each frame as an
+// IOSurface (CefRenderHandler::OnAcceleratedPaint), the shim copies it into an
+// IOSurface of its own (Metal blit) and gives that to the host, which shows it
+// in its own layer. Input goes through CefBrowserHost (Send*Event, Ime*).
+// UI thread (the main thread) only. Every call is a no-op for a browser that
+// is not off-screen.
+typedef struct {
+  int type;               // 0 the page, 1 its popup widget (<select>, date picker)
+  void* io_surface;       // IOSurfaceRef the shim owns; valid until two frames later
+  int width;              // surface size in pixels (the copied region)
+  int height;
+  int source_width;       // the page's own size in pixels (frame metadata), 0 unknown
+  int source_height;
+  int letterboxed;        // 1: the capture was scaled into an older capture size
+                          // (not shown; the shim asked for a refresh)
+  uint64_t capture_counter;
+  int64_t timestamp_us;
+} cmux_shim_osr_frame;
+
+typedef struct {
+  // The page's view size in DIP (whole points); never 0.
+  void (*view_rect)(void* ctx, int browser_id, int* width, int* height);
+  // Device scale and the screen's frame and visible frame in DIP; 0 = unknown.
+  int (*screen_info)(void* ctx, int browser_id, float* scale, int* rect, int* available);
+  // A view point (DIP, top-left origin) in screen coordinates.
+  int (*screen_point)(void* ctx, int browser_id, int x, int y, int* screen_x, int* screen_y);
+  void (*frame)(void* ctx, int browser_id, const cmux_shim_osr_frame* frame);
+  void (*popup_show)(void* ctx, int browser_id, int show);
+  void (*popup_rect)(void* ctx, int browser_id, int x, int y, int width, int height);
+  // The IME composition's range and each character's rect (x, y, w, h DIP, view).
+  void (*ime_range)(void* ctx, int browser_id, int from, int to, const int* rects, int count);
+  // The page's cursor (an NSCursor*).
+  void (*cursor)(void* ctx, int browser_id, void* cursor);
+} cmux_shim_osr_handlers;
+
+// Before cmux_shim_initialize: CefSettings.windowless_rendering_enabled.
+CMUX_SHIM_EXPORT void cmux_shim_osr_enable(int enabled);
+CMUX_SHIM_EXPORT void cmux_shim_osr_set_handlers(const cmux_shim_osr_handlers* handlers, void* ctx);
+// As cmux_shim_create_window, but a windowless browser with shared textures
+// at frame_rate (1-240) frames a second; parent_view is for dialogs only.
+CMUX_SHIM_EXPORT int cmux_shim_osr_create(int request, void* parent_view, int width, int height, const char* url,
+                                          const char* profile_cache_path, int frame_rate);
+CMUX_SHIM_EXPORT int cmux_shim_osr_is_offscreen(int browser_id);
+CMUX_SHIM_EXPORT void cmux_shim_osr_was_resized(int browser_id);
+CMUX_SHIM_EXPORT void cmux_shim_osr_was_hidden(int browser_id, int hidden);
+CMUX_SHIM_EXPORT void cmux_shim_osr_screen_info_changed(int browser_id);
+CMUX_SHIM_EXPORT void cmux_shim_osr_invalidate(int browser_id);
+CMUX_SHIM_EXPORT void cmux_shim_osr_set_frame_rate(int browser_id, int frame_rate);
+// kind: 0 move, 1 leave, 2 press, 3 release. button: 0 left, 1 middle, 2 right.
+// x, y: DIP in the view, top-left origin. modifiers: cef_event_flags_t.
+CMUX_SHIM_EXPORT void cmux_shim_osr_mouse(int browser_id, int kind, int x, int y, uint32_t modifiers, int button,
+                                          int click_count);
+CMUX_SHIM_EXPORT void cmux_shim_osr_wheel(int browser_id, int x, int y, uint32_t modifiers, int delta_x, int delta_y);
+// type: cef_key_event_type_t (0 raw down, 1 down, 2 up, 3 char).
+CMUX_SHIM_EXPORT void cmux_shim_osr_key(int browser_id, int type, uint32_t modifiers, int native_key_code,
+                                        uint16_t character, uint16_t unmodified_character);
+// UTF-8 text; ranges in UTF-16 units, from < 0 = invalid range.
+CMUX_SHIM_EXPORT void cmux_shim_osr_ime_set_composition(int browser_id, const char* text, int replace_from,
+                                                        int replace_to, int selection_from, int selection_to);
+CMUX_SHIM_EXPORT void cmux_shim_osr_ime_commit(int browser_id, const char* text, int replace_from, int replace_to,
+                                               int relative_cursor);
+CMUX_SHIM_EXPORT void cmux_shim_osr_ime_finish(int browser_id, int keep_selection);
+CMUX_SHIM_EXPORT void cmux_shim_osr_ime_cancel(int browser_id);
+// 0 undo, 1 redo, 2 cut, 3 copy, 4 paste, 5 delete, 6 select all, 7 paste as plain text.
+CMUX_SHIM_EXPORT void cmux_shim_osr_edit(int browser_id, int command);
+// Counters since launch: frames, frames_letterboxed, blit_us_total, refreshes, popup_frames.
+CMUX_SHIM_EXPORT void cmux_shim_osr_counters(uint64_t* out, int capacity);
+
 #ifdef __cplusplus
 }
 #endif
