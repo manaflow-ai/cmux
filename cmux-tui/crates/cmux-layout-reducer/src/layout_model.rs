@@ -1179,7 +1179,7 @@ pub fn cache_node(model: &Model, frames: &BTreeMap<String, Rect>) -> Option<Valu
         Layout::Splits(root) => Some(node(root, frames)),
         Layout::Columns(columns) => {
             let total = columns.iter().fold(0.0, |sum, column| sum + swift_max(0.0, column.width));
-            if !(total > 0.0) {
+            if total.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
                 return None;
             }
             if columns.len() == 1 {
