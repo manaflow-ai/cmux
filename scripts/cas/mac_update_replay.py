@@ -45,13 +45,16 @@ from web_ota_replay import WAIT_BUDGET, RateLimited, api  # noqa: E402
 FEED = "https://files-next.cmux.com/nightly-next"
 DMG = "cmux-nightly-next-macos-{arch}-{build}.dmg"
 SPARKLE = "http://www.andymatuschak.org/xml-namespaces/sparkle"
+# The CDN answers urllib's default User-Agent (Python-urllib) with 403, so every feed read names one
+# (derived_data_replay.py USER_AGENT; run 45896572380 failed on the appcast read).
+USER_AGENT = "cmux-cas-replay-u2"
 # The RFD's U2 row (cmuxterm-hq docs/rfd/0166-own-cdn.md, "Scoreboard rows").
 U2_TODAY = 243e6
 U2_TARGET = 70e6
 
 
 def head_ok(url):
-    req = urllib.request.Request(url, method="HEAD")
+    req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
             return r.status == 200
@@ -83,7 +86,8 @@ def download(url, path):
     if os.path.isfile(path):
         return
     tmp = path + ".part"
-    with urllib.request.urlopen(url, timeout=600) as r, open(tmp, "wb") as f:
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(req, timeout=600) as r, open(tmp, "wb") as f:
         shutil.copyfileobj(r, f, 1 << 20)
     os.replace(tmp, path)
 
@@ -126,7 +130,8 @@ def read_appcast(a):
     if a.appcast_file:
         with open(a.appcast_file, "rb") as f:
             return f.read()
-    with urllib.request.urlopen(f"{a.feed}/appcast-{a.arch}.xml", timeout=60) as r:
+    req = urllib.request.Request(f"{a.feed}/appcast-{a.arch}.xml", headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(req, timeout=60) as r:
         return r.read()
 
 
