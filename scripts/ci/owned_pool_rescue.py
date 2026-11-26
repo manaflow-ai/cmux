@@ -315,9 +315,20 @@ _POOL_READ_WHY = ("its secretless Linux jobs read vars.RUNNER_POOLS.linux (cmux#
                   "involved for the rescue to move")
 UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/cloud-composer-journey.yml":
-        "never takes an owned pool: pick-runner runs e2e_runner_pool.py with --owned 0 and keeps only a Blacksmith "
-        "macOS 26 label, because the journey job holds a Stack account pair; a re-run takes the declared macos_26 "
-        "pool, and the scheduled dispatcher on main starts the next run",
+        "takes no owned pool while Blacksmith macOS is on: pick-runner runs e2e_runner_pool.py with --owned 0 and "
+        "keeps only a Blacksmith macOS 26 label, because the journey job holds a Stack account pair; a re-run takes "
+        "the declared macos_26 pool, and the scheduled dispatcher on main starts the next run. With "
+        "CI_BLACKSMITH_MACOS off (note-350) the journey takes the owned side label, and its timeout clears a "
+        "stuck job for that next run",
+    ".github/workflows/auto-journey.yml":
+        "a manual feat-cmux-next journey (lane broker dispatch, nothing gates on it): its one job takes the "
+        "declared macos_26 pool, or the owned side label only while CI_BLACKSMITH_MACOS is off (note-350), so a "
+        "stuck or refused job ends at its 90-minute timeout and the dispatcher re-dispatches it",
+    ".github/workflows/cloud-chat-proof.yml":
+        "watched by this copy's SIDE_WORKFLOW_PATHS, but main's copy, the one workflow_run runs, does not list it "
+        "while main takes no merges: until it does, both proof jobs take the owned gui pool (glaeda-gui-std) only on "
+        "attempt 1 while CI_PR_POOL_OWNED is 1, and a person's re-run takes pick-proof-runner's Blacksmith macOS 26 "
+        "label or the declared macos_26 pool",
     ".github/workflows/first-user-journey-ios.yml":
         "feat-cmux-next only (main's copy only dispatches it), nightly and manual, no pull request: the walk takes "
         "the screenshots lane's pick (an owned simulator mini when CI_IOS_OWNED allows) on attempt 1 and "
