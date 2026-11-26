@@ -487,8 +487,10 @@ elif op == "events":
         if not evs: break
         for e in evs:
             m = e.get("msg") or {}
-            text = json.dumps(m)[:2000]
-            out.append({"seq": e.get("seq"), "kind": e.get("kind"), "promptId": m.get("promptId") or (m.get("_meta") or {}).get("promptId"), "text": text})
+            pid = m.get("promptId") or (m.get("_meta") or {}).get("promptId")
+            # Only a prompt's own records need their text (a run counts once by seq and text); the rest kept whole
+            # overran the exec's output and cut the JSON (run 45820934296's cut drill, 81 records: Unterminated string).
+            out.append({"seq": e.get("seq"), "kind": e.get("kind"), "promptId": pid, "text": json.dumps(m)[:2000] if pid else ""})
         after = max(x.get("seq") or 0 for x in evs)
         if len(evs) < 500: break
     print("@@json " + json.dumps(out))
@@ -502,7 +504,7 @@ export async function acpmuxOn(side: MoveSide, op: string, session: string, arg 
   const r = await side.exec(`${side.guest}C="$c" python3 -I -c ${shq(ACPMUX_PY)} ${shq(op)} ${shq(session)} ${shq(arg)} 2>&1`, 60_000);
   const m = /@@json (.*)$/m.exec(r.stdout);
   if (!m) throw new Error(`acpmux ${op} on ${side.name}: ${(r.stdout + r.stderr).trim().slice(-300)}`);
-  return JSON.parse(m[1]);
+  try { return JSON.parse(m[1]); } catch (e) { throw new Error(`acpmux ${op} on ${side.name}: ${(e as Error).message} in ${m[1].length} bytes`); }
 }
 
 /**
@@ -977,13 +979,24 @@ export async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult>
   const strand: string[] = [];
   if (survivor === a.dst && !landed.edit && editAt.length) strand.push(`edit only in the ${edit}`);
   if (survivor === a.dst && !landed.commit && commitAt.length) strand.push(`commit only in the ${commit}`);
+  // Every side was brought back before these reads, so a read that failed proves nothing either way: a loss it would
+  // explain is unmeasured, not a finding (run 45820934296's cut drill: "chat open nowhere" with both summaries
+  // unanswered, and "81 of 81 records" from an events read cut short; each pump had answered ok, moved).
+  const readErrs = [srcSum?.error ? `summary on ${a.src.name}: ${srcSum.error}` : "", dstSum?.error ? `summary on ${a.dst.name}: ${dstSum.error}` : "",
+    ...Object.entries(evErr).map(([n, e]) => `events on ${n}: ${e}`), draft.startsWith("unreadable") ? `draft: ${draft}` : ""].filter(Boolean);
+  const unproven = moveVerdict(lost, readErrs) === "unmeasured";
   return {
     run: a.run, seed: a.seed, direction: a.direction, step: a.step, button_step: buttonStep(a.step), kill: a.kill,
-    outcome: lost.length ? "fail" : "pass", lost, open, queued_runs: qRuns, queued_src: qSrc, queued_dst: qDst, draft, edit, commit,
+    outcome: moveVerdict(lost, readErrs), lost: unproven ? [] : lost, open, queued_runs: qRuns, queued_src: qSrc, queued_dst: qDst, draft, edit, commit,
     pump_first: pumpText(first), pump_retry: pumpText(retry), seen_ms: seenMs, fault_s: faultS,
-    detail: `${last.ok ? "move finished" : `move did not finish: ${last.json?.error_code ?? "no answer"}`}${strand.length ? `; ${strand.join("; ")}` : ""}`,
+    detail: `${last.ok ? "move finished" : `move did not finish: ${last.json?.error_code ?? "no answer"}`}${strand.length ? `; ${strand.join("; ")}` : ""}${unproven ? `; unproven (a read failed): ${lost.join("; ")}; ${readErrs.join("; ").slice(0, 400)}` : ""}`,
     trace,
   };
+}
+
+/** A loss counts only when every read behind it answered; one that failed leaves the run unmeasured. */
+export function moveVerdict(lost: string[], readErrs: string[]): MoveResult["outcome"] {
+  return !lost.length ? "pass" : readErrs.length ? "unmeasured" : "fail";
 }
 
 /** The results as a markdown table: direction × step × kill → what was lost. */

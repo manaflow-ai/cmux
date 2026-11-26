@@ -5,7 +5,7 @@ import { describe, expect, it } from "bun:test"
 import { chmodSync, existsSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { CarrierServe, startSettled } from "./cloud-chaos-move.ts"
+import { CarrierServe, moveVerdict, startSettled } from "./cloud-chaos-move.ts"
 import { Api, keepBearerFresh } from "./cloud-journey.ts"
 
 /** A stand-in `cmux carrier serve`: binds nothing, makes the socket file, prints the ready line and, like the real
@@ -92,5 +92,17 @@ describe("startSettled", () => {
   it("throws any other refusal at once", async () => {
     const other = new Error('cloud.machine.start: HTTP 404 {"code":"cloud.machine.not_found"}')
     await expect(startSettled({ status: async () => "unknown", start: async () => { throw other } }, "vm_test", () => undefined, 60_000, async () => undefined)).rejects.toThrow("not_found")
+  })
+})
+
+describe("moveVerdict", () => {
+  it("leaves a loss unmeasured when a read behind it failed (run 45820934296's cut drill)", () => {
+    expect(moveVerdict(["chat open nowhere", "draft"], ["summary on A: read ECONNRESET"])).toBe("unmeasured")
+  })
+  it("keeps a loss whose reads all answered", () => {
+    expect(moveVerdict(["queued prompt ran 2 times"], [])).toBe("fail")
+  })
+  it("passes a run that lost nothing even if a side read failed", () => {
+    expect(moveVerdict([], ["events on L: no answer"])).toBe("pass")
   })
 })
