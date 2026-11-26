@@ -1,0 +1,65 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45732114266",
+  "recorded_at": "2026-11-26T01:02:05Z",
+  "reason": "cmux-tui 1b1baf11ea85 changes the image's cmux-tui (pinned 368c5b2390bc)",
+  "dry_run": false,
+  "cmux_tui": "1b1baf11ea858d884a34b3c6089240b2eeaeab04",
+  "fixes": [
+    {
+      "sha": "1b1baf11ea858d884a34b3c6089240b2eeaeab04",
+      "mergedAt": "2026-11-25T23:28:46Z",
+      "subject": "Priority by interactivity: cmux-interactivity policy, daemon drag note, app FFI (#53142)"
+    },
+    {
+      "sha": "df24d43eaabb3312434317313bd15d05572eba52",
+      "mergedAt": "2026-11-25T23:28:27Z",
+      "subject": "acpmux: a brief-only remote new uses its scratch folder instead of being refused (#57034)"
+    },
+    {
+      "sha": "b67ac2d8f2715a0f97ed2d4a404fede22b1544f6",
+      "mergedAt": "2026-11-25T23:19:56Z",
+      "subject": "Cloud proofs add a Claude connection so the start gate passes (#56995)"
+    },
+    {
+      "sha": "72b5eb4b380eff8b0ebbf99e56fd42f590c545a5",
+      "mergedAt": "2026-11-25T23:16:43Z",
+      "subject": "acpmux: a chat's place pin is its own; every older chat is pinned to its machine, once (#53476)"
+    },
+    {
+      "sha": "19023f7c46ddcdbaffcc83918bebaceb45c0d2a7",
+      "mergedAt": "2026-11-25T23:16:02Z",
+      "subject": "Cloud journey: chat through cmux-autocloud --machine (RFD 0139 E2E) (#55350)"
+    },
+    {
+      "sha": "df8301896221a6f5736482df60dca28579478aa0",
+      "mergedAt": "2026-11-25T23:09:52Z",
+      "subject": "acpmux: stop the peer-snapshot read-ahead re-reading what the bound evicts (#56863)"
+    },
+    {
+      "sha": "e3999d3f5fb61c699b59ceb49616186d2f15486e",
+      "mergedAt": "2026-11-25T23:02:59Z",
+      "subject": "acpmux: a peer read waits while its link brings the reply, not a fixed 30 s (#57111)"
+    },
+    {
+      "sha": "53302ada7cea3dcb2ffe3ed39beac7d636bc0500",
+      "mergedAt": "2026-11-25T22:46:34Z",
+      "subject": "v2 gate home: a gate with no measure fails its row, not the home's exit (#57067)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-26T01:02:05Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
