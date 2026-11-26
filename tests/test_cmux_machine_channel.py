@@ -770,7 +770,8 @@ class LinuxReleasePoint(unittest.TestCase):
             shutil.copy(extra, self.repo / "scripts/ci/")
         # As Sparkle writes it: a self-closed <enclosure/> before the commit.
         item = (f'<item><title>NIGHTLY</title><enclosure url="https://files-next.cmux.com/x.dmg" length="1"/>'
-                f"<cmux:sourceCommit>{appcast_commit}</cmux:sourceCommit></item>") if appcast_commit else "<item/>"
+                '<cmux:sourceCommit xmlns:cmux="https://cmux.com/xml-namespaces/cmux">'
+                f"{appcast_commit}</cmux:sourceCommit></item>") if appcast_commit else "<item/>"
         (self.r2 / "nightly-appcast.xml").write_text(f"<rss><channel>{item}<item>"
                                                      f"<cmux:sourceCommit>{'0' * 40}</cmux:sourceCommit></item></channel></rss>")
         env = {"PATH": f"{self.bin}:{os.environ['PATH']}", "HOME": str(self.tmp), "FAKE_R2": str(self.r2),
