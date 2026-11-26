@@ -366,7 +366,8 @@ def shortest_minutes(timeout: int | str) -> int:
 class Workflow(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.job = yaml.safe_load(WORKFLOW.read_text())["jobs"]["cmux-scheme-compile"]
+        cls.workflow = yaml.safe_load(WORKFLOW.read_text())
+        cls.job = cls.workflow["jobs"]["cmux-scheme-compile"]
         cls.steps = {s.get("id"): s for s in cls.job["steps"] if s.get("id")}
         cls.order = [s.get("id") or s.get("name") for s in cls.job["steps"]]
 
@@ -380,7 +381,9 @@ class Workflow(unittest.TestCase):
 
     def test_off_by_default_and_never_in_the_way(self) -> None:
         decide, capture = self.steps["hybrid-ref"], self.steps["hybrid-ref-capture"]
-        self.assertTrue(decide["if"].startswith("vars.CMUX_NEXT_HYBRID_REF_CAPTURE == '1' &&"))
+        self.assertTrue(decide["if"].startswith("(vars.CMUX_NEXT_HYBRID_REF_CAPTURE == '1' || inputs.hybrid_ref_capture == true) &&"))
+        dispatch = self.workflow[True]["workflow_dispatch"]["inputs"]["hybrid_ref_capture"]
+        self.assertEqual((dispatch["type"], dispatch["default"]), ("boolean", False), "a dispatch opts in to one capture; off by default")
         for step in (decide, capture):
             self.assertTrue(step["continue-on-error"])
         upload = next(s for s in self.job["steps"] if s.get("name") == "Upload the REF capture manifest")
