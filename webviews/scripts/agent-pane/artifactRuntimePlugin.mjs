@@ -1,6 +1,7 @@
 // Bundle the JSX interpreter and React as inert text, evaluated only inside the opaque artifact
 // frame after Run. No CDN, module fetch, parent eval or bridge capability reaches that frame.
 import { build } from "esbuild";
+import { productionDefine } from "../productionDefine.mjs";
 import { writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 const id = "virtual:cmux-artifact-runtime";
@@ -13,7 +14,7 @@ export async function artifactRuntimeCode({ metafile } = {}) {
     format: "iife",
     platform: "browser",
     minify: true,
-    define: { "process.env.NODE_ENV": '"production"' },
+    define: productionDefine,
     metafile: Boolean(metafile),
   });
   const code = result.outputFiles[0].text;

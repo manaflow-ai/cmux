@@ -32,6 +32,10 @@ function decodeSegment(text) {
 /** A source map source as the table names it: a path under webviews/, or `node_modules/<package>`. */
 export function siteSource(source, mapDir, webviewsRoot) {
   if (/^[a-z][\w+.-]*:/i.test(source) && !source.startsWith("file:")) return source;
+  // A module esbuild makes itself (`<define:import.meta.env>`, `<runtime>`) has no file: its
+  // name alone, not resolved under the build's temporary directory, so two builds give one table.
+  const virtual = /(?:^|\/)(<[^/>]+>)$/.exec(source);
+  if (virtual) return virtual[1];
   const absolute = path.resolve(mapDir, source.replace(/^file:\/\//, ""));
   const relative = path.relative(webviewsRoot, absolute).split(path.sep).join("/");
   const packaged = /(?:^|\/)node_modules\/((?:@[^/]+\/)?[^/]+)(?!.*\/node_modules\/)/.exec(relative);

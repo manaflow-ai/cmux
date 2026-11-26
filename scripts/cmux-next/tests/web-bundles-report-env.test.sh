@@ -15,6 +15,7 @@ fail() { printf 'FAIL: %s\n' "$@" >&2; exit 1; }
 fake="$TMP/root"
 mkdir -p "$fake/scripts/cmux-next" "$fake/webviews/scripts/pages" "$TMP/bin"
 cp "$ROOT/scripts/cmux-next/build-web-bundles.sh" "$fake/scripts/cmux-next/"
+cp "$ROOT/scripts/cmux-next/check-bundle-import-meta-env.py" "$fake/scripts/cmux-next/"
 printf '{}\n' > "$fake/webviews/package.json"
 printf '#!/bin/sh\nexit 0\n' > "$fake/scripts/check-webviews-bun-version.sh"
 printf 'print("1.0.0")\n' > "$fake/scripts/webviews_bun_version.py"
@@ -25,6 +26,8 @@ for tool in bun node; do printf '#!/bin/sh\nexit 0\n' > "$TMP/bin/$tool"; done
 record() {
   cat > "$1" <<EOF
 #!/bin/sh
+# The bundle check scans what each builder wrote: make its --out directory.
+while [ \$# -gt 0 ]; do [ "\$1" = --out ] && mkdir -p "\$2"; shift; done
 {
   echo "pages=\${CMUX_PAGES_METAFILE:-}"
   echo "artifact=\${CMUX_ARTIFACT_RUNTIME_METAFILE:-}"

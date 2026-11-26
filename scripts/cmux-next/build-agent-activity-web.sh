@@ -29,7 +29,9 @@ if [ -n "$REPORT_DIR" ]; then
   mkdir -p "$REPORT_DIR"
   metafile_args="--metafile=$REPORT_DIR/agent-activity.json"
 fi
-bun x esbuild src/agent-activity/main.tsx --bundle --format=esm --platform=browser --target=es2022 --minify --outfile="$WORK/app.js" $metafile_args
+# import.meta.env as the Vite build substitutes it (webviews/scripts/productionDefine.mjs).
+bun x esbuild src/agent-activity/main.tsx --bundle --format=esm --platform=browser --target=es2022 --minify \
+  --define:import.meta.env='{"BASE_URL":"/","DEV":false,"MODE":"production","PROD":true,"SSR":false}' --outfile="$WORK/app.js" $metafile_args
 [ -s "$WORK/app.css" ] || { echo "error: the Activity bundle has no CSS" >&2; exit 1; }
 cp "$WORK/app.css" "$WORK/styles.css"
 # FOCUS-RING: the focus-ring gate on esbuild's CSS, as the Vite build does (postcss.config.mjs).
