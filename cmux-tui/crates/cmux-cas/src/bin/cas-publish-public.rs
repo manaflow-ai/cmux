@@ -6,7 +6,7 @@
 //!
 //! ```text
 //! cas-publish-public archive --dir D --kind K --name N --version V (--sha256 H | --sha512 H) [--strip N] FILE
-//! cas-publish-public cargo-lock --dir D --lock Cargo.lock --crates DIR   # DIR of NAME-VERSION.crate
+//! cas-publish-public cargo-lock --dir D --lock Cargo.lock [--lock ...] --crates DIR   # DIR of NAME-VERSION.crate
 //! cas-publish-public list --dir D
 //! ```
 
@@ -28,7 +28,8 @@ fn run() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
     let cmd = args.next().ok_or("a command: archive, cargo-lock or list")?;
     let (mut dir, mut kind, mut name, mut version) = (None, None, None, None);
-    let (mut sum, mut strip, mut file, mut lock, mut crates) = (None, 0usize, None, None, None);
+    let (mut sum, mut strip, mut file, mut lock, mut crates) =
+        (None, 0usize, None, Vec::new(), None);
     while let Some(a) = args.next() {
         let mut val = || args.next().ok_or_else(|| format!("{a} needs a value"));
         match a.as_str() {
@@ -37,13 +38,13 @@ fn run() -> Result<(), String> {
             "--name" => name = Some(val()?),
             "--version" => version = Some(val()?),
             "--sha256" => {
-                sum = Some(Checksum::new(Algo::Sha256, &val()?).map_err(|e| e.to_string())?)
+                sum = Some(Checksum::new(Algo::Sha256, &val()?).map_err(|e| e.to_string())?);
             }
             "--sha512" => {
-                sum = Some(Checksum::new(Algo::Sha512, &val()?).map_err(|e| e.to_string())?)
+                sum = Some(Checksum::new(Algo::Sha512, &val()?).map_err(|e| e.to_string())?);
             }
             "--strip" => strip = val()?.parse().map_err(|_| "--strip needs a number")?,
-            "--lock" => lock = Some(PathBuf::from(val()?)),
+            "--lock" => lock.push(PathBuf::from(val()?)),
             "--crates" => crates = Some(PathBuf::from(val()?)),
             _ if !a.starts_with("--") => file = Some(PathBuf::from(a)),
             _ => return Err(format!("unknown option {a}")),
@@ -72,11 +73,18 @@ fn run() -> Result<(), String> {
             println!("{}", serde_json::to_string(&p).map_err(|e| e.to_string())?);
         }
         "cargo-lock" => {
-            let (lock, crates) = (lock.ok_or("--lock")?, crates.ok_or("--crates")?);
-            let text =
-                std::fs::read_to_string(&lock).map_err(|e| format!("{}: {e}", lock.display()))?;
+            if lock.is_empty() {
+                return Err("--lock (repeatable)".into());
+            }
+            let crates = crates.ok_or("--crates")?;
+            let mut wanted = std::collections::BTreeSet::new();
+            for l in &lock {
+                let text =
+                    std::fs::read_to_string(l).map_err(|e| format!("{}: {e}", l.display()))?;
+                wanted.extend(cargo_lock_checksums(&text));
+            }
             let (mut published, mut missing, mut refused) = (0u64, 0u64, 0u64);
-            for (n, v, c) in cargo_lock_checksums(&text) {
+            for (n, v, c) in wanted {
                 let path = crates.join(format!("{n}-{v}.crate"));
                 let Ok(bytes) = std::fs::read(&path) else {
                     missing += 1;

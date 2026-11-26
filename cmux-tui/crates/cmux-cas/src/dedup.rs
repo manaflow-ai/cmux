@@ -206,11 +206,12 @@ fn record(st: &mut State, i: usize, meta: &std::fs::Metadata, cut: Cut, opts: &O
         add(&mut root.logical, size);
     }
     add(&mut st.totals.chunks, as_u64(chunks.len()));
-    if let Some(public) = &opts.public {
-        if !chunks.is_empty() && chunks.iter().all(|(k, _)| public.contains(k)) {
-            add(&mut st.totals.public_ref_files, 1);
-            add(&mut st.totals.public_ref_file_bytes, size);
-        }
+    if let Some(public) = &opts.public
+        && !chunks.is_empty()
+        && chunks.iter().all(|(k, _)| public.contains(k))
+    {
+        add(&mut st.totals.public_ref_files, 1);
+        add(&mut st.totals.public_ref_file_bytes, size);
     }
     for (n, (k, len)) in chunks.into_iter().enumerate() {
         match st.chunks.entry(k) {
