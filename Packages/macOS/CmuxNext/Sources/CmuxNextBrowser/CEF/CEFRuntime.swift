@@ -655,6 +655,11 @@ final class CEFRuntime {
         )
         self.pump = pump
         pump.start()
+        if CEFMessagePump.runsAtStep {
+            ResizeStepTimes.live.stepWillLayOut = { [weak pump] _ in
+                ResizeStepTimes.pass("cef_pump") { pump?.runIfDueAtStep() }
+            }
+        }
 
         // The profile root, the kept log, the person's ad blocker and the built-in manifest were read ahead off the
         // main thread (`prep`): no disk read here.

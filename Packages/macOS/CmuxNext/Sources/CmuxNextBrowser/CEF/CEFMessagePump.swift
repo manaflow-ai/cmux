@@ -103,7 +103,22 @@ final class CEFMessagePump {
     /// re-entrant: nothing runs inside a pass (a step begun from a CEF callback). Returns the step log's detail of the
     /// pass that ran, nil when none did.
     func runIfDueAtStep() -> String? {
-        nil
+        guard isRunning else { return nil }
+        guard !schedule.isWorking else {
+            counters.stepSkippedInPass += 1
+            return nil
+        }
+        let inFlight = gate.immediatePending
+        mergeKeptRequests()
+        let now = clock()
+        guard inFlight || (schedule.nextWake.map { $0.deadline <= now } ?? false) else {
+            counters.stepNotDue += 1
+            return nil
+        }
+        if inFlight { schedule.request(milliseconds: 0, now: now) }
+        counters.stepRuns += 1
+        fire()
+        return " ran=1" + (inFlight ? " in_flight=1" : "")
     }
 
     private func timerFired() {
@@ -205,7 +220,13 @@ let cefScheduleCallback: CEFShimLibrary.ScheduleFn = { context, delayMillisecond
     if Thread.isMainThread {
         deliver()
     } else {
-        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue, deliver)
+        // An immediate request on its way counts as due work for a resize step's pass (lever 4e).
+        let gate = delayMilliseconds <= 0 && CEFMessagePump.runsAtStep ? CEFRuntime.pumpGate(at: address) : nil
+        gate?.immediatePosted()
+        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) {
+            deliver()
+            gate?.immediateDelivered()
+        }
         CFRunLoopWakeUp(CFRunLoopGetMain())
     }
 }

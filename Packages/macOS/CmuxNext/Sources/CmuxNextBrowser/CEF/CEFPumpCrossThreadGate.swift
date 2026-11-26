@@ -38,6 +38,9 @@ nonisolated final class CEFPumpCrossThreadGate: Sendable {
     // inside a C callback; an actor would add a hop and a wake, the thing this type removes.
     private let state = Mutex(State())
     private let keptRequests = Atomic<UInt64>(0)
+    /// Immediate requests from Chromium threads posted to the main run loop and not delivered to the pump yet
+    /// (``CEFMessagePump/runIfDueAtStep()`` counts them as work CEF asked for).
+    private let immediateInFlight = Atomic<Int>(0)
     private let ledger: WakeupLedger
 
     /// - Parameter ledger: Where requests that wake the main thread are counted.
@@ -101,11 +104,11 @@ nonisolated final class CEFPumpCrossThreadGate: Sendable {
     var kept: UInt64 { keptRequests.load(ordering: .relaxed) }
 
     /// Any thread: an immediate request was posted to the main run loop (its block delivers it to the pump).
-    func immediatePosted() {}
+    func immediatePosted() { immediateInFlight.add(1, ordering: .relaxed) }
 
     /// Main thread: a posted immediate request reached the pump.
-    func immediateDelivered() {}
+    func immediateDelivered() { immediateInFlight.subtract(1, ordering: .relaxed) }
 
     /// Whether an immediate request is on its way to the main thread's pump: CEF asked for work now.
-    var immediatePending: Bool { false }
+    var immediatePending: Bool { immediateInFlight.load(ordering: .relaxed) > 0 }
 }
