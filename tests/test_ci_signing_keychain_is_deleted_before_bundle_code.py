@@ -259,6 +259,7 @@ CLAIM_COMMANDS = frozenset({
     f"bash {CLAIM_SCRIPT}",
     f"bash .nightly-signing-control/{CLAIM_SCRIPT}",
     f"bash .publish-tooling/{CLAIM_SCRIPT}",
+    f"bash .nightly-next-deltas/.publish-tooling/{CLAIM_SCRIPT}",
 })
 
 

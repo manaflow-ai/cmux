@@ -115,7 +115,9 @@ blocks = dict(re.findall(r"^  ([A-Za-z0-9_-]+):\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z
 exempt = {"early-nightly-webviews", "build-live-code-variant", "sign-live-code-variant","republish-nightly-next", "attest-nightly-remote-daemon", "decide", "runner-preflight", RESOLVE, "route-visual-gate-nightly", "visual-gate-nightly-verdict", "refresh-compilation-cache", "refresh-test-compilation-cache", "probe-nightly-tag-permission",
           "find-nightly-next-recovery", "recover-nightly-next-notarization", "verify-recovered-nightly-next",
           "sign-nightly-identity-legacy", "verify-nightly-identity-legacy", "verify-nightly-identity-legacy-pool",
-          "publish-nightly-identity-legacy", "legacy-identity-target", "promote-nightly-next", "promote-nightly-next-acked"}
+          "publish-nightly-identity-legacy", "legacy-identity-target", "promote-nightly-next", "promote-nightly-next-acked",
+          # Builds the deltas after the feed from nightly-next-one's own build_sha (already the resolved commit).
+          "nightly-next-deltas"}
 # publish-nightly checks out the build it selected: this run's resolved build
 # commit, or a recovered earlier build's own build commit.
 SELECTED_SHA = "${{ steps.source.outputs.build_sha }}"
@@ -252,7 +254,13 @@ for name in shipping:
             body = body.replace(control.group(0), "")
     for ref in re.findall(r"^\s+ref: (.*)$", body, re.MULTILINE):
         check(ref.strip() in allowed, f"{name} checks out {ref.strip()}, not the resolved build commit")
-    for line in body.splitlines():
+    # The publication manifest deliberately records the app-input digest's source tip. That HEAD_SHA
+    # is provenance for the digest, not a checkout or build selector, so keep it out of the source-ref
+    # guard while retaining the guard for every other use of the tip.
+    manifest_step = re.search(r"^      - name: Write the build manifest for this app-input digest\n.*?(?=^      - name:|\Z)",
+                              body, re.MULTILINE | re.DOTALL)
+    tip_checked_body = body if manifest_step is None else body.replace(manifest_step.group(0), "")
+    for line in tip_checked_body.splitlines():
         if "needs.decide.outputs.head_sha" in line or "needs.decide.outputs.short_sha" in line:
             check("|| needs.decide.outputs.head_sha" in line,
                   f"{name} still uses the tip outside a cache key: {line.strip()}")
