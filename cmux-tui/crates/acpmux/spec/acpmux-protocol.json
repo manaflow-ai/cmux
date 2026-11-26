@@ -132,6 +132,16 @@
     },
     {
       "kind": "request",
+      "name": "session/signature",
+      "params": {
+        "$ref": "#/types/SignatureParams"
+      },
+      "result": {
+        "$ref": "#/types/SignatureResult"
+      }
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/request_state",
       "params": true,
       "result": true
@@ -1103,6 +1113,24 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/history_delete",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/history_offload",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transcript_offload",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/cold_archive",
       "params": true,
       "result": true
@@ -1271,6 +1299,12 @@
     {
       "kind": "request",
       "name": "_acpmux/session_files",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/paused_files",
       "params": true,
       "result": true
     },
@@ -1902,6 +1936,24 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/chat_secrets_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chat_secrets_clear",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chat_secrets_list",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/elevation_request",
       "params": true,
       "result": true
@@ -2202,6 +2254,14 @@
       "name": "_acpmux/harness_enable",
       "params": {
         "$ref": "#/types/HarnessEnableParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/harness_disable",
+      "params": {
+        "$ref": "#/types/HarnessDisableParams"
       },
       "result": true
     },
@@ -2656,6 +2716,12 @@
     {
       "kind": "request",
       "name": "_acpmux/vm_host",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/autocloud_enroll",
       "params": true,
       "result": true
     },
@@ -4161,6 +4227,36 @@
       "description": "An acknowledgement with nothing in it.",
       "type": "object"
     },
+    "Dot": {
+      "description": "One dot. `x`, `y` and `r` are fractions of the glyph box, top left origin.",
+      "properties": {
+        "phase": {
+          "description": "Where the dot starts on its drift circle, 0..1 of a turn.",
+          "format": "double",
+          "type": "number"
+        },
+        "r": {
+          "description": "The radius.",
+          "format": "double",
+          "type": "number"
+        },
+        "x": {
+          "format": "double",
+          "type": "number"
+        },
+        "y": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "r",
+        "phase"
+      ],
+      "type": "object"
+    },
     "DownCause": {
       "description": "Why a link is down (`cause`), so a surface can tell this Mac's network apart from the\nmachine. Null while the link is up or on its way the first time.",
       "oneOf": [
@@ -4359,6 +4455,13 @@
           "minimum": 0,
           "type": [
             "integer",
+            "null"
+          ]
+        },
+        "inOrder": {
+          "description": "True: answered in order, after every line already queued to this connection, as an attach\nis. A pane's stall check sets it: it compares the newest record with what the stream has\ndelivered, so an answer ahead of the records queued before it reads a healthy stream as\nstalled (`server/outbound.rs` `reply_lane`). Default false: a tool call's read goes ahead.",
+          "type": [
+            "boolean",
             "null"
           ]
         },
@@ -4654,6 +4757,44 @@
       },
       "type": "object"
     },
+    "Glyph": {
+      "description": "A session's glyph.",
+      "properties": {
+        "accent": {
+          "description": "The variant's accent, `#RRGGBB`.",
+          "type": "string"
+        },
+        "dots": {
+          "description": "5 to 9 dots, none overlapping.",
+          "items": {
+            "$ref": "#/types/Dot"
+          },
+          "type": "array"
+        },
+        "drift": {
+          "description": "The variant's `speed`: how far the running line's dots drift.",
+          "format": "double",
+          "type": "number"
+        },
+        "seed": {
+          "description": "0..1, the meaning `Frame.size.w` has for a wallpaper.",
+          "format": "double",
+          "type": "number"
+        },
+        "variant": {
+          "description": "The particles variant's name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "seed",
+        "variant",
+        "accent",
+        "drift",
+        "dots"
+      ],
+      "type": "object"
+    },
     "GoneRow": {
       "description": "A row that left the list since a follow's cursor.",
       "properties": {
@@ -4732,6 +4873,17 @@
         "handoffId": true,
         "promptId": true,
         "revision": true
+      },
+      "type": "object"
+    },
+    "HarnessDisableParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "folder": true,
+        "id": true
       },
       "type": "object"
     },
@@ -9455,6 +9607,39 @@
         "chat": true,
         "sessionId": true
       },
+      "type": "object"
+    },
+    "SignatureParams": {
+      "additionalProperties": false,
+      "description": "`session/signature` params.",
+      "properties": {
+        "_meta": true,
+        "sessionIds": {
+          "description": "At most 512 session ids. Any string gets a glyph: it is a pure function of the id.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "sessionIds"
+      ],
+      "type": "object"
+    },
+    "SignatureResult": {
+      "description": "`session/signature` result: one glyph per distinct id asked.",
+      "properties": {
+        "signatures": {
+          "additionalProperties": {
+            "$ref": "#/types/Glyph"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "signatures"
+      ],
       "type": "object"
     },
     "StartModeParams": {
