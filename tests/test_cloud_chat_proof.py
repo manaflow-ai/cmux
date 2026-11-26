@@ -93,6 +93,15 @@ class CloudChatProofTests(unittest.TestCase):
                 elif words[:3] == ["cloud", "secret", "rm"]:
                     stored.pop(words[3], None)
                     value = {"removed": True}
+                elif words[:3] == ["cloud", "connect", "claude"]:
+                    # The token reaches `connect` on stdin only; the gate needs this connection (not the cache).
+                    self.assertIn("--token-stdin", words)
+                    self.assertEqual(input, FAKE_TOKEN)
+                    value = {"connection": {"id": "conn-proof", "serves_cloud": True},
+                             "keychain": {"service": "cmux-model-key", "account": "claude-token-0a1b2c3d"}}
+                elif words[:3] == ["cloud", "connections", "--remove"]:
+                    self.assertEqual(words[3:], ["conn-proof", "--keychain-account", "claude-token-0a1b2c3d"])
+                    value = {"removed": "conn-proof"}
                 elif words == ["vm", "token", "create", "--ttl", "30m", "--json"]:
                     value = {"stored": True}
                 elif words == ["cloud", "start-chat", "--help"]:
@@ -246,7 +255,8 @@ class CloudChatProofTests(unittest.TestCase):
             with self.subTest(backend=backend_name):
                 code, evidence, calls = self.run_proof(backend_name=backend_name, grant=True, login="pass", cache=True)
                 self.assertEqual(code, 0, evidence)
-                self.assertEqual(evidence["claude_login"], {"consent_granted": True, "login": "pass", "cached": True})
+                self.assertEqual(evidence["claude_login"], {"consent_granted": True, "login": "pass", "cached": True,
+                                                             "connection": True})
                 entries = [claude_login_cache.name("stack-user-1", "team-1"),
                            claude_login_cache.name("stack-user-1", None)]
                 self.assertEqual([words[3] for words in calls if words[:3] == ["cloud", "secret", "set"]], entries)
@@ -257,6 +267,8 @@ class CloudChatProofTests(unittest.TestCase):
                 self.assertLess(last_set, chat, "the login is cached before the start reads it")
                 self.assertEqual(calls[chat][calls[chat].index("--login") + 1], "pass")
                 self.assertNotIn(FAKE_TOKEN, json.dumps(evidence))
+                self.assertEqual(sum(words[:3] == ["cloud", "connections", "--remove"] for words in calls), 1,
+                                 "the run's connection and its Keychain item go at the end")
 
     def test_a_failed_cache_fails_before_any_machine_and_still_removes_it(self):
         code, evidence, calls = self.run_proof(grant=True, login="pass", cache=True, secret_exit=1)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""App Store and CodeRouter page bench: open, reopen and typing stalls, Swift page vs React page.
+"""App Store page bench: open, reopen and typing stalls, Swift page vs React page.
 
 The same method as bench-settings.py (it reuses bench-stalls.py's Run): each run launches the tagged
 build with no activation, windows on the last screen and a scratch cmux.json, sets the page's Debug
@@ -37,8 +37,6 @@ sys.argv = argv
 
 PAGES = {
     "apps": {"page": "cmux.apps", "tunable": "apps.store.surface", "action": "appStore.show", "args": {}, "typed": "awake"},
-    "coderouter": {"page": "cmux.coderouter", "tunable": "coderouter.surface", "action": "app.open",
-                   "args": {"app": "cmux/coderouter"}, "typed": None},
 }
 
 
