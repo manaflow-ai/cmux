@@ -19,7 +19,8 @@ import { elapsed, SubagentHarnessContext, ticking, useNow } from "../subagents/s
 import { type Subagent } from "../subagents/subagentFold";
 
 import { retrying, retryLabel, sessionRetry, sessionRetryKey } from "../subagents/retryState";
-import { Spinner } from "../conversation/icons";
+import { WaitSpinner } from "../conversation/WaitSpinner";
+import { Spinner } from "../conversation/Spinner";
 import {
   SUBSESSION_STATE_LABEL,
   subsessionDisplayName,
@@ -241,7 +242,7 @@ function SubsessionStatusRow({ session, onOpen }: { session: SubsessionRow; onOp
         className="acpmux-summary-meta acpmux-summary-agent__state"
         title={t(SUBSESSION_STATE_LABEL[session.state])}
       >
-        {(retry || session.state === "working") && <Spinner size={12} loading />}
+        {retry ? <WaitSpinner size={12} loading /> : session.state === "working" && <Spinner size={12} loading />}
         {/* Working is the spinner, no word (Leo, 2026-11-23: "\"running\" doesn't need text"). A retry
             inside the shared bound reads as working too. */}
         {retry
