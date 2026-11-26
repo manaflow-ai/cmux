@@ -59,12 +59,10 @@
   outline: none;
 }
 
-.terminal-history-search kbd {
+.terminal-history-search .terminal-history-search-key {
   position: absolute;
   right: var(--ds-space-2);
   top: var(--ds-space-2);
-  color: var(--page-text-3);
-  font-size: var(--text-caption); line-height: var(--text-caption--line-height); letter-spacing: var(--text-caption--letter-spacing); font-family: var(--font-mono, ui-monospace, monospace);
 }
 
 .terminal-history-scroll {

@@ -282,6 +282,7 @@ export type PaneBodyDeps = NewTabShown &
     commandSession: string | undefined;
     newTabSnapshot: AcpmuxSnapshot;
     pendingCommands: SlashCommand[] | undefined;
+    readSessionCommands: (sessionId: string) => Promise<SlashCommand[]>;
     extensionCommands: readonly SlashCommand[];
     /// Computer use and browser use in the `/` and `$` menus (toolMentions.ts).
     toolCommands: readonly SlashCommand[];
@@ -583,6 +584,7 @@ export function drawPaneBody({
   commandSession,
   newTabSnapshot,
   pendingCommands,
+  readSessionCommands,
   extensionCommands,
   toolCommands,
   holdsForComputerUseSetup,
@@ -908,11 +910,15 @@ export function drawPaneBody({
                   importSandboxed={sandbox.mode === "sandboxed"}
                   // The machine the person last picked for a new chat (cmux#46019), while acpmux lists it.
                   {...(newTabStartMachine ? { startMachine: newTabStartMachine } : {})}
+                  // The deferred chat that lists the commands starts only in a folder the pane already
+                  // has: a `/` grants nothing (a grant would also trust the folder). Until it answers,
+                  // the New Tab lists the newest chat's list there (folderCommands.ts).
                   onCommands={(harness, cwd) => {
                     void callNative("chat.new", { harness, ...(cwd ? { cwd } : {}), deferred: true }).catch(
                       () => undefined,
                     );
                   }}
+                  readChatCommands={readSessionCommands}
                   key={newTabGeneration}
                   environments
                   onLeaveDraft={leaveNewTabDraft}
@@ -1065,8 +1071,10 @@ export function drawPaneBody({
                   template={screenTemplate(shownTemplate(newTab))}
                   {...(newTab.allChats === false ? { allChats: false } : {})}
                   {...(newTab.suggestionOrder ? { suggestionOrder: newTab.suggestionOrder } : {})}
+                  // Until the deferred chat lists its commands, the page's own list stays: an empty one
+                  // closed the open `/` menu, and nothing opened it again.
                   snapshot={
-                    commandSession
+                    commandSession && pendingCommands?.length
                       ? {
                           ...newTabSnapshot,
                           commands: withToolCommands(
