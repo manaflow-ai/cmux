@@ -936,7 +936,7 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-question>:where(:not(.acpmux-question-head)){clear:both}
 .acpmux-question-prompt{flex:1;min-width:0;font-size:var(--text-body);line-height:var(--text-body--line-height);font-weight:var(--weight-regular);overflow-wrap:anywhere;letter-spacing:var(--text-body--letter-spacing)}
 .acpmux-question-body{display:flex;flex-wrap:wrap;gap:var(--ds-space-3);align-items:stretch}
-.acpmux-question[data-preview] .acpmux-question-body{padding-right:var(--ds-space-3)}
+.acpmux-question-body[data-preview]{padding-right:var(--ds-space-3)}
 .acpmux-question-actions button:focus-visible{outline:2px solid color-mix(in srgb,var(--agent-text) 40%,transparent);outline-offset:-2px}
 .acpmux-question-text{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
 .acpmux-question-label{line-height:19px;font-weight:var(--weight-regular);overflow-wrap:anywhere}
@@ -957,12 +957,12 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-question-preview:has(>.acpmux-question-html[data-look=bleed]){padding:var(--ds-space-3) 0 0;background:transparent}
 /* Where the preview draws (question/previewLayout.experiment.ts). split (the default): a narrower list and the preview filling the card's height beside it, as Claude Code draws it; under about 520 px it wraps under the list. even: list and preview share the width (the rules above). below: under the whole list. inline: under the focused option. */
 .acpmux-question-preview pre{flex:1 1 auto}
-.acpmux-question[data-preview-layout=split] .acpmux-question-rows{flex:2 1 220px}
-.acpmux-question[data-preview-layout=split] .acpmux-question-preview{flex:3 1 280px}
-.acpmux-question[data-preview-layout=below] .acpmux-question-body{flex-direction:column;gap:0;padding-right:0}
-.acpmux-question[data-preview-layout=below] .acpmux-question-rows{flex:none}
-.acpmux-question[data-preview-layout=below] .acpmux-question-preview{flex:none;margin:var(--grid-half-step) var(--ds-space-3) var(--ds-space-3)}
-.acpmux-question[data-preview-layout=inline] .acpmux-question-body{padding-right:0}
+.acpmux-question-body[data-preview-layout=split] .acpmux-question-rows{flex:2 1 220px}
+.acpmux-question-body[data-preview-layout=split] .acpmux-question-preview{flex:3 1 280px}
+.acpmux-question-body[data-preview-layout=below]{flex-direction:column;gap:0;padding-right:0}
+.acpmux-question-body[data-preview-layout=below] .acpmux-question-rows{flex:none}
+.acpmux-question-body[data-preview-layout=below] .acpmux-question-preview{flex:none;margin:var(--grid-half-step) var(--ds-space-3) var(--ds-space-3)}
+.acpmux-question-body[data-preview-layout=inline]{padding-right:0}
 .acpmux-question-preview[data-inline]{flex:none;margin:0 var(--ds-space-3) var(--ds-space-3) var(--grid-cards-text)}
 /* A refused reply: why, above Skip and Submit, which work again for a retry. */
 .acpmux-question-error{margin:0;padding:var(--ds-space-2) var(--ds-space-3) 0;color:var(--agent-status-failure);font-size:var(--text-detail);line-height:var(--text-detail--line-height);overflow-wrap:anywhere;user-select:text;-webkit-user-select:text;letter-spacing:var(--text-detail--letter-spacing)}
