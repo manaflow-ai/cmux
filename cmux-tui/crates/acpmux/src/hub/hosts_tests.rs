@@ -768,6 +768,57 @@ async fn an_adoption_resumed_from_its_checkpoint_matches_a_whole_read() {
     }
 }
 
+/// A checkpoint saved with no host running (a daemon's load of the log) is resumed by the
+/// adoption of a host whose start the log holds after it, as a fold of the whole log reads it,
+/// and never by a host that started at or before it.
+#[tokio::test]
+async fn a_checkpoint_saved_with_no_host_serves_the_hosts_started_after_it() {
+    let incarnations = ["inc", "old", "gone", "next"];
+    let mut resumed = 0;
+    for (n, log) in checkpoint_logs().iter().enumerate() {
+        let (hub, root) = hub_with(1, log).await;
+        let session = hub.resolve("chat0").unwrap();
+        hub.catch_up(&session);
+        let whole: Vec<String> =
+            incarnations.iter().map(|i| adoption_state(&hub, &session, i)).collect();
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(&root);
+        for split in 1..log.records.len() {
+            let head = Log { records: log.records[..split].to_vec(), host_seq: 0 };
+            let (hub, root) = hub_with(1, &head).await;
+            let session = hub.resolve("chat0").unwrap();
+            hub.save_checkpoint_now(&session, journal::UNSTARTED);
+            let Some(bytes) = hub.store.adoption_checkpoint("chat0") else {
+                hub.shutdown_all().await;
+                let _ = std::fs::remove_dir_all(&root);
+                continue;
+            };
+            let point: checkpoint::Checkpoint = serde_json::from_slice(&bytes).unwrap();
+            for record in &log.records[split..] {
+                hub.store.append("chat0", record).unwrap();
+            }
+            session.seq.store(log.records.len() as u64, Ordering::SeqCst);
+            for (incarnation, whole) in incarnations.iter().zip(&whole) {
+                hub.store.save_adoption_checkpoint("chat0", &bytes).unwrap();
+                let inputs = hub.fold_inputs(&session);
+                let started_after = log.records.iter().any(|r| {
+                    r.kind == "host_started"
+                        && r.seq > point.seq
+                        && r.msg["incarnation"].as_str() == Some(incarnation)
+                });
+                let used = hub.adoption_checkpoint(&session, incarnation, &inputs).is_some();
+                assert_eq!(used, started_after, "log {n} split {split} {incarnation}");
+                resumed += usize::from(used);
+                let state = adoption_state(&hub, &session, incarnation);
+                assert_eq!(&state, whole, "log {n} split {split} {incarnation}");
+            }
+            hub.shutdown_all().await;
+            let _ = std::fs::remove_dir_all(&root);
+        }
+    }
+    assert!(resumed > 0, "no adoption resumed a checkpoint saved with no host");
+}
+
 /// A new hub must use the durable checkpoint, and changing the log must invalidate it even
 /// when its final record keeps the same sequence, timestamp and kind.
 #[tokio::test]
