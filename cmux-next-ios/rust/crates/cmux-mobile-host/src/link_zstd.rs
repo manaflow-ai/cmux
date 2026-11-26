@@ -40,20 +40,30 @@ pub struct LinkZstd {
 impl LinkZstd {
     pub fn new() -> Self {
         let (jobs, mut queue) = mpsc::channel::<Job>(1);
-        std::thread::Builder::new()
+        let spawned = std::thread::Builder::new()
             .name("link-zstd".into())
             .spawn(move || {
                 let mut encoder = StreamEncoder::new();
                 while let Some((text, reply)) = queue.blocking_recv() {
-                    let made = encoder.envelope(text.as_bytes()).ok().map(Bytes::from);
+                    let made = match encoder.envelope(text.as_bytes()) {
+                        Ok(made) => Some(Bytes::from(made)),
+                        Err(error) => {
+                            tracing::warn!(%error, bytes = text.len(), "zstd-stream-v1 encoder failed; the channel ends");
+                            None
+                        }
+                    };
                     let lost = made.is_none();
                     let _ = reply.send(made);
                     if lost {
                         return;
                     }
                 }
-            })
-            .ok();
+            });
+        if let Err(error) = spawned {
+            // Every frame() then returns None and the channel ends; without this line a phone
+            // that asked for zstd reopens in a loop with no trace of why.
+            tracing::warn!(%error, "could not start the link-zstd thread; zstd-stream-v1 channels end at once");
+        }
         Self { jobs }
     }
 
