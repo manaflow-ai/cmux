@@ -1,7 +1,9 @@
 //! ACP conformance case `registry_one_click_install` (goal competitive-acp-conformance, RFD 0167
 //! row 9): an agent from the ACP Registry is added with one call, shows in the harness picker,
 //! and a chat on it starts and answers. That one call is what Settings > Agents > Registry's Add
-//! sends (`_acpmux/harness/add {registry: ID}`, AgentHarnesses.tsx's RegistryRow).
+//! sends (`_acpmux/harness/add {registry: ID}`, AgentHarnesses.tsx's RegistryRow). The app sends
+//! it on the unix socket (AgentHarnessCenter through AcpmuxEnvironment): an add runs a program,
+//! so no other origin may ask, and this client connects as `Origin::Local`.
 //!
 //! The agent is GitHub Copilot from the fixture registry, an `npx` agent. A stand-in `npx` on
 //! PATH checks it was asked for the registry's pinned package and arguments, then runs
@@ -39,7 +41,7 @@ impl Client {
     fn connect(hub: &Arc<Hub>) -> Self {
         let (tx, in_rx) = mpsc::channel(64);
         let (out_tx, rx) = mpsc::channel(4096);
-        tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::LocalApp));
+        tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
         Self { tx, rx, next: 0, notes: Vec::new() }
     }
 
