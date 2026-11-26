@@ -67,6 +67,7 @@ FIRST_PARTY_GPL = {
     "cmux-keymap",
     "cmux-launch-image",
     "cmux-pane-pictures",
+    "cmux-screenshots",
     "cmux-screen-stream",
     "cmux-local-auth",
     "cmux-palette-ranker",

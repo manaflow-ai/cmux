@@ -207,6 +207,7 @@ dependencies = [
  "cmux-process",
  "cmux-rd-ffi",
  "cmux-screen-stream",
+ "cmux-screenshots",
  "cmux-sdk-ffi",
  "cmux-terminal-prediction",
  "cmux-url-input",
@@ -609,6 +610,14 @@ dependencies = [
  "base64",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-screenshots"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "unicode-normalization",
 ]
 
 [[package]]

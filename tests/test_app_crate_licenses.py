@@ -131,6 +131,8 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-local-auth",
                     "cmux-palette-ranker",
                     "cmux-remote-browser",
+                    # The Screenshots pane's rules (cmux-screenshots).
+                    "cmux-screenshots",
                     # The app's daemon client: the cmux SDK and its C ABI.
                     "cmux-sdk",
                     "cmux-sdk-ffi",

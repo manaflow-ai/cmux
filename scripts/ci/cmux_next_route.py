@@ -180,6 +180,7 @@ SWIFT_JOB_INPUTS = (
     "cmux-tui/crates/cmux-health-core/",
     "cmux-tui/crates/cmux-launch-image/",
     "cmux-tui/crates/cmux-pane-pictures/",
+    "cmux-tui/crates/cmux-screenshots/",
     "cmux-tui/crates/cmux-screen-stream/",
     "cmux-tui/crates/cmux-local-auth/",
     "cmux-tui/crates/cmux-imessage/",
