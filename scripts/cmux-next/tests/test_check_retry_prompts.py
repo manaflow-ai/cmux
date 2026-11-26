@@ -102,6 +102,15 @@ class RetryPrompts(unittest.TestCase):
         code, out = self.run_check()
         self.assertEqual(code, 0, out)
 
+    def test_chat_simulator_inputs_are_not_shipped_copy(self) -> None:
+        self.write("webviews/src/agent-session/acpmux/sim/layoutCases.ts", """
+            const REPLY = "Mixed: retry three times then stop.";
+        """)
+        self.write("webviews/src/agent-session/acpmux/sim/scenarios.ts", """
+            export const failed = () => sim("failed", "Try again.");
+        """)
+        self.assertEqual(self.run_check()[0], 0)
+
     def test_baseline_counts_only_go_down(self) -> None:
         self.write("cmux-next-ios/Kit/Sources/Chat/Screen.swift", 'Button("Try Again") { a() }\nButton("Retry") { b() }\n')
         self.write(crp.BASELINE, crp.BASELINE_HEADER + "cmux-next-ios/Kit/Sources/Chat/Screen.swift\t2\n")

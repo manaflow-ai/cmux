@@ -57,9 +57,11 @@ SURFACES = (
 SOURCE_SUFFIXES = (".ts", ".tsx", ".swift", ".rs")
 STRING_TABLE = "Localizable.xcstrings"
 
-# Not text a person sees: tests, galleries, previews, fixtures, mocks, benches, generated files, build scripts.
+# Not text a person sees: tests, galleries, previews, fixtures, mocks, benches, generated files, build scripts,
+# and executable chat-simulator scenarios. The simulator drives the real UI with synthetic records, so its strings
+# are inputs to a test harness rather than shipped copy.
 SKIP = re.compile(
-    r"(^|/)(test|tests|\w*Tests|__tests__|testdata|fixtures|Fixtures|Preview Content|gallery|Gallery|prototypes?|"
+    r"(^|/)(test|tests|\w*Tests|__tests__|testdata|fixtures|Fixtures|Preview Content|gallery|Gallery|sim|prototypes?|"
     r"benches|examples|scripts|verify|stress)/"
     r"|\.(test|spec|gallery|stories|fixtures?|experiment|bench|generated)\.(ts|tsx|swift)$"
     r"|(Tests?|Previews?|Gallery\w*|Fixtures?|Mock\w*)\.swift$"
