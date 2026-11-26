@@ -401,5 +401,121 @@ for line in sys.stdin:
                 worker.stop_shooter()
 
 
+
+GIT_ENV = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+           "GIT_COMMITTER_EMAIL": "t@t"}
+
+
+def commit(repo: Path, files: dict, message: str = "m") -> str:
+    for name, text in files.items():
+        (repo / name).parent.mkdir(parents=True, exist_ok=True)
+        (repo / name).write_text(text)
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True, env=GIT_ENV)
+    subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", message], check=True, env=GIT_ENV)
+    return subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True,
+                          check=True).stdout.strip()
+
+
+class StallTests(unittest.TestCase):
+    """What set the p95 after the speed pass: a 36 s fetch stage (the base tip fetched from GitHub to prove a landed
+    head landed) and 56-62 s base-side web shots (pages shot into vite's own restart, entries the base lacks)."""
+
+    def test_a_head_under_a_base_tip_held_here_asks_github_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            subprocess.run(["git", "init", "-q", "-b", w.BASE_BRANCH, str(src)], check=True)
+            landed = commit(src, {"a": "1"})
+            commit(src, {"a": "2"})
+            subprocess.run(["git", "-C", str(src), "checkout", "-q", "-b", "side", landed], check=True)
+            fork = commit(src, {"b": "x"})
+            mirror = Path(tmp) / "mirror.git"
+            subprocess.run(["git", "clone", "-q", "--mirror", str(src), str(mirror)], check=True)
+            worker = w.Worker(Path(tmp) / "state", None, None, None, host="t")
+            worker.mirror = mirror
+            subprocess.run(["git", "init", "-q", "--bare", str(worker.clone)], check=True)
+            worker.ensure_clone()
+            asked = []
+            real_git = w.git
+            w.git = lambda repo, *args, **kw: asked.append(args[0]) or real_git(repo, *args, **kw)
+            try:
+                self.assertTrue(worker.on_branch_tip_or_landed(landed, "lane/x"))
+                self.assertEqual(asked, [], "a landed head asked GitHub")
+                # A head not under the base tip (another branch's commit): GitHub's turn (here: no origin).
+                with self.assertRaises(w.LookError):
+                    worker.on_branch_tip_or_landed(fork, "lane/x")
+                self.assertEqual(asked, ["ls-remote"])
+            finally:
+                w.git = real_git
+
+    def test_a_checkout_that_changes_the_gallery_config_restarts_the_gallery(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = w.Worker(Path(tmp) / "state", None, None, None, host="t")
+            worker.clone.mkdir(parents=True)
+            subprocess.run(["git", "init", "-q", str(worker.clone)], check=True)
+            one = commit(worker.clone, {"webviews/vite.config.ts": "a", "webviews/src/x.ts": "1"})
+            two = commit(worker.clone, {"webviews/src/x.ts": "2"})
+            three = commit(worker.clone, {"webviews/vite.config.ts": "b"})
+            four = commit(worker.clone, {"webviews/dev-server/galleryHost.ts": "c"})
+            stops = []
+            worker.stop_gallery = lambda: stops.append(1)
+            worker.checkout_web(one)  # first checkout: nothing ran on another config
+            worker.checkout_web(two)
+            self.assertEqual(stops, [])
+            worker.checkout_web(three)
+            self.assertEqual(stops, [1])
+            worker.checkout_web(four)
+            self.assertEqual(stops, [1, 1])
+            worker.checkout_web(four)
+            self.assertEqual(stops, [1, 1])
+
+    def test_an_entry_the_side_lacks_is_a_card_not_a_60_s_wait(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = w.Worker(Path(tmp) / "state", None, None, None, host="t")
+            src = worker.web_tree / "webviews" / "src"
+            src.mkdir(parents=True)
+            (src / "a.gallery.tsx").write_text('const o = { id: "nested.option" };\nexport default { id: "held.a" };\n')
+            (src / "b.gallery.ts").write_text('export default define({ id: "held.b", title: "B" });\n')
+            self.assertEqual(worker.entry_ids(), {"held.a", "held.b"})
+            worker.checkout_web = lambda sha: None
+            worker.web_install = lambda: False
+            worker.start_gallery = lambda: None
+            seen = {}
+
+            def shoot(entries, out, absent=None):
+                seen.update(absent or {})
+                out.mkdir(parents=True, exist_ok=True)
+                files = {}
+                for e in entries:
+                    files[e] = (w.ABSENT_PREFIX if e in (absent or {}) else "") + f"{e}.png"
+                    (out / files[e]).write_bytes(b"png")
+                return files
+
+            worker.shoot_gallery = shoot
+            got = worker.web_side(BASE, ["held.a", "new.c"])
+            self.assertEqual(seen, {"new.c": BASE})
+            self.assertTrue(got["new.c"].name.startswith(w.ABSENT_PREFIX))
+            self.assertFalse(got["held.a"].name.startswith(w.ABSENT_PREFIX))
+
+    def test_a_new_entry_posts_with_its_before_marked_absent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+
+            def web_side(sha, entries):
+                out = worker.state / "shots" / "web" / sha
+                out.mkdir(parents=True, exist_ok=True)
+                name = (w.ABSENT_PREFIX if sha == BASE else "") + "entry.a.png"
+                (out / name).write_bytes(b"png-" + sha.encode())
+                return {e: out / name for e in entries}
+
+            worker.web_side = web_side
+            receipt = worker.look(request(ui_files=["webviews/src/a.gallery.tsx"]))
+            self.assertIsNotNone(receipt["posted_at"], receipt.get("error"))
+            [scene] = receipt["scenes"]
+            self.assertTrue(scene["before_absent"])
+            self.assertNotIn("after_absent", scene)
+            [sent] = list((Path(tmp) / "outbox").iterdir())
+            self.assertIn("new: not in the base", sent.read_text())
+
+
 if __name__ == "__main__":
     unittest.main()
