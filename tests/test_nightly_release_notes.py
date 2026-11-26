@@ -215,7 +215,7 @@ class CollectionTests(unittest.TestCase):
 
         github.graphql.side_effect = graphql
         self.assertEqual(NOTES.collect_prs(github, BASE, HEAD, "main"), [expected])
-        self.assertEqual(github.graphql.call_count, 3)
+        self.assertEqual(github.graphql.call_count, -(-len(shas) // NOTES.COMMIT_BATCH))
 
     def test_identical_publication_needs_no_metadata_requests(self):
         github = Mock(repo=REPO)
