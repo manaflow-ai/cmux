@@ -14,6 +14,17 @@ use std::path::Path;
 /// The share of the filesystem the cache always leaves free (percent of its size).
 pub const FREE_FLOOR_PERCENT: u64 = 25;
 
+/// The most the floor ever asks to keep free, in GiB. A quarter of a 20 GiB Cloud disk is 5 GiB;
+/// a quarter of a 256 GiB lane VM disk is 64 GiB, which refused every fill on a lane VM with
+/// 52 GiB free (2026-11-25) though an 11 GiB mirror fit with room to spare.
+pub const FREE_FLOOR_MAX_GIB: u64 = 16;
+
+/// The bytes the cache leaves free on a filesystem of `total` bytes: a quarter of it, at most
+/// `FREE_FLOOR_MAX_GIB`.
+pub fn floor_bytes(total: u64) -> u64 {
+    (total.saturating_mul(FREE_FLOOR_PERCENT) / 100).min(FREE_FLOOR_MAX_GIB << 30)
+}
+
 /// (available bytes, total bytes) of the filesystem holding `path`, or of its nearest existing
 /// ancestor (a mirror's directory may not exist yet). `None` when it cannot be read.
 pub fn space(path: &Path) -> Option<(u64, u64)> {
@@ -28,7 +39,7 @@ pub fn space(path: &Path) -> Option<(u64, u64)> {
 
 /// Whether `avail` of `total` is still above the floor.
 pub fn above_floor(avail: u64, total: u64) -> bool {
-    total == 0 || avail.saturating_mul(100) > total.saturating_mul(FREE_FLOOR_PERCENT)
+    total == 0 || avail > floor_bytes(total)
 }
 
 /// Whether the cache may write more under `path` now. An unreadable filesystem counts as room:
@@ -41,9 +52,11 @@ pub fn has_room(path: &Path) -> bool {
 pub fn why_not(path: &Path) -> String {
     match space(path) {
         Some((avail, total)) => format!(
-            "{} MiB of {} MiB free, under the cache's {FREE_FLOOR_PERCENT}% floor",
+            "{} MiB of {} MiB free, under the cache's {} MiB floor \
+             ({FREE_FLOOR_PERCENT}% of the disk, at most {FREE_FLOOR_MAX_GIB} GiB)",
             avail >> 20,
-            total >> 20
+            total >> 20,
+            floor_bytes(total) >> 20
         ),
         None => "disk space unreadable".to_owned(),
     }
@@ -80,6 +93,16 @@ mod tests {
         assert!(!above_floor(5 * gib, 20 * gib));
         assert!(!above_floor(0, 20 * gib));
         assert!(above_floor(0, 0), "an unmeasured filesystem is never refused");
+    }
+
+    #[test]
+    fn floor_is_capped_on_big_disks() {
+        let gib = 1u64 << 30;
+        // A lane VM: 52 GiB free of 257 GiB was refused by the old 64 GiB floor.
+        assert!(above_floor(52 * gib, 257 * gib));
+        assert!(above_floor(17 * gib, 257 * gib));
+        assert!(!above_floor(16 * gib, 257 * gib));
+        assert_eq!(floor_bytes(20 * gib), 5 * gib, "Cloud's 20 GiB disk keeps its 5 GiB floor");
     }
 
     #[test]
