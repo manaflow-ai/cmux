@@ -64,13 +64,12 @@ actor LayoutTemplateRepository {
                                  as: Answer.self)?.index
     }
 
+    private struct ListAnswer: Decodable { var templates: [LayoutTemplate]?; var failure: String? }
     /// Rust's list after a change (dates as reference-date seconds, so none is rounded), or its refusal.
     private static func ask(_ operation: String, _ request: some Encodable) throws -> [LayoutTemplate] {
-        struct Answer: Decodable { var templates: [LayoutTemplate]?; var failure: String? }
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .deferredToDate
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .deferredToDate
         guard let body = try? encoder.encode(request), let data = AppRules.call(operation, body),
-              let answer = try? JSONDecoder().decode(Answer.self, from: data) else { throw Failure.notFound }
+              let answer = try? JSONDecoder().decode(ListAnswer.self, from: data) else { throw Failure.notFound }
         if let templates = answer.templates { return templates }
         throw answer.failure == "nameTaken" ? Failure.nameTaken : Failure.notFound
     }
