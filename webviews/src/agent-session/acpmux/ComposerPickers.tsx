@@ -1028,10 +1028,17 @@ export function ComposerPickers({
   // reports its id before its modes (`summary.modes` absent), and dropping the start mode in that
   // gap blanked the chip between "Bypass permissions" and the reported mode (Leo 2026-11-26: "the
   // bypass permissions appears then disappears after it loaded in").
-  const modesAwaited = modes.length === 0 && (awaiting || (chipHarness !== undefined && !switching && !summary?.modes));
-  const asksStart = modesAwaited && local;
+  // Only a harness known to report modes waits: one that reports none never fills the gap.
   const chipCatalogEntry = snapshot.catalog.find((entry) => entry.id === chipHarness);
   const chipFamily = summary?.family ?? chipCatalogEntry?.family;
+  const modesComing =
+    !!summary?.sessionId &&
+    !switching &&
+    !summary.modes &&
+    chipCatalogEntry?.modeless !== true &&
+    (chipCatalogEntry?.reportsModes === true || harnessFamilyMenu(chipFamily, chipHarness) !== undefined);
+  const modesAwaited = modes.length === 0 && (awaiting || modesComing);
+  const asksStart = modesAwaited && local;
   // The agent the Cloud machine starts (cloudStartAgent): the composer's own, except UniiChat (a Mac
   // with no agent CLI shows it), which the send leaves out so the machine starts Claude. Another
   // agent whose Cloud modes cmux does not know keeps the chip's generic label: the machine decides.
