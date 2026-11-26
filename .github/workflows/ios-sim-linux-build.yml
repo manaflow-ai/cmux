@@ -18,6 +18,12 @@ on:
         description: App source to build (branch, tag or SHA); empty is this ref
         required: false
         default: ""
+      targeted_device_family:
+        description: >-
+          TARGETED_DEVICE_FAMILY for the build: 1 is iPhone-only, as the App Review gate builds it, so an iPad runs
+          the iPhone layout in compatibility mode (what a reviewer sees). Empty: the project's own (iPhone and iPad).
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -151,13 +157,17 @@ jobs:
           command -v xcodegen >/dev/null || brew install xcodegen
       - name: Build the app and the UI tests for testing
         working-directory: cmux-next-ios
+        env:
+          # A lane branch with "ipad" in its name builds iPhone-only on push too, for the Linux iPad reviewer leg
+          # (cmuxterm-hq linux-simsdk-test.yml model=iPad..., tests=AppReviewGateUITests).
+          TDF: ${{ inputs.targeted_device_family || (contains(github.ref_name, 'ipad') && '1' || '') }}
         run: |
           set -euo pipefail
           xcodegen generate -q
           xcodebuild -project CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Debug \
             -destination 'generic/platform=iOS Simulator' -derivedDataPath "$DERIVED" -enableCodeCoverage NO \
             CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
-            CMUX_MOBILE_APPLE_SIGN_IN=YES \
+            CMUX_MOBILE_APPLE_SIGN_IN=YES ${TDF:+TARGETED_DEVICE_FAMILY=$TDF} \
             build-for-testing 2>&1 | tee "$OUT/build.log" | { grep -E 'error:|BUILD' || true; }
           test "${PIPESTATUS[0]}" -eq 0
       - name: Pack the products and the simulator XCTest platform
