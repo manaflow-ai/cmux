@@ -14,6 +14,7 @@ description = "C ABI for the pure cmux sidebar drop resolver, section layout red
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]
+cmux-app-history = { path = "../cmux-app-history" }
 # Without its `url` feature: the app links no URL parser (cmux-bookmarks-core `validate_url`).
 cmux-bookmarks-core = { path = "../cmux-bookmarks-core" }
 cmux-cloud-config = { path = "../cmux-cloud-config" }

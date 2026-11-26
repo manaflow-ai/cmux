@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextHistory
 import CmuxNextPalette
 
 /// What Search All Windows looks through, read once when it opens: every
@@ -35,7 +36,7 @@ nonisolated struct GlobalSearchCorpus: Sendable {
 
         init(origin: Origin, lines raw: [String]) {
             self.origin = origin
-            let lines = raw.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            let lines = AppHistoryRules.searchLines(raw)
             self.lines = lines
             lowered = lines.map { $0.lowercased() }
         }
@@ -68,7 +69,7 @@ nonisolated struct GlobalSearchCorpus: Sendable {
     static let limit = 200
 
     static func words(_ query: String) -> [String] {
-        query.lowercased().split(whereSeparator: \.isWhitespace).map(String.init)
+        AppHistoryRules.searchWords(query)
     }
 
     /// A transcript's lines with this process's environment: `load`'s default reader, a named
@@ -127,8 +128,7 @@ nonisolated struct GlobalSearchCorpus: Sendable {
         // task-owner: the stream's consumer; onTermination cancels it, which stops queueing reads.
         let task = Task {
             await withTaskGroup(of: Read.self) { group in
-                let ordered = sources.indices.filter { sources[$0].terminal != nil || sources[$0].agent != nil }
-                    .sorted { (sources[$0].local ? 0 : 1, $0) < (sources[$1].local ? 0 : 1, $1) }
+                let ordered = AppHistoryRules.searchReadOrder(sources.map { ($0.terminal != nil || $0.agent != nil, $0.local) })
                 var queue = ordered.makeIterator()
                 func next() -> Bool {
                     guard let index = queue.next() else { return false }
@@ -193,22 +193,13 @@ nonisolated struct GlobalSearchCorpus: Sendable {
         return (Array(all.prefix(limit)), all.count > limit)
     }
 
-    /// `line` cut to about `before` characters ahead of the first word and
-    /// `after` from it, with an ellipsis where it was cut.
-    static func snippet(_ line: String, words: [String], before: Int = 48, after: Int = 110) -> String {
-        guard let word = words.first(where: { line.range(of: $0, options: .caseInsensitive) != nil }),
-              let range = line.range(of: word, options: .caseInsensitive) else {
-            return line.count > before + after ? String(line.prefix(before + after)) + "…" : line
-        }
-        let start = line.index(range.lowerBound, offsetBy: -before, limitedBy: line.startIndex) ?? line.startIndex
-        let end = line.index(range.lowerBound, offsetBy: after, limitedBy: line.endIndex) ?? line.endIndex
-        return (start > line.startIndex ? "…" : "") + line[start..<end] + (end < line.endIndex ? "…" : "")
+    /// `line` cut to about 48 characters ahead of the first word and 110 from it, with an ellipsis where it was cut.
+    static func snippet(_ line: String, words: [String]) -> String {
+        AppHistoryRules.searchRow(line, words: words).snippet
     }
 
     /// The word Find highlights: the first query word in the line, as typed there.
     static func needle(in line: String, words: [String]) -> String {
-        guard let word = words.first(where: { line.range(of: $0, options: .caseInsensitive) != nil }) ?? words.first else { return "" }
-        guard let range = line.range(of: word, options: .caseInsensitive) else { return word }
-        return String(line[range])
+        AppHistoryRules.searchRow(line, words: words).needle
     }
 }

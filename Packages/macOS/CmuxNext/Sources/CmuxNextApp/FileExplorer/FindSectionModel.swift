@@ -1,3 +1,4 @@
+import CmuxNextHistory
 import Foundation
 import Observation
 import CmuxNextFilesUI
@@ -94,8 +95,7 @@ final class FindSectionModel {
         query = text
         generation += 1
         let mine = generation
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let root, !trimmed.isEmpty else {
+        guard let root, let trimmed = AppHistoryRules.findQuery(text, hasRoot: root != nil) else {
             results = []
             state = .idle
             return
@@ -103,16 +103,20 @@ final class FindSectionModel {
         state = .searching
         let outcome = await run(trimmed, root.path)
         guard mine == generation, !Task.isCancelled else { return }
-        switch outcome {
-        case nil:
-            results = []
-            state = .failed(FindInDirectoryStrings.ripgrepMissing)
-        case .failed(let status)?:
-            results = []
-            state = .failed(FindInDirectoryStrings.ripgrepExited(status))
-        case .matches(let matches, let limited)?:
-            results = matches
-            state = .done(limited: limited)
+        results = if case .matches(let matches, _)? = outcome { matches } else { [] }
+        state = Self.state(after: outcome)
+    }
+
+    private static func state(after outcome: RipgrepSearch.Outcome?) -> State {
+        let fact: Result<Bool, AppHistoryRules.FindFailure>? = switch outcome {
+        case nil: nil
+        case .failed(let status)?: .failure(.init(status: status))
+        case .matches(_, let limited)?: .success(limited)
+        }
+        return switch AppHistoryRules.findState(fact) {
+        case .done(let limited): .done(limited: limited)
+        case .ripgrepExited(let status): .failed(FindInDirectoryStrings.ripgrepExited(status))
+        case .ripgrepMissing: .failed(FindInDirectoryStrings.ripgrepMissing)
         }
     }
 

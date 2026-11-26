@@ -28,15 +28,9 @@ final class CommandHistory {
     private var observation: Task<Void, Never>?
     /// What each connected daemon was last sent, by machine; a restarted
     /// daemon (new boot generation) starts with recording off and is told again.
-    private var sent: [String: Sent] = [:]
+    private var sent: [String: AppHistoryRules.CommandSent] = [:]
     private var lastEnabled: Bool?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "history")
-
-    private struct Sent: Equatable {
-        var generation: String
-        var enabled: Bool
-        var retentionDays: Int
-    }
 
     init(services: AppServices) {
         self.services = services
@@ -76,14 +70,15 @@ final class CommandHistory {
     }
 
     private func sync(_ state: SyncState) {
-        if lastEnabled == true, !state.enabled { offerDeletion(retentionDays: state.retentionDays) }
-        lastEnabled = state.enabled
-        for (machine, generation) in state.machines {
-            let next = Sent(generation: generation, enabled: state.enabled, retentionDays: state.retentionDays)
-            // Sent on every connect, off too: the retention reaches the daemon.
-            guard sent[machine] != next,
-                  let daemon = services.machines.daemons.first(where: { $0.machineID == machine }) else { continue }
-            sent[machine] = next
+        let daemons = services.machines.daemons
+        guard let plan = AppHistoryRules.commandSync(enabled: state.enabled, retentionDays: state.retentionDays, machines: state.machines,
+                                                     sent: sent, lastEnabled: lastEnabled, daemons: daemons.map(\.machineID)) else { return }
+        if plan.offerDeletion { offerDeletion(retentionDays: state.retentionDays) }
+        lastEnabled = plan.lastEnabled
+        sent = plan.sent
+        // Sent on every connect, off too: the retention reaches the daemon.
+        for machine in plan.send {
+            guard let next = plan.sent[machine], let daemon = daemons.first(where: { $0.machineID == machine }) else { continue }
             // A failed set is sent again on the next sync, not only on the next daemon generation.
             daemon.send("set-terminal-command-history", onFailure: { [weak self] _ in
                 if self?.sent[machine] == next { self?.sent[machine] = nil }
@@ -91,7 +86,6 @@ final class CommandHistory {
                 try await connection.setTerminalCommandHistory(enabled: next.enabled, retentionDays: next.retentionDays)
             }
         }
-        sent = sent.filter { state.machines[$0.key] != nil }
     }
 
     /// Recording was turned off: ask whether to delete what the connected
