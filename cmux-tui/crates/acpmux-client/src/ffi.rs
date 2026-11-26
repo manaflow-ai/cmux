@@ -720,8 +720,9 @@ pub unsafe extern "C" fn acpmux_client_chat_blob(
 }
 
 /// Reads remembered row heights from `{ "sid", "rows": [...] }` and returns a matching
-/// `rows` array. Each result carries `height: null` when the exact row revision, view signature,
-/// and width have not been measured yet.
+/// `rows` array. Each result carries `height: null` when the exact edition, row revision,
+/// view signature, and width have not been measured yet. Every row must include the current
+/// chat window's `edition`; a batch before the first window or with a stale edition is rejected.
 ///
 /// # Safety
 /// `handle`, `request`, and `out` satisfy the pointer and length contract for the duration of
@@ -749,7 +750,9 @@ pub unsafe extern "C" fn acpmux_client_row_heights_read(
             Ok(client) => client,
             Err(error) => return error,
         };
-        let Some(cache_sid) = client.chat_cache_sid(&request.sid) else {
+        let Some(cache_sid) =
+            client.chat_cache_sid(&request.sid, request.rows.iter().map(|row| row.edition))
+        else {
             return ACPMUX_CLIENT_ERR_INVALID;
         };
         request.sid = cache_sid;
@@ -768,6 +771,8 @@ pub unsafe extern "C" fn acpmux_client_row_heights_read(
 
 /// Stores measured row heights from `{ "sid", "entries": [{ ..., "height" }] }`.
 /// Heights are bounded CSS-pixel values and the cache evicts its oldest entries at a fixed cap.
+/// Every entry must include the current chat window's `edition`. Before the first window or
+/// if any entry has a stale edition, the entire batch is rejected without storing measurements.
 /// Returns `{ "stored" }`.
 ///
 /// # Safety
@@ -796,7 +801,9 @@ pub unsafe extern "C" fn acpmux_client_row_heights_write(
             Ok(client) => client,
             Err(error) => return error,
         };
-        let Some(cache_sid) = client.chat_cache_sid(&request.sid) else {
+        let Some(cache_sid) = client
+            .chat_cache_sid(&request.sid, request.entries.iter().map(|entry| entry.key.edition))
+        else {
             return ACPMUX_CLIENT_ERR_INVALID;
         };
         request.sid = cache_sid;
