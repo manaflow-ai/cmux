@@ -1,4 +1,5 @@
 #if os(iOS) && DEBUG
+import CmuxMobileDesign
 import SwiftUI
 
 /// DEBUG only. Launch with `-cmux-mobile-fold-sim` to fold and unfold the app
@@ -48,8 +49,9 @@ public struct FoldSimulatorFrame<Content: View>: View {
             }
             .frame(width: full.width, height: full.height)
             .ignoresSafeArea()
-            // The resize is animated, so the app lays out at every size in between, as it does mid-fold.
-            .animation(.smooth(duration: 0.6), value: step)
+            // The resize is animated, so the app lays out at every size in between, as it does mid-fold;
+            // with Reduce Motion on it lands in one frame.
+            .animation(.smooth(duration: 0.6).unlessReduceMotion, value: step)
             // Below the status bar and off the centered regular-width tab bar: a tap in the
             // status bar's strip never reaches the app on iPad.
             .overlay(alignment: .topTrailing) {
