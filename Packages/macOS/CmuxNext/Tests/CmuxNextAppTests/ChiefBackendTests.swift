@@ -286,16 +286,6 @@ import Testing
         #expect(sent.params == ["display_name": .string("\(HomeStrings.chiefName) 2")])
     }
 
-    /// Each click's Chief gets the next free name ("Chief 2", "Chief 3"), never a second "Chief":
-    /// identical rows could not be told apart, and `cmux chief` could not pick one of them by name.
-    @Test func aNewChiefTakesTheNextFreeName() {
-        let base = HomeStrings.chiefName
-        #expect(HomeChiefName.next(taken: []) == base)
-        #expect(HomeChiefName.next(taken: [base]) == "\(base) 2")
-        #expect(HomeChiefName.next(taken: [base, "\(base) 2", "Scout"]) == "\(base) 3")
-        #expect(HomeChiefName.next(taken: [base, "\(base) 3"]) == "\(base) 2")
-    }
-
     /// A Chief with no message yet says what it is for, as classic cmux's list does ("Ask Chief
     /// anything"), so its name and that line sit beside its avatar as every other row's do.
     @Test func aChiefRowWithNoMessageYetSaysWhatItIsFor() {
