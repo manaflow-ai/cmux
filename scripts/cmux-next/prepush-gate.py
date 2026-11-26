@@ -561,8 +561,8 @@ RATCHET_BASELINES = {
 
 def classic_ids_text(text: str) -> str:
     """A classic-ids row's text in the trimmed form check-state-roots.sh keys on (cmux#55211): the character after
-    the match (a quote, slash, comma or paren) is context, not key. Base's old-form rows (`com.cmuxterm.app"`,
-    `.config/cmux/`, `join("cmux",`) and the trimmed ones then key the same, so an installed copy of either form
+    the match (a quote, slash, comma or paren) is context, not key. Base's old-form rows (the matched text with its
+    trailing quote, slash or comma kept) and the trimmed ones then key the same, so an installed copy of either form
     never reads the other's rows as deleted and its hits as new (2026-11-25: #55211 was refused for ~60 such rows)."""
     if text.startswith("com.cmuxterm.app"):
         return "com.cmuxterm.app"
