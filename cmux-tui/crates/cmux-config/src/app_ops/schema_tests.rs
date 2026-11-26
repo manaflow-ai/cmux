@@ -618,3 +618,24 @@ fn the_palette_lists_development_rows_only_with_developer_tools() {
     // A row the palette does not offer (toggled by its own command) is never listed.
     assert!(!has(&with, "tabs.toolbarButtons"));
 }
+
+/// A row that replaced several retired keys reads the first one set, in the table's order
+/// (`schema::replaced_value`), not only the first key listed: `updates.automatic` replaced three
+/// toggles, and a file holding only the third still answers for it.
+#[test]
+fn a_row_that_replaced_several_keys_stores_the_first_one_set() {
+    let only_third = json!({"updates": {"downloadAutomatically": true}});
+    assert_eq!(
+        value("schema.stored", json!({"key": "updates.automatic", "root": only_third})),
+        json!("download")
+    );
+    let checks_off = json!({"updates": {"checkAutomatically": false, "installWhenIdle": true}});
+    assert_eq!(
+        value("schema.stored", json!({"key": "updates.automatic", "root": checks_off})),
+        json!("off")
+    );
+    assert_eq!(
+        value("schema.stored", json!({"key": "updates.automatic", "root": {}})),
+        json!(null)
+    );
+}
