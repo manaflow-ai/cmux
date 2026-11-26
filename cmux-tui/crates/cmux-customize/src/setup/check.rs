@@ -454,15 +454,16 @@ fn edit_distance(a: &str, b: &str) -> usize {
     let b: Vec<char> = b.chars().collect();
     let mut row: Vec<usize> = (0..=b.len()).collect();
     for (i, ca) in a.chars().enumerate() {
-        let mut previous = row[0];
-        row[0] = i + 1;
-        for (j, cb) in b.iter().enumerate() {
-            let here = row[j + 1];
-            row[j + 1] = (previous + usize::from(ca != *cb)).min(row[j] + 1).min(here + 1);
-            previous = here;
+        // `next[j]` is the cost to the left, `row[j]` diagonal, `row[j + 1]` above.
+        let mut next = Vec::with_capacity(row.len());
+        next.push(i + 1);
+        for ((cb, diagonal), above) in b.iter().zip(&row).zip(row.iter().skip(1)) {
+            let left = next.last().copied().unwrap_or_default();
+            next.push((diagonal + usize::from(ca != *cb)).min(left + 1).min(above + 1));
         }
+        row = next;
     }
-    row[b.len()]
+    row.last().copied().unwrap_or_default()
 }
 
 #[cfg(test)]

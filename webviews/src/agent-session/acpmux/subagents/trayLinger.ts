@@ -248,7 +248,13 @@ export function useTrayLinger(
 
 /// When an item ended, if known.
 export const trayItemEnd = (item: TrayItem): number | undefined =>
-  item.kind === "agent" ? item.agent.endedAt : item.kind === "command" ? item.command.endedAt : undefined;
+  item.kind === "agent"
+    ? item.agent.endedAt
+    : item.kind === "command"
+      ? item.command.endedAt
+      : item.kind === "turn"
+        ? item.turn.endedAt
+        : undefined;
 
 /// The ended items that stay, latest end first. A subagent and the nested ones under it move as one
 /// group, kept while any of them is, at its latest end. A command or a subagent whose end only this

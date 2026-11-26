@@ -6,7 +6,7 @@
 /// are the catalog: `allCases` is the list tests and readers enumerate, so no second list exists.
 ///
 /// ``actionPerform``, ``actionCommit``, ``actionGate``, ``keyToFrame``, ``keyFlow``, ``scrollToFrame``,
-/// ``stallMainTask`` and ``stallOverBudget`` have an emitter today. The other cases are
+/// ``stallMainTask``, ``stallOverBudget`` and ``stallSidebarRows`` have an emitter today. The other cases are
 /// **reserved**: the lane named on each adds the emitter (plans/cmux-next/architecture-refactor-DESIGN.md
 /// section 7). Until then no build records them, and no bench or report may quote them.
 ///
@@ -83,6 +83,12 @@ public nonisolated enum SignpostName: Sendable, Hashable, CaseIterable, CustomSt
     case switchTab
     /// Reserved. A pane focus move: the intent to the settled focus.
     case switchPaneFocus
+    /// A wake to the end of the Core Animation commit of the first main-thread turn that follows it
+    /// (``WakeFrameSignpost``, from the app's workspace wake observers). Message: `source=<system|display>`,
+    /// the notification that began it. The interval is the main thread's wake-to-first-commit time, so a
+    /// reader (`scripts/cmux-next/perf-signposts.py`) reads it after `pmset sleepnow` on a lab Mac; `commit=missed`
+    /// as for ``actionCommit``. Not the time to a repainted web page: that comes in a later frame.
+    case switchWake
 
     // MARK: create (reserved: PL-cef-tab)
 
@@ -107,6 +113,11 @@ public nonisolated enum SignpostName: Sendable, Hashable, CaseIterable, CustomSt
     /// A point event: a scheduled main-thread task ran past its class's per-frame budget. Message:
     /// `class=<class> owner=<owner> ms=<task time> budget_ms=<the class's budget>`.
     case stallOverBudget
+    /// One sidebar list update on the main thread (CmuxNextSidebar `SidebarListView`): a structural reload
+    /// (`reload`: a row spliced in or out, a kept space page, or every row's caches rebuilt, then laid out and
+    /// applied) or listed rows' content patched in place (`patchRows`, an agent status tick). Message:
+    /// `kind=<reload|patch>`. One per update, never per row; not mirrored to MetricKit (the `stall` category).
+    case stallSidebarRows
 
     /// The name `os_signpost` records (a compile-time string, as the API requires).
     public var staticName: StaticString {
@@ -124,12 +135,14 @@ public nonisolated enum SignpostName: Sendable, Hashable, CaseIterable, CustomSt
         case .switchWorkspace: "switch.workspace"
         case .switchTab: "switch.tab"
         case .switchPaneFocus: "switch.pane_focus"
+        case .switchWake: "switch.wake"
         case .createTab: "create.tab"
         case .createWorkspace: "create.workspace"
         case .cefPump: "cef.pump"
         case .cefCreateBrowser: "cef.create_browser"
         case .stallMainTask: "stall.main_task"
         case .stallOverBudget: "stall.over_budget"
+        case .stallSidebarRows: "stall.sidebar_rows"
         }
     }
 

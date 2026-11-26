@@ -66,6 +66,39 @@ struct PersonalGatewayTests {
         #expect(await wait.value == false)
     }
 
+    /// A chat its own connection or the organization's key serves never uses this Mac's gateway: its start waits for
+    /// none, even when the gateway cannot come up (the production probe's starts sat out the whole 10 s deadline).
+    @Test func aStartServedElsewhereWaitsForNoGateway() async {
+        let clock = ManualClock()
+        let children = Children([[]]) // never comes online
+        let gateway = make(children, clock: clock)
+        gateway.start()
+        let beside = gateway.onlineBeside(within: .seconds(10)) { .organization(family: "claude") }
+        #expect(await beside.value) // no deadline advanced: answered at once
+        #expect(gateway.state == .starting)
+    }
+
+    /// A route that does use it: the start still waits for the gateway, up to its deadline.
+    @Test func aStartOnTheMacsGatewayStillWaitsForIt() async throws {
+        let clock = ManualClock()
+        let children = Children([[]])
+        let gateway = make(children, clock: clock)
+        gateway.start()
+        let beside = gateway.onlineBeside(within: .seconds(10)) { .gateway(family: "claude") }
+        try await clock.waitForSleeper()
+        clock.advance(by: .seconds(10))
+        #expect(await beside.value == false)
+    }
+
+    /// Which routes reach this Mac's gateway: only the connection's credential and the organization's key do not.
+    @Test func onlyAConnectionOrTheOrganizationsKeyServeWithoutTheMacsGateway() {
+        #expect(CloudSetup.Choice.connection(id: "c", family: "claude").servedWithoutMacGateway)
+        #expect(CloudSetup.Choice.organization(family: "claude").servedWithoutMacGateway)
+        #expect(!CloudSetup.Choice.gateway(family: "claude").servedWithoutMacGateway)
+        #expect(!CloudSetup.Choice.fallback.servedWithoutMacGateway)
+        #expect(!CloudSetup.Choice.setup(family: "claude", model: nil).servedWithoutMacGateway)
+    }
+
     @Test func anotherGatewayTakingOverIsNotFoughtUntilAChatStartsHere() async {
         let children = Children([[#"{"event":"stopped","reason":"replaced"}"#, "EXIT"], [#"{"event":"online"}"#]])
         let gateway = make(children)
@@ -76,6 +109,24 @@ struct PersonalGatewayTests {
         #expect(children.live.count == 1, "no restart on its own")
         // A Cloud chat started on this Mac: this Mac takes its machines back.
         #expect(await gateway.ensureOnline(within: .seconds(60)))
+        #expect(children.live.count == 2)
+    }
+
+    /// Another gateway of the person's took over and the team's gateway serves the chat (the start's choice read it online):
+    /// the start waits for none and does not take the machines back (the probe's gateway rows waited 2.5 to 4.4 s on it).
+    @Test func aStartTheGatewayThatTookOverServesWaitsForNoRestart() async {
+        let children = Children([[#"{"event":"stopped","reason":"replaced"}"#, "EXIT"], [#"{"event":"online"}"#]])
+        let gateway = make(children)
+        gateway.start()
+        #expect(await gateway.ensureOnline(within: .seconds(60)) == false)
+        #expect(gateway.state == .replaced)
+        let beside = gateway.onlineBeside(within: .seconds(10)) { .gateway(family: "claude") }
+        #expect(await beside.value)
+        #expect(gateway.state == .replaced)
+        #expect(children.live.count == 1, "not taken back")
+        // A route the team's gateway does not serve still starts this one again.
+        #expect(!gateway.servedElsewhere(.fallback))
+        #expect(await gateway.onlineBeside(within: .seconds(60)) { .fallback }.value)
         #expect(children.live.count == 2)
     }
 

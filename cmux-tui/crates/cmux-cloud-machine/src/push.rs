@@ -15,7 +15,7 @@ pub const FIRST_BACKOFF_MS: u64 = 500;
 pub const MAX_BACKOFF_MS: u64 = 30_000;
 /// An open socket sends [`PING`] this often, so no proxy closes it for being quiet; the
 /// platform's runtime answers `pong` without waking the object.
-pub const KEEPALIVE_MS: u64 = 30_000;
+pub const KEEPALIVE_MS: u64 = 60_000;
 pub const PING: &str = r#"{"v":1,"t":"ping"}"#;
 
 /// Whether `id` is a Worker machine id (`vm_` and 20 lowercase letters or digits): only those

@@ -40,6 +40,7 @@ export async function GET(request: NextRequest) {
       manageUrl: null,
       teamPlanId: FREE_PLAN_ID,
       teamBillingManagement: "none",
+      paymentPastDue: false,
       user: null,
     });
   }
@@ -77,6 +78,7 @@ export async function GET(request: NextRequest) {
       manageUrl: null,
       teamPlanId: FREE_PLAN_ID,
       teamBillingManagement: "none",
+      paymentPastDue: false,
       user: null,
     });
   }
@@ -104,6 +106,10 @@ export async function GET(request: NextRequest) {
     teamBillingManagement: teamStatus.billingManagement,
     metadataChanged: status.metadataChanged,
     hasManualVmPlanOverride: status.hasManualVmPlanOverride,
+    // The Stripe subscription that grants the personal plan failed its latest
+    // renewal (Stripe `past_due`); the Mac shows a payment notice beside
+    // Manage Billing. False for every other plan and source.
+    paymentPastDue: status.paymentPastDue ?? false,
     user: {
       id: user.id,
       displayName: user.displayName,

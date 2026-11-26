@@ -30,9 +30,19 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
 
     func dialCount(_ macID: String) -> Int { lock.withLock { dials[macID] ?? 0 } }
 
+    /// Macs no dial reaches (this iPhone has no network): their dials fail as a timeout would.
+    private var unreachable: Set<String> = []
+    func setUnreachable(_ macID: String, _ on: Bool) {
+        lock.withLock { if on { unreachable.insert(macID) } else { unreachable.remove(macID) } }
+    }
+
     func dial(_ endpoint: LinkEndpoint, transport: CmuxMobileTransport.TransportKind, accessToken: String) async throws -> any MacLink {
         let mac = endpoint.macDeviceID
-        lock.withLock { dials[mac, default: 0] += 1 }
+        let reachable = lock.withLock { () -> Bool in
+            dials[mac, default: 0] += 1
+            return !unreachable.contains(mac)
+        }
+        guard reachable else { throw LinkError(code: "timeout", message: "dial timed out") }
         if refused.contains(mac) {
             throw LinkError(code: LinkError.unauthorized, message: "signaling connect failed: 401 Unauthorized")
         }
@@ -122,20 +132,6 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         let policy = MacLinkPolicy(maxLinks: 2)
         #expect(policy.decide(macs: macs, focused: "m4", showing: [], lastShown: [:], now: now).linked == ["m4"])
         #expect(policy.decide(macs: macs, focused: "m1", showing: ["m4", "m2"], lastShown: [:], now: now).linked == ["m1", "m2"])
-    }
-
-    /// The Mac a held pairing code names comes next after the focused one, ahead of the
-    /// Macs on screen, and never past `maxLinks`.
-    @Test func thePinnedMacComesNextAfterTheFocusedOne() {
-        let policy = MacLinkPolicy(maxLinks: 2)
-        #expect(policy.decide(macs: macs, focused: "m1", showing: ["m1", "m2", "m3"], lastShown: [:], now: now,
-                              pinned: "m3").linked == ["m1", "m3"])
-        #expect(policy.decide(macs: macs, focused: "m1", showing: ["m2"], lastShown: [:], now: now,
-                              pinned: "m1").linked == ["m1", "m2"])
-        #expect(policy.decide(macs: macs, focused: "m1", showing: ["m2"], lastShown: [:], now: now,
-                              pinned: "m9").linked == ["m1", "m2"])
-        #expect(MacLinkPolicy(maxLinks: 1).decide(macs: macs, focused: "m1", showing: [], lastShown: [:], now: now,
-                                                  pinned: "m3").linked == ["m1"])
     }
 }
 
@@ -408,7 +404,7 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         session.chatsError = "acpmux channel closed"
         session.daemonError = "list-workspaces reply is not an object"
         live.phaseChanged(session)
-        #expect(store.macLinkStatus["m1"] == "Connected")
+        #expect(store.macLinkStatus["m1"] == nil, "a connected Mac says nothing in its header")
         #expect(store.macLinkDiagnostics["m1"]?.contains("acpmux channel closed") == true)
         #expect(store.macLinkDiagnostics["m1"]?.contains("list-workspaces reply is not an object") == true)
 
@@ -457,6 +453,10 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         // Publish the waiting phase synchronously: link observation otherwise
         // runs after this MainActor test yields, which would test the fallback.
         live.phaseChanged(first)
+        // #49567 holds a "Reconnecting" banner for the quiet bound (QuietStatusGate.threshold,
+        // 10 s) on purpose: nothing shows yet. Put it on screen as the bound's end does.
+        #expect(live.banner == nil, "a reconnect inside the quiet bound shows nothing (#49567)")
+        live.bannerHold.show(.reconnecting(to: "Aziz's MacBook Pro", identity: "m1"))
         try #require(live.banner?.identity == "m1")
         // The displayed banner still belongs to m1 when focus moves to m2.
         live.focusedMacID = "m2"

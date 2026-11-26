@@ -53,6 +53,11 @@ public enum CmuxMobilePressShape: Sendable {
     /// The label draws its own fill with ``SwiftUI/View/cmuxMobilePressBackground(_:in:)`` exactly where its
     /// shape is (a 22 pt badge in a 44 pt target, a filled disc, a chip); the style only tells it when it is held.
     case label
+    /// No wash: the label is a line of bare text on the page (a transcript disclosure: a thought, a tool call,
+    /// a tool group, "Worked for"). A fill behind bare text draws a gray box out of nothing (Leo 2026-11-23,
+    /// on tapping a thought, paraphrased: it had that square placeholder backing, "THAT AINT RIGHT"). The
+    /// tap's answer is the chevron turning and the body opening, as the drawn (UIKit) rows of the same lines do.
+    case line
 }
 
 extension EnvironmentValues {
@@ -77,7 +82,7 @@ private struct PressFillShape: ViewModifier {
             content.cmuxMobilePressFill(isPressed, rest: rest, pressed: pressed, in: Circle())
         case .capsule:
             content.cmuxMobilePressFill(isPressed, rest: rest, pressed: pressed, in: Capsule())
-        case .glass, .label:
+        case .glass, .label, .line:
             content.cmuxMobilePressFill(false, rest: rest, pressed: pressed, in: Circle())
         }
     }
@@ -96,6 +101,8 @@ extension ButtonStyle where Self == CmuxMobilePressFillStyle {
     public static var cmuxPressGlass: CmuxMobilePressFillStyle { CmuxMobilePressFillStyle(shape: .glass) }
     /// The label draws the fill and its wash itself, with ``SwiftUI/View/cmuxMobilePressBackground(_:in:)``.
     public static var cmuxPressFillInLabel: CmuxMobilePressFillStyle { CmuxMobilePressFillStyle(shape: .label) }
+    /// For a line of bare text on the page (a transcript disclosure): no wash, the label unchanged.
+    public static var cmuxPressLine: CmuxMobilePressFillStyle { CmuxMobilePressFillStyle(shape: .line) }
 }
 
 extension View {

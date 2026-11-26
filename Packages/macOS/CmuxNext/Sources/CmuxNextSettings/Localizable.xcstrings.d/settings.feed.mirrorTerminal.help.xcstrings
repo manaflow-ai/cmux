@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.feed.mirrorTerminal.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal notifications can contain secrets. Off sends nothing."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ターミナルの通知には秘密情報が含まれることがあります。オフにすると何も送りません。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "قد تحتوي إشعارات الطرفية على أسرار. عند الإيقاف لا يُرسل شيء."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Obavijesti terminala mogu sadržavati tajne. Isključeno ne šalje ništa."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Terminalnotifikationer kan indeholde hemmeligheder. Fra sender intet."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Terminal-Mitteilungen können Geheimnisse enthalten. Aus sendet nichts."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Las notificaciones del terminal pueden contener secretos. Desactivado no envía nada."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les notifications du terminal peuvent contenir des secrets. Désactivé n’envoie rien."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le notifiche del terminale possono contenere segreti. Disattivato non invia nulla."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ការជូនដំណឹងទែមីណាល់អាចមានព័ត៌មានសម្ងាត់។ បិទ មិនផ្ញើអ្វីទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "터미널 알림에는 비밀 정보가 포함될 수 있습니다. 끄면 아무것도 보내지 않습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Terminalvarsler kan inneholde hemmeligheter. Av sender ingenting."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Powiadomienia terminala mogą zawierać sekrety. Wyłączone nie wysyła niczego."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Notificações do terminal podem conter segredos. Desativado não envia nada."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Уведомления терминала могут содержать секреты. «Выкл.» ничего не отправляет."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "การแจ้งเตือนของเทอร์มินัลอาจมีข้อมูลลับ ปิดจะไม่ส่งอะไรเลย"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Terminal bildirimleri gizli bilgiler içerebilir. Kapalı, hiçbir şey göndermez."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Сповіщення термінала можуть містити секрети. «Вимк.» нічого не надсилає."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Thông báo của terminal có thể chứa bí mật. Tắt sẽ không gửi gì."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "终端通知可能包含机密。关闭时不发送任何内容。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "終端機通知可能包含機密。關閉時不傳送任何內容。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

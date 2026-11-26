@@ -1,3 +1,4 @@
+import CmuxEgress
 public import CMUXAuthCore
 public import Foundation
 
@@ -64,8 +65,10 @@ public struct CloudOwnerAPIClient: Sendable {
     }
 
     /// `cloud.<call>` with `args` on the daemon, as this person (`auth: owner`) in ``teamID``'s team: its body as JSON,
-    /// or its failure as a ``CloudAPIError`` (``CloudDaemon/daemon(_:_:timeout:)``). `timeout` bounds the child.
+    /// or its failure as a ``CloudAPIError`` (``CloudDaemon/daemon(_:_:timeout:)``). `timeout` bounds the child; a
+    /// misconfigured dev build refuses before anything runs.
     func daemon(_ call: String, _ args: [String: any Sendable], timeout: Duration) async throws -> Data {
+        try buildSpace.check()
         let accessToken = accessToken
         var client = CloudDaemon.workerMachines(baseURL: baseURL, accessToken: { try await accessToken() }, teamID: teamID,
                                                    machineIO: machineIO, buildSpace: buildSpace)
@@ -178,12 +181,12 @@ public struct CloudOwnerAPIClient: Sendable {
     }
 
     /// No cache, no cookies, and redirects refused: the Stack bearer never follows one.
-    static let transport: URLSession = {
+    public static let transport: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.urlCache = nil
         configuration.httpShouldSetCookies = false
         configuration.httpCookieAcceptPolicy = .never
-        return URLSession(configuration: configuration, delegate: RefuseRedirects(), delegateQueue: nil)
+        return CmuxEgress.session(site: "CmuxNextCloud.CloudOwnerAPIClient", configuration: configuration, delegate: RefuseRedirects(), delegateQueue: nil)
     }()
 
     private final class RefuseRedirects: NSObject, URLSessionTaskDelegate, Sendable {

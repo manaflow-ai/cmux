@@ -86,7 +86,11 @@ export const OpError = Schema.Struct({
   code: Schema.String,
   message: Schema.String,
   details: Schema.optionalKey(Schema.Unknown),
-  retryable: Schema.Boolean
+  retryable: Schema.Boolean,
+  /** What the person does next, one line (GitHub refusals: api src/integrations/github-next.ts). */
+  next: Schema.optionalKey(Schema.String),
+  /** The cmux action that does `next` (a Connect button runs it). */
+  next_action: Schema.optionalKey(Schema.String)
 }).annotate({ identifier: "OpError" })
 
 /** Result of one op: either `value` or `error`, always with the settle (write barrier). */

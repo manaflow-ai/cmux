@@ -53,6 +53,8 @@ public nonisolated enum AppSceneNodeType: String, Sendable, Hashable, CaseIterab
     case progressView = "ProgressView", textField = "TextField"
     case row = "Row", badge = "Badge", emptyState = "EmptyState"
     case toggle = "Toggle", slider = "Slider", panel = "Panel"
+    /// A host-run particle field (`preset`, `colors`, `rate`, `burst`) that fills its frame.
+    case particles = "Particles"
 
     /// Lays its children out inline in the parent's stack.
     public var isInline: Bool { self == .group || self == .forEach }

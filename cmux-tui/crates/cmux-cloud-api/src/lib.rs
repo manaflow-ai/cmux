@@ -2,7 +2,7 @@
 //! `server/cloud_api.rs`) and the cmux CLI (`cmux cloud api`, which sends its request to the
 //! daemon): a machine's SCP route, domains, publications, the person's hand-offs and acpmux
 //! routes, previews and a machine's files and exec. The macOS app sent these from Swift
-//! (`CloudAPIClient`, `CloudOwnerAPIClient`); the requests, their deadlines, the hand-off paging
+//! (`CloudDaemon`, `CloudOwnerAPIClient`); the requests, their deadlines, the hand-off paging
 //! and every refusal's reading live here. Sandboxed Runs are the daemon's own ([`sandbox`]): a
 //! Cloud chat on a machine made for the task, never classic Cloud's Run API.
 //!
@@ -27,14 +27,23 @@
 //! `owner.acpmux_keyed_start` takes the person key as raw bytes beside the request (exactly
 //! `args.key_length` of them), so the key is never part of a JSON value here.
 //!
+//! `machine.fork` is cmux-platform's `POST /v1/machines/{id}/fork`: a running copy of a Cloud
+//! machine, memory and disk, that a new session or sub-agent is placed on ([`machine_fork`]).
+//!
 //! `machine.chief_resize` moves a Chief's own machine up the Chief ladder over cmux-platform's
 //! `cloud.machine.resize` ([`chief_resize`]).
 //!
 //! `owner.fork_run` is cmux-platform's fork runs (`args.verb`: `start`, `get` or `select`;
 //! [`fork_runs`]): one machine captured once, one copy-on-write child per harness, one kept.
 //!
+//! [`auto_sessions`] is not a call of [`perform`]: it is Auto mode's store as the owner, a typed
+//! client (`cmux_auto_session::AutoCloud`) the acpmux daemon holds while a chat has Auto on.
+//!
 //! `owner.turn_checkpoint`, `owner.turn_rewind` and `owner.turns` are a Cloud chat's "back to
 //! before this turn": whole-machine turn checkpoints on cmux-platform (`turns.rs`).
+//!
+//! `owner.slack` and `owner.slack_awake` are Settings' Slack page: the connection, its install
+//! link, a bot of the person's own and a Chief's Slack awake time (`slack.rs`).
 //!
 //! An answer is `Ok(body)` or a [`Failure`]; [`answer_line`] writes `{"ok": true, "body": B}` or
 //! `{"ok": false, "error": E}`, where `E.kind` is `timed_out` (with `path`), `transport`
@@ -53,19 +62,25 @@
 
 #![cfg(unix)]
 
+pub mod auto_sessions;
 pub mod background;
 mod chat;
 pub mod chief_machine;
 pub mod chief_resize;
+pub mod chief_turn;
 mod fork_runs;
 mod http;
 mod machine;
+pub mod machine_destroy;
+pub mod machine_fork;
 pub mod machine_io;
+pub mod machine_resume;
 mod network;
 mod owner;
 mod previews;
 pub mod sandbox;
 pub mod session;
+mod slack;
 mod turns;
 
 use serde_json::{Map, Value, json};
@@ -137,8 +152,10 @@ pub async fn perform(request: &Request, tail: Zeroizing<Vec<u8>>) -> Result<Valu
     match request.call.as_str() {
         "machine.io" if request.auth == Auth::Stack => Err(not_on_this_cloud("machine.io")),
         "machine.io" => machine::worker(request).await,
-        "machine.chief_start" => chief_machine::perform(request, &http).await,
+        "machine.chief_start" => chief_machine::perform(request, &http, &tail).await,
         "machine.chief_resize" => chief_resize::perform(request, &http).await,
+        "machine.fork" if request.auth == Auth::Stack => Err(not_on_this_cloud("machine.fork")),
+        "machine.fork" => machine_fork::fork_machine(request, args).await,
         call if chat::CALLS.contains(&call) && request.auth == Auth::Stack => {
             Err(not_on_this_cloud(call))
         }
@@ -155,6 +172,8 @@ pub async fn perform(request: &Request, tail: Zeroizing<Vec<u8>>) -> Result<Valu
             "{call} is the cmux daemon's own sandboxed Run; send it to the daemon"
         ))),
         "owner.acpmux_keyed_start" => owner::keyed_start(&http, args, tail).await,
+        "owner.slack" => slack::slack(&http, args).await,
+        "owner.slack_awake" => slack::slack_awake(&http, args).await,
         "owner.turn_checkpoint" | "owner.turn_rewind" | "owner.turns" => {
             turns::run(&http, request.call.as_str(), args).await
         }
@@ -196,7 +215,7 @@ pub fn answer_line(result: &Result<Value, Failure>) -> String {
 }
 
 /// Every call [`perform`] answers.
-pub const CALLS: [&str; 47] = [
+pub const CALLS: [&str; 50] = [
     "vm.scp_endpoint",
     "vm.tunnel_enroll",
     "vm.tunnel_revoke",
@@ -232,6 +251,8 @@ pub const CALLS: [&str; 47] = [
     "owner.github_complete",
     "owner.github_list",
     "owner.github_clone_token",
+    "owner.slack",
+    "owner.slack_awake",
     "owner.turn_checkpoint",
     "owner.turn_rewind",
     "owner.turns",
@@ -244,6 +265,7 @@ pub const CALLS: [&str; 47] = [
     "machine.chief_start",
     "machine.chief_resize",
     "machine.setup_desktop",
+    "machine.fork",
 ];
 
 /// A bound past every fixed deadline of a call (the longest, a staged machine read's, is about

@@ -38,6 +38,11 @@ pub(crate) const SETTING_LEVEL: &str = "agents.chats.coldSegmentsLevel";
 /// The most sealed segments of one chat a round moves.
 pub const PER_PASS: usize = 2;
 
+/// Held by each move ([`Hub::cold_segments_of`]): the worker and the store budget pass
+/// (`hub/session_budget_watch.rs`) both move segments, and a segment's archive is staged under
+/// one temporary name (`store/cold_segments.rs` `tmp_of`), so two moves never run at once.
+static MOVING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// The zstd level to move segments at, from the settings document; None when the setting is off.
 pub(crate) fn level_of(doc: &Value) -> Option<i32> {
     if crate::user_settings::value(doc, SETTING_ON) != Some(Value::Bool(true)) {
@@ -134,6 +139,7 @@ impl Hub {
         id: &str,
         level: Option<i32>,
     ) -> anyhow::Result<(ColdMoved, bool)> {
+        let _one = MOVING.lock().unwrap_or_else(|e| e.into_inner());
         let session = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
         if session.as_deref().is_some_and(|s| !self.cold_segments_movable(s)) {
             return Ok((ColdMoved::default(), false));

@@ -359,6 +359,7 @@ impl Mux {
             durable_terminal_defaults: AtomicBool::new(has_terminal_defaults),
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             journal_plugin: crate::journal_plugin::JournalPluginRuntime::default(),
+            journal_plugin_demand: Default::default(),
             machine_usage: Mutex::new(None),
             agent_records: Mutex::new(agent_records),
             agent_hook_fences: Mutex::new(agent_hook_fences),
@@ -373,6 +374,7 @@ impl Mux {
             agent_roster: Mutex::new(agent_roster),
             agent_roster_worker: Default::default(),
             agent_message_pump: Default::default(),
+            terminal_warm_compact: Default::default(),
             #[cfg(unix)]
             agent_chat_notices: Default::default(),
             #[cfg(unix)]
@@ -463,6 +465,7 @@ impl Mux {
             daemon_shutdown_waker: Mutex::new(None),
             control_clients: crate::server::ClientRegistry::new(input_lane),
             tree_reply_flight: Default::default(),
+            workspace_delta: Default::default(),
             #[cfg(unix)]
             agent_transfers: Default::default(),
             #[cfg(unix)]
@@ -478,6 +481,7 @@ impl Mux {
             ),
             terminal_reaper: Mutex::default(),
             launch_snapshot_path: Mutex::new(None),
+            launch_snapshot_flush: Mutex::new(None),
             settings: settings::SettingsSlot::default(),
             keybindings: keybindings::KeybindingsSlot::default(),
             terminal_work: terminal_work::TerminalWorkPool::default(),

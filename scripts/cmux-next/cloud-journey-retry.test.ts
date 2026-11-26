@@ -104,7 +104,7 @@ echo "| rust exit $code |" > "$out/summary.md"; echo '${steps(700)}' > "$out/jou
     expect(r.calls[0]).toContain("--model-stub ")
     expect(r.summary).toContain("test-team, Rust driver (cmux cloud journey)")
     expect(r.summary).toContain("| create machine | 900 | 700 |")
-    expect(r.summary).toContain("| **total** | **900** | **700** |")
+    expect(r.summary).toContain("| **total** | **905** | **705** |")
   })
   it("a Rust run that fails twice is the job's red; once is a retry", () => {
     const red = rustRun([1, 1])
@@ -143,6 +143,8 @@ describe("every workflow reads a Stack pair its job can see", () => {
     "cmux-next-vm-image-dev": ["CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD", "CMUX_DOGFOOD_GUEST_STACK_EMAIL", "CMUX_DOGFOOD_GUEST_STACK_PASSWORD"],
     // CMUX_STAGING_STACK_*: the staging journey account, sealed here by cloud_capture_provision.py (target journey).
     "cmux-next-cloud-journey": ["CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD", "CMUX_STAGING_STACK_EMAIL", "CMUX_STAGING_STACK_PASSWORD"],
+    // The development agent test account billing-e2e.yml reads (its header lists what the environment holds; #40356).
+    "billing-e2e": ["CMUX_UITEST_STACK_EMAIL", "CMUX_UITEST_STACK_PASSWORD"],
   }
   const workflows = join(import.meta.dir, "../../.github/workflows")
   it("names only pairs that exist", () => {

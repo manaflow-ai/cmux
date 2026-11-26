@@ -89,8 +89,8 @@ enum OmnibarStyle {
         let inkLeading = (buttonSize - glyph) / 2 + glyph * (1 - DensityTokens.toolbarGlyphInkRatio) / 2
         return max(0, Metrics.firstTabIconLeading - inkLeading)
     }
-    /// Toolbar buttons: square, Helium's 28 pt at Standard (`kToolbarButtonHeight` 28),
-    /// Chrome's 34 at Comfortable, by density (`OmnibarMetrics`).
+    /// Toolbar buttons: square, a tab tall (`Metrics.tabBarControlSide`), as the tab bar's ⋮ above them
+    /// (`OmnibarMetrics.current`; Lawrence 2026-11-23).
     static var buttonSize: CGFloat { metrics.buttonSize }
     /// The trailing buttons' gap to the pane's edge: More's center sits on the pane's trailing control
     /// column, under the tab bar's ⋮ (`Metrics.paneTrailingControlCenter`, Lawrence msg 19627).

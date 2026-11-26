@@ -43,7 +43,9 @@ export function MessageCard({
     () => setOpen(true),
   );
   const from = message.from ?? t("message.self");
-  const to = message.to ? (recipientName(message.to, names) ?? shortId(message.to)) : t("message.unknown");
+  const to = message.to
+    ? (recipientName(message.to, names) ?? message.toName ?? shortId(message.to))
+    : t("message.unknown");
   // The full id under a subagent's name or short id, for matching it against a log.
   const toId = message.to && to !== message.to.trim() ? t("message.recipientId", { id: message.to.trim() }) : undefined;
   const openName = useOpenRecipient(message.to);

@@ -149,7 +149,9 @@
     "agent-pane.background-task-note-open#completed-open": [],
     "agent-pane.background-task-note-open#failed-open": [],
     "agent-pane.background-task-note-open#stopped-open": [],
-    "agent-pane.background-task-note#ended": [],
+    "agent-pane.background-task-note#ended": [
+      "center-line:row backgroundTask-16"
+    ],
     "agent-pane.background-task-note#lone": [],
     "agent-pane.background-task-note#on-call": [],
     "agent-pane.background-tasks-workflow#list": [],
@@ -262,8 +264,6 @@
     "agent-pane.chat-inspector#chrome-title": [],
     "agent-pane.chat-inspector#cloud-empty": [],
     "agent-pane.chat-inspector#context-breakdown": [],
-    "agent-pane.chat-inspector#context-breakdown-hues": [],
-    "agent-pane.chat-inspector#context-breakdown-mono": [],
     "agent-pane.chat-inspector#context-compact-working": [],
     "agent-pane.chat-inspector#context-connectors-open": [],
     "agent-pane.chat-inspector#environment-branch-chip": [],
@@ -393,12 +393,6 @@
     "agent-pane.code-block-diagram#muted-snug": [],
     "agent-pane.code-block-diagram#row-snug": [],
     "agent-pane.code-block-diagram#row-tall": [],
-    "agent-pane.coderouter-offer#claude-key": [],
-    "agent-pane.coderouter-offer#deepseek-key": [],
-    "agent-pane.coderouter-offer#moving": [],
-    "agent-pane.coderouter-offer#on-coderouter": [],
-    "agent-pane.coderouter-offer#rate-limited": [],
-    "agent-pane.coderouter-offer#sign-in": [],
     "agent-pane.compaction-note#account-switch": [],
     "agent-pane.compaction-note#failover": [],
     "agent-pane.compaction-note#policy-no-asking-mode": [
@@ -417,7 +411,9 @@
     "agent-pane.composer-context-away#newtab-computer": [
       "menu-fit:div[aria-label=\"Environment\"]"
     ],
-    "agent-pane.composer-context-away#newtab-folder": [],
+    "agent-pane.composer-context-away#newtab-folder": [
+      "menu-fit:div[aria-label=\"Folder\"]"
+    ],
     "agent-pane.composer-context-away#strip-bump": [],
     "agent-pane.composer-context-away#strip-plain-text": [],
     "agent-pane.composer-context-away#strip-plus-edge": [],
@@ -442,7 +438,9 @@
     "agent-pane.composer-context#computer-menu-quiet": [],
     "agent-pane.composer-context#computer-menu-warnings-off": [],
     "agent-pane.composer-context#computer-search": [],
-    "agent-pane.composer-context#duplicate-search": [],
+    "agent-pane.composer-context#duplicate-search": [
+      "menu-fit:div[aria-label=\"Folder\"]"
+    ],
     "agent-pane.composer-context#duplicate-worktrees": [],
     "agent-pane.composer-context#environment-face-chip": [
       "menu-fit:div[aria-label=\"Environment\"]"
@@ -497,8 +495,12 @@
     "agent-pane.composer-context#lane-checkouts": [],
     "agent-pane.composer-context#lane-checkouts-open": [],
     "agent-pane.composer-context#machine-colors": [],
-    "agent-pane.composer-context#repo-worktrees": [],
-    "agent-pane.composer-context#repo-worktrees-guessed": [],
+    "agent-pane.composer-context#repo-worktrees": [
+      "menu-fit:div[aria-label=\"Folder\"]"
+    ],
+    "agent-pane.composer-context#repo-worktrees-guessed": [
+      "menu-fit:div[aria-label=\"Folder\"]"
+    ],
     "agent-pane.composer-context#repo-worktrees-open": [],
     "agent-pane.composer-context#repo-worktrees-search": [],
     "agent-pane.composer-context#saved-environment-picked": [],
@@ -520,8 +522,8 @@
     "agent-pane.composer-edge#wide-edge": [],
     "agent-pane.composer-floats#composer-grown": [],
     "agent-pane.composer-floats#scrolled-to-end": [],
-    "agent-pane.composer-height#chosen-twelve-lines-normal": [],
-    "agent-pane.composer-height#chosen-twelve-lines-short": [],
+    "agent-pane.composer-height#chosen-claude-384-normal": [],
+    "agent-pane.composer-height#chosen-claude-384-short": [],
     "agent-pane.composer-height#current-forty-percent-normal": [],
     "agent-pane.composer-height#current-forty-percent-short": [],
     "agent-pane.composer-height#old-eight-lines-normal": [],
@@ -1888,8 +1890,8 @@
       "menu-fit:div[aria-label=\"Suggestions\"]",
       "menu-label:div[aria-label=\"Suggestions\"] div[aria-label=\"New terminal\"]"
     ],
-    "agent-pane.newtab-composer-height#chosen-twelve-lines-normal": [],
-    "agent-pane.newtab-composer-height#chosen-twelve-lines-short": [],
+    "agent-pane.newtab-composer-height#chosen-claude-384-normal": [],
+    "agent-pane.newtab-composer-height#chosen-claude-384-short": [],
     "agent-pane.newtab-composer-height#current-forty-percent-normal": [],
     "agent-pane.newtab-composer-height#current-forty-percent-short": [],
     "agent-pane.newtab-composer-height#old-eight-lines-normal": [],
@@ -1946,20 +1948,6 @@
     "agent-pane.permission-panel#pending": [],
     "agent-pane.permission-panel#receipt": [],
     "agent-pane.permission-panel#uncertain": [],
-    "agent-pane.plan-list-looks#borderless": [],
-    "agent-pane.plan-list-looks#card": [],
-    "agent-pane.plan-list-looks#card-ended": [],
-    "agent-pane.plan-list-looks#card-midway": [],
-    "agent-pane.plan-list-looks#count": [],
-    "agent-pane.plan-list#activity-line": [
-      "center-line:row plan-5"
-    ],
-    "agent-pane.plan-list#finished": [
-      "center-line:row plan-9"
-    ],
-    "agent-pane.plan-list#running": [
-      "center-line:row plan-2"
-    ],
     "agent-pane.preview-card#gallery-stage": [],
     "agent-pane.preview-card#loaded": [],
     "agent-pane.preview-card#loopback-host": [],
@@ -2540,16 +2528,20 @@
     "agent-pane.transcript-row-alignment#finished-hover": [],
     "agent-pane.transcript-row-alignment#finished-work": [],
     "agent-pane.transcript-row-alignment#footer": [
-      "center-line:row subagentDone:agent-docs-check"
+      "center-line:row subagentDone:agent-docs-check",
+      "center-line:row backgroundTask-18"
     ],
     "agent-pane.transcript-row-alignment#mix": [
-      "center-line:row subagentDone:agent-docs-check"
+      "center-line:row subagentDone:agent-docs-check",
+      "center-line:row backgroundTask-18"
     ],
     "agent-pane.transcript-row-alignment#off": [
-      "center-line:row subagentDone:agent-docs-check"
+      "center-line:row subagentDone:agent-docs-check",
+      "center-line:row backgroundTask-18"
     ],
     "agent-pane.transcript-row-alignment#roomy": [
-      "center-line:row subagentDone:agent-docs-check"
+      "center-line:row subagentDone:agent-docs-check",
+      "center-line:row backgroundTask-18"
     ],
     "agent-pane.transcript-row-grammar#chip": [],
     "agent-pane.transcript-row-grammar#link": [],
@@ -3670,7 +3662,8 @@
     "ui.choice-group#thorough": [],
     "ui.combobox#closed": [],
     "ui.combobox#disabled": [
-      "menu-fit:\"Alpha projectGamma projectDelta projectB\""
+      "menu-fit:\"Alpha projectGamma projectDelta projectB\"",
+      "menu-fit:\"Alpha projectBeta projectGamma projectDe\""
     ],
     "ui.combobox#escape": [],
     "ui.combobox#inline": [],

@@ -557,7 +557,7 @@ pub async fn spawn_data_plane(
 /// The relay's HTTP client toward the hosted router: no redirects (a bearer
 /// never follows one to another host).
 fn http_client() -> reqwest::Client {
-    reqwest::Client::builder()
+    cmux_egress::client_builder("cmux_coderouter")
         .connect_timeout(std::time::Duration::from_secs(15))
         // Per read, not per request: a long stream keeps going while bytes
         // arrive; an upstream that stops sending ends the request.

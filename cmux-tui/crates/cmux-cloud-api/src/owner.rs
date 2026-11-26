@@ -324,12 +324,13 @@ async fn github_app(http: &Http, args: &Map<String, Value>) -> Result<Value, Fai
         .send(Method::GET, url, None, None, Duration::from_secs(15), &path_text(&segments))
         .await;
     let Ok(reply) = reply else { return Ok(json!({ "state": "unknown" })) };
-    let mut answer = json!({ "state": github_app_state(reply.status, &reply.body) });
+    let mut answer = Map::new();
+    answer.insert("state".into(), json!(github_app_state(reply.status, &reply.body)));
     if args.get("raw").and_then(Value::as_bool) == Some(true) {
-        answer["status"] = json!(reply.status);
-        answer["body"] = reply.json().unwrap_or(Value::Null);
+        answer.insert("status".into(), json!(reply.status));
+        answer.insert("body".into(), reply.json().unwrap_or(Value::Null));
     }
-    Ok(answer)
+    Ok(Value::Object(answer))
 }
 
 /// `team` when it is a team id (`team_` and up to 120 letters, digits, `_` or `-`): the only
@@ -443,8 +444,11 @@ fn is_return_link(link: &str) -> bool {
 
 /// `POST /v1/ops` `integration.connect {provider: "github"}` in the team the team header names:
 /// the GitHub App's install page for the person to open. `idempotencyKey` keeps a retry on the same
-/// pending connection; `returnTo` ([`is_return_link`]) asks GitHub's redirect back to the app.
-/// Answers `{authorize_url, connection}`; a deployment without the app answers the Worker's
+/// pending connection; `returnTo` ([`is_return_link`]) asks GitHub's redirect back to the app;
+/// `repo` ([`is_full_name`], a Cloud start's Connect GitHub card) lets the API reuse an active
+/// connection that covers it, or answer GitHub's authorize page for an owner the App is already
+/// installed on (#55104). Answers `{authorize_url, connection}`, or `{connected: true, connection}`
+/// when a connection already covers `repo`; a deployment without the app answers the Worker's
 /// `integration.not_configured`.
 async fn github_connect(http: &Http, args: &Map<String, Value>) -> Result<Value, Failure> {
     let key = match optional_text(args, "idempotencyKey") {
@@ -452,10 +456,20 @@ async fn github_connect(http: &Http, args: &Map<String, Value>) -> Result<Value,
         Some(_) => return Err(Failure::Transport("not an idempotency key".into())),
         None => uuid::Uuid::new_v4().to_string(),
     };
-    let mut params = json!({ "provider": "github" });
+    let mut params = Map::new();
+    params.insert("provider".into(), json!("github"));
     match optional_text(args, "returnTo") {
-        Some(link) if is_return_link(link) => params["return_to"] = json!(link),
+        Some(link) if is_return_link(link) => {
+            params.insert("return_to".into(), json!(link));
+        }
         Some(_) => return Err(Failure::Transport("not a return link".into())),
+        None => {}
+    }
+    match optional_text(args, "repo") {
+        Some(repo) if is_full_name(repo) => {
+            params.insert("repo".into(), json!(repo));
+        }
+        Some(_) => return Err(Failure::Transport("not a repository".into())),
         None => {}
     }
     let body = json!({
@@ -465,8 +479,13 @@ async fn github_connect(http: &Http, args: &Map<String, Value>) -> Result<Value,
     let value = post_value(http, &segments, Body::Json(body), Duration::from_secs(20)).await?;
     let url =
         value.get("authorize_url").and_then(Value::as_str).filter(|u| u.starts_with("https://"));
-    let connection = value.pointer("/connection/id").and_then(Value::as_str);
+    let connection =
+        value.pointer("/connection/id").and_then(Value::as_str).filter(|c| !c.is_empty());
+    let connected = value.get("connected").and_then(Value::as_bool) == Some(true);
     match (url, connection) {
+        (_, Some(connection)) if connected => {
+            Ok(json!({ "connected": true, "connection": connection }))
+        }
         (Some(url), Some(connection)) => {
             Ok(json!({ "authorize_url": url, "connection": connection }))
         }
