@@ -35,7 +35,7 @@ impl<'a> Url<'a> {
             Some(at) => (&rest[..at], Some(&rest[at + 1..])),
             None => (rest, None),
         };
-        let (scheme, rest) = match rest.find(|c| matches!(c, ':' | '/')) {
+        let (scheme, rest) = match rest.find([':', '/']) {
             Some(at) if at > 0 && rest.as_bytes()[at] == b':' => {
                 (Some(&rest[..at]), &rest[at + 1..])
             }

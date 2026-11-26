@@ -68,9 +68,11 @@
 //! the sidebar row face (`cmux_sidebar_face_*`, [`sidebar_face`]: typed
 //! requests and replies, no JSON), the column scroll reducer
 //! (`cmux_scroll_*`, [`scroll`]: a handle per scrolling strip, typed events
-//! per scroll event and frame), and the browser tab rules (`browser_tabs_*`,
+//! per scroll event and frame), the browser tab rules (`browser_tabs_*`,
 //! `cmux-window-rules`' `browser::tabs`: a new tab's engine, its route, the
-//! live tab a page reuses, the machine browser record).
+//! live tab a page reuses, the machine browser record) and the tab-side rules
+//! (`tab_rules_*`, `cmux-window-rules`' `tabs::agent_key`, `type_ahead`,
+//! `group_drop`, `page_closes`).
 
 use cmux_layout_reducer::{sidebar_drag, sidebar_drop, sidebar_edits, sidebar_layout};
 use std::ffi::{CString, c_char};
@@ -102,6 +104,7 @@ pub mod sidebar_face;
 pub mod sidebar_mirror;
 mod tab_discard;
 pub mod tab_drag;
+mod tab_rules;
 pub mod typed;
 pub mod window_close_selection;
 mod window_rules;
@@ -626,6 +629,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if browser_tabs::handles(operation) => {
                 browser_tabs::respond(operation, request)?
             }
+            operation if tab_rules::handles(operation) => tab_rules::respond(operation, request)?,
             _ => return Err(ERR_INVALID),
         };
         Ok(response)
