@@ -1,3 +1,4 @@
+import CmuxEgress
 public import CmuxNextDaemon
 public import Foundation
 import os
@@ -86,7 +87,7 @@ public nonisolated struct CloudPersonCreate {
         configuration.urlCache = nil
         configuration.httpShouldSetCookies = false
         configuration.timeoutIntervalForRequest = timeout
-        return URLSession(configuration: configuration, delegate: CloudRefuseRedirects(), delegateQueue: nil)
+        return CmuxEgress.session(site: "CmuxNextCloud.CloudPersonCreate", configuration: configuration, delegate: CloudRefuseRedirects(), delegateQueue: nil)
     }
 
     /// The session's POST for `url`: the person's bearer and, when given, the cmux team (`x-cmux-team`); it waits

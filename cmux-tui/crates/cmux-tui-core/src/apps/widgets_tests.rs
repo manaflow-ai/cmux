@@ -134,13 +134,15 @@ fn an_edit_the_widget_does_not_offer_is_refused_and_changes_nothing() {
     assert_eq!(layout, before);
 }
 
+/// A place takes more tiles than the old limit of 32, each its own instance.
 #[test]
-fn a_place_holds_at_most_its_limit() {
+fn a_place_takes_more_widgets_than_the_old_limit() {
     let mut layout = Layout::default();
-    for _ in 0..MAX_PER_PLACE {
+    for _ in 0..40 {
         add(&mut layout, Place::Newtab, "local/clock", None).unwrap();
     }
-    assert!(add(&mut layout, Place::Newtab, "local/clock", None).is_err());
+    assert_eq!(layout.place(Place::Newtab).len(), 40);
+    assert_eq!(layout.place(Place::Newtab)[39].instance, "w40");
 }
 
 #[test]

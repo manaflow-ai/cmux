@@ -350,8 +350,8 @@ test("focus in the card keeps it; Escape there or focus leaving rail and card cl
 test("the rail never outgrows a short transcript", async () => {
   const { railHeight, RAIL_HEIGHTS } = await import("../src/agent-session/acpmux/threadMinimap/model");
   // 60 prompts in an 820 px window over a 200 px transcript: the rail fits the transcript, less the
-  // mask's 18 px top band and 4 px past each end (the foot has no band since 2026-11-17).
-  expect(railHeight(60, 820, 200)).toBe(200 - 22 - 4);
+  // mask's 24 px top band and 4 px past each end (the foot has no band since 2026-11-17).
+  expect(railHeight(60, 820, 200)).toBe(200 - 28 - 4);
   // Not measured yet: the window caps it alone.
   expect(railHeight(60, 820, 0)).toBe(railHeight(60, 820));
   // The visible transcript band no longer controls the rail's initial height.
@@ -422,6 +422,37 @@ test("wheel browsing belongs to the rail and is not snapped back by transcript s
       await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(null)));
     });
     expect(list.scrollTop).toBe(240);
+  } finally {
+    await view.unmount();
+  }
+});
+
+test("wheel browsing fades both ends from the rail's position while the transcript stays put", async () => {
+  const count = 120;
+  const view = await mount(count);
+  try {
+    const rail = document.querySelector<HTMLElement>(".acpmux-minimap__rail")!;
+    const list = rail.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+    const pitch = Number.parseFloat(list.style.getPropertyValue("--acpmux-minimap-pitch"));
+    const end = count * pitch - Number.parseFloat(rail.style.height);
+    expect(end).toBeGreaterThan(0);
+    // Browse away from the latest message, then return to it. The highlighted prompts stay at the end.
+    view.scroller.scrollTop =
+      Number.parseFloat(document.querySelector<HTMLElement>(".acpmux-spacer")!.style.height) - VIEWPORT;
+    await view.scrolled();
+    const transcriptTop = view.scroller.scrollTop;
+    expect(list.scrollTop).toBe(end);
+    await act(async () => list.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: -120, bubbles: true })));
+    for (const [offset, top, bottom] of [
+      [end / 2, true, true],
+      [0, false, true],
+      [end, true, false],
+    ] as const) {
+      list.scrollTop = offset;
+      await act(async () => list.dispatchEvent(new dom.window.Event("scroll", { bubbles: true })));
+      expect([list.hasAttribute("data-fade-top"), list.hasAttribute("data-fade-bottom")]).toEqual([top, bottom]);
+      expect(view.scroller.scrollTop).toBe(transcriptTop);
+    }
   } finally {
     await view.unmount();
   }

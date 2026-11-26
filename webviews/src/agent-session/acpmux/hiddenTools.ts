@@ -38,19 +38,30 @@ export function isCompletedPlumbingTool(tool: any): boolean {
   return true;
 }
 
-/// Whether an ACP tool call or update is Muse Code's own todo tool, whose list the cmux-muse-acp
-/// adapter also sends as an ACP `plan` (`session/todoListChanged`, its src/acp.rs `send_plan`), so
-/// the checklist stands for the call. Only the adapter's top-level `name` counts, which carries
+/// Whether an ACP tool call is Muse Code's own todo tool (`write_todos`). cmux keeps no to-do list,
+/// so the call draws nothing. Only the cmux-muse-acp adapter's top-level `name` counts, which carries
 /// Muse's tool name verbatim (its src/fold.rs `tool_line`); a title alone could be any tool's.
 export function isMuseTodoCall(update: any): boolean {
   return update?.name === "write_todos";
 }
 
-/// Whether an ACP tool call or result is a harness's own todo tool that acpmux turned into the
-/// turn's `plan` (`_meta.acpmux.planTool`, its acp_todo_plan.rs): DeepSeek Harness's `todo_write`,
-/// whose adapter sends the call but not the list. The checklist stands for it, as for Muse's.
-export function isPlanToolCall(update: any): boolean {
-  return update?._meta?.acpmux?.planTool === true;
+/// Claude Code's to-do tools, by the name acpmux gives the call (`_meta.claude.tool`). Its `Task`
+/// (a subagent), `TaskOutput` and `TaskStop` are not to-do tools.
+const CLAUDE_TODO_TOOLS: ReadonlySet<string> = new Set([
+  "TodoWrite",
+  "TodoRead",
+  "TaskCreate",
+  "TaskUpdate",
+  "TaskList",
+  "TaskGet",
+]);
+
+/// Whether an ACP tool call is a harness's own to-do tool: Claude Code's TodoWrite (`tool`, its
+/// `_meta.claude.tool`), or one acpmux marked (`_meta.acpmux.planTool`, DeepSeek Harness's
+/// `todo_write`). cmux keeps no to-do list, so the call draws nothing, in a new chat and in an old one.
+export function isTodoToolCall(update: any, tool: unknown): boolean {
+  if (update?._meta?.acpmux?.planTool === true) return true;
+  return typeof update?._meta?.claude?.tool === "string" && typeof tool === "string" && CLAUDE_TODO_TOOLS.has(tool);
 }
 
 /// Whether an ACP tool call or update is the Codex app server's `sleep` item ("Wait 45000 ms"): the

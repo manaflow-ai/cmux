@@ -132,6 +132,40 @@ class Payload(unittest.TestCase):
             channel.main(["x", "payload", "--manifest", "m", "--binaries-dir", "b", "--commit", COMMIT,
                           "--committed-at", "1", "--download-dir", "d", "--out", "o"])
 
+    def test_the_x86_64_point_signs_x86_64_alone_and_the_full_point_completes_it(self):
+        # LINUX_X86_64_FIRST: point-machine-channel-early signs the x86_64 leg's file before the aarch64
+        # leg is done; only x86_64 artifacts are downloaded.
+        (self.built / "cmux-tui-aarch64-unknown-linux-musl").unlink()
+        (self.built / "cmux-tui-hook-aarch64-unknown-linux-musl").unlink()
+        early = self.run_payload(["--binaries-dir", str(self.built), "--machine-path",
+                                  "--target", "x86_64-unknown-linux-musl"])
+        self.assertEqual(list(early["targets"]), ["x86_64-unknown-linux-musl"])
+        for name in ("cmux-tui-aarch64-unknown-linux-musl", "cmux-tui-hook-aarch64-unknown-linux-musl"):
+            data = f"{name} bytes".encode()
+            (self.built / name).write_bytes(data)
+        full = self.run_payload(["--binaries-dir", str(self.built), "--machine-path"])
+        late = self.run_payload(["--binaries-dir", str(self.built)])  # point-machine-channel: the fat path
+        for current in (early,):
+            current = {**current, "purpose": channel.PURPOSE}
+            for new in (full, late):
+                self.assertTrue(pointer.completes({**new, "purpose": channel.PURPOSE}, current))
+        purpose = {"purpose": channel.PURPOSE}
+        # Never backwards (fewer targets), never the same set, never another commit or other bytes.
+        self.assertFalse(pointer.completes({**early, **purpose}, {**full, **purpose}))
+        self.assertFalse(pointer.completes({**full, **purpose}, {**full, **purpose}))
+        self.assertFalse(pointer.completes({**full, **purpose, "commit": "b" * 40}, {**early, **purpose}))
+        other = json.loads(json.dumps(full))
+        other["targets"]["x86_64-unknown-linux-musl"]["cmux-tui"]["sha256"] = "0" * 64
+        self.assertFalse(pointer.completes({**other, **purpose}, {**early, **purpose}))
+        # Only the Cloud machine channel's files.
+        self.assertFalse(pointer.completes({**full, "purpose": "cmux-linux-release"}, {**early, **purpose}))
+
+    def test_the_target_flag_is_cloud_machine_only(self):
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()) as err:
+            self.run_payload(["--binaries-dir", str(self.built), "--purpose", "linux-release", "--channel",
+                              "feat-cmux-next", "--target", "x86_64-unknown-linux-musl"])
+        self.assertIn("--target is for the cloud-machine payload", err.getvalue())
+
 
 sys.path.insert(0, str(ROOT / "tests"))
 import test_cmux_tui_republish_same_commit as republish  # noqa: E402

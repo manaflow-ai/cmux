@@ -3,8 +3,9 @@
 //! daemon shaped like a personal Cloud VM, each with its own acpmux running the test agent).
 //!
 //! Each case moves a chat with a finished turn, a turn running, a prompt queued behind it, a
-//! composer draft, an uncommitted edit, an untracked file, an unpushed commit and a file the
-//! running turn wrote after the folder's seed, with the app's own pump (`cmux link agent move
+//! composer draft, an uncommitted edit, an untracked file, an unpushed commit and a file written
+//! into the folder while the turn runs, after the folder's seed (the test writes it: the test agent
+//! has no turn that writes files), with the app's own pump (`cmux link agent move
 //! --interrupt --sync seed`). Both daemon sockets the pump uses go through a [`Tap`], which
 //! injects the case's fault when the pump reaches its step:
 //!
@@ -33,19 +34,27 @@
 //! more as the app's Retry does (same pump state folder). Then the case reads both machines and
 //! names what was lost: the chat open in two places or none, a chat left frozen on the source, a
 //! queued prompt not run or run twice, history or draft missing, the source journal's records
-//! missing where the chat runs, and where the uncommitted edit, the untracked file, the turn's
-//! late file and the unpushed commit can be found (where the chat runs, the Mac's folder, or
+//! missing where the chat runs, and where the uncommitted edit, the untracked file, the mid-turn
+//! file and the unpushed commit can be found (where the chat runs, the Mac's folder, or
 //! nowhere). It prints its seed and fault trace.
+//!
+//! A chat still frozen on the Mac once the settle ends gets one more settle, past the source's
+//! lease (the pump's `retry_after_seconds`, else 300 s: no env var or config shortens a daemon's
+//! lease), and the table says "frozen for N s, then recovered" or "stranded for good". A pump
+//! answer that is not so (the chat moved, the person is told it did not, or the other way round)
+//! is a wrong answer, in its own column: not a loss of data, still a finding. The matrix fails on
+//! a finding [`KNOWN`] does not list with its case and why, so it passes on base and fails on a
+//! new loss or a regression.
 //!
 //! ```text
 //! # the whole matrix (8 steps x 7 kills), a table on stderr:
-//! cargo test -p cmux-tui --test move_kill_drill -- --ignored --nocapture --test-threads 1 move_kill_drill_matrix
+//! cargo test -p cmux-tui --test it -- --ignored --nocapture --test-threads 1 move_kill_drill_matrix
 //! # some cells:  MOVE_KILL_CASES=after-finish:off-dst,before-begin:cut
 //! # N random seeded cases (CMUX_FAULT_SEED, else the clock):  MOVE_KILL_RANDOM=20
 //! ```
 #![cfg(target_os = "linux")]
 
-mod journey_support;
+use crate::journey_support;
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -66,7 +75,8 @@ const QUEUED: &str = "queued for the cloud";
 const QUEUED_ID: &str = "p-drill-queued";
 const DRAFT: &str = "an unsent thought";
 const UNCOMMITTED: &str = "committed\nuncommitted change\n";
-const TURN_FILE: &str = "written by the running turn\n";
+/// Written into the Mac's folder by the test while the turn runs, after the seed push.
+const MID_TURN_FILE: &str = "written while the turn ran\n";
 
 const STEPS: &[&str] = &[
     "before-begin",
@@ -86,6 +96,13 @@ const KILLS: &[&str] =
 const PUMP_BOUND: Duration = Duration::from_secs(150);
 /// How long the chat has, once the Retry ended, to settle (its queue run where it landed).
 const SETTLE: Duration = Duration::from_secs(45);
+/// The source's own lease on a move nobody reads (`acpmux` `hub/transfer_watch.rs`
+/// TRANSFER_LEASE), when the pump's answer names no `retry_after_seconds`. Only an in-process
+/// hub can shorten it (`Hub::set_transfer_lease`); no env var or config reaches a daemon, so a
+/// stranded case waits the real lease.
+const SOURCE_LEASE: Duration = Duration::from_secs(300);
+/// Past the lease, how long a stranded chat has to come back and run its queue.
+const PAST_LEASE: Duration = Duration::from_secs(60);
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Side {
@@ -130,6 +147,8 @@ fn trigger(step: &str) -> Trigger {
 struct Shared {
     trigger: Trigger,
     fired: AtomicBool,
+    /// When the fault fired: the start of a stranded chat's freeze.
+    fired_at: Mutex<Option<Instant>>,
     begin_answered: AtomicBool,
     counts: Mutex<std::collections::HashMap<(u8, String), usize>>,
     fault: Box<dyn Fn() + Send + Sync>,
@@ -139,6 +158,7 @@ struct Shared {
 impl Shared {
     fn fire(&self, why: &str) {
         if !self.fired.swap(true, Ordering::SeqCst) {
+            *self.fired_at.lock().unwrap() = Some(Instant::now());
             self.trace.note(format!("fault fires: {why}"));
             (self.fault)();
         }
@@ -169,8 +189,6 @@ impl Shared {
 /// every connection through it is dropped and new ones are refused.
 struct Tap {
     path: PathBuf,
-    cut: Arc<AtomicBool>,
-    open: Arc<Mutex<Vec<UnixStream>>>,
 }
 
 fn request_cmd(line: &[u8]) -> Option<String> {
@@ -179,13 +197,38 @@ fn request_cmd(line: &[u8]) -> Option<String> {
     value.get("cmd").and_then(Value::as_str).map(str::to_owned)
 }
 
+/// A tap's cut switch and its open connections; the cut and a new connection's registration
+/// take the same lock, so no connection slips in beside a cut.
+#[derive(Clone, Default)]
+struct Link {
+    cut: Arc<AtomicBool>,
+    open: Arc<Mutex<Vec<UnixStream>>>,
+}
+
+impl Link {
+    /// Cuts (drops every open connection; new ones are refused) or restores the link, at once.
+    fn set_cut(&self, cut: bool) {
+        let mut open = self.open.lock().unwrap();
+        self.cut.store(cut, Ordering::SeqCst);
+        if cut {
+            for stream in open.drain(..) {
+                let _ = stream.shutdown(std::net::Shutdown::Both);
+            }
+        }
+    }
+}
+
 impl Tap {
-    fn start(path: PathBuf, upstream: PathBuf, side: Side, shared: Arc<Shared>) -> Self {
+    fn start(
+        path: PathBuf,
+        upstream: PathBuf,
+        side: Side,
+        shared: Arc<Shared>,
+        link: Link,
+    ) -> Self {
         let _ = fs::remove_file(&path);
         let listener = UnixListener::bind(&path).unwrap();
-        let cut = Arc::new(AtomicBool::new(false));
-        let open: Arc<Mutex<Vec<UnixStream>>> = Arc::default();
-        let (cut2, open2) = (cut.clone(), open.clone());
+        let Link { cut: cut2, open: open2 } = link;
         std::thread::spawn(move || {
             for client in listener.incoming() {
                 let Ok(client) = client else { continue };
@@ -199,6 +242,11 @@ impl Tap {
                 };
                 {
                     let mut open = open2.lock().unwrap();
+                    if cut2.load(Ordering::SeqCst) {
+                        let _ = client.shutdown(std::net::Shutdown::Both);
+                        let _ = server.shutdown(std::net::Shutdown::Both);
+                        continue;
+                    }
                     open.push(client.try_clone().unwrap());
                     open.push(server.try_clone().unwrap());
                 }
@@ -222,6 +270,8 @@ impl Tap {
                             if cmd.as_deref() == Some("agent-transfer-begin") {
                                 saw_begin.store(true, Ordering::SeqCst);
                             }
+                            // A `Before` fault runs here, before the line goes on: a cut fault
+                            // cuts in this call, so the request below is not forwarded.
                             match shared.request(side, cmd.as_deref()) {
                                 Some(When::Before) => shared.fire(&format!(
                                     "before {side:?} {}",
@@ -257,6 +307,8 @@ impl Tap {
                                 if saw_begin.swap(false, Ordering::SeqCst) {
                                     shared.begin_answered.store(true, Ordering::SeqCst);
                                 }
+                                // An `After` fault runs before the answer goes back: a cut
+                                // fault cuts in this call, so the client never reads it.
                                 if pending.swap(false, Ordering::SeqCst) {
                                     shared.fire(&format!("after {side:?} answer"));
                                 }
@@ -270,16 +322,7 @@ impl Tap {
                 }
             }
         });
-        Self { path, cut, open }
-    }
-
-    fn set_cut(&self, cut: bool) {
-        self.cut.store(cut, Ordering::SeqCst);
-        if cut {
-            for stream in self.open.lock().unwrap().drain(..) {
-                let _ = stream.shutdown(std::net::Shutdown::Both);
-            }
-        }
+        Self { path }
     }
 }
 
@@ -456,11 +499,52 @@ fn finish_pump(mut child: Child, started: Instant) -> PumpRun {
 #[derive(Default)]
 struct Outcome {
     lost: Vec<String>,
+    /// What the pump's last answer told the person that is not so (the move went through but it
+    /// says it did not, or the other way round): a finding, not a loss of data.
+    wrong: Vec<String>,
+    /// A chat still frozen on the Mac after [`SETTLE`]: whether it came back past the lease.
+    frozen: String,
     found: Vec<String>,
     person: String,
 }
 
-/// Where the chat runs: `Some(open)` per machine, where open means listed and not closed.
+/// Where the chat stands: open on the Mac, open on the Cloud machine, frozen in a move on the
+/// Mac, and how many times its queued prompt ran (in the journal where it is open).
+struct Stand {
+    on_mac: bool,
+    on_vm: bool,
+    frozen: bool,
+    ran: usize,
+}
+
+fn stand(mac: &mut Acpmux, vm: &mut Acpmux, session: &str) -> Stand {
+    let on_mac = open_on(mac, session);
+    let on_vm = open_on(vm, session);
+    let mac_events = mac.events(session);
+    let frozen = last_move_record(&mac_events).as_deref() == Some("transfer_out");
+    // Where the chat is open, its journal holds every record: a landed chat's carries the
+    // Mac's, so the two sides are never added.
+    let ran = if on_vm {
+        turn_results(&vm.events(session), QUEUED_ID)
+    } else {
+        turn_results(&mac_events, QUEUED_ID)
+    };
+    Stand { on_mac, on_vm, frozen, ran }
+}
+
+impl Stand {
+    /// Open on one machine, not frozen there, its queue run.
+    fn settled(&self) -> bool {
+        self.on_mac ^ self.on_vm && !(self.on_mac && self.frozen) && self.ran >= 1
+    }
+
+    /// Open only on the Mac and frozen there in a move.
+    fn stranded(&self) -> bool {
+        self.on_mac && !self.on_vm && self.frozen
+    }
+}
+
+/// Whether the chat is open on the machine this acpmux connection reaches: listed, and not closed.
 fn open_on(acpmux: &mut Acpmux, session: &str) -> bool {
     acpmux.summary(session).is_some_and(|s| s["status"] != json!("closed"))
 }
@@ -537,7 +621,7 @@ fn run_case(step: &str, kill: &str, seed: u64) -> (Outcome, Trace) {
     let mut mac_acpmux = mac.acpmux();
     let session = chat_with_history_draft_and_queue(&mut mac_acpmux, &repo);
     let surface = bound_agent_tab(&mac, &session);
-    fs::write(repo.join("src/turn.txt"), TURN_FILE).unwrap();
+    fs::write(repo.join("src/turn.txt"), MID_TURN_FILE).unwrap();
     let before: BTreeSet<(u64, String)> = mac_acpmux
         .events(&session)
         .iter()
@@ -552,13 +636,15 @@ fn run_case(step: &str, kill: &str, seed: u64) -> (Outcome, Trace) {
     let pump_pid = Arc::new(AtomicI32::new(0));
     let pause_secs = rng.range(3, 60);
     let paused: Arc<Mutex<Option<std::thread::JoinHandle<()>>>> = Arc::default();
-    let cut_now = Arc::new(AtomicBool::new(false));
+    // The link to the Cloud machine: the cut fault drops it from the tap thread that fires,
+    // before that thread forwards the triggering request or answer.
+    let dst_link = Link::default();
     let killed = Arc::new(AtomicUsize::new(0)); // bit 1: src, bit 2: dst
     let fault: Box<dyn Fn() + Send + Sync> = {
         let (mac_home, vm_home) = (mac.home(), vm.home());
         let pump_pid = pump_pid.clone();
         let paused = paused.clone();
-        let cut_now = cut_now.clone();
+        let dst_link = dst_link.clone();
         let killed = killed.clone();
         let trace = trace.clone();
         let kill = kill.to_owned();
@@ -588,7 +674,7 @@ fn run_case(step: &str, kill: &str, seed: u64) -> (Outcome, Trace) {
                 }
                 "cut" => {
                     trace.note("cut the link to the Cloud machine");
-                    cut_now.store(true, Ordering::SeqCst);
+                    dst_link.set_cut(true);
                 }
                 "pause-src" | "pause-dst" => {
                     let side = if kill == "pause-src" { Side::Src } else { Side::Dst };
@@ -611,32 +697,26 @@ fn run_case(step: &str, kill: &str, seed: u64) -> (Outcome, Trace) {
     let shared = Arc::new(Shared {
         trigger: trigger(step),
         fired: AtomicBool::new(false),
+        fired_at: Mutex::default(),
         begin_answered: AtomicBool::new(false),
         counts: Mutex::default(),
         fault,
         trace: trace.clone(),
     });
-    let src_tap =
-        Tap::start(root.join("t-src.sock"), mac.socket.clone(), Side::Src, shared.clone());
-    let dst_tap = Tap::start(root.join("t-dst.sock"), vm.socket.clone(), Side::Dst, shared.clone());
-    // The cut drops the target's link the moment the fault fires, from a watcher of the flag.
-    let cut_watch = {
-        let (cut_now, open, flag) = (cut_now.clone(), dst_tap.open.clone(), dst_tap.cut.clone());
-        let done = Arc::new(AtomicBool::new(false));
-        let done2 = done.clone();
-        let handle = std::thread::spawn(move || {
-            while !done2.load(Ordering::SeqCst) {
-                if cut_now.load(Ordering::SeqCst) && !flag.load(Ordering::SeqCst) {
-                    flag.store(true, Ordering::SeqCst);
-                    for stream in open.lock().unwrap().drain(..) {
-                        let _ = stream.shutdown(std::net::Shutdown::Both);
-                    }
-                }
-                std::thread::sleep(Duration::from_millis(5));
-            }
-        });
-        (done, handle)
-    };
+    let src_tap = Tap::start(
+        root.join("t-src.sock"),
+        mac.socket.clone(),
+        Side::Src,
+        shared.clone(),
+        Link::default(),
+    );
+    let dst_tap = Tap::start(
+        root.join("t-dst.sock"),
+        vm.socket.clone(),
+        Side::Dst,
+        shared.clone(),
+        dst_link.clone(),
+    );
 
     let state = root.join("pump");
     let started = Instant::now();
@@ -653,9 +733,7 @@ fn run_case(step: &str, kill: &str, seed: u64) -> (Outcome, Trace) {
     if let Some(handle) = paused.lock().unwrap().take() {
         let _ = handle.join();
     }
-    cut_watch.0.store(true, Ordering::SeqCst);
-    let _ = cut_watch.1.join();
-    dst_tap.set_cut(false);
+    dst_link.set_cut(false);
     let k = killed.load(Ordering::SeqCst);
     if k & 1 != 0 {
         revive(&mac);
@@ -684,26 +762,43 @@ fn run_case(step: &str, kill: &str, seed: u64) -> (Outcome, Trace) {
     // Settle: the chat's queue runs wherever it is open.
     let mut mac_acpmux = mac.acpmux();
     let mut vm_acpmux = vm.acpmux();
-    let deadline = Instant::now() + SETTLE;
-    loop {
-        let on_mac = open_on(&mut mac_acpmux, &session);
-        let on_vm = open_on(&mut vm_acpmux, &session);
-        // Where the chat is open, its journal holds every record: a landed chat's carries the
-        // Mac's, so the two sides are never added.
-        let ran = if on_vm {
-            turn_results(&vm_acpmux.events(&session), QUEUED_ID)
-        } else {
-            turn_results(&mac_acpmux.events(&session), QUEUED_ID)
-        };
-        if (on_mac ^ on_vm && ran >= 1) || Instant::now() > deadline {
-            break;
-        }
+    let pumped = Instant::now();
+    let deadline = pumped + SETTLE;
+    let mut now = stand(&mut mac_acpmux, &mut vm_acpmux, &session);
+    while !now.settled() && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(200));
+        now = stand(&mut mac_acpmux, &mut vm_acpmux, &session);
+    }
+    // Still frozen on the Mac: one more settle, past the source's lease (the pump's
+    // `retry_after_seconds`, else its default), so the table says whether the freeze ends.
+    let mut frozen_note = String::new();
+    if now.stranded() {
+        let last = retry.as_ref().unwrap_or(&first);
+        let lease = last.answer["retry_after_seconds"]
+            .as_u64()
+            .map(Duration::from_secs)
+            .unwrap_or(SOURCE_LEASE);
+        // The lease counts from the pump's last word to the source, at latest its end.
+        let until = pumped + lease + PAST_LEASE;
+        let secs = lease.as_secs();
+        trace.note(format!("stranded after the settle: waiting past the {secs} s lease"));
+        while !now.settled() && Instant::now() < until {
+            std::thread::sleep(Duration::from_secs(1));
+            now = stand(&mut mac_acpmux, &mut vm_acpmux, &session);
+        }
+        let since = shared.fired_at.lock().unwrap().unwrap_or(started);
+        let secs = since.elapsed().as_secs();
+        frozen_note = if now.frozen {
+            format!("stranded for good (still frozen {secs} s after the fault)")
+        } else {
+            format!("frozen for {secs} s, then recovered")
+        };
+        trace.note(frozen_note.clone());
     }
     // A second look later: nothing runs it again.
     std::thread::sleep(Duration::from_secs(2));
 
-    let mut out = Outcome::default();
+    let mut out = Outcome { frozen: frozen_note, ..Outcome::default() };
     let on_mac = open_on(&mut mac_acpmux, &session);
     let on_vm = open_on(&mut vm_acpmux, &session);
     let mac_events = mac_acpmux.events(&session);
@@ -755,7 +850,7 @@ fn run_case(step: &str, kill: &str, seed: u64) -> (Outcome, Trace) {
     for (what, rel, want) in [
         ("uncommitted edit", "src/lib.txt", UNCOMMITTED),
         ("untracked file", "notes.txt", "untracked\n"),
-        ("turn's late file", "src/turn.txt", TURN_FILE),
+        ("mid-turn file", "src/turn.txt", MID_TURN_FILE),
     ] {
         let at = if read_or_none(&live_dir.join(rel)).as_deref() == Some(want) {
             format!("with the chat ({live_name})")
@@ -789,6 +884,21 @@ fn run_case(step: &str, kill: &str, seed: u64) -> (Outcome, Trace) {
         None => format!("move: {}", said(&first)),
         Some(r) => format!("move: {}; Retry: {}", said(&first), said(r)),
     };
+    // What the person was told last against where the chat is.
+    let last = retry.as_ref().unwrap_or(&first);
+    let told_moved = last.answer["ok"] == json!(true);
+    let moved = on_vm && !on_mac;
+    if moved && !told_moved {
+        out.wrong.push(format!(
+            "told {} but the chat moved",
+            last.answer["error_code"].as_str().unwrap_or("a failure")
+        ));
+    } else if told_moved && !moved {
+        out.wrong.push(format!(
+            "told moved but the chat is {}",
+            if on_mac { "on the Mac" } else { "open nowhere or on both" }
+        ));
+    }
     if !shared.fired.load(Ordering::SeqCst) {
         out.found.push("fault never fired (step not reached)".into());
     }
@@ -826,53 +936,117 @@ fn cases() -> Vec<(String, String, u64)> {
     out
 }
 
+/// What a case can find beyond its table row: a loss of the person's work or chat, or a wrong
+/// answer to the person.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Finding {
+    Loss,
+    WrongAnswer,
+}
+
+/// The findings base is known to have, each with its case and why. The matrix passes with these
+/// and fails on any other: a new loss, a new wrong answer, or a case that was clean losing
+/// something. A known case that comes out clean is printed so its entry can go.
+const KNOWN: &[(&str, Finding, &str)] = &[
+    (
+        "after-begin:off-src",
+        Finding::Loss,
+        "the Mac powers off right after the freeze: the Retry is refused as move_unresolved by the \
+         move the dead pump began, and the chat stays frozen on the Mac until the source's lease",
+    ),
+    (
+        "after-commit:off-src",
+        Finding::WrongAnswer,
+        "the Mac powers off after its commit, before the pump reads it: the chat is on the Cloud \
+         machine, but the Retry's pump has no record of the commit and answers move_unresolved",
+    ),
+];
+
+/// A table cell: the items joined, or `none`.
+fn cell(items: &[String], none: &str) -> String {
+    if items.is_empty() { none.to_owned() } else { items.join("; ") }
+}
+
+fn known(case: &str, finding: Finding) -> Option<&'static str> {
+    KNOWN.iter().find(|(c, f, _)| *c == case && *f == finding).map(|(_, _, why)| *why)
+}
+
 /// The whole matrix (or `MOVE_KILL_CASES`, or `MOVE_KILL_RANDOM` seeded cases): a table row per
-/// case on stderr, and a failure naming every case that lost something.
+/// case on stderr, and a failure naming every case with a finding [`KNOWN`] does not list.
 #[test]
 #[ignore = "a drill: minutes per sweep; run with --ignored (the module doc)"]
 fn move_kill_drill_matrix() {
     let mut rows = Vec::new();
     let mut failed = Vec::new();
+    let mut known_seen = Vec::new();
     for (step, kill, seed) in cases() {
+        let case = format!("{step}:{kill}");
         // Machine processes left by a case that panicked are stopped by its Drop; one case's
         // panic is a finding, not the sweep's end.
         let result = std::panic::catch_unwind(|| run_case(&step, &kill, seed));
-        let (lost, found, person, trace) = match result {
-            Ok((out, trace)) => (out.lost, out.found, out.person, trace.to_string()),
+        let (out, trace) = match result {
+            Ok((out, trace)) => (out, trace.to_string()),
             Err(panic) => {
                 let why = panic
                     .downcast_ref::<String>()
                     .cloned()
                     .or_else(|| panic.downcast_ref::<&str>().map(|s| s.to_string()))
                     .unwrap_or_default();
-                (vec![format!("drill error: {why}")], Vec::new(), String::new(), String::new())
+                (
+                    Outcome { lost: vec![format!("drill error: {why}")], ..Outcome::default() },
+                    String::new(),
+                )
             }
         };
-        let verdict = if lost.is_empty() { "nothing lost".to_owned() } else { lost.join("; ") };
         let row = format!(
-            "| local->cloud | {step} | {kill} | {seed} | {verdict} | {} | {person} |",
-            found.join("; ")
+            "| local->cloud | {step} | {kill} | {seed} | {} | {} | {} | {} | {} |",
+            cell(&out.lost, "nothing lost"),
+            if out.frozen.is_empty() { "-" } else { out.frozen.as_str() },
+            cell(&out.wrong, "-"),
+            out.found.join("; "),
+            out.person,
         );
         eprintln!("{row}");
-        if !lost.is_empty() {
+        let mut new = Vec::new();
+        for (finding, what) in [(Finding::Loss, &out.lost), (Finding::WrongAnswer, &out.wrong)] {
+            if what.is_empty() {
+                if known(&case, finding).is_some() {
+                    eprintln!("  known {finding:?} of {case} did not happen: drop it from KNOWN");
+                }
+                continue;
+            }
+            match known(&case, finding) {
+                Some(why) => known_seen.push(format!("{case} ({finding:?}): {why}")),
+                None => new.push(format!("{finding:?}")),
+            }
+        }
+        if !out.lost.is_empty() || !out.wrong.is_empty() {
             eprintln!("  seed {seed}, fault trace:\n{trace}");
             eprintln!(
-                "  replay: CMUX_FAULT_SEED={seed} MOVE_KILL_CASES={step}:{kill} cargo test -p cmux-tui --test move_kill_drill -- --ignored --nocapture"
+                "  replay: CMUX_FAULT_SEED={seed} MOVE_KILL_CASES={case} cargo test -p cmux-tui --test it -- move_kill_drill:: --ignored --nocapture"
             );
-            failed.push(format!("{step}:{kill} (seed {seed})"));
+        }
+        if !new.is_empty() {
+            failed.push(format!("{case} (seed {seed}): {}", new.join(", ")));
         }
         rows.push(row);
     }
     eprintln!(
-        "\n| direction | step | kill | seed | lost | where the work is | what the person sees |"
+        "\n| direction | step | kill | seed | lost | frozen past the settle | wrong answer to the person | where the work is | what the person sees |"
     );
-    eprintln!("|---|---|---|---|---|---|---|");
+    eprintln!("|---|---|---|---|---|---|---|---|---|");
     for row in &rows {
         eprintln!("{row}");
     }
+    if !known_seen.is_empty() {
+        eprintln!("\nknown on base (KNOWN):");
+        for k in &known_seen {
+            eprintln!("  {k}");
+        }
+    }
     assert!(
         failed.is_empty(),
-        "{} of {} cases lost something: {}",
+        "{} of {} cases have a finding KNOWN does not list: {}",
         failed.len(),
         rows.len(),
         failed.join(", ")

@@ -18,6 +18,8 @@ ITEMS = {
     "acpmux-login-env": ["/root/.acpmux/login-env.json", "/home/cmux/.acpmux/login-env.json"],
     # A clone gets its own kind at its bind or team enroll (cmux-host VM_KIND_FILE).
     "vm-kind": ["/etc/cmux/vm-kind"],
+    # The first agent on a VM disk writes this marker (cmux-host MACHINE_MARKER); an image carries none, so a fresh VM reads reused=false.
+    "machine-marker": ["/var/lib/cmux/host/first-agent-start"],
 }
 KEEP = {"/home/cmux/.cache/zig", "/home/cmux/.npm/_cacache", "/var/lib/apt/lists/partial", "/var/lib/apt/lists/lock", "/var/cache/apt/archives/partial", "/var/cache/apt/archives/lock"}
 
