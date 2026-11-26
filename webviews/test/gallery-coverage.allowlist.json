@@ -47,7 +47,6 @@
     "agent-session/acpmux/composer/attachmentIntake.tsx#AttachmentChip",
     "agent-session/acpmux/composer/attachmentIntake.tsx#BrokenImageChip",
     "agent-session/acpmux/composer/attachmentIntake.tsx#InstantPreview",
-    "agent-session/acpmux/composer/attachmentIntake.tsx#RetryButton",
     "agent-session/acpmux/composer/attachmentIntake.tsx#UploadProgress",
     "agent-session/acpmux/computerUse/cursorArt.tsx#AgentCursorArt",
     "agent-session/acpmux/computerUse/cursorArt.tsx#PersonPointerArt",
