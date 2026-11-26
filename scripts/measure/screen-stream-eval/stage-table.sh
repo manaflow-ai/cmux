@@ -70,10 +70,19 @@ if [[ "$role" == host ]]; then
   echo "SCREEN-STREAM-EVAL-STAGE stage-table host serving $addr:$port"
   mkdir -p "${host_app_file%/*}" && chmod 700 "${host_app_file%/*}"
   rm -f "$host_app_file"
+  # The rig (screen-share-vs.py rig: capture, marker, input) as a direct child, so it holds the launcher's Screen
+  # Recording and Accessibility; the viewer's `run` pings ROOT/state/rig.sock first and ends every leg with "the rig
+  # is not running on the shared Mac" without it (--rig-launch cmux-next needs an installed cmux NEXT, a fleet Mac
+  # has none). It is up before the peer server answers, so the viewer's first ping finds it.
+  python3 -I "$vs" rig --root "$rig_root" >"$out/rig.log" 2>&1 &
+  rig_pid=$!
+  for _ in $(seq 1 50); do [[ -S "$rig_root/state/rig.sock" ]] && break; sleep 0.2; done
+  [[ -S "$rig_root/state/rig.sock" ]] && echo "SCREEN-STREAM-EVAL-STAGE stage-table host: rig up (pid $rig_pid)" \
+    || echo "SCREEN-STREAM-EVAL-STAGE stage-table host: the rig did not start: $(tail -n 3 "$out/rig.log" | tr '\n' ' ' | cut -c1-300)"
   python3 -I "$vs" peer-serve --bind "$addr" --port "$port" --token-file "$token_file" --hold-s 7200 &
   serve=$!
   app_pid="" store=""
-  trap '[[ -n "$app_pid" ]] && kill "$app_pid" 2>/dev/null; [[ -n "$store" ]] && rm -f "$store"; rm -f "$host_app_file"' EXIT
+  trap '[[ -n "$app_pid" ]] && kill "$app_pid" 2>/dev/null; kill "$rig_pid" 2>/dev/null; [[ -n "$store" ]] && rm -f "$store"; rm -f "$host_app_file"' EXIT
   # The sharing app, while the viewer builds its own: a one-word answer in the file either way ("none" = no app).
   host_app="none" why=""
   creds=$(auth_file) || creds=""
