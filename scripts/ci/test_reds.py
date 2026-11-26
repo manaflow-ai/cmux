@@ -1338,6 +1338,40 @@ def runner_shut_down(log: str) -> str | None:
     return None
 
 
+# A job that died inside actions/checkout, before any step of the change ran: cmux#51655 at fd3c0b17 (2026-11-25),
+# 'cmux-tui spec inventory / changes' (job 139448781664) failed in `Run actions/checkout@...` on "fatal: unable to
+# access 'https://github.com/manaflow-ai/cmux/': Operation too slow" and "could not fetch ... from promisor remote",
+# then "The process '/usr/local/bin/git' failed with exit code 128", and land-judge stopped the land own_red on it as
+# "'changes' is not red on feat-cmux-next". The same reading as leo-workspace tools/ws-check failed_in_checkout
+# (leo-workspace#11281): the step is the last "##[group]Run ..." line before the log's first ##[error], in the raw log
+# and in `gh run view --log` alike. A step the job ran after that error (a checkout with continue-on-error, then the
+# change's own steps) keeps its verdict. Whether the change itself can break the checkout (a submodule pin it moves)
+# is the caller's to read: this reads the log only. The runner's own job-completed hook (`Run '/opt/cmux-job-clean.sh'`
+# on the fleet, after "A job completed hook has been configured ...") is no step of the job: the read ends there.
+CHECKOUT_RUN = "##[group]Run "
+CHECKOUT_ACTION = "actions/checkout@"
+JOB_COMPLETED_HOOK = "A job completed hook has been configured"
+
+
+def died_in_checkout(log):
+    """The first ##[error] line of LOG when it falls inside an actions/checkout step and no other step ran after it,
+    else None."""
+    step = None
+    first = None
+    for line in (log or "").splitlines():
+        if JOB_COMPLETED_HOOK in line:
+            break
+        if CHECKOUT_RUN in line:
+            step = line.split(CHECKOUT_RUN, 1)[1].strip()
+            if first is not None and not step.startswith(CHECKOUT_ACTION):
+                return None  # a step of the job's own ran after the checkout's error
+        elif first is None and "##[error]" in line:
+            if not (step and step.startswith(CHECKOUT_ACTION)):
+                return None
+            first = line.split("##[error]", 1)[1].strip()
+    return first
+
+
 def lost_runner(job, annotations=(), log=None):
     """Why failed JOB (an Actions job or check run) is infra and no verdict, or None. ANNOTATIONS are its check run's
     annotations (dicts with "message" and "annotation_level", or plain messages); LOG, when the caller read it, is

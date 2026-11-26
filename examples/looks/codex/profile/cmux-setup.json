@@ -49,6 +49,9 @@
     "sidebar.cards.tips": false,
     "appearance.statusIndicator.style": "arc",
     "sidebar.controlsOnHover": true,
+    // Account switching (parity table, account_switching): the reference app has one Personal row at the foot.
+    // cmux drew that row mid-sidebar and a second avatar button at the foot, so the avatar goes.
+    "sidebar.showProfileControl": false,
     "sidebar.groupHeader.memberCount": false,
     "sidebar.groupHeader.unreadCount": false,
     "sidebar.workspaceRow.icon": false,
