@@ -1796,6 +1796,36 @@ class WebBrowserStepsTest(unittest.TestCase):
         self.assertEqual(has("agent_pane", []), 0)
         self.assertNotEqual(has("no_such", ["web/a.ts"]), 0)
 
+    def test_the_real_daemon_lane_routes_on_acpmux_build_inputs_only(self) -> None:
+        """agent-pane-real-acpmux builds acpmux: a crate outside its build skips it, and chat-flow-shift-budget (the
+        stand-in daemon, no Rust build) skips every cmux-tui/ change."""
+        import web_subareas
+
+        built = web_subareas.acpmux_build_crates(str(ROOT))
+        self.assertIsNotNone(built)
+        self.assertLessEqual({"acpmux", "acpmux-core", "cmux-browser-host"}, built)
+        crates = sorted(p.name for p in (ROOT / "cmux-tui" / "crates").iterdir() if (p / "Cargo.toml").is_file())
+        outside = [name for name in crates if name not in built]
+        self.assertTrue(outside, "some workspace crate is outside acpmux's build")
+        for path, pane in [
+            ("cmux-tui/crates/acpmux/src/lib.rs", True),
+            ("cmux-tui/crates/acpmux-core/src/lib.rs", True),
+            ("cmux-tui/crates/cmux-browser-host/js/guide.md", True),
+            ("cmux-tui/Cargo.lock", True),
+            ("cmux-tui/crates/no-such-crate-yet/src/lib.rs", True),
+            (f"cmux-tui/crates/{outside[0]}/src/lib.rs", False),
+        ]:
+            with self.subTest(path=path):
+                areas = web_subareas.classify_paths([path], ROOT)
+                self.assertEqual(areas.agent_pane, pane)
+                self.assertFalse(areas.chat_flow)
+        areas = web_subareas.classify_paths(["webviews/src/a.ts"], ROOT)
+        self.assertTrue(areas.agent_pane and areas.chat_flow)
+        steps = ci_steps.load().steps
+        self.assertTrue(steps["chat-flow-shift-budget"].run.lstrip().startswith(
+            "python3 -I scripts/ci/web_subareas.py has chat_flow || exit 0"))
+        self.assertFalse(ci_steps.routed(steps["chat-flow-shift-budget"], ["cmux-tui/crates/acpmux/src/lib.rs"]))
+
     def test_ci_web_skips_them_only_on_a_feat_cmux_next_pull_request(self) -> None:
         wf = yaml.safe_load((ROOT / ".github/workflows/ci-web.yml").read_text())
         for name in self.STEPS:
