@@ -95,8 +95,44 @@ jobs:
       # main's promote-nightly-next.
       actions: write
       contents: read
+    env:
+      # This workflow's own scripts the job runs (its .tick-tooling checkout and its retry).
+      TICK_TOOLING_FILES: |
+        scripts/ci/gh_budget_wait.sh
+        scripts/ci/gh_budget_wait.cjs
+        scripts/ci/nightly_next_cancelled_tip.sh
+        scripts/ci/nightly_next_train_dispatch.py
+        scripts/ci/delivery_workflows.py
+        scripts/ci/nightly_compile_red.py
+        scripts/ci/nightly_next_feed_watch.py
+        scripts/ci/nightly_next_rolling.py
+        scripts/ci/nightly_next_stuck_run.py
+        scripts/ci/nightly_repick.py
+        scripts/ci/owned_pool_rescue.py
+        scripts/ci/owned_pool_sources.py
+        scripts/ci/pr_runner_pool.py
+        scripts/ci/simple_pool_picker.py
+        scripts/ci/ui_tests_dispatch.py
+        scripts/ci/gh_app_token.sh
+        scripts/ci/app_spend_mark.py
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # Every checkout here is bounded and tried once more: actions/checkout's own three
+      # attempts stall 60 s each on "Operation too slow" and then fail the step, and a failed
+      # tick promotes nothing until the next one. On 2026-11-26 07:31-08:05Z ticks 45775908335,
+      # 45777304889, 45779080244 and 45779574719 died in "Checkout the gh rate-limit wait" on
+      # "unable to access 'https://github.com/manaflow-ai/cmux/': Operation too slow" (65-212 s),
+      # minutes after the same runner's first checkout had fetched.
+      - id: checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        timeout-minutes: 4
+        continue-on-error: true
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.sha != '' && inputs.sha || 'refs/heads/feat-cmux-next' }}
+          fetch-depth: 150
+      - if: steps.checkout.outcome == 'failure'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        timeout-minutes: 4
         with:
           persist-credentials: false
           ref: ${{ inputs.sha != '' && inputs.sha || 'refs/heads/feat-cmux-next' }}
@@ -104,29 +140,25 @@ jobs:
 
       # This workflow's own copy of the wrapper, not the checked-out branch's.
       - name: Checkout the gh rate-limit wait
+        id: tooling
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        timeout-minutes: 3
+        continue-on-error: true
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
           path: .tick-tooling
-          sparse-checkout: |
-            scripts/ci/gh_budget_wait.sh
-            scripts/ci/gh_budget_wait.cjs
-            scripts/ci/nightly_next_cancelled_tip.sh
-            scripts/ci/nightly_next_train_dispatch.py
-            scripts/ci/delivery_workflows.py
-            scripts/ci/nightly_compile_red.py
-            scripts/ci/nightly_next_feed_watch.py
-            scripts/ci/nightly_next_rolling.py
-            scripts/ci/nightly_next_stuck_run.py
-            scripts/ci/nightly_repick.py
-            scripts/ci/owned_pool_rescue.py
-            scripts/ci/owned_pool_sources.py
-            scripts/ci/pr_runner_pool.py
-            scripts/ci/simple_pool_picker.py
-            scripts/ci/ui_tests_dispatch.py
-            scripts/ci/gh_app_token.sh
-            scripts/ci/app_spend_mark.py
+          sparse-checkout: ${{ env.TICK_TOOLING_FILES }}
+          sparse-checkout-cone-mode: false
+      - name: Checkout the gh rate-limit wait (once more)
+        if: steps.tooling.outcome == 'failure'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        timeout-minutes: 3
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .tick-tooling
+          sparse-checkout: ${{ env.TICK_TOOLING_FILES }}
           sparse-checkout-cone-mode: false
 
       # This job's gh calls, the promotion dispatch included, go out as the cmux-bot App, with
@@ -389,29 +421,46 @@ jobs:
       # actions: write cancels a stuck run and re-runs a cancelled tip.
       actions: write
       contents: read
+    env:
+      # This workflow's own scripts the job runs (its .tick-tooling checkout and its retry).
+      TICK_TOOLING_FILES: |
+        scripts/ci/app_spend_mark.py
+        scripts/ci/gh_app_token.sh
+        scripts/ci/gh_budget_wait.sh
+        scripts/ci/gh_budget_wait.cjs
+        scripts/ci/nightly_next_cancelled_tip.sh
+        scripts/ci/delivery_workflows.py
+        scripts/ci/nightly_compile_red.py
+        scripts/ci/nightly_next_stuck_run.py
+        scripts/ci/nightly_repick.py
+        scripts/ci/owned_pool_rescue.py
+        scripts/ci/owned_pool_sources.py
+        scripts/ci/pr_runner_pool.py
+        scripts/ci/simple_pool_picker.py
+        scripts/ci/ui_tests_dispatch.py
     steps:
       # This workflow's own copy of the scripts; nightly_next_cancelled_tip.sh needs a git
       # checkout with an `origin` (it reads nightly-next with ls-remote).
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Checkout this workflow's scripts
+        id: tooling
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        timeout-minutes: 3
+        continue-on-error: true
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
           path: .tick-tooling
-          sparse-checkout: |
-            scripts/ci/app_spend_mark.py
-            scripts/ci/gh_app_token.sh
-            scripts/ci/gh_budget_wait.sh
-            scripts/ci/gh_budget_wait.cjs
-            scripts/ci/nightly_next_cancelled_tip.sh
-            scripts/ci/delivery_workflows.py
-            scripts/ci/nightly_compile_red.py
-            scripts/ci/nightly_next_stuck_run.py
-            scripts/ci/nightly_repick.py
-            scripts/ci/owned_pool_rescue.py
-            scripts/ci/owned_pool_sources.py
-            scripts/ci/pr_runner_pool.py
-            scripts/ci/simple_pool_picker.py
-            scripts/ci/ui_tests_dispatch.py
+          sparse-checkout: ${{ env.TICK_TOOLING_FILES }}
+          sparse-checkout-cone-mode: false
+      - name: Checkout this workflow's scripts (once more)
+        if: steps.tooling.outcome == 'failure'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        timeout-minutes: 3
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .tick-tooling
+          sparse-checkout: ${{ env.TICK_TOOLING_FILES }}
           sparse-checkout-cone-mode: false
 
       # This job's reads spend the cmux-bot App's budget, not the repository's GITHUB_TOKEN pool
