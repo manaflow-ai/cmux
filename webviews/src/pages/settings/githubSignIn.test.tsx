@@ -62,7 +62,7 @@ test("the App connection leads and the personal CLI login stays an explicit opti
     setup: (provider) => {
       provider.accounts = {
         ...provider.accounts,
-        github: { ...github, signIn: null, canConnect: true, cliSignIn: "Use GitHub CLI" },
+        github: { ...github, signIn: null, canConnect: true, busy: true, cliSignIn: "Use GitHub CLI" },
         signInAccounts: [...ACCOUNT_LISTS.oneEach],
       };
       provider.signInHold = new Promise<void>((resolve) => (release = resolve));
@@ -74,6 +74,7 @@ test("the App connection leads and the personal CLI login stays an explicit opti
   expect(signInSection.querySelector('[data-sign-in-add="github"]')).toBeNull();
   const cli = appCard.querySelector<HTMLButtonElement>('[data-github-action="cli-sign-in"]')!;
   expect(cli.textContent).toBe("Use GitHub CLI");
+  expect(cli.disabled).toBe(false);
   await act(async () => cli.click());
   await settle();
   expect(page.provider.accountRuns.at(-1)).toMatchObject({ action: "signInFinish" });

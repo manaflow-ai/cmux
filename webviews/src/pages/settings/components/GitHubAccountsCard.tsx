@@ -67,7 +67,7 @@ export function GitHubAccountsCard({ signIn }: { signIn: SettingsSignIn }) {
                 className="button"
                 variant="ghost"
                 data-github-action="cli-sign-in"
-                disabled={github.busy || Boolean(signIn.running)}
+                disabled={Boolean(signIn.running)}
                 onClick={() => {
                   if (!signIn.inPlace) {
                     void store.runHarnesses(terminalSignIn("github", null));
