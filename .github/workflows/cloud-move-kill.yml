@@ -84,6 +84,10 @@ jobs:
           cargo build -p cmux-tui --bin cmux-tui --locked
           mkdir -p "$RUNNER_TEMP/bin"
           cp "${CARGO_TARGET_DIR:-target}/debug/cmux-tui" "$RUNNER_TEMP/bin/cmux-tui"
+          # Debug info is most of a debug build (268 MB in run 45718037025, whose cut and off-dst drills lost the
+          # download to ECONNRESET); the drills need the code, not the symbols.
+          strip --strip-debug "$RUNNER_TEMP/bin/cmux-tui"
+          ls -l "$RUNNER_TEMP/bin/cmux-tui"
           sha256sum "$RUNNER_TEMP/bin/cmux-tui"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -110,13 +114,31 @@ jobs:
       matrix:
         kill: [random, kill-src, pause-src, cut, kill-dst, off-src, off-dst, pause-dst]
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # Each fetch gets a second try: one runner's checkout stalled (random) and two lost the binary's download (cut,
+      # off-dst) in run 45718037025, so three drills measured nothing.
+      - id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           sparse-checkout: |
             scripts/cmux-next
             tests/fixtures/model-stub
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+      - if: steps.checkout.outcome == 'failure'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/cmux-next
+            tests/fixtures/model-stub
+      - id: binary
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: move-kill-cmux-tui-${{ github.run_id }}
+          path: ${{ runner.temp }}/bin
+      - if: steps.binary.outcome == 'failure'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: move-kill-cmux-tui-${{ github.run_id }}
           path: ${{ runner.temp }}/bin
@@ -130,6 +152,9 @@ jobs:
           # A self-hosted runner's global npm prefix is not the job's to write: a prefix of its own.
           prefix="$RUNNER_TEMP/npm-global"
           npm install --global --prefix "$prefix" --no-fund --no-audit @anthropic-ai/claude-code@2.1.284 >/dev/null
+          # A newer npm skips install scripts no allowScripts names, and Claude Code's postinstall fetches its native
+          # binary ("claude native binary not installed": pause-dst, run 45718037025): run it when npm did not.
+          "$prefix/bin/claude" --version >/dev/null 2>&1 || node "$prefix/lib/node_modules/@anthropic-ai/claude-code/install.cjs"
           echo "$prefix/bin" >> "$GITHUB_PATH"
           "$prefix/bin/claude" --version
           chmod 0755 "$RUNNER_TEMP/bin/cmux-tui"
@@ -147,10 +172,13 @@ jobs:
           # The seeded pass draws from the kinds that got machines under the cap (RANDOM_KILLS empties it: every kind).
           if [ "$KILL" = random ]; then pick=(--runs 20 ${RANDOM_KILLS:+--kill "$RANDOM_KILLS"}); else pick=(--kill "$KILL"); fi
           rc=0
+          # --skip lifecycle: the journey's later turns and its daemon-restart check are not the drills' and, failing,
+          # ended the journey before any move (kill-src, pause-src in run 45718037025).
           bun scripts/cmux-next/cloud-journey.ts --backend staging --out "$out" --cmux "$RUNNER_TEMP/bin/cmux-tui" \
-            --model stub --chaos-move --seed "$SEED-$KILL" --claude-bin "$(command -v claude)" "${pick[@]}" || rc=$?
+            --model stub --skip lifecycle --chaos-move --seed "$SEED-$KILL" --claude-bin "$(command -v claude)" "${pick[@]}" || rc=$?
           { echo "### Move drills: $KILL (seed $SEED-$KILL)"; echo; cat "$out/move.md" 2>/dev/null || echo "(no table written)"; echo; } >> "$GITHUB_STEP_SUMMARY"
-          test -s "$out/move.json" || { echo "::error::the drill wrote no results (journey exit $rc)"; exit 1; }
+          # No results: the journey stopped before the drills; name the step that stopped it.
+          test -s "$out/move.json" || { echo "::error::the drill wrote no results (journey exit $rc): $(jq -r '[.steps[] | select(.status == "fail") | "\(.step): \(.detail[0:300])"] | first // "no failed step"' "$out/journey.json" 2>/dev/null || echo 'no journey.json')"; exit 1; }
           ran=$(jq '[.results[] | select(.outcome != "unmeasured")] | length' "$out/move.json")
           [ "$ran" -gt 0 ] || { echo "::error::the drill measured no move (journey exit $rc): $(grep -m1 'FAIL move drills' "$out/summary.md" 2>/dev/null || echo 'see journey.json')"; exit 1; }
       - if: ${{ !cancelled() }}
