@@ -945,6 +945,8 @@ class PipelineTest(unittest.TestCase):
         for name, job in wf["jobs"].items():
             if name == "mac-fallback":
                 continue  # MacFallbackTest: it runs on a linux step's request, not on the router's
+            if name in ("ios-fast-runner", "ios-fast"):
+                continue  # tests/test_ci_ios_fast_verdict.py: the additive fast iOS verdict plans from the diff itself
             if name in pickers:
                 with self.subTest(picker=name):
                     self.assertEqual(job["if"], f"${{{{ inputs.jobs == '' || contains(fromJSON(inputs.jobs), '{pickers[name]}') }}}}")
