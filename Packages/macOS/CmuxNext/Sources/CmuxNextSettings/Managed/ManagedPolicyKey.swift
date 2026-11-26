@@ -42,6 +42,19 @@ public nonisolated enum ManagedPreferenceLocation {
         #endif
     }
 
+    /// Only `keys` of cmux's own domain (a DEV build's file whole), for a read of a few settings before
+    /// `NSApplication` exists: ``defaultReader(environment:)`` lists every published key, which builds the
+    /// whole settings schema (`SettingsSchema.all`, ~41 ms on the main thread before the Dock stops
+    /// bouncing) and reads the Chrome policy domains, which map only browser settings (CMUX-631).
+    public static func reader(keys: [String], environment: [String: String] = ProcessInfo.processInfo.environment) -> any ManagedPreferenceReader {
+        #if DEBUG
+        if let path = environment[ManagedPreferences.fileOverrideKey], !path.isEmpty {
+            return PlistManagedPreferenceReader(url: URL(fileURLWithPath: (path as NSString).expandingTildeInPath))
+        }
+        #endif
+        return CFManagedPreferenceReader(keys: keys)
+    }
+
     /// Files whose changes mean a profile was installed or removed. macOS
     /// documents no notification for that; these paths are wake-up hints
     /// only (values are always read through CFPreferences).

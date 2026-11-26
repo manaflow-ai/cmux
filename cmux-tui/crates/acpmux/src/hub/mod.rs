@@ -41,6 +41,9 @@ mod auto_background;
 pub(crate) mod auto_evacuate;
 // What Auto mode asks of a chat (`auto_session/`): its work, its record, its freeze.
 mod auto_hold;
+// A holder gives a chat the person moved: its turn stopped as a move by hand stops one.
+mod auto_give;
+pub(crate) use auto_give::TurnStop;
 pub(crate) mod auto_resume;
 mod away_recap;
 mod background_cause;
@@ -270,6 +273,7 @@ mod person_prompt_at;
 mod personal_stats;
 #[cfg(test)]
 mod phone_floor_tests;
+mod place_migrate;
 pub mod plan_build;
 mod policy_gate;
 mod policy_mode;
@@ -393,13 +397,13 @@ mod subsession_send;
 pub mod subsessions;
 mod successors;
 mod surge_triage;
+mod urgent_steer;
 // Mask old tool output instead of summarizing it (harness magic).
 pub(crate) mod surgery;
 pub mod synced;
 mod tags;
 mod tailnet_controller;
 mod tap;
-pub(crate) mod task_list;
 mod task_names;
 pub(crate) mod tasks;
 mod team_information;
@@ -554,11 +558,6 @@ pub(crate) use seen::{Look, reader_of};
 pub use session::{Session, live_tags};
 pub(crate) use transfer_out::TOOL_IN_FLIGHT;
 pub(crate) use turn_errors::is_limit_error;
-/// A line of session text as every view may show it: masked (`secret_scan`), then cut to `max`
-/// characters (`task_list.rs`'s steps).
-pub(crate) fn masked_step(s: &str, max: usize) -> String {
-    session::masked_preview(s, max)
-}
 
 /// [`Hub::withdraws`]: each withdraw's answer once its notice is accepted or refused.
 type WithdrawsInFlight =
@@ -1049,12 +1048,7 @@ pub(super) struct StreamState {
     /// The turn `reply_segments` counts in, and the `messageId` of the segment streaming now.
     pub(super) segment_turn: Option<String>,
     pub(super) segment_message: Option<String>,
-    /// The turn `plan_shown` is of, and whether that turn has drawn a checklist in the pane (a
-    /// plan with entries, not cleared since): its first plan or TodoWrite call cuts a reply's row
-    /// there, a later one does not (`stream.rs` `cuts_reply`). A prompt starts a new checklist.
-    pub(super) plan_turn: Option<String>,
-    pub(super) plan_shown: bool,
-    /// This turn's agent thought, planned or called a tool (`stream.rs`), and how much reply
+    /// This turn's agent thought or called a tool (`stream.rs`), and how much reply
     /// text it streamed (`after_agent_update`): what `unstored_turn_worked` reads.
     pub(super) agent_worked: bool,
     pub(super) reply_chars: usize,
@@ -1274,6 +1268,9 @@ pub struct Hub {
     /// by profile name: its `modes` and `configOptions`, as sent. A `_acpmux/harnesses` row's
     /// `reported` falls back to it until a chat of the harness reports (`start_mode.rs`).
     pub(super) probed_choices: StdMutex<HashMap<String, (Option<Value>, Option<Value>)>>,
+    /// Each agent's reasoning levels per model, from the level variants its model list names
+    /// (`model_catalog::variant_efforts`): the `efforts` of its rows in `_acpmux/models`.
+    pub(super) known_efforts: StdMutex<HashMap<String, HashMap<String, Vec<String>>>>,
     /// Model lists from Claude Code's and Codex's own CLIs, by profile name
     /// (`hub/live_models.rs`): richer than `known_models` (efforts, fast).
     pub(super) live_models: StdMutex<HashMap<String, Vec<crate::live_models::LiveModel>>>,
@@ -1837,6 +1834,7 @@ impl Hub {
             acp_cached: StdMutex::new(HashMap::new()),
             acp_from_disk: StdMutex::new(std::collections::HashSet::new()),
             probed_choices: StdMutex::new(HashMap::new()),
+            known_efforts: StdMutex::new(HashMap::new()),
             live_models: StdMutex::new(HashMap::new()),
             live_rechecks: StdMutex::new(HashMap::new()),
             live_ages: StdMutex::new(live_ages::LiveAges::default()),
@@ -2625,6 +2623,7 @@ impl Hub {
             inbox_load: StdMutex::new(()),
             hub_ref: std::sync::OnceLock::new(),
             last_active: AtomicU64::new(self.clock_now()),
+            evict_tried_at: AtomicU64::new(0),
             start_for: std::sync::atomic::AtomicU8::new(0),
             hibernated_at: AtomicU64::new(hibernated_at),
             wake_cause: StdMutex::new(None),
@@ -3153,10 +3152,6 @@ impl Hub {
         at: Option<u64>,
     ) -> (EventRecord, bool) {
         let mut msg = msg;
-        // A prompt (a steer too) starts a new checklist in the pane (`stream.rs` `cuts_reply`).
-        if dir == "mux" && kind == "user_message" {
-            session.stream.lock().unwrap_or_else(|e| e.into_inner()).plan_shown = false;
-        }
         // Off the append lock: it reads the disk.
         tool_paths::add_canonical_paths(session, kind, &mut msg);
         // A finished UI edit or shell call asks for a frame of the page (`turn_frames.rs`).
@@ -3627,14 +3622,19 @@ impl Hub {
     /// The daemon calls it after metadata loads and before startup releases spawns.
     #[cfg(unix)]
     pub fn sweep_session_tmp(&self) {
-        let mut metas: Vec<_> = self.sessions().iter().map(|session| session.meta()).collect();
+        let mut metas: Vec<(String, SessionStatus)> = self
+            .sessions()
+            .iter()
+            .map(|session| session.read_meta(|m| (m.id.clone(), m.status)))
+            .collect();
         // An evicted chat keeps its folder as it did in memory (`evict.rs`).
-        metas.extend(self.evicted.rows().iter().map(|row| row.meta.clone()));
-        let known: std::collections::HashSet<&str> = metas.iter().map(|m| m.id.as_str()).collect();
+        metas.extend(self.evicted.rows().iter().map(|row| (row.keys.id.clone(), row.keys.status)));
+        let known: std::collections::HashSet<&str> =
+            metas.iter().map(|(id, _)| id.as_str()).collect();
         let closed: std::collections::HashSet<&str> = metas
             .iter()
-            .filter(|m| m.status == SessionStatus::Closed)
-            .map(|m| m.id.as_str())
+            .filter(|(_, status)| *status == SessionStatus::Closed)
+            .map(|(id, _)| id.as_str())
             .collect();
         // A session whose record did not list still has its folder.
         let stored = |id: &str| {
