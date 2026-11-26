@@ -108,8 +108,8 @@ fn a_capture_screenshots_the_apps_window_and_decodes_it() {
         asked: RefCell::default(),
     };
     assert_eq!(capture_with(&fake, "Demo"), Ok(png));
-    let asked = fake.asked.borrow();
-    assert_eq!(asked.last().unwrap(), &("screenshot".into(), json!({"window_id": "w9", "force": true})));
+    let last = fake.asked.borrow().last().cloned().unwrap();
+    assert_eq!(last, ("screenshot".into(), json!({"window_id": "w9", "force": true})));
     assert_eq!(capture_with(&fake, "Other"), Err("no window"));
 }
 
