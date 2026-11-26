@@ -109,6 +109,32 @@ impl SplitNode {
         }
     }
 
+    /// `settingRatio(_:for:)`: a copy with `id`'s ratio replaced.
+    #[must_use]
+    pub fn setting_ratio(&self, value: f64, id: &str) -> SplitNode {
+        match self {
+            SplitNode::Leaf { .. } => self.clone(),
+            SplitNode::Split { split, axis, ratio, a, b } => {
+                if split == id {
+                    return SplitNode::Split {
+                        split: split.clone(),
+                        axis: *axis,
+                        ratio: value,
+                        a: a.clone(),
+                        b: b.clone(),
+                    };
+                }
+                SplitNode::Split {
+                    split: split.clone(),
+                    axis: *axis,
+                    ratio: *ratio,
+                    a: Box::new(a.setting_ratio(value, id)),
+                    b: Box::new(b.setting_ratio(value, id)),
+                }
+            }
+        }
+    }
+
     /// `node(for:) != nil`.
     pub fn has_split(&self, id: &str) -> bool {
         match self {
