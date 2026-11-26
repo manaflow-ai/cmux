@@ -90,10 +90,25 @@ impl Default for Options {
     }
 }
 
+fn key16(hash: &blake3::Hash) -> Key {
+    hash.as_bytes().first_chunk::<16>().copied().unwrap_or_default()
+}
+
 fn key(bytes: &[u8]) -> Key {
-    let mut k = [0u8; 16];
-    k.copy_from_slice(&blake3::hash(bytes).as_bytes()[..16]);
-    k
+    key16(&blake3::hash(bytes))
+}
+
+/// Root `i`'s bit; 0 past the 64th (callers keep at most 64 roots).
+fn bit(i: usize) -> u64 {
+    u32::try_from(i).ok().and_then(|s| 1u64.checked_shl(s)).unwrap_or(0)
+}
+
+fn as_u64(n: usize) -> u64 {
+    u64::try_from(n).unwrap_or(u64::MAX)
+}
+
+fn add(total: &mut u64, n: u64) {
+    *total = total.saturating_add(n);
 }
 
 fn walk(root: &Path, out: &mut dyn FnMut(PathBuf, std::fs::Metadata)) {
@@ -122,46 +137,106 @@ struct Cut {
 /// The chunks of one file, streamed.
 fn chunk_file(path: &Path) -> std::io::Result<Cut> {
     let mut f = File::open(path)?;
-    let mut buf: Vec<u8> = Vec::with_capacity(cdc::MAX * 4);
+    let window = cdc::MAX.saturating_mul(2);
+    let mut buf: Vec<u8> = Vec::with_capacity(window.saturating_mul(2));
     let mut whole = blake3::Hasher::new();
     let mut out = Vec::new();
     let mut eof = false;
     let mut first = Vec::new();
     loop {
-        while !eof && buf.len() < cdc::MAX * 2 {
+        while !eof && buf.len() < window {
             let at = buf.len();
-            buf.resize(at + cdc::MAX * 2, 0);
-            let n = f.read(&mut buf[at..])?;
-            buf.truncate(at + n);
+            buf.resize(at.saturating_add(window), 0);
+            let n = match buf.get_mut(at..) {
+                Some(tail) => f.read(tail)?,
+                None => 0,
+            };
+            buf.truncate(at.saturating_add(n));
             eof = n == 0;
         }
         if buf.is_empty() {
             break;
         }
-        let mut at = 0;
-        while at < buf.len() && (eof || buf.len() - at >= cdc::MAX) {
-            let len = cdc::cut(&buf[at..]);
-            let piece = &buf[at..at + len];
+        let mut rest: &[u8] = &buf;
+        while !rest.is_empty() && (eof || rest.len() >= cdc::MAX) {
+            let len = cdc::cut(rest).clamp(1, rest.len());
+            let Some((piece, tail)) = rest.split_at_checked(len) else { break };
             whole.update(piece);
             if out.is_empty() {
                 first = piece.to_vec();
             }
             out.push((key(piece), u32::try_from(len).unwrap_or(u32::MAX)));
-            at += len;
+            rest = tail;
         }
-        buf.drain(..at);
+        let used = buf.len().saturating_sub(rest.len());
+        buf.drain(..used);
         if eof && buf.is_empty() {
             break;
         }
     }
-    let mut k = [0u8; 16];
-    k.copy_from_slice(&whole.finalize().as_bytes()[..16]);
-    Ok(Cut { chunks: out, whole: k, first })
+    Ok(Cut { chunks: out, whole: key16(&whole.finalize()), first })
+}
+
+/// Add one cut file of root `i` to the totals.
+fn record(st: &mut State, i: usize, meta: &std::fs::Metadata, cut: Cut, opts: &Options) {
+    let Cut { chunks, whole, first } = cut;
+    let bit = bit(i);
+    let size = meta.len();
+    add(&mut st.totals.files, 1);
+    add(&mut st.totals.logical, size);
+    if st.inodes.insert((meta.dev(), meta.ino()), ()).is_none() {
+        add(&mut st.totals.allocated, meta.blocks().saturating_mul(512));
+    }
+    if let Entry::Vacant(e) = st.files.entry(whole) {
+        e.insert(size);
+        add(&mut st.totals.whole_file_physical, size);
+    }
+    if let Some(root) = st.per_root.get_mut(i) {
+        add(&mut root.files, 1);
+        add(&mut root.logical, size);
+    }
+    add(&mut st.totals.chunks, as_u64(chunks.len()));
+    for (n, (k, len)) in chunks.into_iter().enumerate() {
+        match st.chunks.entry(k) {
+            Entry::Vacant(e) => {
+                e.insert(Chunk { len, roots: bit });
+                add(&mut st.totals.physical, u64::from(len));
+                add(&mut st.totals.distinct_chunks, 1);
+                let sample = opts.sample_every > 0
+                    && st.totals.distinct_chunks.is_multiple_of(opts.sample_every)
+                    && n == 0;
+                if sample && !first.is_empty() {
+                    let z = zstd::bulk::compress(&first, opts.zstd_level)
+                        .map_or(first.len(), |z| z.len().min(first.len()));
+                    add(&mut st.sample_raw, as_u64(first.len()));
+                    add(&mut st.sample_z, as_u64(z));
+                }
+            }
+            Entry::Occupied(mut e) => {
+                e.get_mut().roots |= bit;
+            }
+        }
+    }
+}
+
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss,
+    reason = "an estimate of bytes at rest: a non-negative f64 product saturates into u64"
+)]
+fn scaled(bytes: u64, ratio: f64) -> u64 {
+    (bytes as f64 * ratio) as u64
+}
+
+#[allow(clippy::cast_precision_loss, reason = "a ratio of byte counts, reported as f64")]
+fn ratio(num: u64, den: u64, empty: f64) -> f64 {
+    if den == 0 { empty } else { num as f64 / den as f64 }
 }
 
 /// Measure ROOTS (label, folder); a root's index is its bit, so roots past the 64th are ignored.
 pub fn measure(roots: &[(String, PathBuf)], opts: &Options) -> Report {
-    let roots = &roots[..roots.len().min(64)];
+    let roots = roots.get(..64).unwrap_or(roots);
     let started = std::time::Instant::now();
     let state = Mutex::new(State {
         per_root: roots.iter().map(|(l, _)| Root { label: l.clone(), ..Root::default() }).collect(),
@@ -180,46 +255,9 @@ pub fn measure(roots: &[(String, PathBuf)], opts: &Options) -> Report {
                     };
                     let got = chunk_file(&path);
                     let mut st = state.lock().unwrap_or_else(PoisonError::into_inner);
-                    let Ok(Cut { chunks, whole, first }) = got else {
-                        st.totals.skipped += 1;
-                        continue;
-                    };
-                    let bit = 1u64 << i;
-                    let size = meta.len();
-                    st.totals.files += 1;
-                    st.totals.logical += size;
-                    if st.inodes.insert((meta.dev(), meta.ino()), ()).is_none() {
-                        st.totals.allocated += meta.blocks() * 512;
-                    }
-                    if let Entry::Vacant(e) = st.files.entry(whole) {
-                        e.insert(size);
-                        st.totals.whole_file_physical += size;
-                    }
-                    st.per_root[i].files += 1;
-                    st.per_root[i].logical += size;
-                    st.totals.chunks += chunks.len() as u64;
-                    for (n, (k, len)) in chunks.into_iter().enumerate() {
-                        let len64 = u64::from(len);
-                        match st.chunks.entry(k) {
-                            Entry::Vacant(e) => {
-                                e.insert(Chunk { len, roots: bit });
-                                st.totals.physical += len64;
-                                st.totals.distinct_chunks += 1;
-                                let sample = opts.sample_every > 0
-                                    && st.totals.distinct_chunks.is_multiple_of(opts.sample_every)
-                                    && n == 0;
-                                if sample && !first.is_empty() {
-                                    let z = zstd::bulk::compress(&first, opts.zstd_level)
-                                        .map_or(first.len(), |z| z.len().min(first.len()));
-                                    st.sample_raw += first.len() as u64;
-                                    st.sample_z += z as u64;
-                                }
-                            }
-                            Entry::Occupied(mut e) => {
-                                let c = e.get_mut();
-                                c.roots |= bit;
-                            }
-                        }
+                    match got {
+                        Ok(cut) => record(&mut st, i, &meta, cut, opts),
+                        Err(_) => add(&mut st.totals.skipped, 1),
                     }
                 }
             });
@@ -234,23 +272,23 @@ pub fn measure(roots: &[(String, PathBuf)], opts: &Options) -> Report {
     let mut st = state.into_inner().unwrap_or_else(PoisonError::into_inner);
     for c in st.chunks.values() {
         let len = u64::from(c.len);
-        for i in 0..roots.len() {
-            if c.roots & (1 << i) != 0 {
-                st.per_root[i].distinct += len;
-                if c.roots & !(1 << i) != 0 {
-                    st.per_root[i].shared += len;
+        for (i, root) in st.per_root.iter_mut().enumerate() {
+            let b = bit(i);
+            if c.roots & b != 0 {
+                add(&mut root.distinct, len);
+                if c.roots & !b != 0 {
+                    add(&mut root.shared, len);
                 }
             }
         }
     }
     let mut r = st.totals;
     r.roots = st.per_root;
-    r.physical_over_logical =
-        if r.logical == 0 { 0.0 } else { r.physical as f64 / r.logical as f64 };
+    r.physical_over_logical = ratio(r.physical, r.logical, 0.0);
     r.zstd_level = opts.zstd_level;
     r.zstd_sampled_bytes = st.sample_raw;
-    r.zstd_ratio = if st.sample_raw == 0 { 1.0 } else { st.sample_z as f64 / st.sample_raw as f64 };
-    r.physical_compressed = (r.physical as f64 * r.zstd_ratio) as u64;
+    r.zstd_ratio = ratio(st.sample_z, st.sample_raw, 1.0);
+    r.physical_compressed = scaled(r.physical, r.zstd_ratio);
     r.seconds = started.elapsed().as_secs_f64();
     r
 }
