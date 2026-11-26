@@ -115,8 +115,11 @@ struct SidebarAgentSignatureTests {
         let signatures = Self.store(asks)
         let (off, offWindow) = row(ws, signatures: signatures)
         #expect(off.signatureMark == nil)
-        #expect(!off.subviews.contains { $0 is DecorativeImageView && $0 !== off.agentMark && $0 !== off.mutedMark
-            && $0 !== off.cloudMark && $0 !== off.usageWarningMark })
+        let strayMark = off.subviews.contains(where: { view in
+            view is DecorativeImageView && view !== off.agentMark && view !== off.mutedMark
+                && view !== off.cloudMark && view !== off.usageWarningMark
+        })
+        #expect(!strayMark)
         let titleX = off.title.frame.minX
         signatures.flush()
         #expect(signatures.requestCount == 0, "off, the row asks nothing")
