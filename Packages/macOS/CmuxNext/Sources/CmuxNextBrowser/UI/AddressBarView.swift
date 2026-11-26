@@ -241,8 +241,11 @@ public final class AddressBarView: NSView {
             // beside the other constraints could read the font the density just replaced.
             fieldCenter.constant = OmnibarStyle.fieldBaselineShift(field: field)
             updateChrome()
+            badgesNeedMeasure = true
+            needsLayout = true
         }
         density.start()
+        chip.onLabeledWidthChange = { [weak self] in self?.fitBadgeSpace() }
         pill.onHoverChange = { [weak self] hovering in self?.updateQuietIcons(fade: ChromeHover.fade(showing: hovering)) }
         pill.onLookChange = { [weak self] in self?.repaintInk() }
         followDisplay()
@@ -287,8 +290,11 @@ public final class AddressBarView: NSView {
     /// the first Escape armed the exit, "Esc again to exit". It fades in and
     /// out (at once with fades off in the motion settings; Reduce Motion keeps a short fade).
     public func setFocusModeBadge(armed: Bool?) {
+        let textBefore = focusModeBadgeView.shownText
         if let armed { focusModeBadgeView.show(armed: armed) }
         let shown = armed != nil
+        // A new text in a badge that stays ("Esc again to exit"): its width changed, so the fit measures it again.
+        if focusModeBadgeWanted == shown, shown, focusModeBadgeView.shownText != textBefore { updateBadgeSpace() }
         guard focusModeBadgeWanted != shown else { return }
         focusModeBadgeWanted = shown
         // Fades off (the motion switches; Reduce Motion keeps a short fade): the badge appears and goes at once (no animator
@@ -321,12 +327,27 @@ public final class AddressBarView: NSView {
     /// Measurements the narrow fit took, all bars (a badge's fitting width, the chip's label width): tests count them.
     static var fitMeasurements: UInt64 = 0
 
+    /// The shown badges' width with their spacing (0: none), measured when a badge shows, hides or changes, or the metrics
+    /// change (``updateBadgeSpace()``); a width change of the bar reads it (``fitBadgeSpace()``).
+    private var badgesWidth: CGFloat = 0
+    /// The metrics changed: the badges are measured again in the next layout pass, once every view's own density
+    /// binding (the badges' among them, in no set order) has applied the new values.
+    private var badgesNeedMeasure = false
+
+    /// A badge showed, hid or changed, or the label or the metrics did: measure the badges, then fit the bar's width.
     func updateBadgeSpace() {
-        let wanted = !machineBadgeView.isHidden || !starButton.isHidden || !focusModeBadgeView.isHidden
-        // A narrow bar folds the chip's label, then hides the badges, before the text runs under them (OmnibarNarrowFit).
         let shown = badges.arrangedSubviews.filter { !$0.isHidden }
         if !shown.isEmpty { Self.fitMeasurements &+= 1 }
-        let badgesWidth = shown.isEmpty ? 0 : shown.reduce(0) { $0 + $1.fittingSize.width } + badges.spacing * CGFloat(shown.count - 1)
+        badgesWidth = shown.isEmpty ? 0 : shown.reduce(0) { $0 + $1.fittingSize.width } + badges.spacing * CGFloat(shown.count - 1)
+        fitBadgeSpace()
+    }
+
+    /// The bar's width changed (or its parts were measured): fold or unfold the chip's label and the badges, from the
+    /// widths measured when they changed. A width change measures nothing: on every divider or window resize step each
+    /// browser pane's bar comes here (in-tree release-resize measurement, 2026-11-26).
+    private func fitBadgeSpace() {
+        let wanted = !machineBadgeView.isHidden || !starButton.isHidden || !focusModeBadgeView.isHidden
+        // A narrow bar folds the chip's label, then hides the badges, before the text runs under them (OmnibarNarrowFit).
         let fit = OmnibarNarrowFit.resolve(barWidth: bounds.width, chipLeading: OmnibarStyle.chipLeading, chipIcon: OmnibarStyle.chipSize,
                                            chipLabeled: chip.labeledWidth, textLeading: OmnibarStyle.textLeading, badges: badgesWidth,
                                            badgesInset: OmnibarStyle.badgesTrailingInset, fieldTrailingGap: OmnibarStyle.fieldTrailingGap,
@@ -586,10 +607,14 @@ public final class AddressBarView: NSView {
     public override func setFrameSize(_ newSize: NSSize) {
         let changed = newSize.width != frame.width
         super.setFrameSize(newSize)
-        if changed { updateBadgeSpace() }
+        if changed { fitBadgeSpace() }
     }
 
     public override func layout() {
+        if badgesNeedMeasure {
+            badgesNeedMeasure = false
+            updateBadgeSpace()
+        }
         // Before the pass, so the card top's frame takes this reach in the same pass, not the next one.
         updateBackdropReach()
         super.layout()

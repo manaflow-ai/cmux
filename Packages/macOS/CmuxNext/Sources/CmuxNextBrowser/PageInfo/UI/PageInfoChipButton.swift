@@ -15,18 +15,20 @@ final class PageInfoChipButton: NSView, PointerHoverReporting {
 
     /// The bar has no room for the label (a narrow pane, ``OmnibarNarrowFit``): the chip shows its icon alone, as
     /// Chrome's location icon drops its "Not secure" text, and the label stays in its accessibility label and tooltip.
+    /// A fold changes what shows, never the label or its width: it measures nothing (``applyFold()``).
     var collapsesLabel = false {
-        didSet { if oldValue != collapsesLabel { apply() } }
+        didSet { if oldValue != collapsesLabel { applyFold() } }
     }
 
-    /// The chip's width with its label shown (its icon's width when it has no label), whether or not it is collapsed.
-    var labeledWidth: CGFloat {
-        let side = OmnibarStyle.chipSize
-        AddressBarView.fitMeasurements &+= 1
-        guard labelText != nil else { return side }
-        let padding = (side - OmnibarStyle.iconPointSize) / 2
-        return ceil(side + text.intrinsicContentSize.width + padding)
-    }
+    /// The chip's width with its label shown (its icon's width when it has no label), whether or not it is collapsed:
+    /// measured when the label, its font or the chip's metrics change (``apply()``), so the bar's narrow fit reads it on
+    /// every width change for free.
+    private(set) var labeledWidth: CGFloat = 0
+    /// The measured ``labeledWidth`` changed (a density or text size change re-measures the chip on its own): the bar
+    /// fits its width again.
+    var onLabeledWidthChange: (() -> Void)?
+    /// The label ``apply()`` last set (a localized string: read once per change, not per fit).
+    private var shownLabel: String?
 
     private let icon = NSImageView()
     private let text = ChromeLabel(labelWithString: "")
@@ -82,18 +84,32 @@ final class PageInfoChipButton: NSView, PointerHoverReporting {
         }
     }
 
+    /// The indicator or the metrics changed: the icon, the label and its measured width (``labeledWidth``).
     private func apply() {
         icon.image = NSImage.icon(symbol: indicator.symbol, size: OmnibarStyle.iconSide)
         applyTint()
+        let label = labelText
+        shownLabel = label
         text.font = OmnibarStyle.font
-        text.stringValue = labelText ?? ""
-        text.isHidden = labelText == nil || collapsesLabel
-        themedToolTip = indicator.isTriggerable ? [PageInfoStrings.viewSiteInformation, collapsesLabel ? labelText : nil]
-            .compactMap(\.self).joined(separator: ", ") : nil
-        setAccessibilityLabel([PageInfoStrings.viewSiteInformation, labelText].compactMap(\.self).joined(separator: ", "))
+        text.stringValue = label ?? ""
+        let side = OmnibarStyle.chipSize
+        AddressBarView.fitMeasurements &+= 1
+        let measured = label == nil ? side : ceil(side + text.intrinsicContentSize.width + (side - OmnibarStyle.iconPointSize) / 2)
+        let widthChanged = measured != labeledWidth
+        labeledWidth = measured
+        setAccessibilityLabel([PageInfoStrings.viewSiteInformation, label].compactMap(\.self).joined(separator: ", "))
         setAccessibilityEnabled(indicator.isTriggerable)
-        hover?.refresh()
         if !indicator.isTriggerable { isPressed = false }
+        applyFold()
+        if widthChanged { onLabeledWidthChange?() }
+    }
+
+    /// What the fold shows: the label or the icon alone, and the tooltip that carries a folded label.
+    private func applyFold() {
+        text.isHidden = shownLabel == nil || collapsesLabel
+        themedToolTip = indicator.isTriggerable ? [PageInfoStrings.viewSiteInformation, collapsesLabel ? shownLabel : nil]
+            .compactMap(\.self).joined(separator: ", ") : nil
+        hover?.refresh()
         invalidateIntrinsicContentSize()
         needsLayout = true
     }
