@@ -17,7 +17,7 @@ A target's state:
   imports an Apple-only module outside an `#if`: often a one-line manifest unblock.
 - `clean`: no Apple-only import, but no Linux job builds its package yet: add the package to that
   workflow.
-- `blocked`: it imports (unguarded) an Apple-only module, depends on a target that does, or is a
+- `blocked`: it imports an Apple-only module in code a Linux debug build compiles, depends on a target that does, or is a
   binary target. `blocker` names the first import of the most common class, `kind` its class:
   `appkit`, `uikit`, `swiftui`, `webkit`, `darwin` (the `Darwin` C module alone: a `#if
   canImport(Darwin)` / `Glibc` shim fixes it), `apple` (another Apple-only framework), `binary`
@@ -87,7 +87,7 @@ DARWIN = {"Darwin", "MachO"}
 KIND_ORDER = ["appkit", "uikit", "swiftui", "webkit", "apple", "darwin"]
 
 IMPORT_RE = re.compile(
-    r"^\s*(?:@\w+(?:\([^)]*\))?\s+)*import\s+(?:(?:struct|class|enum|protocol|func|var|let|typealias)\s+)?"
+    r"^\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:public|package|internal|fileprivate|private)\s+)?import\s+(?:(?:struct|class|enum|protocol|func|var|let|typealias)\s+)?"
     r"([A-Za-z_][A-Za-z0-9_]*)"
 )
 IF_RE = re.compile(r"^\s*#if\b(.*)")
@@ -103,7 +103,7 @@ class Target:
     type: str
     path: str
     deps: list[str] = field(default_factory=list)
-    imports: dict[str, str] = field(default_factory=dict)  # module -> first file importing it unguarded
+    imports: dict[str, str] = field(default_factory=dict)  # module -> first file importing it on Linux
     state: str = ""
     kind: str = ""
     blocker: str = ""
@@ -205,17 +205,46 @@ def parse_manifest(path: Path) -> tuple[list[Target], dict[str, list[str]], dict
     return targets, products, local
 
 
-def guarded(stack: list[str]) -> bool:
-    """An import under an `#if` that names a platform, a module or the compiler is conditional."""
-    return any(re.search(r"canImport|os\(|targetEnvironment|compiler\(|swift\(|arch\(", c) for c in stack)
+# Compilation conditions as a Linux debug build sees them (swift build defaults to debug).
+LINUX_FLAGS = {"DEBUG", "SWIFT_PACKAGE"}
+
+
+def linux_condition(cond: str) -> bool:
+    """Whether an `#if` condition holds in a Linux debug build: os(Linux), a canImport of a module
+    Linux has, x86_64 or arm64, any compiler or swift version, and DEBUG are true; other platforms,
+    simulators and unset custom flags are false."""
+    expr = cond.split("//", 1)[0].strip()
+
+    def call(m: re.Match) -> str:
+        fn, arg = m.group(1), m.group(2).strip().split(",")[0].strip()
+        if fn == "os":
+            return " True " if arg == "Linux" else " False "
+        if fn == "canImport":
+            return " False " if import_kind(arg.split(".")[0]) else " True "
+        if fn == "arch":
+            return " True " if arg in ("x86_64", "arm64", "aarch64") else " False "
+        if fn in ("compiler", "swift", "hasFeature", "hasAttribute"):
+            return " True "
+        return " False "  # targetEnvironment(simulator), _endian and the rest
+
+    expr = re.sub(r"\b(\w+)\s*\(([^()]*)\)", call, expr)
+    expr = re.sub(r"\b(?!True\b|False\b)([A-Za-z_]\w*)\b",
+                  lambda m: " True " if m.group(1) in LINUX_FLAGS else " False ", expr)
+    expr = expr.replace("&&", " and ").replace("||", " or ").replace("!", " not ")
+    try:
+        return bool(eval(expr, {"__builtins__": {}}, {}))  # only True/False/and/or/not/parens remain
+    except Exception:
+        return True  # an unparsed condition: assume the code compiles, so the import counts
 
 
 def scan_imports(target: Target) -> None:
+    """The modules a target imports in code a Linux debug build compiles."""
     root = ROOT / target.path
     if not root.is_dir():
         return
     for f in sorted(root.rglob("*.swift")):
-        stack: list[str] = []
+        # One frame per open `#if`: (this branch compiles on Linux, an earlier branch did).
+        stack: list[tuple[bool, bool]] = []
         rel = f.relative_to(ROOT).as_posix()
         try:
             lines = f.read_text(errors="replace").splitlines()
@@ -224,19 +253,21 @@ def scan_imports(target: Target) -> None:
         for line in lines:
             m = IF_RE.match(line)
             if m:
-                stack.append(m.group(1))
+                on = linux_condition(m.group(1))
+                stack.append((on, on))
                 continue
             m = ELSEIF_RE.match(line)
             if m and stack:
-                # `#else` of a platform `#if` is still platform-conditional.
-                stack[-1] = stack[-1] + " " + m.group(2)
+                _, taken = stack[-1]
+                on = not taken and (m.group(1) == "else" or linux_condition(m.group(2)))
+                stack[-1] = (on, taken or on)
                 continue
             if ENDIF_RE.match(line):
                 if stack:
                     stack.pop()
                 continue
             m = IMPORT_RE.match(line)
-            if m and not guarded(stack):
+            if m and all(on for on, _ in stack):
                 target.imports.setdefault(m.group(1), rel)
 
 

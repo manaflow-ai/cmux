@@ -5,8 +5,8 @@
   (scripts/ci/swift-linux-targets-floor.txt), so the count only goes up;
 - every listed row names a package a Linux job builds and a target its manifest declares, once;
 - swift-linux-packages.yml's `linux-targets` job runs `--verify` (the dump-package receipt);
-- the source scan treats an import under a platform `#if` as guarded and an unguarded Apple-only
-  import as the target's blocker, and a target that depends on a blocked one as blocked too.
+- the source scan counts only the imports a Linux debug build compiles (each `#if` evaluated for
+  Linux) and an Apple-only one among them as the target's blocker, and a target that depends on a blocked one as blocked too.
 """
 
 from __future__ import annotations
@@ -85,7 +85,10 @@ def check_scan(failures: list[str]) -> None:
             "#if os(macOS)\n@preconcurrency import os\n#endif\n"
         )
         (root / "Sources/B/b.swift").write_text("import Foundation\n@_exported import struct SwiftUI.Color\n")
-        (root / "Sources/C/c.swift").write_text("import Darwin\n")
+        (root / "Sources/C/c.swift").write_text(
+            "public import AppKit\n#if os(macOS) || DEBUG\nimport Darwin\n#endif\n"
+            "#if os(iOS)\nimport UIKit\n#elseif os(Linux)\nimport Glibc\n#else\nimport WebKit\n#endif\n"
+        )
         old = mod.ROOT
         mod.ROOT = root
         try:
@@ -102,6 +105,9 @@ def check_scan(failures: list[str]) -> None:
             failures.append(f"`@_exported import struct SwiftUI.Color` not seen: {sorted(b.imports)}")
         if mod.import_kind("Darwin") != "darwin":
             failures.append("import Darwin is not the darwin class")
+        # A Linux debug build compiles `public import`, an `#if ... || DEBUG` branch and `#elseif os(Linux)`.
+        if set(c.imports) != {"AppKit", "Darwin", "Glibc"}:
+            failures.append(f"imports a Linux debug build compiles: {sorted(c.imports)} != ['AppKit', 'Darwin', 'Glibc']")
     manifest = """
 let package = Package(name: "P", targets: [
     .target(name: "Core", dependencies: [.product(name: "Crypto", package: "swift-crypto")]),

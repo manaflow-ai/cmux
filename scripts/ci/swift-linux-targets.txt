@@ -34,6 +34,8 @@ Packages/Shared/CmuxIrohTransport  CmuxIrohTransport
 Packages/Shared/CmuxIrohTransport  CmuxIrohTransportTests
 Packages/Shared/CmuxIrxTransport  CmuxIrxTransport
 Packages/Shared/CmuxIrxTransport  CmuxIrxTransportTests
+Packages/Shared/CmuxLiveCode  CmuxLiveCode
+Packages/Shared/CmuxLiveCode  CmuxLiveCodeTests
 Packages/Shared/CmuxPagePushBound  CmuxPagePushBound
 Packages/Shared/CmuxPagePushBound  CmuxPagePushBoundTests
 Packages/Shared/CmuxSentryTelemetry  CmuxSentryScrubbing

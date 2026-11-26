@@ -19,6 +19,7 @@ Packages/Shared/CmuxTextConfirmCore  CmuxTextConfirmCoreTests  CMUX_SWIFTPM_TARG
 Packages/Shared/CmuxChiefVoiceCore  CmuxChiefVoiceCoreTests  CMUX_SWIFTPM_TARGET_LINUX=1
 Packages/Shared/CmuxAgentCursor  CmuxAgentCursorTests  -
 Packages/Shared/CmuxPagePushBound  CmuxPagePushBoundTests  -
+Packages/Shared/CmuxLiveCode  CmuxLiveCodeTests  -
 Packages/iOS/CmuxMobileBilling  CmuxMobileBillingTests  CMUX_SWIFTPM_TARGET_LINUX=1
 Packages/iOS/CmuxMobileRPC  CmuxMobileRPCTests  CMUX_SWIFTPM_TARGET_LINUX=1
 Packages/Shared/CMUXMobileCore  CMUXMobileCoreTests  -
