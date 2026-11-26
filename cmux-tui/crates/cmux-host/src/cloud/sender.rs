@@ -246,6 +246,8 @@ pub struct Reporter {
     in_flight: Option<Vec<String>>,
     last_sent_at: Option<u64>,
     window_at: Option<u64>,
+    /// A report is due past the floor ([`Reporter::trigger_now`]); cleared by the send.
+    urgent: bool,
     retry_at: Option<u64>,
     heartbeat_at: Option<u64>,
     backoff: Backoff,
@@ -268,6 +270,7 @@ impl Reporter {
             in_flight: None,
             last_sent_at: None,
             window_at: None,
+            urgent: false,
             retry_at: None,
             heartbeat_at: None,
             backoff: Backoff::new(5_000, 600_000),
@@ -296,6 +299,15 @@ impl Reporter {
         }
         self.dirty = true;
         self.schedule(now)
+    }
+
+    /// Marks a report due now, past the `min_interval_ms` floor: a machine running short
+    /// (`Session::pressure`). A report in flight or a retry's backoff still comes first; the
+    /// report goes the moment that one is answered.
+    pub fn trigger_now(&mut self, reason: &str, now: u64) -> Option<OpRequest> {
+        self.urgent = true;
+        self.window_at = None;
+        self.trigger(reason, now)
     }
 
     /// The activity the next report carries.
@@ -453,7 +465,11 @@ impl Reporter {
         {
             return None;
         }
-        let due = self.last_sent_at.map_or(now, |last| last + self.min_interval_ms);
+        let due = if self.urgent {
+            now
+        } else {
+            self.last_sent_at.map_or(now, |last| last + self.min_interval_ms)
+        };
         if due <= now {
             return Some(self.send(now));
         }
@@ -463,6 +479,7 @@ impl Reporter {
 
     fn send(&mut self, now: u64) -> OpRequest {
         self.dirty = false;
+        self.urgent = false;
         self.last_sent_at = Some(now);
         let reasons = std::mem::take(&mut self.pending);
         let reason = if reasons.is_empty() { "retry".to_owned() } else { reasons.join("+") };
