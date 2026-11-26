@@ -294,7 +294,7 @@ impl Mux {
         let slots: Vec<(TerminalPublicId, Option<Arc<AgentPresence>>)> = self
             .agent_presence
             .lock()
-            .unwrap()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .iter()
             .map(|(terminal, slot)| (terminal.clone(), slot.presence.clone().map(Arc::new)))
             .collect();
