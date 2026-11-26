@@ -1327,8 +1327,11 @@ jobs:
             "$RUNNER_TEMP/webviews-head-results/runner/"
           # A pull request runs the test files its change can reach (scripts/ci/webviews_affected.py:
           # the import graph, every test that reads files from disk, and every file for a build input
-          # or an unmapped path); empty output runs every file. A feat-cmux-next push and full-ci run all.
-          if [ -n "$BASE_REF" ] && [ "$FULL_CI" != true ]; then
+          # or an unmapped path); empty output runs every file. A feat-cmux-next push and full-ci run all, except a
+          # full-ci head whose pick ran (REACT_APPS_CLASS sampled or fast: into feat-cmux-next, #57352): it runs the
+          # pick's files as any pull request does. It ran shard 1's whole share instead, 406 files and 12.9 min for
+          # a release-notes highlight (cmux#53546 35726b7d, run 45771042383); the post-merge batch runs every file.
+          if [ -n "$BASE_REF" ] && { [ "$FULL_CI" != true ] || [ "$REACT_APPS_CLASS" = sampled ] || [ "$REACT_APPS_CLASS" = fast ]; }; then
             CMUX_WEB_TEST_FILES="$(python3 ../scripts/ci/webviews_affected.py --base "$BASE_REF" --head HEAD)" || CMUX_WEB_TEST_FILES=""
             # Shard 1 and the one shard past 1 a pull request picks run only their touched tests
             # (webviews_pr_shards.py --direct-out), as one unsplit list, not their share of the closure above: shard 1
@@ -1584,6 +1587,7 @@ jobs:
           SHARD: ${{ matrix.shard }}
           SHARD_COUNT: ${{ matrix.shard_count }}
           FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          REACT_APPS_CLASS: ${{ needs.web-subarea-scope.outputs.react_class }}
         run: |
           runner="$RUNNER_TEMP/base-early/runner"
           mkdir -p "$runner"
@@ -1592,7 +1596,8 @@ jobs:
           cp scripts/ci/pin-browser-test-font.sh "$RUNNER_TEMP/pin-browser-test-font.sh"
           # The head shards run only the change's affected files (empty: every file), so only those can be red there.
           only=()
-          if [ "$FULL_CI" != true ]; then
+          # A full-ci head whose pick ran runs the pick's files (Test webviews), so the same narrowing holds here.
+          if [ "$FULL_CI" != true ] || [ "$REACT_APPS_CLASS" = sampled ] || [ "$REACT_APPS_CLASS" = fast ]; then
             (cd webviews && python3 ../scripts/ci/webviews_affected.py --base HEAD^1 --head HEAD) > "$RUNNER_TEMP/base-early/affected" ||
               : > "$RUNNER_TEMP/base-early/affected"
             # A pull request whose pick ran fewer than every head shard: only those shards' files can be red there
