@@ -110,15 +110,6 @@
           "workers/cmux-vm/cli/scripts/regenerate.sh": "generated_merge.py REGENERATE: a command, not run by the audit",
           "workers/iroh-v2/": "generated_merge.py REGENERATE: a command's working directory, not read by the audit"
         }
-      },
-      "workflow-start-lint": {
-        "why": "actionlint reads every workflow; the lint and its installer are its code",
-        "inputs": [
-          ".github/",
-          "scripts/ci/install-actionlint.sh",
-          "scripts/ci/workflow_start_lint.py",
-          "tests/test_ci_workflow_start_lint.py"
-        ]
       }
     },
     ".github/workflows/cmux-next-react-doctor.yml": {

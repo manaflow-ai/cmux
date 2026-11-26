@@ -49,7 +49,7 @@ class RouteTest(unittest.TestCase):
         self.assertEqual(self.run_route(FAST_GATES, changed("Packages/macOS/CmuxNext/Sources/A.swift")),
                          {"fast-gates": True})
         self.assertEqual(self.run_route(FAST_GATES, changed("Resources/Localizable.xcstrings")), {"fast-gates": True})
-        self.assertEqual(self.run_route(GUARDS, changed("tests/test_base_red_excuse.py")), {"ci-guard-group": True, "own-change-checks": False, "workflow-start-lint": False})
+        self.assertEqual(self.run_route(GUARDS, changed("tests/test_base_red_excuse.py")), {"ci-guard-group": True, "own-change-checks": False})
 
     def test_the_workflow_itself_is_an_input(self):
         self.assertEqual(self.run_route(DOCTOR, changed(DOCTOR)), {"react-doctor": True})
