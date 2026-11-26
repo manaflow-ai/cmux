@@ -42,6 +42,49 @@ import Testing
         ResizeStepTimes.live.reset()
     }
 
+    /// Lever 4e: the CEF host runs the message pump work CEF asked for at the start of each resize step, before its
+    /// layout (`CEFMessagePump.runIfDueAtStep`). The hook runs at every step, timed or not, once the step is open (its
+    /// time is the step's); not for a call that is no step. A step begun and a pane laid out inside the pass (a CEF
+    /// callback that reached cmux's views mid-step) are counted on the pass's line (`nested=`), never hooked again.
+    @Test func aStepHookRunsAtEveryStepAndCountsWhatRunsInsideAPass() {
+        ResizeStepTimes.live.reset()
+        ResizeStepLog.reset()
+        defer {
+            ResizeStepTimes.live.stepWillLayOut = nil
+            ResizeStepTimes.recordingOverride = nil
+            ResizeStepLog.reset()
+            ResizeStepTimes.live.reset()
+        }
+        var hooked: [ResizeStepTimes.StepKind] = []
+        var openAtHook: [Bool] = []
+        ResizeStepTimes.live.stepWillLayOut = { kind in
+            hooked.append(kind)
+            openAtHook.append(ResizeStepLog.step != nil)
+        }
+        ResizeStepTimes.recordingOverride = false
+        #expect(ResizeStepTimes.beginStep(.window) == nil, "untimed: no start")
+        #expect(hooked == [.window], "an untimed step is hooked too (a Release build nobody streams)")
+        ResizeStepTimes.recordingOverride = true
+        #expect(ResizeStepTimes.beginStep(.divider) != nil)
+        #expect(hooked == [.window, .divider])
+        #expect(openAtHook == [false, true], "a timed step is open when its hook runs")
+        _ = ResizeStepTimes.beginStep(.divider, if: false)
+        #expect(hooked.count == 2, "no step, no hook")
+
+        let before = ResizeStepTimes.live.nestedInPass
+        ResizeStepTimes.pass("cef_pump") {
+            _ = ResizeStepTimes.beginStep(.window)
+            ResizeStepTimes.recordLive("pane_layout", since: ResizeStepTimes.start())
+            return " ran=1"
+        }
+        #expect(hooked.count == 2, "a step inside a pass is not hooked")
+        #expect(ResizeStepTimes.live.nestedInPass - before == 2, "the step and the pane's layout inside the pass")
+        #expect(ResizeStepTimes.live.report()["cef_pump"]?["steps"] as? Int == 1, "the pass is a phase of the step")
+        ResizeStepTimes.pass("cef_pump") { nil }
+        #expect(ResizeStepTimes.live.report()["cef_pump"]?["steps"] as? Int == 1,
+                "a pass with nothing to do writes no line")
+    }
+
     /// A divider drag's step is its frame tick and what its turn lays out until the commit: a pane laid out in it is
     /// timed with no live resize, under `divider.`, and the step ends after the commit. With steps not timed (a Release
     /// build nobody streams) no step begins and its condition is never read.

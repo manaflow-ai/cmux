@@ -23,6 +23,7 @@
 #include <string>
 #include <vector>
 
+#include "include/base/cef_trace_event.h"
 #include "include/cef_drag_data.h"
 #include "include/cef_render_handler.h"
 #include "shim_internal.h"
@@ -48,6 +49,23 @@ struct Counters {
   uint64_t surfaces_made = 0;
 };
 Counters g_counters;
+
+// Stage marks for a Chromium trace (CMUX_OSR_TRACE=1, bench runs with a
+// startup trace of category cef.client): each resize cmux asks for and each
+// frame that reaches the shim, with the browser and the size, so a trace
+// places WasResized, the renderer's activation and the paint of every page
+// on one clock (approaches/osr tools/osr_stages.py).
+bool TraceOn() {
+  static const bool on = [] {
+    const char* value = getenv("CMUX_OSR_TRACE");
+    return value && value[0] == '1';
+  }();
+  return on;
+}
+
+uint64_t PackSize(int width, int height) {
+  return (static_cast<uint64_t>(std::max(width, 0)) << 32) | static_cast<uint32_t>(std::max(height, 0));
+}
 
 std::set<int>& offscreen_browsers() {
   static std::set<int> set;
@@ -259,6 +277,11 @@ class OffscreenRenderHandler : public CefRenderHandler {
     frame.source_height = extra.has_source_size ? extra.source_size.height : 0;
     frame.capture_counter = extra.capture_counter;
     frame.timestamp_us = static_cast<int64_t>(extra.timestamp);
+    if (TraceOn() && type != PET_POPUP) {
+      // Pixel size of what the frame holds; a letterboxed frame is the page scaled into the capturer's old size.
+      TRACE_EVENT_INSTANT2("cmux", scaled || letterboxed ? "CmuxOsrPaintLetterboxed" : "CmuxOsrPaint", "browser",
+                           static_cast<uint64_t>(id), "size_px", PackSize(visible.width, visible.height));
+    }
     if (letterboxed) {
       g_counters.letterboxed++;
       frame.letterboxed = 1;
@@ -403,7 +426,15 @@ int cmux_shim_osr_is_offscreen(int browser_id) {
 }
 
 void cmux_shim_osr_was_resized(int browser_id) {
-  if (CefRefPtr<CefBrowserHost> host = OffscreenHost(browser_id)) host->WasResized();
+  CefRefPtr<CefBrowserHost> host = OffscreenHost(browser_id);
+  if (!host) return;
+  if (TraceOn()) {
+    int width = 0, height = 0;
+    if (g_handlers.view_rect) g_handlers.view_rect(g_ctx, browser_id, &width, &height);
+    TRACE_EVENT_INSTANT2("cmux", "CmuxOsrWasResized", "browser", static_cast<uint64_t>(browser_id), "size_dip",
+                         PackSize(width, height));
+  }
+  host->WasResized();
 }
 
 void cmux_shim_osr_was_hidden(int browser_id, int hidden) {
@@ -417,6 +448,7 @@ void cmux_shim_osr_screen_info_changed(int browser_id) {
 void cmux_shim_osr_invalidate(int browser_id) {
   if (CefRefPtr<CefBrowserHost> host = OffscreenHost(browser_id)) {
     g_counters.refreshes++;
+    if (TraceOn()) TRACE_EVENT_INSTANT1("cmux", "CmuxOsrInvalidate", "browser", static_cast<uint64_t>(browser_id));
     host->Invalidate(PET_VIEW);
   }
 }
@@ -427,7 +459,10 @@ void cmux_shim_osr_set_frame_rate(int browser_id, int frame_rate) {
 
 void cmux_shim_osr_begin_frame(int browser_id) {
   if (!(g_flags & 1)) return;
-  if (CefRefPtr<CefBrowserHost> host = OffscreenHost(browser_id)) host->SendExternalBeginFrame();
+  if (CefRefPtr<CefBrowserHost> host = OffscreenHost(browser_id)) {
+    if (TraceOn()) TRACE_EVENT_INSTANT1("cmux", "CmuxOsrBeginFrame", "browser", static_cast<uint64_t>(browser_id));
+    host->SendExternalBeginFrame();
+  }
 }
 
 int cmux_shim_osr_drag(int browser_id, int kind, int x, int y, uint32_t modifiers, const char* const* paths,
