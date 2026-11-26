@@ -516,9 +516,11 @@ impl Pending {
     /// Run a synchronous operation while fencing the mark against a concurrent Stop.
     ///
     /// Retry teardown uses this to authorize and remove the child in one critical section;
-    /// Stop either fences the generation first or observes the child already removed.
-    pub(super) fn with_current<T>(&self, fired_gen: u64, f: impl FnOnce() -> T) -> Option<T> {
-        let _mark = self.mark.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    /// Stop either fences the generation first or observes the child already removed. The mark
+    /// is deliberately acquired without waiting: the teardown takes the child slot first, while
+    /// Stop takes this mark first, so waiting here would invert their lock order.
+    pub(super) fn try_with_current<T>(&self, fired_gen: u64, f: impl FnOnce() -> T) -> Option<T> {
+        let _mark = self.mark.try_lock().ok()?;
         self.current(fired_gen).then(f)
     }
 

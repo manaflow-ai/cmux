@@ -3510,12 +3510,19 @@ impl Hub {
         // permission prompts are that daemon's (`shutdown.rs`). Read under the child lock, held
         // until the agent is gone: the shutdown takes it only after it began, so it finds either
         // this detach done or nothing of it.
-        let mut slot = session.child.lock().await;
+        // Stop takes the retry mark before it waits for this child slot. A generation-fenced
+        // teardown therefore takes the slot without waiting, then tries the mark; if either
+        // operation is busy it returns and the retry handoff rechecks after the competitor
+        // releases its lock. The guard stays alive through the asynchronous kill.
+        let mut slot = match generation {
+            Some(_) => match session.child.try_lock() {
+                Ok(slot) => slot,
+                Err(_) => return false,
+            },
+            None => session.child.lock().await,
+        };
         let child = if let Some(generation) = generation {
-            // Stop takes the same mark lock before fencing this generation. Authorize and remove
-            // synchronously while both locks are held; the child-slot guard then stays held
-            // through kill so no replacement can start beside the child being ended.
-            let Some(result) = session.auto_resume.with_current(generation, || {
+            let Some(result) = session.auto_resume.try_with_current(generation, || {
                 if self.hands_off(session) {
                     return Err(());
                 }
