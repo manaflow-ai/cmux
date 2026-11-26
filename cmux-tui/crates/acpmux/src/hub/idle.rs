@@ -459,7 +459,7 @@ impl Hub {
             self.touch(&session);
             return;
         }
-        if !self.hibernate_held(&session, link_lost, Some(seen)).await {
+        if !self.hibernate_held(&session, link_lost, Some(seen), None).await {
             return;
         }
         if moving {
@@ -498,13 +498,17 @@ impl Hub {
         session: &Arc<Session>,
         link_lost: bool,
         seen: Option<u64>,
+        firing_retry: Option<u64>,
     ) -> bool {
         session.hibernated_at.store(self.clock_now().max(1), Ordering::SeqCst);
         if seen.is_some_and(|seen| session.last_active.load(Ordering::SeqCst) != seen) {
             self.clear_hibernation(session);
             return false;
         }
-        self.detach_child(session).await;
+        if !self.detach_child_if_current(session, firing_retry).await {
+            self.clear_hibernation(session);
+            return false;
+        }
         if link_lost {
             self.end_unadopted_host(session).await;
         }

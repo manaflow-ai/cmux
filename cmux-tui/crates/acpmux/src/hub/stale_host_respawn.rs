@@ -135,15 +135,32 @@ impl Hub {
     pub(super) async fn end_stale_proxy_before_retry(
         self: &Arc<Self>,
         session: &Arc<Session>,
+        fired_gen: u64,
     ) -> bool {
         if !self.proxy_stale(session).await {
             return false;
         }
-        let ended = self.end_quiet_stale(session, "stale-proxy-retry", true).await;
+        let ended = self.end_quiet_stale(session, "stale-proxy-retry", Some(fired_gen)).await;
         if !ended {
             self.respawn_when_quiet(session);
         }
         ended
+    }
+
+    /// A route, credential or gateway change marks a live harness to restart when quiet. An
+    /// automatic continuation is the one prompt that must not run on the old environment, so it
+    /// may hibernate that marked harness immediately before firing. The continuation itself is
+    /// exempted by [`Self::retry_restart_eligible`]; every other idle gate and the process census
+    /// still applies, and a queued prompt, question or descendant keeps the old harness alive.
+    pub(super) async fn end_marked_restart_before_retry(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        fired_gen: u64,
+    ) -> bool {
+        if !session.respawn_when_quiet.load(Ordering::SeqCst) {
+            return false;
+        }
+        self.end_quiet_stale(session, "restart-when-quiet-retry", Some(fired_gen)).await
     }
 
     /// Ends `session`'s agent when it is idle as the idle pass judges it (`idle.rs`
@@ -155,7 +172,7 @@ impl Hub {
     }
 
     async fn end_idle_stale_for(&self, session: &Arc<Session>, cause: &'static str) -> bool {
-        self.end_quiet_stale(session, cause, false).await
+        self.end_quiet_stale(session, cause, None).await
     }
 
     /// The immediate automatic exit uses the same leases, activity checks, census and
@@ -165,11 +182,14 @@ impl Hub {
         &self,
         session: &Arc<Session>,
         cause: &'static str,
-        firing_retry: bool,
+        firing_retry: Option<u64>,
     ) -> bool {
         let eligible = || {
-            if firing_retry {
-                self.retry_restart_eligible(session)
+            if self.shutting_down() {
+                return false;
+            }
+            if let Some(generation) = firing_retry {
+                session.auto_resume.current(generation) && self.retry_restart_eligible(session)
             } else {
                 self.idle_eligible(session)
             }
@@ -197,7 +217,7 @@ impl Hub {
             return false;
         }
         let link_lost = child.host_record().is_some() && !child.is_alive().await;
-        if !self.hibernate_held(session, link_lost, Some(seen)).await {
+        if !self.hibernate_held(session, link_lost, Some(seen), firing_retry).await {
             return false;
         }
         tracing::info!(session = %session.id, cause, "hibernated: stale agent passed every quietness gate and the census");
@@ -357,17 +377,17 @@ mod tests {
         let (hub, session) = live_chat().await;
         let first = session.child.lock().await.clone().unwrap();
         session.queued.fetch_add(1, Ordering::SeqCst);
-        for retry in [false, true] {
+        for retry in [None, Some(0)] {
             assert!(!hub.end_quiet_stale(&session, "test", retry).await);
         }
         session.queued.fetch_sub(1, Ordering::SeqCst);
         *session.work_below_since.lock().unwrap() = 1;
-        for retry in [false, true] {
+        for retry in [None, Some(0)] {
             assert!(!hub.end_quiet_stale(&session, "test", retry).await);
         }
         assert!(Arc::ptr_eq(&first, session.child.lock().await.as_ref().unwrap()));
         *session.work_below_since.lock().unwrap() = 0;
-        assert!(hub.end_quiet_stale(&session, "test", false).await);
+        assert!(hub.end_quiet_stale(&session, "test", None).await);
         assert!(session.child.lock().await.is_none());
         assert_ne!(session.meta().hibernated_ms, 0);
         hub.shutdown_all().await;
@@ -390,10 +410,10 @@ mod tests {
         .unwrap();
         assert!(hub.idle_eligible(&session), "the child is absent from the agent's work tables");
         let first = session.child.lock().await.clone().unwrap();
-        for retry in [false, true] {
+        for retry in [None, Some(0)] {
             assert!(
                 !hub.end_quiet_stale(&session, "test", retry).await,
-                "an automatic restart cut an unreported child (retry={retry})"
+                "an automatic restart cut an unreported child (retry={retry:?})"
             );
         }
         assert!(Arc::ptr_eq(&first, session.child.lock().await.as_ref().unwrap()));

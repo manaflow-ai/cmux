@@ -222,7 +222,7 @@ mod tests {
         assert!(!hub.idle_eligible(&session), "background work holds the refresh");
         *session.work_below_since.lock().unwrap() = 0;
         // Exercise the shared quiet exit without waiting thirty wall-clock seconds.
-        assert!(hub.end_quiet_stale(&session, "credential-test", false).await);
+        assert!(hub.end_quiet_stale(&session, "credential-test", None).await);
         let after = hub.child_for(&session).await.unwrap().generation;
         assert_ne!(before, after, "a new agent process");
         assert_eq!(launched(&session).get(CLAUDE_OAUTH).map(String::as_str), Some(SECOND));
