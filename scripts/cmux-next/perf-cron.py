@@ -4569,7 +4569,10 @@ def cmd_run_linux_part(o):
             for line in webui_wakeup_lines(stdout):
                 print(f"perf-cron web-ui: {line}")
             if isinstance(value, dict):
-                report = value
+                # The suite's report becomes the part's, keeping what ran before it: the web-ui-god part's paired
+                # rounds run first (cmux#57939), and a bare `report = value` dropped them, so the board kept the
+                # one-run ratio 4 more days (perf cron run 45853686955: 6 rounds, token 1.163, nothing stored).
+                report = {**value, **{k: v for k, v in report.items() if k == "paired"}}
                 failed = [f for f in value.get("failed") or [] if isinstance(f, dict)]
                 if failed:
                     report["incomplete"] = [f"{f.get('bench')}: {f.get('why')}" for f in failed]
