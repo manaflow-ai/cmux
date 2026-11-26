@@ -26,7 +26,17 @@ import SwiftUI
         for _ in 0..<3000 where source.kitTabBuilds < expected {
             try await Task.sleep(for: .milliseconds(10))
         }
-        #expect(source.kitTabBuilds == expected, "kit tab builds reached " + String(expected) + " within 30 s")
+        try #require(source.kitTabBuilds == expected,
+                     "kit tab builds reached " + String(expected) + " within 30 s")
+    }
+
+    /// Waits for a streamed value and the state derived from it, with a bound
+    /// that still lets the following assertions explain the card contract.
+    static func waitUntil(_ what: String, _ condition: @escaping () -> Bool) async throws {
+        for _ in 0..<3000 where !condition() {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(condition(), what + " within 30 s")
     }
 
     /// A publish that changes another workspace (or nothing the kit shows)
@@ -255,15 +265,15 @@ import SwiftUI
         )
         mock.chunkSize = 8
         let chat = AgentChatStore(source: mock)
-        await yieldUntil { !(chat.turns.isEmpty) }
+        try await Self.waitUntil("initial chat turns") { !chat.turns.isEmpty }
         let feed = AgentCardFeed(store: chat)
         let start = feed.pulls
         let before = chat.turns
         chat.send(prompt: "go")
         // Many streamed changes arrive; the card copies none of them.
-        for _ in 0..<2000 where chat.turns == before { await Task.yield() }
-        for _ in 0..<200 { await Task.yield() }
-        try #require(chat.turns != before)
+        try await Self.waitUntil("streamed chat turns and stale card") {
+            chat.turns != before && feed.stale
+        }
         #expect(feed.pulls == start)
         #expect(feed.stale)
         feed.catchUp()
