@@ -243,7 +243,7 @@ class GeneratedFoldTest(unittest.TestCase):
         swift_build_if = self.builders(self.swift)[0]["if"]
         events = [("push", NEXT), ("push", "refs/heads/main"),
                   ("pull_request", "refs/pull/1/merge"), ("workflow_dispatch", NEXT)]
-        cases = pr_single = 0
+        cases = 0
         for (event, ref), generated, swift, targets, daemon, tree, marker, web, current, fork, labels in itertools.product(
                 events, ("true", "false"), ("true", "false"), ("all", ""), ("true", "false"),
                 ("ready", "deferred", "failed", ""), ("", "failure"), ("success", "failure"), ("true", "false"),
@@ -298,27 +298,25 @@ class GeneratedFoldTest(unittest.TestCase):
                 producers = sum(builds.values())
                 if gen_routed:
                     self.assertEqual(producers, max(1, builds["swift-test"] + builds["daemon-test"]))
-                if event == "pull_request" and gen_routed and builds["swift-test"] + builds["daemon-test"] == 1:
-                    self.assertEqual(producers, 1)
-                    pr_single += 1
+                # Since #57353 a pull request into feat-cmux-next runs neither Mac package suite, so
+                # path routing hosts its generated files on generated-files.
+                if event == "pull_request":
+                    self.assertFalse(builds["swift-test"] or builds["daemon-test"])
+                    if gen_routed:
+                        self.assertEqual(host, "generated-files")
             cases += 1
         self.assertEqual(cases, 4 * 2 * 2 * 2 * 2 * 4 * 2 * 2 * 2 * 2 * 2)
-        self.assertGreater(pr_single, 0)
 
     def test_a_pull_request_with_daemon_or_swift_and_generated_inputs_has_one_build_producer(self):
-        """HQ#4724's case, spelled out: before, swift-test (or daemon-test) and generated-files both built."""
+        """HQ#4724's case, spelled out: one build producer, never swift-test (or daemon-test) and generated-files both."""
         pr = ("pull_request", "refs/pull/1/merge")
-        # A pull request runs swift-test only with full-ci (2026-11-05), so without it the daemon tests
-        # or the generated-files job's own build check the generated files.
-        self.assertEqual(self.host(*pr, "true", "true", "all", "false", "", ""), "generated-files")
-        self.assertEqual(self.host(*pr, "true", "true", "all", "true", "ready", ""), "daemon-test")
-        self.assertEqual(self.host(*pr, "true", "true", "all", "false", "", "", ("full-ci",)), "swift-test")
-        self.assertEqual(self.host(*pr, "true", "false", "", "true", "ready", ""), "daemon-test")
-        self.assertEqual(self.host(*pr, "true", "true", "all", "true", "ready", "", ("full-ci",)), "swift-test")
-        # No targets: swift-test does not build, so the daemon tests or the job's own build check them.
-        self.assertEqual(self.host(*pr, "true", "true", "", "true", "ready", ""), "daemon-test")
-        self.assertEqual(self.host(*pr, "true", "true", "", "false", "", ""), "generated-files")
-        self.assertEqual(self.host(*pr, "true", "false", "", "true", "deferred", ""), "generated-files")
+        # Since #57353 a pull request into feat-cmux-next runs neither swift-test nor daemon-test, full-ci
+        # or not, so the generated-files job's own build checks its generated files.
+        for swift, targets, daemon, tree in (("true", "all", "false", ""), ("true", "all", "true", "ready"),
+                                             ("false", "", "true", "ready"), ("true", "", "true", "ready"),
+                                             ("true", "", "false", ""), ("false", "", "true", "deferred")):
+            for labels in ((), ("full-ci",)):
+                self.assertEqual(self.host(*pr, "true", swift, targets, daemon, tree, "", labels), "generated-files")
         self.assertEqual(self.host(*pr, "false", "true", "all", "true", "ready", ""), "none")
         # A push keeps daemon-test as its host (swift-test skips a feat-cmux-next push).
         self.assertEqual(self.host("push", NEXT, "true", "true", "all", "true", "ready", ""), "daemon-test")
