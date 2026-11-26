@@ -70,7 +70,6 @@ final class ChromiumPageHost: PageChromiumHosting {
         #endif
         DebugTimings.markLaunch("chromium_page.make_start")
         let made = try await cef.makeTab(configuration)
-        for mark in cef.launchMarks(now: DebugTimings.millisecondsSinceProcessStart() / 1_000) { DebugTimings.markLaunch(mark.name, at: Date(timeIntervalSinceNow: mark.offset)) }
         guard let tab = made as? CEFTab else { made.close(); throw Failure.notChromium }
         (tab.pageThemeSurface, tab.keyRouter) = (.internalPage, keyRouter)
         tab.onReadyForKeys = { [weak keyRouter, weak tab, firstPage] in keyRouter?.creationInputCoordinator.pageArrived(nil); if let tab { firstPage.ask(tab, script: LaunchFirstPage.script) { for mark in LaunchFirstPage.marks($0) { DebugTimings.markLaunch(mark.name, at: mark.at) } } } } // its grant ends a key hold that waited for it; the first page's load times (startup-tti)
@@ -79,6 +78,7 @@ final class ChromiumPageHost: PageChromiumHosting {
         tab.agentRelay.createBrowser()
         guard await tab.agentRelay.browserCreated() else { tab.close(); throw Failure.browserNotCreated }
         DebugTimings.markLaunch("chromium_page.browser_created")
+        for mark in cef.launchMarks(now: DebugTimings.millisecondsSinceProcessStart() / 1_000) { DebugTimings.markLaunch(mark.name, at: Date(timeIntervalSinceNow: mark.offset)) }
         return chromiumPage
     }
 }

@@ -330,6 +330,7 @@ impl RelayCarrier {
         if let Some(space) = &endpoint.build_space {
             headers.insert(crate::build_space::HEADER, header(space.as_str())?);
         }
+        let request = cmux_egress::ws::checked(request, "cmux_mobile_link::dial::relay").map_err(classify)?;
         let host = request.uri().host().unwrap_or_default().trim_matches(['[', ']']).to_owned();
         let (socket, via) =
             tokio::time::timeout(JOIN_WAIT, crate::egress::connect_websocket(request, &endpoint.egress))
