@@ -7022,6 +7022,12 @@
         "nullable": true
       }
     },
+    "request:_acpmux/autocloud_enroll": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/bg/list": {
       "/*untyped*": {
         "ty": "json",
@@ -9607,6 +9613,10 @@
       },
       "/beforeSeq": {
         "ty": "uint64",
+        "nullable": true
+      },
+      "/inOrder": {
+        "ty": "boolean",
         "nullable": true
       },
       "/kinds": {
@@ -12934,6 +12944,18 @@
       }
     },
     "request:_acpmux/history": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/history_delete": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/history_offload": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -26701,6 +26723,12 @@
         "nullable": true
       }
     },
+    "request:_acpmux/transcript_offload": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/transfer_abort": {
       "/*untyped*": {
         "ty": "json",
@@ -31124,6 +31152,18 @@
         "ty": "json"
       }
     },
+    "request:session/signature": {
+      "/_meta": {
+        "ty": "json"
+      },
+      "/sessionIds": {
+        "ty": "array",
+        "required": true
+      },
+      "/sessionIds/*": {
+        "ty": "string"
+      }
+    },
     "request:trigger/chat.ensure": {
       "/*untyped*": {
         "ty": "json",
@@ -32693,6 +32733,12 @@
         "nullable": true
       }
     },
+    "response:_acpmux/autocloud_enroll": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/bg/list": {
       "/data/*untyped*": {
         "ty": "json",
@@ -33557,6 +33603,18 @@
       }
     },
     "response:_acpmux/history": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/history_delete": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/history_offload": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -37818,6 +37876,12 @@
         "nullable": true
       }
     },
+    "response:_acpmux/transcript_offload": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/transfer_abort": {
       "/data/*untyped*": {
         "ty": "json",
@@ -39605,6 +39669,54 @@
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
+      }
+    },
+    "response:session/signature": {
+      "/data/signatures": {
+        "ty": "map",
+        "required": true
+      },
+      "/data/signatures/*": {
+        "ty": "object"
+      },
+      "/data/signatures/*/accent": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/signatures/*/dots": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/signatures/*/dots/*": {
+        "ty": "object"
+      },
+      "/data/signatures/*/dots/*/phase": {
+        "ty": "double",
+        "required": true
+      },
+      "/data/signatures/*/dots/*/r": {
+        "ty": "double",
+        "required": true
+      },
+      "/data/signatures/*/dots/*/x": {
+        "ty": "double",
+        "required": true
+      },
+      "/data/signatures/*/dots/*/y": {
+        "ty": "double",
+        "required": true
+      },
+      "/data/signatures/*/drift": {
+        "ty": "double",
+        "required": true
+      },
+      "/data/signatures/*/seed": {
+        "ty": "double",
+        "required": true
+      },
+      "/data/signatures/*/variant": {
+        "ty": "string",
+        "required": true
       }
     },
     "response:trigger/chat.ensure": {
