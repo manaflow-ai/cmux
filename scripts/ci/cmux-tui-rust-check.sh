@@ -1038,7 +1038,10 @@ if [[ "$mode" == channel ]]; then
   step go ensure_go
   channel_build_t0=$SECONDS
   channel_build_log="$channel_out/acpmux-build.txt"
-  channel_build_acpmux >"$channel_build_log" 2>&1 &
+  # Its own target dir: one cargo target dir is one lock, so a shared one would make the build wait for the
+  # tests instead of running beside them (ci-v2.md step 10b).
+  channel_musl_target="$root/.build/cmux-tui-channel-musl-target"
+  (export CARGO_TARGET_DIR="$channel_musl_target"; channel_build_acpmux) >"$channel_build_log" 2>&1 &
   channel_build_pid=$!
   step "channel daemon tests" channel_daemon_tests
   channel_build_rc=0
