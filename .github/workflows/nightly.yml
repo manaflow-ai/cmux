@@ -284,6 +284,8 @@ jobs:
       feed_base: ${{ steps.decide.outputs.feed_base }}
       entitlements: ${{ steps.decide.outputs.entitlements }}
       icon_name: ${{ steps.decide.outputs.icon_name }}
+      app_input_digest: ${{ steps.app-input-digest.outputs.app_input_digest }}
+      would_reuse: ${{ steps.app-input-digest.outputs.would_reuse }}
     steps:
       - name: Check out the revision under consideration
         if: github.ref != 'refs/heads/nightly-next'
@@ -304,6 +306,9 @@ jobs:
           fetch-depth: 1
           sparse-checkout: |
             /scripts/ci/nightly-publication-marker.py
+            /scripts/ci/app_input_digest.py
+            /scripts/ci/nightly-steps/decide-shadow-app-input-digest.sh
+            /scripts/ci/timeout.sh
             /.gitmodules
           sparse-checkout-cone-mode: false
 
@@ -461,12 +466,15 @@ jobs:
             // build instead of three, after Apple's queue held all three past the wait in
             // runs 37648507383 and 37667249069. Its x86_64, universal and legacy feeds keep
             // their last build, so an Intel Mac is never offered an arm64-only app.
-            const variants = fastBuild || track === 'nightly-next' ? ['arm64'] : ['arm64', 'x86_64', 'universal'];
+            // The main-track NIGHTLY is arm64 only too (Leo, 2026-11-25: "i thought we were already skipping
+            // intel"; 2026-11-12: "WHY DO WE KEEP F***ING BUILDING INTEL MACS ALL THE F***ING TIME"). Only the
+            // RC channel still ships the three variants. Intel and universal ship from the stable release workflow.
+            const variants = fastBuild || track !== 'rc' ? ['arm64'] : ['arm64', 'x86_64', 'universal'];
             // Compile only the slices these variants consume. nightly-next
             // ships arm64 only; compiling Intel here still paid for a second
             // whole-module Swift compile and both slices of the Rust helpers.
             const compileArchs = variants.includes('universal') ? ['arm64', 'x86_64'] : variants;
-            const feeds = track === 'nightly-next'
+            const feeds = track !== 'rc'
               ? ['appcast-arm64.xml']
               : ['appcast-arm64.xml', 'appcast-x86_64.xml', 'appcast-universal.xml', 'appcast.xml'];
             core.setOutput('variants', JSON.stringify(variants));
@@ -905,6 +913,18 @@ jobs:
               ])
               .write();
 
+      # Shadow only (clean-sheet CI RFD hq#26225): would a build add nothing because no app input changed since the last
+      # published commit? Reports app_input_digest and would_reuse; decides nothing, cannot fail the job.
+      - name: Shadow the app-input digest
+        id: app-input-digest
+        if: ${{ !cancelled() && steps.decide.outputs.head_sha != '' }}
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          HEAD_SHA: ${{ steps.decide.outputs.head_sha }}
+          PUBLISHED_SHA: ${{ steps.decide.outputs.published_sha }}
+        run: bash scripts/ci/nightly-steps/decide-shadow-app-input-digest.sh || true
+
   # Moves the protected branch `nightly-next` to a feat-cmux-next commit whose cmux-next.yml
   # push run passed its Release compile. Runs only on main, in `release`, with the release App
   # (the ruleset's only bypass actor). Guard: scripts/ci/promote-nightly-next.mjs, from this
@@ -1283,7 +1303,7 @@ jobs:
       - name: Build in-tree acpmux for the compilation cache
         if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
         env:
-          CMUX_NEXT_ACPMUX_ARCHS: arm64,x86_64
+          CMUX_NEXT_ACPMUX_ARCHS: arm64
         run: bash scripts/ci/nightly-steps/refresh-build-in-tree-acpmux.sh
 
       - name: Cache Swift packages
@@ -2715,6 +2735,7 @@ jobs:
           TREE_PENDING: ${{ needs.resolve-nightly-cmux-tui-client.outputs.tree_pending }}
           TREE_CANDIDATES: ${{ needs.resolve-nightly-cmux-tui-client.outputs.tree_candidates }}
           TREE_FALLBACK: ${{ needs.resolve-nightly-cmux-tui-client.outputs.tree_fallback }}
+          CMUX_TUI_TREE_FROM: ${{ needs.resolve-nightly-cmux-tui-client.outputs.tree_from }}
         run: bash scripts/ci/nightly-steps/app-bundle-cmux-tui-client.sh
 
       - &x47
@@ -3028,6 +3049,8 @@ jobs:
       tree_candidates: ${{ steps.pending.outputs.candidates }}
       # "<commit> <key>" of the newest published tree, bundled when the tip's is still unpublished (RFD 0021).
       tree_fallback: ${{ steps.pending.outputs.fallback }}
+      # "<commit> <commits> <hours>": the older commit whose tree the tip's app bundles (older-tree-for-tip.sh).
+      tree_from: ${{ steps.resolve.outputs.tree_from }}
       build_sha: ${{ steps.build.outputs.build_sha }}
       build_short_sha: ${{ steps.build.outputs.build_short_sha }}
       tip_sha: ${{ needs.decide.outputs.head_sha }}
@@ -3106,6 +3129,7 @@ jobs:
           CMUX_TUI_TREE_SEARCH_COMMITS: "50"
           CMUX_TUI_TREE_MAX_AGE_HOURS: "24"
           CMUX_TUI_TREE_SAME_PATHS: .github/workflows/nightly.yml Native/OptChat/optchat-chief/Cargo.lock scripts/ci/nightly-steps
+          TRACK: ${{ needs.decide.outputs.track }}
           GH_TOKEN: ${{ github.token }}
         run: bash scripts/ci/nightly-steps/resolve-cmux-tui-client-commit.sh
 
@@ -3116,6 +3140,7 @@ jobs:
           SOURCE_COMMIT: ${{ steps.resume_source.outputs.build_sha || steps.resolve.outputs.source_commit }}
           BEHIND: ${{ steps.resolve.outputs.behind }}
           BEHIND_HOURS: ${{ steps.resolve.outputs.behind_hours }}
+          TREE_FROM: ${{ steps.resolve.outputs.tree_from }}
           PUBLISHED_SHA: ${{ needs.decide.outputs.published_sha }}
           SHOULD_PUBLISH: ${{ needs.decide.outputs.should_publish }}
           FORCE_BUILD: ${{ needs.decide.outputs.force }}
