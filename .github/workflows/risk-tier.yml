@@ -87,12 +87,12 @@ jobs:
           set -euo pipefail
           # The tip as a sha, so the read is that commit and not a copy the raw CDN cached minutes ago. One git
           # protocol v2 ls-refs request over curl (0.2 s), past the runner's git mirror proxy, whose ref
-          # listing is what answered 502 after 90 s.
+          # listing is what answered 502 after 90 s. The ref name is compared as a string, not a pattern.
           pkt() { printf '%04x%s' $((${#1} + 4)) "$1"; }
           SHA="$({ pkt $'command=ls-refs\n'; printf 0001; pkt "ref-prefix refs/heads/$BASE_REF"$'\n'; printf 0000; } \
             | curl -fsS --retry 2 --retry-all-errors --connect-timeout 5 --max-time 15 -H 'Git-Protocol: version=2' \
                 -H 'Content-Type: application/x-git-upload-pack-request' --data-binary @- "https://github.com/$REPO.git/git-upload-pack" \
-            | tr -d '\0' | sed -n "s|^[0-9a-f]\{4\}\([0-9a-f]\{40\}\) refs/heads/$BASE_REF\$|\1|p")"
+            | tr -d '\0' | awk -v ref="refs/heads/$BASE_REF" '$2 == ref && $1 ~ /^[0-9a-f]{44}$/ { print substr($1, 5) }')"
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]
           part="$RUNNER_TEMP/raw-base-files"
           rm -rf "$part"
