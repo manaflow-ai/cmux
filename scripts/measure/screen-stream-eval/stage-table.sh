@@ -9,14 +9,16 @@
 # carries the run's token, to the host half's server on HOST_IP:4181, which takes the first private-address client
 # that holds the token and that one only, and ends at the viewer's /done or after 2 h. Apple's presented Total
 # (--apple-viewer) logs in with the fleet login the worker wrote for a vnc-login step (CMUX_CI_VNC_LOGIN_FILE), else
-# with the fleet password in the viewer's login keychain (manaflow-fleet-sudo, as fleet-sudo --login-keychain stores it).
+# with the fleet login in the viewer's login keychain (manaflow-fleet-login, as fleet-sudo --login-keychain stores it;
+# never the fleet sudo item).
 # cmux's Present and Total cells (Leo, 2026-11-16: "we should be able to like pin down at each step like what is
 # actually bottlenecking us") come from a DEV cmux NEXT app built at this commit on each Mac (reload.sh --tag, as
 # chat-open.sh builds one): the viewer's is --app-viewer, the host's (the sharing app that approves the hub session)
 # is --app-host-app. The host app is started as a child of this step, so it inherits the launcher's Screen Recording;
-# it publishes its path through the peer server under /tmp/cmux-stage-table-<token hash>.host-app. Both apps sign in
-# to the device hub with CMUX_STAGE_TABLE_AUTH_FILE (default: the Mac's ~/rd-hub-rig/private/creds.env, the Mac Screen
-# rig's agent test-account file). Without that file, or when an app build or launch fails, the run keeps Apple's leg
+# it publishes its path through the peer server under ~/.cache/cmux-stage-table/<token hash>.host-app. Both apps sign in
+# to the device hub with CMUX_STAGE_TABLE_AUTH_FILE, else the Mac's ~/rd-hub-rig/private/creds.env (the Mac Screen
+# rig's agent test-account file), else ~/.secrets/cmuxterm-dev.env (the CI dev account, CMUX_UITEST_STACK_EMAIL and
+# _PASSWORD, the file cmux_next_pair_e2e.py signs its DEV app in from). Without that file, or when an app build or launch fails, the run keeps Apple's leg
 # and the cmux rows end at decode, and a SCREEN-STREAM-EVAL-STAGE line says why.
 set -uo pipefail
 role="$1" addr="$2" token_file="$3" out="$4" legs="${5:-}"
@@ -37,17 +39,25 @@ build_app() {
 # The hub sign-in file of this Mac, or nothing.
 auth_file() {
   local f="${CMUX_STAGE_TABLE_AUTH_FILE:-}" home
-  if [[ -z "$f" ]]; then
-    home=$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | sed -n 's/^NFSHomeDirectory: //p')
-    f="$home/rd-hub-rig/private/creds.env"
-  fi
-  [[ -f "$f" ]] && printf '%s\n' "$f"
+  if [[ -n "$f" ]]; then [[ -f "$f" ]] && printf '%s\n' "$f"; return; fi
+  home=$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | sed -n 's/^NFSHomeDirectory: //p')
+  for f in "$home/rd-hub-rig/private/creds.env" "$home/.secrets/cmuxterm-dev.env"; do
+    [[ -f "$f" ]] && { printf '%s\n' "$f"; return 0; }
+  done
+  return 1
 }
-# Where the host half tells the viewer half its app (the peer server runs `cat`): per run, by the token.
-host_app_file="/tmp/cmux-stage-table-$(shasum -a 256 "$token_file" | cut -c1-16).host-app"
+# Where the host half tells the viewer half its app (the peer server runs `cat`): per run, by the token, in the
+# host account's own cache folder (a guessed shared /tmp name could be another account's file or link).
+host_app_name="$(shasum -a 256 "$token_file" | cut -c1-16).host-app"
+host_app_file="$HOME/.cache/cmux-stage-table/$host_app_name"
+# The rig root both halves use (screen-share-vs.py run --root): the two steps run in different homes (a worker's
+# step home, the bench account's), so a home-relative root fails "different homes". Absolute, the same on both Macs,
+# per run by the secret token (no other account can claim it first), and space-free (the rig commands take it bare).
+rig_root="/tmp/cmux-stage-table-$(shasum -a 256 "$token_file" | cut -c17-32)"
 
 if [[ "$role" == host ]]; then
   echo "SCREEN-STREAM-EVAL-STAGE stage-table host serving $addr:$port"
+  mkdir -p "${host_app_file%/*}" && chmod 700 "${host_app_file%/*}"
   rm -f "$host_app_file"
   python3 -I "$vs" peer-serve --bind "$addr" --port "$port" --token-file "$token_file" --hold-s 7200 &
   serve=$!
@@ -57,7 +67,7 @@ if [[ "$role" == host ]]; then
   host_app="none" why=""
   creds=$(auth_file) || creds=""
   if [[ -z "$creds" ]]; then
-    why="no hub sign-in file (CMUX_STAGE_TABLE_AUTH_FILE, ~/rd-hub-rig/private/creds.env)"
+    why="no hub sign-in file (CMUX_STAGE_TABLE_AUTH_FILE, ~/rd-hub-rig/private/creds.env, ~/.secrets/cmuxterm-dev.env)"
   elif ! app=$(build_app host); then
     why="the app build failed: $(tail -n 5 "$out/app-build-host.log" | tr '\n' ' ' | cut -c1-300)"
   else
@@ -93,16 +103,16 @@ fi
 login="${CMUX_CI_VNC_LOGIN_FILE:-}"
 if [[ -z "$login" || ! -f "$login" ]]; then
   # No vnc-login step (the controller has no fleet login source): the fleet password this Mac's login keychain holds
-  # (`fleet-sudo --login-keychain HOST` stores it as manaflow-fleet-sudo; the fleet Macs share one), in a 0600 file
+  # (`fleet-sudo --login-keychain HOST` stores it as manaflow-fleet-login; the fleet Macs share one), in a 0600 file
   # under this step's output that is removed when the step ends. Never argv, environment or logs.
   login=""
-  if pw=$(security find-generic-password -s manaflow-fleet-sudo -w 2>/dev/null) && [[ -n "$pw" && "$pw" != *$'\n'* ]]; then
+  if pw=$(security find-generic-password -s manaflow-fleet-login -w 2>/dev/null) && [[ -n "$pw" && "$pw" != *$'\n'* ]]; then
     login=$(umask 077 && mktemp "$out/.vnc-login.XXXXXX") && printf '%s\n' "$pw" >"$login" || login=""
     trap 'rm -f "$login"' EXIT
-    echo "SCREEN-STREAM-EVAL-STAGE stage-table: vnc login from this Mac's keychain (manaflow-fleet-sudo)"
+    echo "SCREEN-STREAM-EVAL-STAGE stage-table: vnc login from this Mac's keychain (manaflow-fleet-login)"
   fi
   unset pw
-  [[ -n "$login" ]] || echo "SCREEN-STREAM-EVAL-STAGE stage-table: no vnc login file (CMUX_CI_VNC_LOGIN_FILE) and no manaflow-fleet-sudo in this Mac's keychain (fleet-sudo --login-keychain HOST): Apple's legs fail"
+  [[ -n "$login" ]] || echo "SCREEN-STREAM-EVAL-STAGE stage-table: no vnc login file (CMUX_CI_VNC_LOGIN_FILE) and no manaflow-fleet-login in this Mac's keychain (fleet-sudo --login-keychain HOST): Apple's legs fail"
 fi
 
 # The tools at this commit, as screen-stream-eval.sh tools-only=1 builds them (screen-share-vs.py --tools).
@@ -117,7 +127,7 @@ git -C "$root" rev-parse HEAD >"$tools/rev"
 # This Mac's DEV app (while the host half builds its own).
 creds=$(auth_file) || creds=""
 viewer_app="" app_why=""
-if [[ -z "$creds" ]]; then app_why="no hub sign-in file here (CMUX_STAGE_TABLE_AUTH_FILE, ~/rd-hub-rig/private/creds.env)"
+if [[ -z "$creds" ]]; then app_why="no hub sign-in file here (CMUX_STAGE_TABLE_AUTH_FILE, ~/rd-hub-rig/private/creds.env, ~/.secrets/cmuxterm-dev.env)"
 elif ! viewer_app=$(build_app viewer); then app_why="the viewer app build failed: $(tail -n 5 "$out/app-build-viewer.log" | tr '\n' ' ' | cut -c1-300)"; fi
 
 # The host half starts with its step; wait for its server (30 min, as peer.py's agent does).
@@ -142,11 +152,11 @@ done
 app_args=()
 host_app=""
 [[ -z "$app_why" ]] && for _ in $(seq 1 360); do
-  host_app=$(python3 -I - "$url" "$token_file" "$host_app_file" <<'PY' 2>/dev/null
+  host_app=$(python3 -I - "$url" "$token_file" "$host_app_name" <<'PY' 2>/dev/null
 import json, sys, urllib.request
 token = open(sys.argv[2]).read().strip()
 req = urllib.request.Request(sys.argv[1] + "/run", method="POST", headers={"X-Eval-Token": token},
-                             data=json.dumps({"cmd": "cat " + sys.argv[3], "timeout": 10}).encode())
+                             data=json.dumps({"cmd": 'cat "$HOME/.cache/cmux-stage-table/' + sys.argv[3] + '"', "timeout": 10}).encode())
 res = json.loads(urllib.request.urlopen(req, timeout=10).read())
 print(res["out"].strip() if res.get("rc") == 0 else "")
 PY
@@ -164,7 +174,7 @@ echo "SCREEN-STREAM-EVAL-STAGE stage-table $host_name ($addr) -> $viewer_name ($
 python3 -I "$vs" run --host "$host_name" --viewer "$viewer_name" --local-mac "$viewer_name" --via peer \
   --peer-url "$url" --peer-token-file "$token_file" --host-ip "$addr" --viewer-ip "$self_ip" \
   --tools "$tools" --legs "$legs" --apple-viewer ${app_args[@]+"${app_args[@]}"} --vnc-user cmux --vnc-password-file "${login:-/nonexistent}" \
-  --out "$out/ledger.jsonl" 2>&1 | tee "$out/run.log"
+  --root "$rig_root" --out "$out/ledger.jsonl" 2>&1 | tee "$out/run.log"
 status=${PIPESTATUS[0]}
 python3 -I "$vs" table "$out/ledger.jsonl" | tee "$out/table.txt"
 # The host half ends now, not at its 2 h hold.

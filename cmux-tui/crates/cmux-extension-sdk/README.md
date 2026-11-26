@@ -9,7 +9,7 @@ One SDK, two languages, one version (1.0.0), made from the runtime's own tables 
 | | TypeScript (`typescript/`, package `cmux-extension-sdk`) | Rust (this crate, `cmux-extension-sdk`) |
 | --- | --- | --- |
 | For | the extension's own code, which cmux runs in its sandbox | tools, tests and servers around an extension |
-| Gives | places (`section`, `pane`, `newTab`, `widget`, `chatWidget`, `command`), widget layout helpers (`WidgetFrame`, `BigNumber`, `RowList`, ...), live lists (`workspaces`, `agents`, `chats`), events (`on`, `onChange`), the scene DSL (`VStack`, `Row`, ...), `cmux` (every op, typed) | versions, the event and signal tables with their scopes, `Manifest` (a typed `cmux-app.json` builder), `validate` and `check_package` (cmux's own validator) |
+| Gives | places (`section`, `pane`, `newTab`, `widget`, `chatWidget`, `command`), widget layout helpers (`WidgetFrame`, `BigNumber`, `RowList`, ...), live lists (`workspaces`, `agents`, `chats`), events (`on`, `onChange`), the scene DSL (`VStack`, `Row`, ...), `cmux` (every op, typed) | versions, the event and signal tables with their scopes, `Manifest` (a typed `cmux-app.json` builder), `validate` and `check_package` (cmux's own validator), `motion` (the `cmux.motion/1` vocabulary and the normalizer the host runs on every scene batch) |
 
 The working example is [`examples/extensions/activity`](../../../examples/extensions/activity):
 a sidebar section and a pane, built only against this SDK. A pane can also be your own HTML

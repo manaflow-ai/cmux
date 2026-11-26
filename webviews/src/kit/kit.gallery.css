@@ -47,3 +47,27 @@
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
 }
+
+.kit-gallery-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+}
+.kit-gallery-motion {
+  display: grid;
+  gap: var(--ds-space-1);
+  margin: 0;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+.kit-gallery-motion-step {
+  display: flex;
+  gap: var(--ds-space-2);
+}
+.kit-gallery-motion-step dt {
+  min-width: calc(var(--ds-space-6) * 2);
+  color: var(--ds-color-muted);
+}
+.kit-gallery-motion-step dd {
+  margin: 0;
+}
