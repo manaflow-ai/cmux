@@ -254,7 +254,7 @@ struct ClassicMigrationTests {
         #expect(!tree.names.contains("vm box") && !tree.names.contains("duplicate of split"), "\(tree.names)")
         #expect(tree.groups["split api"] == "Backend" && tree.groups["pinned one"] == "Backend", "\(tree.groups)")
         #expect(tree.groupNames["Backend"] == true && tree.groupNames["Saved"] != nil, "\(tree.groupNames)")
-        #expect(tree.colors["split api"]?.uppercased().hasPrefix("#FF6B6B") == true, "\(tree.colors)")
+        #expect(tree.colors["split api"] == ClassicImportColor.palette("#FF6B6B"), "\(tree.colors)") // classic hex: its nearest palette color
         #expect(tree.pinned.contains("pinned one"), "\(tree.pinned)")
         #expect(tree.windows.contains { $0.contains("second window") && !$0.contains("split api") }, "\(tree.windows)")
         #expect(tree.notice?.contains("Cloud VM") == true, "\(tree.notice ?? "no toast")")
