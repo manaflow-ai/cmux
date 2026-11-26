@@ -64,7 +64,7 @@ pub(crate) struct GitState {
     done: Mutex<std::collections::VecDeque<Done>>,
     transport: OnceLock<Arc<dyn GitTransport>>,
     /// One fetch at a time.
-    fetching: Mutex<()>,
+    pub(super) fetching: Mutex<()>,
     /// One `sources.json` read-modify-write at a time.
     index: Mutex<()>,
     /// The newer commits the background check found, by app id
