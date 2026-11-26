@@ -2739,6 +2739,7 @@ export class AcpmuxDirectClient {
         this.daemonProbeRefused = false;
         this.resetRequestCheck();
         this.wire.lifecycle("open");
+        acpmuxPerf.markLaunch("socketOpen");
         resolve(socket);
       };
       socket.onerror = () => {
@@ -2828,6 +2829,7 @@ export class AcpmuxDirectClient {
         initializeParams({ compression: frameCompression(this.host) }),
         AcpmuxDirectClient.DAEMON_PROBE_AFTER_MS,
       );
+      acpmuxPerf.markLaunch("initialized");
       // 0-RTT open, as TLS 1.3's early data: the chat's attach and draft read go out in the same
       // flight as the handshake instead of a round trip after it. acpmux reads a connection's
       // requests in order and binds its handshake before the next is spawned (server/mod.rs), so the
@@ -2909,6 +2911,7 @@ export class AcpmuxDirectClient {
       // Awaited below: a list that fails meanwhile is not left unobserved.
       listRead.catch(() => undefined);
       early ??= this.askEarly();
+      acpmuxPerf.markLaunch("attachSent");
       // The chat's own row, when its attach answered before the list: the chat opens on it, and the
       // list settles behind the open (`attachedBeforeList`).
       const attachedRow = early && (await this.attachedBeforeList(early, listRead));
@@ -3852,6 +3855,7 @@ export class AcpmuxDirectClient {
     this.keepQueueAuthors(held.queue);
     this.earlyTail = { sessionId, generation, through };
     this.drewKeptTail = true;
+    acpmuxPerf.markLaunch("tailWhileConnecting");
     // Drawn now, the socket still connecting or open: the open's hold ends with these rows, as its
     // own draw point would end it, rather than keeping the chat off screen until acpmux answers
     // `initialize` and the list (hq#7289: about 900 ms for the chat in front at relaunch). A chat
@@ -6906,6 +6910,7 @@ export class AcpmuxDirectClient {
       this.earlyAttach = undefined;
     }
     const result = await sent.attaching;
+    acpmuxPerf.markLaunch("attachAnswered");
     // A switch drew the chat's kept tail: its frame paints before the reply's page renders, which
     // a local daemon's reply would otherwise beat. What came live meanwhile is held (`copyLive`).
     if (keptThrough > 0) await new Promise<void>((resolve) => afterNextPaint(resolve));

@@ -6749,7 +6749,7 @@
           "description": "A question's answers, by question."
         },
         "forkCheckpoint": {
-          "description": "The copy the app forked before allowing a risky step, `{machine, fork, forkMs}`\n(`fork_risky.rs`): the daemon records it as the step's checkpoint before it runs."
+          "description": "Fork first (fork_risky.rs): the copy the app made before allowing, `{machine, fork, forkMs}`."
         },
         "optionId": {
           "description": "The option chosen; absent cancels the request.",
