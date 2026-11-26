@@ -23,6 +23,8 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import cmux_next_tree_notify as notify  # noqa: E402
 import cmux_tui_tree_takeover as takeover  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from cmux_next_step_text import inline_steps  # noqa: E402
 
 KEY = "c9b813e86eddf897113a8117ab43337ff79baca8"
 TIP = "c126e737f3a3b96525ad8ea71a71bfa41e118ad1"  # the waiting feat-cmux-next commit
@@ -218,7 +220,7 @@ class OwnerEndedWithoutPublishing(unittest.TestCase):
 
     def test_the_same_tree_job_takes_over_before_it_reports_red(self):
         """cmux-next.yml's same-tree job runs the takeover first; red only when it is not taken."""
-        workflow = (ROOT / ".github" / "workflows" / "cmux-next.yml").read_text(encoding="utf-8")
+        workflow = inline_steps((ROOT / ".github" / "workflows" / "cmux-next.yml").read_text(encoding="utf-8"))
         job = workflow.split("\n  same-tree-cmux-tui:\n", 1)[1].split("\n  swift-canary-fleet:\n", 1)[0]
         self.assertIn("actions: write", job)
         red = job.split("name: Report the unavailable same-tree cmux-tui", 1)[1]
