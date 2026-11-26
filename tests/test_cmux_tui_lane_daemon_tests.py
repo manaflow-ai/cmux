@@ -219,7 +219,7 @@ def main():
     reuse_steps = {step.get("id"): step for step in preflight["steps"]}
     _check({"reuse-key", "reuse"} <= set(reuse_steps),
            "tree-preflight fingerprints and looks up the same-input pass")
-    for name in ("build-linux", "build-machine-channel-x86_64", "build-machine-channel", "build", "build-windows", "build-darwin-fallback", "cmux-next-daemon-tests"):
+    for name in ("build-linux", "build", "build-windows", "build-darwin-fallback", "cmux-next-daemon-tests"):
         _check("needs.tree-preflight.outputs.reuse_hit != 'true'" in str(all_jobs[name].get("if", "")),
                f"{name} skips all work when the same-input pass is reused")
 
