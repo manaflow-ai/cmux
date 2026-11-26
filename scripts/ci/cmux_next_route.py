@@ -168,6 +168,7 @@ SWIFT_JOB_INPUTS = (
     "cmux-tui/crates/cmux-focus-core/",
     "cmux-tui/crates/cmux-cloud-start-core/",
     "cmux-tui/crates/cmux-tab-discard/",
+    "cmux-tui/crates/cmux-browser-rules/",
     "cmux-tui/crates/cmux-cloud-config/",
     "cmux-tui/crates/cmux-cloud-environment/",
     "cmux-tui/crates/cmux-build-space/",
@@ -180,6 +181,7 @@ SWIFT_JOB_INPUTS = (
     "cmux-tui/crates/cmux-health-core/",
     "cmux-tui/crates/cmux-launch-image/",
     "cmux-tui/crates/cmux-pane-pictures/",
+    "cmux-tui/crates/cmux-screenshots/",
     "cmux-tui/crates/cmux-local-auth/",
     "cmux-tui/crates/cmux-imessage/",
     "cmux-tui/crates/cmux-layout-reducer/",
@@ -342,7 +344,7 @@ CHECKED_WEB_BUNDLES = (
 # Release or scheme compile: #29013 (images/cmux-vm/inputs.lock.json) waited 80 minutes on a fleet
 # Release compile its diff could not change. A test target that reads one still runs (consumed()).
 NO_APP_INPUT = (
-    "images/*", "services/*", "vault/*", "coderouter/*", "agent-chat/*", "markdown-obsidian-parity/*",
+    "images/*", "services/*", "vault/*", "agent-chat/*", "markdown-obsidian-parity/*",
     "tests_v2/*", ".agents/*", ".claude/*", ".codex/*", ".greptile/*", ".coderabbit.yaml",
     # Script directories under scripts/cmux-next/ that only a workflow or a person runs, and that
     # import nothing of the app's and nothing of the app's imports: the classic -> NEXT migration CLI
@@ -373,7 +375,7 @@ CI_ONLY = (
     # merge drivers, web lints, the CEF embedder fleet step, the tagged-app launcher, the TestFlight notes step
     # that runs after upload. A Mac tier that reads one still runs (consumed()).
     ".github/github-token-budget.json", ".github/runners.json",
-    "scripts/install-git-hooks.sh", "scripts/merge-pbxproj.py", "scripts/merge-xcstrings.py",
+    "scripts/install-git-hooks.sh", "scripts/merge-cargo-lock.py", "scripts/merge-pbxproj.py", "scripts/merge-xcstrings.py",
     "scripts/web-lint.sh", "scripts/web_lint_prepush.py", "scripts/lib/reload-shim.test.mjs",
     "scripts/cef/test-embedder-step.sh", "scripts/cef/tests/test-embedder-step.test.sh",
     "scripts/launch-tagged-automation.sh", "cmux-next-ios/scripts/set-test-notes.sh",

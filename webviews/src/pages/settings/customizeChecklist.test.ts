@@ -198,3 +198,58 @@ test("a line under a title fits 60 characters: the words, else their first sente
   expect(shortLine(`Dense and calm — ${"a long list of things ".repeat(5)}`)).toBe("Dense and calm");
   expect(shortLine("é".repeat(60))).toBe("é".repeat(60));
 });
+
+test("unmerged code in the build is its own group, one switch each, worded by the standup line", () => {
+  const pr: LibraryEntry = {
+    ...entry("pr-43496", true),
+    code: {
+      pr: 43496,
+      repo: "manaflow-ai/cmux",
+      title: "Cat icon",
+      head: "9c1e2f0",
+      base: "36316c1",
+      note: "in your build",
+    },
+  };
+  const branch: LibraryEntry = {
+    ...entry("branch-lane-cat", false),
+    code: {
+      kind: "branch",
+      repo: "manaflow-ai/cmux",
+      source: "lane/cat",
+      pr: 0,
+      title: "",
+      head: "4b7d0aa",
+      base: "36316c1",
+    },
+  };
+  const groups = checklistGroups(
+    input({
+      library: { entries: [entry("night", true), pr, branch], conflicts: [] },
+      standup: {
+        on: 2,
+        text: "",
+        lines: [
+          {
+            name: "pr-43496",
+            kind: "pr",
+            on: true,
+            title: "#43496 Cat icon",
+            status: "on · in your build",
+            link: "https://github.com/manaflow-ai/cmux/pull/43496",
+          },
+        ],
+      },
+    }),
+  );
+  const by = Object.fromEntries(groups.map((group) => [group.id, group]));
+  expect(groups[0]!.id).toBe("code");
+  expect(by.code!.items.map((item) => [item.id, item.title, item.help, item.on])).toEqual([
+    ["library:pr-43496", "#43496 Cat icon", "on · in your build", true],
+    // No standup line yet (still loading): the entry's own words.
+    ["library:branch-lane-cat", "branch-lane-cat", "", false],
+  ]);
+  expect(by.code!.items[0]!.detail).toContain("/pull/43496");
+  expect(by.library!.items.map((item) => item.id)).toEqual(["library:night"]);
+  expect(filterGroups(groups, "43496").map((group) => group.id)).toContain("code");
+});

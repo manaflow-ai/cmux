@@ -1510,6 +1510,13 @@ async fn a_restore_drops_withdrawn_messages_as_it_reads_and_restores_the_rest_in
 /// a question still wake after the burst window.
 #[tokio::test]
 async fn fifty_messages_to_a_cold_large_idle_chat_go_in_as_one_notice_at_its_batch() {
+    // Batching is off by default; this chat's person turned it on (compacting first stays off).
+    let knobs = super::cold_wake::Knobs {
+        enabled: true,
+        compact: false,
+        compact_above: super::cold_wake::DEFAULT_COMPACT_ABOVE_TOKENS,
+    };
+    super::cold_wake::KNOBS_FOR_TEST.with(|k| k.set(Some(knobs)));
     let now = now_ms();
     let cold = |session: &Session, expires: u64| {
         let mut m = session.meta.lock().unwrap();
@@ -1835,6 +1842,68 @@ async fn a_held_result_is_delivered_at_its_deadline_while_the_receivers_wait_han
             panic!("the deadline timer never delivered the held result")
         }
     }
+}
+
+/// A notice relayed as text (the lane-gh broker, no notice provenance) is read in Rust
+/// (`notice_read.rs`): its thread part names the detector, its severity and its title, and
+/// counts the repeats of its condition, "×2, last …" (Leo, 2026-11-25: "how can we improve this?").
+#[test]
+fn a_relayed_notice_reads_as_its_detector_and_counts_its_condition() {
+    let relayed = |n: &str, queued: u32| {
+        format!(
+            "[message {n}x from cmux-cp-1/now (an agent, not Leo), relayed by the lane-gh broker; its text ends at \"[end of message {n}x]\"]\n\
+             [notice from now on cmux-cp-1 · FIRE] Runner label stalled: trusted xcode-26.6, {queued} queued\n\
+             [end of message {n}x]"
+        )
+    };
+    let notice = |id: &str, at: u64, text: &str| {
+        let mut i = item(id, "topic:host/cmux-cp-1", "cmux-cp-1", PromptClass::Result, at, text);
+        i.tool_notice = notice_of(None, text);
+        i
+    };
+    let other = "[notice from now on cmux-cp-1 · WARN] Disk 91% on vm-3";
+    let items = [
+        notice("a", 1_000, &relayed("aaaa", 9)),
+        notice("b", 2_000, other),
+        notice("c", 3_000, &relayed("cccc", 12)),
+    ];
+    assert_eq!(items[0].tool_notice.as_ref().unwrap()["severity"], "fire");
+    let refs: Vec<&Item> = items.iter().collect();
+    let (_, parts) = render(&refs);
+    let part = &parts[0];
+    assert_eq!(part["notice"]["sender"], "now", "{part}");
+    assert_eq!(part["notice"]["severity"], "fire");
+    assert_eq!(part["notice"]["title"], "Runner label stalled: trusted xcode-26.6, 12 queued");
+    assert_eq!(part["notice"]["host"], "cmux-cp-1");
+    assert_eq!(part["notice"]["repeats"], 2, "the disk notice is another condition");
+    assert_eq!(part["notice"]["lastAt"], 3_000);
+    // A plain message reads no notice.
+    assert_eq!(notice_of(None, "merged #12"), None);
+    let plain = item("m", "from:lane-a", "lane-a", PromptClass::Result, 1, "merged");
+    let (_, parts) = render(&[&plain]);
+    assert!(parts[0].get("notice").is_none());
+}
+
+/// A repeat of one condition folds whatever its counts say now; another condition pages.
+#[test]
+fn a_notice_repeat_folds_by_its_condition() {
+    use page_rule::Verdict::*;
+    let mut folds = page_rule::Folds::default();
+    let msg = |title: &'static str| {
+        let mut m = page_msg(PromptClass::Result, "cmux-cp-1", false, title);
+        m.fire = true;
+        m.title = Some(title);
+        m
+    };
+    let t0 = 10_000_000;
+    let mut at = |t: u64, m: &page_rule::Message<'_>| {
+        let v = page_rule::judge(&folds, m, t).unwrap();
+        page_rule::record(&mut folds, m, v, t);
+        v
+    };
+    assert_eq!(at(t0, &msg("Runner label stalled: trusted xcode-26.6, 9 queued")), Page);
+    assert_eq!(at(t0 + 60_000, &msg("Runner label stalled: trusted xcode-26.6, 12 queued")), Fold);
+    assert_eq!(at(t0 + 120_000, &msg("Runner label stalled: trusted linux-x64, 3 queued")), Page);
 }
 
 #[test]

@@ -24,11 +24,7 @@ import {
 const dom = useDom();
 
 /// Each row's path and what sits at its right edge: its counts, or "failed".
-const rows = () =>
-  [...dom.host().querySelectorAll(".acpmux-edited-file")].map((entry) => [
-    entry.querySelector(".acpmux-edited-path")?.getAttribute("data-path"),
-    entry.querySelector(".acpmux-diff-counts, .acpmux-edited-failed")?.textContent,
-  ]);
+const rows = () => dom.rows();
 const title = () => dom.text(".acpmux-edited-title > div");
 
 /// The agent's folder link to the repository at FOLDER.
@@ -53,7 +49,7 @@ test("once the checkpoint loads, a failed Write through a folder link, retried a
   ]);
   await dom.render(await editedCard(row, checkpoint([notesPatch])));
   expect(title()).toBe("Edited notes.txt");
-  expect(rows()).toEqual([]);
+  expect(await rows()).toEqual([[NOTES, "+1-1"]]);
   expect(dom.host().querySelector(".acpmux-edited-failed")).toBeNull();
 });
 
@@ -94,7 +90,7 @@ test("an edit at a folder link keeps the agent's spelling on its row", async () 
     await editWithDiff("edit-c7b", `${FOLDER}/plan.md`, "a\n", "b\n", `${FOLDER}/plan.md`),
   ]);
   await dom.render(await editedCard(row));
-  expect(rows()).toEqual([
+  expect(await rows()).toEqual([
     [LINK, "+1-1"],
     [`${FOLDER}/plan.md`, "+1-1"],
   ]);
@@ -119,7 +115,7 @@ test("once the checkpoint loads, a failed Write in the repository stays beside t
     await editWithDiff("edit-c9", outside, "step 1\n", "step one\n"),
   ]);
   await dom.render(await editedCard(row, checkpoint()));
-  expect(rows()).toEqual([
+  expect(await rows()).toEqual([
     [outside, "+1-1"],
     [NOTES, "failed"],
   ]);
@@ -132,7 +128,7 @@ test("with canonical paths, a failed Write in the repository stays beside the on
     await editWithDiff("edit-c10", outside, "step 1\n", "step one\n", "/private/tmp/scratch/notes.txt"),
   ]);
   await dom.render(await editedCard(row, checkpoint()));
-  expect(rows()).toEqual([
+  expect(await rows()).toEqual([
     [outside, "+1-1"],
     [NOTES, "failed"],
   ]);
@@ -145,7 +141,7 @@ test("without canonical paths, a failed Write through a folder link lists beside
     await editWithDiff("edit-c11", NOTES, "step 1\n", "step one\n"),
   ]);
   await dom.render(await editedCard(row));
-  expect(rows()).toEqual([
+  expect(await rows()).toEqual([
     [NOTES, "+1-1"],
     [LINK, "failed"],
   ]);
