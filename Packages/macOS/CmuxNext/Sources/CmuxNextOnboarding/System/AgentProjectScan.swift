@@ -37,7 +37,7 @@ public nonisolated struct AgentProjectScan: Sendable {
         codex = home.appending(path: ".codex")
         pi = home.appending(path: ".pi/agent")
         opencode = home.appending(path: ".local/share/opencode")
-        cmuxAgentHome = home.appending(path: "Library/Application Support/cmux/agent-home")
+        cmuxAgentHome = home.appending(path: "Library/Application Support/cmux-next/agent-home")
     }
 
     /// The live locations, honoring `CLAUDE_CONFIG_DIR`, `CODEX_HOME` and `PI_CODING_AGENT_DIR`.

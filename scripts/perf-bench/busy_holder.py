@@ -72,7 +72,7 @@ copy of /bin/bash> --args job.sh`; `open` does not pass the environment: write i
 print the scheduler priority of the supervisor (`sched_pri`): 31 is right, 20 means the ssh ceiling.
 The caller's duty: stop it before the job ends, run `cooldown` inside the same hold, then check `status` = live 0.
 
-A bench tool: never a CI gate, job, step or perf-gate row. Python 3.9 standard library only.
+A bench tool: not a CI gate, job, step or perf-gate row. Python 3.9 standard library only.
 """
 from __future__ import annotations
 
@@ -649,7 +649,9 @@ def cmd_stop(args) -> int:
             time.sleep(0.05)
         if alive(args.pid) and is_ours(args.pid, token):
             os.kill(args.pid, signal.SIGKILL)
-            time.sleep(0.5)
+            t0 = time.monotonic()  # until the killed supervisor is gone (SIGKILL is not instant)
+            while alive(args.pid) and time.monotonic() - t0 < 5:
+                time.sleep(0.05)
     left = [p for p in state.get("workers", []) if alive(p) and is_ours(p, token)]
     t0 = time.monotonic()
     while left and time.monotonic() - t0 < 5:  # a worker ends by itself when its supervisor is gone
@@ -951,10 +953,16 @@ def cmd_selftest(args) -> int:
         pid = int(out) if rc == 0 and out.isdigit() else 0
         check("start prints its PID", pid > 0, err)
         st = state_of(pid)
-        time.sleep(2.0)
-        rc2, sout, _ = run("status", str(pid))
-        now = json.loads(sout).get("now", {}) if rc2 == 0 and sout else {}
-        ps = now.get("workers_ps", {})
+        # until status shows the 4 workers' threads (and a priority read), at most 6 s: the holder lives 10 s
+        deadline = time.monotonic() + 6
+        while True:
+            rc2, sout, _ = run("status", str(pid))
+            now = json.loads(sout).get("now", {}) if rc2 == 0 and sout else {}
+            ps = now.get("workers_ps", {})
+            if sys.platform != "darwin" or ps.get("threads", 0) >= 4 and len(ps.get("pri", {})) >= 1 \
+                    or time.monotonic() > deadline:
+                break
+            time.sleep(0.1)
         if sys.platform == "darwin":
             check("4 busy threads, each with a priority read", ps.get("threads", 0) >= 4 and len(ps.get("pri", {})) >= 1,
                   json.dumps(ps))
@@ -1019,8 +1027,12 @@ def cmd_selftest(args) -> int:
         pid = int(out) if rc == 0 and out.isdigit() else 0
         st = state_of(pid)
         files = os.path.join(root, "busy-holder-%d" % os.getuid(), "agents-%d" % pid)
-        time.sleep(3.0)
-        made = len(os.listdir(files)) if os.path.isdir(files) else 0
+        deadline = time.monotonic() + 8  # until each of the 6 processes has made its file
+        while True:
+            made = len(os.listdir(files)) if os.path.isdir(files) else 0
+            if made >= 6 or time.monotonic() > deadline:
+                break
+            time.sleep(0.05)
         check("agents: 6 processes, each with its own file", pid > 0 and st.get("shape") == "agents"
               and len(st.get("workers", [])) == 6 and made == 6, "files %d %s" % (made, err[:200]))
         if sys.platform == "darwin":  # workers 2 and 5 asked for background: the kernel holds them at 4 or less

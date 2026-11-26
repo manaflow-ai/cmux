@@ -102,14 +102,17 @@ if "github.ref == 'refs/heads/nightly-next'" not in leave_if:
     failures.append("only nightly-next runs leave the build slot")
 
 
-def leave_slot(heads: list[str], tip: str, *, feat: str = "", created_min_ago: float = 0.5, **env_extra) -> str:
+def leave_slot(heads: list[str], tip: str, *, feat: str = "", created_min_ago: float = 0.5,
+               started_min_ago: float = 0.0, job_queue_seconds: int = 0, **env_extra) -> str:
     """Runs resolve-leave-build-slot.sh with a gh whose nightly-next ref answers `heads` in turn (the last one
-    repeats), feat-cmux-next answers `feat` and the run was created `created_min_ago` minutes ago."""
+    repeats), feat-cmux-next answers `feat`, the run was created `created_min_ago` minutes ago, its first job was
+    queued `started_min_ago` minutes ago and its started jobs sat `job_queue_seconds` in their queues."""
     import datetime as dt
     import os
     import subprocess
     import tempfile
-    created = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=created_min_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    ago = lambda minutes: (dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    created, started = ago(created_min_ago), ago(started_min_ago)
     with tempfile.TemporaryDirectory() as tmp:
         (Path(tmp) / "heads").write_text("\n".join(heads) + "\n")
         fake = Path(tmp) / "gh"
@@ -118,6 +121,7 @@ case "$2" in
   */heads/nightly-next) n=$(cat {tmp}/n 2>/dev/null || echo 1); sed -n "${{n}}p" {tmp}/heads | grep . || tail -n 1 {tmp}/heads
                         echo $((n + 1)) > {tmp}/n ;;
   */heads/feat-cmux-next) echo {feat} ;;
+  */actions/runs/*/jobs*) echo "{started} {job_queue_seconds}" ;;
   */actions/runs/*) echo {created} ;;
 esac
 """)
@@ -152,14 +156,28 @@ if leave_slot([OLD_HEAD], OLD_HEAD, LOOP_RETRY="1").strip() != "superseded=false
 if leave_slot([""], OLD_HEAD, LOOP_RETRY="1").strip() != "superseded=false":
     failures.append("an unread nightly-next ref keeps the build slot")
 # The a22a4eb1 case: the run is stale and feat-cmux-next moved; the tick promotes a newer commit while it waits.
-if leave_slot([OLD_HEAD, OLD_HEAD, NEW_HEAD], OLD_HEAD, feat=FEAT_TIP, created_min_ago=23).strip() != "superseded=true":
-    failures.append("a push run that waited 23 min in the group must wait for the tick's promotion and leave to it")
-if leave_slot([OLD_HEAD, NEW_HEAD], OLD_HEAD, feat=FEAT_TIP, LOOP_RETRY="1").strip() != "superseded=true":
-    failures.append("a loop retry must wait for the tick to promote a newer buildable commit and leave to it")
+if leave_slot([NEW_HEAD], OLD_HEAD, feat=FEAT_TIP, created_min_ago=23).strip() != "superseded=true":
+    failures.append("a push run that waited 23 min in the group leaves to an already promoted head, with one read and no wait")
+if leave_slot([NEW_HEAD], OLD_HEAD, feat=FEAT_TIP, LOOP_RETRY="1").strip() != "superseded=true":
+    failures.append("a loop retry leaves to an already promoted newer commit")
 if leave_slot([OLD_HEAD, NEW_HEAD], OLD_HEAD, feat=FEAT_TIP, created_min_ago=1).strip() != "superseded=false":
     failures.append("a fresh push run never waits for a promotion")
 if leave_slot([OLD_HEAD], OLD_HEAD, feat=FEAT_TIP, created_min_ago=23, YIELD_MINUTES="0").strip() != "superseded=false":
-    failures.append("a stale run with nothing promoted in YIELD_MINUTES builds its own commit")
+    failures.append("a stale run with nothing promoted builds its own commit at once")
+# Run 44893172356 of 89a0aaea (2026-11-21): created 7 min before this step, but its first job started at once; its
+# own decide and tree-pending steps are not a wait in the group, so it builds now instead of waiting YIELD_MINUTES.
+import time
+began = time.monotonic()
+if leave_slot([OLD_HEAD], OLD_HEAD, feat=FEAT_TIP, created_min_ago=7, started_min_ago=6.9,
+              YIELD_MINUTES="6").strip() != "superseded=false" or time.monotonic() - began > 60:
+    failures.append("a push run whose own jobs took 7 min, with no wait before its first job, builds at once")
+# A resolve job queued 6 min for a busy nightly mini did wait for the slot.
+if leave_slot([NEW_HEAD], OLD_HEAD, feat=FEAT_TIP, created_min_ago=8, started_min_ago=7.9,
+              job_queue_seconds=360).strip() != "superseded=true":
+    failures.append("a push run whose jobs sat 6 min in their runner queues is stale and leaves to the promotion")
+if leave_slot([OLD_HEAD], OLD_HEAD, feat=FEAT_TIP, created_min_ago=8, started_min_ago=7.9, job_queue_seconds=-1,
+              YIELD_MINUTES="6").strip() != "superseded=false":
+    failures.append("an unreadable jobs list keeps the slot")
 
 decide = "\n".join(str(step.get("with", {}).get("script", "")) for step in JOBS["decide"].get("steps", []))
 if "resumeOutsideLoop" not in decide or "if (resumeOutsideLoop) shouldBuild = false;" not in decide:

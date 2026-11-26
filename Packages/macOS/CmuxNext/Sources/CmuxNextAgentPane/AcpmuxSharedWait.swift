@@ -15,11 +15,23 @@ nonisolated final class AcpmuxSharedWait<Value: Sendable>: Sendable {
 
     private init() {}
 
-    /// `task`'s value, or `CancellationError` once the caller's task is cancelled first.
-    static func value(of task: Task<Value, any Error>) async throws -> Value {
+    /// `task`'s value, `CancellationError` once the caller's task is cancelled first, or
+    /// ``AgentPaneDeadlineExceeded`` once `deadline` (this caller's own, nil: none) passes first.
+    /// Neither the cancel nor the deadline touches `task`: it goes on for the other callers.
+    static func value(of task: Task<Value, any Error>, until deadline: ContinuousClock.Instant? = nil,
+                      label: String = "acpmux lookup") async throws -> Value {
         let wait = AcpmuxSharedWait()
         // task-owner: hands the shared task's end to this one waiter; ends when that task ends
         Task { wait.finish(await task.result) }
+        // task-owner: this waiter's own deadline; cancelled once the wait ends
+        let timer = deadline.map { deadline in
+            Task {
+                // wakeup-allow: one one-shot deadline per waiter; cancelled when the wait ends first
+                guard (try? await Task.sleep(until: deadline, clock: .continuous)) != nil else { return }
+                wait.finish(.failure(AgentPaneDeadlineExceeded(label: label)))
+            }
+        }
+        defer { timer?.cancel() }
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { wait.store($0) }
         } onCancel: {

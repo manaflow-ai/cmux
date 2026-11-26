@@ -1,33 +1,35 @@
 import { useParams, useSearch } from "@tanstack/react-router";
-import { routeCard, shownSection } from "../categories";
+import { shownSection } from "../categories";
 import { useSettingsState } from "../context";
 import type { SettingsSearch } from "../router";
-import { routeSection } from "../sectionQueries";
+import { resolveSettingsLink } from "../settingsLinks";
 import { SectionView } from "./SectionView";
 
 /**
- * A section route's component (and its pending component): the category the path or the focused
- * key names. Its loader has put the cards' host reads in the cache, so it draws complete. A
- * DEV-only category (Development) opens the default category outside DEV builds, however it was
- * reached, and then the focused key is dropped. A route that names a card of its category
- * (`#/settings/machines`: Accounts' Machines card) opens on that card, not the category's top.
+ * A section route's component (and its pending component): where the link resolves
+ * (settingsLinks.ts): the category the path, card, row, connection or focused key names. Its loader
+ * has put the cards' host reads in the cache, so it draws complete. A DEV-only category
+ * (Development) opens the default category outside DEV builds, however it was reached, and then the
+ * focused key is dropped. A link that names a card, row or connection opens on it and highlights it;
+ * a link that names nothing the page knows says so at the top of the page it opened.
  */
 export function SectionRoute() {
   const { section } = useParams({ strict: false }) as { section?: string };
   const search = useSearch({ strict: false }) as SettingsSearch;
   const state = useSettingsState();
-  const routed = routeSection(section, search.focus);
-  const shown = shownSection(routed, state.host?.dev_build === true);
-  const focus = shown === routed ? (search.focus ?? null) : null;
-  const reveal = shown === routed ? routeCard(section, search.focus, shown) : null;
+  const link = resolveSettingsLink(section, search.focus);
+  const shown = shownSection(link.section, state.host?.dev_build === true);
+  const same = shown === link.section;
   return (
     <SectionView
       key={shown}
       section={shown}
-      focus={focus}
+      focus={same ? link.focus : null}
       workspace={search.workspace ?? null}
-      part={search.part ?? null}
-      reveal={reveal}
+      reveal={same ? link.card : null}
+      target={same ? link.target : null}
+      targetRequired={same && link.targetRequired}
+      missing={link.missing}
     />
   );
 }

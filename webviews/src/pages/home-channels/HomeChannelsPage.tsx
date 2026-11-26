@@ -10,6 +10,9 @@ import { AvatarContext } from "./avatars";
 import { Avatar, ChannelMark, PicturesContext } from "./Avatar";
 import { Composer } from "./Composer";
 import { ChiefTaskHat } from "./ChiefTaskHat";
+import { ScheduledStrip } from "./ScheduledStrip";
+import { useScheduled } from "./scheduled";
+import type { SendLaterStyle } from "./SendLater";
 import { GoalStrip } from "./GoalStrip";
 import { useHostSelection, type HomeSelection } from "./hostSelection";
 import { useHostMove } from "./hostMove";
@@ -68,6 +71,7 @@ export function HomeChannelsPage({
   strings,
   pane: fixedPane,
   cloudEntry,
+  sendLaterStyle = "clock",
 }: {
   store: HomeChannelsStore;
   strings: Strings;
@@ -75,6 +79,8 @@ export function HomeChannelsPage({
   pane?: Pane;
   /** Where the list shows New Cloud Machine (default: a row under the search field). */
   cloudEntry?: CloudEntryLook;
+  /** Where the composer puts Send Later (the gallery shows both). */
+  sendLaterStyle?: SendLaterStyle;
 }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
   // The sheets and the palette are not in the startup JS (lazySheets.tsx): fetch them once the
@@ -94,6 +100,7 @@ export function HomeChannelsPage({
   const pane = fixedPane ?? hashPane;
   const sheetState = useSyncExternalStore(store.sheets.subscribe, store.sheets.getSnapshot);
   const caps = sheetState.capabilities;
+  const scheduled = useScheduled(store.scheduled, snap.selected);
   // New Chief and Edit Chief are a page on the right side, in place of the conversation (u2586).
   const chiefPage = sheetState.route?.kind === "newChief" || sheetState.route?.kind === "editChief";
   const [palette, setPalette] = useState(false);
@@ -738,12 +745,18 @@ export function HomeChannelsPage({
                         />
                         <ChiefTaskHat book={store.runs} conversation={open.id} strings={strings} />
                         <div className="lg-main-compose">
+                          <ScheduledStrip
+                            entries={scheduled}
+                            book={store.scheduled}
+                            strings={strings}
+                            disabled={!online}
+                          />
                           <Composer
                             key={open.id}
                             strings={strings}
                             placeholder={format("composer.placeholder", place)}
                             label={format("composer.placeholder", name)}
-                            disabled={!online}
+                            held={!online}
                             people={mentionable}
                             onEditLast={() => {
                               const last = lastEditable(
@@ -756,6 +769,14 @@ export function HomeChannelsPage({
                             attachments={uploads}
                             dropZone={column}
                             onSend={(text, files) => store.send(text, undefined, undefined, files)}
+                            sendLater={
+                              caps.sendLater && open.owner === "local"
+                                ? {
+                                    style: sendLaterStyle,
+                                    onSchedule: (text, files, at) => store.scheduled.create(open.id, text, at, files),
+                                  }
+                                : undefined
+                            }
                           />
                         </div>
                         {snap.thread && (

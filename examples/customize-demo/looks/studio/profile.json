@@ -10,6 +10,7 @@
       "agentPane.searchChats"
     ],
     "sidebar.groupBy": "folder",
+    "sidebar.settleFinished": true,
     "sidebar.showSpaces": false,
     "sidebar.cards.tips": false,
     "sidebar.groupHeader.background": "sections",
@@ -35,6 +36,33 @@
     "focus.inactiveTabStyle": "tonal",
     "layout.paneCornerRadius": 6,
     "sidebar.controlsOnHover": true,
-    "tabs.plusButton": "always"
+    "tabs.plusButton": "always",
+    "sidebar.side": "left",
+    "sidebar.showProfileControl": true,
+    "sidebar.showSearchButton": true,
+    "sidebar.showNewWorkspaceChooser": true,
+    "sidebar.workspacesAsTabs": false,
+    "sidebar.chromeGroups": true,
+    "sidebar.sideBySide": false,
+    "sidebar.noFade": false,
+    "sidebar.groupPalette": "theme",
+    "sidebar.workspaceRow.directory": true,
+    "sidebar.workspaceRow.branch": true,
+    "sidebar.workspaceRow.agentStatus": true,
+    "sidebar.workspaceRow.tabCount": true,
+    "sidebar.workspaceRow.lastActivity": true,
+    "sidebar.workspaceRow.secondLineOrder": [
+      "notification",
+      "directory",
+      "branch",
+      "agentStatus",
+      "lastActivity"
+    ],
+    "sidebar.style": "standard",
+    "sidebar.workspaceRow.process": true,
+    "sidebar.workspaceRow.ports": false,
+    "sidebar.workspaceRow.notification": true,
+    "workspaceColors.indicatorStyle": "fill",
+    "tabs.nativeNewTabPage": false
   }
 }

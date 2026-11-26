@@ -170,6 +170,41 @@ class CargoAffectedTest(unittest.TestCase):
     def test_crate_without_dependents_selects_itself(self) -> None:
         self.assert_crates(["cmux-tui/crates/lonely/src/lib.rs"], ["lonely"])
 
+    def test_a_root_reference_reads_what_its_comment_lists(self) -> None:
+        # "../../.." from a crate is the repository root: unannotated it reads every path, so a webviews
+        # change selected cmux-tui-core and its 13 dependents for 325 of 327 merged PRs (2026-11-17).
+        source = self.root / "cmux-tui/crates/mid/tests/root.rs"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        (self.root / "schemas/mid").mkdir(parents=True, exist_ok=True)
+        (self.root / "schemas/mid/cases.json").write_text("{}")
+        root = 'let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");\n'
+        source.write_text(root)
+        self.assert_crates(["webviews/src/a.ts"], ["mid", "top"])
+        source.write_text("// affected-reads: schemas/mid/cases.json\n" + root)
+        self.assert_crates(["webviews/src/a.ts"], [])
+        self.assert_crates(["schemas/mid/cases.json"], ["mid", "top"])
+        source.write_text("// affected-reads: none\n" + root)
+        self.assert_crates(["schemas/mid/cases.json"], [])
+        source.write_text("// affected-reads: schemas/mid/gone.json\n" + root)  # stale: every path again
+        self.assert_crates(["webviews/src/a.ts"], ["mid", "top"])
+
+    def test_every_cmux_tui_source_that_names_the_root_lists_what_it_reads(self) -> None:
+        # An unlisted one reads as every path: safe, but it puts its crate and dependents on every PR.
+        repo = Path(__file__).resolve().parents[1]
+        top = str(repo)
+        unlisted = []
+        for path in subprocess.run(["git", "-C", top, "grep", "-l", "-F", '"../', "--", "cmux-tui/**/*.rs"],
+                                   capture_output=True, text=True).stdout.split():
+            text = (repo / path).read_text(encoding="utf-8", errors="replace")
+            parts = Path(path).parent.parts
+            for literal in cargo_affected.RELATIVE_REF.findall(text):
+                anchors = [os.path.join(top, *parts[:k]) for k in range(3, len(parts) + 1)]
+                if any(os.path.normpath(os.path.join(a, literal.lstrip("/"))) == top for a in anchors) \
+                        and cargo_affected.root_reads(top, text) == ["."]:
+                    unlisted.append(f"{path}: {literal}")
+                    break
+        self.assertEqual(unlisted, [], "add `// affected-reads: PATH...` (or `none`) above each root reference")
+
     def test_union_of_two_changes(self) -> None:
         self.assert_crates(["cmux-tui/crates/lonely/src/lib.rs", "cmux-tui/crates/testkit/src/lib.rs"],
                            ["lonely", "testkit", "top"])
