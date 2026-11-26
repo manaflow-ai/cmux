@@ -4547,6 +4547,12 @@
       "title" : "Toasts v2",
       "type" : "boolean"
     },
+    "experiments.transcriptWorkLog" : {
+      "default" : false,
+      "description" : "Shows a finished turn as a work log: its steps folded, a card of the files it changed, and what each message added to context.",
+      "title" : "Transcript Work Log",
+      "type" : "boolean"
+    },
     "feed.agentPermissionPrompts" : {
       "default" : false,
       "description" : "Each request's tool and command summary goes to your own cmux feed, so your iPhone can answer it.",

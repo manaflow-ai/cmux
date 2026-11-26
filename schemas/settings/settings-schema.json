@@ -2523,6 +2523,7 @@
               "experiments.composerCustomizer",
               "experiments.agentBadges",
               "experiments.agentBadgesBeam",
+              "experiments.transcriptWorkLog",
               "experiments.terminalAgentMark",
               "experiments.menuStyleV2",
               "experiments.menuRowStates",
@@ -127559,6 +127560,146 @@
       "title" : {
         "key" : "settings.experiments.agentBadgesBeam",
         "text" : "Agent Badges: Running Beam"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.experiments",
+        "text" : "Experiments"
+      },
+      "help" : {
+        "key" : "settings.experiments.transcriptWorkLog.help",
+        "text" : "Shows a finished turn as a work log: its steps folded, a card of the files it changed, and what each message added to context."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "experiments.transcriptWorkLog",
+      "keywords" : [
+        "experiments",
+        "experimental",
+        "prototype",
+        "agent",
+        "chat",
+        "transcript",
+        "work log",
+        "worked for",
+        "diff",
+        "changed files",
+        "context"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "experiments",
+        "transcriptWorkLog"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:experiments.transcriptWorkLog"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.experiments.transcriptWorkLog",
+        "text" : "Transcript Work Log"
       },
       "validation" : "portable"
     },
