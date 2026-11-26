@@ -3,7 +3,8 @@
 //! plus `cmux-tasks-core`'s optimistic Tasks preview (`tasks_preview`),
 //! the group hover card's summary (`group_hover_summary`), the ports a
 //! workspace's hover card opens (`workspace_port_links`), the sidebar's
-//! launch order hold (`sidebar_launch_order`), a workspace row's own layout
+//! launch order hold (`sidebar_launch_order`), the sidebar list's fold, tree
+//! and row geometry rules (`sidebar_list_rules`), a workspace row's own layout
 //! (`sidebar_row_layout`), the app sidebar
 //! bridge's decision rules (`sidebar_bridge`), the store's
 //! optimistic overlay rules (`optimistic`: where a pending split, column,
@@ -19,6 +20,8 @@
 //! are discarded or are kept),
 //! `cmux-layout-reducer`'s drop-target rules (`drop_*`: where a dragged tab or
 //! group lands, how a workspace drag ends, a link drop, a file drop's copy or move),
+//! `cmux-browser-rules`' browser pane rules (`browser_rules_*`: where a clicked or page-requested
+//! link opens, and the one decision for every window Chromium wants to open),
 //! Keep Mac Awake's command rule (`keep_awake_plan`: which terminal commands
 //! hold off idle sleep and when to look again),
 //! `cmux-bookmarks-core`'s optimistic bookmark tree (`bookmarks_apply`: the
@@ -36,6 +39,9 @@
 //! `cloud_auth_*`: the auth rules around the app's Keychain I/O;
 //! `cloud_identity_*`: the install identity's rules;
 //! `cloud_vm_agent_key_*`: the VM agent-key mint's request and answer;
+//! `screen_*`: the WebRTC screen stream's rules (`cmux-rd-screen`: the hub
+//! ticket, signaling frames, follow mode's focus producer, viewer demand, the
+//! cursor shape delivery);
 //! `cloud_handoff_*`: the consent session handoff from cmux NIGHTLY;
 //! `cmux_keychain_bounded`, [`keychain`]: the app's calls into its own
 //! Keychain items, each on a thread of Rust's within its deadline),
@@ -77,6 +83,7 @@ use std::ffi::{CString, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 pub mod agent_cursor;
+mod browser_rules;
 pub mod close_focus;
 pub mod close_selection;
 pub mod closing_panes;
@@ -94,7 +101,9 @@ mod drop_rules;
 pub mod focus;
 mod imessage;
 pub mod input;
+mod pane_focus;
 pub mod keychain;
+mod screen;
 pub mod scroll;
 pub mod shown_resize;
 pub mod sidebar_caps;
@@ -284,6 +293,13 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: sidebar_launch_order::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&sidebar_launch_order::respond(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_list_rules" => {
+                use cmux_layout_reducer::sidebar_list_rules;
+                let request: sidebar_list_rules::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_list_rules::respond(&request))
                     .map_err(|_| ERR_INVALID)?
             }
             b"sidebar_row_layout" => {
@@ -606,6 +622,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 cloud_hybrid::respond(operation, request)?
             }
             operation if cloud_move::handles(operation) => cloud_move::respond(operation, request)?,
+            operation if pane_focus::handles(operation) => pane_focus::respond(request)?,
             operation if cloud_sequence::handles(operation) => {
                 cloud_sequence::respond(operation, request)?
             }
@@ -617,10 +634,14 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if cloud_machine::handles(operation) => {
                 cloud_machine::respond(operation, request)?
             }
+            operation if screen::handles(operation) => screen::respond(operation, request)?,
             operation if tab_discard::handles(operation) => {
                 tab_discard::respond(operation, request)?
             }
             operation if drop_rules::handles(operation) => drop_rules::respond(operation, request)?,
+            operation if browser_rules::handles(operation) => {
+                browser_rules::respond(operation, request)?
+            }
             operation if window_rules::handles(operation) => {
                 window_rules::respond(operation, request)?
             }

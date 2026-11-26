@@ -15,8 +15,11 @@ pub mod chat_ns;
 pub mod git;
 #[cfg(unix)]
 pub mod git_swap;
+#[cfg(unix)]
+pub mod hold;
 pub mod layer;
 pub mod link;
+pub mod listing_patch;
 pub mod lower;
 pub mod manifest;
 #[cfg(unix)]
@@ -28,6 +31,8 @@ pub mod peers;
 pub mod reap;
 pub mod revision;
 pub mod s3;
+#[cfg(unix)]
+pub mod share;
 #[cfg(any(target_os = "linux", test))]
 pub mod sparse;
 #[cfg(unix)]
