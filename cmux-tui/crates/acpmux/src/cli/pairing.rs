@@ -22,9 +22,18 @@ use crate::pairing::{Role, Ticket};
 use crate::rpc::{Message, method};
 use cmux_json::JsonSet as _;
 
-/// The install script a new machine pipes the ticket into
-/// (`web/public/tui/install-static.sh`). `CMUX_INSTALL_URL` overrides it.
-const INSTALL_URL: &str = "https://cmux.com/tui/install-static.sh";
+/// The sha256 of `web/public/tui/install-static.sh`, the install script the
+/// new machine runs before it joins. cmux.com serves it unchanged forever at
+/// [`install_url`]; `cmux-tui/scripts/install-static-pin.py --write` sets
+/// this, and its check (tests/test_tui_install_pin.py) fails when it differs.
+const INSTALL_STATIC_SHA256: &str =
+    "f2cbb6f11bd4743973c3f492e8fe2d1c4700c114784394da909890adec3e57de";
+
+/// The immutable copy of the install script at [`INSTALL_STATIC_SHA256`].
+/// `CMUX_INSTALL_URL` overrides it; the line still checks the pinned sha256.
+fn install_url() -> String {
+    format!("https://cmux.com/tui/install-static/{INSTALL_STATIC_SHA256}.sh")
+}
 
 /// What a daemon-role command shows where the new machine's address goes.
 const ADVERTISE_PLACEHOLDER: &str = "<wss:// address of the new machine>";
@@ -157,18 +166,25 @@ fn parse_ttl(text: &str) -> Result<u64> {
 }
 
 fn install_command(ticket: &str) -> String {
-    let url = std::env::var("CMUX_INSTALL_URL").unwrap_or_else(|_| INSTALL_URL.to_owned());
-    install_line(&url, ticket)
+    let url = std::env::var("CMUX_INSTALL_URL").unwrap_or_else(|_| install_url());
+    install_line(&url, INSTALL_STATIC_SHA256, ticket)
 }
 
 /// Installs cmux, then joins with the CLI it installed (at the script's
-/// default `~/.cmux/bin`). The ticket goes to `cmux host join`, not to the
-/// script: a script that does not join (cmux.com served one on 2026-10-22)
-/// would install and stop, and a script that does join would spend the
-/// single-use ticket before a second join.
-fn install_line(url: &str, ticket: &str) -> String {
+/// default `~/.cmux/bin`). Never `curl | sh` of a moving URL (cmuxterm-hq
+/// docs/design/linux-signed-packages.md, section 4): the script is saved in a
+/// fresh `mktemp -d` directory (only this user opens it, so the file checked
+/// is the file run), checked against `sha256` (`sha256sum`, or `shasum -a 256`
+/// on a Mac), and run only when it matches; the join runs only after the
+/// install succeeded. The ticket goes to `cmux host join`, not to the script:
+/// a script that does not join (cmux.com served one on 2026-10-22) would
+/// install and stop, and a script that does join would spend the single-use
+/// ticket before a second join.
+fn install_line(url: &str, sha256: &str, ticket: &str) -> String {
     format!(
-        "curl -fsSL {url} | sh && {}",
+        "(d=\"$(mktemp -d)\" && curl -fsSL {url} -o \"$d/install.sh\" \\
+         && echo \"{sha256}  $d/install.sh\" | $(command -v sha256sum || echo shasum -a 256) -c \\
+         && sh \"$d/install.sh\"; s=$?; rm -rf \"$d\"; exit \"$s\") && {}",
         join_line("\"$HOME/.cmux/bin/cmux\"", " --serve", ticket)
     )
 }

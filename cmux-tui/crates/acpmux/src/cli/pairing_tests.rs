@@ -1,4 +1,4 @@
-use super::{install_line, join_line, read_ticket};
+use super::{install_line, install_url, join_line, read_ticket, INSTALL_STATIC_SHA256};
 
 /// A scratch folder removed at drop.
 struct Dir(std::path::PathBuf);
@@ -28,6 +28,12 @@ fn recording_cmux(dir: &std::path::Path) -> String {
         argv.display(),
         stdin.display()
     )
+}
+
+/// Puts the recording cmux in `bin` as `cmux`.
+#[cfg(unix)]
+fn recording_cmux_on_path(dir: &std::path::Path, bin: &std::path::Path) {
+    executable(&bin.join("cmux"), &recording_cmux(dir));
 }
 
 #[cfg(unix)]
@@ -75,14 +81,83 @@ fn the_pasted_line_joins_with_the_ticket_on_stdin_not_in_argv() {
     let script =
         format!("mkdir -p \"$HOME/.cmux/bin\"\ncp '{}' \"$HOME/.cmux/bin/cmux\"\n", cmux.display());
     let script_path = dir.path().join("install.sh");
-    std::fs::write(&script_path, script).unwrap();
-    executable(&bin.join("curl"), &format!("#!/bin/sh\ncat '{}'\n", script_path.display()));
+    std::fs::write(&script_path, &script).unwrap();
+    fake_curl(&bin, &script_path);
 
-    let line = install_line("https://cmux.example/install.sh", TICKET);
+    let line =
+        install_line("https://cmux.example/install.sh", &sha256_hex(script.as_bytes()), TICKET);
     let (argv, stdin) = run_line(&dir, &line, &home);
     assert_eq!(argv, "host join --serve\n", "{line}");
     assert_eq!(stdin, format!("{TICKET}\n"), "{line}");
     assert!(!argv.contains(TICKET), "the ticket is in argv: {line}");
+    assert!(!line.contains("| sh"), "the line pipes a download into sh: {line}");
+}
+
+/// A fake `curl` that writes `script` to its `-o` file, as `curl -o` does.
+#[cfg(unix)]
+fn fake_curl(bin: &std::path::Path, script: &std::path::Path) {
+    let text = format!(
+        "#!/bin/sh\nwhile [ $# -gt 0 ]; do\n  if [ \"$1\" = -o ]; then cp '{}' \"$2\"; shift; fi\n  shift\ndone\n",
+        script.display()
+    );
+    executable(&bin.join("curl"), &text);
+}
+
+#[cfg(unix)]
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::Digest as _;
+    sha2::Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// A script whose sha256 is not the pinned one never runs, the join
+/// never runs, and the download's directory is removed.
+#[cfg(unix)]
+#[test]
+fn a_script_off_its_pin_never_runs_and_never_joins() {
+    let dir = Dir::new("pair-pin");
+    let home = dir.path().join("home");
+    let bin = dir.path().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::create_dir_all(&home).unwrap();
+    recording_cmux_on_path(dir.path(), &bin);
+    let ran = dir.path().join("ran");
+    let script_path = dir.path().join("install.sh");
+    std::fs::write(&script_path, format!("touch '{}'\n", ran.display())).unwrap();
+    fake_curl(&bin, &script_path);
+    let tmp = dir.path().join("tmp");
+    std::fs::create_dir_all(&tmp).unwrap();
+
+    let line = install_line("https://cmux.example/install.sh", &"0".repeat(64), TICKET);
+    let status = std::process::Command::new("/bin/sh")
+        .arg("-c")
+        .arg(&line)
+        .env("HOME", &home)
+        .env("TMPDIR", &tmp)
+        .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+        .stdin(std::process::Stdio::null())
+        .status()
+        .unwrap();
+    assert!(!status.success(), "{line}");
+    assert!(!ran.exists(), "the script ran without matching its pin: {line}");
+    assert!(!dir.path().join("argv.log").exists(), "the join ran after a refused install: {line}");
+    assert_eq!(
+        std::fs::read_dir(&tmp).unwrap().count(),
+        0,
+        "the download's directory stayed: {line}"
+    );
+}
+
+/// The default line names the immutable copy at the pinned sha256.
+#[test]
+fn the_default_url_is_the_pinned_immutable_copy() {
+    assert_eq!(INSTALL_STATIC_SHA256.len(), 64);
+    assert!(INSTALL_STATIC_SHA256
+        .bytes()
+        .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()));
+    assert_eq!(
+        install_url(),
+        format!("https://cmux.com/tui/install-static/{INSTALL_STATIC_SHA256}.sh")
+    );
 }
 
 /// `join_command`, for a machine with cmux already: the same, on PATH.
@@ -92,7 +167,7 @@ fn the_join_line_passes_the_ticket_on_stdin_not_in_argv() {
     let dir = Dir::new("join-line");
     let bin = dir.path().join("bin");
     std::fs::create_dir_all(&bin).unwrap();
-    executable(&bin.join("cmux"), &recording_cmux(dir.path()));
+    recording_cmux_on_path(dir.path(), &bin);
     let line = format!("{} --advertise 'wss://new.example/acp'", join_line("cmux", "", TICKET));
     let (argv, stdin) = run_line(&dir, &line, dir.path());
     assert_eq!(argv, "host join --advertise wss://new.example/acp\n", "{line}");
