@@ -162,7 +162,7 @@ import Testing
 
         /// Waits until `count` updates are in flight.
         func waitHeld(_ count: Int) async {
-            while held.count < count { await Task.yield() }
+            await yieldUntil { !(held.count < count) }
         }
         func deleteGroup(_ group: MacWorkspaceGroup, on macID: String) async throws { try record("delete \(group.id)") }
     }
