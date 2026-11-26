@@ -657,9 +657,15 @@ describe("cloud journey: leaked machine sweep", () => {
       const isLong = /--resume-matrix|--wake-echo/.test(text);
       if (isLong) long.push(f);
       const bound = isLong ? LONG_JOURNEY_MS : STALE_JOURNEY_MS;
-      // Every timeout in such a file, a superset of the journey jobs' own.
-      for (const m of text.matchAll(/timeout-minutes:\s*(\d+)/g)) {
-        expect({ f, fits: Number(m[1]) * 60_000 * 2 <= bound }).toEqual({ f, fits: true });
+      // Every timeout in each job that runs a journey (its job and step timeouts). A job in the same file that
+      // runs none (backend.yml's 95 min `test`) leaves no machine for the sweep, so its timeout is not bounded.
+      const jobsAt = text.search(/^jobs:\s*$/m);
+      const jobs = jobsAt < 0 ? [text] : text.slice(jobsAt).split(/^(?=  [\w-]+:\s*$)/m);
+      for (const job of jobs.filter((j) => /cloud-journey(\.ts|-ci\.sh)/.test(j))) {
+        const name = job.match(/^  ([\w-]+):/)?.[1] ?? "";
+        for (const m of job.matchAll(/timeout-minutes:\s*(\d+)/g)) {
+          expect({ f, name, fits: Number(m[1]) * 60_000 * 2 <= bound }).toEqual({ f, name, fits: true });
+        }
       }
     }
     expect(seen).toContain("cmux-vm.yml");

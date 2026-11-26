@@ -23,7 +23,11 @@
   "every_pr": {
     ".github/workflows/backend-migrations.yml": "produces `backend migrations applied`, required on main: a required context must report on every pull request (tests/test_ci_required_checks_have_no_path_filters.py; #17415 scoped it and every other PR went unmergeable)",
     ".github/workflows/ci-pr-closed-cancel.yml": "closed only: one run per pull request, not per head, cancelling the closed PR's queued CI",
+    ".github/workflows/ci-pr-superseded-cancel.yml": "synchronize only: the canceller of a pull request's runs on its older heads must start on every push to it, whatever it changes, or those runs keep going",
+    ".github/workflows/cloud-resume-matrix.yml": "opt-in by a `resume-matrix:` marker in the pull request body or a label of that name, which no paths filter sees; its plan job's `if` skips every other head",
+    ".github/workflows/cloud-wake-echo.yml": "opt-in by a `wake-echo: run` marker in the pull request body, which no paths filter sees; its job's `if` skips every other head",
     ".github/workflows/cmux-next-batch.yml": "the batch queue's debounce: every pull request event into feat-cmux-next feeds next_batch.py, whatever it changes",
+    ".github/workflows/cmux-next-closes-issues.yml": "closed only: one run per merged pull request, not per head, closing the issues it names",
     ".github/workflows/cmux-next-fast-gates.yml": "posts cmux-next/fast-gates, which merge_hold reads at every head; its path skip lives in its fast-check-route job (lane/fast-check-path-skips)",
     ".github/workflows/cmux-next-pr-autofix-closed-cancel.yml": "closed only: one run per pull request, not per head",
     ".github/workflows/cmux-next-pr-closed-cancel.yml": "closed only: one run per pull request, not per head",
