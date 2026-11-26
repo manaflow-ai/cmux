@@ -80,7 +80,9 @@ jobs:
           persist-credentials: false
           submodules: false
           fetch-depth: 1
-          sparse-checkout: scripts/cmux-next/fast-tier.json
+          sparse-checkout: |
+            scripts/cmux-next/fast-tier.json
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Run every Swift entry on the build fleet
