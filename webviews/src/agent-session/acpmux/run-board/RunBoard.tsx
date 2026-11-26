@@ -1,5 +1,6 @@
 // l10n-allow-file: DEV gallery Run board design prototype, not shipped UI.
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { KeyHint } from "../../../ui/KeyHint";
 import { sessionSummary } from "../summary/sessionSummary";
 import {
   canApprove,
@@ -101,7 +102,7 @@ function WorkspacePreview({ attempt }: { attempt: RunAttempt }) {
       <div className="run-board-preview-bar">
         <span>◉ &nbsp; atlas</span>
         <span>Workspace &nbsp; / &nbsp; Overview</span>
-        <span>⌘ K</span>
+        <KeyHint keys="⌘K" />
       </div>
       <div className="run-board-preview-body">
         <aside>

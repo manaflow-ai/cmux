@@ -20,8 +20,8 @@ cursor col 34 row 6
 grid 54x38
 s   0|leo@cosmic-gray ~/Projects/cmux % ls|↩
        ^ 0-14 fg=2
-s   1|                                    [main ↑2] 09:12:44|
-       ^ 36-40 fg=3; 42-44 fg=3; 46-53 fg=3
+s   1|                                   [main ↑2] 09:12:44|
+       ^ 35-39 fg=3; 41-43 fg=3; 45-52 fg=3
 s   2|AGENTS.md          Packages           cmux-next-ios|↩
 s   3|   docs               scripts            workers|
 s   4|CLAUDE.md          README.md          cmux-tui|↩
@@ -32,7 +32,7 @@ s   7|                 == Release notes ==|
 s   8|The quick brown fox jumps over the lazy dog while the|↩
 s   9|terminal keeps its own width and the phone re-wraps li|↩
 s  10|nes at itsTh|
-s  11|leo@cosmic-gray ~/Projects/cmux %   [main ↑2] 09:12:51|
-       ^ 0-14 fg=2; 36-40 fg=3; 42-44 fg=3; 46-53 fg=3
+s  11|leo@cosmic-gray ~/Projects/cmux %  [main ↑2] 09:12:51|
+       ^ 0-14 fg=2; 35-39 fg=3; 41-43 fg=3; 45-52 fg=3
   (26 blank rows)
 cursor col 34 row 11
