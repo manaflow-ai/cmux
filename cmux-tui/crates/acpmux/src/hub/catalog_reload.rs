@@ -84,6 +84,7 @@ impl Hub {
                 pool,
                 web_roots,
                 vm_host,
+                auto_cloud_enroll,
                 peers,
                 web_asking_modes,
                 agent_start_timeout_ms,
@@ -177,6 +178,7 @@ impl Hub {
             current.pool = pool;
             current.web_roots = web_roots;
             current.vm_host = vm_host;
+            current.auto_cloud_enroll = auto_cloud_enroll;
             // The peers stay put, but a saved peer's VM boundary follows the file at once: a
             // `false` there is the caller taking it back (`vm_boundary.rs`).
             // So does whether this Mac lends it GitHub (`github_broker.rs`).

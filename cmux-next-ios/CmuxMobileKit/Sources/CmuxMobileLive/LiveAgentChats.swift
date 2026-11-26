@@ -229,13 +229,7 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
     /// bounded, rather than refused at once.
     private func readyAcpmux(_ macID: String) async throws -> AcpmuxHub {
         guard canManage(on: macID) else { throw WorkspaceCreationError("Not connected") }
-        guard let acpmux else {
-            throw WorkspaceCreationError("Agents on this Mac aren't connected. Try again in a moment.", isForPerson: true)
-        }
-        if !acpmux.isReady, !(await acpmux.waitUntilReady(timeout: acpmux.readyGrace, clock: ContinuousClock())) {
-            throw WorkspaceCreationError("Agents on this Mac aren't connected. Try again in a moment.", isForPerson: true)
-        }
-        return acpmux
+        return try await readyAgents()
     }
 
     /// The tab a daemon reply names (`data.surface`), once the Mac lists it.
