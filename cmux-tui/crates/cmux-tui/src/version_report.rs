@@ -63,7 +63,7 @@ pub(crate) fn app_commit(exe: &Path) -> Option<String> {
     (!commit.is_empty()).then(|| commit.to_owned())
 }
 
-/// No app bundle (and no `plist`, a unix-only dependency) off unix.
+/// No app bundle encloses a Windows CLI (`app_identity` is unix-only).
 #[cfg(not(unix))]
 pub(crate) fn app_commit(_exe: &Path) -> Option<String> {
     None

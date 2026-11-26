@@ -53,7 +53,8 @@ fn only_package_installs_name_an_update_command() {
     assert_eq!(InstallChannel::Other.update_command(), None);
 }
 
-#[cfg(unix)] // `plist` and app bundles are unix-only.
+// App bundles (Info.plist, `plist` is a unix-only dependency) are unix only.
+#[cfg(unix)]
 fn app_with_info(dir: &Path, info: &[(&str, &str)]) -> std::path::PathBuf {
     let bundle = dir.join("cmux NEXT.app");
     let bin = bundle.join("Contents/Resources/bin");

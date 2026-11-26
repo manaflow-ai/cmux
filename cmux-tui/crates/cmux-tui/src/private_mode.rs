@@ -28,7 +28,6 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
         // cmux NEXT NIGHTLY's install check after an update: whether this
         // build is due its canary chat, and what its result decides
         // (cmux-install-check).
-        #[cfg(unix)] // `cmux-install-check` is a unix-only dependency.
         Some("__install-check") => Some(install_check(args.get(1..).unwrap_or_default())),
         // cmux NEXT's one-time adoption of its pre-isolation homes, run by the
         // app before it starts acpmux or the Chief owner (build_adopt.rs).
@@ -102,6 +101,13 @@ fn render_capabilities(json: bool) -> String {
 #[cfg(test)]
 #[path = "private_mode_tests.rs"]
 mod tests;
+
+/// The NIGHTLY install check runs only where the app does (cmux-install-check is unix-only).
+#[cfg(not(unix))]
+fn install_check(_args: &[String]) -> i32 {
+    client_log::stderr_log!("startup", "{BIN}: install check: not on Windows yet");
+    1
+}
 
 #[cfg(unix)]
 fn install_check(args: &[String]) -> i32 {

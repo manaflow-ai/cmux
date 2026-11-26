@@ -1084,12 +1084,6 @@ impl Surface {
         })
     }
 
-    /// Only unix has a holder; elsewhere every terminal runs in the daemon.
-    #[cfg(all(test, not(unix)))]
-    pub(crate) fn runs_on_holder(&self) -> bool {
-        false
-    }
-
     pub(crate) fn as_browser(&self) -> Option<&BrowserSurface> {
         match self {
             Surface::Pty(_) => None,

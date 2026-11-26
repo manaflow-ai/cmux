@@ -96,6 +96,7 @@ ITEM_RE = re.compile(r"^[ \t]*(?:pub(?:\s*\([^)]*\))?\s+)?(?:(?:const|async|unsa
 USE_RE = re.compile(r"^[ \t]*(?:pub(?:\s*\([^)]*\))?\s+)?use\s+([^;]*);", re.M)
 # A path that starts at the crate, the parent or this module.
 REL_RE = re.compile(r"\b(crate|super|self)\s*::")
+WORD_RE = re.compile(r"[A-Za-z_]\w*")
 SEG_RE = re.compile(r"\s*(?:r#)?(\w+)\s*(::)?")
 DECL_BEFORE_RE = re.compile(r"\b(?:fn|mod|struct|enum|trait|type|const|static|union|let|macro_rules!)\s*$")
 VIS_TAIL_RE = re.compile(r"\bpub\s*(?:\([^)]*\))?\s*$")
@@ -342,6 +343,11 @@ class Source:
     lines: list[int] = field(default_factory=list)
     cfgs: list[tuple[int, int, bool, str]] = field(default_factory=list)  # attr start, after attr, inner, predicate
     mods: list[re.Match] | None = None
+    words: set[str] | None = None  # the identifiers in code, for the crate-internal pass's name filters
+    # The crate-internal pass's matches, kept across the test and non-test passes.
+    items: list[tuple[int, str]] | None = None
+    uses: list[tuple[int, list[str]]] | None = None
+    rels: list[tuple[int, int, str]] | None = None
 
     @classmethod
     def load(cls, path: str, text: str) -> "Source":
@@ -672,7 +678,35 @@ class _Visit:
     inline: list[tuple[int, int, str]]
 
 
+def _words(src: Source) -> set[str]:
+    if src.words is None:
+        src.words = set(WORD_RE.findall(src.code))
+    return src.words
+
+
+def _items(src: Source) -> list[tuple[int, str]]:
+    if src.items is None:
+        src.items = [(m.start(1), m.group(1)) for m in ITEM_RE.finditer(src.code)]
+    return src.items
+
+
+def _uses(src: Source) -> list[tuple[int, list[str]]]:
+    if src.uses is None:
+        src.uses = [(m.start(), re.findall(r"(\w+)\s*(?=[,}]|$)", m.group(1).strip()))
+                    for m in USE_RE.finditer(src.code)] if "use" in src.code else []
+    return src.uses
+
+
+def _rels(src: Source) -> list[tuple[int, int, str]]:
+    if src.rels is None:
+        src.rels = [(m.start(), m.end(), m.group(1)) for m in REL_RE.finditer(src.code)
+                    if _starts_path(src.code, m.start())]
+    return src.rels
+
+
 def _module_at(v: _Visit, at: int) -> tuple:
+    if not v.inline:
+        return v.module
     return v.module + tuple(n for lo, hi, n in v.inline if lo < at < hi)
 
 
@@ -770,22 +804,13 @@ def scan(tree: Tree, crate_dir: str, libc_ok: set[str]) -> list[tuple[str, int, 
                     dead_decl.setdefault(full, (path, src.line_of(m.start())))
                 else:
                     live_decl.add(full)
-            for m in USE_RE.finditer(src.code):
-                if is_dead(dead, m.start()):
+            # Items under a dead cfg first; the live ones only matter where a dead name comes up (below).
+            for at, name in _items(src) if dead else ():
+                if not is_dead(dead, at):
                     continue
-                here = _module_at(v, m.start())
-                for name in re.findall(r"(\w+)\s*(?=[,}]|$)", m.group(1).strip()):
-                    live_decl.add(here + (name,))
-            for m in ITEM_RE.finditer(src.code):
-                at = m.start(1)
                 here = _module_at(v, at)
-                if _depth_at(bd, at) != len(here) - len(module):
-                    continue  # a method, a local or a field, not a module-level item
-                full = here + (m.group(1),)
-                if is_dead(dead, at):
-                    dead_decl.setdefault(full, (path, src.line_of(at)))
-                else:
-                    live_decl.add(full)
+                if _depth_at(bd, at) == len(here) - len(module):  # not a method, a local or a field
+                    dead_decl.setdefault(here + (name,), (path, src.line_of(at)))
             for m in src.mods:
                 if m.group(2) != ";" or is_dead(dead, m.start()):
                     continue
@@ -818,6 +843,21 @@ def scan(tree: Tree, crate_dir: str, libc_ok: set[str]) -> list[tuple[str, int, 
                         w = why(m)
                         if w:
                             hits[path].append((m.start(), w, m.group(1) if shadow else None))
+        dead_items = {k[-1] for k in dead_decl if k not in live_decl}
+        for path, v in visits.items() if dead_items else ():
+            src, dead, bd = v.src, v.dead, braces[path]
+            if dead_items.isdisjoint(_words(src)):
+                continue
+            for at, names in _uses(src):
+                if names and not dead_items.isdisjoint(names) and not is_dead(dead, at):
+                    here = _module_at(v, at)
+                    live_decl.update(here + (name,) for name in names)
+            for at, name in _items(src):
+                if name not in dead_items or is_dead(dead, at):
+                    continue
+                here = _module_at(v, at)
+                if _depth_at(bd, at) == len(here) - len(v.module):
+                    live_decl.add(here + (name,))
         off = {k: where for k, where in dead_decl.items() if k not in live_decl}
         children: dict[tuple, set[str]] = {}
         for k in off:
@@ -833,15 +873,14 @@ def scan(tree: Tree, crate_dir: str, libc_ok: set[str]) -> list[tuple[str, int, 
                 found[(path, src.line_of(pos), w)] = None
             if not off:
                 continue
-            for m in REL_RE.finditer(src.code):
-                at = m.start()
-                if not _starts_path(src.code, at) or is_dead(dead, at):
+            for at, end, kind in _rels(src):
+                if is_dead(dead, at):
                     continue
                 here = _module_at(v, at)
-                base = (here[0],) if m.group(1) == "crate" else here
-                if m.group(1) == "super":
+                base = (here[0],) if kind == "crate" else here
+                if kind == "super":
                     base = base[:-1]
-                for segs in _path_groups(src.code, m.end()):
+                for segs in _path_groups(src.code, end):
                     cur = base
                     for seg in segs:
                         if seg == "super":
@@ -858,6 +897,7 @@ def scan(tree: Tree, crate_dir: str, libc_ok: set[str]) -> list[tuple[str, int, 
             names = set()
             for lo_mod in {v.module} | {_module_at(v, lo + 1) for lo, _hi, _n in v.inline}:
                 names |= children.get(lo_mod, set())
+            names &= _words(src) if names else set()
             if not names:
                 continue
             alt = "|".join(sorted(map(re.escape, names), key=len, reverse=True))

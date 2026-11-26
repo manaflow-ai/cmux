@@ -449,12 +449,14 @@ exit "$rc"
 [step.unix-only-on-windows]
 job = "linux"
 timeout = 120
-title = "acpmux builds on Windows (unix-only uses)"
-about = "no std::os::unix, std::os::fd, net::Unix*, Windows-missing libc item, unix-only crate or main-less target in acpmux (or its dev-dependency cmux-fault) outside a cfg(unix) item or module"
+title = "acpmux, cmux-tui-core and cmux-tui build on Windows (unix-only uses)"
+about = "no std::os::unix, std::os::fd, net::Unix*, Windows-missing libc item, unix-only crate, main-less target or use of a crate module or item declared only under cfg(unix) in acpmux (or its dev-dependency cmux-fault), cmux-tui-core or cmux-tui outside a cfg(unix) item or module"
 inputs = [
   "cmux-tui/Cargo.toml",
   "cmux-tui/crates/acpmux/**",
   "cmux-tui/crates/cmux-fault/**",
+  "cmux-tui/crates/cmux-tui-core/**",
+  "cmux-tui/crates/cmux-tui/**",
   "scripts/ci/unix_only_on_windows.py",
   "scripts/ci/libc_windows_gnu.txt",
   "tests/test_ci_unix_only_on_windows.py",
