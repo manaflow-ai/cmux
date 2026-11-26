@@ -18,6 +18,11 @@ on:
         description: App source to build (branch, tag or SHA); empty is this ref
         required: false
         default: ""
+      screens:
+        description: Also take the golden fixture screenshots (ios-sim-mac-shots)
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -198,3 +203,34 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
+      # Golden screenshots for the screen-parity check (cmux-next-ios/verify/screen-parity): the same
+      # fixture screens on an iPhone 17 Pro simulator here, uploaded with the scripts that took them so the Linux
+      # job runs the same version. Opt in with the `screens` input or a lane/ios-sim-linux-screen-parity* push;
+      # a failure here never fails the build artifacts above.
+      - name: Take the Mac golden screenshots
+        if: inputs.screens || startsWith(github.ref_name, 'lane/ios-sim-linux-screen-parity')
+        continue-on-error: true
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          app="$(find "$DERIVED/Build/Products" -maxdepth 2 -name CmuxMobileApp.app -type d | head -1)"
+          test -n "$app"
+          udid="$(xcrun simctl create parity "iPhone 17 Pro")"
+          xcrun simctl boot "$udid"
+          xcrun simctl bootstatus "$udid" -b >/dev/null
+          xcrun simctl install "$udid" "$app"
+          mkdir -p "$OUT/shots/tools"
+          cp cmux-next-ios/verify/screen-parity/* "$OUT/shots/tools/"
+          SIM_UDID="$udid" EFFECTS=full MODEL="iPhone 17 Pro" \
+            bash cmux-next-ios/verify/screen-parity/shots.sh simctl "$OUT/shots/mac" "$app"
+          xcrun simctl delete "$udid" || true
+          ls -la "$OUT/shots/mac"
+      - name: Upload ios-sim-mac-shots
+        if: inputs.screens || startsWith(github.ref_name, 'lane/ios-sim-linux-screen-parity')
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-sim-mac-shots
+          path: ${{ env.OUT }}/shots
+          if-no-files-found: error
+          retention-days: 14
