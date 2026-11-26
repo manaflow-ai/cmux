@@ -3,6 +3,7 @@
 // (Leo 2026-11-03, after ChatGPT's one-step update), so its progress and Cancel live here, and so
 // does a failed check's or download's Try Again, background ones included. Under them, Go Back to
 // Previous Build names the build this Mac kept (PreviousBuildRow). Every text is the host's.
+// retry-prompt-ok: the host (UpdaterService) owns these actions; a download's Try Again installs an update.
 import { useEffect, useState } from "react";
 import { Button } from "../../../ui/Button";
 import { useRowState, useSettingsState, useStore } from "../context";

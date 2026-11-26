@@ -8,6 +8,7 @@ mod app_id;
 mod backdrop;
 mod build_defaults;
 mod chat_roots;
+mod file_keys;
 mod json_schema;
 mod retired;
 pub mod shape;
@@ -32,9 +33,10 @@ pub use backdrop::{
 };
 pub use build_defaults::{BUILD_DEFAULTS_ENV, build_defaults_from};
 pub use chat_roots::chat_root_is_valid;
+pub use file_keys::{FileKey, file_key, file_keys};
 pub use retired::{
-    Replaced, Retired, replaced_by_row, replaced_keys, retired_entries, retired_keys,
-    retired_reason,
+    Replaced, Retired, aliasing_replaced, replaced_by_row, replaced_keys, replaced_old_keys,
+    replaced_value, retired_entries, retired_keys, retired_reason,
 };
 pub use sidebar_rows::problems as sidebar_row_problems;
 pub use url::{is_http_origin, new_tab_page_url_is_valid};
@@ -170,6 +172,10 @@ pub enum DomainKind {
     /// background, a listed choice or `system:` / `file:` with an absolute
     /// path (Swift `BackdropSelectionSetting.acceptsPicture`).
     BackdropPicture,
+    /// `appearance.paneArt.dark` / `.light`: a list of fixed backgrounds,
+    /// each one a [`DomainKind::BackdropPicture`] (Swift
+    /// `ThemeFlourishSetting.acceptsPictures`).
+    BackdropPictures,
     /// `appearance.backgroundSchedule`: an object of times (`HH:MM`, or a sun
     /// event with an offset) to fixed backgrounds (Swift
     /// `BackdropSelectionSetting.acceptsSchedule`).
@@ -534,6 +540,7 @@ fn row(raw: Value, text: RowText) -> Result<Row, String> {
         "domain:sound" => Validation::Domain(DomainKind::Sound),
         "domain:backdrop_selection" => Validation::Domain(DomainKind::BackdropSelection),
         "domain:backdrop_picture" => Validation::Domain(DomainKind::BackdropPicture),
+        "domain:backdrop_pictures" => Validation::Domain(DomainKind::BackdropPictures),
         "domain:backdrop_schedule" => Validation::Domain(DomainKind::BackdropSchedule),
         "domain:backdrop_location" => Validation::Domain(DomainKind::BackdropLocation),
         "domain:backdrop_memory" => Validation::Domain(DomainKind::BackdropMemory),

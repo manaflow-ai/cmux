@@ -4,14 +4,21 @@ name: PR body checks
 # workflows (pr-capture-check.yml, pr-design-spec-check.yml, pr-perf-section-check.yml,
 # pr-cloud-backend-check.yml), each starting a Linux runner for a few seconds of Python: about 270,000
 # runs and 69,000 runner-minutes in 14 days, with no failure. Each step here is the step its own
-# workflow had, with the events it ran on and its warn-only setting. The scripts and maps run from the
-# base branch, never the pull request's code. Editing the description re-runs them. They run on drafts
-# and on a base-only update, as they did.
+# workflow had, with its warn-only setting. The scripts and maps run from the base branch, never the
+# pull request's code. They run on drafts and on a base-only update, as they did.
+#
+# A description edit no longer re-runs them (CI catch-value audit, 2026-11-26; Leo, 2026-11-25: "trim out
+# vacuously true stuff"). Every step is advisory (ci/steps.toml `blocks = false`, the run step
+# continue-on-error), so the job cannot go red on what it finds: its 319 red jobs from 2026-11-22 to
+# 11-26 were all runner or checkout failures. Edits were all of its runs once pushes moved to
+# pr-checks.yml: 3,507 jobs and 4,918 runner-minutes on 2026-11-25 alone, most from bots rewriting
+# descriptions (Leo, 2026-11-17, on edits re-running checks: "why should it do that"). The next push
+# re-lints the edited description in pr-checks.yml's advisory job.
 #
 # Pushes run in pr-checks.yml (CI v2 step 6, second cut). A push's lints are steps of pr-checks.yml's one
 # advisory job, so a push starts one runner, not two (973 of these jobs a day in the 24 h to 2026-11-21T12Z,
-# nearly all on pushes). This workflow keeps the events that job does not take: a description edit (every
-# lint reads the body) and the media-tour and perf labels. GitHub cannot filter `on:` by label name, so a
+# nearly all on pushes). This workflow keeps only the media-tour and perf labels, which change what the
+# capture and perf lints ask for. GitHub cannot filter `on:` by label name, so a
 # label trigger there would start a newer, skipped run of PR size, UI review, split-plan and link on every
 # bot label toggle, and hide their answers. Both workflows run steps of the step table's `advisory` job,
 # each naming its own with ci_steps.py --only.
@@ -45,8 +52,8 @@ on:
   pull_request:
     branches: [feat-cmux-next]
     # A push (opened, synchronize, reopened, ready_for_review) runs these lints in pr-checks.yml's advisory job
-    # (CI v2 step 6, second cut): this workflow keeps only what that job does not take.
-    types: [edited, labeled, unlabeled]
+    # (CI v2 step 6, second cut): this workflow keeps only the labels the lints read. No `edited`: see above.
+    types: [labeled, unlabeled]
 
 permissions: {}
 
@@ -66,7 +73,7 @@ jobs:
   body:
     name: pr-capture-check, design spec, perf section, cloud backend
     if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["media-tour","media-tour-mac","perf","performance"]'), github.event.label.name)) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read

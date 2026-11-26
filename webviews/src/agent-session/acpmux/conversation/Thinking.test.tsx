@@ -149,7 +149,9 @@ test("unreachable and subagent states remain factual with custom verbs", () => {
       "agentPane.display.statusVerbs.custom": "Imagining",
     }),
   );
-  act(() => root!.render(<Thinking retry={{ attempt: 2, maxRetries: 5, errorStatus: 503 }} />));
+  act(() =>
+    root!.render(<Thinking retry={{ attempt: 2, maxRetries: 5, errorStatus: 503 }} retryAt={Date.now() - 60_000} />),
+  );
   expect(container.querySelector("[data-retrying]")).not.toBeNull();
   expect(container.textContent).not.toContain("Imagining");
   act(() => root!.render(<Thinking liveState="subagents" liveAgents={2} />));
@@ -268,7 +270,14 @@ test("the words back after a retry roll nothing in, and no old words rise again"
   act(() => root!.render(<Thinking since={0} now={() => 1_000} doing="Read App.tsx" doingAt={1} />));
   expect(container.querySelector(".cv-roll-out")).not.toBeNull();
   act(() =>
-    root!.render(<Thinking since={0} now={() => 1_000} retry={{ attempt: 2, maxRetries: 5, errorStatus: 503 }} />),
+    root!.render(
+      <Thinking
+        since={0}
+        now={() => 1_000}
+        retry={{ attempt: 2, maxRetries: 5, errorStatus: 503 }}
+        retryAt={-60_000}
+      />,
+    ),
   );
   act(() => root!.render(<Thinking since={0} now={() => 1_000} doing="Read App.tsx" doingAt={1} />));
   expect(container.querySelector(".cv-roll-out")).toBeNull();
