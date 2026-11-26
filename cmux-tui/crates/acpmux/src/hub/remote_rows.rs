@@ -124,10 +124,15 @@ impl RemoteRows {
         self.rows.insert(key, row);
     }
 
-    /// Whether two rows file under the same index keys (`Names::entries`, `by_pair`, `by_peer`).
+    /// Whether two rows file under the same index keys (`Names::entries`, `by_pair`, `by_peer`,
+    /// the list order's `ListPlace` and open or closed set, `by_page_key`).
     fn same_index(a: &RemoteSession, b: &RemoteSession) -> bool {
         a.peer == b.peer
             && a.receipt.mux_session_id == b.receipt.mux_session_id
+            && a.summary.updated_ms() == b.summary.updated_ms()
+            && a.summary.closed() == b.summary.closed()
+            && a.summary.session_id() == b.summary.session_id()
+            && a.summary.peer() == b.summary.peer()
             && a.summary.name() == b.summary.name()
             && a.summary.alias() == b.summary.alias()
             && a.summary.same_pair(&b.summary)
