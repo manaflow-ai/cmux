@@ -6,7 +6,9 @@ use crate::peer::{LinkEnd, PeerNotice, test_dial};
 use crate::peer_link::Backoff;
 use crate::protocol::peer_state::PeerLinkState;
 use std::sync::Arc;
+use tokio::io::AsyncReadExt as _;
 use tokio::sync::mpsc;
+use tokio_tungstenite::tungstenite::protocol::Role;
 
 const URL: &str = "ws://127.0.0.1:9";
 
@@ -168,6 +170,42 @@ async fn a_link_closed_unused_is_idle_with_no_outage() {
     assert_eq!(summary["lastSeen"], now);
     assert!(peer.idle_parked());
     assert!(!peer.is_wanted(), "closing unused asks for nothing");
+}
+
+/// Parking after a make-before-break switch releases the staged WebSocket instead of retaining
+/// an open socket until a later demand wakes the peer.
+#[tokio::test(start_paused = true)]
+async fn parking_an_idle_link_drops_its_staged_replacement_socket() {
+    let peer = saved(|| built("replacement"));
+    let (ours, mut theirs) = tokio::io::duplex(64);
+    let heard = crate::peer_link::Heard::default();
+    let ws = tokio_tungstenite::WebSocketStream::from_raw_socket(
+        heard.wrap(Box::new(ours) as crate::peer::carriers::BoxDuplex),
+        Role::Client,
+        None,
+    )
+    .await;
+    *peer.replacement.lock_or_recover() = Some((
+        crate::peer_paths::Via::Link,
+        crate::peer::carriers::Opened {
+            ws: crate::peer::carriers::OpenedWs::Boxed(Box::new(ws)),
+            heard,
+            presented: None,
+            ssh_errors: None,
+            early_id: None,
+        },
+    ));
+
+    let notice = peer.finish_link(Ok(LinkEnd::Idle), &mut Backoff::default());
+    assert!(matches!(notice, Some(PeerNotice::Idle)));
+    assert!(peer.replacement.lock_or_recover().is_none());
+
+    let mut byte = [0u8; 1];
+    let read = tokio::time::timeout(Duration::from_secs(1), theirs.read(&mut byte))
+        .await
+        .expect("staged replacement socket closes when the peer parks")
+        .expect("duplex read succeeds");
+    assert_eq!(read, 0, "the staged replacement socket remained open");
 }
 
 /// A link that is down while nothing uses it stops redialing once unused for the bound: it reads

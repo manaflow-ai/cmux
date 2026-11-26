@@ -990,16 +990,16 @@ impl Peer {
                     }
                 }
                 due = ping.tick() => {
-                    // The selector moved the session to a faster path: the link moves while no
-                    // request is out on it, and its list is in (one read after ready has no
-                    // request out between its pages).
                     self.paths_tick();
-                    if self.link().is_ready() && listed && self.switch_due() {
-                        break Ok(LinkEnd::Switching);
-                    }
                     // Unused for `IDLE_CLOSE_AFTER`: it closes, and the next use dials again.
                     if self.link().is_ready() && listed && self.idle_due() {
                         break Ok(LinkEnd::Idle);
+                    }
+                    // The selector moved the session to a faster path: the link moves while no
+                    // request is out on it, and its list is in (one read after ready has no
+                    // request out between its pages).
+                    if self.link().is_ready() && listed && self.switch_due() {
+                        break Ok(LinkEnd::Switching);
                     }
                     let now = tokio::time::Instant::now();
                     // A gap this daemon made by not reading teaches the budget nothing.

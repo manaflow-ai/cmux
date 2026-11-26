@@ -29,6 +29,7 @@
 //! one a test builds keep the old rule too: dialed at once, kept while it answers.
 
 use super::Peer;
+use crate::no_panic::LockExt;
 use std::cell::Cell;
 use std::sync::Mutex as StdMutex;
 use std::sync::atomic::{AtomicBool, Ordering};
