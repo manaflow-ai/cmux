@@ -92,6 +92,7 @@ mod cloud_sequence;
 mod cloud_task;
 pub mod drag_handle;
 pub mod focus;
+mod focus_state;
 mod imessage;
 pub mod input;
 pub mod keychain;
@@ -617,6 +618,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             }
             operation if cloud_machine::handles(operation) => {
                 cloud_machine::respond(operation, request)?
+            }
+            operation if focus_state::handles(operation) => {
+                focus_state::respond(operation, request)?
             }
             operation if screen::handles(operation) => screen::respond(operation, request)?,
             operation if tab_discard::handles(operation) => {
