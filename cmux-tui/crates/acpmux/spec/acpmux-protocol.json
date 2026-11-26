@@ -6702,6 +6702,9 @@
         "answers": {
           "description": "A question's answers, by question."
         },
+        "forkCheckpoint": {
+          "description": "With an allow on a request that carries `forkOffer`: the copy the app made first, `{machine, fork, forkMs}` (fork_risky.rs)."
+        },
         "optionId": {
           "description": "The option chosen; absent cancels the request.",
           "type": [
