@@ -85,9 +85,49 @@ struct WriterState {
     kept: u64,
     /// The target of the newest copy saved durable.
     synced: u64,
-    /// The last successful save, or the value read from the store before startup repairs.
-    /// Versions count commits, so alone they miss direct changes such as log catch-up.
-    saved: Option<SessionMeta>,
+    /// What the last successful save held ([`Saved::of`]), or the value read from the store before
+    /// startup repairs. Versions count commits, so alone they miss direct changes such as log
+    /// catch-up. Not the copy: a whole second `SessionMeta` per chat, kept only for the shutdown's
+    /// compare, was about 13 kB a chat (12.8 MB of acpmux's live heap at 1,000 chats, CMUX-571).
+    saved: Option<Saved>,
+}
+
+/// A save, as the shutdown compares it: the SHA-256 of the metadata's JSON without its large parts
+/// (what `session.json` holds), and the parts themselves as the shared copies the chat holds (an
+/// `Arc` each, never a copy of the value). Holding them keeps their memory from being reused, so
+/// a changed part is a different copy or different content, never the same one. Equal metadata
+/// gives an equal `Saved`; a map in a `Value` field may serialize in another order than an equal
+/// one, which reads as a change and only costs a save. `None` when the metadata cannot be
+/// serialized, which reads as a change too. Hashing only the small part keeps each save's extra
+/// work to what the store already serializes for `session.json`.
+#[derive(Debug, PartialEq)]
+pub(super) struct Saved {
+    digest: [u8; 32],
+    commands: Option<crate::store::SharedValue>,
+    rows: crate::store::SharedRows,
+}
+
+impl Saved {
+    pub(super) fn of(meta: &SessionMeta) -> Option<Self> {
+        use sha2::{Digest, Sha256};
+        struct Hashing(Sha256);
+        impl std::io::Write for Hashing {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.update(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut hashing = Hashing(Sha256::new());
+        crate::store::to_writer_without_parts(&mut hashing, meta).ok()?;
+        Some(Self {
+            digest: hashing.0.finalize().into(),
+            commands: meta.available_commands.clone(),
+            rows: meta.tools.rows.clone(),
+        })
+    }
 }
 
 /// Whether a commit waits for its version to be durable.
@@ -98,8 +138,9 @@ pub(super) enum Wait {
 }
 
 impl MetaWriter {
-    pub(super) fn note_saved(&self, meta: SessionMeta) {
-        self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).saved = Some(meta);
+    pub(super) fn note_saved(&self, meta: &SessionMeta) {
+        let saved = Saved::of(meta);
+        self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).saved = saved;
     }
 
     /// A writer in flight must get a later version even if memory matches the last save:
@@ -109,7 +150,10 @@ impl MetaWriter {
         let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         state.writing
             || state.requested > state.durable
-            || !state.saved.as_ref().is_some_and(|saved| session.read_meta(|meta| meta == saved))
+            || state
+                .saved
+                .as_ref()
+                .is_none_or(|saved| session.read_meta(Saved::of).as_ref() != Some(saved))
     }
 
     /// Takes the next version for the change the caller just made, and commits it: as the
@@ -390,7 +434,7 @@ impl Hub {
             ShowAfter::Written => self.store.save_kept(&meta),
         };
         if saved.is_ok() {
-            session.meta_writer.note_saved(meta);
+            session.meta_writer.note_saved(&meta);
         }
         // The purge ran between the check and the save: delete it again.
         if session.purged.load(Ordering::SeqCst)

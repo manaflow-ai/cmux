@@ -77,12 +77,44 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
 
     nonisolated public override var wantsUpdateLayer: Bool { true }
 
-    /// Show `state`, drawn in `style` (nil: the configured style).
-    public func configure(_ state: StatusIndicatorState, style: StatusIndicatorStyle? = nil) {
-        guard state != self.state || style != styleHint || indicator.plan == .hidden && state.isVisible else { return }
+    /// A look's particles glyph (``SidebarRowGlyph``), played in the loading glyph's place while the
+    /// state is loading; nil draws the indicator as configured.
+    public private(set) var glyph: SidebarRowGlyph?
+    /// The view that plays ``glyph`` (``StatusIndicatorAppearance/glyphPlayer``), made the first time one plays.
+    private var glyphPlayer: (any SidebarRowGlyphPlayer)?
+
+    /// Show `state`, drawn in `style` (nil: the configured style), or as `glyph` while it loads.
+    public func configure(_ state: StatusIndicatorState, style: StatusIndicatorStyle? = nil, glyph: SidebarRowGlyph? = nil) {
+        guard state != self.state || style != styleHint || glyph != self.glyph || indicator.plan == .hidden && state.isVisible else { return }
         self.state = state
         styleHint = style
+        self.glyph = glyph
         refresh()
+    }
+
+    /// Plays ``glyph`` instead of the loading glyph while the state loads (busy or working, with a
+    /// loading glyph to replace), else hands the cell back to the indicator.
+    private func refreshGlyph(_ plan: StatusIndicatorPlan, animates: Bool) {
+        let loading: Bool = switch state {
+        case .busy, .working: plan.glyph != .none
+        case .idle, .paused, .waiting, .error, .success: false
+        }
+        guard let glyph, loading, let make = StatusIndicatorAppearance.shared.glyphPlayer else {
+            indicator.layer.isHidden = false
+            glyphPlayer?.play(nil, animates: false)
+            glyphPlayer?.view.isHidden = true
+            return
+        }
+        let player = glyphPlayer ?? make()
+        if glyphPlayer == nil {
+            glyphPlayer = player
+            player.view.frame = bounds
+            player.view.autoresizingMask = [.width, .height]
+            addSubview(player.view)
+        }
+        indicator.layer.isHidden = true
+        player.view.isHidden = false
+        player.play(glyph, animates: animates)
     }
 
     /// Plays the one-shot settle on the glyph just shown (``StatusIndicatorLayer/playSettle()``):
@@ -163,6 +195,7 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         let showed = showsGlyph
         nameState()
         indicator.apply(plan, config: config)
+        refreshGlyph(plan, animates: animates)
         isHidden = plan.glyph == .none
         // The host reserves trailing space only for a visible glyph.
         if showed != showsGlyph { superview?.needsLayout = true }

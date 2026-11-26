@@ -1,7 +1,16 @@
+#if canImport(CommonCrypto)
 import CommonCrypto
+#endif
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+import _CryptoExtras
+#endif
 import Foundation
+#if canImport(Security)
 import Security
+#endif
 
 /// Classic VNC authentication (security type 2, RFC 6143 section 7.2.2):
 /// DES-ECB over the 16-byte challenge, keyed by the first 8 password bytes
@@ -12,7 +21,11 @@ struct VNCPasswordAuthentication {
     func response(challenge: [UInt8]) -> [UInt8]? {
         var key = [UInt8](repeating: 0, count: 8)
         for (index, byte) in password.utf8.prefix(8).enumerated() { key[index] = Self.reverseBits(byte) }
+        #if canImport(CommonCrypto)
         return CipherECB(algorithm: CCAlgorithm(kCCAlgorithmDES), key: key).encrypt(challenge)
+        #else
+        return RFBDES.encrypt(challenge: challenge, key: key)
+        #endif
     }
 
     static func reverseBits(_ byte: UInt8) -> UInt8 {
@@ -27,10 +40,8 @@ struct VNCPasswordAuthentication {
 }
 
 /// Apple Diffie-Hellman authentication (security type 30), macOS Screen
-/// Sharing. The client finishes the DH exchange, keys AES-128-ECB with
-/// MD5(shared secret), and sends the encrypted 128-byte credential block
-/// (user name and password, each NUL-terminated in 64 bytes of random
-/// padding) followed by its public key.
+/// Sharing. The client encrypts the 128-byte credential block with AES-128-ECB
+/// keyed by MD5(shared secret), then sends it followed by its public key.
 struct AppleDHAuthentication {
     var generator: UInt16
     var prime: [UInt8]
@@ -51,10 +62,30 @@ struct AppleDHAuthentication {
         let shared = math.power(serverPublicKey, secret)
         let key = Array(Insecure.MD5.hash(data: Data(shared)))
         let credentials = Self.credentials(username: username, password: password, padding: padding)
-        guard let encrypted = CipherECB(algorithm: CCAlgorithm(kCCAlgorithmAES128), key: key).encrypt(credentials),
-              encrypted.count == 128 else { return nil }
+        #if canImport(CommonCrypto)
+        let ciphertext = CipherECB(algorithm: CCAlgorithm(kCCAlgorithmAES128), key: key).encrypt(credentials)
+        #else
+        let ciphertext = Self.encryptAES128ECB(credentials, key: key)
+        #endif
+        guard let encrypted = ciphertext, encrypted.count == 128 else { return nil }
         return Response(encryptedCredentials: encrypted, clientPublicKey: clientPublic)
     }
+
+    #if !canImport(CommonCrypto)
+    private static func encryptAES128ECB(_ plaintext: [UInt8], key: [UInt8]) -> [UInt8]? {
+        guard key.count == 16, plaintext.count.isMultiple(of: 16) else { return nil }
+        let symmetricKey = SymmetricKey(data: key)
+        var output = plaintext
+        do {
+            for offset in stride(from: 0, to: output.count, by: 16) {
+                try AES.permute(&output[offset ..< offset + 16], key: symmetricKey)
+            }
+            return output
+        } catch {
+            return nil
+        }
+    }
+    #endif
 
     static func credentials(username: String, password: String, padding: [UInt8]?) -> [UInt8] {
         var block = padding.flatMap { $0.count == 128 ? $0 : nil } ?? randomBytes(128)
@@ -69,14 +100,16 @@ struct AppleDHAuthentication {
 
     static func randomBytes(_ count: Int) -> [UInt8] {
         var bytes = [UInt8](repeating: 0, count: count)
-        if SecRandomCopyBytes(kSecRandomDefault, count, &bytes) != errSecSuccess {
-            var generator = SystemRandomNumberGenerator()
-            for index in bytes.indices { bytes[index] = UInt8.random(in: 0 ... 255, using: &generator) }
-        }
+        #if canImport(Security)
+        if SecRandomCopyBytes(kSecRandomDefault, count, &bytes) == errSecSuccess { return bytes }
+        #endif
+        var generator = SystemRandomNumberGenerator()
+        for index in bytes.indices { bytes[index] = UInt8.random(in: 0 ... 255, using: &generator) }
         return bytes
     }
 }
 
+#if canImport(CommonCrypto)
 /// One-shot ECB encryption with CommonCrypto (no padding).
 struct CipherECB {
     var algorithm: CCAlgorithm
@@ -99,9 +132,9 @@ struct CipherECB {
         return Array(output.prefix(moved))
     }
 }
+#endif
 
-/// The 16-byte VNC authentication response for a challenge (servers and
-/// test fixtures check a client's answer with it).
+/// The 16-byte VNC authentication response for a challenge (servers and test fixtures check a client's answer with it).
 public struct VNCPasswordResponse: Sendable, Equatable {
     public let bytes: [UInt8]
 

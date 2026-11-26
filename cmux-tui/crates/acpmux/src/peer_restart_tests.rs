@@ -225,6 +225,8 @@ async fn a_peer_that_restarts_again_and_again_is_back_within_a_second_each_time(
     let running = tokio::spawn(peer.clone().run());
     daemon.accepted().await;
     while !matches!(next_notice(&mut notices).await, PeerNotice::Connected) {}
+    let redials = &crate::gauges::links().link_redials;
+    let before = redials.load(Ordering::Relaxed);
     let mut waits = Vec::new();
     for _ in 0..3 {
         daemon.restart(1);
@@ -232,6 +234,7 @@ async fn a_peer_that_restarts_again_and_again_is_back_within_a_second_each_time(
         waits.push(daemon.accepted().await.duration_since(refused));
         while !matches!(next_notice(&mut notices).await, PeerNotice::Connected) {}
     }
+    assert!(redials.load(Ordering::Relaxed) >= before + 3);
     eprintln!("wait after the refused attempt, restarts 1-3: {waits:?}");
     assert!(waits[0] < FIRST_NEXT_ATTEMPT_WITHIN, "{waits:?}");
     assert!(waits.iter().all(|w| *w < NEXT_ATTEMPT_WITHIN), "{waits:?}");
@@ -249,6 +252,7 @@ async fn a_handshake_that_fails_once_reconnects_within_a_second() {
     let (tx, mut notices) = mpsc::channel(64);
     let url = format!("ws://127.0.0.1:{}", daemon.port);
     let peer = Peer::new("huge-blue", &url, None, None, tx);
+    peer.refuse_early(); // the fake daemon is a plain tungstenite accept, as before the early request
     let running = tokio::spawn(peer.clone().run());
     let refused = daemon.accepted().await;
     let wait = daemon.accepted().await.duration_since(refused);
@@ -456,6 +460,7 @@ async fn a_far_restart_makes_the_link_ready_before_its_list_is_read() {
     let (tx, mut notices) = mpsc::channel(256);
     let url = format!("ws://127.0.0.1:{}", daemon.port);
     let peer = Peer::new("far", &url, None, None, tx);
+    peer.refuse_early(); // the fake daemon is a plain tungstenite accept, as before the early request
     let running = tokio::spawn(peer.clone().run());
     let first = relink(&mut daemon, &mut notices, 0, Instant::now()).await;
     assert_eq!(first.lists.len(), 1, "one list on the first link");

@@ -14,32 +14,7 @@ use crate::agent_hooks::semantic_key;
 
 const MAX_PRESENCE_TOOL_BYTES: usize = 128;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AgentActivity {
-    /// Between tool calls, or a tool presence cannot classify.
-    Thinking,
-    Editing,
-    Reading,
-    Running,
-    Browsing,
-    ComputerUse,
-    /// Blocked on the user: an approval, a question or a plan review.
-    Waiting,
-}
-
-impl AgentActivity {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            AgentActivity::Thinking => "thinking",
-            AgentActivity::Editing => "editing",
-            AgentActivity::Reading => "reading",
-            AgentActivity::Running => "running",
-            AgentActivity::Browsing => "browsing",
-            AgentActivity::ComputerUse => "computer_use",
-            AgentActivity::Waiting => "waiting",
-        }
-    }
-}
+pub use cmux_presence::AgentActivity;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentPresence {
@@ -53,6 +28,29 @@ pub struct AgentPresence {
     pub path: Option<Arc<str>>,
     pub line: Option<u64>,
     pub updated_at_ms: u64,
+}
+
+impl AgentPresence {
+    /// Local record for the sidebar's agent. The caller supplies its workspace, display name,
+    /// fallback surface id and owner epoch (the hook's timestamp is not an ordering key).
+    pub fn record(
+        &self,
+        workspace: &str,
+        name: &str,
+        surface: &str,
+        epoch: u64,
+    ) -> cmux_presence::Presence {
+        use cmux_presence::{FileTarget, Kind, Presence, PresenceId};
+
+        let id = self.session.as_deref().unwrap_or(surface);
+        let mut record = Presence::new(PresenceId(id.into()), Kind::Agent, name, epoch);
+        record.color = Some(id.into());
+        record.doing = self.activity.into();
+        record.location.workspace = Some(workspace.into());
+        record.location.file =
+            self.path.as_deref().map(|path| FileTarget { path: path.into(), line: self.line });
+        record
+    }
 }
 
 /// One terminal's presence and the journal sequence of the newest hook
@@ -257,7 +255,7 @@ impl Mux {
         else {
             return;
         };
-        let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else { return };
+        let Some(surface) = self.agent_view_surface_for_terminal(&terminal_id) else { return };
         // Emit while holding the table so two events of one terminal reach
         // subscribers in the order they changed it. `emit` takes only the
         // subscriber lock and never this one.

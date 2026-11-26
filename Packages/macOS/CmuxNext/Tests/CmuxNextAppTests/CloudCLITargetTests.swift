@@ -293,6 +293,15 @@ struct CloudCLITargetTests {
         #expect(served["missing_features"]?.arrayValue?.contains(.string("fs-v1")) != true)
     }
 
+    /// `cloud.machines` names each machine's own team (its record's), which the carrier fault drill mints its ticket
+    /// credential for, as the app's dial sends it; nil on a record without one.
+    @Test func aCloudMachineRowNamesTheMachinesOwnTeam() {
+        let f = Self.fixture()
+        #expect(AppControl.cloudMachineRow(f.session, f.services.machines)["team"] == .null)
+        f.session.machine.team = "team_d9753ae7bf17ea2f6eaf"
+        #expect(AppControl.cloudMachineRow(f.session, f.services.machines)["team"] == .string("team_d9753ae7bf17ea2f6eaf"))
+    }
+
     /// A field added to `identify` must reach the details too: every stored property of
     /// `DaemonIdentity` (but the lookup set it derives) has a wire key in the fixture above.
     @Test func everyStoredFieldOfTheHandshakeIsInTheDetails() {

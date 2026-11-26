@@ -374,7 +374,10 @@ async function main(): Promise<number> {
 main().then(
   (code) => process.exit(code),
   (error) => {
-    log("scout crashed", { error: String(error?.stack ?? error).slice(0, 1000) });
+    // `stack ?? error` logged "" for an error with an empty stack (a local run, 2026-11-20 10:03): name every part.
+    const e = error as { name?: unknown; message?: unknown; stack?: unknown; cause?: unknown } | undefined;
+    const text = [e?.name, e?.message, e?.cause && `cause: ${String((e.cause as { message?: unknown }).message ?? e.cause)}`, e?.stack].filter((x) => typeof x === "string" && x.length > 0);
+    log("scout crashed", { error: (text.length ? [...new Set(text)].join(" | ") : String(error) || typeof error).slice(0, 1000) });
     process.exit(1);
   },
 );

@@ -5,12 +5,14 @@ import type { CodeViewOptions } from "@pierre/diffs";
 import type { WorkerInitializationRenderOptions } from "@pierre/diffs/worker";
 import {
   appearanceBackgroundColor,
+  syntaxColorsFor,
   readableColor,
   type DiffChangeColors,
   type DiffViewerAppearance,
 } from "./appearance";
-import { pageSyntaxVariable, syntaxRoleColors, syntaxTokenRules, type SyntaxRoleName } from "./syntax-theme";
+import { pageSyntaxVariable, syntaxTokenRules, type SyntaxRoleName } from "./syntax-theme";
 import { MOTION_MS } from "./motion/scale.generated";
+import { DIFF_FILE_HEADER_HEIGHT } from "./diff-viewer/density";
 
 export type DiffViewerOptions = {
   collapsed: boolean;
@@ -57,23 +59,20 @@ export const EXPANSION_LINE_COUNT = 20;
 /** The options a diff is drawn with: `auto` resolved to the layout the viewer width allows. */
 export type DrawnDiffOptions = Omit<DiffViewerOptions, "layout"> & { layout: "split" | "unified" };
 
-/** Height of a file header row; also the virtualizer's header metric. */
-export const DIFF_FILE_HEADER_HEIGHT = 38;
-
 /**
  * `lineHeight` is the drawn code line (diff-viewer/fontZoom.ts): the virtualizer estimates a file's height from it,
- * so it must be the line the CSS draws, at every zoom.
+ * so it must be the line the CSS draws, at every zoom. `headerHeight` is the file header bar at the app density
+ * (diff-viewer/density.ts), the `--cmux-diff-file-header-height` the App writes for the CSS.
  */
 export function codeViewOptions(
   options: DrawnDiffOptions,
   appearance: DiffViewerAppearance,
   lineHeight?: number,
+  headerHeight: number = DIFF_FILE_HEADER_HEIGHT,
 ): CodeViewOptions<any> {
   return {
     layout: { paddingTop: 0, gap: 1, paddingBottom: 0 },
-    itemMetrics: lineHeight
-      ? { diffHeaderHeight: DIFF_FILE_HEADER_HEIGHT, lineHeight }
-      : { diffHeaderHeight: DIFF_FILE_HEADER_HEIGHT },
+    itemMetrics: lineHeight ? { diffHeaderHeight: headerHeight, lineHeight } : { diffHeaderHeight: headerHeight },
     diffStyle: options.layout,
     diffIndicators: options.diffIndicators,
     overflow: options.wordWrap ? "wrap" : "scroll",
@@ -192,6 +191,7 @@ export function codeViewUnsafeCSS(): string {
       display: flex;
       align-items: stretch;
       background-color: var(--cmux-diff-header-bg, var(--cmux-diff-solid-bg));
+      /* one-material-allow: the diff viewer's own film under its sticky file header (--cmux-diff-glass-filter, set by the see-through diff theme), not a floating surface */
       -webkit-backdrop-filter: var(--cmux-diff-glass-filter, none);
       backdrop-filter: var(--cmux-diff-glass-filter, none);
       border-bottom: 1px solid var(--cmux-diff-border);
@@ -326,9 +326,10 @@ export function fileTreeUnsafeCSS(): string {
     [data-item-section='decoration'] svg {
       display: block;
     }
-    /* An added file's name and icon are green, a deleted one's red (the counts' colors), a modified
-       or renamed one's blue (file-tree-stats \`nameColoredGitStatus\`). The row's square says the
-       change, so the tree's status letters and folder dots are hidden. */
+    /* An added file's name and icon are green, a deleted one's red (the counts' colors); a modified
+       or renamed one keeps a file's own color (only its icon takes the modified blue), as most of
+       a review is edits and a list of blue names read as noise (file-tree-stats \`nameColoredGitStatus\`). The row's square says the change,
+       so the tree's status letters and folder dots are hidden. */
     [data-item-section='git'] {
       display: none;
     }
@@ -346,7 +347,8 @@ export function fileTreeUnsafeCSS(): string {
        backdrop, so it is mixed toward the text color there (--cmux-diff-tree-name-strength,
        styles.css): the same hue, brighter in a dark theme, darker in a light one. Elsewhere the
        strength is 100%, the status color itself. */
-    [data-item-git-status] > [data-item-section='content'] {
+    [data-item-git-status='added'] > [data-item-section='content'],
+    [data-item-git-status='deleted'] > [data-item-section='content'] {
       color: color-mix(
         in oklab,
         var(--trees-item-git-status-color) var(--cmux-diff-tree-name-strength, 100%),
@@ -355,6 +357,7 @@ export function fileTreeUnsafeCSS(): string {
     }
     [data-file-tree-sticky-overlay-content] {
       background-color: var(--cmux-diff-files-sticky-bg, var(--cmux-diff-files-bg, var(--cmux-diff-solid-bg))) !important;
+      /* one-material-allow: the file tree's sticky rows under the diff viewer's own film, not a floating surface */
       -webkit-backdrop-filter: var(--cmux-diff-glass-filter, none);
       backdrop-filter: var(--cmux-diff-glass-filter, none);
       box-shadow: 0 1px 0 var(--trees-border-color);
@@ -435,7 +438,8 @@ function syntaxTokenColors(
   variables: boolean,
 ) {
   const type = theme.type === "light" ? "light" : "dark";
-  const colors = syntaxRoleColors(theme.palette ?? {}, type, contrastBackground, foreground);
+  // The same colors applyDiffViewerAppearance sets as the page variables (over a see-through window too).
+  const colors = syntaxColorsFor({ ...theme, background: contrastBackground, foreground }, type);
   const color = (role: SyntaxRoleName) =>
     variables ? `var(${pageSyntaxVariable(type, role)}, ${colors[role]})` : colors[role];
   // Plain text reads the `variable` role (the foreground), so it follows a theme change too.

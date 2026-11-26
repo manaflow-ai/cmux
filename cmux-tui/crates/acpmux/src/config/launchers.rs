@@ -228,8 +228,42 @@ pub(crate) fn which(bin: &str) -> Option<String> {
     which_in(&crate::login_env::path().unwrap_or_default(), bin).or_else(|| native_install(bin))
 }
 
+/// A program the daemon runs from config or a fleet tool by bare name (`sendRelay.argv`'s
+/// `lane-gh`, `peerWake`, `cmux-ci`), as a path it can spawn. A systemd user daemon starts with
+/// the system PATH, which lists no `~/.local/bin`, where lane VMs install those tools: every MCP
+/// `send` on a lane VM failed with "cannot run the send relay \"lane-gh\": No such file or
+/// directory" (gcp-agent-lane-13, 2026-11-21) while the same `lane-gh` ran from a shell. Looks in
+/// the login PATH (or this process's), then `~/.local/bin` and `~/.cmux/bin`. A name with a `/`,
+/// or one found nowhere, comes back as given, so the spawn's own error still names it.
+pub(crate) fn user_program(program: &str) -> std::path::PathBuf {
+    if program.contains('/') {
+        return program.into();
+    }
+    let path = crate::login_env::path().unwrap_or_default();
+    user_program_in(&path, dirs::home_dir().as_deref(), program)
+}
+
+/// [`user_program`] with its PATH and home given.
+fn user_program_in(
+    path: &std::ffi::OsStr,
+    home: Option<&std::path::Path>,
+    program: &str,
+) -> std::path::PathBuf {
+    if let Some(found) = which_in(path, program) {
+        return found.into();
+    }
+    for dir in [".local/bin", ".cmux/bin"] {
+        if let Some(candidate) = home.map(|h| h.join(dir).join(program))
+            && crate::harness_install::is_executable(&candidate)
+        {
+            return candidate;
+        }
+    }
+    program.into()
+}
+
 /// `bin` in the directories of `path`, in order.
-fn which_in(path: &std::ffi::OsStr, bin: &str) -> Option<String> {
+pub(crate) fn which_in(path: &std::ffi::OsStr, bin: &str) -> Option<String> {
     for dir in std::env::split_paths(path) {
         let candidate = dir.join(bin);
         // As a shell's lookup: a file it could not run does not hide a runnable one later on PATH.
@@ -240,14 +274,21 @@ fn which_in(path: &std::ffi::OsStr, bin: &str) -> Option<String> {
     None
 }
 
-/// Claude Code's native installer puts `claude` in `~/.local/bin`, which a login PATH may not list
-/// (the installer only asks the person to add it), and a daemon read that PATH when it started: so a
-/// `claude` installed there (`acpmux harness install claude`) is found on the next reload.
+/// Claude Code's and Codex's own installers put `claude` and `codex` in `~/.local/bin`, which a login
+/// PATH may not list (the installers only ask the person to add it), and a daemon read that PATH when
+/// it started: so one installed there (`acpmux harness install`, the Harnesses page's Install on a Mac
+/// with no npm) is found on the next look. Without it a fresh Mac's Codex install ended in "cmux can't
+/// run it yet" (first-run findings row 3).
 fn native_install(bin: &str) -> Option<String> {
-    if bin != "claude" {
+    native_install_in(&dirs::home_dir()?, bin)
+}
+
+/// [`native_install`] under `home`.
+fn native_install_in(home: &std::path::Path, bin: &str) -> Option<String> {
+    if !matches!(bin, "claude" | "codex") {
         return None;
     }
-    let candidate = dirs::home_dir()?.join(".local/bin").join(bin);
+    let candidate = home.join(".local/bin").join(bin);
     // A stale or non-executable file there is no installed CLI (as `harness install` checks).
     crate::harness_install::is_executable(&candidate)
         .then(|| candidate.to_string_lossy().into_owned())
@@ -271,6 +312,31 @@ mod tests {
         let path = std::env::join_paths([first.path(), second.path()]).unwrap();
         assert_eq!(which_in(&path, "claude"), Some(runnable.to_string_lossy().into_owned()));
         assert_eq!(which_in(&path, "codex"), None);
+    }
+
+    /// Codex's own installer (`chatgpt.com/codex/install.sh`, what the Harnesses page's Install runs
+    /// on a Mac with no npm) puts `codex` in `~/.local/bin`, as Claude Code's does, and a fresh Mac's
+    /// login PATH does not list it: after Install the row said "Finished, but cmux can't run it yet"
+    /// (first-run findings row 3). Both are found there; a file that cannot run is no install.
+    #[test]
+    fn codex_and_claude_from_their_own_installers_are_found_in_local_bin() {
+        let home = tempfile::tempdir().unwrap();
+        let bin = home.path().join(".local/bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        for name in ["codex", "claude"] {
+            let file = bin.join(name);
+            std::fs::write(&file, "#!/bin/sh\n").unwrap();
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+            assert_eq!(
+                super::native_install_in(home.path(), name),
+                Some(file.to_string_lossy().into_owned()),
+                "{name}"
+            );
+        }
+        std::fs::write(bin.join("opencode"), "").unwrap();
+        assert_eq!(super::native_install_in(home.path(), "opencode"), None);
+        let empty = tempfile::tempdir().unwrap();
+        assert_eq!(super::native_install_in(empty.path(), "codex"), None);
     }
 }
 
@@ -312,5 +378,43 @@ mod cache_tests {
             serde_json::from_slice(&std::fs::read(cache).unwrap()).unwrap();
         assert_eq!(keys.len(), 1, "old versions and removed launchers grew the cache");
         assert_eq!(calls.load(Ordering::Relaxed), 3);
+    }
+
+    /// A systemd user daemon's PATH lists no `~/.local/bin`, where lane VMs install `lane-gh` and
+    /// `cmux-ci`: the send relay's bare `lane-gh` is found there (gcp-agent-lane-13, 2026-11-21:
+    /// "cannot run the send relay \"lane-gh\""). PATH still wins, and a path or a missing name
+    /// comes back as given.
+    #[cfg(unix)]
+    #[test]
+    fn a_bare_relay_program_is_found_in_the_home_bins_the_daemon_path_lacks() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let home = tempfile::tempdir().unwrap();
+        let on_path = tempfile::tempdir().unwrap();
+        let exe = |p: &std::path::Path| {
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, "#!/bin/sh\n").unwrap();
+            std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o755)).unwrap();
+        };
+        let local = home.path().join(".local/bin/lane-gh");
+        exe(&local);
+        let cmux_bin = home.path().join(".cmux/bin/cmux-ci");
+        exe(&cmux_bin);
+        let system = std::ffi::OsString::from("/usr/bin:/bin");
+        assert_eq!(user_program_in(&system, Some(home.path()), "lane-gh"), local);
+        assert_eq!(user_program_in(&system, Some(home.path()), "cmux-ci"), cmux_bin);
+        let earlier = on_path.path().join("lane-gh");
+        exe(&earlier);
+        assert_eq!(
+            user_program_in(on_path.path().as_os_str(), Some(home.path()), "lane-gh"),
+            earlier
+        );
+        assert_eq!(
+            user_program_in(&system, Some(home.path()), "no-such-relay"),
+            std::path::PathBuf::from("no-such-relay")
+        );
+        assert_eq!(
+            super::user_program("/opt/x/lane-gh"),
+            std::path::PathBuf::from("/opt/x/lane-gh")
+        );
     }
 }

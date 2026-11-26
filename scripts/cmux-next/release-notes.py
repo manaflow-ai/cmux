@@ -69,12 +69,13 @@ writes the same lines as plain text into the build's appcast <description>.
 """
 import argparse, base64, hashlib, json, os, re, subprocess, sys, tempfile, time
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 HIGHLIGHTS = "release-notes/next/highlights"
-MAX_CHANGES = 200
+MAX_CHANGES = 600
 SUMMARY_LIMIT = 8
-PR_LIMIT = 40
+PR_LIMIT = 300
 DESCRIPTION_LIMIT = 240
 GROUP_TITLES = {"new": "New", "fixed": "Fixed", "changed": "Changed"}
 # Conventional types that never reach a person.
@@ -126,6 +127,35 @@ TOOLING_PATHS = re.compile(
     r"|\.(?:test|spec|gallery|bench)\.[cm]?[jt]sx?$|^webviews/src/pages/changelog/notesCheck\.ts$"
     r"|^(?:webviews/)?scripts/(?:cmux-next/)?(?:check[-_]|lint[-_]|guardrails|bench[-_]|perf-(?:gate|cron)|prepush-gate"
     r"|arch[-_]|codebase-health|every-action|install-git-hooks|release-notes\.py|check-release-notes)[^/]*$")
+
+
+# The area a change is in, for "What's in this build" (Leo 2026-11-26: "do we display which prs go into
+# which nightly maybe that'd be useful per thing?"): the first rule matching most of its shipped files.
+AREAS = (
+    ("Agent chat", re.compile(r"^(?:webviews/|agent-chat/|Native/OptChat/)")),
+    ("Terminal and CLI", re.compile(r"^(?:cmux-tui/|daemon/|mux/|ghostty(?:-next)?/)")),
+    ("iOS", re.compile(r"^(?:cmux-next-ios/|Packages/iOS/)")),
+    ("Mac app", re.compile(r"^(?:Packages/(?:macOS|Shared)/|App/|Native/|Resources/|schemas/settings/|cmux\.xcodeproj/)")),
+    ("Cloud", re.compile(r"^(?:backend/|server/|services/|workers/|deploy/|clients/)")),
+    ("Website", re.compile(r"^web/")),
+)
+
+
+def change_area(paths):
+    """The area most of a commit's files are in (AREAS), "Tooling" when every file is CI or tooling,
+    else None (no files, or none in an area)."""
+    if tooling_only(paths):
+        return "Tooling"
+    counts = {}
+    for path in paths:
+        if TOOLING_PATHS.search(path):
+            continue
+        for name, pattern in AREAS:
+            if pattern.search(path):
+                counts[name] = counts.get(name, 0) + 1
+                break
+    order = [name for name, _ in AREAS]
+    return max(counts, key=lambda name: (counts[name], -order.index(name))) if counts else None
 
 
 def tooling_only(paths):
@@ -484,6 +514,21 @@ def rev_range(since, head):
     return f"{since}..{head}" if since else head
 
 
+def require_whole_span(since, head):
+    """Refuses a span that a shallow clone cut short. A cut commit inside since..head reads as a root, so git log
+    calls every file in its tree added: build 4485813982701 shipped all 425 highlight files ever written (the
+    real span added 2). No notes beat wrong notes: the next build's span starts at the newest published notes."""
+    if not since or git("rev-parse", "--is-shallow-repository").strip() != "true":
+        return
+    shallow = Path(git("rev-parse", "--git-path", "shallow").strip())
+    cut = set(shallow.read_text().split()) if shallow.is_file() else set()
+    inside = cut.intersection(git("rev-list", f"{since}..{head}").split())
+    if inside:
+        raise SystemExit(f"release notes: the span {since[:12]}..{head[:12]} is cut short at shallow commit(s) "
+                         f"{', '.join(sorted(c[:12] for c in inside))}; deepen the fetch "
+                         "(scripts/cmux-next/fetch-release-notes-span.sh) and run again")
+
+
 def front_matter(text):
     """A highlight file's front matter (lines before the first blank line) and its body."""
     head, _, body = text.partition("\n\n")
@@ -784,6 +829,7 @@ PR_MEDIA_SIGNATURES = (b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF87a", b"GIF89
 PR_MEDIA_TIMEOUT = 10
 PR_MEDIA_BUDGET = 120
 PR_DESCRIPTION_BUDGET = 120
+PR_DESCRIPTION_READERS = 8
 
 
 def pr_media_picture(data):
@@ -899,7 +945,7 @@ def change_item(subject, author, paths=(), descriptions=None):
     if match and descriptions is not None:
         description = descriptions.get(int(match["pr"]), "")
     item = {"title": subject.strip(), "author": author.strip() or None,
-            "internal": internal_change(subject, paths, description) or None}
+            "internal": internal_change(subject, paths, description) or None, "area": change_area(paths)}
     if match and match["title"].strip():
         item["title"], item["pr"] = match["title"].strip(), int(match["pr"])
         if description:
@@ -1094,6 +1140,7 @@ def prs(args):
 
 
 def build(args):
+    require_whole_span(args.since, args.head)
     span = rev_range(args.since, args.head)
     commits = span_commits(args.since, args.head)
     changes = [subject for subject, _, _ in commits]
@@ -1103,6 +1150,11 @@ def build(args):
         fixture_path = os.environ.get("CMUX_RELEASE_NOTES_PR_FIXTURE")
         fixture = json.loads(Path(fixture_path).read_text()) if fixture_path else None
         description_deadline = time.monotonic() + PR_DESCRIPTION_BUDGET
+        numbers = list(dict.fromkeys(int(m["pr"]) for m in (PR_SUFFIX.match(s) for s, _, _ in commits) if m))
+        # Read PR_DESCRIPTION_READERS bodies at a time: one after another, 107 of them took 48 s of the
+        # nightly's critical path (run 44893172356, 2026-11-21). The order of the notes is the commits'.
+        with ThreadPoolExecutor(max_workers=PR_DESCRIPTION_READERS) as pool:
+            bodies = dict(zip(numbers, pool.map(lambda n: pr_body(n, fixture, description_deadline), numbers)))
         for subject, _, _ in commits:
             match = PR_SUFFIX.match(subject)
             if not match:
@@ -1111,7 +1163,7 @@ def build(args):
             if number not in pr_descriptions:
                 fallback = summary_entry(match["title"])
                 fallback_title = fallback[1] if fallback else match["title"]
-                pr_descriptions[number] = pr_description(pr_body(number, fixture, description_deadline), fallback_title)
+                pr_descriptions[number] = pr_description(bodies.get(number, ""), fallback_title)
             descriptions[subject] = pr_descriptions[number]
     items = [change_item(subject, author, paths, pr_descriptions if args.pr_descriptions else None)
              for subject, author, paths in commits]
@@ -1154,6 +1206,8 @@ def build(args):
     # build whose notes never published loses no change to the build after it.
     notes = {"version": 1, "build": args.build, "shortVersion": args.short, "date": args.date, "head": args.head,
              "highlights": highlights, "changes": changes, "items": items, "summary": summarize_changes(user_changes, descriptions=descriptions)}
+    if re.fullmatch(r"[0-9a-f]{40}", args.since or ""):
+        notes["since"] = args.since  # the commit the span starts after: `cmux nightly which` reads it
     digest = whats_new_digest(args, again)
     if digest is None:
         digest = summary_whats_new_digest(args, notes["summary"])
@@ -1182,7 +1236,11 @@ def appcast(args):
     from nightly_release_notes import update_appcasts
     lines = summarize_changes(commit_subjects(args.since, args.head))
     text = summary_text(lines) or "Maintenance and internal improvements."
-    update_appcasts(Path(args.appcasts), args.build, text, tuple(args.feeds))
+    # The PR list rides in the item, beside its sourceCommit: the span is the feed's own (the previous item's source).
+    numbers = list(dict.fromkeys(item["pr"] for item in (change_item(subject, author)
+                   for subject, author in commits_with_authors(args.since, args.head, limit=None)) if "pr" in item))
+    since = args.since if re.fullmatch(r"[0-9a-f]{40}", args.since or "") else None
+    update_appcasts(Path(args.appcasts), args.build, text, tuple(args.feeds), since=since, pull_requests=numbers)
     print(text)
 
 

@@ -163,14 +163,81 @@ import Testing
         }
     }
 
-    @Test func helperLooksUpTheInstallerThenWaitsForTheAppThenOpensInTheBackground() {
+    @Test func helperLooksUpTheInstallerThenWaitsForTheAppThenOpensInTheBackground() throws {
         let app = URL(fileURLWithPath: "/Applications/cmux NEXT.app")
         let label = UpdateRelaunchBehind.installerJobLabel(bundleIdentifier: "com.cmuxterm.app.next")
         #expect(label == "com.cmuxterm.app.next-sparkle-updater")
-        let arguments = UpdateRelaunchBehind.arguments(app: app, installerJob: label)
+        let ownHome = RelaunchHome.openArguments(environment: ["HOME": "/Users/ci"], accountHome: "/Users/ci")
+        let arguments = UpdateRelaunchBehind.arguments(app: app, installerJob: label, openOptions: ownHome)
         #expect(arguments == ["/bin/sh", "-c", UpdateRelaunchBehind.script, app.path, label, UpdateRelaunchFocus.reopenArgument])
-        #expect(UpdateRelaunchBehind.script.contains(#"exec /usr/bin/open -g "$0" --args "$2""#))
+        #expect(UpdateRelaunchBehind.script.contains(#"exec /usr/bin/open -g "$@" "$0" --args "$reopen""#))
+        #expect(try Self.openArgv(arguments) == ["/usr/bin/open", "-g", app.path, "--args", UpdateRelaunchFocus.reopenArgument],
+                "a launch in the account's own home gets the open argv it always had")
         #expect(UpdateRelaunchBehind.environment == ["PATH=/usr/bin:/bin:/usr/sbin:/sbin"], "open passes its environment to the new build")
+    }
+
+    /// An app in a custom home (the release rollback drill's throwaway home) comes back in it after
+    /// an update: `open` gets `--env` for each home variable, passed as arguments, never script
+    /// text, so a home with a space and a quote arrives whole.
+    @Test func helperReopensACustomHomeInIt() throws {
+        let app = URL(fileURLWithPath: "/Applications/cmux NEXT.app")
+        let drill = "/private/tmp/walk home/it's \(UUID().uuidString)"
+        let options = RelaunchHome.openArguments(environment: ["HOME": drill, "CFFIXED_USER_HOME": drill], accountHome: "/Users/ci")
+        let arguments = UpdateRelaunchBehind.arguments(app: app, installerJob: "job", openOptions: options)
+        #expect(arguments[2] == UpdateRelaunchBehind.script)
+        #expect(try Self.openArgv(arguments) == ["/usr/bin/open", "-g", "--env", "HOME=\(drill)", "--env", "CFFIXED_USER_HOME=\(drill)",
+                                                 app.path, "--args", UpdateRelaunchFocus.reopenArgument])
+    }
+
+    /// A click's install in a custom home reopens in front: a plain `open` (no `-g`, no reopen
+    /// argument, so the new build activates as Sparkle's relaunch does) with the home's `--env`.
+    @Test func helperReopensAClickInFrontInItsHome() throws {
+        let app = URL(fileURLWithPath: "/Applications/cmux NEXT.app")
+        let drill = "/private/tmp/drill home \(UUID().uuidString)"
+        let options = RelaunchHome.openArguments(environment: ["HOME": drill], accountHome: "/Users/ci")
+        let arguments = UpdateRelaunchBehind.arguments(app: app, installerJob: "job", inBackground: false, openOptions: options)
+        #expect(try Self.openArgv(arguments) == ["/usr/bin/open", "--env", "HOME=\(drill)", app.path])
+    }
+
+    /// `cmux settings install-available-update` (a click's install) in an app launched in a custom
+    /// home quits and reopens itself in it; in the account's own home Sparkle relaunches as before.
+    @Test func aClickInACustomHomeReopensItselfInIt() async {
+        for custom in [true, false] {
+            let updater = Self.updater(defaults: Self.defaults(), front: Self.nightly)
+            updater.keptRunningBuild = .kept
+            updater.launchHomeOptions = { custom ? ["--env", "HOME=/private/tmp/drill"] : [] }
+            var willQuit: (@MainActor () async -> Bool)?
+            updater.reopenInFront = { quit, _ in willQuit = quit }
+            #expect(updater.updaterQuitsForInstall(build: "200") == custom)
+            #expect((willQuit != nil) == custom)
+            if custom {
+                #expect(updater.installingBuild == "200")
+                #expect(await willQuit?() == true)
+            }
+        }
+    }
+
+    /// The installed-build relaunch (`cmux app relaunch`) passes the home to `open` too.
+    @Test func installedBuildRelaunchKeepsACustomHome() throws {
+        let bundle = URL(fileURLWithPath: "/Applications/cmux NEXT.app")
+        let options = RelaunchHome.openArguments(environment: ["HOME": "/private/tmp/d h", "CFFIXED_USER_HOME": "/private/tmp/d h"],
+                                                 accountHome: "/Users/ci")
+        let arguments = InstalledBuildRelaunch.arguments(bundle: bundle, pid: 0, openOptions: options)
+        let script = arguments[2].replacingOccurrences(of: "exec /usr/bin/open", with: #"exec /usr/bin/printf '%s\n' /usr/bin/open"#)
+        // A pid no process holds: the helper goes straight to open.
+        let argv = [arguments[0], arguments[1], script, arguments[3], "999999", arguments[5]] + arguments.dropFirst(6)
+        #expect(try RelaunchHomeShell.run(argv) == ["/usr/bin/open", "--env", "HOME=/private/tmp/d h",
+                                                    "--env", "CFFIXED_USER_HOME=/private/tmp/d h", bundle.path])
+    }
+
+    /// Runs the helper's steps after the installer's exit, with `printf` in place of
+    /// `/usr/bin/open`; returns the argv `open` would get, one element per line.
+    private static func openArgv(_ arguments: [String]) throws -> [String] {
+        let wait = #"/usr/bin/caffeinate -w "$installer" || exit 1"#
+        let tail = try #require(arguments[2].components(separatedBy: wait + "\n").last)
+        #expect(tail != arguments[2], "the helper waits on the installer before it opens")
+        let script = tail.replacingOccurrences(of: "exec /usr/bin/open", with: #"exec /usr/bin/printf '%s\n' /usr/bin/open"#)
+        return try RelaunchHomeShell.run([arguments[0], arguments[1], script] + arguments.dropFirst(3))
     }
 
     /// The helper itself, with stand-ins. With no installer job it answers no pid (the app then

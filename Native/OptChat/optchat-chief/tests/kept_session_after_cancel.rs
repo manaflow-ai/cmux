@@ -134,7 +134,7 @@ fn running(h: &mut Harness, text: &str) {
     h.connect();
     h.say("user_local", text);
     while h.agents.inner.lock().unwrap().prompts.is_empty() {
-        h.step();
+        h.poll_step();
     }
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
     while h
@@ -428,5 +428,220 @@ fn a_turn_claude_code_ran_on_its_own_between_turns_never_joins_the_next_reply() 
         posted(&h, "The background build finished."),
         0,
         "a turn Claude Code ran on its own is not the next turn's reply"
+    );
+}
+
+#[test]
+fn a_message_during_a_long_tool_call_moves_the_call_to_the_background_and_the_turn_goes_on() {
+    let mut h = harness(long_tool_script());
+    {
+        let mut inner = h.agents.inner.lock().unwrap();
+        inner.steering = true;
+        // Claude Code is in a long tool call and reads the steer only when
+        // the step ends; Ctrl-B ends it.
+        inner.steer_at_end = true;
+        inner.backgrounds = true;
+    }
+    h.brain.set_steer_deadline(Some(Duration::from_millis(20)));
+    running(&mut h, "run the long build");
+    h.say("user_local", "while that runs: what is 5 plus 6?");
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while h.agents.inner.lock().unwrap().backgrounded.is_empty() {
+        assert!(std::time::Instant::now() < deadline, "no background move");
+        tick(&mut h);
+    }
+    // The message is read (logged) and nothing cuts the turn.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while !h
+        .log()
+        .iter()
+        .any(|(k, t)| k == "user" && t.contains("5 plus 6"))
+    {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the message was never read"
+        );
+        tick(&mut h);
+    }
+    for _ in 0..20 {
+        tick(&mut h);
+    }
+    let inner = h.agents.inner.lock().unwrap();
+    assert!(
+        inner.cancels.is_empty(),
+        "the turn was not cut: {:?}",
+        inner.cancels
+    );
+    assert!(inner.withdrawn.is_empty(), "nothing was taken back");
+    assert_eq!(inner.prompts.len(), 1, "no second turn");
+}
+
+#[test]
+fn a_background_task_claude_code_answers_on_its_own_after_the_turn_posts_its_reply_once() {
+    let mut h = harness(default_script());
+    h.connect();
+    h.say(
+        "user_local",
+        "start the build in the background and tell me when it ends",
+    );
+    h.settle_posts();
+    // The turn ended with its session kept; then the build ended and Claude
+    // Code answered it in a turn of its own.
+    h.agents.append_events(
+        "s1",
+        vec![
+            serde_json::json!({"dir": "mux", "kind": "background_turn", "msg": {"state": "started", "id": "b1", "trigger": "task_notification"}}),
+            update(
+                "agent_message_chunk",
+                serde_json::json!({"content": {"type": "text", "text": "The build finished: 0 errors."}}),
+            ),
+            serde_json::json!({"dir": "mux", "kind": "background_turn", "msg": {"state": "ended", "id": "b1", "trigger": "task_notification", "quiet": false, "reason": "result"}}),
+        ],
+    );
+    let ended = || {
+        Input::from(optchat_chief::acpmux::AgentEvent::BackgroundTurn {
+            session_id: "s1".into(),
+            state: "ended".into(),
+        })
+    };
+    h.brain.step(ended());
+    // acpmux may say it twice (a reconnect): one post.
+    h.brain.step(ended());
+    h.settle_posts();
+    assert_eq!(
+        posted(&h, "The build finished: 0 errors."),
+        1,
+        "the background report reaches the person once"
+    );
+    // The next turn does not post it again.
+    h.say("user_local", "thanks");
+    h.settle_posts();
+    assert_eq!(posted(&h, "The build finished: 0 errors."), 1);
+    assert_eq!(
+        h.agents.inner.lock().unwrap().prompt_sessions,
+        vec!["s1", "s1"]
+    );
+}
+
+#[test]
+fn a_session_with_moved_work_outlives_its_turn_until_the_work_reports() {
+    // keep_turn_session off: the session would end with the turn.
+    let dir = tempfile::tempdir().unwrap();
+    let s = settings(dir.path());
+    let owner = Arc::new(Mutex::new(Owner {
+        summary: Some(summary()),
+        ..Owner::default()
+    }));
+    let mut h = Harness::configured(dir, long_tool_script(), owner, s, Arc::new(|_: &str| {}));
+    {
+        let mut inner = h.agents.inner.lock().unwrap();
+        inner.system_prompts = true;
+        inner.steering = true;
+        inner.steer_at_end = true;
+        inner.backgrounds = true;
+    }
+    h.brain.set_steer_deadline(Some(Duration::from_millis(20)));
+    running(&mut h, "run the long build");
+    h.say("user_local", "while that runs: what is 5 plus 6?");
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while h.agents.inner.lock().unwrap().backgrounded.is_empty() {
+        assert!(std::time::Instant::now() < deadline, "no background move");
+        tick(&mut h);
+    }
+    h.agents.hold(false);
+    h.agents.release();
+    // Timers too (the re-armed steer deadline): settle alone steps inputs.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while !h.brain.is_idle() {
+        assert!(std::time::Instant::now() < deadline, "the turn never ended");
+        tick(&mut h);
+    }
+    assert!(
+        !h.agents
+            .inner
+            .lock()
+            .unwrap()
+            .ended
+            .contains(&"s1".to_owned()),
+        "the session that runs the moved build is not ended with its turn"
+    );
+    h.agents.append_events(
+        "s1",
+        vec![
+            serde_json::json!({"dir": "mux", "kind": "background_turn", "msg": {"state": "started", "id": "b1", "trigger": "task_notification"}}),
+            update(
+                "agent_message_chunk",
+                serde_json::json!({"content": {"type": "text", "text": "The long build passed."}}),
+            ),
+            serde_json::json!({"dir": "mux", "kind": "background_turn", "msg": {"state": "ended", "id": "b1", "trigger": "task_notification", "quiet": false, "reason": "result"}}),
+        ],
+    );
+    h.brain.step(Input::from(
+        optchat_chief::acpmux::AgentEvent::BackgroundTurn {
+            session_id: "s1".into(),
+            state: "ended".into(),
+        },
+    ));
+    h.settle_posts();
+    assert_eq!(
+        posted(&h, "The long build passed."),
+        1,
+        "its report reaches the person"
+    );
+    assert!(
+        h.agents
+            .inner
+            .lock()
+            .unwrap()
+            .ended
+            .contains(&"s1".to_owned()),
+        "the session ends once its work reported"
+    );
+}
+
+/// Claude Code's `total_cost_usd` is its process's running total. A turn in
+/// a kept session counts only its rise: before, every reused turn reported
+/// the session's whole total again (bench burst5: $0.50 a probe before kept
+/// sessions, $1.83 after), and the audit, ledger and analytics read it.
+#[test]
+fn a_turn_in_a_kept_session_costs_only_its_own_rise() {
+    let mut h = harness(default_script());
+    let traces_dir = h.dir.path().join("traces");
+    h.brain
+        .set_trace(optchat_chief::trace::Trace::open(&traces_dir, false).unwrap());
+    h.connect();
+    let answer = |total: f64| {
+        Some(
+            serde_json::json!({"stopReason": "end_turn", "_meta": {"claude": {"cost_usd": total}}}),
+        )
+    };
+    h.agents.inner.lock().unwrap().answer = answer(0.40);
+    h.say("user_local", "one");
+    h.settle_posts();
+    h.agents.inner.lock().unwrap().answer = answer(0.90);
+    h.say("user_local", "two");
+    h.settle_posts();
+    assert_eq!(
+        h.agents.inner.lock().unwrap().prompt_sessions,
+        vec!["s1", "s1"]
+    );
+    let costs: Vec<f64> = std::fs::read_dir(&traces_dir)
+        .unwrap()
+        .flatten()
+        .flat_map(|e| {
+            std::fs::read_to_string(e.path())
+                .unwrap()
+                .lines()
+                .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+                .collect::<Vec<_>>()
+        })
+        .filter(|e| e["ev"] == "turn.end")
+        .filter_map(|e| e["cost_usd"].as_f64())
+        .collect();
+    assert_eq!(costs.len(), 2, "{costs:?}");
+    assert!((costs[0] - 0.40).abs() < 1e-9, "{costs:?}");
+    assert!(
+        (costs[1] - 0.50).abs() < 1e-9,
+        "the second turn's own cost: {costs:?}"
     );
 }

@@ -8,7 +8,7 @@ nonisolated public enum PaletteNavEvent: Equatable, Sendable {
     /// The palette closed from outside (click elsewhere, a closing command).
     case close
     /// The field's text changed.
-    case setQuery(String)
+    case setQuery(String, allowsScopeEntry: Bool = true)
     /// Backspace with an empty field.
     case backspaceOnEmpty
     case tab

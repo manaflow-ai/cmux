@@ -7,6 +7,16 @@ public struct ImportedTabsWorkspace: Sendable, Equatable {
     public var profileID: String
     /// Web pages only, in the source's window then tab order.
     public var tabs: [ImportedTab]
+    /// Pages only Chromium shows (an extensions page, a store install): they open in Chromium
+    /// whatever the site's engine setting says.
+    public var chromium = false
+
+    public init(name: String, profileID: String, tabs: [ImportedTab], chromium: Bool = false) {
+        self.name = name
+        self.profileID = profileID
+        self.tabs = tabs
+        self.chromium = chromium
+    }
 }
 
 extension ImportSummary {

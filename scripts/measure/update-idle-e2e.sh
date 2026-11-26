@@ -25,11 +25,12 @@ main() {
   local out tools report="$PWD/.build/update-idle-e2e/report.tgz"
   mkdir -p "$PWD/.build" || exit 3
   out="$(mktemp -d "$PWD/.build/update-idle-e2e.XXXXXX")" || exit 3
+  trap "rm -rf -- $(printf %q "$out")" EXIT  # the report is copied out first; a failed or killed run leaks nothing
   chmod 0777 "$out"
   local work_dirs=()
   # The harness as of this commit, whatever the sides' trees hold.
   tools="$out/tools" && mkdir -p "$tools" && cp -R scripts/cmux-next/update-harness "$tools/" \
-    && cp scripts/cmux-next/tag_teardown.py "$tools/"  # run.py and idle_e2e.py import it from their parent folder
+    && cp scripts/cmux-next/tag_teardown.py scripts/cmux-next/state_wait.py "$tools/"  # run.py and idle_e2e.py import them from their parent folder
   local base="" head rounds=1 idle=1 control=1 setting=on tag=uide arg rc=0 i side
   head="$(git rev-parse HEAD)"
   local checkout="$head"
@@ -81,7 +82,7 @@ main() {
     run_side head "$i" || rc=1
   done
   git -c advice.detachedHead=false checkout --quiet --detach "$checkout"
-  rm -rf "$out/base" "$out/head" "${work_dirs[@]}"
+  rm -rf "$out/base" "$out/head" ${work_dirs[@]+"${work_dirs[@]}"}
   mkdir -p "$(dirname "$report")" || exit 3
   tar -czf "$out.tgz" -C "$out" . 2>/dev/null && mv "$out.tgz" "$report" || exit 3
   exit "$rc"

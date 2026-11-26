@@ -4,6 +4,7 @@ import { defineConfig } from "vite";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { viteCacheDir } from "./dev-server/viteCacheDir.mjs";
+import { jsonDevSourceMap } from "./dev-server/jsonDevSourceMap.mjs";
 import { agentPaneHost, perfBudgetsDevEntry } from "./dev-server/plugins";
 import { paneLocales } from "./scripts/agent-pane/paneLocales.mjs";
 
@@ -50,5 +51,7 @@ export default defineConfig({
       },
     },
     ...reactWithCompiler(),
+    // generated/strings.json is served as 26.7 MB without this, 5.1 MB with it (dev-server/jsonDevSourceMap.mjs).
+    jsonDevSourceMap(),
   ],
 });
