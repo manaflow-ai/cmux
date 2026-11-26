@@ -69,6 +69,10 @@ pub const CHUNK_DELTAS: &str = "chunk-deltas-v1";
 
 /// Session summaries carry `hasDraft` and `workingBelow` (absent means false only with this id).
 pub const SESSION_IDLE_FACTS: &str = "session-idle-facts-v1";
+/// A session row and `session info` carry `bgTasksRunning`, how many of the daemon's background
+/// tasks the session runs (`hub/bg_tasks.rs`). Session rebalance holds a session that runs any
+/// (a move leaves them behind), and one whose row lacks the count.
+pub const SESSION_BG_FACTS: &str = "session-bg-facts-v1";
 
 /// `_acpmux/process/census` answers the census `acpmux ps --json` prints (`server/processes.rs`).
 pub const PROCESS_CENSUS: &str = "process-census-v1";
@@ -187,6 +191,7 @@ pub const CAPABILITIES: &[Capability] = &[
             method::MUX_HARNESSES,
             method::MUX_HARNESSES_CHANGED,
             method::MUX_HARNESS_ENABLE,
+            method::MUX_HARNESS_DISABLE,
             "_acpmux/models",
             method::MUX_ROUTE_LIST,
             method::MUX_KILL,
@@ -234,6 +239,7 @@ pub const CAPABILITIES: &[Capability] = &[
     // id does a missing field mean false; the app's Update When Idle holds on any other (absent
     // is unknown).
     Capability { id: SESSION_IDLE_FACTS, wire: &[method::MUX_SESSIONS] },
+    Capability { id: SESSION_BG_FACTS, wire: &[method::MUX_SESSIONS] },
     // `_acpmux/info {sessionIds, row: true}`: the session list's rows of up to 100 chats by key,
     // the bytes `_acpmux/sessions` lists, and `_acpmux/status`'s `closedListed`. A list caller
     // that reads the v2 list's keys asks for the rows it prints (agent service v2, row 7b); a
@@ -377,7 +383,16 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: "team-audit-v1", wire: &[method::MUX_TEAM_AUDIT] },
     // Who has a shared chat open and who types in it (`hub/presence.rs`); the attach reply's
     // `presence` comes with it.
-    Capability { id: CHAT_PRESENCE, wire: &[method::MUX_TYPING, method::MUX_PRESENCE] },
+    Capability {
+        id: CHAT_PRESENCE,
+        wire: &[
+            method::MUX_TYPING,
+            method::MUX_PRESENCE,
+            method::MUX_ROOMS,
+            method::MUX_ROOM,
+            method::MUX_FOLLOW,
+        ],
+    },
     // Who is on this machine now, people across devices and agents in a turn (`hub/here.rs`).
     Capability { id: "here-v1", wire: &[method::MUX_HERE_BEAT, method::MUX_HERE] },
     // Chat titles and read marks through the sync engine, pulled and pushed by version vector

@@ -60,4 +60,26 @@ if scripts/cmux-next/regenerate-settings-exports-linux.sh "$tmp/o5" 2>/dev/null;
 rm -f extra docs/mdm/unlisted.json
 rc=0; scripts/cmux-next/regenerate-settings-exports-linux.sh "$tmp/x.patch" 2>/dev/null || rc=$?
 [[ "$rc" == 2 ]] || fail "bundle mode exited $rc, not 2"
+
+# The action regenerator: the tool rewrites only changed files, yet a run that succeeded leaves every export newer
+# than before it (base-autofix-exports-pack.sh refuses an export it did not see rewritten). swift and the catalog
+# build are faked; the "tool" writes nothing, as on a base whose exports are already current.
+cp "$here/regenerate-action-exports-linux.sh" scripts/cmux-next/
+mkdir -p Packages/macOS/CmuxNext/LinuxActionExports "$tmp/bin"
+: > Packages/macOS/CmuxNext/LinuxActionExports/sources.txt
+printf '#!/usr/bin/env bash\nmkdir -p "$1/include"\n' > scripts/cmux-next/build-action-catalog-linux.sh
+cat > "$tmp/bin/swift" <<'SH'
+#!/usr/bin/env bash
+while [[ $# -gt 0 && "$1" != --scratch-path ]]; do shift; done
+mkdir -p "$2/debug" && printf '#!/usr/bin/env bash\nexit 0\n' > "$2/debug/cmux-next-action-exports" && chmod +x "$2/debug/cmux-next-action-exports"
+SH
+chmod +x scripts/cmux-next/*.sh "$tmp/bin/swift"
+for f in action-surfaces.json action-catalog.json actions.md links.json; do echo x > "plans/cmux-next/$f"; done
+git add -A && git commit -qm actions
+marker="$tmp/marker"; : > "$marker"; sleep 1 # sleep-ok: an mtime-granularity tick
+PATH="$tmp/bin:$PATH" scripts/cmux-next/regenerate-action-exports-linux.sh "$tmp/o6" > /dev/null
+for f in action-surfaces.json action-catalog.json actions.md links.json; do
+  [[ "plans/cmux-next/$f" -nt "$marker" ]] || fail "a current $f kept its old mtime: the base pack refuses it"
+done
+[[ -z "$(ls -A "$tmp/o6")" ]] || fail "current action exports filled OUT"
 echo "regenerate-exports-linux: ok"
