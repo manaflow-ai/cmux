@@ -44,7 +44,7 @@ jobs:
     # dispatch. It reads the reconciled Linux pool (runner_pools.py keeps it on a
     # live small member), never a fixed Blacksmith size that can stall; the fork
     # routes in front of it never reach the pool read.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # The one wait (at most the 15-minute window) plus the listing and the dispatch.
     timeout-minutes: 20
     # github.token only checks out; the API calls use the cmux-bot token minted below.
