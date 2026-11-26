@@ -425,15 +425,14 @@ export function watchChatSnapshot(
     const due = Math.max(changedAt + QUIET_MS, wroteAt + WRITE_GAP_MS) - now;
     // On the page's shared timer, up to a heartbeat late: the quiet write rides a beat instead of
     // waking a chat at rest by itself (slackTimers.ts).
-    // On the beat that rests the page (`atRest`) the write goes if the page has been quiet for QUIET_MS,
-    // ahead of WRITE_GAP_MS: a page at rest writes no more until something changes, and a timer kept for
-    // the gap would only wake it.
+    // On the beat that rests the page (`atRest`) the write goes now, ahead of QUIET_MS and WRITE_GAP_MS:
+    // the page rests because nothing happened in it for a beat, so the markup is what it will stay, and a
+    // timer kept for either wait would only wake it alone (the read_ahead arm's write at 3.46 s in
+    // bench/chat-switch.bench.ts). A change after the rest arms the next write as before.
     timer = slackTimers.later(
       (atRest) => {
         timer = undefined;
-        const late = atRest
-          ? changedAt + QUIET_MS - performance.now()
-          : Math.max(changedAt + QUIET_MS, wroteAt + WRITE_GAP_MS) - performance.now();
+        const late = atRest ? 0 : Math.max(changedAt + QUIET_MS, wroteAt + WRITE_GAP_MS) - performance.now();
         if (late > 1) schedule();
         else write(atRest ? "rest" : "quiet");
       },
