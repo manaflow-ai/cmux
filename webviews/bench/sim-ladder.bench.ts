@@ -238,13 +238,19 @@ setInterval(() => { document.getElementById("clock").textContent = new Date().to
 </script>`;
 
 /// A Chrome of this bench's own (so a descendant of this process, its renderers ours to read), its DevTools endpoint
-/// from stderr: the patched headless shell when CI fetched one, else the installed Chrome headless.
+/// from stderr: the installed Chrome in its new headless mode, the headless shell only where no Chrome is installed.
+/// The shell (CMUX_CHROME_HEADLESS_SHELL, which ensure-system-chrome.sh exports to the job) has no window to put a tab
+/// behind, so every page reads "visible" and keeps drawing: on chrome-headless-shell 157.0.8103.78 a tab behind the
+/// focused chat read visible at 19 frames in 300 ms, where Chrome 157 --headless=new read hidden at 0. With the shell
+/// first, every perf cron run since 2026-11-25 08:54Z ended "sim-ladder: chats #N reads visible ..., not hidden" (exit
+/// 1; run 45643103662 job 139309163781) and NOW's sim_ladder/sim_fidelity rows stopped at 02:20Z.
 async function launchChrome(): Promise<{
   browser: Browser;
   close: () => Promise<void>;
 }> {
-  const shell = process.env.CMUX_CHROME_HEADLESS_SHELL;
-  const exe = shell || Bun.which("google-chrome") || Bun.which("google-chrome-stable");
+  const chrome = Bun.which("google-chrome") || Bun.which("google-chrome-stable");
+  const shell = chrome ? undefined : process.env.CMUX_CHROME_HEADLESS_SHELL;
+  const exe = chrome || shell;
   if (!exe) throw new Error("sim-ladder: no Chrome (set CMUX_CHROME_HEADLESS_SHELL or install google-chrome)");
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "sim-ladder-"));
   const proc = Bun.spawn(
