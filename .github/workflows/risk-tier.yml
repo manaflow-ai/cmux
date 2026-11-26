@@ -87,12 +87,12 @@ jobs:
           set -euo pipefail
           # The tip as a sha, so the read is that commit and not a copy the raw CDN cached minutes ago. One git
           # protocol v2 ls-refs request over curl (0.2 s), past the runner's git mirror proxy, whose ref
-          # listing is what answered 502 after 90 s.
+          # listing is what answered 502 after 90 s. The ref name is compared as a string, not a pattern.
           pkt() { printf '%04x%s' $((${#1} + 4)) "$1"; }
           SHA="$({ pkt $'command=ls-refs\n'; printf 0001; pkt "ref-prefix refs/heads/$BASE_REF"$'\n'; printf 0000; } \
             | curl -fsS --retry 2 --retry-all-errors --connect-timeout 5 --max-time 15 -H 'Git-Protocol: version=2' \
                 -H 'Content-Type: application/x-git-upload-pack-request' --data-binary @- "https://github.com/$REPO.git/git-upload-pack" \
-            | tr -d '\0' | sed -n "s|^[0-9a-f]\{4\}\([0-9a-f]\{40\}\) refs/heads/$BASE_REF\$|\1|p")"
+            | tr -d '\0' | awk -v ref="refs/heads/$BASE_REF" '$2 == ref && $1 ~ /^[0-9a-f]{44}$/ { print substr($1, 5) }')"
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]
           part="$RUNNER_TEMP/raw-base-files"
           rm -rf "$part"
@@ -110,11 +110,16 @@ jobs:
           done
           cp -R "$part"/. .
           echo "ok=true" >> "$GITHUB_OUTPUT"
+      # refs/heads/ in front: actions/checkout fetches a bare branch name as the wildcard
+      # `+refs/heads/feat-cmux-next*`, every one of the ~1,750 feat-cmux-next-* branches at depth 1 with
+      # their trees, and the sparse checkout's blob fetch then took ~50 s on top of the ~10 s fetch: the
+      # step was 68 s median of an ~88 s job (2026-11-25). A full ref fetches the one branch.
+      # tests/test_ci_checkout_branch_ref_exact.py keeps every checkout on main this way.
       - name: Checkout the classifier at the tip of the pull request's base branch
         if: steps.raw.outputs.ok != 'true'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.pull_request.base.ref }}
+          ref: refs/heads/${{ github.event.pull_request.base.ref }}
           persist-credentials: false
           # receipt_grammar.py: risk_tier.py imports it for the review receipt grammar (feat-cmux-next
           # #36941). A base before that has no such file; the pattern then matches nothing.
@@ -311,7 +316,7 @@ jobs:
         continue-on-error: true
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: main
+          ref: refs/heads/main
           path: .merge-freeze
           persist-credentials: false
           sparse-checkout: |
