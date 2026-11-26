@@ -1370,6 +1370,18 @@ fn the_device_hub_tells_a_mesh_host_s_screen_by_its_name() {
             "screenShared": false}))
     );
     assert_eq!(shared.device_hub_of("lane-3"), Some(json!({"listed": false})));
+    // Two equal records: the one seen last, as the app picks, not the one listed last.
+    shared.set_devices(&json!({"devices": [
+        {"id": "new", "name": "vm", "platform": "linux", "online": true, "macScreenShared": true,
+         "lastSeenAt": 200.0},
+        {"id": "old", "name": "vm", "platform": "linux", "online": true, "macScreenShared": true,
+         "lastSeenAt": 100.0},
+        {"id": "never", "name": "vm", "platform": "linux", "online": true, "macScreenShared": true},
+    ]}));
+    assert_eq!(shared.device_hub_of("vm").unwrap()["id"], "new");
+    shared.set_devices(&json!({"devices": [
+        {"id": own, "name": "Mac", "platform": "macos"},
+    ]}));
     // This device's own record is never another machine's.
     assert_eq!(shared.device_hub_of("mac"), Some(json!({"listed": false})));
 }
