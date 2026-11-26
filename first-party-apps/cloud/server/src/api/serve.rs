@@ -179,7 +179,7 @@ fn edge_line(down: &EdgeDown) -> Value {
     let mut data = json!({
         "machine": down.machine, "kind": if down.port.is_some() { "forward" } else { "browser" },
         "host": "127.0.0.1", "localPort": down.local_port,
-        "scheme": down.scheme,
+        "scheme": &down.scheme,
         "url": format!("{}://127.0.0.1:{}/", down.scheme, down.local_port),
         "generation": down.generation,
         "state": "down", "reason": down.reason });

@@ -50,7 +50,7 @@ fn record(machine: &str, port: u16, forward: &Forward) -> Value {
         "port": port,
         "host": "127.0.0.1",
         "localPort": forward.local_port,
-        "scheme": forward.scheme,
+        "scheme": &forward.scheme,
         "url": format!("{}://127.0.0.1:{}/", forward.scheme, forward.local_port),
         "generation": forward.generation,
         "state": if forward.down.is_some() { "down" } else { "up" },
