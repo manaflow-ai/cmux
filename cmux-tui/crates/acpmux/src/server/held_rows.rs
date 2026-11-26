@@ -14,11 +14,12 @@
 //! most [`HOLD`] after its record. Only its place among the agent's output moves, and the events
 //! of the same records (`_acpmux/event`) go at once as before.
 
-use super::{Conn, Hub, Message, method, outbound};
+use super::{Conn, Hub, Message, json, method, outbound, requests, session_patch};
 use crate::no_panic::LockExt as _;
 use serde_json::Value;
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
+use std::sync::atomic::Ordering;
 use tokio::time::{Duration, Instant};
 
 /// How long a turn-opening row waits for the turn's first output to pass it.
@@ -72,6 +73,13 @@ pub(super) async fn wait(due: Option<Instant>) {
 
 /// Sends the rows held for `conn`, oldest first. A chat's row is built once for all of its held
 /// rows: it is the chat as it is now, which each of them would show anyway once applied.
+///
+/// They go the way every other attached row goes (`server/mod.rs`): without the time breakdown
+/// to a client that draws none, and as a `session_patch` to a connection that asked for patches
+/// (`session_patch.rs`). Sent whole, they were most of a peer link's bytes under a streaming
+/// chat: five rows a turn, each the 3 to 100 KB row again, ahead of the turn's output in the
+/// link's one ordered queue (cmux#58056's duress runs: 380 of the 640 KB a kept relay link
+/// carried more than a fresh one).
 pub(super) fn flush(hub: &Hub, conn: &Conn) {
     flush_sharing(hub, conn, None);
 }
@@ -90,13 +98,21 @@ pub(super) fn flush_sharing(
     let mut built: Option<(&str, Arc<Value>)> = None;
     for row in &held {
         if built.as_ref().is_none_or(|(id, _)| *id != row.session_id) {
+            // A client that draws no time breakdown gets the lean row, as the fan-out sends it
+            // (`server/mod.rs`); the event's matching cell is shared with that fan-out.
+            let lean = conn.omit_time_breakdown.load(Ordering::SeqCst)
+                || super::omits_time_breakdown(conn, &row.session_id);
             let build = || {
                 let s = hub.resolve(&row.session_id).ok()?;
-                Some(hub.session_change_summary(&s))
+                let mut summary = hub.session_change_summary(&s);
+                if lean {
+                    requests::without_time_breakdown(&mut summary);
+                }
+                Some(summary)
             };
             let summary = match ev {
                 Some(ev) if ev.remote.is_none() && ev.session_id == row.session_id => {
-                    let summary = ev.row.cells[1].get_or_build(build);
+                    let summary = ev.row.cells[if lean { 2 } else { 1 }].get_or_build(build);
                     shared.clone_from(&summary);
                     summary
                 }
@@ -106,6 +122,10 @@ pub(super) fn flush_sharing(
             built = Some((&row.session_id, summary));
         }
         let Some((_, summary)) = &built else { continue };
+        let notice = json!({"sessionId": row.session_id, "kind": row.kind, "recordKind": row.kind, "seq": row.seq, "listSeq": row.list_seq});
+        if session_patch::send_row(conn, &row.session_id, true, summary, notice) {
+            continue;
+        }
         conn.send_row(
             &Message::notification(
                 method::MUX_SESSION_CHANGED,
