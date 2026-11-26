@@ -8,6 +8,7 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Notice } from "./Notice";
 import { Button } from "./Button";
+import { KeyHint } from "./KeyHint";
 
 type Specimen = "menu" | "popover" | "tooltip" | "toast" | "dialog";
 const SPECIMENS: Specimen[] = ["menu", "popover", "tooltip", "toast", "dialog"];
@@ -97,7 +98,7 @@ export function FloatingRoles() {
         </Card>
         <Card specimen="tooltip">
           <div className="ui-tooltip ui-glass" role="tooltip" data-host-glass="chip">
-            <span className="ui-tooltip-hint">⌘W</span>
+            <KeyHint keys="⌘W" className="ui-tooltip-hint" />
             <span className="ui-tooltip-text">Close tab</span>
           </div>
         </Card>
