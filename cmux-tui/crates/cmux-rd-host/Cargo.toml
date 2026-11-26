@@ -55,6 +55,9 @@ cmux-file-lock = { path = "../cmux-file-lock" }
 # stream they open.
 # pipewire links libpipewire-0.3 (build needs libpipewire-0.3-dev, libspa-0.2-dev, clang).
 zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"], optional = true }
+# Already in zbus's tree: a bounded wait for mutter's PipeWireStreamAdded (src/mutter.rs).
+async-io = { version = "2", optional = true }
+futures-lite = { version = "2", optional = true }
 pipewire = { version = "0.10", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -104,7 +107,7 @@ default = ["bench", "openh264", "link", "portal", "computer-use"]
 # RemoteDesktop handshakes over D-Bus (the one-time grant `linux-host enable` makes, and the
 # input calls), pure Rust; `portal` adds the PipeWire capture (links libpipewire-0.3).
 # Their dependencies are Linux-only, so on macOS and Windows the features compile nothing.
-portal-dbus = ["dep:zbus"]
+portal-dbus = ["dep:zbus", "dep:async-io", "dep:futures-lite"]
 portal = ["portal-dbus", "dep:pipewire"]
 # The default encoder: Cisco's OpenH264 binary downloaded from Cisco at run time
 # (`cmux-rd openh264-install`; Cisco pays the royalties), loaded after its pinned SHA-256.
