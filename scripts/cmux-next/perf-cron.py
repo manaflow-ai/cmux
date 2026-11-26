@@ -238,8 +238,12 @@ PARTS = [
     # run: the goal compares it with other apps' release builds and with the 2026-11-08 Release baseline (app process
     # 243-285 MB). Rows before this were the Debug build, whose app process read 323.3 MB at 8c515cc5, so a Debug row
     # read as growth that was the build. The bench build is the one throughput uses: one build serves both parts.
+    # goal: NOW's chat_memory_vs_empty_ratio (memory.app_agents.ratio_vs_empty, goal memory-per-chat) and ram-baseline,
+    # so once due it goes right after the build (part_order). Without it the part kept its PARTS place behind every
+    # stale Mac part: at tips 12aa19c228 and b767035490 (2026-11-23..25) the build was stored and the tip was given up
+    # for a newer one before memory-agents ran, so the row went without a reading from 2026-11-23 19:17Z on.
     {"name": "memory-agents", "args": [*MEASURE, "--config=bench", "--suite=memory-agents", "--agents=10"],
-     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "memory-agents",
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "memory-agents", "goal": "memory-per-chat",
      "run_seconds": 2700},  # 1800 s for the bench (with its settled samples), plus a cold bench build (800 s) when this part runs first
     # Terminal throughput (scripts/cmux-next/terminal-throughput-bench.py): a 200 MB burst through a NEXT terminal and
     # through standalone Ghostty on the same host, MB/s each and NEXT/Ghostty. Reporting only (REPORT_ONLY_ROW_RE): the
@@ -1495,15 +1499,39 @@ def unread_parts(state):
 
 
 def build_failed_tip(cur):
-    """The tip measurement in flight ended its Mac parts because its app build failed (record_part) (pure)."""
-    return (isinstance(cur, dict) and cur.get("kind") == "tip" and not cur.get("superseded")
-            and any(isinstance(p, dict) and p.get("state") == "build_failed" for p in (cur.get("parts") or {}).values()))
+    """The tip measurement in flight ended its Mac parts because its app build failed (record_part), or its build
+    waits to run again after the fleet failed it (BUILD_INFRA_RE): a newer tip is as good a retry (pure)."""
+    if not (isinstance(cur, dict) and cur.get("kind") == "tip" and not cur.get("superseded")):
+        return False
+    build = (cur.get("parts") or {}).get("build")
+    if isinstance(build, dict) and build.get("infra_retried") and build.get("state") == "failed":
+        return True
+    return any(isinstance(p, dict) and p.get("state") == "build_failed" for p in (cur.get("parts") or {}).values())
 
 
 # A build part's failure that ran nothing of the commit: the fleet could not fetch its source (NOT_STARTED_RE, and the
 # shapes of it a record keeps once its 200-character why cuts that suffix off). Such a tip says nothing about the base.
 BUILD_NEVER_RAN_RE = re.compile(r"source download failed \d+ times?, before the job started|GitHub refused the fetch"
                                 r"|no reviewed tip could be fetched|not fetched \(git: unable to access")
+
+
+# A build part's failure that is the fleet's, not the commit's: BUILD_NEVER_RAN_RE's fetch failures, a 5xx or HTTP 403
+# from a fetch or the controller's git proxy, and a tree that never published. record_part runs the build again at
+# the same tip (BUILD_INFRA_RETRIES) instead of ending every Mac part as build_failed. No measurement finished from
+# 2026-11-15 to 11-26: each of 8 tips lost all its Mac parts, chat-anim (goal typing-latency) among them, to one such
+# build failure (HTTP 403 checkout, a 503 reviewed-tip fetch, no published cmux-tui tree for 2 h). A compiler error
+# matches none of these, so a commit that does not build still fails at once.
+BUILD_INFRA_RE = re.compile(BUILD_NEVER_RAN_RE.pattern + r"|returned error: 5\d\d|HTTP (?:403|5\d\d)\b"
+                            r"|no published cmux-tui tree")
+BUILD_INFRA_RETRIES = 2  # per tip; ABANDON_HOURS and ABANDON_WALL_HOURS still bound the measurement
+
+
+def build_infra_failure(result):
+    """The fleet-side cause of a failed build part's result (BUILD_INFRA_RE), or '' (pure)."""
+    for line in [result.get("why")] + list(result.get("tail") or []):
+        if line and BUILD_INFRA_RE.search(str(line)):
+            return str(line).strip()[:200]
+    return ""
 
 
 def last_tip_build_failed(state):
@@ -1514,7 +1542,7 @@ def last_tip_build_failed(state):
     entry = next((e for e in reversed(state.get("history") or []) if isinstance(e, dict) and e.get("kind") == "tip"), None)
     if not entry:
         return False
-    if BUILD_NEVER_RAN_RE.search(str((entry.get("failed_why") or {}).get("build") or "")):
+    if BUILD_INFRA_RE.search(str((entry.get("failed_why") or {}).get("build") or "")):
         return False
     return bool(entry.get("build_failed")) or "build_failed" in (entry.get("failed_why") or {}).values()
 
@@ -1522,7 +1550,8 @@ def last_tip_build_failed(state):
 def build_never_ran(cur):
     """The tip in flight's build part failed before it ran anything of the commit (BUILD_NEVER_RAN_RE) (pure)."""
     build = (cur.get("parts") or {}).get("build") if isinstance(cur, dict) else None
-    return isinstance(build, dict) and build.get("state") == "failed" and bool(BUILD_NEVER_RAN_RE.search(str(build.get("why") or "")))
+    return isinstance(build, dict) and build.get("state") == "failed" and bool(
+        build.get("infra_retried") or BUILD_NEVER_RAN_RE.search(str(build.get("why") or "")))
 
 
 def unread_missing(state, cur):
@@ -4754,11 +4783,25 @@ def record_part(cur, part, result, run_url, t=None):
              and setup_failure(result))
     if retry:
         entry["setup_retried"] = retry[:200]  # runs once more on the same commit; a second failure ends it
+    infra = (part == "build" and entry["state"] == "failed" and not result.get("timed_out")
+             and entry.get("infra_retries", 0) < BUILD_INFRA_RETRIES and build_infra_failure(result))
+    if infra:
+        # The fleet failed the build, not the commit (BUILD_INFRA_RE): it runs again at this tip, and the Mac parts
+        # wait for it instead of ending build_failed. A third such failure ends them as before.
+        entry["infra_retries"] = entry.get("infra_retries", 0) + 1
+        entry["infra_retried"] = infra
+        entry["reason"] = infra  # the fleet's, not the commit's (commit_failed)
+        retry = infra
+    elif part == "build" and entry.get("infra_retried") and not (entry["state"] == "failed" and build_infra_failure(result)):
+        # This run's result is its own (built, or failed on the commit): the fleet's earlier failure no longer speaks for it.
+        if entry.get("reason") == entry["infra_retried"]:
+            entry.pop("reason")
+        entry.pop("infra_retried")
     if entry["state"] != "yielded" and not retry and part in cur["parts_todo"]:
         cur["parts_todo"].remove(part)
     cur["parts"][part] = entry
     build_failed = bool(result.get("build_failed")) or any(BUILD_FAILED_MARK in line for line in result.get("tail") or [])
-    if entry["state"] == "failed" and build_failed:
+    if entry["state"] == "failed" and build_failed and not infra:
         for other in [p for p in cur["parts_todo"] if not is_linux_part(p)]:
             cur["parts"][other] = {"state": "build_failed", "run_url": run_url}
             cur["parts_todo"].remove(other)
