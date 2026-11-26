@@ -60,10 +60,19 @@ public nonisolated struct EffectiveSettings: Sendable, Equatable {
     /// set catalog settings (never a whole object, shortcuts or custom actions).
     public static func merge(file: JSONValue, managed: ManagedPreferences, team: TeamPolicyLayer) -> EffectiveSettings {
         let team = team.limitedToCatalog()
+        // A manager can disable personal credential sharing. It cannot grant consent
+        // or lock the Settings switch on, even when another policy layer forbids sharing.
+        let githubLogin = CloudNewWorkspaceSetting.useMyGitHubLoginPath.joined(separator: ".")
+        func policySettings(_ layer: [String: JSONValue]) -> JSONValue {
+            guard let value = layer[githubLogin], value != .bool(false) else { return .object(layer) }
+            var values = layer
+            values.removeValue(forKey: githubLogin)
+            return .object(values)
+        }
         let reply = SettingsRust.answer("effective.merge", [
             "file": file,
-            "managed": ["forced": .object(managed.forced), "recommended": .object(managed.recommended)],
-            "team": ["teamName": .string(team.teamName), "defaults": .object(team.defaults), "enforced": .object(team.enforced)],
+            "managed": ["forced": policySettings(managed.forced), "recommended": policySettings(managed.recommended)],
+            "team": ["teamName": .string(team.teamName), "defaults": policySettings(team.defaults), "enforced": policySettings(team.enforced)],
             "legacyKeys": .object(legacyKeys.mapValues(JSONValue.string)),
             "chats": ["roots": .string(ChatSettings.rootsPath.joined(separator: ".")), "booleans": .array(ChatSettings.booleanKeys.map(JSONValue.string))],
         ])
