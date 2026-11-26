@@ -35,16 +35,17 @@ These tables cover common props from the component definitions (`Row.tsx`, `List
 
 `Row`
 
-| Prop       | Type                         | Default     | What it does                                                                |
-| ---------- | ---------------------------- | ----------- | --------------------------------------------------------------------------- |
-| `title`    | node, required               |             | The row's text.                                                             |
-| `subtitle` | node                         |             | A second line in the secondary color.                                       |
-| `leading`  | node                         |             | The leading column: an `Icon`, a `StatusGlyph`, a `Spinner` or an `Avatar`. |
-| `trailing` | node                         |             | The trailing column: a `Pill`, a count or a small `Button`.                 |
-| `selected` | boolean                      | `false`     | The selection fill and `aria-current`.                                      |
-| `density`  | `"compact"`, `"comfortable"` | `"compact"` | 28 or 32 tall.                                                              |
-| `label`    | string                       |             | What assistive tech reads for the whole row.                                |
-| `onSelect` | `() => void`                 |             | Makes the whole row one button; without it the row is static.               |
+| Prop           | Type                         | Default     | What it does                                                                |
+| -------------- | ---------------------------- | ----------- | --------------------------------------------------------------------------- |
+| `title`        | node, required               |             | The row's text.                                                             |
+| `subtitle`     | node                         |             | A second line in the secondary color.                                       |
+| `leading`      | node                         |             | The leading column: an `Icon`, a `StatusGlyph`, a `Spinner` or an `Avatar`. |
+| `trailing`     | node                         |             | Always-visible content such as a `Pill` or a count.                         |
+| `hoverActions` | node                         |             | Secondary controls shown on hover or keyboard focus, and always on touch.   |
+| `selected`     | boolean                      | `false`     | The selection fill and `aria-current`.                                      |
+| `density`      | `"compact"`, `"comfortable"` | `"compact"` | 28 or 32 tall.                                                              |
+| `label`        | string                       |             | What assistive tech reads for the whole row.                                |
+| `onSelect`     | `() => void`                 |             | Makes the whole row one button; without it the row is static.               |
 
 `List`
 
@@ -202,11 +203,36 @@ motion), and the session looks. To open it, from `webviews`: `bun run gallery:de
 it (a static build, the live tailnet gallery) are in
 [`gallery/ENTRIES.md`](../gallery/ENTRIES.md#seeing-it).
 
+To capture the controls, surfaces, motion presets and open cards in both themes, run this from
+`webviews/` in a checkout with the gallery’s Playwright browser installed:
+
+```sh
+CMUX_CAPTURE_BUILD=1 bun scripts/gallery/capture-states.mjs scripts/gallery/kit.capture.json /tmp/cmux-kit-gallery
+```
+
 ## Related
 
 - Glass: [`docs/cmux-next/glass.md`](../../../docs/cmux-next/glass.md), the levels and how `Glass` and a
   customize scene node's `.glass(level)` match.
 - Icons: [`agent-session/acpmux/icons/README.md`](../agent-session/acpmux/icons/README.md).
+
+### Swift counterpart
+
+Native surfaces use the same Instrument roles and tokens through `CmuxNextDesign`:
+`CardSurfaceView` is the shared card glass, `CardMaterial` resolves a theme's card fill and rim,
+and `HoverCardStyle.shared` supplies the card's padding, spacing, radius, type and ink. A caller
+supplies content through `HoverCardBody` and registers its `HoverCardSource` with the shared
+`HoverCardCoordinator`.
+
+```swift
+let style = HoverCardStyle.shared
+let body = HoverCardBody(view: preview, placement: .below, themeAnchor: anchor,
+                         cornerRadius: style.cornerRadius) {}
+coordinator.presentOwned(targetID, body: body, anchor: targetFrame, parent: window, ended: {})
+```
+
+The app-owned `HoverCardPanel` remains the coordinator's renderer. Customizations provide a body
+and read the shared style instead of creating another floating panel or choosing a new material.
 
 ### Which kit do I use
 
@@ -214,11 +240,15 @@ Choose the API for the host that will render the view:
 
 - Instrument (this): React, for web code inside this repo's `webviews/` (pages, panes, the gallery).
   It is imported by relative path (`../kit`); it is not published as a package.
-- The scene globals (`VStack`, `Row`, `Panel`, `Button`, `EmptyState`, ...) that a customize view's
-  `~/.config/cmux/customize/main.js` uses:
+- The scene globals (`VStack`, `Row`, `Panel`, `Button`, `EmptyState`, ...) for
+  `customize/main.js` in the active cmux configuration folder:
   [`skills/cmux-customization/SKILL.md`](../../../skills/cmux-customization/SKILL.md), "Make a view".
 - `cmux-extension-sdk`, for extensions (`cmux ext new`): its scene DSL and widget helpers,
   [`cmux-tui/crates/cmux-extension-sdk/README.md`](../../../cmux-tui/crates/cmux-extension-sdk/README.md).
+
+From an extension folder, run `cmux ext dev --once --json`. The `scene` field shows what
+rendered. The `design` findings flag raw hex colors and spacing or type sizes outside the
+folder’s design scale. These warnings let the view render while you compare it with the gallery.
 
 For a local view, start with the [focus timer example](../../../skills/cmux-customization/references/local-app-views.md#template-a-focus-timer).
 Use the gallery above as a visual reference. A prompt for an agent:
