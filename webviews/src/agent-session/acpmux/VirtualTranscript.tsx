@@ -5,6 +5,7 @@ import React, {
   useCallback,
   useDeferredValue,
   useEffect,
+  useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useReducer,
@@ -12,7 +13,6 @@ import React, {
   useState,
   useSyncExternalStore,
   useInsertionEffect,
-  useImperativeHandle,
 } from "react";
 import { flushSync } from "react-dom";
 import { rowPresence, type RowPresenceHints } from "./conversation/rowPresence";
@@ -27,6 +27,7 @@ import { holdUntilSettled } from "./conversation/unsettledHeights";
 import { endOffscreenMotion } from "./conversation/offscreenMotion";
 import {
   layoutConversation,
+  layoutGeometry,
   type PlacedLayout,
   type RowHeights,
   placedFromEstimate,
@@ -47,7 +48,6 @@ import {
   restRoom,
   rowFrameKey,
   SINCE_DIVIDER,
-  layoutGeometry,
 } from "./model";
 import { RowFrameCache } from "./conversation/rowFrameCache";
 import { railOwnsWheel } from "./threadMinimap/railWheel";
@@ -86,10 +86,11 @@ import { followMotion } from "./conversation/followMotion.experiment";
 import { composerDockMotion } from "./composer/dockMotion.experiment";
 import { acpmuxPerf, type MountedSpan } from "./perf";
 import { layoutWatchWanted, startLayoutWatch } from "./conversation/layoutWatch";
-import { transition, type MotionList } from "./conversation/motionOwner";
+import { registerListScroll, runningTransition, transition, type MotionList } from "./conversation/motionOwner";
+import { type RunDisclosure } from "./conversation/transcriptDisclosureModel";
 import { useCountedRender } from "./perfRender";
 import { drewStreamingRow, useStreamingRowCatchUp } from "./streamingRow";
-import { rowsWithLiveOutput } from "./liveToolOutput";
+import { drewThoughts, lineHeardNow, liveThoughtHeard, rowsDrawnNow } from "./liveThought";
 import { followTrace } from "./followTrace";
 import {
   FIELD_GROWTH_EVENT,
@@ -155,9 +156,9 @@ import {
   playTurnEnd,
   settleTurnEnd,
   TURN_END_ATTR,
-  turnEndRecap,
   type TurnEndCapture,
   type TurnEndFold,
+  turnEndRecap,
 } from "./conversation/turnEndFold";
 import { installGutterSelect, type HeldRow } from "./conversation/gutterSelect";
 import {
@@ -169,7 +170,7 @@ import {
   type ChatFind,
   rowHolds,
 } from "./conversation/chatFind";
-import { LIVE_THINKING, NEXT_STEP, THINKING, foldCovers, turnFooterFrom, retryTargetIn } from "./conversation/turns";
+import { LIVE_THINKING, THINKING, foldCovers, turnFooterFrom, retryTargetIn, NEXT_STEP } from "./conversation/turns";
 import { createLiveLinePulse } from "./conversation/liveLinePulse";
 import { installWheelGlide } from "./wheelGlide";
 import { installDockWheelHold, installWheelPassThrough } from "./wheelPassThrough";
@@ -203,7 +204,7 @@ import { jumpUpButton } from "./jumpUp.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import { MOTION_MS, MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../motion/scale.generated";
 import { motionToken, warmMotionTokens } from "../../ui/motion/motionTokens";
-import { SHOWN_INK_PROPERTIES, followShownScrollerFade } from "../../scrollers";
+import { followShownScrollerFade, SHOWN_INK_PROPERTIES } from "../../scrollers";
 import { thumbMotion } from "./conversation/thumbMotion.experiment";
 import { editableTarget, wheelScrollsDown } from "./conversation/wheelChain";
 import { heightLeftAbove, type NewerReserve, newerReserve, rowsReplaced } from "./conversation/newerReserve";
@@ -250,9 +251,10 @@ import {
   ARRIVAL_PASS_MS,
   arrivedAtTail,
   TokenRows,
-  noReplyCame,
   broughtSentPrompt,
+  noReplyCame,
   newestPromptIndex,
+  promptLanded,
 } from "./transcript/arrivals";
 import {
   scrollRangeIn,
@@ -275,6 +277,7 @@ import { jumpToLatestWith, placeViewWith, pressUpWith } from "./transcript/jumpW
 import { indexOfRow, mountedIndexOf } from "./transcript/rowIndex";
 import { type TranscriptReferences, LIST_PROPS, sameList } from "./transcript/references";
 import { type LastEstimate, estimateFrom, nearView } from "./transcript/liveEstimate";
+import { SNAPSHOT_HOST_TAG } from "./chatSnapshot/shared";
 export { RowContent } from "./transcript/RowFrame";
 export { broughtSentPrompt } from "./transcript/arrivals";
 export { heldReaderPlace } from "./transcript/scrollAnchors";
@@ -332,6 +335,19 @@ const NO_UNREAD = () => undefined;
 
 /// The last measured transcript box on this page: a transcript mounting again starts from it.
 const lastTranscriptBox = { height: 600, width: 760 };
+/// The page's first transcript starts from the box of the chat's copy (chatSnapshot/paint.ts), when one
+/// is up: the copy is the same transcript, already laid out in this window. From the 760 x 600 guess,
+/// a relaunched chat laid out every row at that width, then again at the real one once it measured
+/// (~100 ms of text layout on a 120-turn chat, before the copy could swap).
+let seededFromCopy = false;
+function transcriptBoxFromCopy(): void {
+  if (seededFromCopy || typeof document === "undefined") return;
+  seededFromCopy = true;
+  const scroller = document.querySelector(SNAPSHOT_HOST_TAG)?.shadowRoot?.querySelector<HTMLElement>(".acpmux-scroll");
+  if (!scroller || scroller.clientHeight <= 0 || scroller.clientWidth <= 0) return;
+  lastTranscriptBox.height = scroller.clientHeight;
+  lastTranscriptBox.width = scroller.offsetWidth;
+}
 
 /// Whether any of `rows` is drawn inside the scroller's view (a row that grew there would draw over
 /// the rows under it until the transcript places them again). One rect read per row the observer
@@ -967,11 +983,18 @@ function TranscriptView({
   // changes (conversation/liveLinePulse.ts). After the line's own effects, so a line mounted in this
   // pass already listens.
   const [livePulse] = useState(createLiveLinePulse);
-  useLayoutEffect(() => livePulse.note(rows), [livePulse, rows]);
-  // What this transcript drew of the pane's streaming reply: the pane takes the fast path only
-  // while that row is drawn as the client holds it.
+  // A thought's chunk drawn without the pane renders neither the pane nor this transcript
+  // (liveThought.ts): the line hears it from that store (`lineHeardNow`) and draws for none of them.
+  useLayoutEffect(() => livePulse.note(rows, streams ? lineHeardNow : undefined), [livePulse, rows, streams]);
+  useEffect(() => {
+    if (!streams) return;
+    return liveThoughtHeard.subscribe(() => livePulse.heardChunk());
+  }, [livePulse, streams]);
+  // What this transcript drew of the pane's streaming reply and the running turn's thoughts: the pane
+  // takes their fast paths only while those are drawn as the client holds them.
   useLayoutEffect(() => {
     if (!streams) return;
+    drewThoughts(paneRows);
     for (let index = paneRows.length - 1; index >= 0; index -= 1) {
       const row = paneRows[index]!;
       if (row.kind === "assistant" && row.streaming) {
@@ -1154,6 +1177,25 @@ function TranscriptView({
   // The layout watcher's streaming read (conversation/layoutWatch.ts): a growing last row is no move.
   const workingRef = useRef(working);
   workingRef.current = working;
+  // The list the motion owner drives (set by the scroller's effect below), and the fold the click's
+  // capture already declared a transition for (`declareFold`).
+  const motionListRef = useRef<MotionList | undefined>(undefined);
+  const declaredFold = useRef<string | undefined>(undefined);
+  // A disclosure's change (useDisclosure.ts, transcriptDisclosureModel.ts) as one transition of the
+  // motion owner, anchored on the row it is drawn in. A click on a fold toggle already declared its
+  // transition in the capture phase: the change it sets plays inside that one, never a second.
+  const runDisclosure = useCallback<RunDisclosure>((anchorRow, apply) => {
+    const list = motionListRef.current;
+    if (!list) return apply();
+    const playing = runningTransition(list);
+    if (declaredFold.current === anchorRow && playing && !playing.ended) return apply();
+    transition(list, {
+      cause: "disclosure",
+      anchorRow,
+      ms: FOLD_HOLD_MIN_MS + FOLD_SETTLE_MS,
+      apply,
+    });
+  }, []);
   const transcriptMounted = useRef(true);
   /// The offset and follow state the last commit drew at (written as it lays out).
   const drewScroll = useRef<{ top: number; following: boolean } | undefined>(undefined);
@@ -1474,7 +1516,10 @@ function TranscriptView({
   /// The chat of the last commit, for a flow that starts from the box's observer.
   const sessionIdRef = useRef(sessionId);
   // The last transcript box on this page until this one is measured (before its first paint, below).
-  const [height, setHeight] = useState(() => lastTranscriptBox.height);
+  const [height, setHeight] = useState(() => {
+    transcriptBoxFromCopy();
+    return lastTranscriptBox.height;
+  });
   // The native pane's width, distinct from the transcript scroller's width when Push always reserves
   // a Session Info column. The pane-pinned rail uses this so its inset never follows that column.
   const [paneWidth, setPaneWidth] = useState(() => lastTranscriptBox.width);
@@ -1556,6 +1601,9 @@ function TranscriptView({
   const queuedIds = useRef(new Set<string>());
   /// The prompts whose cards left, which the room under the last row is kept for (`floor`).
   const heldFor = useRef(new Set<string>());
+  /// The rows as of the last render, which tell a card whose prompt's row already landed.
+  const landedRows = useRef(rows);
+  landedRows.current = rows;
   const withdrawnSet = useMemo(() => new Set(queueWithdrawn), [queueWithdrawn]);
   const withdrawn = useRef(withdrawnSet);
   withdrawn.current = withdrawnSet;
@@ -1592,7 +1640,9 @@ function TranscriptView({
       queueLeft.current = false;
       return;
     }
-    const left = [...queuedIds.current].filter((id) => !now.has(id));
+    // A card whose prompt's row already landed above (it can land a pass before the card leaves)
+    // brings nothing more: no room is held for it, and the rows settle with the stack as it shrinks.
+    const left = [...queuedIds.current].filter((id) => !now.has(id) && !promptLanded(landedRows.current, id));
     queuedIds.current = now;
     if (!left.length) return;
     for (const id of left) heldFor.current.add(id);
@@ -4341,8 +4391,9 @@ function TranscriptView({
   }, [range, effectiveActiveRowId]);
   const copyRows = useCallback(
     async (rowIds: string[]) => {
-      // A running command's output since the pane last drew is in liveToolOutput.ts, not `rows`.
-      const text = transcriptRangeText(rowsWithLiveOutput(rows), rowIds);
+      // What streamed since the pane last drew (a thought, a running command's output) is in the
+      // rows' own stores, not `rows`.
+      const text = transcriptRangeText(rowsDrawnNow(rows), rowIds);
       if (text && !(await copyTextResult(text))) throw new Error("copy.failed");
     },
     [rows],
@@ -6423,14 +6474,21 @@ function TranscriptView({
       },
       settle: () => {},
     };
+    motionListRef.current = motionList;
+    // The fold writers' scroll writes (ToolGroupRow.tsx, useAnchoredCollapse.ts, KeepOpenedLine.tsx,
+    // foldAnchor.ts) go through the owner, which writes this list's scroller.
+    const unregisterListScroll = registerListScroll(node, (top) => {
+      node.scrollTop = top;
+    });
     const declareFold = (line: Element | null | undefined) => {
       const rowId = line?.closest<HTMLElement>("[data-row-id]")?.dataset.rowId;
-      if (rowId)
-        transition(motionList, {
-          cause: "disclosure",
-          anchorRow: rowId,
-          ms: FOLD_HOLD_MIN_MS + FOLD_SETTLE_MS,
-        });
+      if (!rowId) return;
+      transition(motionList, { cause: "disclosure", anchorRow: rowId, ms: FOLD_HOLD_MIN_MS + FOLD_SETTLE_MS });
+      // The click's own setter runs in this task (`runDisclosure`): it plays in this transition.
+      declaredFold.current = rowId;
+      setTimeout(() => {
+        if (declaredFold.current === rowId) declaredFold.current = undefined;
+      });
     };
     // First on the window, so a fling's momentum held after a jump reaches no other listener.
     const removeMomentumHold = installMomentumHold(node, scrollRunning);
@@ -6908,6 +6966,8 @@ function TranscriptView({
       gutterRelease.current = undefined;
       gutter?.remove();
       stopLayoutWatch?.();
+      unregisterListScroll();
+      if (motionListRef.current === motionList) motionListRef.current = undefined;
     };
   }, [
     dropFoldRoom,
@@ -7349,6 +7409,7 @@ function TranscriptView({
     readOnly,
     retryTarget,
     livePulse,
+    runDisclosure,
     ref,
     // The steady arm's send enters as the slim arm's does (the bubble fades in).
     slimFollow: slimSend,
@@ -7402,7 +7463,6 @@ function TranscriptView({
     sinceKey,
     onJumpToSince,
     sinceRow,
-    sinceHasNews,
     clearTop,
     sinceIndex,
     jumpUp,
