@@ -516,6 +516,19 @@ fn tool_notice_of(provenance: Option<&Value>) -> Option<Value> {
         .cloned()
 }
 
+/// A message's notice: its provenance's, else the one its text renders (`notice_read.rs`: relayed
+/// by the lane-gh broker or a peer, or sent by an older client), so the chat draws and folds it as
+/// the notice it is.
+fn notice_of(provenance: Option<&Value>, text: &str) -> Option<Value> {
+    tool_notice_of(provenance).or_else(|| crate::notice_read::read(text))
+}
+
+/// A notice's condition (`notice_read::condition_key`): its sender and its title past its counts.
+fn notice_key(notice: &Value) -> Option<String> {
+    let field = |k: &str| notice.get(k).and_then(Value::as_str);
+    Some(crate::notice_read::condition_key(field("sender").unwrap_or_default(), field("title")?))
+}
+
 /// Whether a prompt's provenance is a notice's.
 pub(crate) fn is_notice(provenance: Option<&Value>) -> bool {
     provenance.and_then(|p| p.get("kind")).and_then(Value::as_str) == Some(NOTICE_KIND)
@@ -956,6 +969,25 @@ pub(super) fn render_read(items: &[&Item], summaries: &reader::Summaries) -> (St
         if let Some(session) = last.and_then(|i| i.from_session.as_deref()) {
             part.set("fromSession", json!(session));
         }
+        // The newest notice's compact row (Leo, 2026-11-25, on a notice drawn under its relay host
+        // with its raw head: "how can we improve this?"): its detector, severity and title, and how
+        // often its condition came in this thread (`notice_read::condition_key`), "×3, last 09:40Z".
+        if let Some((last, notice)) = last.and_then(|i| Some((i, i.tool_notice.as_ref()?))) {
+            let key = notice_key(notice);
+            let same: Vec<&&Item> = list
+                .iter()
+                .filter(|i| i.tool_notice.as_ref().and_then(notice_key) == key)
+                .collect();
+            let mut row = json!({
+                "sender": notice.get("sender"), "severity": notice.get("severity"),
+                "title": notice.get("title"), "repeats": same.len(),
+                "lastAt": same.iter().map(|i| i.at).max().unwrap_or(last.at),
+            });
+            if let Some(host) = notice.get("host") {
+                row.set("host", host.clone());
+            }
+            part.set("notice", row);
+        }
         // A thread of tools' notices says its loudest severity, so a fold of it never hides a fire.
         if let Some(severity) = loudest(list) {
             part.set("severity", json!(severity));
@@ -1018,7 +1050,8 @@ fn wakes(meta: &SessionMeta, item: &Item) -> bool {
                 || wakes_as(
                     meta,
                     item.class,
-                    item.report || item.waited,
+                    item.report,
+                    item.waited,
                     item.from_session.as_deref(),
                 )
         }
@@ -1067,13 +1100,21 @@ fn ordinary_fyi(item: &Item) -> bool {
 }
 
 /// [`wakes`] for a message of `class` from session `from` not in the inbox yet; `report` is a
-/// report of work this chat gave, or a message that waited for this machine
-/// (`prompt_provenance::waited`).
-fn wakes_as(meta: &SessionMeta, class: PromptClass, report: bool, from: Option<&str>) -> bool {
+/// report of work this chat gave, `waited` a message that waited for this machine
+/// (`prompt_provenance::waited`). A waited message wakes the chat whatever its class, an FYI
+/// too: an idle chat takes no flush turn for what wakes nobody (#55196), so a message sent while
+/// the hub was down (an unclassed one files as an FYI) would otherwise never run.
+fn wakes_as(
+    meta: &SessionMeta,
+    class: PromptClass,
+    report: bool,
+    waited: bool,
+    from: Option<&str>,
+) -> bool {
     match class {
         PromptClass::Block | PromptClass::Question => true,
-        PromptClass::Fyi => false,
-        PromptClass::Result => meta.turn_count == 0 || report || controls(meta, from),
+        PromptClass::Fyi => waited,
+        PromptClass::Result => meta.turn_count == 0 || report || waited || controls(meta, from),
     }
 }
 
@@ -1427,14 +1468,13 @@ impl Hub {
         let waited = crate::prompt_provenance::waited(provenance);
         let surge_on = self.surge_inbox_on();
         let wakes_before_rule = (surge_on && fire_notice(provenance.and_then(|p| p.get("notice"))))
-            || wakes_as(
-                &meta_now,
-                class,
-                is_report(provenance) || waited,
-                sender_session.as_deref(),
-            );
+            || wakes_as(&meta_now, class, is_report(provenance), waited, sender_session.as_deref());
         // A chat on the coordinator list wakes only for a page (`inbox_page_rule.rs`).
-        let page_rule_on = page_rule::listed(&*self.config.read().await, &meta_now.name);
+        // Admission must reach its acceptance callback without waiting on a config writer.
+        // If a reload owns the lock, fail open as an unlisted chat and let the normal wake rules
+        // decide. The next delivery observes the new page rule.
+        let page_rule_on =
+            self.config.try_read().is_ok_and(|cfg| page_rule::listed(&cfg, &meta_now.name));
         let continuing = self.continuation_pending(session);
         // It would sit in an idle chat's inbox until a flush: said in its acceptance, and a
         // sender that waits for it is refused at once (`not_woken`).
@@ -1452,7 +1492,7 @@ impl Hub {
             human_authenticated,
         );
         let thread_sender = thread_sender(provenance, sender);
-        let tool_notice = tool_notice_of(provenance);
+        let tool_notice = notice_of(provenance, &text);
         let notice_title = tool_notice
             .as_ref()
             .and_then(|n| n.get("title"))
@@ -2443,8 +2483,8 @@ impl Hub {
                         text: field("text").to_owned(),
                         details: provenance.as_ref().and_then(|p| p.get("details").cloned()),
                         fire: surge_on
-                            && fire_notice(provenance.as_ref().and_then(|p| p.get("notice"))),
-                        tool_notice: tool_notice_of(provenance.as_ref()),
+                            && fire_notice(notice_of(provenance.as_ref(), field("text")).as_ref()),
+                        tool_notice: notice_of(provenance.as_ref(), field("text")),
                         noticed: e.msg.get("deliveredRead") == Some(&Value::Bool(true)),
                         read: e.msg.get("deliveredRead") == Some(&Value::Bool(true)),
                         answer: None,

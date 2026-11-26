@@ -18,6 +18,12 @@ Two steps, so the GitHub half runs where `gh` is and the git half where the clon
          removed)? Those are the entries a one-file-per-entry directory turns into new files, which
          cannot conflict; the rest edited existing lines and conflict in either layout.
 
+  relayout --git-dir DIR --ref REF --prs prs.json --file PATH --layout NAME [--layout NAME ...]
+         The after number for a file being split: replays the same PRs (the ones whose squash conflicts on
+         PATH against the base they opened on) with PATH's three versions rewritten into each named layout
+         (LAYOUTS: one file per string key, per setting, ...), `git merge-file` per resulting file, and counts
+         the PRs that still conflict, naming the files they conflict on.
+
 Same harness before and after a fix: rerun `analyze` and compare the file's rows. First used for
 scripts/ci/entry_logs.py (2026-11-25): run on a Linux host against a cmux mirror, about 25 min of
 GraphQL (148 queries, cost 1 each) and 3 min of `git merge-tree` for 14 days.
@@ -236,6 +242,106 @@ def cmd_split(a: argparse.Namespace) -> None:
               f"(0 conflicts as entry files), {conflicted - pure} edited existing lines")
 
 
+def _merge3(base: str | None, ours: str | None, theirs: str | None) -> bool:
+    """True when a three-way merge of one file conflicts (add/add of different text and modify/delete count)."""
+    if ours == theirs or theirs == base or ours == base:
+        return False
+    if base is None or ours is None or theirs is None:
+        return True
+    import os
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        paths = []
+        for name, text in (("ours", ours), ("base", base), ("theirs", theirs)):
+            paths.append(os.path.join(d, name))
+            with open(paths[-1], "w", encoding="utf-8") as handle:
+                handle.write(text)
+        return subprocess.run(["git", "merge-file", "-p", *paths], capture_output=True).returncode != 0
+
+
+def _dump(value: object) -> str:
+    return json.dumps(value, indent=2, ensure_ascii=False, sort_keys=True) + "\n"
+
+
+def layout_as_is(text: str) -> dict[str, str]:
+    return {"": text}
+
+
+def layout_xcstrings_per_key(text: str) -> dict[str, str]:
+    """A string catalog as one file per key (string_catalogs.py's layout) plus its header."""
+    catalog = json.loads(text)
+    out = {"@catalog": _dump({k: v for k, v in catalog.items() if k != "strings"})}
+    out.update({key: _dump(entry) for key, entry in catalog["strings"].items()})
+    return out
+
+
+def layout_agent_policy_per_key(text: str) -> dict[str, str]:
+    """schemas/settings/source/agent-policy.json as one {agent, why?} file per key plus the refusals."""
+    data = json.loads(text)
+    out = {"_refusals": _dump({k: v for k, v in data.items() if k != "groups"})}
+    for group in data["groups"]:
+        for key in group["keys"]:
+            out[key] = _dump({k: v for k, v in group.items() if k != "keys"})
+    return out
+
+
+LAYOUTS = {
+    "as-is": layout_as_is,
+    "xcstrings-per-key": layout_xcstrings_per_key,
+    "agent-policy-per-key": layout_agent_policy_per_key,
+}
+
+
+def cmd_relayout(a: argparse.Namespace) -> None:
+    prs = {int(k): v for k, v in json.load(open(a.prs)).items()}
+    history = first_parent_log(a.git_dir, a.ref, f"{a.days + a.lookback} days ago")
+    cutoff = dt.datetime.now(dt.timezone.utc).timestamp() - a.days * 86400 if not a.until else \
+        parse_time(a.until) - a.days * 86400
+    times = [c["time"] for c in history]
+
+    def blob(rev: str, path: str) -> str | None:
+        r = subprocess.run(["git", f"--git-dir={a.git_dir}", "show", f"{rev}:{path}"], capture_output=True)
+        return r.stdout.decode("utf-8") if r.returncode == 0 else None
+
+    jobs = []
+    for c in history:
+        if c["time"] < cutoff or c["pr"] not in prs or a.file not in c["files"] or not c["parent"]:
+            continue
+        if prs[c["pr"]]["base"] != a.base:
+            continue
+        start = parse_time(prs[c["pr"]]["createdAt"])
+        bi = max(0, bisect.bisect_right(times, start) - 1)
+        if history[bi]["time"] <= start and history[bi]["sha"] != c["parent"]:
+            jobs.append((c["pr"], c["parent"], c["sha"], history[bi]["sha"]))
+
+    def one(job):
+        pr, parent, squash, base_then = job
+        if a.file not in replay(a.git_dir, parent, squash, base_then):
+            return pr, None
+        texts = blob(parent, a.file), blob(squash, a.file), blob(base_then, a.file)
+        result = {}
+        for name in a.layout:
+            split = [LAYOUTS[name](t) if t is not None else {} for t in texts]
+            result[name] = [p for p in sorted(set().union(*split))
+                            if _merge3(split[0].get(p), split[1].get(p), split[2].get(p))]
+        return pr, result
+
+    counts = collections.Counter()
+    examples = collections.defaultdict(list)
+    with concurrent.futures.ThreadPoolExecutor(a.jobs) as pool:
+        for pr, result in pool.map(one, jobs):
+            if result is None:
+                continue
+            counts["replay"] += 1
+            for name, bad in result.items():
+                if bad:
+                    counts[name] += 1
+                    examples[name].append((pr, bad[:3]))
+    print(f"{a.file}: {len(jobs)} PRs replayed, {counts['replay']} conflict on it as committed")
+    for name in a.layout:
+        print(f"  {name}: {counts[name]} still conflict {sorted(examples[name])[:20]}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -266,6 +372,18 @@ def main() -> None:
     sp.add_argument("--days", type=int, default=14)
     sp.add_argument("--lookback", type=int, default=14)
     sp.set_defaults(fn=cmd_split)
+    rl = sub.add_parser("relayout")
+    rl.add_argument("--git-dir", required=True)
+    rl.add_argument("--ref", default="origin/feat-cmux-next")
+    rl.add_argument("--base", default="feat-cmux-next")
+    rl.add_argument("--prs", required=True)
+    rl.add_argument("--file", required=True)
+    rl.add_argument("--layout", action="append", required=True, choices=sorted(LAYOUTS))
+    rl.add_argument("--days", type=int, default=14)
+    rl.add_argument("--lookback", type=int, default=14)
+    rl.add_argument("--until", help="ISO time the 14-day window ends (default now), to rerun an old report")
+    rl.add_argument("--jobs", type=int, default=8)
+    rl.set_defaults(fn=cmd_relayout)
     a = ap.parse_args()
     a.fn(a)
 

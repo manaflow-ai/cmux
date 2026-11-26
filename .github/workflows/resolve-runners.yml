@@ -76,6 +76,7 @@ jobs:
           sparse-checkout: |
             .github/runners.json
             scripts/ci/resolve_runners.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Resolve capability map

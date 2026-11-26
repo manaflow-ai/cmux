@@ -349,8 +349,49 @@ impl App {
         self.palette_prefix.starts_with(c) || self.palette_aliases.iter().any(|p| p.starts_with(c))
     }
 
+    /// The find bar takes typing and its own keys while open, as the GUI's bar does: Enter (or
+    /// Down, Ctrl-n, Cmd-g) for the next match, Shift-Enter (Up, Ctrl-p, Shift-Cmd-g) for the
+    /// previous one, Esc to close. Cmd-f opens it anywhere; Ctrl-f outside the composer, where
+    /// Ctrl-f moves the cursor.
+    fn on_find_key(&mut self, key: KeyEvent) -> bool {
+        let m = key.modifiers;
+        let ctrl = m.contains(KeyModifiers::CONTROL);
+        let sup = m.contains(KeyModifiers::SUPER);
+        let shift = m.contains(KeyModifiers::SHIFT);
+        let is = |c: char| matches!(key.code, KeyCode::Char(k) if k.eq_ignore_ascii_case(&c));
+        let opens = is('f') && (sup || (ctrl && self.focus != Focus::Input));
+        let Some(find) = self.find.as_mut() else {
+            if opens {
+                self.run_action(Action::Find, &[]);
+                return true;
+            }
+            return false;
+        };
+        match key.code {
+            _ if opens => {}
+            KeyCode::Esc => self.find = None,
+            KeyCode::Enter if shift => find.step(-1),
+            KeyCode::Enter | KeyCode::Down => find.step(1),
+            KeyCode::Up => find.step(-1),
+            _ if (sup && is('g')) => find.step(if shift { -1 } else { 1 }),
+            _ if ctrl && is('n') => find.step(1),
+            _ if ctrl && is('p') => find.step(-1),
+            _ if ctrl && is('u') => find.clear(),
+            KeyCode::Backspace => find.backspace(),
+            KeyCode::Char(c) if !ctrl && !sup && !m.contains(KeyModifiers::ALT) => {
+                find.type_char(c)
+            }
+            _ => return false,
+        }
+        self.transcript_anchor = None;
+        true
+    }
+
     pub(super) fn on_key(&mut self, key: KeyEvent) {
         if self.on_overlay_key(key) {
+            return;
+        }
+        if self.on_find_key(key) {
             return;
         }
         if self.focus == Focus::Input && self.on_answering_key(key) {
