@@ -5,6 +5,23 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamIntegrationPolicy {
+    pub allowed_providers: Option<Vec<IntegrationProvider>>,
+    pub github: TeamIntegrationPolicyGithub,
+    pub source: TeamIntegrationPolicySource,
+    pub locked: bool,
+    pub updated_at: Option<i64>,
+    pub updated_by: Option<String>,
+}
+
+wire_enum! {
+    TeamIntegrationPolicyGithubScope {
+        LinkingUserRepos = "linking_user_repos",
+        Installation = "installation",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamIntegrationPolicyGithub {
     pub scope: TeamIntegrationPolicyGithubScope,
     pub require_org_admin: bool,

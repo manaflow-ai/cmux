@@ -4,6 +4,119 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedSeenParams {
+    pub items: Vec<FeedItemId>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedSeenResultItemsItem {
+    pub id: FeedItemId,
+    pub revision: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedSeenResult {
+    pub items: Vec<FeedSeenResultItemsItem>,
+}
+
+wire_errors! {
+    /// The error codes feed.seen declares.
+    FeedSeenError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        FeedClosed = "feed.closed",
+        FeedFull = "feed.full",
+        FeedMoving = "feed.moving",
+        FeedRateLimited = "feed.rate_limited",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerMoved = "owner.moved",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Hide items until a time (at most one year ahead); they come back unread. Open requests cannot be snoozed.
+    FeedSnoozeOp {
+        name: "feed.snooze",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:FeedDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: FeedSnoozeParams,
+        result: FeedSnoozeResult,
+        error: FeedSnoozeError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedSnoozeParams {
+    pub items: Vec<FeedItemId>,
+    pub until: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedSnoozeResultItemsItem {
+    pub id: FeedItemId,
+    pub revision: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedSnoozeResult {
+    pub items: Vec<FeedSnoozeResultItemsItem>,
+}
+
+wire_errors! {
+    /// The error codes feed.snooze declares.
+    FeedSnoozeError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        FeedClosed = "feed.closed",
+        FeedFull = "feed.full",
+        FeedMoving = "feed.moving",
+        FeedRateLimited = "feed.rate_limited",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerMoved = "owner.moved",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Move archived items back to the active list.
+    FeedUnarchiveOp {
+        name: "feed.unarchive",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:FeedDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: FeedUnarchiveParams,
+        result: FeedUnarchiveResult,
+        error: FeedUnarchiveError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedUnarchiveParams {
+    pub items: Vec<FeedItemId>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedUnarchiveResultItemsItem {
+    pub id: FeedItemId,
+    pub revision: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedUnarchiveResult {
+    pub items: Vec<FeedUnarchiveResultItemsItem>,
+}
+
 wire_errors! {
     /// The error codes feed.unarchive declares.
     FeedUnarchiveError {
@@ -778,125 +891,4 @@ pub struct GroupMembersRemoveParams {
 pub struct GroupMembersRemoveResult {
     pub group: GroupId,
     pub members: Vec<CloudGroupMember>,
-}
-
-wire_errors! {
-    /// The error codes group.members.remove declares.
-    GroupMembersRemoveError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        GroupLastOwner = "group.last_owner",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Add a team member to a cloud group, or change their role (owner, edit or view). The group's owners only; only members of the team who can use its resources (not guests) can be added. The last owner cannot be demoted.
-    GroupMembersSetOp {
-        name: "group.members.set",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: GroupMembersSetParams,
-        result: GroupMembersSetResult,
-        error: GroupMembersSetError,
-    }
-}
-
-wire_enum! {
-    GroupMembersSetParamsRole {
-        Owner = "owner",
-        Edit = "edit",
-        View = "view",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct GroupMembersSetParams {
-    pub group: GroupId,
-    pub user: UserId,
-    pub role: GroupMembersSetParamsRole,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct GroupMembersSetResult {
-    pub group: GroupId,
-    pub members: Vec<CloudGroupMember>,
-}
-
-wire_errors! {
-    /// The error codes group.members.set declares.
-    GroupMembersSetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        GroupLastOwner = "group.last_owner",
-        GroupMemberNotInTeam = "group.member_not_in_team",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Rename a cloud group (its owner only).
-    GroupRenameOp {
-        name: "group.rename",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: GroupRenameParams,
-        result: CloudGroup,
-        error: GroupRenameError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct GroupRenameParams {
-    pub group: GroupId,
-    pub name: String,
-}
-
-wire_errors! {
-    /// The error codes group.rename declares.
-    GroupRenameError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Your message requests: open invites to your verified email from people you are not connected to, newest first (at most 20). trusted marks a sender with your company email domain.
-    HomeRequestsListOp {
-        name: "home.requests.list",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:ConversationDO",
-        risk: "read",
-        principals: [Session],
-        params: HomeRequestsListParams,
-        result: HomeRequestsListResult,
-        error: HomeRequestsListError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeRequestsListParams {}
-
-wire_enum! {
-    HomeRequestsListResultRequestsItemKind {
-        Dm = "dm",
-        Group = "group",
-    }
 }

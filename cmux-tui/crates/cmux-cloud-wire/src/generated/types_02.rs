@@ -4,6 +4,24 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_enum! {
+    CloudVmReceiverPeerServicesItem {
+        Daemon = "daemon",
+        Ssh = "ssh",
+        Desktop = "desktop",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CodeRef {
+    pub commit: CommitSha,
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub export: Option<String>,
+}
+
+pub type CommitSha = String;
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Concurrency {
     pub max: i64,
@@ -878,27 +896,3 @@ pub enum HomeReactionKind {
     /// A member this build does not know (a newer backend), kept verbatim.
     Unknown(Value),
 }
-
-wire_enum! {
-    HomeReactionKindVariant1Tapback {
-        Love = "love",
-        Like = "like",
-        Dislike = "dislike",
-        Laugh = "laugh",
-        Emphasize = "emphasize",
-        Question = "question",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeReactionKindVariant1 {
-    pub tapback: HomeReactionKindVariant1Tapback,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeReactionKindVariant2 {
-    pub emoji: String,
-}
-
-/// SHA-256 of the bytes, lowercase hex.
-pub type HomeSha256 = String;

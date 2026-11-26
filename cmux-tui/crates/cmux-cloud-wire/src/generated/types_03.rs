@@ -4,6 +4,22 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_enum! {
+    HomeReactionKindVariant1Tapback {
+        Love = "love",
+        Like = "like",
+        Dislike = "dislike",
+        Laugh = "laugh",
+        Emphasize = "emphasize",
+        Question = "question",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeReactionKindVariant1 {
+    pub tapback: HomeReactionKindVariant1Tapback,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HomeReactionKindVariant2 {
     pub emoji: String,
@@ -881,20 +897,3 @@ wire_enum! {
 
 /// A team; a personal account is a team of one.
 pub type TeamId = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamIntegrationPolicy {
-    pub allowed_providers: Option<Vec<IntegrationProvider>>,
-    pub github: TeamIntegrationPolicyGithub,
-    pub source: TeamIntegrationPolicySource,
-    pub locked: bool,
-    pub updated_at: Option<i64>,
-    pub updated_by: Option<String>,
-}
-
-wire_enum! {
-    TeamIntegrationPolicyGithubScope {
-        LinkingUserRepos = "linking_user_repos",
-        Installation = "installation",
-    }
-}

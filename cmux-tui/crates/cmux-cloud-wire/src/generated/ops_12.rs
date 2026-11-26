@@ -4,6 +4,127 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmEnsureAwakeParams {
+    pub reason: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lease_seconds: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmEnsureAwakeResult {
+    pub lease: TeamVmLeaseId,
+    pub expires_at: i64,
+    pub status: TeamVmStatus,
+    pub vm: Option<String>,
+    pub epoch: i64,
+}
+
+wire_errors! {
+    /// The error codes team_vm.ensure_awake declares.
+    TeamVmEnsureAwakeError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        TeamVmNotConfigured = "team_vm.not_configured",
+        TeamVmPlanGateMissing = "team_vm.plan_gate_missing",
+        TeamVmProviderFailed = "team_vm.provider_failed",
+        TeamVmProviderRefused = "team_vm.provider_refused",
+        TeamVmSlugConflict = "team_vm.slug_conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Append one seq range (at most 100,000 seqs, 1 MiB) to a team journal stream; returns after the write is durable. A replay of the same range returns the stored acknowledgement. A writer whose reply was lost and whose epoch has since moved gets journal.stale_epoch even though its row is stored. Only the team VM's own install for the current epoch may call it (plans/cmux-next/team-vm-plan.md 3b).
+    TeamVmJournalAppendOp {
+        name: "team_vm.journal.append",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamVmDO",
+        risk: "mutate-own",
+        principals: [Install],
+        params: TeamVmJournalAppendParams,
+        result: TeamVmJournalAppendResult,
+        error: TeamVmJournalAppendError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmJournalAppendParams {
+    pub stream: TeamJournalStream,
+    pub epoch: i64,
+    pub first_seq: i64,
+    pub last_seq: i64,
+    pub bytes: String,
+    pub sha256: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmJournalAppendResult {
+    pub stream: TeamJournalStream,
+    pub first_seq: i64,
+    pub last_seq: i64,
+    pub epoch: i64,
+    pub high_water: i64,
+    pub replayed: bool,
+}
+
+wire_errors! {
+    /// The error codes team_vm.journal.append declares.
+    TeamVmJournalAppendError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        JournalConflict = "journal.conflict",
+        JournalFull = "journal.full",
+        JournalGap = "journal.gap",
+        JournalStaleEpoch = "journal.stale_epoch",
+        JournalTooLarge = "journal.too_large",
+        RevisionConflict = "revision.conflict",
+        TeamVmNotBound = "team_vm.not_bound",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// The last seq a team journal stream holds. Only the team VM's own install for the current epoch may call it (plans/cmux-next/team-vm-plan.md 3b).
+    TeamVmJournalHighWaterOp {
+        name: "team_vm.journal.high_water",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamVmDO",
+        risk: "read",
+        principals: [Install],
+        params: TeamVmJournalHighWaterParams,
+        result: TeamVmJournalHighWaterResult,
+        error: TeamVmJournalHighWaterError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmJournalHighWaterParams {
+    pub stream: TeamJournalStream,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmJournalHighWaterResult {
+    pub stream: TeamJournalStream,
+    pub high_water: i64,
+    pub epoch: i64,
+}
+
+wire_errors! {
+    /// The error codes team_vm.journal.high_water declares.
+    TeamVmJournalHighWaterError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        TeamVmNotBound = "team_vm.not_bound",
+    }
+}
+
 wire_op! {
     /// Whole journal entries from a seq on, for restore (up to about 4 MiB per call; `more` asks for the next call). Only the team VM's own install for the current epoch may call it (plans/cmux-next/team-vm-plan.md 3b).
     TeamVmJournalReadOp {
@@ -775,131 +896,4 @@ pub struct UsageCapSetParams {
 pub struct UsageCapSetResult {
     pub owner: Option<TeamId>,
     pub team_cap_usd: Option<WireNumber>,
-}
-
-wire_errors! {
-    /// The error codes usage.cap.set declares.
-    UsageCapSetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        TeamRolesRequired = "team.roles_required",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// This month's automation usage of the caller's team, its cost estimate and the hard cap that stops runs.
-    UsageSummaryOp {
-        name: "usage.summary",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:UsageMeterDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: UsageSummaryParams,
-        result: UsageSummary,
-        error: UsageSummaryError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UsageSummaryParams {}
-
-wire_errors! {
-    /// The error codes usage.summary declares.
-    UsageSummaryError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Create or refresh the caller's user record from the Stack session.
-    UserEnsureOp {
-        name: "user.ensure",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Session],
-        params: UserEnsureParams,
-        result: UserProfile,
-        error: UserEnsureError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UserEnsureParams {}
-
-wire_errors! {
-    /// The error codes user.ensure declares.
-    UserEnsureError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// The owner's presence keys with their public P-256 parts, platform, App Attest flag, usable_from and install state. Only an owner Mac install without an agent claim reads it: the Mac checks a phone's signed feed answers (cx-aocz).
-    UserPresenceKeyListOp {
-        name: "user.presence_key.list",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:UserDO",
-        risk: "read",
-        principals: [Install],
-        params: UserPresenceKeyListParams,
-        result: Value,
-        error: UserPresenceKeyListError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UserPresenceKeyListParams {}
-
-wire_errors! {
-    /// The error codes user.presence_key.list declares.
-    UserPresenceKeyListError {
-        AuthForbidden = "auth.forbidden",
-    }
-}
-
-wire_op! {
-    /// Make an install's presence key unusable at once (device lost); its nonces are dropped.
-    UserPresenceKeyRevokeOp {
-        name: "user.presence_key.revoke",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: UserPresenceKeyRevokeParams,
-        result: Value,
-        error: UserPresenceKeyRevokeError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UserPresenceKeyRevokeParams {
-    pub install: String,
-}
-
-wire_errors! {
-    /// The error codes user.presence_key.revoke declares.
-    UserPresenceKeyRevokeError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidParams = "invalid_params",
-        RevisionConflict = "revision.conflict",
-        TextConfirmLocked = "text_confirm.locked",
-        TextConfirmProofRequired = "text_confirm.proof_required",
-        ValidationInvalid = "validation.invalid",
-    }
 }
