@@ -129,7 +129,6 @@
         "agent-pane-real-acpmux": "Agent pane on real acpmux",
         "web-instant-navigation": "web-instant-navigation",
         "react-apps-check-shard": "react-apps-check",
-        "react-doctor": "react-doctor",
         "diff-sidecar-check": "diff-sidecar-check",
         "web-db-migrations": "web-db-migrations"
       }

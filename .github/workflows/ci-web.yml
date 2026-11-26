@@ -2167,91 +2167,16 @@ jobs:
           echo "::error title=Webview test verdict::red on this change (see Run base reds and compare${{ steps.rerun.outcome == 'failure' && ' and the head re-run' || '' }})"
           exit 1
 
-  # The runner capability map (.github/runners.json), for jobs that pick a
-  # size from it. Resolves in parallel with web-subarea-scope.
-  runners:
-    if: ${{ inputs.web == 'true' }}
-    uses: ./.github/workflows/resolve-runners.yml
-
-  # React Doctor is independent of the per-file browser tests. Keep it on its
-  # own required lane so the long-running shard 1 does not serialize this
-  # diagnostic after the test suite.
-  # A feat-cmux-next push only. This scan reports and never fails on a finding
-  # (`--fail-on none`); on a pull request `React Doctor (changed React projects)`
-  # (cmux-next-react-doctor.yml) scans the same webviews project with the same
-  # pinned tool and reports a new error or a failed scan as a warning (lint never
-  # stops a merge, Leo 2026-11-20). Running
-  # it here too was 786 runs and about 178 hours of 16 vCPU a day (p50 13.6 min,
-  # 2026-11-16T08:27Z..11-17T08:27Z) for a verdict nobody read, and its timeouts
-  # held PRs (#44127).
-  react-doctor:
-    needs: [web-subarea-scope, runners]
-    if: ${{ github.event_name != 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && (inputs.only == '' || inputs.only == 'react-doctor') }}
-    # React Doctor took 7.4-9.9 min on 4 vCPU and hit the 10 min timeout on
-    # 2026-10-20 (runs 39505208959, 39506071754), which failed
-    # react-apps-check. It takes the 16 vCPU size from the capability map.
-    # It has grown back into its cap: on 2026-11-16 `bun run react-doctor:ci`
-    # measured 20m02s at the feat-cmux-next tip and 13m58s on a PR head, both
-    # on one 8 vCPU Blacksmith runner, and the job itself ran 14 min of its 15
-    # before GitHub cancelled it three times on #44127 (jobs 133551852130,
-    # 133579638216, 133602056508). A cancelled job has no verdict, so the
-    # base-red classifier cannot excuse it and every PR that changes a React
-    # app waits on a rerun. 30 min is the headroom; the time to cut is in the
-    # doctor run, not in this cap.
-    # A fork head takes CI_FORK_LINUX_RUNNER (GitHub-hosted Ubuntu by default), like every other
-    # Linux job here: fork code never reaches the owned label the map names for manaflow-ai.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || fromJSON(needs.runners.outputs.map).linux_16 }}
-    timeout-minutes: 30
-    defaults:
-      run:
-        working-directory: webviews
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ inputs.sha || '' }}
-          persist-credentials: false
-
-      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
-        shell: bash
-        continue-on-error: true
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
-          bun-version: "1.4.4"
-
-      - name: Cache Bun package cache
-        timeout-minutes: 3
-        continue-on-error: true
-        if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
-
-      - name: Cache Bun package cache (restore only off feat-cmux-next)
-        timeout-minutes: 3
-        continue-on-error: true
-        if: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: React Doctor
-        run: bun run react-doctor:ci
+  # web / react-doctor (a feat-cmux-next push-only `--fail-on none` report) and the runner
+  # capability map only it read are removed (CI catch-value audit, 2026-11-26: 0 catches,
+  # 5,771 job-min in 8 days). React Doctor (changed React projects), cmux-next-react-doctor.yml,
+  # is the scan of record.
 
   # Keep one stable required check name for branch protection while the test work
   # itself runs in independent file shards above.
   # A post-merge batch probe (inputs.only set) runs no aggregate: the probed shards answer for themselves.
   react-apps-check:
-    needs: [web-subarea-scope, react-apps-check-shard, react-apps-base-check, react-doctor]
+    needs: [web-subarea-scope, react-apps-check-shard, react-apps-base-check]
     if: ${{ always() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && inputs.only == '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
@@ -2293,11 +2218,9 @@ jobs:
           # Only an explicit "false" skips: an unset flag keeps the shards required (fail closed).
           required = required and os.environ.get("WEB_LAND_TIER") != "false"
           required_jobs = ["react-apps-check-shard"]
-          # A pull request's base replay; a push's React Doctor report (the ratchet gates a pull request's).
+          # A pull request's base replay.
           if os.environ.get("GITHUB_EVENT_NAME") == "pull_request":
               required_jobs.append("react-apps-base-check")
-          else:
-              required_jobs.append("react-doctor")
           exit_with_verdict({name: needs[name]["result"] for name in required_jobs}, "react-apps-check",
                             () if required else required_jobs)
           for name in required_jobs:
