@@ -22,6 +22,7 @@ on:
       - "ghostty"
       - "ghostty-next"
       - ".github/actions/setup-cmux-tui-rust/**"
+      - ".github/actions/setup-ghostty-zig/**"
       - ".github/actions/runner-cargo-home/**"
       - ".github/workflows/cmux-tui-headless-debug.yml"
   # Republishes a key a push missed (a cancelled or failed run).
@@ -91,22 +92,10 @@ jobs:
         if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
         uses: ./.github/actions/setup-cmux-tui-rust
 
-      - name: Resolve Ghostty Zig version
+      - name: Set up Zig for Ghostty
         id: ghostty-zig-version
         if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
-        run: |
-          set -euo pipefail
-          version="$(bash ./scripts/ghostty-zig-version.sh)"
-          [[ -n "$version" ]]
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
-      - name: Set up Zig for Ghostty
-        if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
-        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
-        with:
-          version: ${{ steps.ghostty-zig-version.outputs.version }}
-          # Its own cache saves a new entry per run; zig-global-cache keys it stably.
-          use-cache: false
+        uses: ./.github/actions/setup-ghostty-zig
       - name: Restore the Zig global cache (feat-cmux-next pushes save it)
         if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
         uses: ./.github/actions/zig-global-cache

@@ -52,16 +52,9 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev pkg-config
       - name: Set up cmux-tui Rust
         uses: ./.github/actions/setup-cmux-tui-rust
-      - name: Resolve Ghostty Zig version
+      - name: Set up Zig for Ghostty
         id: ghostty-zig-version
-        env:
-          GHOSTTY_ZIG_SOURCE: ghostty-next
-        run: echo "version=$(bash ./scripts/ghostty-zig-version.sh)" >> "$GITHUB_OUTPUT"
-      - uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
-        with:
-          version: ${{ steps.ghostty-zig-version.outputs.version }}
-          # Its own cache saves a new entry per run; zig-global-cache keys it stably.
-          use-cache: false
+        uses: ./.github/actions/setup-ghostty-zig
       - name: Restore the Zig global cache (feat-cmux-next pushes save it)
         uses: ./.github/actions/zig-global-cache
       - name: Build the Linux cmux CLI

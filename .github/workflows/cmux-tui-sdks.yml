@@ -27,6 +27,7 @@ on:
       - "cmux-tui/**"
       - "cmux-tui/scripts/verify-pypi-tui-upload.sh"
       - ".github/actions/setup-cmux-tui-rust/**"
+      - ".github/actions/setup-ghostty-zig/**"
       - ".github/actions/runner-cargo-home/**"
       - ".github/actions/zig-global-cache/**"
       - ".github/workflows/cmux-tui-artifacts.yml"
@@ -211,6 +212,7 @@ on:
       - "cmux-tui/**"
       - "cmux-tui/scripts/verify-pypi-tui-upload.sh"
       - ".github/actions/setup-cmux-tui-rust/**"
+      - ".github/actions/setup-ghostty-zig/**"
       - ".github/actions/runner-cargo-home/**"
       - ".github/actions/zig-global-cache/**"
       - ".github/workflows/cmux-tui-artifacts.yml"
@@ -439,7 +441,7 @@ jobs:
           changed=true
           if [ "$EVENT_NAME" = "pull_request" ] && git rev-parse -q --verify 'HEAD^2' > /dev/null; then
             if files="$(git diff --no-renames --name-only 'HEAD^1' HEAD)"; then
-              if ! grep -Eq '^(cmux-tui/[^/]+$|cmux-tui/(bindings|spec|vendor|build-support)/|cmux-tui/crates/[^/]+/Cargo\.toml$|\.github/actions/setup-cmux-tui-rust/|\.github/workflows/cmux-tui-sdks\.yml$)' <<< "$files"; then
+              if ! grep -Eq '^(cmux-tui/[^/]+$|cmux-tui/(bindings|spec|vendor|build-support)/|cmux-tui/crates/[^/]+/Cargo\.toml$|\.github/actions/setup-cmux-tui-rust/|\.github/actions/setup-ghostty-zig/|\.github/workflows/cmux-tui-sdks\.yml$)' <<< "$files"; then
                 changed=false
               fi
             fi
@@ -1247,22 +1249,10 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Resolve Ghostty Zig version
-        if: ${{ steps.tree.outputs.hit != 'true' }}
-        id: ghostty-zig-version
-        run: |
-          set -euo pipefail
-          version="$(bash ./scripts/ghostty-zig-version.sh)"
-          [[ -n "$version" ]]
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
       - name: Set up Zig for Ghostty
         if: ${{ steps.tree.outputs.hit != 'true' }}
-        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
-        with:
-          version: ${{ steps.ghostty-zig-version.outputs.version }}
-          # Its own cache saves a new entry per run; zig-global-cache keys it stably.
-          use-cache: false
+        id: ghostty-zig-version
+        uses: ./.github/actions/setup-ghostty-zig
       - name: Restore the Zig global cache (feat-cmux-next pushes save it)
         if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: ./.github/actions/zig-global-cache
