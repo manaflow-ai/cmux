@@ -42,6 +42,17 @@ pub(crate) struct AgentFile {
 /// It blocks (file work, and `opencode export` for an OpenCode chat): call it off the async
 /// workers.
 pub(crate) fn read(hub: &Hub, meta: &SessionMeta, max: u64) -> Result<Vec<AgentFile>> {
+    // The files as they sit in the agent's own store, before any is copied: a store past the
+    // limit fills no scratch folder. (An OpenCode export and cmux-harness's state are sized
+    // below, once they exist.)
+    let mut sources = 0u64;
+    for (_, source) in crate::native::locate(meta) {
+        let size = std::fs::metadata(&source).map(|file| file.len()).unwrap_or(0);
+        sources = sources.saturating_add(size);
+        if sources > max {
+            return Err(TooLarge.into());
+        }
+    }
     let scratch = tempfile::tempdir().context("a scratch folder")?;
     let dir = scratch.path().join("bundle");
     std::fs::create_dir_all(&dir).context("a scratch folder")?;
