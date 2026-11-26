@@ -5162,7 +5162,7 @@ gateway job still runs nothing but the client. An unreadable status lists the jo
 ## note-head-fail-fast
 
 Above each `*-fail-fast:` job in `.github/workflows/cmux-next.yml` (and the same callers in
-`cmux-next-fast-gates.yml`, `cmux-next-guards.yml`, and `pr-router.yml`'s `pipeline-fail-fast`, which watches its `pipeline` call of `pr-pipeline.yml`: pr-pipeline.yml takes only ci/steps.toml jobs).
+`cmux-next-fast-gates.yml`, `cmux-next-guards.yml`, and `pr-router.yml`'s `pipeline-fail-fast`, which watches its `pipeline` call of `pr-pipeline.yml`: pr-pipeline.yml takes only ci/steps.toml jobs). Since 11-26 pr-router.yml calls cmux-next-fast-gates.yml too, so its fail-fast job runs inside the router's run: it reads that run's failed jobs and, never cancelling its own run, cancels only the other HEAVY runs of the head; a fast gates run is no longer a HEAVY target of the others (its path is pr-router.yml, about two minutes on Linux).
 
 Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period." Over 2026-11-23T20..2026-11-24T20Z
 (controller timing feed, manaflow-ai/cmux pull request jobs), once a non-advisory job of a head had failed, the

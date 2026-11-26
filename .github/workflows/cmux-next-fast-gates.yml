@@ -38,9 +38,11 @@ name: cmux-next fast gates
 # run the PR's code with contents: read only, and `post` writes the status from
 # resolve's outputs and those jobs' results, never from anything they wrote.
 on:
-  pull_request:
-    branches: [feat-cmux-next]
-    types: [opened, synchronize, reopened, ready_for_review, labeled]
+  # A feat-cmux-next pull request runs this from pr-router.yml (scripts/ci/pr_router.json, the same types): a head
+  # the router starts nothing for (an idle or green-head base merge, head_tier's "none") starts none of these jobs,
+  # and the checks read `cmux-next fast gates / <job>`. The status `cmux-next/fast-gates` is unchanged; a merger
+  # that finds none dispatches this workflow as before.
+  workflow_call:
   workflow_dispatch:
     inputs:
       pr:
