@@ -58,17 +58,18 @@ env:
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
-  # The archive prefers the dedicated mini (vars.CI_IOS_INTERNAL_RUNNER, its own
-  # glaeda-runner-<runner name> label, warm caches) but never waits on it: this
-  # job hands it on only while that mini is online and idle (up to 5 min while
-  # busy), else the archive takes a fleet Mac with Xcode 27. Before, runs-on read the variable
+  # The archive prefers the dedicated minis (vars.CI_IOS_INTERNAL_RUNNER: one or
+  # more glaeda-runner-<runner name> labels, preferred first, each a machine that
+  # runs no PR code, warm caches) but never waits on them: this job hands on the
+  # first one online and idle (up to 5 min while one is busy), else the archive
+  # takes a fleet Mac with Xcode 27. Before, runs-on read the variable
   # directly, and a set variable never falls through, so every archive waited
   # on one mini (scripts/ci/ios_internal_runner.py). No PR pool: the archive is
   # what ships to TestFlight. Reads the runner list only; no feat-cmux-next code.
   pick-archive-runner:
     name: Pick the archive runner
     if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/rc/cnx-ios-builder'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     # The routing App key, as every other runner picker reads it.
     environment:
@@ -79,6 +80,7 @@ jobs:
     outputs:
       dedicated: ${{ steps.pick.outputs.dedicated }}
       attempt: ${{ steps.pick.outputs.attempt }}
+      fallback: ${{ steps.pick.outputs.fallback }}
     steps:
       - name: Checkout the picker at the workflow commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -107,6 +109,8 @@ jobs:
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
           DEDICATED_LABEL: ${{ vars.CI_IOS_INTERNAL_RUNNER }}
+          # Where the archive goes when no online runner carries xcode-27.0 (the signer's Mac: its image has Xcode 27).
+          FALLBACK_MAC: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
         run: python3 scripts/ci/ios_internal_runner.py
 
   archive:
@@ -119,8 +123,10 @@ jobs:
     # cmux-mac AND xcode-27.0: the fleet scheduler places an xcode-X label only on a
     # Mac that has that Xcode (build-fleet sched grant.go, Mac.canRun). Plain
     # cmux-mac (#49326) also took 26.6-only Macs (cmux8s, cmux10s), where
-    # "Pin Xcode 27" fails: no INTERNAL build shipped after 08:16Z 11-25.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-archive-runner.outputs.attempt == format('{0}', github.run_attempt) && needs.pick-archive-runner.outputs.dedicated != '' && needs.pick-archive-runner.outputs.dedicated || vars.CI_OVERFLOW_MAC || fromJSON('["cmux-mac","xcode-27.0"]') }}
+    # "Pin Xcode 27" fails: no INTERNAL build shipped after 08:16Z 11-25. The picker's `fallback` (a
+    # Blacksmith Mac) replaces that label set when the runner census shows no online runner carrying
+    # xcode-27.0: run 45717448413 waited 2 h 23 min on it with no Mac offering Xcode 27.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-archive-runner.outputs.attempt == format('{0}', github.run_attempt) && needs.pick-archive-runner.outputs.dedicated != '' && needs.pick-archive-runner.outputs.dedicated || vars.CI_OVERFLOW_MAC || needs.pick-archive-runner.outputs.fallback != '' && needs.pick-archive-runner.outputs.fallback || fromJSON('["cmux-mac","xcode-27.0"]') }}
     timeout-minutes: 90
     outputs:
       marketing: ${{ steps.stamp.outputs.marketing }}
@@ -302,7 +308,7 @@ jobs:
     name: What to Test (no secrets)
     needs: previous-build
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/rc/cnx-ios-builder' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # Every step below has its own bound, together under this one. A job
     # timeout reads as `cancelled`, which continue-on-error does not cover: it
     # turned runs whose upload succeeded into cancelled runs (45580371273 and
@@ -371,12 +377,30 @@ jobs:
       ASC_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
     steps:
+      # Only the signing script's files are read from the builder branch, so the
+      # signer checks out those and fetches no other file content: the whole tree
+      # (72,000 files, 1.4 GB, half of it cmux-next-ios/verify/) took 7.1 min p50,
+      # 11.6 min p90 of this job (fleet-data-raw, 35 uploads, 2026-11-18..24), more
+      # than signing, validating, uploading and App Store processing together
+      # (4.7 min). Kept: root files (.xcode-version), scripts/ (select-ci-xcode.sh,
+      # scripts/ci, the checkers' fallbacks) and cmux-next-ios/ without verify/
+      # (testflight-build.sh and its helpers, the entitlements it reads). Anything
+      # else testflight-build.sh reads comes from the built commit by `git show`,
+      # which fetches that one object on demand (the repository is public).
+      # Measured: cmuxterm-hq docs/findings/2026-11-25-ios-cicd-equilibrium.md.
       - name: Checkout the builder branch (trusted signing script)
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          # Only the signing script's files are read from the builder branch.
           fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            /*
+            !/*/
+            /scripts/
+            /cmux-next-ios/
+            !/cmux-next-ios/verify/
+          sparse-checkout-cone-mode: false
 
       - name: Fetch the built commit
         run: |
@@ -623,7 +647,7 @@ jobs:
     name: Submission receipt (gate said YES)
     needs: [upload, review-gate]
     if: ${{ !cancelled() && needs.review-gate.result == 'success' && needs.review-gate.outputs.blocking == '0' && needs.review-gate.outputs.sha == inputs.sha }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read

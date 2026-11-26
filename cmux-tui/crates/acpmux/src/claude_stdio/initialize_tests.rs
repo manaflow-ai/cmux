@@ -110,3 +110,19 @@ async fn before_the_first_turn_every_command_not_builtin_is_a_skill_then_the_ini
         .await;
     assert!(commands_sent(&out).iter().all(|(_, skill)| !skill), "{out:?}");
 }
+
+#[tokio::test]
+async fn an_older_claude_code_that_marks_no_builtins_gets_no_tags_before_its_init() {
+    let t = Translator::new("acp-1".into(), "default", "opus", "default");
+    let _ = t.outbound(&Message::request(7, method::INITIALIZE, json!({}))).await;
+    let out = t
+        .inbound(&json!({"type": "control_response", "response": {"subtype": "success",
+            "request_id": "init-7", "response": {"commands": [
+                {"name": "compact", "description": "Free up context", "argumentHint": ""},
+                {"name": "demo-skill", "description": "A demo skill (user)", "argumentHint": ""}]}}}))
+        .await;
+    assert_eq!(
+        commands_sent(&out),
+        [("compact".to_owned(), false), ("demo-skill".to_owned(), false)]
+    );
+}
