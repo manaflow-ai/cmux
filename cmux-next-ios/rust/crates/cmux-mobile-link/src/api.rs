@@ -194,7 +194,7 @@ impl ApiClient {
     /// and verifying against the OS trust store ([`crate::egress`]).
     pub fn http_client() -> reqwest::Client {
         crate::install_crypto_provider();
-        crate::egress::http_client_builder()
+        crate::egress::http_client_builder("cmux_mobile_link::api")
             .timeout(std::time::Duration::from_secs(20))
             .pool_idle_timeout(std::time::Duration::from_secs(90))
             .build()
