@@ -244,6 +244,33 @@
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "`cmux link open --url %@` 可在那裡開啟它。"}}
       }
     },
+    "cloud.startSession.setupRequired.gateway": {
+      "comment": "After cloud.startSession.setupRequired.open: the team inference gateway the refusal read. %1$@ is the backend team id (team_...), %2$@ is a machine-readable code (auth.no_token, timed_out, not_serving). Keep both as is.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Inference gateway of team %1$@: %2$@."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "チーム %1$@ の推論ゲートウェイ: %2$@。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Inferenz-Gateway des Teams %1$@: %2$@."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Passerelle d’inférence de l’équipe %1$@ : %2$@."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Pasarela de inferencia del equipo %1$@: %2$@."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "بوابة الاستدلال للفريق %1$@: %2$@."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Inference gateway tima %1$@: %2$@."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Inferens-gateway for teamet %1$@: %2$@."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Gateway di inferenza del team %1$@: %2$@."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ច្រកផ្លូវ inference របស់ក្រុម %1$@៖ %2$@។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "팀 %1$@의 추론 게이트웨이: %2$@."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Inferens-gateway for teamet %1$@: %2$@."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Bramka inferencji zespołu %1$@: %2$@."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Gateway de inferência da equipe %1$@: %2$@."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Шлюз инференса команды %1$@: %2$@."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เกตเวย์การอนุมานของทีม %1$@: %2$@"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "%1$@ ekibinin çıkarım ağ geçidi: %2$@."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Шлюз інференсу команди %1$@: %2$@."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Cổng suy luận của nhóm %1$@: %2$@."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "团队 %1$@ 的推理网关：%2$@。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "團隊 %1$@ 的推論閘道：%2$@。"}}
+      }
+    },
     "cloud.startSession.setupRequired.claudeLogin": {
       "comment": "Before cloud.startSession.setupRequired: this Mac is signed in to Claude Code, whose login serves only this Mac, not Cloud. Keep Claude Code and setup token as the app names them.",
       "extractionState": "manual",
