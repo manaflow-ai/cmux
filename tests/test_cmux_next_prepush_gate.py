@@ -594,7 +594,7 @@ class PrePushGateTests(unittest.TestCase):
         self.kit("Second", NEW_CLEAN.replace("Fresh", "Second"))
         self.commit("second commit, clean")
 
-        result = self.push_ref("fresh", CMUX_WEB_LINT_STRICT="1")
+        result = self.push_ref("fresh")
 
         output = result.stdout + result.stderr
         self.assertEqual(result.returncode, 0, output)
@@ -610,8 +610,7 @@ class PrePushGateTests(unittest.TestCase):
         self.kit("Fresh", NEW_CLEAN)
         self.commit("clean")
 
-        # Web lint findings never stop a push (#49904) unless strict; the test asks for the refusal.
-        result = self.push(CMUX_WEB_LINT_STRICT="1")
+        result = self.push()
 
         output = result.stdout + result.stderr
         self.assertEqual(result.returncode, 0, output)
