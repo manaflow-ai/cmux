@@ -208,8 +208,12 @@
             {"title": {"key": "settings.pageGroup.sidebarWorkspaces", "text": "Sidebar Workspaces"}, "keys": [
               "workspaces.newPlacement", "workspaces.autoName", "sidebar.groupByComputer", "sidebar.sessionTree",
               "sidebar.showProjects", "sidebar.groupBy", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.settleFinished",
-              "sidebar.showAutomaticSessions", "sidebar.showAgentSessions", "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount",
-              "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background", "sidebar.priorityView.enabled", "sidebar.priorityView.shown"
+              "sidebar.showAgentSessions", "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount",
+              "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background"
+            ]},
+            {"title": {"key": "settings.pageGroup.sidebarPriority", "text": "Priority View"}, "note": "The Priority view's keys (the Codex app's activity list) get their own card so Sidebar Workspaces stays under max_rows_per_card.", "keys": [
+              "sidebar.priorityView.enabled", "sidebar.priorityView.shown",
+              "sidebar.priorityView.filters", "sidebar.priorityView.showIdle", "sidebar.priorityView.statusWords"
             ]},
             {"title": {"key": "settings.pageGroup.sidebarSections", "text": "Sidebar Sections"}, "note": "Which sidebar sections show and which come first (customization matrix row sidebar-sections); their own card so the Sidebar card stays under max_rows_per_card.", "keys": [
               "sidebar.sections.hidden", "sidebar.sections.order"
@@ -260,7 +264,8 @@
               "layout.focusFollowsMouse", "layout.fadeInactivePanes", "layout.scrollAreas", "layout.scrollModifier", "layout.pagesHandleCommandScroll"
             ]},
             {"group": "settings.group.panes"},
-            {"group": "settings.group.focusRing"}
+            {"group": "settings.group.focusRing"},
+            {"group": "settings.group.themeFlourishes"}
           ]
         }
       ]
@@ -276,7 +281,7 @@
           "note": "How the agent chat looks and reads. Agents keeps what the agents may do.",
           "groups": [
             {"title": {"key": "settings.pageGroup.transcript", "text": "Transcript"}, "keys": [
-              "agentPane.display.transcriptView", "agentPane.display.presentation", "agentPane.display.sendPop", "agentPane.display.compactShortTurns",
+              "agentPane.display.detail", "agentPane.display.sendPop", "agentPane.display.compactShortTurns",
               "agentPane.display.statusVerbs.mode", "agentPane.display.statusVerbs.custom",
               "agentPane.display.thinking.shimmer", "agentPane.display.thinking.shimmerPeriod", "agentPane.display.thinking.shimmerBand",
               "agentPane.display.thinking.jumpButton", "agentPane.display.thinking.glyphSize",
@@ -304,7 +309,7 @@
             {"title": {"key": "settings.pageGroup.messageBox", "text": "Message Box"}, "keys": [
               "agentPane.showContextUsage", "agentPane.composerRing", "agentPane.showDictation", "agentPane.dictationSource", "agentPane.dictationShortcut", "agentPane.spellChecking",
               "agentPane.composerVimKeys",
-              "agentPane.composerLook", "agentPane.emptyChatComposerPosition",
+              "agentPane.composerLook", "agentPane.emptyChatComposerPosition", "agentPane.composerPlaceholder",
               "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.followUpMode", "agentPane.display.harnessPlacement", "agentPane.display.modelChipIcon", "agentPane.display.modelPickerStyle", "agentPane.display.queueing",
               "agentPane.display.promptCoach"
             ]},
@@ -531,6 +536,7 @@
           "symbol": "terminal",
           "groups": [
             {"group": "settings.group.terminalFont"},
+            {"group": "settings.group.terminalCursor"},
             {"group": "settings.group.terminalCompatibility", "note": "The TERM new terminals start with (terminal.term)."},
             {"title": {"key": "settings.group.links", "text": "Links"}, "note": "The program that opens links from a terminal, and its rules, beside the terminal they come from.", "keys": [
               "terminal.linkOpener.default", "terminal.linkOpener.rules"

@@ -20,7 +20,8 @@ import {
   useSubsessionInfos,
   waitingLine,
 } from "../subagents/subsessions";
-import { retryLabel, sessionRetry } from "../subagents/retryState";
+import { retryWords, sessionRetry, sessionRetryKey } from "../subagents/retryState";
+import { useConnectionQuietKeys } from "../../../ui/lasting";
 import { ResumeControl } from "../subagents/ResumeControl";
 import { subsessionResumeRow } from "../subagents/resumeState";
 import { TurnActionsContext } from "./turnActions";
@@ -167,6 +168,8 @@ function SessionCard({
   // retries its failed turn, the card works, and its state says so. Its Retry is on its end line.
   const phase = live ? sessionRetry(live) : undefined;
   const retry = phase?.kind === "retrying" ? phase.retry : undefined;
+  // Its words wait out the shared bound (retryState.ts ``retryWords``): until then it reads working.
+  const retryText = retryWords(t, retry, sessionRetryKey(sessionId ?? ""), useConnectionQuietKeys());
   const state = retry ? "working" : (live?.state ?? fallback?.state);
   // A stopped one says so and offers Resume, as a stopped helper's every row does (resumeState.ts):
   // acpmux carries its chat on from where it stopped.
@@ -181,7 +184,7 @@ function SessionCard({
       sessionId={sessionId}
       model={live?.model ?? model}
       state={state}
-      {...(retry && { stateLabel: retryLabel(t, retry) })}
+      {...(retryText !== undefined && { stateLabel: retryText })}
       {...(stopped && { stateLabel: t("subagents.state.cancelled") })}
       actions={stopped && <ResumeControl agent={stopped} actions={actions} />}
       slot={live ? live.slot === true : fallback?.slot === true}

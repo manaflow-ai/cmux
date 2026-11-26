@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -188,6 +189,20 @@ class LandTierTests(unittest.TestCase):
             else:
                 os.environ["CI_LAND_TIER"] = old
 
+    def test_full_ci_added_then_taken_off_still_runs_the_full_tier(self) -> None:
+        # land-judge's full-ci pulse (add, then remove a second later): GitHub built the labeled event's payload
+        # after the removal, so its labels held ready-to-land but not full-ci, and the router ran the affected tier
+        # and skipped pr-pipeline.yml (cmux#52441, router run 45831524947). The event's own label counts.
+        ev = land_event(labels=("ready-to-land",), action="labeled", added="full-ci")
+        decided = head_tier.tier("pull_request", ev, land_switch="1", land_full_switch="0")
+        self.assertEqual(decided, ("full", "full-ci label"))
+        start, _ = pr_router.route(ev, RouterTests.CALLEES, ["a.py"], decided=decided)
+        self.assertEqual(start, ["cheap.yml", "heavy.yml"])
+        self.assertEqual(head_tier.labels_of(ev), {"ready-to-land", "full-ci"})
+        # only a labeled event adds its label: an unlabeled full-ci is gone
+        gone = land_event(labels=("ready-to-land",), action="unlabeled", added="full-ci")
+        self.assertEqual(head_tier.labels_of(gone), {"ready-to-land"})
+
     def test_the_route_job_runs_on_full_ci_added_and_skips_other_labels(self) -> None:
         text = (ROOT / ".github" / "workflows" / "pr-router.yml").read_text()
         cond = re.search(r"^    if: \$\{\{ (.*) \}\}$", text.split("  route:", 1)[1], re.M).group(1)
@@ -290,6 +305,21 @@ class LandTierTests(unittest.TestCase):
                 os.environ.pop("CI_LAND_TIER", None)
             else:
                 os.environ["CI_LAND_TIER"] = old
+
+    def test_a_pulsed_full_ci_is_the_full_tier_though_the_payload_lost_it(self) -> None:
+        # cmux#53671 at c52da39d (14:13Z 2026-11-26): land-judge's lane VM pulse added full-ci and took it off 2 s
+        # later; the `labeled` payload listed only ready-to-land, the router read the affected cheap tier and pr
+        # pipeline (the iOS matrix land-judge waits for) never started. The event's own added label counts.
+        ev = land_event(labels=("ready-to-land",), action="labeled", added="full-ci")
+        decided = head_tier.tier("pull_request", ev, land_switch="1", land_full_switch="0")
+        self.assertEqual(decided, ("full", "full-ci label"))
+        self.assertEqual(head_tier.labels_of(ev), {"ready-to-land", "full-ci"})
+        start, _ = pr_router.route(ev, RouterTests.CALLEES, ["a.py"], decided=decided)
+        self.assertIn("heavy.yml", start)
+        # Only a `labeled` event adds its label: an unlabeled full-ci is gone.
+        gone = land_event(labels=("ready-to-land",), action="unlabeled", added="full-ci")
+        self.assertEqual(head_tier.labels_of(gone), {"ready-to-land"})
+        self.assertEqual(head_tier.tier("pull_request", gone, land_switch="1", land_full_switch="0")[0], "cheap")
 
     def test_the_land_label_overrides_the_idle_skip(self) -> None:
         facts = {"base_merge_only": True, "own_last": 0}
@@ -488,6 +518,80 @@ class GreenBaseMergeTests(BranchRepo):
             self.assertFalse(pattern.match(message), message)
 
 
+class SamePatchTests(unittest.TestCase):
+    """The same-patch rule: a head whose own change equals the previous head's (a rebase onto a newer base), with
+    every run at the previous head green, runs nothing (goal ci-min-per-pr-30)."""
+
+    REPO = {"full_name": "manaflow-ai/cmux"}
+
+    def event(self, labels: tuple[str, ...] = (), before: str = "b" * 40, action: str = "synchronize") -> dict:
+        return {"action": action, "before": before, "pull_request": {
+            "draft": False, "labels": [{"name": n} for n in labels],
+            "base": {"ref": "feat-cmux-next", "repo": self.REPO}, "head": {"sha": "a" * 40, "repo": self.REPO}}}
+
+    @staticmethod
+    def compare(*files: tuple[str, str]) -> dict:
+        return {"files": [{"filename": name, "status": "modified", "patch": patch} for name, patch in files]}
+
+    def test_the_key_ignores_hunk_lines_context_and_file_order(self) -> None:
+        one = self.compare(("a.py", "@@ -10,3 +10,4 @@ def f():\n x\n-old\n+new"), ("b.py", "@@ -1 +1 @@\n-a\n+b"))
+        moved = self.compare(("b.py", "@@ -7 +7 @@\n-a\n+b"), ("a.py", "@@ -40,3 +40,4 @@ def g():\n y\n-old\n+new"))
+        self.assertEqual(head_tier.patch_key(one), head_tier.patch_key(moved))
+        other = self.compare(("a.py", "@@ -10,3 +10,4 @@\n x\n-old\n+newer"), ("b.py", "@@ -1 +1 @@\n-a\n+b"))
+        self.assertNotEqual(head_tier.patch_key(one), head_tier.patch_key(other))
+        renamed = self.compare(("c.py", "@@ -10,3 +10,4 @@\n x\n-old\n+new"), ("b.py", "@@ -1 +1 @@\n-a\n+b"))
+        self.assertNotEqual(head_tier.patch_key(one), head_tier.patch_key(renamed))
+
+    def test_a_compare_not_whole_has_no_key(self) -> None:
+        self.assertIsNone(head_tier.patch_key(None))
+        self.assertIsNone(head_tier.patch_key({"files": []}))
+        self.assertIsNone(head_tier.patch_key({"files": [{"filename": "x.png", "status": "added"}]}))
+        self.assertIsNone(head_tier.patch_key(self.compare(*[(f"f{i}", "+x") for i in range(300)])))
+        self.assertIsNone(head_tier.own_patch_key("manaflow-ai/cmux", "feat-cmux-next", "a" * 40, ""))
+
+    def tier(self, ev: dict, facts: dict, **kwargs) -> tuple[str, str]:
+        kwargs.setdefault("land_switch", "1")
+        return head_tier.tier("pull_request", ev, facts=facts, now=time.time(), **kwargs)
+
+    def test_a_rebased_head_onto_a_green_previous_head_runs_nothing(self) -> None:
+        facts = {"base_merge_only": False, "own_last": None, "before": "b" * 40, "same_patch_green": True}
+        decided = self.tier(self.event(), facts)
+        self.assertEqual(decided, ("none", decided[1]))
+        self.assertIn("same change as bbbbbbbbbb", decided[1])
+        for label, usual in (("full-ci", "full"), ("ready-to-land", "full")):
+            self.assertEqual(self.tier(self.event((label,)), facts)[0], usual, label)
+        self.assertEqual(self.tier(self.event(), facts, green_switch="0")[0], "cheap")
+        self.assertEqual(self.tier(self.event(), {**facts, "same_patch_green": False})[0], "cheap")
+
+    def test_decide_compares_both_heads_and_reads_the_previous_runs(self) -> None:
+        calls = []
+        real = head_tier.head_facts, head_tier.runs_at, head_tier.own_patch_key
+        green = [{"id": 1, "path": "ci.yml", "status": "completed", "conclusion": "success"}]
+        try:
+            head_tier.head_facts = lambda e: {"base_merge_only": False, "own_last": None}
+            head_tier.runs_at = lambda *a: calls.append(("runs", a[1])) or green
+            head_tier.own_patch_key = lambda repo, base, sha, token: calls.append(("key", sha)) or "k"
+            with unittest.mock.patch.dict(os.environ, {"GH_TOKEN": "t", "GITHUB_REPOSITORY": "manaflow-ai/cmux"}):
+                self.assertEqual(head_tier.decide("pull_request", self.event())[0], "none")
+                self.assertEqual(calls, [("key", "a" * 40), ("key", "b" * 40), ("runs", "b" * 40)])
+                head_tier.own_patch_key = lambda repo, base, sha, token: sha[:1]  # the two changes differ
+                calls.clear()
+                self.assertEqual(head_tier.decide("pull_request", self.event())[0], "cheap")
+                self.assertEqual(calls, [])
+                head_tier.own_patch_key = lambda *a: None  # unread
+                self.assertEqual(head_tier.decide("pull_request", self.event())[0], "cheap")
+                head_tier.own_patch_key = lambda *a: "k"
+                head_tier.runs_at = lambda *a: [{**green[0], "conclusion": "failure"}]
+                self.assertEqual(head_tier.decide("pull_request", self.event())[0], "cheap")
+                calls.clear()
+                head_tier.own_patch_key = lambda repo, base, sha, token: calls.append(sha) or "k"
+                for ev in (self.event(before="0" * 39), self.event(("full-ci",)), self.event(("ready-to-land",))):
+                    head_tier.decide("pull_request", ev)
+                self.assertEqual(calls, [])
+        finally:
+            head_tier.head_facts, head_tier.runs_at, head_tier.own_patch_key = real
+
+
 class LandCarryTests(BranchRepo):
     """A `ready-to-land` head that only merges the base onto a head whose full tier passed: the land carry rule."""
 
@@ -657,7 +761,7 @@ GATED = {
 # signal kept on every head (pr-body-checks, risk tier, language boundaries, merge freeze, pr-checks, web complexity,
 # classic frozen guard) or already skips feat-cmux-next pull requests (scripts/ci/affected_jobs.py PR_SKIP_IF).
 GATED = {name: "pull_request" for name in (
-    "app-store-shelf.yml", "auth-refresh-tests.yml", "backend.yml", "billing.yml", "chat-open-perf-report.yml",
+    "auth-refresh-tests.yml", "backend.yml", "billing.yml", "chat-open-perf-report.yml",
     "cloud-chief-machine.yml", "cloud-journey-pr.yml", "cloud-vm-guest-install.yml", "cloudflare-relay.yml",
     "cmux-cloud-cli.yml", "cmux-next-car-guards.yml", "cmux-next-fast-gates.yml", "cmux-next-guards.yml",
     "cmux-next-hot-verify.yml", "cmux-next-pr-autofix.yml",
@@ -742,7 +846,12 @@ def _job_ifs(text: str) -> dict:
     return out
 
 
-def _trigger_types(text: str, event_name: str) -> str:
+def _trigger_types(text: str, event_name: str, name: str = "") -> str:
+    """The workflow's own pull request trigger types, or, for a pr-router callee (scripts/ci/pr_router.json: no
+    pull_request trigger of its own into feat-cmux-next), the types the router starts it on."""
+    callees = json.loads((ROOT / "scripts" / "ci" / "pr_router.json").read_text())["callees"]
+    if event_name == "pull_request" and name in callees:
+        return json.dumps(callees[name]["types"])
     block = re.search(rf"^  {event_name}:\n((?:    .*\n|\s*\n)*)", text, re.M)
     assert block, f"no {event_name} trigger"
     types = re.search(r"^    types:\s*(\[[^\]]*\]|(?:\n      - .*)+)", block.group(1), re.M)
@@ -780,7 +889,7 @@ class GatedWorkflowTests(unittest.TestCase):
                     continue
                 self.assertIn(expected, condition, f"{name}: job {job}")
                 self.assertNotIn("github.event.pull_request.draft != true ||", condition, f"{name}: job {job}")
-            types = _trigger_types(text, event_name)
+            types = _trigger_types(text, event_name, name)
             self.assertIn("ready_for_review", types, name)
             self.assertIn("labeled", types, name)
 
@@ -789,7 +898,7 @@ class GatedWorkflowTests(unittest.TestCase):
             text = (self.WORKFLOWS / name).read_text()
             for job, condition in _job_ifs(text).items():
                 self.assertIn(draft_tier_condition(event_name), condition or "", f"{name}: job {job}")
-            self.assertIn("ready_for_review", _trigger_types(text, event_name), name)
+            self.assertIn("ready_for_review", _trigger_types(text, event_name, name), name)
 
     def test_the_cmux_next_router_drops_the_cargo_fast_tier_on_a_cheap_head(self) -> None:
         """A later line of an output wins: the cheap tier's fast_tier_cargo=false follows the cargo route's line."""
@@ -913,6 +1022,25 @@ class LandHandoffOnlyTests(unittest.TestCase):
             self.assertFalse(pr_router.land_update_head(land_event(labels=("ready-to-land",)), self.CALLEES))
         finally:
             head_tier.head_facts = old
+
+    def test_the_merge_trains_tip_starts_it(self) -> None:
+        """lane/merge-train carries `hold`, never ready-to-land: its pushes are the one head a merge's tree can match
+        while every member's own head is behind the base (0 of 18 merges matched their head, 2026-11-26 11-13Z)."""
+        for action in ("opened", "reopened", "synchronize"):
+            with self.subTest(action=action):
+                ev = land_event(labels=("hold",), action=action)
+                ev["pull_request"]["head"]["ref"] = "lane/merge-train"
+                self.assertEqual(self.route(ev), ["mc.yml"])
+        ev = land_event(labels=("hold",))
+        ev["pull_request"]["head"]["ref"] = "lane/merge-train"
+        self.assertEqual(pr_router.route(ev, {"mc.yml": dict(self.CALLEES["mc.yml"], skip_docs_only=True)},
+                                         ["docs/a.md"])[0], [])
+        fork = land_event(labels=("hold",), head_repo="someone/cmux")
+        fork["pull_request"]["head"]["ref"] = "lane/merge-train"
+        self.assertEqual(self.route(fork), [])
+        other = land_event(labels=("hold",))
+        other["pull_request"]["head"]["ref"] = "lane/merge-train-2"
+        self.assertEqual(self.route(other), [])
 
     def test_the_machine_channel_callee_is_land_handoff_only(self) -> None:
         self.assertTrue(pr_router.load_manifest()["cmux-machine-channel.yml"].get("land_handoff_only"))
