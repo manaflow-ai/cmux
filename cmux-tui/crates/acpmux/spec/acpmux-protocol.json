@@ -1276,6 +1276,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/paused_files",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/events",
       "params": {
         "$ref": "#/types/EventsParams"
@@ -2272,6 +2278,22 @@
     {
       "kind": "request",
       "name": "_acpmux/agent_login/finish",
+      "params": {
+        "$ref": "#/types/AgentLoginFinishParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/agent_login/recover_start",
+      "params": {
+        "$ref": "#/types/AgentLoginStartParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/agent_login/recover_finish",
       "params": {
         "$ref": "#/types/AgentLoginFinishParams"
       },

@@ -999,10 +999,15 @@ fn failure_in(scope: &str, f: chatgpt::Failure) -> RpcError {
 
 /// `claude_token.wait`'s answer for `status`: the connection once done (as listed), the code once
 /// failed. Never the token: the attempt holds only the connection's id.
-fn token_wait_reply(dir: Option<&Path>, home: &Path, status: &chatgpt::Status) -> Value {
+fn token_wait_reply(
+    dir: Option<&Path>,
+    home: &Path,
+    status: &chatgpt::Status,
+    sources: &ProfileSources,
+) -> Value {
     let connection = match status {
         chatgpt::Status::Done(id) => {
-            list(dir, home, &routes::bindings(home)).into_iter().find(|c| &c.id == id)
+            list(dir, home, &routes::bindings(home), sources).into_iter().find(|c| &c.id == id)
         }
         _ => None,
     };
@@ -1017,13 +1022,12 @@ fn token_wait_reply(dir: Option<&Path>, home: &Path, status: &chatgpt::Status) -
 /// `reference` (`keychain:cmux-model-key/claude-token-…`) and `label`; its id.
 fn add_token_reference(
     dir: Option<&Path>,
-    home: &Path,
     reference: &str,
     label: Option<&str>,
 ) -> Result<String, chatgpt::Failure> {
-    add_claude_token(dir, home, reference, label)
-        .map(|(id, _)| id)
-        .map_err(|e| chatgpt::Failure::new("add", e.message))
+    routes::add_claude_token(dir, reference, label)
+        .map(|route| route.id)
+        .map_err(|e| chatgpt::Failure::new("add", route_error(&e).message))
 }
 
 async fn blocking<T: Send + 'static>(
@@ -1507,7 +1511,7 @@ pub(super) async fn handle(
                 .claude_token
                 .begin(
                     move |reference| {
-                        add_token_reference(dir.as_deref(), &home, reference, label.as_deref())
+                        add_token_reference(dir.as_deref(), reference, label.as_deref())
                     },
                     move |status| {
                         if matches!(status, chatgpt::Status::Done(_)) {
@@ -1523,7 +1527,7 @@ pub(super) async fn handle(
             let attempt = need("attempt")?;
             let status =
                 hub.claude_token.wait(&attempt, WAIT_LIMIT).await.map_err(token_failure)?;
-            blocking(move || token_wait_reply(dir.as_deref(), &home, &status)).await
+            blocking(move || token_wait_reply(dir.as_deref(), &home, &status, &sources)).await
         }
         method::MUX_CONNECTIONS_CLAUDE_TOKEN_CODE => {
             let attempt = need("attempt")?;
@@ -2511,12 +2515,13 @@ secret = "keychain:work"
     #[test]
     fn a_claude_token_with_whitespace_inside_is_delivered_without_it() {
         let d = dirs();
-        let reference = secret_file(&d, "claude-token", " sk-ant-oat01-ab\n  cd\t\u{a0}ef \r");
-        add_claude_token(Some(&d.routes), &d.home, &reference, None).unwrap();
-        let (_, kind, _, secret) =
-            credential_plan(Some(&d.routes), &d.home, "claude-token").unwrap();
-        let value = delivered(kind, resolve("claude-token", &secret.unwrap()).unwrap());
+        let reference = secret_file(&d, "claude-token", " sk-ant-oat01-ab  cd\t\u{a0}ef \r");
+        let route = routes::add_claude_token(Some(&d.routes), &reference, None).unwrap();
+        let (_, kind, _, secret, _) =
+            credential_plan(Some(&d.routes), &d.home, &route.id, &ProfileSources::none()).unwrap();
+        let value = delivered(kind, resolve(&route.id, &secret.unwrap()).unwrap());
         assert_eq!(value, "sk-ant-oat01-abcdef");
+        assert_eq!(delivered(kind, " sk-ant-oat01-ab\n  cd\t\u{a0}ef \r".into()), value);
         let env = json!({"env": {"CLAUDE_CODE_OAUTH_TOKEN": value}});
         assert!(crate::agent_credentials::AgentCredential::parse(&env).is_ok());
         assert_eq!(delivered("api-key", "a b".into()), "a b", "only a Claude token is reshaped");
@@ -2750,11 +2755,11 @@ secret = "keychain:work"
             Some(fake),
             Duration::from_secs(10),
         ));
-        let (routes_dir, home) = (d.routes.clone(), d.home.clone());
+        let routes_dir = d.routes.clone();
         let begun = svc
             .begin(
                 move |reference| {
-                    add_token_reference(Some(&routes_dir), &home, reference, Some("Work Claude"))
+                    add_token_reference(Some(&routes_dir), reference, Some("Work Claude"))
                 },
                 |_| {},
             )
@@ -2763,7 +2768,8 @@ secret = "keychain:work"
         assert_eq!(begun.url.as_deref(), Some("https://claude.ai/oauth/authorize?abc"));
         let status = svc.wait(&begun.attempt, Duration::from_secs(10)).await.unwrap();
         assert_eq!(status, chatgpt::Status::Done("claude-token".into()));
-        let reply = token_wait_reply(Some(&d.routes), &d.home, &status);
+        let sources = ProfileSources::none();
+        let reply = token_wait_reply(Some(&d.routes), &d.home, &status, &sources);
         assert_eq!(reply["status"], "done");
         assert_eq!(reply["connection"]["kind"], "claude-token");
         assert_eq!(reply["connection"]["label"], "Work Claude");
@@ -2782,7 +2788,8 @@ secret = "keychain:work"
         for text in [reply.to_string(), format!("{begun:?}"), route_text] {
             assert!(!text.contains(TOKEN), "{text}");
         }
-        let failed = token_wait_reply(None, &d.home, &chatgpt::Status::Failed("no_url".into()));
+        let failed =
+            token_wait_reply(None, &d.home, &chatgpt::Status::Failed("no_url".into()), &sources);
         assert_eq!(failed, json!({"status": "failed", "connection": null, "error": "no_url"}));
     }
 }
