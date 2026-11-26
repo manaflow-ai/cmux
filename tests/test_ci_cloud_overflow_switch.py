@@ -188,7 +188,7 @@ class SigningDerivationTests(unittest.TestCase):
     def test_the_switch_and_checker_read_feat_cmux_next(self) -> None:
         for name in ("ci-cloud-overflow-probe.yml", "ci-repo-variables.yml"):
             text = (ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
-            self.assertIn("ref: feat-cmux-next", text, name)
+            self.assertIn("ref: refs/heads/feat-cmux-next", text, name)
             self.assertIn(f"{signing.DIRS_ENV}: .signing-workflows/feat-cmux-next/.github/workflows", text, name)
 
     def test_a_derived_variable_never_gets_an_owned_failover(self) -> None:
@@ -1288,7 +1288,7 @@ class WorkflowTests(unittest.TestCase):
                 moved.append(f"{path.name}:{name}")
                 self.assertNotIn("secrets.", json.dumps(job), f"{path.name}:{name}")
                 self.assertNotIn("create-github-app-token", json.dumps(job), f"{path.name}:{name}")
-        self.assertIn("nightly-next-feed-watch.yml:watch", moved)
+        self.assertIn("ci-shed-superseded-runs.yml:shed", moved)
 
     def test_one_fixed_group_so_two_watches_never_write_at_once(self) -> None:
         # The switch's variable writes and record delete are separate calls; a group keyed by anything a

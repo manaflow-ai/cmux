@@ -195,18 +195,115 @@ class TreelessProbe(unittest.TestCase):
         self.assertEqual(code, 0, log)
         self.assertNotIn("same=true", output)
 
-    def test_the_base_checkout_is_bounded_and_retried(self):
+    def test_the_probe_reads_the_runners_mirror_without_the_network(self):
+        # The pool's mirror holds both commits: no fetch, so an unreachable github.com does not matter.
+        (self.src / "App.tsx").write_text("ui change\n")
+        git(self.src, "commit", "-qam", "ui")
+        head = git(self.src, "rev-parse", "HEAD")
+        mirror = self.tmp / "mirror.git"
+        subprocess.run(["git", "clone", "-q", "--mirror", str(self.src), str(mirror)], check=True)
+        (mirror / "cmux-ready").write_text("")
+        doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        step = next(s for s in doc["jobs"]["plan"]["steps"] if s.get("id") == "same-tree")
+        work = Path(tempfile.mkdtemp(dir=self.tmp))
+        output = self.tmp / "output"
+        output.write_text("")
+        env = {**os.environ, "BASE_SHA": self.base, "HEAD_SHA": head, "REPO": "o/r", "GITHUB_OUTPUT": str(output),
+               "CMUX_GIT_MIRROR": str(mirror), **NO_NETWORK}
+        result = subprocess.run(["bash", "-e", "-c", step["run"]], cwd=work, env=env, capture_output=True, text=True)
+        log = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, log)
+        self.assertIn("same=true", output.read_text(), log)
+        self.assertIn("runner's git mirror", log)
+
+
+# github.com rewritten to a path that does not exist: any network fetch fails at once.
+NO_NETWORK = {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "url.file:///nonexistent/r.git.insteadOf",
+              "GIT_CONFIG_VALUE_0": "https://github.com/o/r.git"}
+
+
+class BaseCheckout(unittest.TestCase):
+    """The base's backend/ comes from the pool runner's git mirror when it holds the commit, else a bounded,
+    retried blobless fetch. A 60 s actions/checkout timed out twice on PRs 56905, 53402 and 57565 (2026-11-26)
+    while the runner's mirror already held the base."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        src = self.tmp / "src"
+        src.mkdir()
+        git(src, "init", "-q", "-b", "main")
+        git(src, "config", "uploadpack.allowAnySHA1InWant", "true")
+        git(src, "config", "uploadpack.allowFilter", "true")
+        (src / "backend/db/migrations").mkdir(parents=True)
+        (src / "backend/db/migrations/0001_init.sql").write_text("create table t (id int);\n")
+        (src / "webviews").mkdir()
+        (src / "webviews/App.tsx").write_text("base\n")
+        git(src, "add", "-A")
+        git(src, "commit", "-qm", "base")
+        self.base = git(src, "rev-parse", "HEAD")
+        self.src = src
+
+    def step(self) -> dict:
         steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["plan"]["steps"]
-        by_id = {s.get("id"): s for s in steps}
-        for sid in ("checkout", "checkout-retry"):
-            self.assertEqual(by_id[sid]["timeout-minutes"], 1)
-            self.assertTrue(by_id[sid]["continue-on-error"])
-            self.assertEqual(by_id[sid]["with"]["sparse-checkout"], "backend")
-            self.assertEqual(by_id[sid]["with"]["filter"], "blob:none")
-        self.assertIn("steps.checkout.outcome == 'failure'", by_id["checkout-retry"]["if"])
-        failed = next(s for s in steps if s.get("name") == "Base checkout did not finish")
-        self.assertIn("steps.checkout-retry.outcome == 'failure'", failed["if"])
-        self.assertIn("exit 1", failed["run"])
+        return next(s for s in steps if s.get("id") == "checkout")
+
+    def checkout(self, network: dict, mirror: Path | None = None, pause_free: bool = True) -> tuple[int, Path, str]:
+        work = Path(tempfile.mkdtemp(dir=self.tmp))
+        run = self.step()["run"]
+        if pause_free:
+            run = run.replace("sleep $((try == 1 ? 5 : 15))", ":")
+        env = {**os.environ, "BASE_SHA": self.base, "REPO": "o/r", "RUNNER_NAME": "r-test",
+               "CMUX_GIT_MIRROR": str(mirror or self.tmp / "no-mirror"), **network}
+        result = subprocess.run(["bash", "-e", "-c", run], cwd=work, env=env, capture_output=True, text=True)
+        return result.returncode, work / "trusted", result.stdout + result.stderr
+
+    def test_the_mirror_serves_the_base_with_no_network(self):
+        mirror = self.tmp / "mirror.git"
+        subprocess.run(["git", "clone", "-q", "--mirror", str(self.src), str(mirror)], check=True)
+        (mirror / "cmux-ready").write_text("")
+        code, trusted, log = self.checkout(NO_NETWORK, mirror)
+        self.assertEqual(code, 0, log)
+        self.assertIn("from the runner's git mirror", log)
+        self.assertTrue((trusted / "backend/db/migrations/0001_init.sql").is_file(), log)
+        self.assertFalse((trusted / "webviews").exists(), "sparse: backend/ only")
+        self.assertEqual(git(trusted, "rev-parse", "HEAD"), self.base)
+
+    def test_a_mirror_not_ready_or_without_the_commit_fetches_from_github(self):
+        mirror = self.tmp / "mirror.git"
+        subprocess.run(["git", "init", "-q", "--bare", str(mirror)], check=True)
+        (mirror / "cmux-ready").write_text("")
+        redirect = {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": f"url.file://{self.src}.insteadOf",
+                    "GIT_CONFIG_VALUE_0": "https://github.com/o/r.git"}
+        code, trusted, log = self.checkout(redirect, mirror)
+        self.assertEqual(code, 0, log)
+        self.assertIn("from github.com", log)
+        self.assertTrue((trusted / "backend/db/migrations/0001_init.sql").is_file(), log)
+        self.assertFalse((trusted / "webviews").exists(), "sparse: backend/ only")
+
+    def test_a_failed_fetch_is_retried_and_names_its_cause(self):
+        code, _, log = self.checkout(NO_NETWORK)
+        self.assertNotEqual(code, 0, log)
+        self.assertIn("failed on all 3 tries (75 s each)", log)
+        self.assertEqual(log.count("failed on try"), 2, log)
+        self.assertIn("runner r-test", log)
+        self.assertIn("not the PR", log)
+
+    def test_the_base_checkout_is_bounded_and_retried(self):
+        step = self.step()
+        self.assertNotIn("continue-on-error", step)
+        self.assertLessEqual(step["timeout-minutes"], 6)
+        run = step["run"]
+        for bound in ('git_retry "base fetch of $BASE_SHA from github.com" 75 ', "http.lowSpeedTime=30", "timeout 90 git",
+                      "--filter=blob:none --depth=1", "sparse-checkout set --cone backend"):
+            self.assertIn(bound, run)
+        steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["plan"]["steps"]
+        self.assertFalse([s for s in steps if s.get("id") == "checkout-retry"])
+
+    def test_head_fetches_use_a_refspec_the_mirror_shim_can_serve(self):
+        # The pool's git shim answers a fetch from the mirror only when every refspec is "<sha>:refs/...".
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertNotIn('origin "$HEAD_SHA" ', text)
+        self.assertIn('origin "+$HEAD_SHA:refs/remotes/origin/head"', text)
 
 
 def plan_steps() -> list[dict]:
@@ -222,7 +319,7 @@ class TransportRetry(unittest.TestCase):
     """A dropped github.com transfer ("Operation too slow", job 139712437101 on cmux#55995) is
     tried again, bounded; a refusal stops on its first try; the error names the tries."""
 
-    RETRIED = ("same-tree", "trees", "files")
+    RETRIED = ("same-tree", "checkout", "trees", "files")
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
@@ -308,8 +405,8 @@ class TransportRetry(unittest.TestCase):
 
     def test_the_job_deadline_fits_the_retried_path(self):
         plan = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["plan"]
-        # probe 3 x 60, checkout 2 x 60, head fetch 3 x 90, blob read 3 x 90, backoff 2 x 20.
-        worst = 3 * 60 + 2 * 60 + 3 * 90 + 3 * 90 + 2 * 20
+        # probe 3 x 60, checkout 3 x 75 plus its 90 s blob read, head fetch 3 x 90, blob read 3 x 90, backoff 4 x 20.
+        worst = 3 * 60 + (3 * 75 + 90) + 3 * 90 + 3 * 90 + 4 * 20
         self.assertGreaterEqual(plan["timeout-minutes"] * 60, worst)
 
 

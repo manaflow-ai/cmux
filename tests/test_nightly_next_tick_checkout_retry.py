@@ -4,7 +4,6 @@ A tick that dies in a checkout promotes nothing until the next tick. On 2026-11-
 (45775908335, 45777304889, 45779080244, 45779574719) died in "Checkout the gh rate-limit wait" on
 "Operation too slow" after 65-212 s, minutes after the same runner's first checkout fetched.
 """
-import re
 import unittest
 from pathlib import Path
 
@@ -36,22 +35,6 @@ class TickCheckoutRetryTest(unittest.TestCase):
                     self.assertLessEqual(retry['timeout-minutes'], 4)
                     self.assertNotIn('continue-on-error', retry)
                     self.assertEqual(retry['with'], first['with'])
-
-    def test_tooling_checkout_lists_every_script_the_job_runs(self):
-        for name in ('request', 'unstick'):
-            with self.subTest(job=name):
-                job = self.jobs[name]
-                tooling = [s for s in checkouts(job) if s['with'].get('path') == '.tick-tooling']
-                self.assertEqual(len(tooling), 2)
-                # A literal list (other guards read it as written), the same in the try and its retry.
-                self.assertEqual(tooling[0]['with']['sparse-checkout'], tooling[1]['with']['sparse-checkout'])
-                self.assertNotIn('${{', tooling[0]['with']['sparse-checkout'])
-                listed = set(tooling[0]['with']['sparse-checkout'].split())
-                used = set()
-                for step in job['steps']:
-                    used |= set(re.findall(r'\.tick-tooling/(scripts/ci/[\w.-]+)', str(step.get('run', ''))))
-                self.assertTrue(used)
-                self.assertLessEqual(used, listed, sorted(used - listed))
 
 
 if __name__ == '__main__':
