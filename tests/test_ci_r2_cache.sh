@@ -43,9 +43,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     if os.path.exists(control):
                         os.unlink(control)
                         self.send_response(code); self.end_headers(); return
+            # A dropped connection, before or after the bucket kept the upload: curl reports HTTP 000.
+            drop = None
+            if "/objects/" in target:
+                for marker in ("drop-archive", "keep-then-drop-archive"):
+                    control = os.path.join(store, marker)
+                    if os.path.exists(control):
+                        os.unlink(control)
+                        drop = marker
+                        break
+            if drop == "drop-archive":
+                self.close_connection = True; return
             os.makedirs(os.path.dirname(target), exist_ok=True)
             with open(target, "wb") as out: out.write(body)
             metadata[target] = self.headers.get("x-amz-meta-generation", "0")
+            if drop:
+                self.close_connection = True; return
             self.send_response(200); self.end_headers()
     def serve(self, with_body):
         if not os.path.isfile(self.target()):
@@ -182,6 +195,19 @@ touch "$WORK/store/race-pointer"
 output_of save "$WORK/src" race-one >/dev/null
 [[ "$(cat "$NS/latest/race-")" == "race-one" ]] || fail "a conditional write conflict must retry"
 echo "PASS: conditional pointer conflicts retry"
+
+# A dropped archive upload (HTTP 000) is sent again, and one the bucket kept before the drop
+# reads back as saved: job 140187794318's 1483 MB save got 000 and published nothing.
+touch "$WORK/store/drop-archive"
+output_of save "$WORK/src" dropped-once >/dev/null
+grep -q 'attempt 1 got HTTP 000; retrying' "$WORK/log" || fail "a dropped upload must be retried: $(cat "$WORK/log")"
+grep -q 'r2-cache: saved dropped-once' "$WORK/log" || fail "a retried upload must publish: $(cat "$WORK/log")"
+[[ "$(cat "$NS/latest/dropped-")" == "dropped-once" ]] || fail "a retried upload must write its pointers"
+touch "$WORK/store/keep-then-drop-archive"
+output_of save "$WORK/src" kept-dropped >/dev/null
+grep -q 'r2-cache: saved kept-dropped' "$WORK/log" || fail "an upload kept before the drop must publish: $(cat "$WORK/log")"
+[[ "$(cat "$NS/latest/kept-")" == "kept-dropped" ]] || fail "an upload kept before the drop must write its pointers"
+echo "PASS: a dropped archive upload is retried and published"
 
 echo "other-thing" > "$NS/latest/family-tool-"
 rm -rf "$WORK/dst"

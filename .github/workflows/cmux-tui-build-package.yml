@@ -1371,6 +1371,19 @@ jobs:
           path: ${{ steps.r2-cargo-key.outputs.registry }}
           key: ${{ steps.r2-cargo-key.outputs.registry-key }}
 
+      # Last in the job: a pool host short of disk drops the darwin leg's pool tree only after every
+      # step that reads cmux-tui/target through its link (the workspace delta's pack, the strip, the
+      # R2 dependency save). Dropped in "Record the warm target", the darwin leg saved neither
+      # (job 140189679068). scripts/ci/machine-channel-warm-target.sh release.
+      - name: Release the pool warm target
+        if: ${{ always() && steps.pool-warm-darwin.outputs.disk != '' }}
+        continue-on-error: true
+        env:
+          WARM_TARGET: ${{ matrix.build_target }}
+          POOL_DISK: ${{ steps.pool-warm-darwin.outputs.disk }}
+        shell: bash
+        run: scripts/ci/machine-channel-warm-target.sh release "$POOL_DISK" "$WARM_TARGET"
+
   # The Windows daemon is built on Linux (scripts/ci/windows-gnu-cross-build.sh): the
   # same reviewed MinGW-Builds runtime (package-notices.json windows_gnu, sha256-checked),
   # clang for the C code, lld to link. Only the checks that must run on Windows
