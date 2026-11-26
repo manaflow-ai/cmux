@@ -129,6 +129,18 @@ extension SidebarViewComponents {
         set { list.hoverCard.timelineSource = newValue }
     }
 
+    /// A tab's picture for the workspace card's split miniature (#51768); nil draws each pane's kind mark only.
+    public var tabPictures: SidebarTabThumbnails.Provider? {
+        get { list.hoverCard.thumbnails.provider }
+        set { list.hoverCard.thumbnails.provider = newValue }
+    }
+
+    /// How often a showing workspace card asks for its tiles' newer pictures (``SidebarTabThumbnails/refreshInterval``).
+    public var tabPicturesRefreshInterval: Duration {
+        get { list.hoverCard.thumbnails.refreshInterval }
+        set { list.hoverCard.thumbnails.refreshInterval = newValue }
+    }
+
     /// True while the workspace hover card samples resources.
     public var isSamplingResources: Bool { list.hoverCard.resources.isOpen }
 

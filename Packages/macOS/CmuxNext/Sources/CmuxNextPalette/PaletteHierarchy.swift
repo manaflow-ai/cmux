@@ -55,12 +55,15 @@ extension PaletteModel {
 
     /// A click on chip `index` of a multi-value step: the page without that value.
     public func removeToken(at index: Int) {
-        guard let current, case .list(let page) = current.kind, page.tokens.indices.contains(index) else { return }
+        guard let current, case .list(let page) = current.kind else { return }
+        // The scope bar's typed tokens draw after the page's own.
+        guard page.tokens.indices.contains(index) else { return removeScopeToken(at: index - page.tokens.count) }
         replaceCurrentPage(with: page.tokens[index].remove())
     }
 
     /// Backspace on an empty query of a multi-value step: takes out the last chip. False with none.
     func removeLastToken() -> Bool {
+        if removeLastScopeToken() { return true }
         guard let current, case .list(let page) = current.kind, let last = page.tokens.last else { return false }
         replaceCurrentPage(with: last.remove())
         return true

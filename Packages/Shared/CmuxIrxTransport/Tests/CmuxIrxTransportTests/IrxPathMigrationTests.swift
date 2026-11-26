@@ -1,3 +1,4 @@
+#if canImport(IrohLib)
 import CMUXMobileCore
 import CmuxIrohTransport
 import Foundation
@@ -93,3 +94,4 @@ struct IrxPathMigrationTests {
         #expect(try await outgoing.recv().readToEnd(sizeLimit: 32) == payload)
     }
 }
+#endif

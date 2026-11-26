@@ -1,3 +1,5 @@
+#![allow(clippy::indexing_slicing, clippy::unwrap_used)]
+
 use super::*;
 use std::sync::Arc;
 

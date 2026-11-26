@@ -323,5 +323,31 @@ proposal="$(git -C "$tmp/remote.git" rev-parse base-autofix-sources)"
 (cd "$tmp/bot" && echo "setting rewritten" > "$setting" && git commit -q -am "chore(next): base autofix at ${base:0:12}" -m "made again")
 run > "$tmp/out" 2>&1 || fail "the same Swift rewrite again failed: $(cat "$tmp/out")"
 [[ "$(git -C "$tmp/remote.git" rev-parse base-autofix-sources)" == "$proposal" ]] || fail "the same Swift rewrite moved the proposal branch"
+# A Swift rewrite whose proposal push is refused reached neither branch: the rest lands, and the run fails, so
+# base-autofix-since.sh keeps the change in the next run's range (run 45587592604 ended green and #56006's
+# bindings stayed stale).
+setup
+cat > "$tmp/remote.git/hooks/pre-receive" <<'HOOK'
+#!/usr/bin/env bash
+while read -r _ _ ref; do
+  [[ "$ref" == refs/heads/base-autofix-sources ]] && { echo "refusing $ref" >&2; exit 1; }
+done
+exit 0
+HOOK
+chmod +x "$tmp/remote.git/hooks/pre-receive"
+(cd "$tmp/bot" && echo "graph for manifest v1" > "$graph" && echo "setting rewritten" > "$setting" \
+  && git commit -q -am "chore(next): base autofix at ${base:0:12}" -m "- regenerated $graph" -m "- namespace rewrite in $setting")
+if run > "$tmp/out" 2>&1; then fail "a refused proposal push ended green: $(cat "$tmp/out")"; fi
+[[ "$(remote_show "$graph")" == "graph for manifest v1" ]] || fail "the graph beside a refused proposal did not land: $(cat "$tmp/out")"
+[[ "$(remote_show "$setting")" == "setting v1" ]] || fail "a refused Swift rewrite was pushed onto the branch"
+grep -qF "$setting" "$tmp/out" || fail "the failed run does not name the rewrite it left out: $(cat "$tmp/out")"
+# The uniffi bindings (scripts/ios-ffi-bindings.sh) are generator output, no rewrite: they land on the branch.
+setup
+ffi=cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift
+(cd "$tmp/bot" && mkdir -p "$(dirname "$ffi")" && echo "bindings for the crate" > "$ffi" && git add -A \
+  && git commit -q -m "chore(next): base autofix at ${base:0:12}" -m "- regenerated $ffi")
+run > "$tmp/out" 2>&1 || fail "a repair of the FFI bindings failed: $(cat "$tmp/out")"
+[[ "$(remote_show "$ffi")" == "bindings for the crate" ]] || fail "the FFI bindings did not land on the branch: $(cat "$tmp/out")"
+git -C "$tmp/remote.git" rev-parse --verify -q refs/heads/base-autofix-sources >/dev/null && fail "the FFI bindings went to a proposal"
 
 echo "PASS: base autofix makes a held repair again on the moved tip and lands it, a bounded number of times, without the push token"

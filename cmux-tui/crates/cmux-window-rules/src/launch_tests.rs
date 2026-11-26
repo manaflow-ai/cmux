@@ -251,6 +251,71 @@ fn landing_reads_and_answers_camel_case_json() {
     );
 }
 
+// A relaunch whose saved front workspace the daemon lacks lands on Home (`HomeWhy::UnknownWorkspace`), but Home's
+// workspace can come after the restore. The landing waits for it, in the saved front window, and gives up when
+// that window closed or the person moved on.
+
+fn pending(window_open: bool, home_ready: bool, moved: bool, active: Option<&str>) -> PendingHome {
+    PendingHome {
+        window: "front".into(),
+        active: active.map(str::to_owned),
+        window_open,
+        home_ready,
+        moved,
+        moved_since_restore: moved,
+    }
+}
+
+/// Review follow-up 1: Home not listed yet when the restore ended: the landing waits, then lands once it is.
+#[test]
+fn state_kept_snapshot_unknown_waits_for_home_then_lands() {
+    assert_eq!(pending_home(&pending(true, false, false, Some("front"))), HomeStep::Wait);
+    assert_eq!(
+        pending_home(&pending(true, true, false, Some("front"))),
+        HomeStep::Land { window: "front".into() }
+    );
+}
+
+/// The wait ends without landing when the saved front window closed or the person picked something else in it.
+#[test]
+fn a_pending_home_landing_stops_when_the_window_closed_or_the_person_moved() {
+    assert_eq!(pending_home(&pending(false, false, false, None)), HomeStep::Stop);
+    assert_eq!(pending_home(&pending(false, true, false, None)), HomeStep::Stop);
+    assert_eq!(pending_home(&pending(true, false, true, Some("front"))), HomeStep::Stop);
+    assert_eq!(pending_home(&pending(true, true, true, Some("front"))), HomeStep::Stop);
+}
+
+/// Review follow-up 2: Home lands in the saved front window, not whichever window is active (several saved windows).
+#[test]
+fn state_kept_snapshot_unknown_lands_home_in_the_saved_front_window_not_the_active_one() {
+    assert_eq!(
+        pending_home(&pending(true, true, false, Some("second"))),
+        HomeStep::Land { window: "front".into() }
+    );
+    assert_eq!(
+        pending_home(&pending(true, true, false, None)),
+        HomeStep::Land { window: "front".into() }
+    );
+}
+
+#[test]
+fn pending_home_reads_and_answers_camel_case_json() {
+    let facts: PendingHome = serde_json::from_value(serde_json::json!({
+        "window": "w1", "active": "w2", "windowOpen": true, "homeReady": true, "moved": false
+    }))
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(pending_home(&facts)).unwrap(),
+        serde_json::json!({"step": "land", "window": "w1"})
+    );
+    let waits: PendingHome =
+        serde_json::from_value(serde_json::json!({"window": "w1", "windowOpen": true})).unwrap();
+    assert_eq!(
+        serde_json::to_value(pending_home(&waits)).unwrap(),
+        serde_json::json!({"step": "wait"})
+    );
+}
+
 // What a launch opens fresh, before the saved windows decide (`fresh_landing`): the two deciders that skipped the
 // rule (the empty tree's first workspace, and the New Tab workspace when no saved window is open) and the wait for
 // Home.
@@ -356,4 +421,25 @@ fn fresh_landing_reads_and_answers_camel_case_json() {
         serde_json::to_value(fresh_landing(&bare)).unwrap(),
         serde_json::json!({"kind": "saved"})
     );
+}
+
+/// Review F1 of #46087: the person left the restored workspace or page and came back before Home was listed.
+/// Leaving drops the pending landing for good (`movedSinceRestore`, latched by the app), so Home appearing later
+/// lands nothing.
+#[test]
+fn a_pending_home_landing_stays_dropped_after_the_person_left_and_came_back() {
+    let read = |moved: bool, moved_since_restore: bool, home_ready: bool| -> PendingHome {
+        serde_json::from_value(serde_json::json!({
+            "window": "front", "active": "front", "windowOpen": true, "homeReady": home_ready,
+            "moved": moved, "movedSinceRestore": moved_since_restore
+        }))
+        .unwrap()
+    };
+    // Left: the landing stops.
+    assert_eq!(pending_home(&read(true, true, false)), HomeStep::Stop);
+    // Back at the restored place, Home not listed yet, then listed: still no landing.
+    assert_eq!(pending_home(&read(false, true, false)), HomeStep::Stop);
+    assert_eq!(pending_home(&read(false, true, true)), HomeStep::Stop);
+    // Never left: Home lands once listed.
+    assert_eq!(pending_home(&read(false, false, true)), HomeStep::Land { window: "front".into() });
 }

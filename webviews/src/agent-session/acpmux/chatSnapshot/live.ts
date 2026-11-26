@@ -1,6 +1,7 @@
 // The live page's side of a chat's snapshot (shared.ts): it tells the host the chat is on screen as
 // soon as the bundle runs, takes over from the copy in one frame once it drew the chat itself, and
 // writes the copy the next launch draws (capture.ts), from the visible window only.
+import { slackTimersFor } from "../../../pages/shared/slackTimers";
 import { captureMiss, captureSnapshot } from "./capture";
 import { liveMatchesCopy, noteSwap, swapDiff } from "./swapDiff";
 import {
@@ -14,7 +15,14 @@ import {
 import { watchLaunchSettle } from "../launchSettle";
 import { LIVE_THINKING } from "../conversation/turns";
 
-type Shown = { at: number; swappedAt?: number; chromeOnly?: boolean };
+/// `hold`: how the wait for the chat's draft ran out (draftSettleHold.ts), when, and at a `cap`
+/// what still differed between the copy's composer and the live one (`composerDifference`).
+type Shown = {
+  at: number;
+  swappedAt?: number;
+  chromeOnly?: boolean;
+  hold?: { by: string; at: number; differs?: string };
+};
 
 function shown(): Shown | undefined {
   if (typeof window === "undefined") return undefined;
@@ -35,6 +43,46 @@ function liveSide(): SnapshotLive {
 /// Whether the boot script drew a snapshot this document still shows.
 export function showsChatSnapshot(): boolean {
   return !!shown() && typeof document !== "undefined" && !!document.querySelector(SNAPSHOT_HOST_TAG);
+}
+
+/// What the composer in an element shows, or undefined when it has no prompt (its editor's root; the
+/// placeholder lies beside it). It holds the prompt, surrounding text, tile count, and height.
+function composerShows(scope: ParentNode | null | undefined): string[] | undefined {
+  const composer = scope?.querySelector(".acpmux-composer");
+  const field = composer?.querySelector(".acpmux-composer-box .acpmux-md-root");
+  if (!composer || !field) return undefined;
+  const fold = (node: Node) => (node.textContent ?? "").replace(/\s+/g, " ").trim();
+  const tiles = composer.querySelectorAll(".acpmux-attachment-slot, img, video").length;
+  return [fold(field), fold(composer), String(tiles), String(Math.round(composer.getBoundingClientRect().height))];
+}
+
+const COMPOSER_PARTS = ["prompt", "text", "tiles", "height"] as const;
+
+/// Returns a bounded description of differences between the saved and live composers.
+export function composerDifference(): string | undefined {
+  const copy = composerShows(document.querySelector(SNAPSHOT_HOST_TAG)?.shadowRoot);
+  const live = composerShows(document.getElementById("root"));
+  if (!copy || !live) return "no composer";
+  const told = (part: (typeof COMPOSER_PARTS)[number], a: string, b: string) => {
+    if (part === "tiles" || part === "height") return `${part} ${a}/${b}`;
+    let at = 0;
+    while (at < a.length && a[at] === b[at]) at += 1;
+    return `${part} at ${at}, ${a.length}/${b.length} chars`;
+  };
+  const parts = COMPOSER_PARTS.flatMap((part, at) => (copy[at] === live[at] ? [] : [told(part, copy[at]!, live[at]!)]));
+  return parts.length ? parts.join("; ") : undefined;
+}
+
+/// Whether the live page's composer shows what the copy over it shows.
+export function promptMatchesChatSnapshot(): boolean {
+  return showsChatSnapshot() && composerDifference() === undefined;
+}
+
+/// Records how the draft wait ended on the copy's launch record.
+export function noteDraftWaitEnd(by: string): void {
+  const value = shown();
+  if (!value || value.hold) return;
+  value.hold = { by, at: performance.now(), ...(by === "cap" ? { differs: composerDifference() ?? "none" } : {}) };
 }
 
 /// Whether the copy on screen shows a turn still running: its live line (turns.ts LIVE_THINKING),
@@ -70,6 +118,7 @@ export function chatSnapshotReport(): Record<string, unknown> {
   const globals = (typeof window === "undefined" ? {} : window) as unknown as Record<string, unknown>;
   return {
     ...chatSnapshotTimes(),
+    hold: shown()?.hold ?? null,
     miss: globals[SNAPSHOT_MISS_GLOBAL] ?? null,
     served: globals[`${SNAPSHOT_GLOBAL}Why`] ?? null,
     served_cause: (globals[SNAPSHOT_GLOBAL] as { cause?: unknown } | undefined)?.cause ?? null,
@@ -333,6 +382,7 @@ export function watchChatSnapshot(
   const root = doc.getElementById("root");
   const view = doc.defaultView;
   if (!root || !view) return () => {};
+  const slackTimers = slackTimersFor(view);
   let timer: number | undefined;
   let changedAt = 0;
   let wroteAt = 0;
@@ -373,7 +423,9 @@ export function watchChatSnapshot(
     if (timer !== undefined || stopped) return;
     const now = performance.now();
     const due = Math.max(changedAt + QUIET_MS, wroteAt + WRITE_GAP_MS) - now;
-    timer = view.setTimeout(
+    // On the page's shared timer, up to a heartbeat late: the quiet write rides a beat instead of
+    // waking a chat at rest by itself (slackTimers.ts).
+    timer = slackTimers.later(
       () => {
         timer = undefined;
         const late = Math.max(changedAt + QUIET_MS, wroteAt + WRITE_GAP_MS) - performance.now();
@@ -388,7 +440,7 @@ export function watchChatSnapshot(
   // idle_wakeups). One MutationObserver callback per batch of changes: a clear and a set, no wakeup.
   const changed = () => {
     changedAt = performance.now();
-    if (timer !== undefined) view.clearTimeout(timer);
+    slackTimers.cancel(timer);
     timer = undefined;
     schedule();
   };
@@ -406,13 +458,13 @@ export function watchChatSnapshot(
     view.clearTimeout(resizeTimer);
     resizeTimer = view.setTimeout(() => {
       resizeTimer = undefined;
-      if (timer !== undefined) view.clearTimeout(timer);
+      slackTimers.cancel(timer);
       write("resize");
     }, RESIZE_QUIET_MS);
   };
   view.addEventListener("resize", resized);
   const now = (cause: string) => {
-    if (timer !== undefined) view.clearTimeout(timer);
+    slackTimers.cancel(timer);
     write(cause);
   };
   const hidden = () => {
@@ -429,7 +481,7 @@ export function watchChatSnapshot(
     observer.disconnect();
     view.removeEventListener("resize", resized);
     view.clearTimeout(resizeTimer);
-    if (timer !== undefined) view.clearTimeout(timer);
+    slackTimers.cancel(timer);
     doc.removeEventListener("visibilitychange", hidden);
     view.removeEventListener(SNAPSHOT_WRITE_EVENT, asked);
   };

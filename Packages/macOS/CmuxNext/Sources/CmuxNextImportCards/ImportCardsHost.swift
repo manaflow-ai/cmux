@@ -1,4 +1,5 @@
 public import CmuxNextBrowserImport
+public import CmuxNextImportSuggestions
 public import Foundation
 
 /// What the cards need from the App, which owns the importer's stores: the
@@ -24,21 +25,20 @@ public struct ImportCardsHost {
     /// recorded in the import's ledger (so nothing comes over twice). Reports progress and
     /// returns as `importClassic` does.
     public var importConductor: (@escaping @MainActor (Double) -> Void) async throws -> Int?
-    /// How many of classic cmux's saved workspaces Import Workspaces from Classic cmux would open now
-    /// (the daemon's `classic_import.plan`); nil when classic saved none or the daemon could not say.
-    public var classicWorkspaces: () async -> Int?
+    /// What Classic file metadata and the accepted-import ledger say is available.
+    public var classicAvailability: () async -> ClassicImportAvailability
 
     public init(runImport: @escaping (ImportPlan, any SafeStorageKeyProviding, @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary,
                 importedProfiles: @escaping () async -> Set<String>,
                 openSettings: @escaping (String) -> Void,
                 importClassic: @escaping (@escaping @MainActor (Double) -> Void) async throws -> Int?,
                 importConductor: @escaping (@escaping @MainActor (Double) -> Void) async throws -> Int?,
-                classicWorkspaces: @escaping () async -> Int?) {
+                classicAvailability: @escaping () async -> ClassicImportAvailability) {
         self.runImport = runImport
         self.importedProfiles = importedProfiles
         self.openSettings = openSettings
         self.importClassic = importClassic
         self.importConductor = importConductor
-        self.classicWorkspaces = classicWorkspaces
+        self.classicAvailability = classicAvailability
     }
 }

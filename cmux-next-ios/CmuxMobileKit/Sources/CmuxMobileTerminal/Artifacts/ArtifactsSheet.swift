@@ -117,7 +117,7 @@ struct ArtifactsSheet: View {
         .contentMargins(.horizontal, 16, for: .scrollContent)
         .scrollIndicators(.hidden)
         .foregroundStyle(.primary)
-        .sensoryFeedback(.selection, trigger: filter)
+        .cmuxMobileSensoryFeedback(.selection, trigger: filter)
         .fixedSize(horizontal: false, vertical: true)
     }
 }

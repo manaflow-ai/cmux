@@ -1,3 +1,4 @@
+#if canImport(IrohLib)
 import CMUXMobileCore
 import IrohLib
 import Testing
@@ -134,3 +135,4 @@ private final class TestIrohError: IrohError, @unchecked Sendable {
         testMessage
     }
 }
+#endif

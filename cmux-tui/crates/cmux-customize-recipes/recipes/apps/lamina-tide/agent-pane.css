@@ -1,0 +1,74 @@
+/* Lamina Tide: a layered, translucent desktop look, as chat tokens. Paint and corners only: your prompt in an
+   8 px card, the composer an 8 px card with a 1 px stroke, and the toast a squarer 8 px card instead of a
+   pill. Every color is mixed from the theme's own ink and accent, so the dark and the light recipe share it.
+   No size, padding or line height changes (apart from the toast's own corner), so rows keep their heights. */
+:root {
+  --lamina-stroke: color-mix(in srgb, var(--agent-text, CanvasText) 14%, transparent);
+  --lamina-layer: color-mix(in srgb, var(--agent-text, CanvasText) 6%, transparent);
+  --cv-bubble: color-mix(in srgb, var(--agent-accent, currentColor) 20%, transparent);
+  --cv-code-bg: var(--lamina-layer);
+  --cv-codeblock-ring: var(--lamina-stroke);
+  --cv-card-fill: var(--lamina-layer);
+  --cv-card-ring: var(--lamina-stroke);
+  --cv-text-muted: color-mix(in srgb, var(--agent-text, CanvasText) 66%, transparent);
+  --cv-link: color-mix(in srgb, var(--agent-accent, currentColor) 85%, var(--agent-text, CanvasText));
+  --agent-link: var(--cv-link);
+  --cv-media-radius: 8px;
+  --cv-user-attachment-radius: 4px;
+  /* The corners the toast, the composer and the cards read: 4 on controls, 8 on cards. */
+  --surface-toast-radius: 8px;
+  --grid-composer-radius: 8px;
+  --climb-shell-radius: 8px;
+}
+/* The design scale's radii, set where every surface reads them (the two-class chain outranks the
+   page's own :root declaration without a rule per surface). */
+:root:root {
+  --ds-radius-sm: 2px;
+  --ds-radius-md: 4px;
+  --ds-radius-control: 4px;
+  --ds-radius-lg: 8px;
+  --ds-radius-xl: 8px;
+  --ds-radius-2xl: 8px;
+}
+/* Your prompt: an 8 px card with a 1 px stroke, not a pill. */
+.cv-user__bubble,
+.acpmux-shell .cv-user__bubble {
+  --glass-tint: var(--cv-bubble);
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px var(--lamina-stroke);
+}
+/* The composer: an 8 px card, a 1 px stroke, the page's own layer under it. */
+.acpmux-shell {
+  --acpmux-composer-bg: color-mix(in srgb, var(--agent-text, CanvasText) 4%, var(--agent-page-bg, Canvas));
+  --acpmux-composer-edge: color-mix(in srgb, var(--agent-text, CanvasText) 18%, transparent);
+  --acpmux-composer-edge-focus: var(--agent-accent, currentColor);
+  --acpmux-strip-radius: 8px;
+  --acpmux-goal-radius: 8px;
+  --acpmux-stack-radius: 8px;
+  --acpmux-attach-radius: 4px;
+  --acpmux-permission-pill-radius: 4px;
+  --acpmux-session-info-card-radius: 8px;
+  --acpmux-session-info-panel-radius: 8px;
+  --acpmux-session-info-row-radius: 4px;
+}
+.acpmux-composer-box,
+.acpmux-asks-stack {
+  --acpmux-composer-radius: 8px;
+}
+/* The toast (ui/notice.css, shown by acpmux/toastLayer.css): the default corner is the control radius plus
+   the padding, a pill on a one-line toast. Here it is an 8 px card with a 1 px stroke, its text one
+   control corner and the padding in. A banner stays square and an inline card keeps its own padding. */
+:root .ui-notice,
+:root .ui-notice[data-placement="stack"],
+:root .ui-notice[data-placement="inline"] {
+  --concentric-padding: 8px;
+  border-radius: 8px;
+  border: 1px solid var(--lamina-stroke);
+}
+:root .ui-notice[data-placement="stack"] {
+  padding: var(--concentric-padding) var(--concentric-padding) var(--concentric-padding) 12px;
+}
+:root .ui-notice[data-placement="banner"] {
+  border-radius: 0;
+  border-width: 0 0 1px;
+}

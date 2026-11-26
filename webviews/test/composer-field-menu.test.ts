@@ -144,13 +144,13 @@ await requireBrowserLane("composer-field-menu.test.ts", async () => {
   test("the composer menu picks Attachments at Top and back to Attachments Inline", async () => {
     const page = await stage();
     const view = () => page.locator(".acpmux-composer-box").first().getAttribute("data-attachment-view");
-    expect(await view()).toBe("inline");
-    expect(await openMenu(page)).toEqual(expect.arrayContaining(["✓Attachments Inline", "Attachments at Top"]));
-    await pick(page, "Attachments at Top");
     expect(await view()).toBe("strip");
     expect(await openMenu(page)).toEqual(expect.arrayContaining(["Attachments Inline", "✓Attachments at Top"]));
     await pick(page, "Attachments Inline");
     expect(await view()).toBe("inline");
+    expect(await openMenu(page)).toEqual(expect.arrayContaining(["✓Attachments Inline", "Attachments at Top"]));
+    await pick(page, "Attachments at Top");
+    expect(await view()).toBe("strip");
     await page.close();
   });
 });

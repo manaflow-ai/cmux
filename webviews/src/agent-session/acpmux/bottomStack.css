@@ -43,6 +43,14 @@
 .acpmux-main[data-dock="float"] > .acpmux-dock[data-foot] {
   max-height: calc(100% - 44px - max(64px, var(--acpmux-transcript-min, 96px) - 32px));
 }
+/* An open chat's stack in flow (`data-dock="flow"`: the inspector, a handoff review) keeps the same
+   floor over it, so a tall draft's composer keeps its height as the stage over it switches (Leo,
+   2026-11-24: "we need to have more things decoupled from posisble shifts";
+   test/agent-pane-composer-anchored-above.test.ts). The stage carries the dock's `data-foot`. */
+.acpmux-main[data-dock="flow"] > .acpmux-stage[data-foot] {
+  --acpmux-stage-floor-foot: calc(44px + max(64px, var(--acpmux-transcript-min, 96px) - 32px));
+  min-height: var(--acpmux-stage-floor-foot);
+}
 /* A part of the floating stack is a band the pane's width wide whose card or bar sits inset in it by
    the column's gutters (--cv-inset): the question card, the pull request dock, or an error card. The
    band takes the pointer, since the transcript's rows under the stack are only
@@ -55,6 +63,19 @@
    card, and only its list takes it (styles.css). */
 .acpmux-main[data-dock="float"] > .acpmux-dock > :not(.acpmux-composer),
 .acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-composer > :not(.acpmux-composer-list-layer) {
+  pointer-events: auto;
+}
+/* The asks stack keeps the rows behind it in sight but for what it draws (useBesideStack.ts; Leo,
+   2026-11-17: "this needs your input dismiss row erases things behind it"), so its room passes the
+   pointer to those rows too: a drag there selects their text (gutterSelect.ts), a click reaches
+   them. Only its label, Dismiss and cards take it. Only with See-Through Dock on
+   (`experiments.seeThroughDock`, `data-see-through`); off, the stack takes the pointer as before. */
+.acpmux-main[data-dock="float"] > .acpmux-dock[data-see-through] > .acpmux-asks-stack {
+  pointer-events: none;
+}
+.acpmux-main[data-dock="float"] > .acpmux-dock[data-see-through] > .acpmux-asks-stack > :not(.acpmux-pending-ask),
+.acpmux-main[data-dock="float"] > .acpmux-dock[data-see-through] > .acpmux-asks-stack > .acpmux-pending-ask > :not(.acpmux-pending-ask__head),
+.acpmux-main[data-dock="float"] > .acpmux-dock[data-see-through] > .acpmux-asks-stack :is(.acpmux-pending-ask__label, .acpmux-pending-ask__dismiss) {
   pointer-events: auto;
 }
 /* The tray of running subagents and background commands (subagents/SubagentTray.tsx), aligned

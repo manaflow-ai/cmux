@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "teamAudit.notShared" : {
+      "comment" : "Agent pane: Team spend, the person is not in a team that shares usage",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Only members of a team that shares usage see its spend here."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يرى أعضاء الفريق الذي يشارك الاستخدام فقط إنفاقه هنا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ovdje potrošnju vide samo članovi tima koji dijeli korištenje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kun medlemmer af et team, der deler forbrug, ser dets forbrug her."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nur Mitglieder eines Teams, das seine Nutzung teilt, sehen hier dessen Verbrauch."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solo los miembros de un equipo que comparte su uso ven aquí su gasto."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seuls les membres d'une équipe qui partage son utilisation voient ici ses dépenses."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solo i membri di un team che condivide l'utilizzo ne vedono qui la spesa."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用状況を共有しているチームのメンバーだけが、ここで支出を確認できます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "មានតែសមាជិកក្រុមដែលចែករំលែកការប្រើប្រាស់ទេ ដែលឃើញការចំណាយនៅទីនេះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "사용량을 공유하는 팀의 구성원만 여기에서 지출을 볼 수 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bare medlemmer av et team som deler bruk, ser forbruket her."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tylko członkowie zespołu, który udostępnia użycie, widzą tu jego wydatki."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Somente membros de uma equipe que compartilha o uso veem os gastos aqui."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Расходы здесь видят только участники команды, которая делится использованием."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เฉพาะสมาชิกของทีมที่แชร์การใช้งานเท่านั้นที่เห็นค่าใช้จ่ายที่นี่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Harcamaları burada yalnızca kullanımını paylaşan bir ekibin üyeleri görür."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Витрати тут бачать лише учасники команди, яка ділиться використанням."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chỉ thành viên của nhóm chia sẻ mức sử dụng mới thấy chi tiêu ở đây."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只有共享使用情况的团队成员才能在这里看到支出。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只有共享使用情況的團隊成員才能在這裡看到支出。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

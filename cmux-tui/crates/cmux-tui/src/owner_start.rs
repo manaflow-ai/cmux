@@ -6,6 +6,29 @@ mod crash_scrub;
 mod memory_guard;
 mod owner_panic;
 
+/// Sends the interactive client's UI-hang records (`ui_watchdog`, `client-hangs.jsonl`) the way
+/// the owner sends its panics: same consent, same project, each line once.
+#[derive(Clone, Debug)]
+pub(crate) struct HangForwarder(crash_forward::Forwarder);
+
+impl HangForwarder {
+    /// Sends `log`'s unsent lines on a thread of its own.
+    pub(crate) fn send_soon(&self, log: std::path::PathBuf) {
+        let forwarder = self.0.clone();
+        let _ = std::thread::Builder::new().name("hang-forward".into()).spawn(move || {
+            if let Err(error) = forwarder.forward(&log) {
+                crate::client_log::info("crash-forward", &format!("hang-forward: failed {error}"));
+            }
+        });
+    }
+}
+
+/// At client start: sends the client hangs not sent yet; returns the forwarder for later hangs
+/// (`None` when consent says no).
+pub(crate) fn forward_client_hangs(log: std::path::PathBuf) -> Option<HangForwarder> {
+    crash_forward::start(vec![log]).map(HangForwarder)
+}
+
 /// Validate the owner's storage flags and raise its open-file soft limit.
 ///
 /// The owner holds descriptors for every terminal, and the default soft

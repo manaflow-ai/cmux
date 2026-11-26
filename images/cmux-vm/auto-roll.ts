@@ -172,11 +172,11 @@ export function largeOf(candidate: Candidate): LargeVariant | undefined {
 }
 
 /** Drops the oldest auto-rolled entries past KEEP_AUTO; `newestFirst` says which end of the list is newest. */
-export function trimAuto(images: BootImage[], newestFirst: boolean, keep: readonly string[] = []): BootImage[] {
+export function trimAuto(images: BootImage[], newestFirst: boolean, keep: readonly string[] = [], keepAuto = KEEP_AUTO): BootImage[] {
   const ordered = newestFirst ? images : [...images].reverse();
   let seen = 0;
   // An image cmux-platform pins (platformPins) is never trimmed and does not count toward KEEP_AUTO.
-  const kept = ordered.filter((i) => !i.id.startsWith(AUTO_PREFIX) || keep.includes(i.id) || ++seen <= KEEP_AUTO);
+  const kept = ordered.filter((i) => !i.id.startsWith(AUTO_PREFIX) || keep.includes(i.id) || ++seen <= keepAuto);
   return newestFirst ? kept : kept.reverse();
 }
 
@@ -243,22 +243,32 @@ export function approve(text: string, entry: BootImage, keep: readonly string[] 
   if (prod.some((i) => i.id === entry.id) || staging.some((i) => i.id === entry.id)) throw new Error(`${entry.id} is already approved`);
   const fallback = fallbackImage();
   const { large, ...plain } = entry;
-  const lists = (withLarge: boolean, keepOlder: boolean) => {
+  const fits = (images: BootImage[]) => Buffer.byteLength(JSON.stringify(images), "utf8") <= MAX_BYTES;
+  const lists = (withLarge: boolean, keepOlder: boolean, keepAuto: number) => {
     const listed = (env: Env): BootImage => ({ ...(withLarge && LARGE_ENVS.includes(env) ? entry : plain), services: [...SERVICES[env]] });
     const older = (env: Env, images: BootImage[]) => (LARGE_ENVS.includes(env) && !keepOlder ? images.map(({ large: _dropped, ...i }) => i) : images);
     return {
-      production: withFallback(trimAuto([listed("production"), ...older("production", prod)], true, keep), "production", fallback),
-      staging: withFallback(trimAuto([...older("staging", staging), listed("staging")], false, keep), "staging", fallback),
+      production: withFallback(trimAuto([listed("production"), ...older("production", prod)], true, keep, keepAuto), "production", fallback),
+      staging: withFallback(trimAuto([...older("staging", staging), listed("staging")], false, keep, keepAuto), "staging", fallback),
     };
   };
-  const fits = (images: BootImage[]) => Buffer.byteLength(JSON.stringify(images), "utf8") <= MAX_BYTES;
   // An entry that stays listed keeps its large image while the list fits: a create journaled on it and retried after
   // this roll's deploy must find the same snapshot (the Worker refuses to boot another one). The older ones go first
   // when the list is too long, then this entry's.
+  //
+  // Only when no list fits at KEEP_AUTO rolls does each keep fewer, oldest unpinned roll first, down to this roll
+  // alone. A pinned roll does not count toward KEEP_AUTO, so with one pinned a list holds KEEP_AUTO + 1 rolls: at about
+  // 376 bytes each, production came to 5,150 bytes and every promote threw (roll 45625813906, 2026-11-25). A
+  // hand-approved entry, a pin and this roll are never trimmed.
   const wants = large !== undefined;
-  const tries = [lists(wants, true), lists(wants, false), lists(false, false)];
-  const at = tries.findIndex((t) => LARGE_ENVS.every((env) => fits(t[env])));
-  const next = tries[at < 0 ? 2 : at]!;
+  const variants = (n: number) => [lists(wants, true, n), lists(wants, false, n), lists(false, false, n)];
+  let next = variants(KEEP_AUTO)[2]!;
+  let at = -1;
+  for (let n = KEEP_AUTO; n >= 1 && at < 0; n--) {
+    const tries = variants(n);
+    at = tries.findIndex((t) => fits(t.production) && fits(t.staging));
+    if (at >= 0) next = tries[at]!;
+  }
   const listLarge = wants && at >= 0 && at < 2;
   for (const [before, after, env] of [[prod, next.production, "production"], [staging, next.staging, "staging"]] as const) {
     for (const id of keep) {
@@ -382,8 +392,10 @@ export type SettleOutcome = "green" | "superseded" | "rollback" | "verified" | "
 export type Settle = { outcome: SettleOutcome; reason: string; nextAttempt: number };
 
 /**
- * A roll: green only when the deploy and the product create are green and the create booted this image. Anything
- * else (failed, cancelled, timed out, skipped, another image booted) rolls back while the image is in either list
+ * A roll: green only when the deploy and the product create are green and the create booted this image. A deploy
+ * that never ran (skipped: the check before it failed, as a hung checkout did for 6fde033d, 2026-11-26) with no
+ * create is deployed again, up to ROLLBACK_DEPLOYS deploys. Anything else (failed, cancelled, timed out, skipped
+ * past the bound, another image booted) rolls back while the image is in either list
  * at the tip, first or not: a failed image a newer roll sits above would boot again the moment that newer roll is
  * rolled back. Only an image already gone from both lists (superseded) needs nothing. A cancelled deploy alone
  * proves nothing: the production deploy queue never cancels a running deploy, so a cancel is a person or a
@@ -400,6 +412,11 @@ export function settle(s: SettleInput): Settle {
   if (s.kind === "roll") {
     if (smokeGreen && s.bootImage === s.image && s.deployedFirst === s.image) return done("green", `${s.image} booted in production (${seen})`);
     if (!s.tipHas) return done("superseded", `${seen}; ${s.image} is already in neither list at the tip (production's first is ${s.tipFirst || "none"})`);
+    // The production deploy never ran (its check failed or hung first) and no create booted anything: production
+    // still serves the last deploy, so nothing is known about the image. Deploy the roll again, as a rollback's
+    // retry does; only ROLLBACK_DEPLOYS deploys that all never ran roll it back.
+    if (s.deploy === "skipped" && s.product === "" && s.attempt < ROLLBACK_DEPLOYS)
+      return done("retry", `${s.image}'s production deploy did not run on deploy ${s.attempt} of ${ROLLBACK_DEPLOYS} (${seen}); deploying the roll again`, s.attempt + 1);
     return done("rollback", `${s.image} is not proven in production (${seen})`);
   }
   if (smokeGreen && !s.deployedHas && s.deployedFirst !== "" && s.bootImage === s.deployedFirst)
