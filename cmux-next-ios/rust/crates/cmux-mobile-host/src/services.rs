@@ -2892,6 +2892,77 @@ fn upload_index_dir(parts: &Path, folder: &Path) -> Option<PathBuf> {
     Some(parts.join(format!(".sha256-{name}")))
 }
 
+const MAX_DEDUP_ENTRY_BYTES: usize = 4096;
+
+fn dedup_name(name: &str) -> Option<std::ffi::CString> {
+    if name.is_empty() || name == "." || name == ".." || name.as_bytes().contains(&b'/') {
+        return None;
+    }
+    std::ffi::CString::new(name).ok()
+}
+
+fn dedup_index_name(index: &Path) -> Option<std::ffi::CString> {
+    use std::os::unix::ffi::OsStrExt;
+
+    let name = index.file_name()?;
+    if name.is_empty() || name == "." || name == ".." || name.as_bytes().contains(&b'/') {
+        return None;
+    }
+    std::ffi::CString::new(name.as_bytes()).ok()
+}
+
+/// Open the index directory through its parts directory, refusing aliases at both final components.
+fn open_dedup_index(index: &Path, create: bool) -> Option<std::fs::File> {
+    use std::os::fd::{AsRawFd, FromRawFd};
+
+    let parent = index.parent()?;
+    let name = dedup_index_name(index)?;
+    let parent = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(parent)
+        .ok()?;
+    if create {
+        let result = unsafe { libc::mkdirat(parent.as_raw_fd(), name.as_ptr(), 0o700) };
+        if result == -1 && std::io::Error::last_os_error().raw_os_error() != Some(libc::EEXIST) {
+            return None;
+        }
+    }
+    let fd = unsafe {
+        libc::openat(
+            parent.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_NONBLOCK,
+        )
+    };
+    if fd == -1 {
+        return None;
+    }
+    // SAFETY: `fd` is the owned descriptor returned by openat.
+    Some(unsafe { std::fs::File::from_raw_fd(fd) })
+}
+
+fn open_dedup_entry(index: &std::fs::File, name: &str) -> Option<std::fs::File> {
+    use std::os::fd::{AsRawFd, FromRawFd};
+
+    let name = dedup_name(name)?;
+    let fd = unsafe {
+        libc::openat(index.as_raw_fd(), name.as_ptr(), libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK)
+    };
+    if fd == -1 {
+        return None;
+    }
+    // SAFETY: `fd` is the owned descriptor returned by openat.
+    Some(unsafe { std::fs::File::from_raw_fd(fd) })
+}
+
+fn remove_dedup_entry(index: &std::fs::File, name: &str) {
+    use std::os::fd::AsRawFd;
+
+    let Some(name) = dedup_name(name) else { return };
+    let _ = unsafe { libc::unlinkat(index.as_raw_fd(), name.as_ptr(), 0) };
+}
+
 /// The SHA-256 of a regular file, not following a symlink.
 fn file_sha256(path: &Path) -> Option<String> {
     use std::io::Read;
@@ -2917,10 +2988,25 @@ fn file_sha256(path: &Path) -> Option<String> {
 /// The stored file the index names for `hash`, when it is still a regular file in `folder` of
 /// `size` bytes whose content hashes to `hash`. A stale entry (moved, deleted, changed) is removed.
 async fn dedup_lookup(index: &Path, folder: &Path, hash: &str, size: u64) -> Option<PathBuf> {
-    let entry = index.join(hash);
-    let (folder, hash) = (folder.to_path_buf(), hash.to_string());
+    let (index, folder, hash) = (index.to_path_buf(), folder.to_path_buf(), hash.to_string());
     tokio::task::spawn_blocking(move || {
-        let name = std::fs::read_to_string(&entry).ok()?;
+        use std::io::Read;
+
+        let index = open_dedup_index(&index, false)?;
+        let entry = open_dedup_entry(&index, &hash)?;
+        let metadata = entry.metadata().ok()?;
+        if !metadata.is_file() || metadata.len() > MAX_DEDUP_ENTRY_BYTES as u64 {
+            remove_dedup_entry(&index, &hash);
+            return None;
+        }
+        let mut bytes = Vec::with_capacity(MAX_DEDUP_ENTRY_BYTES + 1);
+        if entry.take((MAX_DEDUP_ENTRY_BYTES + 1) as u64).read_to_end(&mut bytes).is_err()
+            || bytes.len() > MAX_DEDUP_ENTRY_BYTES
+        {
+            remove_dedup_entry(&index, &hash);
+            return None;
+        }
+        let name = std::str::from_utf8(&bytes).ok()?;
         let name = name.trim_end_matches('\n');
         let plain =
             !name.is_empty() && name != "." && name != ".." && !name.contains('/') && !name.contains('\0');
@@ -2929,7 +3015,7 @@ async fn dedup_lookup(index: &Path, folder: &Path, hash: &str, size: u64) -> Opt
             && std::fs::symlink_metadata(&stored).is_ok_and(|meta| meta.is_file() && meta.len() == size)
             && file_sha256(&stored).as_deref() == Some(hash.as_str());
         if !valid {
-            let _ = std::fs::remove_file(&entry);
+            remove_dedup_entry(&index, &hash);
             return None;
         }
         Some(stored)
@@ -2943,19 +3029,38 @@ async fn dedup_lookup(index: &Path, folder: &Path, hash: &str, size: u64) -> Opt
 /// re-send its bytes). The hash is the phone's claim; a lookup re-verifies it before use.
 fn dedup_record(index: &Path, hash: &str, stored: &Path) {
     use std::io::Write;
+    use std::os::fd::{AsRawFd, FromRawFd};
+
     let Some(name) = stored.file_name().and_then(|n| n.to_str()) else { return };
-    if create_private_dir(index).is_err() {
+    let Some(index) = open_dedup_index(index, true) else { return };
+    let temp_name = format!(".{hash}.{}.tmp", uuid::Uuid::new_v4());
+    let Some(temp_name_c) = dedup_name(&temp_name) else { return };
+    let fd = unsafe {
+        libc::openat(
+            index.as_raw_fd(),
+            temp_name_c.as_ptr(),
+            libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW,
+            0o600,
+        )
+    };
+    if fd == -1 {
         return;
     }
-    let temp = index.join(format!(".{hash}.{}.tmp", uuid::Uuid::new_v4()));
-    let written = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(&temp)
-        .and_then(|mut file| file.write_all(name.as_bytes()));
-    if written.is_err() || std::fs::rename(&temp, index.join(hash)).is_err() {
-        let _ = std::fs::remove_file(&temp);
+    // SAFETY: `fd` is the owned descriptor returned by openat.
+    let mut temp = unsafe { std::fs::File::from_raw_fd(fd) };
+    let written = temp.write_all(name.as_bytes());
+    let hash_name = dedup_name(hash);
+    let renamed = if written.is_ok() {
+        hash_name.is_some_and(|hash_name| unsafe {
+            libc::renameat(index.as_raw_fd(), temp_name_c.as_ptr(), index.as_raw_fd(), hash_name.as_ptr())
+                == 0
+        })
+    } else {
+        false
+    };
+    drop(temp);
+    if !renamed {
+        let _ = unsafe { libc::unlinkat(index.as_raw_fd(), temp_name_c.as_ptr(), 0) };
     }
 }
 
