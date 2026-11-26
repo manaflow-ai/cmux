@@ -133,7 +133,7 @@ import Testing
         let changes = Changes()
         changes.watch {
             _ = (store.hasTurns, store.isRunning, store.pendingPermission, store.pendingQuestion, store.firstPrompt,
-                 store.hasAgentEdits, store.runningPlanEntries)
+                 store.hasAgentEdits)
         }
         store.apply(.update(.agentMessageChunk(text: "more", messageId: "m0")))
         await Task.yield()

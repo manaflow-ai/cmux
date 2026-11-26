@@ -44,6 +44,13 @@ import CmuxMobileSupport
         let center = NotificationCenter()
         let tracker = MobileKeyboardFrameTracker(notificationCenter: center)
         tracker.keyboardOwnerPresent = { false }
+        // This test's window has no scene, so UIKit's keyboard layout guide never
+        // moves for a posted frame (the iOS 26 simulator kept the dock at rest, CI run
+        // 45364817994). The dock then follows the notified frames, the path a stalled
+        // guide takes; set before the controller is made, restored after.
+        let stalled = ChatTranscriptController.layoutGuideStalls
+        ChatTranscriptController.layoutGuideStalls = true
+        defer { ChatTranscriptController.layoutGuideStalls = stalled }
         let store = AgentChatStore(source: SmoothChatTests.Silent())
         let surface = AgentChatSurface()
         let controller = ChatTranscriptController(
