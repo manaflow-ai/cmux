@@ -103,8 +103,6 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `*.*.wdev.cmux.dev` | connects | a cmux developer's preview stack, only when the iPhone app's backend override names one |
 | `*.atlassian.net` | connects | the Jira integration: your company's Jira site, only when an agent uses it in your signed-in browser |
 | `*.r2.cloudflarestorage.com` | connects | a large chat attachment you upload or open in cmux Cloud: the file's bytes go to cmux's storage bucket through a presigned URL the cmux API made |
-| `index.crates.io` | connects | crates.io's package index, from a Cloud machine's crates cache, only for an index file no peer has fresh; it sends the file's name and its ETag, no code |
-| `static.crates.io` | connects | crates.io's package downloads, from a Cloud machine's crates cache, only for a `.crate` neither the machine nor a peer has; it sends the package name and version |
 | `accounts.google.com` | connects | the Google integration, only when an agent uses it in your signed-in browser |
 | `api-staging.chatmux.dev` | connects | cmux's chat relay API on staging, only when chosen |
 | `api.*.wdev.cmux.dev` | connects | the API of a cmux developer's preview stack, only when the iPhone app's backend override names one |
@@ -170,6 +168,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `home.atlassian.com` | connects | the Jira integration, only when an agent uses it in your signed-in browser |
 | `html.duckduckgo.com` | connects | web search for an agent's search tool, when an agent searches |
 | `ice2.somafm.com` | connects | the radio player's stream, in a browser tab you start with Play, only when you install it (a customize template) |
+| `index.crates.io` | connects | crates.io's package index, from a Cloud machine's crates cache, only for an index file no peer has fresh; it sends the file's name and its ETag, no code |
 | `lh3.googleusercontent.com` | connects | images in agent replies |
 | `linear.app` | connects | the Linear integration, only when an agent uses it in your signed-in browser |
 | `mail.google.com` | connects | the Google integration, only when an agent uses it in your signed-in browser |
@@ -190,6 +189,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `share-staging.cmux.dev` | connects | shared workspace links on staging, only when chosen |
 | `share.cmux.dev` | connects | shared workspace links (production) |
 | `somafm.com` | connects | the radio player's station list and the song each station plays, only when you install it (a customize template) |
+| `static.crates.io` | connects | crates.io's package downloads, from a Cloud machine's crates cache, only for a `.crate` neither the machine nor a peer has; it sends the package name and version |
 | `stun.cloudflare.com` | connects | a STUN server for the phone and remote-desktop links when the link names none: it learns only the device's public address, no session traffic |
 | `stun.l.google.com` | connects | the second fallback STUN server for the remote-desktop link: it learns only the public address, no session traffic |
 | `suggestqueries.google.com` | connects | search suggestions as you type, when Google is your search engine |
@@ -293,6 +293,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `en.wikipedia.org` | opens | a search engine, when you search with it |
 | `notion.so` | opens | a site the address bar suggests before it is in your history |
 | `twitch.tv` | opens | a site the address bar suggests before it is in your history |
+| `api.slack.com` | opens | Slack's app page with the configuration token, opened from Settings when you connect Slack |
 
 ### Names the app never contacts
 
@@ -388,6 +389,8 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `netlify.com` | identifier | a sign-in site the iPhone app compares a page's host with, to stream that page from the Mac instead of loading it on the phone; never fetched for this |
 | `portal.azure.com` | identifier | a sign-in site the iPhone app compares a page's host with, to stream that page from the Mac instead of loading it on the phone; never fetched for this |
 | `sentry.io` | identifier | a sign-in site the iPhone app compares a page's host with, to stream that page from the Mac instead of loading it on the phone; never fetched for this |
+| `console.cmux.dev` | identifier | the cmux console GitHub sends a person back to after installing the cmux GitHub App; the app catches that return before the page loads and finishes the install itself |
+| `console-staging.cmux.dev` | identifier | the staging cmux console GitHub sends a person back to after installing the cmux GitHub App; caught before the page loads |
 
 ### Samples and placeholders
 
@@ -425,6 +428,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `argument.app` | not-a-host | a localized string key |
 | `toast.detail.io` | not-a-host | a localized string key |
 | `projection.io` | not-a-host | an error code of projected folders |
+| `share.io` | not-a-host | an error code of a shared folder's listing |
 | `cmux-ios-com.cmux.app` | not-a-host | a URL scheme or bundle id |
 | `red.sh` | not-a-host | a script file name in a Cloud journey repro capsule |
 | `green.sh` | not-a-host | a script file name in a Cloud journey repro capsule |

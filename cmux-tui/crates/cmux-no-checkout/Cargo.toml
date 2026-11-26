@@ -19,6 +19,7 @@ mock = ["dep:cmux-scope"]
 anyhow.workspace = true
 async-trait.workspace = true
 base64.workspace = true
+cmux-egress.workspace = true
 cmux-process.workspace = true
 cmux-scope = { workspace = true, optional = true }
 reqwest.workspace = true
