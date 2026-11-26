@@ -38,13 +38,13 @@ fn injected(class: Class) -> Value {
         Class::SpendCap => error("cloud.spend_cap", json!({})),
         Class::SignedOut => error("cloud.signed_out", json!({"sign_in": "cmux login"})),
         Class::AccountChanged => error("cloud.account_changed", json!({})),
-        Class::AppNotConnected => {
-            error("cloud.app_not_connected", json!({"app": "not_connected"}))
-        }
+        Class::AppNotConnected => error("cloud.app_not_connected", json!({"app": "not_connected"})),
         Class::NoConnection => json!({"code": "unavailable",
             "message": "No Cloud connection serves claude yet. Add one in Settings > Cloud"}),
         Class::AgentSignIn => error("auth.token", json!({})),
-        Class::AgentLimit => error("agent.limit_reached", json!({"until_at": "2026-11-26T12:00:00Z"})),
+        Class::AgentLimit => {
+            error("agent.limit_reached", json!({"until_at": "2026-11-26T12:00:00Z"}))
+        }
         Class::AgentRefused => error("agent_session.bad_request", json!({})),
         Class::StartFailed => error("cloud.start_failed", json!({"machine_id": "vm-1"})),
         Class::NameTaken => error("cloud.name_taken", json!({})),
@@ -133,7 +133,10 @@ fn an_unclassified_code_passes_through() {
     let mut fake = Fake::new(Vec::new());
     let began = fake.clock;
     let failure = Outcome::Failed { error: error.clone(), exit: 1 };
-    assert_eq!(recover(&mut fake, &request(&[]), began, failure), Outcome::Failed { error, exit: 1 });
+    assert_eq!(
+        recover(&mut fake, &request(&[]), began, failure),
+        Outcome::Failed { error, exit: 1 }
+    );
 }
 
 /// A machine still starting is started on again by its id, never as a second new machine, after a pause.
@@ -149,7 +152,15 @@ fn a_pending_start_is_started_again_on_the_machine_it_names() {
     assert_eq!(answer["recovered_reruns"], 1);
     assert_eq!(
         fake.ran[1],
-        strings(&["cloud", "start-session", "--target", "machine:vm-1", "--agent", "claude", "--json"])
+        strings(&[
+            "cloud",
+            "start-session",
+            "--target",
+            "machine:vm-1",
+            "--agent",
+            "claude",
+            "--json"
+        ])
     );
     assert_eq!(fake.paused, Duration::from_secs(5));
 }
@@ -186,9 +197,10 @@ fn a_run_with_no_deadline_is_not_rerun() {
 /// still starting: starting again could send the prompt twice.
 #[test]
 fn a_pending_answer_with_a_chat_behind_it_is_not_started_again() {
-    for details in [json!({"machine_id": "vm-1", "sent": "unknown"}),
-                    json!({"machine_id": "vm-1", "answer": {"session_id": "sess-1"}})]
-    {
+    for details in [
+        json!({"machine_id": "vm-1", "sent": "unknown"}),
+        json!({"machine_id": "vm-1", "answer": {"session_id": "sess-1"}}),
+    ] {
         let mut error = injected(Class::StartPending);
         error["details"] = details;
         assert_eq!(classify(&error), None, "{error}");
@@ -229,5 +241,8 @@ fn a_machine_cap_without_make_room_passes_through() {
     let mut fake = Fake::new(Vec::new());
     let began = fake.clock;
     let failure = Outcome::Failed { error: error.clone(), exit: 1 };
-    assert_eq!(recover(&mut fake, &request(&[]), began, failure), Outcome::Failed { error, exit: 1 });
+    assert_eq!(
+        recover(&mut fake, &request(&[]), began, failure),
+        Outcome::Failed { error, exit: 1 }
+    );
 }

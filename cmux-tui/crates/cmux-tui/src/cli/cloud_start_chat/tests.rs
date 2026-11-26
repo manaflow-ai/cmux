@@ -2221,7 +2221,6 @@ fn a_pending_create_with_no_id_is_asked_again_by_its_name_and_never_made_twice()
     for (case, words, cost) in cases {
         let mut all = vec!["--prompt", "x"];
         all.extend_from_slice(words);
-        eprintln!("CASE {case}");
         let mut fake = Fake::new(vec![signed_in(), pending(), still_creating("creating")]);
         fake.slow.push((1, secs(cost)));
         let Outcome::Failed { error, exit } = run(&mut fake, &request(&all)) else {
@@ -2257,8 +2256,11 @@ fn a_pending_create_with_no_id_is_asked_again_by_its_name_and_never_made_twice()
         assert_eq!(error["details"]["creation_id"], "c-1", "{case}: {error}");
 
         // Asked again while the create is still on its way, or after it failed: no second machine.
-        let rerun: Vec<&str> =
+        // `--timeout 9` leaves the one read (5 s) no time for the recovery table's rerun (recover.rs): the answer to that
+        // one ask is what is checked here.
+        let mut rerun: Vec<&str> =
             again.split_whitespace().skip(3).filter(|word| *word != "--json").collect();
+        rerun.extend(["--timeout", "9"]);
         for (status, code, exit) in
             [("creating", "cloud.start_pending", 75), ("failed", "cloud.start_failed", 1)]
         {

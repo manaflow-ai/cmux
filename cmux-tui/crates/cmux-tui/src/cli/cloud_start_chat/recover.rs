@@ -195,7 +195,6 @@ pub(super) fn recover(
     let mut reruns = 0_u32;
     loop {
         let Outcome::Failed { error, .. } = &outcome else { return outcome };
-        eprintln!("RECOVER {error} {:?}", runner.now().saturating_duration_since(began));
         let Some(action) = classify(error).and_then(recovery) else { return outcome };
         outcome = match action {
             Action::FreshMachine if last != Some(Action::FreshMachine) => {
