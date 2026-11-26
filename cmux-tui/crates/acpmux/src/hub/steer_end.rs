@@ -413,6 +413,11 @@ impl Hub {
                 if inbox_notice {
                     self.inbox_prompt_written(session, &prompt_id);
                 }
+                // A blocker that sits unread behind a step that never ends stops the step
+                // (`urgent_steer.rs`).
+                if inbox_notice && super::urgent_steer::carries_blocker(opts.provenance.as_ref()) {
+                    self.watch_urgent_steer(session, &prompt_id, turn_id);
+                }
             },
         );
         // The person's message does not wait behind a long foreground call: once it is written,
