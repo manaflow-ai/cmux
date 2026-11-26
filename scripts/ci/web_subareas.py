@@ -248,8 +248,21 @@ CHAT_FLOW_PREFIXES = (
 # A cmux-tui/ path routes the real-daemon lane through acpmux_build_input (below), not by prefix.
 AGENT_PANE_PREFIXES = (
     ".github/actions/setup-cmux-tui-rust/",
+    # Inputs of `cargo build -p acpmux --bin acpmux` outside cmux-tui/ (the same set as ci/steps.toml's
+    # agent-pane-real-acpmux inputs): the real-daemon lane only, the chat-flow lane builds no Rust.
+    ".cargo/",
+    "skills/",
+    "persisted-formats/",
+    "Resources/sidebar-looks/",
+    "Resources/theme-files/",
     *CHAT_FLOW_PREFIXES,
 )
+ACPMUX_BUILD_EXACT = {
+    "ghostty-next",
+    "workers/cmux-vm/cli/crates/cmux-vm-codegen/src/normalize.rs",
+    "plans/cmux-next/spec-proposals/visuals/design-tokens.json",
+    "docs/remote-agents-and-cloud.md",
+}
 
 # agent-pane-real-acpmux builds one Rust binary, `cargo build -p acpmux --bin acpmux`: of cmux-tui/crates/, only
 # the crates in its build (its [dependencies] and [build-dependencies] by path, transitively) and the crates their
@@ -414,7 +427,7 @@ def classify_paths(paths: list[str], repo_root: Path | None = None) -> WebSubare
 
         if path in AGENT_PANE_EXACT or path.startswith(CHAT_FLOW_PREFIXES):
             agent_pane = chat_flow = True
-        if path.startswith(AGENT_PANE_PREFIXES) or acpmux_build_input(path, root):
+        if path in ACPMUX_BUILD_EXACT or path.startswith(AGENT_PANE_PREFIXES) or acpmux_build_input(path, root):
             agent_pane = True
 
         if path in UNIT_TESTS_EXACT or (
