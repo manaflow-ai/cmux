@@ -82,6 +82,7 @@ public final class ChiefCallToolbox: VoiceCallToolbox {
         guard !text.isEmpty else { return VoiceCallToolResult(object: ["error": "empty message"]) }
         let connected = chief.acceptsSendsNow && chief.isConnected
         guard chief.send(ConversationComposeMessage(text: text), asksForAlerts: false) else {
+            // retry-prompt-ok: a message the person dictated, not sent; sending it again is theirs (Chief refused to queue it)
             return VoiceCallToolResult(
                 object: ["status": "not_sent", "note": "Chief isn't connected, so nothing was sent. Tell the user and offer to try again later."],
                 activity: String(localized: "Not sent to Chief: “\(text)”"))
