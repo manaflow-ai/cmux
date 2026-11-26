@@ -39,10 +39,15 @@
 //! `harnessMagic.surgery.{runs,tokensBefore,tokensAfter,maskedResults}` on the next
 //! `turn_result`; for the [`REFETCH_TURNS`] turns after it, `harnessMagic.surgery.refetched`
 //! counts the masked results the agent fetched again (the same path read or command run), the
-//! masking-regret rate.
+//! masking-regret rate. `harnessMagic.surgery.fallbacks` counts the compaction triggers
+//! (`cache_compact.rs`, `cold_wake.rs`, `auto_resume/compact_first.rs`) that tried surgery first
+//! ([`Hub::surgery_before_compact`]) and sent `/compact` after all.
 //!
-//! Off switch: `agents.harnessMagic.surgery.enabled: false` in the settings file, or
-//! `ACPMUX_HM_SURGERY=0` in the daemon's environment.
+//! Off by default (Leo, 2026-11-26: "we ought to not make jcmux/acpmux so opinionated with
+//! compacition. only do it for our personal fleet situation"): it rewrites what the agent sees,
+//! so only a person who asked for it gets it. On: `agents.harnessMagic.surgery.enabled: true` in
+//! the settings file; `ACPMUX_HM_SURGERY=0` in the daemon's environment turns it off whatever the
+//! file says.
 //!
 //! Codex: its rollout (`~/.codex/sessions/**/rollout-*.jsonl`) keeps `function_call_output`
 //! items that a copy could mask the same way, but a resumed thread rebuilds from `compacted`
@@ -113,7 +118,7 @@ impl Masked {
     }
 }
 
-/// Whether the feature is on: the kill switch, then the settings key (on unless `false`).
+/// Whether the feature is on: the kill switch, then the settings key (off unless `true`).
 pub(crate) fn enabled_with(doc: Option<&Value>, env: Option<&str>) -> bool {
     if env.is_some_and(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "0" | "false" | "off"))
     {
@@ -121,7 +126,7 @@ pub(crate) fn enabled_with(doc: Option<&Value>, env: Option<&str>) -> bool {
     }
     doc.and_then(|d| crate::user_settings::value(d, SETTING_ENABLED))
         .and_then(|v| v.as_bool())
-        .unwrap_or(true)
+        .unwrap_or(false)
 }
 
 fn settings_doc() -> Option<Value> {
@@ -388,6 +393,7 @@ struct Track {
     counted: HashSet<String>,
     turns_left: u8,
     refetched: u64,
+    fallbacks: u64,
 }
 
 static TRACKS: std::sync::LazyLock<StdMutex<HashMap<String, Track>>> =
@@ -409,6 +415,11 @@ fn note_run(session: &str, m: &Masked) {
     t.masked += m.masked as u64;
     t.keys.extend(m.keys.iter().cloned());
     t.turns_left = REFETCH_TURNS;
+}
+
+/// A compaction trigger of `session` tried surgery first and sent `/compact` after all.
+pub(crate) fn note_fallback(session: &str) {
+    tracks().entry(session.to_owned()).or_default().fallbacks += 1;
 }
 
 /// A tool call of `session` with `input`: a refetch of a masked result counts once.
@@ -435,6 +446,10 @@ pub(crate) fn turn_fields(session: &str) -> serde_json::Map<String, Value> {
         fields.insert(key("tokensSaved"), json!(t.tokens_before.saturating_sub(t.tokens_after)));
         (t.runs, t.tokens_before, t.tokens_after, t.masked) = (0, 0, 0, 0);
     }
+    if t.fallbacks > 0 {
+        fields.insert(key("fallbacks"), json!(t.fallbacks));
+        t.fallbacks = 0;
+    }
     if t.turns_left > 0 {
         fields.insert(key("refetched"), json!(t.refetched));
         t.refetched = 0;
@@ -451,6 +466,36 @@ fn refused(reason: &str) -> Value {
 }
 
 impl Hub {
+    /// A compaction trigger's surgery first: a dry run, then the real run when masking alone
+    /// takes `session` under `line` tokens. True when it applied; the caller then sends no
+    /// `/compact`. False (off, not a stored Claude conversation, too little to mask, refused,
+    /// failed) keeps the caller's `/compact`, counted in `harnessMagic.surgery.fallbacks` while
+    /// surgery is on. `trigger` names the caller in the log.
+    pub(crate) async fn surgery_before_compact(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        line: u64,
+        trigger: &'static str,
+    ) -> bool {
+        if !enabled() {
+            return false;
+        }
+        let dry = self.surgery(session, None, true).await;
+        let applied = if super::cold_wake::surgery_suffices(&dry, line) {
+            let answer = self.surgery(session, None, false).await;
+            let applied = super::cold_wake::surgery_applied(&answer);
+            tracing::info!(session = %session.id, trigger, line, applied, outcome = ?answer.as_ref().map_err(|e| &e.message), "surgery before compaction");
+            applied
+        } else {
+            tracing::info!(session = %session.id, trigger, line, outcome = ?dry.as_ref().map_err(|e| &e.message), "surgery before compaction skipped");
+            false
+        };
+        if !applied {
+            note_fallback(&session.id);
+        }
+        applied
+    }
+
     /// `_acpmux/surgery`, cold wake's choice and our own timer: mask `session`'s old tool output
     /// and resume it on the copy (module docs). `dry_run` counts what it would mask and writes
     /// nothing. Answers `{applied, ...}`; a chat it may not touch now answers `applied: false`

@@ -200,7 +200,7 @@ export function ChatGPTStatus({ chatgpt, busy, run }: { chatgpt: ModelsState["ch
   if (chatgpt.attempt) {
     return (
       <output className="models-chatgpt" data-chatgpt="pending">
-        <span className="row-help">{t("settingsWindow.models.chatgpt.waiting")}</span>
+        <span className="row-help">{t("connect.codex.signingIn")}</span>
         <Button
           type="button"
           className="button"
@@ -1124,10 +1124,10 @@ function ClaudeConnectForm({
   onDone(): void;
 }) {
   const running = claude.attempt !== null;
-  // Done: a run this form saw ended without an error, so the token is saved.
+  // Done: a run this form saw ended with its token saved (the host's `saved`; a Cancel is not).
   const [seen, setSeen] = useState(false);
   if (running && !seen) setSeen(true);
-  const saved = seen && !running && claude.error === null;
+  const saved = seen && !running && claude.error === null && claude.saved === true;
   useEffect(() => {
     if (saved) onDone();
   }, [saved, onDone]);
