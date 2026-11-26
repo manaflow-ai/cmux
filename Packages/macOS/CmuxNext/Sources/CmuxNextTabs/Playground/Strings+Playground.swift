@@ -21,6 +21,10 @@ extension Strings {
         String(format: String(localized: "tabs.playground.corner.name", defaultValue: "Radius %1$@ pt, padding %2$@ pt", bundle: .localizedModule),
                points(outer), points(padding))
     }
+    /// A Tab Max Width row's name ("Max tab width 201 pt", ``TabMaxWidthPlaygroundVariants``).
+    static func playgroundTabMaxWidth(_ width: CGFloat) -> String {
+        String(format: String(localized: "tabs.playground.maxWidth.name", defaultValue: "Max tab width %@ pt", bundle: .localizedModule), points(width))
+    }
     /// A Corner Radius row's caption: the nested radius it derives ("Tabs and inner fills: 8 pt").
     static func playgroundCornerCaption(inner: CGFloat) -> String {
         String(format: String(localized: "tabs.playground.corner.caption", defaultValue: "Tabs and inner fills: %@ pt", bundle: .localizedModule), points(inner))

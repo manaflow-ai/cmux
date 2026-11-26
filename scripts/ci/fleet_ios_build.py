@@ -8,7 +8,7 @@ reach the controller, and that runner sat idle for the whole build while `cmux-c
 It reads the repository and the commit from the token, so a run can build only its own commit, never another ref.
 It submits the same job `cmux-ci ios-build` does and hands back the output once the build passes.
 
-  POST ROUTE  {"op": "submit", "what": "ffi"|"sim-products"}  -> {"job", "state"}
+  POST ROUTE  {"op": "submit", "what": "ffi"|"sim-products"|"kit-products"}  -> {"job", "state"}
   POST ROUTE  {"op": "status", "job": ID}                     -> {"job", "state"[, "verdict", "reason",
                                                                   "get_url", "get_until"]}
 
@@ -18,7 +18,7 @@ Exit codes are the same as `cmux-ci ios-build`'s, so the callers did not change:
   2  no answer: no token, the route is not enabled or not reachable, the deadline passed, or the output is
      missing. The caller builds the output itself, as before.
 
-Usage: fleet_ios_build.py --what ffi|sim-products --out DIR [--timeout 1500] [--queue-timeout 600]
+Usage: fleet_ios_build.py --what ffi|sim-products|kit-products --out DIR [--timeout 1500] [--queue-timeout 600]
 """
 import argparse
 import json
@@ -37,6 +37,8 @@ AUDIENCE = "cmux-ios-build"
 OUTPUTS = {
     "ffi": ("CmuxMobileLinkFFI.xcframework", "CmuxMobileLinkFFI.swift"),
     "sim-products": ("ios-sim-build.tar.gz", "ios-sim-xctest-platform.tar.gz", "ios-sim-app.zip"),
+    # The kit's simulator test build (cmux-next-ios-kit.yml kit-sim-fleet): what the Mac's sim-pack step packs.
+    "kit-products": ("ios-sim-build.tar.gz", "ios-sim-xctest-platform.tar.gz"),
 }
 QUEUED = {"queued", "pending", "waiting"}
 ENDED = {"done", "failed", "cancelled", "canceled", "error", "timeout", "timed_out", "lost"}
