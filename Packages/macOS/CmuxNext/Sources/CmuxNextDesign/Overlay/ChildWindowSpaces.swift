@@ -1,5 +1,4 @@
 public import AppKit
-import CmuxNextCompat
 
 /// A main window's child panels join a full screen Space only with their own window.
 ///
@@ -12,20 +11,20 @@ import CmuxNextCompat
 /// overlay panel still there, 2026-11-26).
 ///
 /// A child that declares `.fullScreenAuxiliary` keeps it only while its window is in full screen: from
-/// `willEnterFullScreen` (before AppKit moves the window to its new Space) until `didExitFullScreen` or
-/// `didFailToEnterFullScreen`. A child that never declared it is left alone: Chromium page windows go with their
+/// `windowWillEnterFullScreen` (before AppKit moves the window to its new Space) until `windowDidExitFullScreen` or
+/// `windowDidFailToEnterFullScreen`. A child that never declared it is left alone: Chromium page windows go with their
 /// window into its own full screen Space as any child does. The main window calls ``adopt(_:parent:)`` from its
-/// `addChildWindow(_:ordered:)` override; the first adopt follows that window's transitions until it closes.
+/// `addChildWindow(_:ordered:)` override, and its delegate reports the transitions (AppKit posts no notification for a
+/// failed one).
 @MainActor
 public struct ChildWindowSpaces {
     public init() {}
     /// Child windows that declared `.fullScreenAuxiliary` when they first came under a window.
     private static let auxiliaries = NSHashTable<NSWindow>.weakObjects()
-    /// Windows between `willEnterFullScreen` and its end, or `willExitFullScreen` and its end.
+    /// Windows entering or leaving full screen (the style mask loses `.fullScreen` as the exit begins).
     private static let transitioning = NSHashTable<NSWindow>.weakObjects()
-    private static var observations: [ObjectIdentifier: [MainActorObservation]] = [:]
 
-    /// Whether `window` is in full screen, entering it or leaving it (the style mask loses `.fullScreen` as the exit begins).
+    /// Whether `window` is in full screen, entering it or leaving it.
     public static func isInFullScreen(_ window: NSWindow) -> Bool {
         window.styleMask.contains(.fullScreen) || transitioning.contains(window)
     }
@@ -36,38 +35,23 @@ public struct ChildWindowSpaces {
     /// Gives `child`, being added as a child window of `parent`, its parent's full screen membership.
     public static func adopt(_ child: NSWindow, parent: NSWindow) {
         guard !WindowOverlayHost.isAppKitChrome(child) else { return }
-        follow(parent)
         if child.collectionBehavior.contains(.fullScreenAuxiliary) { auxiliaries.add(child) }
         guard auxiliaries.contains(child) else { return }
         setAuxiliary(child, isInFullScreen(parent))
     }
 
-    /// Follows `window`'s full screen transitions for its child windows until it closes; once per window.
-    static func follow(_ window: NSWindow) {
-        let id = ObjectIdentifier(window)
-        guard observations[id] == nil else { return }
-        // Delivered in AppKit's own post (`atOnce`): the children carry the behavior before AppKit moves the window.
-        func on(_ name: Notification.Name, _ body: @escaping @MainActor (NSWindow) -> Void) -> MainActorObservation {
-            MainActorObservation(name, object: window, atOnce: true, read: { $0.object as? NSWindow }) { posted in
-                if let posted { body(posted) }
-            }
-        }
-        observations[id] = [
-            on(NSWindow.willEnterFullScreenNotification) { transitioning.add($0); sync($0) },
-            on(NSWindow.didEnterFullScreenNotification) { transitioning.remove($0); sync($0) },
-            on(NSWindow.didFailToEnterFullScreenNotification) { transitioning.remove($0); sync($0) },
-            on(NSWindow.willExitFullScreenNotification) { transitioning.add($0); sync($0) },
-            on(NSWindow.didExitFullScreenNotification) { transitioning.remove($0); sync($0) },
-            on(NSWindow.didFailToExitFullScreenNotification) { transitioning.remove($0); sync($0) },
-            on(NSWindow.willCloseNotification) { stopFollowing($0) },
-        ]
-    }
-
-    /// Stops following `window` (it closed).
-    static func stopFollowing(_ window: NSWindow) {
-        observations.removeValue(forKey: ObjectIdentifier(window))?.forEach { $0.cancel() }
-        transitioning.remove(window)
-    }
+    /// `windowWillEnterFullScreen`: the children may join the new full screen Space before AppKit moves the window.
+    public static func willEnterFullScreen(_ window: NSWindow) { transitioning.add(window); sync(window) }
+    /// `windowDidEnterFullScreen`: the style mask says full screen from now on.
+    public static func didEnterFullScreen(_ window: NSWindow) { transitioning.remove(window); sync(window) }
+    /// `windowDidFailToEnterFullScreen`: the window stays windowed.
+    public static func didFailToEnterFullScreen(_ window: NSWindow) { transitioning.remove(window); sync(window) }
+    /// `windowWillExitFullScreen`: the children stay with the window while it leaves.
+    public static func willExitFullScreen(_ window: NSWindow) { transitioning.add(window); sync(window) }
+    /// `windowDidExitFullScreen`: windowed again, the children can no longer join a full screen Space.
+    public static func didExitFullScreen(_ window: NSWindow) { transitioning.remove(window); sync(window) }
+    /// `windowDidFailToExitFullScreen`: the window stays in full screen, and its children with it.
+    public static func didFailToExitFullScreen(_ window: NSWindow) { transitioning.remove(window) }
 
     /// Every declared child of `window` follows the window's full screen state.
     static func sync(_ window: NSWindow) {

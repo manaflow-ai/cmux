@@ -8,8 +8,8 @@ import Testing
 /// window's full screen enter and exit, about 0.6 s each. It was parked in ANOTHER app's full screen Space (Chrome's, on
 /// the same display), where it had followed a child panel declared `.fullScreenAuxiliary`: AppKit keeps a child on its
 /// parent's Space, and the child may join a full screen Space. A main window's child panels now carry that behavior
-/// only while the window itself is in full screen, across AppKit's will/did enter and exit notifications. Real
-/// ShellWindow and panel classes; the notifications are the ones AppKit posts around a transition.
+/// only while the window itself is in full screen, across AppKit's will/did enter and exit callbacks. Real ShellWindow
+/// and panel classes; the transition calls are the ones the window's delegate (`WindowController+FullScreen`) makes.
 @MainActor @Suite(.serialized, .closesItsWindows) struct FullScreenChildSpacesTests {
     private func shellWindow() -> ShellWindow {
         _ = NSApplication.shared
@@ -21,14 +21,10 @@ import Testing
         return window
     }
 
-    private func post(_ name: Notification.Name, _ window: NSWindow) {
-        NotificationCenter.default.post(name: name, object: window)
-    }
-
     private func auxiliary(_ child: NSWindow) -> Bool { child.collectionBehavior.contains(.fullScreenAuxiliary) }
 
-    /// The overlay host panel and a divider-catcher-like panel under a window that is not in full screen cannot join a
-    /// full screen Space, so they cannot take their window into one. Their other behaviors stay.
+    /// The overlay host panel of a window that is not in full screen cannot join a full screen Space, so it cannot take
+    /// its window into one. Its other behaviors stay.
     @Test func aChildPanelOfAWindowedWindowCannotJoinAFullScreenSpace() {
         let window = shellWindow()
         let host = WindowOverlayHost.host(for: window)
@@ -49,24 +45,24 @@ import Testing
     }
 
     /// Across a full screen enter and exit: auxiliary from willEnter (before AppKit moves the window to its new Space)
-    /// until didExit. (didEnter is not posted here: no real transition sets `.fullScreen` in the style mask, which
-    /// keeps the children auxiliary from then on in the app.)
+    /// until didExit. (No didEnter here: without a real transition the style mask never says `.fullScreen`, which is
+    /// what keeps the children auxiliary in full screen in the app.)
     @Test func aChildPanelFollowsItsWindowAcrossTheTransitions() {
         let window = shellWindow()
         let child = panel([.fullScreenAuxiliary, .transient, .ignoresCycle])
         window.addChildWindow(child, ordered: .above)
         #expect(!auxiliary(child))
 
-        post(NSWindow.willEnterFullScreenNotification, window)
+        ChildWindowSpaces.willEnterFullScreen(window)
         #expect(auxiliary(child), "the child must be auxiliary before AppKit moves its window into the new full screen Space")
-        post(NSWindow.didFailToEnterFullScreenNotification, window)
+        ChildWindowSpaces.didFailToEnterFullScreen(window)
         #expect(!auxiliary(child), "a failed enter leaves the window windowed")
 
-        post(NSWindow.willEnterFullScreenNotification, window)
+        ChildWindowSpaces.willEnterFullScreen(window)
         #expect(auxiliary(child))
-        post(NSWindow.willExitFullScreenNotification, window)
+        ChildWindowSpaces.willExitFullScreen(window)
         #expect(auxiliary(child), "the child stays with its window while it leaves")
-        post(NSWindow.didExitFullScreenNotification, window)
+        ChildWindowSpaces.didExitFullScreen(window)
         #expect(!auxiliary(child))
         #expect(child.collectionBehavior.isSuperset(of: [.transient, .ignoresCycle]))
         child.close()
@@ -79,7 +75,7 @@ import Testing
         let window = shellWindow()
         let first = panel([.fullScreenAuxiliary, .transient])
         window.addChildWindow(first, ordered: .above)
-        post(NSWindow.willEnterFullScreenNotification, window)
+        ChildWindowSpaces.willEnterFullScreen(window)
         let late = panel([.fullScreenAuxiliary, .transient])
         let page = NSWindow(contentRect: CGRect(x: -3000, y: -3000, width: 100, height: 60), styleMask: [.borderless], backing: .buffered, defer: false)
         page.isReleasedWhenClosed = false
@@ -87,8 +83,8 @@ import Testing
         window.addChildWindow(page, ordered: .above)
         #expect(auxiliary(first) && auxiliary(late))
         #expect(!auxiliary(page))
-        post(NSWindow.willExitFullScreenNotification, window)
-        post(NSWindow.didExitFullScreenNotification, window)
+        ChildWindowSpaces.willExitFullScreen(window)
+        ChildWindowSpaces.didExitFullScreen(window)
         #expect(!auxiliary(first) && !auxiliary(late))
         #expect(!auxiliary(page))
         for child in [first, late, page] { child.close() }

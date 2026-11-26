@@ -12,34 +12,40 @@ import CmuxNextDesign
 // they are back every strip under them measures again.
 extension WindowController {
     func windowWillEnterFullScreen(_ notification: Notification) {
+        if let window { ChildWindowSpaces.willEnterFullScreen(window) } // its child panels may join the new Space with it
         services.hoverCards.dismiss(.action)
         isEnteringFullScreen = true
     }
 
     func windowDidEnterFullScreen(_ notification: Notification) {
+        if let window { ChildWindowSpaces.didEnterFullScreen(window) }
         fullScreenTransitionDidEnd()
         pageFullScreenEnterDidEnd()
     }
 
     func windowDidFailToEnterFullScreen(_ window: NSWindow) {
+        ChildWindowSpaces.didFailToEnterFullScreen(window)
         Motion.fullScreenTransitionFailed(window)
         fullScreenTransitionDidEnd()
         pageFullScreenEnterDidEnd()
     }
 
     func windowWillExitFullScreen(_ notification: Notification) {
+        if let window { ChildWindowSpaces.willExitFullScreen(window) }
         services.hoverCards.dismiss(.action)
         (window as? ShellWindow)?.isLeavingFullScreen = true
         pagePresentationWindowWillExitFullScreen()
     }
 
     func windowDidExitFullScreen(_ notification: Notification) {
+        if let window { ChildWindowSpaces.didExitFullScreen(window) } // windowed again: no child may take it into a full screen Space
         fullScreenTransitionDidEnd()
         // A page went fullscreen while the window was leaving full screen: it enters again now.
         if pagePresentation?.entersWindowFullScreen == true, let window, !window.styleMask.contains(.fullScreen) { window.toggleFullScreen(nil) }
     }
 
     func windowDidFailToExitFullScreen(_ window: NSWindow) {
+        ChildWindowSpaces.didFailToExitFullScreen(window)
         Motion.fullScreenTransitionFailed(window)
         fullScreenTransitionDidEnd()
     }
