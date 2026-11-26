@@ -195,7 +195,7 @@ export type SimResult = {
 const RECEIVED_STEP_GAP = 8;
 /** Rows drawn on the tool rows' line (model.ts isStepRow, the one-line kinds). */
 const STEP_KINDS = new Set(["activity", "subagent", "messageRun", "laneNoticeBatch", "pendingMessages"]);
-const LIVE_KINDS = new Set(["typing", "working", "thinking", "activityLine"]);
+const LIVE_KINDS = new Set(["typing", "working", "thinking"]);
 const isLive = (row: AcpmuxRow) => row.below === true || row.kind === "typing" || row.id.endsWith("-live");
 const foldOf = (row: AcpmuxRow): string => {
   if (row.foldOpen !== undefined) return row.foldOpen ? "open" : "closed";
