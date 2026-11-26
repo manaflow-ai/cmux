@@ -1329,7 +1329,7 @@ public final class DaemonTerminalSession: TerminalSession {
             // answers with the replay at that grid one round trip after the
             // start instead of two. Its events wait from now on.
             let plan = TerminalAttachPlan.plan(firstAttach: quickSize == nil && !everAttached && attachRetries == 0, claimsSize: claimsSize,
-                                               size: lastSize ?? pendingSize, resumes: hybridResume != nil)
+                                               size: lastSize ?? pendingSize, resumes: hybridResume != nil || bytesFrom != nil)
             var pipelinedSize: (columns: Int, rows: Int)?
             if case .pipelined(let columns, let rows) = plan {
                 pipelinedSize = (columns, rows)
