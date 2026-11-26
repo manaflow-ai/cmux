@@ -618,7 +618,7 @@ pub(super) struct InstallsResult {
 /// One update (`apps.updates.list` `updates[]`): an installed git app whose
 /// Community row names another reviewed commit than the one installed.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-pub(super) struct UpdateRow {
+pub(crate) struct UpdateRow {
     /// The installed app id (`apps.update {app}`).
     pub app: String,
     pub name: String,
