@@ -28,11 +28,11 @@ pr_router.json lists each routed workflow ("callee") with what used to start it:
              when the change routes a step of one of them (scripts/ci/ci_steps.py, each step's `inputs`);
              a table that cannot be read starts it. A job of FULL_TIER_JOBS (the `mac` job) is routed only
              on a full-tier head: a draft or idle head runs no Mac, as cmux-next.yml's path_route held;
-  labels     labels whose `labeled` event starts it whatever the paths (full-ci always does);
+  labels     labels whose `labeled` event starts it whatever the paths;
   draft      true for a workflow that also runs on a draft head (scripts/ci/head_tier.py's cheap tier);
              any other callee starts on a draft only with full-ci, and runs when the PR is marked ready
              for review, so every callee must listen to `ready_for_review` (`check` says so).
-A `full-ci` label on the pull request starts every callee its types allow.
+A `full-ci` label makes the head full tier (as `ready-to-land` does); the paths still decide which callees start.
 
 Whatever the router cannot read (no merge commit, a git error) starts every callee the event's type allows:
 it routes more, never less. Stdlib only, plus workflow_paths_cover_inputs (the one GitHub paths-glob
@@ -165,14 +165,15 @@ def route(event: dict, callees: dict, files: list[str] | None,
         if action not in config["types"]:
             why[name] = f"does not listen to '{action}'"
             continue
-        if added and (added == FULL_CI or added in config.get("labels", [])):
+        if added and added in config.get("labels", []):
             start.append(name)
             why[name] = f"label '{added}' added"
             continue
-        if FULL_CI in labels:
-            start.append(name)
-            why[name] = "full-ci"
-            continue
+        # full-ci makes the head full tier (head_tier.py), as ready-to-land does: it no longer starts a callee no
+        # changed file reaches. A lane VM's land handoff adds it to every PR (land-judge's land_tier), so "start
+        # everything" ran Swift packages on Linux, web-validation and the rest on PRs none of their inputs touched,
+        # each a repeat of the base's push run: 10 of 12 sampled Swift Linux PR runs on 11-25 started for full-ci
+        # alone (Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period.").
         if tier == "none":
             why[name] = tier_reason
             continue
