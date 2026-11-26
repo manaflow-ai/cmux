@@ -6,17 +6,19 @@ const me = { id: "owner", name: "Leo", devices: 1, viewing: true, typing: false 
 
 function client() {
   const sent: { sessionId: string; on: boolean }[] = [];
+  const rooms: { chats: string[]; workspaces: string[] }[] = [];
   let changes = 0;
   let clock = 1_000;
   const presence = new PresenceClient(
-    (_method, params) => {
-      sent.push(params);
+    (method, params) => {
+      if (method === "_acpmux/rooms") rooms.push(params as (typeof rooms)[number]);
+      else sent.push(params as (typeof sent)[number]);
     },
     () => (changes += 1),
     () => "owner",
     () => clock,
   );
-  return { presence, sent, changes: () => changes, tick: (ms: number) => (clock += ms) };
+  return { presence, sent, rooms, changes: () => changes, tick: (ms: number) => (clock += ms) };
 }
 
 test("an acpmux without presence gets no typing and shows nobody", () => {
@@ -147,7 +149,9 @@ test(
   faked(async () => {
     const sent: { sessionId: string; on: boolean }[] = [];
     const presence = new PresenceClient(
-      (_method, params) => {
+      (method, typing) => {
+        if (method !== "_acpmux/typing") return Promise.resolve({});
+        const params = typing as { sessionId: string; on: boolean };
         sent.push(params);
         return params.on ? Promise.resolve({}) : refused();
       },
@@ -168,7 +172,9 @@ test(
     const sent: { sessionId: string; on: boolean }[] = [];
     let refusals = 1;
     const presence = new PresenceClient(
-      (_method, params) => {
+      (method, typing) => {
+        if (method !== "_acpmux/typing") return Promise.resolve({});
+        const params = typing as { sessionId: string; on: boolean };
         sent.push(params);
         if (!params.on && refusals > 0) {
           refusals -= 1;
@@ -225,7 +231,9 @@ test(
     const sent: { sessionId: string; on: boolean }[] = [];
     let refuse: () => void = () => {};
     const presence = new PresenceClient(
-      (_method, params) => {
+      (method, typing) => {
+        if (method !== "_acpmux/typing") return Promise.resolve({});
+        const params = typing as { sessionId: string; on: boolean };
         sent.push(params);
         if (params.on) return Promise.resolve({});
         // The first off's answer comes back late: after the pane shows s2.
@@ -255,3 +263,51 @@ test(
   }),
   STOP_RETRY_MS * 2 + 2_000,
 );
+
+const strip = {
+  faces: [
+    { id: "tailnet:ana@example.com", kind: "person", name: "Ana", doing: "typing", status: "live" },
+    { id: "s9", kind: "agent", name: "Claude", doing: "running", status: "live" },
+  ],
+  more: 2,
+  line: {
+    actors: [
+      { id: "tailnet:ana@example.com", kind: "person", name: "Ana", doing: "typing" },
+      { id: "s9", kind: "agent", name: "Claude", doing: "running" },
+    ],
+    more: 0,
+  },
+};
+
+test("the open chat's room is watched, its strip kept, and the watch dropped on leave", () => {
+  const { presence, rooms } = client();
+  presence.attached("s1", { presence: { sessionId: "s1", participants: [me] } });
+  expect(rooms).toEqual([{ chats: ["s1"], workspaces: [] }]);
+  // Another room's note never shows here.
+  presence.room({ room: { chat: "s2" }, snapshot: true, presence: [], strip });
+  expect(presence.presenceOf("s1")).toBeUndefined();
+  presence.room({ room: { chat: "s1" }, snapshot: true, presence: [], strip });
+  const shown = presence.presenceOf("s1")?.strip;
+  expect(shown?.faces.map((f) => [f.id, f.kind, f.doing])).toEqual([
+    ["tailnet:ana@example.com", "person", "typing"],
+    ["s9", "agent", "running"],
+  ]);
+  expect(shown?.more).toBe(2);
+  expect(shown?.line?.actors.map((a) => a.name)).toEqual(["Ana", "Claude"]);
+  // A presence change keeps the strip.
+  presence.notification({ sessionId: "s1", participants: [me, ana] });
+  expect(presence.presenceOf("s1")?.strip?.more).toBe(2);
+  presence.detached();
+  expect(rooms.at(-1)).toEqual({ chats: [], workspaces: [] });
+  expect(presence.presenceOf("s1")).toBeUndefined();
+});
+
+test("an acpmux without presence watches no room", () => {
+  const { presence, rooms } = client();
+  presence.attached("s1", { events: [] });
+  presence.room({ room: { chat: "s1" }, strip });
+  expect(rooms).toEqual([]);
+  expect(presence.presenceOf("s1")).toBeUndefined();
+  presence.detached();
+  expect(rooms).toEqual([]);
+});

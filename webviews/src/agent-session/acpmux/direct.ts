@@ -4272,6 +4272,11 @@ export class AcpmuxDirectClient {
       this.presence.notification(notification.params);
       return;
     }
+    // The open chat's room (RFD 0141): its avatar strip for the header and the activity line.
+    if (notification.method === "_acpmux/room") {
+      this.presence.room(notification.params);
+      return;
+    }
     if (notification.method === "_acpmux/event") {
       // A chat started from an offer here, watched for its row (offer/offerChildren.ts).
       const params = notification.params ?? {};

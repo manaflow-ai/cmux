@@ -114,6 +114,25 @@ impl Room {
 /// order they happened; it only enqueues.
 pub type Sink = Arc<dyn Fn(Value) + Send + Sync>;
 
+/// One subscriber to a room: where its notes go, and whose face its avatar strip leaves out.
+#[derive(Clone)]
+struct Watcher {
+    sink: Sink,
+    viewer: PresenceId,
+}
+
+impl Watcher {
+    /// `note` with this subscriber's avatar strip of `records` (`cmux_presence::strip`, RFD 0141
+    /// phase 2): the faces a header draws, "+N", and who types or runs, the viewer left out.
+    fn send(&self, mut note: Value, records: &[Record]) {
+        let strip = cmux_presence::strip(records, Some(&self.viewer), cmux_presence::STRIP_FACES);
+        if let Some(fields) = note.as_object_mut() {
+            fields.insert("strip".to_owned(), json!(strip));
+        }
+        (self.sink)(note);
+    }
+}
+
 /// The refusal for a presence change over a peer daemon's link.
 pub fn peer_unsupported() -> RpcError {
     RpcError::new(
@@ -199,7 +218,7 @@ struct State {
     next_revision: u64,
     revisions: HashMap<String, u64>,
     /// Each room's subscribers, by connection: what one change fans out to.
-    rooms: HashMap<Room, HashMap<String, Sink>>,
+    rooms: HashMap<Room, HashMap<String, Watcher>>,
     /// The rooms each connection watches, so a new set or a close drops only its own.
     watching: HashMap<String, HashSet<Room>>,
     /// Whom each (connection, author) follows (`_acpmux/follow`).
@@ -221,14 +240,14 @@ impl State {
     }
 
     /// The room as it is now, as `_acpmux/room` params.
-    fn room_snapshot(&self, room: &Room) -> Value {
+    fn room_snapshot(&self, room: &Room) -> (Value, Vec<Record>) {
         let presence = match room {
             Room::Chat(chat) => self.chat_records(chat),
             // No source places presence in a workspace on this daemon yet: the room is empty
             // until one does (RFD 0141 phase 2's next step).
             Room::Workspace(_) => Vec::new(),
         };
-        json!({"room": room.wire(), "snapshot": true, "presence": presence})
+        (json!({"room": room.wire(), "snapshot": true, "presence": presence}), presence)
     }
 
     fn chat_records(&self, chat: &str) -> Vec<Record> {
@@ -246,13 +265,14 @@ impl State {
         self.chats.values().any(|entries| entries.keys().any(|(_, other)| other == id))
     }
 
-    /// Sends `note()` to `room`'s subscribers only: one lookup when nobody watches it, then one
-    /// send each. Nothing here reads another room.
-    fn fan_out(&mut self, room: &Room, note: impl FnOnce() -> Value) {
+    /// Sends `note()` to `room`'s subscribers only, each with its avatar strip of the room's
+    /// records now: one lookup when nobody watches it, then one send each. Nothing here reads
+    /// another room.
+    fn fan_out(&mut self, room: &Room, note: impl FnOnce() -> (Value, Vec<Record>)) {
         let Some(subs) = self.rooms.get(room) else { return };
-        let note = note();
-        for sink in subs.values() {
-            sink(note.clone());
+        let (note, records) = note();
+        for watcher in subs.values() {
+            watcher.send(note.clone(), &records);
         }
         #[cfg(test)]
         {
@@ -308,6 +328,20 @@ impl Presence {
     /// every later change, so no delta reaches it ahead of its base. Answers how many rooms it
     /// watches. The caller checks a chat room's attachment (`server/view.rs`).
     pub fn rooms(&self, conn: &str, sink: Sink, rooms: Vec<Room>) -> Result<usize, RpcError> {
+        self.rooms_as(conn, &Who::of(None), sink, rooms)
+    }
+
+    /// `rooms` for `viewer`, the person the client draws for: their own face stays out of every
+    /// avatar strip this connection hears (a connection may carry several people; the last set
+    /// names whose strip it gets).
+    pub fn rooms_as(
+        &self,
+        conn: &str,
+        viewer: &Who,
+        sink: Sink,
+        rooms: Vec<Room>,
+    ) -> Result<usize, RpcError> {
+        let watcher = Watcher { sink, viewer: PresenceId(viewer.id.as_str().into()) };
         let wanted: HashSet<Room> = rooms.into_iter().collect();
         if wanted.len() > MAX_ROOMS {
             return Err(RpcError::new(-32000, "a connection watches at most 512 rooms")
@@ -321,8 +355,9 @@ impl Presence {
         for room in &wanted {
             let subs = state.rooms.entry(room.clone()).or_default();
             // A new sink replaces the old one; only a room new to this connection snapshots.
-            if subs.insert(conn.to_owned(), sink.clone()).is_none() {
-                sink(state.room_snapshot(room));
+            if subs.insert(conn.to_owned(), watcher.clone()).is_none() {
+                let (note, records) = state.room_snapshot(room);
+                watcher.send(note, &records);
             }
         }
         let watched = wanted.len();
@@ -595,7 +630,8 @@ impl Inner {
             state.next_revision += 1;
             let revision = state.next_revision;
             state.fan_out(&Room::Chat(chat.to_owned()), || {
-                room_change(chat, base, revision, &before, &after)
+                let records = after.iter().map(|p| p.record(chat, revision)).collect();
+                (room_change(chat, base, revision, &before, &after), records)
             });
             if after.is_empty() {
                 state.revisions.remove(chat);
@@ -873,6 +909,37 @@ mod tests {
 
     fn chat(id: &str) -> Room {
         Room::Chat(id.to_owned())
+    }
+
+    /// Every note a room watcher hears carries its avatar strip (RFD 0141 phase 2): the room's
+    /// faces with the watcher's own left out, and who types. Two watchers of one room, drawing
+    /// for two people, each miss only themselves.
+    #[tokio::test]
+    async fn each_watcher_hears_a_strip_without_their_own_face() {
+        let presence = Presence::default();
+        let bob = Who { id: "tailnet:bob".into(), name: "Bob".into() };
+        presence.view("c", "conn-a", &ana(), true).unwrap();
+        let (as_ana, ana_heard) = heard();
+        let (as_bob, bob_heard) = heard();
+        presence.rooms_as("conn-a", &ana(), as_ana, vec![chat("c")]).unwrap();
+        presence.rooms_as("conn-b", &bob, as_bob, vec![chat("c")]).unwrap();
+
+        let snapshot = ana_heard.lock_or_recover()[0].clone();
+        assert_eq!(snapshot["strip"], json!({"faces": [], "more": 0}), "ana alone: {snapshot}");
+        let faces = |note: &Value| -> Vec<String> {
+            note["strip"]["faces"].as_array().unwrap().iter().map(|f| f["id"].to_string()).collect()
+        };
+        assert_eq!(faces(&bob_heard.lock_or_recover()[0]), ["\"tailnet:ana\""]);
+
+        presence.view("c", "conn-b", &bob, true).unwrap();
+        presence.typing("c", "conn-b", &bob, true).unwrap();
+        let to_ana = ana_heard.lock_or_recover().last().unwrap().clone();
+        assert_eq!(faces(&to_ana), ["\"tailnet:bob\""]);
+        assert_eq!(to_ana["strip"]["line"]["actors"][0]["name"], "Bob", "bob types: {to_ana}");
+        assert_eq!(to_ana["strip"]["line"]["actors"][0]["doing"], "typing");
+        let to_bob = bob_heard.lock_or_recover().last().unwrap().clone();
+        assert_eq!(faces(&to_bob), ["\"tailnet:ana\""]);
+        assert!(to_bob["strip"].get("line").is_none(), "bob never reads his own typing: {to_bob}");
     }
 
     /// A change reaches the room's subscribers only, as one delta from the snapshot's epoch; a
