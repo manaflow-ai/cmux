@@ -784,7 +784,7 @@ public final class CmuxMobileAuthModel {
         if let willSignOut, !isMock {
             // At most 3 s: an unreachable service or a half-dead link never
             // holds sign-out (the work goes on in the background).
-            await BoundedWait(.seconds(3)).run { await willSignOut() }
+            await BoundedWait(.seconds(3)).run("sign-out") { await willSignOut() }
         }
         teamsUserID = nil
         keptTeams = nil
