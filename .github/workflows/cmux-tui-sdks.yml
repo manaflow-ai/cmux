@@ -243,6 +243,9 @@ on:
       - "webviews/src/ui/motion/motionTokens.ts"
       - "webviews/src/ui/surface/Surface.gallery.tsx"
       - "webviews/src/ui/surface/Surface.tsx"
+      - "schemas/settings/file-keys.json"
+      - "schemas/layout-grid/layout-grid.json"
+      - "schemas/design-scale/scene-scale.json"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
@@ -471,6 +474,9 @@ on:
       - "webviews/src/ui/motion/motionTokens.ts"
       - "webviews/src/ui/surface/Surface.gallery.tsx"
       - "webviews/src/ui/surface/Surface.tsx"
+      - "schemas/settings/file-keys.json"
+      - "schemas/layout-grid/layout-grid.json"
+      - "schemas/design-scale/scene-scale.json"
   workflow_dispatch:
 
 concurrency:

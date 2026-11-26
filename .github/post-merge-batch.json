@@ -500,7 +500,10 @@
         "webviews/src/ui/motion/motionMode.ts",
         "webviews/src/ui/motion/motionTokens.ts",
         "webviews/src/ui/surface/Surface.gallery.tsx",
-        "webviews/src/ui/surface/Surface.tsx"
+        "webviews/src/ui/surface/Surface.tsx",
+        "schemas/settings/file-keys.json",
+        "schemas/layout-grid/layout-grid.json",
+        "schemas/design-scale/scene-scale.json"
       ],
       "jobs": {"conformance": "seven-language live conformance", "packages": "${{ matrix.language }} package", "consumers": "${{ matrix.language }} consumer", "rust-msrv": "Rust SDK MSRV (1.88)", "code-mode": "code-mode MCP cancellation"}
     },
