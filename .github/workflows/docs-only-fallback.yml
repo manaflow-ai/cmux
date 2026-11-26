@@ -84,11 +84,13 @@ jobs:
     needs: gate
     if: ${{ contains(fromJSON(needs.gate.outputs.missing || '[]'), 'cmux-next-guards.yml') }}
     uses: ./.github/workflows/cmux-next-guards.yml
+    # statuses: its full-carry job (scripts/ci/head_tier.py) asks for it.
     permissions:
       actions: write
       checks: read
       contents: read
       pull-requests: write
+      statuses: read
 
   cmux-next-pr-autofix:
     name: cmux-next-pr-autofix (fallback)
@@ -113,9 +115,11 @@ jobs:
     needs: gate
     if: ${{ contains(fromJSON(needs.gate.outputs.missing || '[]'), 'rust-workspaces.yml') }}
     uses: ./.github/workflows/rust-workspaces.yml
+    # statuses: its full-carry job (scripts/ci/head_tier.py) asks for it.
     permissions:
       actions: read
       contents: read
+      statuses: read
 
   web-validation:
     name: web-validation (fallback)
