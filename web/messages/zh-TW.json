@@ -5533,5 +5533,15 @@
     "unavailableTitle": "無法確認你的登入",
     "unavailableBody": "我們的登入服務忙碌中。請稍候幾秒鐘後再次開啟邀請。你不需要重新登入。",
     "retry": "重試"
+  },
+  "connected": {
+    "title": "你已登入 {app}",
+    "titleGeneric": "你已登入",
+    "errorTitle": "無法登入 {app}",
+    "errorTitleGeneric": "登入未完成",
+    "body": "返回 cmux 繼續操作。",
+    "errorBody": "請返回 cmux 再試一次。",
+    "button": "返回 cmux",
+    "closeHint": "你可以關閉此分頁。"
   }
 }

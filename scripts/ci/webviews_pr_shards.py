@@ -34,7 +34,8 @@ a pull request runs:
     the change. The two come from the head commit, so each push of a CI iteration runs a different pair. On 98
     replayed every-shard heads from 2026-11-21 13Z to 11-22 07Z, ci-web.yml edits were 37 heads and 39% of their
     minutes; every one changed the react-apps-check jobs, so they still run shard 1's checks and two shards' whole
-    file lists rather than none. The full-ci label runs every shard; CI_WEBVIEWS_CI_EDIT_SAMPLE=0 (a repository
+    file lists rather than none. The full-ci label runs every shard (into feat-cmux-next only with
+    CI_WEBVIEWS_FULL_TO_BATCH=0: its post-merge batch runs them); CI_WEBVIEWS_CI_EDIT_SAMPLE=0 (a repository
     variable) runs every shard for them again, as before.
 A shard's files come from the very split it makes itself (run-webviews-tests.sh CMUX_WEB_TEST_LIST_ONLY with the
 run's one duration manifest, widths and head start, passed in the environment), so the pick and the shards agree.
@@ -276,7 +277,8 @@ def classes_on() -> bool:
 # request and opens the revert. Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period."
 # Over 11-24T01..11-25T01, 44 pull request runs ran all 8 shards: 21.2k runner-minutes, about 480 a run, against
 # 38k for the 1,639 runs of one or two shards. CI_WEBVIEWS_FULL_TO_BATCH=0 (a repository variable) runs every shard
-# for them again; another base, or the full-ci label, still runs every shard.
+# for them again; another base still runs every shard, and so does the full-ci label on another base. Into
+# feat-cmux-next a full-ci (land-tier) head picks too (ci-web.yml, 2026-11-26): the batch runs the matrix after merge.
 BATCHED_BASE = "feat-cmux-next"
 BATCHED_WHY = "every shard runs in the feat-cmux-next post-merge batch"
 
@@ -455,8 +457,10 @@ def classify(repo: Path, base: str, head: str, count: int) -> tuple[str, list[in
             with_shard1(repo, count, selected, direct, own))
 
 
-HOW_FULL = ("To run every shard, add the `full-ci` label and re-run. To turn the classes off for every pull request, "
-            "set the repository variable `CI_WEBVIEWS_PUSH_CLASSES` to `0`.")
+HOW_FULL = ("To run every shard, add the `full-ci` label and re-run (into feat-cmux-next the post-merge batch runs "
+            "every shard, and the label runs them here only with the repository variable `CI_WEBVIEWS_FULL_TO_BATCH` at "
+            "`0`). To turn the classes off for every pull request, set the repository variable `CI_WEBVIEWS_PUSH_CLASSES` "
+            "to `0`.")
 
 
 def summary(cls: str, shards: list[int], count: int, why: str) -> str:
