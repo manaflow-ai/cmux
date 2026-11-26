@@ -34,14 +34,33 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 SECRET_JIT_LABEL = "cmux-gcp-secret-jit-x64"  # cmuxterm-hq runner_pool.py SECRET_JIT_LABEL
 FORK_BRANCH = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
 SECRET = re.compile(r"secrets\.(?!GITHUB_TOKEN\b)[A-Za-z_]+|create-github-app-token|secrets\[")
-SIGN = re.compile(r"\b(cosign|minisign|gpg --|signtool|sign_update|SIGNING_KEY|PRIVATE_KEY)\b")
-LINUX = re.compile(r"blacksmith|ubuntu|cmux-gcp|linux", re.I)
+# A signing step: a signing tool, a gpg/openssl/ssh-keygen signing flag, or a signing key, certificate or password.
+# An identity name alone (CMUX_DEV_SIGN_IDENTITY picks ad hoc signing) is not a secret.
+SIGN = re.compile(
+    r"\b(?:cosign|minisign|signtool|sign_update|codesign|notarytool|apksigner|jarsigner|rcodesign|osslsigncode)\b"
+    r"|\bgpg\b[^\n]*?(?:--(?:detach-|clear)?sign\b|\s-[a-z]*s[a-z]*b?\b)"
+    r"|\bopenssl\s+(?:dgst|pkeyutl|smime|cms)\b[^\n]*?-sign\b|\bssh-keygen\b[^\n]*?-Y\s+sign\b"
+    r"|\b[A-Z0-9_]*(?:SIGNING|_SIGN)_?(?:KEY|CERT|CERTIFICATE|PASSWORD|PASSPHRASE|P12)(?:_[A-Z0-9]+)*\b"
+    r"|\b[A-Z0-9_]*PRIVATE_KEY\b|\b[A-Z0-9_]*_P12(?:_[A-Z0-9_]+)?\b")
+# A Linux runner label: hosted and Blacksmith Ubuntu, the GCP fleet, cmux-linux, or a RUNNER_POOLS linux key.
+LINUX_LABEL = re.compile(r"ubuntu-[0-9a-z.]+|blacksmith-\d+vcpu-ubuntu-\d+(?:-arm)?|cmux-gcp-[a-z0-9-]+-x64"
+                         r"|cmux-linux|cmux-fleet-linux(?:-[a-z0-9-]+)?")
+LINUX_POOL = re.compile(r"fromJSON\(vars\.RUNNER_POOLS\)\.linux_\w+")
 MAC = re.compile(r"macos|cmux-mac", re.I)
 JIT_LABEL = re.compile(r"'cmux-gcp-[a-z-]+-jit-x64'")
 LABEL_LITERAL = re.compile(r"'([a-z0-9][a-z0-9.-]*)'")
 
 LEO_OVERFLOW = "Leo's #49325: main jobs ask for cmux-linux behind the CI_OVERFLOW_LINUX switch"
+PR_GATE = ("gates every same-repo PR's CI; its only secrets are continue-on-error routing and read-token mints, so it "
+           "stays on its warm selector rather than wait 1-2 min for a one-job JIT VM")
+# Jobs every same-repo PR waits on before its CI starts. They keep their warm selector (#58325 review, F1).
+PR_GATE_JOBS = (
+    ("ci.yml", "changes"),
+    ("ci-macos.yml", "admission-placement"),
+    ("ci-macos.yml", "late-placement"),
+)
 EXCEPTIONS = {
+    **{job: PR_GATE for job in PR_GATE_JOBS},
     ("cla.yml", "CLAAssistant"): "pull_request_target CLA job; #48564 owns its runner",
     ("cla-policy-guard.yml", "validate"): "pull_request_target CLA job; #48564 owns its runner",
     ("sdk-bootstrap-npm.yml", "publish"): "npm provenance publishing needs a GitHub-hosted runner",
@@ -80,6 +99,16 @@ def top_level_operands(expression: str) -> list[str]:
     return operands
 
 
+def runner_labels(runs_on: str) -> list[str]:
+    """The label literals RUNS_ON can yield: its quoted literals, or the bare label itself."""
+    return LABEL_LITERAL.findall(runs_on) if "${{" in runs_on else [runs_on.strip()]
+
+
+def is_linux(runs_on: str) -> bool:
+    """True when RUNS_ON names a Linux runner label or a RUNNER_POOLS linux pool, not just the word linux."""
+    return any(LINUX_LABEL.fullmatch(label) for label in runner_labels(runs_on)) or bool(LINUX_POOL.search(runs_on))
+
+
 def secret_linux_jobs():
     """(file, job id, runs-on) for each Linux job that holds a secret, mints an App token or signs."""
     for path in sorted(WORKFLOWS.glob("*.y*ml")):
@@ -91,7 +120,7 @@ def secret_linux_jobs():
             if not isinstance(job, dict) or "uses" in job:
                 continue
             runs_on = job.get("runs-on")
-            if not isinstance(runs_on, str) or not LINUX.search(runs_on) or MAC.search(runs_on):
+            if not isinstance(runs_on, str) or not is_linux(runs_on) or MAC.search(runs_on):
                 continue
             body = yaml.safe_dump(job)
             if SECRET.search(body) or SECRET.search(top_env) or SIGN.search(body):
@@ -143,6 +172,41 @@ class SecretJobsSecretJitTest(unittest.TestCase):
             "${{ " + operand + "'blacksmith-4vcpu-ubuntu-2404' }}"))  # no fork branch
         self.assertFalse(leads_with_jit(
             FORK_BRANCH + "vars.X != '1' && 'cmux-fleet-linux-x64' || 'cmux-gcp-repair-jit-x64' }}"))
+
+
+    def test_pr_gate_jobs_stay_warm(self) -> None:
+        """A PR-gate job must not wait for a JIT VM's boot, and its secret steps must stay optional."""
+        jobs = {(name, job): runs_on for name, job, runs_on in secret_linux_jobs()}
+        for key in PR_GATE_JOBS:
+            self.assertIn(key, jobs, f"{key} is no longer a secret-bearing Linux job; drop it from PR_GATE_JOBS")
+            self.assertFalse(leads_with_jit(jobs[key]), f"{key} gates every PR: keep it on its warm selector")
+            self.assertNotIn(SECRET_JIT_LABEL, jobs[key], f"{key} gates every PR: keep it off {SECRET_JIT_LABEL}")
+            document = yaml.safe_load((WORKFLOWS / key[0]).read_text())
+            for step in document["jobs"][key[1]].get("steps") or []:
+                if SECRET.search(yaml.safe_dump(step)) or SIGN.search(yaml.safe_dump(step)):
+                    self.assertIs(step.get("continue-on-error"), True,
+                                  f"{key} step {step.get('name')!r} holds a secret the gate needs; move the job to JIT")
+
+    def test_linux_matches_a_runner_label(self) -> None:
+        self.assertTrue(is_linux("blacksmith-4vcpu-ubuntu-2404"))
+        self.assertTrue(is_linux(FORK_BRANCH + "'cmux-linux' }}"))
+        self.assertTrue(is_linux("${{ fromJSON(vars.RUNNER_POOLS).linux_4 }}"))
+        # The word linux in a variable or expression is not a Linux label.
+        self.assertFalse(is_linux("${{ vars.CI_OVERFLOW_LINUX == '1' && 'windows-2025' || 'windows-latest' }}"))
+        self.assertFalse(is_linux("${{ needs.plan.outputs.linux_runner }}"))
+
+    def test_sign_matches_signing_steps(self) -> None:
+        for step in ("codesign --force --sign \"$IDENTITY\" cmux", "xcrun notarytool submit cmux.zip",
+                     "gpg --batch --detach-sign SHA256SUMS", "gpg -abs SHA256SUMS",
+                     "openssl dgst -sha256 -sign key.pem -out sig bin", "ssh-keygen -Y sign -f key -n file x",
+                     "APPLE_SIGNING_CERT_PASSWORD: x", "MACOS_CERTIFICATE_P12: x", "TAURI_SIGNING_PRIVATE_KEY: x"):
+            self.assertTrue(SIGN.search(step), step)
+        # Words that only contain "sign" are not signing steps.
+        for step in ("echo design assignment signal", "gpg --verify SHA256SUMS.asc", "git commit --signoff",
+                     "openssl dgst -sha256 file", "SIGNAL_TIMEOUT: 5",
+                     "signs ad hoc unless CMUX_DEV_SIGN_IDENTITY names an identity"):
+            self.assertFalse(SIGN.search(step), step)
+
 
 
 if __name__ == "__main__":
