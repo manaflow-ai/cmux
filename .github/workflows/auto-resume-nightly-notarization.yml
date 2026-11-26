@@ -1136,8 +1136,11 @@ jobs:
                   # The installed gh wrappers wait out a rate limit (first backoff 60 s): outlast that.
                   result = subprocess.run(["gh", "api", f"repos/{repository}/releases/tags/{tag}"],
                                           capture_output=True, text=True, timeout=240)
-              except subprocess.TimeoutExpired:
-                  result = subprocess.CompletedProcess([], 1, "", "gh api timed out (HTTP 504)")
+              except subprocess.TimeoutExpired as expired:
+                  # Keep what gh printed before it stalled (a rate-limit refusal), then retry.
+                  seen = expired.stderr or expired.stdout or b""
+                  seen = seen.decode(errors="replace") if isinstance(seen, bytes) else seen
+                  result = subprocess.CompletedProcess([], 1, "", f"{seen.strip()} gh api timed out (HTTP 504)".strip())
               if result.returncode == 0:
                   release = json.loads(result.stdout)
                   break
