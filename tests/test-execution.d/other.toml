@@ -100,6 +100,10 @@ path = "tests/test_cargo_test_verdict.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cas_mac_update_replay.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cas_web_ota_replay.py"
 lane = "linux-guard"
 
