@@ -48,28 +48,22 @@ manifest_args=("$@")
 )
 mkdir -p artifacts "$out/render"
 cp "$out/manifest.json" "$out/render/manifest.json"
-# Keep the Mac reference tied to the same content-addressed input family as Linux gallery renders.
-# The engine is a variant and the Mac runtime is recorded separately in each result row.
-if [ -n "${CMUX_SHOTDIFF:-}" ] && [ -x "$CMUX_SHOTDIFF" ]; then
-  shotdiff="$CMUX_SHOTDIFF"
-else
-  cargo build --locked --release -p cmux-shotdiff --bin cmux-shotdiff --manifest-path cmux-tui/Cargo.toml
-  shotdiff="$PWD/cmux-tui/target/release/cmux-shotdiff"
+# Package portable F1 stores with the render. A shared root can serve future captures on this profile.
+cache_root="${CMUX_DESKTOP_GOLDEN_ROOT:-$out/goldens}"
+if [[ -n "${CMUX_DESKTOP_GOLDEN_ROOT:-}" ]]; then
+  : "${CMUX_DESKTOP_GOLDEN_RUNTIME:?name the pinned Mac OS, display and fonts used on this worker}"
 fi
-revision="$(git rev-parse HEAD)"
-chromium_key="$("$shotdiff" key --inputs .github/golden-inputs.json --family desktop-gallery \
-  --variant chromium --rev "$revision" --repo "$PWD")"
-webkit_key="$("$shotdiff" key --inputs .github/golden-inputs.json --family desktop-gallery \
-  --variant webkit --rev "$revision" --repo "$PWD")"
-python3 - "$out/render/input-keys.json" "$revision" "$chromium_key" "$webkit_key" <<'PY'
-import json, sys
-dest, revision, chromium, webkit = sys.argv[1:]
-json.dump({"schema": "cmux.desktop-input-key/v1", "family": "desktop-gallery", "runtime": "mac-gallery",
-           "revision": revision, "variants": {"chromium": json.loads(chromium), "webkit": json.loads(webkit)}},
-          open(dest, "w"), indent=2)
-PY
+runtime="${CMUX_DESKTOP_GOLDEN_RUNTIME:-macos-$(sw_vers -buildVersion)-$(uname -m)}"
+if [[ -z "${CMUX_SHOTDIFF:-}" ]]; then
+  (cd cmux-tui && cargo build --locked --release -p cmux-shotdiff --bin cmux-shotdiff --target-dir "$out/target")
+  export CMUX_SHOTDIFF="$out/target/release/cmux-shotdiff"
+fi
+mkdir -p "$cache_root"
 status=0
 python3 scripts/cmux-next/gallery-mac-reference.py --tag "$tag" --app "$app" --gallery "$out/gallery" \
-  --manifest "$out/manifest.json" --out "$out/render" --input-keys "$out/render/input-keys.json" || status=$?
-tar -czf artifacts/gallery-mac-reference.tgz -C "$out" render
+  --manifest "$out/manifest.json" --out "$out/render" --golden-root "$cache_root" \
+  --runtime "$runtime" --rev "$(git rev-parse HEAD)" || status=$?
+members=(render)
+[[ -d "$out/goldens" ]] && members+=(goldens)
+tar -czf artifacts/gallery-mac-reference.tgz -C "$out" "${members[@]}"
 exit "$status"

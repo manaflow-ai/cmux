@@ -12,6 +12,10 @@ runner, so a golden blessed on a Mac judges a Linux render with the same numbers
   are `scripts/ci/ios_gate_screen_diff.py`'s, so a gate that moves here keeps its outcomes.
 - **Perceptual:** mean SSIM of luma over 8x8 windows, stride 4; pass at or over `min_ssim` (0.98). It catches
   a shifted control or glyph run the ratio lets through, and forgives antialiasing the ratio counts.
+- **Worst tile:** the lowest mean SSIM of any 32x32 tile, always reported (`worst_tile`); with
+  `min_tile_ssim` set (0.9 is a good start) it fails a shortened label or a nudged button that moves far under
+  1% of pixels and barely moves the mean. Off by default so gates moving here keep their outcomes; turn it on
+  once a gate's captures are deterministic (frozen clock, no animation).
 - **Ignore masks:** rectangles nothing is compared in (caret, clock, animation), each with a required `why`.
   SSIM skips any window touching one.
 - **Regions:** named rectangles with their own `channel_tolerance`, `max_changed_ratio`, `min_ssim` (a
@@ -39,7 +43,7 @@ Spec (every field optional):
 
 ```json
 {
-  "channel_tolerance": 16, "max_changed_ratio": 0.01, "min_ssim": 0.98, "scale": 1,
+  "channel_tolerance": 16, "max_changed_ratio": 0.01, "min_ssim": 0.98, "min_tile_ssim": 0, "scale": 1,
   "ignore":  [{"x": 1180, "y": 0, "w": 100, "h": 24, "why": "menu bar clock"}],
   "regions": [{"name": "sidebar", "x": 0, "y": 0, "w": 240, "h": 800, "min_ssim": 0.995}]
 }
@@ -50,7 +54,7 @@ Cross-renderer (lavapipe against Metal, CEF against WebKit): `"max_changed_ratio
 ## Verdict (`cmux-shotdiff.verdict/v1`)
 
 `pass`, `identical`, `reasons[]`, `base`/`head` `{hash, width, height}`, `changed_pixels`, `compared_pixels`,
-`ignored_pixels`, `changed_ratio`, `ssim`, `boxes[]` (changed areas merged on a 16 px grid, at most 64),
+`ignored_pixels`, `changed_ratio`, `ssim`, `worst_tile` (`{x, y, w, h, ssim}`), `boxes[]` (changed areas merged on a 16 px grid, at most 64),
 `regions[]` (`name, pass, changed_ratio, ssim, reasons`), and the `spec` it was judged by.
 
 The diff image: head dimmed to gray, changed pixels red, ignored areas blue, changed boxes outlined orange.
@@ -108,3 +112,32 @@ Wide on purpose: a file left out lets a stale golden pass, one too many only cos
 
 The action builds the binary from the checkout (pinned toolchain), runs `batch`, appends the table to the step
 summary and fails the step on a fail.
+
+### Desktop reference stores
+
+The Mac gallery fleet entry packs `goldens/` beside `render/` in its artifact. To reuse stores across
+captures, set `CMUX_DESKTOP_GOLDEN_ROOT` to a shared directory and `CMUX_DESKTOP_GOLDEN_RUNTIME` to the
+worker's versioned macOS build, display and font profile. The capture records that profile in
+`render/run.json`. Each engine, manifest and capture selector has its own store. A partial render is
+available for diagnosis in the original artifact but cannot seed a store.
+
+On Linux, with the built `cmux-shotdiff` on PATH (or set `CMUX_SHOTDIFF`), restore the reference for
+the source revision under test. Use the capture's profile and manifest, and a fresh output directory.
+
+```sh
+python3 scripts/cmux-next/desktop_goldens.py restore-gallery --root goldens --runtime "$profile" \
+  --rev "$rev" --manifest render/manifest.json --dir mac-reference
+uv run scripts/gallery-matrix/parity.py --linux linux-render --mac mac-reference --strict
+```
+
+For the native chrome comparison, file the three fixture crops that `cmux-fp/scripts/look-measure.py`
+reads (`ref-topleft.png`, `ref-sidebar.png` and `ref-topbar.png` at 2x). Use a synthetic NEXT
+workspace matching the replica's look fixture. Move the store to the Linux worker with its artifact.
+
+```sh
+python3 scripts/cmux-next/desktop_goldens.py file-chrome --root goldens --runtime "$profile" \
+  --rev "$rev" --dir fixture-crops
+python3 scripts/cmux-next/desktop_goldens.py restore-chrome --root goldens --runtime "$profile" \
+  --rev "$rev" --dir native-reference
+python3 ../cmux-fp/scripts/look-measure.py L1-rest.png native-reference
+```

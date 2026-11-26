@@ -19,6 +19,8 @@ pub const DEFAULT_MIN_SSIM: f64 = 0.98;
 const WINDOW: u32 = 8;
 const STRIDE: u32 = 4;
 const TILE: u32 = 16;
+/// Worst-tile SSIM tile size.
+const SSIM_TILE: u32 = 32;
 const MAX_BOXES: usize = 64;
 
 /// A rectangle in spec units (pixels times `scale`, see `Spec::scale`).
@@ -72,6 +74,9 @@ pub struct Spec {
     pub max_changed_ratio: f64,
     /// Mean SSIM of luma over 8x8 windows (stride 4) that touch no mask, 0..1.
     pub min_ssim: f64,
+    /// Worst 32x32 tile's mean SSIM, 0..1 (0 = report only). Catches a short label or a nudged button that
+    /// moves well under 1% of pixels and barely moves the mean.
+    pub min_tile_ssim: f64,
     /// Pixels per spec unit: 2 for rects written in points against a Retina capture.
     pub scale: u32,
     pub ignore: Vec<Mask>,
@@ -84,6 +89,7 @@ impl Default for Spec {
             channel_tolerance: DEFAULT_CHANNEL_TOLERANCE,
             max_changed_ratio: DEFAULT_MAX_CHANGED_RATIO,
             min_ssim: DEFAULT_MIN_SSIM,
+            min_tile_ssim: 0.0,
             scale: 1,
             ignore: Vec::new(),
             regions: Vec::new(),
@@ -97,8 +103,11 @@ impl Spec {
             return Err("spec: scale must be at least 1".into());
         }
         let ratio_ok = |r: f64| (0.0..=1.0).contains(&r);
-        if !ratio_ok(self.max_changed_ratio) || !ratio_ok(self.min_ssim) {
-            return Err("spec: max_changed_ratio and min_ssim are 0..1".into());
+        if !ratio_ok(self.max_changed_ratio)
+            || !ratio_ok(self.min_ssim)
+            || !ratio_ok(self.min_tile_ssim)
+        {
+            return Err("spec: max_changed_ratio, min_ssim and min_tile_ssim are 0..1".into());
         }
         for m in &self.ignore {
             if m.why.trim().is_empty() {
@@ -149,10 +158,21 @@ pub struct Verdict {
     pub ignored_pixels: u64,
     pub changed_ratio: f64,
     pub ssim: f64,
+    /// The 32x32 tile with the lowest mean SSIM (its windows' centers inside it); None when no tile has a window.
+    pub worst_tile: Option<Tile>,
     /// Changed areas, merged on a 16-pixel grid, top to bottom (at most 64).
     pub boxes: Vec<Rect>,
     pub regions: Vec<RegionVerdict>,
     pub spec: Spec,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Tile {
+    pub x: u32,
+    pub y: u32,
+    pub w: u32,
+    pub h: u32,
+    pub ssim: f64,
 }
 
 pub struct Comparison {
@@ -235,6 +255,7 @@ pub fn compare(base: &Rgba, head: &Rgba, spec: &Spec) -> Comparison {
             ignored_pixels: 0,
             changed_ratio: 1.0,
             ssim: 0.0,
+            worst_tile: None,
             boxes: Vec::new(),
             regions: Vec::new(),
             spec: spec.clone(),
@@ -313,6 +334,9 @@ pub fn compare(base: &Rgba, head: &Rgba, spec: &Spec) -> Comparison {
     let mut reg_ssim_n = vec![0u64; regions.len()];
     let mut wa = Vec::with_capacity((ww * wh) as usize);
     let mut wb = Vec::with_capacity((ww * wh) as usize);
+    let tiles_x = w.div_ceil(SSIM_TILE) as usize;
+    let mut tile_sum = vec![0.0f64; tiles_x * h.div_ceil(SSIM_TILE) as usize];
+    let mut tile_n = vec![0u64; tile_sum.len()];
     let xs = origins(w, ww);
     for oy in origins(h, wh) {
         'win: for &ox in &xs {
@@ -331,6 +355,10 @@ pub fn compare(base: &Rgba, head: &Rgba, spec: &Spec) -> Comparison {
             let s = ssim_window(&wa, &wb);
             ssim_sum += s;
             ssim_n += 1;
+            let t = ((oy + wh / 2) / SSIM_TILE) as usize * tiles_x
+                + ((ox + ww / 2) / SSIM_TILE) as usize;
+            tile_sum[t] += s;
+            tile_n[t] += 1;
             for (k, r) in regions.iter().enumerate() {
                 // A window counts for a region when its center lies inside it, so small regions still get windows.
                 let (cx, cy) = (ox + ww / 2, oy + wh / 2);
@@ -346,12 +374,27 @@ pub fn compare(base: &Rgba, head: &Rgba, spec: &Spec) -> Comparison {
 
     let ssim = round6(mean(ssim_sum, ssim_n));
     let changed_ratio = round6(ratio(changed_count, compared));
+    let mut worst_tile: Option<Tile> = None;
+    for (t, (&sum, &k)) in tile_sum.iter().zip(&tile_n).enumerate() {
+        if k == 0 {
+            continue;
+        }
+        let ts = round6(sum / k as f64);
+        if worst_tile.as_ref().is_none_or(|b| ts < b.ssim) {
+            let (x, y) = ((t % tiles_x) as u32 * SSIM_TILE, (t / tiles_x) as u32 * SSIM_TILE);
+            worst_tile =
+                Some(Tile { x, y, w: SSIM_TILE.min(w - x), h: SSIM_TILE.min(h - y), ssim: ts });
+        }
+    }
     let mut reasons = Vec::new();
     if changed_ratio > spec.max_changed_ratio {
         reasons.push(format!("changed_ratio {changed_ratio} > {}", spec.max_changed_ratio));
     }
     if ssim < spec.min_ssim {
         reasons.push(format!("ssim {ssim} < {}", spec.min_ssim));
+    }
+    if let Some(t) = worst_tile.as_ref().filter(|t| t.ssim < spec.min_tile_ssim) {
+        reasons.push(format!("tile {},{} ssim {} < {}", t.x, t.y, t.ssim, spec.min_tile_ssim));
     }
 
     let mut region_verdicts = Vec::new();
@@ -395,6 +438,7 @@ pub fn compare(base: &Rgba, head: &Rgba, spec: &Spec) -> Comparison {
         ignored_pixels: ignored_count,
         changed_ratio,
         ssim,
+        worst_tile,
         boxes,
         regions: region_verdicts,
         spec: spec.clone(),
