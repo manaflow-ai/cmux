@@ -180,8 +180,12 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
     /// the ellipsis for that, then the user can interact with the actual content of the feed item").
     private lazy var selection: InPlaceTextSelection = {
         let selection = InPlaceTextSelection(host: row) { [weak self] in self?.selectableLabels ?? [] }
-        // A hold on a link opens the link's menu instead (`contextMenuInteraction`).
-        selection.shouldBegin = { [weak self] point in self.map { $0.link(atRow: point) == nil } ?? false }
+        // A hold on a link opens the link's menu instead (`contextMenuInteraction`), and the body's
+        // overflow folded under Show more is clipped, so its text is not shown to select.
+        selection.shouldBegin = { [weak self] point in
+            guard let self else { return false }
+            return self.link(atRow: point) == nil && !self.inFoldedOverflow(point)
+        }
         // The Feed does not scroll under the finger while it drags the selection out (as the chat).
         selection.onChange = { [weak self] selecting in
             guard selecting, let list = self?.enclosingTable() else { return }
@@ -767,6 +771,12 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
         if !inlineText.isHidden { if let url = NativeMarkdownView.link(in: inlineText, at: row.convert(point, to: inlineText)) { return url } }
         if made.contains("markdown"), !markdown.isHidden { return markdown.link(at: row.convert(point, to: markdown)) }
         return nil
+    }
+
+    /// `point` (in `row`) is on body text clipped below the shown body (a folded row's overflow).
+    private func inFoldedOverflow(_ point: CGPoint) -> Bool {
+        guard !body.isHidden, let label = selection.label(at: point), label.isDescendant(of: body) else { return false }
+        return !body.bounds.contains(row.convert(point, to: body))
     }
 
     private func enclosingTable() -> UITableView? {
