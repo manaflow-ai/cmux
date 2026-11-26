@@ -20,6 +20,7 @@ pub mod git_swap;
 pub mod hold;
 pub mod layer;
 pub mod link;
+pub mod listing_patch;
 pub mod lower;
 pub mod manifest;
 #[cfg(unix)]
