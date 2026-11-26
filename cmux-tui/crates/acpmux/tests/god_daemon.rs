@@ -2464,7 +2464,12 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let checkpoint_bytes = std::fs::read(&checkpoint).ok();
     let adoption_checkpoint_bytes = checkpoint_bytes.as_ref().map(Vec::len);
     let adoption_checkpoint_fields =
-        checkpoint_bytes.and_then(|b| serde_json::from_slice::<Value>(&b).ok()).map(|point| {
+        // The file's first line is the compaction digest it was saved under (`store.rs`).
+        checkpoint_bytes
+            .as_deref()
+            .and_then(|b| b.iter().position(|&c| c == b'\n').map(|nl| &b[nl + 1..]))
+            .and_then(|b| serde_json::from_slice::<Value>(b).ok())
+            .map(|point| {
             let mut sizes = serde_json::Map::new();
             let len = |v: &Value| serde_json::to_vec(v).map_or(0, |b| b.len());
             for (key, value) in point.as_object().into_iter().flatten() {
@@ -2706,6 +2711,14 @@ fn chat_size_sweep() {
         let result = size_run(label, parse_size(label));
         println!("CHAT-SIZE {result}");
         println!("{}", page_cost_line(label, &result));
+        // Its own line: the result above is cut short in a CI log, and these say which fold
+        // of the adoption checkpoint grows with the chat.
+        println!(
+            "CHAT-SIZE-CHECKPOINT {label} {} {} {}",
+            result["adoptionCheckpointBytes"],
+            result["adoptionCheckpointFields"],
+            result["restartStartup"]
+        );
         if let Some(base) = results
             .first()
             .filter(|base| size_failure(base).is_none() && size_failure(&result).is_none())
