@@ -2220,11 +2220,18 @@ mode="${CMUX_IOS_SIM_LINUX:-off}"
 pool_dir="${CMUX_IOS_SIM_POOL_DIR:-${RUNNER_TEMP:-$CI_TOOLS}/sim-pool}"
 pool=""
 sim=0
-if [[ "$mode" == on && -f "$pool_dir/submitted" ]]; then
+if [[ "$mode" == on && -f "$pool_dir/submitted" ]] && (( ! status )); then
   pool="$(CMUX_IOS_SIM_POOL_DIR="$pool_dir" CMUX_IOS_SIM_POOL_WAIT=1200 bash scripts/ci/ios-sim-pool.sh collect)"
   echo "fleet pool: $pool"
 fi
+# A red macOS kit run already fails the step: the simulator leg (the kit's tests again, 40-45 min on a Mac, up to 20
+# of them waiting on the pool) would only spend the machine. The re-run that fixes the red runs it.
+if (( status )); then
+  echo "::notice title=ios-kit::the macOS kit tests failed above; the iOS simulator tests are skipped this run"
+  pool="skipped"
+fi
 case "${pool%% *}" in
+skipped) ;;
 pass) echo "iOS simulator tests passed on the fleet pool; this Mac skips them" ;;
 fail) echo "::error title=fleet pool::iOS simulator tests failed on the fleet pool (${pool#* })"; sim=1 ;;
 *)

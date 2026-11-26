@@ -352,35 +352,6 @@ jobs:
 
   # The `ios` job: the CmuxMobileKit tests and the reliability matrix's phone cells (ci/steps.toml's ios steps), on
   # the Mac ios-runner picked, one iPhone simulator, one step after the other.
-  # CmuxMobileLinkFFI.xcframework of the pull request head, started on the build fleet while `ios` waits for a Mac
-  # (the Mac build was 3.3-5.0 min of every kit run). The gateway runner only submits the build (cmux-ci ios-build,
-  # one request key per commit) and waits for it; the `ios` steps' scripts/ci/ios_link_ffi.sh asks for the same
-  # build and takes its copy, or builds on the Mac (logged). Never a verdict: anything here is a warning at most.
-  # CI_IOS_FFI_FLEET=0 turns it off.
-  ios-ffi-fleet:
-    name: ios ffi (build fleet)
-    if: ${{ (inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'ios')) && github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' && (vars.CI_IOS_FFI_FLEET || '1') != '0' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
-    # The literal fallback never schedules: the job's if: skips when the variable is unset.
-    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY || 'ubuntu-24.04' }}
-    timeout-minutes: 40  # the client waits up to 600 s queued plus 1500 s running
-    permissions: {}
-    steps:
-      - name: Build CmuxMobileLinkFFI.xcframework on the build fleet
-        env:
-          SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          set -uo pipefail
-          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
-          if ! [[ -x "$client" ]]; then
-            echo "::warning title=build fleet::cmux-ci is not installed on runner $RUNNER_NAME; the ios job builds the xcframework"
-            exit 0
-          fi
-          status=0
-          "$client" ios-build --what ffi --ref "$SHA" --out "$RUNNER_TEMP/link-ffi" --timeout 1500 --queue-timeout 600 || status=$?
-          if [[ "$status" != 0 ]]; then
-            echo "::warning title=build fleet::no xcframework from the build fleet (exit $status); the ios job builds it"
-          fi
-
   ios:
     name: ios
     needs: [ios-runner]
