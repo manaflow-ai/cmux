@@ -1163,6 +1163,20 @@ BASE_VERDICT_REPO = {"teamleaderleo/glaeda": "manaflow-ai/glaeda"}
 # checks each entry against the workflows. Its verdict is read only when the PR run's own workflow has none at or
 # after the merge-base.
 BASE_WORKFLOW_FOR = {("feat-cmux-next", "ci.yml", "web"): "cmux-next-web.yml"}
+# A PR job whose base verdict is another workflow's job under another check name (2026-11-26). pr-router.yml's
+# `pipeline` job calls pr-pipeline.yml, whose `linux` job runs ci/steps.toml's linux steps (`ci/run run --job linux`)
+# as 'pr pipeline / linux'. Nothing runs pr-pipeline.yml on base pushes; the same linux steps run there as
+# cmux-next-base-linux.yml's `linux` job, 'base linux', by the same `ci/run`, with the same log groups and test lines.
+# Without this every base red of a linux step (tests/test_ci_no_single_size_pins.py, tests/test_ci_persisted_formats.py
+# and scripts/measure/tests/nightly-fresh-launch-update-arm.test.py on 2026-11-26, PR run 45794762063) was refused
+# as having no base verdict, on every PR at once. Keyed by (the base branch, the PR run's workflow file, the PR check),
+# the value is (the base-push workflow file, its check). The comparison is the usual one, by failing test and error
+# line: a red step the base run passed, or did not run, is never excused by it. Read after batch_check, before
+# BASE_WORKFLOW_FOR, and like both only when the PR run's own workflow has no verdict at or after the merge-base;
+# tests/test_base_red_excuse.py checks each entry against the workflows.
+BASE_CHECK_FOR = {
+    ("feat-cmux-next", "pr-router.yml", "pr pipeline / linux"): ("cmux-next-base-linux.yml", "base linux"),
+}
 # The post-merge batch tier (2026-11-21, cmux#48662): per-push base workflows move onto cmux-next-post-merge.yml,
 # which every ~2 h calls each suite of .github/post-merge-batch.json whose paths changed, as a caller job named by the
 # suite key, so the base's check of job J of suite S is 'S / J'. A workflow that moved there drops its own
@@ -8792,7 +8806,8 @@ def batch_check(repo: str, base: str, file: str, name: str, github) -> str | Non
 
 def base_caller(repo: str, base: str, run: dict, name: str, github=None) -> tuple[str, str] | None:
     """(workflow file, check name) of the base's verdict for job NAME when RUN's own workflow no longer runs it on
-    BASE: the post-merge batch tier's (batch_check), else the workflow that runs the same called job on pushes to
+    BASE: the post-merge batch tier's (batch_check), else a base-push job named in BASE_CHECK_FOR, else the workflow
+    that runs the same called job on pushes to
     BASE (BASE_WORKFLOW_FOR, a pull-request-only caller of the same reusable workflow) under NAME itself; None for any
     other job, base, repo or unread workflow path."""
     path = run.get("path") if isinstance(run, dict) else None
@@ -8801,6 +8816,8 @@ def base_caller(repo: str, base: str, run: dict, name: str, github=None) -> tupl
     file = path.removeprefix(".github/workflows/").split("@", 1)[0]
     if (check := batch_check(repo, base, file, name, github)) is not None:
         return POST_MERGE_WORKFLOW, check
+    if (renamed := BASE_CHECK_FOR.get((base, file, name))) is not None:
+        return renamed
     caller = next((caller for (branch, pr_file, job_id), caller in BASE_WORKFLOW_FOR.items()
                    if branch == base and pr_file == file and name.startswith(f"{job_id} / ")), None)
     return None if caller is None else (caller, name)
