@@ -102,9 +102,7 @@ enum BrowserToolbarHandlers {
     }
 
     static func profileName(forTab key: String, services: AppServices) -> String {
-        // An incognito tab's button is the incognito disc: its tooltip says so, not the profile under it.
-        if services.cache.browserTabs.isIncognitoTab(key) { return WindowStrings.incognitoBadge }
-        return services.browserProfiles.displayName(services.cache.tabModel(key).map(services.browserProfiles.profileID(ofTab:)))
+        services.browserProfiles.toolbarBadge(forTab: key).name // an incognito tab's says Incognito, as its disc
     }
 
     private static func tabTarget(_ entry: BrowserEntry) -> ActionTargetRef {
@@ -131,9 +129,8 @@ enum BrowserToolbarHandlers {
         let current = services.cache.tabModel(key).map(profiles.profileID(ofTab:)) ?? BrowserProfileRecord.defaultID
         let incognito = services.cache.browserTabs.isIncognitoTab(key)
         let workspace = services.workspaceID(ofTab: key)
-        // The header: the tab's profile as the button draws it, and why the tab has it; an incognito tab's disc, and
-        // when its data goes.
-        let header = profiles.toolbarBadge(forTab: key)?.menuHeader(BrowserProfileCascade.source(
+        // The header: the tab's profile as the button draws it and why the tab has it (incognito: when its data goes).
+        let header = profiles.toolbarBadge(forTab: key).menuHeader(BrowserProfileCascade.source(
             tabProfile: current, workspace: profiles.workspaceDefault(workspace), room: profiles.roomDefault(workspace), known: profiles.isKnown))
         return services.registry.makeBrowserProfileMenu(
             tabKey: key, current: current,

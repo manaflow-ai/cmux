@@ -38,6 +38,7 @@ extension BrowserProfileBadge {
     @MainActor public func avatarImage(side: CGFloat) -> NSImage {
         let fill = plate, ink = isIncognito ? Palette.textOnPrimary : Palette.textSecondary
         let monogram = monogram, caption = TypeScale.caption
+        // chrome-icons: allow the incognito disc wears the window's own incognito mark (IncognitoBadgeView); Chromium's pin has none
         let glyph: NSImage? = isIncognito ? NSImage.icon(.browserIncognito, size: Self.letterSize(side: side, least: caption) + 2) : ProfileBadgeView.symbolImage(monogram)
         let incognito = isIncognito
         return NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
@@ -155,7 +156,7 @@ final class ProfileBadgeView: NSView {
         color = badge.color
         if badge.isIncognito {
             shownSymbol = IconName.browserIncognito.rawValue
-            symbol.image = NSImage.icon(.browserIncognito, size: TypeScale.caption + 2)
+            symbol.image = NSImage.icon(.browserIncognito, size: TypeScale.caption + 2) // chrome-icons: allow the window's incognito mark, as above
             label.stringValue = ""
         } else if let image = Self.symbolImage(badge.monogram) {
             // A profile icon is an emoji, a letter, or an SF Symbol name.
