@@ -87,11 +87,6 @@ impl Translator {
                                 RpcError::invalid_params(super::STEER_NO_TURN),
                             ));
                         }
-                        // A new turn (not a steer into this one): the task list ages a turn
-                        // (`task_plan.rs`).
-                        if !steer {
-                            self.task_plan.lock().await.begin_turn();
-                        }
                         // `/clear` empties the context: nothing read before it is in it (dedupe.rs).
                         if p.pointer("/prompt/0/text")
                             .and_then(Value::as_str)
