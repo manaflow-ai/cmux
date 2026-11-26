@@ -10,7 +10,7 @@
   "appearance.appTheme": "followTerminal",
   // background: the page (surface). foreground: on-surface. selection: primary-container.
   // accent: primary, so Send, focus rings and links are the one strong color.
-  "colors": { "background": "#13131b", "foreground": "#e1e1ed", "selection": "#492cac", "accent": "#c2c1fc" },
+  "colors": { "background": "#13131b", "foreground": "#e1e1ed", "selection": "#7361e3", "accent": "#c2c1fc" },
   "appearance.accent": "theme",
   // The terminal: the page and ink above, the cursor in the primary, and sixteen ANSI colors at one
   // chroma, each tone solved over the page (1-6 at least 6.23:1, 9-14 at least 10.81:1,
@@ -20,7 +20,7 @@
     "foreground = #e1e1ed",
     "cursor-color = #c2c1fc",
     "cursor-text = #370691",
-    "selection-background = #492cac",
+    "selection-background = #7361e3",
     "selection-foreground = #e0e0fd",
     "palette = 0=#46464f",
     "palette = 1=#e57478",
@@ -76,7 +76,7 @@
 
   // The sidebar: its own tonal step (surface-container-high), no edge line, groups in the theme's colors.
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#292932",
+  "appearance.surfaces.sidebar.color": "#14131c",
   "appearance.surfaces.sidebar.opacity": 1,
   "sidebar.style": "standard",
   "sidebar.border": false,
@@ -96,13 +96,13 @@
   "appearance.surfaces.diff.opacity": 1,
   "appearance.surfaces.markdown.color": "#13131b",
   "appearance.surfaces.markdown.opacity": 1,
-  "appearance.surfaces.tabBar.color": "#292932",
+  "appearance.surfaces.tabBar.color": "#14131c",
   "appearance.surfaces.tabBar.opacity": 1,
   "appearance.surfaces.browserChrome.color": "#1f1f27",
   "appearance.surfaces.browserChrome.opacity": 1,
   "appearance.surfaces.docks.color": "#1f1f27",
   "appearance.surfaces.docks.opacity": 1,
-  "appearance.surfaces.splitDivider.color": "#292932",
+  "appearance.surfaces.splitDivider.color": "#14131c",
   "appearance.surfaces.splitDivider.opacity": 1,
 
   // Settings and pages: surface-container-low, one step off the page.

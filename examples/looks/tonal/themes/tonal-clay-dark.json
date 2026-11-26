@@ -10,7 +10,7 @@
   "appearance.appTheme": "followTerminal",
   // background: the page (surface). foreground: on-surface. selection: primary-container.
   // accent: primary, so Send, focus rings and links are the one strong color.
-  "colors": { "background": "#1a110f", "foreground": "#ede0db", "selection": "#812807", "accent": "#ffb59e" },
+  "colors": { "background": "#1a110f", "foreground": "#ede0db", "selection": "#b7593d", "accent": "#ffb59e" },
   "appearance.accent": "theme",
   // The terminal: the page and ink above, the cursor in the primary, and sixteen ANSI colors at one
   // chroma, each tone solved over the page (1-6 at least 6.23:1, 9-14 at least 10.88:1,
@@ -20,7 +20,7 @@
     "foreground = #ede0db",
     "cursor-color = #ffb59e",
     "cursor-text = #5b1a04",
-    "selection-background = #812807",
+    "selection-background = #b7593d",
     "selection-foreground = #fddbd1",
     "palette = 0=#4f4441",
     "palette = 1=#e47569",
@@ -76,7 +76,7 @@
 
   // The sidebar: its own tonal step (surface-container), no edge line, groups in the theme's colors.
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#271d1a",
+  "appearance.surfaces.sidebar.color": "#1b120f",
   "appearance.surfaces.sidebar.opacity": 1,
   "sidebar.style": "standard",
   "sidebar.border": false,
@@ -102,7 +102,7 @@
   "appearance.surfaces.browserChrome.opacity": 1,
   "appearance.surfaces.docks.color": "#231917",
   "appearance.surfaces.docks.opacity": 1,
-  "appearance.surfaces.splitDivider.color": "#271d1a",
+  "appearance.surfaces.splitDivider.color": "#1b120f",
   "appearance.surfaces.splitDivider.opacity": 1,
 
   // Settings and pages: surface-container-low, one step off the page.

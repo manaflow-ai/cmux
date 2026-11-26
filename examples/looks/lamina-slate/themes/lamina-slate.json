@@ -6,7 +6,7 @@
 
   // Palette: layer color, ink, selection, accent.
   "appearance.theme": "Builtin Dark",
-  "colors": {"background": "#1e1f22", "foreground": "#e6e7ea", "selection": "#2f4560", "accent": "#7aa2d6"},
+  "colors": {"background": "#1e1f22", "foreground": "#e6e7ea", "selection": "#5f7794", "accent": "#7aa2d6"},
   "appearance.appTheme": "followTerminal",
   "appearance.accent": "theme",
   "appearance.highlightColor": "#2f4560",
@@ -30,9 +30,9 @@
 
   // Layers: sidebar and docks lowest, title and tabs next, content on top.
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#25262a",
+  "appearance.surfaces.sidebar.color": "#1e1f23",
   "appearance.surfaces.sidebar.opacity": 1,
-  "appearance.surfaces.tabBar.color": "#25262a",
+  "appearance.surfaces.tabBar.color": "#1e1f23",
   "appearance.surfaces.tabBar.opacity": 1,
   "appearance.surfaces.agentPane.color": "#1e1f22",
   "appearance.surfaces.agentPane.opacity": 1,
@@ -52,9 +52,9 @@
   "appearance.surfaces.diff.opacity": 1,
   "appearance.surfaces.editor.color": "#1e1f22",
   "appearance.surfaces.editor.opacity": 1,
-  "appearance.surfaces.browserChrome.color": "#25262a",
+  "appearance.surfaces.browserChrome.color": "#1e1f23",
   "appearance.surfaces.browserChrome.opacity": 1,
-  "appearance.surfaces.docks.color": "#25262a",
+  "appearance.surfaces.docks.color": "#1e1f23",
   "appearance.surfaces.docks.opacity": 1,
   "appearance.surfaces.splitDivider.color": "#34363b",
   "appearance.surfaces.splitDivider.opacity": 1,

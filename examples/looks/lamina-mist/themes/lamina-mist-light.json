@@ -32,7 +32,7 @@
 
   // Layers: sidebar and docks lowest, title and tabs next, content on top.
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#e3ecf6",
+  "appearance.surfaces.sidebar.color": "#e8f1fb",
   "appearance.surfaces.sidebar.opacity": 0.55,
   "appearance.surfaces.tabBar.color": "#eef3f8",
   "appearance.surfaces.tabBar.opacity": 0.62,
@@ -56,7 +56,7 @@
   "appearance.surfaces.editor.opacity": 0.75,
   "appearance.surfaces.browserChrome.color": "#eef3f8",
   "appearance.surfaces.browserChrome.opacity": 0.62,
-  "appearance.surfaces.docks.color": "#e3ecf6",
+  "appearance.surfaces.docks.color": "#e8f1fb",
   "appearance.surfaces.docks.opacity": 0.55,
   "appearance.surfaces.splitDivider.color": "#d3dde8",
   "appearance.surfaces.splitDivider.opacity": 1,

@@ -52,7 +52,7 @@
   "appearance.metrics.dividerThickness": 2,
 
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#f1edf8",
+  "appearance.surfaces.sidebar.color": "#f9f5ff",
   "appearance.surfaces.sidebar.opacity": 1,
   "appearance.surfaces.agentPane.color": "#fbf9ff",
   "appearance.surfaces.agentPane.opacity": 1,

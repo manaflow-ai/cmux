@@ -1,5 +1,5 @@
 // Workbench Light: the same dense workbench in daylight. A cool off-white page (#f6f7f9), the
-// sidebar one step deeper (#eceef2) behind a hairline, blue-gray ink, and the calm blue a step
+// sidebar one step deeper (#f2f4f8) behind a hairline, blue-gray ink, and the calm blue a step
 // deeper (#2f6fd6) so it still marks focus on white.
 {
   "name": "Workbench Light",
@@ -38,12 +38,12 @@
   "appearance.metrics.dividerThickness": 1,
 
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#eceef2",
+  "appearance.surfaces.sidebar.color": "#f2f4f8",
   "appearance.surfaces.sidebar.opacity": 1,
   "sidebar.sectionLook": "lines",
   "appearance.surfaces.agentPane.color": "#f6f7f9",
   "appearance.surfaces.agentPane.opacity": 1,
-  "appearance.surfaces.tabBar.color": "#eceef2",
+  "appearance.surfaces.tabBar.color": "#f2f4f8",
   "appearance.surfaces.tabBar.opacity": 1,
   "appearance.surfaces.splitDivider.color": "#d5d9e0",
   "appearance.surfaces.splitDivider.opacity": 1,

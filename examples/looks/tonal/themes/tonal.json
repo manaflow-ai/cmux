@@ -76,7 +76,7 @@
 
   // The sidebar: its own tonal step (surface-container), no edge line, groups in the theme's colors.
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#e9efed",
+  "appearance.surfaces.sidebar.color": "#f4faf8",
   "appearance.surfaces.sidebar.opacity": 1,
   "sidebar.style": "standard",
   "sidebar.border": false,
@@ -96,13 +96,13 @@
   "appearance.surfaces.diff.opacity": 1,
   "appearance.surfaces.markdown.color": "#f4fbf8",
   "appearance.surfaces.markdown.opacity": 1,
-  "appearance.surfaces.tabBar.color": "#e9efed",
+  "appearance.surfaces.tabBar.color": "#f4faf8",
   "appearance.surfaces.tabBar.opacity": 1,
   "appearance.surfaces.browserChrome.color": "#eef5f2",
   "appearance.surfaces.browserChrome.opacity": 1,
   "appearance.surfaces.docks.color": "#eef5f2",
   "appearance.surfaces.docks.opacity": 1,
-  "appearance.surfaces.splitDivider.color": "#e9efed",
+  "appearance.surfaces.splitDivider.color": "#f4faf8",
   "appearance.surfaces.splitDivider.opacity": 1,
 
   // Settings and pages: surface-container-low, one step off the page.

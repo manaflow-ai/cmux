@@ -10,7 +10,7 @@
   "appearance.appTheme": "followTerminal",
   // background: the page (surface). foreground: on-surface. selection: primary-container.
   // accent: primary, so Send, focus rings and links are the one strong color.
-  "colors": { "background": "#101412", "foreground": "#dde4e1", "selection": "#03513d", "accent": "#85d6b9" },
+  "colors": { "background": "#101412", "foreground": "#dde4e1", "selection": "#3f806a", "accent": "#85d6b9" },
   "appearance.accent": "theme",
   // The terminal: the page and ink above, the cursor in the primary, and sixteen ANSI colors at one
   // chroma, each tone solved over the page (1-6 at least 6.24:1, 9-14 at least 10.87:1,
@@ -20,7 +20,7 @@
     "foreground = #dde4e1",
     "cursor-color = #85d6b9",
     "cursor-text = #023829",
-    "selection-background = #03513d",
+    "selection-background = #3f806a",
     "selection-foreground = #a1f3d5",
     "palette = 0=#434846",
     "palette = 1=#e27857",
@@ -76,7 +76,7 @@
 
   // The sidebar: its own tonal step (surface-container), no edge line, groups in the theme's colors.
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#1c211f",
+  "appearance.surfaces.sidebar.color": "#111514",
   "appearance.surfaces.sidebar.opacity": 1,
   "sidebar.style": "standard",
   "sidebar.border": false,
@@ -96,13 +96,13 @@
   "appearance.surfaces.diff.opacity": 1,
   "appearance.surfaces.markdown.color": "#101412",
   "appearance.surfaces.markdown.opacity": 1,
-  "appearance.surfaces.tabBar.color": "#1c211f",
+  "appearance.surfaces.tabBar.color": "#111514",
   "appearance.surfaces.tabBar.opacity": 1,
   "appearance.surfaces.browserChrome.color": "#181d1b",
   "appearance.surfaces.browserChrome.opacity": 1,
   "appearance.surfaces.docks.color": "#181d1b",
   "appearance.surfaces.docks.opacity": 1,
-  "appearance.surfaces.splitDivider.color": "#1c211f",
+  "appearance.surfaces.splitDivider.color": "#111514",
   "appearance.surfaces.splitDivider.opacity": 1,
 
   // Settings and pages: surface-container-low, one step off the page.

@@ -6,7 +6,7 @@
 
   // Palette: layer color, ink, selection, accent.
   "appearance.theme": "Builtin Dark",
-  "colors": {"background": "#202020", "foreground": "#f3f3f3", "selection": "#2a4a63", "accent": "#4cc2ff"},
+  "colors": {"background": "#202020", "foreground": "#f3f3f3", "selection": "#577893", "accent": "#4cc2ff"},
   "appearance.appTheme": "followTerminal",
   "appearance.accent": "theme",
   "appearance.highlightColor": "#2a4a63",
@@ -30,7 +30,7 @@
 
   // Layers: sidebar and docks lowest, title and tabs next, content on top.
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#2b2b2b",
+  "appearance.surfaces.sidebar.color": "#202020",
   "appearance.surfaces.sidebar.opacity": 0.72,
   "appearance.surfaces.tabBar.color": "#202020",
   "appearance.surfaces.tabBar.opacity": 0.85,
@@ -54,7 +54,7 @@
   "appearance.surfaces.editor.opacity": 0.94,
   "appearance.surfaces.browserChrome.color": "#202020",
   "appearance.surfaces.browserChrome.opacity": 0.85,
-  "appearance.surfaces.docks.color": "#2b2b2b",
+  "appearance.surfaces.docks.color": "#202020",
   "appearance.surfaces.docks.opacity": 0.72,
   "appearance.surfaces.splitDivider.color": "#3a3a3a",
   "appearance.surfaces.splitDivider.opacity": 1,
