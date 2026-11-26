@@ -73,6 +73,10 @@ const MAX_TTL_SECS: u64 = 600;
 pub(super) const USB_TTL_SECS: u64 = MAX_TTL_SECS;
 
 mod bootstrap;
+mod placement;
+mod session;
+pub(super) use session::NoCredential;
+pub(crate) use session::read_credential;
 pub(super) mod vault;
 mod windows;
 
@@ -89,8 +93,6 @@ const USAGE: &str = "usage: cmux machine add [--name NAME] [--ttl 10m] [--wait|-
   cmux machine placement on|off sets whether the team's new machines book its own joined machines first (owner or admin).
   cmux machine add HOST (without --vault or --bootstrap) opens the app's Add Machine card for an ssh host.";
 const SIGN_IN: &str = "sign in: pass --cloud-token-file PATH (or set CMUX_CLOUD_ACCESS_TOKEN), or use Add Machine in the app";
-/// A signed-in app that could not hand over its session (none answers, or it is signed out).
-const APP_SIGN_IN: &str = "sign in to the cmux app (cmux login), or pass --cloud-token-file PATH (or set CMUX_CLOUD_ACCESS_TOKEN)";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Auth {
@@ -143,26 +145,6 @@ pub(super) enum Verb {
     Placement(Option<bool>),
 }
 
-/// Where a verb's sign-in comes from when no flag or variable names a credential.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum NoCredential {
-    /// A plain `machine add`: the app's Add Machine card, as before joining existed.
-    Card,
-    /// The signed-in app's session (`auth.token`): no token passes through the caller.
-    AppSession,
-}
-
-impl Command {
-    /// What a run with no credential does: the card for a plain `machine add` (unless it asks for
-    /// `--app-session`), the app's session for every other verb.
-    pub(super) fn without_credential(&self) -> NoCredential {
-        match &self.verb {
-            Verb::Add(add) if add.plain() && !self.auth.app_session => NoCredential::Card,
-            _ => NoCredential::AppSession,
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Command {
     pub verb: Verb,
@@ -209,36 +191,10 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         Err(error) => return Some(fail(Failure::usage(error.0))),
     };
     let env = |key: &str| std::env::var(key).ok();
-    let given = if command.auth.app_session {
-        Ok(None)
-    } else {
-        read_credential(&command.auth, &env, &mut std::io::stdin().lock())
-    };
-    let (credential, team, app_origin) = match given {
-        Ok(Some(credential)) => (credential, None, None),
-        Ok(None) => match command.without_credential() {
-            // With no credential, `machine add` stays the app's Add Machine card wherever an
-            // app answers, as it was before joining existed.
-            NoCredential::Card => {
-                if let Some(code) = super::app_commands::run_app_action_fallback(args) {
-                    return Some(code);
-                }
-                return Some(fail(Failure::usage(SIGN_IN)));
-            }
-            // The app's own session, minted for its current team the way `cmux auth token` asks
-            // for one: the token goes from the app's socket straight into the call, never to
-            // the caller's terminal, environment or logs.
-            NoCredential::AppSession => match super::auth_token::app_token_in(None) {
-                Ok(token) => (token.token.to_string(), Some(token.team), Some(token.api_origin)),
-                Err(why) => {
-                    return Some(fail(Failure::new(
-                        "machine_join.signed_out",
-                        format!("the cmux app gave no session ({why}): {APP_SIGN_IN}"),
-                    )));
-                }
-            },
-        },
-        Err(message) => return Some(fail(Failure::usage(message))),
+    let (credential, team, app_origin) = match session::sign_in(&command, &env, args) {
+        Ok(signed_in) => signed_in,
+        Err(Ok(code)) => return Some(code),
+        Err(Err(failure)) => return Some(fail(failure)),
     };
     // An explicit `--platform` wins; else the API the app's token came from; else the usual
     // variables and production.
@@ -456,15 +412,7 @@ fn parse_verb(verb: &str, rest: &[String]) -> Result<Command, UsageError> {
         }
         ("revoke", [machine]) => Verb::Revoke { machine: machine.clone(), yes },
         ("rotate", [machine]) => Verb::Rotate { machine: machine.clone() },
-        ("placement", [state]) => match state.as_str() {
-            "on" => Verb::Placement(Some(true)),
-            "off" => Verb::Placement(Some(false)),
-            "status" => Verb::Placement(None),
-            _ => return Err(UsageError::new("usage: cmux machine placement on|off|status")),
-        },
-        ("placement", _) => {
-            return Err(UsageError::new("usage: cmux machine placement on|off|status"));
-        }
+        ("placement", words) => Verb::Placement(placement::parse_state(words)?),
         _ => return Err(usage()),
     };
     Ok(Command { verb, auth })
@@ -520,33 +468,6 @@ fn parse_ttl(text: &str) -> Result<u64, UsageError> {
     let seconds =
         digits.parse::<u64>().map_err(|_| error())?.checked_mul(scale).ok_or_else(error)?;
     if (60..=max).contains(&seconds) { Ok(seconds) } else { Err(error()) }
-}
-
-/// The caller's cmux credential: stdin, then the file, then the environment.
-/// `None` when no way names one. Errors name neither the file's path nor its
-/// contents (a pasted secret could be in either).
-pub(crate) fn read_credential(
-    auth: &Auth,
-    env: &dyn Fn(&str) -> Option<String>,
-    stdin: &mut dyn BufRead,
-) -> Result<Option<String>, String> {
-    let raw = if auth.token_stdin {
-        let mut line = String::new();
-        stdin
-            .read_line(&mut line)
-            .map_err(|e| format!("the credential on stdin could not be read ({:?})", e.kind()))?;
-        line
-    } else if let Some(path) = &auth.token_file {
-        std::fs::read_to_string(path)
-            .map_err(|e| format!("the --cloud-token-file could not be read ({:?})", e.kind()))?
-    } else {
-        return Ok(env(TOKEN_ENV).map(|c| c.trim().to_owned()).filter(|c| !c.is_empty()));
-    };
-    let credential = raw.trim().to_owned();
-    if credential.is_empty() {
-        return Err("the cmux credential is empty".into());
-    }
-    Ok(Some(credential))
 }
 
 /// `--platform`, else `CMUX_PLATFORM_ORIGIN` (or its alias `CMUX_PLATFORM_URL`), else the
@@ -1003,61 +924,8 @@ pub(super) fn run(
         }
         Verb::Rotate { machine } => rotate(platform, machine, output, out),
         Verb::Vault(verb) => vault::run(verb, platform, output, out, hooks),
-        Verb::Placement(set) => placement(platform, *set, output, out),
+        Verb::Placement(set) => placement::run(platform, *set, output, out),
     }
-}
-
-/// `machine placement on|off|status`: PUT or GET `/v1/machines/joined/placement`. On, the team's
-/// new machines book a free slot on one of its own joined machines before a new VM is made
-/// (cmux-platform's `setJoinedPlacement`); only a team owner or admin, as a person, sets it.
-fn placement(
-    platform: &Platform,
-    set: Option<bool>,
-    output: OutputMode,
-    out: &mut dyn Write,
-) -> Result<i32, Failure> {
-    let path = "/v1/machines/joined/placement";
-    let answer = match set {
-        Some(enabled) => {
-            platform.request(reqwest::Method::PUT, path, Some(json!({ "enabled": enabled })))
-        }
-        None => platform.request(reqwest::Method::GET, path, None),
-    }
-    .map_err(|error| match error {
-        CallError::Status { status: 404, .. } => Failure::new(
-            "machine_join.unavailable",
-            "joined placement isn't available on this server (it answered 404)",
-        ),
-        CallError::Status { status: 403, code, .. } => Failure::new(
-            "machine_join.forbidden",
-            format!(
-                "only a team owner or admin, signed in as a person, turns joined placement on or off ({})",
-                format!("403 {code}").trim_end()
-            ),
-        ),
-        error => error.failure(if set.is_some() { "the placement change" } else { "the placement read" }),
-    })?;
-    let Some(enabled) = answer.get("enabled").and_then(Value::as_bool) else {
-        return Err(Failure::new(
-            "machine_join.unreadable",
-            "the cmux platform's placement answer has no enabled field",
-        ));
-    };
-    let updated_at = answer.get("updated_at").and_then(Value::as_u64).unwrap_or(0);
-    let io = |e: std::io::Error| Failure::new("io", e.to_string());
-    match output {
-        OutputMode::Human => {
-            let state = if enabled { "on" } else { "off" };
-            let when = if updated_at == 0 { " (never set)" } else { "" };
-            writeln!(out, "joined placement: {state}{when}").map_err(io)?;
-        }
-        OutputMode::Json | OutputMode::JsonLines => {
-            writeln!(out, "{}", json!({ "enabled": enabled, "updated_at": updated_at }))
-                .map_err(io)?;
-        }
-        OutputMode::Quiet => {}
-    }
-    Ok(0)
 }
 
 pub(super) struct Add<'a> {
