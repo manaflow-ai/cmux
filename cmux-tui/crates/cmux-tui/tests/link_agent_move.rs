@@ -1308,7 +1308,7 @@ mod agent_move {
         }
     }
 
-    /// `cargo test -p cmux-tui --test link_agent_move -- --ignored tail_first_bench --nocapture`:
+    /// `cargo test -p cmux-tui --test it -- --ignored link_agent_move::agent_move::tail_first_bench --nocapture`:
     /// a `CMUX_MOVE_BENCH_MB` (55) chat through the pump over loopback, off and on.
     #[test]
     #[ignore = "a bench: run it by name"]
