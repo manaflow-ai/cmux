@@ -204,8 +204,8 @@ p0_hardcore() { # P0 task 7, and task 6: quit and reopen
   layout before-quit
   local before=$terminals
   keys cmd q; sleep_s 1
-  for _ in $(seq 1 60); do kill -0 "$pid" 2>/dev/null || break; sleep_s 0.5; done
-  kill -0 "$pid" 2>/dev/null && note "STUCK quit: the app was still running 30 s after Cmd-Q"
+  for _ in $(seq 1 60); do ps -p "$pid" >/dev/null 2>&1 || break; sleep_s 0.5; done
+  ps -p "$pid" >/dev/null 2>&1 && note "STUCK quit: the app was still running 30 s after Cmd-Q"
   launch reopen_window
   sleep_s 3; main_window reopen; shot 09-reopened
   layout after-reopen
