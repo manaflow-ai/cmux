@@ -147,6 +147,8 @@ public final class CloudAgentCredentials {
     /// Subscribes to local connection changes while guest reconciliation is active.
     public var watchCredentialConnections: (@MainActor () async -> AsyncStream<Void>?)?
     private var keyWatch: Task<Void, Never>?
+    private let keyWatchRetry: DemandTimer
+    private var keyWatchRetryDelay: Duration = .seconds(2)
     private var keyDeliveries: [ChatKey: KeyDelivery] = [:]
     private(set) var keySync: Task<Void, Never>?
     private var keyChangesPending = false
@@ -159,15 +161,41 @@ public final class CloudAgentCredentials {
         queueKeySync()
     }
 
+    private var needsKeyWatch: Bool { withdrawGuestBindings != nil || !keyDeliveries.isEmpty }
+
     private func startKeyWatch() {
-        guard keyWatch == nil, let watchCredentialConnections else { return }
-        // task-owner: keyWatch, until acpmux closes its watch or no bound chat remains.
+        guard needsKeyWatch, keyWatch == nil, let watchCredentialConnections else { return }
+        keyWatchRetry.cancel()
+        // task-owner: keyWatch, until acpmux closes its watch or reconciliation is no longer needed.
         keyWatch = Task { [weak self] in
-            if let changes = await watchCredentialConnections() {
-                for await _ in changes { self?.queueKeySync() }
+            if let changes = await watchCredentialConnections(), !Task.isCancelled {
+                // Subscribe before reading so a change during the outage or this read is covered.
+                self?.queueKeySync()
+                for await _ in changes {
+                    guard let self, !Task.isCancelled else { break }
+                    self.keyWatchRetryDelay = .seconds(2)
+                    self.queueKeySync()
+                }
             }
-            self?.keyWatch = nil
+            self?.keyWatchEnded()
         }
+    }
+
+    private func keyWatchEnded() {
+        keyWatch = nil
+        guard needsKeyWatch else { return }
+        let delay = keyWatchRetryDelay
+        keyWatchRetryDelay = min(delay * 2, CloudAgentCredentialRefresher.retry)
+        keyWatchRetry.scheduleIfIdle(after: delay) { @MainActor [weak self] in
+            self?.startKeyWatch()
+        }
+    }
+
+    private func stopKeyWatchIfIdle() {
+        guard !needsKeyWatch else { return }
+        keyWatch?.cancel()
+        keyWatchRetry.cancel()
+        keyWatchRetryDelay = .seconds(2)
     }
 
     private func queueKeySync() {
@@ -180,7 +208,7 @@ public final class CloudAgentCredentials {
     private func syncKeys() async {
         defer {
             keySync = nil
-            if keyDeliveries.isEmpty, withdrawGuestBindings == nil { keyWatch?.cancel() }
+            stopKeyWatchIfIdle()
             if guestWithdrawalPending || keyDeliveries.values.contains(where: \.withdrawalPending) {
                 withdrawalRetry.scheduleIfIdle(after: CloudAgentCredentialRefresher.retry) { @MainActor [weak self] in
                     self?.queueKeySync()
@@ -261,7 +289,7 @@ public final class CloudAgentCredentials {
         if result == .gone, keyDeliveries[chat]?.id == delivery.id {
             keyDeliveries[chat] = nil
             stopRefresh(chat)
-            if keyDeliveries.isEmpty, withdrawGuestBindings == nil { keyWatch?.cancel() }
+            stopKeyWatchIfIdle()
         }
         return result
     }
@@ -313,9 +341,12 @@ public final class CloudAgentCredentials {
 
     public init(machineIdentity: String? = nil, clock: any Clock<Duration> = ContinuousClock(), read: Read? = nil) {
         self.machineIdentity = machineIdentity
+        self.keyWatchRetry = DemandTimer(owner: "cloud.agentCredentials.keyWatchRetry", clock: clock)
         self.withdrawalRetry = DemandTimer(owner: "cloud.agentCredentials.withdrawalRetry", clock: clock)
         self.read = read
     }
+
+    deinit { keyWatch?.cancel() }
 
     /// The guest stores the route id with a digest scoped to this Mac and this saved connection.
     package func credentialBinding(_ credential: CloudAgentCredential) -> String? {
