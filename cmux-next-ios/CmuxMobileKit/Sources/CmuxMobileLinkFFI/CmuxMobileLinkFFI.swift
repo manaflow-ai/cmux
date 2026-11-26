@@ -3346,6 +3346,279 @@ public func FfiConverterTypeFollowCamera_lower(_ value: FollowCamera) -> UInt64 
 
 
 
+/**
+ * Group edits this phone made that the Mac's list has not shown back yet.
+ *
+ * The phone shows a group change at once and sends it to the Mac. Until the
+ * Mac's list carries it, a tree refresh (a terminal title, an agent event, a
+ * notification) can publish the group as it was: the list's arrangement is
+ * cached and only re-read after the Mac answers. Without this a collapsed
+ * group opened again by itself, and a second tap seemed to be needed
+ * ("disclosure groups not being properly closable"). An edit holds its
+ * members' group over refreshes while it is in flight, and after the Mac's
+ * yes until a refresh shows it or `GROUP_EDIT_CONFIRM_WINDOW` passes; then the Mac's
+ * state wins again (another device may change it). Only the latest edit of a
+ * workspace counts: a refused earlier tap does not undo a later one. Each
+ * refreshed row's hold is `pending_group_edit_step`.
+ */
+public protocol GroupEditLedgerProtocol: AnyObject, Sendable {
+    
+    /**
+     * The Mac accepted the edit at `at` seconds: refreshes keep it until one
+     * shows it (a non-holding edit is done).
+     */
+    func answered(workspaceIds: [String], generation: UInt64, at: Double) 
+    
+    /**
+     * One Mac's refreshed rows at `now` seconds: the rows whose group an edit
+     * still holds, with the group to show. An edit that expired, or that an
+     * answered refresh now shows, is dropped and its row left as the Mac sent it.
+     */
+    func apply(rows: [GroupEditRow], now: Double)  -> [GroupEditHeld]
+    
+    /**
+     * The workspaces now show `group` (none: no group); returns the edit's
+     * generation. It replaces any earlier edit of those workspaces.
+     */
+    func begin(workspaceIds: [String], group: PhoneWorkspaceGroup?, holds: Bool)  -> UInt64
+    
+    func isEmpty()  -> Bool
+    
+    /**
+     * The Mac refused the edit: the workspaces it was still the latest edit
+     * of (those to roll back), in the order given.
+     */
+    func refused(workspaceIds: [String], generation: UInt64)  -> [String]
+    
+    /**
+     * Forgets every edit (sign-in); generations keep counting, so a request
+     * from before never matches a later edit.
+     */
+    func removeAll() 
+    
+    /**
+     * The edit's request left for the Mac (after the Mac's earlier group
+     * requests), at `at` seconds: the unanswered window counts from here.
+     */
+    func sent(workspaceIds: [String], generation: UInt64, at: Double) 
+    
+}
+/**
+ * Group edits this phone made that the Mac's list has not shown back yet.
+ *
+ * The phone shows a group change at once and sends it to the Mac. Until the
+ * Mac's list carries it, a tree refresh (a terminal title, an agent event, a
+ * notification) can publish the group as it was: the list's arrangement is
+ * cached and only re-read after the Mac answers. Without this a collapsed
+ * group opened again by itself, and a second tap seemed to be needed
+ * ("disclosure groups not being properly closable"). An edit holds its
+ * members' group over refreshes while it is in flight, and after the Mac's
+ * yes until a refresh shows it or `GROUP_EDIT_CONFIRM_WINDOW` passes; then the Mac's
+ * state wins again (another device may change it). Only the latest edit of a
+ * workspace counts: a refused earlier tap does not undo a later one. Each
+ * refreshed row's hold is `pending_group_edit_step`.
+ */
+open class GroupEditLedger: GroupEditLedgerProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_groupeditledger(self.handle, $0) }
+    }
+public convenience init() {
+    let handle =
+        try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_constructor_groupeditledger_new($0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_groupeditledger(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * The Mac accepted the edit at `at` seconds: refreshes keep it until one
+     * shows it (a non-holding edit is done).
+     */
+open func answered(workspaceIds: [String], generation: UInt64, at: Double)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_groupeditledger_answered(
+            self.uniffiCloneHandle(),
+        FfiConverterSequenceString.lower(workspaceIds),
+        FfiConverterUInt64.lower(generation),
+        FfiConverterDouble.lower(at),$0
+    )
+}
+}
+    
+    /**
+     * One Mac's refreshed rows at `now` seconds: the rows whose group an edit
+     * still holds, with the group to show. An edit that expired, or that an
+     * answered refresh now shows, is dropped and its row left as the Mac sent it.
+     */
+open func apply(rows: [GroupEditRow], now: Double) -> [GroupEditHeld]  {
+    return try!  FfiConverterSequenceTypeGroupEditHeld.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_groupeditledger_apply(
+            self.uniffiCloneHandle(),
+        FfiConverterSequenceTypeGroupEditRow.lower(rows),
+        FfiConverterDouble.lower(now),$0
+    )
+})
+}
+    
+    /**
+     * The workspaces now show `group` (none: no group); returns the edit's
+     * generation. It replaces any earlier edit of those workspaces.
+     */
+open func begin(workspaceIds: [String], group: PhoneWorkspaceGroup?, holds: Bool) -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_groupeditledger_begin(
+            self.uniffiCloneHandle(),
+        FfiConverterSequenceString.lower(workspaceIds),
+        FfiConverterOptionTypePhoneWorkspaceGroup.lower(group),
+        FfiConverterBool.lower(holds),$0
+    )
+})
+}
+    
+open func isEmpty() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_groupeditledger_is_empty(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * The Mac refused the edit: the workspaces it was still the latest edit
+     * of (those to roll back), in the order given.
+     */
+open func refused(workspaceIds: [String], generation: UInt64) -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_groupeditledger_refused(
+            self.uniffiCloneHandle(),
+        FfiConverterSequenceString.lower(workspaceIds),
+        FfiConverterUInt64.lower(generation),$0
+    )
+})
+}
+    
+    /**
+     * Forgets every edit (sign-in); generations keep counting, so a request
+     * from before never matches a later edit.
+     */
+open func removeAll()  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_groupeditledger_remove_all(
+            self.uniffiCloneHandle(),$0
+    )
+}
+}
+    
+    /**
+     * The edit's request left for the Mac (after the Mac's earlier group
+     * requests), at `at` seconds: the unanswered window counts from here.
+     */
+open func sent(workspaceIds: [String], generation: UInt64, at: Double)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_groupeditledger_sent(
+            self.uniffiCloneHandle(),
+        FfiConverterSequenceString.lower(workspaceIds),
+        FfiConverterUInt64.lower(generation),
+        FfiConverterDouble.lower(at),$0
+    )
+}
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeGroupEditLedger: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = GroupEditLedger
+
+    public static func lift(_ handle: UInt64) throws -> GroupEditLedger {
+        return GroupEditLedger(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: GroupEditLedger) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> GroupEditLedger {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: GroupEditLedger, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGroupEditLedger_lift(_ handle: UInt64) throws -> GroupEditLedger {
+    return try FfiConverterTypeGroupEditLedger.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGroupEditLedger_lower(_ value: GroupEditLedger) -> UInt64 {
+    return FfiConverterTypeGroupEditLedger.lower(value)
+}
+
+
+
+
+
+
 public protocol LastPlaceStoreProtocol: AnyObject, Sendable {
     
     /**
@@ -9998,6 +10271,120 @@ public func FfiConverterTypeFollowRect_lower(_ value: FollowRect) -> RustBuffer 
 
 
 /**
+ * A row whose group an edit still holds: its index in the rows given, and the group it shows.
+ */
+public struct GroupEditHeld: Equatable, Hashable {
+    public var index: UInt32
+    public var group: PhoneWorkspaceGroup?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(index: UInt32, group: PhoneWorkspaceGroup?) {
+        self.index = index
+        self.group = group
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension GroupEditHeld: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeGroupEditHeld: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> GroupEditHeld {
+        return
+            try GroupEditHeld(
+                index: FfiConverterUInt32.read(from: &buf), 
+                group: FfiConverterOptionTypePhoneWorkspaceGroup.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: GroupEditHeld, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.index, into: &buf)
+        FfiConverterOptionTypePhoneWorkspaceGroup.write(value.group, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGroupEditHeld_lift(_ buf: RustBuffer) throws -> GroupEditHeld {
+    return try FfiConverterTypeGroupEditHeld.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGroupEditHeld_lower(_ value: GroupEditHeld) -> RustBuffer {
+    return FfiConverterTypeGroupEditHeld.lower(value)
+}
+
+
+/**
+ * One workspace row of a refresh, for the edits it does not show yet.
+ */
+public struct GroupEditRow: Equatable, Hashable {
+    public var id: String
+    public var group: PhoneWorkspaceGroup?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, group: PhoneWorkspaceGroup?) {
+        self.id = id
+        self.group = group
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension GroupEditRow: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeGroupEditRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> GroupEditRow {
+        return
+            try GroupEditRow(
+                id: FfiConverterString.read(from: &buf), 
+                group: FfiConverterOptionTypePhoneWorkspaceGroup.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: GroupEditRow, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterOptionTypePhoneWorkspaceGroup.write(value.group, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGroupEditRow_lift(_ buf: RustBuffer) throws -> GroupEditRow {
+    return try FfiConverterTypeGroupEditRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGroupEditRow_lower(_ value: GroupEditRow) -> RustBuffer {
+    return FfiConverterTypeGroupEditRow.lower(value)
+}
+
+
+/**
  * A Keychain delete: the service, and the account when the item had one.
  */
 public struct KeychainDelete: Equatable, Hashable {
@@ -13190,6 +13577,242 @@ public func FfiConverterTypeWindowLayout_lift(_ buf: RustBuffer) throws -> Windo
 #endif
 public func FfiConverterTypeWindowLayout_lower(_ value: WindowLayout) -> RustBuffer {
     return FfiConverterTypeWindowLayout.lower(value)
+}
+
+
+/**
+ * A shown group's fold.
+ */
+public struct WorkspaceGroupFold: Equatable, Hashable {
+    public var id: String
+    public var collapsed: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, collapsed: Bool) {
+        self.id = id
+        self.collapsed = collapsed
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension WorkspaceGroupFold: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeWorkspaceGroupFold: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WorkspaceGroupFold {
+        return
+            try WorkspaceGroupFold(
+                id: FfiConverterString.read(from: &buf), 
+                collapsed: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: WorkspaceGroupFold, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterBool.write(value.collapsed, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceGroupFold_lift(_ buf: RustBuffer) throws -> WorkspaceGroupFold {
+    return try FfiConverterTypeWorkspaceGroupFold.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceGroupFold_lower(_ value: WorkspaceGroupFold) -> RustBuffer {
+    return FfiConverterTypeWorkspaceGroupFold.lower(value)
+}
+
+
+/**
+ * A room (`list-personal.profiles[]`): its order and the sessions it follows.
+ */
+public struct WorkspaceGroupRoom: Equatable, Hashable {
+    public var id: String
+    public var index: Int64
+    public var follows: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, index: Int64, follows: [String]) {
+        self.id = id
+        self.index = index
+        self.follows = follows
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension WorkspaceGroupRoom: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeWorkspaceGroupRoom: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WorkspaceGroupRoom {
+        return
+            try WorkspaceGroupRoom(
+                id: FfiConverterString.read(from: &buf), 
+                index: FfiConverterInt64.read(from: &buf), 
+                follows: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: WorkspaceGroupRoom, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterInt64.write(value.index, into: &buf)
+        FfiConverterSequenceString.write(value.follows, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceGroupRoom_lift(_ buf: RustBuffer) throws -> WorkspaceGroupRoom {
+    return try FfiConverterTypeWorkspaceGroupRoom.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceGroupRoom_lower(_ value: WorkspaceGroupRoom) -> RustBuffer {
+    return FfiConverterTypeWorkspaceGroupRoom.lower(value)
+}
+
+
+/**
+ * A workspace pinned to one room (`list-personal.pins[]`).
+ */
+public struct WorkspaceGroupRoomPin: Equatable, Hashable {
+    public var session: String
+    public var key: String
+    public var room: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(session: String, key: String, room: String) {
+        self.session = session
+        self.key = key
+        self.room = room
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension WorkspaceGroupRoomPin: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeWorkspaceGroupRoomPin: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WorkspaceGroupRoomPin {
+        return
+            try WorkspaceGroupRoomPin(
+                session: FfiConverterString.read(from: &buf), 
+                key: FfiConverterString.read(from: &buf), 
+                room: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: WorkspaceGroupRoomPin, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.session, into: &buf)
+        FfiConverterString.write(value.key, into: &buf)
+        FfiConverterString.write(value.room, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceGroupRoomPin_lift(_ buf: RustBuffer) throws -> WorkspaceGroupRoomPin {
+    return try FfiConverterTypeWorkspaceGroupRoomPin.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceGroupRoomPin_lower(_ value: WorkspaceGroupRoomPin) -> RustBuffer {
+    return FfiConverterTypeWorkspaceGroupRoomPin.lower(value)
+}
+
+
+/**
+ * One of a Mac's rows on the phone, for which groups the list shows.
+ */
+public struct WorkspaceGroupShownRow: Equatable, Hashable {
+    public var sidebarIndex: Int64?
+    public var group: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(sidebarIndex: Int64?, group: String?) {
+        self.sidebarIndex = sidebarIndex
+        self.group = group
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension WorkspaceGroupShownRow: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeWorkspaceGroupShownRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WorkspaceGroupShownRow {
+        return
+            try WorkspaceGroupShownRow(
+                sidebarIndex: FfiConverterOptionInt64.read(from: &buf), 
+                group: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: WorkspaceGroupShownRow, into buf: inout [UInt8]) {
+        FfiConverterOptionInt64.write(value.sidebarIndex, into: &buf)
+        FfiConverterOptionString.write(value.group, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceGroupShownRow_lift(_ buf: RustBuffer) throws -> WorkspaceGroupShownRow {
+    return try FfiConverterTypeWorkspaceGroupShownRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceGroupShownRow_lower(_ value: WorkspaceGroupShownRow) -> RustBuffer {
+    return FfiConverterTypeWorkspaceGroupShownRow.lower(value)
 }
 
 
@@ -18185,6 +18808,56 @@ fileprivate struct FfiConverterSequenceTypeComposerSendDone: FfiConverterRustBuf
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeGroupEditHeld: FfiConverterRustBuffer {
+    typealias SwiftType = [GroupEditHeld]
+
+    public static func write(_ value: [GroupEditHeld], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeGroupEditHeld.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [GroupEditHeld] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [GroupEditHeld]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeGroupEditHeld.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeGroupEditRow: FfiConverterRustBuffer {
+    typealias SwiftType = [GroupEditRow]
+
+    public static func write(_ value: [GroupEditRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeGroupEditRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [GroupEditRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [GroupEditRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeGroupEditRow.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeKeychainDelete: FfiConverterRustBuffer {
     typealias SwiftType = [KeychainDelete]
 
@@ -18527,6 +19200,106 @@ fileprivate struct FfiConverterSequenceTypeTimingMark: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeTimingMark.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeWorkspaceGroupFold: FfiConverterRustBuffer {
+    typealias SwiftType = [WorkspaceGroupFold]
+
+    public static func write(_ value: [WorkspaceGroupFold], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeWorkspaceGroupFold.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [WorkspaceGroupFold] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [WorkspaceGroupFold]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeWorkspaceGroupFold.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeWorkspaceGroupRoom: FfiConverterRustBuffer {
+    typealias SwiftType = [WorkspaceGroupRoom]
+
+    public static func write(_ value: [WorkspaceGroupRoom], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeWorkspaceGroupRoom.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [WorkspaceGroupRoom] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [WorkspaceGroupRoom]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeWorkspaceGroupRoom.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeWorkspaceGroupRoomPin: FfiConverterRustBuffer {
+    typealias SwiftType = [WorkspaceGroupRoomPin]
+
+    public static func write(_ value: [WorkspaceGroupRoomPin], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeWorkspaceGroupRoomPin.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [WorkspaceGroupRoomPin] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [WorkspaceGroupRoomPin]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeWorkspaceGroupRoomPin.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeWorkspaceGroupShownRow: FfiConverterRustBuffer {
+    typealias SwiftType = [WorkspaceGroupShownRow]
+
+    public static func write(_ value: [WorkspaceGroupShownRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeWorkspaceGroupShownRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [WorkspaceGroupShownRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [WorkspaceGroupShownRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeWorkspaceGroupShownRow.read(from: &buf))
         }
         return seq
     }
@@ -19741,6 +20514,104 @@ public func pendingGroupEditStep(edit: PendingGroupEdit, incoming: PhoneWorkspac
 })
 }
 /**
+ * The name the list shows: the name, else "Unnamed Group" (the Mac's `unnamedGroup`).
+ */
+public func workspaceGroupDisplayName(name: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_group_display_name(
+        FfiConverterString.lower(name),$0
+    )
+})
+}
+/**
+ * Collapse Other Groups (`keeping`: that group opens, every other folds, the
+ * Mac's `groupsToggledByCollapsingOthers`), or Collapse All / Expand All
+ * (`keeping` none: every group to `collapsed`). Returns the folds that
+ * change, in the order given; empty: the menu item would do nothing.
+ */
+public func workspaceGroupFoldChanges(shown: [WorkspaceGroupFold], keeping: String?, collapsed: Bool) -> [WorkspaceGroupFold]  {
+    return try!  FfiConverterSequenceTypeWorkspaceGroupFold.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_group_fold_changes(
+        FfiConverterSequenceTypeWorkspaceGroupFold.lower(shown),
+        FfiConverterOptionString.lower(keeping),
+        FfiConverterBool.lower(collapsed),$0
+    )
+})
+}
+/**
+ * Move Workspace to New Group's name: what was typed, trimmed; "New Group" when blank.
+ */
+public func workspaceGroupNewName(typed: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_group_new_name(
+        FfiConverterString.lower(typed),$0
+    )
+})
+}
+/**
+ * The Mac's next group color (`GroupColor.automatic`): the first of its
+ * automatic order no group uses, never blue or grey; grey when all are used.
+ */
+public func workspaceGroupNextColor(used: [String]) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_group_next_color(
+        FfiConverterSequenceString.lower(used),$0
+    )
+})
+}
+/**
+ * The groups whose workspaces are all of session `registry_id` (or that are
+ * empty), in the Mac's group order: the groups a phone may change and move
+ * this Mac's workspaces into (a Mac group holds one machine's workspaces).
+ * Returns indexes of `groups`.
+ */
+public func workspaceGroupOwn(rows: [PhoneSidebarRow], groups: [PhoneWorkspaceGroup], registryId: String) -> [UInt32]  {
+    return try!  FfiConverterSequenceUInt32.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_group_own(
+        FfiConverterSequenceTypePhoneSidebarRow.lower(rows),
+        FfiConverterSequenceTypePhoneWorkspaceGroup.lower(groups),
+        FfiConverterString.lower(registryId),$0
+    )
+})
+}
+/**
+ * Rename Group…'s new name: what was typed, trimmed; none when blank or the same name (nothing to send).
+ */
+public func workspaceGroupRename(current: String, typed: String) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_group_rename(
+        FfiConverterString.lower(current),
+        FfiConverterString.lower(typed),$0
+    )
+})
+}
+/**
+ * The room a new group for workspace `key` goes to, as the Mac's window that
+ * shows it: the room it is pinned to, else the first room (in room order)
+ * that follows this session, else the default room.
+ */
+public func workspaceGroupRoom(rooms: [WorkspaceGroupRoom], pins: [WorkspaceGroupRoomPin], key: String, registryId: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_group_room(
+        FfiConverterSequenceTypeWorkspaceGroupRoom.lower(rooms),
+        FfiConverterSequenceTypeWorkspaceGroupRoomPin.lower(pins),
+        FfiConverterString.lower(key),
+        FfiConverterString.lower(registryId),$0
+    )
+})
+}
+/**
+ * The groups one Mac's rows show, in the order their first rows show:
+ * indexes of `rows`, one per group (its first row).
+ */
+public func workspaceGroupShown(rows: [WorkspaceGroupShownRow]) -> [UInt32]  {
+    return try!  FfiConverterSequenceUInt32.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_group_shown(
+        FfiConverterSequenceTypeWorkspaceGroupShownRow.lower(rows),$0
+    )
+})
+}
+/**
  * The Mac's mixed sidebar order with groups (cmux-next
  * `PersonalSidebar.mixedSections`): walk every personal row by place; before
  * row i come the groups whose `top_index` is i (their members in personal
@@ -19998,6 +20869,30 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_pending_group_edit_step() != 30336) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_group_display_name() != 6527) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_group_fold_changes() != 39320) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_group_new_name() != 25677) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_group_next_color() != 51920) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_group_own() != 56744) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_group_rename() != 63028) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_group_room() != 34592) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_group_shown() != 45573) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_group_slots() != 48426) {
@@ -20654,6 +21549,27 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_transcript_rows_above() != 55469) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_groupeditledger_answered() != 30620) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_groupeditledger_apply() != 25107) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_groupeditledger_begin() != 59865) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_groupeditledger_is_empty() != 55538) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_groupeditledger_refused() != 37589) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_groupeditledger_remove_all() != 48068) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_groupeditledger_sent() != 47637) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_autochats_new() != 34463) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -20697,6 +21613,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_terminalprojection_new() != 52508) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_groupeditledger_new() != 12374) {
         return InitializationResult.apiChecksumMismatch
     }
 
