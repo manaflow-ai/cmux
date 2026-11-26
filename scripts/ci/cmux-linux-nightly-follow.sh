@@ -20,7 +20,8 @@ curl -fsS --retry 3 --max-time 60 -o "$dir/appcast.xml" "$appcast?linux-nightly=
 # The newest build's commit only: an <item> without one never falls through to an older build's.
 commit="$(python3 -c '
 import re, sys
-item = re.search(r"<item\b.*?(?:</item>|/>)", open(sys.argv[1]).read(), re.S)
+# <item/> self-closed, or <item ...> to its own </item> (an <enclosure .../> inside does not end it).
+item = re.search(r"<item\b[^>]*?(?:/>|>.*?</item>)", open(sys.argv[1]).read(), re.S)
 found = item and re.search(r"<cmux:sourceCommit>\s*([0-9a-f]{40})\s*</cmux:sourceCommit>", item.group(0))
 print(found.group(1) if found else "")' "$dir/appcast.xml")"
 if [[ ! "$commit" =~ ^[0-9a-f]{40}$ ]]; then
