@@ -1,134 +1,134 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "sessionInfo.alsoHere" : {
-      "comment" : "Agent pane: who else works on these files",
+    "harnesses.notInstalledNamed" : {
+      "comment" : "Model picker: the note heading a harness tab whose CLI this Mac does not have, above its Install… row; {agent} is the harness's name (Vercel AI Gateway)",
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "يعمل هنا أيضًا"
+            "value" : "{agent}: غير مثبت"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Takođe radi ovdje"
+            "value" : "{agent}: Nije instalirano"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Arbejder også her"
+            "value" : "{agent}: Ikke installeret"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Arbeitet auch hier"
+            "value" : "{agent}: Nicht installiert"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Also working here"
+            "value" : "{agent} not installed"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "También trabajan aquí"
+            "value" : "{agent}: No instalado"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Travaille aussi ici"
+            "value" : "{agent}: Non installé"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Lavorano anche qui"
+            "value" : "{agent}: Non installato"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ここで作業中の他のセッション"
+            "value" : "{agent}: 未インストール"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ក៏កំពុងធ្វើការនៅទីនេះ"
+            "value" : "{agent}: មិនទាន់ដំឡើង"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "여기서 함께 작업 중"
+            "value" : "{agent}: 설치되지 않음"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Jobber også her"
+            "value" : "{agent}: Ikke installert"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Pracują tu także"
+            "value" : "{agent}: Nie zainstalowano"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Também trabalhando aqui"
+            "value" : "{agent}: Não instalado"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Также работают здесь"
+            "value" : "{agent}: Не установлен"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ทำงานที่นี่ด้วย"
+            "value" : "{agent}: ยังไม่ได้ติดตั้ง"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Burada da çalışıyor"
+            "value" : "{agent}: Yüklü değil"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Також працюють тут"
+            "value" : "{agent}: Не встановлено"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Cũng đang làm việc ở đây"
+            "value" : "{agent}: Chưa cài đặt"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "也在这里工作"
+            "value" : "{agent}: 未安装"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "也在這裡工作"
+            "value" : "{agent}: 未安裝"
           }
         }
       }
