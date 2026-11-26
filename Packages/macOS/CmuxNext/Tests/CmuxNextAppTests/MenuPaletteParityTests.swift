@@ -257,6 +257,7 @@ import Testing
         #expect(header.identifier == ActionRegistry.browserProfileHeaderID && !header.isEnabled)
         let card = try #require(header.view as? MenuProfileCardView)
         #expect(card.title == "Work" && card.subtitle == BrowserProfileStrings.reason(.workspace) && card.image != nil)
+        #expect(MenuProfileCardView.inset == MenuMetrics.highlightInset, "the card's plate lines up with a row's highlight")
 
         let account = try #require(menu.items.dropFirst().first)
         #expect(account.identifier == ActionRegistry.browserProfileAccountID && account.title.contains("leo@example.com"))
