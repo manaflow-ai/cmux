@@ -114,9 +114,11 @@ swiftpm_binary_module_digest() {
 # A resolve's output (FILE) shows a network fetch failure: git, curl or a release download lost the connection
 # or got a server error (5xx), not the commit's own manifest, pins, a 404 or a checksum mismatch (those are the
 # commit's defects and stay a red). Step 9bc9eadb (cmux14, 2026-10-28): "RPC failed; curl 18 Transferred a
-# partial file".
+# partial file". GitHub's 403 and 429 are its refusal of the worker's address (a rate limit or block), not of the
+# commit: step 0787f5e4 (ultra2, 2026-11-26) got 403 on every github.com fetch, public swift-crypto and release
+# zips alike, and its kit suite went red (exit 1) with no test run; it is a fetch failure (75, rerun elsewhere).
 swiftpm__network_fetch_failure() {
-  grep -qE 'curl [0-9]+|RPC failed|Transferred a partial file|expected flush after|Could not resolve host|Failed to connect to|Couldn.{1,3}t connect to server|Connection (reset|refused|timed out)|Operation timed out|SSL_ERROR|gnutls_handshake|unexpected disconnect|early EOF|remote end hung up unexpectedly|Empty reply from server|The requested URL returned error: 5[0-9][0-9]|badResponseStatusCode[(]5[0-9][0-9]|The network connection was lost|The request timed out' "$1"
+  grep -qE 'curl [0-9]+|RPC failed|Transferred a partial file|expected flush after|Could not resolve host|Failed to connect to|Couldn.{1,3}t connect to server|Connection (reset|refused|timed out)|Operation timed out|SSL_ERROR|gnutls_handshake|unexpected disconnect|early EOF|remote end hung up unexpectedly|Empty reply from server|The requested URL returned error: (5[0-9][0-9]|403|429)|badResponseStatusCode[(](5[0-9][0-9]|403|429)|The network connection was lost|The request timed out' "$1"
 }
 
 # `swift package resolve` of PKGDIR (ARGS go after --package-path), its output in the step log. A failure on
