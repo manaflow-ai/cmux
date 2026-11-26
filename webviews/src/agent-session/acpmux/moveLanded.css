@@ -39,7 +39,7 @@
 }
 .acpmux-move-landed-label {
   color: var(--ui-notice-ink-2);
-  font-size: var(--text-small, 11px);
+  font-size: var(--text-caption);
   font-weight: var(--weight-emphasis, 600);
 }
 .acpmux-move-landed-paths {
@@ -52,8 +52,9 @@
   padding: 0 var(--ds-space-1);
   border-radius: var(--ds-radius-sm);
   background: color-mix(in srgb, currentColor 8%, transparent);
-  font: 11.5px var(--font-mono);
-  line-height: 18px;
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
   overflow-wrap: anywhere;
 }
 .acpmux-move-landed-more {
