@@ -5,7 +5,9 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use super::super::fresh::{LOOK_BOUND, RELEASE_WAIT, START_BOUND, STUCK_CODE};
+use super::super::fresh::{
+    COLD_BOUND, LOOK_BOUND, RELEASE_WAIT, START_BOUND, STUCK_CODE, UP_BOUND,
+};
 use super::*;
 
 /// A new machine with a folder on it: the start answers once start-session does (no read of where it runs).
@@ -62,6 +64,8 @@ fn a_new_machine_stuck_past_the_bound_is_deleted_and_the_chat_starts_on_a_fresh_
     let mut fake = Fake::new(vec![
         signed_in(),
         not_connected("chat-fresh", "vm-stuck"),
+        // At the bound the machine is read: running, so it is a hang, not a boot.
+        listed_stuck("vm-stuck"),
         listed_stuck("vm-stuck"),
         ok(json!({"deleted": true})),
         signed_in(),
@@ -73,8 +77,9 @@ fn a_new_machine_stuck_past_the_bound_is_deleted_and_the_chat_starts_on_a_fresh_
     let Outcome::Done(answer) = run(&mut fake, &request(CWD)) else { panic!("{:?}", fake.ran) };
     assert_eq!(answer["machine_id"], "vm-1");
     assert_eq!(answer["session_id"], "sess-1");
+    assert_eq!(fake.ran[2], strings(&["cloud", "list-machines", "--json"]), "read at the bound");
     assert_eq!(
-        fake.ran[3],
+        fake.ran[4],
         kill("vm-stuck"),
         "the stuck machine is deleted before the fresh start"
     );
@@ -83,10 +88,10 @@ fn a_new_machine_stuck_past_the_bound_is_deleted_and_the_chat_starts_on_a_fresh_
     assert_eq!(replaced["machine_id"], "vm-stuck");
     assert_eq!(replaced["deleted"], true);
     assert_eq!(replaced["why"], "bound");
-    // Given up at the bound, not after the app's 180 s: list 5 s, the start to the bound, then the cleanup and
-    // the fresh start (5 s each).
+    // Given up at the bound, not after the app's 180 s: list 5 s, the start to the bound, its read there, then the
+    // cleanup and the fresh start (5 s each).
     let spent = fake.clock.saturating_duration_since(began);
-    assert_eq!(spent, Duration::from_secs(5) + START_BOUND + Duration::from_secs(20), "{spent:?}");
+    assert_eq!(spent, Duration::from_secs(10) + START_BOUND + Duration::from_secs(20), "{spent:?}");
     assert_eq!(fake.said.len(), 1, "the retry is said, never a silent wait");
     assert!(fake.said[0].contains("chat-fresh"), "{:?}", fake.said);
 }
@@ -427,4 +432,88 @@ fn a_refused_look_is_kept_and_the_delete_goes_on() {
     let guest = &answer["fresh_retry"][0]["guest"];
     assert_eq!(guest["error"]["message"], "no exec here", "{guest}");
     assert_eq!(fake.said.len(), 1, "only the retry is said: {:?}", fake.said);
+}
+
+/// The app's list with the new machine `chat-fresh` still coming up: its create on its way (no `status`), or listed
+/// with `status`.
+fn listed_booting(status: Option<&str>) -> Ran {
+    match status {
+        None => ok(json!({"account": {"signed_in": true}, "machines": [{"title": "dev"}],
+                          "creating": [{"name": "chat-fresh"}]})),
+        Some(status) => ok(json!({"account": {"signed_in": true},
+                                  "machines": [{"title": "dev"},
+                                               {"title": "chat-fresh", "machine_id": "vm-cold", "status": status}]})),
+    }
+}
+
+/// Production 2026-11-26 (`app-chat-production`, run 45723457278): every stuck machine was a cold create (no spare),
+/// whose create was still on its way at 90 s and whose guest daemon spawned at the 90 s mark; the start would have
+/// answered at about 110 s. It is waited on while it boots, never deleted, and the chat starts on it.
+#[test]
+fn a_cold_machine_still_booting_at_the_bound_is_waited_on_and_starts_at_110_s() {
+    let mut answers = vec![signed_in(), started()];
+    // Read at the bound (create on its way), then 10 s on (provisioning); the start answers before the next read.
+    answers.extend([listed_booting(None), listed_booting(Some("provisioning"))]);
+    let mut fake = Fake::new(answers);
+    fake.slow.push((1, Duration::from_secs(110)));
+    let began = fake.clock;
+    let Outcome::Done(answer) = run(&mut fake, &request(CWD)) else { panic!("{:?}", fake.ran) };
+    assert_eq!(answer["machine_id"], "vm-1");
+    assert_eq!(answer["session_id"], "sess-1");
+    assert_eq!(starts(&fake), 1, "no second machine: {:?}", fake.ran);
+    assert!(!fake.ran.iter().any(|step| step.get(1).map(String::as_str) == Some("kill-machine")));
+    assert!(answer["fresh_retry"].is_null(), "{answer}");
+    assert!(fake.said.is_empty(), "{:?}", fake.said);
+    // The list, then the start's own 110 s.
+    let spent = fake.clock.saturating_duration_since(began);
+    assert_eq!(spent, Duration::from_secs(5) + Duration::from_secs(110), "{spent:?}");
+}
+
+/// A machine that boots and then never connects (the 11-17 hang, on a cold machine) is still given up: once it runs
+/// it has [`UP_BOUND`], and the whole start never goes past [`COLD_BOUND`].
+#[test]
+fn a_cold_machine_that_boots_and_then_hangs_is_given_up_within_the_cold_bound() {
+    let mut answers = vec![signed_in(), not_connected("chat-fresh", "vm-cold")];
+    answers.push(listed_booting(Some("provisioning")));
+    answers.extend(std::iter::repeat_n(listed_booting(Some("running")), 2));
+    answers.extend([listed_stuck("vm-cold"), ok(json!({"deleted": true})), signed_in(), started()]);
+    let mut fake = Fake::new(answers);
+    fake.slow.push((1, Duration::from_secs(400)));
+    let began = fake.clock;
+    let Outcome::Done(answer) = run(&mut fake, &request(CWD)) else { panic!("{:?}", fake.ran) };
+    let replaced = &answer["fresh_retry"][0];
+    assert_eq!(replaced["why"], "bound");
+    assert_eq!(replaced["deleted"], true);
+    assert_eq!(starts(&fake), 2);
+    // From the start: the bound at 90 s, read (provisioning) to 95 s, 10 s on; read (running) to 110 s, then
+    // UP_BOUND on; read (running) again: given up 175 s after the start, inside COLD_BOUND. Before it the run's list,
+    // after it the release's list and kill, the fresh list and start (5 s each).
+    let start = START_BOUND + Duration::from_secs(5 + 10 + 5) + UP_BOUND + Duration::from_secs(5);
+    assert!(start <= COLD_BOUND, "{start:?}");
+    let spent = fake.clock.saturating_duration_since(began);
+    assert_eq!(spent, Duration::from_secs(5) + start + Duration::from_secs(20), "{spent:?}");
+}
+
+/// A machine that never stops booting is given up at [`COLD_BOUND`] from its start, not left waiting.
+#[test]
+fn a_machine_that_never_finishes_booting_is_given_up_at_the_cold_bound() {
+    let mut answers = vec![signed_in(), not_connected("chat-fresh", "vm-cold")];
+    answers.extend(std::iter::repeat_n(listed_booting(None), 6));
+    answers.extend([listed_stuck("vm-cold"), ok(json!({"deleted": true})), signed_in(), started()]);
+    let mut fake = Fake::new(answers);
+    fake.slow.push((1, Duration::from_secs(400)));
+    let began = fake.clock;
+    let Outcome::Done(answer) = run(&mut fake, &request(CWD)) else { panic!("{:?}", fake.ran) };
+    assert_eq!(answer["fresh_retry"][0]["why"], "bound");
+    assert_eq!(starts(&fake), 2);
+    let reads = fake
+        .ran
+        .iter()
+        .take_while(|step| step.get(1).map(String::as_str) != Some("kill-machine"))
+        .filter(|step| step.get(1).map(String::as_str) == Some("list-machines"))
+        .count();
+    // The run's first list, the reads at 90, 105, ..., 165 s after the start (each 5 s, then 10 s on), the release's.
+    assert_eq!(reads, 1 + 6 + 1, "{:?}", fake.ran);
+    let spent = fake.clock.saturating_duration_since(began);
+    assert_eq!(spent, Duration::from_secs(5) + COLD_BOUND + Duration::from_secs(20), "{spent:?}");
 }
