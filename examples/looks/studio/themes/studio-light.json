@@ -9,9 +9,8 @@
   "appearance.appTheme": "followTerminal",
   "colors": { "background": "#fcfcfc", "foreground": "#18181b", "selection": "#e4e4e7", "accent": "#1b4ed8" },
   "appearance.accent": "neutral",
-  // Pending cmux#46516: the selected sidebar row is a gray card, as in the reference; Send and links
-  // keep the accent.
-  // "appearance.selection": "neutral",
+  // The selected sidebar row is a gray card, as in the reference; Send and links keep the accent.
+  "appearance.selection": "neutral",
 
   "appearance.background": "none",
   "appearance.backgroundBlur": "none",
