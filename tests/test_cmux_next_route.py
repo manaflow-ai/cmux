@@ -595,6 +595,49 @@ class PullRequestTiers(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue(any(fnmatch.fnmatch(path, pattern.replace("**", "*")) for pattern in patterns), path)
 
+    def test_macos_placement_starts_only_where_a_mac_job_of_a_pull_request_can(self):
+        """A feat-cmux-next PR's placement follows its consumers' routes, not the broader `macos` (note-369).
+
+        Every job that needs macos-placement is either gated by a route output the placement clause names, or
+        never runs on an unlabeled feat-cmux-next PR's first attempt. A new consumer fails here until the clause
+        (and this map) names how it runs."""
+        import yaml
+        jobs = yaml.load((ROOT / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8"),
+                         Loader=yaml.BaseLoader)["jobs"]
+        clause = ("needs.path_route.outputs.macos == 'true' && (github.event_name != 'pull_request'"
+                  " || github.event.pull_request.base.ref != 'feat-cmux-next'"
+                  " || contains(github.event.pull_request.labels.*.name, 'full-ci')"
+                  " || contains(github.event.pull_request.labels.*.name, 'dev-build')"
+                  " || needs.path_route.outputs.mac_release == 'true'"
+                  " || needs.path_route.outputs.daemon == 'true' && needs.path_route.outputs.tree_state == 'ready'"
+                  " || needs.path_route.outputs.generated_host == 'generated-files')")
+        self.assertIn(clause, jobs["macos-placement"]["if"])
+        gate = {
+            # Push tier only (#54763): no pull request starts them.
+            "fast-tier": "github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'",
+            "fast-tier-fleet": "github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'",
+            # The Mac fallback of the push-only fleet fast tier: it runs only after that job reports unavailable.
+            "fast-tier-fleet-mac": "needs.fast-tier-fleet.outputs.verdict == 'unavailable'",
+            "swift-canary": "github.event_name != 'pull_request'",
+            "swift-canary-fleet": "github.event_name != 'pull_request'",
+            "daemon-test": "needs.path_route.outputs.tree_state == 'ready'",
+            "generated-files": "needs.path_route.outputs.generated_host == 'generated-files'",
+            # The PR's Release compile fallback: the clause's mac_release.
+            "release-compile": "needs.path_route.outputs.mac_release == 'true'",
+            # Never on a feat-cmux-next PR (not even full-ci): other bases only.
+            "swift-test": "github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next')",
+            # Dev-build only on a feat-cmux-next PR: the label branch of the clause.
+            "cmux-scheme-compile": "contains(needs.path_route.outputs.labels, ',dev-build,')",
+            # Push only.
+            "release-compile-fast": "github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'",
+            "fast-tier-rerun-placement": "github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'",
+        }
+        consumers = sorted(name for name, job in jobs.items() if "macos-placement" in job.get("needs", []))
+        self.assertEqual(consumers, sorted(gate), "a new macos-placement consumer: name its route in the clause")
+        for name in consumers:
+            with self.subTest(job=name):
+                self.assertIn(gate[name], jobs[name]["if"])
+
     def test_dev_build_label_keeps_the_scheme_compile(self):
         """The dogfood artifact (#17500) is the scheme compile's app."""
         result = tiers(PR_17470, labels=frozenset({"dev-build"}))
