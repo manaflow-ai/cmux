@@ -848,7 +848,10 @@ t0=$SECONDS
 # miss builds it and publishes it under its own key for the next step with the same inputs,
 # a branch's build as well as a landed one (the probe beside the build only records which). The cache never fails the
 # step: a miss or no key builds. Everything else (a key command that failed, a failed probe or
-# store, a helper error) is a warning in the log and SUMMARY.md, then the step builds.
+# store, a helper error) is a warning in the log and SUMMARY.md, then the step builds. A miss builds
+# in one of the worker's warm cargo target dirs (ios_ffi_cache.py build), so it recompiles only the
+# path crates, not every registry crate. (A listperf base build below runs its own commit's script,
+# which may predate CARGO_TARGET_DIR, so it builds in its checkout.)
 ffi_cache=(python3 -I scripts/ci/ios_ffi_cache.py)
 ffi_log="$work/ffi-cache.log"
 : >"$ffi_log"
@@ -886,7 +889,18 @@ if [[ -z "$ffi_how" ]]; then
     "${ffi_cache[@]}" probe "$work/ffi-inputs.json" "$work/ffi-tip.json" >>"$ffi_log" 2>&1 &
     ffi_probe=$!
   fi
-  JOBS="${JOBS:-8}" bash cmux-next-ios/rust/scripts/build-xcframework.sh >"$work/ffi.log" 2>&1 || {
+  ffi_build=(bash cmux-next-ios/rust/scripts/build-xcframework.sh)
+  rm -f "$work/ffi-build.rc"
+  ffi_rc=0
+  JOBS="${JOBS:-8}" "${ffi_cache[@]}" build "$root" "$work/ffi-build.rc" "${ffi_build[@]}" >"$work/ffi.log" 2>&1 || ffi_rc=$?
+  if [[ -f "$work/ffi-build.rc" ]]; then
+    ffi_rc="$(cat "$work/ffi-build.rc")"
+  else
+    ffi_warn "warm build helper failed before the build" "$ffi_rc"
+    ffi_rc=0
+    JOBS="${JOBS:-8}" "${ffi_build[@]}" >"$work/ffi.log" 2>&1 || ffi_rc=$?
+  fi
+  [[ "$ffi_rc" == 0 ]] || {
     tail -60 "$work/ffi.log"; echo "error: CmuxMobileLinkFFI.xcframework build failed" >&2; exit 1; }
   ffi_how="built"
   if [[ -n "$ffi_probe" ]]; then
@@ -902,6 +916,7 @@ if [[ -z "$ffi_how" ]]; then
   fi
 fi
 grep -h '^ios-ffi cache:' "$ffi_log" || true
+grep -h '^ios-ffi target:' "$work/ffi.log" 2>/dev/null | sed 's/^/- /' | tee -a "$summary" || true
 note "- FFI: $((SECONDS - t0)) s ($ffi_how)"
 (cd cmux-next-ios && "$xcodegen" generate -q) >"$work/xcodegen.log" 2>&1 || {
   cat "$work/xcodegen.log"; echo "error: xcodegen failed" >&2; exit 1; }
