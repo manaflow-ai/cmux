@@ -334,7 +334,9 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(set(pr["paths"]), {
             "webviews/src/kit/**", "webviews/src/ui/**",
             "webviews/src/pages/shared/desktop.css", "webviews/src/pages/shared/pageDensity.css",
-            "scripts/gallery-matrix/**", ".github/workflows/gallery-advisory.yml"})
+            "scripts/gallery-matrix/**", ".github/workflows/gallery-advisory.yml",
+            # No render reads Markdown: a docs-only pull request starts no gallery run.
+            "!**/*.md"})
         self.assertNotIn("webviews/**", pr["paths"])
         self.assertIn("webviews/**", on["push"]["paths"])
         # A PR's squash merge had its receipt on the PR; a bot push changes no UI.
