@@ -1,0 +1,33 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"]
+  ],
+  "shots": [
+    {
+      "name": "controls",
+      "entry": "kit.primitives",
+      "variant": "primitives",
+      "width": 960,
+      "height": 720,
+      "arms": { "kit": "" }
+    },
+    {
+      "name": "surfaces-and-motion",
+      "entry": "kit.primitives",
+      "variant": "pieces",
+      "width": 960,
+      "height": 900,
+      "arms": { "kit": "" }
+    },
+    {
+      "name": "anchored-cards",
+      "entry": "kit.primitives",
+      "variant": "card-open",
+      "setup": "if (document.querySelectorAll('.ui-card').length !== 2) throw new Error('Expected an open card in each theme')",
+      "width": 960,
+      "height": 900,
+      "arms": { "kit": "" }
+    }
+  ]
+}

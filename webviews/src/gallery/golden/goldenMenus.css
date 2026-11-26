@@ -4,9 +4,9 @@
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 24px;
+  gap: var(--ds-space-fixed-5);
   min-height: 100vh; /* the stage frame (the entry's height: 440) */
-  padding: 32px;
+  padding: var(--ds-space-fixed-6);
   box-sizing: border-box;
   background: var(--cmux-page-background, var(--cmux-window-background, Canvas));
   color: var(--cmux-text, CanvasText);
@@ -15,7 +15,7 @@
   line-height: var(--text-control--line-height);
 }
 .golden-menus__trigger {
-  padding: 4px 12px;
+  padding: var(--ds-space-fixed-1) var(--ds-space-fixed-3);
   border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
   border-radius: var(--ds-radius-control);
   background: color-mix(in srgb, currentColor 7%, transparent);

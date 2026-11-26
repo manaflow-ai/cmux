@@ -12,6 +12,8 @@ each off unless asked for and each reproducing a value the app already draws. No
 - `Button` `bare`: only the caller's class, no button look of its own.
 - `Row`: a `ref` and every other attribute or handler on the row element; `subtitleSize="detail"`;
   `--kit-row-selected-fill` for a host's selection fill.
+- `Row.hoverActions` shows independent controls on hover or keyboard focus and keeps them visible
+  on touch. The `trailing` slot keeps its place for a persistent badge or count.
 - `Pill` `size="xs"`: the scene badge (16 tall, the detail step, a 14% fill of its own color);
   `--kit-pill-radius` for a host's corner.
 - `grid(name)`, `GRID`: the layout grid's `--grid-*` lengths, which follow the interface scale.

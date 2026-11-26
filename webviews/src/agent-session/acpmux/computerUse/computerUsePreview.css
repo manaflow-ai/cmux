@@ -258,7 +258,7 @@
   paint-order: stroke;
 }
 .acpmux-cu-preview__person-label {
-  margin-top: 8px;
+  margin-top: var(--ds-space-fixed-2);
   padding: 0 var(--ds-space-2, 8px);
   /* Small-radius rects, not capsules (agent-pane-no-capsules.test.ts). */
   border-radius: var(--ds-radius-control);

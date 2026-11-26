@@ -262,10 +262,10 @@
    travel the whole height on the fold's clock, and nothing is left to drop in one frame when it goes.
    At rest the layout is the same. */
 .acpmux-asks-stack > .acpmux-trust-fold:not(:last-child) {
-  margin-bottom: -8px;
+  margin-bottom: calc(-1 * var(--ds-space-fixed-2));
 }
 .acpmux-asks-stack > * + .acpmux-trust-fold:last-child {
-  margin-top: -8px;
+  margin-top: calc(-1 * var(--ds-space-fixed-2));
 }
 .acpmux-asks-stack > .acpmux-trust-fold:not(:last-child)::after,
 .acpmux-asks-stack > * + .acpmux-trust-fold:last-child::before {
@@ -372,7 +372,7 @@
   position: absolute;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   max-width: min(320px, 60%);
   transform-origin: 50% 100%;
   will-change: transform, opacity;
@@ -381,7 +381,7 @@
 .acpmux-send-tuck__pill {
   overflow: hidden;
   min-width: 0;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-fixed-2);
   border-radius: 6px;
   background: color-mix(in srgb, var(--agent-text) 14%, var(--glass-surface, Canvas));
   color: var(--agent-text);

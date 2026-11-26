@@ -5,7 +5,7 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 18px;
-  padding: 48px;
+  padding: var(--ds-space-fixed-48);
   background: var(
     --cmux-page-background,
     var(--cmux-window-background, Canvas)
@@ -21,7 +21,7 @@
   height: 100vh;
   justify-content: flex-end;
   align-items: flex-end;
-  padding: 4px;
+  padding: var(--ds-space-fixed-1);
 }
 
 .context-menu-gallery-target {

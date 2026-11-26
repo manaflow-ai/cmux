@@ -1,6 +1,7 @@
 import { RouterProvider } from "@tanstack/react-router";
 import { createRoot } from "react-dom/client";
 import { router } from "./Shell";
+import "../../pages/shared/fixed-spacing.css";
 import "./shell.css";
 import "../../ui/ui.css";
 

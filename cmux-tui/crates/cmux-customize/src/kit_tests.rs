@@ -80,10 +80,106 @@ fn test_names_the_step_or_the_nearest() {
 }
 
 #[test]
-fn no_manifest_says_how_to_make_one() {
+fn no_checkout_manifest_uses_the_shipped_registry() {
     let answer = components(&Request::List(None), None).unwrap();
-    assert_eq!(answer.json["available"], false);
-    assert!(answer.human.contains("gen-component-manifest"));
+    assert_eq!(answer.json["available"], true);
+    assert_eq!(answer.json["manifest"], BUILTIN_MANIFEST_PATH);
+    let components = answer.json["components"].as_array().unwrap();
+    assert!(components.len() >= 100, "{} components", components.len());
+    for name in ["Button", "Card", "Pill", "Tooltip", "Menu", "Row", "Panel", "Glass"] {
+        assert!(components.iter().any(|component| component["name"] == name), "missing {name}");
+    }
+}
+
+#[test]
+fn glass_resolves_to_the_exported_kit_component_in_either_manifest_order() {
+    let mut manifest: Value = serde_json::from_str(BUILTIN_MANIFEST).unwrap();
+    let entries = manifest["components"].as_array_mut().unwrap();
+    entries.retain(|component| component["name"] == "Glass");
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries.iter().filter(|c| c["kitExport"] == true).count(), 1);
+    for sort_descending in [false, true] {
+        if sort_descending {
+            manifest["components"].as_array_mut().unwrap().reverse();
+        }
+        let answer =
+            components_in(&Request::Show("Glass".into()), &manifest, Path::new("registry"))
+                .unwrap();
+        let glass = &answer.json["component"];
+        assert_eq!(glass["file"], "kit/Glass.tsx");
+        assert!(
+            glass["galleryEntries"].as_array().unwrap().iter().any(|e| e["id"] == "kit.primitives")
+        );
+    }
+}
+
+#[test]
+fn kit_aliases_keep_their_source_props_and_gallery_entries() {
+    let show = |name: &str| {
+        components(&Request::Show(name.into()), None).unwrap().json["component"].clone()
+    };
+    let anchored_card = show("AnchoredCard");
+    let card = show("Card");
+    assert_eq!(card["props"], anchored_card["props"]);
+    assert_eq!(card["galleryEntries"], anchored_card["galleryEntries"]);
+    assert_eq!(card["extends"], anchored_card["extends"]);
+
+    let surface = show("Surface");
+    let panel = show("Panel");
+    assert_eq!(panel["props"], surface["props"]);
+    assert_eq!(panel["galleryEntries"], surface["galleryEntries"]);
+    assert_eq!(panel["extends"], surface["extends"]);
+
+    let valid_card = components(
+        &Request::Test {
+            subject: "Card".into(),
+            with: Some(r#"{"anchor":null,"children":"preview"}"#.into()),
+        },
+        None,
+    )
+    .unwrap();
+    assert_eq!(valid_card.json["ok"], true);
+    let missing_card_anchor = components(
+        &Request::Test { subject: "Card".into(), with: Some(r#"{"children":"preview"}"#.into()) },
+        None,
+    )
+    .unwrap();
+    assert_eq!(missing_card_anchor.json["ok"], false);
+    assert_eq!(missing_card_anchor.json["problems"][0]["prop"], "anchor");
+
+    let valid_panel = components(
+        &Request::Test { subject: "Panel".into(), with: Some(r#"{"role":"card"}"#.into()) },
+        None,
+    )
+    .unwrap();
+    assert_eq!(valid_panel.json["ok"], true);
+    let missing_panel_role =
+        components(&Request::Test { subject: "Panel".into(), with: Some(r#"{}"#.into()) }, None)
+            .unwrap();
+    assert_eq!(missing_panel_role.json["ok"], false);
+    assert_eq!(missing_panel_role.json["problems"][0]["prop"], "role");
+}
+
+#[test]
+fn checkout_manifest_overrides_the_shipped_registry() {
+    let path = Path::new("components.generated.json");
+    let answer = components_in(&Request::List(None), &manifest(), path).unwrap();
+    assert_eq!(answer.json["manifest"], path.to_str().unwrap());
+    assert_eq!(answer.json["components"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn file_manifest_override_is_read_and_missing_file_errors() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("components.generated.json");
+    std::fs::write(&path, serde_json::to_string(&manifest()).unwrap()).unwrap();
+    let answer = components(&Request::List(None), Some(&path)).unwrap();
+    assert_eq!(answer.json["manifest"], path.to_str().unwrap());
+    assert_eq!(answer.json["components"].as_array().unwrap().len(), 2);
+
+    let missing = directory.path().join("missing.json");
+    let error = components(&Request::List(None), Some(&missing)).err().unwrap();
+    assert!(error.contains("cannot read the component manifest"), "{error}");
 }
 
 fn manifest() -> Value {

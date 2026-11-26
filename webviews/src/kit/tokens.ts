@@ -43,7 +43,7 @@ export const textLineHeight = (step: TextStep) => ref(`--text-${step}--line-heig
 export const motion = (step: MotionStep) => ref(`--cmux-motion-${step}`);
 
 /** The layout grid's lengths that follow the interface scale (schemas/layout-grid, pages/shared/desktop.css
- * `--grid-*`), where the `--ds-space-*` steps are fixed px: base 4, half-step 2 (unscaled), gap 8,
+ * `--grid-*`): base 4, half-step 2 (unscaled), gap 8,
  * glyph 12, icon-box 16 (comfortable 20), pill 24 (comfortable 28) and its 2 inset, row 28
  * (comfortable 32), all at scale 1. Names only: each is the app's own variable, no value of its own. */
 export const GRID = [

@@ -17,7 +17,7 @@
   /* As wide as the name (its `size`), up to the strip's room: the strip ellipsizes it only when full. */
   max-width: 100%;
   margin: 0;
-  padding: 0 4px;
+  padding: 0 var(--ds-space-fixed-1);
   box-sizing: border-box;
   border: 0;
   border-radius: 6px;
