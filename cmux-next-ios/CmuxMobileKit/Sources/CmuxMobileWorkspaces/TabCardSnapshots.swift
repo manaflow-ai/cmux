@@ -333,6 +333,7 @@ public final class TabCardSnapshots {
             await self?.encoded(data, key, live, pixelWidth: Int(picture.size.width * picture.scale),
                                 pixelHeight: Int(picture.size.height * picture.scale), capturedAtMs: ms, source: source)
         }
+        return true
     }
 
     /// A placeholder `put` showed at once goes again (the card's previous picture is gone from
