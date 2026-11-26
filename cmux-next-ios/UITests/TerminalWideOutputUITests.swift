@@ -6,7 +6,7 @@ import XCTest
 ///
 /// The terminal demo's `wide` phase prints a table 180 columns wide (each row
 /// ends in `END` at column 180) on a phone that fits about 50. This test turns
-/// on Wide in the key row, swipes left over the terminal and checks that the
+/// on Wide in the key row (over the keyboard), swipes left over the terminal and checks that the
 /// rows' right ends come on screen: the mirror is wider than the phone, the
 /// page panned, and the last column on screen reaches the table's end. A
 /// mostly vertical drag then leaves the sideways pan where it was (axis lock).
@@ -35,17 +35,7 @@ final class TerminalWideOutputUITests: XCTestCase {
         XCTAssertGreaterThan(phone, 0, "the phone's columns are known: \(demo)")
         XCTAssertLessThan(phone, 180, "the table is wider than the phone: \(demo)")
 
-        // Wide sits at the end of the key row, by the zoom keys: scroll the row to it.
-        let wideKey = app.buttons["terminal.key.wide"]
-        XCTAssertTrue(wideKey.waitForExistence(timeout: 10), "the key row has a Wide key\n\(app.debugDescription)")
-        let keyRow = app.buttons["terminal.key.escape"]
-        var swipes = 0
-        while !wideKey.isHittable, swipes < 8 {
-            (keyRow.exists ? keyRow : app.windows.firstMatch).swipeLeft()
-            swipes += 1
-        }
-        XCTAssertTrue(wideKey.isHittable, "the Wide key is on screen after \(swipes) swipes of the key row")
-        wideKey.tap()
+        Self.tapWideKey(app)
 
         demo = wait(probe, timeout: 15) { (Self.values($0)["cols"] ?? 0) >= 180 }
         attach(app, "2-wide-at-the-left-edge")
@@ -146,6 +136,50 @@ final class TerminalWideOutputUITests: XCTestCase {
         XCUIDevice.shared.orientation = .landscapeLeft
         _ = wait(probe, timeout: 2) { _ in false }
         attach(app, "gallery-c-wide-view-landscape")
+    }
+
+    /// Turns on Wide from the key row. The row shows only over the soft
+    /// keyboard (#53325), so a tap on the composer raises both first; Wide
+    /// sits at the row's end, by the zoom keys, so the row is scrolled to it.
+    /// The keyboard goes down again after (its key), so the terminal has the
+    /// page's height for the swipes that follow (in landscape the keyboard
+    /// leaves only a strip of rows).
+    @MainActor
+    static func tapWideKey(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+        let field = app.textViews["terminal.composer.field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "the terminal's composer\n\(app.debugDescription)", file: file, line: line)
+        field.tap()
+        let wideKey = app.buttons["terminal.key.wide"]
+        // A tap during a turn's layout can focus the field before the keyboard's
+        // frame settles (LandscapeUITests testD, step 836d3f58, a stock simulator:
+        // no key row): once more, from the keyboard down.
+        if !wideKey.waitForExistence(timeout: 6) {
+            let keyboardUp = app.keyboards.firstMatch.exists
+            print("WIDE key row missing after the first tap: keyboard=\(keyboardUp) field=\(field.exists) " +
+                  "escape=\(app.buttons["terminal.key.escape"].exists) window=\(app.windows.firstMatch.frame.size)")
+            if keyboardUp { app.swipeDown() } // the dock follows an interactive dismissal
+            _ = app.keyboards.firstMatch.waitForNonExistence(timeout: 3)
+            field.tap()
+        }
+        // The first line is what a step's summary shows: the keyboard's and the row's state first.
+        XCTAssertTrue(wideKey.waitForExistence(timeout: 10),
+                      "the key row (over the keyboard) has a Wide key: keyboard=\(app.keyboards.firstMatch.exists) " +
+                      "escape=\(app.buttons["terminal.key.escape"].exists) window=\(app.windows.firstMatch.frame.size)\n\(app.debugDescription)",
+                      file: file, line: line)
+        let keyRow = app.buttons["terminal.key.escape"]
+        var swipes = 0
+        while !wideKey.isHittable, swipes < 10 {
+            (keyRow.exists ? keyRow : app.windows.firstMatch).swipeLeft()
+            swipes += 1
+        }
+        XCTAssertTrue(wideKey.isHittable, "the Wide key is on screen after \(swipes) swipes of the key row", file: file, line: line)
+        wideKey.tap()
+        // The keyboard key sits at the row's leading edge, outside its scroller.
+        let keyboardKey = app.descendants(matching: .any)["terminal.key.keyboard"]
+        if app.keyboards.firstMatch.exists, keyboardKey.isHittable {
+            keyboardKey.tap()
+            _ = app.keyboards.firstMatch.waitForNonExistence(timeout: 5)
+        }
     }
 
     /// Reads the probe until `done` holds or `timeout` passes; returns the last label.

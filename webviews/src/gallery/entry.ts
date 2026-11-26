@@ -6,7 +6,6 @@ import type {
   AppsPageEntry,
   ChangelogPageEntry,
   CloudPageEntry,
-  CodeRouterPageEntry,
   ComponentEntry,
   DiffPageEntry,
   EditorPageEntry,
@@ -41,10 +40,6 @@ export const appsPageEntry = (entry: Omit<AppsPageEntry, "host">): AppsPageEntry
 export const cloudPageEntry = (entry: Omit<CloudPageEntry, "host">): CloudPageEntry => ({
   ...entry,
   host: "cloud-page",
-});
-export const codeRouterPageEntry = (entry: Omit<CodeRouterPageEntry, "host">): CodeRouterPageEntry => ({
-  ...entry,
-  host: "coderouter-page",
 });
 export const changelogPageEntry = (entry: Omit<ChangelogPageEntry, "host">): ChangelogPageEntry => ({
   ...entry,

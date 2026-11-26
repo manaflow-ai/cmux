@@ -13,7 +13,9 @@ use cmux_mobile_link::dial::{self, SessionEvents, wireguard};
 use cmux_mobile_link::signaling::SignalPayload;
 use cmux_mobile_link::testing::{FakeOptions, FakeSignaling};
 use cmux_mobile_link::timing::Timeline;
-use cmux_mobile_link::{ChannelEvent, DialOptions, LinkConfig, SignalingClient, TransportKind};
+use cmux_mobile_link::{
+    ChannelEvent, DialOptions, Lane, LaneState, LinkConfig, SignalingClient, TransportKind,
+};
 
 /// The dormant bound is process-wide: one test at a time.
 static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -303,4 +305,82 @@ async fn an_old_side_on_either_end_still_links() {
     assert_eq!(pair.resumed.load(Ordering::Relaxed), 0);
     connected.link.close("done");
     dormant::act_old_for_tests(true, false);
+}
+
+/// Send `keys` on a fresh input-lane echo channel at once (the lane may
+/// still be opening) and read them back: each exactly once, in order, and
+/// nothing after them.
+async fn type_keys(link: &cmux_mobile_link::Link, keys: std::ops::Range<u32>) {
+    let mut channel = link.open_on("echo", serde_json::json!({}), Lane::Input).await.expect("input channel");
+    for key in keys.clone() {
+        channel.send(Bytes::from(key.to_be_bytes().to_vec())).await.expect("send a key");
+    }
+    let mut got = Vec::new();
+    let mut pending = Vec::new();
+    while got.len() < keys.len() {
+        let event = tokio::time::timeout(Duration::from_secs(10), channel.recv()).await;
+        match event.expect("every key echoed in time") {
+            Some(ChannelEvent::Data(bytes)) => {
+                pending.extend_from_slice(&bytes);
+                while pending.len() >= 4 {
+                    let key: Vec<u8> = pending.drain(..4).collect();
+                    got.push(u32::from_be_bytes(key.try_into().unwrap()));
+                }
+            }
+            other => panic!("the input channel ended: {other:?}"),
+        }
+    }
+    assert_eq!(got, keys.clone().collect::<Vec<_>>(), "each key once, in order");
+    let extra = tokio::time::timeout(Duration::from_millis(300), channel.recv()).await;
+    assert!(extra.is_err(), "nothing after the keys: {extra:?}");
+}
+
+/// Leo's phone on weak LTE, 2026-11-25 ("I also just can't seem to send
+/// messages into terminal from iOS to Mac right now in the terminal"): a
+/// fresh dial raced a dormant resume, and the Mac paired the input lane by
+/// order with whatever came next on the tunnel, ending links and stalling
+/// resumes. Now input typed during and after each reconnect arrives once
+/// and in order, the winner's lane pairs, and the loser never ends it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn input_across_a_fresh_dial_racing_a_dormant_resume_arrives_once_in_order() {
+    let _serial = SERIAL.lock().await;
+    dormant::set_hold_for_tests(None);
+    let pair = pair().await;
+    linked_then_lost(&pair).await;
+    let mut next = 0u32;
+    for round in 0..3 {
+        let ticket = dormant::ticket(&pair.mac_id);
+        assert!(ticket.is_some(), "round {round}: a dormant tunnel to resume");
+        // No head start: the full dial and the resume race.
+        let dial_options = options();
+        let full = dial::connect(
+            &pair.phone,
+            &pair.mac_id,
+            TransportKind::WireGuard,
+            &dial_options,
+            LinkConfig::default(),
+        );
+        let won =
+            dormant::hedged(ticket, LinkConfig::default(), &Timeline::new(), full).await.expect("redial");
+        let link = match won {
+            Hedged::Resumed(connected) => connected.link,
+            Hedged::Full(dialed) => dialed.link,
+        };
+        // During: typed the moment the link is back, its lane still opening.
+        type_keys(&link, next..next + 20).await;
+        next += 20;
+        // After: once the loser's lane wait is long over the winner still
+        // carries input, on its own lane.
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        assert!(!link.is_closed(), "round {round}: the race's loser ended the winner");
+        assert_eq!(link.input_lane(), LaneState::Ready, "round {round}: the winner's lane paired");
+        type_keys(&link, next..next + 20).await;
+        next += 20;
+        link.close("keepalive timed out");
+        drop(link);
+        wait_until("dormant again", Duration::from_secs(5), || {
+            dormant::ticket(&pair.mac_id).is_some() && dormant::keeps(&pair.phone_id)
+        })
+        .await;
+    }
 }
