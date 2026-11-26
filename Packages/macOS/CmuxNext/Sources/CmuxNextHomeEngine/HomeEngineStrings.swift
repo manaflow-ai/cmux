@@ -21,6 +21,7 @@ public nonisolated enum HomeEngineStrings {
     }
     /// A hosted cloud Chief: the Cloud service did not answer.
     static var errorCloudUnreachable: String {
+        // retry-prompt-ok: a cloud Chief's engine change goes to a paid service; the person re-sends it
         String(localized: "home.engine.error.cloudUnreachable", defaultValue: "cmux could not reach the cloud for this Chief. Check your connection and try again.", table: "Home", bundle: .localizedModule)
     }
     /// A hosted cloud Chief: no account is signed in.
@@ -45,7 +46,7 @@ public nonisolated enum HomeEngineStrings {
     }
     /// This Mac's brain was not running; the panel has just started it.
     static var errorLocalStarting: String {
-        String(localized: "home.engine.error.localStarting", defaultValue: "This Mac's Chief was not running. It is starting now; try again in a moment.", table: "Home", bundle: .localizedModule)
+        String(localized: "home.engine.error.localStarting", defaultValue: "This Mac's Chief didn't start in time, so the change wasn't saved.", table: "Home", bundle: .localizedModule)
     }
     static var errorForbidden: String {
         String(localized: "home.engine.error.forbidden", defaultValue: "This server does not let this connection change its Chief.", table: "Home", bundle: .localizedModule)
@@ -173,6 +174,7 @@ public nonisolated enum HomeEngineStrings {
         String(localized: "home.engine.harnessChecking", defaultValue: "Checking %@…", table: "Home", bundle: .localizedModule)
     }
     static var renameRefused: String {
+        // retry-prompt-ok: a rename is the person's edit, refused by the brain
         String(localized: "home.engine.renameRefused", defaultValue: "The Chief's name could not be changed. Try again in a moment.",
                table: "Home", bundle: .localizedModule)
     }
@@ -213,6 +215,7 @@ public nonisolated enum HomeEngineStrings {
             String(localized: "home.engine.primarySignedOut", defaultValue: "Sign in to cmux to choose your primary Chief.", table: "Home", bundle: .localizedModule)
         case .notFound: primaryUnknown
         default:
+            // retry-prompt-ok: making a Chief primary is a side-effecting change the person chose
             String(localized: "home.engine.primaryRefused", defaultValue: "This Chief couldn’t be made primary. Try again.", table: "Home", bundle: .localizedModule)
         }
     }
