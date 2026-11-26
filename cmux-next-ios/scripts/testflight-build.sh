@@ -436,7 +436,8 @@ log "cmux-next-ios $config archive $sha -> $out"
 # --- Source (the commit only) ----------------------------------------------
 paths=(cmux-next-ios Packages vendor/stack-auth-swift-sdk-prerelease AppIcon.icon
        cmux-tui schemas backend/catalog backend/packages plans/cmux-next skills mux samples)
-git -C "$repo" archive --format=tar "$sha" "${paths[@]}" | tar -x -C "$work/src"
+git -C "$repo" archive --format=tar "$sha" "${paths[@]}" \
+  ':(exclude)cmux-next-ios/verify' | tar -x -C "$work/src"
 
 # --- CmuxMobileLinkFFI.xcframework (gitignored; same cache key as demo-build.sh) ------
 key=$(printf '%s\n' "$(git -C "$repo" rev-parse "$sha:cmux-next-ios/rust")" \
