@@ -74,6 +74,10 @@ path = "tests/test_nightly_ghostty_helper_cache.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_guard_steps.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_helpers_beside_release_build.py"
 lane = "linux-guard"
 
