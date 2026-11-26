@@ -22,6 +22,7 @@
 
 use super::Session;
 use super::turn_shots::{CapturedPage, capture_page, prune, segment};
+use base64::Engine as _;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -201,6 +202,18 @@ pub(crate) fn encode(picture: &Rgb) -> Option<Vec<u8>> {
         let mut writer = encoder.write_header().ok()?;
         writer.write_image_data(&picture.pixels).ok()?;
     }
+    Some(bytes)
+}
+
+/// Encode the agent-facing `look` response as a compact JPEG. Persisted frames and the preview
+/// strip stay PNG so their lossless pixel data and existing consumers are unchanged.
+pub(crate) fn encode_jpeg(picture: &Rgb) -> Option<Vec<u8>> {
+    let width = u16::try_from(picture.width).ok()?;
+    let height = u16::try_from(picture.height).ok()?;
+    let mut bytes = Vec::new();
+    jpeg_encoder::Encoder::new(&mut bytes, 80)
+        .encode(&picture.pixels, width, height, jpeg_encoder::ColorType::Rgb)
+        .ok()?;
     Some(bytes)
 }
 
@@ -640,11 +653,11 @@ fn look_now(session: &str) -> Value {
     let first = turns().get(session).and_then(|t| t.frames.first().map(|f| f.hash));
     let moved = first.map_or(0, |f| bits(f, hash));
     let small = shrink(&picture, LOOK_EDGE, Some(LOOK_EDGE));
-    let Some(png) = encode(&small) else {
+    let Some(jpeg) = encode_jpeg(&small) else {
         return json!({"error": "the picture could not be encoded"});
     };
     json!({
-        "image": picture_value(&png),
+        "image": json!({"mimeType": "image/jpeg", "data": base64::engine::general_purpose::STANDARD.encode(jpeg)}),
         "width": small.width,
         "height": small.height,
         "tab": page.id,
