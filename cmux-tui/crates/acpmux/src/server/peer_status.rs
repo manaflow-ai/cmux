@@ -122,7 +122,13 @@ pub(crate) async fn host_health_with(
     // platform join/registry APIs use to address this machine. The private
     // key stays in the transport-owned helper and is never serialized.
     if let Ok(key) = crate::cli::mesh_node_key::load_or_create() {
-        v.set("node", json!({"wgPublicKey": key.public_key_b64()}));
+        let mut node = json!({"wgPublicKey": key.public_key_b64()});
+        // While the WireGuard transport runs: its UDP port and service address, which a peer
+        // daemon that runs it too learns a route from (`peer_wg_learn.rs`).
+        if let Some(transport) = &hub.wireguard {
+            node.set("wireguard", transport.advert());
+        }
+        v.set("node", node);
     }
     v
 }
