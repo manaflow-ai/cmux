@@ -227,6 +227,7 @@ export function useSessionInfo({
   grants,
   onOpenOutput,
   onOpenSourceFile,
+  onRemoveFolder,
   onOpenUrl,
   onOpenImage,
   readPromptImage,
@@ -289,6 +290,7 @@ export function useSessionInfo({
   /// Opens a file's diff (App.tsx openOutput: beside the chat, else in place).
   onOpenOutput?: (path: string) => void;
   onOpenSourceFile?: (path: string) => unknown;
+  onRemoveFolder?: (path: string) => Promise<unknown> | unknown;
   /// Opens a web address in the browser beside the chat (a server's port, a pull request).
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string, path?: string) => void;
@@ -484,6 +486,7 @@ export function useSessionInfo({
   const openedOutputAt = useRef(0);
   const stableOnOpenOutput = useStableCallback(onOpenOutput);
   const stableOnOpenSourceFile = useStableCallback(onOpenSourceFile);
+  const stableOnRemoveFolder = useStableCallback(onRemoveFolder);
   const stableOnOpenUrl = useStableCallback(onOpenUrl);
   const stableOnOpenImage = useStableCallback(onOpenImage);
   const stableReadPromptImage = useStableCallback(readPromptImage);
@@ -611,6 +614,7 @@ export function useSessionInfo({
         onRevealed={clearRevealed}
         onStopProcess={stableOnStopProcess}
         onOpenSourceFile={subagent?.agent.host ? undefined : stableOnOpenSourceFile}
+        onRemoveFolder={subagent?.agent.host ? undefined : stableOnRemoveFolder}
         onOpenOutput={openOutput}
         onOpenUrl={stableOnOpenUrl}
         onOpenImage={stableOnOpenImage}
@@ -889,6 +893,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onStopProcess,
   onOpenOutput,
   onOpenSourceFile,
+  onRemoveFolder,
   onOpenUrl,
   onOpenImage,
   readPromptImage,
@@ -961,6 +966,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onStopProcess?: (id: string) => Promise<unknown>;
   onOpenOutput?: (path: string) => void;
   onOpenSourceFile?: (path: string) => unknown;
+  onRemoveFolder?: (path: string) => Promise<unknown> | unknown;
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string, path?: string) => void;
   /// A pasted image's bytes by its id, for its Sources row (direct.ts `promptImage`).
@@ -1408,6 +1414,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           onStopProcess={onStopProcess}
           onOpenOutput={onOpenOutput}
           onOpenSourceFile={onOpenSourceFile}
+          onRemoveFolder={onRemoveFolder}
           onOpenUrl={onOpenUrl}
           onOpenDocument={onOpenDocument}
           onOpenArtifacts={rowCount > 0 ? () => setGallery(true) : undefined}
@@ -1497,6 +1504,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         sections={sections}
         onSection={setSessionInfoSection}
         onOpenSourceFile={onOpenSourceFile}
+        onRemoveFolder={onRemoveFolder}
         onOpenUrl={onOpenUrl}
         onOpenImage={onOpenImage}
         readPromptImage={readPromptImage}
