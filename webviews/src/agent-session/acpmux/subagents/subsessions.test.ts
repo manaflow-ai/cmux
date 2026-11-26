@@ -36,14 +36,14 @@ test("a summary's sub-session fields: its parent, short name, lane, queue and wh
     lastMessage: { role: "agent", text: "Done." },
     queued: 2,
     lane: { state: "working", step: "Run the tests", title: null, since: 1, error: null },
-    turn: { planStep: "Check retries", activity: "bun test src/net", prompt: "Run the tests" },
+    turn: { activity: "bun test src/net", prompt: "Run the tests" },
   });
   expect(entry).toMatchObject({
     startedBy: "chat",
     shortName: "tests",
     lane: "working",
     queued: 2,
-    doing: "Check retries · bun test src/net",
+    doing: "bun test src/net",
     effort: "high",
     lastMessage: "Done.",
   });
@@ -293,6 +293,28 @@ test("a sub-session whose last turn was stopped says when, which its Resume read
   expect(subsessionInfo(summary("b", lastTurn("completed"))).stoppedAt).toBeUndefined();
   // Only a sub-session's stop resumes: a chat no parent started does not.
   expect(subsessionInfo(summary("c", { lastTurn: { status: "cancelled", endedAt: 42 } })).stoppedAt).toBeUndefined();
+});
+
+test("a hidden page's store lets its indexes go and makes them again on a read or a show", () => {
+  const store = new SubsessionStore();
+  let told = 0;
+  let names = 0;
+  store.subscribe(() => (told += 1));
+  store.subscribeNames(() => (names += 1));
+  store.set([summary("chat"), summary("tests", { startedBy: "chat", shortName: "tests" })]);
+  expect([told, names]).toEqual([1, 1]);
+  store.release();
+  expect(store.has("chat")).toBe(true);
+  expect(store.get("tests")).toBeDefined();
+  expect([told, names]).toEqual([1, 1]);
+  store.release();
+  store.set([summary("chat"), summary("docs", { startedBy: "chat", shortName: "docs" })]);
+  expect([told, names]).toEqual([1, 1]);
+  store.restore();
+  expect([told, names]).toEqual([2, 2]);
+  expect(store.get("tests")).toBeUndefined();
+  expect(store.get("docs")).toBeDefined();
+  expect(store.find("docs")).toBe("docs");
 });
 
 test("the name index a run of changes leaves reads as one built from the last list alone", () => {

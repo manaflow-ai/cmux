@@ -7,7 +7,7 @@ import { Input } from "../../ui/Input";
 import { Popover } from "../../ui/Popover";
 import { MenuFolderIcon, PlusIcon, SearchIcon } from "./ComposerPickers";
 import { GitHubGlyph, LockIcon } from "./GitHubIcons";
-import { githubFolder, matchingRepos, type GitHubPicker } from "./githubRepos";
+import { githubFolder, githubFolderRepo, githubFullName, matchingRepos, type GitHubPicker } from "./githubRepos";
 import { useT, type StringKey } from "./i18n";
 import { useProjectPaletteHost, type SourceIcon, type SourcePage } from "./projectPaletteHost";
 import { githubSource, matchesSourceQuery, type CloudFolder } from "./sourcePickerModel";
@@ -39,8 +39,11 @@ export function SourcePicker({
   onPick,
   onCloning,
   returnFocus,
+  startPage,
 }: {
   open: boolean;
+  /// The page it opens on (the GitHub page, opened again after Connect to GitHub); none: the sources.
+  startPage?: SourcePage;
   options: SourcePickerOptions;
   current?: string;
   currentPeer?: string;
@@ -52,7 +55,7 @@ export function SourcePicker({
 }) {
   const t = useT();
   const { github, cloudFolders, onCloudFolder, onClone, onEmpty } = options;
-  const [page, setPage] = useState<SourcePage>("add");
+  const [page, setPage] = useState<SourcePage>(startPage ?? "add");
   const [query, setQuery] = useState("");
   const [machine, setMachine] = useState<CloudFolder>();
   const clone = useGitURLClone(onClone, onCloning, pick);
@@ -127,7 +130,7 @@ export function SourcePicker({
       // Its label alone; only a click the host refused says why (#46018).
       status: github.state.connectError ?? t(githubSource(github.state).status),
       icon: "github",
-      run: () => goTo("github"),
+      onAction: () => goTo("github"),
     });
   if (cloudFolders)
     sources.push({
@@ -135,7 +138,7 @@ export function SourcePicker({
       label: t("source.cloudFolders"),
       status: cloudFolders[0]?.machine ?? t("source.cloudNone"),
       icon: "folder",
-      run: () => goTo("machines"),
+      onAction: () => goTo("machines"),
     });
   else {
     if (onBrowse)
@@ -144,7 +147,7 @@ export function SourcePicker({
         label: t("source.folders"),
         status: t("source.choose"),
         icon: "folder",
-        run: () => finish(onBrowse),
+        onAction: () => finish(onBrowse),
       });
     if (onClone)
       sources.push({
@@ -152,7 +155,7 @@ export function SourcePicker({
         label: t("project.gitURL"),
         status: t("source.clone"),
         icon: "link",
-        run: () => goTo("url"),
+        onAction: () => goTo("url"),
       });
   }
   if (onEmpty)
@@ -161,7 +164,7 @@ export function SourcePicker({
       label: t("source.empty"),
       status: t("source.newFolder"),
       icon: "plus",
-      run: () => finish(onEmpty),
+      onAction: () => finish(onEmpty),
     });
   const shownSources = sources.filter((row) => matchesSourceQuery(`${row.label} ${row.status ?? ""}`, query.trim()));
 
@@ -244,7 +247,7 @@ export function SourcePicker({
           edit(event.text);
           break;
         case "pick":
-          rows.find((row) => row.id === event.id)?.run();
+          rows.find((row) => row.id === event.id)?.onAction();
           break;
         case "submit":
           if (page === "url") clone.run(event.text);
@@ -372,7 +375,7 @@ type ListRow = {
   current?: boolean;
   /// Shown but not pickable (a folder on a Cloud machine that cannot take a chat now); its status says why.
   disabled?: boolean;
-  run(): void;
+  onAction(): void;
 };
 
 function SourceList({
@@ -423,7 +426,7 @@ function SourceList({
         onCancel={onEscape}
         onSubmit={(value) => {
           const row = byId.get(value);
-          if (row && !row.disabled) row.run();
+          if (row && !row.disabled) row.onAction();
         }}
         isItemDisabled={(id) => byId.get(id)?.disabled === true}
         isItemCurrent={(id) => byId.get(id)?.current === true}
@@ -476,7 +479,7 @@ function githubRows(
           status: repo.private ? t("composer.githubPrivate") : undefined,
           trail: repo.private && <LockIcon />,
           current: current === githubFolder(repo.fullName),
-          run: () => onPick(githubFolder(repo.fullName)),
+          onAction: () => onPick(githubFolder(repo.fullName)),
         }))
       : [];
   let message = messageKey ? t(messageKey) : undefined;
@@ -487,14 +490,20 @@ function githubRows(
         : t("composer.githubRateLimited")
       : state.error;
   } else if (ready && !repos.length && typed && !state.loading) {
-    message = t("composer.githubNoMatches");
+    // A typed owner/name the app can't see: say how to add it, not only that nothing matched.
+    const name = githubFullName(typed);
+    message = name ? t("source.github.notShared", { repo: name }) : t("composer.githubNoMatches");
+  } else if (ready && state.missing && !state.loading) {
+    message = t("source.github.notShared", { repo: state.missing });
   }
+  // The repository the person is after rides along with Connect, so it is picked once GitHub hands back.
+  const connectFor = () => github.onConnect(githubFullName(typed) ?? githubFolderRepo(current) ?? state.missing);
 
   if (ready && !state.error && typed && !repos.length && state.truncated)
-    repos.push({ id: "\0search", label: t("composer.githubSearchOnReturn"), run: () => github.onSearch(typed) });
+    repos.push({ id: "\0search", label: t("composer.githubSearchOnReturn"), onAction: () => github.onSearch(typed) });
   const chooseMore =
     ready && !state.error && !state.connecting && !state.status?.connecting
-      ? { id: "\0more", label: t("composer.githubChooseMore"), run: github.onConnect }
+      ? { id: "\0more", label: t("composer.githubChooseMore"), onAction: connectFor }
       : undefined;
   if (action) {
     const connect = action === "connect";
@@ -502,7 +511,7 @@ function githubRows(
       id: "\0connection",
       label: t(connect ? (status === "source.github.signIn" ? status : "composer.githubConnect") : "project.retry"),
       icon: "github",
-      run: connect ? github.onConnect : action === "refresh" ? github.onOpen : github.onRetry,
+      onAction: connect ? connectFor : action === "refresh" ? github.onOpen : github.onRetry,
     });
   }
   return { rows: repos, action: chooseMore, message: state.connectError ?? state.status?.message ?? message };
@@ -530,7 +539,7 @@ function cloudRows(
         path: folder.id,
         current: current === folder.id && currentPeer === folder.peer,
         ...(folder.disabled ? { disabled: true, status: folder.stage ?? folder.id } : {}),
-        run: () => onPick(folder),
+        onAction: () => onPick(folder),
       });
     }
   } else {
@@ -545,7 +554,7 @@ function cloudRows(
         status: folder.stage,
         icon: "folder",
         ...(folder.disabled ? { disabled: true } : {}),
-        run: () => onMachine(folder),
+        onAction: () => onMachine(folder),
       });
     }
   }

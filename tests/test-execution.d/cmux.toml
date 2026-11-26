@@ -221,6 +221,10 @@ path = "tests/test_cmux_next_media_tour_gate.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_media_last_toured.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_media_tree_fallback.py"
 lane = "linux-guard"
 
@@ -250,6 +254,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_cmux_next_pr_autofix_push_gate.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_pr_autofix_repair_on_red.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_next_pr_autofix_repair_on_red.py"
 
 [[test]]
 path = "tests/test_cmux_next_pr_autofix_settings.py"

@@ -34,33 +34,19 @@ statically, so a reordered step fails in review and not on a release day:
    ephemeral runner labels. The notarization scripts run in such jobs only
    with their launch smokes deferred (CMUX_DEFER_LAUNCH_SMOKES) or skipped.
    STEP_LEVEL_ONLY lists the jobs that still rely on rule 1 alone.
-7. A job that holds a signing secret runs on an ephemeral runner (Blacksmith,
-   GitHub's hosted Linux, or a one-job JIT VM in JIT_EPHEMERAL_LABELS; "blacksmith
-   runners we can simply trust", Leo, 2026-10-24), never a reused machine. Its runs-on names either a literal
-   ephemeral label or one of EPHEMERAL_RUNNER_VARIABLES, whose fallback literal
-   is ephemeral too. A test cannot read a variable's live value, so
-   cmux-next-guards.yml's signing-runner-variables job (on a literal Blacksmith
-   runner) checks it on every feat-cmux-next pull request and push: pointing one
-   of those variables at an owned mini turns it red. It detects; it does not stop
-   a signing job that starts before it. The one way onto an owned Mac is a
-   picker output from scripts/ci/signing_runner.py (Leo, 2026-10-28: the
-   release signing jobs may run on our own Macs), on a mini held whole for the
-   job; tests/test_ci_signing_owned_mac.py checks those jobs. Two narrow exceptions,
-   each proven here rather than listed:
-   a. A job glaeda gives the exclusive class (test_ci_signing_owned_mac.GLAEDA_EXCLUSIVE_JOBS,
-      that hook's own list) whose first step is that test's CLAIM_GATE may also route
-      through the owned pool variables in OWNED_ROUTE_VARIABLES (nightly.yml's owned-only
-      legacy sign and deltas, Lawrence, 2026-10-30, a7b6a61175c; its nightly-next signing
-      runner and its promote job, Lawrence, 2026-11-04, 2b01de7c296 and 24111ed7f5e).
-      The gate fails the job on any owned Mac without the whole-mini claim before a
-      credential is in reach, however the label was chosen; owned_route_failures() holds
-      the claim script before the first secret and the empty job `env:` here, and
-      test_ci_signing_owned_mac.py holds those, the always() keychain delete and the rest
-      of its rules for every such job that makes a keychain or holds a Sparkle key.
-   b. A job in GATED_SECRET_JOBS reads every signing secret only when its mode
-      variable says so, and that same condition picks a literal ephemeral label
-      before runs-on reads any variable (stable-next.yml's sign: its dry run signs
-      ad hoc with no key on an owned Mac; its publish run signs on Blacksmith).
+7. A job that holds a signing secret may run on any of our runners, owned or ephemeral. The rule that kept
+   it on an ephemeral one (and its live check, cmux-next-guards.yml's signing-runner-variables) is gone:
+   Leo, 2026-11-19, "if 99.99999% of the code is ours, there's literally nothing to be concerned about if we
+   literally dont allow forks to run on ours automatically". A fork run never reaches an owned runner and
+   gets no secrets (tests/test_ci_fork_runner_routing.py). Two helpers stay for test_ci_signing_owned_mac.py,
+   whose whole-mini claim keeps two signing keychains off one mini:
+   a. claim_gated() and owned_route_failures(): a job glaeda gives the exclusive class
+      (test_ci_signing_owned_mac.GLAEDA_EXCLUSIVE_JOBS) whose first step is that test's CLAIM_GATE, routed
+      through the owned pool variables in OWNED_ROUTE_VARIABLES, has the claim script before its first
+      secret and an empty job `env:`.
+   b. A job in GATED_SECRET_JOBS reads every signing secret only when its mode variable says so, and that
+      same condition picks a literal ephemeral label before runs-on reads any variable (stable-next.yml's
+      sign: its dry run signs ad hoc with no key on an owned Mac), so it needs no claim.
 8. A job that signs with the release signer (RELEASE_SIGNER_SCRIPT) makes no
    keychain: it runs on a literal ubuntu label and hands the certificate only
    to its signer script, which keeps the key in its own temporary directory.
@@ -140,12 +126,11 @@ SIGNING_SECRET_PREFIXES = ("APPLE_", "ASC_API_", "IOS_", "SPARKLE_", "NIGHTLY_SP
                            "CONTENT_SIGNING_")
 RELEASE_SECRET_PREFIXES = (*SIGNING_SECRET_PREFIXES, "CF_R2_", "NIGHTLY_NEXT_R2_", "HOMEBREW_TAP_TOKEN")
 RELEASE_ENVIRONMENT = re.compile(r"\b(release|release-next|content-signing|nightly-next-promote|release-surface-ack)\b")
-# The CodeRouter release signs one CLI binary with a keychain at an absolute
-# path and runs nothing from it; it keeps its own inline import. A choice, so a
-# list: every job that imports the Developer ID certificate inline is named here
-# or fails rule 3, and every entry still imports it inline
-# (inline_keychain_classification).
-INLINE_DEVELOPER_ID_KEYCHAINS = {("coderouter-release.yml", "build")}
+# Jobs that keep an inline Developer ID import (none since the CodeRouter release
+# left with CodeRouter, 2026-11-25). A choice, so a list: every job that imports
+# the Developer ID certificate inline is named here or fails rule 3, and every
+# entry still imports it inline (inline_keychain_classification).
+INLINE_DEVELOPER_ID_KEYCHAINS: set[tuple[str, str]] = set()
 # Scripts that make the Developer ID keychain with signing-keychain.sh create
 # just before their signature: notarize-nightly-dmg.sh (the DMG around the
 # stapled app) and resume-stapled-app-notarization.sh (the same DMG in a
@@ -196,10 +181,8 @@ def secret_or_token(value: object) -> bool:
     """value reads any secret or the job token."""
     return bool(workflow_jobs.secret_names(value)) or any(GITHUB_TOKEN.search(text)
                                                           for text in workflow_jobs.strings(value))
-# Rule 7. These repository variables hold only ephemeral runner labels; the
-# live-value check in cmux-next-guards.yml keeps them so, and the cloud overflow
-# switch never writes anything else to them. The list lives in
-# scripts/ci/signing_runner_variables.py; the check must name exactly it.
+# The repository variables that name an ephemeral runner (scripts/ci/signing_runner_variables.py): a signing job
+# that reads one is not on an owned Mac, so test_ci_signing_owned_mac.py's whole-mini claim does not apply to it.
 EPHEMERAL_RUNNER_VARIABLES = signing_runner_variables.EPHEMERAL_RUNNER_VARIABLES
 EPHEMERAL_LABEL = signing_runner_variables.EPHEMERAL_LABEL
 # Literal labels that are ephemeral too: a one-job JIT GCE VM, deleted after its job, that only cmuxterm-hq
@@ -221,7 +204,6 @@ RUNNER_VARIABLE = re.compile(
     re.IGNORECASE,
 )
 ANY_VARS = re.compile(r"\bvars\b", re.IGNORECASE)
-RUNS_ON_END = re.compile(r"\s*\}\}\s*$")
 # Rule 7a: owned pool variables a claim-gated signing job may route through.  Each holds a glaeda fleet label:
 # runner_label_policy's NO_HOSTED_MAC_VARIABLES keeps a GitHub-hosted Mac out of every one, and
 # cloud_overflow_switch.py writes none of them (they are in neither SWITCHED_VARIABLES nor
@@ -324,11 +306,6 @@ def mode_env_value(raw: object, value: str | None = None) -> re.Match | None:
     return re.fullmatch(r"(.+?)\s*&&\s*'" + re.escape(value) + r"'\s*\|\|\s*'[^']*'", whole.group(1), re.DOTALL)
 
 
-LIVE_VALUE_CHECK = (".github/workflows/cmux-next-guards.yml", "signing-runner-variables")
-LIVE_VALUE_RUNNER = "blacksmith-2vcpu-ubuntu-2404"
-# `vars.CI_CLOUD_OVERFLOW_SAVED && '<blacksmith label>' ||`: the overflow failover,
-# a boolean record choosing between two literal Blacksmith Linux labels.
-OVERFLOW_FAILOVER = re.compile(r"vars\.CI_CLOUD_OVERFLOW_SAVED\s*&&\s*'blacksmith-\d+vcpu-ubuntu-2404'\s*\|\|\s*")
 # `vars.NAME == '<label>' && '<label>' ||`: a variable that only chooses between literal labels.
 # Its value is compared, never used as the label, so the job still runs on the literal it names.
 LITERAL_SELECTOR = re.compile(
@@ -796,6 +773,8 @@ def step_level_fixture_failures(documents: dict[str, dict]) -> list[str]:
 def inline_keychain_fixture_failures(documents: dict[str, dict]) -> list[str]:
     """INLINE_DEVELOPER_ID_KEYCHAINS (an exemption, guarded): a copy of the listed job under a new id."""
     problems = []
+    if not INLINE_DEVELOPER_ID_KEYCHAINS:
+        return problems
     workflow, job_name = sorted(INLINE_DEVELOPER_ID_KEYCHAINS)[0]
     base = workflow_jobs.copy_job(bracketed(documents[workflow]["jobs"][job_name]), {"environment": workflow_jobs.DROP})
     fixture = with_job(documents, workflow, "inline-keychain-fixture", base)
@@ -1062,58 +1041,13 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
 
     if name not in STEP_LEVEL_ONLY:
         failures.extend(bundle_code_with_secrets(name, job))
-    if signing_secret(job):
-        # Every matrix cell's runs-on (workflow_jobs.runs_on_cells), each checked as its own route. A runner nothing
-        # resolves fails, unless its matrix is audited (workflow_jobs.audited_matrix), which skips it by name.
-        cells = workflow_jobs.runs_on_cells(job)
-        if cells is None:
-            if workflow_jobs.audited_matrix(*name.partition(" ")[::2]) is None:
-                failures.append(f"{name}: holds a signing secret and runs-on has a matrix value nothing resolves")
-            cells = []
-        gated = secret_gate_failures(name, job)
-        if gated is not None:
-            failures.extend(gated)
-            # Proven above: every signing secret sits behind the condition that picks an ephemeral label.
-            cells = []
-        owned_route = claim_gated(name, job)
-        owned_route_checked = False
-        for runs_on in cells:
-            runs_on = strip_literal_selectors(runs_on)
-            pool_keys = set(re.findall(r"fromJSON\(vars\.RUNNER_POOLS\)\.([A-Za-z0-9_]+)", runs_on))
-            trusted_ephemeral_pool = bool(pool_keys & EPHEMERAL_POOL_KEYS)
-            if (owned_route and not owned_route_checked
-                    and any(owned_label(runs_on, m) for m in RUNNER_VARIABLE.finditer(runs_on))):
-                owned_route_checked = True
-                failures.extend(owned_route_failures(name, job))
-            if len(ANY_VARS.findall(runs_on)) != len(RUNNER_VARIABLE.findall(runs_on)):
-                failures.append(
-                    f"{name}: holds a signing secret and reads a repository variable in runs-on in a form this "
-                    "guard cannot check; write vars.NAME"
-                )
-            for match in RUNNER_VARIABLE.finditer(runs_on):
-                dotted, bracketed, fallback = match.groups()
-                variable = (dotted or bracketed).upper()
-                if trusted_ephemeral_pool and variable == "RUNNER_POOLS":
-                    continue
-                if owned_route and owned_label(runs_on, match):
-                    continue
-                if variable not in EPHEMERAL_RUNNER_VARIABLES:
-                    failures.append(
-                        f"{name}: holds a signing secret but picks its runner from vars.{variable}; use a literal "
-                        f"ephemeral label or one of {', '.join(EPHEMERAL_RUNNER_VARIABLES)}"
-                    )
-                # The variable and its literal close the expression (`... || vars.X || 'blacksmith-...' }}`),
-                # so nothing after them (an `&&`, another selector) can replace the label they give.
-                elif (trusted_ephemeral_pool and re.search(
-                        r"(?:\|\||&&)\s*fromJSON\(vars\.RUNNER_POOLS\)\.([A-Za-z0-9_]+)",
-                        runs_on[match.end():]) and
-                      re.search(r"fromJSON\(vars\.RUNNER_POOLS\)\.([A-Za-z0-9_]+)\s*\}\}$", runs_on)):
-                    continue
-                elif not (fallback and ephemeral_literal(fallback) and RUNS_ON_END.match(runs_on, match.end())):
-                    failures.append(
-                        f"{name}: holds a signing secret and reads vars.{variable} other than as the expression's "
-                        "last choice `vars.NAME || '<blacksmith-* or ubuntu-* label>' }}`"
-                    )
+    # stable-next.yml's sign keeps an owned route for its keyless dry run; test_ci_signing_owned_mac.py exempts it
+    # from the whole-mini claim because its signing secrets sit behind the condition that picks Blacksmith.
+    failures.extend(secret_gate_failures(name, job) or [])
+    # Rule 7a: the whole-mini claim that #53754 kept ("the whole-mini signing claim stay[s]"); its call lived in the
+    # deleted rule-7 runs-on loop, so it is made here for every claim-gated job that holds a signing secret.
+    if signing_secret(job) and claim_gated(name, job):
+        failures.extend(owned_route_failures(name, job))
 
     text = json.dumps(job)
     pool_signer = release_pool_signer(job)
@@ -1234,44 +1168,6 @@ def check_scripts(failures: list[str]) -> None:
         failures.append("scripts/verify_remote_daemon_release.py: refuse --verify-cli while a signing keychain exists")
 
 
-def check_live_runner_variables(failures: list[str]) -> None:
-    """Rule 7's live half: a guard job fails when an ephemeral-only variable holds another label."""
-    path, job_name = LIVE_VALUE_CHECK
-    document = workflow_jobs.document(ROOT / path)
-    job = (document.get("jobs") or {}).get(job_name) or {}
-    # The check's own runner must not come from the variables it checks: a variable
-    # pointed at a missing label would leave it queued instead of red. The one
-    # variable it may read is the overflow record as a switch between two literal
-    # Blacksmith labels (tests/test_ci_blacksmith_linux_failover.py requires it):
-    # the record holds no label, so both outcomes stay literal ephemeral runners.
-    cells = workflow_jobs.runs_on_cells(job)
-    runs_on = OVERFLOW_FAILOVER.sub("", "\n".join(cells or []))
-    if cells is None:
-        failures.append(f"{path} {job_name}: runs-on has a matrix value nothing resolves")
-    if ANY_VARS.search(runs_on) or LIVE_VALUE_RUNNER not in runs_on:
-        failures.append(f"{path} {job_name}: runs on the literal {LIVE_VALUE_RUNNER}, never a repository variable")
-    steps = job.get("steps") or []
-    for step in steps:
-        env = {str(k): str(v) for k, v in ((step or {}).get("env") or {}).items()}
-        run = str((step or {}).get("run", ""))
-        if all(env.get(v, "").replace(" ", "") == "${{vars.%s}}" % v for v in EPHEMERAL_RUNNER_VARIABLES) \
-                and "blacksmith-" in run and "ubuntu-" in run and "exit 1" in run:
-            # The step loops over exactly the shared list, so a variable added there is checked live too.
-            loop = re.search(r"^\s*for\s+name\s+in\s+([A-Z0-9_ ]+?)\s*;\s*do\b", run, re.MULTILINE)
-            looped = tuple(loop.group(1).split()) if loop else ()
-            if sorted(looped) != sorted(EPHEMERAL_RUNNER_VARIABLES) or \
-                    sorted(n for n in env if n.isupper() and env[n].startswith("${{")) != sorted(EPHEMERAL_RUNNER_VARIABLES):
-                failures.append(
-                    f"{path} {job_name}: checks {', '.join(looped) or 'no variables'}, not exactly "
-                    f"{', '.join(EPHEMERAL_RUNNER_VARIABLES)} (scripts/ci/signing_runner_variables.py)"
-                )
-            return
-    failures.append(
-        f"{path} {job_name}: no step fails when {', '.join(EPHEMERAL_RUNNER_VARIABLES)} hold a label other than "
-        "blacksmith-* or ubuntu-*; signing jobs read them (rule 7)"
-    )
-
-
 def check_literal_selectors(failures: list[str]) -> None:
     """A selector is dropped only when it picks the literal it compares against, and that literal is ephemeral."""
     cases = {
@@ -1296,7 +1192,6 @@ def check_literal_selectors(failures: list[str]) -> None:
 def main() -> int:
     failures: list[str] = []
     check_literal_selectors(failures)
-    check_live_runner_variables(failures)
     signing_jobs = 0
     documents = {}
     for path in sorted(WORKFLOWS.glob("*.y*ml")):

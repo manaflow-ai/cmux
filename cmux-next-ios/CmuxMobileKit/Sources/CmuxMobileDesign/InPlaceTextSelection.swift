@@ -138,7 +138,7 @@ public final class InPlaceTextSelection: NSObject {
         anchor = word
         view.selectedTextRange = word
         loupe = UITextLoupeSession.begin(at: point, fromSelectionWidgetView: nil, in: view)
-        UISelectionFeedbackGenerator().selectionChanged()
+        CmuxMobileHaptics().selectionChanged()
         // A table cell caches its accessibility children: a reused Feed cell did not list the new
         // stand-in, so VoiceOver (and UI tests) could not find the live selection (fleet step
         // f0fe88a219ecf80750d04c72). VoiceOver moves to the selection.
@@ -154,7 +154,7 @@ public final class InPlaceTextSelection: NSObject {
             let end = view.compare(word.end, to: anchor.end) == .orderedDescending ? word.end : anchor.end
             if let range = view.textRange(from: start, to: end), range != view.selectedTextRange {
                 view.selectedTextRange = range
-                UISelectionFeedbackGenerator().selectionChanged()
+                CmuxMobileHaptics().selectionChanged()
             }
         }
         let caret = view.selectedTextRange.map { view.caretRect(for: $0.end) } ?? .zero
