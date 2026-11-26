@@ -7,6 +7,7 @@ fn asks_and_answers_round_trip() {
         Ask::Batch { ask: 2, entries: vec![3, 4, 5] },
         Ask::Ping { ask: 3 },
         Ask::Stored { ask: 4, since: 1025 },
+        Ask::Listing { ask: 5, since: 1 << 40 },
     ];
     let mut bytes = Vec::new();
     for ask in &asks {

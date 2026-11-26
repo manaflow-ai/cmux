@@ -11,6 +11,31 @@ fn minted() -> Minted {
     Minted { token: SECRET.to_owned() }
 }
 
+/// A Cloud machine's git cache rewrites github.com fetches to its proxy; the repo still reads.
+#[test]
+fn origin_reads_through_a_git_cache_rewrite() {
+    let tmp = tempfile::tempdir().unwrap();
+    let git = |args: &[&str]| {
+        let ok = std::process::Command::new("git")
+            .arg("-C")
+            .arg(tmp.path())
+            .args(args)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok, "git {args:?}");
+    };
+    git(&["init", "-q"]);
+    assert_eq!(origin_url_in(Some(tmp.path())), None);
+    git(&["remote", "add", "origin", "https://github.com/acme/app.git"]);
+    git(&["config", "url.http://127.0.0.1:47380/github.com/.insteadOf", "https://github.com/"]);
+    let url = origin_url_in(Some(tmp.path()));
+    assert_eq!(url.as_deref(), Some("https://github.com/acme/app.git"));
+    assert_eq!(url.as_deref().and_then(repo_from).as_deref(), Some("acme/app"));
+}
+
 #[test]
 fn repos_come_from_github_paths_and_urls_only() {
     for raw in [

@@ -207,9 +207,28 @@ pub fn leaks(secret: &str) -> Vec<String> {
 pub(crate) fn redirect(host: &str) -> Option<SocketAddr> {
     let installed = INSTALLED.get()?;
     match crate::verdict(host) {
-        crate::Verdict::Listed | crate::Verdict::Named => Some(installed.addr),
+        crate::Verdict::Listed | crate::Verdict::Named | crate::Verdict::Session => {
+            Some(installed.addr)
+        }
         crate::Verdict::Local | crate::Verdict::Unlisted => None,
     }
+}
+
+/// Where a gated WebSocket connect to `host` goes instead, and the TLS
+/// config that trusts the capture CA, when capture is on.
+pub(crate) fn ws_redirect(host: &str) -> Option<(SocketAddr, Arc<rustls::ClientConfig>)> {
+    let addr = redirect(host)?;
+    let installed = INSTALLED.get()?;
+    let mut roots = rustls::RootCertStore::empty();
+    roots.add(installed.ca.clone()).ok()?;
+    let config = rustls::ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .ok()?
+    .with_root_certificates(roots)
+    .with_no_client_auth();
+    Some((addr, Arc::new(config)))
 }
 
 /// The CA gated clients trust too, when capture is on.
