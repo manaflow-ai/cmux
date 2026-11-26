@@ -359,11 +359,6 @@
   ],
   "known_layout_shifts": [
     {
-      "flow": "disclosure-chat",
-      "max_shift_frames": 10,
-      "issue": "https://github.com/manaflow-ai/cmux/issues/59189"
-    },
-    {
       "flow": "slow-history-chat",
       "max_shift_frames": 11,
       "issue": "https://github.com/manaflow-ai/cmux/issues/59189"
