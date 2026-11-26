@@ -95,7 +95,7 @@ pub fn split_preview(region: Rect, zone: Zone, gap: f64) -> (Rect, Option<Rect>)
 /// middle of a column gap. `length` is a share of that edge.
 #[must_use]
 pub fn insertion_line(region: Rect, zone: Zone, width: f64, length: f64) -> Rect {
-    let share = length.max(0.0).min(1.0);
+    let share = length.clamp(0.0, 1.0);
     match zone {
         Zone::Left | Zone::Right | Zone::Column => {
             let height = region.height * share;
@@ -164,7 +164,7 @@ fn standardized(rect: Rect) -> Rect {
 /// `height`, centered in it and never larger than it.
 #[must_use]
 pub fn inset_card(target: Rect, fraction: f64, max_width: f64, height: f64) -> Rect {
-    let width = (target.width * fraction.max(0.0).min(1.0)).min(max_width).min(target.width);
+    let width = (target.width * fraction.clamp(0.0, 1.0)).min(max_width).min(target.width);
     let card_height = height.min(target.height);
     Rect::new(target.mid_x() - width / 2.0, target.mid_y() - card_height / 2.0, width, card_height)
 }
