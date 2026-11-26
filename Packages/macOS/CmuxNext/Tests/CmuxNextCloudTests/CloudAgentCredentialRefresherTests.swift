@@ -213,6 +213,19 @@ struct CloudAgentCredentialRefresherTests {
         #expect(credentials.connectionChoice(chat: "tab-1", machine: "m1") == nil)
     }
 
+    /// A move to Cloud carries a saved Claude setup token under the name every guest's move finish
+    /// accepts. A guest on the merged base refuses `ANTHROPIC_AUTH_TOKEN` at Finish, after the chat froze.
+    @Test func aMoveCarriesTheSetupTokenUnderTheNameEveryGuestAccepts() async throws {
+        let credentials = CloudAgentCredentials { _ in
+            Data(#"{"family":"claude","kind":"claude-token","env":{"ANTHROPIC_AUTH_TOKEN":"sk-ant-oat-fixture"},"credential_instance":"c0ffee00-0000-4000-8000-000000000001"}"#.utf8)
+        }
+        credentials.use(choice: .connection(id: "claude-token", family: "claude"), chat: "tab-1", machine: "m1")
+        let moved = try #require(try await credentials.moveCredential(vmKind: "owner", chat: "tab-1", machine: "m1", harness: "claude"))
+        #expect(moved.env == ["CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat-fixture"])
+        #expect(moved.connectionID == "claude-token" && moved.family == "claude" && moved.kind == "claude-token")
+        #expect(!String(describing: moved).contains("sk-ant"))
+    }
+
     @Test func aChosenConnectionThatCannotBeReadRefusesTheStart() async {
         let credentials = CloudAgentCredentials { _ in Data(#"{"error":"nope"}"#.utf8) }
         credentials.use(choice: .connection(id: "gone", family: "claude"), chat: "tab", machine: "m")

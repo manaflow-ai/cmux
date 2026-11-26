@@ -416,6 +416,15 @@ public final class CloudAgentCredentials {
         guard credential.kind != "api-key", credential.endpoint == nil else {
             throw Failure.unavailable(connection: credential.connectionID)
         }
+        // A move carries no binding and is never redelivered under another name, so it uses the setup
+        // token's legacy name, which every guest's move finish accepts (a guest on the merged base only
+        // accepts `CLAUDE_CODE_OAUTH_TOKEN`).
+        if credential.env.count == 1, let token = credential.env["ANTHROPIC_AUTH_TOKEN"], token.hasPrefix("sk-ant-oat") {
+            return CloudAgentCredential(connectionID: credential.connectionID, family: credential.family, kind: credential.kind,
+                                        env: ["CLAUDE_CODE_OAUTH_TOKEN": token], expiresAt: credential.expiresAt,
+                                        harness: credential.harness, model: credential.model, endpoint: nil,
+                                        instance: credential.instance)
+        }
         return credential
     }
 
