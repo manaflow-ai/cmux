@@ -8,8 +8,10 @@ from functools import lru_cache
 import importlib.util
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
+import tomllib
 
 
 @dataclass(frozen=True)
@@ -23,6 +25,8 @@ class WebSubareas:
     unit_tests: bool
     # The real-daemon lane need not run for unrelated standalone test edits.
     agent_pane: bool = False
+    # chat-flow-shift-budget: the agent pane's inputs but acpmux's (it runs on the stand-in daemon, no Rust build).
+    chat_flow: bool = False
 
     @classmethod
     def all(cls) -> "WebSubareas":
@@ -35,6 +39,7 @@ class WebSubareas:
             typecheck=True,
             unit_tests=True,
             agent_pane=True,
+            chat_flow=True,
         )
 
     def emit(self, output: Path) -> None:
@@ -232,123 +237,114 @@ REACT_PREFIXES = (
 # runtime/build inputs and support helpers; only unrelated standalone test files
 # can be excluded without losing shared or dynamically loaded dependencies.
 AGENT_PANE_EXACT = {
-    "cmux-tui/Cargo.toml",
-    "cmux-tui/Cargo.lock",
-    "cmux-tui/rust-toolchain.toml",
-    "ghostty-next",
-    "workers/cmux-vm/cli/crates/cmux-vm-codegen/src/normalize.rs",
-    "plans/cmux-next/spec-proposals/visuals/design-tokens.json",
-    "docs/remote-agents-and-cloud.md",
     "webviews/test/agent-pane-new-chat-settles.test.ts",
     "webviews/test/agent-pane-picks-hold.test.ts",
     "webviews/test/chat-flow-shift-budget-browser.test.ts",
 }
+CHAT_FLOW_PREFIXES = (
+    ".github/actions/playwright-apt-cache/",
+    "scripts/ci/playwright-apt-deps.sh",
+)
+# A cmux-tui/ path routes the real-daemon lane through acpmux_build_input (below), not by prefix.
 AGENT_PANE_PREFIXES = (
-    # What `cargo build -p acpmux --bin acpmux` reads (the same set as ci/steps.toml's agent-pane-real-acpmux inputs).
-    "cmux-tui/crates/acpmux/",
-    "cmux-tui/crates/acpmux-book/",
-    "cmux-tui/crates/acpmux-build-id/",
-    "cmux-tui/crates/acpmux-client/",
-    "cmux-tui/crates/acpmux-core/",
-    "cmux-tui/crates/acpmux-hot/",
-    "cmux-tui/crates/acpmux-list-types/",
-    "cmux-tui/crates/cmux-action-catalog/",
-    "cmux-tui/crates/cmux-agent-customize/",
-    "cmux-tui/crates/cmux-agent-pane-policy/",
-    "cmux-tui/crates/cmux-app-host/",
-    "cmux-tui/crates/cmux-apps/",
-    "cmux-tui/crates/cmux-auto-session/",
-    "cmux-tui/crates/cmux-bounded/",
-    "cmux-tui/crates/cmux-braid-path/",
-    "cmux-tui/crates/cmux-braid-session/",
-    "cmux-tui/crates/cmux-build-space/",
-    "cmux-tui/crates/cmux-chat-index/",
-    "cmux-tui/crates/cmux-cloud-api/",
-    "cmux-tui/crates/cmux-cloud-client/",
-    "cmux-tui/crates/cmux-cloud-disk/",
-    "cmux-tui/crates/cmux-cloud-environment/",
-    "cmux-tui/crates/cmux-cloud-machine/",
-    "cmux-tui/crates/cmux-cloud-start-core/",
-    "cmux-tui/crates/cmux-cloud-wire/",
-    "cmux-tui/crates/cmux-coderouter/",
-    "cmux-tui/crates/cmux-command-class/",
-    "cmux-tui/crates/cmux-computer-use/",
-    "cmux-tui/crates/cmux-config/",
-    "cmux-tui/crates/cmux-deadline/",
-    "cmux-tui/crates/cmux-device-kind/",
-    "cmux-tui/crates/cmux-egress/",
-    "cmux-tui/crates/cmux-embed/",
-    "cmux-tui/crates/cmux-embed-macros/",
-    "cmux-tui/crates/cmux-felt/",
-    "cmux-tui/crates/cmux-file-lock/",
-    "cmux-tui/crates/cmux-flow-trace/",
-    "cmux-tui/crates/cmux-forum-hosted/",
-    "cmux-tui/crates/cmux-git/",
-    "cmux-tui/crates/cmux-git-cache/",
-    "cmux-tui/crates/cmux-host/",
-    "cmux-tui/crates/cmux-host-budget/",
-    "cmux-tui/crates/cmux-hub-host/",
-    "cmux-tui/crates/cmux-image-linear/",
-    "cmux-tui/crates/cmux-journal/",
-    "cmux-tui/crates/cmux-json/",
-    "cmux-tui/crates/cmux-layout-reducer/",
-    "cmux-tui/crates/cmux-lifeline/",
-    "cmux-tui/crates/cmux-link/",
-    "cmux-tui/crates/cmux-local-auth/",
-    "cmux-tui/crates/cmux-local-url/",
-    "cmux-tui/crates/cmux-mcp-connect/",
-    "cmux-tui/crates/cmux-netwatch/",
-    "cmux-tui/crates/cmux-palette-ranker/",
-    "cmux-tui/crates/cmux-panic-log/",
-    "cmux-tui/crates/cmux-process/",
-    "cmux-tui/crates/cmux-pty/",
-    "cmux-tui/crates/cmux-remote/",
-    "cmux-tui/crates/cmux-remote-protocol/",
-    "cmux-tui/crates/cmux-scope/",
-    "cmux-tui/crates/cmux-server/",
-    "cmux-tui/crates/cmux-server-core/",
-    "cmux-tui/crates/cmux-session-cloud/",
-    "cmux-tui/crates/cmux-session-pack/",
-    "cmux-tui/crates/cmux-share-approval/",
-    "cmux-tui/crates/cmux-signed-bundle/",
-    "cmux-tui/crates/cmux-signed-envelope/",
-    "cmux-tui/crates/cmux-stack-auth/",
-    "cmux-tui/crates/cmux-supervise-core/",
-    "cmux-tui/crates/cmux-sync/",
-    "cmux-tui/crates/cmux-tag-cache/",
-    "cmux-tui/crates/cmux-tailnet/",
-    "cmux-tui/crates/cmux-tailnet-front/",
-    "cmux-tui/crates/cmux-tailnet-join/",
-    "cmux-tui/crates/cmux-tailnet-local/",
-    "cmux-tui/crates/cmux-terminal-host-protocol/",
-    "cmux-tui/crates/cmux-theme-tokens/",
-    "cmux-tui/crates/cmux-transport/",
-    "cmux-tui/crates/cmux-tui-hooks/",
-    "cmux-tui/crates/cmux-tui-platform/",
-    "cmux-tui/crates/cmux-tui-util/",
-    "cmux-tui/crates/cmux-unix-socket/",
-    "cmux-tui/crates/cmux-usage-patterns/",
-    "cmux-tui/crates/cmux-usage-share/",
-    "cmux-tui/crates/cmux-vault-egress/",
-    "cmux-tui/crates/cmux-wg/",
-    "cmux-tui/crates/cmux-worktree-care/",
-    "cmux-tui/crates/ghostty-vt/",
-    "cmux-tui/crates/ghostty-vt-sys/",
-    "cmux-tui/bindings/rust/",
-    "cmux-tui/crates/cmux-browser-host/js/",
-    "cmux-tui/crates/cmux-rd-host/systemd/",
-    "cmux-tui/vendor/",
-    "cmux-tui/build-support/",
-    "cmux-tui/spec/",
+    ".github/actions/setup-cmux-tui-rust/",
+    # Inputs of `cargo build -p acpmux --bin acpmux` outside cmux-tui/ (the same set as ci/steps.toml's
+    # agent-pane-real-acpmux inputs): the real-daemon lane only, the chat-flow lane builds no Rust.
     ".cargo/",
     "skills/",
     "persisted-formats/",
     "Resources/sidebar-looks/",
     "Resources/theme-files/",
-    ".github/actions/setup-cmux-tui-rust/",
-    ".github/actions/playwright-apt-cache/",
-    "scripts/ci/playwright-apt-deps.sh",
+    *CHAT_FLOW_PREFIXES,
 )
+ACPMUX_BUILD_EXACT = {
+    "ghostty-next",
+    "workers/cmux-vm/cli/crates/cmux-vm-codegen/src/normalize.rs",
+    "plans/cmux-next/spec-proposals/visuals/design-tokens.json",
+    "docs/remote-agents-and-cloud.md",
+}
+
+# agent-pane-real-acpmux builds one Rust binary, `cargo build -p acpmux --bin acpmux`: of cmux-tui/crates/, only
+# the crates in its build (its [dependencies] and [build-dependencies] by path, transitively) and the crates their
+# sources include files from (`include_str!("../../cmux-browser-host/js/guide.md")`, a build script's
+# rerun-if-changed) are its inputs. Every other cmux-tui/ path (the workspace manifest and lockfile, vendor/,
+# bindings/, a crate not in the tree yet) still routes it. Before this, every cmux-tui/ change ran the real-daemon
+# lane: about one feat-cmux-next pull request in five changed only crates acpmux does not build (2026-11-26, the
+# last 400 merges: 182 routed the web-browser job, 142 needed it).
+ACPMUX_CRATE = "acpmux"
+_INCLUDED_FILE = re.compile(
+    r'include(?:_str|_bytes)?!\s*\(\s*(?:concat!\s*\(\s*env!\s*\(\s*"CARGO_MANIFEST_DIR"\s*\)\s*,\s*)?"([^"]*\.\./[^"]*)"'
+)
+_RERUN_IF_CHANGED = re.compile(r'rerun-if-changed=([^"\s]*\.\./[^"\s]*)')
+
+
+def _path_dependencies(manifest: dict, workspace_deps: dict):
+    """(path, from_workspace) for each path dependency of a crate's manifest that its build compiles."""
+    tables = [manifest.get("dependencies", {}), manifest.get("build-dependencies", {})]
+    for target in manifest.get("target", {}).values():
+        tables += [target.get("dependencies", {}), target.get("build-dependencies", {})]
+    for table in tables:
+        for name, spec in table.items():
+            if not isinstance(spec, dict):
+                continue
+            if "path" in spec:
+                yield spec["path"], False
+            elif spec.get("workspace"):
+                shared = workspace_deps.get(spec.get("package", name), workspace_deps.get(name))
+                if isinstance(shared, dict) and "path" in shared:
+                    yield shared["path"], True
+
+
+@lru_cache(maxsize=None)
+def acpmux_build_crates(root: str) -> frozenset[str] | None:
+    """The cmux-tui/crates/ directories acpmux's build reads, for the tree at `root`; None when they cannot be read
+    (then every cmux-tui/ path routes the lane)."""
+    tui = Path(root) / "cmux-tui"
+    crates = (tui / "crates").resolve()
+    try:
+        workspace_deps = tomllib.loads((tui / "Cargo.toml").read_text(encoding="utf-8")).get("workspace", {}).get(
+            "dependencies", {})
+        built: set[Path] = set()
+        todo = [crates / ACPMUX_CRATE]
+        while todo:
+            crate = todo.pop().resolve()
+            if crate in built:
+                continue
+            built.add(crate)
+            manifest = tomllib.loads((crate / "Cargo.toml").read_text(encoding="utf-8"))
+            for dep, from_workspace in _path_dependencies(manifest, workspace_deps):
+                todo.append((tui if from_workspace else crate) / dep)
+    except (OSError, UnicodeError, ValueError):
+        return None
+    read = {crate.name for crate in built if crate.parent == crates}
+    for crate in built:
+        sources = list((crate / "src").rglob("*.rs")) + [crate / "build.rs"]
+        for source in sources:
+            try:
+                text = source.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            for match in [*_INCLUDED_FILE.finditer(text), *_RERUN_IF_CHANGED.finditer(text)]:
+                # include_str! is relative to the file, concat!(env!("CARGO_MANIFEST_DIR"), ..) and a build
+                # script's paths to the crate: either may land in another crate.
+                for base in (source.parent, crate):
+                    target = (base / match.group(1)).resolve()
+                    if crates in target.parents:
+                        name = target.relative_to(crates).parts[0]
+                        if (crates / name / "Cargo.toml").is_file():
+                            read.add(name)
+    return frozenset(read)
+
+
+def acpmux_build_input(path: str, root: Path) -> bool:
+    """Whether a cmux-tui/ path is an input of the acpmux daemon agent-pane-real-acpmux builds."""
+    if not path.startswith("cmux-tui/"):
+        return False
+    parts = path.split("/")
+    if len(parts) < 4 or parts[1] != "crates":
+        return True
+    built = acpmux_build_crates(str(root.resolve()))
+    return built is None or parts[2] in built or not (root / "cmux-tui" / "crates" / parts[2]).is_dir()
 
 # Every other input of the web bundles (the settings schema, the What's New
 # highlights, the model catalog, the string catalogs the pages read...) runs
@@ -388,10 +384,12 @@ def classify_paths(paths: list[str], repo_root: Path | None = None) -> WebSubare
     typecheck = False
     unit_tests = False
     agent_pane = False
+    chat_flow = False
 
     for path in paths:
         if path in ALL_SUBAREA_INPUTS:
             db = diff_sidecar = instant = production_build = react_apps = typecheck = unit_tests = agent_pane = True
+            chat_flow = True
             continue
 
         if path in DB_EXACT or path.startswith(DB_PREFIXES) or test_path_requires_db(path, root):
@@ -419,7 +417,7 @@ def classify_paths(paths: list[str], repo_root: Path | None = None) -> WebSubare
             react_apps = True
             standalone_test = path.startswith("webviews/test/") and path.endswith((".test.ts", ".test.tsx"))
             if not standalone_test or path in AGENT_PANE_EXACT or path.startswith("webviews/test/support/"):
-                agent_pane = True
+                agent_pane = chat_flow = True
 
         if path in TYPECHECK_EXACT or (
             path.startswith("web/")
@@ -427,7 +425,9 @@ def classify_paths(paths: list[str], repo_root: Path | None = None) -> WebSubare
         ):
             typecheck = True
 
-        if path in AGENT_PANE_EXACT or path.startswith(AGENT_PANE_PREFIXES):
+        if path in AGENT_PANE_EXACT or path.startswith(CHAT_FLOW_PREFIXES):
+            agent_pane = chat_flow = True
+        if path in ACPMUX_BUILD_EXACT or path.startswith(AGENT_PANE_PREFIXES) or acpmux_build_input(path, root):
             agent_pane = True
 
         if path in UNIT_TESTS_EXACT or (
@@ -444,6 +444,7 @@ def classify_paths(paths: list[str], repo_root: Path | None = None) -> WebSubare
         typecheck=typecheck,
         unit_tests=unit_tests,
         agent_pane=agent_pane,
+        chat_flow=chat_flow,
     )
 
 
