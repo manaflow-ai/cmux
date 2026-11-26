@@ -21,7 +21,7 @@ import {
 import { useSyncExternalStore } from "react";
 import { configureSenderIconLook } from "./subagents/senderIconLook";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, type HarnessPlacement } from "../../ui/harnessPlacement";
-import { isArm, experimentArm } from "../../experiments/experiment";
+import { experimentArm, isArm } from "../../experiments/experiment";
 import { readingLook, readingLookValues } from "./readingLook.experiment";
 import {
   HIGH_CONTRAST_CHAT_VARIABLES,
@@ -221,9 +221,12 @@ export const MODEL_CHIP_ICON_KEY = "agentPane.display.modelChipIcon";
 /// Settings > Agent Chat > Queue Prompts During a Turn (queueing.ts), on unless set false; a queued
 /// row's menu and the composer's button row write it. Not part of ChatDisplay.
 export const QUEUEING_KEY = "agentPane.display.queueing";
+/// The model picker's harness tab order (modelPickerOrder.ts): a drag on the picker's rail writes it.
+/// Not part of ChatDisplay.
+export const MODEL_PICKER_ORDER_KEY = "agentPane.display.modelPickerOrder";
 /// The viewer's picks the page makes and the host keeps (`pane.setDisplay`): the modules that own
 /// them read them with `pickedDisplayValue` and follow `subscribeChatDisplay`.
-const PICKED_KEYS = [MODEL_CHIP_ICON_KEY, QUEUEING_KEY] as const;
+const PICKED_KEYS = [MODEL_CHIP_ICON_KEY, QUEUEING_KEY, MODEL_PICKER_ORDER_KEY] as const;
 
 /// A font pack's families (a community typography theme from the app store; Swift
 /// AgentPaneDisplaySetting sends them with the chat's keys): a CSS family or comma stack without
@@ -497,12 +500,29 @@ export function chatMetrics(display: ChatDisplay, density: number = densityTextS
   };
 }
 
+/// The code block size and line the chat sets (`--cv-codeblock-size`, `--cv-codeblock-line-height`), or null where it
+/// sets none and code keeps the page's (`--cmux-diff-font-size`, `--cmux-diff-line-height`): at the default text size
+/// and code scale. The diff card's rows (conversation/editDiffBox.ts) are drawn and estimated with it.
+export function chatCodeBlock(
+  display: ChatDisplay = current,
+  density: number = densityTextScale,
+): { size: number; line: number } | null {
+  if (
+    drawnFontSize(display, density) === DEFAULT_CHAT_DISPLAY.fontSize &&
+    display.codeScale === DEFAULT_CHAT_DISPLAY.codeScale
+  )
+    return null;
+  const metrics = chatMetrics(display, density);
+  return { size: metrics.blockCodeSize, line: metrics.codeLineHeight };
+}
+
 /// The CSS variables for `display`; a null value removes the variable (the stylesheet's default).
 export function chatDisplayVariables(
   display: ChatDisplay,
   density: number = densityTextScale,
 ): Record<string, string | null> {
   const metrics = chatMetrics(display, density);
+  const code = chatCodeBlock(display, density);
   const fontSize = drawnFontSize(display, density);
   const isDefault = (key: keyof ChatDisplay) =>
     key === "fontSize" ? fontSize === DEFAULT_CHAT_DISPLAY.fontSize : display[key] === DEFAULT_CHAT_DISPLAY[key];
@@ -539,9 +559,8 @@ export function chatDisplayVariables(
         : `${round(display.fontSize * display.lineHeight)}px`,
     "--cv-line-height": isDefault("fontSize") && isDefault("lineHeight") ? null : `${metrics.lineHeight}px`,
     "--cv-code-size": isDefault("fontSize") && isDefault("codeScale") ? null : `${metrics.inlineCodeSize}px`,
-    "--cv-codeblock-size": isDefault("fontSize") && isDefault("codeScale") ? null : `${metrics.blockCodeSize}px`,
-    "--cv-codeblock-line-height":
-      isDefault("fontSize") && isDefault("codeScale") ? null : `${metrics.codeLineHeight}px`,
+    "--cv-codeblock-size": code ? `${code.size}px` : null,
+    "--cv-codeblock-line-height": code ? `${code.line}px` : null,
     "--cv-mono": codeFont,
     // The stylesheet's default is the default width's column, so only another width or Full Width
     // sets it; chatWidth.ts displayColumn mirrors both for the row estimator.
