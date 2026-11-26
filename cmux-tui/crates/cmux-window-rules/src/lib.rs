@@ -47,6 +47,11 @@
 //!   reads (which panes ring, what a look or Dismiss Highlight reads, the
 //!   turn-end burst, where an arriving notification goes, a banner reply's
 //!   guard, a workspace mark's resend).
+//! - [`notification_notices`]: the notices beside a tab's notification: a
+//!   Cloud hand-off's and a sandboxed Run's banner (sound, delivery, words,
+//!   what a click opens), the Needs you banners, Mark Tab Unread's toggle,
+//!   the tab a pane shows, the entry blink, a finished `cmux status run` and
+//!   an OSC 7501 program alert.
 //! - [`launch`]: whether the launch snapshot drawn before the daemon answered
 //!   is that daemon's, or stale (the launch then goes on as a bare one), and
 //!   where the launch lands: the last workspace and tab, or Home.
@@ -90,6 +95,7 @@ pub mod launch;
 pub mod launch_recovery;
 pub mod notification_policy;
 pub mod notification_rings;
+pub mod notification_notices;
 pub mod notifications;
 pub mod onboarding;
 pub mod remote;
