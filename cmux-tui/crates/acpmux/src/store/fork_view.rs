@@ -28,7 +28,6 @@ pub const HISTORY_KINDS: &[&str] = &[
     "agent_thought_chunk",
     "tool_call",
     "tool_call_update",
-    "plan",
     "turn_started",
     "turn_result",
     "turn_end",
@@ -217,6 +216,16 @@ impl ForkView {
     /// chat goes, or before its files are read or moved as files. Nothing for a session that
     /// references none. A failure leaves the reference as it was.
     pub fn materialize(&self, id: &str) -> Result<()> {
+        // Most chats reference no history: that is read under a shared hold, so asking for one's
+        // folder does not wait for a long read of any chat to end (a move's begin waited seconds
+        // for a pack's read of a large log). No write of a reference runs under a shared hold,
+        // so a chat that names none here would name none under the exclusive one either.
+        {
+            let _reading = self.shared();
+            if self.reference(id)?.is_none() {
+                return Ok(());
+            }
+        }
         let _dropping = self.exclusive();
         self.materialize_locked(id)
     }
@@ -895,6 +904,9 @@ impl Store for ForkView {
     }
     fn on_segment_sealed(&self, hook: SealHook) {
         self.inner.on_segment_sealed(hook)
+    }
+    fn on_log_grown(&self, hook: SealHook) {
+        self.inner.on_log_grown(hook)
     }
     /// Under `dropping`, as a reservation is: one that came first is written in here (or, still
     /// being made, fails this), and one after is refused until `end_release`.

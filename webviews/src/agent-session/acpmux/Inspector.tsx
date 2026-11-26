@@ -5,7 +5,7 @@
 // A message that carries a Point at Element pick names the element on its row,
 // and Pointed shows only those rows (inspectorModel.ts pointedElements).
 import { useEffect, useRef, useState } from "react";
-import type { EventRecord } from "./direct";
+import type { EventRecord } from "./eventRecord";
 import { useT } from "./i18n";
 import type { AcpmuxSnapshot } from "./model";
 import { acpWire, type AcpWireLog, type WireEntry } from "./wire";

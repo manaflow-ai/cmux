@@ -278,6 +278,11 @@ async fn find_checkout(
         }
         let mut seen = std::collections::HashSet::new();
         for candidate in candidates {
+            // A recorded session's folder on the Desktop (or another guarded one) is not read
+            // unasked: a git run there raises a privacy prompt for a folder nobody named.
+            if crate::protected_folders::in_protected_location(&candidate) {
+                continue;
+            }
             let Ok(root) = git_root(&candidate) else { continue };
             if !seen.insert(root.clone()) {
                 continue;

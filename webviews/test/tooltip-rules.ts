@@ -16,8 +16,10 @@ export const SRC = path.resolve(import.meta.dir, "../src");
 const ALLOW = /tooltip-allow:\s*\S/;
 /** An expression child named like an icon draws no text. */
 const ICON = /icon|glyph|svg|mark|spinner|avatar|dot|image|img/i;
-/** A label only screen readers read. */
-const HIDDEN = /hidden-label|visually-hidden|sr-only/;
+/** A label only screen readers read, or a fit card's button words (cardFit.css `cv-fit-label`): cut to
+ *  its icon in a narrow card, where the page tooltip (ui/titleTooltips.ts) shows the `title` only
+ *  while those words are cut. */
+const HIDDEN = /hidden-label|visually-hidden|sr-only|cv-fit-label/;
 /** The page's developer tools, not the app's. */
 const TOOLS = new Set(["gallery", "optchat-inspector"]);
 /** A component's props that hold the text it draws. */

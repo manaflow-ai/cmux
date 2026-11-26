@@ -10,7 +10,9 @@ import CmuxNextCompat
 ///
 /// The popup is a ``NativePopupPanel`` under a ``NativePopupHost`` (placement, the one-frame open and
 /// the fade on close, the dismiss rules) with ``Glass/makeMenuPanel(content:cornerRadius:interactive:)``
-/// as its card. Rows are ``PopupRowView``s on the menu grid (``MenuMetrics``). The pointer and the
+/// as its card, at ``GlassMenuMaterial/menuCornerRadius`` around a hover pill of the surface radius: the Codex and
+/// ChatGPT menus' look (Lawrence 2026-11-23: "we need better menu design. potentially let's just match these
+/// screenshots"), with plain icons in the secondary ink. Rows are ``PopupRowView``s on the menu grid (``MenuMetrics``). The pointer and the
 /// keys share one highlight: Up and Down move it, Right or Return opens a submenu beside its row, Left
 /// closes one layer, Escape closes the menu, Return or a click runs the row. A row runs after the menu
 /// has closed, on the next turn of the run loop, as a chosen `NSMenuItem` does.
@@ -24,7 +26,9 @@ public final class GlassMenu {
     let panel = NativePopupPanel(identifier: "cmux.glass-menu")
     let host: NativePopupHost
     let list = GlassMenuListView()
-    private let surface: OverlaySurfaceView
+    let surface: OverlaySurfaceView
+    /// The theme file's fill and rim over the glass (``MenuLook``); nil while the look sets neither.
+    var lookView: GlassMenuLookView?
     private weak var parentMenu: GlassMenu?
     /// The submenu open beside this menu, else nil.
     private(set) var child: GlassMenu?
@@ -41,7 +45,8 @@ public final class GlassMenu {
         host = NativePopupHost(panel: panel)
         surface = Glass.makeMenuPanel(content: list)
         surface.samplesBehindWindow = true
-        panel.adoptPopupStyle(card: surface)
+        // The rounder card, and its shadow, at the menu radius (the host gives a card the popup radius).
+        panel.adoptPopupStyle(card: surface).cornerRadius = GlassMenuMaterial.menuCornerRadius
         panel.setAccessibilityRole(.menu)
         host.onDismiss = { [weak self] in self?.finish(runs: nil) }
         // A click in a submenu, or in the menu a submenu opened from, is inside the menu.
@@ -95,6 +100,7 @@ public final class GlassMenu {
         guard rows.contains(where: { $0.item != nil }) else { return false }
         self.scope = scope
         scope.adopt(panel)
+        applyLook(DesignSettings.shared.menuLook)
         list.load(rows)
         let size = list.fittingMenuSize()
         guard host.show(size: size, anchor: anchor, in: window, preferred: preferred, trailing: trailing, makeKey: makeKey,
@@ -279,7 +285,7 @@ public final class GlassMenu {
         let next = GlassMenu(menu: submenu)
         next.parentMenu = self
         child = next
-        let rect = panel.convertToScreen(view.convert(view.bounds, to: nil))
+        let rect = submenuAnchor(row: panel.convertToScreen(view.convert(view.bounds, to: nil)))
         guard next.present(at: rect, in: window, preferred: .below, sideBySide: true, makeKey: fromKeyboard, scope: scope) else {
             child = nil
             return

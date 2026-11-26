@@ -216,6 +216,24 @@ class TeamSignedWorkflow(unittest.TestCase):
         self.assertIn("screen_sharing_helper_release.py objects", publish)
         self.assertEqual(self.jobs["publish-helper"]["needs"], ["plan", "sign-helper"])
 
+    def test_the_plan_checks_the_commit_from_git_not_the_api(self):
+        # Runs 45646188220 and 45645935931 (2026-11-25) failed at "Check the commit": the REST compare
+        # call was refused for the installation's rate limit past a 5-minute wait, so the helper was never
+        # signed and the Mac live file of 965f1485 went out with no screen_sharing_helper. The plan reads
+        # feat-cmux-next's history with git and makes no GitHub API call at all.
+        steps = self.jobs["plan"]["steps"]
+        names = [step.get("name") for step in steps]
+        check = steps[names.index("Check the commit")]
+        self.assertIn("git -C onbranch fetch", check["run"])
+        self.assertIn("refs/heads/feat-cmux-next", check["run"])
+        self.assertIn('grep -qx "$COMMIT"', check["run"])
+        self.assertNotIn("GH_TOKEN", check.get("env", {}))
+        # A failed fetch is named as one, never read as "not on feat-cmux-next".
+        self.assertIn("could not read feat-cmux-next's history", check["run"])
+        for step in steps:
+            self.assertNotRegex(step.get("run", ""), r"\bgh (api|run|workflow)\b", step.get("name"))
+            self.assertNotIn("GH_TOKEN", step.get("env", {}), step.get("name"))
+
     def test_it_never_writes_the_ad_hoc_tree(self):
         run = "\n".join(step.get("run", "") for step in self.jobs["publish"]["steps"])
         self.assertIn("--write-once", run)

@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileDesign
 import UIKit
 
 /// Holding on transcript text selects the word under the finger in place, with the system's
@@ -176,7 +177,7 @@ final class ChatInlineSelectionDriver {
         selection = view
         Self.live = view
         onChange?(view)
-        UISelectionFeedbackGenerator().selectionChanged()
+        CmuxMobileHaptics().selectionChanged()
         return true
     }
 

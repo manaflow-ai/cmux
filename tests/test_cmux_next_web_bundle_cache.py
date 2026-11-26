@@ -11,6 +11,7 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
+SIZE_WORKFLOW = ROOT / ".github/workflows/cmux-next-size-budget.yml"
 WEB_CACHE_KEY = "cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}"
 CONSUMERS = ("swift-test", "daemon-test", "generated-files")
 
@@ -78,7 +79,33 @@ def main() -> None:
         assert order == sorted(order), f"{job_name}: web-bundle steps out of order"
 
     check_dev_release_compile(workflow)
+    check_size_budget_head_cache()
     print("cmux-next web-bundle cache workflow contract passed")
+
+
+def check_size_budget_head_cache() -> None:
+    """The size-budget head measurement reuses the producer's exact source key."""
+    workflow = SIZE_WORKFLOW.read_text(encoding="utf-8")
+    job = job_block(workflow, "web-head")
+    source_key = step_block(job, "Source key of the web bundles")
+    r2 = step_block(job, "Restore the published web bundles")
+    cache = step_block(job, "Restore the web bundles from the source-keyed cache")
+    setup_bun = step_block(job, "Setup Bun")
+    setup_node = step_block(job, "Setup Node")
+    measure = step_block(job, "Build and measure")
+
+    assert "web-bundle-key.py . --source" in source_key
+    assert cache_value(r2, "key") == WEB_CACHE_KEY
+    assert cache_value(cache, "key") == WEB_CACHE_KEY
+    assert cache_value(cache, "enableCrossOsArchive") == "true"
+    assert "steps.web-bundle-r2.outputs.cache-hit != 'true'" in step_if(cache)
+    miss = "steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'"
+    assert miss in step_if(setup_bun)
+    assert miss in step_if(setup_node)
+    assert 'WEB_BUNDLE_HIT' in measure
+    assert 'if [[ "$WEB_BUNDLE_HIT" != true ]]; then' in measure
+    order = [job.index(step) for step in (source_key, r2, cache, setup_bun, setup_node, measure)]
+    assert order == sorted(order), "web-head cache steps out of order"
 
 
 def check_dev_release_compile(workflow: str) -> None:

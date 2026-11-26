@@ -66,6 +66,21 @@ class DecideTests(unittest.TestCase):
         self.assertEqual(guard.decide(["apple-high"], ["stranger"], MACHINES, 600), (None, None))
         self.assertEqual(guard.decide(["apple-high"], ["stranger"], None, 3600), (None, None))
 
+    def test_fleet_console_step_allowed_when_active(self):
+        # The worker's own console hygiene posts input just before a gui-session step.
+        self.assertEqual(guard.decide(["apple-high"], ["stranger"], None, 1, fleet_console=True), (None, None))
+        self.assertEqual(guard.decide(["apple-high"], ["stranger"], None, None, fleet_console=True), (None, None))
+
+    def test_fleet_console_step_never_overrides_persons_role(self):
+        self.assertEqual(guard.decide(["apple-high"], ["owner-laptop"], MACHINES, 0, fleet_console=True)[0],
+                         "apple-high")
+
+    def test_fleet_console_step_needs_both_worker_envs(self):
+        self.assertTrue(guard.fleet_console_step({"CMUX_CI_CONSOLE_SESSION": "1", "CMUX_CI_STEP_KEY": "k"}))
+        self.assertFalse(guard.fleet_console_step({"CMUX_CI_CONSOLE_SESSION": "1"}))
+        self.assertFalse(guard.fleet_console_step({"CMUX_CI_STEP_KEY": "k"}))
+        self.assertFalse(guard.fleet_console_step({"CMUX_CI_CONSOLE_SESSION": "0", "CMUX_CI_STEP_KEY": "k"}))
+
     def test_unreadable_idle_refused(self):
         target, reason = guard.decide(["moonlight"], ["stranger"], None, None)
         self.assertEqual(target, "moonlight")

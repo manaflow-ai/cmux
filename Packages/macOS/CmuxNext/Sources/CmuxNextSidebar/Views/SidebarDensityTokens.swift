@@ -47,7 +47,10 @@ enum SidebarDensityTokens {
     static var matchesCodex: Bool { density == .compact && Metrics.tokens.id == DensityPreset.cozy.rawValue }
     /// A workspace row with one detail line: the one-line row plus that line's height, so a row's
     /// text keeps the same room above and below with one line or more (Leo 2026-10-20).
-    static var rowHeightWithSubtitle: CGFloat { rowHeight + SidebarStyle.detailLineHeight }
+    /// A look's `appearance.metrics.sidebarRowHeightWithSubtitle` (a two-line card) sets it, at least a one-line row.
+    static var rowHeightWithSubtitle: CGFloat {
+        Metrics.lookOverride(.sidebarRowHeightWithSubtitle).map { max($0, rowHeight) } ?? rowHeight + SidebarStyle.detailLineHeight
+    }
     /// A machine or section header in the list, and a band's header.
     static var headerHeight: CGFloat { Metrics.sidebarHeaderHeight + extra }
     /// Rows inset from the sidebar edge, and their content from the row edge: `SidebarRowTokens.horizontalInset`'s

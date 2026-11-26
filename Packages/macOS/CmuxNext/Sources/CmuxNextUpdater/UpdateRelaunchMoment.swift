@@ -15,9 +15,12 @@ nonisolated public struct UpdateRelaunchMoment: Equatable, Sendable {
     nonisolated public enum Interruption: String, Equatable, Sendable, CustomStringConvertible {
         case modal, sheet, menu, composing
         /// Update When Idle (`updates.installWhenIdle`, ``UpdateRelaunchMomentHold/idleGate``): input came
-        /// within the idle time, an agent turn runs, a composer holds an unsent message, or one of
-        /// those could not be read.
-        case notIdle, agentWorking, unsentDraft, unknown
+        /// within the idle time, a composer holds an unsent message, or one of those could not be
+        /// read. A running agent turn does not hold it: the turn carries across the relaunch.
+        case notIdle, unsentDraft, unknown
+        /// Update When Idle: the last automatic install was declined (the app did not quit), so the next
+        /// try waits out a backoff (cmux-window-rules `update_idle::retry_after_seconds`).
+        case backoff
 
         /// The log's words.
         public var description: String {
@@ -27,16 +30,16 @@ nonisolated public struct UpdateRelaunchMoment: Equatable, Sendable {
             case .menu: "a menu is open"
             case .composing: "text is mid-composition"
             case .notIdle: "input came within the idle time"
-            case .agentWorking: "an agent turn runs"
             case .unsentDraft: "a composer holds an unsent message"
             case .unknown: "the agents' state is unknown"
+            case .backoff: "the last automatic install was declined; backing off"
             }
         }
 
         /// Update When Idle's answer (cmux-window-rules `update_idle`'s hold reason; nil installs): a reason this
         /// build does not know, `off` included, holds as unknown.
         public static func idleHold(_ reason: String?) -> Self? {
-            reason.map { Self(rawValue: $0).flatMap { [.notIdle, .agentWorking, .unsentDraft].contains($0) ? $0 : nil } ?? .unknown }
+            reason.map { Self(rawValue: $0).flatMap { [.notIdle, .unsentDraft, .backoff].contains($0) ? $0 : nil } ?? .unknown }
         }
     }
 

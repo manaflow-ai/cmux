@@ -7,7 +7,7 @@
 # VM with stress-ng at 4x cores, and get frame_p95_ms and renderer_main_busy_pct publishing from there on every sensor
 # pass, with the [his Mac's] reading as a second series."
 #
-#   scripts/measure/replay-under-load.sh [--out FILE] [--cores N] [--seconds 60] [--rate 40] [--log FILE]
+#   scripts/measure/replay-under-load.sh [--out FILE] [--cores N] [--seconds 60] [--rate 40] [--log FILE] [--profile]
 #
 # --cores N runs the load and the replay on the first N CPUs only (taskset), so a shared VM gives up N cores, not all
 # of them; nproc inside is N and stress-ng runs 4*N workers there. Without it the whole machine is loaded: only a VM
@@ -20,13 +20,15 @@ set -uo pipefail
 root="$(git rev-parse --show-toplevel)"
 out="$root/artifacts/replay-under-load/reading.json"
 cores=""
+profile=0
 bench_args=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --out) out="$2"; shift 2 ;;
     --cores) cores="$2"; shift 2 ;;
     --seconds|--rate|--log|--warm) bench_args+=("$1" "$2"); shift 2 ;;
-    *) echo "usage: replay-under-load.sh [--out FILE] [--cores N] [--seconds 60] [--rate 40] [--log FILE]" >&2; exit 2 ;;
+    --profile) bench_args+=("$1"); profile=1; shift ;;
+    *) echo "usage: replay-under-load.sh [--out FILE] [--cores N] [--seconds 60] [--rate 40] [--log FILE] [--profile]" >&2; exit 2 ;;
   esac
 done
 if [ -n "$cores" ] && [ -z "${REPLAY_UNDER_LOAD_PINNED:-}" ]; then
@@ -52,6 +54,9 @@ stressors=$((4 * n))
 cd "$root/webviews" || exit 1
 [ -d node_modules ] || bash ../scripts/ci/bun-install.sh --frozen-lockfile >"$work/install.log" 2>&1 \
   || { tail -20 "$work/install.log" >&2; exit 1; }
+# The pages' generated/strings.json files are gitignored and written only by the install's best-effort postinstall,
+# so a kept node_modules (the timer's every run after the first) builds without them. Write them every run.
+bun scripts/pages/gen-strings.mjs >"$work/strings.log" 2>&1 || { tail -20 "$work/strings.log" >&2; exit 1; }
 
 # The load first, by PID (this script started it; cleanup stops only it), and enough of it to be running before the
 # replay's warm-up ends.
@@ -79,7 +84,11 @@ status=0
 bun bench/replay-under-load.bench.ts --out "$work/bench.json" ${bench_args[@]+"${bench_args[@]}"} >"$work/bench.log" 2>&1 || status=1
 kill "$sampler" 2>/dev/null; wait "$sampler" 2>/dev/null
 read -r load1 _ </proc/loadavg
-tail -3 "$work/bench.log"
+if [ "$profile" -eq 1 ]; then
+  cat "$work/bench.log"
+else
+  tail -3 "$work/bench.log"
+fi
 python3 -I - "$work" "$out" "$n" "$stressors" "$load1" "$status" "$(git rev-parse HEAD)" "$(hostname -s)" \
   "${REPLAY_UNDER_LOAD_PINNED:+pinned}" <<'PY'
 import datetime, json, os, sys

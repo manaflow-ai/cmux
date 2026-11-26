@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDiff
 import CmuxNextGitHubViewer
@@ -12,15 +13,12 @@ import CmuxNextSettings
 /// and CodeRouter tabs are this; a page with routes or sub-views of its own has its own provider.
 @MainActor
 final class WebPageTab: InternalPageProvider {
+    private let views: PageTabViews
     let page: InternalPageID
     let symbol: String
     let icon: IconName?
     /// Read once, when the tab registers: page titles do not change while the app runs.
     let title: String
-    private let make: (_ key: String, _ route: String?) -> NSView?
-    private var pages: [String: NSView] = [:]
-    /// What each tab of a routed page shows (its `#/...` route), so a restored or reopened tab shows it again.
-    private var routes: [String: String] = [:]
     /// A page's report of what it drew (the GitHub page's `shown`: an address, and whether it had its
     /// content), for the instant-create bench's mark.
     var onShown: ((_ url: String, _ content: Bool) -> Void)?
@@ -41,28 +39,14 @@ final class WebPageTab: InternalPageProvider {
         self.symbol = symbol
         self.icon = icon
         self.title = title
-        self.make = make
+        views = PageTabViews(make: make)
     }
 
-    func makeView(for key: String, in window: WindowController?) -> NSView {
-        guard let view = make(key, routes[key]) else { return NSView() }
-        pages[key] = view
-        return view
-    }
-
-    func route(for key: String) -> String? { routes[key] }
-    func restore(_ route: String, for key: String) { routes[key] = route }
-
-    /// Moves tab `key` to `route`: a route change in its page when it runs, else what it opens with.
-    func navigate(_ key: String, to route: String) {
-        routes[key] = route
-        (pages[key] as? PageWebView)?.open(route: route)
-    }
-
-    func tabClosed(_ key: String) {
-        (pages.removeValue(forKey: key) as? PageWebView)?.close()
-        routes[key] = nil
-    }
+    func makeView(for key: String, in window: WindowController?) -> NSView { views.view(for: key) }
+    func route(for key: String) -> String? { views.route(for: key) }
+    func restore(_ route: String, for key: String) { views.restore(route, for: key) }
+    func navigate(_ key: String, to route: String) { views.navigate(key, to: route) }
+    func tabClosed(_ key: String) { views.tabClosed(key) }
 }
 
 extension InternalPageID {
@@ -148,5 +132,29 @@ extension WebPageTab {
             return services.pages.openStoreTab(.github, in: pane, window: window, focus: placed == nil, key: key, created: created,
                                                requiresSurface: placed != nil) != nil
         }
+    }
+}
+
+extension WebPageTab {
+    /// The grant to read this terminal's transcript stays in the app. The page cannot supply a
+    /// path or grant itself another session by restoring a route sent from a daemon.
+    static func openTerminalHistory(_ source: TerminalHistorySource, in pane: PaneController) {
+        let id = InternalPageID(rawValue: "terminal-history"), pages = pane.services.pages
+        let tab: WebPageTab
+        if let registered = pages.provider(id) as? WebPageTab { tab = registered }
+        else {
+            tab = WebPageTab(id, symbol: "clock.arrow.circlepath", title: String(localized: "terminalHistory.tab", defaultValue: "Earlier history", bundle: .module.inAppLanguage)) { nil }
+            pages.register(tab)
+        }
+        if let existing = pages.tabIDs(in: pane.paneKey).first(where: { tab.route(for: $0) == source.key }) {
+            pages.reveal(existing, in: pane)
+            return
+        }
+        let key = LocalPageTab.makeKey(id), services = pane.services
+        guard tab.views.bind(source.page(environment: QuitAgents.environment(services), host: services.agentTabs.localSessionHost ?? services.agentTabs.host), to: key, route: source.key) else { return }
+        pages.open(id, in: pane.paneKey, of: pane.daemon.store, after: pane.stripModel.selectedID?.rawValue,
+                   window: services.windowController(showing: pane), key: key)
+        pane.apply(pane.snapshot())
+        pages.reveal(key, in: pane)
     }
 }

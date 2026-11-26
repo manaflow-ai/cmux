@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "teamAudit.self" : {
+      "comment" : "Agent pane: Team spend, note that the table shows only the person's own turns because they are not a team admin",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your own turns. Team admins see everyone's."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "أدوارك فقط. يرى مشرفو الفريق أدوار الجميع."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Samo vaši potezi. Administratori tima vide sve."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kun dine egne ture. Teamadministratorer ser alles."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nur Ihre eigenen Durchläufe. Team-Admins sehen alle."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solo tus turnos. Los administradores del equipo ven los de todos."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uniquement vos tours. Les administrateurs de l'équipe voient ceux de tous."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solo i tuoi turni. Gli amministratori del team vedono quelli di tutti."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自分のターンのみです。チーム管理者は全員の分を確認できます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "មានតែវេនរបស់អ្នកប៉ុណ្ណោះ។ អ្នកគ្រប់គ្រងក្រុមឃើញរបស់អ្នកទាំងអស់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "내 턴만 표시됩니다. 팀 관리자는 모두의 턴을 봅니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bare dine egne turer. Teamadministratorer ser alles."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tylko Twoje tury. Administratorzy zespołu widzą tury wszystkich."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apenas seus turnos. Administradores da equipe veem os de todos."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Только ваши ходы. Администраторы команды видят ходы всех."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เฉพาะเทิร์นของคุณ ผู้ดูแลทีมจะเห็นของทุกคน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yalnızca kendi turlarınız. Ekip yöneticileri herkesinkini görür."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Лише ваші ходи. Адміністратори команди бачать ходи всіх."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chỉ các lượt của bạn. Quản trị viên nhóm thấy của mọi người."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅显示你自己的轮次。团队管理员可以看到所有人的。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "僅顯示你自己的回合。團隊管理員可看到所有人的。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

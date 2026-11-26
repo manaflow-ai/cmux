@@ -157,6 +157,22 @@ pub(super) fn control_of(
     }
 }
 
+/// Owner control (cmux#50026): the person's own daemon on another machine asking for itself or
+/// for its own person's unix socket or app (`cancel_owner::owner`: the peer token, `Control::Peer`,
+/// no `via: web` or `via: device`). Their CLI's `acpmux session fork HOST/CHAT` and `acpmux new
+/// --machine HOST` arrive so. It forks a chat in the mode the chat has, as a fork on this machine
+/// does, and starts a chat as this machine's own (not a remote chain), in the harness and policy
+/// it names, so no one has to walk over and allow it here (Leo, 2026-11-22: "who's gonna walk
+/// over and click allow on a headless mac mini, or a remote macbook??? stop having that shit.").
+/// Anyone holding the peer token reads it from this user's own `ACPMUX_HOME` and could do the
+/// same over the unix socket. A Web client, a paired machine's own credential (`Device`, a
+/// phone, read-only) and a peer forwarding for either are not the owner: their rules stand. Nor
+/// is a control the mesh hub relayed under a grant below approve-all (`ConnAuth::MeshControl`,
+/// `meshRelay.controlFrom[].maxPolicy`): the hub's stamp is its only proof.
+pub(super) fn owner_control(origin: super::Origin, auth: super::ConnAuth, params: &Value) -> bool {
+    cancel_owner::owner(origin, auth, params)
+}
+
 /// The paired machine whose Full-access setting covers this request
 /// (`crate::pairing` module docs), or None: the connection presented that
 /// machine's own `client` or `phone` credential (`ConnAuth::Device`; never the shared
@@ -491,7 +507,10 @@ async fn check_inner(
     log_own_phone_control(hub, sender, m, params);
     // A GitHub action runs with the person's GitHub login on their Mac (`github_broker.rs`): an
     // agent session of this daemon asks over the unix socket; no page, app or peer does.
-    if m == method::MUX_GITHUB_ACTION || m == method::MUX_GITHUB_APP_LEASE {
+    if m == method::MUX_GITHUB_ACTION
+        || m == method::MUX_GITHUB_APP_LEASE
+        || m == method::MUX_GITHUB_REST
+    {
         return Err(refused(m));
     }
     // A person's name (`author.rs`) comes over the unix socket, from a peer forwarding one it took
@@ -627,6 +646,19 @@ async fn check_inner(
     }
     // A new session's folder is judged first, so one refusal names every field the caller
     // must change; nothing is made for a start the policy or mode check refuses anyway.
+    // A hub-relayed control below the owner's grant (`ConnAuth::MeshControl`): `mesh_relay.rs`
+    // held its start to the entry's `maxPolicy`, which is never approve-all on this proof.
+    if auth == super::ConnAuth::MeshControl
+        && m == method::SESSION_NEW
+        && [params.get("policy"), params.pointer("/_meta/acpmux/policy")].into_iter().any(|p| {
+            // Parsed, so an alias (`yolo`) is caught as well as `approve-all`.
+            p.and_then(Value::as_str)
+                .and_then(|s| s.parse::<crate::config::PermissionPolicy>().ok())
+                == Some(crate::config::PermissionPolicy::ApproveAll)
+        })
+    {
+        return Err(refused("an approve-all start relayed through the mesh hub"));
+    }
     let mut deferred = None;
     if web {
         let peer = control_of(origin, auth, params) == crate::hub::Control::Peer;
@@ -831,7 +863,8 @@ async fn check_inner(
     if web && !device_hub_prompt {
         let control = control_of(origin, auth, params);
         let vm_boundary = crate::hub::vm_boundary::asked(auth, control, params);
-        web_starts_asking(hub, control, vm_boundary, sender, m, params).await?;
+        let owner = owner_control(origin, auth, params);
+        web_starts_asking(hub, control, owner, vm_boundary, sender, m, params).await?;
     }
     // A chat in Full access by a machine's setting: every request that controls or changes its
     // turn and queue comes from that machine (`Hub::full_access_hold`; `device`, from
@@ -1111,9 +1144,14 @@ fn asking_policy(p: crate::config::PermissionPolicy) -> bool {
 ///   source session's effective policy skips asking or its mode is a known
 ///   permissive one: a downgrade could not reach a mode held inside the
 ///   harness, which a fork copies.
+///
+/// `owner` ([`owner_control`]): neither holds. Its new chat starts in the harness and policy it
+/// names, and its fork keeps the chat's mode.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn web_starts_asking(
     hub: &std::sync::Arc<crate::hub::Hub>,
     control: crate::hub::Control,
+    owner: bool,
     vm_boundary: bool,
     device: Option<&str>,
     m: &str,
@@ -1131,7 +1169,7 @@ pub(super) async fn web_starts_asking(
         control == crate::hub::Control::Peer,
         hub.approve_all_allowed(),
     );
-    if m == method::SESSION_NEW {
+    if m == method::SESSION_NEW && !owner {
         let meta = params.pointer("/_meta/acpmux");
         let pick = |key: &str| {
             meta.and_then(|m| m.get(key))
@@ -1185,6 +1223,7 @@ pub(super) async fn web_starts_asking(
     }
     if m == method::SESSION_NEW
         && !vm_host_peer
+        && !owner
         && params.get("policy").is_none_or(Value::is_null)
         && params.pointer("/_meta/acpmux/policy").is_none_or(Value::is_null)
     {
@@ -1356,6 +1395,10 @@ pub(super) async fn web_starts_asking(
     if web && hub.owner_phone_full_access(device) {
         return Ok(());
     }
+    // The owner's own daemon forks it as a fork on this machine does: in the mode it has.
+    if owner {
+        return Ok(());
+    }
     let default = hub.config.read().await.permission_policy;
     let policy = meta.permission_policy.as_deref().and_then(|p| p.parse().ok()).unwrap_or(default);
     if !asking_policy(policy) || !mode_asks(hub, &meta, cloud_mobile).await {
@@ -1438,7 +1481,10 @@ async fn cloud_chat_folder(name: &str) -> Result<PathBuf, RpcError> {
     )?
 }
 
-fn cloud_chat_folder_under(home: &std::path::Path, name: &str) -> Result<PathBuf, RpcError> {
+pub(crate) fn cloud_chat_folder_under(
+    home: &std::path::Path,
+    name: &str,
+) -> Result<PathBuf, RpcError> {
     let chats = home.join("chats");
     let dir = chats.join(name);
     let failed = |why: String| {
@@ -1470,6 +1516,9 @@ fn cloud_chat_folder_under(home: &std::path::Path, name: &str) -> Result<PathBuf
             Err(error) => return Err(failed(error.to_string())),
         }
     }
+    // Marked as made by acpmux for this chat, so a remote Claude session may start in it
+    // (`hub/remote_cwd.rs` `chat_folder`); a folder from before the marker gets it here too.
+    mark_made_by_acpmux(&dir).map_err(|e| failed(e.to_string()))?;
     Ok(dir)
 }
 
@@ -1600,6 +1649,9 @@ mod cloud_chat_tests {
         let dir = cloud_chat_folder_under(&home, "chat-1").unwrap();
         assert_eq!(dir, home.join("chats/chat-1"));
         assert!(dir.is_dir());
+        assert!(dir.join(crate::trust::AGENT_HOME_MARKER).is_file(), "marked as acpmux's");
+        // A retry reuses the folder and keeps its marker.
+        assert_eq!(cloud_chat_folder_under(&home, "chat-1").unwrap(), dir);
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;

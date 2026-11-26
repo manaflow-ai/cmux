@@ -102,7 +102,6 @@ test("a prompt's version arrows, Copy and Edit name themselves in a tooltip", as
     ["Next version", "Next version"],
     ["Copy", "Copy"],
     ["Edit", "Edit"],
-    ["Save as Prompt", "Save as Prompt"],
   ]);
 });
 

@@ -13,7 +13,10 @@
 //! Each line is a JSON object with these keys, plus every key in `fields`:
 //! `message`, `location` (`file:line:col`), `thread`, `at_ms`, `test`
 //! (true for a debug test panic, which the app never sends) and
-//! `backtrace` (at most [`MAX_BACKTRACE_BYTES`]). A release bundle's
+//! `backtrace` (at most [`MAX_BACKTRACE_BYTES`]) and `recent`: the process's
+//! newest flow hops before the panic, oldest first, at most [`RECENT_HOPS`]
+//! (`cmux_flow_trace::dump_recent`: hop name, flow id, terminal id, thread id
+//! and `ago_ms`, never content). A release bundle's
 //! stripped `bin/cmux` names its frames through its side symbol map
 //! ([`backtrace::force_capture`]).
 
@@ -27,6 +30,9 @@ use std::path::{Path, PathBuf};
 pub const MAX_BACKTRACE_BYTES: usize = 16 * 1024;
 /// The log stops growing at this size; the app reads it from its own offset.
 pub const MAX_LOG_BYTES: u64 = 1024 * 1024;
+
+/// Most flow hops a line carries in `recent`.
+pub const RECENT_HOPS: usize = 64;
 
 /// Fields every line carries besides the panic itself (process, pid, version).
 pub type Fields = serde_json::Map<String, serde_json::Value>;
@@ -57,9 +63,23 @@ pub fn install_with_opener(
         let location = info.location().map(ToString::to_string).unwrap_or_default();
         let backtrace = backtrace::force_capture();
         let test = is_test_thread(&thread);
-        append_opened(&opener, &record(&fields, &message, &location, &thread, test, backtrace));
+        let mut line = record(&fields, &message, &location, &thread, test, backtrace);
+        if let serde_json::Value::Object(map) = &mut line {
+            map.insert("recent".into(), recent_hops());
+        }
+        append_opened(&opener, &line);
         previous(info);
     }));
+}
+
+/// The newest flow hops of this process as a JSON array. The dump takes no lock
+/// (a hop that panicked mid-write leaves one slot skipped, never a wait).
+pub fn recent_hops() -> serde_json::Value {
+    let mut events = [cmux_flow_trace::RecentEvent::EMPTY; RECENT_HOPS];
+    let count = cmux_flow_trace::dump_recent(&mut events, None);
+    let mut text = String::new();
+    let _ = cmux_flow_trace::write_json_array(&mut text, events.get(..count).unwrap_or_default());
+    serde_json::from_str(&text).unwrap_or_else(|_| serde_json::Value::Array(Vec::new()))
 }
 
 /// One log line's JSON: `fields` plus the panic's own keys (which win).

@@ -149,8 +149,8 @@ public final class CmuxMobileHaptics: Sendable {
     public init() {}
 
     public var isEnabled: Bool {
-        if ProcessInfo.processInfo.isLowPowerModeEnabled { return false }
-        return UserDefaults.standard.object(forKey: settingKey) as? Bool ?? true
+        if CmuxMobileLowPowerMode.isOn { return false }
+        return UserDefaults.standard.object(forKey: settingKey) as? Bool ?? false
     }
 
     /// Send, submit, approve.
@@ -161,19 +161,26 @@ public final class CmuxMobileHaptics: Sendable {
     @MainActor public func copy() { impact(.light, intensity: 0.7) }
     /// Team switch, segment and picker changes, stream start.
     @MainActor public func selection() {
-        guard isEnabled else { return }
-        UISelectionFeedbackGenerator().selectionChanged()
+        selectionChanged()
     }
     @MainActor public func success() { notify(.success) }
     @MainActor public func warning() { notify(.warning) }
     @MainActor public func error() { notify(.error) }
 
-    @MainActor private func impact(_ style: UIImpactFeedbackGenerator.FeedbackStyle, intensity: CGFloat) {
+    /// Emits impact feedback when the in-app haptics setting allows it.
+    @MainActor public func impact(_ style: UIImpactFeedbackGenerator.FeedbackStyle, intensity: CGFloat = 1) {
         guard isEnabled else { return }
         UIImpactFeedbackGenerator(style: style).impactOccurred(intensity: intensity)
     }
 
-    @MainActor private func notify(_ type: UINotificationFeedbackGenerator.FeedbackType) {
+    /// Emits selection feedback when the in-app haptics setting allows it.
+    @MainActor public func selectionChanged() {
+        guard isEnabled else { return }
+        UISelectionFeedbackGenerator().selectionChanged()
+    }
+
+    /// Emits notification feedback when the in-app haptics setting allows it.
+    @MainActor public func notify(_ type: UINotificationFeedbackGenerator.FeedbackType) {
         guard isEnabled else { return }
         UINotificationFeedbackGenerator().notificationOccurred(type)
     }
@@ -217,6 +224,19 @@ extension View {
     public func cmuxMobileSensoryFeedback<T: Equatable>(_ feedback: SensoryFeedback, trigger: T) -> some View {
         sensoryFeedback(trigger: trigger) { _, _ in
             CmuxMobileTheme.standard.haptics.isEnabled ? feedback : nil
+        }
+    }
+
+    /// Plays `feedback` only when haptics are enabled and `condition` accepts
+    /// the trigger transition.
+    public func cmuxMobileSensoryFeedback<T: Equatable>(
+        _ feedback: SensoryFeedback,
+        trigger: T,
+        _ condition: @escaping (T, T) -> Bool
+    ) -> some View {
+        sensoryFeedback(trigger: trigger) { oldValue, newValue in
+            guard CmuxMobileTheme.standard.haptics.isEnabled, condition(oldValue, newValue) else { return nil }
+            return feedback
         }
     }
 

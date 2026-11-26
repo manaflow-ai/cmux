@@ -83,18 +83,13 @@ impl Mover for SessionMove {
 }
 
 /// What the timer keeps between ticks.
+#[derive(Default)]
 pub(crate) struct Evacuator {
     tracker: Tracker,
     state: Hysteresis,
     /// When each chat (by id and by name, so one brought back under a new id counts) was last
     /// moved or tried, in hub-clock ms. Entries past the cooldown are dropped each tick.
     moved: HashMap<String, u64>,
-}
-
-impl Default for Evacuator {
-    fn default() -> Self {
-        Self { tracker: Tracker::default(), state: Hysteresis::default(), moved: HashMap::new() }
-    }
 }
 
 impl Evacuator {
@@ -185,7 +180,7 @@ impl Hub {
         setting: &Setting,
         mover: &dyn Mover,
     ) {
-        let session = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&m.id).cloned();
+        let session = self.session_get(&m.id);
         let Some(session) = session else { return };
         let idle_min = m.idle_ms / 60_000;
         let back = format!("cmux move {} --from MACHINE --to here", m.name);

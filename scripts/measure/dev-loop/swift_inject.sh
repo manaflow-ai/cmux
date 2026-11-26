@@ -8,7 +8,7 @@
 # live folder, Badge.swift's body is edited, Prototypes/ViewShell/inject.sh compiles and links the
 # patch and drops it in the folder, the shell loads and interposes it and draws the badge to pixels
 # (generation-N.png, judged by its width). An FSEvents watcher (swift_inject/probe.swift `watch`)
-# runs inject.sh on each save, as a person's watcher would. inject.sh runs unchanged: its xcrun,
+# runs inject.sh on each save, as a person's watcher would. inject.sh runs unchanged: its xcrun, python3,
 # codesign and mv are timestamped by a shim on PATH (swift_inject/stamp.c), so each of its steps is
 # a boundary. Stages: fs_event, compile, link, sign, pickup (the patch renamed into the folder to the
 # shell hearing it), load (dlopen + interpose), paint (one frame), unattributed (everything else).
@@ -64,7 +64,7 @@ git -C "$root" diff --quiet -- "$badge" || die "Badge.swift has uncommitted edit
 phase="building the tools"
 target="$(uname -m)-apple-macos14.0"
 xcrun clang -O2 "$here/swift_inject/stamp.c" -o "$work/bin/stamp"
-for tool in xcrun codesign mv; do ln -s "$work/bin/stamp" "$work/shim/$tool"; done
+for tool in xcrun python3 codesign mv; do ln -s "$work/bin/stamp" "$work/shim/$tool"; done
 xcrun swiftc -O -swift-version 5 "$here/swift_inject/probe.swift" -o "$work/bin/probe" 2>&1 | tail -5
 [[ -x "$work/bin/probe" ]] || die "probe.swift did not build"
 

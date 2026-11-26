@@ -199,8 +199,37 @@ test("declined and refused messages read as one quiet line, the reason said", as
   });
   expect(mine(page.host)).toBe(
     translate("guest.prompt.declined", { text: "Skip the test" }) +
-      translate("guest.prompt.tooManyHeld", { text: "Bump the timeout" }),
+      translate("guest.prompt.tooManyHeld", { text: "Bump the timeout" }) +
+      translate("guest.prompt.tryAgain"),
   );
+  await page.unmount();
+});
+
+test("Try again on a refused message sends it again with its own client id, and the line goes back to waiting", async () => {
+  const fake = room();
+  const page = await mount(fake);
+  await fake.join();
+  await type(page.host, "Bump the timeout");
+  await enter(page.host);
+  await fake.until(() => fake.prompts().length === 1);
+  const [sent] = fake.prompts();
+  await fake.frame({
+    v: 1,
+    t: "prompt_state",
+    client_id: sent!.client_id,
+    state: "refused",
+    reason: "share.too_many_held",
+  });
+  const retry = page.host.querySelector(".guest-mine__retry") as HTMLButtonElement;
+  expect(retry.textContent).toBe(translate("guest.prompt.tryAgain"));
+  // A declined line has none: only a message the room never held may go again.
+  await act(async () => retry.click());
+  await fake.until(() => fake.prompts().length === 2);
+  expect(fake.prompts()[1]).toEqual(sent!);
+  expect(page.host.querySelector(".guest-mine__retry")).toBeNull();
+  expect(mine(page.host)).toContain(translate("guest.prompt.sending"));
+  await fake.frame({ v: 1, t: "prompt_state", client_id: sent!.client_id, state: "declined" });
+  expect(page.host.querySelector(".guest-mine__retry")).toBeNull();
   await page.unmount();
 });
 

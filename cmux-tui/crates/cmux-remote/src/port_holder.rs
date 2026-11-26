@@ -3,7 +3,7 @@
 //! (plans/cmux-next/pty-holder.md), so it names the command, not the holder.
 
 use std::io;
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 
 /// The message for a failed WebSocket bind of `address`.
 pub fn bind_failure_message(address: SocketAddr, error: &io::Error) -> String {
@@ -11,9 +11,10 @@ pub fn bind_failure_message(address: SocketAddr, error: &io::Error) -> String {
         return format!("could not bind WebSocket on {address}: {error}");
     }
     let port = address.port();
-    let host = match address.ip() {
-        IpAddr::V4(ip) => ip.to_string(),
-        IpAddr::V6(ip) => format!("[{ip}]"),
+    let host = match address {
+        SocketAddr::V4(addr) => addr.ip().to_string(),
+        SocketAddr::V6(addr) if addr.scope_id() != 0 => format!("[{}%{}]", addr.ip(), addr.scope_id()),
+        SocketAddr::V6(addr) => format!("[{}]", addr.ip()),
     };
     format!(
         "could not bind WebSocket on {address}: port {port} is already in use. \
@@ -26,6 +27,8 @@ pub fn bind_failure_message(address: SocketAddr, error: &io::Error) -> String {
 fn holder_command(port: u16) -> String {
     if cfg!(any(target_os = "linux", target_os = "android")) {
         format!("ss -ltnp 'sport = :{port}'")
+    } else if cfg!(windows) {
+        format!("Get-NetTCPConnection -State Listen -LocalPort {port} | Select-Object OwningProcess")
     } else {
         format!("netstat -anv -p tcp | grep LISTEN | grep '[.]{port} '")
     }
@@ -41,6 +44,8 @@ mod tests {
         let busy = io::Error::from(io::ErrorKind::AddrInUse);
         let lookup = if cfg!(any(target_os = "linux", target_os = "android")) {
             "ss -ltnp 'sport = :47911'"
+        } else if cfg!(windows) {
+            "Get-NetTCPConnection -State Listen -LocalPort 47911 | Select-Object OwningProcess"
         } else {
             "netstat -anv -p tcp | grep LISTEN | grep '[.]47911 '"
         };
@@ -54,6 +59,8 @@ mod tests {
         );
         let v6: SocketAddr = "[::1]:47911".parse().unwrap();
         assert!(bind_failure_message(v6, &busy).ends_with("--remote-ws [::1]:PORT"));
+        let scoped: SocketAddr = "[fe80::1%3]:47911".parse().unwrap();
+        assert!(bind_failure_message(scoped, &busy).ends_with("--remote-ws [fe80::1%3]:PORT"));
         let denied =
             bind_failure_message(address, &io::Error::from(io::ErrorKind::PermissionDenied));
         assert!(denied.starts_with("could not bind WebSocket on 127.0.0.1:47911: "), "{denied}");

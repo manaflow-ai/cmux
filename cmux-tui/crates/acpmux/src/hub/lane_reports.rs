@@ -409,6 +409,9 @@ fn state(summary: &Value) -> String {
                 format!("waiting on a question: {ask}")
             };
         }
+        Some("secret") => return "waiting on a secret".into(),
+        Some("elevation") => return "waiting on a root password".into(),
+        Some("mcp_connect") => return "waiting on an MCP server connect".into(),
         Some(_) => return "waiting on a permission".into(),
         None => {}
     }
@@ -419,6 +422,14 @@ fn state(summary: &Value) -> String {
     if last.get("status").and_then(Value::as_str) == Some("failed") {
         let error = last.get("errorText").and_then(Value::as_str).unwrap_or("the turn failed");
         let paused = if summary["queuePaused"] == true { "; its queue is paused" } else { "" };
+        // A cut turn acpmux continues by itself is paused, not blocked: its parent need not
+        // act (`pause_state.rs`).
+        if let Some(state @ super::pause_state::PauseState::Paused { .. }) =
+            super::pause_state::of_row(summary)
+        {
+            let line = super::pause_state::short_line(&state);
+            return format!("{line} ({}){paused}", short_text(error, 120));
+        }
         return format!("blocked: {}{paused}", short_text(error, 160));
     }
     if summary["queuePaused"] == true {
@@ -546,8 +557,7 @@ impl Hub {
         if parent == child || self.lane_below(parent, child) {
             return;
         }
-        let Some(s) = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(child).cloned()
-        else {
+        let Some(s) = self.session_get(child) else {
             return;
         };
         // A close sets the status before `lane_retire` takes this lock: read under it, a parent
@@ -658,6 +668,24 @@ impl Hub {
         } else {
             self.lane_turns().subagents.remove(&(session.id.clone(), turn));
         }
+        self.lane_send(&session.id);
+    }
+
+    /// `session`'s cut turn will not be continued after all (its retries ran out, or a chat past
+    /// its context window could not compact): its turn's report went out saying it was paused,
+    /// so its parent hears now that it is stranded and needs a prompt or `acpmux retry`
+    /// (`pause_state.rs`). Leo, 2026-11-24: "do they get stranded!?"
+    pub(super) fn lane_stranded(self: &Arc<Self>, session: &Arc<Session>) {
+        if !self.lane_links(|links| links.contains_key(&session.id)) {
+            return;
+        }
+        let turn = session.meta().turn_count;
+        let report = self.capture_report(session, turn, false, None);
+        self.lane_links(|links| {
+            if let Some(l) = links.get_mut(&session.id) {
+                l.ready = Some(replace_ready_seen(report, l.ready.take(), &l.prs));
+            }
+        });
         self.lane_send(&session.id);
     }
 
@@ -868,7 +896,7 @@ impl Hub {
 
     /// Whether session `id` is here and not closed.
     fn lane_open(&self, id: &str) -> bool {
-        let s = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
+        let s = self.session_get(id);
         s.is_some_and(|s| s.status() != SessionStatus::Closed)
     }
 
@@ -892,7 +920,7 @@ impl Hub {
         lane: &str,
         report: &Report,
     ) -> Result<(), RpcError> {
-        let local = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(parent).cloned();
+        let local = self.session_get(parent);
         let Some(p) = local else {
             // The parent is gone: nobody to report to.
             self.lane_links(|links| {
@@ -945,8 +973,7 @@ impl Hub {
             provenance.set(super::lane_report_subagents::FOR_SUBAGENT, sub.clone());
         }
         // The lane's id and harness, for the parent's queue list (`prompt_provenance.rs`).
-        let lane_session =
-            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(lane).cloned();
+        let lane_session = self.session_get(lane);
         let sender = lane_session
             .map(|l| crate::prompt_provenance::BoundSender::of_session(&l.id, &l.meta()));
         crate::prompt_provenance::stamp_sender(provenance, sender.as_ref())
@@ -1557,7 +1584,7 @@ mod tests {
         // The parent's close has begun (`kill` marks it closing, then closes it) but has not
         // retired its links yet: the link check passes, the parent must still refuse it.
         parent.closing.store(true, Ordering::SeqCst);
-        hub.set_status(&parent, SessionStatus::Closed);
+        hub.set_status(&parent, NotWaiting::Closed);
         hub.lane_hand_over(&lane.id, due).await;
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
         assert_eq!(parent.meta().turn_count, 0, "the closing parent took the report");

@@ -2,7 +2,7 @@
 // its own cost (a bash or python wrapper would add tens).
 //
 // Two ways to run it:
-//   - Linked as NAME (xcrun, codesign, mv) in a folder put first on PATH: runs the real
+//   - Linked as NAME (xcrun, python3, codesign, mv) in a folder put first on PATH: runs the real
 //     /usr/bin/NAME (or /bin/NAME) with the same arguments, and when DLC_STAMP_LOG is set appends
 //     "START END STATUS NAME ARGS..." (seconds since the epoch) to it. inject.sh runs unchanged.
 //   - stamp LOG LABEL CMD ARGS...: runs CMD and appends "START END STATUS LABEL" to LOG (a floor).

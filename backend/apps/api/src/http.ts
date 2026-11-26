@@ -26,6 +26,7 @@ import { HttpApiBuilder } from "effect/http-api"
 import { mintAccessToken, publicJwks, authenticateOrUnreachable } from "./auth.ts";
 import type { Env } from "./env.ts"
 import { requestEnv } from "./request-env.ts"
+import { withGitHubNext } from "./integrations/github-next.ts"
 import { isDevSpace } from "./build-space.ts"
 import type { DomainReply } from "./team-domain-external.ts"
 import type { ExternalReply } from "./connection-do.ts"
@@ -33,7 +34,7 @@ import { automationHookPath, automationHookSecret } from "./ingress/automation-h
 import { codeRefOf } from "./code-check.ts"
 import { chiefJobGate, isChiefJobCreate } from "./chief-job-gate.ts"
 import type { CodeStorageError } from "./code-storage.ts"
-import { isProvider, providers, scopesToRequest } from "./integrations/providers.ts"
+import { isProvider, ProviderError, providers, scopesToRequest } from "./integrations/providers.ts"
 import { integrationCallbackUrl, signState, verifyState, type ConnectState } from "./integrations/state.ts"
 import { configureAfterLink, githubConnectUrl, type GithubConnectTarget } from "./integrations/github-connect.ts"
 import type { ReadResult, SubmitResult } from "./owner-do.ts"
@@ -189,6 +190,27 @@ const externalOp = (principalIn: Principal, frameIn: { op: string; params: unkno
     return returnTo || configureUrl ? { ...reply, value: { ...linked, ...(returnTo ? { return_to: returnTo } : {}), ...(configureUrl ? { configure_url: configureUrl } : {}) } } : reply
   })
 
+/**
+ * integration.complete's refusal with the next step (github-next.ts): GitHub's completions only (a GitHub state, or one
+ * that would not verify, whose step is to start again). An install request (`setup_action=request`) is pending approval.
+ */
+const withGitHubNextForComplete = <R extends { ok: boolean; error?: { code: string; message: string; details?: unknown } }>(reply: R, params: unknown): R => {
+  const p = (params ?? {}) as { state?: unknown; setup_action?: unknown; installation_id?: unknown }
+  const provider = typeof p.state === "string" ? stateProviderHint(p.state) : undefined
+  if (provider !== undefined && provider !== "github") return reply
+  return withGitHubNext(reply, p.setup_action === "request" && p.installation_id === undefined)
+}
+
+/** The `provider` claim of an unverified state JWT, only to pick the words of a refusal (the state is verified before any use). */
+const stateProviderHint = (state: string): string | undefined => {
+  try {
+    const claims = JSON.parse(atob((state.split(".")[1] ?? "").replace(/-/g, "+").replace(/_/g, "/"))) as { provider?: unknown }
+    return typeof claims.provider === "string" ? claims.provider : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /** integration.connect's optional repo and return link (the op's schema already checked their shape). */
 const connectAsk = (params: unknown): { repo?: string; return_to?: string } => {
   const p = (params ?? {}) as { repo?: unknown; return_to?: unknown }
@@ -294,7 +316,8 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         }
         if (payload.op === "participant.avatar.set") return yield* Effect.tryPromise({ try: () => avatarSetRoute(requestEnv(), principal, frame), catch: unreachable }) // Participant avatars (home-avatar-routes.ts).
         // Integration ops with external effects run in the ConnectionDO's own ledger (connection-do.ts).
-        if (payload.op === "integration.complete" || providerOpNames.has(payload.op) || googleProviderOpNames.has(payload.op)) return yield* externalOp(principal, frame)
+        if (payload.op === "integration.complete") return withGitHubNextForComplete(yield* externalOp(principal, frame), payload.params)
+        if (providerOpNames.has(payload.op) || googleProviderOpNames.has(payload.op)) return yield* externalOp(principal, frame)
         // DNS checks and the domain's DomainDO run in TeamDO, outside its reducer (team-domain-external.ts).
         if (payload.op === "server.network.confirm") {
           const p = yield* principalFor("cloud:TeamDO", principal)
@@ -443,6 +466,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         }
         const { frames } = yield* submitTo(def.owner, payload.op === "user.ensure" ? personalPrincipal(submitter) : submitter, frame)
         const response = toResponse(payload.op, frames)
+        if (payload.op === "integration.connect" && !response.ok && (payload.params as { provider?: unknown } | null)?.provider === "github") return withGitHubNext(response)
         if (payload.op === "integration.connect" && response.ok) {
           const c = response.value as Connection
           const impl = providers[c.provider]
@@ -454,7 +478,9 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
             : undefined
           const state = yield* Effect.promise(() => signState(requestEnv(), { conn: c.id, team: c.owner, user: c.created_by, provider: c.provider, ...(asked.return_to ? { return_to: asked.return_to } : {}), ...(target?.kind === "installed" ? { installation: target.installation, repo: asked.repo!, configure_url: target.configure_url } : {}) }))
           const scopes = scopesToRequest(requestEnv(), impl, c.scopes_requested)
-          const authorizeUrl = target ? githubConnectUrl(requestEnv(), target, state, callbackUrl()) : yield* Effect.promise(() => Promise.resolve(impl.authorizeUrl(requestEnv(), state, scopes, callbackUrl(), c.id)))
+          // GitHub's install URL names the App's slug as GitHub answers it now (providers.ts githubAppSlug), so it is async.
+          const authorizeUrl = yield* Effect.promise(() => Promise.resolve(target ? githubConnectUrl(requestEnv(), target, state, callbackUrl()) : impl.authorizeUrl(requestEnv(), state, scopes, callbackUrl(), c.id)).catch((e: unknown) => e instanceof ProviderError ? e : Promise.reject(e)))
+          if (authorizeUrl instanceof ProviderError) return { ok: false, op: payload.op, error: { code: authorizeUrl.code, message: authorizeUrl.message, retryable: true }, transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `connections:${principal.team}`, sequence: 0 }
           return { ...response, value: { connection: c, authorize_url: authorizeUrl } }
         }
         // A revoked server also loses its install key: TeamDO pushes the revocation to the owner's UserDO now and retries until it lands.

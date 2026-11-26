@@ -1,9 +1,11 @@
 // The guest's composer and its own messages (design/chat-multiplayer.md section 3): text only, no
 // attachments, slash commands or pickers. A message waiting on the owner shows the guest's chip,
 // the text and "Waiting for <owner>"; once decided it folds to one quiet line, "Sent: …",
-// "Declined: …" or "Not sent: …", as the owner's own declined line does.
+// "Declined: …" or "Not sent: …", as the owner's own declined line does. A refused one (never held)
+// ends in a quiet Try again, which sends it again with its own id and text.
 import { type KeyboardEvent, type ReactNode, useState } from "react";
 import { type StringKey, useT } from "../acpmux/i18n";
+import type { QueuedPrompt } from "../acpmux/model";
 import { AuthorChip } from "../acpmux/multiplayer/Faces";
 import type { Participant } from "../acpmux/multiplayer/participants";
 import { type GuestPrompt, isOpen, PROMPT_MAX_BYTES, promptBytes } from "./guestPrompts";
@@ -24,10 +26,13 @@ export function GuestMessages({
   prompts,
   me,
   owner,
+  onRetry,
 }: {
   prompts: readonly GuestPrompt[];
   me: Participant;
   owner: string;
+  /** Sends a refused message again (guestPrompts.ts retry); without it a refused line has no Try again. */
+  onRetry?: (clientId: string) => void;
 }) {
   const t = useT();
   const open = prompts.filter(isOpen);
@@ -37,13 +42,20 @@ export function GuestMessages({
     <section className="guest-mine" aria-live="polite">
       {decided.map((prompt) => (
         <p key={prompt.clientId} className="guest-mine__decided" data-state={prompt.state}>
-          {t(
-            prompt.reason === "share.too_many_held"
-              ? "guest.prompt.tooManyHeld"
-              : DECIDED_TEXT[prompt.state as "approved"],
-            {
-              text: firstLine(prompt.text),
-            },
+          <span className="guest-mine__decided-text">
+            {t(
+              prompt.reason === "share.too_many_held"
+                ? "guest.prompt.tooManyHeld"
+                : DECIDED_TEXT[prompt.state as "approved"],
+              {
+                text: firstLine(prompt.text),
+              },
+            )}
+          </span>
+          {prompt.state === "refused" && onRetry && (
+            <button className="guest-mine__retry" type="button" onClick={() => onRetry(prompt.clientId)}>
+              {t("guest.prompt.tryAgain")}
+            </button>
           )}
         </p>
       ))}
@@ -56,6 +68,35 @@ export function GuestMessages({
           </span>
         </div>
       ))}
+    </section>
+  );
+}
+
+/** Whether a queue entry is a person's message that runs once the turn ends: not another agent's
+ * message or inbox notice, not a subagent retry, and not one still waiting on the owner. */
+export const runsAfterTurn = (entry: QueuedPrompt) =>
+  !entry.message && !entry.inbox && !entry.retry && !entry.awaitingOwner && entry.prompt.trim() !== "";
+
+/**
+ * The messages waiting behind the agent's running turn, as the owner's composer queue shows them:
+ * the guest sees a follow-up the moment the owner sends it, not when the turn ends and it becomes a
+ * row (Leo, 2026-11-23: "Google Docs-esque type sharing"). Read only: no edit, steer or delete.
+ */
+export function GuestQueue({ queue, owner }: { queue: readonly QueuedPrompt[]; owner?: Participant }) {
+  const t = useT();
+  if (!queue.length) return null;
+  return (
+    <section className="guest-mine guest-queue" data-testid="guest-queue" aria-live="polite">
+      {queue.map((entry) => {
+        const author = entry.author ?? owner;
+        return (
+          <div key={entry.id} className="cv-user guest-mine__held">
+            {author && <AuthorChip author={author} />}
+            <div className="ui-glass cv-user__bubble selectable">{entry.prompt}</div>
+            <span className="guest-mine__label">{t("composer.queued")}</span>
+          </div>
+        );
+      })}
     </section>
   );
 }

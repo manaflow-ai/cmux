@@ -960,6 +960,7 @@ async fn a_queued_family_prompt_marks_once_per_wait_edge() {
         admitted: false,
         after_turn: false,
         steer_on_start: false,
+        answer_due: None,
     };
     let mut accepted = |value: Value| assert_eq!(value.get("waitsForSlot"), Some(&json!(true)));
     let mut waiting = Box::pin(v1.queue_slot(&child, slot, &mut accepted));
