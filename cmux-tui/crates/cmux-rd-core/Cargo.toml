@@ -10,14 +10,12 @@ description = "cmux remote desktop engine core: FEC, packetizer, reassembly, flo
 [features]
 # The Mac app's Mac Screen rules over JSON (`rd_hub`: the device hub side).
 app = ["dep:serde", "dep:serde_json", "cmux-rd-proto/serde"]
-
-[lints]
-workspace = true
-
-[features]
 # The screen viewer core's C ABI (`screen_kit::ffi`) for the Swift apps:
 # cmux-rd-ffi turns it on for the Mac's app library, cmux-mobile-ffi for iOS's.
 c-abi = []
+
+[lints]
+workspace = true
 
 [dependencies]
 cmux-rd-proto = { path = "../cmux-rd-proto" }
