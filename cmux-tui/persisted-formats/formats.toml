@@ -151,6 +151,16 @@ name = "cmux-remote/identity#STATE_VERSION"
 policy = "unreviewed"
 
 [[format]]
+file = "crates/cmux-customize/src/library/doctor.rs"
+const = "STATE_VERSION"
+name = "doctor-state"
+about = "<state dir>/doctor.json: which doctor findings were announced and which the person dismissed"
+policy = "migrate"
+floor = 0
+fixtures = "doctor-state"
+test = "cmux_next_persisted_doctor_state"
+
+[[format]]
 file = "crates/cmux-tui-core/src/agent_hooks.rs"
 const = "AGENT_HOOK_MANIFEST_VERSION"
 name = "cmux-tui-core/agent_hooks#AGENT_HOOK_MANIFEST_VERSION"

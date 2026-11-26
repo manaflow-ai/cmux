@@ -39,6 +39,8 @@ use crate::tree::{self, SETTINGS, STYLE_SURFACES};
 use crate::{Customize, Error, validate};
 
 mod menus;
+#[cfg(test)]
+mod persisted_format_tests;
 mod recover;
 mod scan;
 mod stray;
