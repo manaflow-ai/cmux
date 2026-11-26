@@ -1010,8 +1010,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
     /// The strip's pages: the active tab's pane's tabs, then New Tab when the source can make one.
     private var stripEntries: [StripEntry] {
         guard let id = activeID else { return [] }
-        let byID = Dictionary(tabs.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        var entries = source.stripTabIDs(for: id).compactMap { byID[$0] }.map(StripEntry.tab)
+        var entries = source.stripTabs(for: id).map(StripEntry.tab)
         if !entries.contains(where: { $0.id == id }), let tab = activeTab { entries = [.tab(tab)] }
         if !source.newTabOptions.isEmpty { entries.append(.newTab) }
         return entries

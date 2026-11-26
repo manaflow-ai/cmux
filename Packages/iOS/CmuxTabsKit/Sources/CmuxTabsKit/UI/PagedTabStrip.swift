@@ -47,6 +47,9 @@ struct PagedTabStrip: View {
     @State private var dragBase: CGFloat?
     /// What the strip last did, for UI tests (its accessibility value).
     @State private var trace = ""
+    /// True while the drag gesture is live; SwiftUI resets it when the system cancels the drag (a
+    /// navigation swipe that takes the touch), which never calls `onEnded`.
+    @GestureState private var dragLive = false
     /// When the last drag ended: a chip's tap that lands with a drag's release is the drag's.
     @State private var dragEnded = Date.distantPast
     /// The row is moving (a drag, or its spring after one): every chip shows in full. At rest
@@ -84,10 +87,23 @@ struct PagedTabStrip: View {
         .onChange(of: activeID) { _, _ in if dragBase == nil { rest() } }
         .onChange(of: p) { _, _ in if dragBase == nil { rest() } }
         .onChange(of: restToken) { _, _ in withAnimation(theme.motion.resolve(theme.motion.swipe)) { rest() } }
+        .onChange(of: dragLive) { _, live in
+            // A cancelled drag leaves `dragBase` set: the row would stop following the active tab.
+            // Spring back to the active chip (and the page with it), as a short release would.
+            guard !live else { return }
+            DispatchQueue.main.async {
+                guard !dragLive, dragBase != nil else { return }
+                dragBase = nil
+                trace = "cancelled at \(Int(x)) -> \(activeIndex)"
+                go(to: activeIndex)
+            }
+        }
         .onAppear { rest() }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("tabs.strip")
-        .accessibilityValue(trace)
+        // The last drag or tap, and where the row rests: `centered` when its offset puts the active
+        // chip in the middle of the screen (UI tests read it; chip frames can trail the row on iOS 27.2).
+        .accessibilityValue("\(trace); \(abs(x - p.offset(activeIndex)) < 0.5 ? "centered" : "off") \(activeIndex)")
     }
 
     /// Puts the active chip in the middle (no animation unless the caller animates).
@@ -95,6 +111,7 @@ struct PagedTabStrip: View {
 
     private var drag: some Gesture {
         DragGesture(minimumDistance: 8, coordinateSpace: .global)
+            .updating($dragLive) { _, live, _ in live = true }
             .onChanged { v in
                 let p = paging
                 let base = dragBase ?? x
@@ -128,6 +145,13 @@ struct PagedTabStrip: View {
             withAnimation(.easeOut(duration: 0.25)) { moving = false }
         }
         onRelease(index)
+    }
+
+    /// VoiceOver's value for the chip at `index`: "Current tab", or how far left or right of it.
+    private func position(of index: Int) -> LocalizedStringKey {
+        let d = index - activeIndex
+        if d == 0 { return "Current tab" }
+        return d < 0 ? "\(abs(d)) to the left" : "\(d) to the right"
     }
 
     /// The last page a drag reaches: the last tab. The New Tab chip after it shows, and a tap
@@ -196,6 +220,10 @@ struct PagedTabStrip: View {
         .frame(maxWidth: chipMaxWidth)
         .accessibilityIdentifier(entry.id == Self.newTabID ? Self.newTabID : "tabs.strip.chip.\(entry.id)")
         .accessibilityLabel(label(entry))
+        // Where the chip sits from the current tab. It changes on every page, and that is what makes
+        // iOS 27.2 refresh each chip's accessibility frame: a chip whose attributes stayed the same kept
+        // the frame of where the row first rested, so VoiceOver (and taps by frame) hit the wrong chip.
+        .accessibilityValue(Text(position(of: index)))
         .accessibilityAddTraits(isActive ? .isSelected : [])
     }
 

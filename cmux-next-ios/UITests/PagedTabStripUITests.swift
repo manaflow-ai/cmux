@@ -87,7 +87,11 @@ final class PagedTabStripUITests: XCTestCase {
         // A tap on a neighbor chip: the strip and the page slide to it.
         let zsh = app.buttons["tabs.strip.chip.t-strip-zsh"]
         // Partly under the strip's trailing fade: tap its visible leading edge, as a person would.
-        if zsh.waitForExistence(timeout: 5) { zsh.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).tap() }
+        if zsh.waitForExistence(timeout: 5), let at = liveFrame("t-strip-zsh", active: "t-strip-greeting") {
+            // Where it is now (its own frame can trail the row on iOS 27.2), partly under the strip's
+            // trailing fade: tap its visible leading edge, as a person would.
+            app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: at.minX + at.width * 0.2, dy: at.midY)).tap()
+        }
         print("CMUX_STRIP_TAP zsh=\(zsh.frame) strip=\(strip.frame)")
         pause(1.0)
         print("CMUX_STRIP_TRACE \(strip.value as? String ?? "-")")
@@ -187,11 +191,36 @@ final class PagedTabStripUITests: XCTestCase {
         XCTAssertEqual(activeID(app), id, message)
     }
 
-    /// The active chip's center is the screen's, within a point.
+    /// The active chip is in the middle of the screen. At first rest, by its frame (within a point);
+    /// after the row moved, by the strip's own report that it rests centered on that chip: iOS 27.2
+    /// leaves the other chips' accessibility frames where the row first rested.
     private func assertCentered(_ app: XCUIApplication, _ id: String) {
         let chip = app.buttons["tabs.strip.chip.\(id)"]
         guard chip.exists else { return XCTFail("chip \(id) missing") }
-        XCTAssertEqual(chip.frame.midX, app.frame.midX, accuracy: 1, "\(id) centered: \(chip.frame)")
+        XCTAssertTrue(chip.isSelected, "\(id) is the active chip")
+        let strip = app.descendants(matching: .any)["tabs.strip"]
+        let deadline = Date().addingTimeInterval(2)
+        while !(strip.value as? String ?? "").contains("centered"), Date() < deadline { pause(0.2) }
+        let value = strip.value as? String ?? "-"
+        XCTAssertTrue(value.contains("centered"), "\(id) centered: \(value)")
+        if restFrames.isEmpty {
+            XCTAssertEqual(chip.frame.midX, app.frame.midX, accuracy: 1, "\(id) centered: \(chip.frame)")
+            for c in app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'tabs.strip.'")).allElementsBoundByIndex {
+                restFrames[c.identifier] = c.frame
+            }
+            restCenter = chip.frame.midX
+        }
+    }
+
+    /// Every chip's frame at the first rest (the first chip centered) and that chip's center.
+    private var restFrames: [String: CGRect] = [:]
+    private var restCenter: CGFloat = 0
+
+    /// Where chip `id` is on screen now, the row resting centered on `active`: the rest frames
+    /// shifted by how far `active` was from the middle.
+    private func liveFrame(_ id: String, active: String) -> CGRect? {
+        guard let f = restFrames["tabs.strip.chip.\(id)"], let a = restFrames["tabs.strip.chip.\(active)"] else { return nil }
+        return f.offsetBy(dx: restCenter - a.midX, dy: 0)
     }
 
     /// Every chip's frame, for the report's measurements.

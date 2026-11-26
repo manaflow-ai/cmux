@@ -145,8 +145,9 @@ public protocol TabsDataSource: AnyObject, Observable {
     /// The toast was tapped away or timed out (5 s).
     func clearNotice()
     /// The tabs the paged strip (`TabsKitToolbarStyle.pagedTabs`) shows while `id` is active, in
-    /// order: the tabs of its pane. Every id must be in `tabs`. Default: all of `tabs`.
-    func stripTabIDs(for id: TabsKitTab.ID) -> [TabsKitTab.ID]
+    /// order: the tabs of its pane. They may include tabs `tabs` leaves out (a grid filter hides a
+    /// kind): a pane's strip shows all of the pane. Default: all of `tabs`.
+    func stripTabs(for id: TabsKitTab.ID) -> [TabsKitTab]
 }
 
 extension TabsDataSource where Card == TabsKitThumbnailCard {
@@ -195,7 +196,7 @@ extension TabsDataSource {
     public func moveTab(_ id: TabsKitTab.ID, to index: Int) {}
     public var notice: String? { nil }
     public func clearNotice() {}
-    public func stripTabIDs(for id: TabsKitTab.ID) -> [TabsKitTab.ID] { tabs.map(\.id) }
+    public func stripTabs(for id: TabsKitTab.ID) -> [TabsKitTab] { tabs }
 }
 
 extension EnvironmentValues {
