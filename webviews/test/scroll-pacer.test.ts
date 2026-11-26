@@ -4,6 +4,7 @@ import {
   createScrollPacer,
   type ScrollFrame,
 } from "../src/agent-session/acpmux/scrollPacer";
+import { transcriptScrollPacer } from "../src/agent-session/acpmux/transcriptScrollPacer.experiment";
 
 test("stale queued latest state cannot retake a parked reader", () => {
   expect(
@@ -103,4 +104,9 @@ test("motion commits before paint, replaces a queued frame, and deduplicates its
   pacer.cancel();
   pacer.enqueue({ top: 500, atLatest: false });
   expect(callbacks).toHaveLength(1);
+});
+
+test("transcript scroll pacing keeps frame coalescing as the default and exposes sync comparison", () => {
+  expect(transcriptScrollPacer.defaultArm).toBe("frame");
+  expect(Object.keys(transcriptScrollPacer.arms)).toEqual(["frame", "sync"]);
 });

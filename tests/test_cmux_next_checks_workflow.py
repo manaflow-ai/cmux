@@ -987,7 +987,7 @@ class PathRoutingStructure(unittest.TestCase):
         swift = jobs["swift-test"]
         self.assertIn("SWIFT_PRIORITY_FILTER", job_env(swift))
         run = next(step for step in swift["steps"] if step.get("name", "").startswith("Run package tests"))
-        script = run["run"]
+        script = step_run(run)
         self.assertIn("SWIFT_PRIORITY_FILTER", script)
         self.assertIn("--skip", script)
         self.assertIn("priority", script.lower())
@@ -1916,9 +1916,9 @@ class SameTreeIsAnEvent(unittest.TestCase):
         ready = steps["Report the ready same-tree cmux-tui"]
         failed = steps["Report the unavailable same-tree cmux-tui"]
         self.assertIn("== 'ready'", ready["if"])
-        self.assertNotIn("exit 1", ready["run"])
+        self.assertNotIn("exit 1", step_run(ready))
         self.assertIn("== 'failed'", failed["if"])
-        self.assertIn("exit 1", failed["run"])
+        self.assertIn("exit 1", step_run(failed))
 
     def test_the_artifacts_workflow_starts_the_deferred_jobs(self):
         jobs = load_yaml(ARTIFACTS_WORKFLOW.read_text(encoding="utf-8"))["jobs"]
@@ -2101,7 +2101,7 @@ class MacFastTierFollowsTheRoute(unittest.TestCase):
             "needs": {
                 "push-head-preflight": {"outputs": {"current": "true"}},
                 "fast-tier-cargo": {"result": cargo},
-                "path_route": {"outputs": {key: value for key, value in (("macos", macos), ("fast_tier", fast_tier))
+                "path_route": {"result": "success", "outputs": {key: value for key, value in (("macos", macos), ("fast_tier", fast_tier))
                                            if value is not None}},
             },
         }
@@ -2127,20 +2127,16 @@ class MacFastTierFollowsTheRoute(unittest.TestCase):
         self.assertFalse(self.runs("fast-tier", "pull_request", macos))
         self.assertTrue(self.runs("macos-placement", "pull_request", macos))
 
-    def test_a_red_linux_cargo_tier_holds_the_pr_mac_jobs(self):
-        """About 17.6k Mac min/day ran on PR heads whose Linux cargo fast tier was already red
-        (2026-11-24). A PR head starts its Mac placement only once that tier passed or was skipped;
-        the base push never waits on it."""
+    def test_the_pr_compile_does_not_wait_for_the_linux_cargo_tier(self):
+        """Both placement jobs can start while the Linux cargo tier runs or fails."""
         macos = self.route_macos(["Packages/macOS/CmuxNext/Sources/CmuxNextApp/WindowRootView.swift"])
-        for job in ("macos-placement",):
+        for job in ("macos-placement", "app-compile-placement"):
             with self.subTest(job=job):
-                self.assertIn("fast-tier-cargo", self.jobs[job]["needs"])
-                self.assertTrue(self.runs(job, "pull_request", macos, cargo="skipped"))
-                self.assertFalse(self.runs(job, "pull_request", macos, cargo="failure"))
-                self.assertFalse(self.runs(job, "pull_request", macos, cargo="cancelled"))
-                self.assertTrue(self.runs(job, "push", macos, cargo="failure"))
-        self.assertIn("fast-tier-cargo", self.jobs["app-compile-placement"]["needs"])
-        self.assertIn("needs.fast-tier-cargo.result == 'success'", self.jobs["app-compile-placement"]["if"])
+                self.assertNotIn("fast-tier-cargo", self.jobs[job]["needs"])
+                self.assertNotIn("fast-tier-cargo", self.jobs[job]["if"])
+        for cargo in ("success", "skipped", "failure", "cancelled"):
+            with self.subTest(cargo=cargo):
+                self.assertTrue(self.runs("macos-placement", "pull_request", macos, cargo=cargo))
 
     def test_no_route_answer_and_the_base_push_still_run_it(self):
         self.assertFalse(self.runs("fast-tier", "pull_request", None))  # pr-pipeline.yml's `mac` job (note-556)
@@ -3971,6 +3967,7 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
             "needs.fast-tier-cargo.result": "success",
             "needs.path_route.outputs.mac_release": "true",
             "github.run_attempt": 1,
+            "needs.path_route.outputs.labels": "," + ",".join(labels) + ",",
         }
         if event == "pull_request":
             context.update({"github.event.pull_request.head.repo.full_name": head_repo,
@@ -4014,6 +4011,22 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
                     self.assertTrue(evaluate(job["if"], ctx))
                     self.assertEqual(route_of(job, ctx), "cmux-linux")
         self.assertNotIn("gateway_runner", job["if"])
+
+    def test_both_placements_run_for_a_landing_pr_regardless_of_cargo(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        context = {
+            **self.context(labels=("ready-to-land",)),
+            "github.event.pull_request.base.ref": "feat-cmux-next",
+            "needs.path_route.outputs.macos": "true",
+            "needs.path_route.outputs.app_compile_pr": "true",
+            "vars.CI_PR_POOL_OWNED": "1",
+        }
+        for job in ("app-compile-placement", "macos-placement"):
+            for cargo in ("", "success", "skipped", "failure", "cancelled"):
+                with self.subTest(job=job, cargo=cargo):
+                    self.assertTrue(evaluate(jobs[job]["if"], {
+                        **context, "needs.fast-tier-cargo.result": cargo,
+                    }))
 
     def test_placement_judges_the_gateway_for_the_jobs_that_start(self):
         """The app compile's gateway is judged at once (app-compile-placement, Leo 2026-11-08: only the Mac

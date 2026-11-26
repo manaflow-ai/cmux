@@ -1661,6 +1661,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-chat-markdown"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "unicode-general-category",
+ "unicode-normalization",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "cmux-chief"
 version = "0.1.0"
 dependencies = [
