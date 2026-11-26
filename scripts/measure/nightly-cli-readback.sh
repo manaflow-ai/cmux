@@ -49,12 +49,19 @@ for key in CFBundleShortVersionString CFBundleVersion CFBundleIdentifier; do
   echo "NCR $key $(plutil -extract "$key" raw -o - "$plist" 2>&1)"
 done
 plutil -p "$plist" | grep -iE 'commit|sha|revision' | sed 's/^ */NCR plist /'
+# The app's own executable (Contents/MacOS/cmux) shares the CLI's name; run with --version it starts the GUI and
+# never exits on a headless Mac, so it is skipped, and each --version is bounded at 30 s.
+main_exe="$app/Contents/MacOS/$(plutil -extract CFBundleExecutable raw -o - "$plist" 2>/dev/null)"
+bounded() { perl -e 'alarm shift; exec @ARGV or die "exec: $!\n"' 30 "$@"; }
 status=0
 for name in cmux acpmux optchat-chief; do
-  bin="$(find "$app/Contents" -type f -perm -u+x -name "$name" 2>/dev/null | head -1)"
+  bin="$(find "$app/Contents" -type f -perm -u+x -name "$name" 2>/dev/null | grep -vxF "$main_exe" | head -1)"
   if [[ -z "$bin" ]]; then echo "NCR $name: not in the bundle"; continue; fi
   echo "NCR $name path ${bin#"$app/"}"
-  echo "NCR $name --version: $(HOME="$work" "$bin" --version 2>&1 | head -3 | tr '\n' ' ')"
+  ver="$(HOME="$work" bounded "$bin" --version 2>&1)"; rc=$?
+  ver="$(head -3 <<<"$ver" | tr '\n' ' ')"
+  if [[ "$rc" -eq 142 ]]; then echo "NCR $name --version: no answer in 30 s"; status=1
+  else echo "NCR $name --version: $ver"; fi
   if [[ "$name" == acpmux && -n "$mark" ]]; then
     if LC_ALL=C grep -qaF $'\x01'"$mark"$'\x01' "$bin"; then echo "NCR acpmux mark present: $mark"
     else echo "NCR acpmux mark absent: $mark"; status=1; fi
