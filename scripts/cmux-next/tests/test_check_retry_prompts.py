@@ -111,6 +111,14 @@ class RetryPrompts(unittest.TestCase):
         """)
         self.assertEqual(self.run_check()[0], 0)
 
+    def test_neighboring_simulation_path_is_still_scanned(self) -> None:
+        self.write("webviews/src/agent-session/acpmux/simulation/ProductCopy.tsx", """
+            export const ProductCopy = () => <button>Try again</button>;
+        """)
+        code, out = self.run_check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("ProductCopy.tsx", out)
+
     def test_baseline_counts_only_go_down(self) -> None:
         self.write("cmux-next-ios/Kit/Sources/Chat/Screen.swift", 'Button("Try Again") { a() }\nButton("Retry") { b() }\n')
         self.write(crp.BASELINE, crp.BASELINE_HEADER + "cmux-next-ios/Kit/Sources/Chat/Screen.swift\t2\n")

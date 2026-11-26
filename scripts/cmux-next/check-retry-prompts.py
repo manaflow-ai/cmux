@@ -58,14 +58,15 @@ SOURCE_SUFFIXES = (".ts", ".tsx", ".swift", ".rs")
 STRING_TABLE = "Localizable.xcstrings"
 
 # Not text a person sees: tests, galleries, previews, fixtures, mocks, benches, generated files, build scripts,
-# and executable chat-simulator scenarios. The simulator drives the real UI with synthetic records, so its strings
-# are inputs to a test harness rather than shipped copy.
+# and the executable chat-simulator scenarios in the one verified simulator tree. The simulator drives the real UI
+# with synthetic records, so its strings are inputs to a test harness rather than shipped copy.
 SKIP = re.compile(
-    r"(^|/)(test|tests|\w*Tests|__tests__|testdata|fixtures|Fixtures|Preview Content|gallery|Gallery|sim|prototypes?|"
+    r"(^|/)(test|tests|\w*Tests|__tests__|testdata|fixtures|Fixtures|Preview Content|gallery|Gallery|prototypes?|"
     r"benches|examples|scripts|verify|stress)/"
     r"|\.(test|spec|gallery|stories|fixtures?|experiment|bench|generated)\.(ts|tsx|swift)$"
     r"|(Tests?|Previews?|Gallery\w*|Fixtures?|Mock\w*)\.swift$"
     r"|(^|/)(Mock|mock)\w*\.(ts|tsx|swift)$|[Ff]ixtures?\w*\.(ts|tsx|swift)$"
+    r"|^webviews/src/agent-session/acpmux/sim/"
     # Commands the person runs on purpose (the action catalog's "Reload Extension") and release notes that only
     # describe the app.
     r"|^cmux-tui/crates/cmux-action-catalog/|/action_catalog\.rs$|^webviews/src/pages/changelog/"
