@@ -1857,6 +1857,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "unicode-segmentation",
  "uuid",
 ]
 
@@ -2645,6 +2646,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-rd-screen"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "p256",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-redact"
 version = "0.1.0"
 dependencies = [
@@ -3355,6 +3366,7 @@ dependencies = [
  "cmux-build-space",
  "cmux-classic-import",
  "cmux-cloud-api",
+ "cmux-cloud-machine",
  "cmux-computer-use",
  "cmux-conductor-import",
  "cmux-config",
