@@ -2393,11 +2393,11 @@ jobs:
         run: bash scripts/ci/nightly-steps/app-prefetch-pending-cmux-tui.sh start
 
       - &x21
-        name: Build in-tree acpmux for the compilation cache
+        name: Start building in-tree acpmux for the compilation cache
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.tree_pending != 'true' && !env.LEFT_SLOT
         env:
           CMUX_NEXT_ACPMUX_ARCHS: ${{ needs.decide.outputs.compile_archs }}
-        run: bash scripts/ci/nightly-steps/app-build-in-tree-acpmux.sh
+        run: bash scripts/ci/nightly-steps/app-build-in-tree-acpmux.sh start
 
       - &x22
         name: Prepare the OptChat Chief cache key
@@ -2572,6 +2572,11 @@ jobs:
           if [ ! -f "$check" ]; then echo "::notice::$check is not at this build_sha; carrying on"; exit 0; fi
           read -ra peers <<< "$NIGHTLY_PUBLISH_PEERS"
           python3 "$check" "${peers[@]}"
+
+      - &x33
+        name: Finish building in-tree acpmux for the compilation cache
+        if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.tree_pending != 'true' && !env.LEFT_SLOT
+        run: bash scripts/ci/nightly-steps/app-build-in-tree-acpmux.sh join
 
       - name: Build nightly app (Release)
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true' && !env.LEFT_SLOT
@@ -7072,6 +7077,7 @@ jobs:
       - *x30
       - *x31
       - *x32
+      - *x33
       # Why: docs/ci/nightly-workflow-notes.md#note-48
       - name: Build nightly app (Release)
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true' && !env.LEFT_SLOT
