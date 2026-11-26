@@ -179,7 +179,7 @@ pub fn swift_double(value: f64) -> String {
 }
 
 /// What a phone input is, as far as the Android backend reads it.
-#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AndroidInput {
     Tap { x: f64, y: f64 },
