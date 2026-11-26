@@ -172,6 +172,10 @@ pub(super) enum TokenSource {
     File(PathBuf),
     Command(String),
     Env,
+    /// The caller's held token on stdin (`--token-stdin`): a bare token or `cmux auth token --json`'s object. The app's
+    /// Cloud start gate hands over the install token it already holds, so the read mints none (hq#19758: the nested
+    /// `auth token` mint could take the gate's whole 10 s bound).
+    Stdin,
     App,
 }
 
@@ -487,6 +491,16 @@ pub(super) async fn backend_credential(
 ) -> Result<(String, Option<String>), String> {
     let raw = match source {
         TokenSource::Env => std::env::var("CMUX_CLOUD_ACCESS_TOKEN").unwrap_or_default(),
+        TokenSource::Stdin => {
+            use tokio::io::AsyncReadExt;
+            let mut raw = String::new();
+            tokio::io::stdin()
+                .take(64 * 1024)
+                .read_to_string(&mut raw)
+                .await
+                .map_err(|e| format!("cannot read the token on stdin: {e}"))?;
+            raw
+        }
         TokenSource::File(path) => tokio::fs::read_to_string(path)
             .await
             .map_err(|e| format!("cannot read the token file: {e}"))?,

@@ -160,6 +160,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `auth.openai.com` | connects | OpenAI sign-in, opened when you sign Codex in; the gateway's Codex sign-in refreshes its token here (`cmux inference gateway --codex-auth`) |
 | `api.openai.com` | connects | the OpenAI API: voice calls on iPhone, and when you use an OpenAI key |
 | `api.x.ai` | connects | the xAI API, when you give an agent an xAI API key |
+| `api.tailscale.com` | connects | the Tailscale API, only when you add a Cloud machine to your tailnet with an OAuth client: the Mac trades the client secret for a single-use key there, so the secret never reaches the machine |
 | `app.slack.com` | connects | the Slack integration, only when an agent uses it in your signed-in browser |
 | `api.stack-auth.com` | connects | the sign-in service |
 | `uniichat.com` | connects | the hosted UniiChat agent, only when you start it |
