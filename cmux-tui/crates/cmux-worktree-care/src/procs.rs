@@ -122,8 +122,8 @@ fn hostname() -> Option<String> {
     if result != 0 {
         return None;
     }
-    let end = buffer.iter().position(|b| *b == 0).unwrap_or(buffer.len());
-    Some(String::from_utf8_lossy(&buffer[..end]).into_owned())
+    let name = buffer.split(|b| *b == 0).next().unwrap_or_default();
+    Some(String::from_utf8_lossy(name).into_owned())
 }
 
 /// Elsewhere this machine's name is not read: every host is this one.
