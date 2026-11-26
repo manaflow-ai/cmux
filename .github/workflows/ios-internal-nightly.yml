@@ -372,12 +372,30 @@ jobs:
       ASC_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
     steps:
+      # Only the signing script's files are read from the builder branch, so the
+      # signer checks out those and fetches no other file content: the whole tree
+      # (72,000 files, 1.4 GB, half of it cmux-next-ios/verify/) took 7.1 min p50,
+      # 11.6 min p90 of this job (fleet-data-raw, 35 uploads, 2026-11-18..24), more
+      # than signing, validating, uploading and App Store processing together
+      # (4.7 min). Kept: root files (.xcode-version), scripts/ (select-ci-xcode.sh,
+      # scripts/ci, the checkers' fallbacks) and cmux-next-ios/ without verify/
+      # (testflight-build.sh and its helpers, the entitlements it reads). Anything
+      # else testflight-build.sh reads comes from the built commit by `git show`,
+      # which fetches that one object on demand (the repository is public).
+      # Measured: cmuxterm-hq docs/findings/2026-11-25-ios-cicd-equilibrium.md.
       - name: Checkout the builder branch (trusted signing script)
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          # Only the signing script's files are read from the builder branch.
           fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            /*
+            !/*/
+            /scripts/
+            /cmux-next-ios/
+            !/cmux-next-ios/verify/
+          sparse-checkout-cone-mode: false
 
       - name: Fetch the built commit
         run: |
