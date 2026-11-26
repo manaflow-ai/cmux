@@ -56,6 +56,11 @@ APP_TOKEN_EXEMPT = {
     ),
 }
 RELEASE_APP_SECRETS = ("CMUX_RELEASE_APP_ID", "CMUX_RELEASE_APP_KEY")
+# nightly-next-one builds before it publishes: its build steps' gh calls already wait through a rate limit
+# (the budget wrapper goes on PATH before the build), and it mints the App token only for publication.
+BUDGET_FIRST = {"nightly-next-one"}
+
+
 def release_app_jobs(jobs: dict) -> set[str]:
     """Jobs that can hold the release App's credentials: a release environment (or one that cannot
     be resolved), or a read of the credentials in any form (secrets.X, secrets['X'], any case,
@@ -135,7 +140,13 @@ class WorkflowTests(unittest.TestCase):
             budget = [i for i, s in enumerate(steps) if BUDGET_INSTALL.search(str(s.get("run", "")))]
             self.assertEqual((len(mint), len(app), len(budget)), (1, 1, 1), name)
             # Mint, then this wrapper, then gh_budget_wait.sh, which wraps it and keeps its wait.
-            self.assertEqual((app[0], budget[0]), (mint[0] + 1, mint[0] + 2), name)
+            if name in BUDGET_FIRST:
+                # Its build runs before publication, so the budget wrapper is installed first. The App
+                # wrapper still follows its mint step and all github.token users follow both wrappers.
+                self.assertEqual(app[0], mint[0] + 1, name)
+                self.assertLess(budget[0], mint[0], name)
+            else:
+                self.assertEqual((app[0], budget[0]), (mint[0] + 1, mint[0] + 2), name)
             step = steps[mint[0]]
             self.assertIn("actions/create-github-app-token@", step["uses"])
             self.assertTrue(step.get("continue-on-error"), name)  # a failed mint keeps github.token
@@ -148,6 +159,10 @@ class WorkflowTests(unittest.TestCase):
             # Every step that sends github.token runs after the wrapper is on PATH.
             for i, s in enumerate(steps):
                 if i != app[0] and "github.token" in str(s.get("env", {})):
+                    if name in BUDGET_FIRST and i < mint[0]:
+                        # The build phase precedes token minting and intentionally uses the default
+                        # github.token. Publication steps follow both wrappers.
+                        continue
                     self.assertGreater(i, budget[0], (name, s.get("name")))
 
     def test_release_asset_uploads_take_the_app_token_first(self) -> None:

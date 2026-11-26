@@ -2377,7 +2377,7 @@ jobs:
         # reset (at most an hour per job, each wait logged) when a call is refused for the rate
         # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
         if: inputs.nightly_next_unsigned_run == ''
-        run: bash .publish-tooling/scripts/ci/gh_budget_wait.sh --install
+        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
 
       - &x13
         name: Fetch the Chromium engine
@@ -7142,7 +7142,11 @@ jobs:
       - *x9
       - *checkout-publication-tooling-a
       # Install the budget wrapper from this workflow's trusted tooling checkout before any gh call.
-      - *x12
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        if: inputs.nightly_next_unsigned_run == ''
+        # This job has checked out the workflow's trusted publication tooling above. The split build job
+        # keeps x12's source-tree fallback because it has no .publish-tooling checkout.
+        run: bash .publish-tooling/scripts/ci/gh_budget_wait.sh --install
       - *claim-publication-mac
       # Before the leave step's gh calls (tests/test_publish_app_token_workflow.py).
       # Latest wins at the slot too, with no wait on this Mac: it asks main's tick and leaves; bounded gh calls,
@@ -7630,6 +7634,8 @@ jobs:
       contents: read
       actions: read
     env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CHANNEL: ${{ needs.decide.outputs.channel }}
       TRACK: ${{ needs.decide.outputs.track }}
       CHANNEL_DMG_PREFIX: ${{ needs.decide.outputs.dmg_prefix }}
@@ -7660,8 +7666,12 @@ jobs:
           ref: ${{ github.sha }}
           path: .nightly-next-deltas/.publish-tooling
           sparse-checkout: scripts
+      - name: Select Xcode for nightly-next deltas
+        working-directory: .nightly-next-deltas
+        run: ./scripts/select-ci-xcode.sh
+      - *select-xcode-sdk
       - name: Claim the whole Mac for signing
-        run: bash "$PUBLISH_TOOLING/ci/signing-runner-claim.sh"
+        run: bash .nightly-next-deltas/.publish-tooling/scripts/ci/signing-runner-claim.sh
       - name: Point the deltas job at the keyless prebuild
         run: echo "NIGHTLY_NEXT_PREBUILT=$HOME/.cmux-nightly-next-prebuilt" >> "$GITHUB_ENV"
       # nightly-next-one's own upload: the build's DMG as published.
@@ -7705,6 +7715,10 @@ jobs:
           # The tail's own revise (R2 upload, merge into the live item, prune, guard, then write-feed
           # --same-build: only while the live feed still serves this build).
           bash .publish-tooling/scripts/ci/nightly-steps/republish-deltas-upload-next-appcasts.sh
+      - name: Wipe this job's credentials and temp files
+        if: always()
+        working-directory: .nightly-next-deltas
+        run: bash "$PUBLISH_TOOLING/ci/nightly-steps/one-job.sh" wipe
       # Only this job's own directory: the kept build workspace beside it stays.
       - name: Remove this job's checkout, DMG and deltas
         if: always()

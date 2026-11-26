@@ -195,6 +195,16 @@ class NightlyNextOneJobTests(unittest.TestCase):
                           if step.get("name") == "Finish building in-tree acpmux for the compilation cache")
         self.assertEqual(split_join.get("run"), steps[join].get("run"))
 
+    def test_budget_wrapper_uses_the_available_tooling_checkout(self) -> None:
+        split_steps = self.jobs["build-nightly-app"].get("steps") or []
+        split_budget = next(step for step in split_steps
+                            if step.get("name") == "Wait through GitHub API rate limits in this job's gh calls")
+        self.assertEqual(split_budget.get("run"),
+                         "if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi")
+        one_budget = next(step for step in self.job["steps"]
+                          if step.get("name") == "Wait through GitHub API rate limits in this job's gh calls")
+        self.assertEqual(one_budget.get("run"), "bash .publish-tooling/scripts/ci/gh_budget_wait.sh --install")
+
     def test_the_split_pipeline_skips_in_one_job_mode(self) -> None:
         for name in PIPELINE_ROOTS:
             condition = one_line(self.jobs[name].get("if"))
@@ -307,6 +317,14 @@ class NightlyNextOneJobTests(unittest.TestCase):
         # published-build and the GitHub release start when it ends. The job needs the feed, signs the deltas with
         # the Sparkle key behind its own stray-process check, runs no bundle code, and never fails the run.
         jobs = workflow()["jobs"]
+        outputs = jobs["nightly-next-one"].get("outputs") or {}
+        for name in ("deltas_build", "deltas_dmg", "deltas_dmg_release", "deltas_appcast", "deltas_min_system"):
+            self.assertIn(name, outputs)
+        one_steps = jobs["nightly-next-one"].get("steps") or []
+        hand = next(step for step in one_steps if step.get("name") == "Hand the deltas job its inputs")
+        self.assertEqual(hand.get("id"), "deltas-inputs")
+        for name in ("build", "dmg", "dmg_release", "appcast", "min_system"):
+            self.assertIn(f'echo "{name}=', hand.get("run", ""))
         job = jobs["nightly-next-deltas"]
         self.assertIn("nightly-next-one", job.get("needs") or [])
         self.assertIn("needs.nightly-next-one.outputs.feed_written == 'true'", one_line(job.get("if")))
@@ -314,14 +332,23 @@ class NightlyNextOneJobTests(unittest.TestCase):
         self.assertIs(job.get("continue-on-error"), True)
         self.assertNotIn("concurrency", job, "never cancelled")
         self.assertIn("'glaeda-trusted-next-signing'", str(job.get("runs-on")))
+        env = job.get("env") or {}
+        self.assertEqual(env.get("CMUX_CI_XCODE_APP"), "${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}")
+        self.assertEqual(env.get("CMUX_CI_REQUIRED_MACOS_SDK_MAJOR"), "26")
         self.assertNotIn("nightly-next-deltas", str(jobs["published-build"].get("needs")))
         steps = job.get("steps") or []
         names = [s.get("name") for s in steps]
         blobs = [yaml.safe_dump(s) for s in steps]
+        select = names.index("Select Xcode for nightly-next deltas")
+        sdk = names.index("Select the SDK of the selected Xcode")
         stray = names.index("Refuse stray processes before secrets (deltas)")
         build = names.index("Build the nightly-next deltas after the feed")
         upload = names.index("Upload the deltas and give the live item its deltas")
         self.assertEqual(names[0], "Hold the whole Mac before any credential")
+        self.assertEqual(steps[select].get("working-directory"), ".nightly-next-deltas")
+        self.assertIn("select-ci-xcode.sh", steps[select].get("run", ""))
+        self.assertLess(select, sdk)
+        self.assertLess(sdk, stray)
         self.assertIn("refuse_stray_processes.py", steps[stray].get("run", ""))
         secrets = [i for i, b in enumerate(blobs) if "secrets." in b]
         self.assertEqual(secrets, [build, upload])
@@ -330,6 +357,12 @@ class NightlyNextOneJobTests(unittest.TestCase):
         self.assertIn("appcast-with-nearest-deltas.sh after-feed", steps[build].get("run", ""))
         self.assertIn("republish-deltas-upload-next-appcasts.sh", steps[upload].get("run", ""))
         self.assertEqual((steps[upload].get("env") or {}).get("DELTAS_ONLY_WHILE_NEWEST"), "1")
+        wipe = names.index("Wipe this job's credentials and temp files")
+        remove = names.index("Remove this job's checkout, DMG and deltas")
+        self.assertLess(wipe, remove)
+        self.assertEqual(steps[wipe].get("working-directory"), ".nightly-next-deltas")
+        self.assertEqual(steps[wipe].get("run"), 'bash "$PUBLISH_TOOLING/ci/nightly-steps/one-job.sh" wipe')
+        self.assertEqual(one_line(steps[wipe].get("if")), "always()")
         prebuilt = next(s for s in steps if s.get("name") == "Point the deltas job at the keyless prebuild")
         self.assertEqual(prebuilt.get("run"), 'echo "NIGHTLY_NEXT_PREBUILT=$HOME/.cmux-nightly-next-prebuilt" >> "$GITHUB_ENV"')
         # Its own directory only: the kept build workspace beside it stays as nightly-next-one left it.
