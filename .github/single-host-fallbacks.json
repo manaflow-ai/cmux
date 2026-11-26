@@ -215,6 +215,7 @@
       "fallback": "the next member of the pool in .github/runners.json (its reconciler moves the pool when the current member starts nothing); with the variable unset, the selector's default, the pool's first member (tools/fleet-reconcilers/test_runner_pools.py)",
       "after_minutes": 5
     },
+    "CI_FORK_LINUX_RUNNER": {"fallback": "unset or empty, ubuntu-24.04 in the same runs-on (a fork pull request only; pinned-files-mirror.yml mirror, swift-linux-packages.yml plan and linux-targets), a GitHub-hosted label with many hosts", "after_minutes": 5},
     "LINUX_RUNNER": {
       "fallback": "the route-defined owned-pool or Blacksmith fallback",
       "after_minutes": 5
@@ -288,6 +289,7 @@
       "after_minutes": 25,
       "note": "Leo's explicit exception to the no-reserved-host rule (rulebook, 2026-11-01: \"ok just dedicate at least one m4 pro mini just completely to the nightly situation idgaf anymore\" and \"i thought 7 and 15 were both capable of being dedicated\"), declared in #5857."
     },
+    "CI_FORK_LINUX_RUNNER": {"fallback": "unset by default, so a fork pull request's pinned-files-mirror mirror and swift-linux-packages linux-targets jobs take GitHub-hosted ubuntu-24.04 (the `|| 'ubuntu-24.04'` in the same runs-on); a same-repository run takes cmux-linux, which every owned Linux pool host carries. An operator sets it only to move fork runs to another hosted Linux label, and clearing it puts them back", "after_minutes": 5},
     "CI_LINUX_GATE_OWNED_RUNNER": {
       "fallback": "unset by default, so the no-kernel Linux gates (cmux ci.yml macos-admission-gate, linux-preflight and ci-status; ci-web.yml react-apps-check-shard, react-apps-base-check and react-apps-check) take fromJSON(vars.RUNNER_POOLS).linux or their Blacksmith literal in the same runs-on (cmux#30435). An operator sets it only during a Blacksmith backlog, and cmux scripts/ci/runner_label_policy.py holds it to the side-lane rule: an owned glaeda-side-<class>-xcode-<version> pool label, never one host, and it is read only on a push or a same-repository pull_request. Nothing moves a job queued there automatically (ci-owned-pool-rescue only alarms on an active PR run); clearing the variable puts new runs back on the Blacksmith route. after_minutes is the side-lane rescue window, as for CI_SIDE_LANE_RUNNER",
       "after_minutes": 5
@@ -335,6 +337,10 @@
     "CI_REPAIR_SKIP_FLEET": {
       "fallback": "an off switch, not a host: unset (or anything but `1`) sends the repair workflows (compile attribution, owned-pool rescue, stale-run janitor) to cmux-gcp-repair-jit-x64, one-job JIT VMs made on demand (never one host); `1` restores the CI_TRUSTED_RUNNER selector after it in the same runs-on, Blacksmith 4 vCPU by default",
       "after_minutes": 10
+    },
+    "CI_FORK_LINUX_RUNNER": {
+      "fallback": "unset or empty, ubuntu-24.04, GitHub's hosted Linux image (many hosts, not one); only a fork pull request's job reads it, and a same-repo job runs on cmux-linux",
+      "after_minutes": 5
     }
   },
   "nightly_workflow_marker": "nightly",
