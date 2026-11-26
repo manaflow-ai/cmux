@@ -31,6 +31,7 @@ import Testing
     @Test func onlyFilesThatUploadAtSendGoEarly() {
         let png = Data([0x89, 0x50, 0x4E, 0x47, 0, 0, 0, 0, 0, 0, 0, 0])
         #expect(!AttachmentPrestager.uploadsAtSend(AgentAttachment(kind: .image, name: "p", data: png)))
+        #expect(AttachmentPrestager.uploadsAtSend(AgentAttachment(kind: .image, name: "p", data: png), promptUploads: true))
         #expect(!AttachmentPrestager.uploadsAtSend(AgentAttachment(kind: .file, name: "a.pdf", data: Data("x".utf8))))
         #expect(AttachmentPrestager.uploadsAtSend(AgentAttachment(kind: .file, name: "big.pdf", fileURL: URL(fileURLWithPath: "/tmp/b.pdf"),
                                                                   byteCount: AgentAttachment.maxDocumentBytes + 1)))
@@ -42,7 +43,7 @@ import Testing
         let mac = FakeMac()
         await mac.hold()
         let prestager = AttachmentPrestager()
-        let upload: AttachmentPrestager.Upload = { _, name in try await mac.upload(name) }
+        let upload: AttachmentPrestager.Upload = { _, name in .path(try await mac.upload(name)) }
         prestager.sync([file("a", "a.zip"), file("b", "b.log")], upload: upload)
         #expect(Set(prestager.entries.keys) == ["a", "b"])
         let a = try #require(prestager.entries["a"]).task
@@ -53,25 +54,25 @@ import Testing
         #expect(a.isCancelled)
         await mac.release()
         let b = try #require(prestager.entries["b"]).task
-        #expect(try await b.value == "/w/.cmux/attachments/b.log")
+        #expect(try await b.value == .path("/w/.cmux/attachments/b.log"))
     }
 
     @Test func sendClaimsUploadsSoEmptyingTheComposerKeepsThem() async throws {
         let prestager = AttachmentPrestager()
         let mac = FakeMac()
-        prestager.sync([file("a", "a.zip")], upload: { _, name in try await mac.upload(name) })
+        prestager.sync([file("a", "a.zip")], upload: { _, name in .path(try await mac.upload(name)) })
         let claimed = prestager.claim([file("a", "a.zip")])
         prestager.sync([], upload: nil)
         let entry = try #require(claimed["a"])
         #expect(!entry.task.isCancelled)
-        #expect(try await entry.task.value == "/w/.cmux/attachments/a.zip")
+        #expect(try await entry.task.value == .path("/w/.cmux/attachments/a.zip"))
     }
 
     @Test func aChatThatGoesAwayStopsItsUploads() async throws {
         let mac = FakeMac()
         await mac.hold()
         var prestager: AttachmentPrestager? = AttachmentPrestager()
-        prestager?.sync([file("a", "a.zip")], upload: { _, name in try await mac.upload(name) })
+        prestager?.sync([file("a", "a.zip")], upload: { _, name in .path(try await mac.upload(name)) })
         let task = try #require(prestager?.entries["a"]).task
         prestager = nil
         #expect(task.isCancelled)
@@ -80,8 +81,49 @@ import Testing
 
     @Test func noLinkStartsNothing() {
         let prestager = AttachmentPrestager()
+
+        let mac = FakeMac()
+        await mac.hold()
+        prestager.sync([file("a", "a.zip")], upload: { _, name in .path(try await mac.upload(name)) })
+        let task = try #require(prestager.entries["a"]).task
         prestager.sync([file("a", "a.zip")], upload: nil)
         #expect(prestager.entries.isEmpty)
+        #expect(task.isCancelled)
+        await mac.release()
+    }
+
+    @Test func sendInAnotherDirectoryDiscardsTheEarlierPath() async throws {
+        let mac = FakeMac()
+        let prestager = AttachmentPrestager()
+        let attachment = file("a", "a.zip")
+        await mac.hold()
+        prestager.sync([attachment], directory: "/first", upload: { _, name in .path(try await mac.upload(name)) })
+        await mac.waitForUploadStart()
+        let original = try #require(prestager.entries[attachment.id])
+        #expect(prestager.claim([attachment], directory: "/second").isEmpty)
+        #expect(original.task.isCancelled)
+        await mac.release()
+    }
+
+    @Test func sameIDImageOptimizationCancelsTheOriginalUpload() async throws {
+        let prestager = AttachmentPrestager()
+        let mac = FakeMac()
+        await mac.hold()
+        let upload: AttachmentPrestager.Upload = { _, name in .path(try await mac.upload(name)) }
+        let original = AgentAttachment(id: "image", kind: .image, name: "photo.heic", data: Data("heic".utf8))
+        prestager.sync([original], upload: upload, promptUploads: true)
+        await mac.waitForUploadStart()
+        let task = try #require(prestager.entries[original.id]?.task)
+
+        let optimizedData = Data([0x89, 0x50, 0x4E, 0x47, 0, 0, 0, 0, 0, 0, 0, 0])
+        let optimized = AgentAttachment(id: original.id, kind: .image, name: "photo.png", data: optimizedData)
+        prestager.sync([optimized], upload: upload, promptUploads: true)
+
+        #expect(prestager.entries.isEmpty)
+        #expect(task.isCancelled)
+        #expect(await mac.started == ["photo.heic"])
+        await mac.release()
+
     }
 
     /// The prompt links the early copy: no second upload, and no link needed at Send.
@@ -89,7 +131,7 @@ import Testing
         let prestager = AttachmentPrestager()
         let mac = FakeMac()
         let attachment = file("a", "a.zip")
-        prestager.sync([attachment], upload: { _, name in try await mac.upload(name) })
+        prestager.sync([attachment], upload: { _, name in .path(try await mac.upload(name)) })
         let blocks = try await AcpmuxSessionSource.promptBlocks(text: "see", attachments: [attachment], link: nil, cwd: "/w",
                                                                 macName: "Mac", prestaged: prestager.claim([attachment]))
         #expect(await mac.started == ["a.zip"])
@@ -107,5 +149,16 @@ import Testing
             _ = try await AcpmuxSessionSource.promptBlocks(text: "see", attachments: [attachment], link: nil, cwd: "/w",
                                                            macName: "Mac", prestaged: prestager.claim([attachment]))
         }
+    }
+
+    @Test func promptUploadReferencesKeepImageAndOwnerMetadata() {
+        let image = AgentAttachment(id: "photo", kind: .image, name: "photo.png",
+                                    data: Data([0x89, 0x50, 0x4E, 0x47, 0, 0, 0, 0, 0, 0, 0, 0]))
+        let blocks = AcpmuxSessionSource.promptBlocks(text: "see", attachments: [image],
+                                                       promptRefs: ["photo": ("up-1", "photo.png", "owner-1")])
+        let encoded = String(decoding: try! JSONEncoder().encode(blocks), as: UTF8.self)
+        #expect(encoded.contains("\"uploadId\":\"up-1\""))
+        #expect(encoded.contains("\"owned\":\"owner-1\""))
+        #expect(encoded.contains("\"type\":\"image\""))
     }
 }
