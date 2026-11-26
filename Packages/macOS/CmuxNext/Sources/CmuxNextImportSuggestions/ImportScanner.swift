@@ -90,7 +90,11 @@ public nonisolated struct ImportScanner: Sendable {
         switch browser.family {
         case .safari:
             let history = probe(directory.appending(path: "History.db"))
-            let historyAccess = switch history { case .missing: "missing"; case .denied: "denied"; case .readable: "readable" }
+            let historyAccess = switch history {
+            case .missing: "missing"
+            case .denied: "denied"
+            case .readable: "readable"
+            }
             // Bookmarks.plist is only opened when History.db reads. The cookie file is in Safari's container:
             // opening it to look would ask the person for "data from other apps", so only the registry says.
             let fields: [String: any Encodable] = [
