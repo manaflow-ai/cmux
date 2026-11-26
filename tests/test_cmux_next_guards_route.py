@@ -106,10 +106,12 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
                          "the guards' only path filter is the docs-only block")
         self.assertNotIn("paths-ignore", pull)
         jobs = workflow["jobs"]
-        # nightly-guards runs on every event (the submodule forward-only guard, Guard status), never with the
-        # release-notary matrix leg: a push runs the group in parallel in the release-notary job.
+        # nightly-guards (the submodule forward-only guard, Guard status) runs on every event but a pull request into
+        # feat-cmux-next without full-ci, where it had nothing to judge (ccv-next-gates audit, 2026-11-26), never with
+        # the release-notary matrix leg: a push runs the group in parallel in the release-notary job.
         self.assertTrue(jobs["nightly-guards"]["if"].startswith(  # then the land tier (tests/test_head_tier.py)
-            "${{ ((github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false')) && "),
+            "${{ ((github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && "
+            "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) && "),
             jobs["nightly-guards"]["if"])
         self.assertEqual(jobs["nightly-guards"]["with"]["linux_guard_tests"], "${{ 'false' }}")
         group = jobs["ci-guard-group"]
