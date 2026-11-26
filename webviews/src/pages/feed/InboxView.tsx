@@ -5,8 +5,8 @@
 import { useState, type KeyboardEvent } from "react";
 import { Button } from "../../ui/Button";
 import { Tabs, TabsList, TabsTrigger } from "../../ui/Tabs";
-import { isPending, plain, type FeedProps, answerState, rowActions } from "./context";
-import { AnswerControls } from "./AnswerControls";
+import { isPending, plain, type FeedProps, rowActions } from "./context";
+import { SnapAnswerControls } from "./AnswerControls";
 import { FeedIcon } from "./icons";
 import { useButtonMenu } from "./menus";
 import {
@@ -228,7 +228,7 @@ function InboxDetail({ store, snap, strings, item }: FeedProps & { item: ViewIte
           <GitHubActions key={item.id} store={store} snap={snap} strings={strings} item={item} />
         ) : null}
         {isRequest(item) && item.poster.kind !== "integration" ? (
-          <AnswerControls item={item} store={store} strings={strings} density="detail" {...answerState(snap, item)} />
+          <SnapAnswerControls item={item} store={store} snap={snap} strings={strings} density="detail" />
         ) : null}
         {thread.length ? (
           <div className="feed-thread">

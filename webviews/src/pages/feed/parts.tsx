@@ -25,10 +25,9 @@ import {
   VIRTUALIZE_AFTER,
   type FeedLine,
 } from "./model";
-import { plain } from "./context";
-import type { ChoiceSelection } from "./model";
+import { plain, type AnswerState } from "./context";
 import type { FeedStore } from "./store";
-import type { FeedApproveScope, FeedAttachment, ViewItem } from "./types";
+import type { FeedAttachment, ViewItem } from "./types";
 
 // MARK: - Small pieces
 
@@ -402,18 +401,13 @@ export function PromptSummary({ item, full = false }: { item: ViewItem; full?: b
   );
 }
 
-export interface RequestCardProps {
+/** Its answer controls' part of the snapshot (context.ts `answerState`), and what the card draws. */
+export interface RequestCardProps extends AnswerState {
   item: ViewItem;
   store: FeedStore;
   strings: Strings;
   /** `relativeTime` of the item at the page's clock. */
   time: string;
-  pending: boolean;
-  /** Its answer controls' part of the snapshot (context.ts `answerState`). */
-  disabled: boolean;
-  scope?: FeedApproveScope;
-  choices?: Record<string, ChoiceSelection>;
-  reply?: string;
 }
 
 /** An open request in the list: what it asks and how to answer, inline. It gets its own part of the
@@ -437,7 +431,7 @@ export const RequestCard = memo(function RequestCard({
       </div>
       <div className="feed-card-body">
         <PromptSummary item={item} />
-        <AnswerControls item={item} store={store} strings={strings} density="inline" {...answer} />
+        <AnswerControls item={item} store={store} strings={strings} density="inline" pending={pending} {...answer} />
       </div>
     </div>
   );
