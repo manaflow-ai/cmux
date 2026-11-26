@@ -391,6 +391,15 @@ class BaseLogSave(unittest.TestCase):
                       steps["Save the base's last test log"])
         self.assertIn('"${TESTED_SHA:-$GITHUB_SHA}" > "$dir/sha"', steps["Save this push's test log for pull requests"])
         self.assertIn("TESTED_SHA: ${{ inputs.sha }}", steps["Save this push's test log for pull requests"])
+        # R2, not the GitHub cache: that store is over its 10 GB cap and evicted the log before any pull request read
+        # it (saved by job 139493249959, missed by job 139543032876), so every base red read as the change's own.
+        # The batch passes the R2 write secrets through workflow_call.
+        restore = self.steps(text, "Restore the base's last test log")["Restore the base's last test log"]
+        for body in (restore, steps["Save the base's last test log"]):
+            self.assertIn("backend: r2\n", body)
+        self.assertIn("secrets.CI_CACHE_R2_ACCESS_KEY_ID", steps["Save the base's last test log"])
+        self.assertRegex(batch, r"uses: \./\.github/workflows/cmux-tui-spec\.yml\n(?:    .*\n)*?    secrets:\n"
+                                r"      CI_CACHE_R2_ACCESS_KEY_ID: ")
 
 
 class Cli(unittest.TestCase):
