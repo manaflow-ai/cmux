@@ -90,7 +90,7 @@ struct CloudGitHubSetupReturnTests {
         changes.recordRequested(owner: "acme")
         #expect(changes.phase == .requested(owner: "acme"))
         #expect(changes.refusal == nil)
-        changes.record(.refused, reason: nil)
+        changes.record(.refused(message: nil), reason: nil)
         #expect(changes.phase == .idle)
         #expect(changes.count == 7)
     }
