@@ -129,6 +129,39 @@ pub(super) struct RelayPlan {
     /// on a signal to this device (`relayTicket`); `None` from a service that
     /// stamps none, whose join is then refused.
     pub ticket: Option<String>,
+    /// A join this side started before the peer's answer, on the ticket the
+    /// service sent at once (`wg-ticket`, PROTOCOL.md "Early relay ticket");
+    /// the first join takes it instead of starting its own.
+    pub early: Option<EarlyJoin>,
+}
+
+/// A relay join already under way, taken once.
+pub(super) type EarlyJoin = Arc<
+    Mutex<
+        Option<
+            tokio::task::JoinHandle<
+                Result<super::super::relay::RelayCarrier, super::super::relay::RelayFailure>,
+            >,
+        >,
+    >,
+>;
+
+/// The early join's carrier when one was started, else a join now.
+async fn join_or_take(
+    plan: &RelayPlan,
+    session_id: &str,
+    peer: &str,
+) -> Result<super::super::relay::RelayCarrier, super::super::relay::RelayFailure> {
+    let early = plan.early.as_ref().and_then(|slot| lock(slot).take());
+    if let Some(handle) = early {
+        match handle.await {
+            Ok(joined) => return joined,
+            Err(e) => {
+                tracing::debug!(session = session_id, error = %e, "the early relay join ended; joining again");
+            }
+        }
+    }
+    super::super::relay::RelayCarrier::join(&plan.endpoint, session_id, peer, plan.ticket.as_deref()).await
 }
 
 /// How long after the tunnel starts, or this side's network changes, a
@@ -1785,6 +1818,8 @@ async fn run_control(
 /// `roam_turn_allocated`, `roam_gathered`), which keep filling in after
 /// this returns.
 pub async fn network_changed() -> Vec<(String, Timeline)> {
+    // The new network's proxy (and whether it inspects TLS) is asked afresh.
+    crate::egress::network_changed();
     let sessions = live();
     let roams =
         sessions.iter().map(|session| async move { (session.session_id.clone(), session.roam().await) });
@@ -1978,14 +2013,7 @@ async fn run_relay_watch(session: Weak<Session>) {
         let decided = Instant::now();
         tracing::info!(session = session.session_id, reason, "WireGuard joins cmux's relay");
         let host = plan.endpoint.host();
-        match super::super::relay::RelayCarrier::join(
-            &plan.endpoint,
-            &session.session_id,
-            &session.peer,
-            plan.ticket.as_deref(),
-        )
-        .await
-        {
+        match join_or_take(&plan, &session.session_id, &session.peer).await {
             Ok(carrier) => {
                 failures = 0;
                 // The peer was heard while the join ran (a slow handshake, not a
