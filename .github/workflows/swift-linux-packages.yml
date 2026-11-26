@@ -81,12 +81,12 @@ jobs:
           # Other SDK suites need a local Stack backend; these use URLProtocol fixtures.
           - group: stack-auth
             packages: vendor/stack-auth-swift-sdk-prerelease
-            test_filter: RefreshLifecycleTests|RefreshDeadlineTests|RefreshTransportTimingTests|RateLimitRetryTests|PublishableKeyOptionalTests|TokenRefreshAlgorithmTests/[a-zA-Z]*Fresh
+            test_filter: RefreshLifecycleTests|RefreshRejectionTests|RefreshDeadlineTests|RefreshTransportTimingTests|RateLimitRetryTests|PublishableKeyOptionalTests|TokenRefreshAlgorithmTests/[a-zA-Z]*Fresh
           # The cmux-next iPhone app's modules that need no UI framework (the manifest's CMUX_SWIFTPM_TARGET_LINUX
           # shape); cmux-next-ios-kit.yml skips their test targets on the Mac.
           - group: ios-kit
             packages: cmux-next-ios/CmuxMobileKit
-          # Whole packages that pass on Linux; CmuxIrohTransport's Apple-gated tests still run on the Mac lane.
+          # Whole packages that pass on Linux; CmuxIrohTransport's IrohLib and dnssd suites run on a Mac in relay-tls.yml.
           - group: CmuxChiefList
             packages: Packages/Shared/CmuxChiefList
           - group: CmuxConnectivityTelemetry
