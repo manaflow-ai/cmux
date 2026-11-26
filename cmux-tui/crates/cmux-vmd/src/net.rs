@@ -114,9 +114,10 @@ pub fn guest_boot_args(dns: &str) -> String {
 }
 
 async fn run(args: &[&str]) -> Result<()> {
-    let mut c = Command::new(args[0]);
-    c.args(&args[1..]);
-    let out = cmd::output(c, None).await.with_context(|| format!("spawn {}", args[0]))?;
+    let (program, rest) = args.split_first().context("an empty command")?;
+    let mut c = Command::new(program);
+    c.args(rest);
+    let out = cmd::output(c, None).await.with_context(|| format!("spawn {program}"))?;
     if !out.status.success() {
         bail!("`{}` failed: {}", args.join(" "), String::from_utf8_lossy(&out.stderr).trim());
     }

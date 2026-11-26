@@ -39,12 +39,12 @@ async fn read_response(stream: &mut UnixStream) -> Result<(u16, Vec<u8>)> {
         if n == 0 {
             bail!("firecracker closed the connection before a full reply");
         }
-        buf.extend_from_slice(&chunk[..n]);
+        buf.extend_from_slice(chunk.get(..n).unwrap_or_default());
         if let Some(i) = find(&buf, b"\r\n\r\n") {
             break i;
         }
     };
-    let head = String::from_utf8_lossy(&buf[..header_end]).to_string();
+    let head = String::from_utf8_lossy(buf.get(..header_end).unwrap_or_default()).to_string();
     let status: u16 = head
         .split_whitespace()
         .nth(1)
@@ -57,13 +57,13 @@ async fn read_response(stream: &mut UnixStream) -> Result<(u16, Vec<u8>)> {
             k.eq_ignore_ascii_case("content-length").then(|| v.trim().parse().ok())?
         })
         .unwrap_or(0);
-    let mut body = buf[header_end + 4..].to_vec();
+    let mut body = buf.get(header_end + 4..).unwrap_or_default().to_vec();
     while body.len() < len {
         let n = stream.read(&mut chunk).await?;
         if n == 0 {
             break;
         }
-        body.extend_from_slice(&chunk[..n]);
+        body.extend_from_slice(chunk.get(..n).unwrap_or_default());
     }
     body.truncate(len);
     Ok((status, body))

@@ -16,3 +16,10 @@ pub mod proto;
 pub mod provider;
 pub mod server;
 pub mod vsock;
+
+/// Sets `key` on a JSON object; a non-object is left as it is. `value[key] = ..` would panic on one.
+pub(crate) fn set_field(value: &mut serde_json::Value, key: &str, field: serde_json::Value) {
+    if let Some(object) = value.as_object_mut() {
+        object.insert(key.to_owned(), field);
+    }
+}

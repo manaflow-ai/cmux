@@ -16,6 +16,8 @@ use cmux_tui_machine_protocol::operations::{
 };
 use serde_json::{Value, json};
 
+use crate::set_field;
+
 pub struct VmdProvider {
     base: String,
     token: String,
@@ -104,8 +106,8 @@ fn map_error(
     status: u16,
     body: &Value,
 ) -> MachineProviderError {
-    let code = body["error"]["code"].as_str().unwrap_or("");
-    let message = body["error"]["message"].as_str().unwrap_or("").to_owned();
+    let code = body.pointer("/error/code").and_then(Value::as_str).unwrap_or("");
+    let message = body.pointer("/error/message").and_then(Value::as_str).unwrap_or("").to_owned();
     match (status, code) {
         (_, "machine_not_found") => {
             MachineProviderError::MachineNotFound(MachineHandle(subject.to_owned()))
@@ -135,26 +137,27 @@ fn spec_body(spec: &CreateMachineSpec, image: bool) -> Value {
     };
     let mut body = json!({"name": spec.name, "labels": spec.labels, "egress": egress});
     if image && let Some(img) = &spec.image {
-        body["image"] = json!(img);
+        set_field(&mut body, "image", json!(img));
     }
     if let Some(v) = label("cmux.vmd/vcpus").and_then(|v| v.parse::<u8>().ok()) {
-        body["vcpus"] = json!(v);
+        set_field(&mut body, "vcpus", json!(v));
     }
     if let Some(v) = label("cmux.vmd/mem-mib").and_then(|v| v.parse::<u32>().ok()) {
-        body["mem_mib"] = json!(v);
+        set_field(&mut body, "mem_mib", json!(v));
     }
     body
 }
 
 fn id_of(v: &Value, key: &str) -> Result<String, MachineProviderError> {
-    v[key]["id"]
-        .as_str()
+    v.get(key)
+        .and_then(|k| k.get("id"))
+        .and_then(Value::as_str)
         .map(str::to_owned)
         .ok_or_else(|| MachineProviderError::Backend(format!("cmux-vmd reply has no {key}.id")))
 }
 
 fn b64(v: &Value, key: &str) -> Result<Vec<u8>, MachineProviderError> {
-    B64.decode(v[key].as_str().unwrap_or(""))
+    B64.decode(v.get(key).and_then(Value::as_str).unwrap_or(""))
         .map_err(|e| MachineProviderError::Backend(format!("bad base64 in {key}: {e}")))
 }
 
@@ -281,7 +284,11 @@ impl MachineProvider for VmdProvider {
             )
             .await?;
         Ok(ExecOutput {
-            exit_code: v["exit_code"].as_i64().and_then(|c| i32::try_from(c).ok()).unwrap_or(-1),
+            exit_code: v
+                .get("exit_code")
+                .and_then(Value::as_i64)
+                .and_then(|c| i32::try_from(c).ok())
+                .unwrap_or(-1),
             stdout: b64(&v, "stdout")?,
             stderr: b64(&v, "stderr")?,
         })
@@ -297,7 +304,7 @@ impl MachineProvider for VmdProvider {
                 self.client.get(self.url(&format!("/v1/machines/{}/ports", machine.0))),
             )
             .await?;
-        let ports = v["ports"].as_array().cloned().unwrap_or_default();
+        let ports = v.get("ports").and_then(Value::as_array).cloned().unwrap_or_default();
         Ok(ports
             .iter()
             .filter_map(|p| {

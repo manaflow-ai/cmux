@@ -252,7 +252,8 @@ fn valid_name(s: &str) -> bool {
 }
 
 fn new_id(prefix: &str) -> String {
-    format!("{prefix}-{}", &uuid::Uuid::new_v4().simple().to_string()[..12])
+    let hex: String = uuid::Uuid::new_v4().simple().to_string().chars().take(12).collect();
+    format!("{prefix}-{hex}")
 }
 
 async fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
@@ -913,7 +914,7 @@ impl Host {
 
 fn tail(path: &Path, max: usize) -> String {
     let b = std::fs::read(path).unwrap_or_default();
-    String::from_utf8_lossy(&b[b.len().saturating_sub(max)..]).into_owned()
+    String::from_utf8_lossy(b.get(b.len().saturating_sub(max)..).unwrap_or_default()).into_owned()
 }
 
 #[cfg(test)]

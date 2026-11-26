@@ -42,6 +42,7 @@ use sha2::{Digest, Sha256};
 use crate::host::{CreateRequest, ExecRequest, Host, MachineMeta, RunState, VmdError};
 use crate::net::Egress;
 use crate::server::{ApiError, ApiResult};
+use crate::set_field;
 
 const TAG_PREFIX: &str = "tag:";
 /// Applied requests kept for replay; past this the oldest go first.
@@ -112,7 +113,7 @@ pub fn valid_vm_id(s: &str) -> bool {
     let b = s.as_bytes();
     !b.is_empty()
         && b.len() <= 128
-        && b[0].is_ascii_alphanumeric()
+        && b.first().is_some_and(u8::is_ascii_alphanumeric)
         && b.iter().all(|c| c.is_ascii_alphanumeric() || *c == b'_' || *c == b'-')
 }
 
@@ -121,7 +122,7 @@ pub fn valid_vm_name(s: &str) -> bool {
     let b = s.as_bytes();
     !b.is_empty()
         && b.len() <= 128
-        && (b[0].is_ascii_lowercase() || b[0].is_ascii_digit())
+        && b.first().is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
         && b.iter().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-')
 }
 
@@ -130,7 +131,7 @@ pub fn valid_tag_key(s: &str) -> bool {
     let b = s.as_bytes();
     !b.is_empty()
         && b.len() <= 63
-        && b[0].is_ascii_lowercase()
+        && b.first().is_some_and(u8::is_ascii_lowercase)
         && b.iter().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'_')
 }
 
@@ -139,7 +140,7 @@ fn valid_template(s: &str) -> bool {
     let b = s.as_bytes();
     !b.is_empty()
         && b.len() <= 128
-        && (b[0].is_ascii_lowercase() || b[0].is_ascii_digit())
+        && b.first().is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
         && b.iter().all(|c| {
             c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, b'.' | b'_' | b'-' | b'@')
         })
@@ -299,13 +300,17 @@ impl OwnHost {
             Ok(m) => self.view(&m),
             Err(_) => json!({"vm_id": r.vm_id, "state": "deleted"}),
         };
-        v["receipt"] = json!({
-            "request_id": r.request_id,
-            "verb": r.verb,
-            "vm_id": r.vm_id,
-            "at": rfc3339(r.at_ms),
-            "outcome": outcome,
-        });
+        set_field(
+            &mut v,
+            "receipt",
+            json!({
+                "request_id": r.request_id,
+                "verb": r.verb,
+                "vm_id": r.vm_id,
+                "at": rfc3339(r.at_ms),
+                "outcome": outcome,
+            }),
+        );
         (status, Json(v)).into_response()
     }
 
@@ -508,10 +513,14 @@ async fn remove(State(own): St, Path(id): Path<String>, b: Option<Json<PowerBody
     let r = Record { request_id, verb: Verb::Delete, body: id.clone(), vm_id: id, at_ms: now_ms() };
     own.record(r.clone())?;
     let mut v = json!({"vm_id": m.id, "state": "deleted", "name": m.name, "tag": tag_of(&m)});
-    v["receipt"] = json!({
-        "request_id": r.request_id, "verb": r.verb, "vm_id": r.vm_id,
-        "at": rfc3339(r.at_ms), "outcome": "applied",
-    });
+    set_field(
+        &mut v,
+        "receipt",
+        json!({
+            "request_id": r.request_id, "verb": r.verb, "vm_id": r.vm_id,
+            "at": rfc3339(r.at_ms), "outcome": "applied",
+        }),
+    );
     Ok(Json(v).into_response())
 }
 
