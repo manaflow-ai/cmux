@@ -2296,7 +2296,7 @@ CmuxNextApp	class	MacScreenPageService	0	PLATFORM	0	0	Packages/macOS/CmuxNext/So
 CmuxNextApp	extension	AppServices	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/MacScreen/MacScreenPageService.swift	from class MacScreenPageService:27: AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	extension	InternalPageID	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/MacScreen/MacScreenPageService.swift	AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	extension	MacScreenTabView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/MacScreen/MacScreenPageService.swift	from extension InternalPageID:15: AppKit/SwiftUI view, host or thin daemon call site
-CmuxNextApp	extension	MacScreenPages	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/MacScreen/MacScreenPairingLinks.swift	AppKit/SwiftUI view, host or thin daemon call site
+CmuxNextMacScreen	extension	MacScreenPages	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenPairingLinks.swift	AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	extension	MainMenu	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/MainMenu+Placements.swift	AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	enum	MainMenu	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/MainMenu.swift	AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	struct	ManagedPolicyBridge	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/ManagedPolicyBridge.swift	from struct ManagedPolicyBridge:13: managed team to cloud auth policy bridge
