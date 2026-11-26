@@ -145,16 +145,6 @@ extension SidebarViewComponents {
     /// Whether a drag is active now (a tile drag hides no list row, so `dragging` can be empty while it runs).
     public func debugDragActive() -> Bool { list.drag != nil }
 
-    /// The middle of the topmost shown usage warning badge in window coordinates, for a synthetic
-    /// pointer (`debug.pointer_hover {usageWarning: true}`), so a capture shows its tooltip; nil
-    /// when no row shows one.
-    public func debugUsageWarningCenterInWindow() -> CGPoint? {
-        list.rowViews.values.compactMap { ($0 as? WorkspaceRowView)?.usageWarningMark }
-            .filter { !$0.isHiddenOrHasHiddenAncestor && $0.window != nil }
-            .map { $0.convert(CGPoint(x: $0.bounds.midX, y: $0.bounds.midY), to: nil) }
-            .max { $0.y < $1.y }
-    }
-
     /// The middle of workspace `id`'s pull request badge in window coordinates (bottom-left origin), for a
     /// synthetic pointer (`debug.update_surfaces {action: "pull-request-badge"}`, hovercard-delay-live.py);
     /// nil when its row shows no badge.
