@@ -3,6 +3,7 @@
 //! Every async function runs on one shared Tokio runtime owned by this
 //! library, so Swift may await them from any executor.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
@@ -803,6 +804,31 @@ impl LinkHandle {
     }
 }
 
+/// One outgoing message's progress and cancellation, independent of every other message
+/// on the same multiplexed channel.
+#[derive(uniffi::Object)]
+pub struct ChannelWriteWatch {
+    advanced: AtomicBool,
+    cancelled: tokio::sync::watch::Sender<bool>,
+}
+
+#[uniffi::export]
+impl ChannelWriteWatch {
+    #[uniffi::constructor]
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self { advanced: AtomicBool::new(false), cancelled: tokio::sync::watch::channel(false).0 })
+    }
+
+    /// Whether this write queued bytes since the previous observation.
+    pub fn take_progress(&self) -> bool {
+        self.advanced.swap(false, Ordering::Relaxed)
+    }
+
+    pub fn cancel(&self) {
+        self.cancelled.send_replace(true);
+    }
+}
+
 /// One multiplexed channel.
 #[derive(uniffi::Object)]
 pub struct ChannelHandle {
@@ -828,6 +854,25 @@ impl ChannelHandle {
     pub async fn send(&self, data: Vec<u8>) -> Result<(), CmuxMobileError> {
         let sender = Arc::clone(&self.sender);
         on_runtime(async move { sender.send(data.into()).await }).await?;
+        Ok(())
+    }
+
+    /// As send, with chunk progress and cancellation scoped to this write.
+    pub async fn send_observed(
+        &self,
+        data: Vec<u8>,
+        watch: Arc<ChannelWriteWatch>,
+    ) -> Result<(), CmuxMobileError> {
+        let sender = Arc::clone(&self.sender);
+        on_runtime(async move {
+            let mut cancelled = watch.cancelled.subscribe();
+            tokio::select! {
+                biased;
+                _ = cancelled.wait_for(|cancelled| *cancelled) => Err(cmux_mobile_link::LinkError::ChannelClosed),
+                outcome = sender.send_observed(data.into(), &watch.advanced) => outcome,
+            }
+        })
+        .await?;
         Ok(())
     }
 
