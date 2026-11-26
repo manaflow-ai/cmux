@@ -64,11 +64,13 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ios_live_lease_owner.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ios_live_lease_owner.py"
 
 [[test]]
 path = "tests/test_ios_mobile_core_package_mac_when_asked.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ios_mobile_core_package_mac_when_asked.py"
 
 [[test]]
 path = "tests/test_ios_placeholder_bounds.py"

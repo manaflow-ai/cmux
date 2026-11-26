@@ -214,10 +214,6 @@ UNWIRED: set[str] = {
     # nightly-next-feed-stale issue (nightly_next_retry_exhausted.py) and that the job may write issues; run it by hand
     # after changing retry-ask-push-group.sh, that script or the job's permissions.
     "tests/test_nightly_next_retry_exhausted.py",
-    # lane = "manual" for the same rule (tests/test-execution.d/nightly.toml). It checks the one-job nightly-next
-    # path of nightly.yml (gate, concurrency, shared steps, the kept Zig cache and the single Zig install); run it
-    # by hand after changing nightly-next-one or a step it shares with the split jobs.
-    "tests/test_nightly_next_one_job.py",
     # lane = "manual" for the same rule. It checks that every nightly upload-artifact step has one retry that keeps
     # the first try's condition; run it by hand after adding or changing an upload in nightly.yml.
     "tests/test_nightly_artifact_uploads_retry.py",
@@ -355,11 +351,13 @@ def _registry_validator():
 def invoked_by_workflows() -> set[str]:
     """What CI runs, read the way the execution registry's validator reads it: every workflow, the step table
     pr-pipeline.yml runs through `ci/run` (ci/steps.toml), each workload profile's entrypoint and the shared recipe,
-    plus every registry entry whose lane a workflow's run_python_test_lane.py step runs."""
+    plus every registry entry whose lane a workflow's run_python_test_lane.py step runs. A linux-guard entry counts:
+    the registry's validator derives that lane from the workflows (an entry no step runs fails it, and --write makes it
+    manual), so it already means "a workflow step runs this file"."""
     validator = _registry_validator()
     workflows = ROOT / ".github" / "workflows"
     invoked = set(INVOKED_PATH.findall(validator.all_workflow_text(workflows)))
-    live_lanes = validator.runner_lanes(workflows)
+    live_lanes = validator.runner_lanes(workflows) | {"linux-guard"}
     for entry in validator.load_tree(ROOT):
         if entry.get("lane") in live_lanes and isinstance(entry.get("path"), str):
             invoked.add(entry["path"])
