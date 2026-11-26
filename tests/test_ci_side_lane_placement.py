@@ -1579,8 +1579,11 @@ class GatewayRoute(unittest.TestCase):
             values = env(SIDE_LABEL=LIGHT_SIDE, GITHUB_OUTPUT=str(output), ROUTE_TOKEN="t",
                          GITHUB_REPOSITORY="manaflow-ai/cmux", **overrides)
             free = {placement.cascade.LARGE: 0, placement.cascade.SMALL: 0}
+            # #55061 reads the live build fleet's queue p90 (FLEET_CONTROLLER): unread here, so a busy fleet
+            # on the runner's network does not drop the fast tier's listing.
             with mock.patch.object(placement.pool, "GitHub") as github, \
                     mock.patch.object(placement.cascade, "read", return_value=(free, dict(free), None)), \
+                    mock.patch.object(placement, "fleet_queue_p90", return_value=None), \
                     contextlib.redirect_stdout(io.StringIO()):
                 github.return_value.runners.return_value = runners
                 placement.main(values)
@@ -1967,6 +1970,8 @@ class CmuxNextWiring(unittest.TestCase):
         context["needs"] = {"path_route": {"outputs": {"native": "true", "macos": "true", "scheme": "true",
                                                             "swift": "true", "swift_canary": "true", "daemon": "true", "generated": "true",
                                                             "tree_state": "ready",
+                                                            # #57329: the jobs read the PR's live labels here.
+                                                            "labels": ",full-ci,",
                                                             # The generated-files job runs here, for its own label.
                                                             "generated_host": "generated-files"}},
                             "push-head-preflight": {"outputs": {"current": "true"}},
@@ -2025,6 +2030,8 @@ class CmuxNextWiring(unittest.TestCase):
             with self.subTest(name):
                 context = self.context(attempt=attempt, fork=fork)
                 context["github"]["event"]["pull_request"]["labels"] = labels
+                # #57329: the jobs read path_route's live labels (",a,b,"), not the event's.
+                context["needs"]["path_route"]["outputs"]["labels"] = f",{','.join(l['name'] for l in labels)},"
                 context["github"]["event_name"] = event_name
                 self.assertEqual(evaluate(expression, context), want)
         idle = [runner("mini-a-glaeda-3"), runner("mini-a-glaeda-4", labels=(STD, SIDE, GUI))]
@@ -2043,6 +2050,7 @@ class CmuxNextWiring(unittest.TestCase):
                 values = dict(line.split("=", 1) for line in output.read_text().splitlines())
                 context = self.context()
                 context["github"]["event"]["pull_request"]["labels"] = label
+                context["needs"]["path_route"]["outputs"]["labels"] = ",stack-blocker,"
                 context["needs"][self.PLACEMENT]["outputs"].update(values, placed_attempt="1")
                 routes = {name: evaluate(runs_on_route(self.workflow()["jobs"][name], name), context) for name in JOBS}
                 if stack:
@@ -2823,7 +2831,8 @@ class AppFfiBuildPlacement(unittest.TestCase):
 
     def test_the_build_runs_whatever_the_placement_did(self):
         build = self.workflow()["jobs"]["build"]
-        self.assertEqual(build["needs"], "placement")
+        # portable-tests (#57324): the Linux portable FFI tests gate the Mac build, and placement routes it.
+        self.assertEqual(build["needs"], ["placement", "portable-tests"])
         self.assertIn("!cancelled()", build["if"])
 
 
