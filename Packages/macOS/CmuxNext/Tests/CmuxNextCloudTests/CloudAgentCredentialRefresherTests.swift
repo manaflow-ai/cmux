@@ -592,6 +592,45 @@ struct CloudAgentCredentialRefresherTests {
         #expect(withdrawals == [expected, expected])
     }
 
+    @Test func reconnectingTheLocalWatchReconcilesAnOptOutThatHappenedWhileOffline() async throws {
+        let clock = ManualClock()
+        let instance = UUID().uuidString
+        let credentials = CloudAgentCredentials(machineIdentity: "mac", clock: clock)
+        let credential = CloudAgentCredential(connectionID: "key", family: "claude", kind: "api-key",
+                                              env: ["ANTHROPIC_API_KEY": "fixture-key"], expiresAt: nil, instance: instance)
+        let expected = try #require(credentials.credentialBinding(credential))
+        let first = AsyncStream<Void>.makeStream()
+        let second = AsyncStream<Void>.makeStream()
+        defer { second.continuation.finish() }
+        var subscriptions = 0
+        var cloudOn = true
+        var withdrawn: [String] = []
+        credentials.watchCredentialConnections = {
+            subscriptions += 1
+            return subscriptions == 1 ? first.stream : second.stream
+        }
+        credentials.readCredentialConnections = {
+            .init(connections: [.init(id: "key", families: ["claude"], servesCloud: cloudOn,
+                                      canServeCloud: true, credentialInstance: instance)])
+        }
+        credentials.withdrawGuestBindings = {
+            withdrawn = $0
+            return false // Keep a deadline as a signal that the reconciliation ran.
+        }
+
+        credentials.credentialConnectionsChanged()
+        await credentials.keySync?.value
+        first.continuation.finish()
+        try await clock.waitForSleeper()
+        #expect(withdrawn.isEmpty)
+        cloudOn = false
+        let retry = try #require(clock.sleeperDeadlines.first)
+        clock.advance(by: clock.now.duration(to: retry))
+        try await clock.waitForSleeper()
+        #expect(subscriptions == 2)
+        #expect(withdrawn == [expected])
+    }
+
     @Test func reattachRetriesARefusedWithdrawalOfAnExplicitDisconnect() async throws {
         let machine = Machine()
         let clock = ManualClock()
