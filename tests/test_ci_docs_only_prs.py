@@ -54,6 +54,8 @@ ALLOWED: dict[str, str] = {
     "cmux-next-fast-gates.yml": "next-autoland lands a head only on its cmux-next/fast-gates status (and dispatches "
                                 "the workflow when the status is missing), about two minutes on Linux",
     "merge-freeze.yml": "a merge freeze holds every pull request, prose included; one job",
+    "ci-pr-superseded-cancel.yml": "a push to any pull request, prose included, cancels its runs on older heads; "
+                                   "one small job (scripts/ci/cancel_superseded_pr_runs.py)",
     "pr-router.yml": "the router: it reads the changed paths and starts only the workflows they reach (scripts/ci/pr_router.json); one small job",
     "language-boundaries.yml": "policy over every changed path; one job",
     "cmux-next-batch.yml": "batches every open pull request; one job, off unless CMUX_NEXT_BATCH_ENABLED",
@@ -95,7 +97,6 @@ SCOPED: dict[str, str] = {
     "cmux-tui-windows-check.yml": "cmux-tui/**",
     "cmux-vm.yml": "workers/cmux-vm/**",
     "cmux-vm-clients.yml": "workers/cmux-vm/cli/**",
-    "coderouter-ci.yml": "coderouter/**",
     "device-hub.yml": "workers/device-hub/**",
     "fleet-artifact-cdn.yml": "workers/fleet-artifacts/**",
     "ios-review-gate.yml": "cmux-next-ios/AppStoreReview/**, whose Markdown the gate reads",
@@ -414,6 +415,34 @@ class Fallback(unittest.TestCase):
         self.assertEqual(sorted(self.plan(main, None, None)), sorted(set(opened) - set(self.feat_only)))
         self.assertEqual(sorted(self.plan(event, None)), due, "no run seen: call each")
         self.assertEqual(sorted(self.plan(event, PROSE + [CODE], None)), due)
+
+    def test_a_spent_rest_budget_reads_the_files_from_the_merge_commit(self):
+        # 2026-11-25: both REST reads got 403 on a 2-file `full-ci` pull request, the gate failed open and ran ci.yml a
+        # second time (about 300 runner-min). git lists the merge commit's files instead, so 300 or fewer call nothing.
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            git = ["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+            subprocess.run(git[:3] + ["init", "-q"], check=True)
+            Path(tmp, "base.md").write_text("base\n")
+            subprocess.run(git + ["add", "-A"], check=True)
+            subprocess.run(git + ["commit", "-qm", "base"], check=True)
+            Path(tmp, "docs").mkdir()
+            Path(tmp, "docs", "a.md").write_text("a\n")
+            Path(tmp, CODE).parent.mkdir(parents=True, exist_ok=True)
+            Path(tmp, CODE).write_text("code\n")
+            subprocess.run(git + ["add", "-A"], check=True)
+            subprocess.run(git + ["commit", "-qm", "merge"], check=True)
+            here = os.getcwd()
+            os.chdir(tmp)
+            try:
+                files = docs.merge_commit_files(2)
+                self.assertIsNone(docs.merge_commit_files(3), "fewer paths than changed_files: unread")
+            finally:
+                os.chdir(here)
+        self.assertEqual(sorted(files), sorted(["docs/a.md", CODE]))
+        self.assertEqual(self.plan(pull_request_event("labeled", changed=2, label="full-ci"), files, None), [])
+        gate = (WORKFLOWS / "docs-only-fallback.yml").read_text()
+        self.assertIn("fetch-depth: 2", gate, "the gate checks out the merge commit's parent for git diff")
 
     def test_a_large_docs_only_pull_request_calls_nothing(self):
         files = PROSE + ["docs/one-more.md"]
