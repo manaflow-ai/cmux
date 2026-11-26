@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "cloudStart.chatStartingHere" : {
+      "comment" : "Agent pane: Cloud can't start from this tab because a chat is already starting or opening in it; New Chat is the way to use Cloud",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A chat is already starting in this tab. Open a new chat to start one in Cloud."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A chat is already starting in this tab. Open a new chat to start one in Cloud."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A chat is already starting in this tab. Open a new chat to start one in Cloud."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A chat is already starting in this tab. Open a new chat to start one in Cloud."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A chat is already starting in this tab. Open a new chat to start one in Cloud."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A chat is already starting in this tab. Open a new chat to start one in Cloud."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A chat is already starting in this tab. Open a new chat to start one in Cloud."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A chat is already starting in this tab. Open a new chat to start one in Cloud."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A chat is already starting in this tab. Open a new chat to start one in Cloud."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A chat is already starting in this tab. Open a new chat to start one in Cloud."
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A chat is already starting in this tab. Open a new chat to start one in Cloud."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A chat is already starting in this tab. Open a new chat to start one in Cloud."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A chat is already starting in this tab. Open a new chat to start one in Cloud."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A chat is already starting in this tab. Open a new chat to start one in Cloud."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A chat is already starting in this tab. Open a new chat to start one in Cloud."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A chat is already starting in this tab. Open a new chat to start one in Cloud."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A chat is already starting in this tab. Open a new chat to start one in Cloud."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A chat is already starting in this tab. Open a new chat to start one in Cloud."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A chat is already starting in this tab. Open a new chat to start one in Cloud."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A chat is already starting in this tab. Open a new chat to start one in Cloud."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A chat is already starting in this tab. Open a new chat to start one in Cloud."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "retry.waiting.transport" : {
+      "comment" : "Agent pane: a subagent's or sub-session's state while acpmux waits to retry a turn that failed on a connection error (subagents/retryState.ts); {attempt} is this try, {of} how many acpmux makes",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retrying ({attempt}/{of}) after a connection error"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "إعادة المحاولة ({attempt}/{of}) بعد خطأ في الاتصال"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ponovni pokušaj ({attempt}/{of}) nakon greške veze"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prøver igen ({attempt}/{of}) efter en forbindelsesfejl"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Neuer Versuch ({attempt}/{of}) nach einem Verbindungsfehler"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Reintentando ({attempt}/{of}) tras un error de conexión"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nouvelle tentative ({attempt}/{of}) après une erreur de connexion"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nuovo tentativo ({attempt}/{of}) dopo un errore di connessione"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "接続エラーのため再試行中（{attempt}/{of}）"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កំពុងព្យាយាមម្តងទៀត ({attempt}/{of}) បន្ទាប់ពីកំហុសការតភ្ជាប់"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "연결 오류로 재시도 중 ({attempt}/{of})"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prøver igjen ({attempt}/{of}) etter en tilkoblingsfeil"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ponawianie ({attempt}/{of}) po błędzie połączenia"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tentando novamente ({attempt}/{of}) após um erro de conexão"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Повторная попытка ({attempt}/{of}) после ошибки соединения"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "กำลังลองใหม่ ({attempt}/{of}) หลังข้อผิดพลาดการเชื่อมต่อ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bağlantı hatasından sonra yeniden deneniyor ({attempt}/{of})"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Повторна спроба ({attempt}/{of}) після помилки з'єднання"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đang thử lại ({attempt}/{of}) sau lỗi kết nối"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "连接错误后正在重试（{attempt}/{of}）"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "連線錯誤後正在重試（{attempt}/{of}）"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

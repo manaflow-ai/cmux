@@ -60,6 +60,14 @@ export function devTreeCommand(args: readonly string[]): string {
 }
 
 /**
+ * The first clone. With the lock's bundle lists (RFD 0056 part 3), dev-tree.sh clones from the first
+ * edge list that answers and tops up from the code host; DEV_TREE_BUNDLE_LISTS= (empty) is the plain clone.
+ */
+export function devTreeCloneCommand(tree: DevTreeLock, ref: string): string {
+  return `DEV_TREE_BUNDLE_LISTS=${sq((tree.bundleLists ?? []).join(" "))} ${devTreeCommand(["clone", tree.repo, tree.branch, ref, tree.dir, ...tree.submodules])}`;
+}
+
+/**
  * Runs `command` as the transient unit cmux-dev-tree-<label> and waits for it. The unit records
  * its exit status and its own duration (ms). While it runs, one request to github.com a minute
  * keeps the VM from looking network-idle: a harness VM pauses after 300 s of that (guest.ts), and
@@ -120,7 +128,7 @@ async function phase(vm: Vm, phases: Phases, log: Log, label: string, command: s
  * `ref` is the commit to check out; empty means the branch head. Returns the checked-out commit.
  */
 export async function setUpDevTree(vm: Vm, tree: DevTreeLock, ref: string, phases: Phases, log: Log): Promise<string> {
-  const head = await phase(vm, phases, log, "clone", devTreeCommand(["clone", tree.repo, tree.branch, ref, tree.dir, ...tree.submodules]), 20 * MINUTE);
+  const head = await phase(vm, phases, log, "clone", devTreeCloneCommand(tree, ref), 20 * MINUTE);
   await phase(vm, phases, log, "zig", devTreeCommand(["zig", tree.dir]), 15 * MINUTE);
   const rust = tree.rustupInit;
   await phase(vm, phases, log, "rust", devTreeCommand(["rust", tree.dir, rust.url, rust.sha256, String(rust.size)]), 15 * MINUTE);

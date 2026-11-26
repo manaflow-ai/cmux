@@ -40,7 +40,7 @@
 //! higher one the PTY reader (`terminal-host-pty`).
 //!
 //! Run (ignored in the normal test run):
-//! `cargo test --release -p cmux-tui --test terminal_throughput_stages -- --ignored --nocapture`.
+//! `cargo test --release -p cmux-tui --test it -- terminal_throughput_stages:: --ignored --nocapture`.
 //! `CMUX_THROUGHPUT_MB` sets the payload (default 200), `CMUX_THROUGHPUT_STAGES`
 //! picks stages (comma list of the names above, without the parse chunk),
 //! `CMUX_THROUGHPUT_RUNS` the measured bursts of each daemon stage (default 1).
