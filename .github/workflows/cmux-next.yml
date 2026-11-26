@@ -247,6 +247,7 @@ on:
       - scripts/cmux-next/build-acpmux.sh
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
       - scripts/ci/github-egress-direct.sh
+      - scripts/ci/github-egress-run.sh
       - scripts/ci/reset-stale-submodules.sh
       - scripts/ci/git_fetch_retry.py
       - .github/workflows/cmux-next.yml
@@ -634,6 +635,7 @@ on:
       - scripts/cmux-next/build-acpmux.sh
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
       - scripts/ci/github-egress-direct.sh
+      - scripts/ci/github-egress-run.sh
       - scripts/ci/reset-stale-submodules.sh
       - scripts/ci/git_fetch_retry.py
       - .github/workflows/cmux-next.yml
@@ -2844,7 +2846,7 @@ jobs:
           started=$(date +%s)
           for target in "${targets[@]}"; do
             echo "Canary target: $target"
-            swift build --configuration debug --target "$target"
+            bash ../../../scripts/ci/github-egress-run.sh swift build --configuration debug --target "$target"
           done
           elapsed=$(( $(date +%s) - started ))
           {
@@ -4189,6 +4191,9 @@ jobs:
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         run: |
           bash scripts/cmux-next/tests/bundle-server-helper.test.sh
+          bash scripts/cmux-next/tests/bundle-cmux-tui-launch-preread.test.sh
+          bash scripts/cmux-next/tests/install-cmux-tui-client-require-companions.test.sh
+          bash scripts/cmux-next/tests/stamp-launchd-plists.test.sh
           bash scripts/cmux-next/tests/sign-cmux-bundle-helpers.test.sh
           bash tests/test_check_app_personalities.sh
 
@@ -4280,7 +4285,7 @@ jobs:
         env:
           CMUX_METRICS_WEB_CACHE_OUTCOME: ${{ steps.web-bundle-cache.outcome }}
           CMUX_METRICS_WEB_CACHE_HIT: ${{ steps.web-bundle-r2.outputs.cache-hit == 'true' && 'true' || steps.web-bundle-cache.outputs.cache-hit }}
-        run: python3 ../../../scripts/ci/swiftpm_build_metrics.py --role swift-test --output-dir "$RUNNER_TEMP/cmux-next-build-metrics" -- swift build --build-tests
+        run: bash ../../../scripts/ci/github-egress-run.sh python3 ../../../scripts/ci/swiftpm_build_metrics.py --role swift-test --output-dir "$RUNNER_TEMP/cmux-next-build-metrics" -- swift build --build-tests
 
       - name: Upload the test build measurement and log
         continue-on-error: true
@@ -4845,7 +4850,7 @@ jobs:
             python3 ../../../scripts/ci/fleet-test-products.py Packages/macOS/CmuxNext && exit 0
             echo "::warning title=Fleet test products::none for this commit; building them on this Mac"
           fi
-          python3 ../../../scripts/ci/swiftpm_build_metrics.py --role daemon-test --output-dir "$RUNNER_TEMP/cmux-next-build-metrics" -- swift build --build-tests
+          bash ../../../scripts/ci/github-egress-run.sh python3 ../../../scripts/ci/swiftpm_build_metrics.py --role daemon-test --output-dir "$RUNNER_TEMP/cmux-next-build-metrics" -- swift build --build-tests
 
       - name: Upload the test build measurement and log
         continue-on-error: true
@@ -5517,7 +5522,7 @@ jobs:
         env:
           CMUX_METRICS_WEB_CACHE_OUTCOME: ${{ steps.web-bundle-cache.outcome }}
           CMUX_METRICS_WEB_CACHE_HIT: ${{ steps.web-bundle-r2.outputs.cache-hit == 'true' && 'true' || steps.web-bundle-cache.outputs.cache-hit }}
-        run: python3 ../../../scripts/ci/swiftpm_build_metrics.py --role generated-files --output-dir "$RUNNER_TEMP/cmux-next-build-metrics" -- swift build --build-tests
+        run: bash ../../../scripts/ci/github-egress-run.sh python3 ../../../scripts/ci/swiftpm_build_metrics.py --role generated-files --output-dir "$RUNNER_TEMP/cmux-next-build-metrics" -- swift build --build-tests
 
       - name: Upload the test build measurement and log
         continue-on-error: true
