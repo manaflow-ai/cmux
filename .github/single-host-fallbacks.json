@@ -123,6 +123,10 @@
       "fallback": "opt-in and read only by three feat-cmux-next eval workflows (cmux-next-perf-bench.yml bench, cu-driver-eval.yml eval, screen-stream-eval.yml eval; cmux#36955, #37019) and the iPhone What's New clips (cmux-next-iphone-clips.yml record, nightly-next pushes only), each of which skips its job when the variable is unset (if: vars.CI_EVAL_STEP_GATEWAY != ''), so no PR job and no nightly build job waits on it. Set to glaeda-gateway-xcode-26.6 since 2026-11-05, the value the sibling gateway variables use: a pool, not one host, the two gateway runners on every dedicated untrusted ci-runner mini (build-fleet/mini-fleet.json, runner.gatewayRunners), so a busy or lost mini's job is taken by the next mini's gateway runner. The job there is a thin cmux-ci client that hands the eval to the controller, which picks the measure or bench worker. Clearing the variable skips the three evals again. Owner: Leo's eval lane that opened cmux#36955. after_minutes is the gateway-label window, as for CI_COMPILE_CHECK_GATEWAY",
       "after_minutes": 5
     },
+    "CI_FORK_LINUX_RUNNER": {
+      "fallback": "GitHub-hosted ubuntu-24.04 (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04'): read only on a pull request from a fork, never on an own-branch run",
+      "after_minutes": 5
+    },
     "CI_FAST_LANE_RUNNER": {
       "fallback": "the route-defined owned-pool or Blacksmith fallback",
       "after_minutes": 5

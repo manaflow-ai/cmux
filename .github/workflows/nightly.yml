@@ -8485,7 +8485,7 @@ jobs:
   fixit-handoff:
     needs: [resolve-nightly-cmux-tui-client, check-nightly-webviews, nightly-next-one]
     if: ${{ !cancelled() && vars.FIXIT_HANDOFF != '0' && (needs.check-nightly-webviews.outputs.fixit_nofix == 'true' || needs.nightly-next-one.outputs.fixit_nofix == 'true') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     timeout-minutes: 5
     permissions:
       actions: write
