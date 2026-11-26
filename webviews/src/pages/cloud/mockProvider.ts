@@ -18,13 +18,13 @@ import {
   NATIVE_ACTIONS,
   type CloudMachine,
   type CloudPlan,
-  type CloudUsage,
   type CloudRetention,
   type CloudSnapshot,
   type MachineEvent,
   type MachineResult,
   type TransferChanged,
   type CloudSurge,
+  type CloudUsage,
 } from "./ops";
 
 import { parseSpendLimit, SPEND_LIMIT_SET, type PoolStanding } from "./pool";
@@ -123,6 +123,8 @@ export class MockCloudProvider implements PageClient {
   offline = false;
   /** The next call of this op fails with a retryable owner error. */
   failNext?: string;
+  /** Every call of this op fails as `failNext` does, until cleared (a read that stays down). */
+  failAlways?: string;
   /** The code (and backend text "raw backend text") of the `failNext` failure; default upstream_error. */
   failCode?: string;
   /** Runs after the list result is taken and before it is answered (an event during the list). */
@@ -218,8 +220,8 @@ export class MockCloudProvider implements PageClient {
   async call<R>(op: string, params: unknown): Promise<R> {
     this.calls.push({ op, params });
     if (this.offline) throw pageError("cmux.protocol.transport", "disconnected", true);
-    if (this.failNext === op) {
-      this.failNext = undefined;
+    if (this.failNext === op || this.failAlways === op) {
+      if (this.failNext === op) this.failNext = undefined;
       if (this.failCode) throw pageError(this.failCode, "raw backend text", false);
       throw pageError("cmux.cloud.upstream_error", "The Cloud service did not answer.", true);
     }
