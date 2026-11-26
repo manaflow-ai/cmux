@@ -26,6 +26,11 @@ final class TerminalComposerBarUITests: XCTestCase {
         try walk(look: "light", appearance: .light)
     }
 
+    /// The filled field's draft. Plain words: a draft with a path
+    /// (`ls -la ~/Development`) stalled the app's main thread for 30 s and more
+    /// on a fleet simulator (cmux#56712).
+    static let draft = ProcessInfo.processInfo.environment["CMUX_UITEST_DRAFT"] ?? "echo hello from the composer bar"
+
     /// The keys the row's scroller must show, by accessibility identifier
     /// (`KeyBarKey.identifier`), every one of the default layout.
     private static let scrollerKeys = [
@@ -63,7 +68,7 @@ final class TerminalComposerBarUITests: XCTestCase {
         XCTAssertTrue(missing.isEmpty, "\(look): keys never on screen along the row: \(missing)")
 
         // Keyboard up, filled.
-        field.typeText("git status --short && ls -la ~/Development")
+        field.typeText(Self.draft)
         Thread.sleep(forTimeInterval: 0.8)
         // Only a screenshot here: dragging the key row with a draft in the
         // field stalls the app's main thread for 30 s on feat-cmux-next
