@@ -5,6 +5,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { installDom } from "../settings/testDom";
 import table from "./generated/strings.json";
+import type { OnboardingState } from "./ops";
 
 const restore = installDom();
 afterAll(restore);
