@@ -48,6 +48,10 @@ on:
         description: "The one job id to run (a bisect probe): health. Empty: every job."
         type: string
         default: ""
+      base:
+        description: "The commit the red states are judged against (the post-merge batch's last judged batch head, or a bisect probe's known-good commit): a state red there too is a standing red, listed by name and not failed. Empty: no base, every red state fails."
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       screenshots:
@@ -443,11 +447,13 @@ jobs:
       - name: Resolve the head and the merge
         id: resolve
         env:
-          # A post-merge batch run (inputs.sha set) is a full render with no base, as the nightly dispatch is,
-          # whatever event started the batch.
+          # A post-merge batch run (inputs.sha set) is a full render, whatever event started the batch. It is
+          # judged against inputs.base (the last judged batch's head, or a probe's known-good commit) when the
+          # caller passes one; with none it has no base, as the nightly dispatch has.
           EVENT: ${{ inputs.sha != '' && 'workflow_dispatch' || github.event_name }}
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
           BEFORE: ${{ github.event.before }}
+          BATCH_BASE: ${{ inputs.sha != '' && inputs.base || '' }}
         run: |
           set -euo pipefail
           merge=$(git rev-parse HEAD)
@@ -462,6 +468,16 @@ jobs:
             # fails it, so the red names the push that caused it.
             head=$merge
             base=$BEFORE
+          elif [ -n "$BATCH_BASE" ]; then
+            # A post-merge batch (or bisect probe) is judged against the commit its caller named: a state
+            # red there too is a standing red, listed by name in the summary, and only a state red since
+            # then fails, so the batch's bisect hunts the merge that made a new red, not an old one.
+            [[ "$BATCH_BASE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::inputs.base is not a commit sha: $BATCH_BASE"; exit 1; }
+            git cat-file -e "$BATCH_BASE^{commit}" 2>/dev/null \
+              || timeout 120 git fetch --quiet --no-tags --depth=1 --filter=blob:none origin "$BATCH_BASE" \
+              || { echo "::error::could not fetch the batch base $BATCH_BASE"; exit 1; }
+            head=$merge
+            base=$BATCH_BASE
           else
             # The nightly dispatch, or a new branch tip with no previous commit: no base, so every
             # red state fails. The dispatch's full render is what keeps an old red from hiding.
@@ -696,6 +712,12 @@ jobs:
           python3 "$classify" gallery --head "$head" "${bases[@]}" \
             --base-name "base ${BASE_SHA:0:12}" --annotate | tee "$RUNNER_TEMP/verdict.txt" || rc=$?
           grep -v '^::' "$RUNNER_TEMP/verdict.txt" >> "$GITHUB_STEP_SUMMARY" || true
+          # Every standing red (red on the base too) by name, so a red this run excuses is never hidden.
+          standing=$(python3 "$classify" gallery --head "$head" "${bases[@]}" --json | jq -r '.shared[]' 2>/dev/null) || true
+          if [ -n "$standing" ]; then
+            { echo; echo "Standing reds (red on base ${BASE_SHA:0:12} too, not failed here): $(grep -c . <<<"$standing")"
+              sed 's/^/- /' <<<"$standing"; } >> "$GITHUB_STEP_SUMMARY"
+          fi
           exit "$rc"
 
       - name: Fail past the case budget

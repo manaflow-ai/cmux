@@ -5639,7 +5639,7 @@ jobs:
     needs: [publish, verify-publish, adopt-commit-manifest, tree-preflight, publish-tree]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && (needs.verify-publish.result == 'success' || (needs.adopt-commit-manifest.result == 'success' && (needs.adopt-commit-manifest.outputs.state == 'adopted' || needs.adopt-commit-manifest.outputs.state == 'present'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 100  # 15 for the Cloud machine channel, at most 25 more for the Linux release file and its .deb and .rpm, 15 each for the apt and yum archive and the Mac live update file, 20 for the Screen Sharing helper, 5 for the Linux nightly channel
+    timeout-minutes: 115  # 15 for the Cloud machine channel, at most 25 more for the Linux release file and its .deb and .rpm, 15 each for the apt and yum archive, the AppImage and the Mac live update file, 20 for the Screen Sharing helper, 5 for the Linux nightly channel
     permissions:
       contents: read
       actions: read  # the Linux release file: this run's own build artifacts (gh run download)
@@ -5779,6 +5779,22 @@ jobs:
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
           ARCHIVE_SIGNING_KEY: ${{ secrets.CMUX_LINUX_ARCHIVE_SIGNING_KEY }}
         run: scripts/ci/linux-archive-publish.sh "$RUNNER_TEMP/machine-channel/linux-release/built" "$RUNNER_TEMP/linux-archive"
+
+      # The AppImage of the same verified binaries (scripts/ci/linux-appimage-publish.sh): written once per
+      # commit, the stable link and its zsync update file move only when the Linux release channel names this
+      # commit. It needs no secret beyond R2 (with the archive key it also signs a detached .asc); delivery,
+      # not a gate.
+      - name: Publish the AppImage
+        if: ${{ needs.verify-publish.result == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 15
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          ARCHIVE_SIGNING_KEY: ${{ secrets.CMUX_LINUX_ARCHIVE_SIGNING_KEY }}
+        run: scripts/ci/linux-appimage-publish.sh "$RUNNER_TEMP/machine-channel/linux-release/built" "$RUNNER_TEMP/linux-appimage"
 
   # Mac delivery must not wait for or be skipped by the unrelated Cloud channel or
   # Linux release signing. Manual artifact repairs must publish the same live file

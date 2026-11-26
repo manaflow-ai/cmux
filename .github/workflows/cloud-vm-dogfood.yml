@@ -37,6 +37,11 @@ on:
         required: false
         default: false
         type: boolean
+      npm_bench:
+        description: Also time one big npm install on a registry-only VM against one with public egress (the lock's cost; fails over 2 s)
+        required: false
+        default: false
+        type: boolean
       confirm_production:
         description: Required when target is production (creates one paid VM for a few minutes)
         required: false
@@ -279,6 +284,7 @@ jobs:
           LIFECYCLE: ${{ inputs.lifecycle }}
           EGRESS_ALLOWLIST: ${{ inputs.egress_allowlist }}
           PAUSED_READS: ${{ inputs.paused_reads }}
+          NPM_BENCH: ${{ inputs.npm_bench }}
           CMUX_VM_SMOKE_API_KEY: ${{ secrets.CMUX_VM_SMOKE_API_KEY }}
           CMUX_VM_SMOKE_SERVICE_KEY: ${{ secrets.CMUX_VM_SMOKE_SERVICE_KEY }}
           CMUX_VM_SMOKE_SERVICE_TEAM: ${{ vars.CMUX_VM_SMOKE_SERVICE_TEAM }}
@@ -293,6 +299,7 @@ jobs:
           if [ "$SKIP_SLEEP" = "true" ]; then args+=(--skip-sleep); fi
           if [ "$EGRESS_ALLOWLIST" = "true" ]; then args+=(--egress-allowlist); fi
           if [ "$PAUSED_READS" = "true" ]; then args+=(--paused-reads); fi
+          if [ "$NPM_BENCH" = "true" ]; then args+=(--npm-bench); fi
           if [ "$LIFECYCLE" = "true" ]; then
             args+=(--lifecycle --cmux "$RUNNER_TEMP/trusted-cmux/cmux")
             # The public cmux is built from main and has no `cmux vm` yet: the CLI legs run the headless VM CLI
