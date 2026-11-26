@@ -1018,6 +1018,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_swift_linux_packages.py
 
+      - name: Validate the Linux Swift target ratchet (count only goes up)
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_swift_linux_targets.py
+
       - name: Validate workflow_run triggers name workflows that exist
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_run_sources.py
@@ -1551,6 +1555,10 @@ jobs:
       - name: Validate the git mirror bundle publisher
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_git_mirror_bundle.py
+
+      - name: Validate the pinned files mirror
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_pinned_files_mirror.py
 
       - name: Validate the R2 binaries pruner
         if: ${{ !cancelled() && matrix.group == 'ci' }}

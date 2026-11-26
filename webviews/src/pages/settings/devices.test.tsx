@@ -346,20 +346,28 @@ test("a fingerprint shows the whole key on hover and Copy writes it", async () =
     '[data-devices-group="this"] [data-device="dev-mac-studio"]',
   )!;
   const full = "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809";
-  expect(self.querySelector("[data-device-fingerprint] code")!.getAttribute("title")).toBe(full);
+  // The whole key is the short one's hover card and its description (WithFacts, a1e7752d4c3d), not a
+  // title (c0ecbb88f123).
+  const code = self.querySelector<HTMLElement>("[data-device-fingerprint] code")!;
+  expect(code.getAttribute("title")).toBeNull();
+  const described = code.getAttribute("aria-describedby");
+  expect(described).toBeTruthy();
+  expect(self.ownerDocument.getElementById(described!)?.textContent).toBe(full);
   await click(self.querySelector("[data-device-copy-fingerprint]")!);
   expect(page.provider.clipboard).toBe(full);
   page.unmount();
 });
 
-test("history fits its card: fixed columns, names wrap at word boundaries, full text on hover", async () => {
+test("history fits its card: fixed columns, names wrap at word boundaries, their whole text shown", async () => {
   const page = await open();
   const table = card(page.container).querySelector<HTMLElement>(".devices-history")!;
   expect(table.classList.contains("devices-history-fixed")).toBe(true);
   expect(table.querySelectorAll("colgroup col").length).toBe(7);
   const first = table.querySelector("tbody tr")!;
-  for (const cell of first.querySelectorAll("td.devices-wrap"))
-    expect(cell.getAttribute("title")).toBe(cell.textContent);
+  // A wrapped cell shows its whole text, so it has no tooltip repeating it (c0ecbb88f123).
+  const cells = [...first.querySelectorAll("td.devices-wrap")];
+  expect(cells.length).toBeGreaterThan(0);
+  for (const cell of cells) expect(cell.getAttribute("title")).toBeNull();
   page.unmount();
 });
 
