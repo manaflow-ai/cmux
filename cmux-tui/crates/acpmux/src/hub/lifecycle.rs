@@ -2011,8 +2011,10 @@ impl Hub {
             // (`host_unheard`, review 68 of #23322).
             && !(child.is_stopped() && self.full_access_managed_off())
         {
-            // A turn may have passed its preflight before recovery saved the switch. Read it
-            // under the same spawn lock as the save, when handing the child to the caller.
+            // Read credential changes under the spawn lock, when handing the child to the caller.
+            if session.read_meta(|meta| meta.credential_withdrawn) {
+                return Err(super::credentials::credential_needed());
+            }
             if session.read_meta(super::credentials::claude_login_needs_restart) {
                 return Err(super::credentials::claude_login_busy());
             }

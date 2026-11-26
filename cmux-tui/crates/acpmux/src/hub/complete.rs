@@ -364,9 +364,6 @@ impl Hub {
                 let isolated: Value = serde_json::from_str(value)
                     .map_err(|_| failed("invalid OpenCode completion configuration".into()))?;
                 config["agent"] = isolated["agent"].clone();
-                if kimi {
-                    config["enabled_providers"] = json!([crate::byo_endpoint::OPENCODE_PROVIDER]);
-                }
                 cmd.env(key, config.to_string());
             } else {
                 cmd.env(key, value);

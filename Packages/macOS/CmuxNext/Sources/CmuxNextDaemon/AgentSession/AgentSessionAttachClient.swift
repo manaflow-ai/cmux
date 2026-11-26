@@ -95,12 +95,9 @@ public actor AgentSessionAttachClient {
         }
     }
 
-    private static func needsEndpointCapability(_ endpoint: LaunchEndpoint?, _ credentials: [String: String]?) -> Bool {
-        endpoint != nil || credentials?["GEMINI_API_KEY"] != nil || credentials?["GOOGLE_API_KEY"] != nil || credentials?["XAI_API_KEY"] != nil
-    }
-
     private static func needsKeyWithdrawal(_ endpoint: LaunchEndpoint?, _ credentials: [String: String]?) -> Bool {
-        needsEndpointCapability(endpoint, credentials) || credentials?["ANTHROPIC_API_KEY"] != nil || credentials?["OPENAI_API_KEY"] != nil
+        endpoint != nil || credentials?["ANTHROPIC_API_KEY"] != nil || credentials?["OPENAI_API_KEY"] != nil
+            || credentials?["GEMINI_API_KEY"] != nil || credentials?["GOOGLE_API_KEY"] != nil || credentials?["XAI_API_KEY"] != nil
     }
 
     /// The refusal of a Codex start that carries a credential to a daemon without ``startCodexCredentialsCapability``,
@@ -108,9 +105,9 @@ public actor AgentSessionAttachClient {
     public static let codexCredentialsUnsupported = "app.codex_credentials_update"
     /// The capability a start of `harness` needs to carry the owner's model credential: a Codex one needs
     /// ``startCodexCredentialsCapability``, every other one ``startCredentialsCapability``.
-    public static func credentialsCapability(harness: String?, endpoint: Bool = false, subscription: Bool = false) -> String {
+    public static func credentialsCapability(harness: String?, nativeKey: Bool = false, subscription: Bool = false) -> String {
         if subscription { return startSubscriptionCredentialsCapability }
-        if endpoint { return startEndpointCredentialsCapability }
+        if nativeKey { return DaemonCapability.agentSessionBoundCredentials.rawValue }
         return harness == "codex" ? startCodexCredentialsCapability : startCredentialsCapability
     }
     /// A Cloud machine's running link id while its connect answer says the caller owns it, else nil
@@ -320,7 +317,7 @@ public actor AgentSessionAttachClient {
             guard !Self.needsSubscriptionCapability(credentials) || (served.subscriptionCredentials && served.credentials && served.vmKind) else {
                 throw AgentSessionAttachError(code: Self.endpointCredentialsUnsupported, message: "the daemon does not take subscription credentials")
             }
-            guard !Self.needsEndpointCapability(launchEndpoint, credentials) || (served.endpointCredentials && served.credentials && served.vmKind) else {
+            guard launchEndpoint == nil || (served.endpointCredentials && served.credentials && served.vmKind) else {
                 throw AgentSessionAttachError(code: Self.endpointCredentialsUnsupported, message: "the daemon does not take endpoint credentials")
             }
             // A saved API key can be turned off for Cloud. Persist its binding for reattach.
@@ -390,7 +387,7 @@ public actor AgentSessionAttachClient {
             }
         }
         guard callerOwnsVM, !Self.needsSubscriptionCapability(credentials) || served.subscriptionCredentials,
-              !Self.needsEndpointCapability(launchEndpoint, credentials) || served.endpointCredentials,
+              launchEndpoint == nil || served.endpointCredentials,
               !Self.needsKeyWithdrawal(launchEndpoint, credentials) || (served.boundCredentials && served.credentialReattach) else { return false }
         let params = Self.startParams(cwd: cwd, harness: harness, homeConfirmed: false, personKey: nil,
                                       servesKeyedReason: served.keyedReason, callerOwnsVM: callerOwnsVM, servesVMKind: served.vmKind,
@@ -458,7 +455,7 @@ public actor AgentSessionAttachClient {
         // The owner's model credential, only over the owner answer of the link to their own Cloud VM
         // (`agent-session-start-credentials-v1`); anything else starts on the machine's own route.
         if callerOwnsVM, servesCredentials, let credentials, !credentials.isEmpty,
-           !needsEndpointCapability(launchEndpoint, credentials) || servesEndpointCredentials {
+           launchEndpoint == nil || servesEndpointCredentials {
             var env = credentials
             // Guests before endpoint credentials take the same saved Claude token under its original name.
             if !servesEndpointCredentials, launchEndpoint == nil, credentials.count == 1,

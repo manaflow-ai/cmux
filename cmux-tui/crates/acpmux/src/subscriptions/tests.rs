@@ -32,7 +32,6 @@ async fn discovery(State(fake): State<Fake>) -> Json<Value> {
         "device_authorization_endpoint": format!("{}/oauth2/device/code", fake.base),
         "token_endpoint": format!("{}/oauth2/token", fake.base),
         "revocation_endpoint": format!("{}/oauth2/revoke", fake.base),
-        "userinfo_endpoint": format!("{}/kimi-user", fake.base),
     }))
 }
 
@@ -76,10 +75,13 @@ async fn copilot_user(State(fake): State<Fake>, headers: HeaderMap) -> Json<Valu
 async fn kimi_user(headers: HeaderMap) -> Response {
     match headers.get("authorization").and_then(|value| value.to_str().ok()) {
         Some("Bearer fixture-other") => {
-            Json(json!({"sub": "other-subject", "name": "Other name"})).into_response()
+            Json(json!({"user_id": "other-subject", "nickname": "Other name"})).into_response()
         }
-        Some("Bearer fixture-same") => {
-            Json(json!({"sub": "saved-subject", "name": "Saved name"})).into_response()
+        Some("Bearer fixture-same" | "Bearer fixture-access") => {
+            Json(json!({"user_id": "saved-subject", "nickname": "Saved name"})).into_response()
+        }
+        Some("Bearer fixture-no-identity") => {
+            Json(json!({"nickname": "Saved name"})).into_response()
         }
         _ => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
@@ -140,7 +142,7 @@ async fn fixture(
         .route("/login/device/code", post(device))
         .route("/login/oauth/access_token", post(token))
         .route("/copilot_internal/user", get(copilot_user))
-        .route("/kimi-user", get(kimi_user))
+        .route("/coding/v1/me", get(kimi_user))
         .route("/user", get(|| async { Json(json!({"id": 42, "login": "fixture-user"})) }))
         .with_state(fake.clone());
     tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
@@ -151,8 +153,9 @@ async fn fixture(
         grok_issuer: base.clone(),
         github: base.clone(),
         github_api: base.clone(),
-        kimi_global: base,
+        kimi_global: base.clone(),
         kimi_china: "http://127.0.0.1:0".into(),
+        kimi_global_api: format!("{base}/coding/v1"),
         ..Default::default()
     }));
     (service, fake, root, places)
@@ -439,86 +442,109 @@ async fn copilot_refusal_does_not_erase_a_newer_sign_in() {
 }
 
 #[tokio::test]
-async fn kimi_disconnect_reports_keychain_delete_failure_and_can_retry() {
-    let provider = Provider::Kimi;
-    let (_service, _fake, _root, places) = fixture(provider, 30, vec![], true).await;
-    let id = "kimi-other-build";
-    let record = super::Record {
-        access_token: "fixture-access".into(),
-        refresh_token: "fixture-refresh".into(),
-        expires_at: 1,
-        region: Some(KimiRegion::Global),
-        device_id: None,
-        sub: None,
-        login: None,
-        email: None,
-    };
-    super::save(provider, &places, id, false, &record).unwrap();
-    let store = provider.store(&places.home);
-    store.refuse_test_delete(id, crate::subscription_store::Error::KeychainOtherBuild);
-    let service = Service::default();
-    let instance =
-        routes::find(places.routes.as_deref(), id).unwrap().file.credential_instance.unwrap();
-    assert_eq!(
-        service.remove(provider, places.clone(), id.into(), instance.clone()).await,
-        Err("keychain_other_build")
-    );
-    assert!(provider.path(&places.home, id).unwrap().exists());
-    assert!(routes::find(places.routes.as_deref(), id).is_ok());
-    assert!(store.has_test_item(id));
+async fn subscription_disconnect_reports_keychain_delete_failure_and_can_retry() {
+    for provider in [Provider::Kimi, Provider::Grok, Provider::Copilot] {
+        let (service, fake, _root, places) = fixture(provider, 30, vec![], true).await;
+        let id = provider.name();
+        let record = super::Record {
+            access_token: "fixture-access".into(),
+            refresh_token: if provider == Provider::Copilot { "" } else { "fixture-refresh" }
+                .into(),
+            expires_at: if provider == Provider::Copilot { 0 } else { 1 },
+            region: (provider == Provider::Kimi).then_some(KimiRegion::Global),
+            device_id: None,
+            sub: Some("fixture-subject".into()),
+            login: None,
+            email: None,
+        };
+        super::save(provider, &places, id, false, &record).unwrap();
+        let store = provider.store(&places.home);
+        store.refuse_test_delete(id, crate::subscription_store::Error::KeychainOtherBuild);
+        let instance =
+            routes::find(places.routes.as_deref(), id).unwrap().file.credential_instance.unwrap();
+        assert_eq!(
+            service.remove(provider, places.clone(), id.into(), instance.clone()).await,
+            Err("keychain_other_build")
+        );
+        assert!(provider.path(&places.home, id).unwrap().exists());
+        assert!(routes::find(places.routes.as_deref(), id).is_ok());
+        assert!(store.has_test_item(id));
 
-    store.allow_test_item(id);
-    service.remove(provider, places.clone(), id.into(), instance).await.unwrap();
-    assert!(!store.has_test_item(id));
-    assert!(!provider.path(&places.home, id).unwrap().exists());
-    assert!(routes::find(places.routes.as_deref(), id).is_err());
+        store.allow_test_item(id);
+        if provider == Provider::Grok {
+            store.refuse_test_item(id, crate::subscription_store::Error::KeychainOtherBuild);
+            assert_eq!(
+                service.remove(provider, places.clone(), id.into(), instance.clone()).await,
+                Err("keychain_other_build")
+            );
+            assert!(fake.calls.lock().unwrap().is_empty());
+            assert!(routes::find(places.routes.as_deref(), id).is_ok());
+            store.allow_test_item(id);
+        }
+        service.remove(provider, places.clone(), id.into(), instance).await.unwrap();
+        assert!(!store.has_test_item(id));
+        assert!(!provider.path(&places.home, id).unwrap().exists());
+        assert!(routes::find(places.routes.as_deref(), id).is_err());
+        if provider == Provider::Grok {
+            assert!(fake.calls.lock().unwrap()[0].contains("token=fixture-refresh"));
+        }
+    }
 }
 
 #[tokio::test]
 async fn kimi_reapproval_requires_the_saved_subject_before_replacing_the_grant() {
     let provider = Provider::Kimi;
-    let approvals = ["fixture-unavailable", "fixture-other", "fixture-same"]
-        .into_iter()
-        .map(|token| {
-            json!({
-                "access_token": token, "refresh_token": "fixture-new-refresh", "expires_in": 3600,
-            })
+    let approvals = [
+        "fixture-no-identity",
+        "fixture-access",
+        "fixture-unavailable",
+        "fixture-other",
+        "fixture-same",
+    ]
+    .into_iter()
+    .map(|token| {
+        json!({
+            "access_token": token, "refresh_token": format!("{token}-refresh"), "expires_in": 3600,
         })
-        .collect();
+    })
+    .collect();
     let (service, _fake, _root, places) = fixture(provider, 30, approvals, true).await;
-    let id = "kimi-saved";
-    let record = super::Record {
-        access_token: "fixture-saved".into(),
-        refresh_token: "fixture-saved-refresh".into(),
-        expires_at: now_plus(3600),
-        region: Some(KimiRegion::Global),
-        device_id: None,
-        sub: Some("saved-subject".into()),
-        login: Some("Saved name".into()),
-        email: None,
-    };
-    super::save(provider, &places, id, false, &record).unwrap();
+    let first = service.begin(provider, places.clone(), None, None, || {}).await.unwrap();
+    assert!(matches!(
+        service.wait(&first.attempt, Duration::from_secs(5)).await.unwrap(),
+        Status::Failed("bad_reply")
+    ));
+    assert!(routes::load(places.routes.as_deref()).0.is_empty());
+    assert!(!provider.store(&places.home).directory().exists());
 
-    for _ in 0..2 {
+    let first = service.begin(provider, places.clone(), None, None, || {}).await.unwrap();
+    let Status::Done(id) = service.wait(&first.attempt, Duration::from_secs(5)).await.unwrap()
+    else {
+        panic!("the Kimi profile did not bind the approval");
+    };
+    let first_grant = provider.read(&places.home, &id).unwrap().unwrap();
+    assert_eq!(first_grant.sub.as_deref(), Some("saved-subject"));
+
+    for expected in ["provider_error", "different_account"] {
         let begun =
-            service.begin(provider, places.clone(), Some(id.into()), None, || {}).await.unwrap();
+            service.begin(provider, places.clone(), Some(id.clone()), None, || {}).await.unwrap();
         let outcome = service.wait(&begun.attempt, Duration::from_secs(5)).await.unwrap();
-        assert!(matches!(outcome, Status::Failed("different_account")));
-        let saved = provider.read(&places.home, id).unwrap().unwrap();
-        assert_eq!(saved.refresh_token, "fixture-saved-refresh");
+        assert!(matches!(outcome, Status::Failed(code) if code == expected));
+        let saved = provider.read(&places.home, &id).unwrap().unwrap();
+        assert_eq!(saved.refresh_token, first_grant.refresh_token);
         assert_eq!(saved.sub.as_deref(), Some("saved-subject"));
         assert_eq!(
-            routes::find(places.routes.as_deref(), id).unwrap().name(),
+            routes::find(places.routes.as_deref(), &id).unwrap().name(),
             "Kimi Code (Saved name)"
         );
     }
 
     let begun =
-        service.begin(provider, places.clone(), Some(id.into()), None, || {}).await.unwrap();
+        service.begin(provider, places.clone(), Some(id.clone()), None, || {}).await.unwrap();
     let outcome = service.wait(&begun.attempt, Duration::from_secs(5)).await.unwrap();
     assert!(matches!(outcome, Status::Done(route) if route == id));
-    let saved = provider.read(&places.home, id).unwrap().unwrap();
-    assert_eq!(saved.refresh_token, "fixture-new-refresh");
+    let saved = provider.read(&places.home, &id).unwrap().unwrap();
+    assert_eq!(saved.refresh_token, "fixture-same-refresh");
     assert_eq!(saved.sub.as_deref(), Some("saved-subject"));
 }
 

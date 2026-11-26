@@ -160,7 +160,6 @@ const CAPABILITIES: &[&str] = &[
     agent_session_attach::agent_session_start::AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY,
     agent_session_attach::agent_session_start::AGENT_SESSION_START_CREDENTIALS_CAPABILITY,
     agent_session_attach::agent_session_start::AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY,
-    agent_session_attach::agent_session_start::AGENT_SESSION_START_ENDPOINT_CREDENTIALS_CAPABILITY,
     agent_session_attach::agent_session_start::AGENT_SESSION_START_SUBSCRIPTION_CREDENTIALS_CAPABILITY,
     agent_session_attach::agent_session_start::CREDENTIAL_REATTACH_CAPABILITY,
     agent_session_attach::agent_session_start::BOUND_CREDENTIALS_CAPABILITY,

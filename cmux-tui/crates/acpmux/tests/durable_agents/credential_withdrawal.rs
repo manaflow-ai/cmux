@@ -1,7 +1,7 @@
 use super::*;
 
 #[tokio::test]
-async fn credential_withdrawal_refuses_until_the_recorded_host_is_adopted() {
+async fn api_key_withdrawal_refuses_until_the_recorded_host_is_adopted() {
     let mut daemon = Daemon::new("cred-withdraw", "approve-all");
     daemon.sigterm();
     std::fs::write(
@@ -15,13 +15,13 @@ async fn credential_withdrawal_refuses_until_the_recorded_host_is_adopted() {
     .unwrap();
     daemon.start();
     let mut rpc = daemon.rpc().await;
-    let connection = format!("claude-token:{}", "a".repeat(64));
+    let connection = format!("work-key:{}", "a".repeat(64));
     let created = rpc
         .call(
             "session/new",
             json!({"cwd": daemon.home, "mcpServers": [], "_meta": {"acpmux": {
                 "credentials": {
-                    "env": {"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-withdrawal-fixture"},
+                    "env": {"ANTHROPIC_API_KEY": "fixture-key"},
                     "connection": connection
                 }
             }}}),
@@ -57,6 +57,14 @@ async fn credential_withdrawal_refuses_until_the_recorded_host_is_adopted() {
     rpc.call("_acpmux/harness/health", json!({})).await;
     assert!(daemon.events(session).iter().any(|event| event["kind"] == "host_adopted"));
     assert_eq!(daemon.host_record(session)["host_pid"], host);
+    let next = rpc
+        .reply(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "after restart"}]}),
+        )
+        .await;
+    assert_eq!(next["error"]["data"]["reason"], "credentials.needed");
+    assert!(alive(host));
     assert_eq!(rpc.call(method, withdrawal).await["restart"], "none");
     assert!(gone_within(host, Duration::from_secs(10)));
     assert_eq!(rpc.call(method, json!({"sessionId": session})).await["held"], false);

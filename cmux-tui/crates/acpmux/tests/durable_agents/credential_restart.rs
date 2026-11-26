@@ -141,19 +141,23 @@ fn claude_recovery_daemon(tag: &str) -> Daemon {
     daemon.sigterm();
     let config_dir = daemon.home.join("claude-config");
     std::fs::create_dir(&config_dir).unwrap();
-    let cli = daemon.home.join("fake-claude-login");
+    let cli = daemon.home.join("claude");
     std::fs::write(
         &cli,
-        r#"#!/bin/sh
-if [ "$2" = status ]; then
-    echo '{"loggedIn":true,"authMethod":"claude.ai"}'
-else
-    echo 'visit: https://claude.com/cai/oauth/authorize?code=true&state=s1 '
-    read -r code
-    [ "$code" = fixture-code ] || exit 1
-    echo '{"claudeAiOauth":{}}' > "$CLAUDE_CONFIG_DIR/.credentials.json"
-fi
-"#,
+        format!(
+            r#"#!/bin/sh
+case "$1 $2" in
+    "auth status") echo '{{"loggedIn":true,"authMethod":"claude.ai"}}' ;;
+    "auth login")
+        echo 'visit: https://claude.com/cai/oauth/authorize?code=true&state=s1 '
+        read -r code
+        [ "$code" = fixture-code ] || exit 1
+        echo '{{"claudeAiOauth":{{}}}}' > "$CLAUDE_CONFIG_DIR/.credentials.json"
+        ;;
+    *) exec python3 "{FAKE}" "$@" ;;
+esac
+"#
+        ),
     )
     .unwrap();
     std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -162,7 +166,7 @@ fi
         daemon.home.join("config.json"),
         json!({
             "harnesses": {
-                "claude-fake": {"argv": ["python3", FAKE], "family": "claude", "env": env},
+                "claude-fake": {"argv": [cli], "family": "claude", "env": env},
                 "claude": {"argv": [cli], "kind": "claude-stdio", "env": env}
             },
             "defaultHarness": "claude-fake", "permissionPolicy": "approve-all"

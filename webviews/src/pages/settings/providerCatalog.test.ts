@@ -58,26 +58,27 @@ test("subscription families resolve to their Cloud provider", () => {
   expect(cloudProviderForFamily("cursor-agent")).toBeUndefined();
 });
 
-test("Cloud accepts endpoint setup before a machine reports its runners", () => {
-  const endpoint = providerCatalog.find(({ id }) => id === "deepseek")!;
-  const local = providerCatalog.find(({ id }) => id === "ollama")!;
-  const bedrock = providerCatalog.find(({ id }) => id === "bedrock")!;
-  expect(canAddProvider(endpoint, true)).toBe(true);
-  expect(canAddProvider(local, true)).toBe(false);
-  expect(canAddProvider(bedrock, false)).toBe(true);
-});
-
-test("Cloud Connect offers only plans that can launch on its machines", () => {
+test("Cloud Connect only offers launchable keys and plans", () => {
   const offers = (id: string, cloud: boolean) => canAddProvider(providerById(id)!, cloud);
-  for (const id of ["grok", "copilot", "kimi-code"]) {
+  for (const id of [
+    "grok",
+    "copilot",
+    "kimi-code",
+    "endpoint",
+    "deepseek",
+    "moonshot",
+    "opencode-go",
+    "openrouter",
+    "bedrock",
+  ]) {
     expect(offers(id, false)).toBe(true);
     expect(offers(id, true)).toBe(false);
   }
-  for (const id of ["chatgpt", "claude", "xai", "moonshot", "opencode-go"]) {
+  expect(offers("ollama", true)).toBe(false);
+  for (const id of ["chatgpt", "claude", "anthropic", "openai", "google", "vertex-express", "xai"]) {
     expect(offers(id, true)).toBe(true);
   }
 });
-
 test("Qwen uses the international endpoint", () => {
   expect(providerById("qwen")?.baseUrl).toBe("https://dashscope-intl.aliyuncs.com/compatible-mode/v1");
 });

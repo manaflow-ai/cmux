@@ -402,7 +402,8 @@ extension SettingsModels {
         }
         guard target == .mac || cloudClaudeAccount?() == account else { return }
         claudeLoginTimers.removeValue(forKey: target)?.cancel()
-        claudeLogins[target]?.phase = "idle"
+        let stillSignedIn = target == .cloud && claudeLogins[target]?.signedIn == true
+        claudeLogins[target]?.phase = stillSignedIn ? "connected" : "idle"
     }
 
     private func releaseCloudClaudeApprovalIfIdle(_ target: ClaudeLoginTarget) {
@@ -446,13 +447,17 @@ extension SettingsModels {
                                 recoverySession: String? = nil, requestedMachine: String? = nil, requestedEnvironment: String? = nil,
                                 requestedName: String? = nil, waitsForGuestUpdate: Bool = false) {
         let account = cloudClaudeAccount?()
+        let machineID = machine?.id ?? requestedMachine
         let previous = claudeLogins[target].flatMap {
-            $0.machine == machine?.id && (target == .mac || cloudClaudeStateAccount == account) ? $0 : nil
+            $0.machine == machineID && (target == .mac || cloudClaudeStateAccount == account) ? $0 : nil
         }
         if target == .cloud { cloudClaudeStateAccount = account }
+        let preparingMachine = phase == "preparing" && machineID != nil ? previous : nil
         claudeLogins[target] = .init(phase: phase, error: error, apiKey: apiKey ?? previous?.apiKey ?? false,
-                                    signedIn: signedIn ?? previous?.signedIn, machine: machine?.id ?? requestedMachine, machineName: machine?.name ?? requestedName,
-                                    environment: machine?.environment ?? requestedEnvironment, recoverySession: recoverySession,
+                                    signedIn: signedIn ?? previous?.signedIn, machine: machineID,
+                                    machineName: machine?.name ?? requestedName ?? preparingMachine?.machineName,
+                                    environment: machine?.environment ?? requestedEnvironment ?? preparingMachine?.environment,
+                                    recoverySession: recoverySession,
                                     completion: completion ?? previous.flatMap { $0.recoverySession == recoverySession ? $0.completion : nil },
                                     waitsForGuestUpdate: waitsForGuestUpdate)
     }

@@ -495,7 +495,7 @@ impl Service {
 
     /// Signs account `id` out: revokes its refresh token (best effort: a revocation that fails
     /// still clears the tokens here) and deletes its record.
-    /// True when the revocation succeeded.
+    /// True when at least one refresh token was revoked and every revocation succeeded.
     pub async fn remove(&self, places: &Places, id: &str, instance: &str) -> Result<bool, Failure> {
         let lock = self.lock_for(id);
         let _one = lock.lock().await;
@@ -503,8 +503,51 @@ impl Service {
         let places = places.clone();
         let key = (places.home.clone(), id.to_owned());
         let instance = instance.to_owned();
+        let (read_places, read_key, read_instance) =
+            (places.clone(), key.clone(), instance.clone());
+        let grants = tokio::task::spawn_blocking(move || {
+            let check_route = || {
+                let route = routes::find(read_places.routes.as_deref(), &read_key.1)
+                    .map_err(|_| Failure::new("not_found", "no ChatGPT connection"))?;
+                if route.file.kind != RouteKind::ChatgptPlan
+                    || route.file.credential_instance.as_deref() != Some(read_instance.as_str())
+                {
+                    return Err(Failure::new("not_found", "no matching ChatGPT connection"));
+                }
+                Ok(())
+            };
+            check_route()?;
+            let grants =
+                store::disconnect_grants(&read_key.0, &read_key.1).map_err(store_failure)?;
+            check_route()?;
+            Ok::<_, Failure>(grants)
+        })
+        .await
+        .map_err(|_| Failure::new("storage", "subscription storage worker stopped"))??;
+        let current = grants.active.as_ref().map(|stored| {
+            self.pending_writes
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .get(&key)
+                .filter(|pending| &pending.previous == stored || &pending.current == stored)
+                .map_or_else(|| stored.clone(), |pending| pending.current.clone())
+        });
+        let mut revoked = false;
+        let mut failed = false;
+        let mut attempted = std::collections::HashSet::new();
+        for record in current.iter().chain(grants.retired.iter().map(|(_, record)| record)) {
+            if record.signed_in() && attempted.insert(record.refresh_token.as_str()) {
+                match self.oauth.revoke(record).await {
+                    Ok(()) => revoked = true,
+                    Err(failure) => {
+                        tracing::warn!(route = %id, code = %failure.code, "ChatGPT revocation failed");
+                        failed = true;
+                    }
+                }
+            }
+        }
         let pending_writes = Arc::clone(&self.pending_writes);
-        let (_, record) = tokio::task::spawn_blocking(move || {
+        tokio::task::spawn_blocking(move || {
             let _save = save;
             routes::remove_with(
                 places.routes.as_deref(),
@@ -515,38 +558,17 @@ impl Service {
                     if route.file.kind != RouteKind::ChatgptPlan {
                         return Err(Failure::new("not_found", "no ChatGPT connection"));
                     }
-                    let stored = store::read(&key.0, &key.1).map_err(store_failure)?;
-                    let record = stored.map(|stored| {
-                        pending_writes
-                            .lock()
-                            .unwrap_or_else(|p| p.into_inner())
-                            .get(&key)
-                            .filter(|pending| {
-                                pending.previous == stored || pending.current == stored
-                            })
-                            .map_or(stored, |pending| pending.current.clone())
-                    });
-                    store::delete(&key.0, &key.1).map_err(store_failure)?;
+                    store::delete_disconnected_grants(&key.0, &key.1, &grants)
+                        .map_err(store_failure)?;
                     pending_writes.lock().unwrap_or_else(|p| p.into_inner()).remove(&key);
-                    Ok(record)
+                    Ok(())
                 },
                 |error| Failure::new("storage", error.to_string()),
             )
         })
         .await
         .map_err(|_| Failure::new("storage", "subscription storage worker stopped"))??;
-        let revoked = if let Some(record) = record.filter(store::Record::signed_in) {
-            match self.oauth.revoke(&record).await {
-                Ok(()) => true,
-                Err(failure) => {
-                    tracing::warn!(route = %id, code = %failure.code, "ChatGPT revocation failed");
-                    false
-                }
-            }
-        } else {
-            false
-        };
-        Ok(revoked)
+        Ok(revoked && !failed)
     }
 }
 

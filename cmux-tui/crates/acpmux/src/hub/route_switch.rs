@@ -79,6 +79,7 @@ impl Hub {
             _ => None,
         };
         let Some((id, scope)) = routes::spawn_route(
+            dir.as_deref(),
             &bindings,
             session.unwrap_or_default(),
             workspace,
@@ -317,6 +318,7 @@ impl Hub {
         };
         tokio::task::spawn_blocking(move || {
             let (id, _) = routes::spawn_route(
+                dir.as_deref(),
                 &routes::bindings(&home),
                 &meta.id,
                 meta.session_env.get("CMUX_WORKSPACE_ID").map(String::as_str),
@@ -638,6 +640,7 @@ impl Hub {
         // The route the spawn ran on (`routes::spawn_route`); a profile's own only for codex,
         // whose logins this moves between.
         let bound = routes::spawn_route(
+            dir.as_deref(),
             &routes::bindings(&state),
             &session.id,
             workspace,

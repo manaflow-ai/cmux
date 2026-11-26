@@ -369,21 +369,35 @@ impl Hub {
                 "the login agent does not match the chat's harness",
             ));
         }
+        let provider_route =
+            || RpcError::invalid_params("this chat uses a provider route; sign in to that route");
+        if family == "claude" {
+            if super::spawn::launch_requires_claude_team(&meta) {
+                return Err(provider_route());
+            }
+            if super::spawn::launch_requires_claude_machine_login(&meta) {
+                profile.env = crate::server::claude_machine_login_env(&cfg)
+                    .ok_or_else(super::spawn::claude_route_unavailable)?;
+                return Ok((profile, None));
+            }
+        }
         let defaults = cfg.defaults_for(&meta.harness).env;
         let (dir, state) = routes::places(&cfg);
         drop(cfg);
-        let bindings = routes::bindings(&state);
-        let route = route_of(&bindings, dir.as_deref(), &meta, family, &profile.env)
-            .map_err(|e| RpcError::invalid_params(e.to_string()))?;
+        // The delivered credential uses the chat's profile and home without a guest route.
+        let route = if family == "claude" && self.has_delivered_credential(session) {
+            None
+        } else {
+            route_of(&routes::bindings(&state), dir.as_deref(), &meta, family, &profile.env)
+                .map_err(RpcError::invalid_params)?
+        };
         if route.as_ref().is_some_and(|(r, _)| {
             !matches!(
                 r.file.kind,
                 routes::RouteKind::DirectSubscription | routes::RouteKind::ClaudeToken
             )
         }) {
-            return Err(RpcError::invalid_params(
-                "this chat uses a provider route; sign in to that route",
-            ));
+            return Err(provider_route());
         }
         let picked = route.as_ref().map(|(r, scope)| (r, *scope));
         let home = self.home_of(&meta, family, &defaults, picked).await;
@@ -750,7 +764,7 @@ fn route_of(
     profile_env: &BTreeMap<String, String>,
 ) -> Result<Option<(routes::Route, &'static str)>, String> {
     let workspace = meta.session_env.get("CMUX_WORKSPACE_ID").map(String::as_str);
-    let chosen = routes::spawn_route(bindings, &meta.id, workspace, family, profile_env);
+    let chosen = routes::spawn_route(dir, bindings, &meta.id, workspace, family, profile_env);
     spawn_route_for(dir, chosen, family)
 }
 
@@ -769,7 +783,7 @@ fn target_route(
         None => {
             let mut bindings = bindings.clone();
             bindings.chats.clear();
-            routes::spawn_route(&bindings, "", None, family, profile_env)
+            routes::spawn_route(dir, &bindings, "", None, family, profile_env)
         }
     };
     spawn_route_for(dir, chosen, family).map_err(RpcError::invalid_params)

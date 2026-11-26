@@ -349,6 +349,10 @@ pub struct SessionMeta {
     /// The owner's selected Cloud model connection ID. The credential stays in memory.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub credential_connection: Option<String>,
+    /// The owner withdrew the delivered credential. Until redelivery, no new turn may use it,
+    /// even if an adopted host still carries it while existing work finishes.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) credential_withdrawn: bool,
     /// Model selected at launch with the delivered connection.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub credential_model: Option<String>,

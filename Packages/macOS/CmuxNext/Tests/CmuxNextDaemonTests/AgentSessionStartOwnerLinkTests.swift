@@ -141,6 +141,22 @@ import Testing
         #expect(daemon.frames.contains { $0["cmd"] as? String == "agent-session-prewarm" } == supported)
     }
 
+    @Test(arguments: ["GEMINI_API_KEY", "GOOGLE_API_KEY", "XAI_API_KEY"])
+    func aSavedNativeKeyStartsOnGuestsWithoutEndpointSupport(variable: String) async throws {
+        let capability = DaemonCapability.agentSessionBoundCredentials.rawValue
+        let harness = variable == "XAI_API_KEY" ? "grok" : "gemini"
+        let credentials = [variable: "fixture-key"]
+        let binding = "native-key:" + String(repeating: "a", count: 64)
+        let reply = try await start(serving: [
+            DaemonCapability.agentSessionStartVMKind.rawValue, AgentSessionAttachClient.startCredentialsCapability,
+            capability, "agent-session-credential-reattach-v1",
+        ], ownerLink: link(3, 3), harness: harness, credentials: credentials, credentialConnection: binding)
+        let wire = try #require(reply.frame?["credentials"] as? [String: Any])
+        #expect(wire["env"] as? [String: String] == credentials)
+        #expect(wire["endpoint"] == nil)
+        #expect(AgentSessionAttachClient.credentialsCapability(harness: harness, nativeKey: true) == capability)
+    }
+
     @Test(arguments: [false, true])
     func credentialWritesRequireTheDurableSessionCapability(supported: Bool) async throws {
         var capabilities = ["agent-session-attach-v1", AgentSessionAttachClient.startCredentialsCapability]

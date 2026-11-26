@@ -304,7 +304,7 @@ pub(super) fn run(
                 provider,
                 trimmed,
                 method::MUX_CONNECTIONS_KEY_ADD,
-                json!({ "provider": provider }),
+                json!({ "provider": provider, "servesCloud": true }),
                 label,
             )
         }

@@ -497,7 +497,7 @@ pub(super) async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Va
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use crate::agent_credentials::{AgentCredential, CLAUDE_OAUTH};
@@ -506,9 +506,11 @@ mod tests {
     #[tokio::test]
     async fn recovery_uses_the_requested_chat_after_a_retry_and_blocks_redelivery() {
         let home = tempfile::tempdir().unwrap();
+        let launcher = home.path().join("claude");
+        std::os::unix::fs::symlink("/usr/bin/false", &launcher).unwrap();
         let mut config: Config = serde_json::from_value(json!({
             "store": {"mode": "memory"},
-            "harnesses": {"claude": {"argv": ["/usr/bin/false"], "kind": "claude-stdio",
+            "harnesses": {"claude": {"argv": [launcher], "kind": "claude-stdio",
                 "env": {"CLAUDE_CONFIG_DIR": home.path()}}},
             "defaultHarness": "claude"
         }))
@@ -567,12 +569,7 @@ mod tests {
         hub.revoke_credential(&target.id).await.unwrap();
         let binding = format!("chat:{}", target.id);
         crate::routes::set_binding(&state, &binding, Some("work-claude")).unwrap();
-        let error = signed_in(&hub, Agent::Claude, &json!({}), &cli_home, Some(&target.id))
-            .await
-            .unwrap_err();
-        assert!(error.message.contains("provider route"));
         assert_eq!(hub.credential_status(&target.id).await.unwrap()["connection"], "work-claude");
-        crate::routes::set_binding(&state, &binding, None).unwrap();
         signed_in(&hub, Agent::Claude, &json!({}), &cli_home, Some(&target.id)).await.unwrap();
 
         let status = hub.credential_status(&target.id).await.unwrap();

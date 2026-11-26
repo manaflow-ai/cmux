@@ -145,7 +145,7 @@ function ProviderOptions({
     ...groups.flatMap(({ providers }) =>
       providers.filter((p) => !providerDisabledReason(p, claudeCodeAvailable, cloud, claudeError)).map((p) => p.id),
     ),
-    custom,
+    ...(!cloud ? [custom] : []),
   ];
   // The column view's arrows: Plans is one column, the keys grid two. Right and Left cross between them on the same
   // row; Down and Up move within a column (a grid row at a time) and past either end reach Add custom provider.
@@ -183,7 +183,7 @@ function ProviderOptions({
     for (let guard = 0; guard < planIds.length + keyIds.length + 2; guard++) {
       at = at === undefined ? undefined : step(at);
       if (at === undefined) return from;
-      if (at === custom || enabled.has(at)) return at;
+      if (enabled.has(at)) return at;
     }
     return from;
   };
@@ -306,7 +306,7 @@ function ProviderOptions({
             </div>
           )}
         </div>
-        {
+        {!cloud && (
           <div className="models-picker-footer" role="presentation">
             <DrivenRow
               id={optionId(custom)}
@@ -324,7 +324,7 @@ function ProviderOptions({
               {t("settingsWindow.models.addCustom")}
             </DrivenRow>
           </div>
-        }
+        )}
       </DrivenList>
     </>
   );

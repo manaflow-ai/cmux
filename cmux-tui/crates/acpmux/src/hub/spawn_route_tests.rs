@@ -2,6 +2,7 @@ use super::*;
 use crate::agent_credentials::{AgentCredential, CHATGPT_TOKEN, CLAUDE_OAUTH, OPENAI_KEY};
 use crate::hub::NewRequest;
 use crate::{chatgpt, routes};
+use std::collections::BTreeMap;
 
 const ROUTE: &str = "chatgpt-test";
 
@@ -57,6 +58,124 @@ fn save_kimi(root: &Path, id: &str, token: &str, expiry: i64) {
             }),
         )
         .unwrap();
+}
+
+fn api_key_route(root: &Path, provider: &str, family: &str, base_url: &str) -> routes::Route {
+    let secret = root.join("selected-key");
+    std::fs::write(&secret, "fixture-selected-key").unwrap();
+    crate::router_socket::owner_only(&secret);
+    routes::Route {
+        id: "selected-key".into(),
+        file: serde_json::from_value(json!({
+            "kind": "direct-api-key",
+            "provider": provider,
+            "families": [family],
+            "openai_base_url": base_url,
+            "secret": format!("file:{}", secret.display()),
+        }))
+        .unwrap(),
+        path: root.join("selected-key.toml"),
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn selected_xai_keys_launch_grok_without_its_saved_login_or_model_keys() {
+    let root = tempfile::tempdir().unwrap();
+    let native = root.path().join(".grok");
+    std::fs::create_dir(&native).unwrap();
+    let auth = native.join("auth.json");
+    let config = native.join("config.toml");
+    std::fs::write(&auth, r#"{"fixture":{"access_token":"fixture-native-login"}}"#).unwrap();
+    std::fs::write(&config, "[model.grok-build]\napi_key = \"fixture-model-key\"\n").unwrap();
+    let profile: HarnessProfile = serde_json::from_value(json!({
+        "argv": ["grok", "agent", "stdio"],
+        "env": {
+            "GROK_HOME": native,
+            "GROK_AUTH_PATH": auth,
+            "GROK_CONFIG_PATH": config,
+            "GROK_AUTH": "fixture-inline-login",
+            "GROK_DEPLOYMENT_KEY": "",
+        }
+    }))
+    .unwrap();
+    let route = api_key_route(root.path(), "xai", "grok", "https://api.x.ai/v1");
+    let mut local = profile.clone();
+    routes::apply(&mut local.env, &routes::env_for(&route, "grok", root.path()).unwrap());
+    let mut delivered = profile.clone();
+    let credential =
+        AgentCredential::parse(&json!({"env": {"XAI_API_KEY": "fixture-selected-key"}})).unwrap();
+    assert!(crate::agent_credentials::apply(
+        &credential,
+        "grok",
+        &mut delivered.argv,
+        &mut delivered.env,
+    ));
+    let id = uuid::Uuid::now_v7().to_string();
+    for (selected, session) in [(local, None), (delivered, Some((id.as_str(), "grok")))] {
+        let (cmd, scratch) =
+            crate::agent::harness_command_ready("grok", &selected, root.path(), None, session)
+                .await
+                .unwrap();
+        let env: BTreeMap<_, _> = crate::agent::command_env(&cmd).into_iter().collect();
+        assert_eq!(env["XAI_API_KEY"], "fixture-selected-key");
+        let home = Path::new(&env["GROK_HOME"]);
+        assert_ne!(home, native.as_path());
+        assert!(!home.join("auth.json").exists());
+        assert!(!home.join("config.toml").exists());
+        for key in ["GROK_AUTH_PATH", "GROK_AUTH", "GROK_CONFIG_PATH"] {
+            assert!(!env.contains_key(key));
+        }
+        if session.is_some() {
+            assert!(scratch.is_none());
+            assert_eq!(std::fs::read_link(home.join("sessions")).unwrap(), native.join("sessions"));
+            std::fs::remove_dir_all(home.parent().unwrap()).unwrap();
+        } else {
+            assert_eq!(scratch.unwrap().path(), home);
+        }
+    }
+    let (cmd, scratch) =
+        crate::agent::harness_command_ready("grok", &profile, root.path(), None, None)
+            .await
+            .unwrap();
+    let env: BTreeMap<_, _> = crate::agent::command_env(&cmd).into_iter().collect();
+    assert!(scratch.is_none());
+    assert_eq!(Path::new(&env["GROK_HOME"]), native.as_path());
+    assert_eq!(Path::new(&env["GROK_AUTH_PATH"]), auth.as_path());
+    assert!(auth.is_file() && config.is_file());
+}
+
+#[test]
+fn openrouter_launch_uses_the_selected_key_over_opencodes_saved_login() {
+    let root = tempfile::tempdir().unwrap();
+    let data = root.path().join("opencode");
+    std::fs::create_dir(&data).unwrap();
+    let saved = r#"{"openrouter":{"type":"api","key":"fixture-saved-key"}}"#;
+    let auth = data.join("auth.json");
+    std::fs::write(&auth, saved).unwrap();
+    let mut profile: HarnessProfile = serde_json::from_value(json!({
+        "argv": ["opencode", "acp"],
+        "family": "openrouter",
+        "env": {"XDG_DATA_HOME": root.path(), "OPENCODE_AUTH_CONTENT": saved}
+    }))
+    .unwrap();
+    let route =
+        api_key_route(root.path(), "openrouter", "openrouter", "https://openrouter.ai/api/v1");
+    routes::apply(&mut profile.env, &routes::env_for(&route, "openrouter", root.path()).unwrap());
+    let cmd =
+        crate::agent::harness_command("openrouter", &profile, root.path(), None, None).unwrap();
+    let env: BTreeMap<_, _> = crate::agent::command_env(&cmd).into_iter().collect();
+    let config: Value = serde_json::from_str(&env["OPENCODE_CONFIG_CONTENT"]).unwrap();
+    assert_eq!(env["OPENROUTER_API_KEY"], "fixture-selected-key");
+    assert_eq!(env["OPENCODE_AUTH_CONTENT"], "{}");
+    assert_eq!(config["enabled_providers"], json!(["openrouter"]));
+    assert_eq!(
+        config["provider"]["openrouter"]["options"],
+        json!({"baseURL": "https://openrouter.ai/api/v1", "apiKey": "{env:OPENROUTER_API_KEY}"})
+    );
+    assert!(!env["OPENCODE_CONFIG_CONTENT"].contains("fixture-selected-key"));
+    assert_eq!(Path::new(&env["XDG_DATA_HOME"]), root.path());
+    assert_eq!(std::fs::read_to_string(auth).unwrap(), saved);
 }
 
 #[tokio::test]
@@ -179,6 +298,64 @@ async fn local_kimi_refresh_replaces_the_launch_grant_before_a_turn() {
     assert_eq!(session.meta().agent_session_id.as_deref(), Some(native_id.as_str()));
     let launch = session.launch_env.lock().unwrap();
     assert_eq!(launch.as_ref().unwrap()[crate::byo_endpoint::OPENAI_KEY_ENV], "kimi-after-refresh");
+}
+
+#[tokio::test]
+async fn switching_an_existing_opencode_chat_to_kimi_excludes_the_previous_provider() {
+    let root = tempfile::tempdir().unwrap();
+    let id = "kimi-test";
+    let (hub, _) = fixture_for(root.path(), "opencode", "kimi-plan", id);
+    routes::set_binding(root.path(), "family:opencode", None).unwrap();
+    let previous_model = "openai/gpt-fixture";
+    {
+        let mut cfg = hub.config.write().await;
+        let profile = cfg.harnesses.get_mut("route-fake").unwrap();
+        profile.env.insert("OPENAI_API_KEY".into(), "fixture-openai-key".into());
+        profile.env.insert(
+            "OPENCODE_CONFIG_CONTENT".into(),
+            json!({"enabled_providers": ["openai"], "model": previous_model}).to_string(),
+        );
+    }
+    let session = hub
+        .new_session(NewRequest { cwd: Some(root.path().to_owned()), ..NewRequest::default() })
+        .await
+        .unwrap();
+    let before = hub.child_for(&session).await.unwrap().generation;
+    let native_id = session.meta().agent_session_id.unwrap();
+    session.meta.lock().unwrap().config_options =
+        Some(json!([{"id": "model", "type": "select", "currentValue": previous_model}]).into());
+    let expires = crate::subscriptions::now() + 3600;
+    save_kimi(root.path(), id, "fixture-kimi-grant", expires);
+
+    let switched = hub.set_chat_route(&session, Some(id.into()), false).await.unwrap();
+    assert_eq!(switched["applied"], "now");
+    assert_ne!(hub.child_for(&session).await.unwrap().generation, before);
+    assert_eq!(session.meta().agent_session_id.as_deref(), Some(native_id.as_str()));
+    hub.prompt(
+        &session,
+        vec![json!({"type": "text", "text": "env: OPENCODE_CONFIG_CONTENT"})],
+        "test",
+        false,
+    )
+    .await
+    .unwrap();
+    let config: Value = hub
+        .events(&session.id, 0, 100_000)
+        .unwrap()
+        .into_iter()
+        .find_map(|record| {
+            let text = record.msg.pointer("/params/update/content/text")?.as_str()?;
+            serde_json::from_str(text.strip_prefix("OPENCODE_CONFIG_CONTENT=")?).ok()
+        })
+        .expect("the replacement agent reported its OpenCode config");
+    assert_eq!(config["enabled_providers"], json!(["byo"]));
+    assert_eq!(config["model"], "byo/kimi-for-coding");
+    assert_eq!(config["small_model"], "byo/kimi-for-coding");
+    assert_eq!(
+        config["provider"]["byo"]["options"],
+        json!({"baseURL": "https://api.kimi.ai/coding/v1", "apiKey": "{env:CMUX_BYO_API_KEY}"})
+    );
+    hub.shutdown_all().await;
 }
 
 #[tokio::test]

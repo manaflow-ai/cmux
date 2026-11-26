@@ -350,6 +350,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         harness_argv: d.profile.argv.clone(),
         spawn_argv: None,
         credential_connection: None,
+        credential_withdrawn: false,
         credential_model: None,
         claude_token_recovery: None,
         claude_login_restart_pending: None,

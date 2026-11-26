@@ -35,6 +35,7 @@ struct Fake {
     device_replies: VecDeque<(StatusCode, Value)>,
     device_polls: Vec<tokio::time::Instant>,
     refresh_gate: Option<Arc<Gate>>,
+    revoke_gate: Option<Arc<Gate>>,
     device_poll_gate: Option<Arc<Gate>>,
 }
 
@@ -79,6 +80,7 @@ impl Default for Fake {
             device_replies: VecDeque::new(),
             device_polls: Vec::new(),
             refresh_gate: None,
+            revoke_gate: None,
             device_poll_gate: None,
         }
     }
@@ -247,7 +249,14 @@ async fn revoke(State(app): State<App>, Json(body): Json<Value>) -> StatusCode {
             o.iter().map(|(k, v)| (k.clone(), v.as_str().unwrap_or_default().to_owned())).collect()
         })
         .unwrap_or_default();
-    app.state.lock().unwrap().revoke_forms.push(form);
+    let gate = {
+        let mut fake = app.state.lock().unwrap();
+        fake.revoke_forms.push(form);
+        fake.revoke_gate.take()
+    };
+    if let Some(gate) = gate {
+        gate.hold().await;
+    }
     StatusCode::OK
 }
 
@@ -747,6 +756,37 @@ async fn remove_revokes_the_refresh_token() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn disconnect_revokes_before_a_route_backup_failure() {
+    let s = setup().await;
+    let id = "chatgpt";
+    assert_eq!(sign_in(&s, &[("code", "c1")]).await.0, Status::Done(id.into()));
+    let route = routes::find(s.places.routes.as_deref(), id).unwrap();
+    let instance = route.file.credential_instance.as_deref().unwrap();
+    let backups = s.places.home.join("route-backups");
+    std::fs::write(&backups, "blocks backup directory creation").unwrap();
+    let gate = Arc::new(Gate::default());
+    s.fake.state.lock().unwrap().revoke_gate = Some(gate.clone());
+    let removing = s.service.remove(&s.places, id, instance);
+    tokio::pin!(removing);
+    tokio::select! {
+        result = &mut removing => panic!("Disconnect completed before revocation: {result:?}"),
+        reached = tokio::time::timeout(Duration::from_secs(5), gate.entered.notified()) => {
+            reached.expect("provider received revocation");
+        }
+    }
+    assert!(store::read(&s.places.home, id).unwrap().unwrap().signed_in());
+    gate.release.notify_one();
+    assert_eq!(removing.await.unwrap_err().code, "storage");
+    assert!(routes::find(s.places.routes.as_deref(), id).is_ok());
+    assert_eq!(s.fake.state.lock().unwrap().revoke_forms[0]["token"], "refresh-0");
+
+    std::fs::remove_file(backups).unwrap();
+    s.service.remove(&s.places, id, instance).await.unwrap();
+    assert!(routes::find(s.places.routes.as_deref(), id).is_err());
+    assert_eq!(s.fake.state.lock().unwrap().revoke_forms.len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_stale_disconnect_does_not_revoke_the_replacement_grant() {
     let s = setup().await;
     sign_in(&s, &[("code", "c1")]).await;
@@ -793,12 +833,16 @@ async fn chatgpt_remove_reports_an_unreadable_keychain_and_keeps_the_index() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn chatgpt_can_disconnect_after_signing_in_again_with_a_refused_old_item() {
+async fn chatgpt_disconnect_requires_cleanup_of_the_retired_grant() {
     let s = setup().await;
     let id = "chatgpt";
     let home = &s.places.home;
     assert_eq!(sign_in(&s, &[("code", "c1")]).await.0, Status::Done(id.into()));
     let store = crate::subscription_store::Store::new(home, "chatgpt");
+    let mut prior = store::read(home, id).unwrap().unwrap();
+    prior.refresh_token = "fixture-retired-refresh".into();
+    store::write(home, id, &prior).unwrap();
+    let retired = store.test_account(id);
     store.refuse_test_item(id, crate::subscription_store::Error::KeychainOtherBuild);
     assert!(matches!(
         store::read(home, id),
@@ -806,11 +850,28 @@ async fn chatgpt_can_disconnect_after_signing_in_again_with_a_refused_old_item()
     ));
 
     assert_eq!(sign_in_again(&s, Some(id), &[("code", "c2")]).await.0, Status::Done(id.into()));
+    let active = store.test_account(id);
+    assert_ne!(active, retired);
     let route = crate::routes::find(s.places.routes.as_deref(), id).unwrap();
     let instance = route.file.credential_instance.as_deref().unwrap();
+    assert_eq!(
+        s.service.remove(&s.places, id, instance).await.unwrap_err().code,
+        "keychain_other_build"
+    );
+    assert!(routes::find(s.places.routes.as_deref(), id).is_ok());
+    assert!(store.has_test_item(&active));
+
+    store.allow_test_item(&retired);
+    assert!(store.has_test_item(&retired));
     assert!(s.service.remove(&s.places, id, instance).await.unwrap());
     assert!(store::read(home, id).unwrap().is_none());
-    assert_eq!(s.fake.state.lock().unwrap().revoke_forms[0]["token"], "refresh-0");
+    assert!(!store.has_test_item(&retired));
+    assert!(!store.has_test_item(&active));
+    let revoked = &s.fake.state.lock().unwrap().revoke_forms;
+    assert_eq!(
+        revoked.iter().map(|form| form["token"].as_str()).collect::<Vec<_>>(),
+        ["refresh-0", "fixture-retired-refresh"]
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

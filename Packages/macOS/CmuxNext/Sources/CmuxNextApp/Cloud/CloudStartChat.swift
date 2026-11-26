@@ -246,21 +246,15 @@ struct CloudStartChat {
         let endpoint = connection?.endpointCredentials == true
         let subscription = connection?.subscriptionCredentials == true
         let capability = claudeAuth?.capability
-            ?? AgentSessionAttachClient.credentialsCapability(harness: start.harness, endpoint: endpoint, subscription: subscription)
+            ?? AgentSessionAttachClient.credentialsCapability(harness: start.harness, nativeKey: endpoint, subscription: subscription)
         let requiresCapability = claudeAuth != nil || origin.connection != nil
         try await CloudOutdatedMachine.requireCapability(holds: { services.agentTabs.holdsTabs(machine.daemon) && (!requiresCapability || machine.daemon.supports(capability)) }, lacks: { requiresCapability && machine.daemon.connection != nil && !machine.daemon.supports(capability) }, update: { await CloudMachineUpdates.updateNow(machine.machineID, services: services) }, missing: CloudMove.Failure(message: CloudMachineRoute.tooOld, retry: .move(machineID: machine.machineID)))
-        try Self.requireEndpointHarness(start.harness == "openrouter" ? "opencode" : connection?.launchHarness, on: machine, subscription: subscription)
+        try Self.requireEndpointHarness(connection?.launchHarness, on: machine, subscription: subscription)
         let context = AppActionContext(services: services), daemon = machine.daemon, failure = CloudMove.Failure(message: CloudMoveStrings.notConnected(machine.machine.title), retry: .move(machineID: machine.machineID))
-        var machineStart = start
-        if endpoint, let connection = origin.connection {
-            let credential = try await services.cloud.agentCredentials.credential(forConnection: connection, model: start.model, harness: start.harness)
-            machineStart.harness = credential.harness ?? start.harness
-            machineStart.model = credential.model ?? start.model
-        }
-        let (seed, handOff) = AgentPaneSeedSource.handingOffDraft(machineStart.seed(cwd: cwd)) { [services] in services.agentTabs.unsentDrafts.draft(forTab: services.agentTabs.resolve(origin.tab.id), machine: services.agentTabs.daemonListing(origin.tab)?.machineID) }
+        let (seed, handOff) = AgentPaneSeedSource.handingOffDraft(start.seed(cwd: cwd)) { [services] in services.agentTabs.unsentDrafts.draft(forTab: services.agentTabs.resolve(origin.tab.id), machine: services.agentTabs.daemonListing(origin.tab)?.machineID) }
         defer { handOff(false) }
         // The chat's agent launch reads this choice (AgentTabs+RemoteStart): set before the tab exists, under the tab's key.
-        services.cloud.agentCredentials.use(connection: origin.connection, chat: tabKey, machine: machine.machineID, harness: machineStart.harness, claudeAuth: claudeAuth)
+        services.cloud.agentCredentials.use(connection: origin.connection, chat: tabKey, machine: machine.machineID, harness: start.harness, claudeAuth: claudeAuth)
         let inPlace = Self.frontsInPlace(origin.tab, workspace: CloudMachineWorkspace.chatKey(tabKey: tabKey).rawValue, services: services); let open = { (workspace: WorkspaceHandle) in try await services.agentTabs.openFirstPage(workspace: workspace, cwd: cwd, on: daemon, source: seed, mutationID: tabKey) }
         // The chat's own workspace, the chat its only tab: never the machine's first workspace and its starter terminal. The link can be down or drop under this (CloudMachineWorkspace.chatRelinked): it opens once more on the new link, under the same key.
         let (anchor, tab, opened) = try await CloudMachineWorkspace.chatRelinked(in: daemon.store, held: machine.linkHeld) {
@@ -279,12 +273,11 @@ struct CloudStartChat {
         await AgentSessionAttachClient.trustCopiedFolder(cwd, sourceTrusted: trusted, surface: opened.surface.rawValue, ownerLink: CloudMachineLinks(appLink: machine.appLink).ownerLink, endpoint: AgentTabRemoteHost.endpoint(on: machine.daemon))
         // The agent the page's first send will start, warmed now beside the page's load and its first send (cmux#45953): after the copied folder's trust, which the daemon's prewarm checks as the start does. A background step, logged with its own time and kept off the send's steps.
         let credentials = services.agentTabs.cloudCredentials, machineID = machine.machineID, logger = services.cloud.logger, prewarmBegan = ContinuousClock.now
-        let launch = machineStart
-        CloudAgentPrewarm(cwd: cwd, harness: launch.harness, model: launch.model, mode: start.mode, served: claudeAuth == nil && daemon.supports(AgentSessionAttachClient.prewarmCapability))?
+        CloudAgentPrewarm(cwd: cwd, harness: start.harness, model: start.model, mode: start.mode, served: claudeAuth == nil && daemon.supports(AgentSessionAttachClient.prewarmCapability))?
             .begin(surface: opened.surface.rawValue, endpoint: AgentTabRemoteHost.endpoint(on: daemon), ownerLink: CloudMachineLinks(appLink: machine.appLink).ownerLink,
                    permissionMode: services.agentTabs.startPermissionMode(), credentials: {
-                       guard let credential = try? await credentials?.launchCredential(chat: opened.key, machine: machineID, harness: launch.harness, model: launch.model) else { return nil }
-                       return .init(env: credential.env, endpoint: credential.endpoint, harness: credential.harness, model: credential.model ?? launch.model)
+                       guard let credential = try? await credentials?.launchCredential(chat: opened.key, machine: machineID, harness: start.harness, model: start.model) else { return nil }
+                       return .init(env: credential.env, endpoint: credential.endpoint, harness: credential.harness, model: credential.model ?? start.model)
                    }) { outcome in
                 logger.info("cloud start prewarm: \(outcome, privacy: .public) in \(CloudStartSteps.milliseconds(prewarmBegan.duration(to: .now)), privacy: .public) ms")
             }
@@ -396,7 +389,7 @@ extension CloudStartChat {
         }
         services.cloud.setup.machineHarnesses = { [weak services] id in
             guard let services, services.cloud.listedMachineIDs.contains(id) else { return nil }
-            return services.machines.session(id)?.endpointHarnesses
+            return services.machines.session(id)?.credentialHarnesses(subscription: false)
         }
         services.cloud.setup.machineSubscriptionHarnesses = { [weak services] id in
             guard let services, services.cloud.listedMachineIDs.contains(id) else { return nil }

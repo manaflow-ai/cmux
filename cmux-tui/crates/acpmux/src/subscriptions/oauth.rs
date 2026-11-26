@@ -25,6 +25,8 @@ pub(super) struct Endpoints {
     pub github_api: String,
     pub kimi_global: String,
     pub kimi_china: String,
+    pub kimi_global_api: String,
+    pub kimi_china_api: String,
     pub openrouter: String,
 }
 
@@ -36,6 +38,8 @@ impl Default for Endpoints {
             github_api: "https://api.github.com".into(),
             kimi_global: "https://auth.kimi.ai".into(),
             kimi_china: "https://auth.kimi.com".into(),
+            kimi_global_api: KimiRegion::Global.base_url().into(),
+            kimi_china_api: KimiRegion::China.base_url().into(),
             openrouter: "https://openrouter.ai".into(),
         }
     }
@@ -373,14 +377,12 @@ impl OAuth {
                             return Err("bad_reply");
                         }
                     }
-                    if provider == Provider::Kimi
-                        && record.sub.is_none()
-                        && let Some(region) = record.region
-                        && let Some(user) = self.kimi_identity(http, region, &record).await
-                    {
-                        record.sub = identity(&user["sub"])
-                            .or_else(|| user["id"].as_u64().map(|id| id.to_string()));
-                        record.login = identity(&user["name"]);
+                    if provider == Provider::Kimi {
+                        let region = record.region.ok_or("bad_region")?;
+                        let user = self.kimi_identity(http, region, &record).await?;
+                        record.sub = identity(&user["user_id"]);
+                        record.login =
+                            identity(&user["nickname"]).or_else(|| identity(&user["username"]));
                         record.email = identity(&user["email"]);
                     }
                     return Ok(record);
@@ -395,31 +397,17 @@ impl OAuth {
         http: &Client,
         region: KimiRegion,
         record: &Record,
-    ) -> Option<serde_json::Value> {
-        let issuer = match region {
-            KimiRegion::Global => &self.endpoints.kimi_global,
-            KimiRegion::China => &self.endpoints.kimi_china,
+    ) -> Result<serde_json::Value, Failure> {
+        let base = match region {
+            KimiRegion::Global => &self.endpoints.kimi_global_api,
+            KimiRegion::China => &self.endpoints.kimi_china_api,
         };
-        let discovery: serde_json::Value = reply(
-            http.get(format!("{issuer}/.well-known/openid-configuration"))
-                .timeout(Duration::from_secs(3)),
-        )
-        .await
-        .ok()?;
-        let endpoint = Url::parse(discovery["userinfo_endpoint"].as_str()?).ok()?;
-        if endpoint.origin() != Url::parse(issuer).ok()?.origin()
-            || !endpoint.username().is_empty()
-            || endpoint.password().is_some()
-        {
-            return None;
-        }
         reply(
-            self.kimi_headers(http.get(endpoint), record.device_id.as_deref())
+            self.kimi_headers(http.get(format!("{base}/me")), record.device_id.as_deref())
                 .timeout(Duration::from_secs(3))
                 .bearer_auth(&record.access_token),
         )
         .await
-        .ok()
     }
 
     pub async fn copilot_endpoint(&self, token: &str) -> Result<Option<String>, Failure> {

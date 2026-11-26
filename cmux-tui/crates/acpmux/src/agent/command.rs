@@ -6,6 +6,9 @@ use anyhow::{Result, anyhow};
 use std::process::Stdio;
 use tokio::process::Command;
 
+#[cfg(unix)]
+mod grok_key;
+
 /// A spawn-only profile marker: remote-origin harnesses start from the
 /// explicit base below, never the daemon's ambient environment. Removed
 /// before the profile env is applied.
@@ -78,14 +81,33 @@ pub(crate) async fn harness_command_ready(
         remote: profile.env.get(REMOTE_ENV_POLICY_KEY).map(String::as_str) == Some("1"),
         explicit: None,
     };
-    crate::login_env::build_ready(
+    let cmd = crate::login_env::build_ready(
         &mut plan,
         || harness_command(name, profile, cwd, command_line.clone(), session),
         |cmd| explicit_env(cmd.as_std()),
         |e| anyhow!(e),
     )
-    .await
-    .map(|cmd| (cmd, None))
+    .await?;
+    if selected_grok_key(&family, profile) {
+        #[cfg(unix)]
+        {
+            let mut cmd = cmd;
+            let scratch = grok_key::isolate(&mut cmd, cwd, session.map(|(id, _)| id), plan.remote)?;
+            return Ok((cmd, scratch));
+        }
+        #[cfg(not(unix))]
+        return Err(anyhow!("This Grok connection cannot launch the native runner"));
+    }
+    Ok((cmd, None))
+}
+
+fn selected_grok_key(family: &str, profile: &HarnessProfile) -> bool {
+    let key = crate::provider_cloud_auth::Provider::Grok.api_key();
+    family == "grok"
+        && profile.env.contains_key(key)
+        && (profile.env.get(crate::agent_credentials::LOCAL_REDACTION).map(String::as_str)
+            == Some(key)
+            || profile.env.get(crate::agent_credentials::MARKER).map(String::as_str) == Some(key))
 }
 
 /// The env changes `cmd` makes: a name it sets, or removes (`None`).
@@ -184,7 +206,7 @@ fn build_harness_command(
     };
     let mut env = resolved_profile_env(profile)?;
     env.remove(crate::chatgpt::LOCAL_EXPIRY_ENV);
-    env.remove(crate::subscriptions::LOCAL_KIMI_EXPIRY);
+    let kimi = env.remove(crate::subscriptions::LOCAL_KIMI_EXPIRY).is_some();
     let local_codex_route = crate::codex_app_server::is_launch(&owned.0, &owned.1)
         && !env.contains_key(crate::agent_credentials::MARKER)
         && env.contains_key(crate::routes::NAME_KEY);
@@ -209,22 +231,41 @@ fn build_harness_command(
     if env.remove(crate::agent_credentials::COPILOT_TOKEN).is_some() {
         return Err(CopilotReconnect.into());
     }
+    let config_key = crate::opencode_ask::CONFIG_ENV;
     if family_name == "openrouter" {
         if !env.contains_key("OPENROUTER_API_KEY") {
             return Err(anyhow!("Connect OpenRouter in Models"));
         }
         env.insert(
-            "OPENCODE_CONFIG_CONTENT".into(),
+            config_key.into(),
             serde_json::json!({
                 "enabled_providers": ["openrouter"],
-                "provider": {"openrouter": {"options": {"baseURL": "https://openrouter.ai/api/v1"}}}
+                "provider": {"openrouter": {"options": {
+                    "baseURL": "https://openrouter.ai/api/v1",
+                    "apiKey": "{env:OPENROUTER_API_KEY}"
+                }}}
             })
             .to_string(),
         );
     }
+    let kimi = family_name == "opencode" && kimi;
+    if kimi {
+        let mut config: serde_json::Value = env
+            .get(config_key)
+            .and_then(|value| serde_json::from_str(value).ok())
+            .filter(serde_json::Value::is_object)
+            .ok_or_else(|| anyhow!("invalid OpenCode launch configuration"))?;
+        // ACP restores and replays a saved model only while its provider is available.
+        config["enabled_providers"] = serde_json::json!([crate::byo_endpoint::OPENCODE_PROVIDER]);
+        env.insert(config_key.into(), config.to_string());
+    }
+    if kimi || family_name == "openrouter" {
+        // OpenCode's inline auth replaces its saved auth without moving its session database.
+        env.insert("OPENCODE_AUTH_CONTENT".into(), "{}".into());
+    }
     if family_name == "opencode"
         && let Some((id, _)) = session
-        && let Some(config) = env.get_mut("OPENCODE_CONFIG_CONTENT")
+        && let Some(config) = env.get_mut(config_key)
     {
         crate::byo_endpoint::configure_opencode_session(config, id);
     }

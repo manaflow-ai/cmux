@@ -395,7 +395,12 @@ public final class SettingsModels {
             guard let id = listedID(params), id != "claude-login",
                   let name = params["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !name.isEmpty, name.count <= 128 else { throw PageError.invalidParams("rename needs a listed route and a name") }
-            try await mutate(.accountSet, ["id": id, "name": name])
+            guard let instance = params["instance"], instance.stringValue != nil || (id == "codex-login" && instance == .null),
+                  connections.contains(where: { $0["id"]?.stringValue == id && $0["credentialInstance"] == instance }) else {
+                throw PageError.invalidParams("rename needs the listed connection instance")
+            }
+            let expected = instance.stringValue.map { $0 as any Sendable } ?? NSNull()
+            try await mutate(.accountSet, ["id": id, "name": name, "instance": expected])
         case "checkAccess":
             return try await checkAccess(params)
         case "remove":

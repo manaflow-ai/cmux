@@ -1,4 +1,5 @@
 import CmuxNextCloud
+import CmuxNextDaemon
 import Foundation
 import Testing
 
@@ -84,25 +85,69 @@ struct CloudSetupTests {
         rule.run = nil
     }
 
-    @Test func exactEndpointReadinessAndStartUseTheSameConnection() async {
-        let connections = Connections(.init(personal: [
-            .init(id: "deepseek", families: ["deepseek"], endpointProfile: true, endpointCredentials: true, launchHarness: "opencode"),
-            .init(id: "claude-local", families: ["claude-local"], servesCloud: false, endpointProfile: true),
-        ], organization: ["claude"]))
-        let rule = setup(connections)
-        #expect(await rule.choose(harness: "deepseek", model: "byo/model", account: nil) == .connection(id: "deepseek", family: "deepseek"))
-        #expect(await rule.choose(harness: "claude-local", model: nil, account: nil) == .setup(family: "claude-local", model: nil))
-        #expect(await rule.launchConnection("deepseek")?.endpointCredentials == true)
-        let unknown = await rule.served()
-        #expect(unknown.servedHarnesses.isEmpty)
-        #expect(unknown.pendingHarnesses == ["deepseek"])
-        rule.machineHarnesses = { $0 == "current" ? ["opencode"] : [] }
-        let served = await rule.served(machine: "current")
-        #expect(served.servedHarnesses == ["deepseek"])
-        #expect(served.unavailableEndpointHarnesses == ["claude-local"])
-        let missing = await rule.served(machine: "current-without-opencode")
-        #expect(missing.pendingHarnesses.isEmpty)
-        #expect(missing.unavailableEndpointHarnesses == ["claude-local", "deepseek"])
+    @Test func staleEndpointAndOpenRouterRowsNeverOfferACloudLaunch() async throws {
+        let endpoint = try #require(CloudSetup.Connection(json: [
+            "id": "deepseek", "kind": "endpoint", "families": ["deepseek"], "serves_cloud": true,
+            "launch_harness": "opencode", "endpoint_credentials": true,
+        ]))
+        let openRouter = try #require(CloudSetup.Connection(json: [
+            "id": "openrouter-key", "kind": "api-key", "provider": "openrouter",
+            "cloud_families": ["claude", "openrouter"], "serves_cloud": true,
+            "launch_harness": "claude", "endpoint_credentials": true,
+        ]))
+        let rule = setup(Connections(.init(personal: [endpoint, openRouter], organization: [])))
+        rule.machineHarnesses = { _ in ["claude", "opencode"] }
+        #expect(await rule.choose(harness: "deepseek", model: "byo/model", account: nil) == .setup(family: "deepseek", model: "byo/model"))
+        #expect(await rule.choose(harness: "openrouter", model: nil, account: nil) == .setup(family: "openrouter", model: nil))
+        #expect(await rule.choose(harness: "claude", model: nil, account: "openrouter-key") == .setup(family: "claude", model: nil))
+        let readiness = await rule.served(machine: "guest")
+        #expect(readiness.servedHarnesses.isEmpty)
+        #expect(readiness.pendingHarnesses.isEmpty)
+        #expect(readiness.unavailableEndpointHarnesses == ["deepseek"])
+    }
+
+    @Test(arguments: [false, true])
+    func aGuestWithoutTheAdvertisedClaudeTeamRouteRetriesOnlyWhenSignedIn(signedIn: Bool) async throws {
+        let rule = setup(Connections(.init(personal: [], organization: ["claude"])))
+        let choice = await rule.choose(harness: "claude", model: nil, account: nil)
+        let refusal = AgentSessionAttachError(code: "agent_session.route_unavailable", message: "unavailable",
+                                               details: .object(["reason": .string("route.unavailable")]))
+        var starts: [AgentSessionAttachClient.ClaudeAuth?] = []
+        var statusChecks = 0
+        do {
+            let session = try await CloudSetup.startWithClaudeFallback(choice.claudeAuth, isSignedIn: {
+                statusChecks += 1
+                return signedIn
+            }) { auth in
+                starts.append(auth)
+                if auth == .team { throw refusal }
+                return "session"
+            }
+            #expect(signedIn && session == "session")
+        } catch let error as AgentSessionAttachError {
+            #expect(!signedIn && error == refusal)
+        }
+        #expect(starts == (signedIn ? [.team, .own] : [.team]))
+        #expect(statusChecks == 1)
+    }
+
+    @Test func aSuccessfulOrUnrelatedTeamStartNeverChecksMachineLogin() async throws {
+        let session = try await CloudSetup.startWithClaudeFallback(.team, isSignedIn: {
+            Issue.record("A working team route should not check the other account")
+            return true
+        }) { auth in
+            #expect(auth == .team)
+            return "session"
+        }
+        #expect(session == "session")
+
+        let refusal = AgentSessionAttachError(code: "agent_session.host_unverified", message: "unverified")
+        await #expect(throws: refusal) {
+            try await CloudSetup.startWithClaudeFallback(.team, isSignedIn: {
+                Issue.record("An unrelated refusal should not check the other account")
+                return true
+            }) { _ in throw refusal }
+        }
     }
 
     @Test func staleCloudPlanRowsCannotDisplaceARunnableKeyOrOfferTheirRunners() async {

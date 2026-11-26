@@ -4,12 +4,20 @@ const TOKEN: &str = "sk-ant-oat01-missed-host-fixture";
 const TOKEN_ENV: &str = "CLAUDE_CODE_OAUTH_TOKEN";
 
 async fn token_chat(tag: &str) -> (Daemon, String, Value) {
+    use std::os::unix::fs::PermissionsExt as _;
+
     let mut daemon = Daemon::new(tag, "approve-all");
     daemon.sigterm();
+    let launcher = daemon.home.join("claude");
+    std::fs::copy(FAKE, &launcher).unwrap();
+    std::fs::set_permissions(&launcher, std::fs::Permissions::from_mode(0o700)).unwrap();
     std::fs::write(
         daemon.home.join("config.json"),
         json!({
-            "harnesses": {"claude-fake": {"argv": ["python3", FAKE], "family": "claude"}},
+            "harnesses": {
+                "claude": {"argv": [launcher], "kind": "claude-stdio"},
+                "claude-fake": {"argv": [launcher], "family": "claude"}
+            },
             "defaultHarness": "claude-fake", "permissionPolicy": "approve-all"
         })
         .to_string(),

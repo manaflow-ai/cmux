@@ -223,7 +223,7 @@ fn api_key_stores_under_the_provider_and_calls_key_add() {
     let (_, params) = calls.iter().find(|(m, _)| m == method::MUX_CONNECTIONS_KEY_ADD).unwrap();
     assert_eq!(
         params,
-        &json!({"provider": "anthropic", "secret": format!("keychain:cmux-model-key/{account}")})
+        &json!({"provider": "anthropic", "secret": format!("keychain:cmux-model-key/{account}"), "servesCloud": true})
     );
     assert_eq!(value["connection"]["id"], json!("anthropic-key"));
 }

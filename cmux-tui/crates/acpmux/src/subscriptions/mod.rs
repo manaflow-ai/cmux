@@ -561,9 +561,8 @@ impl Service {
                     let record = if provider == Provider::Grok {
                         let fresh =
                             pending.lock().unwrap_or_else(|p| p.into_inner()).get(&key).cloned();
-                        fresh.or_else(|| {
-                            provider.read(&home, &route_id).ok().flatten().map(Arc::new)
-                        })
+                        let stored = provider.read(&home, &route_id)?;
+                        fresh.or_else(|| stored.map(Arc::new))
                     } else {
                         None
                     };
@@ -628,12 +627,10 @@ fn save(
 ) -> Result<(), Failure> {
     let dir = places.routes.as_deref();
     let store = provider.store(&places.home);
-    if provider == Provider::Kimi && replace {
-        let prior = store.metadata(id);
-        let expected = prior.as_ref().and_then(|metadata| metadata["sub"].as_str());
-        if !expected
-            .is_some_and(|subject| !subject.is_empty() && Some(subject) == record.sub.as_deref())
-        {
+    if provider == Provider::Kimi {
+        let subject =
+            record.sub.as_deref().filter(|subject| !subject.is_empty()).ok_or("bad_reply")?;
+        if replace && !store.metadata(id).is_some_and(|prior| prior["sub"] == subject) {
             return Err("different_account");
         }
     }

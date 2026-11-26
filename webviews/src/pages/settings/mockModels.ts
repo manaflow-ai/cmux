@@ -74,8 +74,7 @@ const openrouterKey: ModelConnection = {
   enabled: false,
   defaultFor: [],
   servesCloud: false,
-  canServeCloud: true,
-  cloudFamilies: ["claude"],
+  canServeCloud: false,
   canCheckAccess: true,
   canReplaceKey: true,
 };
@@ -189,7 +188,8 @@ export function runMockModels(state: ModelsState, run: ModelsRun): ModelsState {
       find(run.id);
       return personal({ connections: connections.map((c) => (c.id === run.id ? { ...c, enabled: run.on } : c)) });
     case "rename":
-      find(run.id);
+      if ((find(run.id).credentialInstance ?? null) !== run.instance)
+        throw new Error("the connection changed while it was open");
       return personal({ connections: connections.map((c) => (c.id === run.id ? { ...c, label: run.name } : c)) });
     case "checkAccess":
       return state;
@@ -252,8 +252,8 @@ export function runMockModels(state: ModelsState, run: ModelsRun): ModelsState {
         });
       }
       const provider = KEY_PROVIDERS[run.provider];
-      const launch = { openrouter: "claude", google: "gemini", xai: "grok" }[run.provider as string];
-      const canServeCloud = true;
+      const launch = { google: "gemini", "vertex-express": "gemini", xai: "grok" }[run.provider as string];
+      const canServeCloud = run.provider !== "openrouter";
       // The key itself never lands in the state: the app keeps it in the Keychain.
       const added: ModelConnection = {
         id: nextId(`${run.provider}-key`, connections),
@@ -267,10 +267,11 @@ export function runMockModels(state: ModelsState, run: ModelsRun): ModelsState {
         signedIn: true,
         enabled: true,
         defaultFor: [],
-        servesCloud: canServeCloud && (run.servesCloud ?? true),
+        servesCloud: canServeCloud && run.servesCloud === true,
         canServeCloud,
         cloudFamilies: launch ? [launch] : [...provider.families],
-        canCheckAccess: true,
+        canCheckAccess: run.provider !== "vertex-express",
+        launchHarness: launch,
         canReplaceKey: true,
       };
       return personal({ connections: [...connections, added] });
@@ -298,6 +299,7 @@ const KEY_PROVIDERS: Record<ModelConnection["provider"], { label: string; famili
   openai: { label: "OpenAI API key", families: ["codex"] },
   openrouter: { label: "OpenRouter API key", families: ["claude", "codex"] },
   google: { label: "Google AI API key", families: ["gemini"] },
+  "vertex-express": { label: "Vertex AI Express key", families: ["gemini"] },
   xai: { label: "xAI API key", families: ["grok"] },
 };
 

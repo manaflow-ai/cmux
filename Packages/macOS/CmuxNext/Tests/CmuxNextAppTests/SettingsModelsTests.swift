@@ -514,6 +514,36 @@ import Testing
         #expect(daemon.committedClaudeToken.withLock { $0 })
     }
 
+    @Test func cancellingCloudClaudeReauthenticationKeepsTheConnectedMachine() async throws {
+        let models = make(daemon: Daemon())
+        var operations: [String] = []
+        let machine = SettingsModels.CloudClaudeMachine(id: "vm_b", name: "Named VM", environment: "env_b", request: { op, fields in
+            operations.append(op)
+            if op == "start" {
+                #expect(fields["reauthenticate"] == "true")
+                return Data(#"{"loginId":"reauth","url":"https://claude.ai/oauth/manual"}"#.utf8)
+            }
+            if op == "cancel" { #expect(fields["loginId"] == "reauth") }
+            return Data(#"{"signedIn":true}"#.utf8)
+        }, openCallback: { _, _, _ in false })
+        models.cloudClaudeLogin = { preferred, _, _ in preferred == machine.id ? .ready(machine) : .connectable }
+        models.prepareCloudClaudeLogin = { preferred, _, _ in preferred == machine.id ? machine : nil }
+        await models.checkClaudeLogin(.cloud, machine: machine.id)
+        _ = try await models.run(["action": "connectClaude", "cloud": true, "machine": "vm_b", "replace": "claude-cloud-login"], context: click)
+        await models.claudeLoginTasks[.cloud]?.value
+        #expect(models.state["cloudClaudeLogin"]?["phase"] == "code")
+
+        _ = try await models.run(["action": "cancelClaudeLogin", "cloud": true, "machine": "vm_b"], context: click)
+        let login = models.state["cloudClaudeLogin"]
+        #expect(login?["phase"] == "connected")
+        #expect(login?["signedIn"] == true)
+        #expect(login?["machine"] == "vm_b")
+        #expect(login?["machineName"] == "Named VM")
+        #expect(login?["environment"] == "env_b")
+        #expect(login?["completion"] == .null)
+        #expect(operations == ["status", "start", "cancel"])
+    }
+
     @Test(arguments: [true, false])
     func unavailableAutomaticCloudCallbackUsesTheManualCodeOnTheSameMachine(signedIn: Bool) async throws {
         let daemon = Daemon()

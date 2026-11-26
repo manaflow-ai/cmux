@@ -92,6 +92,16 @@ pub(super) async fn handle(
                 .to_owned();
             let enabled = params.get("enabled").and_then(Value::as_bool);
             let name = params.get("name").and_then(Value::as_str).map(str::to_owned);
+            let instance = params
+                .get("instance")
+                .map(|value| match value {
+                    Value::Null => Ok(None),
+                    Value::String(id) if !id.is_empty() => Ok(Some(id.clone())),
+                    _ => Err(RpcError::invalid_params(
+                        "instance must be a connection instance or null",
+                    )),
+                })
+                .transpose()?;
             let cloud_enabled = params
                 .get("servesCloud")
                 .map(|value| {
@@ -101,7 +111,7 @@ pub(super) async fn handle(
                 })
                 .transpose()?;
             tokio::task::spawn_blocking(move || {
-                set(dir.as_deref(), &state, &id, enabled, name, cloud_enabled)
+                set(dir.as_deref(), &state, &id, enabled, name, cloud_enabled, instance)
             })
             .await
             .map_err(|e| RpcError::internal(e.to_string()))?
@@ -150,19 +160,8 @@ fn listed(dir: Option<&Path>, state: &Path) -> Vec<Value> {
     }
     for route in routes::load(dir).0 {
         match route.file.kind {
-            RouteKind::ChatgptPlan => {
-                let signed_in = crate::chatgpt::store::metadata(state, &route.id)
-                    .is_some_and(|record| record.signed_in());
-                out.push(key_view(&route, "codex", signed_in));
-                continue;
-            }
-            RouteKind::ClaudeToken => {
-                let expired = route.file.claude_token_expires_at.is_some_and(|expiry| {
-                    std::time::UNIX_EPOCH.elapsed().is_ok_and(|now| now.as_secs() >= expiry)
-                });
-                out.push(key_view(&route, "claude", route.file.secret.is_some() && !expired));
-                continue;
-            }
+            // Models owns these grants. CLI account actions only work on native logins.
+            RouteKind::ChatgptPlan | RouteKind::ClaudeToken => continue,
             RouteKind::GrokPlan | RouteKind::CopilotPlan | RouteKind::KimiPlan => {
                 if let Some(provider) = crate::subscriptions::Provider::for_kind(route.file.kind) {
                     out.push(key_view(
@@ -304,6 +303,7 @@ fn set(
     enabled: Option<bool>,
     name: Option<String>,
     cloud_enabled: Option<bool>,
+    instance: Option<Option<String>>,
 ) -> Result<Value, RpcError> {
     let error = |e: routes::RouteError| crate::hub::route_error(&e);
     if id == CLAUDE_LOGIN_ID && routes::find(dir, id).is_err() {
@@ -313,6 +313,11 @@ fn set(
         return set_claude_login(state, enabled);
     }
     let (written, key) = routes::edit(dir, id, |file| {
+        if instance.as_ref().is_some_and(|expected| expected != &file.credential_instance) {
+            return Err(routes::RouteError::BadParams(
+                "the connection changed while it was open".into(),
+            ));
+        }
         let key = matches!(
             file.kind,
             RouteKind::DirectApiKey
@@ -452,7 +457,7 @@ pub(super) fn set_for_test(
     id: &str,
     enabled: Option<bool>,
 ) -> Result<Value, RpcError> {
-    set(dir, state, id, enabled, None, None)
+    set(dir, state, id, enabled, None, None, None)
 }
 
 #[cfg(test)]
@@ -509,20 +514,20 @@ mod tests {
             b.chats.insert("chat-1".into(), "claude-key".into());
         })
         .unwrap();
-        set(Some(&dir), &state, "claude-key", None, None, Some(false)).unwrap();
+        set(Some(&dir), &state, "claude-key", None, None, Some(false), None).unwrap();
         let saved = routes::find(Some(&dir), "claude-key").unwrap();
         assert_eq!(saved.file.cloud_enabled, Some(false));
         assert_eq!(saved.file.secret, file.secret);
         assert_eq!(saved.file.disabled, file.disabled);
-        set(Some(&dir), &state, "claude-key", None, None, Some(true)).unwrap();
+        set(Some(&dir), &state, "claude-key", None, None, Some(true), None).unwrap();
         assert_eq!(routes::find(Some(&dir), "claude-key").unwrap().file.cloud_enabled, None);
 
-        set(Some(&dir), &state, "claude-key", Some(true), None, None).unwrap();
+        set(Some(&dir), &state, "claude-key", Some(true), None, None, None).unwrap();
         assert_eq!(
             routes::bindings(&state).families.get("claude").map(String::as_str),
             Some("claude-key")
         );
-        set(Some(&dir), &state, "claude-key", Some(false), None, None).unwrap();
+        set(Some(&dir), &state, "claude-key", Some(false), None, None, None).unwrap();
         let b = routes::bindings(&state);
         assert_eq!(b.families.get("claude"), None, "a turned-off account still picks new chats");
         assert_eq!(b.global, None);

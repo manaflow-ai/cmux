@@ -1,7 +1,5 @@
 import { useRef, useState } from "react";
-import { ChiefHost } from "../../home-channels/chiefEditing";
-import { endpointBackend, failureText, type AddTarget, type EndpointDraft } from "../../shared/byoEndpoint";
-import type { SettingsStore } from "../store";
+import { endpointBackend, type AddTarget, type EndpointDraft } from "../../shared/byoEndpoint";
 import { userMessage } from "../../shared/userMessage";
 import { useStore } from "../context";
 import { SETTINGS_SENTENCES, type ModelConnection, type ModelsRun } from "../ops";
@@ -36,13 +34,12 @@ export function tokenTimeRemaining(connection: ModelConnection, now: number): nu
 export function modelEndpointBackend(
   draft: EndpointDraft,
   target: AddTarget,
-  { revision, preset, servesCloud }: { revision?: string; preset?: string; servesCloud?: boolean },
+  { revision, preset }: { revision?: string; preset?: string },
 ) {
   return {
     ...endpointBackend(draft, target),
     ...(preset ? { preset } : {}),
     ...(revision ? { edit: revision } : {}),
-    ...(servesCloud === undefined ? {} : { servesCloud }),
   };
 }
 
@@ -115,24 +112,4 @@ export function useModelsRun(): {
       });
   };
   return { busy, error, run, clearError: () => setError(null) };
-}
-
-/** Edits endpoint metadata through the same revision-checked owner used by the endpoint form. */
-export async function updateEndpointCloud(store: SettingsStore, connection: ModelConnection): Promise<string | null> {
-  const endpoint = connection.endpoint;
-  if (!endpoint) return null;
-  try {
-    await new ChiefHost(store.chiefCalls).addBackend(
-      modelEndpointBackend(
-        { ...endpoint, name: connection.label, models: endpoint.models.join(","), apiKey: "" },
-        { id: connection.provider, own: true, typedKey: connection.signedIn },
-        { revision: endpoint.revision, servesCloud: !connection.servesCloud },
-      ),
-    );
-    return null;
-  } catch (error) {
-    return failureText(error);
-  } finally {
-    await store.refreshModels();
-  }
 }

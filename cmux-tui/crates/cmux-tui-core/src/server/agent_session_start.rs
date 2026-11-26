@@ -131,7 +131,7 @@ pub const AGENT_SESSION_START_CREDENTIALS_CAPABILITY: &str = "agent-session-star
 pub const AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY: &str =
     "agent-session-start-codex-credentials-v1";
 
-/// Supports the Revision 3 endpoint launch credential.
+/// Historical capability for the Revision 3 endpoint launch credential.
 pub const AGENT_SESSION_START_ENDPOINT_CREDENTIALS_CAPABILITY: &str =
     "agent-session-start-endpoint-credentials-v1";
 
@@ -340,8 +340,6 @@ fn installed_endpoint_harnesses() -> Vec<&'static str> {
     use std::os::unix::fs::PermissionsExt;
     let path = std::env::var_os("PATH").unwrap_or_default();
     [
-        ("claude", "agent-session-start-endpoint-harness:claude"),
-        ("opencode", "agent-session-start-endpoint-harness:opencode"),
         ("gemini", "agent-session-start-endpoint-harness:gemini"),
         ("grok", "agent-session-start-endpoint-harness:grok"),
     ]

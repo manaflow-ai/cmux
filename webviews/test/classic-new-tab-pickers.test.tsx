@@ -20,6 +20,7 @@ type PaneWindow = Window & {
   cmuxAcpmuxRegistry?: { register(kind: string, renderer: unknown): void };
   cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
   cmuxAcpmuxBridge?: { receive(value: unknown): void };
+  cmuxAcpmuxDebug?: { runMode(): { runMode?: string | null } };
 };
 const paneWindow = () => dom.window as unknown as PaneWindow;
 
@@ -87,6 +88,7 @@ async function mount(
   options: {
     noSummary?: boolean;
     noOptions?: boolean;
+    linkedCloudMachine?: boolean;
     plugin?: React.ComponentType<{ snapshot: AcpmuxSnapshot; cwd?: string }>;
   } = {},
 ) {
@@ -103,8 +105,16 @@ async function mount(
     // A live model probe can report only id/name; the bundled catalog supplies its capabilities.
     models: entry.models.map((model) => ({ id: model.id, name: model.name })),
   }));
+  const builder = { id: "vm_builder", name: "builder", stage: "ready" };
   const snapshot = noChat([], {
     catalog,
+    ...(options.linkedCloudMachine
+      ? {
+          peers: [builder.name],
+          peerKinds: { [builder.name]: "cloud" },
+          peerConnected: { [builder.name]: true },
+        }
+      : {}),
     ...(!options.noSummary
       ? {
           switching: { harness: "claude", name: "Claude Code", phase: "deferred" },
@@ -144,6 +154,16 @@ async function mount(
       agentSession: {
         postMessage: (message: Call) => {
           calls.push(message);
+          if (options.linkedCloudMachine) {
+            if (message.method === "cloudMachine.list")
+              return Promise.resolve({ ok: true, value: { signedIn: true, loaded: true, machines: [builder] } });
+            if (message.method === "cloud.setup.state")
+              return Promise.resolve({
+                ok: true,
+                value: { runnableFamilies: ["claude"], families: { claude: message.params.machine !== builder.id } },
+              });
+            if (message.method === "sandbox.state") return Promise.resolve({ ok: true, value: {} });
+          }
           return Promise.resolve({
             ok: true,
             value:
@@ -154,8 +174,9 @@ async function mount(
                     newSession: true,
                     machineName: "Mac",
                     cwd: "/tmp/classic-project",
+                    ...(options.linkedCloudMachine ? { sandboxState: true, pickCloud: true } : {}),
                     newTab: {
-                      template: "classic",
+                      template: options.linkedCloudMachine ? "default" : "classic",
                       cwd: "/tmp/classic-project",
                       lastAgent: "claude",
                       projects: ["/tmp/classic-project", "/Users/sample/other-project"],
@@ -171,7 +192,7 @@ async function mount(
   await act(async () => root!.render(<AcpmuxApp />));
   if (options.plugin) await act(async () => paneWindow().cmuxAcpmuxRegistry!.register("composerChips", options.plugin));
   await act(async () => paneWindow().cmuxAcpmuxBridge!.receive(snapshot));
-  expect(host.querySelector(".acpmux-newtab-field")).not.toBeNull();
+  expect(Boolean(host.querySelector(options.linkedCloudMachine ? ".nt-field" : ".acpmux-newtab-field"))).toBe(true);
   // Direct hosts install these actions after the handshake. Recording them checks ordering at
   // the page boundary without starting a real daemon session.
   paneWindow().cmuxAcpmuxActions = Object.fromEntries(
@@ -182,6 +203,7 @@ async function mount(
   );
   return {
     calls,
+    builder,
     chatCalls: () => calls.filter((call) => call.method.startsWith("chat.")),
     report: async (harness: string, model: string) =>
       act(async () =>
@@ -216,6 +238,34 @@ async function open() {
   await act(async () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click());
 }
 const deferred = { harness: "claude", cwd: "/tmp/classic-project", deferred: true };
+
+test("New Tab keeps the linked Cloud machine's Connect row when its location pick switches to Persistent", async () => {
+  const { calls, builder } = await mount({ linkedCloudMachine: true });
+  expect(paneWindow().cmuxAcpmuxDebug?.runMode().runMode).toBe("cloud");
+  const location = host.querySelector<HTMLButtonElement>('.nt-location [data-kind="computer"] button')!;
+  await act(async () =>
+    location.dispatchEvent(new dom.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true })),
+  );
+  const machines = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
+    item.textContent?.startsWith("Machines"),
+  );
+  expect(Boolean(machines)).toBe(true);
+  await act(async () => machines!.click());
+  const machine = [...document.querySelectorAll<HTMLElement>('.acpmux-env-row[data-kind="cloud"]')].find((row) =>
+    row.textContent?.includes(builder.name),
+  );
+  expect(Boolean(machine)).toBe(true);
+  await act(async () => machine!.click());
+  expect(paneWindow().cmuxAcpmuxDebug?.runMode().runMode).toBe("persistent");
+  await open();
+  expect(calls.filter(({ method }) => method === "cloud.setup.state").at(-1)?.params).toEqual({ machine: builder.id });
+  const connect = popup().querySelector<HTMLButtonElement>("[data-cloud-connect]");
+  expect(connect?.textContent).toContain("Connect Claude");
+  await act(async () => connect!.click());
+  expect(calls.filter(({ method }) => method === "cloud.connect").map(({ params }) => params)).toEqual([
+    { family: "claude", machine: builder.id },
+  ]);
+});
 
 test("a classic New Tab starts its deferred chat before changing model", async () => {
   const { chatCalls } = await mount();

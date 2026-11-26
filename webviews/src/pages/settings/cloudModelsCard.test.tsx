@@ -39,7 +39,7 @@ const ids = (rendered: Rendered) =>
 test("Cloud models sits alongside Cloud Environments and Cloud Workspaces", async () => {
   const rendered = await render(mockModels.macLogins, "/settings/cloud");
   expect(card(rendered).querySelector("h3")?.textContent).toBe("Cloud models");
-  expect(ids(rendered)).toEqual(["chatgpt", "claude-token", "openrouter-key"]);
+  expect(ids(rendered)).toEqual(["chatgpt", "claude-token"]);
   expect(rendered.container.querySelector("[data-models-catalog]")).toBeNull();
   expect(rendered.container.querySelector('[data-card="cloudEnvironments"]')).not.toBeNull();
   expect(rendered.container.textContent).toContain("Cloud Workspaces");
@@ -470,54 +470,65 @@ test("a Claude approval owned by another Settings window blocks Connect until it
 });
 
 test("Cloud Models can turn on a disabled API key", async () => {
-  const rendered = await render(mockModels.macLogins);
-  const key = card(rendered).querySelector('[data-connection="openrouter-key"]')!;
+  const models = structuredClone(mockModels.macLogins);
+  const original = models.personal.connections.find((row) => row.id === "openrouter-key")!;
+  models.personal.connections.push({
+    ...original,
+    id: "openai-key",
+    provider: "openai",
+    label: "OpenAI API key",
+    families: ["codex"],
+    servesCloud: true,
+    canServeCloud: true,
+  });
+  const rendered = await render(models);
+  const key = card(rendered).querySelector('[data-connection="openai-key"]')!;
   const turnOn = [...key.querySelectorAll("button")].find((button) => button.textContent === "Turn On")!;
   await click(turnOn);
-  expect(rendered.provider.modelRuns).toEqual([{ action: "enable", id: "openrouter-key", on: true }]);
-  expect(rendered.provider.models?.personal.connections.find((c) => c.id === "openrouter-key")?.enabled).toBe(true);
+  expect(rendered.provider.modelRuns).toEqual([{ action: "enable", id: "openai-key", on: true }]);
+  expect(rendered.provider.models?.personal.connections.find((c) => c.id === "openai-key")?.enabled).toBe(true);
 });
 
-test("Cloud models can enable and disable a key added in Models without removing the local row", async () => {
-  const rendered = await render(mockModels.empty, "/settings/models?focus=models.add.openai");
-  await changeValue(panel()!.querySelector('input[type="password"]')!, "fixture-api-key");
-  await click(panel()!.querySelector('[data-models-action="addKey"]')!);
-  expect(rendered.provider.modelRuns.at(-1)).toMatchObject({ action: "addKey" });
-  expect(rendered.provider.modelRuns.at(-1)).not.toHaveProperty("servesCloud");
-  await act(async () => rendered.history.push("/settings/cloud"));
-  const key = card(rendered).querySelector('[data-connection="openai-key"]')!;
-  expect(key.textContent).toContain("API key");
-  expect(key.textContent).not.toContain("Off for new chats");
-  await click(key.querySelector('[data-menu="connection-openai-key"]')!);
-  expect(document.querySelector('[data-value="moveUp"]')).toBeNull();
-  expect(document.querySelector('[data-value="moveDown"]')).toBeNull();
-  expect(document.querySelector('[data-value="remove"]')).toBeNull();
-  const stop = document.querySelector('[data-value="setCloud"]')!;
-  expect(stop.textContent).toBe("Stop using on Cloud");
-  await click(stop);
-  expect(rendered.provider.modelRuns.at(-1)).toEqual({
-    action: "setCloud",
-    id: "openai-key",
-    on: false,
-  });
-  expect(key.textContent).toContain("Off for new chats. Older machines can keep using the key until their chats end.");
-  expect(key.textContent).not.toContain("Not used on Cloud");
-  await click(key.querySelector('[data-menu="connection-openai-key"]')!);
-  const use = document.querySelector('[data-value="setCloud"]')!;
-  expect(use.textContent).toBe("Use on Cloud");
-  await click(use);
-  expect(rendered.provider.modelRuns.at(-1)).toEqual({
-    action: "setCloud",
-    id: "openai-key",
-    on: true,
-  });
-  expect(key.textContent).not.toContain("Off for new chats");
-  await act(async () => rendered.history.push("/settings/models"));
-  const local = rendered.container.querySelector('[data-card="models"] [data-connection="openai-key"]')!;
-  await click(local.querySelector("[data-menu]")!);
-  expect(local.textContent).toContain("API key");
-  expect(document.querySelector('[data-value="setCloud"]')).toBeNull();
-});
+test.each(["openai", "google", "vertex-express", "xai"])(
+  "a local %s key starts with Cloud use off",
+  async (provider) => {
+    const id = provider + "-key";
+    const rendered = await render(mockModels.empty, `/settings/models?focus=models.add.${provider}`);
+    await changeValue(panel()!.querySelector('input[type="password"]')!, "fixture-api-key");
+    await click(panel()!.querySelector('[data-models-action="addKey"]')!);
+    expect(rendered.provider.modelRuns.at(-1)).toMatchObject({
+      action: "addKey",
+      provider,
+      servesCloud: false,
+    });
+    await act(async () => rendered.history.push("/settings/cloud"));
+    const key = card(rendered).querySelector(`[data-connection="${id}"]`)!;
+    const menu = () => key.querySelector(`[data-menu="connection-${id}"]`)!;
+    expect(key.textContent).toContain("Off for new chats");
+    await click(menu());
+    expect(document.querySelector('[data-value="moveUp"]')).toBeNull();
+    expect(document.querySelector('[data-value="moveDown"]')).toBeNull();
+    expect(document.querySelector('[data-value="remove"]')).toBeNull();
+    const use = document.querySelector('[data-value="setCloud"]')!;
+    expect(use.textContent).toBe("Use on Cloud");
+    await click(use);
+    expect(rendered.provider.modelRuns.at(-1)).toEqual({ action: "setCloud", id, on: true });
+    expect(key.textContent).not.toContain("Off for new chats");
+    await click(menu());
+    const stop = document.querySelector('[data-value="setCloud"]')!;
+    expect(stop.textContent).toBe("Stop using on Cloud");
+    await click(stop);
+    expect(rendered.provider.modelRuns.at(-1)).toEqual({ action: "setCloud", id, on: false });
+    expect(key.textContent).toContain(
+      "Off for new chats. Older machines can keep using the key until their chats end.",
+    );
+    await act(async () => rendered.history.push("/settings/models"));
+    const local = rendered.container.querySelector(`[data-card="models"] [data-connection="${id}"]`)!;
+    await click(local.querySelector("[data-menu]")!);
+    expect(local.textContent).toContain("API key");
+    expect(document.querySelector('[data-value="setCloud"]')).toBeNull();
+  },
+);
 
 test("Cloud models adds a key with Cloud use enabled", async () => {
   const rendered = await render(mockModels.empty, "/settings/cloud?focus=cloudModels.add.openai");
@@ -559,35 +570,25 @@ test.each(["The provider refused the key (HTTP 401).", "the endpoint was not rea
   },
 );
 
-test("Cloud models updates a saved endpoint using its existing profile revision and key", async () => {
-  const rendered = await render(mockModels.empty, "/settings/cloud?focus=cloudModels.add.deepseek");
-  await changeValue(panel()!.querySelector('input[type="password"]')!, "fixture-endpoint-key");
-  await click(panel()!.querySelector('[data-models-action="addEndpoint"]')!);
-  const adds = () => ops(rendered.provider, "cmux.chief.backend.add");
-  expect(adds().at(-1)).toMatchObject({
-    kind: "openai-endpoint",
-    id: "deepseek",
-    servesCloud: true,
-  });
-  const endpoint = card(rendered).querySelector('[data-connection="deepseek"]')!;
-  expect(endpoint.querySelector(".models-row-detail")?.textContent).toBe("Custom");
-  await click(endpoint.querySelector("[data-menu]")!);
-  await click(document.querySelector('[data-value="setCloud"]')!);
-  const edited = adds().at(-1);
-  expect(edited).toMatchObject({
-    id: "deepseek",
-    replace: "deepseek",
-    edit: "1",
-    servesCloud: false,
-  });
-  expect(edited).not.toHaveProperty("apiKey");
-  expect(endpoint.textContent).toContain("Off for new chats");
-
-  rendered.provider.agents.endpoint.addFails = "cmux.page.invalid_params";
-  await click(endpoint.querySelector("[data-menu]")!);
-  await click(document.querySelector('[data-value="setCloud"]')!);
-  expect(card(rendered).querySelector('[role="alert"]')).not.toBeNull();
-  expect(endpoint.textContent).toContain("Off for new chats");
+test("Cloud Connect only offers providers that a guest can launch", async () => {
+  const rendered = await render(mockModels.empty);
+  await click(card(rendered).querySelector("button[data-models-add]")!);
+  const choices = () =>
+    [...document.querySelectorAll<HTMLElement>("[data-models-choice]")].map((row) => row.dataset.modelsChoice);
+  expect(choices().sort((a, b) => (a ?? "").localeCompare(b ?? ""))).toEqual([
+    "anthropic",
+    "chatgpt",
+    "claude",
+    "google",
+    "openai",
+    "vertex-express",
+    "xai",
+  ]);
+  const search = document.querySelector<HTMLInputElement>('input[role="combobox"]')!;
+  for (const provider of ["OpenRouter", "DeepSeek", "Custom"]) {
+    await changeValue(search, provider);
+    expect(choices()).toEqual([]);
+  }
 });
 
 test("Settings search opens the Cloud models card", async () => {
@@ -643,19 +644,25 @@ test("Connect opens the opted-out connection's Cloud toggle", async () => {
   expect(card(rendered).textContent).not.toContain("Not used on Cloud");
 });
 
-test("a saved endpoint stays visible while the Cloud harness is unconfirmed", async () => {
-  const rendered = await render(
-    { ...mockModels.empty, cloudHarnesses: [] },
-    "/settings/models?focus=models.add.deepseek",
-  );
-  await changeValue(panel()!.querySelector('input[type="password"]')!, "fixture-endpoint-key");
-  await click(panel()!.querySelector('[data-models-action="addEndpoint"]')!);
-  await act(async () => rendered.history.push("/settings/cloud"));
-  const endpoint = card(rendered).querySelector('[data-connection="deepseek"]')!;
-  expect(endpoint.textContent).toContain("Not ready on Cloud yet");
-  await act(async () => rendered.provider.setModels({ ...rendered.provider.models!, cloudHarnesses: ["opencode"] }));
-  expect(card(rendered).querySelector('[data-connection="deepseek"]')).toBe(endpoint);
-  expect(endpoint.textContent).not.toContain("Not ready on Cloud yet");
+test("saved OpenRouter and endpoint rows stay local even with stale Cloud readiness", async () => {
+  const models = structuredClone(mockModels.macLogins);
+  const router = models.personal.connections.find((row) => row.id === "openrouter-key")!;
+  router.servesCloud = true;
+  router.canServeCloud = true;
+  models.personal.connections.push({
+    ...router,
+    id: "deepseek",
+    provider: "deepseek",
+    kind: "endpoint",
+    label: "DeepSeek",
+    launchHarness: "opencode",
+  });
+  const rendered = await render(models);
+  expect(ids(rendered)).toEqual(["chatgpt", "claude-token"]);
+  await act(async () => rendered.history.push("/settings/models"));
+  for (const id of ["openrouter-key", "deepseek"]) {
+    expect(rendered.container.querySelector(`[data-card="models"] [data-connection="${id}"]`)).not.toBeNull();
+  }
 });
 
 test("Cloud models shows an offline machine after its readiness deadline and clears the status on reconnect", async () => {
@@ -742,18 +749,9 @@ test.each(["claude", "chatgpt", "openai"])("an explicit Models add focus opens %
   expect(panel()?.dataset.modelsDialog).toBe(provider);
 });
 
-test("Cloud endpoint Connect and Edit both explain why HTTP is disabled", async () => {
-  const rendered = await render(mockModels.empty, "/settings/cloud?focus=cloudModels.add.endpoint");
-  const assertInsecure = async () => {
-    await changeValue(panel()!.querySelector('input[type="url"]')!, "http://localhost:1234/v1");
-    expect(panel()?.querySelector('[data-models-action="addEndpoint"]')).toHaveProperty("disabled", true);
-    expect(panel()?.querySelector('[role="alert"]')?.textContent).toContain("Use https.");
-  };
-  await assertInsecure();
-  await act(async () => rendered.history.push("/settings/cloud?focus=cloudModels.add.deepseek"));
-  await changeValue(panel()!.querySelector('input[type="password"]')!, "fixture-endpoint-key");
-  await click(panel()!.querySelector('[data-models-action="addEndpoint"]')!);
-  await click(card(rendered).querySelector('[data-menu="connection-deepseek"]')!);
-  await click(document.querySelector('[data-value="edit"]')!);
-  await assertInsecure();
+test.each(["endpoint", "deepseek", "openrouter"])("Cloud Add links do not open the local %s form", async (provider) => {
+  const rendered = await render(mockModels.empty, `/settings/cloud?focus=cloudModels.add.${provider}`);
+  expect(panel()).toBeNull();
+  expect(card(rendered).querySelector("[data-cloud-coming-soon]")).not.toBeNull();
+  expect(rendered.provider.modelRuns).toEqual([]);
 });

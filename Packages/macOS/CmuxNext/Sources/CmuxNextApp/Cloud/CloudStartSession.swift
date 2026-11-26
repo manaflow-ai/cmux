@@ -233,7 +233,7 @@ struct CloudStartSession {
         steps.done("approvals")
         let connection = await setup.launchConnection(choice.connectionID)
         if connection != nil || choice.claudeAuth != nil {
-            let capability = choice.claudeAuth?.capability ?? AgentSessionAttachClient.credentialsCapability(harness: agent, endpoint: connection?.endpointCredentials == true, subscription: connection?.subscriptionCredentials == true)
+            let capability = choice.claudeAuth?.capability ?? AgentSessionAttachClient.credentialsCapability(harness: agent, nativeKey: connection?.endpointCredentials == true, subscription: connection?.subscriptionCredentials == true)
             await CloudOutdatedMachine.updateBeforeUsingCapability(
                 holds: { session.daemon.supports(capability) },
                 update: { [services] in await CloudMachineUpdates.updateNow(id, services: services) }

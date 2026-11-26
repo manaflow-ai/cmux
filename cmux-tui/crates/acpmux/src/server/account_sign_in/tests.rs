@@ -117,6 +117,31 @@ fn an_unknown_account_is_refused() {
 }
 
 #[test]
+fn models_connections_cannot_be_targets_of_cli_account_actions() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("routes");
+    let state = root.path().join("state");
+    for (id, kind, family, secret) in [
+        ("chatgpt", "chatgpt-plan", "codex", None),
+        ("claude-setup", "claude-token", "claude", Some("env:FIXTURE_SETUP_TOKEN")),
+    ] {
+        let file: RouteFile = serde_json::from_value(json!({
+            "kind": kind, "families": [family], "secret": secret,
+        }))
+        .unwrap();
+        routes::add(Some(&dir), id, &file, false).unwrap();
+    }
+    let accounts = super::super::accounts::list(Some(&dir), &state, &routes::Bindings::default());
+    for id in ["chatgpt", "claude-setup"] {
+        assert!(routes::find(Some(&dir), id).is_ok());
+        assert_eq!(resolve(id, &accounts).unwrap_err().reason, reason::UNKNOWN_ACCOUNT);
+    }
+    for id in [routes::CODEX_LOGIN_ROUTE_ID, "claude-login"] {
+        assert!(matches!(resolve(id, &accounts), Ok(Target::Listed { builtin: true, .. })));
+    }
+}
+
+#[test]
 fn a_new_account_takes_the_macs_id_and_name() {
     let accounts = vec![
         row("codex-login", "codex", "ChatGPT"),

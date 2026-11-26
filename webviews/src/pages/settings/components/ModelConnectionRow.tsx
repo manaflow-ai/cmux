@@ -109,15 +109,15 @@ export function ModelConnectionRow({
   const edit =
     (apiKey && connection.canReplaceKey && !!connection.credentialInstance && provider?.kind === "api-key") ||
     (endpoint && !!connection.endpoint);
+  // Legacy Cloud token rows offer migration to the machine login.
+  const legacyClaude = cloud && connection.kind === "claude-token";
   const reauthProvider =
-    connection.id === "claude-cloud-login"
+    connection.id === "claude-cloud-login" || legacyClaude
       ? "claude"
       : connection.kind === "kimi-plan"
         ? "kimi-code"
-        : cloudSubscription
-          ? connection.kind === "claude-token"
-            ? "claude"
-            : connection.kind.slice(0, -"-plan".length)
+        : cloudSubscription && connection.kind !== "claude-token"
+          ? connection.kind.slice(0, -"-plan".length)
           : builtin
             ? connection.kind
             : connection.kind === "subscription"
@@ -126,10 +126,12 @@ export function ModelConnectionRow({
                 : "codex-login"
               : undefined;
   const reauthTarget = !builtin || connection.id === "claude-cloud-login" ? connection.id : undefined;
-  // Legacy Cloud token rows offer migration to the machine login.
-  const legacyClaude = cloud && connection.kind === "claude-token";
   const reconnect = useRef<HTMLButtonElement>(null);
-  const rename = tools && !nativeLogin && connection.kind !== "claude-login" && (!endpoint || !!connection.endpoint);
+  const rename =
+    tools &&
+    !nativeLogin &&
+    connection.kind !== "claude-login" &&
+    (endpoint ? !!connection.endpoint : connection.kind === "codex-login" || !!connection.credentialInstance);
   const disconnect = cloud ? cloudSubscription : !nativeLogin && !builtin && (!endpoint || !!connection.endpoint);
   const enableCloudSubscription = cloud && cloudSubscription && !legacyClaude && !connection.enabled;
   const status =

@@ -748,6 +748,7 @@ impl Hub {
             harness_argv: parent_meta.harness_argv.clone(),
             spawn_argv: None,
             credential_connection: None,
+            credential_withdrawn: false,
             credential_model: None,
             claude_token_recovery: None,
             claude_login_restart_pending: None,

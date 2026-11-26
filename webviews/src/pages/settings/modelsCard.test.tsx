@@ -281,6 +281,7 @@ test("API key validation, reveal, and successful submission use the existing key
       provider: "anthropic",
       key: "sk-ant-secret-0123456789",
       verifyAccess: true,
+      servesCloud: false,
     },
   ]);
   expect(panel()).toBeNull();
@@ -820,6 +821,14 @@ test("a legacy Claude row can reconnect with machine sign-in", async () => {
   expect(rendered.provider.modelRuns).toEqual([{ action: "connectClaude", cloud: true, replace: "claude-token" }]);
 });
 
+test("a local Claude setup token offers Rename and Disconnect without Reauthenticate", async () => {
+  const rendered = await render(mockModels.macLogins);
+  await click(row(rendered, "claude-token").querySelector('[data-menu="connection-claude-token"]')!);
+  expect(Boolean(menuItem("signInAgain"))).toBe(false);
+  expect(menuItem("rename")).not.toBeNull();
+  expect(menuItem("remove")).not.toBeNull();
+});
+
 test("Reconnect waits for the new Claude result when the previous login was connected", async () => {
   const initial = { phase: "connected", error: null, completion: "previous-login" } as const;
   const models = { ...mockModels.claudeTokenOnly, cloudClaudeLogin: initial };
@@ -975,7 +984,7 @@ test("the mock refuses what acpmux refuses and names new routes as acpmux does",
   expect(anthropic.personal.connections[0]).toMatchObject({
     id: "anthropic-key",
     label: "Anthropic API key",
-    servesCloud: true,
+    servesCloud: false,
   });
 });
 
@@ -1056,6 +1065,7 @@ test("API submission stays busy while the host verifies and saves on one gesture
       provider: "anthropic",
       key: "sk-ant-example",
       verifyAccess: true,
+      servesCloud: false,
     },
   ]);
 });
@@ -1193,8 +1203,36 @@ test("Rename changes only a saved connection's name", async () => {
   await changeValue(rename.querySelector("input")!, "Research");
   await click(action(rename, "rename")!);
   expect(document.activeElement).toBe(menu);
-  expect(rendered.provider.modelRuns).toEqual([{ action: "rename", id: "openrouter-key", name: "Research" }]);
+  expect(rendered.provider.modelRuns).toEqual([
+    { action: "rename", id: "openrouter-key", instance: "fixture-openrouter", name: "Research" },
+  ]);
   expect(card(rendered).querySelector('[data-connection="openrouter-key"]')?.textContent).toContain("Research");
+});
+
+test("a stale Rename keeps the replacement account's label after the original row disappears", async () => {
+  const rendered = await render(mockModels.macLogins);
+  await chooseAction(rendered, "chatgpt", "rename");
+  const state = rendered.provider.models!;
+  const original = state.personal.connections.find((c) => c.id === "chatgpt")!;
+  const remaining = state.personal.connections.filter((c) => c !== original);
+  await act(async () =>
+    rendered.provider.setModels({ ...state, personal: { ...state.personal, connections: remaining } }),
+  );
+  expect(connectionIds(rendered)).not.toContain(original.id);
+  const replacement = { ...original, credentialInstance: "replacement", label: "New account" };
+  await act(async () =>
+    rendered.provider.setModels({
+      ...state,
+      personal: { ...state.personal, connections: [...remaining, replacement] },
+    }),
+  );
+  await changeValue(panel()!.querySelector("input")!, "Research");
+  await click(action(panel()!, "rename")!);
+  expect(rendered.provider.modelRuns).toEqual([
+    { action: "rename", id: original.id, instance: "fixture-chatgpt", name: "Research" },
+  ]);
+  expect(panel()?.querySelector('[role="alert"]')).not.toBeNull();
+  expect(row(rendered, replacement.id).textContent).toContain(replacement.label);
 });
 
 test("Disconnect confirms in a dialog and returns focus to Connect when the row goes away", async () => {
@@ -1329,7 +1367,7 @@ test.each([false, true])("local Models can save after a failed verification (rot
       provider: "openrouter",
       key: "fixture-key",
       verifyAccess,
-      ...(rotate ? { replace: "openrouter-key", replaceInstance: "fixture-openrouter" } : {}),
+      ...(rotate ? { replace: "openrouter-key", replaceInstance: "fixture-openrouter" } : { servesCloud: false }),
     })),
   );
 });
@@ -1653,6 +1691,12 @@ test("OpenRouter opens on its key and saves it through the existing API-key oper
   await changeValue(dialog.querySelector("input[type=password]")!, "sk-or-fixture");
   await click(action(dialog, "addKey")!);
   expect(rendered.provider.modelRuns).toEqual([
-    { action: "addKey", provider: "openrouter", key: "sk-or-fixture", verifyAccess: true },
+    {
+      action: "addKey",
+      provider: "openrouter",
+      key: "sk-or-fixture",
+      verifyAccess: true,
+      servesCloud: false,
+    },
   ]);
 });

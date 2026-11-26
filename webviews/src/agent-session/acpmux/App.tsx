@@ -1115,6 +1115,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // non-Cloud destination and suppresses the previous identity while its handshake catches up.
   const cloudDraftMachineID = useRef<string | null | undefined>(undefined);
   const cloudDraftPeer = useRef<string | null | undefined>(undefined);
+  const [cloudDraftHasPeer, setCloudDraftHasPeer] = useState(false);
   // Whether `cloudChatIdentity` still names the chat shown (cloudIdentityKept): set by the
   // handshake that gave it, cleared when the pane moves to another chat or New Tab page.
   const cloudIdentityBound = useRef(false);
@@ -4319,6 +4320,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // picker target must not survive that choice and wake the old machine on the next edit.
     cloudDraftMachineID.current = null;
     cloudDraftPeer.current = undefined;
+    setCloudDraftHasPeer(false);
     cloudTypingPrewarm.reset();
     runModePicked.current = true;
     sandbox.setMode(mode);
@@ -4612,8 +4614,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     () => cloudPickerMachineForDraft(cloudDraftMachineID.current, cloudDraftPeer.current),
     [],
   );
-  const pickerEnvironment = cloudStartEnvironment(undefined, cloudEnvironment.pick.current);
-  const cloudServed = useCloudServed(callNative, cloudPicked, {
+  // A linked machine is a Persistent destination with its own Cloud model readiness.
+  const cloudPickerActive =
+    cloudPicked || (cloudDraftHasPeer && !onOtherMachinePage && (!snapshot.sessionId || emptyLocalChat));
+  const pickerEnvironment = cloudPicked ? cloudStartEnvironment(undefined, cloudEnvironment.pick.current) : undefined;
+  const cloudServed = useCloudServed(callNative, cloudPickerActive, {
     readMachine: cloudPickerMachine,
     environment: pickerEnvironment,
   });
@@ -4837,6 +4842,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     newTabCloudSent.current = false;
     cloudDraftMachineID.current = undefined;
     cloudDraftPeer.current = undefined;
+    setCloudDraftHasPeer(false);
     cloudTypingPrewarm.reset();
     const view = { ...(snapshot.sessionId ? { session: snapshot.sessionId } : {}), generation: newTabGeneration };
     if (!cloudIdentityKept(cloudShownView.current, view)) cloudIdentityBound.current = false;
@@ -8808,6 +8814,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (machine: CloudMachine | undefined, peer?: string | null) => {
       cloudDraftMachineID.current = machine?.id ?? null;
       cloudDraftPeer.current = peer;
+      setCloudDraftHasPeer(Boolean(peer));
       refreshCloudPicker();
       // A Cloud machine picked is a pick of Cloud: the hint is done.
       if (machine) cloudHintUsed();
@@ -10544,7 +10551,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             <AgentProgressContext.Provider value={progressStore}>
               <OpenBackgroundTasks.Provider value={quick ? undefined : openBackgroundTask}>
                 <ClaudeConnectContext.Provider value={modelConnect}>
-                  <CloudServedContext.Provider value={cloudPicked ? cloudPickerSetup : undefined}>
+                  <CloudServedContext.Provider value={cloudPickerActive ? cloudPickerSetup : undefined}>
                     <NoticeSlot>{pane}</NoticeSlot>
                   </CloudServedContext.Provider>
                 </ClaudeConnectContext.Provider>

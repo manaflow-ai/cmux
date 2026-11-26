@@ -7,18 +7,26 @@ use crate::config::check_preset_args;
 use cmux_json::JsonSet as _;
 
 pub(super) fn launch_requires_claude_machine_login(meta: &SessionMeta) -> bool {
-    meta.session_env.get("CMUX_CLAUDE_AUTH").is_some_and(|auth| auth == "own")
+    !launch_requires_claude_team(meta)
+        && (super::credentials::uses_claude_machine_login(meta)
+            || meta.session_env.get("CMUX_CLAUDE_AUTH").is_some_and(|auth| auth == "own"))
+}
+
+pub(super) fn launch_requires_claude_team(meta: &SessionMeta) -> bool {
+    meta.session_env.contains_key(crate::claude_cloud_auth::REQUIRED_TEAM)
+}
+
+pub(super) fn claude_route_unavailable() -> RpcError {
+    RpcError::invalid_params("The selected Claude model route is unavailable.")
+        .with_data(json!({"reason": "route.unavailable"}))
 }
 
 fn require_launch_credential(
     meta: &SessionMeta,
     credential: Option<&crate::agent_credentials::AgentCredential>,
 ) -> Result<(), RpcError> {
-    if meta.credential_connection.is_some() && credential.is_none() {
-        return Err(RpcError::invalid_params(
-            "This chat needs its model connection from your Mac.",
-        )
-        .with_data(serde_json::json!({"reason": "credentials.needed"})));
+    if meta.credential_withdrawn || (meta.credential_connection.is_some() && credential.is_none()) {
+        return Err(super::credentials::credential_needed());
     }
     Ok(())
 }
@@ -421,14 +429,9 @@ impl Hub {
         if meta.remote_origin {
             p.env.insert(crate::agent::REMOTE_ENV_POLICY_KEY.into(), "1".into());
         }
-        let requires_claude_team =
-            meta.session_env.contains_key(crate::claude_cloud_auth::REQUIRED_TEAM);
+        let requires_claude_team = launch_requires_claude_team(meta);
         let requires_claude_login = launch_requires_claude_machine_login(meta);
         p.env.remove(crate::claude_cloud_auth::REQUIRED_TEAM);
-        let claude_route_unavailable = || {
-            RpcError::invalid_params("The selected Claude model route is unavailable.")
-                .with_data(serde_json::json!({"reason": "route.unavailable"}))
-        };
         if requires_claude_team {
             p.env.insert("CMUX_CLAUDE_AUTH".into(), "team".into());
         } else if requires_claude_login {
@@ -449,8 +452,6 @@ impl Hub {
             ) {
                 return Err(claude_route_unavailable());
             }
-        } else if super::credentials::uses_claude_machine_login(meta) {
-            p.env.insert("CMUX_CLAUDE_AUTH".into(), "own".into());
         }
         // The owner's Cloud credential: straight to the provider, no coderouter route
         // (`agent_credentials.rs`). Its names only are logged, never a value.

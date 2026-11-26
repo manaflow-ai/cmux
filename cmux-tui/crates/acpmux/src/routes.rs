@@ -258,9 +258,7 @@ impl Auth {
     }
 }
 
-fn cloud_enabled_is_default(value: &Option<bool>) -> bool {
-    *value != Some(false)
-}
+const CLOUD_DISABLED_COMMENT: &str = "# cmux-cloud-enabled: false";
 
 /// One route file. Field names are the TOML keys.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -290,8 +288,8 @@ pub struct RouteFile {
     /// Unix seconds, recorded when this Mac captures a Claude setup token.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub claude_token_expires_at: Option<u64>,
-    /// Whether a key may be delivered to a Cloud chat. The default keeps its existing eligibility.
-    #[serde(default, skip_serializing_if = "cloud_enabled_is_default")]
+    /// Cloud-only opt-out, written as a comment for older route readers. Read the old field too.
+    #[serde(default, skip_serializing)]
     pub cloud_enabled: Option<bool>,
     /// Extra request headers (Claude Code: ANTHROPIC_CUSTOM_HEADERS). A
     /// secret-looking header's value must be a reference.
@@ -691,6 +689,13 @@ fn file_from_toml(text: &str) -> Result<RouteFile, RouteError> {
         toml::from_str(text).map_err(|e| RouteError::Failed(e.to_string()))?;
     validate_contents(&file)?;
     file.credential_instance = crate::agent_credentials::stored_instance(text);
+    let mut header = text.lines();
+    if file.credential_instance.is_some() {
+        header.next();
+    }
+    if header.next() == Some(CLOUD_DISABLED_COMMENT) {
+        file.cloud_enabled = Some(false);
+    }
     Ok(file)
 }
 
@@ -818,6 +823,11 @@ pub(crate) fn file_from_edit(
 
 fn write_file(path: &Path, file: &RouteFile) -> Result<(), RouteError> {
     let text = toml::to_string_pretty(file).map_err(|e| RouteError::Failed(e.to_string()))?;
+    let text = if file.cloud_enabled == Some(false) {
+        format!("{CLOUD_DISABLED_COMMENT}\n{text}")
+    } else {
+        text
+    };
     let text = match &file.credential_instance {
         Some(instance) => crate::agent_credentials::with_stored_instance(&text, instance),
         None => text,
@@ -1237,6 +1247,24 @@ pub fn set_binding(home: &Path, scope: &str, route: Option<&str>) -> Result<Bind
     })
 }
 
+pub(crate) fn set_default_binding(
+    dir: Option<&Path>,
+    home: &Path,
+    scope: &str,
+    route: Option<&str>,
+) -> Result<Bindings, RouteError> {
+    if let Some(id) = route {
+        let found = find(dir, id)?;
+        found.check_local_launch()?;
+        if found.file.disabled {
+            return Err(RouteError::BadParams(format!(
+                "{id} is turned off: turn it on before making it a default"
+            )));
+        }
+    }
+    set_binding(home, scope, route)
+}
+
 /// The route id for a session, and the scope that chose it.
 pub fn bound_route(
     b: &Bindings,
@@ -1261,20 +1289,38 @@ pub fn bound_route(
 /// else none for your own endpoint (`byo_endpoint.rs` names its provider itself), else a
 /// family or global binding. The route may be gone or not serve the family; the caller checks.
 pub fn spawn_route(
+    dir: Option<&Path>,
     b: &Bindings,
     session_id: &str,
     workspace: Option<&str>,
     family: &str,
     profile_env: &BTreeMap<String, String>,
 ) -> Option<(String, &'static str)> {
-    let bound = bound_route(b, session_id, workspace, family);
-    let own_endpoint = crate::byo_endpoint::Kind::of_env(profile_env).is_some();
-    match (bound, profile_env.get(PROFILE_ROUTE_KEY).cloned()) {
-        (Some((id, scope)), _) if matches!(scope, "chat" | "workspace") => Some((id, scope)),
-        (_, Some(id)) => Some((id, "profile")),
-        (_, None) if own_endpoint => None,
-        (bound, None) => bound,
-    }
+    // Older builds could write a Cloud-only setup token as a local default.
+    let usable_default = |id: &&String| {
+        family != "claude" || !find(dir, id).is_ok_and(|route| route.check_local_launch().is_err())
+    };
+    b.chats
+        .get(session_id)
+        .map(|id| (id, "chat"))
+        .or_else(|| {
+            workspace
+                .and_then(|w| b.workspaces.get(w))
+                .filter(usable_default)
+                .map(|id| (id, "workspace"))
+        })
+        .or_else(|| profile_env.get(PROFILE_ROUTE_KEY).map(|id| (id, "profile")))
+        .or_else(|| {
+            if crate::byo_endpoint::Kind::of_env(profile_env).is_some() {
+                return None;
+            }
+            b.families
+                .get(family)
+                .filter(usable_default)
+                .map(|id| (id, "family"))
+                .or_else(|| b.global.as_ref().filter(usable_default).map(|id| (id, "global")))
+        })
+        .map(|(id, scope)| (id.clone(), scope))
 }
 
 // ---------------------------------------------------------------- spawn env
@@ -1613,6 +1659,39 @@ mod tests {
         assert!(problems.is_empty(), "{problems:?}");
         assert_eq!(routes.len(), 1);
         assert_eq!(routes[0].file.kind, RouteKind::ClaudeToken);
+    }
+
+    #[test]
+    fn cloud_opt_out_preserves_the_local_route_toml_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("work-key.toml");
+        let local = r#"kind = "direct-api-key"
+families = ["claude"]
+secret = "env:WORK_KEY"
+"#;
+        let route_dir = Some(dir.path());
+        // A file from the previous build must still enforce its stored Cloud opt-out.
+        std::fs::write(&path, format!("{local}cloud_enabled = false\n")).unwrap();
+        assert_eq!(find(route_dir, "work-key").unwrap().file.cloud_enabled, Some(false));
+        let (saved, ()) = edit(route_dir, "work-key", |_| Ok(())).unwrap();
+        // The older reader denies extra TOML keys. All it sees is the original local route.
+        let disk: toml::Table = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(disk, toml::from_str::<toml::Table>(local).unwrap());
+        assert_eq!(find(route_dir, "work-key").unwrap(), saved);
+
+        edit(route_dir, "work-key", |file| {
+            file.cloud_enabled = None;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(find(route_dir, "work-key").unwrap().file.cloud_enabled, None);
+        edit(route_dir, "work-key", |file| {
+            file.cloud_enabled = Some(false);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(find(route_dir, "work-key").unwrap().file.cloud_enabled, Some(false));
+        assert_eq!(std::fs::read_to_string(&path).unwrap().parse::<toml::Table>().unwrap(), disk);
     }
 
     #[test]

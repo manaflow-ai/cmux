@@ -125,7 +125,7 @@ extension CloudStartChat {
             let launchConnection = await cloud.setup.launchConnection(connection)
             let endpoint = launchConnection?.endpointCredentials == true
             let subscription = launchConnection?.subscriptionCredentials == true
-            let capability = AgentSessionAttachClient.credentialsCapability(harness: start.harness, endpoint: endpoint,
+            let capability = AgentSessionAttachClient.credentialsCapability(harness: start.harness, nativeKey: endpoint,
                                                                                       subscription: subscription)
             if endpoint {
                 try await CloudOutdatedMachine.requireCapability(
@@ -135,7 +135,7 @@ extension CloudStartChat {
                     missing: CloudMove.Failure(message: CloudMachineRoute.tooOld, retry: .move(machineID: machineID))
                 )
             }
-            try Self.requireEndpointHarness(start.harness == "openrouter" && connection != nil ? "opencode" : launchConnection?.launchHarness, on: session, subscription: subscription)
+            try Self.requireEndpointHarness(launchConnection?.launchHarness, on: session, subscription: subscription)
             let (choice, refusal): (CloudSetup.Choice, CloudSetup.Refusal?) = origin.readiness.choice.claudeAuth == .team
                 ? (origin.readiness.choice, nil)
                 : await cloud.setup.launchReadiness(for: start.onMachine(machineID), checkMachineLogin: connection == nil)

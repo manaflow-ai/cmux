@@ -50,8 +50,12 @@ pub(super) static KEYCHAIN: MemoryKeychain = MemoryKeychain::new();
 
 impl Store<'_> {
     pub(crate) fn refuse_test_item(&self, id: &str, error: Error) {
+        KEYCHAIN.refuse(&self.service(), &self.test_account(id), error, false);
+    }
+
+    pub(crate) fn test_account(&self, id: &str) -> String {
         let index: Value = decode(&std::fs::read(self.path(id).unwrap()).unwrap()).unwrap();
-        KEYCHAIN.refuse(&self.service(), &account(id, generation(&index).unwrap()), error, false);
+        account(id, generation(&index).unwrap())
     }
 
     pub(crate) fn refuse_test_delete(&self, id: &str, error: Error) {
@@ -104,6 +108,18 @@ impl Keychain for MemoryKeychain {
         }
         Ok(())
     }
+
+    fn accounts(&self, service: &str, id: &str) -> Result<Vec<String>, Error> {
+        let items = self.items.lock().unwrap();
+        let mut names: Vec<_> = items
+            .iter()
+            .flat_map(|items| items.keys())
+            .filter(|(scope, name)| scope == service && is_subscription_account(name, id))
+            .map(|(_, name)| name.clone())
+            .collect();
+        names.sort_unstable();
+        Ok(names)
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -140,10 +156,15 @@ fn a_large_chatgpt_grant_is_stored_and_rotated_in_the_login_keychain() {
     store.write(id, &record).unwrap();
     assert!(store.read::<Value>(id).is_ok_and(|value| value.as_ref() == Some(&record)));
     let current = account(id, generation(&index).unwrap());
+    let retired = account(id, Some(Uuid::new_v4()));
     let unrelated = account("chatgpt-second", Some(Uuid::new_v4()));
+    Keychain::write(&items, &store.service(), &retired, &bytes).unwrap();
     Keychain::write(&items, &store.service(), &unrelated, &bytes).unwrap();
-    store.delete(id).unwrap();
+    let grants = store.chatgpt_grants(id).unwrap();
+    assert_eq!(grants.retired.len(), 1);
+    store.delete_chatgpt_grants(id, &grants).unwrap();
     assert!(Keychain::read(&items, &store.service(), &current).unwrap().is_none());
+    assert!(Keychain::read(&items, &store.service(), &retired).unwrap().is_none());
     assert!(Keychain::read(&items, &store.service(), &unrelated).unwrap().is_some());
 }
 

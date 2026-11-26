@@ -28,7 +28,6 @@ import {
   moveId,
   providerFamily,
   tokenTimeRemaining,
-  updateEndpointCloud,
   useModelsRun,
   type Run,
   type SetupSelection,
@@ -79,7 +78,11 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
   const locked = busy || saving;
   const connections = models?.personal.connections ?? [];
   const cloudRows = connections.filter(
-    (c) => !isLocalOnlyPlan(c) && (isCloudSubscription(c) || (c.canServeCloud ?? c.servesCloud)),
+    (c) =>
+      c.kind !== "endpoint" &&
+      c.provider !== "openrouter" &&
+      !isLocalOnlyPlan(c) &&
+      (isCloudSubscription(c) || (c.canServeCloud ?? c.servesCloud)),
   );
   const routeRows = cloud ? cloudRows : connections.filter((c) => c.kind !== "native-login");
   const cloudClaude = models?.cloudClaudeLogin;
@@ -159,8 +162,7 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
   const usable = (c: ModelConnection) => c.enabled && c.signedIn && tokenTimeRemaining(c, now) > 0;
   const ready = cloudRows.filter((c) => c.servesCloud && usable(c) && !cloudRunnerStatus(c));
   const servesFamily = (c: ModelConnection, family: string) => (c.cloudFamilies ?? c.families).includes(family);
-  const canToggleCloud = (c: ModelConnection) =>
-    (c.canServeCloud ?? c.servesCloud) && (c.kind === "api-key" || (c.kind === "endpoint" && !!c.endpoint));
+  const canToggleCloud = (c: ModelConnection) => c.kind === "api-key" && (c.canServeCloud ?? c.servesCloud);
   const cloudOff =
     family && !machine && !machineName && !environment && !ready.some((c) => servesFamily(c, family))
       ? cloudRows.find((c) => canToggleCloud(c) && !c.servesCloud && usable(c) && servesFamily(c, family))
@@ -328,18 +330,6 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
     });
   };
 
-  const [endpointError, setEndpointError] = useState<string | null>(null);
-  const toggleCloud = (connection: ModelConnection) => {
-    setEndpointError(null);
-    if (connection.kind !== "endpoint") {
-      void rowRun({ action: "setCloud", id: connection.id, on: !connection.servesCloud });
-      return;
-    }
-    setSaving(true);
-    void updateEndpointCloud(store, connection)
-      .then(setEndpointError)
-      .finally(() => setSaving(false));
-  };
   const unsupported =
     cloud &&
     (!requested || !canAddProvider(requested, true)) &&
@@ -363,7 +353,6 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
             />
           )}
           {error && !formError && <SettingsErrorRow message={error} />}
-          {endpointError && <SettingsErrorRow message={endpointError} />}
           {available && unsupported && (
             <div className="row" data-cloud-coming-soon="">
               <ModelRow
@@ -405,7 +394,16 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
                 onMove={(to) => order(moveId(ids, connection.id, to))}
                 onSetup={pick}
                 onAction={pick}
-                onCloudChange={cloud && canToggleCloud(connection) ? () => toggleCloud(connection) : undefined}
+                onCloudChange={
+                  cloud && canToggleCloud(connection)
+                    ? () =>
+                        void rowRun({
+                          action: "setCloud",
+                          id: connection.id,
+                          on: !connection.servesCloud,
+                        })
+                    : undefined
+                }
               />
             ))}
           {available && (

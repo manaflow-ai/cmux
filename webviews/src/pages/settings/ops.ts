@@ -817,7 +817,7 @@ export type ModelsRun =
   | { action: "order"; ids: string[] }
   | { action: "spread"; on: boolean }
   | { action: "enable"; id: string; on: boolean }
-  | { action: "rename"; id: string; name: string }
+  | { action: "rename"; id: string; instance: string | null; name: string }
   | { action: "remove"; id: string; instance: string | null }
   | { action: "connectChatGPT"; id?: string }
   | { action: "cancelChatGPT" }

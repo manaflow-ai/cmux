@@ -7,6 +7,8 @@ use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
+use crate::chatgpt::store::Record as ChatgptRecord;
+
 #[cfg(any(target_os = "macos", test))]
 #[derive(Default)]
 enum KeychainProbe {
@@ -99,6 +101,10 @@ impl Keychain for Vault {
     fn delete(&self, scope: &str, account: &str) -> Result<(), Error> {
         Keychain::delete(&Self::store()?, scope, account)
     }
+
+    fn accounts(&self, scope: &str, id: &str) -> Result<Vec<String>, Error> {
+        Keychain::accounts(&Self::store()?, scope, id)
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -116,6 +122,16 @@ impl Keychain for SubscriptionItems {
 
     fn delete(&self, scope: &str, account: &str) -> Result<(), Error> {
         self.delete(&format!(".subscription/{scope}/{account}")).map_err(vault_error)
+    }
+
+    fn accounts(&self, scope: &str, id: &str) -> Result<Vec<String>, Error> {
+        let mut names = self.subscription_accounts(scope).map_err(vault_error)?;
+        names.retain(|name| is_subscription_account(name, id));
+        names.sort_unstable();
+        if names.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(Error::Storage);
+        }
+        Ok(names)
     }
 }
 
@@ -158,6 +174,17 @@ pub(super) trait Keychain: Sync {
     /// True if the write created a new item.
     fn write(&self, service: &str, account: &str, value: &[u8]) -> Result<bool, Error>;
     fn delete(&self, service: &str, account: &str) -> Result<(), Error>;
+    fn accounts(&self, _service: &str, _id: &str) -> Result<Vec<String>, Error> {
+        // ChatGPT uses files on platforms without a login Keychain.
+        Ok(Vec::new())
+    }
+}
+
+#[derive(PartialEq)]
+pub(crate) struct ChatgptGrants {
+    active_name: Option<String>,
+    pub(crate) active: Option<ChatgptRecord>,
+    pub(crate) retired: Vec<(String, ChatgptRecord)>,
 }
 
 pub(crate) struct Store<'a> {
@@ -398,7 +425,7 @@ impl<'a> Store<'a> {
         crate::chatgpt::store::write_atomic(&self.path(id)?, &bytes).map_err(|_| Error::Storage)
     }
 
-    /// Call on a blocking worker. ChatGPT and Kimi keep their index if deletion fails.
+    /// Call on a blocking worker. A failed Keychain cleanup keeps the index.
     pub(crate) fn delete(&self, id: &str) -> Result<(), Error> {
         let _guard = self.lock()?;
         self.delete_locked(id)
@@ -420,9 +447,7 @@ impl<'a> Store<'a> {
 
     fn delete_locked(&self, id: &str) -> Result<(), Error> {
         let path = self.path(id)?;
-        if let Some(keychain) = self.keychain
-            && matches!(self.provider, "chatgpt" | "kimi")
-        {
+        if let Some(keychain) = self.keychain {
             let index = file(&path)?.as_deref().map(decode::<Value>).transpose()?;
             if let Some(index) = index.filter(|index| index.get("keychain").is_some()) {
                 let service = self.service();
@@ -435,19 +460,65 @@ impl<'a> Store<'a> {
                 }
                 keychain.delete(&service, &name)?;
             }
-        } else if let Some(keychain) = self.keychain {
-            let index = file(&path).ok().flatten().and_then(|bytes| decode::<Value>(&bytes).ok());
-            if let Some(index) = index
-                && index.get("keychain").is_some()
-                && let Ok(generation) = generation(&index)
-            {
-                let _ = keychain.delete(&self.service(), &account(id, generation));
-            }
         }
         match crate::home_fs::remove_file(path) {
             Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(Error::Storage),
             _ => Ok(()),
         }
+    }
+
+    pub(crate) fn chatgpt_grants(&self, id: &str) -> Result<ChatgptGrants, Error> {
+        let _guard = self.lock()?;
+        self.chatgpt_grants_locked(id)
+    }
+
+    fn chatgpt_grants_locked(&self, id: &str) -> Result<ChatgptGrants, Error> {
+        let active = self.read_locked(id)?;
+        let mut grants = ChatgptGrants { active_name: None, active, retired: Vec::new() };
+        let Some(keychain) = self.keychain else { return Ok(grants) };
+        let Some(bytes) = file(&self.path(id)?)? else { return Ok(grants) };
+        let index: Value = decode(&bytes)?;
+        if index.get("keychain").is_none() {
+            return Ok(grants);
+        }
+        grants.active_name = Some(account(id, generation(&index)?));
+        let service = self.service();
+        // Earlier builds could replace the index while the prior item still existed.
+        for name in keychain.accounts(&service, id)? {
+            if grants.active_name.as_ref() == Some(&name) {
+                continue;
+            }
+            let Some(bytes) = keychain.read(&service, &name)? else { continue };
+            let record: Value = decode(&bytes)?;
+            match legacy_item_provider(&record) {
+                Some("chatgpt") if same_chatgpt_account(&index, &record) => {
+                    let record = serde_json::from_value(record).map_err(|_| Error::Storage)?;
+                    grants.retired.push((name, record));
+                }
+                Some("chatgpt") => return Err(Error::ReauthRequired),
+                Some(_) => {}
+                None => return Err(Error::Storage),
+            }
+        }
+        Ok(grants)
+    }
+
+    pub(crate) fn delete_chatgpt_grants(
+        &self,
+        id: &str,
+        grants: &ChatgptGrants,
+    ) -> Result<(), Error> {
+        let _guard = self.lock()?;
+        if self.chatgpt_grants_locked(id)? != *grants {
+            return Err(Error::Storage);
+        }
+        if let Some(keychain) = self.keychain {
+            let service = self.service();
+            for (name, _) in &grants.retired {
+                keychain.delete(&service, name)?;
+            }
+        }
+        self.delete_locked(id)
     }
 
     fn lock(&self) -> Result<Option<cmux_file_lock::FileLock>, Error> {
@@ -520,6 +591,15 @@ fn generation(index: &Value) -> Result<Option<Uuid>, Error> {
 
 fn account(id: &str, generation: Option<Uuid>) -> String {
     generation.map_or_else(|| id.to_owned(), |generation| format!("{id}.{generation}"))
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn is_subscription_account(name: &str, id: &str) -> bool {
+    name == id
+        || name
+            .strip_prefix(id)
+            .and_then(|suffix| suffix.strip_prefix('.'))
+            .is_some_and(|generation| Uuid::parse_str(generation).is_ok())
 }
 
 fn same_chatgpt_account(index: &Value, record: &Value) -> bool {

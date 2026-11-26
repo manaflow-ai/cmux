@@ -50,9 +50,7 @@ export function ModelKeyForm({
           verifyAccess: canCheck && !vertex && !verificationFailed,
           ...(edit
             ? { replace: edit.id, replaceInstance: edit.credentialInstance ?? undefined }
-            : cloud
-              ? { servesCloud: true }
-              : {}),
+            : { servesCloud: cloud }),
         },
         () => setVerificationFailed(true),
       ))

@@ -193,6 +193,48 @@ notes = "The work account"
     local
         .err("_acpmux/route/edit", json!({"id": "claude-token", "secret": "keychain:different"}))
         .await;
+    let state = root.join("home");
+    let before = acpmux::routes::bindings(&state);
+    for (method, params) in [
+        ("_acpmux/account/switch", json!({"account": "claude-token"})),
+        ("_acpmux/route/default.set", json!({"scope": "family:claude", "routeId": "claude-token"})),
+    ] {
+        local.err(method, params).await;
+        let after = acpmux::routes::bindings(&state);
+        assert_eq!(after.families, before.families);
+        assert_eq!(after.global, before.global);
+    }
+    // A default saved by an older build does not block local Claude starts.
+    acpmux::routes::set_binding(&state, "family:claude", Some("claude-token")).unwrap();
+    let started = local.ok("session/new", json!({"cwd": root, "mcpServers": []})).await;
+    assert!(started["sessionId"].is_string());
+    acpmux::routes::set_binding(&state, "family:claude", None).unwrap();
+    std::fs::remove_file(&managed).unwrap();
+
+    local
+        .ok("_acpmux/connections/claude_token.add", json!({"secret": "keychain:replacement-token"}))
+        .await;
+    let stale_instance = before.strip_prefix("# cmux-credential-instance: ").unwrap();
+    let stale = local
+        .err(
+            "_acpmux/account/set",
+            json!({"id": "claude-token", "name": "Stale name", "instance": stale_instance}),
+        )
+        .await;
+    assert_eq!(stale["message"], "the connection changed while it was open");
+    let current = local.ok("_acpmux/connections", json!({})).await;
+    let replacement = current["connections"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["id"] == "claude-token")
+        .unwrap();
+    assert_ne!(replacement["credential_instance"], stale_instance);
+    assert_eq!(replacement["label"], "Claude Code token");
+    let renamed = local.ok("_acpmux/account/set", json!({
+        "id": "claude-token", "name": "Current name", "instance": replacement["credential_instance"],
+    })).await;
+    assert_eq!(renamed["name"], "Current name");
     std::fs::remove_file(&managed).unwrap();
 
     // Routes are files; a secret is a reference, never the value.

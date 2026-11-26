@@ -5,8 +5,8 @@
 //! `--resume`), as a route switch does (`route_switch.rs` `restart_harnesses`): between turns now,
 //! in a turn when the turn ends, never cancelled.
 //!
-//! Nothing of it is recorded: no log record, meta field or event names the change, and the reply
-//! carries no value.
+//! A withdrawal is recorded without the credential, so a guest restart cannot reopen the chat on
+//! its old key.
 
 use super::*;
 
@@ -25,7 +25,7 @@ impl Hub {
         identity: Option<(u32, u64)>,
     ) -> bool {
         let Some((pid, start)) = identity else { return false };
-        if session.read_meta(uses_claude_machine_login) {
+        if session.read_meta(|meta| meta.credential_withdrawn || uses_claude_machine_login(meta)) {
             return false;
         }
         let mut held = session.credential.lock().unwrap_or_else(|e| e.into_inner());
@@ -54,6 +54,7 @@ impl Hub {
         self.waking(session)
             && m.status != SessionStatus::Closed
             && m.watching.is_none()
+            && !m.credential_withdrawn
             && session.credential.lock().unwrap_or_else(|e| e.into_inner()).is_some()
     }
 
@@ -76,16 +77,33 @@ impl Hub {
         if uses_claude_machine_login(&previous) {
             return Ok(false);
         }
+        // Verify that this chat can use the isolated account before dropping its credential.
+        let mut next = previous.clone();
+        next.claude_token_recovery = Some(ClaudeTokenRecovery::MachineLogin);
+        next.credential_connection = None;
+        let (profile, defaults) = {
+            let cfg = self.config.read().await;
+            let profile = super::resolve::session_profile_checked(
+                &cfg,
+                &next.harness,
+                &next.cwd,
+                next.remote_origin,
+            )?;
+            (profile, cfg.defaults_for(&next.harness).env)
+        };
+        self.spawn_profile_for(&next, &profile, &defaults).await?;
         {
             let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             meta.claude_token_recovery = Some(ClaudeTokenRecovery::MachineLogin);
             meta.claude_login_restart_pending = Some(true);
             meta.credential_connection = None;
+            meta.credential_withdrawn = false;
             meta.credential_model = None;
         }
         if let Err(error) = self.save_meta_answered(session) {
             let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             meta.credential_connection = previous.credential_connection;
+            meta.credential_withdrawn = previous.credential_withdrawn;
             meta.credential_model = previous.credential_model;
             meta.claude_token_recovery = previous.claude_token_recovery;
             meta.claude_login_restart_pending = previous.claude_login_restart_pending;
@@ -157,7 +175,11 @@ impl Hub {
         let child = match current {
             Some(child) if child.is_alive().await && !child.is_stopped() => Some(child),
             _ if Self::host_record_gone(&session.id) => None,
-            _ => Some(Box::pin(self.readopt(session)).await.ok_or_else(claude_login_busy)?),
+            _ => match Box::pin(self.readopt(session)).await {
+                Some(child) => Some(child),
+                None if Self::host_record_gone(&session.id) => None,
+                None => return Err(claude_login_busy()),
+            },
         };
         let _link = match &child {
             Some(child) => child.try_hold_host_link().map_err(|_| claude_login_busy())?,
@@ -230,14 +252,21 @@ impl Hub {
             if uses_claude_machine_login(&meta) {
                 return Err(RpcError::invalid_params("this chat uses the machine's Claude login"));
             }
-            let mut held = session.credential.lock().unwrap_or_else(|e| e.into_inner());
+            if legacy_refresh && meta.credential_withdrawn {
+                return Err(credential_needed());
+            }
             if legacy_refresh
                 && (!credential.is_chatgpt_plan()
                     || meta
                         .credential_connection
                         .as_ref()
                         .is_some_and(|binding| binding.contains(':'))
-                    || held.as_ref().is_some_and(|current| !current.is_chatgpt_plan()))
+                    || session
+                        .credential
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .as_ref()
+                        .is_some_and(|current| !current.is_chatgpt_plan()))
             {
                 return Err(RpcError::invalid_params(
                     "this credential does not serve this chat's agent",
@@ -245,6 +274,8 @@ impl Hub {
                 .with_data(json!({"reason": "credentials.family"})));
             }
             credential.keep_connection(meta.credential_connection.as_deref());
+            self.set_credential_withdrawn(&session, meta.credential_withdrawn, false)?;
+            let mut held = session.credential.lock().unwrap_or_else(|e| e.into_inner());
             let changed = held.as_ref() != Some(&credential);
             #[cfg(unix)]
             if changed && credential.family() == Family::Copilot {
@@ -287,29 +318,42 @@ impl Hub {
     /// The Cloud owner withdrew a delivered model credential.
     pub(crate) async fn revoke_credential(self: &Arc<Self>, id: &str) -> Result<Value, RpcError> {
         let (session, _family) = self.credential_session(id).await?;
-        // As for a route switch, wait for the turn and anything the harness is still doing.
-        // The caller retries a pending withdrawal; success means the old host has ended.
-        let _turn = session.turn_lock.try_lock().map_err(|_| withdrawal_pending())?;
-        let _using = session.harness_use.try_write().map_err(|_| withdrawal_pending())?;
-        let _spawn = session.spawn_lock.try_lock().map_err(|_| withdrawal_pending())?;
-        let meta = session.meta();
-        // Adoption takes the same spawn lock. A recorded host can still have the key in
-        // its environment, so refuse until we can detach its adopted child.
-        let child = session.child.lock().await.clone();
-        if self.hands_off(&session) || (child.is_none() && !Self::host_record_gone(&session.id)) {
+        let _spawn = session.spawn_lock.lock().await;
+        if self.hands_off(&session) {
             return Err(withdrawal_pending());
         }
+        let meta = session.meta();
+        let child = session.child.lock().await.clone();
         let held = session.credential.lock().unwrap_or_else(|e| e.into_inner()).is_some();
-        if !held && meta.credential_connection.is_none() {
+        let unverified_host = child.is_none() && !Self::host_record_gone(&session.id);
+        if !held && meta.credential_connection.is_none() && !meta.credential_withdrawn {
+            if unverified_host {
+                return Err(withdrawal_pending());
+            }
             return Ok(json!({"sessionId": session.id, "restart": "none"}));
+        }
+        // Record the withdrawal even if existing work prevents ending the host now. New starts
+        // and live-child reuse read this under the same spawn lock. Try the other leases without
+        // waiting because their holders may be waiting for the spawn lock.
+        self.set_credential_withdrawn(&session, meta.credential_withdrawn, true)?;
+        let _turn = session.turn_lock.try_lock().map_err(|_| withdrawal_pending())?;
+        let _using = session.harness_use.try_write().map_err(|_| withdrawal_pending())?;
+        if unverified_host {
+            return Err(withdrawal_pending());
         }
         let host_nonce =
             child.as_ref().and_then(|child| child.host_record().map(|record| record.start_nonce));
         let _link = match &child {
             Some(child) => {
                 let link = child.try_hold_host_link().map_err(|_| withdrawal_pending())?;
-                if !child.recovery_replay_complete()
-                    || !Self::drain_inbound(&session).await
+                let verified = if child.recovery_replay_complete() {
+                    Self::drain_inbound(&session).await
+                } else {
+                    self.verify_recovery_replay(&session, child).await
+                };
+                if !verified
+                    || child.is_stopped()
+                    || child.is_retired()
                     || (host_nonce.is_some() && !child.is_alive().await)
                 {
                     return Err(withdrawal_pending());
@@ -355,6 +399,24 @@ impl Hub {
         Ok(json!({"sessionId": session.id, "restart": "none"}))
     }
 
+    /// Called under the spawn lock, which orders withdrawal with redelivery and child admission.
+    fn set_credential_withdrawn(
+        &self,
+        session: &Session,
+        previous: bool,
+        withdrawn: bool,
+    ) -> Result<(), RpcError> {
+        if previous == withdrawn {
+            return Ok(());
+        }
+        session.meta.lock().unwrap_or_else(|e| e.into_inner()).credential_withdrawn = withdrawn;
+        if let Err(error) = self.save_meta_answered(session) {
+            session.meta.lock().unwrap_or_else(|e| e.into_inner()).credential_withdrawn = previous;
+            return Err(error);
+        }
+        Ok(())
+    }
+
     async fn credential_session(&self, id: &str) -> Result<(Arc<Session>, String), RpcError> {
         let session =
             self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned().ok_or_else(
@@ -379,6 +441,11 @@ impl Hub {
 fn withdrawal_pending() -> RpcError {
     RpcError::internal("the agent host is not ready for credential withdrawal")
         .with_data(json!({"reason": "credentials.host_pending"}))
+}
+
+pub(super) fn credential_needed() -> RpcError {
+    RpcError::invalid_params("This chat needs its model connection from your Mac.")
+        .with_data(json!({"reason": "credentials.needed"}))
 }
 
 fn is_saved_claude_token(id: &str) -> bool {
@@ -430,6 +497,27 @@ mod tests {
         cfg.profile_sources = crate::config::ProfileSources::none();
         let store = crate::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
         Hub::new(cfg, store)
+    }
+
+    #[cfg(unix)]
+    async fn recovery_hub() -> (tempfile::TempDir, Arc<Hub>) {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let root = tempfile::tempdir().unwrap();
+        let launcher = root.path().join("claude");
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        std::fs::copy(fake, &launcher).unwrap();
+        std::fs::set_permissions(&launcher, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let hub = hub();
+        {
+            let mut cfg = hub.config.write().await;
+            let profile = cfg.harnesses.get_mut("claude-fake").unwrap();
+            profile.argv = vec![launcher.display().to_string()];
+            let cli = serde_json::from_value(json!({"kind": "claude-stdio", "argv": [launcher]}))
+                .unwrap();
+            cfg.harnesses.insert("claude".into(), cli);
+        }
+        (root, hub)
     }
 
     fn credential(token: &str) -> AgentCredential {
@@ -599,9 +687,10 @@ mod tests {
         assert!(!written(&hub, &session.id).contains(FIRST), "still never written down");
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn claude_recovery_keeps_the_active_turn_and_restarts_without_the_token() {
-        let hub = hub();
+        let (_root, hub) = recovery_hub().await;
         let session = hub
             .new_session(NewRequest {
                 cwd: Some(std::env::temp_dir()),
@@ -642,8 +731,28 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn recovery_saved_after_prompt_preflight_refuses_the_old_child() {
+    async fn claude_recovery_keeps_the_token_if_the_launcher_cannot_use_the_machine_login() {
         let hub = hub();
+        let session = hub
+            .new_session(NewRequest {
+                cwd: Some(std::env::temp_dir()),
+                credential: Some(credential(FIRST)),
+                ..NewRequest::default()
+            })
+            .await
+            .unwrap();
+        let error = hub.use_claude_machine_login(&session).await.unwrap_err();
+        assert_eq!(error.data.unwrap()["reason"], "route.unavailable");
+        let status = hub.credential_status(&session.id).await.unwrap();
+        assert_eq!(status["held"], true);
+        assert!(status["claudeTokenRecovery"].is_null());
+        hub.shutdown_all().await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn recovery_saved_after_prompt_preflight_refuses_the_old_child() {
+        let (_root, hub) = recovery_hub().await;
         let session = hub
             .new_session(NewRequest {
                 cwd: Some(std::env::temp_dir()),
@@ -686,11 +795,12 @@ mod tests {
         hub.shutdown_all().await;
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_prompt_waits_for_background_work_before_switching_to_claude_login() {
         use std::sync::atomic::Ordering;
 
-        let hub = hub();
+        let (_root, hub) = recovery_hub().await;
         let session = hub
             .new_session(NewRequest {
                 cwd: Some(std::env::temp_dir()),
@@ -723,11 +833,12 @@ mod tests {
         hub.shutdown_all().await;
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_prompt_after_the_recovery_save_uses_the_machine_login_before_restart_is_requested() {
         use std::sync::atomic::Ordering;
 
-        let hub = hub();
+        let (_root, hub) = recovery_hub().await;
         let session = hub
             .new_session(NewRequest {
                 cwd: Some(std::env::temp_dir()),
@@ -751,11 +862,12 @@ mod tests {
         hub.shutdown_all().await;
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_cold_start_waiting_on_recovery_reads_the_new_credential() {
         use std::{future::Future as _, task::Poll};
 
-        let hub = hub();
+        let (_root, hub) = recovery_hub().await;
         let session = hub
             .new_session(NewRequest {
                 cwd: Some(std::env::temp_dir()),
@@ -877,6 +989,18 @@ mod tests {
             "end_turn"
         );
 
+        let follow_up = hub
+            .prompt(
+                &session,
+                vec![json!({"type": "text", "text": "follow-up before the owner's retry"})],
+                "test",
+                false,
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(follow_up.data.unwrap()["reason"], "credentials.needed");
+        assert!(child.is_alive().await);
+
         *session.work_below_since.lock().unwrap() = 1;
         let pending = hub.revoke_credential(&session.id).await.unwrap_err();
         assert_eq!(pending.data.unwrap()["reason"], "credentials.host_pending");
@@ -888,6 +1012,24 @@ mod tests {
         assert_eq!(hub.credential_status(&session.id).await.unwrap()["held"], false);
         let error = hub.child_for(&session).await.err().expect("withdrawn key cannot be used");
         assert_eq!(error.data.unwrap()["reason"], "credentials.needed");
+        hub.update_credential(
+            &session.id,
+            AgentCredential::parse(&json!({"env": {"ANTHROPIC_API_KEY": "fixture-key"}})).unwrap(),
+            false,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            hub.prompt(
+                &session,
+                vec![json!({"type": "text", "text": "after redelivery"})],
+                "test",
+                false,
+            )
+            .await
+            .unwrap()["stopReason"],
+            "end_turn"
+        );
         hub.shutdown_all().await;
     }
 

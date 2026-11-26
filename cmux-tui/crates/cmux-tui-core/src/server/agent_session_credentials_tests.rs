@@ -84,6 +84,19 @@ fn env(token: &str) -> Value {
 }
 
 #[test]
+fn the_owner_guest_advertises_bound_keys_without_endpoint_credentials() {
+    let fake = FakeAcpmux::start("no-endpoint-capability");
+    let mux = mux_with(&fake, "no-endpoint-capability");
+    mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
+    let capabilities = identify_capabilities(&mux);
+    assert!(
+        capabilities
+            .contains(&agent_session_attach::agent_session_start::BOUND_CREDENTIALS_CAPABILITY)
+    );
+    assert!(!capabilities.contains(&AGENT_SESSION_START_ENDPOINT_CREDENTIALS_CAPABILITY));
+}
+
+#[test]
 fn endpoint_launch_credentials_reach_acpmux_only_from_the_owner() {
     let credential = json!({"env": {"ANTHROPIC_AUTH_TOKEN": TOKEN}, "endpoint": {
         "kind": "anthropic", "baseUrl": "https://provider.example/v1", "models": ["m"]

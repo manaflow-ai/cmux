@@ -28,7 +28,6 @@ function stripRequestRoute(input: string, azure: boolean): string {
 export function ModelEndpointForm({
   provider,
   saving,
-  cloud,
   edit,
   region,
   onRegionChange,
@@ -38,7 +37,6 @@ export function ModelEndpointForm({
 }: {
   provider: OpenAIEndpoint;
   saving: boolean;
-  cloud: boolean;
   edit?: ModelConnection;
   region: string;
   onRegionChange(region: string): void;
@@ -112,19 +110,14 @@ export function ModelEndpointForm({
   const next = useNextTarget(original ? null : targets, name, "endpoint", currentTarget);
   const urlProblem =
     (azure && (/\/deployments(?:\/|$)/i.test(path) || azureChatRoute.test(path)) ? "azure" : null) ??
-    (cloud && parsed?.protocol === "http:" ? "insecure" : null) ??
     endpointUrlProblem(enteredUrl) ??
     (/[{}\s]/.test(enteredUrl) ? "invalid" : null);
   const baseUrl = !urlProblem && azure && path === "/" ? enteredUrl.replace(/\/+$/, "") + "/openai/v1" : enteredUrl;
-  const showUrlProblem =
-    urlProblem === "query" ||
-    urlProblem === "azure" ||
-    (cloud && urlProblem === "insecure") ||
-    (urlTouched && !!urlProblem);
+  const showUrlProblem = urlProblem === "query" || urlProblem === "azure" || (urlTouched && !!urlProblem);
   const sameUrl = baseUrl.replace(/\/+$/, "") === existing?.baseUrl.replace(/\/+$/, "");
   const apiKey = key.trim();
   const keepKey = !!original?.signedIn && sameUrl;
-  const canRequest = !urlProblem && (apiKey ? validKey(apiKey) : keepKey || (!provider.keyRequired && !cloud));
+  const canRequest = !urlProblem && (apiKey ? validKey(apiKey) : keepKey || !provider.keyRequired);
   const model = manual.trim();
   const invalidModel =
     !!model && (/[,*]/.test(model) || !validModel(model) || (cloudflare && !cloudflareModel.test(model)));
@@ -172,7 +165,6 @@ export function ModelEndpointForm({
           {
             preset: kind === "openai-endpoint" ? provider.id : undefined,
             revision: existing?.revision,
-            servesCloud: cloud && !existing ? true : undefined,
           },
         ),
         validateEndpoint: cloudflare && (!original || !!apiKey || !sameUrl),
@@ -315,7 +307,7 @@ export function ModelEndpointForm({
         label={t(
           cloudflare
             ? "settingsWindow.models.dialog.apiToken"
-            : provider.keyRequired || cloud
+            : provider.keyRequired
               ? "settingsWindow.models.key.field"
               : "settingsPage.agents.endpoint.apiKeyOptional",
         )}

@@ -564,10 +564,11 @@ async fn switch(hub: &Arc<Hub>, id: &str) -> Result<Value, RpcError> {
                     "{id} is turned off: turn it on before making it a default"
                 )));
             }
-            let (_, state) = routes::places(&*hub.config.read().await);
+            let (dir, state) = routes::places(&*hub.config.read().await);
             let scope = format!("family:{family}");
             let bound = (!builtin).then_some(id.as_str());
-            routes::set_binding(&state, &scope, bound).map_err(|e| crate::hub::route_error(&e))?;
+            routes::set_default_binding(dir.as_deref(), &state, &scope, bound)
+                .map_err(|e| crate::hub::route_error(&e))?;
             super::connections::announce_later(hub);
             Ok(json!({"account": id, "default": true}))
         }

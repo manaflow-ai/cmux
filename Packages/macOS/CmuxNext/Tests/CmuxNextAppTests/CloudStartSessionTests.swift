@@ -117,14 +117,18 @@ struct CloudStartSessionTests {
 
     @Test func reportedRunnersRequireTheLiveCredentialCapability() {
         #expect(CloudMachineSession.confirmedCredentialHarnesses(identity: nil, subscription: false) == nil)
-        var identity = DaemonIdentity(capabilities: ["agent-session-start-endpoint-harness:opencode"], generation: "runner-test")
+        var identity = DaemonIdentity(capabilities: [
+            "agent-session-start-endpoint-harness:gemini", "agent-session-start-endpoint-harness:opencode",
+        ], generation: "runner-test")
         #expect(CloudMachineSession.confirmedCredentialHarnesses(identity: identity, subscription: false) == nil)
         #expect(CloudMachineSession.confirmedCredentialHarnesses(identity: identity, subscription: true) == nil)
         identity.capabilities.append(AgentSessionAttachClient.startEndpointCredentialsCapability)
-        #expect(CloudMachineSession.confirmedCredentialHarnesses(identity: identity, subscription: false) == ["opencode"])
+        #expect(CloudMachineSession.confirmedCredentialHarnesses(identity: identity, subscription: false) == nil)
+        identity.capabilities.append(DaemonCapability.agentSessionBoundCredentials.rawValue)
+        #expect(CloudMachineSession.confirmedCredentialHarnesses(identity: identity, subscription: false) == ["gemini"])
         #expect(CloudMachineSession.confirmedCredentialHarnesses(identity: identity, subscription: true) == nil)
         identity.capabilities.append(AgentSessionAttachClient.startSubscriptionCredentialsCapability)
-        #expect(CloudMachineSession.confirmedCredentialHarnesses(identity: identity, subscription: true) == ["opencode"])
+        #expect(CloudMachineSession.confirmedCredentialHarnesses(identity: identity, subscription: true) == ["gemini", "opencode"])
     }
 
     @Test func itIsACLIVerbAndAnMCPToolThatWaitsForThePerson() throws {

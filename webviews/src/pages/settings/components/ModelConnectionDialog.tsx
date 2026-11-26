@@ -367,7 +367,6 @@ function ProviderConnectForm({
     <ModelEndpointForm
       provider={provider}
       saving={busy}
-      cloud={cloud}
       edit={edit}
       region={region}
       onRegionChange={setRegion}
@@ -472,14 +471,9 @@ function ModelRowActionForm({
   const submit = async () => {
     if (!valid || busy || pending.current) return;
     if (!endpoint) {
-      if (
-        await run(
-          rename
-            ? { action: "rename", id: connection.id, name }
-            : { action: "remove", id: connection.id, instance: connection.credentialInstance ?? null },
-        )
-      )
-        onClose();
+      const { id, credentialInstance } = connection;
+      const instance = credentialInstance ?? null;
+      if (await run(rename ? { action: "rename", id, instance, name } : { action: "remove", id, instance })) onClose();
       return;
     }
     pending.current = true;

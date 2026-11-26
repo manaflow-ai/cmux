@@ -114,10 +114,19 @@ extension AgentTabStore {
         existingView(key, machine: machine)?.clearModelConnectionNotice()
         let machineHarness = credential?.harness ?? harness
         let machineModel = credential?.model ?? model
-        do { result = .success(try await client.start(cwd: fallback, harness: machineHarness, homeConfirmed: home, personKey: personKey, ownerLink: ownerLink, model: machineModel, permissionMode: startPermissionMode(),
-                                                      startMode: ownerLink != nil && harness == seed?.harness ? seed?.mode : nil, // the Cloud send's mode pick, own machine only
-                                                      credentials: credential?.env, launchEndpoint: credential?.endpoint,
-                                                      credentialConnection: credential.map { cloudCredentials?.credentialBinding($0) ?? $0.connectionID }, claudeAuth: cloudCredentials?.claudeAuth(chat: key, machine: machine, harness: harness))) } catch { result = .failure(error) }
+        do {
+            result = .success(try await CloudSetup.startWithClaudeFallback(
+                cloudCredentials?.claudeAuth(chat: key, machine: machine, harness: harness), isSignedIn: {
+                    guard let ownerLink else { return false }
+                    return await AgentSessionAttachClient.isClaudeSignedIn(endpoint: endpoint, ownerLink: ownerLink)
+                }
+            ) { auth in
+                try await client.start(cwd: fallback, harness: machineHarness, homeConfirmed: home, personKey: personKey, ownerLink: ownerLink, model: machineModel, permissionMode: startPermissionMode(),
+                                       startMode: ownerLink != nil && harness == seed?.harness ? seed?.mode : nil,
+                                       credentials: credential?.env, launchEndpoint: credential?.endpoint,
+                                       credentialConnection: credential.map { cloudCredentials?.credentialBinding($0) ?? $0.connectionID }, claudeAuth: auth)
+            })
+        } catch { result = .failure(error) }
         let phases = await client.startPhases
         await client.close()
         switch result {

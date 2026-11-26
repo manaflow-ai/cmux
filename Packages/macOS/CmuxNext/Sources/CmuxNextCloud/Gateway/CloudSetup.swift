@@ -45,11 +45,13 @@ public final class CloudSetup {
         /// A `Connection` object of `_acpmux/connections`; nil for anything without an id.
         public init?(json: [String: Any]) {
             guard let id = json["id"] as? String, !id.isEmpty else { return nil }
+            let endpoint = json["kind"] as? String == "endpoint"
+            let localOnly = endpoint || json["provider"] as? String == "openrouter"
             self.init(id: id, families: json["cloud_families"] as? [String] ?? json["families"] as? [String] ?? [],
                       signedIn: json["signed_in"] as? Bool ?? true, enabled: json["enabled"] as? Bool ?? true,
-                      servesCloud: json["serves_cloud"] as? Bool ?? true,
-                      canServeCloud: json["can_serve_cloud"] as? Bool,
-                      endpointProfile: json["kind"] as? String == "endpoint",
+                      servesCloud: !localOnly && (json["serves_cloud"] as? Bool ?? true),
+                      canServeCloud: localOnly ? false : json["can_serve_cloud"] as? Bool,
+                      endpointProfile: endpoint,
                       endpointCredentials: json["endpoint_credentials"] as? Bool == true, launchHarness: json["launch_harness"] as? String,
                       subscriptionCredentials: ["grok-plan", "copilot-plan"].contains(json["kind"] as? String ?? ""),
                       kind: json["kind"] as? String, credentialInstance: json["credential_instance"] as? String)
@@ -161,7 +163,7 @@ public final class CloudSetup {
 
     public nonisolated static let setupFamilies = families + nativeHarnesses.keys.sorted()
 
-    private nonisolated static let nativeHarnesses = ["gemini": "gemini", "grok": "grok", "openrouter": "opencode"]
+    private nonisolated static let nativeHarnesses = ["gemini": "gemini", "grok": "grok"]
     private nonisolated static let localOnlyPlanKinds: Set<String> = ["grok-plan", "copilot-plan", "kimi-plan"]
 
     /// The gateway family of the picker's Claude or Codex profile.
@@ -346,11 +348,11 @@ public final class CloudSetup {
     /// Selects the credential used by a Cloud launch and supplies the setup refusal when needed.
     public func launchReadiness(harness: String?, model: String?, account: String? = nil, readyClaude: Bool = false) async -> (choice: Choice, refusal: Refusal?) {
         let snapshot = routed(await read?() ?? .init(personal: nil, organization: nil))
-        if let profile = snapshot.personal?.first(where: { $0.endpointProfile && $0.id == harness }) {
-            guard snapshot.serves(profile.id) == true else { return (.setup(family: profile.id, model: model), nil) }
-            return (snapshot.choice(family: profile.id, model: model, account: profile.id), nil)
-        }
         let normalized = (harness ?? "claude").lowercased()
+        if let profile = snapshot.personal?.first(where: { $0.endpointProfile && $0.id == harness }) {
+            return (.setup(family: profile.id, model: model), nil)
+        }
+        if normalized == "openrouter" { return (.setup(family: normalized, model: model), nil) }
         let gatewayFamily = Self.family(of: harness)
         guard let family = gatewayFamily ?? (Self.nativeHarnesses[normalized] == nil ? nil : normalized)
         else { return (.fallback, nil) }
@@ -369,7 +371,24 @@ public final class CloudSetup {
         return (choice, Refusal(family: family, model: model, localLogin: local))
     }
 
-    /// Whether the chosen connection needs the endpoint credential capability.
+    /// A team key can be advertised before the selected guest can route to it.
+    /// Retry the same start only after the guest refuses that route and confirms its own login.
+    package static func startWithClaudeFallback(
+        _ choice: AgentSessionAttachClient.ClaudeAuth?, isSignedIn: @MainActor () async -> Bool,
+        start: @MainActor (AgentSessionAttachClient.ClaudeAuth?) async throws -> String
+    ) async throws -> String {
+        do {
+            return try await start(choice)
+        } catch let error as AgentSessionAttachError
+            where choice == .team && error.code == "agent_session.route_unavailable"
+                && error.details?["reason"]?.stringValue == "route.unavailable" {
+            guard await isSignedIn() else { throw error }
+            try Task.checkCancellation()
+            return try await start(.own)
+        }
+    }
+
+    /// The credential requirements of the chosen connection.
     public func launchConnection(_ connection: String?) async -> Connection? {
         guard let connection, let read else { return nil }
         let snapshot = routed(await read())
@@ -439,7 +458,6 @@ public final class CloudSetup {
         let nativeClaude = snapshot.serves("claude") != true
             ? !(await readyClaudeMachines(machine: machine, environment: environment)).isEmpty : false
         let profiles = snapshot.personal?.filter(\.endpointProfile) ?? []
-        let usable = profiles.filter { $0.enabled && $0.signedIn && $0.servesCloud }
         let endpointRunners = machine.flatMap { machineHarnesses?($0) }
         let subscriptionRunners = machine.flatMap { machineSubscriptionHarnesses?($0) }
         func runners(for connection: Connection?) -> Set<String>? {
@@ -449,9 +467,13 @@ public final class CloudSetup {
             guard let id = snapshot.choice(family: family, model: nil, account: nil).connectionID else { return nil }
             return snapshot.personal?.first { $0.id == id }
         }
-        let configured = usable.compactMap { row in row.launchHarness.map { (id: row.id, runner: $0, confirmed: runners(for: row)) } }
-            + Self.nativeHarnesses.filter { snapshot.serves($0.key) == true }
-                .map { (id: $0.key, runner: $0.value, confirmed: runners(for: chosenConnection($0.key))) }
+        let configured = Self.nativeHarnesses.filter { snapshot.serves($0.key) == true }
+            .flatMap { family, runner in
+                let connection = chosenConnection(family)
+                let confirmed = runners(for: connection)
+                return ([family] + (connection.map { [$0.id] } ?? []))
+                    .map { (id: $0, runner: runner, confirmed: confirmed) }
+            }
         let served = Array(Set(configured.filter { $0.confirmed?.contains($0.runner) == true }.map(\.id))).sorted()
         let pending = Array(Set(configured.filter { $0.confirmed == nil }.map(\.id))).sorted()
         let unavailable = (profiles.map(\.id) + configured.map(\.id)).filter { !served.contains($0) && !pending.contains($0) }

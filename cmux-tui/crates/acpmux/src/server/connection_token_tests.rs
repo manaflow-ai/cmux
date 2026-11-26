@@ -134,7 +134,7 @@ async fn a_cloud_key_is_checked_before_the_broker_relies_on_the_guest_to_accept_
         &format!("file:{}", path.display()),
         None,
         &config.profile_sources,
-        None,
+        Some(true),
     )
     .unwrap();
     let hub = hub_with_config(config);
@@ -142,6 +142,50 @@ async fn a_cloud_key_is_checked_before_the_broker_relies_on_the_guest_to_accept_
     let read = rpc.call(method::MUX_CONNECTIONS_CREDENTIAL, json!({"id": id})).await;
     assert_eq!(read["error"]["data"]["reason"], "credentials.invalid");
     assert!(!read.to_string().contains(invalid));
+}
+
+#[tokio::test]
+async fn new_keys_wait_for_cloud_opt_in_and_openrouter_never_delivers() {
+    let home = tempfile::tempdir().unwrap();
+    let path = home.path().join("model-key");
+    let fixture = "fixture-api-key";
+    std::fs::write(&path, fixture).unwrap();
+    crate::router_socket::owner_only(&path);
+    let reference = format!("file:{}", path.display());
+    let mut config = Config::default();
+    config.path = Some(home.path().join("config.json"));
+    config.profile_sources = crate::config::ProfileSources::none();
+    config.profile_sources.cmux_json = Some(home.path().join("cmux.json"));
+    let hub = hub_with_config(config);
+    let mut rpc = Rpc::connect(&hub, &Who::Person).await;
+
+    for (provider, cloud) in [("google", None), ("openrouter", Some(true))] {
+        let id = format!("{provider}-key");
+        let mut params = json!({"provider": provider, "secret": reference});
+        if let Some(cloud) = cloud {
+            params["servesCloud"] = json!(cloud);
+        }
+        let added = rpc.call(method::MUX_CONNECTIONS_KEY_ADD, params).await;
+        let row = added["result"]["connections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["id"] == id)
+            .unwrap();
+        assert_eq!(row["serves_cloud"], false);
+        let model = if provider == "openrouter" { "openrouter/default" } else { "default" };
+        let request = json!({"id": id, "model": model});
+        let refused = rpc.call(method::MUX_CONNECTIONS_CREDENTIAL, request.clone()).await;
+        assert_eq!(refused["error"]["data"]["reason"], "connections.not_cloud");
+        assert!(!refused.to_string().contains(fixture));
+        if provider == "google" {
+            let enabled =
+                rpc.call(method::MUX_ACCOUNT_SET, json!({"id": id, "servesCloud": true})).await;
+            assert!(enabled.get("error").is_none(), "{enabled}");
+            let credential = rpc.call(method::MUX_CONNECTIONS_CREDENTIAL, request).await;
+            assert_eq!(credential["result"]["env"], json!({"GEMINI_API_KEY": fixture}));
+        }
+    }
 }
 
 #[tokio::test]

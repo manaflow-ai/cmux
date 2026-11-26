@@ -145,7 +145,6 @@ function endpoint(
     "id" | "name" | "baseUrl" | "keyUrl" | "docsUrl" | "dialog" | "regions" | "accountRegion"
   > & {
     group?: ProviderGroup;
-    cloud?: boolean;
     mark: ProviderDetails["mark"];
     aliases?: readonly string[];
     urlHint?: string;
@@ -153,7 +152,7 @@ function endpoint(
     defaultModels?: readonly string[];
   },
 ): OpenAIEndpoint {
-  const { group = "keys", cloud, ...provider } = details;
+  const { group = "keys", ...provider } = details;
   const connect = provider.dialog;
   const fields =
     connect.fields.includes("deployments") || connect.fields.includes("models")
@@ -165,7 +164,7 @@ function endpoint(
     group,
     kind: "openai-endpoint",
     families: ["opencode"],
-    cloud: cloud ?? (group !== "local" || provider.id === "endpoint"),
+    cloud: false,
     keyRequired: group !== "local",
   };
 }
@@ -303,7 +302,6 @@ export const providerCatalog: readonly CatalogProvider[] = [
   }),
   endpoint({
     id: "kimi-code",
-    cloud: false,
     dialog: dialog("kimi-code", "Kimi Code", "device", ["region", "key"]),
     accountRegion: true,
     regions: [
@@ -585,7 +583,7 @@ export const providerCatalog: readonly CatalogProvider[] = [
     docsUrl: "https://openrouter.ai/docs/quickstart",
     mark: { agent: "openrouter" },
     families: ["claude", "codex"],
-    cloud: true,
+    cloud: false,
   },
   endpoint({
     id: "vercel",
