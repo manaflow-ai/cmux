@@ -692,17 +692,33 @@ The first item is the one menus and the command palette show. Settings > Keyboar
 
 Start Agent… (File menu, command palette, `cmux agent quick`, Ctrl+Cmd+Return) opens a small floating panel for one new agent session. The folder row at its top picks the folder or checkout, and the composer's chips pick the harness, model and mode. Return sends the prompt and starts the session in the background: the panel closes and the session appears in the sidebar as a new workspace, without taking focus. Cmd+Return starts it and opens it in the main window. Escape hides the panel and keeps the draft. Rebind the panel's key from Settings > Keyboard Shortcuts or with `shortcuts.bindings["palette.quickAgentChat"]`.
 
-The panel can also open while another app is in front. This system-wide key is off by default, because it takes the key from every other app:
+The panel can also open while another app is in front. This system-wide key is on by default so a new person can discover it from any app. Set it to `false` to release the key:
 
 ```json
 {
   "app": {
-    "startAgentGlobalHotKey": true
+    "startAgentGlobalHotKey": false
   }
 }
 ```
 
-Turn it on in Settings > General > Start Agent from Any App. Its key is a separate row, Start Agent from Any App (default Ctrl+Option+Cmd+Space), rebound from Settings > Keyboard Shortcuts or with `shortcuts.bindings["palette.startAgentFromAnyApp"]`. When another app (or another cmux global key) already holds the key, the Keyboard Shortcuts row shows a warning and the key works only inside cmux.
+Turn it off or back on in Settings > General > Start Agent from Any App. Its key is a separate row, Start Agent from Any App (default Ctrl+Option+Cmd+Space), rebound from Settings > Keyboard Shortcuts or with `shortcuts.bindings["palette.startAgentFromAnyApp"]`. When another app (or another cmux global key) already holds the key, the Keyboard Shortcuts row shows a warning and the key works only inside cmux.
+
+## Capture Screenshot to Chat and `app.captureScreenshotGlobalHotKey`
+
+Capture Screenshot to Chat (command palette, Ctrl+Option+Cmd+S) runs the system's region picker. The screenshot goes into the focused agent chat's composer as an unsent draft, or into a new agent chat when none is focused. cmux then comes forward with the composer focused. Escape in the picker takes nothing. The picker is macOS's own, so the first capture may ask for the Screen Recording permission.
+
+To use the same key while another app is in front, turn on Settings > General > Capture Screenshot to Chat from Any App. It is off by default, because it takes the key from every other app:
+
+```json
+{
+  "app": {
+    "captureScreenshotGlobalHotKey": true
+  }
+}
+```
+
+Rebind it from Settings > Keyboard Shortcuts or with `shortcuts.bindings["palette.captureScreenshotToChat"]`. Scripts can start the same picker with `cmux app call chat.capture.toChat '{}'`, which answers `{"session", "path", "bytes"}` once a person picks a region; `cmux app call chat.composer.get '{}'` reads back what the composer holds. A script cannot name the region itself: the call refuses one, because a picture of the screen needs a person's pick.
 
 ## Background mode and `app.hideDockIconWithoutWindows`
 
