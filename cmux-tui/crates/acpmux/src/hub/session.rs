@@ -773,6 +773,13 @@ impl Session {
     pub fn meta(&self) -> SessionMeta {
         self.meta.lock().unwrap().clone()
     }
+    /// Debug builds only: puts `fallback` in this chat's meta as a past capacity switch would
+    /// have left it, so a test can start from a chat already on its fallback (cmux#57784).
+    #[cfg(debug_assertions)]
+    #[doc(hidden)]
+    pub fn set_capacity_fallback(&self, fallback: Option<crate::store::CapacityFallback>) {
+        self.meta.lock().unwrap_or_else(|e| e.into_inner()).capacity_fallback = fallback;
+    }
     /// Read only the needed fields without copying large metadata payloads. The
     /// callback must not acquire other session/hub locks or call back into this session.
     pub(crate) fn read_meta<T>(&self, read: impl FnOnce(&SessionMeta) -> T) -> T {
