@@ -464,6 +464,7 @@ name = "cmux-layout-reducer"
 version = "0.1.0"
 dependencies = [
  "cmux-action-catalog",
+ "cmux-motion",
  "serde",
  "serde_json",
  "unicode-normalization",
