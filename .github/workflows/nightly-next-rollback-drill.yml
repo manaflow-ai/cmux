@@ -23,10 +23,6 @@ name: nightly-next rollback drill
 #                 the rolled-back appcast and a pulled.json that lists N, and
 #                 writes receipt.json with pull_ordered_at and served_at. A
 #                 failed pull writes outcome failed.
-#   step health   (dispatch only) like pull, but the health gate
-#                 (nightly-next-health.yml with drill true) judges N from a
-#                 made-up failing reading and orders the pull, so feed_s
-#                 times the gate's judge, verdict write and pull.
 #
 # The probe reads feed_s from the receipt: served_at minus pull_ordered_at.
 # GitHub runs a schedule, and registers a dispatch, only from the default
@@ -41,10 +37,10 @@ on:
   workflow_dispatch:
     inputs:
       step:
-        description: publish (put N and K on the drill feed), pull (roll N back), or health (the health gate judges N from a failing reading and rolls it back).
+        description: publish (put N and K on the drill feed) or pull (roll N back).
         required: true
         type: choice
-        options: [publish, pull, health]
+        options: [publish, pull]
 
 permissions: {}
 
@@ -67,13 +63,33 @@ jobs:
   start:
     if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'schedule'
     permissions:
+      contents: read # check out the GitHub API wait
       actions: write # dispatch nightly-next-rollback-drill.yml
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    timeout-minutes: 5
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    timeout-minutes: 20
     env:
+      # A scheduled job's GitHub API waits stop here and fail loud (scripts/ci/gh_budget_wait.sh).
+      GH_BUDGET_WAIT_MAX_SECONDS: "900"
       GH_TOKEN: ${{ github.token }}
       STEP: ${{ github.event.schedule == '15 9 * * 1' && 'publish' || 'pull' }}
     steps:
+      # This commit's GitHub API wait (scripts/ci/gh_budget_wait.sh): every later gh call, and
+      # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
+      # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
+      - name: Checkout the GitHub API wait
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .gh-budget-tooling
+          sparse-checkout: |
+            scripts/ci/gh_budget_wait.sh
+            scripts/ci/gh_budget_wait.cjs
+          sparse-checkout-cone-mode: false
+      - name: Wait through GitHub API rate limits and 5xx in this job
+        working-directory: ${{ github.workspace }}
+        run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
+
       - name: Dispatch the step on nightly-next
         run: gh workflow run nightly-next-rollback-drill.yml -R "$GITHUB_REPOSITORY" --ref nightly-next -f step="$STEP"
 
@@ -83,7 +99,7 @@ jobs:
     permissions:
       contents: read
     # A literal ephemeral label: this job holds the feed's write token.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -161,10 +177,10 @@ jobs:
 
   # No secrets: it reads the public receipt and stamps the moment the pull is ordered.
   order:
-    if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && (inputs.step == 'pull' || inputs.step == 'health')
+    if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && inputs.step == 'pull'
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     outputs:
       bad: ${{ steps.check.outputs.bad }}
@@ -199,7 +215,6 @@ jobs:
 
   rollback:
     needs: order
-    if: inputs.step == 'pull'
     # The real rollback jobs on the drill folder. The fix-forward job never runs for a drill, but
     # GitHub checks a called workflow's permissions against its caller's, so this grants them.
     permissions:
@@ -217,32 +232,13 @@ jobs:
       if_newest: ${{ needs.order.outputs.bad }}
       drill: true
 
-  # Step health: the health gate (nightly-next-health.yml) judges N from a made-up failing reading
-  # (nightly_next_health.py drill-reading) and orders the pull through the same rollback jobs, so
-  # feed_s is the gate's detect-to-pull after its Sentry read: judge, write the verdict, pull, serve.
-  health:
-    needs: order
-    if: inputs.step == 'health'
-    permissions:
-      actions: write
-      contents: read
-      issues: write
-    uses: ./.github/workflows/nightly-next-health.yml
-    secrets:
-      NIGHTLY_NEXT_R2_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
-      NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
-      NIGHTLY_NEXT_R2_ACCOUNT_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}
-    with:
-      build: ${{ needs.order.outputs.bad }}
-      drill: true
-
   receipt:
-    needs: [order, rollback, health]
+    needs: [order, rollback]
     if: always() && needs.order.result == 'success'
     environment: release-next
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -251,7 +247,7 @@ jobs:
 
       - name: Wait for files-next.cmux.com to serve the rollback
         id: served
-        if: needs.rollback.result == 'success' || needs.health.result == 'success'
+        if: needs.rollback.result == 'success'
         env:
           BAD: ${{ needs.order.outputs.bad }}
           KEPT: ${{ needs.order.outputs.kept }}

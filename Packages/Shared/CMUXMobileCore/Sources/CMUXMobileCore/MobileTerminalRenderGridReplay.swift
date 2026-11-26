@@ -64,7 +64,7 @@ public struct MobileTerminalRenderGridReplay: Sendable {
 
     private func deltaPatchBytes() -> Data {
         var bytes = Data()
-        let stylesByID: [Int: MobileTerminalRenderGridFrame.Style] = styleMapByID(frame.styles)
+        let stylesByID = styleMapByID(frame.styles)
         let defaultStyle = stylesByID[0] ?? .default
         let autowrapMode = deltaReplayAutowrapMode()
         if frame.cursor == nil { bytes.append(Data("\u{1B}[s".utf8)) }
@@ -108,7 +108,7 @@ public struct MobileTerminalRenderGridReplay: Sendable {
 
     private func fullSnapshotBytes() -> Data {
         var bytes = Data()
-        let stylesByID: [Int: MobileTerminalRenderGridFrame.Style] = styleMapByID(frame.styles)
+        let stylesByID = styleMapByID(frame.styles)
         let defaultStyle = stylesByID[0] ?? .default
         // Leads with DECSCUSR 0: cursor shape is per-screen state in Ghostty
         // and survives the alternate-screen roundtrip, so without this a stale
@@ -450,21 +450,22 @@ public struct MobileTerminalRenderGridReplay: Sendable {
                 return nil
             }
             var remaining = targetWidth - total
-            widths = zip(widths, expandable).map { width, canExpand in
-                guard remaining > 0, width < 2, canExpand else { return width }
+            for index in widths.indices where remaining > 0 && widths[index] < 2 {
+                guard expandable[index] else {
+                    continue
+                }
+                widths[index] += 1
                 remaining -= 1
-                return width + 1
             }
             guard remaining == 0 else {
                 return nil
             }
         } else if total > targetWidth {
             var excess = total - targetWidth
-            widths = Array(widths.reversed().map { width in
-                guard excess > 0, width > 1 else { return width }
+            for index in widths.indices.reversed() where excess > 0 && widths[index] > 1 {
+                widths[index] -= 1
                 excess -= 1
-                return width - 1
-            }.reversed())
+            }
             guard excess == 0 else {
                 return nil
             }
@@ -488,19 +489,36 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         }
     }
 
-    /// Appends the decimal digits of `value` (negative values as 0).
-    func appendDecimal(_ value: Int, to bytes: inout Data) {
+    private func appendDecimal(_ value: Int, to bytes: inout Data) {
         let value = max(0, value)
-        var divisor = 1
-        while divisor <= value / 10 {
-            divisor *= 10
+        if value >= 10000 {
+            var divisor = 1
+            while divisor <= value / 10 {
+                divisor *= 10
+            }
+            var remaining = value
+            while divisor > 0 {
+                bytes.append(UInt8(48 + remaining / divisor))
+                remaining %= divisor
+                divisor /= 10
+            }
+            return
         }
-        var remaining = value
-        while divisor > 0 {
-            // remaining / divisor is one decimal digit, 0...9.
-            bytes.append(0x30 + UInt8(truncatingIfNeeded: remaining / divisor))
-            remaining %= divisor
-            divisor /= 10
+
+        if value >= 1000 {
+            bytes.append(UInt8(48 + value / 1000))
+            bytes.append(UInt8(48 + value / 100 % 10))
+            bytes.append(UInt8(48 + value / 10 % 10))
+            bytes.append(UInt8(48 + value % 10))
+        } else if value >= 100 {
+            bytes.append(UInt8(48 + value / 100))
+            bytes.append(UInt8(48 + value / 10 % 10))
+            bytes.append(UInt8(48 + value % 10))
+        } else if value >= 10 {
+            bytes.append(UInt8(48 + value / 10))
+            bytes.append(UInt8(48 + value % 10))
+        } else {
+            bytes.append(UInt8(48 + value))
         }
     }
 
@@ -573,7 +591,22 @@ public struct MobileTerminalRenderGridReplay: Sendable {
     }
 
     private func appendUTF8(_ scalar: UnicodeScalar, to bytes: inout Data) {
-        UTF8.encode(scalar) { bytes.append($0) }
+        let value = scalar.value
+        if value <= 0x7F {
+            bytes.append(UInt8(value))
+        } else if value <= 0x7FF {
+            bytes.append(UInt8(0xC0 | (value >> 6)))
+            bytes.append(UInt8(0x80 | (value & 0x3F)))
+        } else if value <= 0xFFFF {
+            bytes.append(UInt8(0xE0 | (value >> 12)))
+            bytes.append(UInt8(0x80 | ((value >> 6) & 0x3F)))
+            bytes.append(UInt8(0x80 | (value & 0x3F)))
+        } else {
+            bytes.append(UInt8(0xF0 | (value >> 18)))
+            bytes.append(UInt8(0x80 | ((value >> 12) & 0x3F)))
+            bytes.append(UInt8(0x80 | ((value >> 6) & 0x3F)))
+            bytes.append(UInt8(0x80 | (value & 0x3F)))
+        }
     }
 
     private func cursorStyleBytes(for cursor: MobileTerminalRenderGridFrame.Cursor) -> Data {

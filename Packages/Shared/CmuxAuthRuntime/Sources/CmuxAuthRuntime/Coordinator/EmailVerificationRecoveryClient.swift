@@ -1,4 +1,3 @@
-import CmuxEgress
 import Foundation
 
 /// Requests Stack contact-channel verification through the cmux backend.
@@ -17,7 +16,7 @@ struct EmailVerificationRecoveryClient: Sendable {
         apiBaseURL: String,
         requestTimeout: TimeInterval = 60,
         load: @escaping Loader = { request in
-            try await CmuxEgress.shared(site: "CmuxAuthRuntime.EmailVerificationRecoveryClient").data(for: request)
+            try await URLSession.shared.data(for: request)
         }
     ) {
         self.apiBaseURL = apiBaseURL

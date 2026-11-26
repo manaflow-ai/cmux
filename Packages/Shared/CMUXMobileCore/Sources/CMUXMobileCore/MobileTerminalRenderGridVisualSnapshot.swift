@@ -61,9 +61,8 @@ public struct MobileTerminalRenderGridVisualSnapshot: Equatable, Sendable {
         let deltaRows = Self.resolvedRows(frame: frame, styles: styles)
         let replacedRows = Set(frame.clearedRows).union(frame.rowSpans.map(\.row))
         var nextRows = rows
-        for row in replacedRows {
-            guard let replacement = deltaRows[checked: row] else { continue }
-            nextRows.modify(checked: row) { $0 = replacement }
+        for row in replacedRows where nextRows.indices.contains(row) {
+            nextRows[row] = deltaRows[row]
         }
 
         return Self(
@@ -100,28 +99,27 @@ public struct MobileTerminalRenderGridVisualSnapshot: Equatable, Sendable {
         styles: [Int: MobileTerminalRenderGridFrame.Style]
     ) -> [[MobileTerminalRenderGridVisualSpan]] {
         var rows = Array(repeating: [MobileTerminalRenderGridVisualSpan](), count: frame.rows)
-        for span in frame.rowSpans {
-            // A span outside the grid is skipped.
-            rows.modify(checked: span.row) { row in
-                row.append(MobileTerminalRenderGridVisualSpan(
-                    column: span.column,
-                    cellWidth: span.gridCellWidth,
-                    text: span.text,
-                    style: styles[span.styleID] ?? normalizedStyle(.default)
-                ))
-            }
+        for span in frame.rowSpans where rows.indices.contains(span.row) {
+            rows[span.row].append(MobileTerminalRenderGridVisualSpan(
+                column: span.column,
+                cellWidth: span.gridCellWidth,
+                text: span.text,
+                style: styles[span.styleID] ?? normalizedStyle(.default)
+            ))
         }
-        return rows.map { row in
-            canonicalizedRow(
-                row.sorted {
-                    if $0.column != $1.column { return $0.column < $1.column }
-                    if $0.cellWidth != $1.cellWidth { return $0.cellWidth < $1.cellWidth }
-                    return $0.text < $1.text
-                },
+        for row in rows.indices {
+            rows[row].sort {
+                if $0.column != $1.column { return $0.column < $1.column }
+                if $0.cellWidth != $1.cellWidth { return $0.cellWidth < $1.cellWidth }
+                return $0.text < $1.text
+            }
+            rows[row] = canonicalizedRow(
+                rows[row],
                 columns: frame.columns,
                 defaultStyle: styles[0] ?? normalizedStyle(.default)
             )
         }
+        return rows
     }
 
     private static func canonicalizedRow(
@@ -164,13 +162,12 @@ public struct MobileTerminalRenderGridVisualSnapshot: Equatable, Sendable {
         if let previous = result.last,
            previous.column + previous.cellWidth == span.column,
            previous.style == span.style {
-            result.removeLast()
-            result.append(MobileTerminalRenderGridVisualSpan(
+            result[result.count - 1] = MobileTerminalRenderGridVisualSpan(
                 column: previous.column,
                 cellWidth: previous.cellWidth + span.cellWidth,
                 text: previous.text + span.text,
                 style: previous.style
-            ))
+            )
         } else {
             result.append(span)
         }

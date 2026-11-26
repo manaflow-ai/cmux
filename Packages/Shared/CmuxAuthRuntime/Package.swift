@@ -15,16 +15,16 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(path: "../CmuxEgress"),
         .package(path: "../CMUXAuthCore"),
+        .package(path: "../CMUXMobileCore"),
         .package(path: "../../../vendor/stack-auth-swift-sdk-prerelease"),
     ],
     targets: [
         .target(
             name: "CmuxAuthRuntime",
-            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+            dependencies: [
                 "CMUXAuthCore",
-                .product(name: "CmuxEgress", package: "CmuxEgress"),
+                "CMUXMobileCore",
                 .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
             ],
             swiftSettings: [
@@ -36,7 +36,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxAuthRuntimeTests",
-            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+            dependencies: [
                 "CmuxAuthRuntime",
                 .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
             ],

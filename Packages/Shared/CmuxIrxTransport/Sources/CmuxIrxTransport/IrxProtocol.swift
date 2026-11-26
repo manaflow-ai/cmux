@@ -114,12 +114,6 @@ public enum IrxLaneKind: String, Codable, Sendable {
     /// Phone browser tunnel: the Mac's loopback listening ports, answered
     /// with one `IrxListeningPortsReply` and a finished stream.
     case listeningPorts = "listening_ports"
-    /// Raw cmux-tui protocol-12 JSON lines to the Mac's daemon (cmux-next).
-    /// The Mac splices the lane onto the daemon's Unix socket through an
-    /// authority filter; `resource` names the machine (`local` by default).
-    /// Hosts advertise `daemon_lane.v1`; an older host cannot decode this
-    /// descriptor and resets the stream.
-    case daemon
 }
 
 /// The first frame on every stream: which lane this is, plus lane-specific
@@ -201,8 +195,8 @@ public struct IrxAdmit: Codable, Equatable, Sendable {
     public init(session: String, natBarrier: Bool? = nil) {
         v = IrxProtocol().version
         self.session = session
-        keepaliveIntervalMs = Int(clamping: IrxProtocol().keepaliveInterval.components.seconds) * 1000
-        keepaliveDeadlineMs = Int(clamping: IrxProtocol().keepaliveDeadline.components.seconds) * 1000
+        keepaliveIntervalMs = Int(IrxProtocol().keepaliveInterval.components.seconds) * 1000
+        keepaliveDeadlineMs = Int(IrxProtocol().keepaliveDeadline.components.seconds) * 1000
         self.natBarrier = natBarrier
     }
 }
@@ -283,12 +277,11 @@ public struct IrxFrameCodec: Sendable {
 
     public func encode(_ value: some Encodable) throws -> Data {
         let body = try JSONEncoder().encode(value)
-        guard body.count <= IrxProtocol().maximumControlFrameByteCount,
-              let bodyLength = UInt32(exactly: body.count) else {
+        guard body.count <= IrxProtocol().maximumControlFrameByteCount else {
             throw IrxFrameCodecError.frameTooLarge(body.count)
         }
         var data = Data(capacity: 4 + body.count)
-        var length = bodyLength.bigEndian
+        var length = UInt32(body.count).bigEndian
         withUnsafeBytes(of: &length) { data.append(contentsOf: $0) }
         data.append(body)
         return data

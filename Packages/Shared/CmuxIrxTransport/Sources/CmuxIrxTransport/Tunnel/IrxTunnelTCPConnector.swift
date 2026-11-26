@@ -1,4 +1,3 @@
-import CmuxEgress
 import Darwin
 public import Foundation
 import Network
@@ -35,10 +34,8 @@ public struct IrxTunnelNetworkConnector: IrxTunnelConnecting {
     /// Waits out the connect deadline; injected so tests control time.
     private let sleep: @Sendable (Duration) async throws -> Void
 
-    /// - Parameter sleep: Defaults to `Task.sleep(for:)`. Not a closure-literal
-    ///   default: see IrxPeerEngine.init (cx-bsue).
-    public init(sleep: (@Sendable (Duration) async throws -> Void)? = nil) {
-        self.sleep = sleep ?? { try await Task.sleep(for: $0) }
+    public init(sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
+        self.sleep = sleep
     }
 
     public func resolve(host: String) async -> [IrxTunnelIPAddress] {
@@ -54,7 +51,7 @@ public struct IrxTunnelNetworkConnector: IrxTunnelConnecting {
             var cursor: UnsafeMutablePointer<addrinfo>? = first
             while let info = cursor, addresses.count < 16 {
                 if let sockaddr = info.pointee.ai_addr {
-                    switch Int32(clamping: sockaddr.pointee.sa_family) {
+                    switch Int32(sockaddr.pointee.sa_family) {
                     case AF_INET:
                         sockaddr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { pointer in
                             var address = pointer.pointee.sin_addr
@@ -124,11 +121,11 @@ final class IrxTunnelNWChannel: IrxTunnelByteChannel, @unchecked Sendable {
             host = .ipv6(v6)
         }
         let tcp = NWProtocolTCP.Options()
-        tcp.connectionTimeout = max(1, Int(clamping: timeout.components.seconds))
+        tcp.connectionTimeout = max(1, Int(timeout.components.seconds))
         tcp.noDelay = true
         let parameters = NWParameters(tls: nil, tcp: tcp)
         parameters.preferNoProxies = true
-        let connection = CmuxEgress.connection(host: host, port: port, using: parameters, site: "CmuxIrxTransport.IrxTunnelTCPConnector")
+        let connection = NWConnection(host: host, port: port, using: parameters)
         let outcome = IrxTunnelConnectOutcome()
         // The deadline: whichever of state change, deadline, or cancellation
         // settles the outcome first wins; the others are no-ops.

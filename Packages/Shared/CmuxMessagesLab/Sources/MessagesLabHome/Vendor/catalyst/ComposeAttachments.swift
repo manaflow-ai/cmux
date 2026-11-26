@@ -21,11 +21,6 @@ import UniformTypeIdentifiers
 /// aspects is an estimate; the file tile's height (89 pt) comes from the field
 /// growth (92 pt).
 ///
-/// cmux: Home does not stack them. Tiles are small thumbnails (images
-/// aspect-fit in 128 x 64 pt, files 200 x 52 pt pills) that flow left to right
-/// and wrap at the field's right edge, so a couple of pasted screenshots add one
-/// 64 pt row, not ~250 pt (user report 2026-10-18).
-///
 /// Thumbnails are decoded off the main thread with ImageIO
 /// (`CGImageSourceCreateThumbnailAtIndex`, downsampled to the tile's pixel
 /// size at the display scale, EXIF orientation applied, the embedded colour
@@ -33,17 +28,13 @@ import UniformTypeIdentifiers
 /// screenshot never blocks a frame. Until a thumbnail arrives the tile is the
 /// placeholder grey.
 final class ComposeAttachmentStrip {
-    // cmux: small thumbnails in a row (iMessage-style inline), not Messages' stacked
-    // 177 x 118 tiles: two pasted screenshots made the field ~280 pt tall and pushed
-    // the text line to the bottom.
-    static let boxWidth: CGFloat = 128           // cmux: widest image thumbnail (was 177)
-    static let imageMaxHeight: CGFloat = 64      // cmux: thumbnail height cap (was 118)
-    static let corner: CGFloat = 10              // cmux: smaller tiles, smaller corners (was 16)
+    static let boxWidth: CGFloat = 177           // measured 176.2 from the colour bars (+-1); 177 keeps the 1.5 image 118 tall
+    static let imageMaxHeight: CGFloat = 118     // measured (one aspect)
+    static let corner: CGFloat = 16              // measured, continuous
     static let left: CGFloat = 11.8              // measured
     static let top: CGFloat = 7                  // measured
-    static let gap: CGFloat = 6                  // cmux: between tiles in a row and between rows (was 3)
-    static let fileWidth: CGFloat = 200          // cmux: file pill width (was the 177 box)
-    static let fileHeight: CGFloat = 52          // cmux: file pill height (was 89)
+    static let gap: CGFloat = 3                  // measured
+    static let fileHeight: CGFloat = 89          // from the field growth (92 pt)
     static let removeSize: CGFloat = 18          // estimate
 
     struct Tile: Equatable { var id: ID; var rect: CGRect; var image: Bool }
@@ -75,26 +66,20 @@ final class ComposeAttachmentStrip {
     /// Tiles (field coordinates, top-left of the field) and the strip height
     /// (what the field grows by).
     static func layout(_ atts: [Attachment], width: CGFloat, scale: CGFloat) -> (tiles: [Tile], height: CGFloat) {
-        // cmux: tiles flow left to right and wrap to a new row at the field's right edge.
         var tiles: [Tile] = []
-        let right = max(left + fileWidth, width - left)
-        var x = left, y = top, rowH: CGFloat = 0
+        var y = top
         for a in atts {
-            var size = CGSize(width: fileWidth, height: fileHeight)
+            var size = CGSize(width: boxWidth, height: fileHeight)
             if isImage(a) {
                 let w = CGFloat(a.width ?? 1) / scale, h = CGFloat(a.height ?? 1) / scale
                 let k = min(1, boxWidth / w, imageMaxHeight / h)    // aspect-fit, never upscaled
-                size = CGSize(width: max(1, w * k), height: max(1, h * k))
+                size = CGSize(width: w * k, height: h * k)
             }
-            size.width = min(size.width, right - left)
-            if x > left, x + size.width > right { x = left; y += rowH + gap; rowH = 0 }
-            let r = CGRect(x: x, y: y, width: size.width, height: size.height).integralToScale(scale)
+            let r = CGRect(x: left, y: y, width: size.width, height: size.height).integralToScale(scale)
             tiles.append(Tile(id: a.id, rect: r, image: isImage(a)))
-            x = r.maxX + gap
-            rowH = max(rowH, r.height)
+            y = r.maxY + gap
         }
-        guard !tiles.isEmpty else { return (tiles, 0) }
-        return (tiles, y + rowH + gap - top)
+        return (tiles, y - top)
     }
 
     static let nameFont = UIFont.systemFont(ofSize: 11, weight: .semibold)
@@ -188,22 +173,22 @@ final class ComposeAttachmentStrip {
                 let r = tile.rect
                 (Fixture.isLight ? Fixture.chipFill : UIColor(white: 1, alpha: 0.06)).setFill()  // cmux: themed on a light theme
                 UIBezierPath(roundedRect: r, cornerRadius: Self.corner).fill()
-                // Page icon: 24 x 32 pt (cmux: was 30 x 40), folded corner, the extension under the lines.
-                let ic = CGRect(x: r.minX + 10, y: r.midY - 16, width: 24, height: 32)
+                // Page icon: 30 x 40 pt, folded corner, the extension under the lines.
+                let ic = CGRect(x: r.minX + 12, y: r.midY - 20, width: 30, height: 40)
                 let page = UIBezierPath()
-                page.move(to: CGPoint(x: ic.minX, y: ic.minY)); page.addLine(to: CGPoint(x: ic.maxX - 7, y: ic.minY))
-                page.addLine(to: CGPoint(x: ic.maxX, y: ic.minY + 7)); page.addLine(to: CGPoint(x: ic.maxX, y: ic.maxY))
+                page.move(to: CGPoint(x: ic.minX, y: ic.minY)); page.addLine(to: CGPoint(x: ic.maxX - 9, y: ic.minY))
+                page.addLine(to: CGPoint(x: ic.maxX, y: ic.minY + 9)); page.addLine(to: CGPoint(x: ic.maxX, y: ic.maxY))
                 page.addLine(to: CGPoint(x: ic.minX, y: ic.maxY)); page.close()
                 UIColor(white: 0.96, alpha: 1).setFill(); page.fill()
                 UIColor(white: 0.75, alpha: 1).setFill()
-                for k in 0..<3 { c.fill(CGRect(x: ic.minX + 5, y: ic.minY + 9 + CGFloat(k) * 4, width: 12, height: 1.2)) }
+                for k in 0..<3 { c.fill(CGRect(x: ic.minX + 6, y: ic.minY + 12 + CGFloat(k) * 4, width: 16, height: 1.2)) }
                 let ext = (a.fileName as NSString).pathExtension.uppercased()
                 let extFont = HomeFonts.system(ofSize: 6, weight: .semibold)
                 TextDraw.line(ext, font: extFont, color: UIColor(white: 0.55, alpha: 1),
                               x: ic.midX - TextDraw.width(ext, font: extFont) / 2, baseline: ic.maxY - 5, in: c)
                 let tx = ic.maxX + 10, tw = r.maxX - 10 - tx
-                var y = r.midY - 3       // cmux: centred in the 52 pt pill
-                TextDraw.line(Self.fit(a.fileName, Self.nameFont, tw), font: Self.nameFont, color: Fixture.composeText, x: tx, baseline: y, in: c)  // cmux: the composer's own text
+                var y = r.midY - 10
+                TextDraw.line(Self.fit(a.fileName, Self.nameFont, tw), font: Self.nameFont, color: Fixture.incomingText, x: tx, baseline: y, in: c)
                 y += 14
                 TextDraw.line(Self.fit(Self.kindText(a), Self.kindFont, tw), font: Self.kindFont, color: Fixture.secondaryText, x: tx, baseline: y, in: c)
             }

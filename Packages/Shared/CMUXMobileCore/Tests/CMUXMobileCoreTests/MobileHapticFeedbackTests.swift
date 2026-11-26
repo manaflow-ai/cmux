@@ -11,11 +11,11 @@ import Testing
         return defaults
     }
 
-    @Test func defaultsToDisabledWithoutWriting() throws {
+    @Test func defaultsToEnabledWithoutWriting() throws {
         let defaults = try makeDefaults("default")
         let haptics = MobileHapticFeedback(defaults: defaults)
 
-        #expect(!haptics.isEnabled)
+        #expect(haptics.isEnabled)
         #expect(defaults.object(forKey: MobileHapticFeedback.enabledDefaultsKey) == nil)
     }
 

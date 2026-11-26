@@ -92,8 +92,9 @@ public actor IrxTunnelHost {
         connector: any IrxTunnelConnecting = IrxTunnelNetworkConnector(),
         policy: @escaping @Sendable () -> IrxTunnelDestinationPolicy,
         isAuthorized: @escaping @Sendable () -> Bool,
-        // Not a closure-literal default: see IrxPeerEngine.init (cx-bsue).
-        listPorts: (@Sendable () async -> [IrxListeningPort])? = nil,
+        listPorts: @escaping @Sendable () async -> [IrxListeningPort] = {
+            await Task.detached(priority: .utility) { IrxListeningPortScanner().loopbackListeningPorts() }.value
+        },
         journal: IrxJournal? = nil,
         now: @escaping @Sendable () -> ContinuousClock.Instant = { .now }
     ) {
@@ -101,9 +102,7 @@ public actor IrxTunnelHost {
         self.connector = connector
         self.policy = policy
         self.isAuthorized = isAuthorized
-        self.listPorts = listPorts ?? {
-            await Task.detached(priority: .utility) { IrxListeningPortScanner().loopbackListeningPorts() }.value
-        }
+        self.listPorts = listPorts
         self.journal = journal
         self.now = now
         tokens = limits.openBurst

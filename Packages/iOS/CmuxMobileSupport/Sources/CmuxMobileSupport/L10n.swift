@@ -1,13 +1,5 @@
 public import Foundation
 
-#if canImport(Darwin)
-/// The default-value type of a localized lookup.
-public typealias L10nDefaultValue = String.LocalizationValue
-#else
-// String.LocalizationValue is Apple only; a plain string stands in (a literal still compiles).
-public typealias L10nDefaultValue = String
-#endif
-
 /// Localized-string helpers shared across the mobile packages.
 ///
 /// Strings live in the app target's `Localizable.xcstrings`, so lookups default
@@ -23,12 +15,8 @@ public struct L10n {
     ///   - defaultValue: The English source value used when the key is missing.
     ///   - bundle: The bundle whose string catalog to read.
     /// - Returns: The localized string from `bundle`.
-    public static func string(_ key: StaticString, defaultValue: L10nDefaultValue, bundle: Bundle) -> String {
-        #if canImport(Darwin)
+    public static func string(_ key: StaticString, defaultValue: String.LocalizationValue, bundle: Bundle) -> String {
         String(localized: key, defaultValue: defaultValue, bundle: bundle)
-        #else
-        bundle.localizedString(forKey: "\(key)", value: defaultValue, table: nil)
-        #endif
     }
 
     /// Resolve a localized string by key, falling back to a default value.
@@ -37,7 +25,7 @@ public struct L10n {
     ///   - key: The localization key present in the app's string catalog.
     ///   - defaultValue: The English source value used when the key is missing.
     /// - Returns: The localized string from `Bundle.main`.
-    public static func string(_ key: StaticString, defaultValue: L10nDefaultValue) -> String {
+    public static func string(_ key: StaticString, defaultValue: String.LocalizationValue) -> String {
         string(key, defaultValue: defaultValue, bundle: .main)
     }
 

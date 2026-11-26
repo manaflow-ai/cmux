@@ -1,5 +1,6 @@
 import Foundation
 import NIOCore
+import NIOTransportServices
 
 /// A listener on the phone's loopback that carries each accepted connection
 /// to `targetHost:targetPort` at a backend's exit (`ssh -L` shape).
@@ -33,7 +34,8 @@ public final class TunnelPortForward: Sendable {
         maximumConnections: Int = 128
     ) async throws -> TunnelPortForward {
         let relays = TunnelTaskSet(limit: maximumConnections)
-        let listener = try await TunnelTransport.listen(host: "127.0.0.1", port: localPort) { inbound in
+        let listener = try await NIOTSListenerBootstrap(group: NIOTSEventLoopGroup.singleton)
+            .childChannelInitializer { inbound in
                 inbound.eventLoop.makeCompletedFuture {
                     let stream = try NIOChannelByteStream.installSync(on: inbound)
                     Task {
@@ -47,8 +49,12 @@ public final class TunnelPortForward: Sendable {
                         }
                         if !started { await stream.close() }
                     }
+                }
             }
-        }
+            .childChannelOption(ChannelOptions.allowRemoteHalfClosure, value: true)
+            .childChannelOption(ChannelOptions.autoRead, value: false)
+            .bind(host: "127.0.0.1", port: localPort)
+            .get()
         guard let port = listener.localAddress?.port else {
             try? await listener.close()
             throw TunnelOpenError.generalFailure

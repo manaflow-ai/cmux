@@ -1,9 +1,6 @@
+// CI: this package crashes with signal 11 on Blacksmith macOS 15 runners (cmux#44963 collects the backtrace).
 import Foundation
-#if canImport(os)
 import os
-#else
-@testable import CmuxHomeCore // OSAllocatedUnfairLock's stand-in
-#endif
 
 /// A clock that moves only when a test calls `advance(by:)`. Sleepers wait
 /// until the clock passes their deadline; a cancelled sleeper throws at once.

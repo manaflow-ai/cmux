@@ -1,6 +1,5 @@
 // swift-tools-version: 6.0
 
-import Foundation
 import PackageDescription
 
 let package = Package(
@@ -41,19 +40,3 @@ let package = Package(
         ),
     ]
 )
-
-#if os(Linux)
-// Apple SDKs ship the SQLite3 module; a build for Linux takes it from the system library. Only the Linux
-// package jobs (swift-packages-linux.yml) set CMUX_SWIFTPM_TARGET_LINUX; a build for an Apple platform
-// on a Linux host (the fleet) keeps the SDK's module.
-if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
-    package.targets.append(
-        .systemLibrary(
-            name: "SQLite3",
-            pkgConfig: "sqlite3",
-            providers: [.apt(["libsqlite3-dev"])]
-        )
-    )
-    package.targets.first { $0.name == "CmuxMobilePairedMac" }?.dependencies.append("SQLite3")
-}
-#endif

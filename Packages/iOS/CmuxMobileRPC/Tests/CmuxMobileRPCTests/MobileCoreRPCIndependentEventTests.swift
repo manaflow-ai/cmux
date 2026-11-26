@@ -182,11 +182,6 @@ struct MobileCoreRPCIndependentEventTests {
         var events = subscription.makeAsyncIterator()
         #expect(await client.prepareIndependentServerEvents())
 
-        // Lane scopes are terminal UUIDs: a lane whose id is not one is
-        // forwarded unscoped, which would never exercise the refusal.
-        let terminalA = "6F1C2B3A-0000-4000-8000-0000000000AA"
-        let terminalB = "6F1C2B3A-0000-4000-8000-0000000000BB"
-
         func event(_ surfaceID: String) throws -> Data {
             try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: [
                 "kind": "event",
@@ -195,18 +190,18 @@ struct MobileCoreRPCIndependentEventTests {
             ]))
         }
         // Terminal A's lane carries a frame naming B, then A's own frame.
-        var laneA = try event(terminalB)
-        laneA.append(try event(terminalA))
-        await source.yield(MobileEventLaneScope().scoped(laneA, surfaceID: terminalA))
+        var laneA = try event("terminal-b")
+        laneA.append(try event("terminal-a"))
+        await source.yield(MobileEventLaneScope().scoped(laneA, surfaceID: "terminal-a"))
         // The shared lane is unscoped and delivers B's frame normally.
-        await source.yield(try event(terminalB))
+        await source.yield(try event("terminal-b"))
 
         let first = try #require(await events.next()?.payloadJSON)
         let second = try #require(await events.next()?.payloadJSON)
         let surfaces = try [first, second].map {
             try #require(JSONSerialization.jsonObject(with: $0) as? [String: String])["surface_id"]
         }
-        #expect(surfaces == [terminalA, terminalB])
+        #expect(surfaces == ["terminal-a", "terminal-b"])
 
         await client.disconnect()
     }

@@ -1,4 +1,3 @@
-import CmuxEgress
 import Foundation
 
 typealias AccountDeletionRequestLoader = @Sendable (URLRequest) async throws -> (Data, URLResponse)
@@ -12,7 +11,7 @@ struct AccountDeletionClient: Sendable {
         apiBaseURL: String,
         requestTimeout: TimeInterval = 60,
         load: @escaping AccountDeletionRequestLoader = { request in
-            try await CmuxEgress.shared(site: "CmuxAuthRuntime.AccountDeletionClient").data(for: request)
+            try await URLSession.shared.data(for: request)
         }
     ) {
         self.apiBaseURL = apiBaseURL

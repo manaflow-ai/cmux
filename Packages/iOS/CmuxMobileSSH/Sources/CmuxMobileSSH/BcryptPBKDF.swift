@@ -26,13 +26,8 @@ struct BcryptPBKDF {
     }()
 
     /// Derives `keyLength` bytes from `password` and `salt` using ``rounds`` iterations.
-    ///
-    /// - Throws: ``SSHPrivateKeyParseError/malformed`` when `rounds` is below 1 or
-    ///   `keyLength` is outside 1...1024.
-    func derive(password: [UInt8], salt: [UInt8], keyLength: Int) throws -> [UInt8] {
-        guard rounds >= 1, keyLength >= 1, keyLength <= Self.hashSize * Self.hashSize else {
-            throw SSHPrivateKeyParseError.malformed
-        }
+    func derive(password: [UInt8], salt: [UInt8], keyLength: Int) -> [UInt8] {
+        precondition(rounds >= 1 && keyLength >= 1 && keyLength <= Self.hashSize * Self.hashSize)
         let stride = (keyLength + Self.hashSize - 1) / Self.hashSize
         var amount = (keyLength + stride - 1) / stride
         var key = [UInt8](repeating: 0, count: keyLength)
@@ -121,14 +116,11 @@ struct BcryptPBKDF {
         }
 
         private func initState() {
-            // Both tables are non-empty constants, so their base addresses exist.
             BcryptPBKDF.initialP.withUnsafeBufferPointer { src in
-                guard let base = src.baseAddress else { return }
-                p.update(from: base, count: Blowfish.pCount)
+                p.update(from: src.baseAddress!, count: Blowfish.pCount)
             }
             BcryptPBKDF.initialS.withUnsafeBufferPointer { src in
-                guard let base = src.baseAddress else { return }
-                s.update(from: base, count: 1024)
+                s.update(from: src.baseAddress!, count: 1024)
             }
         }
 

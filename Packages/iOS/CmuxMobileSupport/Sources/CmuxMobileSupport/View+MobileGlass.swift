@@ -1,4 +1,3 @@
-#if canImport(SwiftUI)
 public import SwiftUI
 
 /// Shared Liquid Glass compatibility helpers for mobile SwiftUI surfaces.
@@ -171,4 +170,3 @@ public extension View {
         #endif
     }
 }
-#endif

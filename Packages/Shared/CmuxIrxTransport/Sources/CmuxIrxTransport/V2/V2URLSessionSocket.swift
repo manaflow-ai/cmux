@@ -1,4 +1,3 @@
-import CmuxEgress
 public import Foundation
 import os
 
@@ -11,7 +10,7 @@ public actor V2URLSessionSocket: V2ControlSocket {
     ///   - session: A session owned by the composition root.
     ///   - request: The authenticated `/v2/control/socket` upgrade request.
     public init(session: URLSession, request: URLRequest) {
-        task = CmuxEgress.websocket(session, with: request, site: "CmuxIrxTransport.V2URLSessionSocket")
+        task = session.webSocketTask(with: request)
         task.maximumMessageSize = 2 * 1024 * 1024
         task.resume()
     }

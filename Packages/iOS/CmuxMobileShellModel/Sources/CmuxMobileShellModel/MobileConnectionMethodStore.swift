@@ -1,6 +1,6 @@
 public import Foundation
 public import CMUXMobileCore
-public import Observation
+import Observation
 
 /// How the phone should reach a paired Mac.
 public enum MobileConnectionMethod: String, CaseIterable, Sendable {

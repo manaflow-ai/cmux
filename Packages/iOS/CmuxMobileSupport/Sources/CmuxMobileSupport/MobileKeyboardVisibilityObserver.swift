@@ -28,14 +28,14 @@ public final class MobileKeyboardVisibilityObserver {
                 object: nil,
                 queue: .main
             ) { [weak self] _ in
-                MainActor.assumeIsolated { self?.isVisible = true } // main-proof: observer on queue: .main
+                MainActor.assumeIsolated { self?.isVisible = true }
             },
             notificationCenter.addObserver(
                 forName: UIResponder.keyboardWillHideNotification,
                 object: nil,
                 queue: .main
             ) { [weak self] _ in
-                MainActor.assumeIsolated { self?.isVisible = false } // main-proof: observer on queue: .main
+                MainActor.assumeIsolated { self?.isVisible = false }
             },
         ]
     }

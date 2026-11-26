@@ -4,26 +4,27 @@ name: language boundaries
 # (2026-11-10): "imessage home lives in swift, chat ui lives in react, acpmux/cmux-tui lives in rust, cmux cloud
 # core should be rust (together with cmux-tui/acpmux) and should have very minimal in swift." A pull request into
 # feat-cmux-next or main that deletes or moves an area's files out of its language, adds a foreign language there,
-# or adds Swift to a Swift-minimal area fails the `language-boundaries` check unless Leo approved the port (the
+# or adds Swift to a Swift-minimal area is flagged by the `language-boundaries` check unless Leo approved the port (the
 # `leo-approved-port` label added by teamleaderleo plus his `leo-approved-port:` PR comment, not a review; the
 # script's docstring has the limit). A pull request anywhere that removes Swift and adds React/web code (a Swift-to-
-# React port) fails too unless Lawrence or Leo added `react-port-ok` (Lawrence, relayed by Leo, 2026-11-11: "also
+# React port) is flagged too unless Lawrence or Leo added `react-port-ok` (Lawrence, relayed by Leo, 2026-11-11: "also
 # let's not move stuff to react anymore unless we talk about it / swift->rust is usually fine though"). Adding or
 # removing a label re-runs it.
 #
 # scripts/ci/language_boundaries.py decides, run from the base commit with the base's manifest, never the pull
 # request's code; the head is read only as a list of changed files. It runs on pull_request_target, so this file is
 # the base's too: a pull request cannot edit the check that judges it. Same shape as classic-frozen-guard.yml.
+#
+# Advisory only: it never blocks a pull request. The check step runs with continue-on-error, so a boundary it finds
+# (or a listing it cannot read) shows as the step's failure and its annotations, while the job and the check stay
+# green. Leo, 2026-11-12, after a teammate's PR was told to get `leo-approved-port`: "lucas ran into this which is
+# weird. we shouldnt have that". The agents' merge gate still reads the same manifest.
 on:
   pull_request_target:
     branches: [main, feat-cmux-next]
     types: [opened, synchronize, reopened, edited, labeled, unlabeled, ready_for_review]
 
 permissions: {}
-
-concurrency:
-  group: language-boundaries-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
@@ -32,10 +33,19 @@ env:
 jobs:
   language-boundaries:
     name: language-boundaries
-    # Every label change re-runs it (a skipped run would read as a pass and replace a failing one).
+    # A label event starts the job only for the two approval labels the check reads. It is advisory (header), so a
+    # skipped run hides no failure. cmux-bot's harness:, area: and kind: labels (about 870 an hour on 2026-11-21)
+    # each started it and spent a GITHUB_TOKEN listing (tests/test_ci_language_boundaries_spends_no_rest.py). This
+    # also keeps a fix-cause:* label on a closed pull request from starting it
+    # (tests/test_ci_fix_cause_labels_start_no_jobs.py).
+    if: ${{ !((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'leo-approved-port' && github.event.label.name != 'react-port-ok') }}
+    # The job holds the group, so a skipped label run never cancels a real check in flight.
+    concurrency:
+      group: language-boundaries-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
     # A base-revision control-plane job (cla-policy-guard.yml's runner rule): a VM destroyed after one job,
     # never a persistent or contributor-controlled machine.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -54,6 +64,8 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: Check the changed files against the language boundaries
+        # Advisory: a finding annotates the run but never fails the check (header).
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
@@ -69,13 +81,12 @@ jobs:
             echo "::notice::The base has no language-boundaries check yet; nothing to check."
             exit 0
           fi
-          # The changed files from the PR's merge commit, not the files API: this runs on every push, label and
-          # description edit (about 330 runs an hour on 2026-11-21), and each REST listing spent the repository's
-          # GITHUB_TOKEN hour that every workflow shares (the production promote gates 403'd on it, backend.yml run
-          # 44878749398). Trees only, no blobs but a rename's; -z keeps every path byte for byte, nothing quoted.
-          # The merge ref can lag a push, so it counts only when its second parent is this event's head. Its first
-          # parent is whichever base GitHub last merged with, often newer than the event's base.sha on a busy base;
-          # the diff from it is still what the PR changes there (classic-api-guard.yml, cmux#41500).
+          # The changed files from the PR's merge commit, not the files API: each REST listing spent the repository's
+          # GITHUB_TOKEN hour that every workflow shares (it ran out at 16:22Z on 2026-11-21; the production promote
+          # gates read from it). Trees only, no blobs but a rename's; -z keeps every path byte for byte, nothing
+          # quoted. The merge ref can lag a push, so it counts only when its second parent is this event's head. Its
+          # first parent is whichever base GitHub last merged with, often newer than the event's base.sha on a busy
+          # base; the diff from it is still what the PR changes there (classic-api-guard.yml, cmux#41500).
           files="$RUNNER_TEMP/files.z"
           format=git-z
           export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraheader
@@ -90,6 +101,7 @@ jobs:
             CHANGED_FILES=""
           else
             # A conflict (GitHub makes no merge commit) or a merge ref still behind this head: one REST listing.
+            # One JSON object per changed file: status, path, and a rename's old path, every character kept.
             echo "::notice::No merge commit of this head yet; listing the changed files over the API."
             files="$RUNNER_TEMP/files.jsonl"
             format=json

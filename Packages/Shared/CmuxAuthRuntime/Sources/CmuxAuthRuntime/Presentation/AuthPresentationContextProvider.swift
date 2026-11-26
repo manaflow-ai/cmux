@@ -47,7 +47,7 @@ public final class AuthPresentationContextProvider: NSObject, AuthPresentationAn
         window.makeKey()
         return window
         #else
-        #error("AuthPresentationContextProvider supports iOS and macOS only")
+        preconditionFailure("AuthPresentationContextProvider: unsupported platform")
         #endif
     }
 }

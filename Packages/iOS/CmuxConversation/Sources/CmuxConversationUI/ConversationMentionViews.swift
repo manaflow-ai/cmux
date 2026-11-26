@@ -145,7 +145,6 @@ final class ComposerMentionController: NSObject, UIGestureRecognizerDelegate, NS
         guard let query else { return }
         let result = ConversationMentionEditing.commit(query, participant: participant, in: draft)
         guard let textView else { return }
-        // motion: allow crossfade, the Reduce Motion form
         UIView.transition(with: textView, duration: 0.25, options: [.transitionCrossDissolve, .allowUserInteraction]) {
             self.replace(result.range, with: result.replacement, mentions: result.draft.mentions, caret: result.caret)
         }

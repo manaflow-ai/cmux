@@ -50,7 +50,6 @@ extension ScriptedBackend: ConversationAudioBackend {
         #expect(ConversationAudioInfo.resample([0.2, 0.6], count: 4) == [0.2, 0.2, 0.6, 0.6])
     }
 
-    #if canImport(AVFoundation)
     @Test func wavRoundTripsThroughAVFoundation() throws {
         let samples = ConversationSyntheticSpeech.samples(seconds: 0.5, seed: 7)
         let data = ConversationWAV.encode(samples)
@@ -63,7 +62,6 @@ extension ScriptedBackend: ConversationAudioBackend {
         let levels = ConversationWAV.levels(decoded, bucket: 800)
         #expect(levels.contains { $0 > 0.5 })
     }
-    #endif
 
     @Test func sendAudioShowsTheRecordingAtOnceThenUploadsAndAcks() async throws {
         let backend = ScriptedBackend(total: 5)

@@ -306,7 +306,8 @@ public actor CmxIrohBrokerBackpressureGate {
         if let floor = floors[key], Self.isActive(floor, at: current) {
             keyedFloor = floor
         } else {
-            changed = floors.removeValue(forKey: key) != nil
+            changed = floors[key] != nil
+            floors[key] = nil
             keyedFloor = nil
         }
 
@@ -362,7 +363,7 @@ public actor CmxIrohBrokerBackpressureGate {
             errorKind: directive.kind
         )
         if let current = floors[key], current.retryAt >= proposed.retryAt { return }
-        floors.updateValue(proposed, forKey: key)
+        floors[key] = proposed
         persistFloors()
     }
 
@@ -459,7 +460,7 @@ public actor CmxIrohBrokerBackpressureGate {
             if let current = loaded[stored.key], current.retryAt >= floor.retryAt {
                 shouldRewrite = true
             } else {
-                loaded.updateValue(floor, forKey: stored.key)
+                loaded[stored.key] = floor
             }
         }
 

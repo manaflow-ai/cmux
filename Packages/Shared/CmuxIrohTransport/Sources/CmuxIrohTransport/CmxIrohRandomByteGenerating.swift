@@ -16,8 +16,7 @@ public struct CmxIrohSystemRandomByteGenerator: CmxIrohRandomByteGenerating {
         }
         var bytes = Data(count: count)
         let status = bytes.withUnsafeMutableBytes { buffer in
-            guard let base = buffer.baseAddress else { return errSecAllocate }
-            return SecRandomCopyBytes(kSecRandomDefault, count, base)
+            SecRandomCopyBytes(kSecRandomDefault, count, buffer.baseAddress!)
         }
         guard status == errSecSuccess else {
             throw CmxIrohOfflinePairingSessionError.randomnessUnavailable

@@ -38,18 +38,21 @@ public struct MobileEventLaneScope: Sendable {
         }
         let mark = marker(surfaceID: surface)
         var scoped = Data(capacity: block.count + mark.count * 4)
-        var reader = WireByteReader(block)
-        while true {
-            var header = reader
-            guard let length = header.bigEndian(UInt32.self),
-                  let payloadLength = Int(exactly: length),
-                  let frame = reader.bytes(MobileSyncFrameCodec.headerByteCount + payloadLength) else { break }
+        var offset = block.startIndex
+        while block.distance(from: offset, to: block.endIndex) >= MobileSyncFrameCodec.headerByteCount {
+            var length = 0
+            for byte in block[offset..<block.index(offset, offsetBy: MobileSyncFrameCodec.headerByteCount)] {
+                length = (length << 8) | Int(byte)
+            }
+            let frameByteCount = MobileSyncFrameCodec.headerByteCount + length
+            guard block.distance(from: offset, to: block.endIndex) >= frameByteCount else { break }
             scoped.append(mark)
-            scoped.append(frame)
+            scoped.append(block[offset..<block.index(offset, offsetBy: frameByteCount)])
+            offset = block.index(offset, offsetBy: frameByteCount)
         }
         // The aligner only returns whole frames; any tail would be malformed.
         // Forwarding it unscoped keeps the failure visible to the decoder.
-        scoped.append(reader.remaining)
+        if offset < block.endIndex { scoped.append(block[offset...]) }
         return scoped
     }
 

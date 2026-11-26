@@ -70,8 +70,10 @@ public enum MobileWorkspaceMetadataLimits {
         result.reserveCapacity(min(value.utf8.count, remainingBudget))
         var usedBytes = 0
         var foundNonWhitespace = false
-        for element in value {
-            let character = String(element)
+        var index = value.startIndex
+        while index < value.endIndex {
+            let nextIndex = value.index(after: index)
+            let character = String(value[index])
             let characterByteCount = jsonEscapedUTF8ByteCount(character)
             guard usedBytes + characterByteCount <= remainingBudget else { break }
             result.append(contentsOf: character)
@@ -80,6 +82,7 @@ public enum MobileWorkspaceMetadataLimits {
                character.rangeOfCharacter(from: .whitespacesAndNewlines.inverted) != nil {
                 foundNonWhitespace = true
             }
+            index = nextIndex
         }
         remainingBudget -= usedBytes
         guard foundNonWhitespace else {
@@ -126,21 +129,25 @@ public enum MobileWorkspaceMetadataLimits {
         var usedBytes = 0
         var isTruncated = false
         var foundNonWhitespace = false
-        var characters = description.makeIterator()
-        var upcoming = characters.next()
+        var index = description.startIndex
 
-        while let character = upcoming {
+        while index < description.endIndex {
             let normalizedCharacter: String
-            upcoming = characters.next()
+            let character = description[index]
+            let nextIndex = description.index(after: index)
             if character == "\r\n" {
                 normalizedCharacter = "\n"
+                index = nextIndex
             } else if character == "\r" {
                 normalizedCharacter = "\n"
-                if upcoming == "\n" {
-                    upcoming = characters.next()
+                if nextIndex < description.endIndex, description[nextIndex] == "\n" {
+                    index = description.index(after: nextIndex)
+                } else {
+                    index = nextIndex
                 }
             } else {
                 normalizedCharacter = String(character)
+                index = nextIndex
             }
 
             if !foundNonWhitespace,
@@ -152,7 +159,7 @@ public enum MobileWorkspaceMetadataLimits {
             if usedBytes + byteCount <= customDescriptionMaxUTF8Bytes {
                 result.append(normalizedCharacter)
                 usedBytes += byteCount
-                if usedBytes == customDescriptionMaxUTF8Bytes, upcoming != nil {
+                if usedBytes == customDescriptionMaxUTF8Bytes, index < description.endIndex {
                     isTruncated = true
                 }
             } else {

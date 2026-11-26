@@ -59,7 +59,7 @@ final class MessageCellAccessibility {
     }
 
     /// Rebuilds the element list for the row the cell now shows.
-    func update(model: MessageRowModel, layout: MessageCellLayout) {
+    func update(model: MessageRowModel, layout: MessageCellLayout, supportsReactions: Bool = true) {
         cell.isAccessibilityElement = false
         let shifted: (CGRect) -> CGRect = { [unowned cell] rect in
             cell.shiftable.convert(rect, to: cell.contentView)
@@ -69,15 +69,12 @@ final class MessageCellAccessibility {
         bubble.accessibilityIdentifier = "conversation.bubble.\(model.message.id)"
         var elements: [Any] = []
         if let quoteModel = model.replyQuote, let frame = layout.quoteFrame {
-            // The quote's own thread count reads with it ("…, 3 Replies").
-            quote.accessibilityLabel = layout.quoteRepliesFrame == nil
-                ? quoteModel.text
-                : "\(quoteModel.text), \(MessageCell.repliesText(quoteModel.replyCount))"
+            quote.accessibilityLabel = quoteModel.text
             quote.frameProvider = { shifted(frame) }
             elements.append(quote)
         }
         elements.append(bubble)
-        if !model.reactionKinds.isEmpty, !cell.reactionBadge.isHidden {
+        if supportsReactions, !model.reactionKinds.isEmpty, !cell.reactionBadge.isHidden {
             reactions.accessibilityValue = model.reactionKinds.map(ConversationAccessibilityText.tapbackName).joined(separator: ", ")
             reactions.frameProvider = { [unowned cell] in cell.shiftable.convert(cell.reactionBadge.frame, to: cell.contentView) }
             elements.append(reactions)
@@ -124,6 +121,9 @@ extension ConversationViewController {
     func configureAccessibility(_ cell: MessageCell, model: MessageRowModel) {
         let message = model.message
         let ax = cell.accessibility
+        if let cellLayout = cell.cellLayout {
+            ax.update(model: model, layout: cellLayout, supportsReactions: options.supportsReactions)
+        }
         let meID = store.meID
         // An audio message speaks its duration and transcript as its content.
         var spoken = message
@@ -137,6 +137,7 @@ extension ConversationViewController {
             }
         )
         cell.accessibilityLabel = ax.bubble.accessibilityLabel
+        ax.bubble.accessibilityHint = options.supportsReactions ? ConversationAccessibilityText.reactHint : nil
         let rowID = model.rowID
         ax.bubble.traitsProvider = { [weak self] in
             guard let self, self.isSelecting else { return [] }
@@ -151,7 +152,8 @@ extension ConversationViewController {
             return self.presentAccessibleActions(rowID: rowID, mode: .menu)
         }
         ax.reactions.onActivate = { [weak self] in
-            self?.presentAccessibleActions(rowID: rowID, mode: .reactionDetail) ?? false
+            guard self?.options.supportsReactions == true else { return false }
+            return self?.presentAccessibleActions(rowID: rowID, mode: .reactionDetail) ?? false
         }
         ax.replies.onActivate = { [weak self] in
             self?.openThread(rootID: message.id)
@@ -167,15 +169,18 @@ extension ConversationViewController {
             return true
         }
 
-        var actions: [UIAccessibilityCustomAction] = [
-            UIAccessibilityCustomAction(name: ConversationAccessibilityText.tapbackAction) { [weak self] _ in
+        var actions: [UIAccessibilityCustomAction] = []
+        if options.supportsReactions {
+            actions.append(UIAccessibilityCustomAction(name: ConversationAccessibilityText.tapbackAction) { [weak self] _ in
                 self?.presentAccessibleActions(rowID: rowID, mode: .menu) ?? false
-            },
+            })
+        }
+        actions.append(
             UIAccessibilityCustomAction(name: ConversationAccessibilityText.replyAction) { [weak self] _ in
                 self?.enterReplyMode(for: message)
                 return true
-            },
-        ]
+            }
+        )
         if message.replyCount > 0 {
             actions.append(UIAccessibilityCustomAction(name: ConversationAccessibilityText.openThreadAction) { [weak self] _ in
                 self?.openThread(rootID: message.id)
@@ -189,13 +194,13 @@ extension ConversationViewController {
                 return true
             })
         }
-        if store.canEdit(message) {
+        if options.supportsEditing, store.canEdit(message) {
             actions.append(UIAccessibilityCustomAction(name: ConversationAccessibilityText.editAction) { [weak self] _ in
                 self?.enterEditMode(for: message)
                 return true
             })
         }
-        if store.canUnsend(message) {
+        if options.supportsUnsend, store.canUnsend(message) {
             actions.append(UIAccessibilityCustomAction(name: ConversationAccessibilityText.undoSendAction) { [weak self] _ in
                 self?.store.unsend(messageID: message.id)
                 return true
@@ -221,11 +226,11 @@ extension ConversationViewController {
     /// The long-press surface, opened from VoiceOver (double tap or the
     /// Tapback action) on the row's live cell.
     private func presentAccessibleActions(rowID: String, mode: MessageActionOverlay.Mode) -> Bool {
+        guard options.supportsReactions || mode == .menu else { return false }
         guard let indexPath = indexPath(for: rowID),
               let cell = collectionView.cellForItem(at: indexPath) as? MessageCell,
               let model = cell.model else { return false }
-        presentActions(for: model, cell: cell, mode: mode)
-        return true
+        return presentActions(for: model, cell: cell, mode: mode) != nil
     }
 
     /// Messages speaks a message that arrives in the open conversation.

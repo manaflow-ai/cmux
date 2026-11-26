@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "sampleSidebar.actionDenied" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "cmux did not allow that action" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "cmux はその操作を許可しませんでした" } }
+      }
+    },
+    "sampleSidebar.allWorkspaces" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "All Workspaces" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "すべてのワークスペース" } }
+      }
+    },
+    "sampleSidebar.focusQueue" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Focus Queue" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "フォーカスキュー" } }
+      }
+    },
+    "sampleSidebar.manifest.displayName" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "CMUX Sample Sidebar Extension" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "CMUX サンプルサイドバー拡張" } }
+      }
+    },
+    "sampleSidebar.metadataLimited" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Workspace metadata has not been shared yet. Review access in cmux to show workspace rows." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ワークスペースのメタデータはまだ共有されていません。ワークスペース行を表示するには cmux でアクセス権を確認してください。" } }
+      }
+    },
+    "sampleSidebar.newTerminalSurface" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "New terminal surface" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "新しいターミナルサーフェス" } }
+      }
+    },
+    "sampleSidebar.nextSurface" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Next surface" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "次のサーフェス" } }
+      }
+    },
+    "sampleSidebar.nextWorkspace" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Next workspace" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "次のワークスペース" } }
+      }
+    },
+    "sampleSidebar.noSignals" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No active workspace signals beyond the selected workspace" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "選択中のワークスペース以外にアクティブなシグナルはありません" } }
+      }
+    },
+    "sampleSidebar.noWorkspaces" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No workspaces were shared by cmux." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "cmux から共有されたワークスペースはありません。" } }
+      }
+    },
+    "sampleSidebar.pinned" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Pinned" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ピン留め" } }
+      }
+    },
+    "sampleSidebar.previousSurface" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Previous surface" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "前のサーフェス" } }
+      }
+    },
+    "sampleSidebar.previousWorkspace" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Previous workspace" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "前のワークスペース" } }
+      }
+    },
+    "sampleSidebar.refresh" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Refresh" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "更新" } }
+      }
+    },
+    "sampleSidebar.selectionLimited" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Review access in cmux to enable selecting workspaces from this extension." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "この拡張からワークスペースを選択できるようにするには cmux でアクセス権を確認してください。" } }
+      }
+    },
+    "sampleSidebar.signalSummary" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Signals in %@" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%@ のシグナル" } }
+      }
+    },
+    "sampleSidebar.signalSummaryMore" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Signals in %@ and %d more" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%@ と他 %d 件のシグナル" } }
+      }
+    },
+    "sampleSidebar.title" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Workspace Signals" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ワークスペースシグナル" } }
+      }
+    },
+    "sampleSidebar.unread" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Unread" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "未読" } }
+      }
+    },
+    "sampleSidebar.waitingForHost" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Waiting for cmux" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "cmux を待機中" } }
+      }
+    },
+    "sampleSidebar.workspaceCount" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%d workspaces shared by cmux" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "cmux から共有された %d 個のワークスペース" } }
+      }
+    },
+    "sampleSidebar.workspaces" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Workspaces" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ワークスペース" } }
+      }
+    }
+  },
+  "version" : "1.0"
+}

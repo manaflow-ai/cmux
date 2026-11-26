@@ -243,12 +243,9 @@ public struct MobileWorkspaceMovePolicy {
         _ order: [MobileWorkspacePreview],
         desiredWorkspaceIDs: [MobileWorkspacePreview.ID]
     ) -> [MobileWorkspacePreview] {
-        var groupedByGroupID: [MobileWorkspaceGroupPreview.ID: [MobileWorkspacePreview]] = [:]
-        for workspace in order {
-            if let groupID = validGroupID(workspace.groupID) {
-                groupedByGroupID[groupID, default: []].append(workspace)
-            }
-        }
+        let groupedByGroupID = Dictionary(grouping: order.filter {
+            validGroupID($0.groupID) != nil
+        }, by: { validGroupID($0.groupID)! })
         let workspacesByID = Dictionary(order.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var emittedWorkspaceIDs = Set<MobileWorkspacePreview.ID>()
         var emittedGroupIDs = Set<MobileWorkspaceGroupPreview.ID>()

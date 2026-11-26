@@ -124,8 +124,7 @@ final class MacSendLaterClockView: MacFlippedView {
             CATransaction.setDisableActions(true)
             hand.setValue(angle, forKeyPath: "transform.rotation.z")
             CATransaction.commit()
-            // Reduce Motion: the hands jump to the new time (the model value above).
-            guard animated, !NSView.reducesMotion, previous != nil, abs(angle - from) > 0.001 else { continue }
+            guard animated, previous != nil, abs(angle - from) > 0.001 else { continue }
             let sweep = CABasicAnimation(keyPath: "transform.rotation.z")
             sweep.fromValue = from
             sweep.toValue = angle

@@ -1,149 +1,111 @@
 # cmux agent notes
 
-The rules every agent needs in every session here. Everything else lives on the page that owns it (the
-[table below](#where-the-rest-lives)); read the matching skill or page before changing an area.
+Keep repo-wide decisions here; procedures belong in [CONTRIBUTING.md](CONTRIBUTING.md),
+[area instructions](#area-instructions) and [task skills](skills/README.md).
+Read the matching skill before changing an area, then only the references needed.
 
-Maintainers: team-specific workflow notes live in the maintainers' private docs.
+**Manaflow AI team members and their agents:** read the private [cmuxterm-hq CLAUDE.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/CLAUDE.md) and [AGENTS.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/AGENTS.md) before fleet or CI work. They are the entry point for fleet builds, CI routing, agent coordination, and landing rules. Start fleet work at [Fleet and CI: start here](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/FLEET-AND-CI.md). External contributors can ignore this block; those links return 404 for them.
 
-**On your own machine** (Claude, Codex or another agent a contributor runs): the code rules below all apply to
-you. Run checks this way:
+## Verification and isolation
 
-- Build on the Mac you're on, in a tagged build, never over the installed cmux: `./scripts/setup.sh` once, then
-  `CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag <your-tag>`. Python under `scripts/` and `tests/`
-  runs directly (`python3 tests/test_x.py`); `cmux-tui/` takes a focused `cargo test` there
-  ([cmux-tui/AGENTS.md](cmux-tui/AGENTS.md)).
-- Before pushing: `python3 scripts/verify-local.py` (it picks the checks your diff touches), plus
-  `scripts/web-lint.sh` for `webviews/` or `web/`.
-- Open the pull request against `feat-cmux-next` and let CI run; check it once with `gh pr checks N`, not a
-  watch loop. Say under Testing what you ran and what you couldn't.
-- Leave classic paths ([`.github/classic-frozen.txt`](.github/classic-frozen.txt)) alone and keep new logic in
-  the language the boundaries file names.
-
-The person path, with the 5-minute build, test and land steps and a map of the tree: [docs/start-here.md](docs/start-here.md).
-
-## The loop: use it first, then test
-
-Write the code, put it into your running cmux, use it (screenshot, video, click through it), and only then run
-the slow checks: compile, CI, gallery, suites. Before asking for a dev build, run `cmux app try .` on a Mac in
-your checkout: it clones your nightly beside the person's cmux and swaps your web UI and daemon Rust in (`--stop`
-deletes the clone).
-
-| Layer | Into the running app |
-|---|---|
-| Web (`webviews/`) | `cmux customize use pr:N`, `branch:NAME`, `sha:SHA` or `dir:PATH [--watch]`; back with `cmux customize library off NAME` |
-| Terminal daemon, acpmux Rust (`cmux-tui/`) | `scripts/cmux-next/hot-apply.py plan SHA`, `apply SHA`, `rollback` |
-| A whole PR, branch or commit | `cmux app try <PR\|branch\|sha>`, back with `cmux app try undo` |
-| Web from your checkout, hot reload on save | `cmux live start --worktree <checkout>` |
-| Daemon Rust from your checkout | `cmux live start --rust` |
-| Swift inside function bodies | live code on a Debug base: `cmux live start --swift` ([live code](docs/cmux-next/live-code.md)) |
-| String catalogs (`.xcstrings`), Cloud wire types (`clients/ts`) | `cmux app try`: no build (Swift's translations wait for one) |
-| Backend, images, workers, CI | no app change: run the area's tests (`python3 scripts/verify-local.py`); a copy of the NIGHTLY signs in to Cloud (`cmux app try .`) |
-| Swift signatures, stored properties, Rust the app links, resources | a build; `hot-apply.py plan` says which and why |
-
-Full loop: the [cmux-hot-loop skill](skills/cmux-hot-loop/SKILL.md) and
-[docs/cmux-next/hot-reload.md](docs/cmux-next/hot-reload.md#the-loop).
-
-A signed-in build to drive is a copy of a signed-in app, not an "authenticated dev build": `cmux app try <PR|sha>`
-in your NIGHTLY (production account), `--for-person` on a
-Swift build handed to a person. Table: [cmux-hot-loop, Signed in](skills/cmux-hot-loop/SKILL.md#signed-in-without-an-authenticated-dev-build).
-
-## Every session
-
-- **A web or daemon change needs no build**: `cmux app try .` first ([the loop](#the-loop-use-it-first-then-test));
-  a change that needs one gets a tagged build. Never bypass the PATH guards. Details:
-  [verification rules](skills/cmux-dev-workflow/references/verification-rules.md).
-- **Never quit, kill, relaunch or replace the user's running cmux** (`/Applications/cmux.app`,
-  `com.cmuxterm.app`), and never set `CMUX_ALLOW_REPLACING_RUNNING_CMUX`. Reproduce in a copy of the NIGHTLY
-  (`cmux app try .`), or a tagged build when the change needs one.
-- **Never poll GitHub**: check a PR once with `gh pr checks N`; never `gh pr checks --watch`, `gh run watch` or a
-  sleep loop ([verification rules](skills/cmux-dev-workflow/references/verification-rules.md)).
-- **Make worktrees with `python3 scripts/cmux_worktree.py add -b BRANCH PATH origin/feat-cmux-next`** (APFS clones
-  of a seed: about 4 s, almost no disk); never symlink node_modules or share one Cargo target dir
-  ([worktrees](skills/cmux-dev-workflow/SKILL.md#worktrees)).
-- **Scope every search** to your worktree or a named subfolder, never `..`, `~`, `/` or `$TMPDIR`.
-- **Before every push**, `python3 scripts/cmux-next/prepush-gate.py` (the pre-push hook runs it) and, for
-  `webviews/` or `web/`, `scripts/web-lint.sh`. Never `--no-verify` or `CMUX_NEXT_CHECKS_SKIP_REASON` unless the
-  failure is in files you did not touch, and then say so. Gate rules: [code rules](docs/cmux-next/code-rules.md);
-  failed pushes: [pushing](skills/cmux-dev-workflow/references/pushing.md).
-- **Classic is frozen.** Work only on cmux-next paths; never change the files in
-  [`.github/classic-frozen.txt`](.github/classic-frozen.txt) (Leo, 2026-11-04). The `ios/` classic iPhone app is
-  retired; cmux-next's is `cmux-next-ios/`.
-- **Each area stays in its language** ([`.github/language-boundaries.toml`](.github/language-boundaries.toml),
-  Lawrence's rule relayed by Leo, 2026-11-10): new logic is Rust; Swift and React only where that file says.
-  The `language-boundaries` check enforces it.
-- **macOS and iOS parity.** Every new cmux-next macOS feature also works in the iPhone app (`cmux-next-ios/`),
-  with a row in [cmux-next-ios/verify/parity-mac.md](cmux-next-ios/verify/parity-mac.md); the exceptions
-  (Mac-only chrome, what [cmux-next-ios/SECURITY.md](cmux-next-ios/SECURITY.md) forbids a phone) are recorded
-  there. A phone path that needs new trust policy goes to Leo as one decision first, with a recommendation.
-- **Dev builds are separate.** A tagged dev build (Mac and iPhone) never sees or changes another build's
-  backend data or local state, nor nightly's or stable's, and never reuses NIGHTLY's sign-in. The pre-push
-  gate's "Build spaces" and "Dev build state is its own" checks enforce it:
-  [dev build spaces](skills/cmux-dev-workflow/references/dev-build-spaces.md).
-- **Agents may add CI gates, perf-gate rows, CI jobs and CI tests** (Aziz 2026-11-18 lifted the "no new CI" rule;
-  perf runs still never block a push, merge or nightly). Each fix still gets a regression test.
-- **Nightlies never use Blacksmith, run on one signing Mac, and nobody cancels them** (Lawrence, 2026-10-30
-  and 2026-11-04): [landing](docs/ci/landing.md#ci-runners-and-nightlies).
-- **A change to the Mac or iOS app is done when the person can open it**: the report ends with the dev build
-  link (a web or daemon change: `cmux app try <PR>`, a build only when `hot-verify.py plan` needs one or the
-  person asks), the simulator evidence and the iPhone install result
-  ([finishing a task](skills/cmux-dev-workflow/references/finishing-a-task.md)). A docs-only change gives the
-  file path instead. `cmux-next-ios/scripts/review.sh` points both apps at the tag's own backend stack by
-  default (`--backend dev` for the shared dev Workers).
-
-## CI, review and merge
-
-Into `feat-cmux-next` you merge your own PR, pinned (`gh pr merge N --squash --match-head-commit <sha>`), once it
-causes no red of its own; review runs beside it. Into `main` it needs a review SHIP at the head. Never `--admin`.
-Adding a test or a CI job needs no CI thought: put the test where the code's tests already live, and the routers run only what a diff can affect from each job's declared inputs. A new PR job gets an entry in its router's map; one you forget is recorded as runs-always by `scripts/ci/job_inputs.py fix` (the PR autofix), never refused.
-Which CI a PR runs: [CI coverage](skills/cmux-testing/references/pr-ci-coverage.md). Full rules:
-[landing](docs/ci/landing.md).
-
-## Settings on every surface
-
-A new or changed cmux-next setting also works from the command palette, the `cmux` CLI and the MCP tools:
-declare it once as a `SettingDescriptor` in `SettingsSchema`
-([agent checklist](plans/cmux-next/settings-surfaces.md#agent-checklist)).
+- Before committing, setup or a native build, [choose scoped verification](skills/cmux-testing/references/local-vs-ci-validation.md).
+  Start with `python3 scripts/verify-local.py`; docs and portable tooling need no app build.
+  Run repository commands only in a [trusted checkout](docs/contributor-verification.md#trust-boundary),
+  including `verify-local.py --help`, `--list` and `--repo`. Push does not run checks for you.
+- Use [CONTRIBUTING.md](CONTRIBUTING.md#getting-started) for setup. Outside cmuxterm-hq-created
+  checkouts, set `CMUX_DEV_BACKEND_MODE=local` for dev builds. Follow [tagged builds](skills/cmux-dev-workflow/references/tagged-builds.md)
+  for commands and cache reuse; team fleet tasks start at
+  [Fleet and CI: start here](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/FLEET-AND-CI.md).
+  Never use bare `xcodebuild` or an untagged `cmux DEV.app`. Clean up only your own tags.
+- A same-repo app PR gets a fleet dogfood build and link comment only while it has the
+  `dev-build` label. Add it when someone will dogfood the PR, not by default; under load
+  the fleet builds the newest push, and the comment says how to build a skipped commit.
+- Never quit, kill, relaunch, replace or launch-profile the user's running cmux
+  (`/Applications/cmux.app`, `com.cmuxterm.app`), including through a Release build or
+  another bundle with that ID. Never set `CMUX_ALLOW_REPLACING_RUNNING_CMUX`; only the
+  user may. Reproduce in a tagged build and attach profiling to its PID.
+- Dogfood through `CMUX_TAG=<tag> scripts/cmux-debug-cli.sh`, never `/tmp/cmux-cli`.
+  Never report raw `.app` paths or `file://` URLs.
+- App-linked code (`Sources/`, `CLI/`, `TunnelExtension/` and their packages) must
+  remain [Swift 6.0 compatible](skills/cmux-architecture/references/swift-6-0-compatibility.md).
 
 ## Area instructions
 
 Read these before working in their scope; nested files may not load automatically:
 
-- `Packages/iOS/`: [Packages/iOS/AGENTS.md](Packages/iOS/AGENTS.md) (the Apple HIG rule for iPhone UI).
-- Cloud backend code (control plane, VM API routes, provider drivers, billing, entitlements, the NEXT Worker):
-  new code goes to the private manaflow-ai/cmux-platform repository, not here. Read
-  [skills/cmux-backend/SKILL.md](skills/cmux-backend/SKILL.md) first.
+- `ios/` or `Packages/iOS/`: [ios/AGENTS.md](ios/AGENTS.md).
 - `web/` or any cmux Cloud database work: [web/AGENTS.md](web/AGENTS.md).
 - `cmux-tui/`: [cmux-tui/AGENTS.md](cmux-tui/AGENTS.md).
-- `Packages/macOS/`, `App/`, `Native/` (the Mac app's Swift): [Packages/macOS/AGENTS.md](Packages/macOS/AGENTS.md)
-  (where a change goes, what Linux can check, the common reds).
-- `backend/`, `workers/`, `services/`: [backend/AGENTS.md](backend/AGENTS.md) (test one file, the migration and
-  catalog reds).
-- `scripts/`, `tests/`, `ci/`: [scripts/AGENTS.md](scripts/AGENTS.md); `.github/workflows/`:
-  [.github/AGENTS.md](.github/AGENTS.md) (find and run one script's tests, add a workflow).
-- `webviews/`: [webviews/README.md](webviews/README.md).
-- `cmux-next-ios/`: [cmux-next-ios/CLAUDE.md](cmux-next-ios/CLAUDE.md) and
-  [cmux-next-ios/SECURITY.md](cmux-next-ios/SECURITY.md).
 
-## Where the rest lives
+## Contributions and publication
+
+Before fixing a bug or adding a feature, search open upstream PRs by symptom or
+issue number. Prefer landing an outside contributor's existing PR; push fixups
+only when maintainer edits are allowed, and explain the changes. If using their
+approach in your own PR, credit them in every such commit with `Co-authored-by`
+using their commit email, link your PR from theirs and thank them. Let a human
+close it; never close an outside PR without a human-written explanation.
+
+The server directories listed in [LICENSE](LICENSE) (`web/`, `workers/ci-artifacts/`,
+`workers/iroh-v2/`, `workers/presence/`, `services/iroh-relay-minter/`,
+`cmux-tui/relays/cloudflare-do/`) use the Business Source License, which needs
+every outside author's CLA grant. Do not merge a PR that changes those
+directories while CLA Assistant is red, and do not copy an outside
+contributor's work there under a `Co-authored-by` trailer unless that person
+has signed the CLA. Keep code that ships in the macOS or iOS app out of those
+directories.
+
+Read [STYLE.md](STYLE.md) before drafting or revising issues, PR descriptions,
+RFCs or progress updates. Fill the PR's `## Changelog` section with one
+`Added`/`Changed`/`Fixed`/`Removed` line for user-visible changes, otherwise `none`.
+Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
+
+## CI, review and merge
+
+- Commit the failing behavioral regression before its fix; record the same
+  focused command's red and green results ([testing policy](skills/cmux-testing/SKILL.md#reproduce-and-repair)).
+  A bug-fix PR body names that command, its failure on the base and its pass on the head,
+  then an `### Observed / Not run` section: what you ran and saw, then what you only read
+  or didn't run. `gh-merge-green` warns when a fix PR lacks it; it does not block.
+- Check executed tests on the current SHA; green skipped jobs do not establish coverage.
+  Add `full-ci` only for a user-requested or agreed broad validation plan,
+  naming the extra lanes and why ([CI coverage](skills/cmux-testing/references/pr-ci-coverage.md)).
+- Keep branches current locally with `scripts/merge-main.sh`; follow
+  [the merge-main guide](docs/ci/merge-main.md) and never force-push over its merge.
+- `gh pr merge` saying "base branch policy prohibits the merge" means the token lacks the `workflow`
+  scope or GitHub timed out, not a rule: run `gh auth refresh -h github.com -s workflow`, or merge with
+  `gh api -X PUT repos/OWNER/REPO/pulls/N/merge -f merge_method=squash -f sha=SHA`, which names the cause. Never `--admin`.
+- Before opening a PR and before merging, check it against [REVIEW.md](REVIEW.md) (draft),
+  the mistakes our review history keeps catching.
+- A PR merges when an independent [review subagent](skills/cmux-review/SKILL.md) passes its
+  head and it causes no red of its own; base reds, flakes and pending checks don't hold it, and
+  no person approves it. Merge with `gh-merge-green`; [merge freezes](docs/ci/merge-freeze.md)
+  still hold. A stuck, irrelevant or known red check is not a reason to stop: waive it with
+  `--override "<reason>"`, which posts the reason on the PR ([exact-head merging](docs/ci-runners.md#exact-head-merging)).
+  First pass, dogfood, red base and receipts: [dogfood and merge](skills/cmux-review/references/dogfood-and-merge.md).
+  Notify with `cmux notify` when a socket is available.
+
+## Implementation rules by task
+
+Use these existing owners instead of duplicating their checklists here:
 
 | Touching | Read before editing |
 | --- | --- |
-| Setup, tagged builds, scoped verification | [CONTRIBUTING.md](CONTRIBUTING.md#getting-started), [verification rules](skills/cmux-dev-workflow/references/verification-rules.md), [tagged builds](skills/cmux-dev-workflow/references/tagged-builds.md) |
-| Hooks, lints, pushing | [hooks and lints](skills/cmux-dev-workflow/references/hooks-and-lints.md), [pushing](skills/cmux-dev-workflow/references/pushing.md) |
-| Code rules, hot paths, crash classes, Swift namespaces | [code rules](docs/cmux-next/code-rules.md), [PATTERNS.md](plans/cmux-next/PATTERNS.md), [design-lessons.md](docs/cmux-next/design-lessons.md) |
-| Dev build backend data, local state and sign-in | [dev build spaces](skills/cmux-dev-workflow/references/dev-build-spaces.md) |
-| Finishing a task: dev build, simulator, iPhone hand-off | [finishing a task](skills/cmux-dev-workflow/references/finishing-a-task.md) |
-| Outside PRs, licenses, PR text, CI, review and merge | [landing](docs/ci/landing.md), [STYLE.md](STYLE.md), [risk tiers](docs/ci/risk-tiers.md) |
-| Screenshots and clips for a PR: crop, before/after, trim | [evidence](skills/cmux-review/references/dogfood-and-merge.md) and `scripts/media/media_polish.py --help` |
-| Screenshots and clips for a PR: crop, before/after, trim | [evidence](skills/cmux-review/references/dogfood-and-merge.md) and `scripts/media/media_polish.py --help` |
 | Typing paths, SwiftUI list/store boundaries, rendering, find layering, UTTypes or OS-specific bugs | [cmux-debugging](skills/cmux-debugging/SKILL.md) |
 | Packages, workspace groups, lockfiles or feature flags | [cmux-architecture](skills/cmux-architecture/SKILL.md) |
 | Submodules or GhosttyKit | [cmux-ghostty](skills/cmux-ghostty/SKILL.md) |
-| The cmux-next iPhone app (`cmux-next-ios/`, `Packages/iOS/`, the mobile Rust crates) | [cmux-ios](skills/cmux-ios/SKILL.md): simulator tests, App Review gate, TestFlight, how iOS PRs merge |
 | User-facing strings, docs or help | [cmux-localization](skills/cmux-localization/SKILL.md); report the localization audit |
-| A change people will notice (What's New, update card) | [release-notes/next/WRITING.md](release-notes/next/WRITING.md); add one curated highlight file in the same commit, never a commit subject |
 | New cmux shortcuts | [cmux-keyboard-shortcuts](skills/cmux-keyboard-shortcuts/SKILL.md) |
-| Tests or target wiring | [cmux-testing](skills/cmux-testing/SKILL.md); [adding a test](skills/cmux-testing/references/adding-a-test.md): CI finds it; Python tests take a lane entry; the `cmux` CLI is cmux-tui Rust |
+| Tests or target wiring | [cmux-testing](skills/cmux-testing/SKILL.md); run `scripts/sync-test-wiring` after adding, renaming or deleting a `cmuxTests/` file |
 | Multiple entrypoints or a bug that tests previously missed | [cmux-shared-behavior](skills/cmux-shared-behavior/SKILL.md); share action/mutation paths, verify every entrypoint, and cover the missed repro |
-| v2 socket methods, remote CLI relay (default deny) | [relay authorization](skills/cmux-socket-policy/references/remote-relay-authorization.md) |
-| Every task skill | [skills/README.md](skills/README.md) |
+
+## Remote CLI relay
+
+For v2 socket methods and remote CLI changes, read [relay authorization](skills/cmux-socket-policy/references/remote-relay-authorization.md).
+`RemoteRelayCommandPolicy` defaults to deny. Allowlist only for a needed remote
+flow, scoped to the session's objects; command-bearing params stay denied on
+every method. The PR must analyze local command/content
+execution, access to unowned objects and local-state exposure, and include the
+required policy tests and ID scoping. Unsafe local effects must be redesigned.
+Never allowlist terminal spawn/respawn without live verification that it executes
+on the remote host. An allowlist addition without this analysis blocks review.

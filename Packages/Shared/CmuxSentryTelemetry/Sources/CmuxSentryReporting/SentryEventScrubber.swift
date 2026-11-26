@@ -108,6 +108,9 @@ public struct SentryEventScrubber: Sendable {
             event.breadcrumbs = breadcrumbs.map(scrubbedCopy(of:))
         }
 
+        // Attribute after scrubbing: watchdog attribution reads the SDK's
+        // public serialization, which can also write a local SDK debug log.
+        TerminalWorkSentryContext().apply(to: event)
         return event
     }
 
