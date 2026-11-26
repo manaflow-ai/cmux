@@ -3928,7 +3928,12 @@ function attachmentBox(
   // `SentLinkedImage`) until it is read.
   if (linkedImagePath(part)) return thumbnail(sentImageSize({}));
   const chip = INLINE_FILE_CHIP;
-  const size = part.name.endsWith("/") ? undefined : fileSizeLabel(shownFileSize(part), "en");
+  // The Transcript Work Log's chip says "added to context" in place of the size (PromptFile).
+  const size = experimentSwitchOn("transcriptWorkLog")
+    ? translate("worklog.addedToContext")
+    : part.name.endsWith("/")
+      ? undefined
+      : fileSizeLabel(shownFileSize(part), "en");
   const content =
     2 * chip.side +
     chip.glyph +
