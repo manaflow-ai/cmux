@@ -156,11 +156,6 @@ path = "tests/test_crash_ratchet_compare.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_rust_panic_ratchet_base_broken.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_rust_panic_ratchet_base_broken.py"
-
-[[test]]
 path = "tests/test_dead_code_stripping.py"
 lane = "linux-guard"
 
@@ -288,6 +283,11 @@ lane = "linux-guard"
 path = "tests/test_group_kill_without_leader.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). Checks that a cleanup owning a process group kills the group whatever its leader's state (cmux#41767 review F1): a behaviour row on rust-live.py's Builder.cancel() and an AST scan of scripts/; run python3 tests/test_group_kill_without_leader.py yourself after adding or changing a script that starts a process in its own session or kills a process group (about 5 s; python3, sh, sleep and ps)."
+
+[[test]]
+path = "tests/test_group_reaper.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_group_reaper.py"
 
 [[test]]
 path = "tests/test_guard_hooks_from_base.py"
@@ -488,6 +488,10 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_memory_resource_diagnostics.py"
 lane = "legacy"
+
+[[test]]
+path = "tests/test_merge_cargo_lock.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_merge_freeze.py"
@@ -735,6 +739,10 @@ path = "tests/test_review_fabric.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_rfd0135_gates.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_risk_tier.py"
 lane = "linux-guard"
 
@@ -763,6 +771,11 @@ lane = "linux-guard"
 path = "tests/test_rust_live_app_handoff.py"
 lane = "manual"
 reason = "Run by the lane that changes rust-live.py (kept manual under the 2026-10-23 no-new-CI rule, since lifted): python3 tests/test_rust_live_app_handoff.py; needs only python3 and sleep."
+
+[[test]]
+path = "tests/test_rust_panic_ratchet_base_broken.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_rust_panic_ratchet_base_broken.py"
 
 [[test]]
 path = "tests/test_same_tree_reuse.py"
@@ -907,6 +920,11 @@ path = "tests/test_tailnet_go.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_tailnet_stable_node.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_tailnet_stable_node.py"
+
+[[test]]
 path = "tests/test_tap_test_health.py"
 lane = "linux-guard"
 
@@ -924,6 +942,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_testbox_source_mtimes.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_testflight_build_checkers.py"
 lane = "linux-guard"
 
 [[test]]

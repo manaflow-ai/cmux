@@ -31,6 +31,7 @@ public nonisolated struct ChromePlacementSetting {
         _ = TabShapeSetting.parse(root, diagnostics: &snapshot.diagnostics) // applied from the root (`applyTabShape`)
         _ = ToolbarButtonStyleSetting.parse(root, diagnostics: &snapshot.diagnostics) // applied from the root (`applyToolbarButtonStyle`)
         _ = HomeCardStyleSetting.parse(root, diagnostics: &snapshot.diagnostics) // applied from the root (`applyHomeCardStyle`)
+        _ = GooeyTabsSetting.parse(root, diagnostics: &snapshot.diagnostics) // applied from the root (`applyGooeyTabs`)
     }
 
     private static func choice<Value: RawRepresentable & CaseIterable>(
@@ -65,5 +66,6 @@ extension SettingsApplier {
         applyCornerFlush(snapshot, to: design)
         applyTabShape(snapshot, to: design)
         applyHomeCardStyle(snapshot, to: design)
+        applyGooeyTabs(snapshot, to: design)
     }
 }

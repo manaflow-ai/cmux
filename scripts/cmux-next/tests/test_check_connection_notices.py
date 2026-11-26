@@ -134,6 +134,36 @@ SWIFT_STRINGS = """\
         static func placeholderTitle(_ machine: String) -> String { machine }
     }
 """
+# A strings member whose words sit under a local (`let state`) inside it, and the button that draws it (cmux#53574's
+# Live tooltip: "Click to go offline" read as a state on the strings type, and every kit run on base went red).
+SWIFT_STRINGS_LOCAL = """\
+    extension Strings {
+        static func liveTooltip(isLive: Bool) -> String {
+            let state = isLive
+                ? String(localized: "sidebar.live.on", defaultValue: "Live is on. Click to go offline.")
+                : String(localized: "sidebar.live.off", defaultValue: "Live is off. Click to go live.")
+            return state
+        }
+    }
+"""
+SWIFT_LIVE_BUTTON = """\
+    import AppKit
+
+    extension SidebarView {
+        func applyLive() { liveButton.toolTip = Strings.liveTooltip(isLive: live.isLive) }
+        func liveMenu() -> NSMenu {
+            let item = NSMenuItem(title: "", action: #selector(SidebarLiveMenuTarget.pick(_:)), keyEquivalent: "")
+            return NSMenu()
+        }
+    }
+"""
+SWIFT_LIVE_LABEL = """\
+    import AppKit
+
+    final class LiveLabel: NSView {
+        func show(isLive: Bool) { label.stringValue = Strings.liveTooltip(isLive: isLive) }
+    }
+"""
 SWIFT_VIEW_OLD = """\
     import AppKit
 
@@ -254,6 +284,54 @@ class WebShapes(unittest.TestCase):
         code, out = tree.check()
         self.assertEqual(code, 0, out)
 
+    def test_a_view_drawing_its_own_button_component_carries_the_action(self):
+        tree = Tree(self)
+        tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)
+        tree.write(f"{WEB}/AutoResumeNotice.tsx", """\
+    import { retryLabel } from "./retryState";
+    function RetryButton({ onRetry }: { onRetry: () => void }) {
+      return <button type="button" onClick={onRetry}>Retry</button>;
+    }
+    export function AutoResumeNotice({ retry, t, onRetry }: Props) {
+      return <output className="notice">{retry ? retryLabel(t, retry.attempt, retry.of) : null}<RetryButton onRetry={onRetry} /></output>;
+    }
+""")
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+
+    def test_a_view_drawing_an_imported_button_component_carries_the_action(self):
+        tree = Tree(self)
+        tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)
+        tree.write(f"{WEB}/RetryButton.tsx", """\
+    export function RetryButton({ onRetry }: { onRetry: () => void }) {
+      return <button type="button" onClick={onRetry}>Retry</button>;
+    }
+""")
+        tree.write(f"{WEB}/AutoResumeNotice.tsx", """\
+    import { retryLabel } from "./retryState";
+    import { RetryButton } from "./RetryButton";
+    export function AutoResumeNotice({ retry, t, onRetry }: Props) {
+      return <output className="notice">{retry ? retryLabel(t, retry.attempt, retry.of) : null}<RetryButton onRetry={onRetry} /></output>;
+    }
+""")
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+
+    def test_a_drawn_component_without_an_action_is_no_action(self):
+        tree = Tree(self)
+        tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)
+        tree.write(f"{WEB}/AutoResumeNotice.tsx", """\
+    import { retryLabel } from "./retryState";
+    function MarkButton() {
+      return <span className="mark" />;
+    }
+    export function AutoResumeNotice({ retry, t }: Props) {
+      return <output className="notice"><MarkButton />{retry ? retryLabel(t, retry.attempt, retry.of) : null}</output>;
+    }
+""")
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+
     def test_a_literal_grace_under_the_bound_is_no_bound(self):
         tree = Tree(self)
         tree.write("schemas/notice-timing/notice-timing.json", json.dumps({"connectionQuietMs": 10000}))
@@ -294,6 +372,20 @@ class NativeShapes(unittest.TestCase):
                       "state ('RemoteStrings: Reconnecting to %@…')", out)
         self.assertNotIn("RemoteTerminalTitleView", out, "a view that draws another member of the strings is quiet")
         self.assertNotIn("RemoteStrings.swift", out)
+
+    def test_words_under_a_local_belong_to_the_member_around_it(self):
+        """The hit's member is the strings function, not the `let` inside it: the words move to the unit that calls
+        the function. A button with its own action passes; a label with none fails at the label."""
+        tree = Tree(self)
+        tree.write(f"{MAC}/Strings+Live.swift", SWIFT_STRINGS_LOCAL)
+        tree.write(f"{MAC}/SidebarView+Live.swift", SWIFT_LIVE_BUTTON)
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+        tree.write(f"{MAC}/LiveLabel.swift", SWIFT_LIVE_LABEL)
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"{MAC}/LiveLabel.swift:4: LiveLabel shows a connection state", out)
+        self.assertNotIn("Strings+Live.swift:", out)
 
     def test_remote_placeholder_held_for_notice_timing_passes(self):
         tree = Tree(self)
@@ -421,6 +513,22 @@ class NativeShapes(unittest.TestCase):
         code, out = tree.check()
         self.assertEqual(code, 1, out)
         self.assertIn("GitHubStatus shows a connection state", out)
+
+    def test_a_web_button_component_is_an_action(self):
+        """The Connect GitHub card ("GitHub isn't connected for this repo") draws its own `<ConnectButton>` with the
+        tap handler inside it (GitHubConnectCard.tsx); the same line with no button component does not pass."""
+        button = ('export function ConnectCard() {\n'
+                  '  return <div>Reconnecting to GitHub<ConnectButton onConnect={go} /></div>;\n}\n')
+        bare = ('export function ConnectLine() {\n'
+                '  return <div>Reconnecting to GitHub<ConnectIcon /></div>;\n}\n')
+        tree = Tree(self)
+        tree.write(f"{WEB}/ConnectCard.tsx", button)
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+        tree.write(f"{WEB}/ConnectLine.tsx", bare)
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("ConnectLine shows a connection state", out)
 
     def test_a_scheduler_signature_is_not_a_run_action(self):
         """`run: () => void` is a timer's parameter type, not a row the person clicks."""

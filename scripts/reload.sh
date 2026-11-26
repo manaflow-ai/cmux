@@ -2367,7 +2367,6 @@ case "$cmux_next_tui_source" in
     exit 1
     ;;
 esac
-"$PWD/scripts/install-coderouter-client.sh" "$APP_PATH"
 if command -v xattr >/dev/null 2>&1; then
   xattr -cr "$APP_PATH" || true
 fi
@@ -2407,6 +2406,14 @@ if [[ -n "$TAG" && "$BUILD_ONLY" -ne 1 ]]; then
   # fails (stopping this script under set -e) when the app is still running.
   cmux_stop_app_instances "$BUNDLE_ID" "$TAG_PROCESS_PATTERN" \
     "${XCODEBUILD_SOURCE_APP_PATH:+$XCODEBUILD_SOURCE_APP_PATH/Contents/MacOS/${PRODUCT_APP_NAME}}"
+  # That quit keeps the old build's helpers (the terminal owner, acpmux, the Chief host, files-host),
+  # as a shipped app's quit does; the build is being replaced, so end the tree the old bundle
+  # started, also for a build older than its own reaper (issue 55842, scripts/dev-build.py).
+  # CMUX_DEV_KEEP_HELPERS=1 keeps them, to test that terminals survive a reload.
+  if [[ "${CMUX_DEV_KEEP_HELPERS:-0}" != 1 && "$NAME_SET" -eq 0 && "$TAG_SLUG" != next ]]; then
+    python3 "$SCRIPT_DIR/dev-build.py" stop --tag "$TAG_SLUG" \
+      || echo "warning: some processes of the old ${APP_NAME} build are still running (scripts/dev-build.py list)" >&2
+  fi
   # Tagged --launch runs are handed off to launchd so they survive the terminal
   # or automation process that invoked reload.sh. Remove a still-registered
   # prior job before publishing the replacement bundle.
@@ -2470,6 +2477,11 @@ if [[ "$CAN_PUBLISH_RELOAD_STATE" -eq 1 && "$NO_GLOBAL_CLI_LINKS" != "1" ]]; the
 fi
 
 if [[ "$LAUNCH" -eq 1 ]]; then
+  # The agent chat that launches a tag owns it: `dev-build.py stop --all-idle` ends the build once
+  # that chat is closed (issue 55842).
+  if [[ -n "${TAG_SLUG:-}" && -n "${ACPMUX_SESSION_ID:-}" ]]; then
+    python3 "$SCRIPT_DIR/dev-build.py" claim --tag "$TAG_SLUG" --quiet || true
+  fi
   if [[ -z "$TAG" ]]; then
     # Non-tag mode: kill any running instance (across any DerivedData path) to avoid socket conflicts.
     cmux_stop_app_instances "$BUNDLE_ID" "/${BASE_APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}"

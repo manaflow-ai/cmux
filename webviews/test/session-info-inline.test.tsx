@@ -7,25 +7,25 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import {
-  SESSION_INFO_PLACEMENT_KEY,
-  chatDisplay,
-  sessionInfoPlacementOf,
-  setChatDisplay,
-} from "../src/agent-session/acpmux/chatDisplay";
-import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
-import { CHAT_CUT } from "../src/agent-session/acpmux/session-info/chatCut";
-import { SESSION_INFO } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
-import { inlines } from "../src/agent-session/acpmux/session-info/sessionInfoModel";
-import {
-  resetSessionInfoState,
-  setSessionInfoMore,
-  setSessionInfoOpen,
-} from "../src/agent-session/acpmux/session-info/sessionInfoState";
-import { useSessionInfo } from "../src/agent-session/acpmux/session-info/useSessionInfo";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
-import { activity, chat, tool } from "../src/gallery/fixtures/acpmux";
+import { importWithDom } from "./support/importWithDom";
 import { settleReact } from "./support/domTeardown";
+
+// src/ loads with a document in place (import-order-lint.test.ts): this file installs its own jsdom per test.
+const { SESSION_INFO_PLACEMENT_KEY, chatDisplay, sessionInfoPlacementOf, setChatDisplay } = await importWithDom(
+  () => import("../src/agent-session/acpmux/chatDisplay"),
+);
+const { setHeaderState } = await importWithDom(() => import("../src/agent-session/acpmux/header/headerState"));
+const { CHAT_CUT } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/chatCut"));
+const { SESSION_INFO } = await importWithDom(
+  () => import("../src/agent-session/acpmux/session-info/sessionInfoSelectors"),
+);
+const { inlines } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/sessionInfoModel"));
+const { resetSessionInfoState, setSessionInfoMore, setSessionInfoOpen } = await importWithDom(
+  () => import("../src/agent-session/acpmux/session-info/sessionInfoState"),
+);
+const { useSessionInfo } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/useSessionInfo"));
+const { activity, chat, tool } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

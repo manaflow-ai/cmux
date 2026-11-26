@@ -18,7 +18,7 @@ on:
     branches:
       - main
     paths:
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings.d/**"
       - "schemas/agent-pane/stylesheet-guard.json"
       - "schemas/settings/source/general.json"
       - "webviews/src/apps/scene/extTemplateScenes.json"
@@ -143,6 +143,7 @@ on:
       - "schemas/terminal-sizing/fixtures.json"
       - "schemas/theme/slots.json"
       - "schemas/transcript-look/transcript-look.json"
+      - "schemas/theme/slots.json"
       - "schemas/theme/theme-ink-vectors.json"
       - "scripts/ci/cloud_capture_provision.py"
       - "scripts/ci/init-submodule.sh"
@@ -191,11 +192,16 @@ on:
       - "skills/cmux-customization/templates/clock-weather/main.js"
       - "skills/cmux-customization/templates/my-prs/cmux-app.json"
       - "skills/cmux-customization/templates/my-prs/main.js"
+      - "schemas/design-scale/design-scale.json"
+      - "schemas/instrument/instrument.json"
+      - "schemas/layout-grid/layout-grid.json"
+      - "schemas/motion-scale/motion-scale.json"
+      - "schemas/type-scale/type-scale.json"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "schemas/agent-pane/stylesheet-guard.json"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings.d/**"
       - "schemas/settings/source/general.json"
       - "webviews/src/apps/scene/extTemplateScenes.json"
       - "schemas/type-scale/scene-type.json"
@@ -319,6 +325,7 @@ on:
       - "schemas/terminal-sizing/fixtures.json"
       - "schemas/theme/slots.json"
       - "schemas/transcript-look/transcript-look.json"
+      - "schemas/theme/slots.json"
       - "schemas/theme/theme-ink-vectors.json"
       - "scripts/ci/cloud_capture_provision.py"
       - "scripts/ci/init-submodule.sh"
@@ -367,6 +374,11 @@ on:
       - "skills/cmux-customization/templates/clock-weather/main.js"
       - "skills/cmux-customization/templates/my-prs/cmux-app.json"
       - "skills/cmux-customization/templates/my-prs/main.js"
+      - "schemas/design-scale/design-scale.json"
+      - "schemas/instrument/instrument.json"
+      - "schemas/layout-grid/layout-grid.json"
+      - "schemas/motion-scale/motion-scale.json"
+      - "schemas/type-scale/type-scale.json"
   workflow_dispatch:
 
 concurrency:
@@ -586,13 +598,35 @@ jobs:
         with:
           python-version: "3.9"
 
+      - name: Restore pinned Node 20.19.5 from the CI cache bucket
+        if: matrix.language == 'typescript'
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 20.19.5 || true
+
       - name: Set up Node.js
         if: matrix.language == 'typescript'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "20.19.5"
-          cache: npm
-          cache-dependency-path: cmux-tui/bindings/typescript/package-lock.json
+
+      - name: Cache the npm cache
+        if: ${{ (matrix.language == 'typescript') && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.npm
+          key: npm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/bindings/typescript/package-lock.json') }}
+
+      - name: Cache the npm cache (restore only off base branches)
+        if: ${{ (matrix.language == 'typescript') && !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.npm
+          key: npm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/bindings/typescript/package-lock.json') }}
 
       - name: Set up pinned Rust toolchain
         if: matrix.language == 'rust'
@@ -604,6 +638,9 @@ jobs:
         if: matrix.language == 'rust'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # The lockfile and toolchain name the entry: with the environment hash off, a bare key never changed, so the first save
+          # was restored forever and its stale third-party crates rebuilt on every run (ci-min-per-pr-1500, 2026-11-25).
+          key: ${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
           add-rust-environment-hash-key: false
           cache-bin: false
@@ -615,7 +652,27 @@ jobs:
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: "1.22.12"
-          cache-dependency-path: cmux-tui/bindings/go/go.mod
+          cache: false
+
+      - name: Cache the Go modules and build cache
+        if: ${{ (matrix.language == 'go') && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-1.22.12-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/bindings/go/go.mod') }}
+
+      - name: Cache the Go modules and build cache (restore only off base branches)
+        if: ${{ (matrix.language == 'go') && !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-1.22.12-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/bindings/go/go.mod') }}
 
       # The reused fleet image (LINUX_RUNNER) has no hosted toolcache JDK, so
       # JAVA_HOME_17_X64 is unset there; setup-java provisions Temurin 17 on any runner.
@@ -794,15 +851,35 @@ jobs:
         with:
           python-version: "3.9"
 
+      - name: Restore pinned Node 20.19.5 from the CI cache bucket
+        if: matrix.language == 'typescript'
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 20.19.5 || true
+
       - name: Set up Node.js
         if: matrix.language == 'typescript'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "20.19.5"
-          cache: npm
-          cache-dependency-path: |
-            cmux-tui/bindings/typescript/package-lock.json
-            cmux-tui/bindings/examples/typescript-browser-controller/package-lock.json
+
+      - name: Cache the npm cache
+        if: ${{ (matrix.language == 'typescript') && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.npm
+          key: npm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/bindings/typescript/package-lock.json', 'cmux-tui/bindings/examples/typescript-browser-controller/package-lock.json') }}
+
+      - name: Cache the npm cache (restore only off base branches)
+        if: ${{ (matrix.language == 'typescript') && !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.npm
+          key: npm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/bindings/typescript/package-lock.json', 'cmux-tui/bindings/examples/typescript-browser-controller/package-lock.json') }}
 
       - name: Set up pinned Rust toolchain
         if: matrix.language == 'rust'
@@ -814,6 +891,9 @@ jobs:
         if: matrix.language == 'rust'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # The lockfile and toolchain name the entry: with the environment hash off, a bare key never changed, so the first save
+          # was restored forever and its stale third-party crates rebuilt on every run (ci-min-per-pr-1500, 2026-11-25).
+          key: ${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/bindings/examples/rust-agent-dashboard/Cargo.lock', 'cmux-tui/bindings/examples/rust-sidebar-monitor/Cargo.lock', 'cmux-tui/bindings/examples/rust-sidebar-monitor/rust-toolchain.toml', '.cargo/config.toml') }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
           add-rust-environment-hash-key: false
           cache-bin: false
@@ -827,9 +907,27 @@ jobs:
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: "1.22.12"
-          cache-dependency-path: |
-            cmux-tui/bindings/go/go.mod
-            cmux-tui/bindings/examples/go-terminal-bot/go.mod
+          cache: false
+
+      - name: Cache the Go modules and build cache
+        if: ${{ (matrix.language == 'go') && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-1.22.12-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/bindings/go/go.mod', 'cmux-tui/bindings/examples/go-terminal-bot/go.mod') }}
+
+      - name: Cache the Go modules and build cache (restore only off base branches)
+        if: ${{ (matrix.language == 'go') && !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-1.22.12-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/bindings/go/go.mod', 'cmux-tui/bindings/examples/go-terminal-bot/go.mod') }}
 
       # The reused fleet image (LINUX_RUNNER) has no hosted toolcache JDK, so
       # JAVA_HOME_17_X64 is unset there; setup-java provisions Temurin 17 on any runner.
@@ -1002,7 +1100,7 @@ jobs:
             cmux-tui/bindings/examples/rust-agent-screen-detection -> target
             cmux-tui/bindings/examples/rust-agent-dashboard -> target
             cmux-tui/bindings/examples/rust-sidebar-monitor -> target
-          key: rust-1.88.0
+          key: rust-1.88.0-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', 'cmux-tui/bindings/examples/rust-agent-screen-detection/Cargo.lock', 'cmux-tui/bindings/examples/rust-agent-dashboard/Cargo.lock', 'cmux-tui/bindings/examples/rust-sidebar-monitor/Cargo.lock', '.cargo/config.toml') }}
           save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
 
       - name: Test public Rust SDK crates and examples on MSRV
@@ -1075,13 +1173,35 @@ jobs:
         with:
           python-version: "3.12.8"
 
+      - name: Restore pinned Node 22.23.4 from the CI cache bucket
+        if: ${{ steps.tree.outputs.hit != 'true' }}
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 22.23.4 || true
+
       - name: Set up Node.js
         if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "22.23.4"
-          cache: npm
-          cache-dependency-path: cmux-tui/bindings/typescript/package-lock.json
+
+      - name: Cache the npm cache
+        if: ${{ (steps.tree.outputs.hit != 'true') && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.npm
+          key: npm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/bindings/typescript/package-lock.json') }}
+
+      - name: Cache the npm cache (restore only off base branches)
+        if: ${{ (steps.tree.outputs.hit != 'true') && !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.npm
+          key: npm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/bindings/typescript/package-lock.json') }}
 
       - name: Set up pinned cmux-tui Rust
         if: ${{ steps.tree.outputs.hit != 'true' }}
@@ -1092,7 +1212,27 @@ jobs:
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: "1.22.12"
-          cache-dependency-path: cmux-tui/bindings/go/go.mod
+          cache: false
+
+      - name: Cache the Go modules and build cache
+        if: ${{ (steps.tree.outputs.hit != 'true') && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-1.22.12-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/bindings/go/go.mod') }}
+
+      - name: Cache the Go modules and build cache (restore only off base branches)
+        if: ${{ (steps.tree.outputs.hit != 'true') && !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-1.22.12-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/bindings/go/go.mod') }}
 
       # The reused fleet image (LINUX_RUNNER) has no hosted toolcache JDK, so
       # JAVA_HOME_17_X64 is unset there; setup-java provisions Temurin 17 on any runner.
@@ -1159,7 +1299,7 @@ jobs:
           add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-tui-headless-debug
+          shared-key: cmux-tui-headless-debug-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
           cache-workspace-crates: "true"
           save-if: false
 
@@ -1251,11 +1391,16 @@ jobs:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
 
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
       # Ubuntu 24.04 lets only AppArmor-profiled programs make an unprivileged user
       # namespace; bwrap needs one, so the runner VM lifts that restriction.

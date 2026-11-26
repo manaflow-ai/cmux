@@ -52,6 +52,7 @@ on:
       - "cmux-tui/crates/cmux-bookmarks-core/**"
       - "cmux-tui/crates/cmux-build-space/**"
       - "cmux-tui/crates/cmux-cloud-config/**"
+      - "cmux-tui/crates/cmux-cloud-disk/**"
       - "cmux-tui/crates/cmux-cloud-environment/**"
       - "cmux-tui/crates/cmux-cloud-handlers/**"
       - "cmux-tui/crates/cmux-cloud-machine/**"
@@ -79,6 +80,7 @@ on:
       - "cmux-tui/crates/cmux-palette-ranker/**"
       - "cmux-tui/crates/cmux-process/**"
       - "cmux-tui/crates/cmux-motion/**"
+      - "cmux-tui/crates/cmux-interactivity/**"
       - "cmux-tui/crates/cmux-wallpaper/**"
       - "cmux-tui/crates/cmux-rd-core/**"
       - "cmux-tui/crates/cmux-rd-engine/**"
@@ -194,7 +196,9 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          sparse-checkout: scripts/ci
+          sparse-checkout: |
+            scripts/ci
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Mint the owned-pool read token
@@ -493,6 +497,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/app_ffi_rescue.py
             scripts/ci/deadline_http.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Watch the build and rescue it
         env:
