@@ -31,9 +31,12 @@ on:
       - vendor/stack-auth-swift-sdk-prerelease/**
       - cmux-next-ios/CmuxMobileKit/**
       - scripts/ci/swift-linux-packages.txt
+      - scripts/ci/swift-linux-targets.txt
+      - scripts/ci/swift_linux_targets.py
       - scripts/ci/package-test-lane.sh
       - scripts/ci/swift-test-debug-info.sh
       - scripts/ci/swiftpm-binary-module-guard.sh
+      - scripts/ci/github-egress-direct.sh
       - .github/workflows/swift-linux-packages.yml
   workflow_dispatch:
 
@@ -81,12 +84,12 @@ jobs:
           # Other SDK suites need a local Stack backend; these use URLProtocol fixtures.
           - group: stack-auth
             packages: vendor/stack-auth-swift-sdk-prerelease
-            test_filter: RefreshLifecycleTests|RefreshDeadlineTests|RefreshTransportTimingTests|RateLimitRetryTests|PublishableKeyOptionalTests|TokenRefreshAlgorithmTests/[a-zA-Z]*Fresh
+            test_filter: RefreshLifecycleTests|RefreshRejectionTests|RefreshDeadlineTests|RefreshTransportTimingTests|RateLimitRetryTests|PublishableKeyOptionalTests|TokenRefreshAlgorithmTests/[a-zA-Z]*Fresh
           # The cmux-next iPhone app's modules that need no UI framework (the manifest's CMUX_SWIFTPM_TARGET_LINUX
           # shape); cmux-next-ios-kit.yml skips their test targets on the Mac.
           - group: ios-kit
             packages: cmux-next-ios/CmuxMobileKit
-          # Whole packages that pass on Linux; CmuxIrohTransport's Apple-gated tests still run on the Mac lane.
+          # Whole packages that pass on Linux; CmuxIrohTransport's IrohLib and dnssd suites run on a Mac in relay-tls.yml.
           - group: CmuxChiefList
             packages: Packages/Shared/CmuxChiefList
           - group: CmuxConnectivityTelemetry
@@ -320,6 +323,24 @@ jobs:
             cmux-next-ios/CmuxMobileKit/.build
           key: swift-linux-packages-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ runner.arch }}-${{ matrix.group }}-${{ steps.key.outputs.inputs }}
 
+  # The Linux target ratchet (scripts/ci/swift_linux_targets.py): every target listed in
+  # scripts/ci/swift-linux-targets.txt is still in its package's Linux shape (`swift package dump-package`
+  # with the row's environment). Seconds, no build, and no Mac fallback: a target that leaves Linux turns
+  # this red; ci-guards keeps the list's count at or above its floor, so the count only goes up.
+  linux-targets:
+    name: Swift targets on Linux (ratchet)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    timeout-minutes: 15
+    container: public.ecr.aws/docker/library/swift:6.2-noble@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Install python3
+        run: apt-get update -qq && apt-get install -y -qq --no-install-recommends python3
+      - name: Every listed target is in its package's Linux shape
+        run: python3 scripts/ci/swift_linux_targets.py --verify
+
   # One small Linux job decides whether any group handed a package to the Mac, so a green run never
   # takes a Mac from the queue.
   fallback-plan:
@@ -372,6 +393,48 @@ jobs:
           merge-multiple: true
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
+
+      # CmuxMobileKit's binary target, Frameworks/CmuxMobileLinkFFI.xcframework, is gitignored; Linux strips it
+      # (CMUX_SWIFTPM_TARGET_LINUX), the Mac manifest needs it, so without it the rerun stopped at "does not contain
+      # a binary artifact" (run 45819272661). It comes from cmux-next-ios-kit.yml's caches (same keys), else is built.
+      - name: CmuxMobileLinkFFI.xcframework key
+        id: xcf-key
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          awk -F'\t' '$2 == "cmux-next-ios/CmuxMobileKit" { f = 1 } END { exit !f }' handed/*.tsv 2>/dev/null ||
+            { echo "CmuxMobileKit not handed over"; exit 0; }
+          # Set first: a key that cannot be read (no tomllib) still builds it.
+          echo "needed=1" >> "$GITHUB_OUTPUT"
+          inputs="$(python3 scripts/ci/ios_link_ffi_key.py)"
+          xcode="$(xcodebuild -version | tr -cs 'A-Za-z0-9.' '-')"
+          echo "key=cmux-next-ios-link-ffi-xcf-${RUNNER_OS}-${RUNNER_ARCH}-${xcode}-${inputs}" >> "$GITHUB_OUTPUT"
+          echo "fleet_key=cmux-next-ios-link-ffi-xcf-fleet-v1-${inputs}" >> "$GITHUB_OUTPUT"
+      - name: Restore CmuxMobileLinkFFI.xcframework
+        id: xcf-restore
+        if: ${{ steps.xcf-key.outputs.key != '' }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+          key: ${{ steps.xcf-key.outputs.key }}
+      - name: Restore the fleet-built CmuxMobileLinkFFI.xcframework
+        id: xcf-fleet-restore
+        if: ${{ steps.xcf-key.outputs.fleet_key != '' && steps.xcf-restore.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+          enableCrossOsArchive: true
+          key: ${{ steps.xcf-key.outputs.fleet_key }}
+      - name: Set up pinned Rust
+        if: ${{ steps.xcf-key.outputs.needed == '1' && steps.xcf-restore.outputs.cache-hit != 'true' && steps.xcf-fleet-restore.outputs.cache-hit != 'true' }}
+        uses: ./.github/actions/setup-cmux-tui-rust
+      - name: Build CmuxMobileLinkFFI.xcframework
+        if: ${{ steps.xcf-key.outputs.needed == '1' && steps.xcf-restore.outputs.cache-hit != 'true' && steps.xcf-fleet-restore.outputs.cache-hit != 'true' }}
+        env:
+          JOBS: "8"
+        run: bash cmux-next-ios/rust/scripts/build-xcframework.sh
 
       - name: Rerun the Linux failures on the Mac
         run: |

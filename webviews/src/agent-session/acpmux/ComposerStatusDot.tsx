@@ -14,7 +14,7 @@
 // it never blocks a send. design/composer-status-dot.md.
 import { useCallback, useEffect, useId, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { experimentArm } from "../../experiments/experiment";
-import { HOVER_INTENT, HoverBridge, StatusCard, KeyHint, focusAfterEscape, tooltipsWarm } from "./composerStatusCard";
+import { HOVER_INTENT, HoverBridge, StatusCard, focusAfterEscape, tooltipsWarm, KeyHint } from "./composerStatusCard";
 import { composerFooterFacts } from "./composerFooterFacts.experiment";
 import { composerMachineAtRest } from "./composerMachineAtRest.experiment";
 import {
@@ -40,7 +40,7 @@ import { waitedText } from "./hostErrorModel";
 import { useT, usePaneLanguage, type StringKey, type StringValues, type Translate } from "./i18n";
 import { Icon } from "./icons/Icon";
 import type { PeerLinkDetail } from "./linkState";
-import { MachineLinkStatus } from "./MachineLinkStatus";
+import { MachineLinkStatus, useLinkRedial } from "./MachineLinkStatus";
 import { peekPin, peekPinOpen, type PeekPinEvent, type PeekPinState } from "./peekPin";
 import type { PeerLink } from "./peerLink";
 import { useNow } from "./subagents/subagentGroupModel";
@@ -92,6 +92,9 @@ export function ComposerStatusFoot({
 }) {
   const mounts = statusDotMounts(snapshot);
   const host = useHostRecovery(mounts);
+  // A link that is down is redialed on its own, not offered as a Reconnect action (useLinkRedial);
+  // without the dot, MachineLinkStatus redials it.
+  useLinkRedial(mounts ? link : null, onReconnectMachine);
   if (!mounts) return <MachineLinkStatus link={link} onReconnect={onReconnectMachine} />;
   const peer = snapshot.summary?.peer;
   const status = readComposerStatus(snapshot.summary?.composerStatus);
@@ -101,31 +104,24 @@ export function ComposerStatusFoot({
   const linkShown = linkItem && (link !== null || linkItem.level === "problem") ? [linkItem] : [];
   const held = sendsHeldItem(heldForHost);
   const items = [...(status?.items ?? []), ...linkShown, ...(held ? [held] : [])];
-  const reconnect = link && onReconnectMachine && !link.stuck ? () => onReconnectMachine(link) : undefined;
   return (
     <ComposerStatusDot
       items={items}
       host={host}
       facts={status?.facts}
       connectedTo={link?.link === "connected" ? link.machine : undefined}
-      onAction={(action) =>
-        action === "reconnect" ? reconnect?.() : action === "resumeQueue" ? onResumeQueue?.() : undefined
-      }
-      actions={actionSet(!!reconnect, !!onResumeQueue)}
+      onAction={(action) => (action === "resumeQueue" ? onResumeQueue?.() : undefined)}
+      actions={onResumeQueue ? RESUME : NO_ACTIONS}
     />
   );
 }
 
 const NO_ACTIONS: ReadonlySet<StatusAction> = new Set();
-const RECONNECT: ReadonlySet<StatusAction> = new Set(["reconnect"]);
 const RESUME: ReadonlySet<StatusAction> = new Set(["resumeQueue"]);
-const BOTH: ReadonlySet<StatusAction> = new Set(["reconnect", "resumeQueue"]);
-const actionSet = (reconnect: boolean, resume: boolean) =>
-  reconnect ? (resume ? BOTH : RECONNECT) : resume ? RESUME : NO_ACTIONS;
 
-/// The action buttons' words. signIn and update have no path from the composer yet: no button.
+/// The action buttons' words. signIn and update have no path from the composer yet, and reconnect is
+/// done on its own (useLinkRedial): no button.
 const ACTION_WORDS: Partial<Record<StatusAction, StringKey>> = {
-  reconnect: "machineLink.reconnect",
   resumeQueue: "composer.queueResume",
 };
 
