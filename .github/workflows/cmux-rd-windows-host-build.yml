@@ -1,0 +1,65 @@
+name: cmux-rd Windows host build
+
+# The Windows `cmux-rd host` binary (src/windows.rs: GDI capture, OpenH264, the cmux.rd/1
+# stream carrier and SendInput input) for a Windows PC to be screen-shared from a Mac, and the
+# first check that cmux-rd-host's own workspace compiles for Windows at all: its Windows CI so
+# far is cmux-tui's cross check and cmux-codecs' bench, neither of which builds this crate.
+# Measurement needs it on a fleet Windows desktop for the Windows to Mac row
+# (cmuxterm-hq#19341, #14231). A pull request touching cmux-rd-host starts it; so does a push
+# to a `lane/rd-windows-host*` branch (a new workflow can't be dispatched until it is on the
+# default branch), and dispatch works once it is.
+on:
+  push:
+    branches: ["lane/rd-windows-host*"]
+  # A pull request that touches cmux-rd-host (or this file) builds it for Windows, so the
+  # crate's Windows code can't break unseen.
+  pull_request:
+    paths:
+      - "cmux-tui/crates/cmux-rd-host/**"
+      - ".github/workflows/cmux-rd-windows-host-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-rd-windows-host-build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: cmux-rd host (Windows)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || fromJSON(vars.RUNNER_POOLS).windows }}
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      # cmux-rd-host is its own cargo workspace. The host needs `openh264` (Cisco's binary,
+      # downloaded at run time by `cmux-rd openh264-install`), not `bench` (whose OpenH264
+      # source build and whose decoder are the viewer's, and which is linux/macos only anyway)
+      # and not `link` (`cmux-rd serve` has no Windows port: src/windows_host.rs NOT_SERVED).
+      - name: Build cmux-rd
+        working-directory: cmux-tui/crates/cmux-rd-host
+        run: cargo build --release --locked --no-default-features --features openh264 --bin cmux-rd
+
+      - name: Keep cmux-rd.exe
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-rd-windows-exe
+          path: cmux-tui/crates/cmux-rd-host/target/release/cmux-rd.exe
+          retention-days: 7
+
+      - name: What it answers
+        continue-on-error: true
+        working-directory: cmux-tui/crates/cmux-rd-host
+        run: |
+          .\target\release\cmux-rd.exe --help
+          .\target\release\cmux-rd.exe windows-host status
