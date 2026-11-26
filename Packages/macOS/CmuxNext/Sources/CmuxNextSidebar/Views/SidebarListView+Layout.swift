@@ -656,6 +656,7 @@ extension SidebarListViewComponents {
         SidebarPerfCounters.add(.scrollRealizes)
         groupEditing.followScroll()
         defer { reportGooeySelection() } // a scroll moves the selected row under the window's shade
+        chatHistory.followScroll()
         let realize = realizationRect()
         for index in displayed.rowIndices(from: realize.minY, to: realize.maxY) {
             let row = displayed.rows[index]

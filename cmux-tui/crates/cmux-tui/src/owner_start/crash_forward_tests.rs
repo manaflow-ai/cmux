@@ -202,3 +202,20 @@ fn each_line_goes_once_and_a_failed_send_retries_next_time() {
     assert_eq!(forward_new(&log, &state, 10, None, |_| Ok(())).unwrap(), 0);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The home the scrubber turns into `~`: `HOME`, else on Windows the profile (RFD 0157).
+#[test]
+fn home_dir_falls_back_to_the_windows_profile() {
+    let env = |pairs: &'static [(&'static str, &'static str)]| {
+        move |name: &str| {
+            pairs.iter().find(|(key, _)| *key == name).map(|(_, value)| value.to_string())
+        }
+    };
+    assert_eq!(home_dir(&env(&[("HOME", "/home/maya")])), Some("/home/maya".into()));
+    assert_eq!(
+        home_dir(&env(&[("HOME", "/home/maya"), ("USERPROFILE", r"C:\Users\maya")])),
+        Some("/home/maya".into())
+    );
+    let profile_only = home_dir(&env(&[("HOME", ""), ("USERPROFILE", r"C:\Users\maya")]));
+    assert_eq!(profile_only, cfg!(windows).then(|| r"C:\Users\maya".to_string()));
+}
