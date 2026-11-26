@@ -6,6 +6,13 @@
 //! transport sequence and is reported as an arrival; it is what the stats show
 //! and what sizes FEC. Congestion loss counts only packets never reported:
 //! a repaired random loss is not a sign of a full queue.
+//!
+//! A repair the path did not need is not loss. Reordering longer than the
+//! viewer's NACK grace makes it ask for shards that are only late; the late
+//! original and the copy then both arrive and both are reported under the
+//! same sequence. More receipts than sends is the duplicate (DSACK, RFC 2883
+//! and RFC 3708) that undoes the repair, so path loss and the FEC it sizes
+//! track what the path dropped, not how much it reorders.
 
 use std::collections::{HashMap, VecDeque};
 
@@ -14,12 +21,21 @@ const MAX_TRACKED: usize = 8192;
 // packet spread on each leg before settling a gap. This is independent of
 // the shorter receiver-side NACK grace: requesting repair is not proof of loss.
 const REORDER_GRACE_US: u64 = 100_000;
+// A repaired packet waits for its copy's receipt (a round trip plus the
+// feedback cadence) before it settles, so a late original reported first is
+// not settled as repaired before the duplicate that proves it arrived.
+const REPAIR_FEEDBACK_US: u64 = 60_000;
+const MAX_REPAIR_WAIT_US: u64 = 400_000;
 
 #[derive(Debug)]
 struct Sent {
     seq: u16,
     arrived: bool,
     repaired: bool,
+    /// Receipts of this sequence; an original and its copy are two.
+    receipts: u8,
+    /// Copies sent by `on_resent`.
+    resends: u8,
     /// Never sent after all (`forget`): settles as neither received nor lost.
     retired: bool,
     settle_due_us: Option<u64>,
@@ -54,6 +70,8 @@ impl LossMeter {
             seq,
             arrived: false,
             repaired: false,
+            receipts: 0,
+            resends: 0,
             retired: false,
             settle_due_us: None,
         });
@@ -67,13 +85,20 @@ impl LossMeter {
     /// on the path, even though the copy is reported under the same sequence.
     /// Without this a 1 % link drop that NACK repairs reads as 0 % loss.
     /// Tail probes are speculative resends and must not call this.
-    pub fn on_resent(&mut self, seq: u16) {
+    /// `rtt_us` is the host's round-trip estimate: the packet settles no
+    /// sooner than the copy's receipt can come back, so a late original's
+    /// duplicate can still undo the repair.
+    pub fn on_resent(&mut self, seq: u16, now_us: u64, rtt_us: Option<u64>) {
         let first_ordinal = self.next_ordinal - self.order.len() as u64;
         let Some(&ordinal) = self.ordinals.get(&seq) else { return };
-        if let Some(packet) = self.order.get_mut((ordinal - first_ordinal) as usize)
-            && !packet.arrived
-        {
-            packet.repaired = true;
+        if let Some(packet) = self.order.get_mut((ordinal - first_ordinal) as usize) {
+            packet.resends = packet.resends.saturating_add(1);
+            if !packet.arrived {
+                packet.repaired = true;
+                let wait = rtt_us.unwrap_or(0).saturating_add(REPAIR_FEEDBACK_US).min(MAX_REPAIR_WAIT_US);
+                let due = now_us.saturating_add(wait);
+                packet.settle_due_us = Some(packet.settle_due_us.map_or(due, |d| d.max(due)));
+            }
         }
     }
 
@@ -129,6 +154,10 @@ impl LossMeter {
                 continue;
             };
             packet.arrived = true;
+            packet.receipts = packet.receipts.saturating_add(1);
+            if packet.repaired && packet.receipts > packet.resends {
+                packet.repaired = false; // the original arrived too: the repair was spurious
+            }
             newest = Some(newest.map_or(ordinal, |last| last.max(ordinal)));
         }
         if let Some(newest) = newest {
@@ -213,7 +242,7 @@ mod tests {
     fn a_resent_datagram_is_loss_even_when_its_copy_arrives() {
         let mut m = sent(10);
         assert_eq!(m.on_arrivals([0, 1, 2, 4, 5, 6, 7, 8, 9], 0), None);
-        m.on_resent(3);
+        m.on_resent(3, 0, None);
         assert_eq!(m.on_arrivals([3], 10_000), None, "the copy's receipt");
         assert_eq!(m.on_arrivals([], REORDER_GRACE_US), Some(0.1));
     }
@@ -222,8 +251,8 @@ mod tests {
     fn a_resend_after_a_receipt_is_not_loss() {
         let mut m = sent(4);
         assert_eq!(m.on_arrivals([0, 1, 2, 3], 0), None);
-        m.on_resent(2);
-        m.on_resent(77); // unknown: ignored
+        m.on_resent(2, 0, None);
+        m.on_resent(77, 0, None); // unknown: ignored
         assert_eq!(m.on_arrivals([], REORDER_GRACE_US), Some(0.0));
     }
 
@@ -233,16 +262,48 @@ mod tests {
         let dropped = |s: &u16| s % 100 == 37;
         assert_eq!(m.on_arrivals((0..1000).filter(|s| !dropped(s)), 0), None);
         for seq in (0..1000).filter(dropped) {
-            m.on_resent(seq);
+            m.on_resent(seq, 0, None);
         }
         assert_eq!(m.on_arrivals((0..1000).filter(dropped), 8_000), None);
         assert_eq!(m.on_arrivals([], REORDER_GRACE_US), Some(0.01));
     }
 
     #[test]
+    fn a_repair_the_path_did_not_need_is_not_loss() {
+        // 3 is only late: the viewer NACKs it, then the original and the copy both arrive.
+        let mut m = sent(10);
+        assert_eq!(m.on_arrivals([0, 1, 2, 4, 5, 6, 7, 8, 9], 0), None);
+        m.on_resent(3, 0, Some(30_000));
+        assert_eq!(m.on_arrivals([3, 3], 20_000), None, "original and copy in one feedback");
+        assert_eq!(m.on_arrivals([], REORDER_GRACE_US), Some(0.0));
+    }
+
+    #[test]
+    fn a_late_original_reported_before_its_copy_waits_for_the_duplicate() {
+        // On a 150 ms round trip the copy's receipt comes after the fixed reorder grace.
+        let mut m = sent(10);
+        assert_eq!(m.on_arrivals([0, 1, 2, 4, 5, 6, 7, 8, 9], 0), None);
+        m.on_resent(3, 5_000, Some(150_000));
+        assert_eq!(m.on_arrivals([3], 30_000), None, "the late original");
+        assert_eq!(m.on_arrivals([], REORDER_GRACE_US), Some(0.0), "0..2 settle; 3 waits for its copy");
+        assert_eq!(m.on_arrivals([3], 180_000), None, "the copy: a duplicate");
+        assert_eq!(m.on_arrivals([], 215_000), Some(0.0));
+    }
+
+    #[test]
+    fn two_copies_of_a_lost_packet_are_not_a_duplicate() {
+        let mut m = sent(10);
+        assert_eq!(m.on_arrivals([0, 1, 2, 4, 5, 6, 7, 8, 9], 0), None);
+        m.on_resent(3, 0, None);
+        m.on_resent(3, 50_000, None); // the NACK retry
+        assert_eq!(m.on_arrivals([3, 3], 70_000), None, "both copies, no original");
+        assert_eq!(m.on_arrivals([], 110_000), Some(0.1));
+    }
+
+    #[test]
     fn a_repaired_packet_is_path_loss_but_not_congestion_loss() {
         let mut m = sent(20);
-        m.on_resent(3);
+        m.on_resent(3, 0, None);
         assert_eq!(m.on_arrivals(0..20, 0), None);
         assert_eq!(m.on_arrivals([], REORDER_GRACE_US), Some(0.05));
         assert_eq!(m.take_congestion_loss(REORDER_GRACE_US), None);
