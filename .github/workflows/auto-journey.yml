@@ -65,7 +65,7 @@ jobs:
         with:
           persist-credentials: false
           submodules: false
-          fetch-depth: 0
+          fetch-depth: 1
 
       # The driver runs from the branch tip; the Mac daemon is built from `ref`, which must be on feat-cmux-next.
       - name: Pick the commit to build
@@ -76,9 +76,13 @@ jobs:
           set -euo pipefail
           src="$PWD"
           if [ -n "$AT" ] && [ "$AT" != feat-cmux-next ]; then
+            # Only a `ref` needs history (is it on the branch?): fetch the branch's commits, not blobs (a full
+            # fetch of every branch took 13 of a run's 21 minutes).
+            git fetch --filter=blob:none --no-tags origin +refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next
+            git fetch --filter=blob:none --no-tags origin "$AT" 2>/dev/null || true
             sha="$(git rev-parse --verify --quiet "$AT^{commit}")" || sha=""
             if [ -z "$sha" ]; then echo "::error::no commit $AT in this repository"; exit 1; fi
-            if ! git merge-base --is-ancestor "$sha" HEAD; then
+            if ! git merge-base --is-ancestor "$sha" refs/remotes/origin/feat-cmux-next; then
               echo "::error::$sha is not on feat-cmux-next; auto-journey builds only commits on it"
               exit 1
             fi

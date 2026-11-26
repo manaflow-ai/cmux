@@ -79,7 +79,6 @@ jobs:
             /Resources/markdown-viewer/
             /release-notes/next/
             /Packages/macOS/CmuxNext/Sources/**/*.xcstrings
-            /.gitmodules
 
       - name: The base, and whether a web input changed
         id: plan
@@ -171,7 +170,6 @@ jobs:
             /Resources/markdown-viewer/
             /release-notes/next/
             /Packages/macOS/CmuxNext/Sources/**/*.xcstrings
-            /.gitmodules
       # The base is a feat-cmux-next commit, so cmux-next-web-bundle-publish.yml has usually
       # published its bundles already (same key, same pinned toolchain): fetch, don't rebuild.
       - name: The base's published web bundles

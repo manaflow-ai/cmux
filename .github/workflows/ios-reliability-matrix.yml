@@ -93,7 +93,6 @@ jobs:
             scripts/ci/simple_pool_picker.py
             scripts/ci/deadline_http.py
             scripts/ci/warm_distance.py
-            .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - name: Mint the owned-pool routing token
@@ -194,9 +193,7 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 2
-          sparse-checkout: |
-            .github
-            .gitmodules
+          sparse-checkout: .github
           sparse-checkout-cone-mode: false
       - name: Does the protocol suite see this change
         id: scope
@@ -450,7 +447,6 @@ jobs:
           sparse-checkout: |
             scripts/ci/ios_reliability_matrix.py
             cmux-next-ios/reliability-matrix
-            .gitmodules
           sparse-checkout-cone-mode: false
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:

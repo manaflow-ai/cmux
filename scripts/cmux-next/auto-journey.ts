@@ -442,7 +442,11 @@ async function main(): Promise<number> {
           for (const want of [meta.mac_head, "a local commit", "uncommitted on the Mac", "side=mac prompt=mac-1"]) if (!o.includes(want)) throw new Error(`the machine's folder lacks ${JSON.stringify(want)}: ${o.slice(-400)}`);
           return { value: null, detail: `~/Projects/auto/${id} at ${meta.mac_head.slice(0, 12)} with the uncommitted file and the Mac's line` };
         }
-        if (Date.now() > deadline) throw new Error(`no folder for the chat on the machine: ${(r.stdout + r.stderr).slice(-300)}`);
+        if (Date.now() > deadline) {
+          // Name the cause from the machine itself: its chats folder, its daemon, and the daemon's own words on Auto mode.
+          const why = await exec(`${GUEST}ls -la "$HOME/Projects" "$HOME/Projects/auto" 2>&1 | head -20; echo ---; ps -eo pid,etime,args | grep -E 'cmux-(tui|agent)|acpmux' | grep -v grep | cut -c1-200 | head; echo ---; for f in $(ls -t "$HOME"/.cache/cmux*/*.log "$HOME"/.local/state/cmux*/*.log /var/log/cmux*/*.log /tmp/cmux*.log 2>/dev/null | head -3); do echo "== $f"; grep -iE 'auto|assign|import|holder|agent' "$f" | tail -15 | cut -c1-300; done`, 60_000).catch((e) => ({ stdout: `(diagnosis failed: ${e})`, stderr: "" }));
+          throw new Error(`no folder for the chat on the machine: ${(r.stdout + r.stderr).slice(-300)}; machine: ${(why.stdout + why.stderr).slice(-2500)}`);
+        }
         await sleep(5000);
       }
     });

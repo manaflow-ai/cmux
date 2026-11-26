@@ -90,7 +90,6 @@ jobs:
             tests/test_check_concurrency_generic_deinit.py
             tests/test_check_concurrency_pipe_reads.py
             tests/test_check_concurrency_caller_isolated.py
-            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Crash-class concurrency rules

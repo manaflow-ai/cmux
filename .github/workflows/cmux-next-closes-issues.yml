@@ -35,9 +35,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.merge_commit_sha }}
           persist-credentials: false
-          sparse-checkout: |
-            scripts/ci/next_closes_issues.py
-            .gitmodules
+          sparse-checkout: scripts/ci/next_closes_issues.py
           sparse-checkout-cone-mode: false
       - name: Close the issues the pull request fixes
         env:

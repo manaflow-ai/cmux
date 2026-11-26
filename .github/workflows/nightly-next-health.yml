@@ -108,7 +108,6 @@ jobs:
             scripts/ci/nightly_next_health.py
             scripts/ci/nightly-next-guard.py
             scripts/ci/upload-r2-object.py
-            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Read the feed
@@ -233,7 +232,6 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             scripts/ci/nightly_next_health.py
-            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Open one issue and end red
