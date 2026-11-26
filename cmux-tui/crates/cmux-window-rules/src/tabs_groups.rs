@@ -58,8 +58,13 @@ pub fn normalized(tabs: &[Tab], groups: &HashSet<String>) -> Vec<Tab> {
         }
         if tab.pinned {
             pinned.push(tab);
-        } else if let Some(unit) = tab.group.as_ref().and_then(|group| unit_of_group.get(group)) {
-            units[*unit].push(tab);
+        } else if let Some(unit) = tab
+            .group
+            .as_ref()
+            .and_then(|group| unit_of_group.get(group))
+            .and_then(|&unit| units.get_mut(unit))
+        {
+            unit.push(tab);
         } else {
             if let Some(group) = &tab.group {
                 unit_of_group.insert(group.clone(), units.len());
@@ -93,7 +98,7 @@ pub enum LayoutItem {
 pub fn layout_items(tabs: &[Tab], groups: &[Group], selected: Option<&str>) -> Vec<LayoutItem> {
     let by_id: HashMap<&str, &Group> =
         groups.iter().map(|group| (group.id.as_str(), group)).collect();
-    let mut items = Vec::with_capacity(tabs.len() + groups.len());
+    let mut items = Vec::with_capacity(tabs.len().saturating_add(groups.len()));
     let mut previous: Option<&str> = None;
     let mut seen: HashSet<&str> = HashSet::new();
     for tab in tabs {
@@ -133,17 +138,17 @@ pub fn selection_after_collapsing(
     let Some(index) = ordered.iter().position(|tab| tab.id == selected) else {
         return Some(selected.to_owned());
     };
-    if ordered[index].group.as_deref() != Some(group) {
+    if ordered.get(index).and_then(|tab| tab.group.as_deref()) != Some(group) {
         return Some(selected.to_owned());
     }
     let visible = |tab: &&Tab| match tab.group.as_deref() {
         None => true,
         Some(other) => other != group && !collapsed.contains(other),
     };
-    if let Some(right) = ordered[index + 1..].iter().find(visible) {
+    if let Some(right) = ordered.iter().skip(index.saturating_add(1)).find(visible) {
         return Some(right.id.clone());
     }
-    ordered[..index].iter().rev().find(visible).map(|tab| tab.id.clone())
+    ordered.iter().take(index).rev().find(visible).map(|tab| tab.id.clone())
 }
 
 /// The tab to select before `group` collapses over `selected`, for a strip that cannot open a new
@@ -347,8 +352,8 @@ impl Strip {
                 {
                     Some(index) => {
                         // A new tab opened from a grouped tab joins its group.
-                        item.group = ordered[index].group.clone();
-                        ordered.insert(index + 1, item.clone());
+                        item.group = ordered.get(index).and_then(|tab| tab.group.clone());
+                        ordered.insert(index.saturating_add(1), item.clone());
                     }
                     None => ordered.push(item.clone()),
                 }
@@ -360,9 +365,11 @@ impl Strip {
                     return Ok(false);
                 };
                 let mut copy = made.clone().ok_or(NeedsTab)?;
-                copy.pinned = ordered[index].pinned;
-                copy.group = ordered[index].group.clone();
-                ordered.insert(index + 1, copy.clone());
+                if let Some(source) = ordered.get(index) {
+                    copy.pinned = source.pinned;
+                    copy.group = source.group.clone();
+                }
+                ordered.insert(index.saturating_add(1), copy.clone());
                 self.tabs = ordered;
                 self.select(&copy);
             }
@@ -432,8 +439,10 @@ impl Strip {
                 moved.group = Some(group.clone());
                 let last_member =
                     ordered.iter().rposition(|tab| tab.group.as_deref() == Some(group));
-                let target = index
-                    .unwrap_or_else(|| last_member.map_or(ordered.len(), |last| last + 1) as i64);
+                let target = index.unwrap_or_else(|| {
+                    let end = last_member.map_or(ordered.len(), |last| last.saturating_add(1));
+                    i64::try_from(end).unwrap_or(i64::MAX)
+                });
                 let at = clamp(target, 0, ordered.len());
                 ordered.insert(at, moved);
                 self.tabs = ordered;
@@ -448,8 +457,10 @@ impl Strip {
                 moved.group = None;
                 let after_group =
                     ordered.iter().rposition(|tab| tab.group.as_ref() == Some(&group));
-                let target = index
-                    .unwrap_or_else(|| after_group.map_or(ordered.len(), |last| last + 1) as i64);
+                let target = index.unwrap_or_else(|| {
+                    let end = after_group.map_or(ordered.len(), |last| last.saturating_add(1));
+                    i64::try_from(end).unwrap_or(i64::MAX)
+                });
                 let at = clamp(target, 0, ordered.len());
                 ordered.insert(at, moved);
                 self.tabs = ordered;
@@ -521,10 +532,26 @@ impl Strip {
             return Ok(false);
         };
         match intent {
-            Intent::RenameGroup { name, .. } => self.groups[index].name = name.clone(),
-            Intent::SetGroupColor { tint, .. } => self.groups[index].tint = tint.clone(),
-            Intent::SaveGroup { .. } => self.groups[index].saved = true,
-            Intent::UnsaveGroup { .. } => self.groups[index].saved = false,
+            Intent::RenameGroup { name, .. } => {
+                if let Some(group) = self.groups.get_mut(index) {
+                    group.name = name.clone();
+                }
+            }
+            Intent::SetGroupColor { tint, .. } => {
+                if let Some(group) = self.groups.get_mut(index) {
+                    group.tint = tint.clone();
+                }
+            }
+            Intent::SaveGroup { .. } => {
+                if let Some(group) = self.groups.get_mut(index) {
+                    group.saved = true;
+                }
+            }
+            Intent::UnsaveGroup { .. } => {
+                if let Some(group) = self.groups.get_mut(index) {
+                    group.saved = false;
+                }
+            }
             Intent::GroupNewTab { made, .. } => {
                 let mut ordered = self.ordered();
                 let mut item = made.clone().ok_or(NeedsTab)?;
@@ -532,7 +559,7 @@ impl Strip {
                 let target = ordered
                     .iter()
                     .rposition(|tab| tab.group.as_deref() == Some(id))
-                    .map_or(ordered.len(), |last| last + 1);
+                    .map_or(ordered.len(), |last| last.saturating_add(1));
                 ordered.insert(target, item.clone());
                 self.tabs = ordered;
                 self.select(&item);
