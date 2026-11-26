@@ -2,6 +2,7 @@
 // to find it changed and arm again (CMUX-571, idle wakeups: bench/chat-switch.bench.ts idle_wakeups).
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { RIDE_SLACK_MS } from "../../../pages/shared/slackTimers";
 import { noteChatTheme, watchChatSnapshot } from "./live";
 
 let clock = 0;
@@ -81,22 +82,23 @@ test("a resize with no markup change writes the copy again once it rests, inside
     },
     win.document,
   );
-  // The first write, once the page has been quiet.
-  advance(1_700);
+  // The first write, once the page has been quiet (up to a heartbeat late: it rides the page's
+  // shared timer, slackTimers.ts).
+  advance(1_500 + RIDE_SLACK_MS);
   expect(writes).toHaveLength(1);
   // Nothing changed: no write past the gap.
-  advance(1_900);
+  advance(4_000);
   expect(writes).toHaveLength(1);
   // A drag's resizes: one write, once they rest, though the write gap (10 s) has not passed.
   win.dispatchEvent(new win.Event("resize"));
-  advance(2_000);
+  advance(4_100);
   win.dispatchEvent(new win.Event("resize"));
-  advance(2_200);
+  advance(4_300);
   expect(writes).toHaveLength(1);
-  advance(2_600);
+  advance(4_700);
   expect(writes).toHaveLength(2);
   stop();
   win.dispatchEvent(new win.Event("resize"));
-  advance(4_000);
+  advance(6_000);
   expect(writes).toHaveLength(2);
 });
