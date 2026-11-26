@@ -5285,12 +5285,9 @@ jobs:
         run: bash scripts/ci/nightly-steps/visual-gate-bound-derived-data.sh
 
       - name: Download pre-built GhosttyKit.xcframework
+        # No R2 write credentials: the read is the public URL, and build-nightly-app stores the archive.
         env:
           GHOSTTYKIT_ARCHIVE_CACHE_DIR: /Users/Shared/cmux-build-fleet/ci/ghosttykit-archives
-          GHOSTTYKIT_R2_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
-          GHOSTTYKIT_R2_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
-          GHOSTTYKIT_R2_ENDPOINT: ${{ secrets.CI_CACHE_R2_ACCOUNT_ID && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
-          GHOSTTYKIT_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
         run: GHOSTTY_SHA="$(git rev-parse "HEAD:ghostty")" ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Build the DEV app
