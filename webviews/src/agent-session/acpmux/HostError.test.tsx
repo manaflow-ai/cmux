@@ -249,7 +249,7 @@ test("restoration waits the shared bound, preserves input, and clears on recover
       root!.render(
         <>
           <p>Cached transcript</p>
-          <input defaultValue="Unsent draft" />
+          <input aria-label="Draft" defaultValue="Unsent draft" />
           <HostRecoveringLine linkDown={linkDown} restoring={{ waitedMs, at }} now={now} />
         </>,
       ),
