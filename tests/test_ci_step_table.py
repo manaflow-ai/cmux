@@ -960,18 +960,11 @@ class PipelineTest(unittest.TestCase):
         table_jobs = set(ci_steps.load().jobs) - {"advisory", "verdict"}
         # The ios job's picker (IosJobTest): it runs no step, only when the ios job runs, and places it.
         pickers = {"ios-runner": "ios"}
+        # No gateway head start for the ios job: its request key is per runner, so it never shared a build.
+        self.assertNotIn("ios-ffi-fleet", wf["jobs"])
         for name, job in wf["jobs"].items():
             if name == "mac-fallback":
                 continue  # MacFallbackTest: it runs on a linux step's request, not on the router's
-            if name == "ios-ffi-fleet":
-                # The ios job's build fleet head start: no step, no checkout, only when the ios job runs, and
-                # never a verdict (each failure path is a warning and exit 0).
-                with self.subTest(helper=name):
-                    self.assertTrue(job["if"].startswith("${{ (inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'ios')) && "))
-                    self.assertFalse([s for s in job["steps"] if "ci/run" in s.get("run", "") or "uses" in s])
-                    self.assertNotIn(name, wf["jobs"]["ios"]["needs"], "the ios job never waits for it")
-                    self.assertIn("exit 0", job["steps"][0]["run"])
-                continue
             if name in pickers:
                 with self.subTest(picker=name):
                     self.assertEqual(job["if"], f"${{{{ inputs.jobs == '' || contains(fromJSON(inputs.jobs), '{pickers[name]}') }}}}")
