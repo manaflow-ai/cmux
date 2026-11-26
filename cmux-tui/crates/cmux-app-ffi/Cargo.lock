@@ -391,6 +391,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-hang-report"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "cmux-health-core"
 version = "0.1.0"
 dependencies = [
@@ -481,6 +490,7 @@ dependencies = [
  "cmux-cloud-start-core",
  "cmux-cloud-tasks",
  "cmux-focus-core",
+ "cmux-hang-report",
  "cmux-imessage",
  "cmux-layout-reducer",
  "cmux-tab-discard",

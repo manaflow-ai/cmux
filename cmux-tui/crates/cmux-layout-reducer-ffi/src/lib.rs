@@ -17,6 +17,8 @@
 //! person started and no chat spawned fold behind Automatic),
 //! `cmux-tab-discard`'s hidden browser tab rules (`tab_discard_*`: which hidden tabs freeze,
 //! are discarded or are kept),
+//! `cmux-hang-report`'s hang report rules (`hang_report_*`: which frames are named, which stalls
+//! are kept, the report's body, its leak scan and its send limits),
 //! Keep Mac Awake's command rule (`keep_awake_plan`: which terminal commands
 //! hold off idle sleep and when to look again),
 //! `cmux-bookmarks-core`'s optimistic bookmark tree (`bookmarks_apply`: the
@@ -89,6 +91,7 @@ mod cloud_sequence;
 mod cloud_task;
 pub mod drag_handle;
 pub mod focus;
+mod hang_report;
 mod imessage;
 pub mod input;
 pub mod keychain;
@@ -616,6 +619,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             }
             operation if tab_discard::handles(operation) => {
                 tab_discard::respond(operation, request)?
+            }
+            operation if hang_report::handles(operation) => {
+                hang_report::respond(operation, request)?
             }
             operation if window_rules::handles(operation) => {
                 window_rules::respond(operation, request)?
