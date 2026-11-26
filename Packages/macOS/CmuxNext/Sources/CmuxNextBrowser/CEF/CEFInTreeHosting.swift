@@ -351,7 +351,7 @@ final class CEFInTreeHosting {
     /// Joins this turn's window fence with the page's wait (``pageViewResized()``).
     private func joinFence(windowResized: Bool) {
         guard let browser, let fence = calls?.resizeFence, let view, let window = view.window,
-              let layer = view.layer else { return }
+              let layer = view.layer, resizeFences.admits(view, in: window) else { return }
         let refreshMs = (NSScreen.screens.map(\.minimumRefreshInterval).min() ?? 1.0 / 60) * 1_000
         guard let wait = Self.fenceTimeoutMs(windowResized: windowResized,
                                              fullScreenTransition: Motion.isFullScreenTransitioning(window),

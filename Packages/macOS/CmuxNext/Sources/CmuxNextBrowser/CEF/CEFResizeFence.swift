@@ -63,8 +63,29 @@ final class CEFResizeFences {
         }
     }
 
-    /// Whether something of `view` shows in `window` (``CEFFenceMembers/shown``). Red stub: every view shows.
-    static func shows(_ view: NSView, in window: NSWindow) -> Bool { true }
+    /// Whether a resize of `view` may join `window`'s fence (``members``): with ``CEFFenceMembers/shown`` only a view
+    /// that shows there (``shows(_:in:)``); the step log counts each one left out (`fence_unseen`).
+    func admits(_ view: NSView, in window: NSWindow) -> Bool {
+        guard members == .shown, !Self.shows(view, in: window) else { return true }
+        ResizeStepTimes.note("fence_unseen", ms: 0)
+        return false
+    }
+
+    /// Whether something of `view` shows in `window` (``CEFFenceMembers/shown``): it is in that window, neither it nor
+    /// any superview is hidden or fully transparent, and some of its bounds lies inside every superview's bounds. The
+    /// app's parkings fail it: the reserved workspace and the New Tab spare wait fully transparent 100 000 pt off the
+    /// content, a parked workspace fully transparent, a background tab in a hidden subtree.
+    static func shows(_ view: NSView, in window: NSWindow) -> Bool {
+        guard view.window === window else { return false }
+        var rect = view.bounds
+        var current = view
+        while true {
+            if current.isHidden || current.alphaValue <= 0 || rect.isEmpty { return false }
+            guard let parent = current.superview else { return true }
+            rect = current.convert(rect, to: parent).intersection(parent.bounds)
+            current = parent
+        }
+    }
 
     /// ``CEFFenceMode/commit``: the windows' commits of this pass went; their fences go to their pages and their
     /// deadlines start.
