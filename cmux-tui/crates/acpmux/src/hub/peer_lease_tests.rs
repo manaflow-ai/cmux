@@ -251,6 +251,7 @@ async fn wedge_a_lease_is_classified_before_its_lease_registry_entry() {
         peer_token: None,
         vm_boundary: false,
         github_broker: false,
+        group: None,
     };
     let mut leases = hub.peer_leases.lock().unwrap();
     let (generation, _) = hub.spawn_peer("vm", &pc, false, true);
