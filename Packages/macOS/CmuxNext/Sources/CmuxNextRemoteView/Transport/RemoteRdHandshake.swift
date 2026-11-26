@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// The viewer's side of the `cmux.rd/1` session setup. The rules live in Rust
 /// (cmux-rd-ffi `view/handshake.rs`, ops `handshake.*` over `cmux_rd_view_call`): hello and
