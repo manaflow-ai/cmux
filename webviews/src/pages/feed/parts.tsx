@@ -22,10 +22,9 @@ import {
   relativeTime,
   type FeedLine,
 } from "./model";
-import { plain } from "./context";
-import type { ChoiceSelection } from "./model";
+import { plain, type AnswerState } from "./context";
 import type { FeedStore } from "./store";
-import type { FeedApproveScope, FeedAttachment, ViewItem } from "./types";
+import type { FeedAttachment, ViewItem } from "./types";
 
 // MARK: - Small pieces
 
@@ -404,19 +403,14 @@ export function PromptSummary({ item, full = false }: { item: ViewItem; full?: b
   );
 }
 
-export interface RequestCardProps {
+/** Its answer controls' part of the snapshot (context.ts `answerState`), and its age. */
+export type RequestCardProps = AnswerState & {
   item: ViewItem;
   store: FeedStore;
   strings: Strings;
   /** `relativeTime` of the item at the page's clock. */
   time: string;
-  pending: boolean;
-  /** Its answer controls' part of the snapshot (context.ts `answerState`). */
-  disabled: boolean;
-  scope?: FeedApproveScope;
-  choices?: Record<string, ChoiceSelection>;
-  reply?: string;
-}
+};
 
 /** An open request in the list: what it asks and how to answer, inline. It gets its own part of the
  * snapshot only, so a change to another item, a draft in another card or the selection renders it not. */
@@ -425,11 +419,10 @@ export const RequestCard = memo(function RequestCard({
   store,
   strings,
   time,
-  pending,
   ...answer
 }: RequestCardProps) {
   return (
-    <div className={cx("feed-card", pending && "pending")} data-item={item.id}>
+    <div className={cx("feed-card", answer.pending && "pending")} data-item={item.id}>
       <div className="feed-card-head">
         <Glyph item={item} />
         <div className="feed-card-titles">

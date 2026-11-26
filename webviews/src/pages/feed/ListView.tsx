@@ -54,7 +54,6 @@ export function ListView({ store, snap, strings }: FeedProps) {
               store={store}
               strings={strings}
               time={relativeTime(entry.item.created_at, snap.now, strings.language)}
-              pending={isPending(snap, entry.item)}
               {...answerState(snap, entry.item)}
             />
           ))}
