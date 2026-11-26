@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "harness.needsTrust" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{agent} مصدره {folder}. أجب أولًا عن سؤال الثقة لهذا المجلد."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{agent} dolazi iz {folder}. Prvo odgovori na pitanje o povjerenju za folder."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{agent} kommer fra {folder}. Besvar først mappens spørgsmål om tillid."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{agent} stammt aus {folder}. Beantworte zuerst die Vertrauensfrage des Ordners."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} comes from {folder}. Answer the folder's Trust question first."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{agent} viene de {folder}. Primero responde a la pregunta de confianza de la carpeta."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{agent} provient de {folder}. Répondez d'abord à la question de confiance du dossier."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{agent} proviene da {folder}. Rispondi prima alla domanda di fiducia della cartella."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} は {folder} のハーネスです。先にこのフォルダの「信頼」の確認に答えてください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{agent} មកពី {folder}។ សូមឆ្លើយសំណួរទុកចិត្តរបស់ថតជាមុនសិន។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{agent}은(는) {folder}에서 왔습니다. 먼저 폴더의 신뢰 질문에 답하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{agent} kommer fra {folder}. Svar først på mappens spørsmål om tillit."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{agent} pochodzi z {folder}. Najpierw odpowiedz na pytanie o zaufanie do folderu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{agent} vem de {folder}. Responda primeiro à pergunta de confiança da pasta."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{agent} взят из {folder}. Сначала ответьте на вопрос о доверии к папке."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{agent} มาจาก {folder} ตอบคำถามเรื่องความเชื่อถือของโฟลเดอร์ก่อน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{agent}, {folder} klasöründen geliyor. Önce klasörün güven sorusunu yanıtlayın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{agent} походить із {folder}. Спершу дайте відповідь на запитання про довіру до папки."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{agent} đến từ {folder}. Hãy trả lời câu hỏi tin cậy của thư mục trước."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{agent} 来自 {folder}。请先回答该文件夹的信任问题。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{agent} 來自 {folder}。請先回答此資料夾的信任問題。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

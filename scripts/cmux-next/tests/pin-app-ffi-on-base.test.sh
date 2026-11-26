@@ -221,6 +221,23 @@ for edit in 's/int x; int y;/int x; int y; int z;/:cmux_x.h' 's/int cmux_one(int
   git -C "$work" push -q origin HEAD:refs/heads/feat-cmux-next
 done
 
+# A changed declaration the re-pin PR's app compile already proved (PROVEN_PIN, from publish-app-ffi-repin.sh) is
+# pinned on the base: that PR's whole rollup never went green on infra reds, so the pin sat for hours behind
+# cmux#55633 (2026-11-25). A proof of another release proves nothing about this one.
+sed -i.bak 's/int cmux_one(int a);/int cmux_one(long a);/' "$work/$header" && rm -f "$work/$header.bak"
+proven="$(commit "ffi: a changed parameter the re-pin PR compiled")"
+before="$(remote_tip)"
+[[ "$(PROVEN_PIN="$newer" run_pin "$proven")" == pr ]] || fail "a proof of another release pinned $proven: $(cat "$tmp/log")"
+[[ "$(remote_tip)" == "$before" ]] || fail "a proof of another release pushed"
+[[ "$(PROVEN_PIN="$proven" run_pin "$proven")" == pinned ]] || fail "the proven release was not pinned: $(cat "$tmp/log")"
+[[ "$(pinned_at)" == "cmux-app-ffi-$proven" ]] || fail "the remote pins $(pinned_at), not $proven"
+git -C "$tmp/remote.git" log -1 --format=%b feat-cmux-next | grep -q "app compile of the re-pin pull request proved" \
+  || fail "the pin commit does not name its proof: $(git -C "$tmp/remote.git" log -1 --format=%b feat-cmux-next)"
+git -C "$work" checkout -q --force feat-cmux-next
+git -C "$work" pull -q --ff-only origin feat-cmux-next
+git -C "$work" revert --no-edit HEAD~1 >/dev/null
+git -C "$work" push -q origin HEAD:refs/heads/feat-cmux-next
+
 # A catalog-only addition keeps every C header and still needs runtime handler
 # coverage. Test both the current release and one behind the tip. Neither may
 # push the pin directly, and deleting the catalog must not evade the check.
