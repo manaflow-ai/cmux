@@ -20,6 +20,8 @@
 //! link opens, and the one decision for every window Chromium wants to open),
 //! Keep Mac Awake's command rule (`keep_awake_plan`: which terminal commands
 //! hold off idle sleep and when to look again),
+//! the onboarding tool window's rules (`onboarding_*`: its footer, Import
+//! from Browser's selection rules),
 //! `cmux-bookmarks-core`'s optimistic bookmark tree (`bookmarks_apply`: the
 //! confirmed listing with the pending ops applied by the daemon's rules),
 //! `cmux-cloud-start-core`'s Cloud start decisions (`cloud_start_*`:
@@ -38,6 +40,8 @@
 //! `screen_*`: the WebRTC screen stream's rules (`cmux-rd-screen`: the hub
 //! ticket, signaling frames, follow mode's focus producer, viewer demand, the
 //! cursor shape delivery);
+//! `vnc_*`: the VNC client's rules for Packages/Shared/CmuxVNC (`cmux-vnc`:
+//! addresses, keysyms, security choice, version, authentication responses);
 //! `cloud_handoff_*`: the consent session handoff from cmux NIGHTLY;
 //! `cmux_keychain_bounded`, [`keychain`]: the app's calls into its own
 //! Keychain items, each on a thread of Rust's within its deadline),
@@ -101,6 +105,7 @@ mod imessage;
 pub mod input;
 pub mod keychain;
 mod notification_rings;
+mod onboarding;
 mod pane_focus;
 mod pane_placement;
 mod screen;
@@ -114,6 +119,7 @@ pub mod tab_drag;
 mod tab_groups;
 mod tab_strip;
 pub mod typed;
+mod vnc;
 pub mod window_close_selection;
 mod window_rules;
 use sidebar_mirror::Mirror;
@@ -644,11 +650,13 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if cloud_machine::handles(operation) => {
                 cloud_machine::respond(operation, request)?
             }
+            operation if onboarding::handles(operation) => onboarding::respond(operation, request)?,
             operation if pane_placement::handles(operation) => {
                 pane_placement::respond(operation, request)?
             }
             operation if tab_groups::handles(operation) => tab_groups::respond(operation, request)?,
             operation if screen::handles(operation) => screen::respond(operation, request)?,
+            operation if vnc::handles(operation) => vnc::respond(operation, request)?,
             operation if tab_discard::handles(operation) => {
                 tab_discard::respond(operation, request)?
             }

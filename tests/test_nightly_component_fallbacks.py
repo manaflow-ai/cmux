@@ -176,7 +176,7 @@ class ScriptTests(unittest.TestCase):
         self.assertNotIn("bundle-screen-sharing-helper.sh", self.bundled())
         self.assertIn("bundle-mobile-host.sh /host", self.bundled())
         self.assertIn("::warning title=Nightly stale part::cmux-screen-sharing: the Screen Sharing helper failed "
-                      "to build; the nightly ships without Screen Sharing", out.stdout)
+                      "to build; the nightly uses the app's in-process Screen Sharing fallback", out.stdout)
         self.assertEqual((self.tmp / "nightly-stale-parts").read_text().split("\t")[0], "cmux-screen-sharing")
 
     def test_block_restores_the_screen_helper_hold(self) -> None:
@@ -223,6 +223,19 @@ class ScriptTests(unittest.TestCase):
         self.assertEqual(out.returncode, 0, f"{out.stderr}\n{out.stdout}")
         self.assertIn("::warning title=Nightly stale part::cmux-screen-sharing: this nightly carries no Screen Sharing helper",
                       out.stdout)
+
+        # A present helper's channel name contains spaces. Keep that path one argv entry for lipo.
+        helper_binary = app / "Contents/Library/cmux NIGHTLY Helper.app/Contents/MacOS/cmux-screen-sharing"
+        helper_binary.parent.mkdir(parents=True)
+        helper_binary.write_bytes(b"\0")
+        helper_binary.chmod(0o755)
+        env.pop("NIGHTLY_COMPONENT_GATES", None)
+        out = subprocess.run(
+            ["bash", str(STEPS / "prepare-verify-binary-architectures.sh")],
+            cwd=fixture, env=env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(out.returncode, 0, f"{out.stderr}\n{out.stdout}")
+        self.assertIn(str(helper_binary.relative_to(fixture)), out.stdout)
 
     def test_publish_gate_notes_a_red_webview_check_instead_of_refusing(self) -> None:
         text = (STEPS / "publish-final-gate.sh").read_text()
