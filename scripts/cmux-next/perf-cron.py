@@ -221,8 +221,11 @@ PARTS = [
     # run_seconds: its first run (2026-11-19, cmux21, cold build) took 2060 s, about 1850 s of it the build.
     {"name": "idle-budget", "args": [*MEASURE, "--suite=idle-budget", "--sessions=light"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "idle-budget", "run_seconds": 2400},
+    # goal: the row behind goal typing-latency in cmuxterm-hq's NOW (chat_typing_key_to_work_p95_ms reads
+    # acp.own.typing.to_work). A part with a goal goes first once due (part_order): 20th of 22 Mac parts, it was dropped by
+    # every measurement that ended early, so the row went without a reading from 2026-11-17 to 2026-11-25.
     {"name": "chat-anim", "args": [*MEASURE, "--suite=budgets", "--only=acp,anim"],
-     "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "goal": "typing-latency"},
     # Tabs and terminals as they grow (Leo 2026-11-10: "opening/closing tabs was p important to lawrence ... we defo need
     # to encode and warn sometimes if those get slow"): tab switch at 2 and 30 tabs, 20 quick Cmd-W on terminal and chat
     # tabs, Cmd-T and Ctrl-` at 10 and 30 workspaces. Not timed yet: 25 minutes, as the other multi-bench parts.
@@ -235,8 +238,12 @@ PARTS = [
     # run: the goal compares it with other apps' release builds and with the 2026-11-08 Release baseline (app process
     # 243-285 MB). Rows before this were the Debug build, whose app process read 323.3 MB at 8c515cc5, so a Debug row
     # read as growth that was the build. The bench build is the one throughput uses: one build serves both parts.
+    # goal: NOW's chat_memory_vs_empty_ratio (memory.app_agents.ratio_vs_empty, goal memory-per-chat) and ram-baseline,
+    # so once due it goes right after the build (part_order). Without it the part kept its PARTS place behind every
+    # stale Mac part: at tips 12aa19c228 and b767035490 (2026-11-23..25) the build was stored and the tip was given up
+    # for a newer one before memory-agents ran, so the row went without a reading from 2026-11-23 19:17Z on.
     {"name": "memory-agents", "args": [*MEASURE, "--config=bench", "--suite=memory-agents", "--agents=10"],
-     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "memory-agents",
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "memory-agents", "goal": "memory-per-chat",
      "run_seconds": 2700},  # 1800 s for the bench (with its settled samples), plus a cold bench build (800 s) when this part runs first
     # Terminal throughput (scripts/cmux-next/terminal-throughput-bench.py): a 200 MB burst through a NEXT terminal and
     # through standalone Ghostty on the same host, MB/s each and NEXT/Ghostty. Reporting only (REPORT_ONLY_ROW_RE): the
@@ -339,9 +346,13 @@ PARTS = [
     {"name": "web-ui-growth", "where": "linux", "kind": "webui", "needs": "web-ui-growth"},
     # The chat benches on the god session (webviews/bench/godFixture.ts) beside their ordinary run, on one runner at one
     # commit: each god row, and its god_ratio row (god p95 / ordinary p95, target GOD_RATIO_MAX). Its own part: the
-    # six benches take about 13 minutes. Then the paired transcript-replay rounds (GOD_PAIRED_*): the god and small
+    # six benches take about 20 minutes. First the paired transcript-replay rounds (GOD_PAIRED_*): the god and small
     # chats played at once, whose median per-round ratio replaces the transcript_replay god_ratio rows.
-    {"name": "web-ui-god", "where": "linux", "kind": "webui", "needs": "web-ui-god"},
+    # goal: the rows behind goal god-chat-ratios in cmuxterm-hq's NOW (god_chat_replay_ratio_max reads
+    # webui.god_ratio.transcript_replay.long.*), so a due run of it goes first (part_order); they went 4 days unread.
+    # goal_rows: those rows; a run that stored none of them leaves the part due (goal_rows_missing).
+    {"name": "web-ui-god", "where": "linux", "kind": "webui", "needs": "web-ui-god", "goal": "god-chat-ratios",
+     "goal_rows": r"webui\.god_ratio\.transcript_replay\.long\.(heap_mb|thought_ms|token_ms)@"},
     # Infinite items (scripts/measure/infinite-items.py, CMUX-571): a release acpmux and headless cmux-tui with 10, 100
     # and 1,000 workspaces (a terminal tab and an agent chat each) through simulated days; memory vs empty, idle CPU
     # and growth per day, the rows behind goal infinite-items-flat in cmuxterm-hq's NOW.
@@ -371,8 +382,15 @@ PARTS = [
     # The sim's stress ladder (webviews/bench/sim-ladder.bench.ts, goal sim-fidelity-flat-ladder in cmuxterm-hq's NOW):
     # chats and browser tabs at 1, 10 and 100, the cost per added item at 100 over at 10 on renderer CPU, script ms/s,
     # PSS and the focused chat's frame p95 (sim_ladder.ratio_max). Its own part, under the 30-minute run cap.
-    {"name": "web-ui-ladder", "where": "linux", "kind": "webui", "needs": "web-ui-ladder"},
-    {"name": "web-ui-fidelity", "where": "linux", "kind": "webui", "needs": "web-ui-ladder"},
+    # goal: both parts feed NOW's sim_ladder_marginal_ratio_max and sim_fidelity_divergence_max, so once due they go
+    # right after the build (part_order). Without it a part that failed in the newest tip went behind every stale
+    # part: both failed at b4a3f5019f7f (2026-11-25, "reads visible ..., not hidden", before cmux#57063), stored no
+    # row, and at tip c2b1760e0a63 sat 4th and 5th of 23 Linux parts behind one controller request a tick, so the
+    # two rows read the same values from 2026-11-25 02:20Z on.
+    {"name": "web-ui-ladder", "where": "linux", "kind": "webui", "needs": "web-ui-ladder",
+     "goal": "sim-fidelity-flat-ladder"},
+    {"name": "web-ui-fidelity", "where": "linux", "kind": "webui", "needs": "web-ui-ladder",
+     "goal": "sim-fidelity-flat-ladder"},
     # Composer typing under load (webviews/bench/composer-typing.bench.ts, CMUX-571): 500 keys in Chromium and WebKit
     # under idle, a focused stream, ten streaming documents and a focused 100k-row stream; keydown to paint p95/p99
     # (webui.composer_typing.*) against report-only 16/33 ms targets. Its own part, under the 30-minute run cap.
@@ -997,7 +1015,27 @@ def webui_rows(rows, prefix="webui."):
                                 "budget": r.get("target") if isinstance(r.get("target"), (int, float)) else None,
                                 "floor": floor,
                                 "measure_version": r["version"] if isinstance(r.get("version"), int) else DIFF_LEGACY_VERSION}
+        named = row_sources(r)
+        if named:
+            out[f"{prefix}{name}"]["sources"] = named
     return out
+
+
+def row_sources(row):
+    """A wakeup row's sources (perfRow.ts `sources`: what woke the page, busiest first), at most 8 strings of 200
+    characters; [] for any other row (pure). The issue names them beside the count (sources_note)."""
+    got = row.get("sources") if isinstance(row, dict) else None
+    return [str(x)[:200] for x in got if isinstance(x, str) and x.strip()][:8] if isinstance(got, list) else []
+
+
+def sources_note(entry, shown=3):
+    """'; woken by: A; B; C (+2 more)' for an issue table cell of a row that carries sources, else '' (pure): a
+    wakeup row that regresses is red by the timer that woke it, not only by its count (goal idle-cpu-wakeups)."""
+    named = row_sources(entry)
+    if not named:
+        return ""
+    more = f" (+{len(named) - shown} more)" if len(named) > shown else ""
+    return ("; woken by: " + "; ".join(named[:shown]) + more).replace("|", "\\|").replace("\n", " ")
 
 
 def median(values):
@@ -1296,10 +1334,13 @@ def linux_bench_runs(root, part="diff-viewer"):
     if part == "web-ui-god":
         only = ",".join([b for b in GOD_BENCHES if b not in GOD_SELF_PAIRED] + [f"{b}-god" for b in GOD_BENCHES])
         # `paired` runs in rounds (run_paired_rounds): the god and small chats at once, as god-ratio-ab.sh plays them.
-        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", only], os.path.join(root, "webviews"), {}),
-                "paired": (["bun", "bench/transcript-replay.bench.ts", "--turns", "600", "--only", "long"],
+        # It runs first: behind the suite (about 20 minutes) its deadline left room for one round, under the
+        # GOD_PAIRED_MIN_ROUNDS a paired row needs, and cmuxterm-hq's god_chat_replay_ratio_max read nothing after
+        # 2026-11-21.
+        return {"paired": (["bun", "bench/transcript-replay.bench.ts", "--turns", "600", "--only", "long"],
                            os.path.join(root, "webviews"),
-                           {"PAIRED": "1", "GOD_PAIRED_ROUNDS": f"{GOD_PAIRED_MIN_ROUNDS}-{GOD_PAIRED_MAX_ROUNDS}"})}
+                           {"PAIRED": "1", "GOD_PAIRED_ROUNDS": f"{GOD_PAIRED_MIN_ROUNDS}-{GOD_PAIRED_MAX_ROUNDS}"}),
+                "suite": (["bun", "bench/web-ui-suite.ts", "--only", only], os.path.join(root, "webviews"), {})}
     if part == "web-ui-million":
         only = "million-event-chat,million-event-chat-short"
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", only], os.path.join(root, "webviews"), {})}
@@ -1403,7 +1444,7 @@ def find_regressions(rows, base_rows, refresh_ms, base_refresh_ms, budgets_mod):
             if over_target(name, row, refresh_ms):
                 out.append({"name": name, "p95": row["p95"], "base": None, "unit": row.get("unit", "ms"),
                             "target": target_of(name, row, refresh_ms), "refresh_ms": row_refresh(row, refresh_ms),
-                            "why": NO_REFERENCE})
+                            "why": NO_REFERENCE, **({"sources": row["sources"]} if row_sources(row) else {})})
             continue
         crossed = (over_target(name, row, refresh_ms) and not over_target(name, base, base_refresh_ms)
                    and row["p95"] - base["p95"] > row_floor(name, row))
@@ -1412,7 +1453,8 @@ def find_regressions(rows, base_rows, refresh_ms, base_refresh_ms, budgets_mod):
             out.append({"name": name, "p95": row["p95"], "base": base["p95"], "unit": row.get("unit", "ms"),
                         "target": target_of(name, row, refresh_ms), "refresh_ms": row_refresh(row, refresh_ms),
                         "floor": row_floor(name, row),
-                        "why": "worse than last good" if name in worse else "newly over target"})
+                        "why": "worse than last good" if name in worse else "newly over target",
+                        **({"sources": row["sources"]} if row_sources(row) else {})})
     return out
 
 
@@ -1458,6 +1500,62 @@ def unread_parts(state):
     return [p["name"] for p in PARTS if p["name"] != "build" and p["name"] not in read]
 
 
+def build_failed_tip(cur):
+    """The tip measurement in flight ended its Mac parts because its app build failed (record_part), or its build
+    waits to run again after the fleet failed it (BUILD_INFRA_RE): a newer tip is as good a retry (pure)."""
+    if not (isinstance(cur, dict) and cur.get("kind") == "tip" and not cur.get("superseded")):
+        return False
+    build = (cur.get("parts") or {}).get("build")
+    if isinstance(build, dict) and build.get("infra_retried") and build.get("state") == "failed":
+        return True
+    return any(isinstance(p, dict) and p.get("state") == "build_failed" for p in (cur.get("parts") or {}).values())
+
+
+# A build part's failure that ran nothing of the commit: the fleet could not fetch its source (NOT_STARTED_RE, and the
+# shapes of it a record keeps once its 200-character why cuts that suffix off). Such a tip says nothing about the base.
+BUILD_NEVER_RAN_RE = re.compile(r"source download failed \d+ times?, before the job started|GitHub refused the fetch"
+                                r"|no reviewed tip could be fetched|not fetched \(git: unable to access")
+
+
+# A build part's failure that is the fleet's, not the commit's: BUILD_NEVER_RAN_RE's fetch failures, a 5xx or HTTP 403
+# from a fetch or the controller's git proxy, and a tree that never published. record_part runs the build again at
+# the same tip (BUILD_INFRA_RETRIES) instead of ending every Mac part as build_failed. No measurement finished from
+# 2026-11-15 to 11-26: each of 8 tips lost all its Mac parts, chat-anim (goal typing-latency) among them, to one such
+# build failure (HTTP 403 checkout, a 503 reviewed-tip fetch, no published cmux-tui tree for 2 h). A compiler error
+# matches none of these, so a commit that does not build still fails at once.
+BUILD_INFRA_RE = re.compile(BUILD_NEVER_RAN_RE.pattern + r"|returned error: 5\d\d|HTTP (?:403|5\d\d)\b"
+                            r"|no published cmux-tui tree")
+BUILD_INFRA_RETRIES = 2  # per tip; ABANDON_HOURS and ABANDON_WALL_HOURS still bound the measurement
+
+
+def build_infra_failure(result):
+    """The fleet-side cause of a failed build part's result (BUILD_INFRA_RE), or '' (pure)."""
+    for line in [result.get("why")] + list(result.get("tail") or []):
+        if line and BUILD_INFRA_RE.search(str(line)):
+            return str(line).strip()[:200]
+    return ""
+
+
+def last_tip_build_failed(state):
+    """The newest finished tip measurement in the history failed to build its app (finish_measurement) (pure). A build
+    that never ran (BUILD_NEVER_RAN_RE) is no failure of the app: tip c2b1760e's checkout was refused (HTTP 403,
+    2026-11-26) before the controller's NOT_STARTED_RE yield existed, and the next tip, 60a23ed3, whose source fetch
+    the controller's git proxy answered 503, then took it for a broken base and held the Mac behind its Linux parts."""
+    entry = next((e for e in reversed(state.get("history") or []) if isinstance(e, dict) and e.get("kind") == "tip"), None)
+    if not entry:
+        return False
+    if BUILD_INFRA_RE.search(str((entry.get("failed_why") or {}).get("build") or "")):
+        return False
+    return bool(entry.get("build_failed")) or "build_failed" in (entry.get("failed_why") or {}).values()
+
+
+def build_never_ran(cur):
+    """The tip in flight's build part failed before it ran anything of the commit (BUILD_NEVER_RAN_RE) (pure)."""
+    build = (cur.get("parts") or {}).get("build") if isinstance(cur, dict) else None
+    return isinstance(build, dict) and build.get("state") == "failed" and bool(
+        build.get("infra_retried") or BUILD_NEVER_RAN_RE.search(str(build.get("why") or "")))
+
+
 def unread_missing(state, cur):
     """The unread parts (unread_parts) the tip measurement in flight cannot run: its commit predates them (pure).
     Empty unless it still has a Mac part to do."""
@@ -1477,18 +1575,47 @@ def supersede_for_unread(state, t, newest, supported_parts):
     had never run, so NOW's infinite_chat_size_ratio_max read unknown for days."""
     cur = state.get("current")
     gave = cur.get("superseded") if isinstance(cur, dict) and isinstance(cur.get("superseded"), dict) else None
+    if not gave and isinstance(cur, dict) and cur.get("parts_todo") and all(is_linux_part(p) for p in cur["parts_todo"]):
+        # Mac parts that ended 'no_tree' before wait_for_tree kept a record: that record has no `at`, so it ends now.
+        lost = [p for p in (cur.get("parts") or {}).values() if isinstance(p, dict) and p.get("state") == "no_tree"]
+        if lost:
+            gave = {"why": lost[0].get("reason") or "no published cmux-tui tree"}
     if gave and cur.get("parts_todo"):
         # Its Linux parts may still run, for SUPERSEDED_LINUX_HOURS: the newer tip measures them again anyway, and
         # a Linux request the build controller never answers otherwise held the measurement to ABANDON_WALL_HOURS
         # while the newer tip, with the unread part, waited (tip 12aa19c2, 2026-11-23: Mac parts superseded, then
         # web-ui-growth unanswered 23 h, so chat-size never ran). A record with no `at` predates this bound: ends now.
         since = parse_started(gave.get("at"))
-        if since and hours_between(since, t) < SUPERSEDED_LINUX_HOURS:
+        # A tip superseded for its build while the base looked broken keeps its Linux parts for the bound; once that
+        # judgement no longer holds (its build never ran, or the tip before built), they end now, as below.
+        base_ok = str(gave.get("why") or "").startswith("its app build failed") and (
+            build_never_ran(cur) or not last_tip_build_failed(state))
+        if since and hours_between(since, t) < SUPERSEDED_LINUX_HOURS and not base_ok:
             return None
         for name in list(cur["parts_todo"]):
             cur["parts"][name] = {"state": "superseded", "reason": gave.get("why") or "superseded"}
         cur["parts_todo"] = []
         return gave.get("why") or "superseded"
+    if build_failed_tip(cur) and newest and newest != cur["sha"]:
+        # Its app did not build, so no Mac part of it can run: without this its Linux parts ran on for up to
+        # ABANDON_HOURS before a newer tip could build the app (tip 6c8931ce22be, 2026-11-25: the build failed at
+        # 10:32Z with 24 Linux parts to do, and tabs, which NOW's tabs-keep-speed reads, had no row for 8 days).
+        why = f"its app build failed; {newest[:12]} is newer"
+        cur["superseded"] = {"by": newest, "why": why, "at": iso(t)}
+        if build_never_ran(cur) or not last_tip_build_failed(state):
+            # The Mac waits on no Linux part: the tip ends now and the newer tip claims the Mac at this tick, its own
+            # Linux parts running at once with it (decide). The Linux parts that ran with the build already reported
+            # in that tick; the rest end 'superseded', and the build's failure stays on record (finish_measurement).
+            # SUPERSEDED_LINUX_HOURS held the Mac 2 h for nothing (tip 6c8931ce22be, 2026-11-25: its next tip
+            # b4a3f501 waited 9.3 h for the Mac, and terminal_throughput_vs_ghostty_ratio went stale). When the tip
+            # before it failed to build too, the base is likely broken, so the next tip would fail the same way:
+            # its Linux parts keep their bound, or no Linux part would finish while every tip failed to build.
+            for name in list(cur["parts_todo"]):
+                cur["parts"][name] = {"state": "superseded", "reason": why}
+            cur["parts_todo"] = []
+            cur.pop("host_asked_since", None)
+            end_yield(cur, t)
+        return why
     missing = unread_missing(state, cur)
     if not missing or not newest:
         return None
@@ -1533,16 +1660,18 @@ def part_order(state, todo, t):
         at = parse_iso(e.get("at")) if isinstance(e, dict) else None
         if not at:
             never.append(name)
-        elif hours_between(at, t) > PART_STALE_HOURS:
+        elif hours_between(at, t) > PART_STALE_HOURS or goal_rows_missing(state, name, e):
             stale.append((at, i, name))
     # Of those, a part with no row anywhere (row_history, last, part_rows) goes first: part_stored is newer than most
     # rows, so on 2026-11-22 it named 24 of 31 parts, and terminal-scroll, with no row at all, was fifth of the Linux
     # ones (about 10 h of Linux parts at 2 h each, past ABANDON_HOURS).
+    unseen = []
     if never:
         names = set(state.get("row_history") or {}) | set((state.get("last") or {}).get("rows") or {}) \
             | set(state.get("part_rows") or {})
         seen = {part_for_row(n) for n in names}
-        never = [n for n in never if n not in seen] + [n for n in never if n in seen]
+        unseen = [n for n in never if n not in seen]
+        never = unseen + [n for n in never if n in seen]
     # A part with no stored rows that ran and failed in the newest tip measurement goes after the stale ones: it would
     # otherwise stay first in every measurement, since a failure stores nothing. On 2026-11-24 seven such Linux parts
     # (coord-sim with no shapes file, web-ui-flat timing out, ...) were ahead of web-ui-god, whose rows were 2.6 days
@@ -1550,7 +1679,28 @@ def part_order(state, todo, t):
     failing = ran_failed(state)
     stale_names = [n for _, _, n in sorted(stale)]
     first = [n for n in never if n not in failing] + stale_names + [n for n in never if n in failing]
+    # A due part that feeds an open goal's row (PARTS "goal") goes next, ahead of the other due parts, so a measurement
+    # that ends early still reads it (chat-anim, 2026-11-25: 20th of 22 Mac parts, no reading for 8 days). Only a part
+    # with no row anywhere (that did not just fail) goes before it: its row has never been read at all.
+    lead = [n for n in unseen if n not in failing and not PART_BY_NAME.get(n, {}).get("goal")]
+    goal = [n for n in first if PART_BY_NAME.get(n, {}).get("goal")]
+    first = lead + goal + [n for n in first if n not in lead and n not in goal]
     return [n for n in todo if n == "build"] + first + [n for n in todo if n != "build" and n not in first]
+
+
+def goal_rows_missing(state, name, stored):
+    """Whether a part's newest store (state['part_stored'] entry) carried none of its goal's rows (PARTS "goal_rows"),
+    so the part stays due (pure). store_part_rows moves the date of an incomplete part, so that a part failing one
+    bench does not take every Linux turn; but when the failed bench is the one behind the goal, the goal's row goes
+    unread while the part reads fresh: on 2026-11-26 web-ui-god stored 58 rows at 17:22Z without one
+    webui.god_ratio.transcript_replay.long row (transcript-replay-god timed out after 420 s), so NOW's
+    god_chat_replay_ratio_max kept its 5-day-old value and the part sat sixth among the next tip's Linux parts."""
+    pat = PART_BY_NAME.get(name, {}).get("goal_rows")
+    if not pat or not isinstance(stored, dict):
+        return False
+    rows = state.get("part_rows") if isinstance(state.get("part_rows"), dict) else {}
+    return not any(re.match(pat, n) and isinstance(r, dict) and r.get("at") == stored.get("at")
+                   for n, r in rows.items())
 
 
 # A failed_why of a history entry from before ran_failed: run-linux-part's own failure ("NAME: exit N", "NAME: timed
@@ -1912,6 +2062,12 @@ def wait_for_tree(cur, t, tree_ready):
         cur["parts"][name] = {"state": "no_tree", "reason": why}
         cur["parts_todo"].remove(name)
     cur.pop("tree_wait_since", None)
+    if cur["parts_todo"]:
+        # Its Linux parts get SUPERSEDED_LINUX_HOURS, as a superseded tip's do (supersede_for_unread): the next tip,
+        # whose tree is published, measures them again with its Mac parts. Without the bound they held the next tip
+        # back for hours (tip 2322b92a, 2026-11-23: Mac parts no_tree at 19:14Z, 16 Linux parts still to do at 22:30Z,
+        # so tabs, never read, waited behind them).
+        cur["superseded"] = {"by": None, "why": why, "at": iso(t)}
     return ""
 
 
@@ -2745,14 +2901,18 @@ GOD_RATIO_MIN_RATE = 0.5  # a rate (idle_ms_per_s): main-thread ms per second at
 GOD_RATIO_SKIP_RE = re.compile(r"(slope|_per_(?!s$)[a-z]+$|^webui\.chat_open_paired\.)")
 # The web-ui-god part's paired transcript-replay rounds (transcript-replay.bench.ts PAIRED=1, cmux#43874): at least MIN
 # rounds, then more until each board row's (GOD_PAIRED_BOARD_RE, cmuxterm-hq god_chat_replay_ratio_max) median has a
-# 95% interval narrower than CI_WIDTH, up to MAX rounds. A round starts only while the part's benches have run under
-# DEADLINE_S with room for one more round as long as the longest so far (the Linux job's cap is 40 minutes with about
-# 5 of setup); each round is cut at ROUND_TIMEOUT_S.
+# 95% interval narrower than CI_WIDTH, up to MAX rounds. A round starts only while the rounds have run under DEADLINE_S
+# (counted from the first round, so the suite that runs after them takes none of it) with room for one more round as
+# long as the longest so far; each round is cut at ROUND_TIMEOUT_S. The rounds share one pane build (PANE_BUILD_S cap).
+# Sizes: one round played the god session for 440 s live (510 s with its own build) on a 16-core host at load 19, and
+# the old 600 s cut killed the first round of every run from 2026-11-21 (perf cron job log, 2026-11-25 22:30Z), so a
+# round gets ROUND_TIMEOUT_S and the deadline holds MIN rounds of that length.
 GOD_PAIRED_MIN_ROUNDS = 5
 GOD_PAIRED_MAX_ROUNDS = 12
 GOD_PAIRED_CI_WIDTH = 0.1
-GOD_PAIRED_DEADLINE_S = 1950
-GOD_PAIRED_ROUND_TIMEOUT_S = 600
+GOD_PAIRED_ROUND_TIMEOUT_S = 1200
+GOD_PAIRED_DEADLINE_S = 4500
+GOD_PAIRED_PANE_BUILD_S = 600
 GOD_PAIRED_BOARD_RE = re.compile(r"^webui\.god_ratio\.transcript_replay\.long\.(heap_mb|thought_ms|token_ms)$")
 PERF_ROW_MARK = "PERF_ROW "
 WEBUI_ROW_RE = re.compile(r"^[a-z0-9_]+(\.[a-z0-9_-]+)*$")
@@ -2910,6 +3070,45 @@ def streak_parts(streak):
     return sorted(set.intersection(*sets)) if sets else []
 
 
+# The issue's task block: one entry per open bisect group with its stage, so an agent (or the next one) resumes where
+# the last left off instead of reading lane memory (docs/reading/2026-11-25-openai-performance-factory.md in hq: "a
+# perf alert becomes a task that agents carry to recovery"). The cron writes the stages it can judge itself; a lane
+# that names a root cause or opens a fix says so in a comment, since the next tick rewrites this block.
+TASK_MARK = "<!-- cmux-next-perf-task -->"
+TASK_NEXT = {
+    "needs investigation": "the cron bisects the range a step per tick; nothing to do until a culprit is named",
+    "culprit named": "disprove the culprit: does a revert of it recover the rows, did the rows move at it on another "
+                     "host? Then comment the root cause, or that the culprit is wrong",
+    "recovering": "within threshold again; the cron closes the rows after their recovery runs, nothing to do",
+}
+
+
+def task_stage(rows, rng, regs):
+    """A bisect group's stage: recovering (every row within its threshold in its latest run), culprit named (the
+    bisect ended on one commit), else needs investigation."""
+    by = {r["name"]: r for r in regs}
+    if rows and all(by.get(n, {}).get("recovering") for n in rows):
+        return "recovering"
+    return "culprit named" if rng.get("culprit") else "needs investigation"
+
+
+def task_block(state):
+    """The issue's task block: {"tasks": [{id, stage, next, rows, opened_at, range, culprit, pr}]} as fenced JSON."""
+    regs = state.get("regressions") or []
+    tasks = []
+    for g in bisect_groups(state):
+        rng, rows = g["range"], g["rows"]
+        opened = [str((r.get("first_bad") or {}).get("measured_at") or "") for r in regs if r["name"] in rows]
+        opened = sorted(o for o in opened if o)
+        named = next((c for c in reversed(state.get("culprits") or []) if c.get("sha") == rng.get("culprit")), None)
+        stage = task_stage(rows, rng, regs)
+        tasks.append({"id": f"{str(rng['good'])[:11]}..{str(rng['bad'])[:11]}", "stage": stage, "next": TASK_NEXT[stage],
+                      "rows": rows, "opened_at": opened[0] if opened else None,
+                      "range": {"good": rng["good"], "bad": rng["bad"], "steps": rng.get("steps", 0)},
+                      "culprit": rng.get("culprit"), "pr": (named or {}).get("pr")})
+    return [TASK_MARK, "```json", json.dumps({"tasks": tasks}, sort_keys=True), "```"]
+
+
 def issue_body(state, repo, now):
     good = state.get("last_good")
     last = state.get("last") or {}
@@ -2943,12 +3142,13 @@ def issue_body(state, repo, now):
         for r in regs:
             change = f"+{round(100 * (r['p95'] - r['base']) / r['base'], 1)} %" if r.get("base") else "new"
             rng = r.get("range") or {}
-            why = r.get("why", "") + (" (not measured again since)" if r.get("unmeasured_at") else "")
+            why = r.get("why", "") + sources_note(r) + (" (not measured again since)" if r.get("unmeasured_at") else "")
             if r.get("recovering"):
                 why += f" (within its threshold in {len(r['recovering'])} of the {RECOVER_RUNS} runs in a row that close it)"
             lines.append(f"| {r['name']} | {fmt(r.get('base'))} {r.get('unit', '')} | {fmt(r.get('p95'))} {r.get('unit', '')} | {change} | "
                          f"{fmt(r.get('target'))} | {hz(r.get('refresh_ms'))} | {why} | "
                          f"{str(rng.get('good') or '?')[:7]}..{str(rng.get('bad') or '?')[:7]} |")
+        lines += ["", "Task state (one entry per culprit range; the cron rewrites it each tick):", "", *task_block(state)]
     else:
         lines.append("No confirmed regression.")
     lines += ["", *budget_issue_lines(state, now)]
@@ -2963,7 +3163,7 @@ def issue_body(state, repo, now):
         for u in unconfirmed[:20]:
             sha_link = f"[`{str(u.get('sha'))[:11]}`]({u.get('run_url')})" if u.get("sha") else "?"
             lines.append(f"| {u['name']} | {fmt(u.get('p95'))} {u.get('unit') or ''} | {fmt(u.get('base'))} | {fmt(u.get('top', u.get('max')))} | "
-                         f"{u.get('samples')} | {sha_link} | {u.get('why')} |")
+                         f"{u.get('samples')} | {sha_link} | {u.get('why')}{sources_note(u)} |")
     every = [x for x in state.get("baseline_restarts") or [] if isinstance(x, dict)]
     # Every restart not seen yet (each keeps the issue open), and the newest seen ones.
     restarts = [x for i, x in enumerate(every) if x.get("seen") is False or i >= len(every) - 5]
@@ -3425,7 +3625,8 @@ def confirm_regressions(state, regs, cur, run_url, t, regression):
         streak = [v for v in prior.get("values") or [] if isinstance(v, dict)][-(REF_RUNS - 1):] + [value]
         entry = {"name": name, "p95": r["p95"], "unit": r.get("unit"), "base": r.get("base"),
                  "top": spread_top(samples) if samples else None, "max": max(samples) if samples else None,
-                 "samples": len(samples), "sha": cur["sha"], "at": iso(t), "run_url": run_url, "held": len(streak)}
+                 "samples": len(samples), "sha": cur["sha"], "at": iso(t), "run_url": run_url, "held": len(streak),
+                 **({"sources": r["sources"]} if row_sources(r) else {})}
         if len(samples) < CONFIRM_SAMPLES:
             pending.pop(name, None)
             building.add(name)
@@ -3492,6 +3693,8 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
         entry["failed_why"] = failed_why
     # The parts that ran and failed (not those never run): part_order puts them after the stale parts next time.
     entry["ran_failed"] = [n for n in failed if cur["parts"][n].get("state") == "failed"]
+    if any(cur["parts"][n].get("state") == "build_failed" for n in failed):
+        entry["build_failed"] = True  # its app did not build (last_tip_build_failed)
     state.setdefault("history", []).append(entry)
     state["history"] = state["history"][-60:]
     base_rows = judging_rows(state, t)
@@ -3500,7 +3703,8 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
     # A row over target with no reference has no culprit range: it is listed, never a regression.
     regs = [r for r in found if r.get("base") is not None]
     no_ref = [{"name": r["name"], "p95": r["p95"], "unit": r.get("unit"), "base": None, "max": None, "samples": 0,
-               "sha": cur["sha"], "at": iso(t), "run_url": run_url, "why": r["why"]} for r in found if r.get("base") is None]
+               "sha": cur["sha"], "at": iso(t), "run_url": run_url, "why": r["why"],
+               **({"sources": r["sources"]} if row_sources(r) else {})} for r in found if r.get("base") is None]
     # The rows find_regressions could judge: a frame row on another display refresh than its reference (or an
     # unknown one), or a row on another macOS, was measured but not compared, so it neither clears a regression nor
     # counts as good.
@@ -3774,12 +3978,13 @@ def linux_run_seconds(part):
 def linux_job_minutes(part):
     """The timeout of a Linux part's job (pure): its setup and every bench's cap, so GitHub never kills a part that
     is still within them (a killed job leaves no result; infinite-items, a build and a suite of up to 30 minutes
-    each, outlived the old flat 40 minutes). The paired god rounds stop starting a round at GOD_PAIRED_DEADLINE_S
-    after the part's start, and a round may then run GOD_PAIRED_ROUND_TIMEOUT_S more."""
+    each, outlived the old flat 40 minutes). The paired god rounds build the pane once (GOD_PAIRED_PANE_BUILD_S), stop
+    starting a round at GOD_PAIRED_DEADLINE_S after the first, and a round may then run GOD_PAIRED_ROUND_TIMEOUT_S more;
+    the part's other runs follow them."""
     runs = linux_bench_runs("", part)
     benches = sum(linux_run_seconds(part) for name in runs if name != "paired")
     if "paired" in runs:
-        benches = max(benches, GOD_PAIRED_DEADLINE_S + GOD_PAIRED_ROUND_TIMEOUT_S)
+        benches += GOD_PAIRED_PANE_BUILD_S + GOD_PAIRED_DEADLINE_S + GOD_PAIRED_ROUND_TIMEOUT_S
     return LINUX_SETUP_MINUTES + -(-benches // 60)
 
 
@@ -3906,9 +4111,9 @@ def plan(o):
                 break
     newest = None
     gone_by = state.get("current") or {}
-    if not no_mac and unread_missing(state, gone_by):
-        # A part that never produced a reading (unread_parts) and that the tip in flight predates: the newest commit
-        # that can run it on the fleet (supersede_for_unread). Once per part: every later tip has it.
+    if not no_mac and (unread_missing(state, gone_by) or build_failed_tip(gone_by)):
+        # A part that never produced a reading (unread_parts) and that the tip in flight predates, or a tip whose app
+        # build failed (build_failed_tip): the newest commit that can run it on the fleet (supersede_for_unread).
         for sha in git("rev-list", "--first-parent", f"-n{CANDIDATE_DEPTH}", tip).split():
             if sha == gone_by["sha"] or is_ancestor(sha, gone_by["sha"]) or not fleet_runs(sha, tip_version):
                 break
@@ -4343,6 +4548,18 @@ def webui_wakeup_lines(stdout, limit=40):
     return [line.strip()[:1200] for line in (stdout or "").splitlines() if WAKEUP_LINE_RE.search(line)][:limit]
 
 
+# sim-ladder.bench.ts's per-metric lines ("SIM-LADDER chats cpu_window_ms_per_s 105 / 126 / 97 | per item ... | ratio
+# 6.04 ...") and its per-rung summary: the rows carry only the ratio, so a red ladder row named no rung values.
+LADDER_LINE_RE = re.compile(r"SIM-LADDER(-SUMMARY)? (chats|tabs) ")
+
+
+def webui_ladder_lines(stdout, limit=40):
+    """The web UI suite's sim-ladder lines with each metric's rung values and each rung's summary (pure), at most
+    LIMIT."""
+    return [line.strip()[:600] for line in (stdout or "").splitlines()
+            if LADDER_LINE_RE.search(line) and "| ratio " in line or "SIM-LADDER-SUMMARY " in line][:limit]
+
+
 def cmd_run_linux_part(o):
     """One Linux part, in a checkout of the measured commit with the webviews packages installed. diff-viewer (Rust
     too): scripts/benchmark-diff-viewer.sh's two benches without their budget env, so they report instead of failing.
@@ -4359,8 +4576,11 @@ def cmd_run_linux_part(o):
         env, tail = prepare_ghostty(ROOT, env)
     for name, (argv, cwd, extra) in runs.items():
         if name == "paired":
-            report["paired"] = run_paired_rounds(argv, cwd, {**env, **extra}, started)
-            tail += [f"paired: {len(report['paired']['rounds'])} rounds, {report['paired']['stopped']}"]
+            with tempfile.TemporaryDirectory() as pane:
+                shared, line = paired_pane_build(cwd, {**env, **extra}, pane)
+                print(f"perf-cron web-ui-god: {line}")
+                report["paired"] = run_paired_rounds(argv, cwd, {**env, **extra, **shared}, time.monotonic())
+            tail += [line, f"paired: {len(report['paired']['rounds'])} rounds, {report['paired']['stopped']}"]
             continue
         before = host_contention() if part != "web-ui" else []
         stdout, stderr, code = run_capped(argv, cwd, {**env, **extra}, linux_run_seconds(part))
@@ -4377,8 +4597,13 @@ def cmd_run_linux_part(o):
             # nonzero rest_wakeups (goal idle-wakeups) instead of a rerun to find them.
             for line in webui_wakeup_lines(stdout):
                 print(f"perf-cron web-ui: {line}")
+            for line in webui_ladder_lines(stdout):
+                print(f"perf-cron web-ui: {line}")
             if isinstance(value, dict):
-                report = value
+                # The suite's report becomes the part's, keeping what ran before it: the web-ui-god part's paired
+                # rounds run first (cmux#57939), and a bare `report = value` dropped them, so the board kept the
+                # one-run ratio 4 more days (perf cron run 45853686955: 6 rounds, token 1.163, nothing stored).
+                report = {**value, **{k: v for k, v in report.items() if k == "paired"}}
                 failed = [f for f in value.get("failed") or [] if isinstance(f, dict)]
                 if failed:
                     report["incomplete"] = [f"{f.get('bench')}: {f.get('why')}" for f in failed]
@@ -4417,9 +4642,24 @@ def perf_rows(text):
     return out
 
 
+def paired_pane_build(cwd, env, out, run=subprocess.run):
+    """The agent pane built once into OUT for every paired round (bench/support/prebuild.ts, as web-ui-suite.ts shares
+    it): ({CMUX_BENCH_PANE_DIR: OUT}, a line), or ({}, a line) when it failed and each round builds its own."""
+    at = time.monotonic()
+    try:
+        code = run(["bun", "bench/support/prebuild.ts", "pane", out], cwd=cwd, env=env, capture_output=True,
+                   text=True, timeout=GOD_PAIRED_PANE_BUILD_S).returncode
+    except subprocess.TimeoutExpired:
+        code = f"timeout ({GOD_PAIRED_PANE_BUILD_S} s)"
+    seconds = round(time.monotonic() - at)
+    if code == 0 and os.path.exists(os.path.join(out, ".shared-build-done")):
+        return {"CMUX_BENCH_PANE_DIR": out}, f"paired pane build: {seconds} s"
+    return {}, f"paired pane build: exit {code} after {seconds} s, each round builds its own"
+
+
 def run_paired_rounds(argv, cwd, env, started, clock=time.monotonic, run=subprocess.run):
     """The web-ui-god part's paired rounds (GOD_PAIRED_*), until settled, the deadline or MAX rounds:
-    {"rounds": [{"rows", "seconds", "exit"}], "stopped"}. STARTED is the part's start on CLOCK."""
+    {"rounds": [{"rows", "seconds", "exit"}], "stopped"}. STARTED is the first round's start on CLOCK."""
     rounds, longest, stopped = [], 0.0, "max rounds"
     for _ in range(GOD_PAIRED_MAX_ROUNDS):
         if paired_settled(rounds):
@@ -4543,11 +4783,16 @@ def record_part(cur, part, result, run_url, t=None):
         # (linux_route), and no yield of the part, so the runner job is the last try before yielded_out (review of
         # cmux#48328: three such answers ended the part yielded_out and the runner never ran it).
         ask["answered_at"] = iso(t or now_utc())
+        if any(str(line).startswith("not queued") for line in result.get("tail") or []):
+            ask["not_queued"] = True  # the pool is full (LINUX_POOL_FULL_MINUTES): linux_route sends it to the runner
+            cur["linux_not_queued_at"] = ask["answered_at"]
         entry = dict(cur["parts"].get(part) or {"yields": 0})
         entry.update({"state": "yielded", "step_id": result.get("step_id"), "run_url": run_url,
                       "seconds": result.get("seconds")})
         cur["parts"][part] = entry
         return entry
+    if isinstance(ask, dict) and not ask.get("fell_back_at"):
+        cur.pop("linux_not_queued_at", None)  # the pool ran a part: it takes requests again
     if is_linux_part(part):
         asks.pop(part, None)  # answered (a run, or the runner's yield): the next ask starts a new count
     if not is_linux_part(part) and (not cur.get("host") or result.get("worker") in (None, cur.get("host"))):
@@ -4572,11 +4817,25 @@ def record_part(cur, part, result, run_url, t=None):
              and setup_failure(result))
     if retry:
         entry["setup_retried"] = retry[:200]  # runs once more on the same commit; a second failure ends it
+    infra = (part == "build" and entry["state"] == "failed" and not result.get("timed_out")
+             and entry.get("infra_retries", 0) < BUILD_INFRA_RETRIES and build_infra_failure(result))
+    if infra:
+        # The fleet failed the build, not the commit (BUILD_INFRA_RE): it runs again at this tip, and the Mac parts
+        # wait for it instead of ending build_failed. A third such failure ends them as before.
+        entry["infra_retries"] = entry.get("infra_retries", 0) + 1
+        entry["infra_retried"] = infra
+        entry["reason"] = infra  # the fleet's, not the commit's (commit_failed)
+        retry = infra
+    elif part == "build" and entry.get("infra_retried") and not (entry["state"] == "failed" and build_infra_failure(result)):
+        # This run's result is its own (built, or failed on the commit): the fleet's earlier failure no longer speaks for it.
+        if entry.get("reason") == entry["infra_retried"]:
+            entry.pop("reason")
+        entry.pop("infra_retried")
     if entry["state"] != "yielded" and not retry and part in cur["parts_todo"]:
         cur["parts_todo"].remove(part)
     cur["parts"][part] = entry
     build_failed = bool(result.get("build_failed")) or any(BUILD_FAILED_MARK in line for line in result.get("tail") or [])
-    if entry["state"] == "failed" and build_failed:
+    if entry["state"] == "failed" and build_failed and not infra:
         for other in [p for p in cur["parts_todo"] if not is_linux_part(p)]:
             cur["parts"][other] = {"state": "build_failed", "run_url": run_url}
             cur["parts_todo"].remove(other)
@@ -4943,6 +5202,15 @@ LINUX_REQUESTS_MAX = 2
 # Past the part's own cap: the controller keeps a request until a worker is idle (perfCronWaitFor), and the result
 # reaches the state through a result run or replay-results.
 LINUX_ANSWER_SLACK_MINUTES = 60
+# A controller answer "not queued: ..." (no Linux pool worker can take the step now: "cmux-linux-pool-... is not online
+# and healthy; 145 more busy") says the pool is full, not that the part failed. Asking it again for the same part only
+# waited another round trip, and the controller route asks for one part a tick, so the parts behind it were never
+# asked: tip 6c8931ce22be (started 2026-11-25 09:55Z) had 23 Linux parts to do and 4 h later had stored none, while
+# web-ui-ladder and web-ui-fidelity (NOW's sim_ladder_marginal_ratio_max, sim_fidelity_divergence_max) sat 21st and
+# 22nd behind web-ui-orchestrator and web-ui-power-user re-asking a full pool (runs 45621925320, 45629673926). For this
+# long after such an answer (linux_pool_full) the part answered so runs on the runner at once, and every other part the
+# controller would be asked for joins the runner matrix beside it; one part is still asked, to see the pool come back.
+LINUX_POOL_FULL_MINUTES = 60
 # The Linux parts the controller never runs: cloud-claim reads the production Cloud journey's artifacts with the run's
 # own token (the linux job's GH_TOKEN), which a pool worker has not. Asked of the controller, it waited two answer
 # windows (about 3 h 20 min) for an answer that never comes before it ran on the runner.
@@ -4969,28 +5237,38 @@ def linux_route(cur, part, t, controller, has_script):
     if asked and (t - asked).total_seconds() < linux_answer_minutes(part) * 60 and not ask.get("answered_at"):
         return "wait"
     ask.pop("answered_at", None)  # a yielded answer (record_part): unanswered now
+    not_queued = ask.pop("not_queued", False)  # ...that said the pool is full: the runner now (LINUX_POOL_FULL_MINUTES)
     if ask.get("fell_back_at"):
         # The runner had its window too: back to the controller, a new count.
         asks[part] = {"asked_at": iso(t), "unanswered": 0}
         return "request"
     ask["unanswered"] = int(ask.get("unanswered") or 0) + 1
     ask["asked_at"] = iso(t)
-    if ask["unanswered"] >= LINUX_REQUESTS_MAX:
+    if ask["unanswered"] >= LINUX_REQUESTS_MAX or not_queued:
         ask["fell_back_at"] = iso(t)
         return "runner"
     return "request"
+
+
+def linux_pool_full(cur, t):
+    """The controller's newest answer for a Linux part, less than LINUX_POOL_FULL_MINUTES ago, was "not queued" (pure;
+    record_part keeps cur['linux_not_queued_at'], and clears it when the pool runs a part)."""
+    at = parse_started(cur.get("linux_not_queued_at")) if isinstance(cur, dict) else None
+    return bool(at) and (t - at).total_seconds() < LINUX_POOL_FULL_MINUTES * 60
 
 
 def linux_picks(cur, order, t, controller, has_script):
     """This tick's Linux parts (runner parts, controller request, parts waiting), taking ORDER's parts in turn: every
     part linux_route sends to the runner joins the linux matrix (one runner each, all at once), the first it sends to
     the controller is asked, and a part whose request is in its answer window (linux_route 'wait') holds back only
-    itself. The linux and linux-request jobs are separate, so one tick may run parts on the runners and ask the
-    controller for another. linux_route keeps state, so it runs on a copy to look and on CUR only for the parts
+    itself. While the pool is full (linux_pool_full) every other part it would ask for joins the matrix too, with no
+    request kept for it. The linux and linux-request jobs are separate, so one tick may run parts on the runners and
+    ask the controller for another. linux_route keeps state, so it runs on a copy to look and on CUR only for the parts
     picked. Before 2026-11-23 the first part in order alone was routed: while coord-sim's request waited (about 3 h a
     window), no Linux part ran, and a superseded measurement (no Mac part) stored 5 Linux parts in 19 h."""
     look = {"linux_requests": copy.deepcopy(cur.get("linux_requests") if isinstance(cur.get("linux_requests"), dict) else {})}
-    runners, request, waiting = [], "", []
+    runners, request, waiting, unasked = [], "", [], []
+    full = linux_pool_full(cur, t)
     for part in order:
         how = linux_route(look, part, t, controller, has_script)
         if how == "wait":
@@ -4999,8 +5277,11 @@ def linux_picks(cur, order, t, controller, has_script):
             runners.append(part)
         elif how == "request" and not request:
             request = part
+        elif how == "request" and full:
+            runners.append(part)
+            unasked.append(part)  # never asked: record_part folds its runner result as any runner part's
     for part in (*runners, request):
-        if part:
+        if part and part not in unasked:
             linux_route(cur, part, t, controller, has_script)
     return runners, request, waiting
 
@@ -5116,10 +5397,26 @@ def result_plan(o, state, t):
     write_outputs(o.output, out)
 
 
+# The controller's error for a step that never started: its source download (the checkout's fetch) failed every
+# try (build-fleet ci_step.go). On 2026-11-26 GitHub refused cmux20-bench's fetch with HTTP 403 and tip c2b1760e's
+# build part failed so; result_files called it a build failure, which ended all 25 Mac parts (tabs among them) as
+# build_failed though no build ran. The same day tip 60a23ed3's build failed in the controller's reviewed-script check
+# while the controller restarted ("ci-step reviewed check: no reviewed tip could be fetched for
+# scripts/measure/split-spring.sh ... git: unable to access '<controller>/v1/git/...'"): the check gates
+# the step's script before the step runs, so it too ran nothing of the commit, yet it ended motion, switch and tabs
+# as build_failed, and with c2b1760e's 403 before it last_tip_build_failed read "the base is likely broken". Every
+# refusal the controller makes before a step starts is a yield, whatever its words: the source fetch and the check.
+NOT_STARTED_RE = re.compile(r"source download failed \d+ times?, before the job started|^ci-step reviewed check: ")
+
+
 def result_files(value):
     """result.json for record_part from the controller's result (pure): a failed build part ends the other Mac
-    parts (build_failed), a step past its cap is timed out, a pre-empted or unstarted one yielded."""
+    parts (build_failed), a step past its cap is timed out, a pre-empted or unstarted one yielded. A step that
+    failed before it started (NOT_STARTED_RE: the fleet could not fetch the source) ran nothing of the commit: it is
+    a yield, so the part runs again (MAX_YIELDS bounds it), and a build part's is no build failure."""
     tail = [line for line in (value.get("error"),) if line]
+    if value["state"] == "failed" and NOT_STARTED_RE.search(str(value.get("error") or "")):
+        value = {**value, "state": "yielded"}
     return {"state": value["state"], "step_id": value.get("step_id"), "seconds": value.get("seconds"),
             "exit": value.get("exit_code"), "yielded_to": value.get("preempted_by"),
             "worker": LINUX_FLEET_CLASS if is_linux_part(value.get("part")) else value.get("worker"),

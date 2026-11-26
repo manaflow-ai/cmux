@@ -355,6 +355,8 @@ export type IPhoneHostState = {
   status: string;
   /** The Sign In button's title while the status says to sign in; null (or absent from an older host) otherwise. */
   sign_in?: string | null;
+  /** With `sign_in`: what it signs in to ("Signs in to cmux.com"), the line under the button. */
+  sign_in_backend?: string | null;
   /** `off`, `unavailable`, `connecting`, `online` or `waiting`. */
   phase: string;
   account_title: string;
@@ -540,6 +542,8 @@ export type AccountsCmux = {
   buttons: AccountsButton[];
   note: string | null;
   error: string | null;
+  /** Signed out: what Sign In signs in to ("Signs in to cmux.com"), the line under the buttons. */
+  signInBackend?: string | null;
 };
 
 /** An inline team name form (New Team, Rename Team); the field starts at `value`. */
@@ -643,6 +647,11 @@ export type GitHubConnectionState = {
   }>;
   /** The Sign In button's title while nobody is signed in to cmux; null (or absent from an older host) otherwise. */
   signIn?: string | null;
+  /** The optional personal GitHub CLI login shown below the App connection. */
+  cliSignIn?: string;
+  cliSignInDetail?: string;
+  /** With `signIn`: what it signs in to ("Signs in to cmux.com"), the line under the button. */
+  signInBackend?: string | null;
 };
 
 /** One agent's team key as the host draws it: never the key, only whether one is set and its summary. */
@@ -669,6 +678,8 @@ export type TeamAgentKeysState = {
   /** Signed out, personal team, or read-only member copy; null otherwise. */
   note: string | null;
   signIn: string | null;
+  /** With `signIn`: what it signs in to ("Signs in to cmux.com"), the line under the button. */
+  signInBackend?: string | null;
   busy: boolean;
   canManage: boolean;
   error: string | null;
@@ -1191,11 +1202,17 @@ export type LibraryEntry = {
   code?: LibraryCode;
 };
 
-/** A pull request's code as a library entry: its web part is served on this app while it is on and
- * the highest such entry; what it cannot carry needs a build. */
+/** Code not in this build as a library entry (cmux-customize `CodeLayer`): a pull request, a branch, a
+ * commit, a local folder or a fork. Its web part is served on this app while it is on and the highest
+ * such entry; what it cannot carry needs a build. */
 export type LibraryCode = {
+  /** Where the code comes from; absent for a PR (older entries, and the wire skips `pr`). */
+  kind?: "pr" | "branch" | "sha" | "dir" | "fork";
+  /** The branch, the full commit, the folder's path or `OWNER/REPO@REF`; absent for a PR. */
+  source?: string;
   /** `owner/name`. */
   repo: string;
+  /** The pull request; 0 for every other kind. */
   pr: number;
   title: string;
   /** The PR head the layer was built from. */
@@ -2084,6 +2101,9 @@ export type ConnectionEntry = {
   ownerLabel: string | null;
   toolCount: number | null;
   toolsLabel: string | null;
+  /** When the connection's sign-in lapses (RFC 3339, the platform's `connection.expiresAt`); null or
+   * absent when the platform does not say. The card offers Reconnect a few days before. */
+  expiresAt?: string | null;
   /** The provider only signs in back to this Mac (Vercel): the CLI listens on 127.0.0.1 for the
    * return while Connect waits (cmux-tui cli/mcp_loopback.rs). */
   loopback: boolean;
@@ -2405,7 +2425,11 @@ export type ChannelBuild = {
   /** The row offers Switch (`cmux.settings.channels.switch_build`): any build but the installed
    * and pulled ones, on an app that follows a feed. Absent from older hosts. */
   switch?: boolean;
-  prs: { number: number; url: string }[];
+  /** Every PR in this build, from its signed notes; older hosts send at most 8 and no titles. */
+  prs: { number: number; url: string; title?: string }[];
+  /** The PR list's toggle ("PRs (42)"); null when the build's notes are not loaded, absent from
+   * older hosts (the row then shows the bare numbers inline). */
+  prs_label?: string | null;
 };
 
 /** One release channel's recent builds, newest first. */
@@ -2748,6 +2772,9 @@ export type SettingsStreams = {
   "cmux.settings.models.changed": ModelsState;
   /** A key request arrived or ended (the page reads `cmux.settings.keys.list` again). */
   "cmux.settings.keys.changed": { revision: number };
+  /** An extension was installed, removed, hidden or reloaded after a save: Settings > Extensions reads
+   * `cmux.settings.extensions.list` again (the event has no values). */
+  "cmux.settings.extensions.changed": null;
   /** The host lists changed (the event carries the new lists). */
   "cmux.settings.host.changed": HostLists;
   /** Settings > Updates' row of other machines changed (its new value; null: none to list). */

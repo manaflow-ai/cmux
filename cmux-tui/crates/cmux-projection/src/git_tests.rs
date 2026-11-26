@@ -124,18 +124,76 @@ fn an_unread_mount_ends_its_git_processes_and_drops_its_recent_blobs() {
     assert_eq!(blobs.pooled(), 1, "a read leaves its git cat-file in the pool");
 
     // A sweep before the idle time keeps both.
-    blobs.held.sweep(Instant::now(), IDLE);
+    blobs.held.sweep(Instant::now(), IDLE, PACK_CHECK);
     assert_eq!(blobs.pooled(), 1);
     assert_eq!(blobs.held.recent.lock().unwrap().len(), 1);
 
     // After it, the process ends and the recent blobs go.
-    blobs.held.sweep(Instant::now() + IDLE, IDLE);
+    blobs.held.sweep(Instant::now() + IDLE, IDLE, PACK_CHECK);
     assert_eq!(blobs.pooled(), 0, "an idle mount holds no git process");
     assert!(blobs.held.recent.lock().unwrap().is_empty(), "nor any blob bytes");
 
     // The next read starts a new one and reads the same bytes.
     assert_eq!(blobs.read(readme, 2, 2).unwrap(), b"ll");
     assert_eq!(blobs.pooled(), 1);
+}
+
+/// Whether the held child `pid` maps a deleted pack file (git maps a small pack whole and closes
+/// its file).
+#[cfg(target_os = "linux")]
+fn maps_deleted_pack(pid: u32) -> bool {
+    std::fs::read_to_string(format!("/proc/{pid}/maps"))
+        .unwrap()
+        .lines()
+        .any(|line| line.trim_end().ends_with(" (deleted)") && line.contains("/objects/pack/"))
+}
+
+#[test]
+fn a_repack_retires_the_git_processes_holding_the_old_packs() {
+    let (dir, git_dir, commit) = repo();
+    let work = dir.path().join("work");
+    run(&work, &["repack", "-adq"]);
+    let projection = project(&git_dir, &commit, &mut Book::default(), 5_000_000_000);
+    let readme = projection.manifest.resolve("README.md").unwrap();
+    let blobs = GitBlobs::new(&git_dir, projection.sources);
+    assert_eq!(blobs.read(readme, 0, 100).unwrap(), b"hello\n");
+    assert_eq!(blobs.pooled(), 1);
+    let pid = blobs.held.pool.lock().unwrap().free[0].cat.pid();
+
+    // Before the next check is due, a busy process stays (nothing has changed yet).
+    blobs.held.sweep(Instant::now(), IDLE, PACK_CHECK);
+    assert_eq!(blobs.pooled(), 1);
+
+    // A new commit and a repack: the pack the process opened is deleted.
+    std::fs::write(work.join("README.md"), "hello again\n").unwrap();
+    run(&work, &["commit", "-qam", "two"]);
+    run(&work, &["repack", "-adq"]);
+    run(&work, &["prune-packed"]);
+    #[cfg(target_os = "linux")]
+    assert!(maps_deleted_pack(pid), "git cat-file keeps the deleted pack mapped");
+
+    // The pooled process is from before the change: the next read uses it once, then it ends.
+    let generation = blobs.held.generation();
+    blobs.held.packs.lock().unwrap().check(Instant::now() + PACK_CHECK, PACK_CHECK);
+    assert_eq!(blobs.held.generation(), generation + 1, "the pack folder moved");
+    blobs.held.recent.lock().unwrap().clear();
+    assert_eq!(blobs.read(readme, 0, 100).unwrap(), b"hello\n", "the old blob is in the new pack");
+    assert_eq!(blobs.pooled(), 0, "a process from before the repack ends after its read");
+
+    // A new one serves the next read and stays, and a sweep with no change keeps it.
+    blobs.held.recent.lock().unwrap().clear();
+    assert_eq!(blobs.read(readme, 0, 100).unwrap(), b"hello\n");
+    assert_eq!(blobs.pooled(), 1);
+    blobs.held.sweep(Instant::now() + 2 * PACK_CHECK, IDLE * 100, PACK_CHECK);
+    assert_eq!(blobs.pooled(), 1, "unchanged packs keep a busy process");
+
+    // A pooled one, never idle, is retired by the sweep once the packs change again.
+    run(&work, &["commit", "-q", "--allow-empty", "-m", "three"]);
+    run(&work, &["repack", "-adq"]);
+    blobs.held.sweep(Instant::now() + 3 * PACK_CHECK, IDLE * 100, PACK_CHECK);
+    assert_eq!(blobs.pooled(), 0, "a repack retires the pooled process");
+    #[cfg(target_os = "linux")]
+    assert!(!Path::new(&format!("/proc/{pid}")).exists(), "and it is reaped, not a zombie");
 }
 
 #[cfg(target_os = "linux")]
@@ -170,7 +228,7 @@ fn a_mounted_commit_is_a_clean_worktree_and_writes_land_in_the_upper_folder() {
     }
     // SAFETY: getuid and getgid cannot fail.
     let owner = unsafe { (libc::getuid(), libc::getgid()) };
-    let index = index_bytes(&projection.index, owner.0, owner.1).unwrap();
+    let index = index_bytes(&projection.index, ObjectFormat::Sha1, owner.0, owner.1).unwrap();
     Worktree::write(&git_dir, "projected", &at, &commit, &index, &projection.real_dirs).unwrap();
     let blobs = Arc::new(GitBlobs::new(&git_dir, projection.sources));
     let state = dir.path().join("state");
@@ -210,7 +268,7 @@ fn git_reads_the_written_index_as_the_commit() {
     let (_dir, git_dir, commit) = repo();
     let mut book = Book::default();
     let projection = project(&git_dir, &commit, &mut book, 5_000_000_000);
-    let bytes = index_bytes(&projection.index, 1000, 1000).unwrap();
+    let bytes = index_bytes(&projection.index, ObjectFormat::Sha1, 1000, 1000).unwrap();
     let index = git_dir.join("index");
     std::fs::write(&index, bytes).unwrap();
     let work = git_dir.parent().unwrap();
@@ -263,7 +321,8 @@ fn a_sparse_index_holds_the_left_out_paths_as_skip_worktree() {
         .filter(|item| item.path.starts_with("crate/"))
         .collect();
     let index = dir.path().join("sparse-index");
-    std::fs::write(&index, index_bytes_sparse(&kept, &skipped, 0, 0).unwrap()).unwrap();
+    std::fs::write(&index, index_bytes_sparse(&kept, &skipped, ObjectFormat::Sha1, 0, 0).unwrap())
+        .unwrap();
     let git = |args: &[&str]| {
         let out = Command::new("git")
             .arg("--git-dir")
@@ -287,7 +346,7 @@ fn sixteen_parallel_reads_run_at_most_the_cap_of_git_processes() {
     let projection = project(&git_dir, &commit, &mut Book::default(), 5_000_000_000);
     let readme = projection.manifest.resolve("README.md").unwrap();
     let main_rs = projection.manifest.resolve("crate/src/main.rs").unwrap();
-    let blobs = Arc::new(GitBlobs::new(&git_dir, projection.sources.clone()));
+    let blobs = Arc::new(GitBlobs::new(&git_dir, projection.sources));
     assert_eq!(blobs.pooled(), 0, "a mount nobody read starts no git process");
 
     let start = Arc::new(std::sync::Barrier::new(16));
@@ -314,7 +373,55 @@ fn sixteen_parallel_reads_run_at_most_the_cap_of_git_processes() {
     assert!(blobs.peak() <= MAX_CATS, "peak {} past the cap {MAX_CATS}", blobs.peak());
     assert!(blobs.pooled() <= MAX_CATS);
 
-    blobs.held.sweep(Instant::now() + IDLE, IDLE);
+    blobs.held.sweep(Instant::now() + IDLE, IDLE, PACK_CHECK);
     assert_eq!(blobs.pooled(), 0);
     assert_eq!(blobs.held.pool.lock().unwrap().live, 0, "an idle mount holds no git process");
+}
+
+#[test]
+fn object_reader_drains_non_blob_records_before_the_next_blob() {
+    let (_dir, git_dir, commit) = repo();
+    let readme = run(git_dir.parent().unwrap(), &["rev-parse", "HEAD:README.md"]).trim().to_owned();
+    let mut reader = ObjectReader::spawn_local(&git_dir).unwrap();
+    assert_eq!(reader.blob(&commit), None);
+    assert_eq!(reader.blob(&readme), Some(b"hello\n".to_vec()));
+}
+
+#[test]
+#[cfg(target_os = "linux")]
+fn a_commit_with_case_only_distinct_paths_stays_distinct() {
+    use std::os::unix::ffi::OsStrExt as _;
+    let dir = tempfile::tempdir().unwrap();
+    let work = dir.path().join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    for (name, bytes) in [(b"Foo".as_slice(), b"upper\n".as_slice()), (b"foo", b"lower\n")] {
+        std::fs::write(work.join(std::ffi::OsStr::from_bytes(name)), bytes).unwrap();
+    }
+    run(&work, &["init", "-q"]);
+    run(&work, &["add", "-A"]);
+    run(&work, &["commit", "-q", "-m", "one"]);
+    let git_dir = work.join(".git");
+    let commit = run(&work, &["rev-parse", "HEAD"]).trim().to_owned();
+    let projection = project(&git_dir, &commit, &mut Book::default(), 5_000_000_000);
+    assert!(projection.manifest.resolve("Foo").is_some());
+    assert!(projection.manifest.resolve("foo").is_some());
+    let index = index_bytes(&projection.index, ObjectFormat::Sha1, 1000, 1000).unwrap();
+    std::fs::write(git_dir.join("index"), index).unwrap();
+    assert_eq!(run(&work, &["ls-files", "--stage"]).lines().count(), 2);
+}
+
+#[test]
+#[cfg(target_os = "linux")]
+fn a_non_utf8_git_path_is_unsupported() {
+    use std::os::unix::ffi::OsStrExt as _;
+    let dir = tempfile::tempdir().unwrap();
+    let work = dir.path().join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    std::fs::write(work.join(std::ffi::OsStr::from_bytes(b"caf\xe9.txt")), b"latin\n").unwrap();
+    run(&work, &["init", "-q"]);
+    run(&work, &["add", "-A"]);
+    run(&work, &["commit", "-q", "-m", "one"]);
+    let commit = run(&work, &["rev-parse", "HEAD"]).trim().to_owned();
+    let error = ls_tree(&work.join(".git"), &commit).unwrap_err();
+    assert!(error.downcast_ref::<Unsupported>().is_some(), "{error:#}");
 }

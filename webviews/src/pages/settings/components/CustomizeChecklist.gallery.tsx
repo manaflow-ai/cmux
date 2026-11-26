@@ -40,7 +40,7 @@ async function load() {
   const { installCatalog } = await import("../strings");
   installCatalog((await import("../generated/strings.json")).default);
   const { CustomizeChecklistView } = await import("./CustomizeChecklist");
-  const { checklistGroups, toggleRowsByGroup } = await import("../customizeChecklist");
+  const { checklistGroups, toggleRowsByGroup, SIDEBAR_LOOK_KEY, sidebarLookOf } = await import("../customizeChecklist");
   const { shippedLooks } = await import("../customizeLooks");
   const { schema } = await import("../schema");
   const { homes } = await import("../categories");
@@ -52,6 +52,7 @@ async function load() {
   >;
   const looks = shippedLooks().length > 0 ? shippedLooks() : SAMPLE_LOOKS;
   const rows = toggleRowsByGroup(schema.rows, (row) => homes.has(row.key));
+  const sidebarLook = schema.rows.find((row) => row.key === SIDEBAR_LOOK_KEY) ?? null;
   const library = mockLibrary();
   // Ember is installed (its library entry is on); the rest wait to be installed.
   library.entries = [
@@ -63,14 +64,29 @@ async function load() {
       name: "pr-43496",
       position: library.entries.length + 2,
       on: true,
-      code: { pr: 43496, repo: "manaflow-ai/cmux", title: "Cat icon in the dock", note: "newer head 9c1e2f0" },
+      code: {
+        pr: 43496,
+        repo: "manaflow-ai/cmux",
+        title: "Cat icon in the dock",
+        head: "4b7d0aa",
+        base: "36316c1",
+        note: "newer head 9c1e2f0",
+      },
     },
     {
       ...library.entries[0]!,
       name: "branch-lane-glass-chrome",
       position: library.entries.length + 3,
       on: false,
-      code: { kind: "branch", repo: "manaflow-ai/cmux", source: "lane/glass-chrome", title: "Glass chrome" },
+      code: {
+        kind: "branch",
+        source: "lane/glass-chrome",
+        repo: "manaflow-ai/cmux",
+        pr: 0,
+        title: "Glass chrome",
+        head: "5e21c3d",
+        base: "36316c1",
+      },
     },
   ];
   const standup: Standup = {
@@ -112,6 +128,7 @@ async function load() {
   };
   return function CustomizeChecklistLayouts({ layout, state }: Props) {
     const [on, setOn] = useState<Record<string, boolean>>({ "labs.liveTree": true });
+    const [look, setLook] = useState<string>("cmux");
     const [query, setQuery] = useState(state === "searched" ? "sidebar" : "");
     if (layout === "app-store") {
       return (
@@ -127,14 +144,17 @@ async function load() {
     }
     const groups: ChecklistGroup[] = checklistGroups({
       rows,
-      value: (key) => on[key] === true,
+      value: (key) => (key === SIDEBAR_LOOK_KEY ? look : on[key] === true),
       locked: (key) => (state === "locked" && key.startsWith("browser.") ? "Set by your team's device profile" : null),
       library,
       libraryLocked: null,
       looks,
+      sidebarLook,
       standup,
     });
     const onToggle = (item: ChecklistItem, next: boolean) => {
+      const picked = sidebarLookOf(item);
+      if (picked !== null) return setLook(next ? picked : "cmux");
       if (item.group === "experiments" || item.group === "labs" || item.group === "all")
         setOn((before) => ({ ...before, [item.id]: next }));
     };
