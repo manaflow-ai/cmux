@@ -45,10 +45,25 @@ INVOKED_PATH = re.compile(r"(?:\./)?(tests(?:_v2)?/[A-Za-z0-9_.-]+\.(?:py|sh))")
 # an allowlist that can be appended to without argument is the failure mode
 # this test exists to prevent.
 UNWIRED: set[str] = {
-    # Red on feat-cmux-next at 2026-11-23 when #49253 wired the other guards: it expects the Linux jobs' runs-on not
-    # to reach cmux-linux, which #49544 and #48188 made the PR-gate Linux label. Exit: update the test to the
-    # cmux-linux route, then wire it into ci-guards.yml's ci group.
-    "tests/test_ci_same_repo_linux_owned_first.py",
+    # The six below were red on feat-cmux-next at 2026-11-26 (1da14552) when the other 43 drifted-in guards were
+    # wired into ci-guards.yml's ci group: the workflows they pin moved on without them. Exit for each: update the
+    # test (or the workflow, if the test is right), then wire it into ci-guards.yml's ci group.
+    # Expects 4 hot-verify mirror-seeded checkout steps; there are 5 now (plan, target, web, rust, publish).
+    "tests/test_ci_hot_verify_mirror_seed.py",
+    # Its pool-twin index misses cmux-tui-spec.yml's changes job.
+    "tests/test_ci_light_jobs_pool_mirror_checkout.py",
+    # Expects 2 checkout steps in cmux-tui-build-package.yml's build-windows job; there is 1.
+    "tests/test_ci_tui_tree_checkout_retry.py",
+    # The machine channel's land-tier condition changed and it no longer runs `"$tk" --version v2 HEAD^2`.
+    "tests/test_cmux_machine_channel_pr_head.py",
+    # The autofix repair job's if-expression now opens with an extra parenthesis the test's literal lacks.
+    "tests/test_cmux_next_pr_autofix_repair_on_red.py",
+    # cmux-machine-channel.yml no longer passes `key --version v2` to the tree tool.
+    "tests/test_cmux_tui_tree_key_verb.py",
+    # Red on feat-cmux-next at 2026-11-26 (1da14552), found when comment-only mentions stopped counting as wired:
+    # scripts/install-zig-ci.sh, run by auto-journey.yml's journey job, makes 15 sudo calls where its list says 10.
+    # Exit: drop the new sudo calls (or update the list with a reason), then wire it into ci-guards.yml's ci group.
+    "tests/test_ci_owned_mac_jobs_no_sudo.py",
     # Red on feat-cmux-next at 2026-11-23 when #49253 wired the other guards: shard picks now carry an empty entry for
     # shard 1 ({1: []}) that its expectations lack. Exit: settle whether shard 1 lists no tests, fix the side that is
     # wrong, then wire it into ci-guards.yml's ci group.
@@ -360,7 +375,10 @@ def invoked_by_workflows() -> set[str]:
     invoked = set()
     for workflow in sorted(WORKFLOW_DIR.glob("*.yml")):
         text = workflow.read_text(encoding="utf-8")
-        invoked.update(INVOKED_PATH.findall(text))
+        # A comment runs nothing: pr-router.yml and pr-pipeline.yml cite tests/test_head_tier.py in comments, which
+        # counted it as wired. Whole-line comments (YAML or shell inside a run block) are dropped before matching.
+        code = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+        invoked.update(INVOKED_PATH.findall(code))
         # A workload profile step runs everything its entrypoint names.
         for _, script in workload_entrypoints.entrypoints(text, ROOT):
             invoked.update(INVOKED_PATH.findall(script))

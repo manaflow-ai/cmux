@@ -143,7 +143,10 @@ class EveryOwnedMacKeepStepSeeds(unittest.TestCase):
                               "artifact cache too (python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py "
                               "--package-path Packages/macOS/CmuxNext), or two runner slots fail with "
                               "\"already exists in file system\"")
-        self.assertGreaterEqual(found, 6)
+        # Five today, all in cmux-next.yml: #57689 deleted test-ios.yml's Mac mobile-core-package job (and its
+        # keep step) because those packages test on Linux only (tests/test_ios_mobile_core_linux_only.py).
+        # test-ios.yml stays in SEEDING_WORKFLOWS so a keep step added there must seed too.
+        self.assertGreaterEqual(found, 5)
 
 
 class ReloadSeedsBeforeXcodebuild(unittest.TestCase):
