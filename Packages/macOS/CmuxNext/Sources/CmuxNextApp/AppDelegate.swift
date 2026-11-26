@@ -367,7 +367,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         UserOnlySettingConfirmation.install(settings, services: services)
         // Every palette-exposed schema setting in the palette (R93).
-        services.palette.sources.settings = SettingsPaletteSource(settings: settings, themes: services.themes.catalog) { [weak services] in
+        let openSetting: @MainActor (String) -> Void = { [weak registry] in // Show in Settings (openSettings setting:)
+            _ = registry?.perform("openSettings", invocation: ActionInvocation(arguments: ["setting": .string($0)], origin: .user))
+        }
+        services.palette.sources.settings = SettingsPaletteSource(settings: settings, themes: services.themes.catalog, openSetting: openSetting) { [weak services] in
             services?.windows.active.map { SettingsPaletteSource.themeColors($0.themeScope.tokens) } ?? []
         }
         services.history.startDaemonSync(settings: settings)

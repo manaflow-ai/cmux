@@ -6,6 +6,7 @@ export function BrowseFailure({ error, onRetry, onDismiss }: { error: string; on
   return (
     <output className="acpmux-switch-notice acpmux-folder-choice" aria-live="polite">
       <span role="alert">{error}</span>{" "}
+      {/* retry-prompt-ok: opens the native folder chooser again, a modal sheet only the person's click may raise. */}
       <button type="button" className="acpmux-folder-choice-button" onClick={onRetry}>
         {t("project.retry")}
       </button>{" "}
