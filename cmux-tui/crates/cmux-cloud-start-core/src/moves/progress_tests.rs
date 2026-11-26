@@ -108,6 +108,25 @@ fn a_new_or_paused_machine_names_itself() {
 }
 
 #[test]
+fn the_fraction_fills_step_by_step() {
+    let start = line(&facts(Stage::Folder, 0)).fraction;
+    let copying = line(&facts(Stage::Copy, 0)).fraction;
+    let half_agent = line(&facts(Stage::Agent, 5_000)).fraction;
+    let tab = line(&facts(Stage::Tab, 0)).fraction;
+    assert!(start.abs() < f64::EPSILON, "{start}");
+    assert!(
+        start < copying && copying < half_agent && half_agent < tab && tab < 1.0,
+        "{copying} {half_agent} {tab}"
+    );
+    // Folder 3 s, live machine 5 s, copy 15 s, agent 10 s, tab 3 s: the copy starts 8 of 36 s in.
+    assert!((copying - 8.0 / 36.0).abs() < 1e-9, "{copying}");
+    // A step past its estimate holds just under its end, never past it.
+    let overrun = line(&facts(Stage::Agent, 60_000)).fraction;
+    let end = line(&facts(Stage::Tab, 0)).fraction;
+    assert!(overrun < 1.0 && overrun > half_agent, "{overrun} {end}");
+}
+
+#[test]
 fn the_estimate_runs_with_the_step_and_ends_past_its_usual_time() {
     let early = line(&facts(Stage::Agent, 0)).eta_ms;
     let later = line(&facts(Stage::Agent, 6_000)).eta_ms;
