@@ -37,6 +37,7 @@ import {
   StatusGlyph,
   Tooltip,
   TooltipProvider,
+  grid,
   motionMode,
   motionToken,
   sessionLook,
@@ -47,7 +48,10 @@ import {
 } from "./index";
 
 type Scheme = "light" | "dark";
-type Props = { show?: "primitives" | "pieces" | "sessions"; look?: "minimal" | "default" | "minimal-comfortable" };
+type Props = {
+  show?: "primitives" | "pieces" | "sessions" | "variants";
+  look?: "minimal" | "default" | "minimal-comfortable";
+};
 
 function Stage({ scheme, children }: { scheme: Scheme; children: ReactNode }) {
   const [container, setContainer] = useState<HTMLElement | null>(null);
@@ -295,6 +299,67 @@ function Sessions({ scheme, look }: { scheme: Scheme; look: SessionLook }) {
   );
 }
 
+/** The variants a host with its own sheet (a customize scene) builds with: a bare Button, a Row with
+ * a detail second line, a host selection fill and drag handlers, the xs Pill, the grid lengths and
+ * the full radius. Each reproduces a value the app already draws. */
+function Variants({ scheme }: { scheme: Scheme }) {
+  const [picked, setPicked] = useState("today");
+  const [dragged, setDragged] = useState("none");
+  return (
+    <div className="kit-gallery-stack">
+      <List title="Row: detail subtitle, host selection fill, passthrough">
+        <Row
+          title="Today"
+          subtitle="Detail-size second line"
+          subtitleSize="detail"
+          className="kit-gallery-host-row"
+          selected={picked === "today"}
+          onSelect={() => setPicked("today")}
+          draggable
+          onDragStart={() => setDragged("today")}
+        />
+        <Row
+          title="Tomorrow"
+          subtitle="Caption-size second line (default)"
+          selected={picked === "tomorrow"}
+          onSelect={() => setPicked("tomorrow")}
+        />
+      </List>
+      <div className="kit-gallery-line">
+        <Pill size="xs">3</Pill>
+        <Pill size="xs" className="kit-gallery-tinted">
+          Tinted
+        </Pill>
+        <Pill size="xs" tone="success">
+          Merged
+        </Pill>
+        <Pill size="sm">sm</Pill>
+        <Pill>md</Pill>
+      </div>
+      <div className="kit-gallery-line">
+        <Button bare className="kit-gallery-bare-button" onClick={() => setPicked("bare")}>
+          Bare button, host-styled
+        </Button>
+        <Button>Default button</Button>
+      </div>
+      <div className="kit-gallery-line">
+        {(["base", "gap", "icon-box", "row"] as const).map((name) => (
+          <span
+            key={name}
+            className="kit-gallery-grid-swatch"
+            style={{ width: grid(name), height: grid(name) }}
+            title={name}
+          />
+        ))}
+        <span className="kit-gallery-full-swatch" />
+      </div>
+      <output className="kit-gallery-receipt" data-testid={`variants-receipt-${scheme}`}>
+        {picked} · {dragged}
+      </output>
+    </div>
+  );
+}
+
 function KitGallery({ show = "primitives", look = "minimal" }: Props) {
   return (
     <div className="kit-gallery" data-gallery-capture="">
@@ -304,6 +369,8 @@ function KitGallery({ show = "primitives", look = "minimal" }: Props) {
             <Primitives scheme={scheme} />
           ) : show === "pieces" ? (
             <Pieces scheme={scheme} />
+          ) : show === "variants" ? (
+            <Variants scheme={scheme} />
           ) : (
             <Sessions scheme={scheme} look={LOOKS[look]} />
           )}
@@ -393,5 +460,9 @@ export default componentEntry<Props>({
       note: "The default row from the same pieces: icon, folder and branch, status at the end.",
     },
     "pick-session": { props: { show: "sessions", look: "minimal" }, play: pickSession },
+    "scene-parity": {
+      props: { show: "variants" },
+      note: "Variants for scene parity: bare Button, Row detail subtitle and host fill, xs Pill, grid lengths, full radius.",
+    },
   },
 });
