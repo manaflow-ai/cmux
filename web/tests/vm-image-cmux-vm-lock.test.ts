@@ -66,7 +66,12 @@ describe("images/cmux-vm/inputs.lock.json", () => {
     expect(lock.programs.map((p) => p.name).sort()).toEqual([...KNOWN_PROGRAMS, "cmux-cua", "chrome-for-testing", "cmux-browser-host", "agent-desktop", "cmux-rd", "optchat-chief"].sort());
     expect(lock.apt.ubuntu.uri).toContain(lock.apt.ubuntu.snapshot);
     expect(lock.apt.ubuntu.snapshot).toBe("20261122T000000Z");
-    expect(profileLinks(lock).map((l) => l.command)).toContain("cr");
+    // An alias link (acpmux is the cmux-tui binary); CodeRouter's `cr` left the image (Leo, 2026-11-25:
+    // "For cmux next, just rip it out for now then").
+    const commands = profileLinks(lock).map((l) => l.command);
+    expect(commands).toContain("acpmux");
+    expect(commands).not.toContain("cr");
+    expect(commands).not.toContain("coderouter");
   });
 
   test("Claude Code is the devbox Dockerfile's pin, so the native image never ships an older one", () => {
