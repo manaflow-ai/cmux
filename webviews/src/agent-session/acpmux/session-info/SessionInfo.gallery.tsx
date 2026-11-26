@@ -603,7 +603,6 @@ const DEFAULT_SECTION_ORDER = [
   "context",
   "subagents",
   "tasks",
-  "alsoHere",
   "sources",
   "outputs",
   "more",
@@ -631,8 +630,8 @@ const drawnSlots = (ctx: PlayContext) =>
 /// The sections above the Show more line in the full chat, and the ones under it.
 const LEO_FOUR = ["environment", "context", "subagents", "tasks", "sources", "outputs"];
 const LESS_USED = ["changes", "usage", "connectors"];
-/// What the full chat draws in the default order: no other chat here (Also working here).
-const FULL_ORDER = DEFAULT_SECTION_ORDER.filter((id) => id !== "alsoHere");
+/// What the full chat draws in the default order.
+const FULL_ORDER = DEFAULT_SECTION_ORDER;
 /// The same without the Show more line: the looks that have none (all, capped).
 const ORDER_WITHOUT_LINE = FULL_ORDER.filter((id) => id !== "more");
 const expectDrawn = (ctx: PlayContext, expected: readonly string[]) => {
