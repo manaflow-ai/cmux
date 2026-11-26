@@ -737,7 +737,7 @@
         {
           "key": "cloud.autoCloud",
           "name": "autoCloud",
-          "note": "AutoCloud (Leo, 2026-11-24): the new-chat Where menu's Auto opens Auto, Cloud only and Machine…, and Auto may start a chat on a Cloud VM when this Mac has no room. A Settings switch, off by default, so a person can turn the preview on without editing cmux-next.json (Leo, 2026-11-24: \"can we put our mvp in?\"); the plan gate still applies. Also the switch for keeping a chat running: with it on, a chat that starts on this Mac is copied to the Cloud, goes on there when this Mac sleeps or goes offline, and comes home (plans/cmux-next/auto-mode/DESIGN.md; the acpmux daemon reads it when a chat starts).",
+          "note": "AutoCloud (Leo, 2026-11-24): the new-chat Where menu's Auto opens Auto, Cloud only and Machine…, and Auto may start a chat on a Cloud VM when this Mac has no room. A Settings switch, off by default, so a person can turn the preview on without editing cmux-next.json (Leo, 2026-11-24: \"can we put our mvp in?\"). Also the switch for keeping a chat running: with it on, a chat that starts on this Mac is copied to the Cloud, goes on there when this Mac sleeps or goes offline, and comes home (plans/cmux-next/auto-mode/DESIGN.md; the acpmux daemon reads it when a chat starts; nothing is copied where the Cloud store is not bound). The plan gate still applies.",
           "title": {
             "key": "settings.cloud.autoCloud",
             "text": "Auto Places Chats in Cloud"

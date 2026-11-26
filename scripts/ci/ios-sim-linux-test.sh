@@ -68,6 +68,11 @@ if [[ -z "$run" ]]; then
   echo "ios-sim-linux-test: no .xctestrun in the build products" >&2
   exit 2
 fi
+# A Swift package's test targets are logic tests whose .xctestrun host is Xcode's xctest agent; agent-sim reads any
+# TestHostPath as app-hosted and refuses the target, so drop that host and agent-sim runs them under its own xctest.
+logic="${run%.xctestrun}.logic.xctestrun"
+python3 -I "$(dirname "${BASH_SOURCE[0]}")/ios_sim_logic_xctestrun.py" "$run" "$logic" 2>&1 | tee -a "$log"
+run="$logic"
 
 # agent-sim has -only-testing but no -skip-testing: a skip becomes the list of every other target in the xctestrun.
 if [[ ${#onlys[@]} -eq 0 ]]; then

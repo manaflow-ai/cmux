@@ -7,9 +7,13 @@ use crate::vectors::Step;
 
 /// How `actual` differs from `expected`, or None when it matches: an object by the keys the
 /// vectors name (a field the answer leaves out reads as null), a list item by item, anything
-/// else by value.
+/// else by value. `"$set"` matches any value that is there and not null: a time, which no
+/// vector can name.
 pub fn differs(expected: &Value, actual: &Value, at: &str) -> Option<String> {
     let unlike = || Some(format!("{at}: expected {expected}, got {actual}"));
+    if expected.as_str() == Some("$set") {
+        return if actual.is_null() { unlike() } else { None };
+    }
     match (expected, actual) {
         (Value::Object(named), Value::Object(got)) => named.iter().find_map(|(key, expected)| {
             differs(expected, got.get(key).unwrap_or(&Value::Null), &format!("{at}.{key}"))
