@@ -65,9 +65,12 @@ headers_in=("$crates/acpmux-client/include/acpmux_client.h:CAcpmuxClientFFI"
             "$crates/cmux-keymap/include/cmux_keymap.h:CCmuxKeymapFFI"
             "$crates/cmux-launch-image/include/cmux_launch_image.h:CCmuxLaunchImageFFI"
             "$crates/cmux-pane-pictures/include/cmux_pane_pictures.h:CCmuxPanePicturesFFI"
+            "$crates/cmux-chat-markdown/include/cmux_chat_markdown.h:CCmuxChatMarkdownFFI"
+            "$crates/cmux-acpmux-remote-wire/include/cmux_acpmux_remote_wire.h:CCmuxAcpmuxRemoteWireFFI"
             "$crates/cmux-screenshots/include/cmux_screenshots.h:CCmuxScreenshotsFFI"
             "$crates/cmux-sdk-ffi/include/cmux_sdk_ffi.h:CCmuxSdkFFI"
             "$crates/cmux-terminal-prediction/include/cmux_terminal_prediction.h:CCmuxTerminalPredictionFFI"
+            "$crates/cmux-update-prewarm-core/include/cmux_update_prewarm.h:CCmuxUpdatePrewarmFFI"
             "$crates/cmux-url-input/include/cmux_url_input.h:CCmuxURLInputFFI")
 
 # Also available on Linux so the header/export contract needs no macOS build.
