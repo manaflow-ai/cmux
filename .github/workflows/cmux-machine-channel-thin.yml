@@ -103,7 +103,7 @@ jobs:
     name: point the Cloud machine channel at this commit's x86_64 Linux build
     needs: build
     if: ${{ !cancelled() && needs.build.result == 'success' }}
-    runs-on: cmux-linux
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_SECRET_SKIP_FLEET != '1' && 'cmux-gcp-secret-jit-x64' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read

@@ -149,7 +149,7 @@ jobs:
   # no other branch's picker code ever holds it; actions: read is the queue janitor's pool snapshot. A failed pick reads as
   # success, and build-sign-notarize then falls back to Blacksmith 6 vCPU.
   pick-sign-runner:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_SECRET_SKIP_FLEET != '1' && 'cmux-gcp-secret-jit-x64' || 'cmux-linux' }}
     environment:
       name: ci-routing-agent
       deployment: false

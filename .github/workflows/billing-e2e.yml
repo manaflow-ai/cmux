@@ -37,7 +37,7 @@ jobs:
   e2e:
     if: github.ref == 'refs/heads/feat-cmux-next'
     environment: cmux-next-vm-image-dev
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_SECRET_SKIP_FLEET != '1' && 'cmux-gcp-secret-jit-x64' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     timeout-minutes: 60
     env:
       E2E_STRIPE_TEST_KEY: ${{ secrets.E2E_STRIPE_TEST_KEY }}
