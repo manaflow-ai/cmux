@@ -18,6 +18,7 @@ resolver = "2"
 members = [
     "crates/acpmux",
     "crates/cmux-pool-pod",
+    "crates/cmux-vmd",
     "crates/cmux-terminal-host-protocol",
     "crates/acpmux-tui",
     "crates/cmux-egress",
@@ -195,6 +196,7 @@ members = [
     "crates/cmux-terminal-sizing",
     "crates/cmux-mobile-core",
     "crates/cmux-mobile-ffi",
+    "crates/cmux-mobile-host-core",
     "crates/cmux-cloud-wire",
     "crates/cmux-cloud-disk",
     "crates/cmux-tab-snapshots",
@@ -366,6 +368,7 @@ default-members = [
     "crates/cmux-terminal-sizing",
     "crates/cmux-mobile-core",
     "crates/cmux-mobile-ffi",
+    "crates/cmux-mobile-host-core",
     "crates/cmux-cloud-wire",
     "crates/cmux-cloud-disk",
     "crates/cmux-palette-ranker",
