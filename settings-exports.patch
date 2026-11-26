@@ -1,0 +1,1879 @@
+diff --git a/docs/mdm/cmux-example.mobileconfig b/docs/mdm/cmux-example.mobileconfig
+index 8bcf682def9..4a1911aefef 100644
+--- a/docs/mdm/cmux-example.mobileconfig
++++ b/docs/mdm/cmux-example.mobileconfig
+@@ -21,6 +21,8 @@
+ 			<string>system</string>
+ 			<key>history.terminalCommands</key>
+ 			<false/>
++			<key>labs.appStore</key>
++			<false/>
+ 			<key>navigation.historyScope</key>
+ 			<string>workspace</string>
+ 		</dict>
+diff --git a/docs/mdm/com.manaflow.cmux.intune.plist b/docs/mdm/com.manaflow.cmux.intune.plist
+index ffd3734556f..5b965a3070f 100644
+--- a/docs/mdm/com.manaflow.cmux.intune.plist
++++ b/docs/mdm/com.manaflow.cmux.intune.plist
+@@ -4,5 +4,7 @@
+ <string>system</string>
+ <key>history.terminalCommands</key>
+ <false/>
++<key>labs.appStore</key>
++<false/>
+ <key>navigation.historyScope</key>
+ <string>workspace</string>
+diff --git a/docs/mdm/com.manaflow.cmux.json b/docs/mdm/com.manaflow.cmux.json
+index 3029f4e6744..76ca8677d03 100644
+--- a/docs/mdm/com.manaflow.cmux.json
++++ b/docs/mdm/com.manaflow.cmux.json
+@@ -4370,7 +4370,7 @@
+       "type" : "boolean"
+     },
+     "experiments.terminalHistoryFind" : {
+-      "default" : false,
++      "default" : true,
+       "description" : "Cmd-F in a terminal searches its whole history, with case, whole-word and regex options.",
+       "title" : "Terminal History Find",
+       "type" : "boolean"
+@@ -6396,6 +6396,12 @@
+       "title" : "Settle Finished Chats",
+       "type" : "boolean"
+     },
++    "sidebar.showAgentSessions" : {
++      "default" : false,
++      "description" : "Sessions an agent starts list under the session that started them. Off, they stay in the parent chat's list; one that needs you still shows.",
++      "title" : "Show Sessions Started by Agents",
++      "type" : "boolean"
++    },
+     "sidebar.showChats" : {
+       "default" : true,
+       "description" : "New Tab lists every agent chat on this computer, not only recent ones.",
+diff --git a/docs/mdm/com.manaflow.cmux.plist b/docs/mdm/com.manaflow.cmux.plist
+index 582d781dd60..23efe05d7cd 100644
+--- a/docs/mdm/com.manaflow.cmux.plist
++++ b/docs/mdm/com.manaflow.cmux.plist
+@@ -7809,6 +7809,18 @@
+ 			<key>pfm_type</key>
+ 			<string>boolean</string>
+ 		</dict>
++		<dict>
++			<key>pfm_default</key>
++			<false/>
++			<key>pfm_description</key>
++			<string>Sessions an agent starts list under the session that started them. Off, they stay in the parent chat's list; one that needs you still shows.</string>
++			<key>pfm_name</key>
++			<string>sidebar.showAgentSessions</string>
++			<key>pfm_title</key>
++			<string>Show Sessions Started by Agents</string>
++			<key>pfm_type</key>
++			<string>boolean</string>
++		</dict>
+ 		<dict>
+ 			<key>pfm_default</key>
+ 			<true/>
+@@ -11833,7 +11845,7 @@
+ 		</dict>
+ 		<dict>
+ 			<key>pfm_default</key>
+-			<false/>
++			<true/>
+ 			<key>pfm_description</key>
+ 			<string>Cmd-F in a terminal searches its whole history, with case, whole-word and regex options.</string>
+ 			<key>pfm_name</key>
+diff --git a/docs/mdm/managed-preferences.md b/docs/mdm/managed-preferences.md
+index b9ce4f45a65..ac41526fbb5 100644
+--- a/docs/mdm/managed-preferences.md
++++ b/docs/mdm/managed-preferences.md
+@@ -513,6 +513,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
+ | `sidebar.detailedStatusIcons` | boolean | `false` |  | Detailed Status Icons. Icons for working, waiting, error and done. Off: a spinner and a dot. |
+ | `sidebar.showTimestamps` | boolean | `false` |  | Show Timestamps. Rows show when they last changed, such as 3d. |
+ | `sidebar.settleFinished` | boolean | `false` |  | Settle Finished Chats. A chat whose answer you have read folds into Settled at the end of its list until its next turn. |
++| `sidebar.showAgentSessions` | boolean | `false` |  | Show Sessions Started by Agents. Sessions an agent starts list under the session that started them. Off, they stay in the parent chat's list; one that needs you still shows. |
+ | `sidebar.showColors` | boolean | `true` |  | Show Workspace Colors |
+ | `workspaceColors.indicatorStyle` | string | `"leftRail"` | `dot`, `leftRail`, `fill` | Workspace Color Style. How a workspace's color shows in the sidebar. |
+ | `sidebar.showLocalMachine` | boolean | `false` |  | Mark This Mac's Workspaces. With more than one computer, this Mac's workspaces show its icon too. |
+@@ -812,7 +813,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
+ | `experiments.toastsV2` | boolean | `false` |  | Toasts v2. Spinner toasts that turn into their result in place, and an Undo after closing a tab or workspace or archiving a chat. |
+ | `experiments.themedPrompts` | boolean | `false` |  | Themed Floating Prompts. Prompts over other apps, such as a teammate asking to control this Mac, use your theme's glass and colors. |
+ | `experiments.toastGlass` | boolean | `false` |  | Toast Glass. Toasts in chats sit on the same glass as the app's own toasts. |
+-| `experiments.terminalHistoryFind` | boolean | `false` |  | Terminal History Find. Cmd-F in a terminal searches its whole history, with case, whole-word and regex options. |
++| `experiments.terminalHistoryFind` | boolean | `true` |  | Terminal History Find. Cmd-F in a terminal searches its whole history, with case, whole-word and regex options. |
+ | `experiments.chatWidgets` | boolean | `false` |  | Extension Chat Widgets. Installed extensions can show a card under a finished tool call in agent chat. |
+ | `experiments.threadMinimapRestReveal` | boolean | `false` |  | Prompt Rail Waits for a Resting Pointer. In narrow chats the prompt rail opens only when the pointer rests on the edge, never while you select text. |
+ | `experiments.terminalHistory` | boolean | `false` |  | Terminal Agent History. Claude Code and Codex terminals get a button that opens their earlier history as a read-only chat. |
+diff --git a/schemas/defaults/cmux-next.json b/schemas/defaults/cmux-next.json
+index d575ad0de1d..cb4979aaa35 100644
+--- a/schemas/defaults/cmux-next.json
++++ b/schemas/defaults/cmux-next.json
+@@ -67,6 +67,7 @@
+     "key.commandPalette": ["shift+cmd+p"],
+     "key.commandPaletteNext": ["ctrl+n", "down when paletteOpen"],
+     "key.commandPalettePrevious": ["ctrl+p", "up when paletteOpen"],
++    "key.customize.revert": ["ctrl+opt+cmd+z"],
+     "key.cycleTextBoxSubmitAction": ["shift+tab"],
+     "key.cycleWorkspaceStatus": ["shift+cmd+;"],
+     "key.decreaseWorkspaceTerminalFontSize": ["cmd+-"],
+@@ -125,6 +126,7 @@
+     "key.list.next": ["ctrl+j when listFocus", "ctrl+n when listFocus"],
+     "key.list.previous": ["ctrl+k when listFocus", "ctrl+p when listFocus"],
+     "key.macScreen.open": ["shift+cmd+s"],
++    "key.macScreen.stopSharing": ["opt+shift+cmd+s"],
+     "key.markOldestUnreadAndJumpNext": ["ctrl+cmd+u"],
+     "key.markWorkspaceDone": ["cmd+;"],
+     "key.markdownBack": ["cmd+["],
+@@ -250,15 +252,19 @@
+     "key.triggerFlash": ["shift+cmd+h"],
+     "key.useSelectionForFind": ["cmd+e"],
+     "key.workspace.selectLastUsed": ["ctrl+cmd+`"],
+-    "setting.agentPane.attachmentView": "inline",
++    "setting.agentPane.attachmentView": "strip",
+     "setting.agentPane.composerLook": "auto",
+     "setting.agentPane.composerRing": "context",
++    "setting.agentPane.composerVimKeys": false,
+     "setting.agentPane.dictationShortcut": "",
+     "setting.agentPane.dictationSource": "cmux",
++    "setting.agentPane.display.changesPill": false,
++    "setting.agentPane.display.chatListStatusPills": false,
+     "setting.agentPane.display.code.family": null,
+     "setting.agentPane.display.code.scale": null,
+     "setting.agentPane.display.commandLabels": [],
+     "setting.agentPane.display.environment.placement": "left",
++    "setting.agentPane.display.environmentCard": false,
+     "setting.agentPane.display.finishSound": false,
+     "setting.agentPane.display.font.faces": null,
+     "setting.agentPane.display.font.lineHeight": 1.625,
+@@ -269,19 +275,28 @@
+     "setting.agentPane.display.font.uiFamily": null,
+     "setting.agentPane.display.fullWidth": false,
+     "setting.agentPane.display.harnessPlacement": "symbols",
++    "setting.agentPane.display.headerBreadcrumb": false,
++    "setting.agentPane.display.layout.composer": "rounded",
++    "setting.agentPane.display.layout.header": "full",
++    "setting.agentPane.display.layout.messages": "bubbles",
+     "setting.agentPane.display.minimap": "compact",
++    "setting.agentPane.display.modelChipIcon": true,
+     "setting.agentPane.display.pinnedPlan": false,
+     "setting.agentPane.display.presentation": "transcript",
+     "setting.agentPane.display.promptCoach": true,
++    "setting.agentPane.display.queueing": true,
+     "setting.agentPane.display.rail.control": false,
+     "setting.agentPane.display.rail.show": "prompts",
+     "setting.agentPane.display.rail.side": "left",
++    "setting.agentPane.display.sendPop": false,
+     "setting.agentPane.display.senderIcon.badge": "diamond",
+     "setting.agentPane.display.senderIcon.corner": "bottom-right",
+     "setting.agentPane.display.senderIcon.lead": "family",
+     "setting.agentPane.display.sessionInfo.placement": "overlay",
+     "setting.agentPane.display.statusVerbs.custom": null,
+     "setting.agentPane.display.statusVerbs.mode": "thinking",
++    "setting.agentPane.display.thinking.glyph": null,
++    "setting.agentPane.display.thinking.glyphSize": 0,
+     "setting.agentPane.display.thinking.jumpButton": "arrow",
+     "setting.agentPane.display.thinking.shimmer": "cadenced",
+     "setting.agentPane.display.thinking.shimmerBand": 0,
+@@ -298,11 +313,13 @@
+     "setting.agentPane.editedFiles.scope": "turn",
+     "setting.agentPane.editedFiles.show": "always",
+     "setting.agentPane.emptyChatComposerPosition": "bottom",
++    "setting.agentPane.followUpMode": "steer",
+     "setting.agentPane.images.remote": "click",
+     "setting.agentPane.links.openCitationsInEditor": false,
+     "setting.agentPane.links.outsideRoots": "open",
+     "setting.agentPane.needsYou.enabled": false,
+     "setting.agentPane.newChatsIn": "local",
++    "setting.agentPane.savedPrompts": {},
+     "setting.agentPane.scrollToBottomOnSend": true,
+     "setting.agentPane.sessionWorktrees": "off",
+     "setting.agentPane.showContextUsage": true,
+@@ -310,19 +327,32 @@
+     "setting.agentPane.showMachineLoadWarnings": true,
+     "setting.agentPane.spellChecking": false,
+     "setting.agentPane.zoom": 1,
++    "setting.agents.appControl": "change",
+     "setting.agents.autoRetry.attempts": 4,
++    "setting.agents.autoRetry.capacityFallbackAfter": 1,
+     "setting.agents.autoRetry.enabled": true,
+     "setting.agents.autoRetry.intervalSeconds": 0,
+-    "setting.agents.cacheCompact.enabled": false,
+-    "setting.agents.cacheCompact.minContextPercent": 50,
++    "setting.agents.cacheCompact.enabled": true,
++    "setting.agents.cacheCompact.minContextPercent": 30,
++    "setting.agents.cacheCompact.minContextTokens": 60000,
+     "setting.agents.chats.archiveInactive": "never",
+     "setting.agents.chats.coldArchive": false,
+     "setting.agents.chats.coldArchiveAfterDays": 30,
++    "setting.agents.chats.coldSegments": false,
++    "setting.agents.chats.coldSegmentsLevel": 3,
++    "setting.agents.chats.deleteHistoryAfterDays": 0,
+     "setting.agents.chats.discovery": true,
+     "setting.agents.chats.enabled": true,
+     "setting.agents.chats.roots": [],
+     "setting.agents.chats.sessionRecap": true,
+-    "setting.agents.cmuxMcp": "ask",
++    "setting.agents.chats.terminalChatWritable": false,
++    "setting.agents.claudeCodeInboxRelay": false,
++    "setting.agents.cmuxMcp": "on",
++    "setting.agents.cmuxMcpClaude": true,
++    "setting.agents.cmuxMcpCodex": true,
++    "setting.agents.coldWake.compact": true,
++    "setting.agents.coldWake.compactAboveTokens": 100000,
++    "setting.agents.coldWake.enabled": true,
+     "setting.agents.defaultPermissionMode": "fullAccess",
+     "setting.agents.guidance.claude": true,
+     "setting.agents.guidance.codex": true,
+@@ -346,8 +376,11 @@
+     "setting.app.globalHotKey": false,
+     "setting.app.hideDockIconWithoutWindows": false,
+     "setting.app.internalDeveloperMode": false,
++    "setting.app.keyStyle": "standard",
+     "setting.app.language": "system",
+     "setting.app.quitBehavior": "keep",
++    "setting.app.sendAnonymousTelemetry": false,
++    "setting.app.shortcutLayout": "followLayout",
+     "setting.app.showMenuBarIcon": true,
+     "setting.app.startAgentGlobalHotKey": false,
+     "setting.app.uiScale": 1,
+@@ -356,6 +389,7 @@
+     "setting.app.warnBeforeQuitShortcut": true,
+     "setting.appearance.accent": "neutral",
+     "setting.appearance.agentGlow": false,
++    "setting.appearance.appFont": null,
+     "setting.appearance.appTheme": "followTerminal",
+     "setting.appearance.backdropArt": "none",
+     "setting.appearance.background": "none",
+@@ -393,6 +427,7 @@
+     "setting.appearance.favoriteThemes": [],
+     "setting.appearance.focusIndicator": "tabs",
+     "setting.appearance.fontSmoothing": "auto",
++    "setting.appearance.glassControls": false,
+     "setting.appearance.glassTransparency": 0,
+     "setting.appearance.highlightColor": null,
+     "setting.appearance.hue": 0.5,
+@@ -400,13 +435,28 @@
+     "setting.appearance.inactiveWindowDim": 0,
+     "setting.appearance.interfaceScale": null,
+     "setting.appearance.liquidGlass": false,
++    "setting.appearance.liveWallpaperFrameRate": "30",
+     "setting.appearance.machineColors": {},
++    "setting.appearance.menu.borderOpacity": null,
++    "setting.appearance.menu.cornerRadius": null,
++    "setting.appearance.menu.destructiveInk": "standard",
++    "setting.appearance.menu.fill": null,
++    "setting.appearance.menu.highlightRadius": null,
++    "setting.appearance.menu.padding": null,
++    "setting.appearance.menu.rowHeight": null,
++    "setting.appearance.menu.sectionLabel": "standard",
++    "setting.appearance.menu.separator": "standard",
++    "setting.appearance.menu.shadow": "standard",
++    "setting.appearance.menu.shortcuts": "standard",
++    "setting.appearance.menu.submenu": "standard",
++    "setting.appearance.menu.subtitle": "standard",
+     "setting.appearance.metrics.chromeFontSize": null,
+     "setting.appearance.metrics.columnGap": null,
+     "setting.appearance.metrics.dividerHitWidth": null,
+     "setting.appearance.metrics.dividerThickness": null,
+     "setting.appearance.metrics.sidebarRowHeight": null,
+     "setting.appearance.metrics.sidebarWidth": null,
++    "setting.appearance.metrics.spaceButtonSpacing": null,
+     "setting.appearance.metrics.tabFontSize": null,
+     "setting.appearance.metrics.tabMaxWidth": null,
+     "setting.appearance.metrics.tabMinActiveWidth": null,
+@@ -415,14 +465,20 @@
+     "setting.appearance.metrics.tabStripHeight": null,
+     "setting.appearance.metrics.titlebarHeight": null,
+     "setting.appearance.paneBackgrounds": "shared",
++    "setting.appearance.popover.header": "standard",
++    "setting.appearance.popover.padding": null,
++    "setting.appearance.popover.progressFill": "standard",
++    "setting.appearance.popover.progressHeight": null,
+     "setting.appearance.previousGlass": false,
+     "setting.appearance.rotateFavoriteThemes": "off",
+     "setting.appearance.saturation": 1,
+     "setting.appearance.selection": "accent",
++    "setting.appearance.settingsBetaChips": false,
+     "setting.appearance.sidebarSurface": "same",
+     "setting.appearance.statusIndicator.animation": "animated",
+     "setting.appearance.statusIndicator.color": null,
+     "setting.appearance.statusIndicator.honorStatusStyle": true,
++    "setting.appearance.statusIndicator.iconSet": "codex",
+     "setting.appearance.statusIndicator.showAgentWorkingOnTabs": true,
+     "setting.appearance.statusIndicator.showPageLoading": true,
+     "setting.appearance.statusIndicator.size": 1,
+@@ -456,6 +512,8 @@
+     "setting.appearance.surfaces.tabBar.opacity": null,
+     "setting.appearance.surfaces.terminal.color": null,
+     "setting.appearance.surfaces.terminal.opacity": null,
++    "setting.appearance.tabShape": "block",
++    "setting.appearance.terminalCellBackgrounds": "opaque",
+     "setting.appearance.theme": null,
+     "setting.appearance.themeEdits": {},
+     "setting.appearance.themeFile": null,
+@@ -463,6 +521,7 @@
+     "setting.appearance.titleAreaContrast": 1,
+     "setting.appearance.titleAreaTone": "oneColor",
+     "setting.appearance.twoTone": "off",
++    "setting.appearance.wallpaperLighting": false,
+     "setting.appearance.wallpaperTint": true,
+     "setting.browser.agentMouse.maxMoveMs": 350,
+     "setting.browser.agentMouse.motion": "human",
+@@ -514,7 +573,7 @@
+     "setting.browser.showAgentCursor": true,
+     "setting.browser.showBookmarksBar": false,
+     "setting.browser.showLoadingBar": false,
+-    "setting.browser.siteEngines": {"amazon.com/gp/video": "webkit", "disneyplus.com": "webkit", "hulu.com": "webkit", "max.com": "webkit", "music.apple.com": "webkit", "netflix.com": "webkit", "primevideo.com": "webkit", "spotify.com": "webkit", "tv.apple.com": "webkit"},
++    "setting.browser.siteEngines": {},
+     "setting.browser.toolbar.back": true,
+     "setting.browser.toolbar.downloads": true,
+     "setting.browser.toolbar.extensions": true,
+@@ -524,7 +583,7 @@
+     "setting.browser.toolbar.menu": true,
+     "setting.browser.toolbar.profile": true,
+     "setting.browser.toolbar.reload": true,
+-    "setting.browser.toolbarButtons": ["media", "zoom", "downloads"],
++    "setting.browser.toolbarButtons": ["media", "zoom", "downloads", "profile"],
+     "setting.browser.toolbarPosition": "top",
+     "setting.browser.urlsToAlwaysOpenExternally": [],
+     "setting.browser.verificationAutofill.accounts": [],
+@@ -542,25 +601,33 @@
+     "setting.chief.subagentSidebarHideWords": [],
+     "setting.chief.subagentSidebarMinWords": 50,
+     "setting.chief.subagentSidebarShowWords": [],
++    "setting.cloud.agentMemory.follow": true,
+     "setting.cloud.agentsStartWithoutAsking": true,
++    "setting.cloud.autoCloud": false,
+     "setting.cloud.newWorkspaceFolder": "inherit",
+     "setting.cloud.newWorkspacesInCloud": false,
+     "setting.cloud.turnCheckpoints": false,
+     "setting.computerUse.allowForeground": false,
+     "setting.computerUse.allowOwnMachines": true,
+     "setting.computerUse.cursorTag": "hover",
+-    "setting.computerUse.deniedApps": ["com.apple.keychainaccess", "com.apple.Passwords", "com.1password.*", "com.agilebits.onepassword*", "com.bitwarden.*", "com.dashlane.*", "com.lastpass.*", "com.nordpass.*", "me.proton.pass", "org.keepassxc.keepassxc", "com.markmcguill.strongbox", "in.sinew.enpass*", "com.keepersecurity.*", "1password.exe", "bitwarden.exe", "keepass.exe", "keepassxc.exe", "org.keepassxc.KeePassXC", "1password", "bitwarden", "com.apple.systempreferences", "com.apple.Terminal", "com.googlecode.iterm2", "com.mitchellh.ghostty", "net.kovidgoyal.kitty", "com.github.wez.wezterm", "org.alacritty", "dev.warp.*", "windowsterminal.exe", "cmd.exe", "powershell.exe", "pwsh.exe", "org.gnome.Terminal", "org.gnome.Ptyxis", "org.kde.konsole", "com.cmuxterm.app", "com.cmuxterm.app.*"],
++    "setting.computerUse.deniedApps": ["com.apple.keychainaccess", "com.apple.Passwords", "com.1password.*", "com.agilebits.onepassword*", "com.bitwarden.*", "com.dashlane.*", "com.lastpass.*", "com.nordpass.*", "me.proton.pass", "org.keepassxc.keepassxc", "com.markmcguill.strongbox", "in.sinew.enpass*", "com.keepersecurity.*", "1password.exe", "bitwarden.exe", "keepass.exe", "keepassxc.exe", "org.keepassxc.KeePassXC", "1password", "bitwarden", "com.apple.systempreferences"],
+     "setting.computerUse.livePreview": true,
+     "setting.computerUse.menus": "open",
+     "setting.computerUse.mode": "fullAccess",
+     "setting.computerUse.pauseOnTakeover": true,
+-    "setting.computerUse.settle": "adaptive",
++    "setting.computerUse.settle": "openai",
+     "setting.computerUse.showCursor": true,
++    "setting.computerUse.whileLocked": false,
+     "setting.contextMenus.showCustomizeItem": false,
++    "setting.customize.checklist.done": [],
++    "setting.customize.checklist.enabled": true,
++    "setting.customize.doctorNotice": true,
+     "setting.customize.fromTheApp": false,
+     "setting.developerTools.appPages": true,
++    "setting.developerTools.overloadNotice": false,
+     "setting.deviceHub.url": "",
+     "setting.diagnostics.hangReports": false,
++    "setting.diagnostics.shareInstallCounts": false,
+     "setting.diagnostics.usagePatterns": false,
+     "setting.diff.colors": "theme",
+     "setting.diff.diffIndicators": "bars",
+@@ -583,6 +650,7 @@
+     "setting.editor.cursorSmoothCaretAnimation": "off",
+     "setting.editor.cursorStyle": "line",
+     "setting.editor.cursorSurroundingLines": 0,
++    "setting.editor.default": "auto",
+     "setting.editor.detectIndentation": true,
+     "setting.editor.emptySelectionClipboard": true,
+     "setting.editor.find.seedSearchStringFromSelection": "always",
+@@ -615,14 +683,37 @@
+     "setting.editor.stickyScroll.enabled": true,
+     "setting.editor.tabSize": 4,
+     "setting.editor.trimTrailingWhitespace": false,
++    "setting.editor.vimMode": false,
+     "setting.editor.wordBasedSuggestions": true,
+     "setting.editor.wordWrap": "off",
+     "setting.editor.wordWrapColumn": 80,
+     "setting.experiments.agentBadges": false,
+     "setting.experiments.agentBadgesBeam": false,
++    "setting.experiments.appFontChrome": false,
++    "setting.experiments.attachmentTypeIcons": false,
++    "setting.experiments.browserProfileCard": false,
+     "setting.experiments.chatWidgets": false,
++    "setting.experiments.cloudDiskBar": false,
++    "setting.experiments.composerButtonsVisible": false,
++    "setting.experiments.composerCustomizer": false,
++    "setting.experiments.composerHatGroups": true,
+     "setting.experiments.composerV2": false,
++    "setting.experiments.foldSummaryCounts": false,
++    "setting.experiments.forum": false,
+     "setting.experiments.glassToolbarGroups": false,
++    "setting.experiments.hoverLook": false,
++    "setting.experiments.menuRowStates": false,
++    "setting.experiments.menuStyleV2": false,
++    "setting.experiments.palettePreview": false,
++    "setting.experiments.paletteV2": "off",
++    "setting.experiments.quietConnect": false,
++    "setting.experiments.seeThroughDock": false,
++    "setting.experiments.terminalAgentMark": false,
++    "setting.experiments.terminalHistory": false,
++    "setting.experiments.terminalHistoryFind": true,
++    "setting.experiments.themedPrompts": false,
++    "setting.experiments.threadMinimapRestReveal": false,
++    "setting.experiments.toastGlass": false,
+     "setting.experiments.toastsV2": false,
+     "setting.feed.agentPermissionPrompts": false,
+     "setting.feed.github.enabled": false,
+@@ -657,16 +748,23 @@
+     "setting.home.chiefPanel.style": "composeBar",
+     "setting.home.chiefPetEnabled": false,
+     "setting.home.chiefPetMascot": "orb",
++    "setting.home.clipboardHistory": true,
+     "setting.home.feedInChief": true,
+     "setting.home.server": "hosted",
+     "setting.imessage.automationSkipped": false,
+     "setting.imessage.enabled": false,
+     "setting.labs.agentCustomization": false,
++    "setting.labs.appStore": false,
++    "setting.labs.bundledCodexAppServer": false,
++    "setting.labs.commentThreads": false,
++    "setting.labs.connectionsUpcoming": false,
++    "setting.labs.hostsSidebar": false,
+     "setting.labs.liveCode": false,
+     "setting.labs.liveTree": false,
+     "setting.labs.machineJoin": false,
+     "setting.labs.pauseAgentMachines": false,
+     "setting.labs.previewFeatures": false,
++    "setting.labs.previousBuild": false,
+     "setting.labs.voiceRoom": false,
+     "setting.labs.voiceRoomURL": "",
+     "setting.layout.centerFocusedColumn": "never",
+@@ -702,6 +800,7 @@
+     "setting.macScreen.onlyPersonStartsViewing": false,
+     "setting.macScreen.shareWithoutAsking": false,
+     "setting.macScreen.systemShortcuts": false,
++    "setting.machines.hosts": [],
+     "setting.markdown.code.blockSize": null,
+     "setting.markdown.code.family": null,
+     "setting.markdown.code.scale": 0.875,
+@@ -715,7 +814,8 @@
+     "setting.markdown.tables": "scroll",
+     "setting.markdown.theme": "app",
+     "setting.media.pictureInPicture.enabled": true,
+-    "setting.mobile.allowIPhoneConnections": false,
++    "setting.mobile.allowIPhoneConnections": true,
++    "setting.mobile.autoApprovePhones": false,
+     "setting.mobile.terminalSizing": "smallest",
+     "setting.mobile.terminalSizingOrder": [],
+     "setting.models.spreadUsage": true,
+@@ -738,6 +838,7 @@
+     "setting.notifications.attention.style": "steady",
+     "setting.notifications.attention.terminals": "glow",
+     "setting.notifications.attention.width": 2,
++    "setting.notifications.delivery.blocked": "off",
+     "setting.notifications.delivery.permissionRequest": "banner",
+     "setting.notifications.delivery.question": "banner",
+     "setting.notifications.delivery.taskComplete": "banner",
+@@ -757,6 +858,7 @@
+     "setting.notifications.sounds.events.message": null,
+     "setting.notifications.sounds.events.needsInput": null,
+     "setting.notifications.sounds.groups": {},
++    "setting.notifications.sounds.maxSeconds": 0,
+     "setting.notifications.sounds.volume": 1,
+     "setting.notifications.sounds.when": "unlessViewed",
+     "setting.notifications.sounds.workspaces": {},
+@@ -765,6 +867,7 @@
+     "setting.notifications.sources.terminal.dismissal": null,
+     "setting.notifications.suppressWhileTypingSeconds": 0,
+     "setting.notifications.timeoutSeconds": 30,
++    "setting.notifications.toast.style": "standard",
+     "setting.palette.aliases": {},
+     "setting.palette.pins": [],
+     "setting.palette.scopes.commands.prefix": ">",
+@@ -777,9 +880,14 @@
+     "setting.phone.cloudReplica": false,
+     "setting.phone.keepAwake": "pluggedIn",
+     "setting.picker.pinned": [],
++    "setting.presence.live": false,
++    "setting.remote.agentShareIdleMinutes": 15,
+     "setting.remote.endSharingOnQuit": false,
+     "setting.remote.screenSharingProfile": "balanced",
+     "setting.remote.ultra": "auto",
++    "setting.remoteDesktop.maxBitrateMbps": "auto",
++    "setting.remoteDesktop.maxFps": "auto",
++    "setting.remoteDesktop.quality": "auto",
+     "setting.screenshots.findTools": true,
+     "setting.screenshots.folders": [],
+     "setting.sessions.allowFullAccess": true,
+@@ -798,11 +906,12 @@
+     "setting.sidebar.controlsOnHover": false,
+     "setting.sidebar.density": "compact",
+     "setting.sidebar.detailedStatusIcons": false,
++    "setting.sidebar.drawnMenus": false,
+     "setting.sidebar.floatOnHover": true,
+     "setting.sidebar.groupBy": "none",
+     "setting.sidebar.groupByComputer": false,
+     "setting.sidebar.groupGradient": "sunset",
+-    "setting.sidebar.groupHeader.background": "folder",
++    "setting.sidebar.groupHeader.background": "auto",
+     "setting.sidebar.groupHeader.memberCount": false,
+     "setting.sidebar.groupHeader.unreadCount": false,
+     "setting.sidebar.groupPalette": "glass",
+@@ -837,11 +946,14 @@
+     "setting.sidebar.priorityView.enabled": false,
+     "setting.sidebar.priorityView.shown": true,
+     "setting.sidebar.sectionLook": "quiet",
++    "setting.sidebar.sections.hidden": [],
++    "setting.sidebar.sections.order": [],
+     "setting.sidebar.sessionTree": false,
+     "setting.sidebar.settleFinished": false,
+-    "setting.sidebar.showAutomaticSessions": false,
++    "setting.sidebar.showAgentSessions": false,
+     "setting.sidebar.showChats": true,
+     "setting.sidebar.showColors": true,
++    "setting.sidebar.showLiveToggle": true,
+     "setting.sidebar.showLocalMachine": false,
+     "setting.sidebar.showNewWorkspaceChooser": false,
+     "setting.sidebar.showProfileControl": true,
+@@ -916,6 +1028,7 @@
+     "setting.sidebar.workspaceRow.progress": true,
+     "setting.sidebar.workspaceRow.pullRequest": false,
+     "setting.sidebar.workspaceRow.secondLineOrder": ["notification", "directory", "branch", "process", "agentStatus", "ports", "lastActivity"],
++    "setting.sidebar.workspaceRow.statusPlacement": "trailing",
+     "setting.sidebar.workspaceRow.tabCount": false,
+     "setting.sidebar.workspaceRow.terminal.agentStatus": null,
+     "setting.sidebar.workspaceRow.terminal.branch": null,
+@@ -945,6 +1058,11 @@
+     "setting.tabs.nativeNewTabPage": false,
+     "setting.tabs.newTabApp": null,
+     "setting.tabs.newTabButtonPosition": "end",
++    "setting.tabs.newTabClock.color": "text",
++    "setting.tabs.newTabClock.date": true,
++    "setting.tabs.newTabClock.font": "rounded",
++    "setting.tabs.newTabClock.show": false,
++    "setting.tabs.newTabClock.weight": "bold",
+     "setting.tabs.newTabNowPlaying": false,
+     "setting.tabs.newTabPosition": "afterCurrent",
+     "setting.tabs.newTabTemplate": "minimal",
+@@ -955,12 +1073,22 @@
+     "setting.tabs.toolbarButtons": [],
+     "setting.tabs.verticalTabs": false,
+     "setting.tabs.verticalTabsExpandOnHover": true,
++    "setting.tailnet.join.autoJoinNewVMs": false,
++    "setting.tailnet.join.enabled": false,
++    "setting.tailnet.join.ephemeral": false,
++    "setting.tailnet.join.hostname": "{vm}",
++    "setting.tailnet.join.loginServer": "",
++    "setting.tailnet.join.servePorts": [],
++    "setting.tailnet.join.ssh": false,
++    "setting.tailnet.join.tags": [],
+     "setting.tasks.layout": "inbox",
+     "setting.terminal.fontFamily": null,
+     "setting.terminal.fontSize": null,
+     "setting.terminal.linkOpener.default": "cmux",
+     "setting.terminal.linkOpener.rules": [],
++    "setting.terminal.predictiveLocalEcho": true,
+     "setting.terminal.term": "xterm-256color",
++    "setting.transport.tailnetCarrier": "off",
+     "setting.ui.animationSpeed": "fast",
+     "setting.ui.animations.cursor": true,
+     "setting.ui.animations.enabled": true,
+@@ -981,7 +1109,8 @@
+     "setting.updates.channel": "nightly",
+     "setting.updates.checkAutomatically": true,
+     "setting.updates.checkIntervalSeconds": 3600,
+-    "setting.updates.downloadAutomatically": false,
++    "setting.updates.daemon": "off",
++    "setting.updates.downloadAutomatically": true,
+     "setting.updates.idleInstallMaxWaitSeconds": 600,
+     "setting.updates.idleInstallQuietSeconds": 60,
+     "setting.updates.installOnQuit": false,
+@@ -1017,7 +1146,7 @@
+     "steps-aside.yieldsToTerminal": ["decreaseWorkspaceTerminalFontSize", "groupSelectedWorkspaces", "increaseWorkspaceTerminalFontSize", "resetWorkspaceTerminalFontSize", "toggleChecklistItemComplete"],
+     "steps-aside.yieldsToWebContent": ["toggleChecklistItemComplete"],
+     "tunable-source.CmuxNextAccounts/AccountTunables.swift:section": "cbde928486170c35d81da45dee666fd4eeda911d61424d7b63c98509f0cbc6e7",
+-    "tunable-source.CmuxNextAccounts/AccountTunables.swift:signInWindow": "dfcd56a981473a3b7d0d2614ee3df462004881fe927dabd23530d530e9104e0b",
++    "tunable-source.CmuxNextAccounts/AccountTunables.swift:signInWindow": "3449f508eb3a78ef87441d4b1b5081e1bf8784901d3c351f329b33f34fc4d765",
+     "tunable-source.CmuxNextAgentActivity/AgentActivityTunables.swift:layout": "3518face4fd8d036c9e1c53ac128e6fbad7df3fe831cd1657b089a41b0bfb637",
+     "tunable-source.CmuxNextAgentActivity/AgentActivityTunables.swift:section": "94188962cc038317ebb2c0caf0312e374a4ce74eda9327968d76e25620f65e57",
+     "tunable-source.CmuxNextAgentPane/AgentPaneTunables+AgentLinks.swift:agentLinks": "4317101cffac181b49940785bf8bc0ffa95675499578256e1fb73bc2a179f033",
+@@ -1026,14 +1155,15 @@
+     "tunable-source.CmuxNextAgentPane/AgentPaneTunables+AgentPairGuard.swift:agentPairWindow": "91fa796ea573aefaa411d1daef4e18f4cf52344fd2a7099c2300d21516e7c96f",
+     "tunable-source.CmuxNextAgentPane/AgentPaneTunables+DaemonUpdate.swift:updatePeersAutomatically": "f6ef33248d38d14652e88d0e735a0e629bee1cbbb4e9c43d9cb13dd573bb82e2",
+     "tunable-source.CmuxNextAgentPane/AgentPaneTunables+HeaderControls.swift:headerControls": "9effcaa9af25b83163f0d16c1dc459597e3da7c13d6922ce50d321ed1b2bb83a",
++    "tunable-source.CmuxNextAgentPane/AgentPaneTunables+HeaderIcons.swift:headerIcons": "037cec38e09fd4a90f7131b292e29b536c71d8eba1527dafc6d51267a7af632b",
+     "tunable-source.CmuxNextAgentPane/AgentPaneTunables+NeedsYou.swift:needsYou": "9018920bedd02d7ea459c332df6036de7962a06cebc2e9b1b455bd7714460c82",
+     "tunable-source.CmuxNextAgentPane/AgentPaneTunables+NeedsYou.swift:needsYouPill": "6e4ea55af3fabedccd546624db3450f737a8854aff9862a469d1614cfe7f77f2",
+     "tunable-source.CmuxNextAgentPane/AgentPaneTunables+NewTabPicks.swift:newTabPicksFollowLinks": "7e5a2bf74cc141fce92475166d8a832548ccdfcf6ad4839a587279acabaf1064",
+     "tunable-source.CmuxNextAgentPane/AgentPaneTunables+OutsideChats.swift:openOutsideChatsViewOnly": "5299f38b6b4ccffd53497ccff53e585246351ea53d672aec238759ba586e9a72",
+     "tunable-source.CmuxNextAgentPane/AgentPaneTunables+PointerInspector.swift:pointerInspector": "4e777c9fccd83eb7ecc655762ad29dd81d0bb1503abfcdbfe33b33b1ecb1487e",
+-    "tunable-source.CmuxNextAgentPane/AgentPaneTunables+SubagentTray.swift:subagentTray": "958c29ab0a4c680774041376615c2b18dae9ae083269a398ea677626cc095b05",
+     "tunable-source.CmuxNextAgentPane/AgentPaneTunables+SuggestedTasks.swift:suggestedTasks": "d3208fca71c00235a03268e7c9ace96fe6749e2b57e7f6a67e0974501b9e8b7a",
+     "tunable-source.CmuxNextAgentPane/AgentPaneTunables+SystemDictation.swift:systemDictation": "585fcc344ad09d2546c3e87feaae1b6d162858286756c538e9f88bb343844348",
++    "tunable-source.CmuxNextAgentPane/AgentPaneTunables+TopRightLayout.swift:topRightLayout": "dd1711ffb5f82d768d34e0984f0b20b0be70854408f7e8518c4742023ff7fbb7",
+     "tunable-source.CmuxNextAgentPane/AgentPaneTunables.swift:chromium": "d056fa226ae0e35e7883ddf7248cc9457d09141c0da590abe204bd3d7bd8bab5",
+     "tunable-source.CmuxNextAgentPane/AgentPaneTunables.swift:composerPlainFooter": "a556811968989464aae2b5f56b75a74974a3c62587bf39a82de1985526846bab",
+     "tunable-source.CmuxNextAgentPane/AgentPaneTunables.swift:harnessPlacement": "637423b7f237ae4c8223aef8396f9f5fc692f4766ce5eeaaf8340d9655c0835a",
+@@ -1054,11 +1184,7 @@
+     "tunable-source.CmuxNextAgentPane/AgentPaneTunables.swift:turnActionsPlacement": "d033aeefff358ff6ea6184937457f7a5352e68d9801ae1577f63732dd51fc198",
+     "tunable-source.CmuxNextAgentPane/NewTabTunables.swift:layout": "8525d5574992c89bbb224cd0d7b5cf21f0e113a360ef355994ba740d771d8413",
+     "tunable-source.CmuxNextApp/Cloud/CloudTunables.swift:updateCloudMachinesAutomatically": "d327d438223ddd291572f349c4542d54dc4d61330825c4bc5a8250c41c7dbbed",
+-    "tunable-source.CmuxNextApp/HostPressure/HostPressureTunables.swift:banner": "779055190dfbd53d0926e090bd1848086b86464e7b7d1da17f7c9537f33cd7aa",
+-    "tunable-source.CmuxNextApp/HostPressure/HostPressureTunables.swift:enabled": "fe70bf196de7b61d5e722e981a89cdbb972c2af3016333b94b7769f0dc9ea734",
+-    "tunable-source.CmuxNextApp/HostPressure/HostPressureTunables.swift:force": "f86e62d0ac5ac44e11f1410383a01292e9c49c7537a26e84d4b6a753f3d7a0d7",
+-    "tunable-source.CmuxNextApp/HostPressure/HostPressureTunables.swift:section": "4fe185c849a439dcd10ba53a597397443d793ad05f4fe7fb97208ed1f40a0250",
+-    "tunable-source.CmuxNextApp/HostPressure/HostPressureTunables.swift:style": "83db55f94ad533e3d4dd513da9ebf22ddc85e6047081373b8b97aa5dc0d3df66",
++    "tunable-source.CmuxNextApp/Cloud/CloudTunables.swift:wakeOnIntent": "b3a8abe02c1ce0a697d7c9e368c97678d2126f440c9bb40a3ed806e7454c209f",
+     "tunable-source.CmuxNextApp/Settings/HangFilesSettings.swift:enabled": "9a7557ff016f168da6a4d2c82662a6ba965b3247615b2d418a88a61f14180dc1",
+     "tunable-source.CmuxNextApp/Settings/HangFilesSettings.swift:section": "fd1d58dda713606ddd67776e707195a2b12f0a0579ac5a581ee8cb67fe741fc2",
+     "tunable-source.CmuxNextApp/Windows/SidebarToggleIcon.swift:tunable": "333772a42b520402690fd35609dc62ecdb0223929c6290a667ef332f88333153",
+@@ -1079,15 +1205,18 @@
+     "tunable-source.CmuxNextDesign/Borders.swift:drawsLines": "1ff7905764a875b3af0003f7f7a3de4ba168d56dec7fd0f510a1dfc01f238185",
+     "tunable-source.CmuxNextDesign/Borders.swift:tunable": "194d6b7ba7546385b6fe12e1502d752a12aaf36e5c13c3206894510f1014f4e4",
+     "tunable-source.CmuxNextDesign/CardMaterial.swift:defaultMinimumOpacity": "b2231d1db6d991bbdd835f7aff927eaeac553ca95d5f9ea901766128b4a40d3a",
++    "tunable-source.CmuxNextDesign/CheckedFont.swift:appFamily": "4846c62052fb9c39d9940051699762ea81bc17e840ec1329f9553757864620e6",
++    "tunable-source.CmuxNextDesign/CheckedFont.swift:appFontChromeExperiment": "1cfd7d73a6c058c52de72a8e49f497efcdfa59141d1f8e798d5b9c225a01a4f8",
+     "tunable-source.CmuxNextDesign/CheckedFont.swift:checked": "536ef21a91d2c47815052ce52d967e5d8980d6b1f20a903d317a458ac3dcad8b",
+     "tunable-source.CmuxNextDesign/CheckedFont.swift:designed": "028e7f68b4b2b3a5a80d59215a259e2c823c36fda1cb1a283158883a58fc6a9b",
+-    "tunable-source.CmuxNextDesign/CheckedFont.swift:fresh": "ecac8aec36cc9e9c015a7b33f5a49a81d209d9143982b43c8f064f6539c91a4d",
++    "tunable-source.CmuxNextDesign/CheckedFont.swift:fresh": "bb4715cd3e2584d4d3790e8c4d188fc87ea3e57e0317d2f5d333b9df007a2d99",
+     "tunable-source.CmuxNextDesign/CheckedFont.swift:lastGood": "539d5fbe2f5c3613b915aa5564fc96020281c21b26532c03ebd86c6da5cea9be",
+     "tunable-source.CmuxNextDesign/CheckedFont.swift:logger": "7f6223cf7763aafcf85585cc27402e509eca96be4835cca95a8dfe11e3ef2255",
++    "tunable-source.CmuxNextDesign/CheckedFont.swift:named": "d977de0775bcb7342034a4ffae1c821963e6606b852987db96e7656ad48235d5",
+     "tunable-source.CmuxNextDesign/CheckedFont.swift:nonNull": "40cb7181b445a72cbb8e7e5e85f95bee2a03f6b80a1734914ea23a57ee01f7dd",
+     "tunable-source.CmuxNextDesign/CheckedFont.swift:retained": "b2bcf4a6bcea68ebd9a2042e9d3a1ddba6317f57e82134c6fc9e75647c2cb8e7",
+     "tunable-source.CmuxNextDesign/CheckedFont.swift:retainedLimit": "ebde076746d5a2d47f346621d1dc0d7f2939ed90f9e273f755f5add5fc357d11",
+-    "tunable-source.CmuxNextDesign/CheckedFont.swift:system": "04d2d85c2f485da5ca529e13804636d07759c2c147da574eaea08f7451dfd274",
++    "tunable-source.CmuxNextDesign/CheckedFont.swift:system": "badf1f55a5834a01e7bf7b2e33fc7f134cd28d830390b3a8ee5103281ea6eb9f",
+     "tunable-source.CmuxNextDesign/ChromeDivider.swift:dividerStrength": "0d72a6fcb206c0e068f22367b4a67812f18221f6a60ff348551ab41d40c170c8",
+     "tunable-source.CmuxNextDesign/ChromeDivider.swift:tabRowDivider": "cfd0d22f11731d5a2f59072823dc347f7b0a75126721f7875b9205cf34e3a378",
+     "tunable-source.CmuxNextDesign/CornerFlush.swift:chosen": "c7a894776c4c0dd97469dd4e0b514986360765a94eaa97f81e65eae47c0c6260",
+@@ -1095,7 +1224,7 @@
+     "tunable-source.CmuxNextDesign/CornerFlush.swift:defaultFits": "2957b03f1b521b543a78e4283b9f2a605010c23a6cd138bee7732ee6d1ba78a2",
+     "tunable-source.CmuxNextDesign/CornerFlush.swift:tunable": "b62618ede3a494e6687260e7a38c9725b0ba53e4f1f2793d3195c183fe8a1bfc",
+     "tunable-source.CmuxNextDesign/CornerFlush.swift:uncachedCurrent": "a361f4aac37653bce7633898e90358a6aa03cc12676a2f3f6b7f2eb5f81cf761",
+-    "tunable-source.CmuxNextDesign/DensityPreset.swift:reference": "5c44ccd1069a9b0fc05861d7d82f936738a4447e1f477bde277e178075c4ec58",
++    "tunable-source.CmuxNextDesign/DensityPreset.swift:reference": "d4d1025dd9c42339dccf7d6ccc623801ec6caf3bb019e8deddcde921265703a0",
+     "tunable-source.CmuxNextDesign/DensityPreset.swift:referenceTokens": "75a3b2edc5f7a89fefbdf5fdb3dc8fcb3538ae66663c931bbdd4a4716435bc0f",
+     "tunable-source.CmuxNextDesign/DensityTokenCatalog.swift:all": "356713cfba22a9f006d95c0d23ffc46370dd13517c4ca1d0bca7c66d8e165d6b",
+     "tunable-source.CmuxNextDesign/DensityTokenCatalog.swift:base": "d6c17f1106671b7778aa32d6b70da95c03fa0419233e127c2d8eb037c1424e8f",
+@@ -1115,6 +1244,7 @@
+     "tunable-source.CmuxNextDesign/DropOutlineRing.swift:color": "9c6f6f8d991d9775f695e0901f2f336bc9bbcf694cb44a5e6e13bbb3bb7f37ee",
+     "tunable-source.CmuxNextDesign/DropOutlineRing.swift:fillOpacity": "8949346c9658b226bb8a54c50b180c86e36025acc4af32b536fe1cf088daa80f",
+     "tunable-source.CmuxNextDesign/DropOutlineRing.swift:width": "1c693ba8c4626b87aa0a2a7e9e74f8daee3ef217049dc46ea25a655c40b6fd6a",
++    "tunable-source.CmuxNextDesign/FloatingGlass/HoverSurface.swift:tunable": "03ea4bb936a870da5ff239ef93a6b2a2f40629291585f8b5836c74b8ba908309",
+     "tunable-source.CmuxNextDesign/FloatingPane/FloatingPaneTunables.swift:backgroundOpacity": "9a5792b55a0869cad1029118b397e4ddae4f250bacd064c88cd1f3859391ff0d",
+     "tunable-source.CmuxNextDesign/FloatingPane/FloatingPaneTunables.swift:borderOpacity": "f171ef06c40413948906526bf9c11f59a128bbea2ba4ea1fe8b10229e192c74c",
+     "tunable-source.CmuxNextDesign/FloatingPane/FloatingPaneTunables.swift:borderWidth": "90966b4bfa97cac2795622c09d24bab379ec5b56efd64e2398a1725a626fada7",
+@@ -1132,7 +1262,7 @@
+     "tunable-source.CmuxNextDesign/FloatingPane/FloatingPaneTunables.swift:tint": "57ec6b7a4a955ee9e6b194bda5b0cb838458aa4ec6508e2cb0d0bb722b03e866",
+     "tunable-source.CmuxNextDesign/FloatingPane/FloatingPaneTunables.swift:tintStrength": "dea4bc178b66a0e22c87fac1aa219d71430d0887f1673a4822415f5455ad90b9",
+     "tunable-source.CmuxNextDesign/FloatingPane/FloatingPaneTunables.swift:unit": "92e288835aa79b6fea38fc260e2feecdaa2fa85aef4140469b009aec85e01f84",
+-    "tunable-source.CmuxNextDesign/GlassLens/GlassLensMode.swift:tunable": "a98db75fea7c2574181ce09439f95f27326806041da3d9160e47346d4fce2b6b",
++    "tunable-source.CmuxNextDesign/GlassLens/GlassLensMode.swift:tunable": "130a84057b63ff7fd1eb1eae33bde15ea4ee7e9b0ea08fdf46e2515ac9fffc87",
+     "tunable-source.CmuxNextDesign/GroupGlass/SidebarGroupGlass.swift:tunable": "d5864c63c60779513962cad8cdfde25cebb8afaab7d15144caed503d25eba79b",
+     "tunable-source.CmuxNextDesign/MainPane.swift:chromeRowConcentricCardRadius": "15ee31689813bb60eacbda0f7bd44c3f8578bf20e21a62e5e630bcb178a8a6a1",
+     "tunable-source.CmuxNextDesign/MainPane.swift:floatingPanes": "c47043c26885c4cc341a49c9c3c7f38dd95c1c00dcd567066f027df01ebf006a",
+@@ -1216,7 +1346,7 @@
+     "tunable-source.CmuxNextDesign/SidebarRowTokens.swift:extraHeight": "95c4afb45ba23107ea357f9fb3139c4389ad44f52b8f0776dde10fbc829a926a",
+     "tunable-source.CmuxNextDesign/SidebarRowTokens.swift:listFillGain": "ec7205a822d3743dde4971050ec55f1a64d210be847581b1b9c5a5dadf237485",
+     "tunable-source.CmuxNextDesign/SidebarRowTokens.swift:uncachedCurrent": "6fcf56236fda2d09768e3e41f44fe12eb159e881dc919d25f5e54c9e23f5d530",
+-    "tunable-source.CmuxNextDesign/StatusIndicator/StatusIconSet.swift:tunable": "a430da805ffd1717ddae1a8e74669a9168ac754f4d0bdf599b26414aec3efa8d",
++    "tunable-source.CmuxNextDesign/StatusIndicator/StatusIconSet.swift:tunable": "e9d1ae58bbb511241fcbc24cfb52ee2db8478088569adb6c5f6fa2c36213cc5f",
+     "tunable-source.CmuxNextDesign/StatusIndicator/StatusIndicatorPlan+Still.swift:staticShapes": "a7332aff28fd47cc735e44fea1374dfb2dffb8037758b53eaf8170dad5cd86f4",
+     "tunable-source.CmuxNextDesign/StatusIndicator/StatusIndicatorTunables.swift:arcLength": "69440dc1b0e898b29e75c35fb2606b2211ef1a42a2cdc35ae767e6a5f2b9fd6f",
+     "tunable-source.CmuxNextDesign/StatusIndicator/StatusIndicatorTunables.swift:dotScale": "c38746bed1211113f02bc9206a22eeec45ab2092edea985871abd5241638d896",
+@@ -1288,14 +1418,15 @@
+     "tunable-source.CmuxNextDesign/Tunables/MetricTunables.swift:dividerThickness": "4c558093500a8612654f5290046624a25ca1ac2dbd635a4d2739b0e01564d869",
+     "tunable-source.CmuxNextDesign/Tunables/MetricTunables.swift:iconSize": "033e26994456ef2bacf9d19d297f516051bd6e45bb5b25a8cedfa148d9903619",
+     "tunable-source.CmuxNextDesign/Tunables/MetricTunables.swift:make": "0926fe698c30f9dfc32f8c75796e24f7f39c9c15b8baac4519f5912b9a92f19c",
+-    "tunable-source.CmuxNextDesign/Tunables/MetricTunables.swift:metrics": "baacb1ec9ad26abc32ccf0ad39e7ea6985c68180170d44f7a134bb1cd4dd6e1b",
++    "tunable-source.CmuxNextDesign/Tunables/MetricTunables.swift:metrics": "71befd772354df0ffd8a0b3b77e5662ce0cb71bf2d61d24c81d295865f476ae5",
+     "tunable-source.CmuxNextDesign/Tunables/MetricTunables.swift:paletteRowHeight": "1ddacc946e750f4d189f4803f5780f2dad63dfd25e3994151df086c3e0e00fc8",
+     "tunable-source.CmuxNextDesign/Tunables/MetricTunables.swift:paletteSearchHeight": "2df718c599efb32965f9aa1976bc652182216ca10b5f38230a8fc35e58c08a71",
+     "tunable-source.CmuxNextDesign/Tunables/MetricTunables.swift:paletteWidth": "5649e14b866c2b87b78014e4df6ef4f46ec3ce779e187a6a7bd7f97d123af46d",
+     "tunable-source.CmuxNextDesign/Tunables/MetricTunables.swift:panelInset": "e8fd89883ff93a5546f942623ff2c5f4576794101d02adc2c86f16c81b38608e",
+     "tunable-source.CmuxNextDesign/Tunables/MetricTunables.swift:roomDotDiameter": "09310ea173dc85c4f51b4d3b788f3262fe3abd84d667e38d57c9337d16a4b21c",
+-    "tunable-source.CmuxNextDesign/Tunables/MetricTunables.swift:roomDotSlot": "de74a13d0bf0c44656dcb133e215d226fc81baa811973a24fd065f37af68895d",
+-    "tunable-source.CmuxNextDesign/Tunables/MetricTunables.swift:scrollEdgeFade": "0eff01a5a2fd90ba4c445c0b91fb0b488a673ebbbc3287b07f759eae47b205d6",
++    "tunable-source.CmuxNextDesign/Tunables/MetricTunables.swift:roomDotSlot": "9354c9c43129b074e6da69ebef8f4ffffa3744ab0299a1a643b4dbfb0ecf1b3f",
++    "tunable-source.CmuxNextDesign/Tunables/MetricTunables.swift:scrollEdgeFade": "2a3311e38321c41ce82719b7bee1823f1828c7d2c0e9f033102e20d929b6ec8d",
++    "tunable-source.CmuxNextDesign/Tunables/MetricTunables.swift:scrollEdgeFadeBottom": "4070255b63dfb1099e766e232bb2437d1a1344ea416a8bddc7382561d2b07109",
+     "tunable-source.CmuxNextDesign/Tunables/MetricTunables.swift:sidebarHeaderHeight": "8bf4a773ff23e684cba593681b106e8900faef14e97e41392d0d188ec638f001",
+     "tunable-source.CmuxNextDesign/Tunables/MetricTunables.swift:sidebarRowHeight": "eaefed293995f3cc79f19ca94b56d1590dc41d8a7688032b400b8ed0b71675ab",
+     "tunable-source.CmuxNextDesign/Tunables/MetricTunables.swift:sidebarRowHeightWithSubtitle": "3cd663e2916ba23632161e43f352a63d4b62cbc01f573353a1e2b667a3fefe29",
+@@ -1316,7 +1447,12 @@
+     "tunable-source.CmuxNextDesign/UpdatedNotesLook.swift:shipped": "c9f92e68856b378e08ebac09e1951ae9b598afff72183cdf5bac2583f769b27b",
+     "tunable-source.CmuxNextDesign/UpdatedNotesLook.swift:tunable": "06f6e181e5dbb1b509e1cff6460160656530a2b4cd482c64b918d8dbddcd46a6",
+     "tunable-source.CmuxNextDesign/Windows/TopRowLine.swift:concentric": "991476bb809a9096a2a161b7c7018a7ae06844bad3e9d7049eef3779dc5be340",
++    "tunable-source.CmuxNextDesign/Windows/TopRowLine.swift:topRowMetrics": "2e93562b011755e75e4da14bbba457ed52cd2374410654344165292b15b3d11c",
+     "tunable-source.CmuxNextDesign/Windows/TopRowLine.swift:tunable": "03d2d2eb8f90156c3b706c820c7720aee3c379f736b68185751790573c00f2d0",
++    "tunable-source.CmuxNextDesign/Windows/TrafficLightsLine.swift:buttonSide": "dc270189066e6696b64fa8382d376dc855dd26d05fc55a9a8189330bb58685a5",
++    "tunable-source.CmuxNextDesign/Windows/TrafficLightsLine.swift:defaultLeadingX": "3a8287a941001ba6186206c7b0a3278551b504738c6f544123a2bd71539f3650",
++    "tunable-source.CmuxNextDesign/Windows/TrafficLightsLine.swift:nativeTitlebarHeight": "7aad6b93fc61739a16b63674bf335cb9dcde9932b8b55e26c1e67b2e07f73583",
++    "tunable-source.CmuxNextDesign/Windows/TrafficLightsLine.swift:placement": "a32c86e1cfc71798a52496d078df152d7fe0d4d871a800ed68aab82e2ee15749",
+     "tunable-source.CmuxNextDesignTokens/FocusIndicatorTunables.swift:flashOnMove": "3c99e5eb315c66751c05f754d36b43608b9428d6af75034919bd5831cd78ec38",
+     "tunable-source.CmuxNextDesignTokens/FocusIndicatorTunables.swift:inactiveTabStrength": "30cab098c7385397335236890a39210bca4923c614fbf0a59bd9bfad7b3cc24f",
+     "tunable-source.CmuxNextDesignTokens/FocusIndicatorTunables.swift:inactiveTabStyle": "6c0a9a7b8e56190b691fa048448c906f8f33e7b43503152c71f95deac7a8a454",
+@@ -1332,7 +1468,7 @@
+     "tunable-source.CmuxNextDesignTokens/Motion/MotionScale.generated.swift:standard": "b35c66d76348a457b06d2af89e18d40ec34314fd22805f537c789463e040c2cc",
+     "tunable-source.CmuxNextDesignTokens/Motion/MotionTunables.swift:agentCursorGlideMax": "19038f26f739e84fe72511a6a3db453b132aa86d7cca0b35afc8f30c625e5c81",
+     "tunable-source.CmuxNextDesignTokens/Motion/MotionTunables.swift:agentCursorGlideScale": "656582d901db94271c4c8b34215ac052f955a788da3dcf846b0ce24a8735ab02",
+-    "tunable-source.CmuxNextDesignTokens/Motion/MotionTunables.swift:fadeDefaults": "3efe03b86e071a569b464d4ef6568114fbed76479e4f22238e525181eedd1208",
++    "tunable-source.CmuxNextDesignTokens/Motion/MotionTunables.swift:fadeDefaults": "f29926e7f4104f899e721971e0469da61a8a90eb5fd7c57bc6eaa00c743e9e77",
+     "tunable-source.CmuxNextDesignTokens/Motion/MotionTunables.swift:fades": "d4337528ce4ce975cba2833fc8e1b14d3da8cd102244ecef4f879f1c0f5a74e1",
+     "tunable-source.CmuxNextDesignTokens/Motion/MotionTunables.swift:fallbackSpring": "0d5ff6025d047f98a941537d1247547b1578216f0e0161d17f27bb170175c2cb",
+     "tunable-source.CmuxNextDesignTokens/Motion/MotionTunables.swift:hoverCardAim": "93ff760461d570a461231b4b7fb837627f544d251dba0bc70a93dd7cd0d72f88",
+@@ -1356,12 +1492,12 @@
+     "tunable-source.CmuxNextDesignTokens/Motion/MotionTunables.swift:tooltipDelay": "b96b49e9e609dc872d448b21fbd14e2f76c19cbb846400da3968d5551ab5a36d",
+     "tunable-source.CmuxNextDesignTokens/Motion/MotionTunables.swift:tooltipWarm": "8fe72b7afa0517d999bf3f3fd4b9146a3fe90130859c3c8e28635aab6ad29b54",
+     "tunable-source.CmuxNextDesignTokens/PaneChrome.swift:resolve": "da7b7649542ebe46766ce678e7a87ca345c7126a6893b8ceda8b0f41ae6bfc17",
+-    "tunable-source.CmuxNextDesignTokens/Tunables/Tunable.swift:choice": "2e0054170f6396daa7d3560ebfc9367f090bc0f2b5d3e0f747b11b23bbc08ec8",
++    "tunable-source.CmuxNextDesignTokens/Tunables/Tunable.swift:choice": "a3495a32fb78fa4e986913f4deb108cd772e2f49005d1b6f01b9609b6a57ea64",
+     "tunable-source.CmuxNextDesignTokens/Tunables/Tunable.swift:color": "f41823353e34677f26a3675a91c4c70d5733219f047512f6f30c61466c30f533",
+     "tunable-source.CmuxNextDesignTokens/Tunables/Tunable.swift:number": "4a8205a03a0302e2ae863bab7172e83a98608f47fdb26d5cf83d90e969457f16",
+     "tunable-source.CmuxNextDesignTokens/Tunables/Tunable.swift:number#": "4c52973041deab800e194a835ee571889db65fc7a1f85c2de776159ab2914720",
+     "tunable-source.CmuxNextDesignTokens/Tunables/Tunable.swift:spring": "fed75cf0cf66e1c5489906c642a4781f57e8d6b61ce1b4c4bc26d9540569a809",
+-    "tunable-source.CmuxNextDesignTokens/Tunables/Tunable.swift:toggle": "ba3da4934344bb1ef0a30f6a83070f99ebb3936106d6021a5f10df17fefd973f",
++    "tunable-source.CmuxNextDesignTokens/Tunables/Tunable.swift:toggle": "4ea3a99165c1e3e84b41ae5fc69726a944501fae2b6cc7553aea0fa97536eaa2",
+     "tunable-source.CmuxNextFloating/ChiefPet/ChiefPetClip.swift:section": "265d878a9ab7b129ce89153f2cdc501ab52e569112a2c03924721d1cd3f117f7",
+     "tunable-source.CmuxNextFloating/ChiefPet/ChiefPetClip.swift:uploadAffordance": "d75fd1dd6471f4737981b1de9ad986ca98aebe396ca2fbe607478ccfcfd60550",
+     "tunable-source.CmuxNextFloating/QuickComposer/QuickComposerTunables.swift:floatingChat": "ce2f26aa93743f6b4ea0288737fb2c74e4f8c20b8bac444797894856355f2179",
+@@ -1371,16 +1507,35 @@
+     "tunable-source.CmuxNextHistory/TitlebarHistoryMenu.swift:menuStyle": "804f7a717861c41c06479930dd799dcd6cc4dc2cdb556d489594af15bd00dae0",
+     "tunable-source.CmuxNextHomeModel/HomeTunables+HeaderPanels.swift:headerPanelToggles": "22f35a85d44b15695cd2ca3f0c3179911712c0cb1253fda5ab635452931eade3",
+     "tunable-source.CmuxNextHomeModel/HomeTunables.swift:chatHeader": "25b2fc7256ff4497bdfc6cded2e307faacccd8d12959bfb364c3e16ebd0029bb",
++    "tunable-source.CmuxNextHomeModel/HomeTunables.swift:clipboardReadAtDefaultAccess": "ad530ea4a21aac60ecd879ad14478945eef2323f7a25066a5e0f3a683457987b",
+     "tunable-source.CmuxNextHomeModel/HomeTunables.swift:devDefault": "874cd4fde31c938606e382d77b93fa76593c37f7740cc7c50e08ff1568d3729e",
+     "tunable-source.CmuxNextHomeModel/HomeTunables.swift:flightRecorder": "265f286540d58639701b9b4e83b554756f6e1661953d4e33e49e6a9957d62d1b",
+     "tunable-source.CmuxNextHomeModel/HomeTunables.swift:flightRecorderCaptures": "7e4908d4081c88f58ecaf56f2e5b826395d3dcf141ddb08f869c4aed68274595",
+     "tunable-source.CmuxNextHomeModel/HomeTunables.swift:loneConversationRail": "c66555044720f7b5500db7a0fe41953b7a4f8b7c2869d29e2b8235e7eeb756fa",
++    "tunable-source.CmuxNextHomeModel/HomeTunables.swift:plusMenuClipboardRows": "f2b22f4ef34a526cb77d36a544ceba81994ce798713305f09e436dc3b46dc49d",
+     "tunable-source.CmuxNextHomeModel/HomeTunables.swift:section": "2c76e7520ec4c8ca07dc4bc7b7822bd14ddc5b5f651d7b699ca4f91bca112b9f",
+     "tunable-source.CmuxNextHomeModel/HomeTunables.swift:topFadeStyle": "0206e41dc8ff3e11afc0116a400396f7ac484fd89adbf11f900183255e443f58",
+     "tunable-source.CmuxNextHomeModel/HomeTunables.swift:turnProgress": "5883cadea97b1934240364426168ee4613f375326d011e082ee6d8bbe3e8184f",
+     "tunable-source.CmuxNextHomeModel/HomeTunables.swift:voiceInput": "df70aae9ebe2e4a9a0fd36b55e5b989b4926a773f34c5187fc93892af5676af0",
++    "tunable-source.CmuxNextHostPressure/HostPressureTunables.swift:banner": "779055190dfbd53d0926e090bd1848086b86464e7b7d1da17f7c9537f33cd7aa",
++    "tunable-source.CmuxNextHostPressure/HostPressureTunables.swift:enabled": "fe70bf196de7b61d5e722e981a89cdbb972c2af3016333b94b7769f0dc9ea734",
++    "tunable-source.CmuxNextHostPressure/HostPressureTunables.swift:force": "f86e62d0ac5ac44e11f1410383a01292e9c49c7537a26e84d4b6a753f3d7a0d7",
++    "tunable-source.CmuxNextHostPressure/HostPressureTunables.swift:section": "4fe185c849a439dcd10ba53a597397443d793ad05f4fe7fb97208ed1f40a0250",
++    "tunable-source.CmuxNextHostPressure/HostPressureTunables.swift:style": "83db55f94ad533e3d4dd513da9ebf22ddc85e6047081373b8b97aa5dc0d3df66",
+     "tunable-source.CmuxNextIcons/CGFloat+IconMetrics.swift:iconFloor": "e989e14fd2ba7954d2577d53997480351fab4b566e00a8117d421433c52b0ba4",
+     "tunable-source.CmuxNextIcons/CGFloat+IconMetrics.swift:iconRowSize": "6571973492ea242342eefaee64cb7b6922064156b4672103bab852ac20d673b3",
++    "tunable-source.CmuxNextIcons/IconCatalog.swift:bundled": "cec74c564f7c4acf965268d159dc8184a1a0baf83bfe4e91bd174d2230de8b1e",
++    "tunable-source.CmuxNextIcons/IconPack.swift:bundled": "1bd77ca6952dc6448f2b5a9c8dae294f4d95ad5e0a4b818f5ae47194bce969a5",
++    "tunable-source.CmuxNextIcons/IconPack.swift:load": "80778f2c42bdd53f986e492b1b374b1015b45635f1af41213475fa7f691b7ab1",
++    "tunable-source.CmuxNextIcons/IconPack.swift:overlaid": "eb0a6e23cf8ec81848184856d28fa923cbf4aa61be04260ac5f1b87167ef92ed",
++    "tunable-source.CmuxNextIcons/IconPack.swift:overlay": "38d359241c6b7d9342e05974c4e08c29d90b126c3643beef7bc18dbcb20a0a99",
++    "tunable-source.CmuxNextIcons/IconPack.swift:overlayName": "a2c2a171fcb046f239f87b42649c5a4e5a73d20ec41d8879d205428df2a7944b",
++    "tunable-source.CmuxNextIcons/IconPack.swift:shipped": "5cd5954d72a56aba5af4e8d4cf240bb64e924a047aa6160938c8bac43b894de7",
++    "tunable-source.CmuxNextIcons/IconResources.swift:json": "cab4e930469811f53f78d5215a9f9b8485bea040b3a2c8dfe993f2fe47096506",
++    "tunable-source.CmuxNextIcons/IconResources.swift:logger": "aca401af8d3390e610016d0c7f34db1c2ffb75a5da9054161d34cfc6264825f2",
++    "tunable-source.CmuxNextIcons/NSImage+Icon.swift:icon": "8f4034039bc100d1b5615cd5daa4f831b23449b7ef26714346dc27d3d9ce1cd6",
++    "tunable-source.CmuxNextIcons/NSImage+Icon.swift:icon#": "507ffb2710cfc57c198614a6c3325623e7666a992c815e234da88dfb14276aca",
++    "tunable-source.CmuxNextIcons/NSImage+Icon.swift:icon##": "eaafc02c3a02dddf31a7c442986a30577ab00dd1db28436556c6ae6e900a37ce",
+     "tunable-source.CmuxNextLayout/Model/MainPaneLayout.swift:debugOverride": "3ba3f4f77bacfe207ad2c621ccd22bea3d7f34b4d9b69c18434fbf5df0dbea16",
+     "tunable-source.CmuxNextLayout/Views/DropOverlay/DropOverlayTunables.swift:animated": "a15b3608fc8c294af45d0586c7a5c11e216946637f6c78fc8ae7455c13a9a264",
+     "tunable-source.CmuxNextLayout/Views/DropOverlay/DropOverlayTunables.swift:appearInset": "77c503600e39b2691fae6ff3d4e5675f38af6e7fe5534366668d493fbde748e0",
+@@ -1439,7 +1594,7 @@
+     "tunable-source.CmuxNextMacScreen/MacScreenSharingLook.swift:devicesLook": "0650b3037b848710cc5ca3a3f58eb755e281a78e2c30409d4c1cd482c2787d71",
+     "tunable-source.CmuxNextMacScreen/MacScreenSharingLook.swift:qualityReadout": "26bee070f41810d2d5ddf7b2c4447f5a25960c08cdd34bc7c0a89e3264019100",
+     "tunable-source.CmuxNextMacScreen/MacScreenSharingLook.swift:section": "32f675906596de8e85df484238eaf38a41b0845659006c4bc5337f5c5c6e0e4f",
+-    "tunable-source.CmuxNextMacScreen/MacScreenSharingLook.swift:sharingLook": "699475a2bff455917e9f8945b3d37100a3c3f8e60998c96f290adc3f038ed547",
++    "tunable-source.CmuxNextMacScreen/MacScreenSharingLook.swift:sharingLook": "2ba05d7040d9a84cf58cac05a4890ee7ff58186ce635e5f35f22c74960cb7186",
+     "tunable-source.CmuxNextMacScreen/MacScreenSharingLook.swift:toolbarBar": "054322ffed78c74ecbe6469c03150038ee5f865611e8f4082ae1fcc5b520691b",
+     "tunable-source.CmuxNextMacScreen/MacScreenSharingLook.swift:viewerLook": "ddcd9db39222c693f26a22833ce17bb7f5af012e7df9195cb443c297505a9b2c",
+     "tunable-source.CmuxNextPages/PageTunables.swift:appStore": "9ab41dcabeb7e46e5292a89ca712b54677e94fb0148c92398651d3a4664c90b9",
+@@ -1461,6 +1616,7 @@
+     "tunable-source.CmuxNextSettings/SettingsPresentation.swift:tunableSection": "85f4ed5b11fad622e27afd39d2519d9a932e3ade2818082feb604bb17b6694ea",
+     "tunable-source.CmuxNextSidebar/Logic/NotificationBadgeLook.swift:tunable": "ee04e34264131068c1f3ce37cf3f8c6a6fab0d0ad73faced9490c966454645e6",
+     "tunable-source.CmuxNextSidebar/Logic/NotificationBadgeLook.swift:tunable#": "c2779eaf497c16783149a3e815118c567dc5d8ac445e6662973b0db968d0c949",
++    "tunable-source.CmuxNextSidebar/Logic/SidebarColumns.swift:iconBox": "42dcb7a95f14ef1a777da642bb89388e77228fbdeb013e58ede23f4073ea78a5",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarFaviconStyle.swift:tunable": "3b852e41315abb541f42d8bc1fe65318334824f353afa8e021d12da3c096b0e7",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarGroupHeaderLook.swift:tunable": "4874fc6c1a9212d25560823ee24e1592e85f2167d927b58367e12d110a053681",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarGroupHeaderLook.swift:tunable#": "b3eb3e9d02a76246d7c8188df5b0685e077bb12aa49069c60817ae39ce76cbac",
+@@ -1468,7 +1624,9 @@
+     "tunable-source.CmuxNextSidebar/Logic/SidebarInsertMotion.swift:nudgeDistance": "c34522dca9c9267cd0852619b413183478271f832dd79415808381b8eed46fd6",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarInsertMotion.swift:tunable": "b663c61d9f76d2d0f4eceed12e6c6a8b227e78caccd08d87dcb0d61b56587e5b",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarLeadingColumnLook.swift:tunable": "e6ad30c2cde05f822686bfc802b5a56540286d1786b68afeb5029cb58d2fa116",
+-    "tunable-source.CmuxNextSidebar/Logic/SidebarPinnedRowLeading.swift:tunable": "9d66d73fb62a30d1b2ab75c8d5463fae88b7a11abeb7b48d926fa0e823d144d9",
++    "tunable-source.CmuxNextSidebar/Logic/SidebarOpticalGlyph.swift:fittedExtent": "1deba06248bc80638adebb3b27ae571b1dc2f5ddb8c701fa86b178b57d461cff",
++    "tunable-source.CmuxNextSidebar/Logic/SidebarOpticalGlyph.swift:maxAspect": "f2f033785c1846d2b09252c833618ab33c042b220e5da71807291674a1b5028e",
++    "tunable-source.CmuxNextSidebar/Logic/SidebarPinnedRowLeading.swift:tunable": "057861c6df1497a15d4763eceb6af09f7129c3d947916f2e06159b63315ae3b2",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarRowBadgeStyle.swift:tunable": "dbb80b81bdbebea1fe3c563b3cda4bb530f5df99f0d56daf3ce738e1b830602b",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarRowBadgeStyle.swift:tunable#": "4ec1979366fb37c61daa74054bee38f7f3f887ddf8ccc67dbcc9133cf375869f",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarRowTuning.swift:bandGap": "e91da509adc282d3564a8f3d053644d3f21712442a174d7dc34ba01f8c876b64",
+@@ -1481,7 +1639,7 @@
+     "tunable-source.CmuxNextSidebar/Logic/SidebarRowTuning.swift:headingSize": "a451124073520bf54bfd48a508d3fbde5b31749de156431df756ccaf1d8aa865",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarRowTuning.swift:headingWeight": "6f6b17f5390290ab7d2aeb94bfcc002ce3a693c5ee363d0a1309376a8984b33c",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarRowTuning.swift:iconColumn": "3fb81630f3297843f09358175035ddfa3a2ad64ffd25b63406bd28a8edf43d76",
+-    "tunable-source.CmuxNextSidebar/Logic/SidebarRowTuning.swift:outerInset": "b3e9af23bcb12037a809160de332514f54aec5efebf5dc19830787ec135dbb7d",
++    "tunable-source.CmuxNextSidebar/Logic/SidebarRowTuning.swift:outerInset": "740d7edc99434da50fae69c35919f6c90c434be4251183458067c06ff96367ae",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarRowTuning.swift:rowGap": "e171e4951aa500c44d14419ae98dc94484891488f212422881934a49db2e2bf9",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarRowTuning.swift:rowHeight": "910895d0886d01de6ec046747de97fe4d3cbf8df2074cf02e31ad62c0c26ff07",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarRowTuning.swift:section": "495e6cdcd02cf679fb15731ca96af3da09ce867990f3a9a2e381314ca6efb550",
+@@ -1501,7 +1659,6 @@
+     "tunable-source.CmuxNextSidebar/Logic/SidebarTunables.swift:groupRowLimit": "4a0b6100e933441cb02bac715902b78763e3e21a2c06e8c193ec0f287ae4ba4b",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarTunables.swift:laneFixture": "a5630e9517dc72730af865b9cd1ca633859b29ec1aaf3455f19e6f77dd35f160",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarTunables.swift:laneStatus": "d71e6bfcdc1b46514e717e77e80e90dc63def06710b872dc1d0baf85eb464733",
+-    "tunable-source.CmuxNextSidebar/Logic/SidebarTunables.swift:lineageNesting": "5c13d502a1e4479873eaf73635b82a2e119850427c8983e8307dce69f0f08ece",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarTunables.swift:multiView": "df52586f232a6984afc7f960f598ef4d025004d741d63ac31d4db06c7ffe1836",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarTunables.swift:nowLine": "f8b39e6d949b7e216bedb883073811c47ef8c81cd7f27921ec24c02ad9826b9f",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarTunables.swift:presenceDots": "2ae3c7e1c9f34f7e7ac9fe77df664ed7b470c993e80449a91aa2947eb35eea0f",
+@@ -1513,9 +1670,11 @@
+     "tunable-source.CmuxNextSidebar/Logic/SidebarTunables.swift:rowTitlePreview": "ce04598353b8a5a30d2bf3ffa2c504799d9995f1f30e273603a0484d95353992",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarTunables.swift:rowTitleSingleChat": "58f5f403e5741795efc7984ee33965913f618b2f0007391aab1eb625c3db3b89",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarTunables.swift:sectionTopFraction": "06b07ef18881be1a065e364b674415efc3113195ef911844ee606259b98ccdb3",
++    "tunable-source.CmuxNextSidebar/Logic/SidebarTunables.swift:subagentFixture": "f6f1798584bccde10358d85647a3cee36c7cd3e1ef627530c5fa62f3bef8d3c8",
++    "tunable-source.CmuxNextSidebar/Logic/SidebarTunables.swift:subagentLook": "f4b78273ab41da46d3d2cee31c4bfb9212b6545b48944adb5eea05c06b9fad3d",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarTunables.swift:surfaceDimDark": "aa148517f8aaafea9887af5a439e69f9748608f57290fbc77dc374b857e168b6",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarTunables.swift:surfaceDimLight": "d7d28264a62940dd9c6d688794d28b110eda1fc270a0d6dceb3188cf33a7cfcc",
+-    "tunable-source.CmuxNextSidebar/Logic/SidebarTunables.swift:taskProgress": "75b9f4e912a2052a639e12835da53166ea25367617bb68d7ddba1a1d4cdb5500",
++    "tunable-source.CmuxNextSidebar/Logic/SidebarTunables.swift:taskProgress": "0e04c32bc301589f052174e0e7061f400aeb07ee165110eb8e8097264c0da2e6",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarTunables.swift:workspaceOntoEnd": "157dae2c65e0821567473bfc8dda04aa2d0ada689b6414332e0bd141b77cdf11",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarTunables.swift:workspaceOntoStart": "9b3b0e6ceabc8f6d440335c1ed84db158246c19f9e406b3c73362c120466e828",
+     "tunable-source.CmuxNextSidebar/Logic/SidebarTunables.swift:workspaceTitleMotion": "61287453077698bb043fedc135248bf2388b46d44985d853a32bf2d1f3fd9ee5",
+@@ -1525,6 +1684,7 @@
+     "tunable-source.CmuxNextSidebar/Sections/SidebarSectionTunables.swift:look": "93b6cb4681e33271e9ebb99767dcb3f167b035edcba7beadf290f8ca6fca93b8",
+     "tunable-source.CmuxNextSidebar/Views/Sections/SidebarChatsDesign.swift:age": "54238619f7e4f728b25c63d299545abb3f7a5717045a9145232f575db2a81119",
+     "tunable-source.CmuxNextSidebar/Views/Sections/SidebarChatsDesign.swift:tunable": "95769d717c2733f76ade36d9a449a47fbc3201c11193203cb898461e6a8ddc0d",
++    "tunable-source.CmuxNextSidebar/Views/Sections/SidebarGlyphInk.swift:shared": "71690734680a15f4a76e72160e5dc520f2d60a4c7958bd0e1f45409acdf89f52",
+     "tunable-source.CmuxNextSidebar/Views/SidebarDensityTokens.swift:density": "19ba24436252a988b7b26e13cb5c9cfb81337892e93c6cd9f7cd1b3844d9c396",
+     "tunable-source.CmuxNextSidebar/Views/SidebarDensityTokens.swift:derivedContentInset": "ecdc3676db08f93350f407e198e216b5a5b115b53f01bc08df6739373c219aba",
+     "tunable-source.CmuxNextSidebar/Views/SidebarDensityTokens.swift:isComfortable": "130f89593c45f818baf20882ff49459184d8f391d1ce4b25a1994a411c121229",
+@@ -1533,10 +1693,13 @@
+     "tunable-source.CmuxNextSidebar/Views/SidebarStyle.swift:derivedHeaderFont": "dcec8f8ccb35277eebd8ce99d4fc77f3ab9d9538f7670bfd7329b4d0c0c2d393",
+     "tunable-source.CmuxNextSidebar/Views/SidebarStyle.swift:derivedTitleFont": "8ee401c98565d2aac332cdd7f2842a60b02fd6bd5ae9bbfc70dfd0f518de53b0",
+     "tunable-source.CmuxNextSidebar/Views/SidebarStyle.swift:headerFont": "889d6bea6446ae2f599712f7a0b6a8a16d4d73b2e3d127ac89e3df8907a908ca",
++    "tunable-source.CmuxNextSidebar/Views/SidebarStyle.swift:homeGlyphInkWidth": "5b531aae2258c0c0ed5fbd3a2f4ca8a486956d26595994d5a410c258ab695413",
++    "tunable-source.CmuxNextSidebar/Views/SidebarStyle.swift:homeGlyphWidthRatio": "72c3818225417185d831a6f7e7b220b2d6927262cc565dc5726dbd2927b88f94",
+     "tunable-source.CmuxNextSidebar/Views/SidebarStyle.swift:iconBox": "4388dc8c71a8c215291c840dac2a85ed0dc512afbf8f48190f21575157e296f7",
+-    "tunable-source.CmuxNextSidebar/Views/SidebarStyle.swift:iconColumnBox": "5aba2758e179aa940a49e8403504a18900bbbcf4c6378525afdf5e997bc0d7c7",
++    "tunable-source.CmuxNextSidebar/Views/SidebarStyle.swift:iconColumnBox": "5e2b38a79a96c929b3f41c782adf51b08cd9b6754a90a2e7ded7b01b2afbd437",
+     "tunable-source.CmuxNextSidebar/Views/SidebarStyle.swift:kindGlyphSize": "f5a18900cbc1f1fe2ec3c8be7b80be49b724b4d0aa0f6aa51db85681c4c5c4b3",
+     "tunable-source.CmuxNextSidebar/Views/SidebarStyle.swift:leadingGlyphSide": "12d875c786f1fc172df21c8aa184431fe8faac2a3ea5e20baf485a1161440a15",
++    "tunable-source.CmuxNextSidebar/Views/SidebarStyle.swift:rowGlyphOpticalSide": "20158106782d6fa2ce683f418170e22497cfa26eb67944ea2b9ba5fa147f9845",
+     "tunable-source.CmuxNextSidebar/Views/SidebarStyle.swift:rowTitleBase": "e3cfaf51f46d2c73dafc8b2375bd303aa5ef85b6cdcf760cc922b72d71bf0f86",
+     "tunable-source.CmuxNextSidebar/Views/SidebarStyle.swift:sized": "8a203de6994f26360ddd0dc10cafc948a234974ad7e010061d6c141d117d1e73",
+     "tunable-source.CmuxNextSidebar/Views/SidebarStyle.swift:titleFont": "ef611ab10fe0c56a747e22dc64c137923768b7c36708b2829da4f9348bf5522f",
+@@ -1573,7 +1736,7 @@
+     "tunable-source.CmuxNextTabs/TabTunables.swift:groupChipPadding": "747d704b680f7ce340ef9cc7ab9cc2315a80bf7af466ad1e6a6cc3ee1562d8a8",
+     "tunable-source.CmuxNextTabs/TabTunables.swift:groupJoinHysteresis": "10546aa4aab8ce74bcbaddb147bf87478c4bb0c28c18e4e33b1ba9346a10ae30",
+     "tunable-source.CmuxNextTabs/TabTunables.swift:groupUnderlineHeight": "7649188450fd1af32f50dc1f45098cd5e000db15edafc5e38679c235e0d64d70",
+-    "tunable-source.CmuxNextTabs/TabTunables.swift:hoverCardEntrance": "6cbdc353ce5003dd1e273c5963cd9ec90970f1b8c9a48c249da43cb04588087d",
++    "tunable-source.CmuxNextTabs/TabTunables.swift:hoverCardEntrance": "c35e704a997cb0ebdf0bffc5dd93b387548a315b7f464eb01be26810a649a33c",
+     "tunable-source.CmuxNextTabs/TabTunables.swift:hoverCardRetarget": "df4c88f70ee9060ee4420eb32c4a741d14bec0387608b2469d43e79dce64d56e",
+     "tunable-source.CmuxNextTabs/TabTunables.swift:hoverPreviews": "1beb5f3de62d1304440cd0fc3144fd70305bb561ffb439d73a72bfa6008bfbba",
+     "tunable-source.CmuxNextTabs/TabTunables.swift:iconTitleSpacing": "2bef88b7a7d631978d74700e2341df065fca4dc4ad826d6820ac67074213ad34",
+@@ -1622,12 +1785,13 @@
+     "tunable.agent.updatePeers": true,
+     "tunable.agentActivity.layout": "split",
+     "tunable.agentChat.headerControls": "standard",
++    "tunable.agentChat.headerIcons.contextual": "standard",
+     "tunable.agentChat.headerMotion": "still",
+     "tunable.agentChat.terminalButtonAdds": true,
++    "tunable.agentChat.topRight.consolidate": "row",
+     "tunable.agentPane.debug.needsYou": "pinned",
+     "tunable.agentPane.debug.needsYouPill": false,
+     "tunable.agentPane.debug.sidebarPreviewVariant": "card",
+-    "tunable.agentPane.debug.subagentTray": true,
+     "tunable.agentPane.debug.thoughtFoldThreshold": "every",
+     "tunable.agentPane.debug.thoughtHeader": "duration",
+     "tunable.agentPane.debug.topStripStyle": "default",
+@@ -1656,6 +1820,7 @@
+     "tunable.chrome.topRowLine": "concentric",
+     "tunable.cloud.machines.layout": "rows",
+     "tunable.cloud.updateMachines": true,
++    "tunable.cloud.wakeOnIntent": true,
+     "tunable.cmuxTUI.restartUnresponsive": true,
+     "tunable.coderouter.surface": "native",
+     "tunable.diagnostics.focusLog": false,
+@@ -1688,6 +1853,7 @@
+     "tunable.focus.inactiveTabStyle": "fade",
+     "tunable.focus.indicator": "both",
+     "tunable.focus.ringAlpha": 0.2,
++    "tunable.glass.hoverSurface": "hairline",
+     "tunable.glass.lens": "plain",
+     "tunable.glass.opaqueOverlayLift": 0.14,
+     "tunable.glass.overlayTintStrength": 1.25,
+@@ -1695,8 +1861,10 @@
+     "tunable.history.menuStyle": "inline",
+     "tunable.home.chatHeader": true,
+     "tunable.home.chiefViewGallery": true,
++    "tunable.home.clipboardHistory.readAtDefaultAccess": false,
+     "tunable.home.headerPanelToggles": false,
+     "tunable.home.loneConversationRail": false,
++    "tunable.home.plusMenu.clipboardRows": 6.0,
+     "tunable.home.topFadeStyle": "backgroundTint",
+     "tunable.home.turnProgress": "narrated",
+     "tunable.home.voiceInput": true,
+@@ -1714,7 +1882,7 @@
+     "tunable.links.githubNativeViewer": true,
+     "tunable.macScreen.devicesLook": "quiet",
+     "tunable.macScreen.qualityReadout": "inline",
+-    "tunable.macScreen.sharingLook": "list",
++    "tunable.macScreen.sharingLook": "simple",
+     "tunable.macScreen.toolbarBar": "row",
+     "tunable.macScreen.viewerLook": "a",
+     "tunable.machines.section.fixture": false,
+@@ -1778,13 +1946,12 @@
+     "tunable.sidebar.laneFixture": false,
+     "tunable.sidebar.laneStatus": false,
+     "tunable.sidebar.leadingColumn": "inset",
+-    "tunable.sidebar.lineageNesting": true,
+     "tunable.sidebar.multiView": false,
+     "tunable.sidebar.noColorGroup": "glass",
+     "tunable.sidebar.notificationBadge": "classic",
+     "tunable.sidebar.notificationIcon": "bell",
+     "tunable.sidebar.nowLine": false,
+-    "tunable.sidebar.pinnedRowLeading": "ownIcon",
++    "tunable.sidebar.pinnedRowLeading": "pinThenIcon",
+     "tunable.sidebar.presenceDots": false,
+     "tunable.sidebar.remoteMachines.resources": "row",
+     "tunable.sidebar.rowBadge": "corner",
+@@ -1798,6 +1965,8 @@
+     "tunable.sidebar.sections.localPrototype": false,
+     "tunable.sidebar.sections.look": "quiet",
+     "tunable.sidebar.spaceSwitcher": "ring",
++    "tunable.sidebar.subagents.fixture": false,
++    "tunable.sidebar.subagents.look": "both",
+     "tunable.sidebar.surfaceDim.dark": 0.0,
+     "tunable.sidebar.surfaceDim.light": 0.0,
+     "tunable.sidebar.taskProgress": true,
+diff --git a/schemas/settings/settings-schema.json b/schemas/settings/settings-schema.json
+index 0b0d87200fa..01788b9422a 100644
+--- a/schemas/settings/settings-schema.json
++++ b/schemas/settings/settings-schema.json
+@@ -531,6 +531,7 @@
+               "sidebar.detailedStatusIcons",
+               "sidebar.showTimestamps",
+               "sidebar.settleFinished",
++              "sidebar.showAgentSessions",
+               "sidebar.showColors",
+               "sidebar.showLocalMachine",
+               "sidebar.groupHeader.memberCount",
+@@ -82162,6 +82163,146 @@
+       },
+       "validation" : "portable"
+     },
++    {
++      "accepts" : [
++        true,
++        false
++      ],
++      "agent_refusal" : null,
++      "agent_settable" : true,
++      "consumers" : [
++        "cmux-next"
++      ],
++      "default" : false,
++      "default_label" : null,
++      "group" : {
++        "key" : "settings.group.sidebar",
++        "text" : "Sidebar"
++      },
++      "help" : {
++        "key" : "settings.sidebar.showAgentSessions.help",
++        "text" : "Sessions an agent starts list under the session that started them. Off, they stay in the parent chat's list; one that needs you still shows."
++      },
++      "kept_on_reset_all" : false,
++      "key" : "sidebar.showAgentSessions",
++      "keywords" : [
++        "sidebar",
++        "agent",
++        "agents",
++        "subagent",
++        "helper",
++        "started",
++        "nested",
++        "tree",
++        "hidden",
++        "hide",
++        "sessions"
++      ],
++      "kind" : "toggle",
++      "page_hidden" : false,
++      "path" : [
++        "sidebar",
++        "showAgentSessions"
++      ],
++      "placeholder" : null,
++      "refuses" : [
++        "true",
++        1,
++        null
++      ],
++      "section" : "appearance",
++      "summary" : null,
++      "surfaces" : {
++        "cli" : {
++          "aliases" : [
++            "settings.unset"
++          ],
++          "app_aliases" : [
++
++          ],
++          "app_operations" : [
++
++          ],
++          "editor" : null,
++          "offered" : true,
++          "operations" : [
++            "settings.list",
++            "settings.get",
++            "settings.set",
++            "settings.reset"
++          ],
++          "reason" : null,
++          "row" : null
++        },
++        "mcp" : {
++          "aliases" : [
++            "settings.unset"
++          ],
++          "app_aliases" : [
++
++          ],
++          "app_operations" : [
++
++          ],
++          "editor" : null,
++          "offered" : true,
++          "operations" : [
++            "settings.list",
++            "settings.get",
++            "settings.set",
++            "settings.reset"
++          ],
++          "reason" : null,
++          "row" : null
++        },
++        "palette" : {
++          "aliases" : [
++
++          ],
++          "app_aliases" : [
++
++          ],
++          "app_operations" : [
++
++          ],
++          "editor" : "toggle",
++          "offered" : true,
++          "operations" : [
++            "palette.toggleSetting"
++          ],
++          "reason" : null,
++          "row" : "setting:sidebar.showAgentSessions"
++        },
++        "socket" : {
++          "aliases" : [
++
++          ],
++          "app_aliases" : [
++            "settings.unset"
++          ],
++          "app_operations" : [
++            "settings.get",
++            "settings.set",
++            "settings.reset"
++          ],
++          "editor" : null,
++          "offered" : true,
++          "operations" : [
++            "settings.list",
++            "settings.get",
++            "settings.set",
++            "settings.reset"
++          ],
++          "reason" : null,
++          "row" : null
++        }
++      },
++      "title" : {
++        "key" : "settings.sidebar.showAgentSessions",
++        "text" : "Show Sessions Started by Agents"
++      },
++      "validation" : "portable"
++    },
+     {
+       "accepts" : [
+         true,
+@@ -125698,7 +125839,7 @@
+       "consumers" : [
+         "cmux-next"
+       ],
+-      "default" : false,
++      "default" : true,
+       "default_label" : null,
+       "group" : {
+         "key" : "settings.group.experiments",
+diff --git a/web/data/next-docs/settings-reference.generated.json b/web/data/next-docs/settings-reference.generated.json
+index 9f6d1d1c4b6..f25e46e17cd 100644
+--- a/web/data/next-docs/settings-reference.generated.json
++++ b/web/data/next-docs/settings-reference.generated.json
+@@ -1,6 +1,6 @@
+ {
+   "version": 1,
+-  "count": 739,
++  "count": 791,
+   "sections": [
+     {
+       "id": "general",
+@@ -11,7 +11,7 @@
+           "title": "Attachment View",
+           "help": "How pictures and files show in the composer and in sent messages.",
+           "kind": "choice",
+-          "default": "inline",
++          "default": "strip",
+           "group": "Agent Chat",
+           "values": [
+             "inline",
+@@ -43,6 +43,14 @@
+             "planUsage"
+           ]
+         },
++        {
++          "key": "agentPane.composerVimKeys",
++          "title": "Vim Keys in the Composer",
++          "help": "Esc for normal mode, i to type again; h j k l, w b e, 0 $, x, dd and u edit. Return still sends.",
++          "kind": "toggle",
++          "default": false,
++          "group": "Agent Chat"
++        },
+         {
+           "key": "agentPane.dictationShortcut",
+           "title": "Dictation App Shortcut",
+@@ -283,6 +291,19 @@
+             "unit": "count"
+           }
+         },
++        {
++          "key": "agents.autoRetry.capacityFallbackAfter",
++          "title": "Capacity Failures Before Switching to Sonnet",
++          "help": "After this many consecutive capacity errors, Opus or Fable switches to Sonnet until a turn succeeds. Set to 0 to stay on the original model.",
++          "kind": "number",
++          "default": 1,
++          "group": "Retry After Errors",
++          "range": {
++            "min": 0,
++            "max": 12,
++            "unit": "count"
++          }
++        },
+         {
+           "key": "agents.autoRetry.enabled",
+           "title": "Retry Automatically",
+@@ -309,7 +330,7 @@
+           "title": "Compact Before the Cache Expires",
+           "help": "Compacts an idle Claude chat while its cache is warm, so the next message costs less.",
+           "kind": "toggle",
+-          "default": false,
++          "default": true,
+           "group": "Prompt Cache"
+         },
+         {
+@@ -317,7 +338,7 @@
+           "title": "Only Above Context Used (%)",
+           "help": "Chats using less of their context window than this are left as they are.",
+           "kind": "number",
+-          "default": 50,
++          "default": 30,
+           "group": "Prompt Cache",
+           "range": {
+             "min": 10,
+@@ -325,6 +346,19 @@
+             "unit": "count"
+           }
+         },
++        {
++          "key": "agents.cacheCompact.minContextTokens",
++          "title": "Or Above Context Used (Tokens)",
++          "help": "Chats with at least this much context are compacted, whatever their window.",
++          "kind": "number",
++          "default": 60000,
++          "group": "Prompt Cache",
++          "range": {
++            "min": 10000,
++            "max": 500000,
++            "unit": "count"
++          }
++        },
+         {
+           "key": "agents.chats.archiveInactive",
+           "title": "Archive Inactive Chats",
+@@ -471,6 +505,35 @@
+           "default": true,
+           "group": "cmux Tools"
+         },
++        {
++          "key": "agents.coldWake.compact",
++          "title": "Compact Cold Chats Before Waking",
++          "help": "A large chat whose cache expired is compacted before batched messages arrive.",
++          "kind": "toggle",
++          "default": true,
++          "group": "Prompt Cache"
++        },
++        {
++          "key": "agents.coldWake.compactAboveTokens",
++          "title": "Compact Cold Chats Above (Tokens)",
++          "help": "Cold chats with less context than this are woken without compacting.",
++          "kind": "number",
++          "default": 100000,
++          "group": "Prompt Cache",
++          "range": {
++            "min": 10000,
++            "max": 500000,
++            "unit": "count"
++          }
++        },
++        {
++          "key": "agents.coldWake.enabled",
++          "title": "Batch Wakes of Cold Chats",
++          "help": "Messages to an idle chat whose cache expired wait a little and arrive together, so its context is read once.",
++          "kind": "toggle",
++          "default": true,
++          "group": "Prompt Cache"
++        },
+         {
+           "key": "agents.defaultPermissionMode",
+           "title": "Permission Mode for New Chats",
+@@ -991,6 +1054,14 @@
+           "default": false,
+           "group": "Computer Use"
+         },
++        {
++          "key": "customize.checklist.enabled",
++          "title": "Show the Customize cmux Checklist",
++          "help": "Shows the steps for making cmux your own at the top of Settings, with how many are done.",
++          "kind": "toggle",
++          "default": true,
++          "group": "Customize cmux"
++        },
+         {
+           "key": "editor.default",
+           "title": "Open in Editor",
+@@ -1653,6 +1724,14 @@
+           "default": false,
+           "group": "Agent Sessions"
+         },
++        {
++          "key": "sessions.keepAwakeWhenLocked",
++          "title": "Keep Agents Running While Locked",
++          "help": "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep.",
++          "kind": "toggle",
++          "default": false,
++          "group": "Agent Sessions"
++        },
+         {
+           "key": "sessions.promptSuggestions",
+           "title": "Suggest Follow-Up Tasks",
+@@ -2304,6 +2383,14 @@
+           "default": false,
+           "group": "Agent Chat"
+         },
++        {
++          "key": "agentPane.display.chatListStatusPills",
++          "title": "Status Pills in All Chats",
++          "help": "Shows Running, Needs you, Done or Failed as a small pill on each live chat in All Chats.",
++          "kind": "toggle",
++          "default": false,
++          "group": "Agent Chat"
++        },
+         {
+           "key": "agentPane.display.code.family",
+           "title": "Chat Code Font",
+@@ -2465,6 +2552,14 @@
+             "compact"
+           ]
+         },
++        {
++          "key": "agentPane.display.headerBreadcrumb",
++          "title": "Header Path",
++          "help": "Show the chat's repository and branch before its title in the header, as a path.",
++          "kind": "toggle",
++          "default": false,
++          "group": "Agent Chat"
++        },
+         {
+           "key": "agentPane.display.layout.composer",
+           "title": "Message Box Shape",
+@@ -2679,6 +2774,19 @@
+             "custom"
+           ]
+         },
++        {
++          "key": "agentPane.display.thinking.glyphSize",
++          "title": "Jump Button Glyph Size",
++          "help": "The dot size of the thinking glyph in Jump to latest. 0 uses the glyph's own size.",
++          "kind": "number",
++          "default": 0,
++          "group": "Agent Chat",
++          "range": {
++            "min": 0,
++            "max": 16,
++            "unit": "points"
++          }
++        },
+         {
+           "key": "agentPane.display.thinking.jumpButton",
+           "title": "Jump to Latest While Working",
+@@ -2688,7 +2796,8 @@
+           "group": "Agent Chat",
+           "values": [
+             "arrow",
+-            "dots"
++            "dots",
++            "glyph"
+           ]
+         },
+         {
+@@ -2846,6 +2955,14 @@
+           "default": false,
+           "group": "Window Background"
+         },
++        {
++          "key": "appearance.appFont",
++          "title": "App Font",
++          "help": "The font of cmux's interface: chat, Settings and every page. Terminals keep their own.",
++          "kind": "font_family",
++          "default": null,
++          "group": "Density and Motion"
++        },
+         {
+           "key": "appearance.appTheme",
+           "title": "App Theme",
+@@ -3408,6 +3525,14 @@
+             "subpixel"
+           ]
+         },
++        {
++          "key": "appearance.glassControls",
++          "title": "Glass Controls",
++          "help": "Draws the knobs of the switches and sliders in Settings as glass.",
++          "kind": "toggle",
++          "default": false,
++          "group": "Window Background"
++        },
+         {
+           "key": "appearance.highlightColor",
+           "title": "Highlight Color",
+@@ -3450,6 +3575,19 @@
+           "default": false,
+           "group": "Density and Motion"
+         },
++        {
++          "key": "appearance.liveWallpaperFrameRate",
++          "title": "Live Wallpaper Frame Rate",
++          "help": "The most frames per second a live wallpaper draws. A wallpaper may ask for fewer; it stops drawing when the window is hidden, idle or on Low Power Mode.",
++          "kind": "choice",
++          "default": "30",
++          "group": "Window Background",
++          "values": [
++            "15",
++            "30",
++            "60"
++          ]
++        },
+         {
+           "key": "appearance.metrics.chromeFontSize",
+           "title": "Text Size",
+@@ -3612,6 +3750,14 @@
+             "neutral"
+           ]
+         },
++        {
++          "key": "appearance.settingsBetaChips",
++          "title": "Beta Chips in Settings",
++          "help": "Marks experimental settings with a Beta chip.",
++          "kind": "toggle",
++          "default": false,
++          "group": "Window Background"
++        },
+         {
+           "key": "appearance.sidebarSurface",
+           "title": "Sidebar Background",
+@@ -4120,6 +4266,14 @@
+             "plumAmber"
+           ]
+         },
++        {
++          "key": "appearance.wallpaperLighting",
++          "title": "Wallpaper Lighting",
++          "help": "Treats the wallpaper as a light source: glass edges facing its brightest part catch its color, the composer glows with it, and the glass leans toward its hue.",
++          "kind": "toggle",
++          "default": false,
++          "group": "Window Background"
++        },
+         {
+           "key": "appearance.wallpaperTint",
+           "title": "Tint with Desktop Wallpaper",
+@@ -4528,6 +4682,14 @@
+             "dark"
+           ]
+         },
++        {
++          "key": "presence.live",
++          "title": "Live Presence",
++          "help": "Show teammates and agents who are live, and let them see you. Off: you appear offline.",
++          "kind": "toggle",
++          "default": false,
++          "group": "Sidebar"
++        },
+         {
+           "key": "sidebar.border",
+           "title": "Border",
+@@ -5041,9 +5203,9 @@
+           "group": "Sidebar"
+         },
+         {
+-          "key": "sidebar.showAutomaticSessions",
+-          "title": "Show Automatic Sessions",
+-          "help": "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list.",
++          "key": "sidebar.showAgentSessions",
++          "title": "Show Sessions Started by Agents",
++          "help": "Sessions an agent starts list under the session that started them. Off, they stay in the parent chat's list; one that needs you still shows.",
+           "kind": "toggle",
+           "default": false,
+           "group": "Sidebar"
+@@ -5064,6 +5226,14 @@
+           "default": true,
+           "group": "Sidebar"
+         },
++        {
++          "key": "sidebar.showLiveToggle",
++          "title": "Show Live Button",
++          "help": "A Live button after the profile button turns presence on or off. Off: use the palette.",
++          "kind": "toggle",
++          "default": true,
++          "group": "Sidebar"
++        },
+         {
+           "key": "sidebar.showLocalMachine",
+           "title": "Mark This Mac's Workspaces",
+@@ -6104,6 +6274,14 @@
+           "default": false,
+           "group": "Saving"
+         },
++        {
++          "key": "editor.vimMode",
++          "title": "Vim Keys in the Editor",
++          "help": "Normal, Insert and Visual modes in the code editor, with the mode shown in its status bar.",
++          "kind": "toggle",
++          "default": false,
++          "group": "Editing"
++        },
+         {
+           "key": "editor.wordBasedSuggestions",
+           "title": "Suggest Words from the File",
+@@ -6634,17 +6812,7 @@
+           "title": "Site Engines",
+           "help": "Sites that always open in chromium or webkit, such as spotify.com.",
+           "kind": "string_map",
+-          "default": {
+-            "amazon.com/gp/video": "webkit",
+-            "disneyplus.com": "webkit",
+-            "hulu.com": "webkit",
+-            "max.com": "webkit",
+-            "music.apple.com": "webkit",
+-            "netflix.com": "webkit",
+-            "primevideo.com": "webkit",
+-            "spotify.com": "webkit",
+-            "tv.apple.com": "webkit"
+-          },
++          "default": {},
+           "group": "Engine"
+         },
+         {
+@@ -6727,7 +6895,8 @@
+           "default": [
+             "media",
+             "zoom",
+-            "downloads"
++            "downloads",
++            "profile"
+           ],
+           "group": "Toolbar"
+         },
+@@ -6785,6 +6954,14 @@
+       "id": "home",
+       "title": "Chief",
+       "rows": [
++        {
++          "key": "app.sendAnonymousTelemetry",
++          "title": "Send Crash Reports and Analytics",
++          "help": "Sends cmux crash reports and anonymous usage events, so we can fix crashes and see which features are used. Stacks, app and macOS versions and event names only, never your prompts, files, paths, branches or text. Crash reports start at the next launch.",
++          "kind": "toggle",
++          "default": false,
++          "group": "Crash Reports and Analytics"
++        },
+         {
+           "key": "chief.autoRouteSubagents",
+           "title": "Route Subagents to the Best Agent",
+@@ -7089,6 +7266,31 @@
+       "id": "keyboard",
+       "title": "Keyboard",
+       "rows": [
++        {
++          "key": "app.keyStyle",
++          "title": "Key Style",
++          "help": "Vim moves through lists with j, k, gg, G and /. Emacs uses Control-N, P, F, B, A and E.",
++          "kind": "choice",
++          "default": "standard",
++          "group": "Key Style",
++          "values": [
++            "standard",
++            "vim",
++            "emacs"
++          ]
++        },
++        {
++          "key": "app.shortcutLayout",
++          "title": "Keyboard Layout",
++          "help": "Keep QWERTY Positions puts shortcuts on the US keys, for Dvorak, Colemak, AZERTY and QWERTZ.",
++          "kind": "choice",
++          "default": "followLayout",
++          "group": "Key Style",
++          "values": [
++            "followLayout",
++            "qwertyPositions"
++          ]
++        },
+         {
+           "key": "macScreen.shareWithoutAsking",
+           "title": "Share This Mac Without Asking",
+@@ -7529,6 +7731,19 @@
+           "default": null,
+           "group": "Sounds"
+         },
++        {
++          "key": "notifications.sounds.maxSeconds",
++          "title": "Sound Duration",
++          "help": "Sounds cmux plays itself stop after this long. 0 plays the whole sound.",
++          "kind": "number",
++          "default": 0,
++          "group": "Sounds",
++          "range": {
++            "min": 0,
++            "max": 30,
++            "unit": "seconds"
++          }
++        },
+         {
+           "key": "notifications.sounds.volume",
+           "title": "Volume",
+@@ -7716,6 +7931,14 @@
+           "default": true,
+           "group": "Cloud Workspaces"
+         },
++        {
++          "key": "cloud.autoCloud",
++          "title": "Auto Places Chats in Cloud",
++          "help": "Auto runs a new chat on this Mac when it has room, else on a Cloud machine.",
++          "kind": "toggle",
++          "default": false,
++          "group": "Cloud Workspaces"
++        },
+         {
+           "key": "cloud.newWorkspaceFolder",
+           "title": "New Cloud Workspaces Start In",
+@@ -7788,6 +8011,70 @@
+           "kind": "string_list",
+           "default": [],
+           "group": "SSH Links"
++        },
++        {
++          "key": "tailnet.join.autoJoinNewVMs",
++          "title": "Join New Cloud Machines Automatically",
++          "help": "Ask for a key when a new Cloud machine is created and add it to your tailnet.",
++          "kind": "toggle",
++          "default": false,
++          "group": "Tailscale"
++        },
++        {
++          "key": "tailnet.join.enabled",
++          "title": "Add Cloud Machines to Your Tailnet",
++          "help": "Make Tailscale or Headscale available when you join a Cloud machine.",
++          "kind": "toggle",
++          "default": false,
++          "group": "Tailscale"
++        },
++        {
++          "key": "tailnet.join.ephemeral",
++          "title": "Ephemeral Devices",
++          "help": "Remove a joined machine from the tailnet when it goes offline.",
++          "kind": "toggle",
++          "default": false,
++          "group": "Tailscale"
++        },
++        {
++          "key": "tailnet.join.hostname",
++          "title": "Hostname Template",
++          "help": "Optional device name template. Use {vm} for the Cloud machine name.",
++          "kind": "text",
++          "default": "{vm}",
++          "group": "Tailscale"
++        },
++        {
++          "key": "tailnet.join.loginServer",
++          "title": "Login Server",
++          "help": "Leave empty for Tailscale, or enter your Headscale control server URL.",
++          "kind": "text",
++          "default": "",
++          "group": "Tailscale"
++        },
++        {
++          "key": "tailnet.join.servePorts",
++          "title": "Serve Ports",
++          "help": "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443.",
++          "kind": "string_list",
++          "default": [],
++          "group": "Tailscale"
++        },
++        {
++          "key": "tailnet.join.ssh",
++          "title": "Tailscale SSH",
++          "help": "Enable Tailscale SSH on joined Cloud machines, subject to your ACL.",
++          "kind": "toggle",
++          "default": false,
++          "group": "Tailscale"
++        },
++        {
++          "key": "tailnet.join.tags",
++          "title": "Tags",
++          "help": "ACL tags to request for each joined Cloud machine.",
++          "kind": "string_list",
++          "default": [],
++          "group": "Tailscale"
+         }
+       ]
+     },
+@@ -7811,6 +8098,14 @@
+           "default": true,
+           "group": "Developer Tools"
+         },
++        {
++          "key": "developerTools.overloadNotice",
++          "title": "Overload Warning in Chats",
++          "help": "Shows a banner above the composer when this Mac's load or swap is too high.",
++          "kind": "toggle",
++          "default": false,
++          "group": "Developer Tools"
++        },
+         {
+           "key": "experiments.agentBadges",
+           "title": "Agent Badges",
+@@ -7827,6 +8122,14 @@
+           "default": false,
+           "group": "Experiments"
+         },
++        {
++          "key": "experiments.appFontChrome",
++          "title": "App Font in Native Chrome",
++          "help": "The sidebar, tabs and titlebar draw in the App Font too. Some text changes after cmux restarts.",
++          "kind": "toggle",
++          "default": false,
++          "group": "Experiments"
++        },
+         {
+           "key": "experiments.attachmentTypeIcons",
+           "title": "Attachment Type Icons",
+@@ -7835,6 +8138,14 @@
+           "default": false,
+           "group": "Experiments"
+         },
++        {
++          "key": "experiments.browserProfileCard",
++          "title": "Browser Profile Card",
++          "help": "The browser's profile menu opens with a profile card.",
++          "kind": "toggle",
++          "default": false,
++          "group": "Experiments"
++        },
+         {
+           "key": "experiments.chatWidgets",
+           "title": "Extension Chat Widgets",
+@@ -7843,6 +8154,14 @@
+           "default": false,
+           "group": "Experiments"
+         },
++        {
++          "key": "experiments.cloudDiskBar",
++          "title": "Cloud Disk Bar",
++          "help": "Cloud machine cards show disk use as a bar split into system, project and caches.",
++          "kind": "toggle",
++          "default": false,
++          "group": "Experiments"
++        },
+         {
+           "key": "experiments.composerButtonsVisible",
+           "title": "Always Show Composer Buttons",
+@@ -7851,6 +8170,22 @@
+           "default": false,
+           "group": "Experiments"
+         },
++        {
++          "key": "experiments.composerCustomizer",
++          "title": "Customize Button Under the Composer",
++          "help": "Point at the chat box for a Customize button that lists every experiment and Labs switch.",
++          "kind": "toggle",
++          "default": false,
++          "group": "Experiments"
++        },
++        {
++          "key": "experiments.composerHatGroups",
++          "title": "Composer Hat: Two Groups",
++          "help": "Show subagents and background tasks as two groups, with the hat aligned to the composer's plus glyph.",
++          "kind": "toggle",
++          "default": true,
++          "group": "Experiments"
++        },
+         {
+           "key": "experiments.composerV2",
+           "title": "Composer Refresh",
+@@ -7859,6 +8194,22 @@
+           "default": false,
+           "group": "Experiments"
+         },
++        {
++          "key": "experiments.foldSummaryCounts",
++          "title": "Fold Summary Counts",
++          "help": "A finished turn's Worked for line also says what it hides, such as ran 4 commands, edited 2 files.",
++          "kind": "toggle",
++          "default": false,
++          "group": "Experiments"
++        },
++        {
++          "key": "experiments.forum",
++          "title": "Forum",
++          "help": "Read and answer your team's forum in the app: threads from people and their agents, with search and a reply box.",
++          "kind": "toggle",
++          "default": false,
++          "group": "Experiments"
++        },
+         {
+           "key": "experiments.glassToolbarGroups",
+           "title": "Glass Toolbar Groups",
+@@ -7891,6 +8242,36 @@
+           "default": false,
+           "group": "Experiments"
+         },
++        {
++          "key": "experiments.palettePreview",
++          "title": "Command Palette Preview",
++          "help": "Shows the selected workspace or session's details beside the results, with its primary action and Actions ⌘K at the bottom.",
++          "kind": "toggle",
++          "default": false,
++          "group": "Experiments"
++        },
++        {
++          "key": "experiments.paletteV2",
++          "title": "Command Palette v2",
++          "help": "Groups results under Workspaces, Sessions, Commands and Agents, regrouping as you type, with the top match selected.",
++          "kind": "choice",
++          "default": "off",
++          "group": "Experiments",
++          "values": [
++            "off",
++            "flat",
++            "rail",
++            "scoped"
++          ]
++        },
++        {
++          "key": "experiments.quietConnect",
++          "title": "Quiet Connections",
++          "help": "Hide Resuming… and connection waits that end within 10 seconds.",
++          "kind": "toggle",
++          "default": false,
++          "group": "Experiments"
++        },
+         {
+           "key": "experiments.seeThroughDock",
+           "title": "See-Through Dock",
+@@ -7899,6 +8280,54 @@
+           "default": false,
+           "group": "Experiments"
+         },
++        {
++          "key": "experiments.terminalAgentMark",
++          "title": "Terminal Agent Marks",
++          "help": "An agent running in a terminal tab shows its icon on a rounded square, so it stands apart from an agent chat.",
++          "kind": "toggle",
++          "default": false,
++          "group": "Experiments"
++        },
++        {
++          "key": "experiments.terminalHistory",
++          "title": "Terminal Agent History",
++          "help": "Claude Code and Codex terminals get a button that opens their earlier history as a read-only chat.",
++          "kind": "toggle",
++          "default": false,
++          "group": "Experiments"
++        },
++        {
++          "key": "experiments.terminalHistoryFind",
++          "title": "Terminal History Find",
++          "help": "Cmd-F in a terminal searches its whole history, with case, whole-word and regex options.",
++          "kind": "toggle",
++          "default": true,
++          "group": "Experiments"
++        },
++        {
++          "key": "experiments.themedPrompts",
++          "title": "Themed Floating Prompts",
++          "help": "Prompts over other apps, such as a teammate asking to control this Mac, use your theme's glass and colors.",
++          "kind": "toggle",
++          "default": false,
++          "group": "Experiments"
++        },
++        {
++          "key": "experiments.threadMinimapRestReveal",
++          "title": "Prompt Rail Waits for a Resting Pointer",
++          "help": "In narrow chats the prompt rail opens only when the pointer rests on the edge, never while you select text.",
++          "kind": "toggle",
++          "default": false,
++          "group": "Experiments"
++        },
++        {
++          "key": "experiments.toastGlass",
++          "title": "Toast Glass",
++          "help": "Toasts in chats sit on the same glass as the app's own toasts.",
++          "kind": "toggle",
++          "default": false,
++          "group": "Experiments"
++        },
+         {
+           "key": "experiments.toastsV2",
+           "title": "Toasts v2",
+@@ -7931,6 +8360,22 @@
+           "default": false,
+           "group": "Labs"
+         },
++        {
++          "key": "labs.commentThreads",
++          "title": "Comment Threads in Browser and Terminal",
++          "help": "Send browser and terminal comments to the chat as threads that show the agent's reply.",
++          "kind": "toggle",
++          "default": false,
++          "group": "Labs"
++        },
++        {
++          "key": "labs.connectionsUpcoming",
++          "title": "Upcoming Connections",
++          "help": "Lists Slack and Google in Connections before they can be connected.",
++          "kind": "toggle",
++          "default": false,
++          "group": "Labs"
++        },
+         {
+           "key": "labs.hostsSidebar",
+           "title": "Hosts Sidebar",
+@@ -7979,6 +8424,14 @@
+           "default": false,
+           "group": "Labs"
+         },
++        {
++          "key": "labs.previousBuild",
++          "title": "Go Back to Previous Build",
++          "help": "Show the build cmux kept before the last update on the Updates card, with a button to go back to it.",
++          "kind": "toggle",
++          "default": false,
++          "group": "Labs"
++        },
+         {
+           "key": "labs.voiceRoom",
+           "title": "Voice Room",
