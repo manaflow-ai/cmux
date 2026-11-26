@@ -951,11 +951,15 @@ fn the_day_reports_the_cache_read_share_and_the_cost_per_call() {
     let stats = tracker.refresh(&source, now, &models()).unwrap();
     assert_eq!(stats.calls24h, Some(3));
     assert_eq!(stats.tokens_by_model1h.as_ref().unwrap()["claude-opus-5-5"], 270_330);
+    assert_eq!(stats.cache_read_by_model1h.as_ref().unwrap()["claude-opus-5-5"], 180_000);
     let next = tracker.refresh(&source, now + 15 * MINUTE_MS, &models()).unwrap();
     assert_eq!(next.tokens_by_model1h.as_ref().unwrap()["claude-opus-5-5"], 90_110);
+    assert_eq!(next.cache_read_by_model1h.as_ref().unwrap()["claude-opus-5-5"], 90_000);
     assert_eq!(next.tokens_by_model_previous_utc_hour, stats.tokens_by_model1h);
+    assert_eq!(next.cache_read_by_model_previous_utc_hour, stats.cache_read_by_model1h);
     let later = tracker.refresh(&source, now + HOUR_MS, &models()).unwrap();
     assert!(later.tokens_by_model_previous_utc_hour.unwrap().is_empty());
+    assert!(later.cache_read_by_model_previous_utc_hour.unwrap().is_empty());
     assert_eq!(next.tokens24h, stats.tokens24h);
     // 180,000 of 270,030 prompt tokens came from the cache.
     assert_eq!(stats.cache_read_share24h, Some(0.6666));

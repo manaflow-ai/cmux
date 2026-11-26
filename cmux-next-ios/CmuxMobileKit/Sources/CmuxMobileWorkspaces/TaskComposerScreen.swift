@@ -28,6 +28,9 @@ struct TaskComposerScreen: View {
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var phase: TaskComposerPhase = .loading
+    /// A failed agent list is read again on its own (no button): the pill keeps "Loading"
+    /// through a short failure; past the quiet bound it says why, with no button.
+    @State private var autoRetry = AutoRetry()
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var choosingPhotos = false
     @State private var choosingFiles = false
@@ -109,6 +112,7 @@ struct TaskComposerScreen: View {
                 }
         }
         .task(id: mac?.id) { await reload() }
+        .autoRetry(autoRetry, failing: mac != nil && phase.isFailed) { await reload(retrying: true) }
         .task { await creator.taskDrafts.load() }
         .onAppear { promptFocused = true }
         // A sheet takes the keyboard away (it would cover the sheet's rows); closing it brings
@@ -318,7 +322,7 @@ struct TaskComposerScreen: View {
             agentsMenu
         } label: {
             HStack(spacing: 7) {
-                switch phase {
+                switch shownPhase {
                 case .loading:
                     // The spinner where the agent's mark goes, then the pill's name: one short pill.
                     CmuxSpinner()
@@ -360,7 +364,7 @@ struct TaskComposerScreen: View {
     }
 
     @ViewBuilder private var agentsMenu: some View {
-        switch phase {
+        switch shownPhase {
         case .loading:
             // placeholder-ok: this Mac has never supplied an agent catalog to this phone.
             Button("Loading agents…") {}
@@ -373,8 +377,13 @@ struct TaskComposerScreen: View {
             }
             .disabled(true)
             .accessibilityIdentifier("taskComposer.agents.failed")
-            Button("Try Again", systemImage: "arrow.clockwise") { Task { await reload() } }
-                .accessibilityIdentifier("taskComposer.agents.retry")
+            // No button: the list is read again on its own (`autoRetry`). With no Mac
+            // there is nothing to read again (the message says to pick one).
+            if mac != nil {
+                Button(AutoRetryQuietLine.defaultText) {}
+                    .disabled(true)
+                    .accessibilityIdentifier("autoRetry.quietLine")
+            }
         case .loaded(let catalog):
             if catalog.harnesses.isEmpty {
                 Button {} label: {
@@ -418,8 +427,15 @@ struct TaskComposerScreen: View {
         .accessibilityIdentifier("taskComposer.agent.\(harness.id)")
     }
 
+    /// What the pill and its menu show: a failure the screen is still retrying reads as
+    /// loading until the quiet bound (a Mac with no phone to ask fails at once).
+    private var shownPhase: TaskComposerPhase {
+        if phase.isFailed, mac != nil, !autoRetry.isQuietLineShown { return .loading }
+        return phase
+    }
+
     private var agentsPillIsError: Bool {
-        switch phase {
+        switch shownPhase {
         case .failed: true
         case .loaded(let catalog): shownAgents(catalog).isEmpty
         case .loading: false
@@ -427,7 +443,7 @@ struct TaskComposerScreen: View {
     }
 
     private var agentsValue: String {
-        switch phase {
+        switch shownPhase {
         case .loading: "Loading"
         case .failed(let message): message
         case .loaded(let catalog):
@@ -573,7 +589,9 @@ struct TaskComposerScreen: View {
         started(made)
     }
 
-    private func reload() async {
+    /// Reads the Mac's agents. A retry (`autoRetry`) keeps the failure until it answers, so
+    /// the pill does not blink.
+    private func reload(retrying: Bool = false) async {
         guard let mac else {
             phase = .failed(TaskStartBlocker.noMac.message)
             return
@@ -582,7 +600,7 @@ struct TaskComposerScreen: View {
         let cached = cache.load(macID: mac.id)
         if let cached {
             phase = .loaded(cached)
-        } else {
+        } else if !retrying {
             phase = .loading
         }
         do {
@@ -659,6 +677,11 @@ enum TaskComposerPhase: Equatable {
     case loading
     case loaded(AgentCatalog)
     case failed(String)
+
+    var isFailed: Bool {
+        if case .failed = self { return true }
+        return false
+    }
 
     /// The agent a task with no pick starts: the Mac's own pick (its last New Agent Chat),
     /// else its default. Start sends it by name, so the phone starts what it shows.
