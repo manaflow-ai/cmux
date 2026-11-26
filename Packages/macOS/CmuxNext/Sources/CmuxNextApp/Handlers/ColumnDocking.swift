@@ -19,8 +19,8 @@ enum ColumnDocking {
         registry.bind("tab.moveToNewDockColumn", requires: DaemonCapability.dockColumns.rawValue, daemon: ctx.services.activeDaemon,
                       run: { invocation in
             guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
-            let edge = invocation["edge"]?.stringValue.flatMap(DockEdge.init(rawValue:)) ?? defaultEdge
-            let mode = invocation["mode"]?.stringValue.flatMap(DockMode.init(rawValue:))
+            let asked = ask("tab.moveToNewDockColumn", invocation)
+            let edge = asked.edge ?? defaultEdge, mode = asked.mode
             let reveal = TabHandlers.revealer(ctx, tab: tab, outcome: .newColumn(screenID: "", afterColumnID: ""), workspaceID: nil)
             TabMoves.toNewDockColumn(tab, anchor: pane, edge: edge, mode: mode, services: ctx.services, completion: reveal)
         })
@@ -32,22 +32,20 @@ enum ColumnDocking {
         ActionTargetTitles.setPaletteSettingState("layout.toggleStripScrollbar", in: registry) { ctx.design.stripScrollbar != .off }
     }
 
-    /// cmux.json `layout.dockColumnEdge` when set to an edge; nil for the
-    /// default `nearest`, which leaves the choice to `DockDefaults`.
-    static var configuredEdge: DockEdge? {
-        switch DesignSettings.shared.dockColumnEdge {
-        case .nearest: nil
-        case .left: .left
-        case .right: .right
-        case .top: .top
-        case .bottom: .bottom
-        }
+    /// cmux.json's dock edge (nil: `nearest`), that edge else right, and mode: Rust's (`handlers_placement_dock_settings`).
+    static var configuredEdge: DockEdge? { settings?.configuredEdge.flatMap(DockEdge.init(rawValue:)) }
+    static var defaultEdge: DockEdge { settings.flatMap { DockEdge(rawValue: $0.defaultEdge) } ?? .right }
+    static var defaultMode: DockMode { settings.flatMap { DockMode(rawValue: $0.defaultMode) } ?? .docked }
+    private static var settings: WindowRules.DockSettings? {
+        WindowRules().dockSettings(edge: DesignSettings.shared.dockColumnEdge.rawValue, mode: DesignSettings.shared.dockColumnMode.rawValue)
     }
-    /// The configured edge, else right: for paths with no column to measure
-    /// (a tab moved to a new docked column, `debug.dock`).
-    static var defaultEdge: DockEdge { configuredEdge ?? .right }
-    /// cmux.json `layout.dockColumnMode` (default docked).
-    static var defaultMode: DockMode { DesignSettings.shared.dockColumnMode == .overlay ? .overlay : .docked }
+
+    /// The edge and mode dock action `action` asks for (`handlers_placement_dock_ask`).
+    static func ask(_ action: String, _ invocation: ActionInvocation) -> (edge: DockEdge?, mode: DockMode?) {
+        let design = DesignSettings.shared, asked = WindowRules().dockAsk(action, edge: invocation["edge"]?.stringValue,
+            mode: invocation["mode"]?.stringValue, settingEdge: design.dockColumnEdge.rawValue, settingMode: design.dockColumnMode.rawValue)
+        return (asked?.edge.flatMap(DockEdge.init(rawValue:)), asked?.mode.flatMap(DockMode.init(rawValue:)))
+    }
 
     /// The one mutation path: checks the workspace's own daemon serves
     /// `dock-columns-v1`, validates like the daemon, sends
@@ -61,11 +59,14 @@ enum ColumnDocking {
             throw ActionFailure(message: daemon.missingCapabilityMessage(needs))
         }
         guard let refusal = content.layoutModel.setColumnDock(column.id, dock, transaction: transaction) else { return }
-        switch refusal {
-        case .unknownColumn: throw ActionFailure.invalidTarget(RefusalStrings.noColumnShown(column.id.rawValue))
-        case .lastScrollingColumn: throw ActionFailure.invalidTarget(RefusalStrings.lastScrollingColumn)
-        case .unchanged:
-            throw ActionFailure.noTarget(dock == nil ? RefusalStrings.columnNotDocked : RefusalStrings.columnAlreadyDocked)
+        // How the refusal fails is Rust's (`handlers_placement_dock_failure`); the app words its reason.
+        let failure = WindowRules().dockFailure(refusal: String(describing: refusal), undocking: dock == nil)
+        let message = switch failure?.reason {
+        case "lastScrollingColumn": RefusalStrings.lastScrollingColumn
+        case "columnNotDocked": RefusalStrings.columnNotDocked
+        case "columnAlreadyDocked": RefusalStrings.columnAlreadyDocked
+        default: RefusalStrings.noColumnShown(column.id.rawValue)
         }
+        throw failure?.noTarget == true ? ActionFailure.noTarget(message) : ActionFailure.invalidTarget(message)
     }
 }

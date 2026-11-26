@@ -17,21 +17,13 @@ import CmuxNextWindowRules
 enum DockColumnHandlers {
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
         let capability = DaemonCapability.dockColumns.rawValue
-        registry.bind("column.dock", requires: capability, daemon: ctx.services.activeDaemon, run: { invocation in
-            let edge = invocation["edge"]?.stringValue.flatMap(DockEdge.init(rawValue:))
-            let mode = invocation["mode"]?.stringValue.flatMap(DockMode.init(rawValue:)) ?? ColumnDocking.defaultMode
-            try dock(invocation, edge: edge, mode: mode, ctx)
-        })
-        let sides: [(ActionID, DockEdge)] = [("column.dockLeft", .left), ("column.dockRight", .right),
-                                               ("column.dockTop", .top), ("column.dockBottom", .bottom)]
-        for (id, edge) in sides {
-            registry.bind(id, requires: capability, daemon: ctx.services.activeDaemon, run: { invocation in
-                try dock(invocation, edge: edge, mode: ColumnDocking.defaultMode, ctx)
+        // Each action's edge and mode are Rust's (`handlers_placement_dock_ask`).
+        for id in ["column.dock", "column.dockLeft", "column.dockRight", "column.dockTop", "column.dockBottom", "column.float"] {
+            registry.bind(ActionID(rawValue: id), requires: capability, daemon: ctx.services.activeDaemon, run: { invocation in
+                let asked = ColumnDocking.ask(id, invocation)
+                try dock(invocation, edge: asked.edge, mode: asked.mode ?? .docked, ctx)
             })
         }
-        registry.bind("column.float", requires: capability, daemon: ctx.services.activeDaemon, run: { invocation in
-            try dock(invocation, edge: nil, mode: .overlay, ctx)
-        })
         WindowDockActions(host: ctx.services).bind(into: registry)
         ctx.services.chiefSidePanel.follow(host: ctx.services) // Chief in Side Panel follows its setting into every window
         registry.bind("column.undock", requires: capability, daemon: ctx.services.activeDaemon, run: { invocation in

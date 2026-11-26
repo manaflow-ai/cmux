@@ -5,6 +5,7 @@ import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextLayout
 import CmuxNextWakeups
+import CmuxNextWindowRules
 import Foundation
 import Observation
 
@@ -25,9 +26,9 @@ enum NewAtPlacement {
             guard let (kind, place) = id.newPlacement else { continue }
             // A new row needs rows on and `rows-v1`; Cmd-D's terminal column on the left needs
             // `column-left-v1` (the moves place a column on the left without it, as a fork's does).
-            let unavailable: @MainActor () -> String? = switch (kind, place) {
-            case (_, "row"): { ColumnHandlers.newRowUnavailableReason(ctx) }
-            case ("terminal", "columnLeft"): { ColumnHandlers.newColumnLeftUnavailableReason(ctx) }
+            let unavailable: @MainActor () -> String? = switch WindowRules().newAtGate(kind: kind, place: place) {
+            case "row": { ColumnHandlers.newRowUnavailableReason(ctx) }
+            case "columnLeft": { ColumnHandlers.newColumnLeftUnavailableReason(ctx) }
             default: { nil }
             }
             _ = registry.bindEffect(id, unavailable: unavailable, effect: { invocation in
@@ -56,10 +57,11 @@ enum NewAtPlacement {
         // automated browser is always made here, marked before its first load, then moved.
         // A pane whose daemon does not make browser tabs makes a session-local one, which no daemon move can
         // take and which reports no surface: such a browser opens only in a new tab here.
-        if kind == "browser", plan.op != .tab, !pane.daemon.supports(DaemonCapability.frontendBrowserTabs.rawValue) {
+        let route = Self.route(kind, plan, origin: invocation.origin,
+                               frontendBrowserTabs: pane.daemon.supports(DaemonCapability.frontendBrowserTabs.rawValue))
+        if route.needsFrontendBrowserTabs {
             return .refused(RefusalStrings.needsDaemonCapability(DaemonCapability.frontendBrowserTabs.rawValue))
         }
-        let route = Self.route(kind, plan, origin: invocation.origin)
         if route.ownCreate, inPlace(kind, plan.op, pane: pane, aimed, ctx) { return .done }
         madeThenMoved(kind, plan.op, from: pane, agentDriven: route.agentDriven, ctx)
         return .done
@@ -67,10 +69,19 @@ enum NewAtPlacement {
 
     /// How `kind` reaches `plan`'s place for a run from `origin`: by the kind's own create, or made here and
     /// moved, and whether the tab made here is marked agent-driven before its first load. A browser from the
-    /// CLI, MCP or a script is agent-driven; its own create at a new tab (openBrowser) marks it, Split Browser does not.
-    nonisolated static func route(_ kind: String, _ plan: NewPlacementPlan, origin: ActionOrigin) -> (ownCreate: Bool, agentDriven: Bool) {
-        let agentDriven = kind == "browser" && [.cli, .mcp, .script].contains(origin)
-        return (plan.madeInPlace && !(agentDriven && plan.op != .tab), agentDriven)
+    /// CLI, MCP or a script is agent-driven. The rule is Rust's (cmux-window-rules `handlers_placement::new_at`).
+    nonisolated static func route(_ kind: String, _ plan: NewPlacementPlan, origin: ActionOrigin, frontendBrowserTabs: Bool = true)
+        -> WindowRules.NewAtRoute {
+        let (op, edge, left): (String, String?, Bool?) = switch plan.op {
+        case .split(let edge): ("split", edge, nil)
+        case .column(let left): ("column", nil, left)
+        case .row: ("row", nil, nil)
+        case .tab: ("tab", nil, nil)
+        case .workspace: ("workspace", nil, nil)
+        case .window: ("window", nil, nil)
+        }
+        return WindowRules().newAt(kind: kind, op: op, edge: edge, left: left, madeInPlace: plan.madeInPlace, origin: origin.rawValue,
+                                   frontendBrowserTabs: frontendBrowserTabs)
     }
 
     /// The kind's own create at `op`, in one daemon commit. False when the kind has none there.
@@ -239,12 +250,6 @@ enum NewAtPlacement {
         return value
     }
 
-    static func direction(_ edge: String) -> PaneDirection {
-        switch edge {
-        case "left": .left
-        case "top": .up
-        case "bottom": .down
-        default: .right
-        }
-    }
+    /// The pane direction a split edge opens toward (`handlers_placement_direction`).
+    static func direction(_ edge: String) -> PaneDirection { WindowRules().splitDirection(edge) ?? .right }
 }
