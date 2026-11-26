@@ -48,6 +48,7 @@ mod send_gate;
 #[cfg(test)]
 mod send_gate_tests;
 mod single_path;
+mod stall_trace;
 mod stream;
 #[cfg(test)]
 mod tcp_model_tests;
