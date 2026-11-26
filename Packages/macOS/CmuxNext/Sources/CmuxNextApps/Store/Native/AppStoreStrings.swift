@@ -11,7 +11,6 @@ nonisolated enum AppStoreStrings {
     static var discover: String { t("store.tab.discover", "Discover") }
     static var categories: String { t("store.tab.categories", "Categories") }
     static var community: String { t("store.tab.community", "Community") }
-    static var communityUpdating: String { t("store.community.updating", "Updating…") }
     static var onOtherDevices: String { t("store.community.onOtherDevices", "On Your Other Devices") }
     static var installOnThisMac: String { t("store.community.installOnThisMac", "Install on This Mac") }
     static var allKinds: String { t("store.category.all", "All") }

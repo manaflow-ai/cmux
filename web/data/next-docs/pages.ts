@@ -3,6 +3,8 @@
 // Keep these short and plain. Every command named here must exist in the
 // action catalog; tests/next-docs.test.ts checks that.
 
+import { pinnedInstallCommand } from "../../app/lib/install-static-pin";
+
 export type DocBlock =
   | { h2: string }
   | { p: string }
@@ -444,8 +446,8 @@ export const nextDocPages: NextDocPage[] = [
       ] },
       { p: "The machine must accept your SSH key, and its host key must already be in your known_hosts. A new host key or a password prompt goes to your terminal, as ssh always does. cmux never accepts a host key for you, and it turns off agent, X11 and port forwarding for these commands. Without a terminal (with --yes in a script), ssh never prompts: an unknown host key stops the install." },
       { h2: "Install on this machine" },
-      { p: "On the Linux box or Mac itself, one line installs cmux and starts the service:" },
-      { code: "curl -fsSL https://cmux.com/tui/install.sh | sh -s -- --server", lang: "bash" },
+      { p: "On the Linux box or Mac itself, one line installs cmux and starts the service. It saves the installer in a new private folder, checks it against the SHA-256 the line carries, and runs it only when it matches:" },
+      { code: pinnedInstallCommand(" --server"), lang: "bash" },
       { p: "To see what it would do first, add --dry-run. To install one exact build, add --commit SHA; --channel stable or --channel nightly picks the latest build of that channel. With cmux already installed, run cmux server install." },
       { p: "The installer checks the download against the SHA-256 in the build's manifest, over HTTPS only. The script is one block that the shell reads to its end before it runs, so a download cut short runs nothing." },
       { h2: "What the service is" },
@@ -558,6 +560,40 @@ export const nextDocPages: NextDocPage[] = [
       { p: "cmux mcp tools --json lists every tool with its input schema, and every action it leaves out with the reason. A tool never steals focus unless its purpose is focus." },
     ],
     links: ["cli"],
+  },
+  {
+    slug: "api-versions",
+    navKey: "nextApiVersions",
+    title: "API versions and the compatibility promise",
+    description: "Pin the cmux socket or the cmux Cloud API to a date, and it keeps answering the way it did for at least 12 months after it changes.",
+    body: [
+      { p: "Scripts and agents talk to cmux through two APIs: the socket of the cmux daemon (what the cmux CLI, the apps and the SDKs speak) and the cmux Cloud HTTP API at vm.cmux.dev. Code written against either should keep working when cmux updates, even code nobody looks at again. So both take a version, named by a date, and cmux keeps that version answering." },
+      { h2: "The promise" },
+      { ol: [
+        "No breaking change ships without a new dated version. Renaming, moving, retyping or removing a field, or changing what a value means, is breaking. Adding an optional field, a command, a route, an event or a capability is not: a client must ignore fields it does not know.",
+        "Every dated version keeps answering for at least 12 months after the version that replaced it. cmux translates requests and replies between the version you pinned and the current one, so you get the shape you wrote against.",
+        "A client that pins no version gets the current API, exactly as before. Pinning is how you opt in to the promise.",
+      ] },
+      { p: "The first dated version of both APIs is 2026-11-24. A pin older than the oldest version still served is refused, with a message that names the oldest and newest dates; it is never answered in a shape you did not ask for." },
+      { h2: "Pin the socket" },
+      { p: "Send the date you wrote your client against as api_version in set-client-info, once per connection. The daemon serves the newest version dated on or before it and answers with the version it served. From then on it translates both ways on that connection: replies and events come back in your version's shape." },
+      { code: "{\"id\":1,\"cmd\":\"set-client-info\",\"name\":\"my-agent\",\"api_version\":\"2026-11-24\"}\n{\"id\":1,\"ok\":true,\"data\":{\"api_version\":\"2026-11-24\",\"api_revision\":12}}", lang: "json" },
+      { p: "A pin later than the daemon knows gets its newest version, and the answer says which. identify with revisions set to true reports api_version (the newest) and min_api_version (the oldest still served)." },
+      { h2: "Pin the cmux Cloud API" },
+      { p: "Send the Cmux-Api-Version header with a date. The API serves the newest version dated on or before it, translates the request up and the JSON reply down, and names the version it served in the reply's Cmux-Api-Version header. A malformed date, or one older than the oldest version served, gets 400 UnsupportedApiVersion. No header: the current API." },
+      { code: "curl -H \"Authorization: Bearer $CMUX_API_KEY\" \\\n     -H 'Cmux-Api-Version: 2026-11-24' \\\n     https://vm.cmux.dev/v1/vms", lang: "bash" },
+      { h2: "What it costs" },
+      { p: "Little. An unpinned or current pin costs about 30 ns per socket reply and about 0.5 us per Cloud request. A pin one version back costs about 8 us per changed socket reply and about 9 us per Cloud reply." },
+      { h2: "Not covered yet" },
+      { p: "Terminal byte streams, session event stream items and the version 2 resource API (cmux.protocol/2) are outside the promise for now. The cmux CLI's own commands and flags follow the CLI contract instead." },
+      { h2: "Where it lives" },
+      { files: [
+        { path: "cmux-tui/spec/api-versioning.md", kind: "file", what: "the promise, how a new version is added, and the benchmarks" },
+        { path: "cmux-tui/spec/api-compat.json", kind: "file", what: "the socket's dated versions and the rules between them" },
+        { path: "workers/cmux-vm/src/api-version.ts", kind: "file", what: "the Cloud API's dated versions (API_VERSIONS)" },
+      ] },
+    ],
+    links: ["cli", "mcp", "cloud"],
   },
   {
     slug: "settings",

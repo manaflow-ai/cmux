@@ -43,6 +43,7 @@ WORKFLOW = ROOT / ".github/workflows/app-ffi-release.yml"
 REPIN_WORKFLOW = ROOT / ".github/workflows/app-ffi-repin.yml"
 sys.path.insert(0, str(ROOT / "tests"))
 import workflow_jobs  # noqa: E402
+from cmux_next_step_text import inline_steps  # noqa: E402
 from test_seed_derived_data import evaluate  # noqa: E402
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
@@ -1608,7 +1609,7 @@ class BuildSpeedAndSupersede(unittest.TestCase):
         # the grace 120).
         script = (ROOT / "scripts/cmux-next/publish-app-ffi-repin.sh").read_text()
         hold = int(re.search(r'pending_max_min="\$\{REPIN_PENDING_MAX_MIN:-(\d+)\}"', script).group(1))
-        checks = (ROOT / ".github/workflows/cmux-next.yml").read_text()
+        checks = inline_steps((ROOT / ".github/workflows/cmux-next.yml").read_text())
         grace = int(re.search(r"check-app-ffi-pin\.sh --verify-release --stale-grace (\d+)", checks).group(1)) // 60
         build = int(self.jobs["build"]["timeout-minutes"])
         self.assertLess(hold + build, grace, f"re-pin hold {hold} min + build {build} min vs pin grace {grace} min")
@@ -1717,6 +1718,36 @@ class WaitingBuildIsReplacedByTheNewestRun(unittest.TestCase):
         self.assertEqual(step["env"]["GH_TOKEN"], "${{ github.token }}")
         # The build does not wait on it: the placement's outputs come from the place step alone.
         self.assertNotIn("supersede", json.dumps(placement["outputs"]))
+
+
+class PortableUnitTests(unittest.TestCase):
+    def test_native_build_requires_linux_tests_even_when_placement_fails(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        self.assertIn("portable-tests", jobs["build"]["needs"])
+        for result in ("success", "failure", "skipped", "cancelled", ""):
+            with self.subTest(result=result):
+                context = {"github": {"ref": "refs/heads/feat-cmux-next"},
+                           "needs": {"placement": {"result": "failure"},
+                                     "portable-tests": {"result": result}}}
+                self.assertEqual(condition(jobs["build"]["if"], context, failed=True), result == "success")
+                self.assertFalse(condition(jobs["build"]["if"], context, failed=True, cancelled=True))
+
+    def test_same_locked_suites_run_on_linux_and_leave_the_mac(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        job = jobs["portable-tests"]
+        for attempt in (1, 3):
+            runner = evaluate(job["runs-on"], {"github": {"repository_owner": "manaflow-ai",
+                                                        "run_attempt": attempt}})
+            self.assertIn(runner, ("cmux-linux", "cmux-gcp-nightly-x64"))
+        self.assertFalse(job.get("continue-on-error", False))
+        suites = {(step.get("working-directory"), step.get("run"))
+                  for step in job["steps"] if step.get("run", "").startswith("cargo test")}
+        self.assertEqual(suites, {
+            ("cmux-tui", "cargo test -p cmux-layout-reducer --locked"),
+            ("cmux-tui/crates/cmux-rd-ffi", "cargo test --locked"),
+            ("cmux-tui", "cargo test -p cmux-palette-ranker --locked"),
+        })
+        self.assertFalse(any("cargo test" in step.get("run", "") for step in jobs["build"]["steps"]))
 
 
 class BuildGoesAheadOfThePullRequestQueue(unittest.TestCase):
