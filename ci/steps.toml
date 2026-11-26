@@ -1885,7 +1885,11 @@ job = "linux"
 timeout = 120
 title = "Phone connection notices"
 about = "a phone connection state waits QuietStatusGate's 10 s or carries an action (check-connection-notices.py)"
-inputs = ["cmux-next-ios/**", "scripts/cmux-next/check-connection-notices.py"]
+# Every surface the detector judges (its SURFACES, the bound's schema, its allowlist): a web or Mac change that adds an
+# offender fails on its own PR, not on the next phone PR (GitHubConnectCard.tsx from #56129 reddened every iOS PR).
+inputs = ["cmux-next-ios/**", "webviews/src/**", "Packages/macOS/CmuxNext/Sources/**", "Packages/iOS/**",
+          "schemas/notice-timing/**", "scripts/cmux-next/check-connection-notices.py",
+          "scripts/cmux-next/connection-notices-allowlist.tsv"]
 ignore = ["cmux-next-ios/verify/**", "**/*.md", "!cmux-next-ios/CmuxMobileKit/**/Resources/**",
           "!Packages/Shared/**/Resources/**", "!Packages/iOS/**/Resources/**"]
 run = '''
