@@ -15,20 +15,20 @@ struct CloudVMReferenceTests {
 
     @Test("a label shown by vm ls resolves to its machine id")
     func labelResolvesToID() {
-        #expect(CloudVMReference.resolve("probe-a", in: machines) == .id("vm-4be0afa3ef3fd95e026fe9ce10e48eb2"))
-        #expect(CloudVMReference.resolve("probe-b", in: machines) == .id("vm-b213b889e53596b3f79f4fc611d38e23"))
-        #expect(CloudVMReference.resolve("brave-otter", in: machines) == .id("vm-4be0afa3ef3fd95e026fe9ce10e48eb2"))
+        #expect(CloudVMReference("probe-a").resolve(in: machines) == .id("vm-4be0afa3ef3fd95e026fe9ce10e48eb2"))
+        #expect(CloudVMReference("probe-b").resolve(in: machines) == .id("vm-b213b889e53596b3f79f4fc611d38e23"))
+        #expect(CloudVMReference("brave-otter").resolve(in: machines) == .id("vm-4be0afa3ef3fd95e026fe9ce10e48eb2"))
     }
 
     @Test("an exact id wins over a label that happens to match")
     func idWins() {
         let clash = machines + [CloudVMReference.Candidate(id: "probe-a", displayName: nil, slug: nil)]
-        #expect(CloudVMReference.resolve("probe-a", in: clash) == .id("probe-a"))
+        #expect(CloudVMReference("probe-a").resolve(in: clash) == .id("probe-a"))
     }
 
     @Test("a label shared by two machines is ambiguous and names both ids")
     func ambiguousLabel() {
-        #expect(CloudVMReference.resolve("shared", in: machines) == .ambiguous([
+        #expect(CloudVMReference("shared").resolve(in: machines) == .ambiguous([
             "vm-e3a0747eaf59be2d40817c34b2c51c49",
             "vm-0f725dd3d5664d1d8c5e0a6f0b7c1e22",
         ]))
@@ -36,17 +36,17 @@ struct CloudVMReferenceTests {
 
     @Test("no exact match leaves the reference to the id path")
     func unmatched() {
-        #expect(CloudVMReference.resolve("probe", in: machines) == .unmatched)
-        #expect(CloudVMReference.resolve("PROBE-A", in: machines) == .unmatched)
-        #expect(CloudVMReference.resolve("", in: machines) == .unmatched)
+        #expect(CloudVMReference("probe").resolve(in: machines) == .unmatched)
+        #expect(CloudVMReference("PROBE-A").resolve(in: machines) == .unmatched)
+        #expect(CloudVMReference("").resolve(in: machines) == .unmatched)
     }
 
     @Test("only provider-shaped ids skip the vm list lookup")
     func idShape() {
-        #expect(CloudVMReference.looksLikeMachineID("vm-4be0afa3ef3fd95e026fe9ce10e48eb2"))
-        #expect(CloudVMReference.looksLikeMachineID("4be0afa3ef3fd95e026fe9ce10e48eb2"))
-        #expect(!CloudVMReference.looksLikeMachineID("probe-a"))
-        #expect(!CloudVMReference.looksLikeMachineID("vm-4be0afa3ef3fd95e026fe9ce10e48eb"))
-        #expect(!CloudVMReference.looksLikeMachineID("vm-4be0afa3ef3fd95e026fe9ce10e48ebz"))
+        #expect(CloudVMReference("vm-4be0afa3ef3fd95e026fe9ce10e48eb2").looksLikeMachineID)
+        #expect(CloudVMReference("4be0afa3ef3fd95e026fe9ce10e48eb2").looksLikeMachineID)
+        #expect(!CloudVMReference("probe-a").looksLikeMachineID)
+        #expect(!CloudVMReference("vm-4be0afa3ef3fd95e026fe9ce10e48eb").looksLikeMachineID)
+        #expect(!CloudVMReference("vm-4be0afa3ef3fd95e026fe9ce10e48ebz").looksLikeMachineID)
     }
 }

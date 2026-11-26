@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, setSystemTime, test } from "bun:test";
 import * as Clock from "effect/Clock";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import postgres, { type Sql } from "postgres";
@@ -9290,6 +9291,7 @@ describe("private SCP workflow", () => {
     let probes = 0;
     let resumed = false;
     let setups = 0;
+    const setupDone = Effect.runSync(Deferred.make<void>());
     const endpoint = { host: "10.1.2.3", port: 22, username: "cmux", hostPublicKey: "guest-key", expiresAtUnix: 123 };
     const layer = workflowLayer(testWorkflowRepo({ vm }), {
       ...unusedProviderGateway(),
@@ -9297,13 +9299,13 @@ describe("private SCP workflow", () => {
       resume: () => Effect.sleep(110_000).pipe(
         Effect.map(() => { resumed = true; return testVmHandle({ providerVmId: "vm-scp-slow-resume" }); }),
       ),
-      prepareSCP: () => Effect.sync(() => { setups++; return endpoint; }),
+      prepareSCP: () => Effect.sync(() => { setups++; return endpoint; }).pipe(Effect.tap(() => Deferred.succeed(setupDone, undefined))),
     });
     const { exit } = await settleOnTestClock(Effect.gen(function* () {
       const error = yield* prepareScpEndpoint({ userId: vm.userId, providerVmId: "vm-scp-slow-resume", publicKey: "client-key", callerPlanId: "pro" }).pipe(Effect.flip);
       const answeredAtMs = yield* Clock.currentTimeMillis;
-      // Keep the clock running past the resume, inside the route's 300 s maxDuration.
-      yield* Effect.sleep(250_000);
+      // The resume and setup keep running after the answer, inside the route's 300 s maxDuration.
+      yield* Deferred.await(setupDone);
       return { error, answeredAtMs };
     }).pipe(Effect.provide(layer)), { giveUpAtMs: 300_000 });
     expect(exit).not.toBeNull();

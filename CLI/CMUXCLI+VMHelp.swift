@@ -319,7 +319,7 @@ extension CMUXCLI {
     /// or a list that cannot be read, goes through as typed so the id path reports
     /// its own not-found error.
     func resolveVMReference(_ reference: String, client: SocketClient) throws -> String {
-        guard !CloudVMReference.looksLikeMachineID(reference),
+        guard !CloudVMReference(reference).looksLikeMachineID,
               let response = try? client.sendV2(method: "vm.list", responseTimeout: 60) else {
             return reference
         }
@@ -337,7 +337,7 @@ extension CMUXCLI {
                     slug: machine["slug"] as? String
                 )
             }
-        switch CloudVMReference.resolve(reference, in: machines) {
+        switch CloudVMReference(reference).resolve(in: machines) {
         case .id(let id):
             return id
         case .unmatched:

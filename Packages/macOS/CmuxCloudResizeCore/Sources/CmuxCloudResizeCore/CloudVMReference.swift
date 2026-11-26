@@ -5,7 +5,15 @@ import Foundation
 /// `cmux vm ls` prints a machine's display name, else its slug, else its id, while
 /// the Cloud API looks machines up by provider id only. Every verb resolves the
 /// typed reference against the listed machines with these rules.
-public enum CloudVMReference {
+public struct CloudVMReference: Equatable, Sendable {
+    /// The reference exactly as the user typed it.
+    public let text: String
+
+    /// Wraps a typed machine reference.
+    public init(_ text: String) {
+        self.text = text
+    }
+
     /// One listed machine, reduced to the fields a reference can match.
     public struct Candidate: Equatable, Sendable {
         /// Creates a candidate from a `vm.list` entry.
@@ -35,7 +43,8 @@ public enum CloudVMReference {
 
     /// An exact listed id wins; otherwise the single machine whose display name or
     /// slug equals the reference. Matching is exact and case-sensitive.
-    public static func resolve(_ reference: String, in machines: [Candidate]) -> Resolution {
+    public func resolve(in machines: [Candidate]) -> Resolution {
+        let reference = text
         guard !reference.isEmpty else { return .unmatched }
         if machines.contains(where: { $0.id == reference }) {
             return .id(reference)
@@ -54,8 +63,8 @@ public enum CloudVMReference {
     /// Whether the reference has the shape of a provider machine id (`vm-` followed
     /// by 32 lowercase hex digits, or the bare 32 digits), so the CLI can skip
     /// listing machines before sending it.
-    public static func looksLikeMachineID(_ reference: String) -> Bool {
-        let digits = reference.hasPrefix("vm-") ? reference.dropFirst(3) : Substring(reference)
+    public var looksLikeMachineID: Bool {
+        let digits = text.hasPrefix("vm-") ? text.dropFirst(3) : Substring(text)
         return digits.count == 32 && digits.allSatisfy { ("0"..."9").contains($0) || ("a"..."f").contains($0) }
     }
 }
