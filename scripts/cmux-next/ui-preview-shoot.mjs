@@ -47,7 +47,7 @@ async function ready(page, url, tryMs, boundMs) {
         const text = await page.evaluate(() => document.body.textContent ?? "").catch(() => "");
         throw Object.assign(new Error(`the frame failed: ${text.slice(0, 200)}`), { final: true });
       }
-      return;
+      return attempt;
     } catch (error) {
       if (error?.final) throw error;
       // A timeout, or a navigation vite's restart cut short (ERR_CONNECTION_RESET while
@@ -84,16 +84,18 @@ async function shoot(spec, out) {
         if (shot.variant) query.set("variant", shot.variant);
         const safe = shot.name.replace(/[^A-Za-z0-9._-]/g, "_");
         const file = shot.absent ? `absent.${safe}.png` : `${safe}.png`;
+        const started = Date.now();
+        let tries = 0;
         try {
           if (shot.absent) {
             // The entry is not in this checkout (the push adds or removes it): a card that says so, no frame.
             await page.setContent(absentCard(shot.entry, shot.absent, scheme));
           } else {
-            await ready(page, `${spec.base}frame.html?${query}`, spec.try_ms ?? 20_000, spec.bound_ms ?? 60_000);
+            tries = await ready(page, `${spec.base}frame.html?${query}`, spec.try_ms ?? 20_000, spec.bound_ms ?? 60_000);
           }
           await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 300)))));
           await page.screenshot({ path: path.join(out, file) });
-          return { name: shot.name, file };
+          return { name: shot.name, file, ms: Date.now() - started, tries };
         } catch (error) {
           return { name: shot.name, error: String(error).slice(0, 300) };
         } finally {

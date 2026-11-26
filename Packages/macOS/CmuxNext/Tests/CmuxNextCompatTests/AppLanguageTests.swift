@@ -171,5 +171,31 @@ struct AppLanguageTests {
         Bundle.deactivateLanguagePack()
         #expect(bundle.inAppLanguage === bundle)
     }
+
+    /// Every native string read resolves its bundle on the main thread (hq#22770: 2-4 s hangs in
+    /// `languagePackCopy`): the answer is cached, and a pack that becomes active or goes away is
+    /// read at once after the language hears of it.
+    @Test func theResolvedBundleIsCachedAndFollowsAPackChange() throws {
+        let scratch = try Scratch()
+        let name = "Cached-\(UUID().uuidString).bundle"
+        let bundle = try scratch.bundle(["en": Self.english], name: name)
+        let packRoot = scratch.root.appending(path: "pack", directoryHint: .isDirectory)
+        let packCopy = try scratch.bundle(["ja": ["greeting": "こんにちは"]], name: name, in: packRoot)
+        defer { Bundle.deactivateLanguagePack() }
+        let language = AppLanguage()
+        language.adopt(bundle)
+        #expect(bundle.languagePackCopy == nil)
+        #expect(bundle.inAppLanguage === bundle)
+        #expect(bundle.inAppLanguage === bundle.inAppLanguage)
+
+        Bundle.activateLanguagePack(root: packRoot)
+        language.languagePackChanged()
+        #expect(bundle.languagePackCopy?.bundleURL.standardizedFileURL == packCopy.bundleURL.standardizedFileURL)
+        #expect(bundle.inAppLanguage === bundle.languagePackCopy)
+        Bundle.deactivateLanguagePack()
+        language.languagePackChanged()
+        #expect(bundle.languagePackCopy == nil)
+        #expect(bundle.inAppLanguage === bundle)
+    }
 }
 #endif
