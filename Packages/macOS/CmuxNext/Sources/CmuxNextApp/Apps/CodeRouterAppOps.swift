@@ -1,0 +1,88 @@
+import CmuxNextApps
+import CmuxNextCodeRouter
+import CmuxNextControl
+import CmuxNextSettings
+import Foundation
+
+/// The `coderouter.*` ops of the first-party CodeRouter app, mapped onto the
+/// existing control methods (`accounts.list`, `coderouter.accounts.list`,
+/// `coderouter.machines`). Account rows reach the app only through those
+/// socket methods, so the account privacy rule of the socket (opaque `acct_`
+/// handles, no email; PR 17063) applies to apps too; `redact` is a second
+/// guard that shortens any email-shaped string before it leaves this handler.
+/// Ops without a backing method answer `operation.unsupported`, which the app
+/// shows as "Not available in this build".
+nonisolated struct CodeRouterAppOps: AppHostCapabilityHandler {
+    /// Runs one control method in process with the app op's origin.
+    let control: @Sendable (_ method: String, _ params: [String: JSONValue]) async throws(AppHostCapabilityError) -> JSONValue
+    /// The React CodeRouter page (``CodeRouterPageProvider``) reads `coderouter.detect` as
+    /// `{providers: <accounts.list rows>}` with phase, links and connect state; the
+    /// first-party app reads the documented `Detected[]`.
+    var pageShapes = false
+
+    var families: Set<String> { ["coderouter"] }
+
+    func handle(_ request: AppHostCapabilityRequest) async throws(AppHostCapabilityError) -> AppJSON {
+        var params: [String: JSONValue] = ["origin": .string(request.origin)]
+        if let team = request.params["team"]?.stringValue { params["teamId"] = .string(team) }
+        switch request.op {
+        case "coderouter.status":
+            let accounts = try await control("accounts.list", params)
+            let signedIn = accounts["signed_in"]?.boolValue ?? false
+            return [
+                "signed_in": .bool(signedIn),
+                "refreshing": .bool(accounts["refreshing"]?.boolValue ?? false),
+                "scope": signedIn ? "personal" : .null,
+                "health": signedIn ? "ok" : "signed_out",
+            ]
+        case "coderouter.detect":
+            // Presence-only detection of this Mac's sign-ins (no cmux account needed); the rows
+            // carry `acct_` handles and redacted labels, and `redact` shortens any email again.
+            // The answer is the app's `Detected[]` (first-party-apps/coderouter/README.md): one row per provider.
+            let accounts = try await control("accounts.list", params)
+            let rows = AppJSON(accounts["providers"] ?? .array([]))
+            if pageShapes { return Self.redact(["providers": rows]) }
+            return Self.redact(.array((rows.arrayValue ?? []).map(Self.detected)))
+        case "coderouter.accounts.list":
+            // The control plane answers `{accounts: [...]}`; the app's `Account[]` is the list.
+            let reply = AppJSON(try await control("coderouter.accounts.list", params))
+            return Self.redact(reply["accounts"] ?? .array([]))
+        case "coderouter.usage.get":
+            return Self.redact(AppJSON(try await control("coderouter.machines", params)))
+        default:
+            throw .unsupported(request.op)
+        }
+    }
+
+    /// One `accounts.list` provider row as the app's `Detected` row:
+    /// presence only (`status` signed_in, expired, missing or unknown;
+    /// no detection is missing), the `acct_` handle and redacted label, and
+    /// the first place it was found.
+    static func detected(_ row: AppJSON) -> AppJSON {
+        .object([
+            "provider": row["provider"] ?? .null,
+            "name": row["name"] ?? .null,
+            "status": row["status"]?.stringValue.map(AppJSON.string) ?? .string("missing"),
+            "account": row["account"] ?? .null,
+            "label": row["label"] ?? .null,
+            "plan": row["plan"] ?? .null,
+            "linkable": .bool(row["linkable"]?.boolValue ?? false),
+            "source": row["sources"]?.arrayValue?.first ?? .null,
+        ])
+    }
+
+    /// Shortens every email-like string, keys included, with the shared
+    /// account redactor (any run holding `@`, `＠`, `﹫`, `%40` or `%2540`).
+    /// Two keys that shorten to the same text keep the first value instead of
+    /// trapping.
+    static func redact(_ value: AppJSON) -> AppJSON {
+        switch value {
+        case .string(let text): .string(text.redactingEmails())
+        case .array(let items): .array(items.map(redact))
+        case .object(let fields):
+            .object(Dictionary(fields.sorted { $0.key < $1.key }.map { ($0.key.redactingEmails(), redact($0.value)) },
+                               uniquingKeysWith: { first, _ in first }))
+        default: value
+        }
+    }
+}
