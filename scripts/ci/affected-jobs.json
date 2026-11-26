@@ -189,6 +189,7 @@
       ".github/workflows/cmux-tui-spec.yml": {
         "acpmux-tests": "9 runs on 28 merged pull requests (their check runs, 11-15 to 11-23; the router skipped it on 20 more), 0 with a red, 0 of them the pull request's own; the timing feed for 11-13Z on 2026-11-23 has 111 runs on 96 open pull requests, 2,611 job-minutes (1,288 success, 554 failure, 769 cancelled, many at the 40 min cap), and of 14 reds sampled about 3 were the pull request's own (#52025, #52008, #47706): Tier B, fixed forward on the push; the post-merge batch (suite cmux-tui-spec) runs it. Off: repository variable ACPMUX_TESTS_ON_PULL_REQUESTS=on",
         "acpmux-sim": "9 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 98 job-minutes",
+        "remote-web-wasm": "58 runs on 36 merged pull requests (89 merged 11-26 20:00-22:30Z, timing feed), 1 with a red, 0 of them the pull request's own (#59432: runner SIGABRT in cc); 47 job-minutes on those, and 767 pull request runs, 619 job-minutes in the window; the post-merge batch (suite cmux-tui-spec) runs it",
         "clippy": "19 runs on 52 merged pull requests, 3 with a red, 3 of them the pull request's own (#45801, #46459, #46676): Tier B, fixed forward on the push; 414 job-minutes",
         "inventory": "18 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 62 job-minutes",
         "api-compat": "16 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 28 job-minutes",

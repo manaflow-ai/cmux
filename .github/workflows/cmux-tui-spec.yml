@@ -1354,7 +1354,11 @@ jobs:
   remote-web-wasm:
     name: cmux remote web wasm
     needs: changes
-    if: ${{ (inputs.only == '' || inputs.only == 'remote-web-wasm') && (!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true')) }}
+    # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request into
+    # feat-cmux-next skips it unless labeled full-ci; the post-merge batch runs it. 11-26 20:00-22:30Z: 58 runs on 36
+    # merged pull requests, 0 reds their own; 767 pull request runs, 619 runner-min in the window.
+    # Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period."
+    if: ${{ (inputs.only == '' || inputs.only == 'remote-web-wasm') && (!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true')) && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
     steps:
