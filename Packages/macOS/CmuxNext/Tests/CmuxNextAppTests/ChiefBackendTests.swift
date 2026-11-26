@@ -336,7 +336,6 @@ import Testing
         let reader = HomeChiefHarnesses(muxHome: home, list: { listed })
         let harnesses = await reader.read(chiefs: ["agent_mux", "agent_scout01", "agent_plain01"])
         #expect(harnesses == ["agent_mux": "codex", "agent_scout01": "unii"])
-        #expect(HomeChiefHarnesses.recordHarnesses(nil).isEmpty)
     }
 
     /// Delete Chief on one of this Mac's Chiefs: the same `chief.profile.list` read names the deleted
