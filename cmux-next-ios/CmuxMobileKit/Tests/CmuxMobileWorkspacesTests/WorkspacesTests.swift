@@ -746,6 +746,21 @@ import SwiftUI
         #expect(store.lastTabByWorkspace["ws-cmux"] == id)
     }
 
+    /// Leo, 2026-11-25: "the top area is black and has no background nor theming". The band
+    /// behind the top bar over a terminal is the terminal's ground, never the kit's black;
+    /// other pages keep the kit's band.
+    @Test func aTerminalsTopBarBandIsItsPagesGround() throws {
+        let (_, source) = make()
+        let tabs = Dictionary(uniqueKeysWithValues: source.tabs.map { ($0.id, $0) })
+        let terminal = try #require(tabs["t-zsh"])
+        #expect(source.topBarGround(for: terminal) != nil, "a terminal's band shows its ground")
+        #expect(tabs["t-claude"].flatMap { source.topBarGround(for: $0) } == nil)
+        #expect(tabs["t-docs"].flatMap { source.topBarGround(for: $0) } == nil)
+        // The ground's color is the terminal theme's background, as the page under the bar.
+        let theme = CmuxMobileTerminalThemes.shared.theme(for: source.workspace?.macID) ?? .stock
+        #expect(TerminalPageGround.background(macID: source.workspace?.macID) == theme.backgroundColor)
+    }
+
     @Test func tabsMapToTabsKitChrome() {
         let (_, source) = make()
         let tabs = Dictionary(uniqueKeysWithValues: source.tabs.map { ($0.id, $0) })
