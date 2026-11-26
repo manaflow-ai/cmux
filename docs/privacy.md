@@ -142,7 +142,6 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `cmux-api-staging.debussy.workers.dev` | connects | cmux API on staging, only when chosen |
 | `cmux-device-hub-dev.debussy.workers.dev` | connects | the device hub in development builds |
 | `cmux-device-hub.debussy.workers.dev` | connects | the device hub: pairing and screen sharing between your devices (production) |
-| `cmux-lawrences-mac-mini.tail137216.ts.net` | connects | a team machine's model router, only on a cmux team member's tailnet; nobody else can reach it |
 | `cmux-mobile-api-dev.debussy.workers.dev` | connects | the iPhone pairing API in development builds |
 | `cmux-platform-development.debussy.workers.dev` | connects | cmux Cloud platform API in development builds |
 | `cmux-platform-production.debussy.workers.dev` | connects | cmux Cloud services on our hosting provider (production): platform API |
