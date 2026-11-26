@@ -1,0 +1,12 @@
+/* Chat colors follow the profile's page and ink. Quick transitions and transcript
+   folds use the reference's 150 ms timing when motion is enabled. */
+:root {
+  --cv-text: var(--agent-text);
+  --cv-text-muted: color-mix(in srgb, var(--agent-text) 62%, var(--agent-page-bg));
+  --cv-activity-text: var(--cv-text-muted);
+  --cv-user-bubble-tint: color-mix(in srgb, var(--agent-text) 6%, var(--agent-page-bg));
+  --cv-user-bubble-text: var(--agent-text);
+  --cv-link: var(--agent-link);
+  --cmux-motion-quick: 150ms;
+  --cmux-motion-settle: 150ms;
+}
