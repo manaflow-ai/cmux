@@ -2644,6 +2644,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CCmuxAppFFI",
                 "CmuxNextActions",
                 "CmuxNextCompat",
+                // CmuxNextDaemon: Search All Windows reads terminal text from daemons (TerminalTextSearch).
+                "CmuxNextDaemon",
                 "CmuxNextDesign",
                 "CmuxNextSignposts",
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
