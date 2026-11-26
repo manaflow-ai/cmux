@@ -105,6 +105,10 @@ path = "tests/test_cargo_test_verdict.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cas_derived_data_replay.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cas_web_ota_replay.py"
 lane = "linux-guard"
 
