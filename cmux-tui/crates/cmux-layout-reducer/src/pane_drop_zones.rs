@@ -351,13 +351,14 @@ impl Screen {
                 Some(Target::Pane { pane, zone }) if pane == index => Some(zone),
                 _ => None,
             };
-            let pane = &self.panes[index];
-            zone(x, y, cell, self.header(pane), self.footer(pane), &self.style, shown)
+            // Every candidate's index names one of `self.panes`.
+            let pane = self.panes.get(index)?;
+            Some(zone(x, y, cell, self.header(pane), self.footer(pane), &self.style, shown))
         };
         if let Some((index, cell, _)) =
             candidates.iter().find(|(_, _, visible)| visible.contains(x, y))
         {
-            return Some(Target::Pane { pane: *index, zone: resolve(x, y, *index, cell) });
+            return Some(Target::Pane { pane: *index, zone: resolve(x, y, *index, cell)? });
         }
         let mut nearest: Option<(&(usize, Rect, Rect), f64)> = None;
         for candidate in candidates {
@@ -368,7 +369,7 @@ impl Screen {
         }
         let ((index, cell, visible), _) = nearest?;
         let (cx, cy) = visible.clamp(x, y);
-        Some(Target::Pane { pane: *index, zone: resolve(cx, cy, *index, cell) })
+        Some(Target::Pane { pane: *index, zone: resolve(cx, cy, *index, cell)? })
     }
 
     /// The drop target under a content-space point: a column gap first (so
