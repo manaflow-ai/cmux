@@ -202,6 +202,13 @@ motion), and the session looks. To open it, from `webviews`: `bun run gallery:de
 it (a static build, the live tailnet gallery) are in
 [`gallery/ENTRIES.md`](../gallery/ENTRIES.md#seeing-it).
 
+To capture the controls, surfaces, motion presets and open cards in both themes, run this from
+`webviews/` in a checkout with the gallery’s Playwright browser installed:
+
+```sh
+CMUX_CAPTURE_BUILD=1 bun scripts/gallery/capture-states.mjs scripts/gallery/kit.capture.json /tmp/cmux-kit-gallery
+```
+
 ## Related
 
 - Glass: [`docs/cmux-next/glass.md`](../../../docs/cmux-next/glass.md), the levels and how `Glass` and a
