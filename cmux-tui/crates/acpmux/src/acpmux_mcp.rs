@@ -145,12 +145,16 @@ pub(crate) fn tools() -> Value {
 }
 
 /// The tools a chat calls in most turns, marked `_meta["anthropic/alwaysLoad"]` so Claude Code
-/// puts their schemas in the prompt instead of deferring them behind ToolSearch. Measured on
-/// fs-agent-lane-7 in the 24 h to 2026-11-23T11:00Z: 147 ToolSearch calls, each a whole round
-/// trip, and these six were 107 of the names they loaded (wrap_up 35, bg_output 21, who_else 20,
-/// bg_start 16, inbox_read 11, inbox_reply 4). Their schemas cost a few KB of cached prompt.
-pub(crate) const ALWAYS_LOADED: [&str; 6] =
-    [wrap_up::NAME, who_else::NAME, "bg_start", "bg_output", "inbox_read", "inbox_reply"];
+/// puts their schemas in the prompt instead of deferring them behind ToolSearch. A schema here
+/// costs its tokens on every request; a deferred one costs one ToolSearch round trip (about a
+/// whole context) in each session that calls it, so a tool stays only while
+/// sessions calling it × context < its tokens × requests. Measured on gcp-agent-lane-4 in the
+/// 24 h to 2026-11-26T12:00Z (351 sessions, 142.9k requests, median context 73k): wrap_up was
+/// called in 197 sessions, bg_start 240, bg_output 229; who_else (129 sessions, 596 tokens),
+/// inbox_read (93, 417) and inbox_reply (90, 424) cost 206M tokens/day loaded against ~23M
+/// deferred, so they went behind ToolSearch (cut 1 of cmuxterm-hq
+/// goals/agents-most-lane-tokens-land-prs.md).
+pub(crate) const ALWAYS_LOADED: [&str; 3] = [wrap_up::NAME, "bg_start", "bg_output"];
 
 /// What `tools/list` answers: [`tools`], and the artifact tools when this daemon has a cmux
 /// sign-in for them (`artifacts::advertised`).
