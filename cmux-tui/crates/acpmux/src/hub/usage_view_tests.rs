@@ -277,6 +277,18 @@ async fn a_claude_sr2_chat_is_read_as_claude_code() {
     assert_eq!(transcript_family("gemini"), None);
 }
 
+/// Every turn's end reads its chat's usage: the catalog's prices are built once for the catalog
+/// in use, not again per read, and are the ones a fresh build gives.
+#[tokio::test]
+async fn the_usage_prices_are_built_once_per_catalog() {
+    let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+    let first = hub.usage_models();
+    let again = hub.usage_models();
+    assert!(Arc::ptr_eq(&first, &again));
+    let fresh = Models::from_catalog(&hub.catalog.current());
+    assert_eq!(format!("{first:?}").len(), format!("{fresh:?}").len());
+}
+
 /// A reviewer on codex-review-box (`family = "codex-review-box"`) is read as Codex, from the
 /// home its profile keeps for that chat alone (`ACPMUX_CODEX_HOMES_PER_CHAT`): the box binds
 /// `<folder>/<chat id>/sessions` of the host's, so its rollout is there and nowhere else.
