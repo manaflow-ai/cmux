@@ -12,7 +12,7 @@ set -euo pipefail
   printf '<!-- cmux-published-sha: %s -->\n' "$BUILD_SHA"
   printf "Automated %s build for \`%s\` from \`%s\`.\n" "$CHANNEL" "$BUILD_SHORT_SHA" "$REF_NAME"
   printf "Published commit: \`%s\`.\n" "$BUILD_SHA"
-  printf "Built at the commit whose cmux-tui tree is published (app and daemon from one commit); branch tip \`%s\`, %s commits and %s h behind it.\n" "$TIP_SHA" "$BEHIND" "$BEHIND_HOURS"
+  printf "Branch tip \`%s\`; the build commit is %s commits and %s h behind it. The bundled cmux-tui daemon is in cmux.app/Contents/Resources/bin/cmux-tui.version: its tree is the build commit's, or an older commit's (tree_from=) when that tree was not published.\n" "$TIP_SHA" "$BEHIND" "$BEHIND_HOURS"
   printf '%s\n' "$DOWNLOADS"
   # nightly-next only: the PRs since the previous published build (notes step).
   if [ -s "$RUNNER_TEMP/nightly-prs.md" ]; then

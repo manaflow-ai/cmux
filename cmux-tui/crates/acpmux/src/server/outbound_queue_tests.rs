@@ -526,3 +526,4 @@ async fn a_set_window_bounds_the_bulk_bytes_in_the_transport() {
         assert!(rx.len() <= 2, "past the window: {}", rx.len());
     }
 }
+mod stall_check_order;

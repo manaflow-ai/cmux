@@ -5,6 +5,10 @@ use cmux_cloud_start_core::machine_bootstrap::ExecAnswer;
 
 use super::*;
 
+fn no_mint(_: &MintSource, _: &MintSpec, _: bool) -> Result<Secret, String> {
+    panic!("an auth key is never minted")
+}
+
 fn words(text: &str) -> Vec<String> {
     text.split_whitespace().map(str::to_owned).collect()
 }
@@ -53,7 +57,7 @@ fn said(text: &str) -> ExecAnswer {
 #[test]
 fn a_join_writes_the_key_0600_runs_detached_and_reads_the_node() {
     let args = parse_join(&words("vm_1 --key-stdin --hostname box --ssh")).unwrap();
-    let checked = checked(args, |_| Ok("tskey-auth-SECRET\n".to_owned())).unwrap();
+    let checked = checked(args, |_| Ok("tskey-auth-SECRET\n".to_owned()), no_mint).unwrap();
     let mut guest = FakeGuest {
         answers: [
             said("prepared\n"),
@@ -76,7 +80,7 @@ fn a_join_writes_the_key_0600_runs_detached_and_reads_the_node() {
 #[test]
 fn another_tailnet_and_failures_come_back_as_words() {
     let args = parse_join(&words("vm_1 --key-stdin")).unwrap();
-    let checked = checked(args, |_| Ok("tskey-auth-a".to_owned())).unwrap();
+    let checked = checked(args, |_| Ok("tskey-auth-a".to_owned()), no_mint).unwrap();
     let mut guest = FakeGuest {
         answers: [
             said("prepared\n"),
@@ -118,4 +122,200 @@ fn a_joined_vm_is_not_copied_until_it_leaves() {
     write_record(&env, &record);
     let refusal = refuse_clone_of_joined("vm_1", &env).unwrap();
     assert!(refusal.contains("cmux vm tailnet leave vm_1"), "{refusal}");
+}
+
+const NODE_JSON: &str = "{\"BackendState\":\"Running\",\"Self\":{\"DNSName\":\"leo-cmux.tail1.ts.net.\",\"TailscaleIPs\":[\"100.64.0.2\"],\"Tags\":[\"tag:cmux\"],\"Online\":true}}";
+
+fn fake(answers: Vec<ExecAnswer>) -> FakeGuest {
+    FakeGuest { answers: answers.into(), writes: Vec::new(), commands: Vec::new() }
+}
+
+#[test]
+fn move_words_parse() {
+    let (from, to, timeout) = parse_move(&words("vm_a vm_b --timeout 30")).unwrap();
+    assert_eq!((from.as_str(), to.as_str(), timeout), ("vm_a", "vm_b", Duration::from_secs(30)));
+    assert!(parse_move(&words("vm_a")).is_err());
+    assert!(parse_move(&words("vm_a vm_a")).is_err());
+    assert!(parse_move(&words("vm_a vm_b --key x")).is_err());
+}
+
+#[test]
+fn a_move_stops_the_old_holder_first_hands_the_state_0600_and_forgets_it() {
+    let mut from = fake(vec![
+        said("cmux-tailnet-stopped-at 1000\ncmux-tailnet-state c3RhdGU=\ncmux-tailnet-released\n"),
+        said("cmux-tailnet-forgot\n"),
+    ]);
+    let mut to = fake(vec![
+        said("prepared\n"),
+        said("started\n"),
+        said("rc=\n"),
+        said(&format!(
+            "rc=0\ncmux-tailnet-online-at 1800\ncmux-tailnet-joined {NODE_JSON}\ncmux-tailnet-stderr\n"
+        )),
+    ]);
+    let node = move_node(&mut from, &mut to, Duration::from_secs(60)).unwrap();
+    assert_eq!(node["dnsName"], "leo-cmux.tail1.ts.net");
+    assert_eq!(node["gapMs"], 800);
+    assert_eq!(node["oldCopyDeleted"], true);
+    // The adopt script is in place before the old holder stops; the state goes 0600.
+    assert_eq!(to.writes[0].0, SCRIPT_FILE);
+    let state =
+        to.writes.iter().find(|w| w.0 == cmux_tailnet_join::handoff::STAGED_STATE_FILE).unwrap();
+    assert_eq!((state.1.as_slice(), state.2), (&b"c3RhdGU=\n"[..], 0o600));
+    assert!(from.commands[0].contains("pkill -x tailscaled"));
+    assert!(from.commands[1].contains("cmux-tailnet-forgot"));
+    // The state never shows in the result.
+    assert!(!node.to_string().contains("c3RhdGU="));
+}
+
+#[test]
+fn a_failed_adopt_restarts_the_node_on_the_old_holder() {
+    let mut from = fake(vec![
+        said("cmux-tailnet-state c3RhdGU=\ncmux-tailnet-released\n"),
+        said("cmux-tailnet-restored\n"),
+    ]);
+    let mut to = fake(vec![
+        said("prepared\n"),
+        said("started\n"),
+        said(
+            "rc=3\ncmux-tailnet-stderr\ncmux-tailnet: the node did not come online on this machine\n",
+        ),
+    ]);
+    let error = move_node(&mut from, &mut to, Duration::from_secs(60)).unwrap_err();
+    assert!(error.contains("did not come online"), "{error}");
+    assert!(error.contains("back on the old VM"), "{error}");
+    assert!(from.commands[1].contains("cmux-tailnet-restored"));
+    assert!(!from.commands.iter().any(|c| c.contains("cmux-tailnet-forgot")));
+}
+
+#[test]
+fn a_move_from_a_vm_with_no_node_changes_nothing() {
+    let mut from = fake(vec![ExecAnswer {
+        exit_code: 3,
+        stdout: String::new(),
+        stderr: "cmux-tailnet: no node state on this machine".to_owned(),
+    }]);
+    let mut to = fake(vec![said("prepared\n")]);
+    let error = move_node(&mut from, &mut to, Duration::from_secs(60)).unwrap_err();
+    assert!(error.contains("no node state"), "{error}");
+    assert_eq!(from.commands.len(), 1);
+    assert!(!to.commands.iter().any(|c| c.contains("started")));
+}
+
+#[test]
+fn an_oauth_client_is_traded_on_the_mac_and_only_the_minted_key_goes_to_the_vm() {
+    let args = parse_join(&words("vm_1 --key-stdin --oauth --tag cmux --ephemeral")).unwrap();
+    let mut asked = None;
+    let checked = checked(
+        args,
+        |_| Ok("tskey-client-kID-LONGLIVED\n".to_owned()),
+        |source, spec, _| {
+            asked = Some((source.clone(), spec.clone()));
+            Ok(Secret::new("tskey-auth-ONEUSE"))
+        },
+    )
+    .unwrap();
+    let (source, spec) = asked.unwrap();
+    assert!(matches!(source, MintSource::TailscaleOauth { .. }));
+    assert!(spec.ephemeral);
+    // Raw here; mint_key's check_source gives each tag its tag:NAME form before any call.
+    assert_eq!(spec.tags, ["cmux"]);
+    assert_eq!(checked.key_file_contents(), "tskey-auth-ONEUSE");
+    let script = cmux_tailnet_join::vm_join_script(&checked);
+    assert!(!script.contains("LONGLIVED"));
+}
+
+#[test]
+fn an_oauth_client_without_tags_is_refused_before_any_call() {
+    let args = parse_join(&words("vm_1 --key-stdin --oauth")).unwrap();
+    let error = checked(args, |_| Ok("tskey-client-kID-x".to_owned()), no_mint).unwrap_err();
+    assert!(error.contains("tag"), "{error}");
+}
+
+#[test]
+fn a_headscale_api_key_mints_for_its_server_and_user() {
+    assert!(parse_join(&words("vm_1 --key-stdin --headscale-api --headscale-user 1")).is_err());
+    assert!(
+        parse_join(&words("vm_1 --key-stdin --headscale-api --login-server https://h")).is_err()
+    );
+    assert!(parse_join(&words("vm_1 --key-stdin --oauth --headscale-api")).is_err());
+    let args = parse_join(&words(
+        "vm_1 --key-stdin --headscale-api --login-server http://127.0.0.1:8080 --headscale-user 1 --allow-http",
+    ))
+    .unwrap();
+    let checked = checked(
+        args,
+        |_| Ok("hsapikey".to_owned()),
+        |source, _, allow_http| {
+            assert!(allow_http);
+            assert_eq!(
+                *source,
+                MintSource::Headscale {
+                    server: "http://127.0.0.1:8080".into(),
+                    api_key: Secret::new("hsapikey"),
+                    user: "1".into()
+                }
+            );
+            Ok(Secret::new("minted"))
+        },
+    )
+    .unwrap();
+    assert_eq!(checked.key_file_contents(), "minted");
+}
+
+#[test]
+fn mint_key_needs_out_and_a_mint_kind_and_never_overwrites() {
+    assert!(parse_mint(&words("--key-stdin --oauth --tag x")).is_err());
+    assert!(parse_mint(&words("--key-stdin --out /tmp/k")).is_err());
+    let (args, out) = parse_mint(&words("--key-stdin --oauth --tag x --out /tmp/k")).unwrap();
+    assert!(args.oauth);
+    assert_eq!(out, PathBuf::from("/tmp/k"));
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("key");
+    write_new_key_file(&path, &Secret::new("k1")).unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "k1");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(dir.path().join("elsewhere"), &link).unwrap();
+        assert!(write_new_key_file(&link, &Secret::new("k2")).is_err());
+        assert!(!dir.path().join("elsewhere").exists());
+    }
+    assert!(write_new_key_file(&path, &Secret::new("k2")).is_err());
+}
+
+#[test]
+fn form_fields_are_escaped() {
+    assert_eq!(form_escape("a b&c=d+e"), "a%20b%26c%3Dd%2Be");
+}
+
+/// Seeded secrets on the wire (cmux_egress::capture): the OAuth client secret rides only in the Tailscale token
+/// call's form body, and a Headscale API key only in `Authorization` to the server the person named.
+/// tests/egress_seeded.json names this test for the `cmux_tui::vm_tailnet` gate site.
+#[test]
+fn seeded_credentials_ride_only_to_the_server_that_mints() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    cmux_egress::capture::install().unwrap();
+    let oauth = Secret::new("tskey-client-SEEDid42-SEEDtailscaleOauthSecret8f3a");
+    let api_key = Secret::new("SEEDheadscaleApiKey-5d2c");
+    let _ = send(&mint::tailscale_token_call(&oauth).unwrap());
+    let server = "https://headscale.seeded-person.example.org";
+    cmux_egress::allow_named(server);
+    let spec = MintSpec { ephemeral: true, tags: Vec::new() };
+    let _ = send(&mint::headscale_key_call(server, &api_key, "7", &spec, 1_700_000_000));
+
+    assert_eq!(cmux_egress::capture::requests_to("api.tailscale.com").len(), 1);
+    assert_eq!(cmux_egress::capture::requests_to("headscale.seeded-person.example.org").len(), 1);
+    let places = cmux_egress::capture::leaks("SEEDtailscaleOauthSecret8f3a");
+    assert_eq!(places, vec!["api.tailscale.com POST /api/v2/oauth/token: body".to_owned()]);
+    let places = cmux_egress::capture::leaks("SEEDheadscaleApiKey-5d2c");
+    assert_eq!(
+        places,
+        vec![
+            "headscale.seeded-person.example.org POST /api/v1/preauthkey: header authorization"
+                .to_owned()
+        ]
+    );
 }
