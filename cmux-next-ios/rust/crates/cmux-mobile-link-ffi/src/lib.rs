@@ -45,6 +45,7 @@ mod terminal_prediction;
 mod terminal_projection;
 mod window_layout;
 mod workspace_groups;
+mod workspace_moves;
 
 pub use auto_chats::{
     AutoChat, AutoChatError, AutoChats, AutoHttp, AutoHttpError, AutoHttpReply, AutoHttpRequest,
