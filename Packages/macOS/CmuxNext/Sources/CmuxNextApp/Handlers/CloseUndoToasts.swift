@@ -271,7 +271,7 @@ final class CloseUndoToasts {
             let entry = entries[index]
             recentDaemonItems.append((id, entry?.item.paneID?.rawValue, entry?.item.tabs.count ?? 0, matched.indices.contains(index) && matched[index]))
         }
-        if recentDaemonItems.count > 8 { recentDaemonItems.removeFirst(recentDaemonItems.count - 8) }
+        recentDaemonItems.removeFirst(min(recentDaemonItems.count, WindowRules().recentOverflow(recentDaemonItems.count))) // handlers_close_recent_overflow
         // Every record of a gesture is in: show its toast (a costly close) or drop it.
         for close in settled {
             guard let gesture = gestures.removeValue(forKey: close.token), close.shows else { continue }
@@ -303,8 +303,7 @@ final class CloseUndoToasts {
             tabs = total
             action = reopen
         }
-        let message = tabs > 1 ? MiscHandlerStrings.tabsClosed(tabs)
-            : MiscHandlerStrings.tabClosed(title.isEmpty ? MiscHandlerStrings.untitledTab : title)
+        let message = WindowRules().toastMessage(tabs: tabs, title: title).text(tabsClosed: MiscHandlerStrings.tabsClosed, tabClosed: MiscHandlerStrings.tabClosed, untitled: MiscHandlerStrings.untitledTab) // handlers_close_toast_message
         let handle = toasts.show(CmuxToast(id: Self.toastID, message: message, action: .undo()), in: window)
         handle.onAction = action
         shown = Shown(handle: handle, window: window, tabs: tabs, reopen: action)

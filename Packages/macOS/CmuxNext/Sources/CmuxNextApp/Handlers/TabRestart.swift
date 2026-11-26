@@ -37,9 +37,9 @@ enum TabRestart {
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
         registry.bind(action, unavailable: ctx.needs(DaemonCapability.tabRestart.rawValue), invoke: { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation) else { return }
-            switch refusal(tab) {
-            case (nil, true): break
-            case ("notATerminal"?, _): return ctx.refuse(RefusalStrings.notATerminal)
+            switch WindowRules().restartStep(refusal(tab)) { // handlers_close_restart_step
+            case "restart": break
+            case "refuseNotATerminal": return ctx.refuse(RefusalStrings.notATerminal)
             default: return ctx.refuse(RefusalStrings.tabNotDead)
             }
             let surface = tab.surface

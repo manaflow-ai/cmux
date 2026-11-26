@@ -31,12 +31,10 @@ enum DaemonClosedHistory {
     }
 
     /// The id a history list gives a daemon-recorded item (`HistoryService`).
-    static func historyID(_ id: String) -> String { "daemon:" + id }
+    static func historyID(_ id: String) -> String { WindowRules().historyID(id) } // handlers_close_history_id
 
     /// The daemon item id of a history list id, nil for the app's trackers.
-    static func daemonID(fromHistoryID id: String) -> String? {
-        id.hasPrefix("daemon:") ? String(id.dropFirst("daemon:".count)) : nil
-    }
+    static func daemonID(fromHistoryID id: String) -> String? { WindowRules().daemonID(fromHistoryID: id) } // handlers_close_daemon_id
 
     /// `closed` (newest first, each as its item and machine) with a page closed again once, at its
     /// newest close: Recently Closed and Search Tabs list a page once. The rule is Rust's
@@ -141,29 +139,30 @@ enum DaemonClosedHistory {
             } catch {
                 daemon.logger.error("closed.reopen failed: \(String(describing: error), privacy: .public)")
                 services.cache.pageRequests.closedHistories.drop(item)
-                if item.kind == .workspace, item.group == nil,
-                   case DaemonError.command(_, _, let code, _, _) = error, code == "resource.not_found" {
+                if WindowRules().reopenFailure(kind: item.kind.rawValue, grouped: item.group != nil, code: errorCode(error)) == "noRecentlyClosedWorkspace" { // handlers_close_reopen_failure
                     services.registry.refuse(RefusalStrings.noRecentlyClosedWorkspace)
                     return ActionWorkFailure(refusal: .unavailable, reason: RefusalStrings.noRecentlyClosedWorkspace)
                 }
                 return "closed.reopen: \(error)"
             }
+            let tabInPane = item.kind == .tab && reopened.tabIDs.first != nil && pane.flatMap { services.paneController(for: $0) } != nil
+            let shows = WindowRules().reopenShow(kind: item.kind.rawValue, grouped: item.group != nil, tabInPane: tabInPane) // handlers_close_reopen_show
             // A reopened workspace group forms again in the sidebar; no window changes what it shows.
-            if item.group != nil { return nil }
+            if shows == "nothing" { return nil }
             // A closed window: the app shows it again with the workspaces it kept.
-            if item.kind == .window {
-                let windowID = reopened.window?.split(separator: "/", maxSplits: 1).last.map(String.init)
+            if shows == "window" {
+                let windowID = reopened.window.map { WindowRules().recordWindow($0) } // handlers_close_record_window
                 if let windowID, services.windows.reopenClosedWindow(id: windowID) { return nil }
                 let reason = RefusalStrings.noWindow(windowID ?? item.id)
                 services.registry.refuse(reason)
                 return ActionWorkFailure(refusal: .unavailable, reason: reason)
             }
-            if item.kind == .tab, let tab = reopened.tabIDs.first, let pane, let controller = services.paneController(for: pane) {
+            if shows == "selectTab", let tab = reopened.tabIDs.first, let pane, let controller = services.paneController(for: pane) {
                 controller.selectWhenReported(tab: tab.rawValue)
                 return nil
             }
             await daemon.appliedThroughReply(on: connection, after: "reopen closed")
-            if item.kind == .workspace {
+            if shows == "workspace" {
                 if let id = reopened.workspaceID,
                    let workspace = await daemon.store.workspace(afterReopen: id, clock: daemon.reopenClock) {
                     services.windows.reveal(workspaceID: workspace)
@@ -204,7 +203,7 @@ enum DaemonClosedHistory {
                 try await connection.state.deleteClosed(id)
                 if daemon.isLocal { emptyAgentHomeTrash() }
                 return nil
-            } catch DaemonError.command(_, _, let code, _, _) where code == "resource.not_found" {
+            } catch where WindowRules().deleteDone(code: errorCode(error)) { // handlers_close_delete_done
                 // Already gone (a second Remove, or a reopen that ran first): the goal holds.
                 return nil
             } catch {
@@ -219,8 +218,8 @@ enum DaemonClosedHistory {
     /// Mac's clock; a remote daemon with a skewed clock clears a range off by
     /// that skew.
     static func clear(since: Date?, services: AppServices) {
-        let sinceMs = since.map { UInt64(max(0, $0.timeIntervalSince1970 * 1000)) }
-        for entry in entries([.window], in: services) where sinceMs.map({ entry.item.closedAtMs >= $0 }) ?? true {
+        let rules = WindowRules(), sinceMs = since.map { rules.sinceMs($0.timeIntervalSince1970) } // handlers_close_since_ms
+        for entry in entries([.window], in: services) where rules.clears(closedAtMs: entry.item.closedAtMs, sinceMs: sinceMs) { // handlers_close_clears
             releaseWindow(of: entry.item, daemon: entry.daemon, services: services)
         }
         for daemon in services.machines.daemons where daemon.store.servesStateResources {
@@ -237,6 +236,9 @@ enum DaemonClosedHistory {
             })
         }
     }
+
+    /// The daemon's error code of `error`, nil for another error.
+    private static func errorCode(_ error: any Error) -> String? { if case DaemonError.command(_, _, let code, _, _) = error { code } else { nil } }
 
     /// Shows a reopened item once the store has it.
     static func show(_ reopened: StateResourceClient.ReopenedItem, kind: ClosedItem.Kind, daemon: DaemonService,

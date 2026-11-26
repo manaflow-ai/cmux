@@ -3,6 +3,7 @@ import CmuxNextAppCore
 import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextSettings
+import CmuxNextWindowRules
 
 /// A person's close of several selected sidebar rows as one batch (`WorkspaceSelectionCloseFlow`,
 /// Leo 2026-10-21: "it's really slow and it's missing a LOT... and it's also 2 lines tall"): the
@@ -44,7 +45,7 @@ enum WorkspaceSelectionClose {
             },
             listed: { services.workspace(id: $0) != nil }, machines: { services.machines.daemons },
             offerUndo: { names, undone in
-                guard names.count > 1, let undoWindow else { return }
+                guard WindowRules().selectionOffersUndo(names: names.count, survivor: undoWindow != nil), let undoWindow else { return } // handlers_close_selection_offers_undo
                 WorkspaceGroupClose.offerUndo("workspaces-closed", WorkspaceBulkClose.closedToast(names.count), groups: [(nil, names)], after: seen, in: undoWindow, services,
                                               cleanups: cleanups, undone: undone)
             },

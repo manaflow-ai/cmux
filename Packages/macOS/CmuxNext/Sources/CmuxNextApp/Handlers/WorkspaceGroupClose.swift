@@ -6,6 +6,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSidebar
 import CmuxNextWakeups
+import CmuxNextWindowRules
 import Foundation
 
 /// Close Workspaces in Group (RECOVERABLE-BY-DEFAULT, Lawrence
@@ -37,8 +38,8 @@ enum WorkspaceGroupClose {
         let names = closing.map { $0.0.name }
         let seen = Set(DaemonClosedHistory.entries([.workspace], in: services).map(\.item.id))
         sidebar.handle(.closeGroup(sidebar.model.groupID(personal: group.id.rawValue)))
-        guard invocation.origin == .user, !names.isEmpty,
-              let window = WorkspaceBulkClose.survivor(closing: closing.map(\.0.id), context) else { return }
+        let window = WorkspaceBulkClose.survivor(closing: closing.map(\.0.id), context)
+        guard WindowRules().groupCloseOffersUndo(user: invocation.origin == .user, names: names.count, survivor: window != nil), let window else { return } // handlers_close_group_offers_undo
         offerUndo(toastID, closedToast(group.name.isEmpty ? ConfirmationStrings.unnamedGroup : group.name), groups: [(group.id.rawValue, names)],
                   after: seen, in: window, services)
     }

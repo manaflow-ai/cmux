@@ -36,9 +36,11 @@ enum TabCloseGuard {
         let decides = services.closedTabs?.undoToasts.pageDecidesClose ?? CloseUndoToasts.livePageDecidesClose
         // An emptied pane hides only if its layout shows it leaving (never the screen's last) and holds no page (asking starts its close).
         let emptied = parts.map { part in empties(part.pane, closing: part.ids) }
-        let hides = !parts.isEmpty && !known && zip(parts, emptied).allSatisfy { part, emptied in part.pane.daemon === daemon
-            && (!emptied || (part.pane.workspace?.layoutModel.canShowPaneClose(part.pane.layoutPaneID) == true && !part.ids.contains { part.pane.tab($0)?.kind == .browser }))
-            && !part.ids.contains { decides(part.pane, $0) } }
+        let hides = WindowRules().closeHides(zip(parts, emptied).map { part, emptied in // handlers_close_hides
+            WindowRules.LeavingPart(sameDaemon: part.pane.daemon === daemon, emptied: emptied,
+                                    canShowPaneClose: part.pane.workspace?.layoutModel.canShowPaneClose(part.pane.layoutPaneID) == true,
+                                    closesBrowser: part.ids.contains { part.pane.tab($0)?.kind == .browser }, pageDecides: part.ids.contains { decides(part.pane, $0) })
+        }, knownToAsk: known)
         // Keys typed during the read are the close's, never the closing terminal's; a question parks them for its answer.
         // Opened while the closing tab still has the focus; with the hide, every key of the window is the close's.
         let coordinator = services.keyRouter.creationInputCoordinator, keys = coordinator.beginClose(of: tabs, in: window, hides: hides)
@@ -94,14 +96,10 @@ enum TabCloseGuard {
     /// time and repeat flag), else the time of the press that started a gated run, else now.
     static func press(_ ctx: AppActionContext, _ invocation: ActionInvocation) -> PaneCloseAim.Press {
         let event = ctx.registry.dispatchingInputEvent()
-        switch event?.type {
-        case .keyDown?:
-            return .init(time: event?.timestamp ?? 0, isKey: true, isRepeat: event?.isARepeat == true)
-        case .leftMouseDown?, .leftMouseUp?, .rightMouseDown?, .rightMouseUp?, .otherMouseDown?, .otherMouseUp?, .keyUp?:
-            return .init(time: event?.timestamp ?? 0, isKey: false, isRepeat: false)
-        default:
-            return .init(time: invocation.inputTimestamp ?? ProcessInfo.processInfo.systemUptime, isKey: false, isRepeat: false)
-        }
+        let kind = event.map { $0.type == .keyDown ? "keyDown" : $0.type == .keyUp ? "keyUp" : [.leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp].contains($0.type) ? "mouse" : "none" } ?? "none"
+        let press = WindowRules().closePress(event: kind, isRepeat: event?.isARepeat == true) // handlers_close_press
+        let time = press.eventTime ? event?.timestamp ?? 0 : invocation.inputTimestamp ?? ProcessInfo.processInfo.systemUptime
+        return .init(time: time, isKey: press.isKey, isRepeat: press.isRepeat)
     }
 
     /// Whether closing `closing` leaves `pane` with no tab (tabs whose close is still asking count as closed).
@@ -143,15 +141,9 @@ enum TabCloseGuard {
     }
 
     static func prompt(_ warning: WindowRules.Warning, closing tabs: [TabModel]) -> DestructiveConfirmation.Prompt {
-        let title = tabs.count == 1 ? ConfirmationStrings.closeTitle(tabs[0].titleText) : ConfirmationStrings.closeTabsTitle(tabs.count)
-        switch warning {
-        case .agent(let agent):
-            return .init(title: title, body: ConfirmationStrings.agentStillWorking(agent ?? ConfirmationStrings.theAgent),
-                         button: ConfirmationStrings.close, suppresses: CmuxConfigSnapshot.warnBeforeClosingAgentSessionPath)
-        case .programs(let programs, let unanswered):
-            let body = [programs.isEmpty ? nil : ConfirmationStrings.stillRunning(programs.joined(separator: ", ")),
-                        unanswered.isEmpty ? nil : ConfirmationStrings.noAnswer(unanswered.joined(separator: ", "))].compactMap { $0 }
-            return .init(title: title, body: body.joined(separator: " "), button: ConfirmationStrings.close, suppresses: CmuxConfigSnapshot.warnBeforeClosingTabPath)
-        }
+        let shape = WindowRules().tabClosePrompt(warning, titles: tabs.map(\.titleText)) // handlers_close_tab_prompt; no answer: the count title, still asks
+        let title = shape?.title.text(one: ConfirmationStrings.closeTitle, count: ConfirmationStrings.closeTabsTitle) ?? ConfirmationStrings.closeTabsTitle(tabs.count)
+        let body = shape?.bodyText(agentWorking: { ConfirmationStrings.agentStillWorking($0 ?? ConfirmationStrings.theAgent) }, stillRunning: ConfirmationStrings.stillRunning, noAnswer: ConfirmationStrings.noAnswer) ?? ""
+        return .init(title: title, body: body, button: ConfirmationStrings.close, suppresses: shape?.suppresses == "agentSession" ? CmuxConfigSnapshot.warnBeforeClosingAgentSessionPath : CmuxConfigSnapshot.warnBeforeClosingTabPath)
     }
 }

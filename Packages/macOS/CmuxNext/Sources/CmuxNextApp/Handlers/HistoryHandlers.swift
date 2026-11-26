@@ -121,10 +121,13 @@ enum HistoryHandlers {
 extension HistoryLookup {
     /// The entry `history.open` opens, or why it opens none.
     @MainActor var opening: Result<HistoryEntry, ActionWorkFailure> {
-        switch self {
-        case .found(let entry) where entry.isAvailable: .success(entry)
-        case .stillLoading: .failure(ActionWorkFailure(refusal: .unavailable, reason: HistoryAppStrings.stillLoading))
-        case .found, .gone: .failure(ActionWorkFailure(HistoryAppStrings.entryGone))
+        let entry: HistoryEntry? = if case .found(let entry) = self { entry } else { nil }
+        let lookup = entry != nil ? "found" : { if case .stillLoading = self { "stillLoading" } else { "gone" } }()
+        switch WindowRules().historyOpening(lookup: lookup, available: entry?.isAvailable == true) { // handlers_close_history_opening
+        case "open": if let entry { return .success(entry) }
+        case "stillLoading": return .failure(ActionWorkFailure(refusal: .unavailable, reason: HistoryAppStrings.stillLoading))
+        default: break
         }
+        return .failure(ActionWorkFailure(HistoryAppStrings.entryGone))
     }
 }
