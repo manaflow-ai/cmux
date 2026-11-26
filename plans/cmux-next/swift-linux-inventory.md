@@ -649,7 +649,7 @@ imports. Imports inside `#if canImport/os()/targetEnvironment/arch` blocks do no
 | CmuxMobileDesign | target | mac | scan | imports SwiftUI; shim CoreGraphics | CoreImage, QuartzCore, SwiftUI, UIKit |
 | CmuxMobileDesignCore | target | linux | CI swift-linux-packages (portable) | - | - |
 | CmuxMobileDiff | target | mac | scan | imports SwiftUI | SwiftUI, UIKit |
-| CmuxMobileFeed | target | mac | scan | shim CoreGraphics, OSLog; its Apple code sits behind #if, so a Linux build compiles only the rest; via CmuxMobileAgentChat | SwiftUI, UIKit |
+| CmuxMobileFeed | target | mac | scan | shim OSLog; its Apple code sits behind #if, so a Linux build compiles only the rest; via CmuxMobileAgentChat | SwiftUI, UIKit |
 | CmuxMobileLinkFFI | target | linux | CI swift-linux-packages (portable) | - | - |
 | CmuxMobileLinkFFIFFI | binaryTarget | shims | scan | binary framework (needs a Linux build of its library) | - |
 | CmuxMobileLive | target | mac | scan | imports Network, Security; shim Compression, CryptoKit, OSLog, UniformTypeIdentifiers, os | QuartzCore, Security, SwiftUI, UIKit |
@@ -671,7 +671,7 @@ imports. Imports inside `#if canImport/os()/targetEnvironment/arch` blocks do no
 | CmuxMobileChiefTests | testTarget | mac | scan | its Apple code sits behind #if, so a Linux build compiles only the rest; via CmuxMobileAgentChat | QuartzCore, SwiftUI, UIKit |
 | CmuxMobileDesignCoreTests | testTarget | linux | CI swift-linux-packages (portable) | - | - |
 | CmuxMobileInstantPerfTests | testTarget | mac | scan | shim Darwin; its Apple code sits behind #if, so a Linux build compiles only the rest; via CmuxMobileAgentChat | SwiftUI, UIKit |
-| CmuxMobileLiveTests | testTarget | mac | scan | shim Compression, CoreGraphics, CryptoKit, Darwin; its Apple code sits behind #if, so a Linux build compiles only the rest; via CmuxMobileAgentChat | QuartzCore, SwiftUI, UIKit |
+| CmuxMobileLiveTests | testTarget | mac | scan | shim Compression, CryptoKit, Darwin; its Apple code sits behind #if, so a Linux build compiles only the rest; via CmuxMobileAgentChat | QuartzCore, SwiftUI, UIKit |
 | CmuxMobileModelTests | testTarget | linux | CI swift-linux-packages (portable) | - | - |
 | CmuxMobileNotificationsTests | testTarget | linux | CI swift-linux-packages (portable) | its Apple code sits behind #if, so a Linux build compiles only the rest | UserNotifications |
 | CmuxMobileOnboardingTests | testTarget | mac | scan | imports SwiftUI | - |
