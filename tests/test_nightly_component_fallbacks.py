@@ -185,10 +185,44 @@ class ScriptTests(unittest.TestCase):
         self.assertNotIn("bundle-screen-sharing-helper.sh", self.bundled())
 
     def test_architecture_check_lets_a_missing_screen_helper_through(self) -> None:
-        text = (STEPS / "prepare-verify-binary-architectures.sh").read_text()
-        soft = text.index("this nightly carries no Screen Sharing helper")
-        self.assertLess(soft, text.index("nightly-next is missing Contents/Library/<app> Helper.app"))
-        self.assertIn('[ ! -e "${helpers[0]}" ] && [ "${NIGHTLY_COMPONENT_GATES:-}" != block ]', text)
+        # Execute the real step against a minimal nightly app. A text-only assertion would pass even
+        # if the guard were unreachable or the shell expansion still failed on an absent helper.
+        fixture = self.tmp / "architecture-fixture"
+        app = fixture / "build-universal/Build/Products/Release/cmux.app"
+        (app / "Contents/MacOS").mkdir(parents=True)
+        resources = app / "Contents/Resources/bin"
+        resources.mkdir(parents=True)
+        binaries = ("cmux", "ghostty", "cmux-diff-sidecar", "optchat-chief", "cmux-mobile-host")
+        for name in binaries:
+            binary = resources / name
+            binary.write_bytes(b"\0")
+            binary.chmod(0o755)
+        (app / "Contents/MacOS/cmux").write_bytes(b"\0")
+        (app / "Contents/MacOS/cmux").chmod(0o755)
+        (resources / "cmux-tui").symlink_to("cmux")
+        (resources / "acpmux").symlink_to("cmux")
+
+        # The script invokes this helper by repository-relative path while scanning for Mach-O files.
+        (fixture / "scripts").mkdir()
+        shutil.copy(ROOT / "scripts/list-macho-candidates.py", fixture / "scripts/list-macho-candidates.py")
+        fake_bin = fixture / "bin"
+        fake_bin.mkdir()
+        fake_lipo = fake_bin / "lipo"
+        fake_lipo.write_text("#!/usr/bin/env bash\nprintf '%s\\n' arm64\n")
+        fake_lipo.chmod(0o755)
+        env = {**os.environ,
+               "CHANNEL_RELEASE_TAG": "nightly-next",
+               "NIGHTLY_VARIANT": "arm64",
+               "RUNNER_OS": "Linux",
+               "PATH": f"{fake_bin}:{os.environ['PATH']}"}
+        env.pop("NIGHTLY_COMPONENT_GATES", None)
+        out = subprocess.run(
+            ["bash", str(STEPS / "prepare-verify-binary-architectures.sh")],
+            cwd=fixture, env=env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(out.returncode, 0, f"{out.stderr}\n{out.stdout}")
+        self.assertIn("::warning title=Nightly stale part::cmux-screen-sharing: this nightly carries no Screen Sharing helper",
+                      out.stdout)
 
     def test_publish_gate_notes_a_red_webview_check_instead_of_refusing(self) -> None:
         text = (STEPS / "publish-final-gate.sh").read_text()
