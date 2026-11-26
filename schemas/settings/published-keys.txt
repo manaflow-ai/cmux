@@ -33,6 +33,7 @@ agentPane.display.layout.header
 agentPane.display.layout.messages
 agentPane.display.minimap
 agentPane.display.modelChipIcon
+agentPane.display.modelPickerOrder
 agentPane.display.pinnedPlan
 agentPane.display.presentation
 agentPane.display.promptCoach

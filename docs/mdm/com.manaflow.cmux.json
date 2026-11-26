@@ -3229,6 +3229,12 @@
       "title" : "Suggestions Shown",
       "type" : "number"
     },
+    "browser.omnibar.quietIcons" : {
+      "default" : false,
+      "description" : "Fades the site info icon and the bookmark star until you point at or click into the address bar.",
+      "title" : "Quiet Address Bar Icons",
+      "type" : "boolean"
+    },
     "browser.omnibar.remoteSuggestions" : {
       "default" : true,
       "description" : "Sends what you type to the search engine. Never addresses, files or local hosts.",

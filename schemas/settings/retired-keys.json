@@ -253,6 +253,13 @@
       "since": "2026-10-06",
       "until": "2026-12-05",
       "why": "Minimal workspace rows, every row element a setting (2026-10-06, WorkspaceRowSetting.legacyPaths)."
+    },
+    {
+      "key": "agentPane.display.pinnedPlan",
+      "reason": "cmux shows no agent to-do list",
+      "since": "2026-11-24",
+      "until": "2027-01-23",
+      "why": "The agent to-do list is removed from every surface (2026-11-24): nothing is left to pin."
     }
   ]
 }
