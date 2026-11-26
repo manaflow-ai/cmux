@@ -1,16 +1,16 @@
 import { useSyncExternalStore } from "react";
-import { emojiTrigger, type EmojiTrigger } from "../emojiShortcodes";
-import { markdownOffset, mentionQuery } from "../mentionMenuModel";
+import type { MentionTrigger } from "./emojiTokens";
 
 /// The composer's prompt text and caret, outside React state (Leo: "we need typing in the gui to be
 /// fast too and smootha nd stuff"). Before, `ComposerFrame` held the text as state, so every key
 /// rendered the whole frame (render, commit and its effects: about 1.15 ms a key at 1,500 rows,
 /// bench/composer-typing.bench.ts --profile). Now a key writes here; the frame renders only when one
-/// of `PromptFacts` changes (the prompt empties or fills, a `/`, `@` or `:` word opens or moves), and
-/// the field updates itself for ordinary text edits.
+/// of `PromptFacts` changes (the prompt empties or fills, a `/` or `@` word opens or moves), and
+/// the box around the field (ComposerBox) reads the text itself. The `:` emoji list keeps its own
+/// token (composer/useEmojiCompletion.tsx), as the field reads it on any line.
 
 /// A list Esc closed for the text it was pressed on: it stays closed until the text changes.
-export type PromptDismissal = "slash" | "mention" | "emoji";
+export type PromptDismissal = "slash" | "mention";
 
 /// What the frame's render reads of the prompt. Each key recomputes it; the frame renders only when
 /// one field differs.
@@ -24,26 +24,18 @@ export type PromptFacts = {
   empty: boolean;
   /// The prompt's leading `/word` (cliOnlyCommands.ts commandWaitsForTurn reads only that).
   command: string | undefined;
-  /// The `@word` the caret ends (mentionMenuModel.ts mentionQuery).
-  mention: { start: number; query: string } | undefined;
-  /// The emoji token the caret ends (emojiShortcodes.ts emojiTrigger).
-  emoji: EmojiTrigger | undefined;
+  /// The `@word` the caret ends, on any line, as the field reads it (emojiTokens.ts
+  /// mentionTriggerAt). It read the markdown with a caret counted in the first paragraph before, so
+  /// `@` and `:` past the first line opened nothing (Leo's `:plead`, 2026-11-22).
+  mention: MentionTrigger | undefined;
   /// The prompt still shows what ↑ brought back (promptHistory.ts).
   recalling: boolean;
   slashDismissed: boolean;
   mentionDismissed: boolean;
-  emojiDismissed: boolean;
 };
 
 /// Whether the prompt as typed still shows a prompt ↑ recalled.
 export type RecallProbe = (text: string) => boolean;
-
-const sameEmoji = (left: EmojiTrigger | undefined, right: EmojiTrigger | undefined) =>
-  left === right ||
-  (left !== undefined &&
-    right !== undefined &&
-    (Object.keys(left) as (keyof EmojiTrigger)[]).every((key) => left[key] === right[key]) &&
-    Object.keys(left).length === Object.keys(right).length);
 
 const sameFacts = (left: PromptFacts, right: PromptFacts) =>
   left.blank === right.blank &&
@@ -51,20 +43,21 @@ const sameFacts = (left: PromptFacts, right: PromptFacts) =>
   left.command === right.command &&
   left.mention?.start === right.mention?.start &&
   left.mention?.query === right.mention?.query &&
-  sameEmoji(left.emoji, right.emoji) &&
   left.recalling === right.recalling &&
   left.slashDismissed === right.slashDismissed &&
-  left.mentionDismissed === right.mentionDismissed &&
-  left.emojiDismissed === right.emojiDismissed;
+  left.mentionDismissed === right.mentionDismissed;
 
 export class PromptText {
   #text: string;
   #caret = 0;
+  #mention: MentionTrigger | undefined;
   #dismissed = new Set<PromptDismissal>();
   #listeners = new Set<() => void>();
   #textListeners = new Set<() => void>();
   #facts: PromptFacts | undefined;
-  #factsFor: { text: string; caret: number; dismissed: number; probe: RecallProbe } | undefined;
+  #factsFor:
+    | { text: string; caret: number; mention: MentionTrigger | undefined; dismissed: number; probe: RecallProbe }
+    | undefined;
   /// Bumped on each dismissal change, so cached facts know to recompute.
   #dismissedVersion = 0;
 
@@ -100,6 +93,16 @@ export class PromptText {
     if (caret === this.#caret) return;
     this.#caret = caret;
     this.#notify();
+  };
+
+  /// The `@word` the field reads at its caret (MarkdownField `onMention`).
+  setMention = (mention: MentionTrigger | undefined) => {
+    if (mention?.start === this.#mention?.start && mention?.query === this.#mention?.query) return;
+    this.#mention = mention;
+    // The field tells the `@word` before the text it is in (its view update reports the change
+    // after); a render now would build facts with the old text and give the field its old value,
+    // erasing the `@` just typed. The change's own `set` renders it; this covers a caret-only one.
+    queueMicrotask(() => this.#notify());
   };
 
   dismiss(kind: PromptDismissal) {
@@ -138,24 +141,22 @@ export class PromptText {
       cached &&
       cached.text === text &&
       cached.caret === caret &&
+      cached.mention === this.#mention &&
       cached.dismissed === dismissed &&
       cached.probe === probe
     )
       return this.#facts;
-    this.#factsFor = { text, caret, dismissed, probe };
-    const at = markdownOffset(text, caret);
+    this.#factsFor = { text, caret, mention: this.#mention, dismissed, probe };
     const next: PromptFacts = {
       text,
       caret,
       blank: text === "",
       empty: !text.trim(),
       command: /^\/\S+/.exec(text.trim())?.[0],
-      mention: mentionQuery(text, at),
-      emoji: emojiTrigger(text, at),
+      mention: this.#mention,
       recalling: probe(text),
       slashDismissed: this.#dismissed.has("slash"),
       mentionDismissed: this.#dismissed.has("mention"),
-      emojiDismissed: this.#dismissed.has("emoji"),
     };
     if (!this.#facts || !sameFacts(this.#facts, next)) this.#facts = next;
     return this.#facts;

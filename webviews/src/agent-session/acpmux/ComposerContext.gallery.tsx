@@ -1543,6 +1543,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "started-browse-error-tray": {
+      // retry-prompt-ok: Retry opens the folder chooser again, a modal only the person's click may raise.
       note: "Tray style keeps the folder chooser recovery row below the raised composer, with Retry and Dismiss visible.",
       props: {
         ...baseProps,
@@ -1565,6 +1566,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "started-browse-error": {
+      // retry-prompt-ok: Retry opens the folder chooser again, a modal only the person's click may raise.
       note: "A refused folder chooser leaves a started chat in place with a localized reason and direct Retry and Dismiss actions.",
       props: {
         ...baseProps,
