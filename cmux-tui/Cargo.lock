@@ -1614,8 +1614,10 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "blake3",
+ "cmux-process",
  "cmux-signed-envelope",
  "flate2",
+ "libc",
  "ring",
  "serde",
  "serde_json",
