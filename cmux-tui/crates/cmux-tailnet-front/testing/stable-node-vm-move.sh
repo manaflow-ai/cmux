@@ -301,9 +301,11 @@ IP_A=$(jq -r .a.ip "$WORK/vms.json")
 IP_B=$(jq -r .b.ip "$WORK/vms.json")
 if [[ -n $MINTED_BY_CMUX ]]; then
   # The one key cmux minted is spent: headscale lists it used, single-use, and B is on the tailnet. (It is
-  # the newest key: headscale versions that list only a key's prefix still find it.)
+  # the newest key: headscale versions that list only a key's prefix still find it.) Headscale's JSON is
+  # protobuf's, which leaves a false bool out, so a missing reusable or ephemeral reads as false.
   KEYROW=$(hs preauthkeys list --user "$USER_ID" -o json 2>/dev/null | jq -c --arg k "$MINTED_BY_CMUX" \
-    '(map(select(.key == $k)) + [max_by(.id | tostring | tonumber)])[0] | {id, used, reusable, ephemeral}')
+    '(map(select(.key == $k)) + [max_by(.id | tostring | tonumber)])[0]
+     | {id, used: (.used // false), reusable: (.reusable // false), ephemeral: (.ephemeral // false)}')
   if [[ $(jq -r '.used == true and .reusable == false and .ephemeral == true' <<<"$KEYROW") == true ]]; then
     result PASS mint-used "VM B joined with the cmux-minted key; headscale lists it $KEYROW"
   else
