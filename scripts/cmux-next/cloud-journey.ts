@@ -2055,6 +2055,9 @@ export async function idleHeldBy(api: Api, machine: string, now = Date.now()): P
   const clock = typeof last === "number" ? `idle clock started ${Math.round((now - last) / 1000)} s ago` : "idle clock not running (last_active_at null: no report speaks for its activity)";
   const activity = m?.activity ?? m?.report?.activity;
   const bits = [clock, `idle policy ${m?.idle_seconds ?? m?.idle_policy?.idle_seconds ?? "?"} s`];
+  // The pause policy (cmux-platform PausePolicy.ts) sets the window a turn's end starts, over the idle policy above:
+  // named apart, so "idle policy 1800 s" is never read as the window an `aggressive` or `turn_end` machine runs.
+  if (typeof m?.pause_policy === "string") bits.push(`pause policy ${m.pause_policy}`);
   if (activity && typeof activity === "object") bits.push(`activity ${short(activity)}`);
   // The platform's reason (cmux-platform#2154 `idle_kept`, the cloud.idle.kept line's): sessions, or the workload's
   // process, port and timer names, so a walk that never paused names what held it.
