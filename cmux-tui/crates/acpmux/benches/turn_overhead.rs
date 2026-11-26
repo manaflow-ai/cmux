@@ -23,11 +23,28 @@
 //! The stand-in and this process read one clock (`CLOCK_REALTIME`): the stand-in puts the times
 //! it read the prompt and wrote the reply into the reply's text.
 //!
-//! `cargo bench -p acpmux --bench turn_overhead -- [--turns 100] [--warmup 5] [--summary FILE]
-//! [--json FILE] [--daemon PATH] [--no-render]`. `--summary` appends the Markdown table (CI's
-//! `$GITHUB_STEP_SUMMARY`); `--json` writes the rows cmux-bench reads
-//! (`scripts/bench/benches/agent_turn.py`); `--daemon` runs another acpmux build (a base, for a
-//! before and after from this same harness).
+//! `--route relay` (with the `hub-carrier` feature) runs the same turns with both clients
+//! reaching the daemon through a real relay on loopback, as a chat on a Cloud machine does
+//! (`turn_overhead/relay.rs`), and adds:
+//!
+//! - `relay_in`: the prompt's first bytes into the relay until its first bytes out to the
+//!   machine's side (a part of `send`);
+//! - `relay_out`: the reply's first bytes from the machine's side into the relay until its first
+//!   bytes out to the client (a part of `deliver` and `render`).
+//!
+//! Either route then times `--attaches` fresh pane attaches: `attach_connect` (the local socket's
+//! connect; on the relay, the ticket, the relay's allocation and join until the circuit opened),
+//! `attach_handshake` (the relay's Noise exchange; none locally) and `attach_first_frame` (the
+//! stream until the pane's first window: the v2 upgrade, hello and sub).
+//!
+//! `cargo bench -p acpmux [--features hub-carrier] --bench turn_overhead -- [--route local|relay]
+//! [--turns 100] [--warmup 5] [--attaches 20] [--summary FILE] [--json FILE] [--daemon PATH]
+//! [--no-render] [--think MS]`. `--think` pauses after each turn, as a person reading the reply
+//! would: a cost that shows only in back-to-back turns (queued prompts) is then gone. `--summary`
+//! appends the Markdown table (CI's `$GITHUB_STEP_SUMMARY`); `--json`
+//! writes the rows cmux-bench reads (`scripts/bench/benches/agent_turn.py` for the local route,
+//! `cloud_turn.py` for the relay's); `--daemon` runs another acpmux build (a base, for a before
+//! and after from this same harness).
 
 #![cfg(unix)]
 
@@ -39,15 +56,24 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 #[path = "turn_overhead/render.rs"]
 mod render;
 
+#[cfg(feature = "hub-carrier")]
+#[path = "turn_overhead/relay.rs"]
+mod relay;
+
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::io::{BufRead, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::io::{ReadHalf, WriteHalf};
 use tokio::net::UnixStream;
-use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
+
+/// A client's connection to the daemon: its unix socket, or a relay circuit to it.
+pub trait Duplex: AsyncRead + AsyncWrite + Unpin + Send {}
+impl<T: AsyncRead + AsyncWrite + Unpin + Send> Duplex for T {}
+pub type BoxStream = Box<dyn Duplex>;
 
 /// Set on the stand-in's environment: this binary is the harness, not the bench.
 const STAND_IN: &str = "ACPMUX_TURN_BENCH_STAND_IN";
@@ -61,43 +87,96 @@ fn main() {
     }
     let args = Args::parse();
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
-    let samples = runtime.block_on(bench(&args));
-    let table = table(&args, &samples);
+    let run = runtime.block_on(bench(&args));
+    let table = table(&args, &run);
     println!("{table}");
-    // The line cmux-bench reads (`scripts/bench/benches/agent_turn.py`), from a log too.
-    println!("AGENT-TURN {}", rows(&samples));
+    // The lines cmux-bench reads, from a log too: `AGENT-TURN` the local route's turn stages
+    // (`scripts/bench/benches/agent_turn.py`), `CLOUD-TURN` every stage of either route
+    // (`cloud_turn.py`).
+    let main = match args.route {
+        Route::Local => {
+            let turns = rows("agent_turn", None, &stages(&run.turns));
+            println!("AGENT-TURN {turns}");
+            turns
+        }
+        Route::Relay => Value::Null,
+    };
+    let mut cloud = rows("cloud_turn", Some(args.route), &all_stages(&run));
+    cloud["attachRefused"] = run.refused.into();
+    println!("CLOUD-TURN {cloud}");
     if let Some(path) = &args.summary {
         let mut file = std::fs::OpenOptions::new().create(true).append(true).open(path).unwrap();
         writeln!(file, "{table}").unwrap();
     }
     if let Some(path) = &args.json {
-        std::fs::write(path, rows(&samples).to_string()).unwrap();
+        let json = if main.is_null() { cloud } else { main };
+        std::fs::write(path, json.to_string()).unwrap();
+    }
+}
+
+/// How the clients reach the daemon.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Route {
+    /// Its unix socket, as the app's pane on the same machine.
+    Local,
+    /// A real relay on loopback, as a chat on a Cloud machine (`turn_overhead/relay.rs`).
+    Relay,
+}
+
+impl Route {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Local => "local",
+            Self::Relay => "relay",
+        }
     }
 }
 
 struct Args {
+    route: Route,
     turns: usize,
     warmup: usize,
+    attaches: usize,
     summary: Option<PathBuf>,
     json: Option<PathBuf>,
     daemon: Option<PathBuf>,
     render: bool,
+    /// A pause after each turn, as a person reading the reply before the next prompt.
+    think: Duration,
 }
 
 impl Args {
     fn parse() -> Self {
-        let mut args =
-            Self { turns: 100, warmup: 5, summary: None, json: None, daemon: None, render: true };
+        let mut args = Self {
+            route: Route::Local,
+            turns: 100,
+            warmup: 5,
+            attaches: 20,
+            summary: None,
+            json: None,
+            daemon: None,
+            render: true,
+            think: Duration::ZERO,
+        };
         let mut it = std::env::args().skip(1);
         while let Some(arg) = it.next() {
             let mut value = || it.next().unwrap_or_else(|| panic!("{arg} needs a value"));
             match arg.as_str() {
+                "--route" => {
+                    args.route = match value().as_str() {
+                        "local" => Route::Local,
+                        "relay" => Route::Relay,
+                        other => panic!("--route {other}: local or relay"),
+                    }
+                }
                 "--turns" => args.turns = value().parse().unwrap(),
                 "--warmup" => args.warmup = value().parse().unwrap(),
+                "--attaches" => args.attaches = value().parse().unwrap(),
                 "--summary" => args.summary = Some(value().into()),
                 "--json" => args.json = Some(value().into()),
                 "--daemon" => args.daemon = Some(value().into()),
                 "--no-render" => args.render = false,
+                "--think" => args.think = Duration::from_millis(value().parse().unwrap()),
                 // `cargo bench` passes `--bench`.
                 "--bench" => {}
                 other => panic!("unknown argument {other}"),
@@ -296,16 +375,82 @@ impl Daemon {
     }
 }
 
+/// Where the clients' connections come from: the daemon's socket, or a relay to it.
+enum Way {
+    Local(PathBuf),
+    #[cfg(feature = "hub-carrier")]
+    Relay(relay::RelayRoute),
+}
+
+/// One attach's steps, in microseconds; `handshake` only on the relay.
+struct Attach {
+    connect: f64,
+    handshake: Option<f64>,
+}
+
+impl Way {
+    async fn open(route: Route, socket: &Path) -> Self {
+        match route {
+            Route::Local => Self::Local(socket.to_owned()),
+            #[cfg(feature = "hub-carrier")]
+            Route::Relay => Self::Relay(relay::RelayRoute::start(socket).await),
+            #[cfg(not(feature = "hub-carrier"))]
+            Route::Relay => panic!("--route relay needs `--features hub-carrier`"),
+        }
+    }
+
+    /// A new connection to the daemon, and what it took.
+    async fn dial(&self) -> (BoxStream, Attach) {
+        match self {
+            Self::Local(socket) => {
+                let started = Instant::now();
+                let stream = UnixStream::connect(socket).await.unwrap();
+                let connect = started.elapsed().as_secs_f64() * 1e6;
+                (Box::new(stream), Attach { connect, handshake: None })
+            }
+            #[cfg(feature = "hub-carrier")]
+            Self::Relay(route) => {
+                let (stream, attach) = route.dial().await;
+                (stream, Attach { connect: attach.connect, handshake: Some(attach.handshake) })
+            }
+        }
+    }
+
+    /// A turn starts: its relay stages come from what crosses the relay after this.
+    fn mark(&self) {
+        #[cfg(feature = "hub-carrier")]
+        if let Self::Relay(route) = self {
+            route.mark();
+        }
+    }
+
+    /// `relay_in` and `relay_out` of a turn sent at `sent` whose reply was written at `wrote`
+    /// (wall ns); none locally.
+    fn crossing(&self, sent: u64, wrote: u64) -> (Option<f64>, Option<f64>) {
+        match self {
+            Self::Local(_) => {
+                let _ = (sent, wrote);
+                (None, None)
+            }
+            #[cfg(feature = "hub-carrier")]
+            Self::Relay(route) => {
+                let crossing = route.crossing(sent, wrote);
+                (crossing.relay_in, crossing.relay_out)
+            }
+        }
+    }
+}
+
 /// One v1 connection, as the pane's prompt path and the CLI speak it.
 struct Rpc {
-    read: tokio::io::Lines<BufReader<OwnedReadHalf>>,
-    write: OwnedWriteHalf,
+    read: tokio::io::Lines<BufReader<ReadHalf<BoxStream>>>,
+    write: WriteHalf<BoxStream>,
     next: i64,
 }
 
 impl Rpc {
-    async fn open(socket: &Path) -> Self {
-        let (read, write) = UnixStream::connect(socket).await.unwrap().into_split();
+    async fn open(stream: BoxStream) -> Self {
+        let (read, write) = tokio::io::split(stream);
         let mut rpc = Self { read: BufReader::new(read).lines(), write, next: 0 };
         rpc.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "turn-bench"}}))
             .await;
@@ -316,6 +461,7 @@ impl Rpc {
         self.next += 1;
         let line = json!({"jsonrpc": "2.0", "id": self.next, "method": method, "params": params});
         self.write.write_all(format!("{line}\n").as_bytes()).await.unwrap();
+        self.write.flush().await.unwrap();
         self.next
     }
 
@@ -348,23 +494,34 @@ impl Rpc {
 }
 
 /// One turn's stages, in microseconds (see the module text); `render` and `shown` are None with
-/// `--no-render`.
+/// `--no-render`; `relay_in` and `relay_out` are None on the local route.
 #[derive(Default, Clone)]
 struct Turn {
     send: f64,
+    relay_in: Option<f64>,
     harness: f64,
     store: f64,
     records: f64,
+    relay_out: Option<f64>,
     deliver: f64,
     render: Option<f64>,
     turn: f64,
     shown: Option<f64>,
 }
 
-async fn bench(args: &Args) -> Vec<Turn> {
+/// A run: its turns, then its pane attaches (the steps, and the first frame in µs), and how many
+/// attaches the chat refused with `mailbox_full` before they opened.
+struct Run {
+    turns: Vec<Turn>,
+    attaches: Vec<(Attach, f64)>,
+    refused: usize,
+}
+
+async fn bench(args: &Args) -> Run {
     let binary = args.daemon.clone().unwrap_or_else(|| daemon_env::bin().to_path_buf());
     let daemon = Daemon::start(&binary);
-    let mut rpc = Rpc::open(&daemon.socket).await;
+    let way = Way::open(args.route, &daemon.socket).await;
+    let mut rpc = Rpc::open(way.dial().await.0).await;
     let cwd = daemon._scratch.path().join("work");
     std::fs::create_dir_all(&cwd).unwrap();
     let chat = rpc
@@ -378,30 +535,57 @@ async fn bench(args: &Args) -> Vec<Turn> {
         .unwrap()
         .to_owned();
     let mut pane = if args.render {
-        Some(render::ChatRender::open(&daemon.socket, &chat).await.expect("the pane's chat open"))
+        let stream = way.dial().await.0;
+        Some(render::ChatRender::open(stream, &chat).await.expect("the pane's chat open"))
     } else {
         None
     };
-    let mut samples = Vec::with_capacity(args.turns);
+    let mut turns = Vec::with_capacity(args.turns);
     for round in 0..args.warmup + args.turns {
-        let turn = one_turn(&mut rpc, pane.as_mut(), &chat, round).await;
+        let turn = one_turn(&mut rpc, pane.as_mut(), &way, &chat, round).await;
         if round >= args.warmup {
-            samples.push(turn);
+            turns.push(turn);
+        }
+        if !args.think.is_zero() {
+            tokio::time::sleep(args.think).await;
         }
     }
     drop(pane);
+    // Fresh pane attaches, each to its first window, then closed. The chat's actor may refuse a
+    // sub while its mailbox is full (`mailbox_full`); such an attach is counted and tried again
+    // on a new connection, and only the one that opened is timed.
+    let mut attaches = Vec::with_capacity(args.attaches);
+    let mut refused = 0;
+    while attaches.len() < args.attaches {
+        let (stream, attach) = way.dial().await;
+        let ready = Instant::now();
+        match render::ChatRender::open(stream, &chat).await {
+            Ok(pane) => {
+                attaches.push((attach, ready.elapsed().as_secs_f64() * 1e6));
+                drop(pane);
+            }
+            Err(e) if e.to_string().contains("mailbox_full") && refused < 3 * args.attaches => {
+                refused += 1;
+            }
+            Err(e) => panic!("the pane's chat open: {e}"),
+        }
+    }
+    drop(rpc);
+    drop(way);
     drop(daemon);
-    samples
+    Run { turns, attaches, refused }
 }
 
 async fn one_turn(
     rpc: &mut Rpc,
     pane: Option<&mut render::ChatRender>,
+    way: &Way,
     chat: &str,
     round: usize,
 ) -> Turn {
     let marker = format!("turn-{round}");
     let (records_before, store_before) = rpc.writes().await;
+    way.mark();
     let sent_wall = wall_ns();
     let sent = Instant::now();
     let id = rpc
@@ -443,6 +627,8 @@ async fn one_turn(
         }
     };
     let (shown, ((delivered, (read, wrote)), ended)) = tokio::join!(shown, replied);
+    // Read before the status call below crosses the relay too.
+    let (relay_in, relay_out) = way.crossing(sent_wall, wrote);
     let (records_after, store_after) = rpc.writes().await;
     let us = |ns: u64| ns as f64 / 1000.0;
     // `wrote` on the wall clock, as an Instant of this process.
@@ -450,9 +636,11 @@ async fn one_turn(
     let after_wrote = |t: Instant| t.saturating_duration_since(wrote_at).as_secs_f64() * 1e6;
     Turn {
         send: us(read.saturating_sub(sent_wall)),
+        relay_in,
         harness: us(wrote.saturating_sub(read)),
         store: us(store_after - store_before),
         records: (records_after - records_before) as f64,
+        relay_out,
         deliver: us(delivered.saturating_sub(wrote)),
         render: shown.map(|(_, change)| after_wrote(change)),
         turn: ended.duration_since(sent).as_secs_f64() * 1e6,
@@ -468,13 +656,15 @@ fn quantile(values: &mut [f64], q: f64) -> f64 {
     values[((values.len() as f64 - 1.0) * q).round() as usize]
 }
 
-/// (stage, its samples), in the table's order.
+/// (stage, its samples) of the turns, in the table's order.
 fn stages(samples: &[Turn]) -> Vec<(&'static str, Vec<f64>)> {
     let pick = |f: fn(&Turn) -> Option<f64>| samples.iter().filter_map(f).collect::<Vec<_>>();
     vec![
         ("send", pick(|t| Some(t.send))),
+        ("relay_in", pick(|t| t.relay_in)),
         ("harness", pick(|t| Some(t.harness))),
         ("store", pick(|t| Some(t.store))),
+        ("relay_out", pick(|t| t.relay_out)),
         ("deliver", pick(|t| Some(t.deliver))),
         ("render", pick(|t| t.render)),
         ("turn", pick(|t| Some(t.turn))),
@@ -482,15 +672,26 @@ fn stages(samples: &[Turn]) -> Vec<(&'static str, Vec<f64>)> {
     ]
 }
 
-fn table(args: &Args, samples: &[Turn]) -> String {
-    let mut records: Vec<f64> = samples.iter().map(|t| t.records).collect();
+/// The turns' stages, then the attaches'.
+fn all_stages(run: &Run) -> Vec<(&'static str, Vec<f64>)> {
+    let mut all = stages(&run.turns);
+    all.push(("attach_connect", run.attaches.iter().map(|(a, _)| a.connect).collect()));
+    all.push(("attach_handshake", run.attaches.iter().filter_map(|(a, _)| a.handshake).collect()));
+    all.push(("attach_first_frame", run.attaches.iter().map(|(_, first)| *first).collect()));
+    all
+}
+
+fn table(args: &Args, run: &Run) -> String {
+    let mut records: Vec<f64> = run.turns.iter().map(|t| t.records).collect();
     let mut out = format!(
-        "### acpmux turn overhead ({} turns after {} warm-up, stand-in model answers at once)\n\n\
-         | stage | median ms | p95 ms |\n|---|---:|---:|\n",
-        samples.len(),
-        args.warmup
+        "### acpmux turn overhead, {} route ({} turns after {} warm-up, stand-in model answers \
+         at once; {} attaches)\n\n| stage | median ms | p95 ms |\n|---|---:|---:|\n",
+        args.route.as_str(),
+        run.turns.len(),
+        args.warmup,
+        run.attaches.len()
     );
-    for (name, mut values) in stages(samples) {
+    for (name, mut values) in all_stages(run) {
         if values.is_empty() {
             continue;
         }
@@ -499,19 +700,23 @@ fn table(args: &Args, samples: &[Turn]) -> String {
     }
     out += &format!(
         "\nRecords written per turn: median {}. `store` is part of `send` and `deliver`; \
-         `turn` and `shown` run from the send.\n",
-        quantile(&mut records, 0.5)
+         `relay_in` is part of `send`, `relay_out` of `deliver` and `render`; `turn` and `shown` \
+         run from the send. Attaches refused with `mailbox_full` and tried again: {}.\n",
+        quantile(&mut records, 0.5),
+        run.refused
     );
     out
 }
 
-/// One row per stage: `{metric, unit, p50, p95, n, samples}` (µs), for cmux-bench.
-fn rows(samples: &[Turn]) -> Value {
-    let rows: Vec<Value> = stages(samples)
-        .into_iter()
+/// One row per stage: `{metric, unit, p50, p95, n, samples}` (µs), for cmux-bench, as `bench`;
+/// with a route, the object names it.
+fn rows(bench: &str, route: Option<Route>, stages: &[(&'static str, Vec<f64>)]) -> Value {
+    let rows: Vec<Value> = stages
+        .iter()
         .filter(|(_, v)| !v.is_empty())
-        .map(|(name, mut values)| {
+        .map(|(name, values)| {
             let raw = values.clone();
+            let mut values = values.clone();
             json!({"metric": name, "unit": "us", "n": values.len(),
                 "p50": quantile(&mut values, 0.5), "p95": quantile(&mut values, 0.95),
                 "samples": raw})
@@ -519,5 +724,9 @@ fn rows(samples: &[Turn]) -> Value {
         .collect();
     let mut env: HashMap<&str, String> = HashMap::new();
     env.insert("os", std::env::consts::OS.into());
-    json!({"bench": "agent_turn", "rows": rows, "env": env})
+    let mut out = json!({"bench": bench, "rows": rows, "env": env});
+    if let Some(route) = route {
+        out["route"] = route.as_str().into();
+    }
+    out
 }

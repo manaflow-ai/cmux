@@ -14,7 +14,7 @@ use std::os::unix::net::UnixStream;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-struct QuietDesktop((UnixStream, UnixStream));
+pub(super) struct QuietDesktop(pub(super) (UnixStream, UnixStream));
 
 impl Desktop for QuietDesktop {
     fn size(&self) -> (u32, u32) {
@@ -36,9 +36,9 @@ impl Desktop for QuietDesktop {
 
 /// Encodes the n-th frame at `sizes[n]` bytes (the last size after that). Records
 /// each encode's `force_idr`.
-struct SizedEncoder {
-    sizes: Vec<usize>,
-    forced: Arc<Mutex<Vec<bool>>>,
+pub(super) struct SizedEncoder {
+    pub(super) sizes: Vec<usize>,
+    pub(super) forced: Arc<Mutex<Vec<bool>>>,
 }
 
 impl FrameSource for SizedEncoder {
@@ -62,8 +62,8 @@ impl FrameSource for SizedEncoder {
 }
 
 #[derive(Default)]
-struct RecordingCarrier {
-    sent: Vec<Vec<u8>>,
+pub(super) struct RecordingCarrier {
+    pub(super) sent: Vec<Vec<u8>>,
 }
 
 impl Carrier for RecordingCarrier {
@@ -94,11 +94,11 @@ impl Carrier for RecordingCarrier {
     }
 }
 
-fn header(d: &[u8]) -> DatagramHeader {
+pub(super) fn header(d: &[u8]) -> DatagramHeader {
     DatagramHeader::decode(d).expect("header").0
 }
 
-fn feedback(arrivals: Vec<Arrival>, acked_frame: u32) -> Vec<u8> {
+pub(super) fn feedback(arrivals: Vec<Arrival>, acked_frame: u32) -> Vec<u8> {
     let mut d = DatagramHeader {
         flags: 0,
         kind: DatagramKind::Feedback,
@@ -157,10 +157,12 @@ fn outage_with_queue(unstarted: usize) -> Outage {
     let cfg = SessionCfg {
         display: String::new(),
         display_pick: None,
+        window: None,
         max_fps: 60,
         encode_profile: Default::default(),
         start_kbps: 2_000,
         max_kbps: 4_000,
+        pin_kbps: None,
         preset: String::new(),
         profile: String::new(),
         codec: String::new(),
@@ -173,6 +175,9 @@ fn outage_with_queue(unstarted: usize) -> Outage {
         upstream_record_max_bytes: 0,
         frames_in_flight: 3,
         input_frame_now: false,
+        rtt_tail_probe: false,
+        resolution_ladder: false,
+        max_qp: cmux_rd_core::resolution::DEFAULT_MAX_QP,
         max_width: None,
         show_cursor: true,
         capture: crate::capture_backend::CaptureBackend::default(),
@@ -251,7 +256,12 @@ fn outage_with_queue(unstarted: usize) -> Outage {
     let next = t.session.engine.damage(0, small, now_us()).expect("third frame");
     t.unstarted_frame = next.frame;
     t.session.encoder.submit(next);
+    // A busy pacer holds the next encode in the encoder's slot (#44555); a frame queues behind a
+    // started one only while that gate is open (the path frozen, or just after an outage), which
+    // is the queue D12 drops from. Open it for this one frame.
+    t.session.send_newest_after_outage = true;
     send_next_frame(&mut t.session, &mut t.carrier);
+    assert!(!t.session.send_newest_after_outage, "the third frame was not taken");
     let head = t.carrier.sent[before..].to_vec();
     assert!(
         head.iter().all(|d| header(d).frame == t.started_frame),

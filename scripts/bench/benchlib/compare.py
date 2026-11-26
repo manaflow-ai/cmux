@@ -20,7 +20,8 @@ from .schema import metric_key
 
 DEFAULT_THRESHOLD = 10.0
 FLOORS = {"ms": 5.0, "s": 0.005, "us": 50.0, "MB": 15.0, "KB": 512.0, "GB": 0.015, "bytes": 1_000_000.0,
-          "mW": 2.0, "W": 0.002, "%": 0.1, "per_s": 2.0, "fps": 2.0, "kbps": 100.0, "Mbps": 0.1, "count": 0.0, "x": 0.0}
+          "mW": 2.0, "W": 0.002, "%": 0.1, "per_s": 2.0, "fps": 2.0, "kbps": 100.0, "Mbps": 0.1, "count": 0.0, "x": 0.0,
+          "px": 1.0}
 
 
 class SelectorError(ValueError):

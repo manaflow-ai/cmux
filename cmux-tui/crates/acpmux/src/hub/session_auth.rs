@@ -61,7 +61,7 @@ pub(crate) fn provider_of(model: Option<&str>, family: &str) -> Option<String> {
     let implied = match family {
         "claude" => "anthropic",
         "codex" => "openai",
-        "gemini" => "google",
+        "gemini" | "antigravity" => "google",
         "grok" => "xai",
         "deepseek" => "deepseek",
         _ => return None,
@@ -159,11 +159,18 @@ fn account_home(family: &str, env: &BTreeMap<String, String>) -> Option<PathBuf>
 }
 
 /// An `agent_login` agent whose account is its store alone (no route account home): Gemini
-/// (`$GEMINI_CLI_HOME/.gemini`), Grok (`$GROK_HOME`) and Cursor (`$XDG_CONFIG_HOME/cursor`). A
-/// sign-in there supersedes the account's old failures, as for Claude and Codex.
+/// (`$GEMINI_CLI_HOME/.gemini`), Grok (`$GROK_HOME`), Cursor (`$XDG_CONFIG_HOME/cursor`) and
+/// OpenCode (`$XDG_DATA_HOME/opencode`). A sign-in there supersedes the account's old failures,
+/// as for Claude and Codex.
 fn signs_in_by_store(family: &str) -> Option<crate::agent_login::Agent> {
     use crate::agent_login::Agent;
-    Agent::parse(family).filter(|a| matches!(a, Agent::Gemini | Agent::Grok | Agent::Cursor))
+    Agent::parse(login_family(family))
+        .filter(|a| matches!(a, Agent::Gemini | Agent::Grok | Agent::Cursor | Agent::OpenCode))
+}
+
+/// Antigravity's API key is saved in Gemini's store and loaded at spawn.
+fn login_family(family: &str) -> &str {
+    if family == "antigravity" { "gemini" } else { family }
 }
 
 fn mark_credentials_changed(meta: &mut SessionMeta, at: u64) {
@@ -362,7 +369,8 @@ impl Hub {
         let mut profile = cfg.harnesses.get(&meta.harness).cloned().ok_or_else(|| {
             RpcError::invalid_params("the chat's harness is no longer configured")
         })?;
-        if crate::config::derive_family(&meta.harness, &profile) != family {
+        let harness_family = crate::config::derive_family(&meta.harness, &profile);
+        if login_family(&harness_family) != family {
             return Err(RpcError::invalid_params(
                 "the login agent does not match the chat's harness",
             ));
@@ -371,7 +379,7 @@ impl Hub {
         let (dir, state) = routes::places(&cfg);
         drop(cfg);
         let bindings = routes::bindings(&state);
-        let route = route_of(&bindings, dir.as_deref(), &meta, family, &profile.env)
+        let route = route_of(&bindings, dir.as_deref(), &meta, &harness_family, &profile.env)
             .map_err(|e| RpcError::invalid_params(e.to_string()))?;
         if route.as_ref().is_some_and(|(r, _)| r.file.kind != routes::RouteKind::DirectSubscription)
         {
@@ -804,6 +812,36 @@ fn target_home(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn antigravity_chat_accepts_its_gemini_login_and_invalidates_old_failure() {
+        let home = tempfile::tempdir().unwrap();
+        let cfg: Config = serde_json::from_value(json!({
+            "harnesses": {"antigravity": {"argv": ["agy", "acp"],
+                "env": {"GEMINI_CLI_HOME": home.path()}}},
+            "store": {"mode": "memory"}
+        }))
+        .unwrap();
+        let store = crate::store::open(&cfg.store, home.path()).unwrap();
+        let hub = Hub::new(cfg, store);
+        let meta: SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "agy-login", "name": "agy-login",
+            "harness": "antigravity", "cwd": home.path(), "status": "idle",
+            "createdAt": 1, "updatedAt": 1,
+            "lastTurn": {"turnId": "failed-turn", "status": "failed", "endedAt": 2,
+                "errorKind": "auth.signed_out", "errorText": "Authentication required"}
+        }))
+        .unwrap();
+        hub.install_stored_session(meta, false, false, true);
+        let session = hub.resolve("agy-login").unwrap();
+        let (profile, route) = hub.login_profile(&session, "gemini").await.unwrap();
+        let store = home.path().join(".gemini");
+        assert_eq!(account_home("gemini", &profile.env), Some(store.clone()));
+        assert!(hub.login_profile(&session, "codex").await.is_err());
+        hub.login_changed("gemini", &store, route.as_deref()).await.unwrap();
+        assert!(session.meta().auth_change.is_some());
+        assert_eq!(session_evidence(&session.meta()).unwrap().state, State::Unknown);
+    }
 
     fn turn(status: &str, kind: Option<&str>, text: &str, at: u64) -> Value {
         json!({"status": status, "errorKind": kind, "errorText": text, "endedAt": at})

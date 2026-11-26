@@ -8,15 +8,18 @@ name: PR body checks
 # base branch, never the pull request's code. Editing the description re-runs them. They run on drafts
 # and on a base-only update, as they did.
 #
-# Not folded into pr-checks.yml: these react to labels and its advisory job does not. GitHub cannot
-# filter `on:` by label name, so a label trigger there would start a newer, skipped run of PR size, UI
-# review, split-plan and link on every bot label toggle, and hide their answers. Both workflows run steps
-# of the step table's `advisory` job, each naming its own with ci_steps.py --only.
+# Pushes run in pr-checks.yml (CI v2 step 6, second cut). A push's lints are steps of pr-checks.yml's one
+# advisory job, so a push starts one runner, not two (973 of these jobs a day in the 24 h to 2026-11-21T12Z,
+# nearly all on pushes). This workflow keeps the events that job does not take: a description edit (every
+# lint reads the body) and the media-tour and perf labels. GitHub cannot filter `on:` by label name, so a
+# label trigger there would start a newer, skipped run of PR size, UI review, split-plan and link on every
+# bot label toggle, and hide their answers. Both workflows run steps of the step table's `advisory` job,
+# each naming its own with ci_steps.py --only.
 #
-# Only the capture step can turn the job red (2 on bad input), so the job keeps that check's name
-# first: cmuxterm-hq's next_autoland and base_red_watch read a job named pr-capture-check as the PR's
-# own red, never a base red. The other three are advisory steps of the step table (ci/steps.toml),
-# run together by scripts/ci/ci_steps.py, and only warn.
+# The job keeps the capture check's name first: cmuxterm-hq's next_autoland and base_red_watch read a job
+# named pr-capture-check as the PR's own red. With a base whose table has the `capture` step, all four are
+# advisory steps (ci/steps.toml) run together by scripts/ci/ci_steps.py, and only warn ("Advisory checks
+# never block", CI v2); a base from before that runs the old capture step, which can go red (2 on bad input).
 #
 # Capture: a pull request that changes native app UI shows a real capture of it in its description
 # (what `cmux-ci capture` prints, the media-tour label, or a `No capture: <why>` line); a capture or
@@ -41,7 +44,9 @@ name: PR body checks
 on:
   pull_request:
     branches: [feat-cmux-next]
-    types: [opened, synchronize, reopened, edited, labeled, unlabeled, ready_for_review]
+    # A push (opened, synchronize, reopened, ready_for_review) runs these lints in pr-checks.yml's advisory job
+    # (CI v2 step 6, second cut): this workflow keeps only what that job does not take.
+    types: [edited, labeled, unlabeled]
 
 permissions: {}
 
@@ -61,7 +66,7 @@ jobs:
   body:
     name: pr-capture-check, design spec, perf section, cloud backend
     if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["media-tour","media-tour-mac","perf","performance"]'), github.event.label.name)) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -70,7 +75,7 @@ jobs:
       - name: Checkout the checks from the base branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.pull_request.base.ref }}
+          ref: refs/heads/${{ github.event.pull_request.base.ref }}
           persist-credentials: false
           sparse-checkout: |
             scripts/ci/pr_capture_check.py
@@ -82,6 +87,7 @@ jobs:
             .github/cloud-backend-paths.json
             ci/steps.toml
             scripts/ci/ci_steps.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       # The paths this pull request changes, from git rather than the files API (a call per 100 files
@@ -140,8 +146,9 @@ jobs:
           git diff --name-only -z -M "$MERGE_SHA^1" "$MERGE_SHA" | tr '\0' '\n' > "$RUNNER_TEMP/capture-paths.txt"
           echo "listed=true" >> "$GITHUB_OUTPUT"
 
-      # Not continue-on-error: bad input here is this job's red, as it was pr-capture-check's. Each
-      # later step still runs (!cancelled()).
+      # A base whose step table has no `capture` step (from before CI v2 step 6's second cut) runs the capture
+      # check here, as it did: bad input is this job's red, as it was pr-capture-check's. A base with the step
+      # runs it among the advisory steps below, where it only warns. Each later step still runs (!cancelled()).
       - name: Check the description for a real capture
         if: ${{ !cancelled() && !((github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["media-tour","media-tour-mac"]'), github.event.label.name)) }}
         env:
@@ -154,6 +161,10 @@ jobs:
           LISTED: ${{ steps.renames.outputs.listed }}
         run: |
           set -euo pipefail
+          if grep -q '^\[step\.capture\]' ci/steps.toml 2>/dev/null; then
+            echo "The base's step table runs the capture check (advisory steps, below)."
+            exit 0
+          fi
           if [ ! -f scripts/ci/pr_capture_check.py ]; then
             # The pull request that adds the check: its base has no check to run yet.
             echo "::notice::The base branch has no scripts/ci/pr_capture_check.py yet; nothing to check."
@@ -183,8 +194,10 @@ jobs:
           BODY: ${{ github.event.pull_request.body }}
           LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
           LABEL: ${{ (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name || '' }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PATHS_LISTED: ${{ steps.paths.outputs.listed }}
           TREE_LISTED: ${{ steps.tree.outputs.listed }}
+          CAPTURE_LISTED: ${{ steps.renames.outputs.listed }}
           ADDITIONS: ${{ github.event.pull_request.additions }}
           DELETIONS: ${{ github.event.pull_request.deletions }}
         run: |
@@ -195,10 +208,10 @@ jobs:
             exit 0
           fi
           # The table's advisory job also holds pr-checks.yml's steps, which read what this event does not
-          # carry: name this workflow's three. A base runner from before --only runs every step it has,
-          # which were only these three.
+          # carry: name this workflow's four (a base table without `capture` skips that name with a notice).
+          # A base runner from before --only runs every step it has, which were only the last three.
           only=()
           if grep -q -- '--only' scripts/ci/ci_steps.py; then
-            only=(--only "design-spec perf-section cloud-backend")
+            only=(--only "capture design-spec perf-section cloud-backend")
           fi
           python3 scripts/ci/ci_steps.py run --job advisory --label "$LABEL" "${only[@]}"

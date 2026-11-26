@@ -21,6 +21,8 @@ class WebSubareas:
     react_apps: bool
     typecheck: bool
     unit_tests: bool
+    # The real-daemon lane need not run for unrelated standalone test edits.
+    agent_pane: bool = False
 
     @classmethod
     def all(cls) -> "WebSubareas":
@@ -32,6 +34,7 @@ class WebSubareas:
             react_apps=True,
             typecheck=True,
             unit_tests=True,
+            agent_pane=True,
         )
 
     def emit(self, output: Path) -> None:
@@ -43,6 +46,7 @@ class WebSubareas:
             handle.write(f"react_apps={str(self.react_apps).lower()}\n")
             handle.write(f"typecheck={str(self.typecheck).lower()}\n")
             handle.write(f"unit_tests={str(self.unit_tests).lower()}\n")
+            handle.write(f"agent_pane={str(self.agent_pane).lower()}\n")
         print(
             "web subareas: "
             f"db={str(self.db).lower()} "
@@ -52,6 +56,7 @@ class WebSubareas:
             f"react_apps={str(self.react_apps).lower()} "
             f"typecheck={str(self.typecheck).lower()} "
             f"unit_tests={str(self.unit_tests).lower()}"
+            f" agent_pane={str(self.agent_pane).lower()}"
         )
 
 
@@ -170,9 +175,10 @@ TYPECHECK_EXACT = {
 
 UNIT_TESTS_EXACT = {
     "CHANGELOG.md",
-    # web/tests/next-docs.test.ts and docs-shortcuts tests compare the generated
-    # docs references with these, so a change to either must run the web tests
-    # (#38631 changed action-surfaces.json with Web tests skipped and broke base).
+    # web/tests/next-docs.test.ts and the docs-shortcuts tests build the docs
+    # references from these at the head (the committed copies are bot-only, RFD
+    # 0048), so a change to either must run the web tests (#38631 changed
+    # action-surfaces.json with Web tests skipped and broke base).
     "plans/cmux-next/action-surfaces.json",
     "schemas/settings/settings-schema.json",
     "config/iroh/managed-relay-catalog.json",
@@ -220,6 +226,23 @@ REACT_PREFIXES = (
     "webviews/",
 )
 
+# agent-pane-real-acpmux runs two browser tests against a built acpmux daemon; chat-flow-shift-budget runs the
+# chat flows' layout-shift budget on the same routing.
+# Browser tests load the app through Vite, beyond their static imports. Keep all
+# runtime/build inputs and support helpers; only unrelated standalone test files
+# can be excluded without losing shared or dynamically loaded dependencies.
+AGENT_PANE_EXACT = {
+    "webviews/test/agent-pane-new-chat-settles.test.ts",
+    "webviews/test/agent-pane-picks-hold.test.ts",
+    "webviews/test/chat-flow-shift-budget-browser.test.ts",
+}
+AGENT_PANE_PREFIXES = (
+    "cmux-tui/",
+    ".github/actions/setup-cmux-tui-rust/",
+    ".github/actions/playwright-apt-cache/",
+    "scripts/ci/playwright-apt-deps.sh",
+)
+
 # Every other input of the web bundles (the settings schema, the What's New
 # highlights, the model catalog, the string catalogs the pages read...) runs
 # react-apps-check too, as web-bundle-key.py derives them (`--routed`); the same
@@ -257,10 +280,11 @@ def classify_paths(paths: list[str], repo_root: Path | None = None) -> WebSubare
     react_apps = False
     typecheck = False
     unit_tests = False
+    agent_pane = False
 
     for path in paths:
         if path in ALL_SUBAREA_INPUTS:
-            db = diff_sidecar = instant = production_build = react_apps = typecheck = unit_tests = True
+            db = diff_sidecar = instant = production_build = react_apps = typecheck = unit_tests = agent_pane = True
             continue
 
         if path in DB_EXACT or path.startswith(DB_PREFIXES) or test_path_requires_db(path, root):
@@ -281,16 +305,23 @@ def classify_paths(paths: list[str], repo_root: Path | None = None) -> WebSubare
         ):
             production_build = True
 
-        if path in REACT_EXACT or path.startswith(REACT_PREFIXES):
+        react_input = path in REACT_EXACT or path.startswith(REACT_PREFIXES)
+        if not react_input and (matcher := web_bundle_input_matcher(str(root.resolve()))) is not None:
+            react_input = matcher(path)
+        if react_input:
             react_apps = True
-        elif (matcher := web_bundle_input_matcher(str(root.resolve()))) is not None and matcher(path):
-            react_apps = True
+            standalone_test = path.startswith("webviews/test/") and path.endswith((".test.ts", ".test.tsx"))
+            if not standalone_test or path in AGENT_PANE_EXACT or path.startswith("webviews/test/support/"):
+                agent_pane = True
 
         if path in TYPECHECK_EXACT or (
             path.startswith("web/")
             and (path.endswith(TYPECHECK_EXTENSIONS) or path.endswith(".json"))
         ):
             typecheck = True
+
+        if path in AGENT_PANE_EXACT or path.startswith(AGENT_PANE_PREFIXES):
+            agent_pane = True
 
         if path in UNIT_TESTS_EXACT or (
             path.startswith("web/") and not path.startswith(UNIT_TESTS_EXCLUDED_PREFIXES)
@@ -305,6 +336,7 @@ def classify_paths(paths: list[str], repo_root: Path | None = None) -> WebSubare
         react_apps=react_apps,
         typecheck=typecheck,
         unit_tests=unit_tests,
+        agent_pane=agent_pane,
     )
 
 
@@ -367,10 +399,31 @@ def route() -> int:
     return 0
 
 
+def has(subarea: str, paths_file: str | None) -> int:
+    """Exit 0 when the change routes SUBAREA, 1 when it does not: a ci/steps.toml step's own finer router, over the
+    paths `ci/run` lists in $CI_PATHS_FILE. No list, an unreadable one or an empty one routes it (everything changed)."""
+    if subarea not in WebSubareas.__dataclass_fields__:
+        raise SystemExit(f"web_subareas.py has: no subarea {subarea!r} (one of {sorted(WebSubareas.__dataclass_fields__)})")
+    paths = None
+    if paths_file:
+        try:
+            paths = [p for p in Path(paths_file).read_text(encoding="utf-8").splitlines() if p]
+        except (OSError, UnicodeError):
+            paths = None
+    if not paths:
+        print(f"web subarea {subarea}: the change's paths are unknown; it runs")
+        return 0
+    routed = getattr(classify_paths(paths), subarea)
+    print(f"web subarea {subarea}: {'routed' if routed else 'not routed'} by {len(paths)} changed paths")
+    return 0 if routed else 1
+
+
 def main() -> int:
     if sys.argv[1:] == ["route"]:
         return route()
-    raise SystemExit("usage: web_subareas.py route")
+    if len(sys.argv) == 3 and sys.argv[1] == "has":
+        return has(sys.argv[2], os.environ.get("CI_PATHS_FILE"))
+    raise SystemExit("usage: web_subareas.py route | has SUBAREA (reads $CI_PATHS_FILE)")
 
 
 if __name__ == "__main__":

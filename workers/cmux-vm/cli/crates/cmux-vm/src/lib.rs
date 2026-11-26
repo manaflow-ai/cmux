@@ -12,6 +12,8 @@ pub mod exit;
 mod config;
 mod creation_history;
 mod error;
+mod files;
+pub mod guest;
 mod output;
 mod prompt;
 mod run;
@@ -134,9 +136,9 @@ enum Command {
     /// Create, list and revoke API keys
     #[command(subcommand, name = "api-key")]
     ApiKey(ApiKeyCommand),
-    /// Read guest file metadata without starting the VM
+    /// Read guest files and metadata without starting the VM
     #[command(subcommand)]
-    File(FileCommand),
+    File(files::FileCommand),
 }
 
 #[derive(Subcommand, Debug)]
@@ -181,12 +183,6 @@ struct CreationListArgs {
     /// Continue from a previous page's opaque cursor
     #[arg(long)]
     cursor: Option<String>,
-}
-
-#[derive(Subcommand, Debug)]
-enum FileCommand {
-    /// Show file metadata on a running, paused, stopped or retired VM
-    Stat(FileStatArgs),
 }
 
 #[derive(Subcommand, Debug)]
@@ -235,14 +231,6 @@ struct ServerRevokeArgs {
 struct DeviceArg {
     /// Device id (dev_...)
     device_id: String,
-}
-
-#[derive(Args, Debug)]
-struct FileStatArgs {
-    /// VM id (vm_...)
-    vm_id: String,
-    /// Absolute guest path, without parent segments
-    path: String,
 }
 
 #[derive(Subcommand, Debug)]
@@ -400,6 +388,13 @@ struct ExecArgs {
     /// Kill the command after this many milliseconds
     #[arg(long)]
     timeout_ms: Option<u64>,
+    /// Pass this variable of the CLI's own environment to the command (repeatable). Only the
+    /// name is typed: its value never appears in argv, so a secret stays out of `ps`
+    #[arg(long = "env", value_name = "NAME")]
+    env_names: Vec<String>,
+    /// The values of `env_names`, read from the environment before the request (not a flag)
+    #[arg(skip)]
+    env_values: Vec<(String, String)>,
     /// The command; several words are joined with spaces (put them after `--`)
     #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
     command: Vec<String>,
@@ -465,9 +460,48 @@ struct CreateArgs {
     /// Seconds without network activity before the VM pauses; -1 never pauses
     #[arg(long, value_name = "SECONDS", allow_negative_numbers = true)]
     idle_timeout: Option<i64>,
+    /// vCPUs of the new VM (2-32) [default: the base image's, 4]
+    #[arg(long, value_parser = clap::value_parser!(u32).range(2..=32))]
+    vcpus: Option<u32>,
+    /// Memory of the new VM in MiB (4096-65536) [default: the base image's, 8192]
+    #[arg(long, value_parser = clap::value_parser!(u32).range(4096..=65536))]
+    memory_mib: Option<u32>,
+    /// Disk of the new VM in MiB (16384-131072) [default: the base image's, 32768]
+    #[arg(long, value_parser = clap::value_parser!(u32).range(16384..=131072))]
+    disk_mib: Option<u32>,
+    /// Label the VM KEY=VALUE (repeatable); `list` answers each VM's labels
+    #[arg(long = "label", value_name = "KEY=VALUE", value_parser = parse_label)]
+    labels: Vec<(String, String)>,
     /// Reuse this key when retrying, so the VM is created only once [default: a new random key]
     #[arg(long, value_name = "KEY")]
     idempotency_key: Option<String>,
+}
+
+/// `KEY=VALUE` of `create --label`, both sides non-empty.
+fn parse_label(raw: &str) -> Result<(String, String), String> {
+    match raw.split_once('=') {
+        Some((key, value)) if !key.is_empty() && !value.is_empty() => {
+            Ok((key.to_owned(), value.to_owned()))
+        }
+        _ => Err(format!("expected KEY=VALUE, got {raw:?}")),
+    }
+}
+
+/// `exec --env NAME`'s values from ENV: every name must be set, so a missing secret refuses the
+/// exec instead of running the command without it.
+fn exec_env(
+    names: &[String],
+    env: &dyn Fn(&str) -> Option<String>,
+) -> Result<Vec<(String, String)>, CliError> {
+    names
+        .iter()
+        .map(|name| match env(name) {
+            Some(value) => Ok((name.clone(), value)),
+            None => Err(CliError::usage(format!(
+                "exec --env {name}: {name} is not set in this environment"
+            ))),
+        })
+        .collect()
 }
 
 #[derive(Args, Debug)]
@@ -579,6 +613,76 @@ fn not_found(command: &Command) -> Option<(String, &'static str)> {
     }
 }
 
+/// The VM a verb acts on, which may be given by its name. `resize` and
+/// `retire` take only a public `vm_…` id and refuse anything else before any
+/// request, so they stay out.
+fn vm_target(command: &mut Command) -> Option<&mut String> {
+    match command {
+        Command::Get(a)
+        | Command::Start(a)
+        | Command::Stop(a)
+        | Command::Pause(a)
+        | Command::Resume(a) => Some(&mut a.vm_id),
+        Command::Delete(a) => Some(&mut a.vm_id),
+        Command::Exec(a) => Some(&mut a.vm_id),
+        Command::Fork(a) => Some(&mut a.vm_id),
+        Command::Identity(a) => Some(&mut a.vm_id),
+        _ => None,
+    }
+}
+
+/// Pages of the team's VMs read to find one by name, at most.
+const NAME_LOOKUP_PAGES: usize = 20;
+
+/// The id of the one VM whose display name is `name`, for a verb given a name
+/// instead of a `vm_…` id (the app's `cmux vm` resolves names itself; without
+/// the app this binary did not, so `cmux vm pause my-lane` was a 404).
+async fn vm_id_named(client: &Client, name: &str) -> Result<String, CliError> {
+    let mut named = Vec::new();
+    let mut cursor: Option<types::VmsListVmsCursor> = None;
+    for _ in 0..NAME_LOOKUP_PAGES {
+        let body =
+            fetch_body(client.vms_list_vms(None, cursor.as_ref(), None, Some("100"), None, None))
+                .await?;
+        let page: types::VmList = serde_json::from_slice(&body)
+            .map_err(|e| CliError::unexpected(format!("could not read the VM list: {e}")))?;
+        named.extend(
+            page.items
+                .iter()
+                .map(|vm| (vm.id.as_str().to_owned(), vm.display_name.clone())),
+        );
+        match page.next_cursor {
+            Some(next) => {
+                cursor = Some(next.parse().map_err(|e| {
+                    CliError::unexpected(format!("the VM list's next cursor is invalid: {e}"))
+                })?);
+            }
+            None => return pick_named(name, &named),
+        }
+    }
+    pick_named(name, &named)
+}
+
+/// The one id named `name` among `(id, display name)` pairs.
+fn pick_named(name: &str, vms: &[(String, Option<String>)]) -> Result<String, CliError> {
+    let ids: Vec<&str> = vms
+        .iter()
+        .filter(|(_, display)| display.as_deref() == Some(name))
+        .map(|(id, _)| id.as_str())
+        .collect();
+    match ids.as_slice() {
+        [id] => Ok((*id).to_owned()),
+        [] => Err(CliError::usage(format!(
+            "no VM named {name:?}: give its vm_… id, or see `cmux vm list`"
+        ))),
+        many => Err(CliError::usage(format!(
+            "{} VMs are named {name:?} ({}): give the vm_… id",
+            many.len(),
+            many.join(", ")
+        ))),
+    }
+}
+
 /// Whether `--json` appears before any `--`, so a parse failure can still be
 /// reported as JSON.
 fn json_requested(args: &[OsString]) -> bool {
@@ -663,47 +767,31 @@ async fn execute(
             };
             return token_command(command, token, &cli, env, stdout).await;
         }
-        // A stored token that cannot be read is refused, never skipped: the
-        // default config file's key may carry far more than the token's VM
-        // scopes and budget. An explicit key or config file is the override.
-        _ => match token::load(env) {
-            Ok(token) => token,
-            Err(problem)
-                if cli.config.is_some()
-                    || ["CMUX_VM_API_KEY", "CMUX_VM_CONFIG"]
-                        .iter()
-                        .any(|name| env(name).is_some_and(|value| !value.is_empty())) =>
-            {
-                error::report_warning(&problem, cli.json, stderr);
-                None
-            }
-            Err(problem) => {
-                return Err(CliError::unauthenticated(format!(
-                    "the stored VM token cannot be used: {problem}; fix it, run `cmux vm token create` again, or set CMUX_VM_API_KEY"
-                )));
-            }
-        },
+        _ => stored_token(cli.config.is_some(), env, cli.json, stderr)?,
     };
-    let settings = Settings::resolve_with_token(
+    let (client, settings) = authenticated(
         cli.base_url.as_deref(),
         cli.team.as_deref(),
         cli.config.as_deref(),
         env,
         stored.as_ref(),
-        token::now_unix(),
+        cli.json,
+        stderr,
     )?;
-    for warning in &settings.warnings {
-        error::report_warning(warning, cli.json, stderr);
+    let mut command = cli.command;
+    if let Command::Exec(args) = &mut command {
+        args.env_values = exec_env(&args.env_names, env)?;
     }
-    let client = cmux_vm_client::authenticated_raw_client(
-        &settings.base_url,
-        &settings.api_key,
-        settings.team_id.as_deref(),
-        concat!("cmux-vm/", env!("CARGO_PKG_VERSION")),
-    )
-    .map_err(|e| CliError::usage(e.to_string()))?;
-    match cli.command {
+    if let Some(target) = vm_target(&mut command) {
+        if !target.starts_with("vm_") {
+            *target = vm_id_named(&client, target).await?;
+        }
+    }
+    match command {
         Command::Run(args) => run::run(&client, args, stdout, stderr).await,
+        Command::File(command) => files::run(&client, command, cli.json, stdout)
+            .await
+            .map(|()| exit::OK),
         Command::Token(token::TokenCommand::Create(args)) => {
             let base = (settings.base_url != cmux_vm_client::DEFAULT_BASE_URL)
                 .then(|| settings.base_url.clone());
@@ -726,6 +814,59 @@ async fn execute(
                 .map(|()| exit::OK)
         }
     }
+}
+
+/// The stored token every verb but `token …` reads. A stored token that cannot
+/// be read is refused, never skipped: the default config file's key may carry
+/// far more than the token's VM scopes and budget. An explicit key or config
+/// file (`config_flag`, `CMUX_VM_API_KEY`, `CMUX_VM_CONFIG`) is the override.
+fn stored_token(
+    config_flag: bool,
+    env: &dyn Fn(&str) -> Option<String>,
+    json: bool,
+    stderr: &mut dyn Write,
+) -> Result<Option<token::StoredToken>, CliError> {
+    match token::load(env) {
+        Ok(token) => Ok(token),
+        Err(problem)
+            if config_flag
+                || ["CMUX_VM_API_KEY", "CMUX_VM_CONFIG"]
+                    .iter()
+                    .any(|name| env(name).is_some_and(|value| !value.is_empty())) =>
+        {
+            error::report_warning(&problem, json, stderr);
+            Ok(None)
+        }
+        Err(problem) => Err(CliError::unauthenticated(format!(
+            "the stored VM token cannot be used: {problem}; fix it, run `cmux vm token create` again, or set CMUX_VM_API_KEY"
+        ))),
+    }
+}
+
+/// The settings (flags, environment, config file, `stored`) and the client
+/// they authenticate, with the settings' warnings on `stderr`.
+fn authenticated(
+    base_url: Option<&str>,
+    team: Option<&str>,
+    config: Option<&Path>,
+    env: &dyn Fn(&str) -> Option<String>,
+    stored: Option<&token::StoredToken>,
+    json: bool,
+    stderr: &mut dyn Write,
+) -> Result<(Client, Settings), CliError> {
+    let settings =
+        Settings::resolve_with_token(base_url, team, config, env, stored, token::now_unix())?;
+    for warning in &settings.warnings {
+        error::report_warning(warning, json, stderr);
+    }
+    let client = cmux_vm_client::authenticated_raw_client(
+        &settings.base_url,
+        &settings.api_key,
+        settings.team_id.as_deref(),
+        concat!("cmux-vm/", env!("CARGO_PKG_VERSION")),
+    )
+    .map_err(|e| CliError::usage(e.to_string()))?;
+    Ok((client, settings))
 }
 
 /// `token status` and `token revoke`, on the stored token.
@@ -784,6 +925,14 @@ async fn dispatch(
                 "idleTimeoutSeconds": args.idle_timeout,
                 "image": image,
                 "initialNetwork": args.public_egress.then(|| json!({ "publicEgress": true })),
+                "resources": requested_resources(args.vcpus, args.memory_mib, args.disk_mib),
+                "labels": (!args.labels.is_empty())
+                    .then(|| {
+                        args.labels
+                            .iter()
+                            .map(|(key, value)| (key.clone(), Value::String(value.clone())))
+                            .collect::<serde_json::Map<String, Value>>()
+                    }),
             }))?;
             let key_text = args.idempotency_key.unwrap_or_else(new_idempotency_key);
             let key = parse_key::<types::VmsCreateVmIdempotencyKey>(&key_text)?;
@@ -1002,9 +1151,15 @@ async fn dispatch(
             out.retired(&response, id.as_str())
         }
         Command::Exec(args) => {
+            let env: serde_json::Map<String, Value> = args
+                .env_values
+                .into_iter()
+                .map(|(name, value)| (name, Value::String(value)))
+                .collect();
             let body: types::ExecRequest = request_body(json!({
                 "command": args.command.join(" "),
                 "timeoutMs": args.timeout_ms,
+                "env": (!env.is_empty()).then_some(env),
             }))?;
             let result = fetch_body(client.exec_exec_vm(&args.vm_id, None, &body))
                 .await
@@ -1135,31 +1290,8 @@ async fn dispatch(
             out.revoked(id.as_str())
         }
         Command::ApiKey(command) => api_key(client, command, prompt, out).await,
-        Command::Run(_) | Command::Token(_) => {
+        Command::Run(_) | Command::Token(_) | Command::File(_) => {
             Err(CliError::usage("this verb needs the API credential"))
-        }
-        Command::File(FileCommand::Stat(args)) => {
-            let id = args
-                .vm_id
-                .parse::<types::VmId>()
-                .map_err(|_| CliError::usage("invalid VM id"))?;
-            if !args.path.starts_with('/')
-                || args.path.contains('\0')
-                || args.path.split('/').any(|part| part == "..")
-                || args.path.encode_utf16().count() > 4096
-            {
-                return Err(CliError::usage(
-                    "guest path must be absolute, at most 4096 characters, without parent segments or NUL",
-                ));
-            }
-            let path = args
-                .path
-                .parse::<types::GuestPath>()
-                .map_err(|_| CliError::usage("invalid guest path"))?;
-            let body = fetch_body(client.files_stat_file(id.as_str(), &path, None))
-                .await
-                .map_err(|e| e.for_vm(id.as_str(), "file stat"))?;
-            out.file_stat(&body)
         }
     }
 }
@@ -1442,6 +1574,25 @@ fn request_body<T: serde::de::DeserializeOwned>(mut body: Value) -> Result<T, Cl
         fields.retain(|_, v| !v.is_null());
     }
     serde_json::from_value(body).map_err(|e| CliError::usage(format!("invalid argument: {e}")))
+}
+
+/// `create`'s `resources`: the axes given (none: the base image's size).
+fn requested_resources(
+    vcpus: Option<u32>,
+    memory_mib: Option<u32>,
+    disk_mib: Option<u32>,
+) -> Option<Value> {
+    let mut axes = serde_json::Map::new();
+    for (key, value) in [
+        ("vcpus", vcpus),
+        ("memoryMib", memory_mib),
+        ("diskMib", disk_mib),
+    ] {
+        if let Some(value) = value {
+            axes.insert(key.to_owned(), json!(value));
+        }
+    }
+    (!axes.is_empty()).then_some(Value::Object(axes))
 }
 
 fn parse_key<T>(key: &str) -> Result<T, CliError>

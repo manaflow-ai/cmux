@@ -58,7 +58,9 @@
       "read": [
         "apps.catalog.list",
         "apps.catalog.get",
+        "apps.catalog.sections",
         "apps.installed.list",
+        "apps.updates.list",
         "apps.grants.get",
         "apps.logs",
         "apps.asset.get"
@@ -70,6 +72,7 @@
       ],
       "confirm": [
         "apps.set",
+        "apps.update",
         "apps.uninstall",
         "apps.grant.set"
       ],
@@ -138,6 +141,19 @@
         "feed-view-changed",
         "feed-reports-changed"
       ]
+    },
+    "forum": {
+      "description": "Forum (experiments.forum): the team's hosted forum read through the daemon's forum owner (server/forum_routed.rs, the cmux-forum-hosted client). It reads the spaces and threads (forum.snapshot) and one thread with its comments (forum.thread.get); a new thread (forum.thread.post) and a reply (forum.thread.reply) need the person's gesture. It hears no event: the page re-reads after its own post or reply and on demand.",
+      "read": [
+        "forum.snapshot",
+        "forum.thread.get"
+      ],
+      "gesture": [
+        "forum.thread.post",
+        "forum.thread.reply"
+      ],
+      "confirm": [],
+      "events": []
     }
   },
   "namespaces": {
@@ -147,7 +163,9 @@
       "read": [
         "apps.catalog.list",
         "apps.catalog.get",
+        "apps.catalog.sections",
         "apps.installed.list",
+        "apps.updates.list",
         "apps.grants.get",
         "apps.logs",
         "apps.asset.get"
@@ -155,6 +173,7 @@
       "mutation": [
         "apps.set",
         "apps.install",
+        "apps.update",
         "apps.uninstall",
         "apps.hidden.set",
         "apps.grant.set",
@@ -219,6 +238,18 @@
         "feed.github.refresh",
         "feed.reports.reply",
         "feed.presence.set"
+      ]
+    },
+    "forum": {
+      "owner": "forum.hosted",
+      "description": "The team's hosted forum (/v1/forum on cmux-platform) through the daemon's cmux-forum-hosted client (server/forum_routed.rs), set up from CMUX_FORUM_URL, CMUX_FORUM_TEAM and CMUX_FORUM_KEY. Only the app's own process (its main connection or its Forum page relay); mutations need origin user.",
+      "read": [
+        "forum.snapshot",
+        "forum.thread.get"
+      ],
+      "mutation": [
+        "forum.thread.post",
+        "forum.thread.reply"
       ]
     }
   }

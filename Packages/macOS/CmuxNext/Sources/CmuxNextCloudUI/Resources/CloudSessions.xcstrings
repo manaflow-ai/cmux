@@ -244,6 +244,33 @@
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "`cmux link open --url %@` 可在那裡開啟它。"}}
       }
     },
+    "cloud.startSession.setupRequired.gateway": {
+      "comment": "After cloud.startSession.setupRequired.open: the team inference gateway the refusal read. %1$@ is the backend team id (team_...), %2$@ is a machine-readable code (auth.no_token, timed_out, not_serving). Keep both as is.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Inference gateway of team %1$@: %2$@."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "チーム %1$@ の推論ゲートウェイ: %2$@。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Inferenz-Gateway des Teams %1$@: %2$@."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Passerelle d’inférence de l’équipe %1$@ : %2$@."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Pasarela de inferencia del equipo %1$@: %2$@."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "بوابة الاستدلال للفريق %1$@: %2$@."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Inference gateway tima %1$@: %2$@."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Inferens-gateway for teamet %1$@: %2$@."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Gateway di inferenza del team %1$@: %2$@."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ច្រកផ្លូវ inference របស់ក្រុម %1$@៖ %2$@។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "팀 %1$@의 추론 게이트웨이: %2$@."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Inferens-gateway for teamet %1$@: %2$@."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Bramka inferencji zespołu %1$@: %2$@."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Gateway de inferência da equipe %1$@: %2$@."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Шлюз инференса команды %1$@: %2$@."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เกตเวย์การอนุมานของทีม %1$@: %2$@"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "%1$@ ekibinin çıkarım ağ geçidi: %2$@."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Шлюз інференсу команди %1$@: %2$@."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Cổng suy luận của nhóm %1$@: %2$@."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "团队 %1$@ 的推理网关：%2$@。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "團隊 %1$@ 的推論閘道：%2$@。"}}
+      }
+    },
     "cloud.startSession.setupRequired.claudeLogin": {
       "comment": "Before cloud.startSession.setupRequired: this Mac is signed in to Claude Code, whose login serves only this Mac, not Cloud. Keep Claude Code and setup token as the app names them.",
       "extractionState": "manual",
@@ -620,6 +647,33 @@
         "tr": {"stringUnit": {"state": "needs_review", "value": "`%1$@` makinesi bağlanmadı, bu yüzden orada hiçbir ajan başlatılmadı. Makineyi `cmux cloud machine-status --target machine:%2$@` ile kontrol edin, ardından `cmux cloud start-session --target machine:%2$@ --agent %3$@` komutunu yeniden çalıştırın."}},
         "uk": {"stringUnit": {"state": "needs_review", "value": "Машина `%1$@` не під'єдналася, тому агент на ній не запущено. Перевірте її командою `cmux cloud machine-status --target machine:%2$@`, потім знову виконайте `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}},
         "vi": {"stringUnit": {"state": "needs_review", "value": "Máy `%1$@` không kết nối được nên không có tác tử nào được khởi động trên đó. Kiểm tra máy bằng `cmux cloud machine-status --target machine:%2$@`, rồi chạy lại `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}}
+      }
+    },
+    "cloud.startSession.newMachineKept": {
+      "comment": "A failed start could not delete the machine it made; it still runs. %1$@ machine name, %2$@ machine id.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Its new machine `%1$@` still runs. Delete it with `cmux cloud kill-machine --target machine:%2$@ --confirm true`."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "新しいマシン `%1$@` はまだ動いています。`cmux cloud kill-machine --target machine:%2$@ --confirm true` で削除してください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Die neue Maschine `%1$@` läuft noch. Lösche sie mit `cmux cloud kill-machine --target machine:%2$@ --confirm true`."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Sa nouvelle machine `%1$@` tourne encore. Supprimez-la avec `cmux cloud kill-machine --target machine:%2$@ --confirm true`."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Su nueva máquina `%1$@` sigue en marcha. Elimínala con `cmux cloud kill-machine --target machine:%2$@ --confirm true`."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "لا يزال الجهاز الجديد `%1$@` يعمل. احذفه باستخدام `cmux cloud kill-machine --target machine:%2$@ --confirm true`."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "새 머신 `%1$@`이(가) 아직 실행 중입니다. `cmux cloud kill-machine --target machine:%2$@ --confirm true`(으)로 삭제하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "新机器 `%1$@` 仍在运行。请用 `cmux cloud kill-machine --target machine:%2$@ --confirm true` 删除它。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "新機器 `%1$@` 仍在執行。請用 `cmux cloud kill-machine --target machine:%2$@ --confirm true` 刪除它。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Nova mašina `%1$@` još radi. Obriši je pomoću `cmux cloud kill-machine --target machine:%2$@ --confirm true`."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Den nye maskine `%1$@` kører stadig. Slet den med `cmux cloud kill-machine --target machine:%2$@ --confirm true`."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "La nuova macchina `%1$@` è ancora in esecuzione. Eliminala con `cmux cloud kill-machine --target machine:%2$@ --confirm true`."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ម៉ាស៊ីនថ្មី `%1$@` នៅតែដំណើរការ។ លុបវាដោយ `cmux cloud kill-machine --target machine:%2$@ --confirm true`។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Den nye maskinen `%1$@` kjører fortsatt. Slett den med `cmux cloud kill-machine --target machine:%2$@ --confirm true`."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Nowa maszyna `%1$@` nadal działa. Usuń ją poleceniem `cmux cloud kill-machine --target machine:%2$@ --confirm true`."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "A nova máquina `%1$@` ainda está em execução. Exclua-a com `cmux cloud kill-machine --target machine:%2$@ --confirm true`."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Новая машина `%1$@` всё ещё работает. Удалите её командой `cmux cloud kill-machine --target machine:%2$@ --confirm true`."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เครื่องใหม่ `%1$@` ยังทำงานอยู่ ลบด้วย `cmux cloud kill-machine --target machine:%2$@ --confirm true`"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Yeni makine `%1$@` hâlâ çalışıyor. `cmux cloud kill-machine --target machine:%2$@ --confirm true` ile silin."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Нова машина `%1$@` досі працює. Видаліть її командою `cmux cloud kill-machine --target machine:%2$@ --confirm true`."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Máy mới `%1$@` vẫn đang chạy. Xóa nó bằng `cmux cloud kill-machine --target machine:%2$@ --confirm true`."}}
       }
     },
     "cloud.startSession.tabClosed": {

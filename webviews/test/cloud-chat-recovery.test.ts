@@ -56,6 +56,19 @@ describe("cloud chat recovery", () => {
     expect(cloudChatState(cloud, inventory([{ ...paused, stage: "ready" }]))).toBe("live");
     expect(cloudChatUnavailable(offline, "live")).toBe(offline);
   });
+  // cmux#55066 review: a resume keeps its card while the chat is only not reached yet; a definitive
+  // answer about the chat (deleted, not found) shows at once, never a paused card spinning forever.
+  test("a resume keeps its paused card only while the chat is not reached yet", () => {
+    expect(cloudChatUnavailable(offline, "live", "Demo machine", true)).toEqual({
+      reason: "paused",
+      machine: "Demo machine",
+    });
+    expect(cloudChatUnavailable(offline, "live", "Demo machine", false)).toBe(offline);
+    const deleted = { reason: "deleted" } as const;
+    expect(cloudChatUnavailable(deleted, "live", "Demo machine", true)).toBe(deleted);
+    const notFound = { reason: "notFound" } as const;
+    expect(cloudChatUnavailable(notFound, "live", "Demo machine", true)).toBe(notFound);
+  });
   test("a failed stage keeps the native attach retry available", () => {
     const state = cloudChatState(cloud, inventory([{ ...paused, stage: "failed" }]));
     expect(state).toBe("paused");

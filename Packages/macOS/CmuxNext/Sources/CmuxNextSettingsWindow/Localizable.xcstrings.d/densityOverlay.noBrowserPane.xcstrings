@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "densityOverlay.noBrowserPane" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open a browser pane with its omnibar showing in a cmux window."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux ウインドウで、アドレスバーを表示したブラウザペインを開いてください。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "افتح جزء متصفح يظهر فيه شريط العناوين في نافذة cmux."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Otvorite okno preglednika s prikazanom adresnom trakom u cmux prozoru."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Åbn en browserrude med adresselinjen vist i et cmux-vindue."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Öffne in einem cmux-Fenster einen Browserbereich mit sichtbarer Adressleiste."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Abre un panel de navegador con la barra de direcciones visible en una ventana de cmux."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ouvrez un volet de navigateur avec sa barre d'adresse visible dans une fenêtre cmux."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Apri un riquadro del browser con la barra degli indirizzi visibile in una finestra di cmux."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បើកផ្ទាំងកម្មវិធីរុករកដែលបង្ហាញរបារអាសយដ្ឋាន ក្នុងបង្អួច cmux។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux 창에서 주소 표시줄이 보이는 브라우저 패널을 여세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Åpne en nettleserrute med adressefeltet synlig i et cmux-vindu."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Otwórz panel przeglądarki z widocznym paskiem adresu w oknie cmux."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Abra um painel de navegador com a barra de endereço visível em uma janela do cmux."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Откройте панель браузера с видимой адресной строкой в окне cmux."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เปิดบานเบราว์เซอร์ที่แสดงแถบที่อยู่ในหน้าต่าง cmux"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bir cmux penceresinde adres çubuğu görünen bir tarayıcı bölmesi açın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Відкрийте панель браузера з видимим адресним рядком у вікні cmux."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mở một khung trình duyệt có hiện thanh địa chỉ trong cửa sổ cmux."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在 cmux 窗口中打开一个显示地址栏的浏览器窗格。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在 cmux 視窗中開啟一個顯示網址列的瀏覽器窗格。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

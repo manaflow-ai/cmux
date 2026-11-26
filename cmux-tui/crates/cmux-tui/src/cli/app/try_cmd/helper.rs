@@ -1,7 +1,7 @@
 //! The Screen Sharing helper a live try carries: `mac-live.json`'s top-level
 //! `screen_sharing_helper` (a key every older CLI ignores, so its payloads stay
-//! readable to them), the signed `<app> Screen Sharing.app` of the commit's
-//! cmux-rd host (plans/cmux-next/screen-sharing-helper.md).
+//! readable to them), the signed `<app> Helper.app` (`<app> Screen Sharing.app` before the
+//! rename) of the commit's cmux-rd host (plans/cmux-next/screen-sharing-helper.md).
 //!
 //! The app and the daemon never fall back to `bin/cmux rd serve` once a helper
 //! is bundled, so a try that changes the host's code changes this bundle. It is
@@ -33,13 +33,16 @@ pub(super) const KEY: &str = "screen_sharing_helper";
 pub(super) const ZIP: &str = "cmux-screen-sharing-helper-aarch64-apple-darwin.zip";
 /// The app's folder that holds the helper.
 pub(super) const LIBRARY: &str = "Contents/Library";
-/// Every channel's helper bundle ends with this (`cmux NIGHTLY Screen Sharing.app`).
-pub(super) const SUFFIX: &str = " Screen Sharing.app";
+/// Whether a bundle name is a channel's helper: `cmux NIGHTLY Helper.app` since the rename
+/// (cmux#50850), `cmux NIGHTLY Screen Sharing.app` before it and in CI's published zip.
+pub(super) fn is_helper_name(name: &str) -> bool {
+    cmux_signed_bundle::HELPER_BUNDLE_SUFFIXES.iter().any(|suffix| name.ends_with(suffix))
+}
 /// The helper's executable (bundle-screen-sharing-helper.sh `EXECUTABLE`).
 pub(super) const EXECUTABLE: &str = "cmux-screen-sharing";
 /// A helper zip is a few megabytes.
 pub(super) const ZIP_MAX_BYTES: u64 = 128 * 1024 * 1024;
-/// The staging folder's prefix beside the installed helper (hidden: no glob of `* Screen Sharing.app` sees it).
+/// The staging folder's prefix beside the installed helper (hidden: no glob of `* Helper.app` or `* Screen Sharing.app` sees it).
 const STAGING_PREFIX: &str = ".app-try-helper-";
 
 /// `screen_sharing_helper` in `mac-live.json`.
@@ -255,8 +258,8 @@ impl Prepared {
 /// installed one; the installed one kept aside in the staging folder until the try holds.
 #[derive(Debug)]
 pub(super) struct Swap {
-    /// Removed with whatever is still in it when the swap is dropped.
-    staging: tempfile::TempDir,
+    /// Held only to be dropped: removed with whatever is still in it when the swap is dropped.
+    _staging: tempfile::TempDir,
     pub installed: PathBuf,
     staged: PathBuf,
     aside: PathBuf,
@@ -274,63 +277,58 @@ impl Swap {
         let from = digest(&installed)?;
         let to = digest(&staged)?;
         let aside = staging.path().join("prior.app");
-        Ok(Self { staging, installed, staged, aside, from, to })
+        Ok(Self { _staging: staging, installed, staged, aside, from, to })
     }
 
-    /// Renames the installed bundle aside and the staged one into its place; on a failure
-    /// the installed one goes back.
+    /// Exchanges the staged bundle with the installed one in one step (`renamex_np(RENAME_SWAP)`
+    /// on macOS, so the app never holds no helper), then moves the prior one aside.
     pub(super) fn swap(&self) -> Result<(), String> {
-        fs::rename(&self.installed, &self.aside)
+        cmux_signed_bundle::swap_into(&self.staged, &self.installed)
             .map_err(|e| format!("{}: {e}", self.installed.display()))?;
-        if let Err(error) = fs::rename(&self.staged, &self.installed) {
-            let path = self.installed.display();
-            return Err(match fs::rename(&self.aside, &self.installed) {
-                Ok(()) => format!("{path}: {error}"),
-                Err(back) => format!("{path}: {error}; putting the helper back failed too: {back}"),
-            });
-        }
-        Ok(())
+        fs::rename(&self.staged, &self.aside).map_err(|e| format!("{}: {e}", self.staged.display()))
     }
 
     /// Puts the installed bundle from before the swap back (a later check failed).
     pub(super) fn put_back(&self) -> Result<(), String> {
-        let rejected = self.staging.path().join("rejected.app");
-        fs::rename(&self.installed, &rejected)
-            .map_err(|e| format!("{}: {e}", self.installed.display()))?;
-        fs::rename(&self.aside, &self.installed)
+        // One exchange as in `swap`: `aside` then holds the rejected bundle, removed with the staging.
+        cmux_signed_bundle::swap_into(&self.aside, &self.installed)
             .map_err(|e| format!("{}: {e}", self.installed.display()))
     }
 
-    /// Keeps the bundle from before the swap in the store (`helpers/<digest>/<name>`) for
-    /// `undo`, and gives the receipt's step and undo record.
+    /// Where `keep` puts the bundle from before the swap: `helpers/<digest>/<name>` in the store.
+    fn kept(&self, store: &Store) -> PathBuf {
+        let name = self.installed.file_name().map(PathBuf::from).unwrap_or_default();
+        store.root.join("helpers").join(&self.from).join(name)
+    }
+
+    /// Copies the installed bundle into the store for `undo`, before `swap` touches it: a
+    /// swap whose prior bundle could not be kept is refused, so `undo` always has it.
+    pub(super) fn keep(&self, store: &Store) -> Result<(), String> {
+        let kept = self.kept(store);
+        if kept.is_dir() && digest(&kept).is_ok_and(|have| have == self.from) {
+            return Ok(());
+        }
+        let dir = kept.parent().ok_or("the store has no folder")?;
+        fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        let _ = fs::remove_dir_all(&kept);
+        copy_tree(&self.installed, &kept)?;
+        if digest(&kept)? != self.from {
+            let _ = fs::remove_dir_all(&kept);
+            return Err(format!("the copy at {} is not the installed helper", kept.display()));
+        }
+        Ok(())
+    }
+
+    /// The receipt's step and undo record; `keep` already put the prior bundle in the store.
     pub(super) fn finish(&self, store: &Store) -> (Value, Value) {
         let step = json!({
             "did": "swapped", "bundle": self.installed.to_string_lossy(),
             "from": self.from, "to": self.to,
         });
-        let name = self.installed.file_name().map(PathBuf::from).unwrap_or_default();
-        let kept = store.root.join("helpers").join(&self.from).join(name);
-        let keep = || -> Result<(), String> {
-            if kept.is_dir() && digest(&kept).is_ok_and(|have| have == self.from) {
-                return Ok(());
-            }
-            let dir = kept.parent().ok_or("the store has no folder")?;
-            fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-            let _ = fs::remove_dir_all(&kept);
-            if fs::rename(&self.aside, &kept).is_err() {
-                copy_tree(&self.aside, &kept)?;
-            }
-            Ok(())
-        };
-        let undo = match keep() {
-            Ok(()) => json!({
-                "bundle": self.installed.to_string_lossy(), "copy": kept.to_string_lossy(),
-                "digest": self.from, "set": self.to,
-            }),
-            Err(error) => {
-                json!({ "bundle": self.installed.to_string_lossy(), "copy": null, "error": error })
-            }
-        };
+        let undo = json!({
+            "bundle": self.installed.to_string_lossy(), "copy": self.kept(store).to_string_lossy(),
+            "digest": self.from, "set": self.to,
+        });
         (step, undo)
     }
 }
@@ -411,7 +409,7 @@ pub(super) fn prepare(
             continue;
         }
         let real_dir = entry.file_type().is_ok_and(|kind| kind.is_dir());
-        if !real_dir || !name.ends_with(SUFFIX) {
+        if !real_dir || !is_helper_name(&name) {
             return Err(format!("{ZIP} holds {name}, not only a Screen Sharing helper"));
         }
         bundles.push(entry.path());
@@ -455,7 +453,7 @@ pub(super) fn undo(receipt: &Value) -> Result<Option<Swap>, String> {
         ));
     };
     let (was, set) = (field("digest").unwrap_or_default(), field("set").unwrap_or_default());
-    if !bundle.file_name().is_some_and(|name| name.to_string_lossy().ends_with(SUFFIX)) {
+    if !bundle.file_name().is_some_and(|name| is_helper_name(&name.to_string_lossy())) {
         return Err(format!("the receipt names {}, not a Screen Sharing helper", bundle.display()));
     }
     if digest(&bundle).ok().as_deref() != Some(set) {

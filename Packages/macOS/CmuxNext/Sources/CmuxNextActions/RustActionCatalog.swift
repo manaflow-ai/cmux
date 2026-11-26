@@ -1,7 +1,11 @@
+#if canImport(AppKit)
 public import AppKit
+#endif
 import CCmuxActionCatalogFFI
 import Foundation
+#if canImport(os)
 import os
+#endif
 
 /// cmux NEXT's action catalog, read once from Rust (cmux-tui/crates/cmux-action-catalog, linked
 /// through CCmuxAppFFI), in the app's language. Every descriptor field, every title and its

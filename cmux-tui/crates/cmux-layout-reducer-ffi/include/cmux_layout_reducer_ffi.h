@@ -1177,7 +1177,8 @@ typedef struct CmuxSidebarFaceRow {
     uint8_t notice;
     uint8_t progress;
     uint8_t progress_error;
-    uint8_t reserved[2];
+    uint8_t agent_in_terminal; /* 1: the agent tab's agent runs in a terminal, not a chat */
+    uint8_t reserved[1];
     uint32_t listed_start;     /* index into reply->listed: one per tab of the workspace */
     uint32_t kept_entry_start; /* index into reply->kept_entries: the status block's entries */
     uint32_t kept_entry_count;

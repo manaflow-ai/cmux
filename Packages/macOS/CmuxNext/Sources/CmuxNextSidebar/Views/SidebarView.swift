@@ -94,6 +94,17 @@ public final class SidebarView: NSView {
     /// The footer's Search button, after the profile avatar (plans/cmux-next/sidebar-search.md):
     /// a press runs ``onSearch`` (the centered Search palette). `sidebar.showSearchButton` hides it.
     let searchButton = SidebarIconButton(icon: .search, pointSize: { Metrics.iconSize }, label: Strings.searchButton)
+    /// The footer's Live button, right after the profile avatar (Leo 2026-11-24: "an icon maybe toggle somewhere
+    /// omnipresent... say the bottom left of the sidebar area"): a click runs ``onLiveToggle``, a right-click lists who
+    /// is live (SidebarView+Live). `sidebar.showLiveToggle` hides it.
+    let liveButton = SidebarIconButton(symbol: "dot.radiowaves.left.and.right", pointSize: { Metrics.iconSize }, label: Strings.live)
+    let liveMenuTarget = SidebarLiveMenuTarget()
+    /// What the Live button shows and its menu lists; the App sets it from `presence.live` and the team.
+    public var live = SidebarLiveState() { didSet { if live != oldValue { applyLive() } } }
+    /// The Live button was pressed (or its menu's Turn Live On/Off): the App flips `presence.live`.
+    public var onLiveToggle: (() -> Void)?
+    /// A teammate was picked in the Live menu: the App opens their direct message.
+    public var onLiveOpenPerson: ((String) -> Void)?
     /// The Priority view, its titlebar bell and the bell's dot (SidebarView+Priority); nil `priority` hides all three.
     let priorityPanelView = SidebarPriorityPanelView(), priorityButton = SidebarIconButton(icon: .notification, label: Strings.priorityTitle)
     /// The quiet Update Available button (``showUpdateAvailable(_:)``).
@@ -108,13 +119,13 @@ public final class SidebarView: NSView {
             needsLayout = true
         }
     }
-    /// App health's dot and line (design/app-health.md), over the sidebar just above the footer row, never in
-    /// its flow (``SidebarFooterBand/placeHealthIndicator(above:)``); it shows and hides itself and asks for a
-    /// layout. It never fades with the footer; Minimal Mode fades it with the cards (``minimalChromeViews``).
-    public var healthIndicator: NSView? {
+    /// The "Experiment on · #N" mark (CmuxNextPages `CustomizeExperimentsMarkView`), floating over the sidebar
+    /// just above the footer row (``SidebarFooterBand/placeExperimentsMark(above:)``); it shows and hides itself and asks for a layout.
+    /// It never fades with the footer.
+    public var experimentsMark: NSView? {
         didSet {
             oldValue?.removeFromSuperview()
-            healthIndicator.map { addSubview($0) }
+            experimentsMark.map { addSubview($0) }
             needsLayout = true
         }
     }
@@ -156,6 +167,8 @@ public final class SidebarView: NSView {
     var observation: Task<Void, Never>?
     private var clipObservers: [any NSObjectProtocol] = []
     var lastState: RenderState?
+    /// The pull request badges the rows drew at the last render that saw them change (`RenderState.pullRequests`).
+    var drawnPullRequests: [WorkspaceID: SidebarPullRequestBadge] = [:]
     var selectionTreeReveal = SidebarSelectionTreeReveal()
     /// A `renderInFrame` draw is queued for this turn's frame.
     var renderQueued = false
@@ -165,6 +178,10 @@ public final class SidebarView: NSView {
     var bandsDirty = true
     /// The size the bands were laid out for (app sections take a share of the height).
     private var bandsSize: CGSize?
+    /// The last `updateBands` gave an app section a height from the sidebar's (`appHeights`): only then does a new
+    /// height alone change the bands. Without one a window resize step (the width stays, the height moves) makes no
+    /// band content again; the width, the model and the tokens (`bandsDirty`) still do.
+    var bandsFollowHeight = true
     /// App section contributions the bands showed at the last update (`releaseAppSections`).
     var shownAppContributions: Set<String> = []
     /// The `sidebar.*` settings this sidebar draws from (tests give their own).
@@ -183,6 +200,7 @@ public final class SidebarView: NSView {
         newWorkspaceOptionsButton.setAccessibilityIdentifier("cmux.sidebar.newWorkspace.options")
         list.reload(animated: false)
         observe()
+        startLaunchFilmIfAsked()
         // The chrome reveal follows the pointer and the sidebar's frame (cx-3wu5).
         chromeHover = PointerHover(self) { [weak self] hovering in self?.setChromeRevealed(hovering) }
     }
@@ -302,7 +320,7 @@ public final class SidebarView: NSView {
 
     private func buildHierarchy() {
         newButton.onPress = { [weak self] in self?.model.send(.newWorkspace(machine: nil, group: nil)) }
-        newButton.menuProvider = { [weak self] in self?.list.contextMenuProvider?(.background) }
+        newButton.menuProvider = { [weak self] in self?.list.contextMenuProvider?(.newButton) }
         newWorkspaceOptionsButton.longPressOpensMenu = false
         newWorkspaceOptionsButton.symbolPointSize = { SidebarStyle.toolbarMenuChevronPointSize }
         // The chooser opens under the whole split button, from the +'s leading edge, as a
@@ -311,7 +329,7 @@ public final class SidebarView: NSView {
             let anchor: NSView = self?.newButton ?? button
             menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: anchor, gap: Metrics.space1), in: anchor)
         }
-        newWorkspaceOptionsButton.pressMenu = { [weak self] in self?.list.contextMenuProvider?(.background) }
+        newWorkspaceOptionsButton.pressMenu = { [weak self] in self?.list.contextMenuProvider?(.newButton) }
         newWorkspaceOptionsButton.target = self
         newWorkspaceOptionsButton.action = #selector(openNewWorkspaceOptions)
         newButton.onMenuOpenChange = { [weak self] open in self?.chromeMenuOpenChanged(open) }
@@ -325,7 +343,7 @@ public final class SidebarView: NSView {
         scrollView.hasVerticalScroller = true
         // The shared thin scroller (the chat's): a 3 pt knob on no track, an
         // overlay that never narrows the list.
-        SystemScrollers.followThin(scrollView)
+        SystemScrollers.followThin(scrollView, scrollOnly: true)
         scrollView.automaticallyAdjustsContentInsets = false
         scrollView.contentView.drawsBackground = false
         scrollView.documentView = list
@@ -353,6 +371,12 @@ public final class SidebarView: NSView {
             self.onSearch?(self.searchButton)
         }
         addSubview(searchButton)
+        liveButton.setAccessibilityIdentifier("cmux.sidebar.live")
+        liveButton.showsLabelToolTip = false
+        liveButton.onPress = { [weak self] in self?.onLiveToggle?() }
+        liveButton.menuProvider = { [weak self] in self?.liveMenu() }
+        addSubview(liveButton)
+        applyLive()
         profileBar.alphaValue = spacesAlpha(revealed: isChromeRevealed)
         cardSlot.install(in: self)
         buildPriority()
@@ -449,6 +473,7 @@ public final class SidebarView: NSView {
         SidebarHiddenState.apply(!showsProfiles, to: profileBar)
         SidebarHiddenState.apply(noFade, to: footerRegion)
         SidebarHiddenState.apply(noFade, to: searchButton)
+        SidebarHiddenState.apply(noFade || !design.sidebarSections.showLiveToggle, to: liveButton)
         if let liveModeBadge { SidebarHiddenState.apply(noFade, to: liveModeBadge) }
         for fade in [edgeFade, aboveFade, belowFade] { fade.fades = !noFade }
         // R109: the dots under the titlebar row, or in the footer.
@@ -460,7 +485,7 @@ public final class SidebarView: NSView {
         // the sidebar's metrics, the switcher's own tokens and the app sections): a layout for a new size only does not
         // make the switcher again (a window resize step).
         let spacesChanged = bandsDirty
-        if bandsDirty || bandsSize != b.size {
+        if bandsDirty || bandsSize?.width != b.width || (bandsFollowHeight && bandsSize?.height != b.height) {
             (bandsDirty, bandsSize) = (false, b.size)
             updateBands()
         }
@@ -497,9 +522,9 @@ public final class SidebarView: NSView {
         footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - updateHeight - cardsHeight, width: b.width, height: cardsHeight)
         footerBand.layoutFooter(visibleSlots)
         footerBand.placeSpaces(top: y, height: spacesHeight, modelChanged: spacesChanged)
-        // App health's line over the sidebar, above the footer row and its cards: placed after the row, from
-        // nothing in it.
-        footerBand.placeHealthIndicator(above: footer.frame.minY - updateHeight - cardsHeight)
+        // The experiments mark over the sidebar, above the footer row and its cards: placed after the row,
+        // from nothing in it.
+        footerBand.placeExperimentsMark(above: footer.frame.minY - updateHeight - cardsHeight)
         edgeFade.frame = listFrame
         clipBandsUnderTrafficLights()
         layoutEditBar(over: listFrame)

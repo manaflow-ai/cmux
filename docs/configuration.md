@@ -278,7 +278,7 @@ The Cards, Default, Threads and Console pages no longer ship as templates: each 
 
 ## `tabs.newTabApp`
 
-An extension that draws the whole New Tab page, by its app id. The extension implements
+An extension that draws over the New Tab composer, by its app id. The extension implements
 `cmux.newtab/1` (see `cmux-tui/crates/cmux-extension-sdk/README.md`). Unset (the default), cmux
 draws its own page, as above.
 
@@ -403,6 +403,18 @@ Off by default: hovering or scrolling over a pane leaves keyboard focus where yo
 - `true`: the pointer entering a pane, the first scroll of a gesture, or a mouse-wheel notch focuses the pane under the pointer.
 
 With it on, focus still stays where it is for momentum (the coast after a flick that started in another pane), for a scroll that moves columns or rows, while a mouse button is held, within a second of typing, and over a window that is not active. A pointer that stays inside one pane does not undo a keyboard move to another pane. Change it in **Settings > General > Columns**, with **Focus Follows Mouse** in the command palette (Cmd+Shift+P), or with `cmux settings set layout.focusFollowsMouse true`. It replaces `layout.focusPaneOnScroll`, which was on by default.
+
+## `layout.fadeInactivePanes`
+
+Off by default. Turn it on to fade every pane except the one you are working in: when focus moves to another pane, the pane you left fades under a light veil of the pane color, and the pane you moved to fades back to full strength. With one pane on screen nothing fades.
+
+```json
+{
+  "layout": { "fadeInactivePanes": true }
+}
+```
+
+The fade's strength is the theme's inactive-pane dim (Debug Settings: `panes.inactiveDimming`); a Ghostty `unfocused-split-opacity` you set still wins. Change it in **Settings > General > Scrolling and Focus**, with **Fade Inactive Panes** in the command palette (Cmd+Shift+P), or with `cmux settings set layout.fadeInactivePanes true`.
 
 ## `layout.scrollAreas`
 
@@ -735,6 +747,18 @@ Or turn off Settings > General > Show Menu Bar Icon. With the icon off and no cm
 
 Message the Chief (command palette) shows the floating Chief pet with its reply box open. With the pet off, it shows the pet for that message only and hides it again when the box closes; `home.chiefPetEnabled` stays off. Its system-wide key is a separate Keyboard Shortcuts row, Message the Chief from Any App (default Ctrl+Option+Cmd+C), rebound with `shortcuts.bindings["home.messageChiefFromAnyApp"]`. It works from any app, cmux included, while the Chief pet is on (`home.chiefPetEnabled`, Settings > Home > Show Chief Pet or View > Show Chief Pet). With the pet off, cmux leaves the key to other apps; use Message the Chief in the command palette. When another app already holds the key, the Keyboard Shortcuts row shows a warning and the key works only inside cmux.
 
+## The Chief's + menu and `home.clipboardHistory`
+
+The + button beside the Chief's message box opens a menu. Attach Files or Images… opens the file picker (files only; to send a folder, attach its files or a ZIP of it). Below it, the Clipboard section lists text and images from your clipboard, newest first: what was on it each time you opened the menu, plus, when cmux may read the clipboard without asking (below), what you copied in other apps before switching back to cmux. Click a text row to type it at the caret, or an image row to attach the image as if you had pasted it.
+
+The history is on by default. It stays in memory on this Mac: it's never written to disk or sent anywhere, and it's gone when cmux quits. cmux reads the clipboard for it only when you open the + menu and, if macOS's clipboard privacy lets cmux read without asking (Always Allow, or a macOS before 15.4), when cmux becomes the active app. It never reads on a timer, so something you copy and replace while you're in another app doesn't show. When the history has nothing to list, the + button opens the file picker directly. It skips anything a password manager or clipboard-aware app marks as concealed, transient or auto-generated (the [nspasteboard.org](http://nspasteboard.org) types), and it skips copied files and text over 256 KB. Images of any size are kept; the oldest entries go first when the history passes its total size, but the newest one always stays. Turn it off in Settings > Privacy and Security > Clipboard History in the + Menu, or:
+
+```json
+{ "home": { "clipboardHistory": false } }
+```
+
+When it's off, cmux doesn't read your clipboard for the menu, and the Clipboard section is gone. The Chief's composer has no @-mentions, slash commands or plan mode yet, so its + menu doesn't show those rows from the agent chat's + menu.
+
 ## `palette.scopes.<scope>.prefix`
 
 The character that enters a built-in command palette scope when you type it into an empty query. Scopes: `tabs` (default `@`), `workspaces` (`#`), `commands` (`>`), `settings` (`,`) and `scopes` (`?`, the list of every scope). The value is one of `@ # > , ? ! / ; : % & + = ~ $ ^ * .`, or `"none"` to turn the prefix off. A prefix you assign moves from the built-in scope that has it by default. A keyword plus Tab (for example `tabs` Tab) enters a scope whatever its prefix.
@@ -1035,7 +1059,7 @@ server (`optchat-chief agent-memory mcp`) with `memory_search`, `memory_get` and
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `enabled` | `false` | Register the server for the agent sessions cmux starts, and let the Agent Memory app's search use the index. Only `true` turns it on; a settings file that cannot be read keeps it off. |
-| `owner` | unset | The route of the machine that owns the index (`ssh://HOST` uses your ssh config; any `cmux remote` route works). Unset: this machine owns it. |
+| `owner` | unset | The route of the machine that owns the index (`ssh://HOST` uses your ssh config; any `cmux remote` route works). Unset: this machine owns it, and a chat that moves from here to another of your machines takes the route back with it (this machine's `remoteDaemon` through the hub carrier, `--via-machine`), so its memory still searches this index. |
 | `ownerArgs` | `[]` | Extra `cmux remote rpc` options for that route, such as `--daemon FINGERPRINT` or `--ssh-arg ARG`. |
 | `ownerCommand` | unset | The owner's `optchat-chief`, as argv, when it is not in a cmux app bundle, on its `PATH` or in `~/.local/bin`. |
 | `remember` | `true` | Whether agents may save notes. `false` hides `memory_remember`. |

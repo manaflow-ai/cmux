@@ -404,7 +404,7 @@ async fn deliver(
         let next = waiting.peek().map(|Reverse((at, _, _))| *at);
         let due = async {
             match next {
-                Some(at) => tokio::time::sleep_until(at).await,
+                Some(at) => crate::timer::sleep_until(at).await,
                 None => std::future::pending().await,
             }
         };
