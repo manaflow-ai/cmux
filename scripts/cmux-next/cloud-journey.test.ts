@@ -3475,29 +3475,41 @@ while True:
     done = False
     for line in f:
         m = json.loads(line); seen.append(m['method'])
+        if m['method'] == 'session/prompt':
+            # Run 45883411021: acpmux restarted between the start and its first prompt.
+            seen[-1] += ':' + m['params']['_meta']['acpmux']['promptId']
+            prompts = sum(1 for x in seen if x.startswith('session/prompt'))
+            if prompts == 1:
+                send({'jsonrpc': '2.0', 'id': m['id'], 'error': {'code': -32000, 'message': 'acpmux is restarting', 'data': {'errorKind': 'daemon.restarting', 'retryable': True}}})
+                break
+            send({'jsonrpc': '2.0', 'method': '_acpmux/prompt_accepted', 'params': {'sessionId': 's-2', 'promptId': m['params']['_meta']['acpmux']['promptId']}})
+            done = True
+            break
         if m['method'] == 'session/new':
             news += 1
-            if news == 1 and mode != 'late':
+            if news == 1 and mode not in ('late', 'prompt-cut'):
                 data = {'errorKind': 'daemon.restarting', 'retryable': True} if mode == 'retryable' else {'errorKind': 'refused', 'retryable': False}
                 send({'jsonrpc': '2.0', 'id': m['id'], 'error': {'code': -32000, 'message': 'acpmux is restarting', 'data': data}})
                 done = mode != 'retryable'
                 break
             send({'jsonrpc': '2.0', 'id': m['id'], 'result': {'sessionId': 's-2'}})
-            done = True
-            break
+            done = mode != 'prompt-cut'
+            if done:
+                break
+            continue
         send({'jsonrpc': '2.0', 'id': m['id'], 'result': {}})
     c.close()
     if done:
         break
 open(out, 'w').write(json.dumps(seen))
 `;
-  const runRestarting = (mode: "retryable" | "refused" | "late") => {
+  const runRestarting = (mode: "retryable" | "refused" | "late" | "prompt-cut") => {
     const home = mkdtempSync("/tmp/jr-");
     try {
       mkdirSync(join(home, ".cmux/acpmux"), { recursive: true });
       writeFileSync(join(home, "fake.py"), FAKE_ACPMUX_RESTARTING);
       const sock = join(home, ".cmux/acpmux/acpmux.sock");
-      const program = launchCredentialStartProgram("s", "claude", "CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-x");
+      const program = launchCredentialStartProgram("s", "claude", "CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-x", mode === "prompt-cut" ? "hi" : undefined);
       const script = `python3 -I fake.py ${sock} seen.json ${mode} & for i in $(seq 50); do [ -S ${sock} ] && break; sleep 0.1; done\n${program}\nrc=$?\nwait\nexit $rc`;
       const r = spawnSync("bash", ["-c", script], { cwd: home, env: { PATH: process.env.PATH, HOME: home }, encoding: "utf8", timeout: 20_000 });
       return { r, seen: JSON.parse(readFileSync(join(home, "seen.json"), "utf8")) as string[] };
@@ -3528,6 +3540,17 @@ open(out, 'w').write(json.dumps(seen))
     expect(r.stdout).toContain("@@session s-2");
     expect(r.status).toBe(0);
     expect(seen.filter((m) => m === "session/new")).toHaveLength(1);
+  });
+  test("a first prompt cut by acpmux's restart is sent again with the same promptId", { timeout: 30_000 }, () => {
+    const { r, seen } = runRestarting("prompt-cut");
+    expect(r.stdout).toContain("@@session s-2");
+    expect(r.stdout).toContain("@@retry session/prompt");
+    expect(r.stdout).toContain("@@prompted");
+    expect(r.status).toBe(0);
+    expect(seen.filter((m) => m === "session/new")).toHaveLength(1);
+    const prompts = seen.filter((m) => m.startsWith("session/prompt:"));
+    expect(prompts).toHaveLength(2);
+    expect(prompts[0]).toBe(prompts[1]);
   });
   test("no acpmux socket is a failed start that names the paths it tried, after the retry window", { timeout: 30_000 }, () => {
     const home = mkdtempSync(join(tmpdir(), "journey-launch-"));
