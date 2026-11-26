@@ -48,7 +48,7 @@ jobs:
           out="$RUNNER_TEMP/ownhost-journey"
           mkdir -p "$out"
           status=0
-          bun scripts/cmux-next/cloud-journey.ts --backend dev --machine-provider own-host --seed none \
+          bun scripts/cmux-next/cloud-journey.ts --backend dev --machine-provider own-host --seed none --team team_968c8afd7c1f2b21e6b8 \
             --skip sync --out "$out" || status=$?
           cat "$out/summary.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "(no summary written)" >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
