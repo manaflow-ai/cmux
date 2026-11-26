@@ -1,0 +1,7 @@
+join 09:52:19
+manaflow-ai/cmux#57660  forwarded  head 13d6190601dc  last hand_off 1s ago  for gcp-agent-lane-1/moved-cloud-chiefs-executor
+{  "state": "OPEN",  "headRefOid": "13d6190601dc55b47a17fd8277c91a2a1925a7ab",  "mergeCommit": null}
+override land 10:09:24
+glaeda-gh land: --override-receipt fitted to one line of 240: acpmux 139807407177 base+flaky; size cap 139806543603 urgent_steer #57980; Windows 139805928635; god 139804947981; linux 139806444573; web 139806444495; optchat 139808176825; fetch 139807407294 139804946192 139804941327 139804940379; 13981…
+manaflow-ai/cmux#57660  forwarded  head 13d6190601dc  last hand_off 1s ago  for gcp-agent-lane-1/moved-cloud-chiefs-executor  override: pure move out of hub/inbox.rs; reds are base (Windows libc, PackageFixedOnBase, urgent_steer.rs spawn, persisted-format… (receipt: acpmux 139807407177 base+flaky; size cap 139806543603 urgent_steer #57980; Windows 139805928635; god 139804947981; linu…)
+{  "state": "OPEN",  "mergeCommit": null}
