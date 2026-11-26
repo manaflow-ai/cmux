@@ -4,12 +4,12 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 16px;
-  padding: 16px;
+  gap: var(--ds-space-fixed-4);
+  padding: var(--ds-space-fixed-4);
 }
 .gallery-todo-widget-row {
   display: flex;
-  gap: 24px;
+  gap: var(--ds-space-fixed-5);
 }
 .gallery-todo-widget-tile {
   box-sizing: border-box;

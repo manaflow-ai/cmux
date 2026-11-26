@@ -1,6 +1,6 @@
 /* Gallery-only looks for a GitHub reference in a reply; the app draws the `chip` look. */
 .github-ref-preview {
-  padding: 16px;
+  padding: var(--ds-space-fixed-4);
   color: var(--cv-text);
   font-size: var(--text-body);
   line-height: 1.4;

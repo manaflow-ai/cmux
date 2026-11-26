@@ -27,15 +27,15 @@ body {
 .app-toolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 16px;
+  gap: var(--ds-space-fixed-2) var(--ds-space-fixed-4);
   align-items: center;
-  padding: 8px 16px;
+  padding: var(--ds-space-fixed-2) var(--ds-space-fixed-4);
   border-bottom: 1px solid var(--cmux-separator, #333);
 }
 
 .app-control {
   display: flex;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   align-items: center;
   color: var(--cmux-text-secondary, #aaa);
 }
@@ -46,7 +46,7 @@ body {
   background: var(--cmux-elevated-background, #2a2a2a);
   border: 1px solid var(--cmux-separator, #444);
   border-radius: 6px;
-  padding: 0 4px;
+  padding: 0 var(--ds-space-fixed-1);
 }
 
 .app-note {
@@ -106,9 +106,9 @@ body {
 .app-titlebar {
   display: flex;
   flex: none;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   align-items: center;
-  padding-left: 12px;
+  padding-left: var(--ds-space-fixed-3);
 }
 
 .app-window {
@@ -139,7 +139,7 @@ body {
 }
 
 .app-sidebar-header {
-  padding: 4px 16px;
+  padding: var(--ds-space-fixed-1) var(--ds-space-fixed-4);
   color: var(--cmux-text-tertiary, #888);
   font-size: var(--text-caption);
   font-weight: 600;
@@ -147,17 +147,17 @@ body {
 
 .app-rows {
   margin: 0;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-fixed-2);
   list-style: none;
   overflow: hidden;
 }
 
 .app-row {
   display: flex;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   align-items: center;
   height: var(--app-row-height);
-  padding: 0 8px;
+  padding: 0 var(--ds-space-fixed-2);
   border-radius: 6px;
 }
 
@@ -220,10 +220,10 @@ body {
 .app-tabstrip {
   display: flex;
   flex: none;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   align-items: center;
   box-sizing: border-box;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-fixed-2);
   border-bottom: 1px solid var(--cmux-separator, #333);
 }
 
@@ -232,7 +232,7 @@ body {
   align-items: center;
   max-width: 220px;
   height: var(--app-tab-height);
-  padding: 0 12px;
+  padding: 0 var(--ds-space-fixed-3);
   overflow: hidden;
   border-radius: 6px;
   color: var(--cmux-text-secondary, #aaa);
@@ -247,7 +247,7 @@ body {
 }
 
 .app-tab-new {
-  padding: 0 8px;
+  padding: 0 var(--ds-space-fixed-2);
   color: var(--cmux-text-tertiary, #888);
   font-size: var(--text-title);
 }
@@ -261,9 +261,9 @@ body {
 .app-terminal {
   box-sizing: border-box;
   display: flex;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   align-items: flex-start;
-  padding: 12px;
+  padding: var(--ds-space-fixed-3);
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: var(--text-detail);
 }

@@ -53,7 +53,7 @@ body {
 .ed-page-message {
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: var(--ds-space-fixed-3);
   color: var(--page-text-2);
 }
 
@@ -96,7 +96,7 @@ body {
   border: 1px solid var(--page-separator);
   background: transparent;
   border-radius: var(--ds-radius-control);
-  padding: 2px 8px;
+  padding: 2px var(--ds-space-fixed-2);
   cursor: default;
   white-space: nowrap;
 }
@@ -134,7 +134,7 @@ body {
 
 .ed-note {
   flex: none;
-  padding: 4px 10px;
+  padding: var(--ds-space-fixed-1) 10px;
   color: var(--page-text-2);
   border-bottom: 1px solid var(--page-separator);
 }

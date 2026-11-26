@@ -10,7 +10,7 @@
 
 .toolbar-gallery-copy {
   display: grid;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
   font-size: var(--text-body);
   letter-spacing: var(--text-body--letter-spacing);
@@ -25,10 +25,10 @@
 .toolbar-gallery {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   width: fit-content;
   max-width: 100%;
-  padding: 4px;
+  padding: var(--ds-space-fixed-1);
   border: 1px solid var(--cmux-separator, color-mix(in srgb, CanvasText 14%, transparent));
   border-radius: 8px;
   background: var(--cmux-elevated-background, Canvas);
