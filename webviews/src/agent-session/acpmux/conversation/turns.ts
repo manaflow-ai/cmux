@@ -1388,7 +1388,10 @@ function shapedTurn(
   // stretch's work (`harnessIntoStretches`), where a "Worked for" holds the work: a family that draws
   // its runs in place has no fold to put it in, and it draws where it came.
   const intoStretches = !live && foldStyle.conclusion;
-  const answering = foldBackgroundTurns(answeringPerson(user, intoStretches ? harnessIntoStretches(kept) : kept), expanded);
+  const answering = foldBackgroundTurns(
+    answeringPerson(user, intoStretches ? harnessIntoStretches(kept) : kept),
+    expanded,
+  );
   // Ended (its summary in, even before the session reads ready), a steer the agent was finishing
   // when it came draws over the answer (`lateSteersLast`); running, every row draws as it came.
   const turn = lateSteersLast(answering, live);
