@@ -14,9 +14,12 @@ final class ResumeNoConnectionChromeUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    private static let chrome = NSPredicate(
-        format: "label CONTAINS[c] %@ OR label CONTAINS[c] %@ OR label CONTAINS[c] %@ OR label CONTAINS[c] %@",
-        "Connecting", "Reconnecting", "Updating…", "reconnecting to the Mac")
+    // Computed: a stored static NSPredicate is not Sendable, an error under Swift 6.
+    private static var chrome: NSPredicate {
+        NSPredicate(
+            format: "label CONTAINS[c] %@ OR label CONTAINS[c] %@ OR label CONTAINS[c] %@ OR label CONTAINS[c] %@",
+            "Connecting", "Reconnecting", "Updating…", "reconnecting to the Mac")
+    }
 
     @MainActor
     func testResumeShowsNoConnectionChrome() {
