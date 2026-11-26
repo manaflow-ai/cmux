@@ -1953,6 +1953,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CCmuxAppFFI",
                 "CmuxNextActions",
                 "CmuxNextAgentActivity",
+                "CmuxNextBrowserCore",
                 "CmuxNextCloud",
                 "CmuxNextCompat",
                 "CmuxNextComputerUse",
