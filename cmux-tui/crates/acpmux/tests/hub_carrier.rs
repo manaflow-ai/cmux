@@ -3347,6 +3347,33 @@ fn hub_carrier_held_machines_reads_a_list_once_each_and_nothing_by_default() {
     assert_eq!(held_machines(Some("a, b c,a\nd")), vec!["a", "b", "c", "d"]);
 }
 
+/// RFD 0127 cut 3: health is link liveness plus a 1-RTT echo. With a kept circuit open, the link's
+/// age is a local read, and an echo is one stream open and one round trip through the real path;
+/// a machine that keeps no circuits answers it on a plain one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_health_is_link_age_and_a_one_round_trip_echo() {
+    let _ = HERMETIC;
+    let fixture = kept_fixture(Duration::ZERO, true, true).await;
+    let age = fixture.a.link_age(&fixture.b_key).expect("the readiness dials left a kept circuit");
+    assert!(age < Duration::from_secs(30), "{age:?}");
+    let started = std::time::Instant::now();
+    assert!(fixture.a.link_age(&fixture.b_key).is_some());
+    assert!(started.elapsed() < Duration::from_millis(5), "a local read: {:?}", started.elapsed());
+
+    let circuits = fixture.kept_circuits();
+    let report = within("an echo", fixture.a.echo(&fixture.b_key)).await.unwrap();
+    eprintln!("echo on a kept circuit: open {:?}, round trip {:?}", report.open, report.round_trip);
+    assert_eq!(fixture.kept_circuits(), circuits, "the echo rode the open circuit");
+    assert_eq!(fixture.plain_dials(), 0);
+
+    let plain = kept_fixture(Duration::ZERO, false, true).await;
+    let report = within("a plain echo", plain.a.echo(&plain.b_key)).await.unwrap();
+    eprintln!(
+        "echo on a plain circuit: open {:?}, round trip {:?}",
+        report.open, report.round_trip
+    );
+}
+
 /// One cheap circuit per host pair: the acpmux peer link and its hub probe (two acpmux dials)
 /// ride the cheap kept circuit as streams, cmux-tui rides the bulk one, and no plain circuit
 /// opens.
