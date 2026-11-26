@@ -198,10 +198,6 @@ NON_LABEL_RUNNER_VARIABLES = {"CI_SEED_KEEP_LOCAL_RUNNERS", "RUNNER_POOLS", "CI_
                              # Runs-on readers the scheduled report (main's copy, the prepush gate's Main-Twin rule) does not list yet:
                              # move each to CMUX_CI_RUNNER_VARIABLES in ci-health-report.yml with a main PR.
                              "CI_DEV_COMPILE_NIGHTLY_RUNNER", "CI_REACT_SHARD_RUNNER", "CMUX_IOS_SIM_LINUX_BUILD_RUNNER"}
-# Read only by fork pull requests' operand of the one Linux label (scripts/ci/one_linux_label.py), unset means
-# GitHub-hosted Ubuntu, so it can never route a same-repo job. The report and the variable check are scheduled and
-# run main's copy (the prepush gate's Main-Twin rule), so this branch's copy cannot add it there.
-FORK_ONLY_RUNNER_VARIABLES = {"CI_FORK_LINUX_RUNNER"}
 
 
 def reported_runner_variables() -> set[str]:
@@ -221,7 +217,7 @@ class TheReportSeesEveryRunnerVariable(unittest.TestCase):
             read |= {
                 name
                 for name in re.findall(r"vars\.([A-Z0-9_]*RUNNER[A-Z0-9_]*)", path.read_text(encoding="utf-8"))
-                if name not in NON_LABEL_RUNNER_VARIABLES and name not in FORK_ONLY_RUNNER_VARIABLES
+                if name not in NON_LABEL_RUNNER_VARIABLES
             }
         self.assertTrue(read)
         missing = read - reported_runner_variables()
