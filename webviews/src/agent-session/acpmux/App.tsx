@@ -11026,12 +11026,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     />
   );
   const framesDock = quick ? undefined : (
-    <FramesDock
-      pane={framesPane}
-      latest={latestFrame}
-      working={snapshot.isWorking === true}
-      onOpen={openImage}
-    />
+    <FramesDock pane={framesPane} latest={latestFrame} working={snapshot.isWorking === true} onOpen={openImage} />
   );
   const pane = drawPaneBody({
     framesDock,
