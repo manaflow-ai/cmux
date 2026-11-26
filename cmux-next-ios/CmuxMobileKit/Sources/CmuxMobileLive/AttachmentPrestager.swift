@@ -25,6 +25,7 @@ final class AttachmentPrestager {
 
     /// An early upload: its task and when the file was picked.
     struct Signature: Equatable {
+        let kind: AgentAttachment.Kind
         let name: String
         let byteCount: Int?
         let dataCount: Int?
@@ -62,7 +63,7 @@ final class AttachmentPrestager {
     func sync(_ attachments: [AgentAttachment], directory: String? = nil, upload: Upload?, promptUploads: Bool = false) {
         let wanted = Set(attachments.filter { Self.uploadsAtSend($0, promptUploads: promptUploads) }.map(\.id))
         for (id, entry) in entries where !wanted.contains(id) || entry.directory != directory
-            || !attachments.contains(where: { $0.id == id && $0.hashValue == entry.signature }) {
+            || !attachments.contains(where: { $0.id == id && Self.signature($0) == entry.signature }) {
             entry.task.cancel()
             entries[id] = nil
         }
@@ -76,20 +77,26 @@ final class AttachmentPrestager {
             let name = attachment.name
             let bytes = attachment.byteCount ?? attachment.data?.count ?? 0
             let started = ContinuousClock.now
-            let task = Task<Result, any Error> {
+            let signature = Self.signature(attachment)
+            let task = Task<Result, any Error> { [weak self] in
                 do {
                     let result = try await upload(payload, name)
                     Self.log.info("prestage ms=\(Self.ms(ContinuousClock.now - started)) bytes=\(bytes) ok=true")
                     return result
                 } catch {
+                    await self?.removeFailed(id: attachment.id, signature: signature)
                     Self.log.info("prestage ms=\(Self.ms(ContinuousClock.now - started)) bytes=\(bytes) ok=false")
                     throw error
                 }
             }
-            let signature = Self.signature(attachment)
             entries[attachment.id] = Entry(task: task, started: started, directory: directory,
                                            signature: signature)
         }
+    }
+
+    private func removeFailed(id: String, signature: Signature) {
+        guard entries[id]?.signature == signature else { return }
+        entries[id] = nil
     }
 
     /// Hands the early uploads of a sent prompt's attachments to it: no later ``sync(_:upload:)``
@@ -127,7 +134,7 @@ final class AttachmentPrestager {
     /// turn a large photo change into another transfer-sized pause.
     nonisolated static func signature(_ attachment: AgentAttachment) -> Signature {
         let data = attachment.data
-        return Signature(name: attachment.name, byteCount: attachment.byteCount, dataCount: data?.count,
+        return Signature(kind: attachment.kind, name: attachment.name, byteCount: attachment.byteCount, dataCount: data?.count,
                          fileURL: attachment.fileURL, head: Data(data?.prefix(32) ?? []),
                          tail: Data(data?.suffix(32) ?? []))
     }
