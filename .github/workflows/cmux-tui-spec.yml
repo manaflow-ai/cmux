@@ -25,6 +25,7 @@ on:
       - "scripts/ci/test_reds.py"
       - "scripts/ci/acpmux-tests-pr-deferred.txt"
       - "tests/test_cargo_test_verdict.py"
+      - ".github/workflows/cmux-next-post-merge.yml"
       - "scripts/ci/cargo-lib-tests-at-once.sh"
       - "scripts/ci/tests/cargo-lib-tests-at-once.test.sh"
       # The router's own files (affected_jobs.py SELF): a change to them runs every routed job.
@@ -171,18 +172,27 @@ jobs:
     if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 12
+    # head_tier.py reads the previous head's Actions runs (green-head base merge rule) and cmux/land-tier
+    # (land carry rule); the post-merge batch's caller grants the same.
+    permissions:
+      actions: read
+      contents: read
+      statuses: read
+    # A head pr-router.yml starts nothing for (head_tier.py `none`: an idle or green-head base merge, a same patch)
+    # or runs only the cheap tier for (a sync merge, a draft) runs none of the routed jobs below: every routed output
+    # reads `false` (steps.tier), as ci.yml's changes outputs do. A push, a dispatch, the post-merge batch and `full-ci` run as before.
     outputs:
-      run: ${{ steps.route.outputs.run }}
-      acpmux_protocol_ir: ${{ steps.graph.outputs.acpmux_protocol_ir || steps.gate.outputs.acpmux_protocol_ir }}
+      run: ${{ steps.tier.outputs.skip == 'true' && 'false' || (steps.route.outputs.run) }}
+      acpmux_protocol_ir: ${{ steps.tier.outputs.skip == 'true' && 'false' || (steps.graph.outputs.acpmux_protocol_ir || steps.gate.outputs.acpmux_protocol_ir) }}
       acpmux_protocol_ir_tree: ${{ steps.graph.outputs.acpmux_protocol_ir_tree }}
-      acpmux_tests: ${{ steps.graph.outputs.acpmux_tests || steps.gate.outputs.acpmux_tests }}
+      acpmux_tests: ${{ steps.tier.outputs.skip == 'true' && 'false' || (steps.graph.outputs.acpmux_tests || steps.gate.outputs.acpmux_tests) }}
       acpmux_tests_tree: ${{ steps.graph.outputs.acpmux_tests_tree }}
-      acpmux_sim: ${{ steps.graph.outputs.acpmux_sim || steps.gate.outputs.acpmux_sim }}
+      acpmux_sim: ${{ steps.tier.outputs.skip == 'true' && 'false' || (steps.graph.outputs.acpmux_sim || steps.gate.outputs.acpmux_sim) }}
       acpmux_sim_tree: ${{ steps.graph.outputs.acpmux_sim_tree }}
-      carrier_sim: ${{ steps.graph.outputs.carrier_sim || steps.gate.outputs.carrier_sim }}
+      carrier_sim: ${{ steps.tier.outputs.skip == 'true' && 'false' || (steps.graph.outputs.carrier_sim || steps.gate.outputs.carrier_sim) }}
       carrier_sim_tree: ${{ steps.graph.outputs.carrier_sim_tree }}
-      router_changed: ${{ steps.graph.outputs.router_changed || steps.gate.outputs.router_changed }}
-      acpmux_own: ${{ steps.acpmux-own.outputs.changed }}
+      router_changed: ${{ steps.tier.outputs.skip == 'true' && 'false' || (steps.graph.outputs.router_changed || steps.gate.outputs.router_changed) }}
+      acpmux_own: ${{ steps.tier.outputs.skip == 'true' && 'false' || (steps.acpmux-own.outputs.changed) }}
     steps:
       # The merge commit and its parents: HEAD^1 is the base the pull request merges into.
       # Blobless, and at first only the router's own files: the names and trees come from git (about 1 s).
@@ -258,6 +268,28 @@ jobs:
           git checkout -q --detach "$SHA"
           echo "checked out $(git rev-parse HEAD) from the pool mirror"
 
+      # head_tier.py, the router's own tier decision (pr-router.yml, ci.yml's changes job), with the same switches.
+      # Its failure (continue-on-error) leaves skip empty: every job routes as before.
+      - name: CI tier of this head
+        id: tier
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && inputs.sha == '' }}
+        continue-on-error: true
+        env:
+          CI_DRAFT_CHEAP_TIER: ${{ vars.CI_DRAFT_CHEAP_TIER || '1' }}
+          CI_LAND_FULL_PER_PR: ${{ vars.CI_LAND_FULL_PER_PR || '0' }}
+          CI_IDLE_BASE_MERGE_SKIP: ${{ vars.CI_IDLE_BASE_MERGE_SKIP || '1' }}
+          CI_LAND_TIER: ${{ vars.CI_LAND_TIER || '1' }}
+          CI_GREEN_BASE_MERGE_SKIP: ${{ vars.CI_GREEN_BASE_MERGE_SKIP || '1' }}
+          CI_LAND_CARRY: ${{ vars.CI_LAND_CARRY || '1' }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ ! -f scripts/ci/head_tier.py ]; then exit 0; fi
+          tier=$(python3 -I scripts/ci/head_tier.py tier)
+          skip=false
+          if [[ "$tier" == none || "$tier" == cheap ]]; then skip=true; fi
+          echo "tier=$tier skip=$skip"
+          { echo "tier=$tier"; echo "skip=$skip"; } >> "$GITHUB_OUTPUT"
+
       # Whether the change needs the crate graph at all (affected_jobs.py gate): it does when it touches this
       # workflow's push paths, a crate manifest or Rust source anywhere, or what `check` reads (the routed and
       # skipped workflows, the map, the router). A pull request that touches none skips the graph, its checkout
@@ -268,7 +300,10 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          TIER_SKIP: ${{ steps.tier.outputs.skip }}
         run: |
+          # A none or cheap head (steps.tier) routes nothing: no crate graph, its checkout or the check.
+          if [[ "$TIER_SKIP" == true ]]; then echo "needed=false" >> "$GITHUB_OUTPUT"; echo "tier skip: no graph"; exit 0; fi
           base=""
           if [[ "$EVENT_NAME" == pull_request ]]; then
             base=$(git rev-parse HEAD^1 2>/dev/null || true)

@@ -13,5 +13,9 @@ public enum VisibleRowsBaseline {
         public init(_ why: String, only: String? = nil) { (self.why, self.only) = (why, only) }
     }
 
-    public static let knownFailures: [String: Known] = [:]
+    public static let knownFailures: [String: Known] = [
+        "sidebar priority": Known("draws only the rows in view, but each change hands the whole ranked list, which the panel "
+            + "compares and reindexes (two cheap passes over every chat; macOS SidebarPriorityPanelView.show; fix: a row patch "
+            + "from SidebarPriorityFeed, visible-only-macos-lists)", only: "items walked"),
+    ]
 }
