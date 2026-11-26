@@ -956,9 +956,11 @@ mod rows_tests;
 mod sidebar_face_tests;
 
 pub mod auto_archive;
+pub mod chief_panel;
 pub mod closing_panes;
 pub mod divider_insert;
 pub mod drop_overlay_geometry;
+pub mod dock_model;
 pub mod floating_panes;
 
 pub mod group_hover_summary;
