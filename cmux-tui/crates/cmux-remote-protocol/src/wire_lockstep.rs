@@ -125,7 +125,7 @@ fn generated_manifest() -> Manifest {
     for id in wire_strings(&schema::<RemoteCapability>(), true) {
         let cap: RemoteCapability = serde_json::from_value(Value::from(id)).unwrap();
         assert!(
-            cap.changes_no_wire() != !cap.wire_names().is_empty(),
+            cap.changes_no_wire() == cap.wire_names().is_empty(),
             "{id} needs a wire contract, or changes_no_wire if it only changes behavior"
         );
         for &name in cap.wire_names() {
