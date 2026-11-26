@@ -36,6 +36,12 @@
 # be done. A timeout retry starts only when its whole limit fits before it, and a failed file's
 # retry is cut at it, so the step stays inside its job's timeout-minutes however many files
 # timed out.
+# CMUX_WEB_TEST_RETRY_WALL: optional seconds the whole retry phase may take after the first pass ends; it pulls the
+# retry deadline in to then when that is earlier. The job-derived deadline alone let retries fill a 90 min shard: on a
+# base with 36-84 red webview files a shard, full-suite pull request runs spent 36-40 min retrying after a 39-44 min
+# first pass and clustered at ~4,800 s (jobs 138640454439, 138534278453, 138786846480, 138936477461; 3 of 26 alone
+# retries passed, so the breaker never tripped). A red left unretried goes to react-apps-base-check, which replays it on
+# the base and re-runs alone on the head any red it would charge to the change, so the verdict does not move.
 # CMUX_WEB_TEST_STOP_AT: optional epoch second after which no file starts; a file still running then is stopped at it
 # and, like a file that never started, left out of the results (named NOT RUN, and the run fails). For a job whose
 # timeout-minutes are shorter than its files can take: react-apps-base-early runs files red on the base, which fail at
@@ -639,7 +645,15 @@ timeout_retry_budget="${CMUX_WEB_TEST_TIMEOUT_RETRY_BUDGET:-}"
 [[ "$timeout_retry_budget" =~ ^[0-9]+$ ]] || timeout_retry_budget=""
 retry_deadline="${CMUX_WEB_TEST_RETRY_DEADLINE:-}"
 [[ "$retry_deadline" =~ ^[0-9]+$ ]] || retry_deadline=""
-# deadline_left: seconds until CMUX_WEB_TEST_RETRY_DEADLINE (a large number when none is set).
+# CMUX_WEB_TEST_RETRY_WALL=S (unset: none): the whole retry phase (pool, alone and timeout retries) ends S seconds
+# after the first pass, by moving the retry deadline earlier when it is later. See the header.
+retry_wall="${CMUX_WEB_TEST_RETRY_WALL:-}"
+[[ "$retry_wall" =~ ^[0-9]+$ ]] || retry_wall=""
+if [ -n "$retry_wall" ]; then
+  wall_end=$((SECONDS + 10#$retry_wall))
+  if [ -z "$retry_deadline" ] || [ "$wall_end" -lt "$retry_deadline" ]; then retry_deadline=$wall_end; fi
+fi
+# deadline_left: seconds until the retry deadline (a large number when none is set).
 deadline_left() {
   if [ -n "$retry_deadline" ]; then echo $((retry_deadline - SECONDS)); else echo 999999; fi
 }
