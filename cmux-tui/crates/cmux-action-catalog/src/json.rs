@@ -82,14 +82,15 @@ fn list_source(value: &ListSource) -> Value {
     })
 }
 
-/// A catalog request: its lane, operation and params, each with one of `argument`, `target` or
-/// `constant`. Kept whole by [`compact`] (a `false` constant is a value, not a default).
+/// A catalog request: its lane, operation and params, each with an argument, target, constant or idempotency-key
+/// source. Kept whole by the app export (a `false` constant is a value, not a default).
 fn catalog_request(value: &Request) -> Value {
     let params: Vec<Value> = value
         .params
         .iter()
         .map(|param| match &param.source {
             ParamSource::Argument(name) => json!({ "name": param.name, "argument": name }),
+            ParamSource::IdempotencyKey => json!({ "name": param.name, "idempotencyKey": true }),
             ParamSource::Target(kind) => json!({ "name": param.name, "target": kind }),
             ParamSource::Constant(constant) => {
                 json!({ "name": param.name, "constant": request::constant(constant) })

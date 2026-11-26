@@ -99,10 +99,14 @@ pub(super) fn parse(verb: &str, words: &[String]) -> Result<Parsed, String> {
     Ok(Parsed::Archive { machine })
 }
 
+/// The key of a fresh Cloud retention invocation.
+pub(super) fn fresh_key() -> String {
+    format!("cli-{}", uuid::Uuid::new_v4().simple())
+}
+
 /// The app op of a parsed command (never `Help`).
 pub(super) fn op_of(parsed: &Parsed, idempotency_key: Option<String>) -> Option<AppOp> {
-    let key =
-        Some(idempotency_key.unwrap_or_else(|| format!("cli-{}", uuid::Uuid::new_v4().simple())));
+    let key = Some(idempotency_key.unwrap_or_else(fresh_key));
     let (op, args) = match parsed {
         Parsed::Help(_) => return None,
         Parsed::Keep { machine, keep } => {

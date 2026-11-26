@@ -275,6 +275,8 @@ pub enum ParamSource {
     Target(&'static str),
     /// A fixed value.
     Constant(BindingValue),
+    /// A fresh idempotency key for this invocation, shared by its keyed params.
+    IdempotencyKey,
 }
 
 /// One param of a [`Request`]: its wire name and its value's source.

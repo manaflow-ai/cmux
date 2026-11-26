@@ -132,6 +132,7 @@ const DELETE: Action = Action {
         lane: RequestLane::Session,
         operation: "closed.delete",
         params: &[
+            RequestParam { name: "idempotency_key", source: ParamSource::IdempotencyKey },
             RequestParam { name: "closed", source: ParamSource::Argument("closed") },
             RequestParam { name: "workspace", source: ParamSource::Target("workspace") },
             RequestParam { name: "all", source: ParamSource::Constant(BindingValue::Bool(false)) },
@@ -149,6 +150,7 @@ fn the_app_export_carries_the_request_and_list_whole() {
             "lane": "session",
             "operation": "closed.delete",
             "params": [
+                {"name": "idempotency_key", "idempotencyKey": true},
                 {"name": "closed", "argument": "closed"},
                 {"name": "workspace", "target": "workspace"},
                 {"name": "all", "constant": false},
@@ -204,9 +206,16 @@ fn malformed_rows_are_refused() {
 #[test]
 fn params_take_each_source_and_leave_out_omitted_ones() {
     let request = DELETE.request.as_ref().unwrap();
-    let sent = params(request, |source| match source {
-        ParamSource::Argument("closed") => Some(json!("cl_1")),
-        _ => None,
-    });
-    assert_eq!(Value::Object(sent), json!({"closed": "cl_1", "all": false}));
+    let sent = params(
+        request,
+        |source| match source {
+            ParamSource::Argument("closed") => Some(json!("cl_1")),
+            _ => None,
+        },
+        || "key-1".into(),
+    );
+    assert_eq!(
+        Value::Object(sent),
+        json!({"closed": "cl_1", "all": false, "idempotency_key": "key-1"})
+    );
 }

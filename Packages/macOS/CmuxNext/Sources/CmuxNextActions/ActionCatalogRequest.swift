@@ -30,6 +30,7 @@ public nonisolated struct ActionCatalogRequest: Sendable, Hashable {
         /// The daemon id of the invocation's target of this kind, else the focused one.
         case target(ActionTargetKind)
         case constant(Constant)
+        case idempotencyKey
     }
 
     public struct Param: Sendable, Hashable {
@@ -47,7 +48,7 @@ public nonisolated struct ActionCatalogRequest: Sendable, Hashable {
         self.params = params
     }
 
-    /// The export's `request` member (`{lane, operation, params: [{name, argument|target|constant}]}`),
+    /// The export's `request` member (`{lane, operation, params: [{name, argument|target|constant|idempotencyKey}]}`),
     /// nil when it does not decode: a row that does not decode gets no binding, so the conformance
     /// test names it as unbound.
     static func decode(_ wire: Any?) -> ActionCatalogRequest? {
@@ -61,6 +62,8 @@ public nonisolated struct ActionCatalogRequest: Sendable, Hashable {
                 params.append(Param(name: name, source: .argument(argument)))
             } else if let kind = (row["target"] as? String).flatMap(ActionTargetKind.init(rawValue:)) {
                 params.append(Param(name: name, source: .target(kind)))
+            } else if row["idempotencyKey"] as? Bool == true {
+                params.append(Param(name: name, source: .idempotencyKey))
             } else if let constant = constant(row["constant"]) {
                 params.append(Param(name: name, source: .constant(constant)))
             } else {
@@ -126,7 +129,7 @@ extension ActionCatalogRequest {
 
     /// The params this request sends for `invocation` (as cmux-action-catalog's
     /// `request::params`): each argument's value (an omitted or empty one is left out), each
-    /// target's daemon id from `target`, each constant. Fails with the target kind when
+    /// target's daemon id from `target`, each constant and the run's fresh key. Fails with the target kind when
     /// `target` has none of it.
     ///
     /// - Parameters:
@@ -135,9 +138,11 @@ extension ActionCatalogRequest {
     ///   - target: The daemon id of the invocation's target of a kind, else of the focused one.
     public func values(arguments: [ActionArgument], invocation: ActionInvocation,
                        target: (ActionTargetKind) -> String?) -> Result<[String: Value], MissingTarget> {
+        lazy var key = "cli-" + UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
         var values: [String: Value] = [:]
         for param in params {
             switch param.source {
+            case .idempotencyKey: values[param.name] = .string(key)
             case .constant(.string(let text)): values[param.name] = .string(text)
             case .constant(.int(let number)): values[param.name] = .int(number)
             case .constant(.bool(let flag)): values[param.name] = .bool(flag)

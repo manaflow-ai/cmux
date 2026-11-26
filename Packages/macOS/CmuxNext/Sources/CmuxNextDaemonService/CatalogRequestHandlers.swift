@@ -72,6 +72,7 @@ public struct CatalogRequestHandlers {
     static func effect(_ request: ActionCatalogRequest, descriptor: ActionDescriptor, invocation: ActionInvocation,
                        host: any CatalogRequestHost) -> ActionEffect {
         if let reason = refusal(invocation) { return .refused(reason) }
+        // Resolve once per invocation so its asynchronous work reuses the same key on retry.
         let resolved = request.values(arguments: descriptor.arguments, invocation: invocation) { kind in
             switch kind {
             case .workspace: host.catalogWorkspace(invocation)

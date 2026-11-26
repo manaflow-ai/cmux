@@ -53,14 +53,18 @@ pub fn constant(value: &BindingValue) -> Value {
 /// The params `request` sends, given the value of each argument and target source
 /// (`value`, which answers `None` for an omitted argument or a missing target). The app fills
 /// the routing defaults (`machine`, `session`) on the session lane, as the CLI does.
+/// `fresh_key` runs once if the request uses an idempotency key.
 pub fn params(
     request: &Request,
     value: impl Fn(&ParamSource) -> Option<Value>,
+    fresh_key: impl FnOnce() -> String,
 ) -> Map<String, Value> {
+    let key = std::cell::LazyCell::new(fresh_key);
     let mut params = Map::new();
     for param in request.params {
         let resolved = match &param.source {
             ParamSource::Constant(constant_value) => Some(constant(constant_value)),
+            ParamSource::IdempotencyKey => Some(Value::String((*key).clone())),
             source => value(source),
         };
         if let Some(resolved) = resolved {
