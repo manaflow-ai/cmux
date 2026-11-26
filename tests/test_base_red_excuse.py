@@ -3716,6 +3716,13 @@ LINUX_STEP = "Run the routed linux steps (ci/steps.toml)"
 SINGLE_SIZE = ("FAIL: test_no_workflow_routes_to_a_single_size_blacksmith_label "
                "(__main__.NoSingleSizePins.test_no_workflow_routes_to_a_single_size_blacksmith_label)")
 PERSISTED = "FAIL: test_repo_registry_is_clean (__main__.PersistedFormatsTest.test_repo_registry_is_clean)"
+PIPELINE_WEB_BROWSER = "pr pipeline / web-browser"
+BASE_WEB_BROWSER = "base web-browser"
+WEB_BROWSER_STEP = "Run the routed web-browser steps (ci/steps.toml)"
+# cmux#49399's and cmux#51550's red (2026-11-26, run 45798346304 and job 139823535345), one bun result each.
+COMPACTION_STEER = ("(fail) chromium > compaction-steer: the transcript and the composer stay inside the flow's "
+                    "shift budget [10411.33ms]")
+WEBKIT_SEND = "(fail) webkit > send: the transcript and the composer stay inside the flow's shift budget [8798.99ms]"
 
 
 def linux_log(job, *fails):
@@ -3725,20 +3732,34 @@ def linux_log(job, *fails):
                "##[error]Process completed with exit code 1.")
 
 
+def web_browser_log(job, *fails):
+    lines = ["##[group]chat-flow-shift-budget", "bun test v1.4.4",
+             "##[group]test/chat-flow-shift-budget-browser.test.ts:"]
+    for fail in fails:
+        lines += ["error: expect(received).toEqual(expected)",
+                  '+   "compaction ends: stray 74.8px > 8px (article.acpmux-row[row compaction-219])",', fail]
+    lines += ["##[endgroup]", f" {len(fails)} fail", "##[endgroup]",
+              "##[error]step chat-flow-shift-budget exited 1; see its log group",
+              "##[error]Process completed with exit code 1."]
+    return log(job, WEB_BROWSER_STEP, *lines)
+
+
 class PipelineLinuxBaseGitHub(FakeGitHub):
     """PR run 45794762063 (2026-11-26): the head's pr-router.yml run 10 (workflow 7) failed 'pr pipeline / linux' on
     tests/test_ci_no_single_size_pins.py, a base red. pr-router.yml runs on pull requests only, so it has no
     feat-cmux-next run; the same ci/steps.toml linux steps run on base pushes as cmux-next-base-linux.yml's
     'base linux' (BASE_CHECK_FOR): its run 40 at PUSHED_BASE_SHA, after the merge-base, failed the same test."""
 
-    def __init__(self, head=(SINGLE_SIZE,), base=(SINGLE_SIZE,)):
+    def __init__(self, head=(SINGLE_SIZE,), base=(SINGLE_SIZE,), names=(PIPELINE_LINUX, BASE_LINUX),
+                 step=LINUX_STEP, make_log=linux_log):
         super().__init__()
-        self.jobs = {1: failed_job(1, 10, HEAD, PIPELINE_LINUX, LINUX_STEP),
-                     4: failed_job(4, 40, PUSHED_BASE_SHA, BASE_LINUX, LINUX_STEP)}
-        self.logs = {1: linux_log(PIPELINE_LINUX, *head), 4: linux_log(BASE_LINUX, *base)}
+        pr_name, base_name = names
+        self.jobs = {1: failed_job(1, 10, HEAD, pr_name, step),
+                     4: failed_job(4, 40, PUSHED_BASE_SHA, base_name, step)}
+        self.logs = {1: make_log(pr_name, *head), 4: make_log(base_name, *base)}
         if not base:
             self.jobs[4].update(conclusion="success", steps=[
-                {"name": LINUX_STEP, "status": "completed", "conclusion": "success"}])
+                {"name": step, "status": "completed", "conclusion": "success"}])
         self.base_runs = []
         self.pushed_runs = [{"id": 40, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
                              "conclusion": "failure" if base else "success", "head_sha": PUSHED_BASE_SHA,
@@ -3771,8 +3792,11 @@ class PipelineLinuxBaseVerdict(unittest.TestCase):
                                             PIPELINE_LINUX), ("cmux-next-base-linux.yml", BASE_LINUX))
         self.assertIsNone(excuse.base_caller(REPO, "main", {"path": ".github/workflows/pr-router.yml"},
                                              PIPELINE_LINUX))
+        self.assertEqual(excuse.base_caller(REPO, "feat-cmux-next", {"path": ".github/workflows/pr-router.yml"},
+                                            PIPELINE_WEB_BROWSER), ("cmux-next-base-linux.yml", BASE_WEB_BROWSER))
+        # The Mac and iOS step-table jobs have no base leg: no mapping, so their reds keep the no-verdict refusal.
         self.assertIsNone(excuse.base_caller(REPO, "feat-cmux-next", {"path": ".github/workflows/pr-router.yml"},
-                                             "pr pipeline / web-browser"))
+                                             "pr pipeline / mac"))
 
     def test_a_linux_step_red_the_base_linux_run_shares_is_a_base_red(self):
         gh = PipelineLinuxBaseGitHub()
@@ -3786,6 +3810,22 @@ class PipelineLinuxBaseVerdict(unittest.TestCase):
         gh = PipelineLinuxBaseGitHub(head=(SINGLE_SIZE, PERSISTED), base=(SINGLE_SIZE,))
         with self.assertRaisesRegex(excuse.Refused, "1 failing test\\(s\\) pass or do not run on feat-cmux-next run 40: "
                                     "test_repo_registry_is_clean"):
+            self.judge(gh)
+
+    def test_a_web_browser_step_red_the_base_web_browser_leg_shares_is_a_base_red(self):
+        # cmux#49399 and cmux#51550: chat-flow-shift-budget red on the PR, read against the base leg of the same job.
+        gh = PipelineLinuxBaseGitHub(head=(COMPACTION_STEER,), base=(COMPACTION_STEER,),
+                                     names=(PIPELINE_WEB_BROWSER, BASE_WEB_BROWSER), step=WEB_BROWSER_STEP,
+                                     make_log=web_browser_log)
+        text = self.judge(gh)
+        self.assertIn(f"excused '{PIPELINE_WEB_BROWSER}'", text)
+        self.assertIn("run 40", text)
+
+    def test_a_web_browser_test_the_base_leg_passes_blocks(self):
+        gh = PipelineLinuxBaseGitHub(head=(COMPACTION_STEER, WEBKIT_SEND), base=(COMPACTION_STEER,),
+                                     names=(PIPELINE_WEB_BROWSER, BASE_WEB_BROWSER), step=WEB_BROWSER_STEP,
+                                     make_log=web_browser_log)
+        with self.assertRaisesRegex(excuse.Refused, "pass or do not run on feat-cmux-next run 40: .*webkit > send"):
             self.judge(gh)
 
     def test_a_green_base_linux_run_blocks(self):
@@ -3808,12 +3848,27 @@ class PipelineLinuxBaseVerdict(unittest.TestCase):
             callee = yaml.safe_load((excuse.WORKFLOWS.parent.parent / caller["uses"].removeprefix("./")).read_text())
             callee_jobs = [job for job_id, job in callee["jobs"].items()
                            if job.get("name", job_id) == check.removeprefix(prefix)]
-            pushed_jobs = [job for job_id, job in pushed["jobs"].items() if job.get("name", job_id) == base_check]
+
+            def legs(job_id, job):
+                # A job, or each leg of its matrix (strategy.matrix.include), with `${{ matrix.KEY }}` resolved.
+                include = ((job.get("strategy") or {}).get("matrix") or {}).get("include") or [{}]
+                for leg in include:
+                    text = json.dumps(job)
+                    for key, value in leg.items():
+                        text = text.replace("${{ matrix.%s }}" % key, str(value))
+                    yield {**json.loads(text), "name": json.loads(text).get("name", job_id)}
+
+            pushed_jobs = [leg for job_id, job in pushed["jobs"].items() for leg in legs(job_id, job)
+                           if leg["name"] == base_check]
             self.assertEqual((len(callee_jobs), len(pushed_jobs)), (1, 1), (check, base_check))
 
             def step_table_jobs(job):
-                return {m for step in job.get("steps") or []
-                        for m in re.findall(r"ci/run run --job (\w[\w-]*)", str(step.get("run") or ""))}
+                # `ci/run run --job NAME`, or `--job "$VAR"` with VAR set in the step's env.
+                found = set()
+                for step in job.get("steps") or []:
+                    for m in re.findall(r'ci/run run --job "?\$?(\w[\w-]*)"?', str(step.get("run") or "")):
+                        found.add(str((step.get("env") or {}).get(m, m)))
+                return found
 
             # The same ci/steps.toml job, run by ci/run, on both sides.
             self.assertTrue(step_table_jobs(callee_jobs[0]))

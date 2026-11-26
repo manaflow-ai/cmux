@@ -1173,9 +1173,15 @@ BASE_WORKFLOW_FOR = {("feat-cmux-next", "ci.yml", "web"): "cmux-next-web.yml"}
 # the value is (the base-push workflow file, its check). The comparison is the usual one, by failing test and error
 # line: a red step the base run passed, or did not run, is never excused by it. Read after batch_check, before
 # BASE_WORKFLOW_FOR, and like both only when the PR run's own workflow has no verdict at or after the merge-base;
-# tests/test_base_red_excuse.py checks each entry against the workflows.
+# tests/test_base_red_excuse.py checks each entry against the workflows. The same holds for every step-table job of
+# pr-pipeline.yml that runs on Linux: 'pr pipeline / web-browser' (`ci/run run --job web-browser`) had no base run at
+# all for its step chat-flow-shift-budget, so its red on cmux#49399 and cmux#51550 (2026-11-26, PR run 45798346304
+# and job 139823535345: 'compaction ends: stray 74.8px > 8px', the same line on both) was refused as having no base
+# verdict; cmux-next-base-linux.yml now runs the web-browser job as its 'base web-browser' leg. The Mac and iOS jobs
+# (ios, mac) have no such base leg yet and keep the refusal.
 BASE_CHECK_FOR = {
     ("feat-cmux-next", "pr-router.yml", "pr pipeline / linux"): ("cmux-next-base-linux.yml", "base linux"),
+    ("feat-cmux-next", "pr-router.yml", "pr pipeline / web-browser"): ("cmux-next-base-linux.yml", "base web-browser"),
 }
 # The post-merge batch tier (2026-11-21, cmux#48662): per-push base workflows move onto cmux-next-post-merge.yml,
 # which every ~2 h calls each suite of .github/post-merge-batch.json whose paths changed, as a caller job named by the
