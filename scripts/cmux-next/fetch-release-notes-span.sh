@@ -12,8 +12,20 @@
 #
 # Usage: fetch-release-notes-span.sh <remote> <head_sha> <tag> [<since_sha>]
 # Environment: RELEASE_NOTES_FETCH_DEPTH (default 300),
-#              RELEASE_NOTES_DEEPEN_STEP (default 1000), RELEASE_NOTES_DEEPEN_ROUNDS (default 4)
+#              RELEASE_NOTES_DEEPEN_STEP (default 1000), RELEASE_NOTES_DEEPEN_ROUNDS (default 4),
+#              RELEASE_NOTES_FETCH_TOKEN (the job's github.token: authenticates the fetches, see below)
 set -euo pipefail
+# The callers check out with persist-credentials: false, so without a token every fetch here is anonymous, and
+# GitHub answers an anonymous fetch from a busy runner address with 403 (nightly-next run 45725593921's
+# published-in, 2026-11-26: four 403s, no PR comments). The token goes through GIT_CONFIG_* in this process's
+# environment only: never argv (ps on a shared runner), never .git/config.
+if [[ -n "${RELEASE_NOTES_FETCH_TOKEN:-}" ]]; then
+  n="${GIT_CONFIG_COUNT:-0}"
+  export "GIT_CONFIG_KEY_$n=http.https://github.com/.extraheader"
+  export "GIT_CONFIG_VALUE_$n=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$RELEASE_NOTES_FETCH_TOKEN" | base64 | tr -d '\n')"
+  export GIT_CONFIG_COUNT=$((n + 1))
+  unset n
+fi
 # Each fetch runs under net_retry: a transfer under 1 KB/s for 120 s ends and is tried again,
 # into this same repository (nightly run 44232805509 died on a stalled cmux-cua transfer).
 # shellcheck source=scripts/cmux-next/lib/origin-net.sh

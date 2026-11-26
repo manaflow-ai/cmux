@@ -47,6 +47,18 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotRegex(block, r"fetch-tags:\s*true\b", "every tag is not needed, only nightly-next")
         self.assertIn("scripts/cmux-next/fetch-release-notes-span.sh", block)
 
+    def test_every_span_fetch_is_authenticated(self):
+        # nightly-next run 45725593921 (2026-11-26): published-in's anonymous fetch got four 403s and
+        # posted no PR comments. Each caller passes the job's token to the script.
+        for name in ("published-in", "sign-release-notes"):
+            block = job_block(name)
+            step = block[block.index("fetch-release-notes-span.sh") - 400:block.index("fetch-release-notes-span.sh")]
+            self.assertIn("RELEASE_NOTES_FETCH_TOKEN: ${{ github.token }}", step, name)
+        text = WORKFLOW.read_text()
+        notes = text[text.index("name: Prepare nightly release notes and appcast summaries"):]
+        notes = notes[:notes.index("publish-prepare-release-notes.sh")]
+        self.assertIn("RELEASE_NOTES_FETCH_TOKEN: ${{ github.token }}", notes)
+
 
 class FetchSpanTests(unittest.TestCase):
     def setUp(self):
@@ -103,6 +115,29 @@ class FetchSpanTests(unittest.TestCase):
         self.assertIn("A card", notes)
         self.assertIn("new 11", notes)
         self.assertNotIn("old 29", notes)
+
+    def test_a_token_authenticates_each_fetch_through_the_environment_only(self):
+        real_git = subprocess.run(["bash", "-c", "command -v git"], capture_output=True, text=True, check=True).stdout.strip()
+        bin_dir = self.tmp / "bin"
+        bin_dir.mkdir()
+        log = self.tmp / "git.log"
+        (bin_dir / "git").write_text(
+            "#!/usr/bin/env bash\n"
+            f"if [[ \"$1\" == fetch ]]; then {{ echo \"argv: $*\"; env | grep '^GIT_CONFIG_' | sort; }} >> {log}; fi\n"
+            f"exec {real_git} \"$@\"\n")
+        (bin_dir / "git").chmod(0o755)
+        env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "RELEASE_NOTES_FETCH_DEPTH": "3",
+               "RELEASE_NOTES_DEEPEN_STEP": "4", "RELEASE_NOTES_FETCH_TOKEN": "s3cret-token"}
+        for key in [k for k in env if k.startswith("GIT_CONFIG_")]:
+            del env[key]
+        subprocess.run(["bash", str(FETCH), "origin", self.head, "nightly-next"], cwd=self.work,
+                       env=env, check=True, capture_output=True, text=True)
+        text = log.read_text()
+        self.assertIn("GIT_CONFIG_KEY_0=http.https://github.com/.extraheader", text)
+        self.assertIn("GIT_CONFIG_VALUE_0=AUTHORIZATION: basic eC1hY2Nlc3MtdG9rZW46czNjcmV0LXRva2Vu", text)
+        self.assertNotIn("s3cret-token", "\n".join(l for l in text.splitlines() if l.startswith("argv:")))
+        self.assertNotIn("s3cret", (self.work / ".git" / "config").read_text())
+        self.assertNotIn("eC1hY2Nlc3M", (self.work / ".git" / "config").read_text())
 
     def test_missing_tag_still_fetches_the_head(self):
         git(str(self.remote), "tag", "-d", "nightly-next")

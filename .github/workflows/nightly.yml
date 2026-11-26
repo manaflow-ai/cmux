@@ -5742,6 +5742,8 @@ jobs:
         timeout-minutes: 70
         env:
           GH_TOKEN: ${{ github.token }}
+          # fetch-release-notes-span.sh fetches with it (an anonymous fetch gets 403 on a busy runner).
+          RELEASE_NOTES_FETCH_TOKEN: ${{ github.token }}
           NOTES_HEAD: ${{ steps.source.outputs.build_sha }}
           PUBLISHED_SHA: ${{ needs.decide.outputs.published_sha }}
           NOTES_BRANCH: ${{ needs.decide.outputs.track == 'nightly-next' && 'feat-cmux-next' || github.ref_name }}
@@ -7806,6 +7808,8 @@ jobs:
       - *wait-through-github-api-rate-l
 
       - name: Fetch the published span
+        env:
+          RELEASE_NOTES_FETCH_TOKEN: ${{ github.token }}
         run: ./scripts/cmux-next/fetch-release-notes-span.sh origin "$HEAD_SHA" nightly-next "$PUBLISHED_SHA"
       - *older-tree-step-scripts-plain
       - name: Comment the build on its PRs
@@ -7853,6 +7857,7 @@ jobs:
       - name: Fetch the commits since the newest published notes
         env:
           SPAN_SINCE: ${{ steps.span.outputs.since }}
+          RELEASE_NOTES_FETCH_TOKEN: ${{ github.token }}
         run: ./scripts/cmux-next/fetch-release-notes-span.sh origin "$HEAD_SHA" nightly-next ${SPAN_SINCE:+"$SPAN_SINCE"}
       - name: Build and sign the release notes
         env:
