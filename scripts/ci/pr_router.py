@@ -171,7 +171,7 @@ def route(event: dict, callees: dict, files: list[str] | None,
     tier, tier_reason = decided or head_tier.tier("pull_request", event, draft_switch)
     cheap = tier == "cheap"
     pr = event.get("pull_request") or {}
-    labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
+    labels = head_tier.labels_of(event)
     # Fast-track (scripts/ci/fast_track.py): a docs, plans, skills, copy or tests-only change gets the cheap tier.
     # full-ci asks for the full tier, so it beats fast-track.
     fast = False
@@ -339,7 +339,7 @@ def main(argv: list[str]) -> int:
         files = changed_files()
         decided = head_tier.decide("pull_request", event)
         start, why = route(event, callees, files, decided=decided, land_update=land_update_head(event, callees))
-        labels = {str(label.get("name") or "") for label in (event.get("pull_request") or {}).get("labels") or []}
+        labels = head_tier.labels_of(event)
         full = decided[0] == "full" or FULL_CI in labels
         added = str((event.get("label") or {}).get("name") or "") if event.get("action") == "labeled" else ""
         write_outputs(start, why, files, table_jobs_routed(callees, files, full=full,
