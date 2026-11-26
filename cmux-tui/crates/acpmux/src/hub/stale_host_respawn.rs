@@ -220,7 +220,7 @@ impl Hub {
         }
         let seen = session.last_active.load(Ordering::SeqCst);
         let census = self.idle_census(child.pid, sidecars).await;
-        eprintln!("END quiet census {:?}", census);
+        eprintln!("END quiet census clear={}", matches!(census, super::idle_census::Census::Clear));
         if !matches!(census, super::idle_census::Census::Clear) {
             self.note_refusal(session, &census);
             return false;
