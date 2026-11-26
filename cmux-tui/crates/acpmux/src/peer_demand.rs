@@ -258,6 +258,9 @@ impl Peer {
     /// restart does, with no outage and no failed attempt, and the peer waits to be used.
     pub(super) fn idle_ended(&self) -> Option<super::PeerNotice> {
         tracing::info!(peer = %self.name, "the link went unused for {}s; it closes and reconnects on use", IDLE_CLOSE_AFTER.as_secs());
+        // A make-before-break dial may have opened while this link was idle. Parking the peer
+        // must drop that socket and its tunnel instead of retaining it until the next demand.
+        self.replacement.lock_or_recover().take();
         self.link_ended();
         self.open.store(false, Ordering::SeqCst);
         self.connected.store(false, Ordering::SeqCst);
