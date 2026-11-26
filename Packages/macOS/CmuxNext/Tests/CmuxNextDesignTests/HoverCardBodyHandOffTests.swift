@@ -67,7 +67,8 @@ import Testing
         f.retired.endLeaving()
 
         #expect(f.body.superview === f.fresh.glass.contentView)
-        #expect(f.fresh.edgeConstraints.allSatisfy(\.isActive), "the fresh card's body lost its pins")
+        let freshPinsActive = f.fresh.edgeConstraints.allSatisfy(\.isActive)
+        #expect(freshPinsActive, "the fresh card's body lost its pins")
         #expect(f.fresh.body === f.body)
     }
 
