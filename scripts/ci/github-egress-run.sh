@@ -9,7 +9,8 @@
 # them: run 45866233902 (daemon tests), "Failed to connect to 127.0.0.1 port
 # 18434 after 0 ms" on swift-asn1, swift-crypto, swift-atomics, sentry-cocoa
 # and Sparkle, 2026-11-26. Every SwiftPM step that fetches packages on a
-# self-hosted Mac runs through here (tests/test_ci_swiftpm_egress_route.py).
+# self-hosted Mac runs through here (tests/test_cmux_next_checks_workflow.py,
+# SwiftPmFetchesStepAroundADeadProxy).
 set -uo pipefail
 [ "$#" -gt 0 ] || { echo "usage: github-egress-run.sh COMMAND..." >&2; exit 2; }
 # shellcheck source=scripts/ci/github-egress-direct.sh
