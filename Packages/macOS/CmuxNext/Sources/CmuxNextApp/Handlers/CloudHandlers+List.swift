@@ -91,25 +91,16 @@ extension CloudHandlers {
 }
 
 extension CloudHandlers {
-    /// `cloud resize-machine`'s checked `--size` and `--disk` (the rules' `resize`): what the
-    /// resize call sends and the fields it answers (`size`, `disk_gib`, as given).
-    typealias Resize = (cpu: Int?, memoryMb: Int?, storageMb: Int?, fields: [String: ActionResultValue])
+    /// `cloud resize-machine`'s checked `--size` and `--disk` as the rules make the call (`cloud_handler_resize_call`):
+    /// the app server's `cloud.machine.resize` args and the fields it answers (`size`, `disk_gib`, as given).
+    typealias Resize = (args: [String: CmuxNextDaemon.JSONValue], fields: [String: ActionResultValue])
 
-    /// The app server's `cloud.machine.resize` args: `{machine, size: {cpu?, memory_mb?, disk_mb?}}`, only what was given.
-    static func resizeArgs(_ request: Resize, machine: String) -> [String: CmuxNextDaemon.JSONValue] {
-        var size: [String: CmuxNextDaemon.JSONValue] = [:]
-        if let cpu = request.cpu { size["cpu"] = .number(Double(cpu)) }
-        if let memoryMb = request.memoryMb { size["memory_mb"] = .number(Double(memoryMb)) }
-        if let storageMb = request.storageMb { size["disk_mb"] = .number(Double(storageMb)) }
-        return ["machine": .string(machine), "size": .object(size)]
-    }
-
-    static func resizeRequest(_ invocation: ActionInvocation) throws -> Resize {
-        let checked = try CloudHandlerRules().arg("resize", invocation) as? [String: Any] ?? [:]
-        var fields: [String: ActionResultValue] = [:]
-        if let size = checked["size"] as? String { fields["size"] = .string(size) }
-        if let disk = checked["diskGib"] as? Int { fields["disk_gib"] = .int(disk) }
-        return (checked["cpu"] as? Int, checked["memoryMb"] as? Int, checked["storageMb"] as? Int, fields)
+    static func resizeCall(_ invocation: ActionInvocation, machine: String) throws -> Resize {
+        let call = try CloudHandlerRules().checked("cloud_handler_resize_call", ["args": CloudHandlerRules.json(invocation.arguments), "machine": machine]) as? [String: Any] ?? [:]
+        let args = (call["args"] as? [String: Any]).flatMap { try? JSONSerialization.data(withJSONObject: $0) }
+            .flatMap { try? JSONDecoder().decode([String: CmuxNextDaemon.JSONValue].self, from: $0) } ?? [:]
+        guard case .object(let fields)? = call["fields"].map(CloudHandlerRules.result) else { return (args, [:]) }
+        return (args, fields)
     }
 }
 

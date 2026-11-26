@@ -6,15 +6,16 @@ import Foundation
 import Testing
 
 /// `cloud resize-machine --disk GIB` grows a machine's disk (the app server's `cloud.machine.resize`
-/// `size.disk_mb`), alone or with `--size` in the same call; the args carry only the dimensions given.
+/// `size.disk_mb`), alone or with `--size` in the same call; the args carry only the dimensions given
+/// (`cloud_handler_resize_call`; every branch in cmux-cloud-handlers `calls_tests.rs`).
 @Suite
 struct CloudResizeDiskTests {
     private func request(_ arguments: [String: ActionValue]) throws -> CloudHandlers.Resize {
-        try CloudHandlers.resizeRequest(ActionInvocation(target: ActionTargetRef(kind: .machine, id: "vm-1"), arguments: arguments, origin: .cli))
+        try CloudHandlers.resizeCall(ActionInvocation(target: ActionTargetRef(kind: .machine, id: "vm-1"), arguments: arguments, origin: .cli), machine: "vm-1")
     }
 
     private func size(_ request: CloudHandlers.Resize) throws -> [String: JSONValue] {
-        let args = CloudHandlers.resizeArgs(request, machine: "vm-1")
+        let args = request.args
         #expect(args["machine"]?.stringValue == "vm-1")
         guard case .object(let size)? = args["size"] else { Issue.record("no size in \(args)"); return [:] }
         return size

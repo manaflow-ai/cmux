@@ -235,9 +235,9 @@ extension CloudHandlers {
             // A menu or palette run with neither still asks for the size, as when --size was required.
             if invocation["size"] == nil, invocation["disk"] == nil, origin(of: invocation) == .user,
                registry.ask("cloudResizeMachine", invocation, ActionArgumentAsk(argument: "size")) { return }
-            let request = try resizeRequest(invocation), fields = machineFields(session.machineID, request.fields)
+            let request = try resizeCall(invocation, machine: session.machineID), fields = machineFields(session.machineID, request.fields)
             change("resize machine", "cloudResizeMachine", invocation, registry, context, pending: fields) { allow in
-                try await cloud.machineChange("cloud.machine.resize", resizeArgs(request, machine: session.machineID), allow: allow)
+                try await cloud.machineChange("cloud.machine.resize", request.args, allow: allow)
                 return CloudAnswer(title: "", text: "", fields: fields)
             }
         }

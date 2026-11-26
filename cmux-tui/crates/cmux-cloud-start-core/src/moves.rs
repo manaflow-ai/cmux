@@ -7,6 +7,7 @@
 pub mod autosize;
 pub mod cli;
 pub mod folder;
+pub mod host;
 pub mod ledger;
 pub mod login;
 pub mod pin;
