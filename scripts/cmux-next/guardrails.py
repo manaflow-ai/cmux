@@ -2119,6 +2119,19 @@ RULES = (
          "// generic-class-allow: <why this class is not main-actor isolated> (`concurrency-allow:` also works)",
          matcher_rule(Matcher(CLASS_DECL, GENERIC_CLASS_ALLOW, implicit_deinit)),
          scope=(SOURCES, TESTS)),
+    Rule("expect-keypath-call",
+         "A `#expect` / `#require` whose whole condition is a call with a key-path argument "
+         "(`#expect(xs.allSatisfy(\\.isActive))`)",
+         "Xcode 26.6's swift-testing expands it into `__checkFunctionCall` with the key path as a throwing function "
+         "argument, so the expansion fails with \"call can throw, but it is not marked with 'try'\" and the whole "
+         "CmuxNext test build stops on macOS 27 hosts (2026-11-26: HoverCardBodyHandOffTests from #57323 broke every "
+         "suite step on the fleet; Xcode 26.3 CI compiled it)",
+         "pass a closure instead of the key path (`xs.allSatisfy { $0.isActive }`), or read it into a `let` first",
+         None,
+         # No `?` in the receiver: swift-testing leaves an optional chain unexpanded, and
+         # `try #require(a.first?.items.map(\\.id))` compiles on 26.6.
+         line_rule(r"#(?:expect|require)\(\s*(?:try\s+)?(?:await\s+)?[\w.!\[\]]+\.\w+\(\s*(?:\w+:\s*)?\\\.[\w.]+\s*\)\s*[,)]", None),
+         scope=(TESTS,)),
     Rule("action-wait", "An action handler that can wait: an untyped bind (`invoke:` / `run:` / `handler:` / a trailing closure) "
          "or a `.waiting` effect",
          "an untyped handler can start a Task that awaits the daemon before anything shows, and nothing in its type says so: the "
