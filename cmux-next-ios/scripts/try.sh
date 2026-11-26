@@ -167,7 +167,16 @@ try_get_app() {
   if [[ "$mode" == handoff ]]; then
     TRY_NOTE="built by the handoff mode (this commit's cmux-next-ios-sim.sh predates the try mode): cloud build space dev:dev, not your real data, until the PR takes feat-cmux-next"
   fi
-  if ! try_fleet "$mode"; then
+  local sent=0
+  try_fleet "$mode" && sent=1
+  # A key that names another step (the ahead build's, cancelled by a newer head's run: "409: step_key already names a
+  # different step") is refused outright: the tap goes out once more under the next key instead of failing.
+  if [[ $sent -eq 0 ]] && grep -q "already names a different step" "$STATE/fleet-$mode.err" 2>/dev/null; then
+    try_bump_attempt "$mode"
+    echo "==> the fleet key for $TRY_LABEL names an earlier step; sending it again under the next key"
+    try_fleet "$mode" && sent=1
+  fi
+  if [[ $sent -eq 0 ]]; then
     try_bump_attempt "$mode"
     if grep -q "is not the reviewed version" "$STATE/fleet-$mode.err" "$STATE/fleet-$mode.log" 2>/dev/null; then
       TRY_FAIL="the fleet runs only a reviewed cmux-next-ios-sim.sh, and this commit's is not one (it changes the script); merge feat-cmux-next into the PR or try a commit whose script is on feat-cmux-next"

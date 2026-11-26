@@ -2172,6 +2172,26 @@ class TryScriptTests(unittest.TestCase):
                 self.assertNotIn('--sign-in', args)
                 self.assertNotIn('--urgent', args)
 
+    def test_a_key_that_names_an_earlier_step_is_sent_again_under_the_next_key(self):
+        # 2026-11-26, a0a4b2d1: the ahead build's step was cancelled, and the controller refuses its key from then on
+        # ("409: step_key already names a different step"). The tap sends the step again under the next key.
+        with tempfile.TemporaryDirectory() as temp:
+            ci = Path(temp) / 'cmux-ci'
+            ci.write_text(f"""#!/bin/bash
+[ "$1" = run ] || exit 1
+for a in "$@"; do case "$a" in cnx-ios-try-*) echo "$a" >> "{temp}/keys";; esac; done
+case "$*" in *-r1*) echo "cmux-ci: step 0123456789abcdef01234567 (simulator)" >&2; exit 0;; esac
+echo "cmux-ci: controller HTTP 409: step_key already names a different step" >&2; exit 1
+""")
+            ci.chmod(0o755)
+            r = bash(f'''source "{TRY}"; SHA={SHA} STATE="{temp}" TRY_LABEL="PR #1" CMUX_CI="{ci}"
+try_script_mode() {{ echo try; }}; try_get_app || echo "fail=$TRY_FAIL"''', {'CMUX_CI': str(ci)})
+            keys = (Path(temp) / 'keys').read_text().split()
+            self.assertEqual(keys, [f'cnx-ios-try-try-{SHA[:12]}', f'cnx-ios-try-try-{SHA[:12]}-r1'], r.stdout + r.stderr)
+            self.assertIn('names an earlier step; sending it again under the next key', r.stdout)
+            # Past the submit: the artifact download is next (this fake has none).
+            self.assertIn('passed but its artifact did not download', r.stdout)
+
     def test_urgent_puts_the_step_first_with_a_reason(self):
         with tempfile.TemporaryDirectory() as temp:
             ci = Path(temp) / 'cmux-ci'
