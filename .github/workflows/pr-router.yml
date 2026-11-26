@@ -115,6 +115,9 @@ jobs:
           # The browser suites (pr-pipeline.yml's web-browser job) run on a PR only with `full-ci`; base pushes run
           # them (pr_router.py FULL_CI_ONLY_JOBS); 0 turns that off.
           CI_PR_BROWSER_FULL_CI_ONLY: ${{ vars.CI_PR_BROWSER_FULL_CI_ONLY || '1' }}
+          # The machine channel PR head build skips a ready-to-land/full-ci label handoff and builds the merge train's
+          # tip and land's update-branch head only (pr_router.py handoff_label_skip); 0 builds the label handoff too.
+          CI_MC_HANDOFF_LABEL_SKIP: ${{ vars.CI_MC_HANDOFF_LABEL_SKIP || '1' }}
           # A ready-to-land head that only merges the base onto a head whose full tier passed runs the cheap tier and
           # carries cmux/land-tier success (head_tier.py's land carry rule); 0 turns that off.
           CI_LAND_CARRY: ${{ vars.CI_LAND_CARRY || '1' }}
@@ -142,6 +145,9 @@ jobs:
           # more than once; cmux_machine_channel_head_built.py). The job's token has actions: read for head_tier.py.
           HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}
           GH_TOKEN: ${{ github.token }}
+          # No PR head build while the base took a commit in the last N minutes (its push run coalesces the merge);
+          # 0 turns that off.
+          MACHINE_CHANNEL_PR_HEAD_QUIET_MIN: ${{ vars.CI_MACHINE_CHANNEL_PR_HEAD_QUIET_MIN || '30' }}
         run: scripts/ci/cmux-machine-channel-pr-plan.sh
       # The land tier's handoff: `pending` while this head runs the cheap tier (land-judge then adds `ready-to-land`
       # instead of landing it), `success` once it runs the full tier. Not a required check; a fork head gets none.
