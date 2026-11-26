@@ -167,7 +167,7 @@ impl Hub {
             None => tokio::task::spawn_blocking(delete_after_now).await.ok().flatten(),
         };
         let Some(after) = after else {
-            return Err(RpcError::invalid_params(&format!(
+            return Err(RpcError::invalid_params(format!(
                 "no age to delete by: pass olderThanDays, or set {SETTING} to a number of days"
             )));
         };
@@ -187,7 +187,7 @@ impl Hub {
         let cutoff = now.saturating_sub(u64::try_from(after.as_millis()).unwrap_or(u64::MAX));
         // An unreadable host folder could hide a running agent: no pass then.
         if let Err(e) = crate::agent_host::load_records(&crate::agent_host::hosts_dir()) {
-            return Err(RpcError::internal(&format!("agent host records: {e:#}")));
+            return Err(RpcError::internal(format!("agent host records: {e:#}")));
         }
         let hosted = Self::live_host_sessions();
         let mut sessions = self.session_handles();
