@@ -234,11 +234,12 @@ test("a reopened v2 subscription places a native height and reports a changed bo
   const written: MeasuredRow[] = [];
   const requested: Omit<MeasuredRow, "height">[] = [];
   let cached: number | null = null;
+  let cachedEdition: number | null = null;
   page.cmuxAcpmuxActions = {
     "chat.rows.heights.read": async ({ rows }) => {
       const keys = rows as Omit<MeasuredRow, "height">[];
       requested.push(...keys);
-      return { rows: keys.map((key) => ({ ...key, height: cached })) };
+      return { rows: keys.map((key) => ({ ...key, edition: cachedEdition ?? key.edition, height: cached })) };
     },
     "chat.rows.heights.write": async ({ entries }) => {
       written.push(...(entries as MeasuredRow[]));
@@ -284,6 +285,10 @@ test("a reopened v2 subscription places a native height and reports a changed bo
     const { height: _, ...expected } = written[0];
     expect(requested.at(-1)).toEqual(expected);
     expect(spacerHeight()).toBe(placed);
+    cachedEdition = 6;
+    await act(async () => render("stale-edition"));
+    await act(nextFrame);
+    expect(spacerHeight()).toBe(estimated);
   } finally {
     delete page.cmuxAcpmuxActions;
     await act(async () => root.unmount());
