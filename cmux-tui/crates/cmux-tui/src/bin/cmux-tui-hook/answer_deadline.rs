@@ -10,9 +10,14 @@
 //! inbox and session-context reads) takes the time left ([`within`]), and an
 //! interval timer answers for whatever still runs at that point. Its answer is
 //! the safe default, the one the installed command prints when the helper
-//! fails: the empty object where the agent reads one, else nothing; exit 0, so
-//! a pre-tool hook allows. The detached child (a separate process) keeps the
-//! event queued and delivers it regardless.
+//! fails: the empty object where the agent reads one, else nothing, exit 0.
+//! A pre-tool hook still waiting on its repository barrier is the exception:
+//! its installed command fails closed (`||exit 2`), so its deadline answer is
+//! the barrier's own denial ([`hold_barrier`]), never a silent pass; once the
+//! barrier clears ([`barrier_cleared`]) the deadline answer is `{}` again, a
+//! no-decision that leaves the agent's own permission rules in charge. The
+//! detached child (a separate process) keeps the event queued and delivers
+//! it regardless.
 //!
 //! No thread: the timer is `SIGALRM` (`setitimer`), whose handler only makes
 //! async-signal-safe calls (`write`, `_exit`). The helper spawns its detached
@@ -49,6 +54,39 @@ static LATE: AtomicBool = AtomicBool::new(false);
 /// Whether the safe default is the empty object (the agent reads one) or no
 /// output (the installed command echoes it).
 static EMPTY_OBJECT: AtomicBool = AtomicBool::new(false);
+
+/// The pre-tool repository barrier's denial, set while it is held.
+static DENIAL: OnceLock<Vec<u8>> = OnceLock::new();
+/// The barrier is held: a deadline now answers with [`DENIAL`].
+static BARRIER_HELD: AtomicBool = AtomicBool::new(false);
+
+/// The pre-tool repository barrier is waiting: until [`barrier_cleared`], the
+/// deadline answers with `denial` (one line), as the installed command's
+/// `||exit 2` would, so a stalled barrier never lets the tool run unchecked.
+#[cfg_attr(not(unix), allow(dead_code))]
+pub(super) fn hold_barrier(denial: &str) {
+    let _ = DENIAL.set(format!("{denial}\n").into_bytes());
+    BARRIER_HELD.store(true, Ordering::SeqCst);
+}
+
+/// The repository barrier passed: a deadline from here gives the plain safe
+/// default.
+#[cfg_attr(not(unix), allow(dead_code))]
+pub(super) fn barrier_cleared() {
+    BARRIER_HELD.store(false, Ordering::SeqCst);
+}
+
+/// What the deadline writes: the barrier's denial while it is held, else `{}`
+/// where the agent reads an object, else nothing. Async-signal-safe (atomic
+/// loads and an initialized `OnceLock` read).
+fn due_answer() -> Option<&'static [u8]> {
+    if BARRIER_HELD.load(Ordering::SeqCst) {
+        if let Some(denial) = DENIAL.get() {
+            return Some(denial.as_slice());
+        }
+    }
+    EMPTY_OBJECT.load(Ordering::SeqCst).then_some(b"{}\n".as_slice())
+}
 
 /// Arms the deadline for a hook the agent waits `timeout` for, whose safe
 /// answer is `{}` when `empty_object`. Once per process; a second call is
@@ -97,8 +135,8 @@ pub(super) fn answer(write: impl FnOnce()) {
 fn on_due() {
     match STATE.compare_exchange(IDLE, ANSWERED, Ordering::SeqCst, Ordering::SeqCst) {
         Ok(_) => {
-            if EMPTY_OBJECT.load(Ordering::SeqCst) {
-                timer::write_stdout(b"{}\n");
+            if let Some(bytes) = due_answer() {
+                timer::write_stdout(bytes);
             }
             timer::finish();
         }

@@ -133,6 +133,16 @@ fn run_reading(
         return Ok(());
     }
     #[cfg(unix)]
+    let barrier =
+        args.native_event == "PreToolUse" && matches!(args.source.as_str(), "claude" | "codex");
+    #[cfg(unix)]
+    if barrier {
+        answer_deadline::hold_barrier(
+            &cmux_git::native_hook::denial("it did not finish inside the hook's timeout")
+                .to_string(),
+        );
+    }
+    #[cfg(unix)]
     if let Err(error) = cmux_git::native_hook::wait(
         &args.source,
         &args.native_event,
@@ -145,6 +155,8 @@ fn run_reading(
         answer_deadline::answer(|| println!("{denial}"));
         return Ok(());
     }
+    #[cfg(unix)]
+    answer_deadline::barrier_cleared();
     if nested {
         inbox::print_nothing(inbox::Delivery::for_event(&args.source, &args.native_event));
         return Ok(());

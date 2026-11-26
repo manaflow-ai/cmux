@@ -21,3 +21,17 @@ fn unarmed_waits_keep_their_own_bound_and_answers_are_written() {
     answer(|| wrote = true);
     assert!(wrote);
 }
+
+#[test]
+fn a_held_repository_barrier_answers_its_denial_never_a_pass() {
+    // A pre-tool hook still waiting on its repository fails closed at its
+    // deadline, as its installed `||exit 2` does; once the barrier passes the
+    // deadline answer is the plain no-decision again.
+    EMPTY_OBJECT.store(true, Ordering::SeqCst);
+    let denial = cmux_git::native_hook::denial("it did not finish inside the hook's timeout");
+    hold_barrier(&denial.to_string());
+    let held: serde_json::Value = serde_json::from_slice(due_answer().unwrap()).unwrap();
+    assert_eq!(held["hookSpecificOutput"]["permissionDecision"], "deny");
+    barrier_cleared();
+    assert_eq!(due_answer(), Some(b"{}\n".as_slice()));
+}
