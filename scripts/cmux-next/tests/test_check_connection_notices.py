@@ -289,7 +289,7 @@ class WebShapes(unittest.TestCase):
         tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)
         path = f"{WEB}/AutoResumeNotice.tsx"
         button = '<button type="button" onClick={onRetry}>{t("page.retry")}</button>'
-        # Avoid the *Button naming shortcut: this case must inspect the forwarded handler.
+        # A neutral component name exercises the forwarded handler, not action-name propagation.
         child = "\nfunction RetryControl({ onSubmit }) {\n  return <button onClick={onSubmit}>Retry</button>;\n}\n"
         for prop, expected in [("onSubmit", 0), ("onPreview", 1)]:
             with self.subTest(prop=prop):
@@ -297,6 +297,54 @@ class WebShapes(unittest.TestCase):
                 tree.write(path, textwrap.dedent(notice) + child)
                 code, out = tree.check()
                 self.assertEqual(code, expected, out)
+
+    def test_a_view_drawing_its_own_button_component_carries_the_action(self):
+        tree = Tree(self)
+        tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)
+        tree.write(f"{WEB}/AutoResumeNotice.tsx", """\
+    import { retryLabel } from "./retryState";
+    function RetryButton({ onRetry }: { onRetry: () => void }) {
+      return <button type="button" onClick={onRetry}>Retry</button>;
+    }
+    export function AutoResumeNotice({ retry, t, onRetry }: Props) {
+      return <output className="notice">{retry ? retryLabel(t, retry.attempt, retry.of) : null}<RetryButton onRetry={onRetry} /></output>;
+    }
+""")
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+
+    def test_a_view_drawing_an_imported_button_component_carries_the_action(self):
+        tree = Tree(self)
+        tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)
+        tree.write(f"{WEB}/RetryButton.tsx", """\
+    export function RetryButton({ onRetry }: { onRetry: () => void }) {
+      return <button type="button" onClick={onRetry}>Retry</button>;
+    }
+""")
+        tree.write(f"{WEB}/AutoResumeNotice.tsx", """\
+    import { retryLabel } from "./retryState";
+    import { RetryButton } from "./RetryButton";
+    export function AutoResumeNotice({ retry, t, onRetry }: Props) {
+      return <output className="notice">{retry ? retryLabel(t, retry.attempt, retry.of) : null}<RetryButton onRetry={onRetry} /></output>;
+    }
+""")
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+
+    def test_a_drawn_component_without_an_action_is_no_action(self):
+        tree = Tree(self)
+        tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)
+        tree.write(f"{WEB}/AutoResumeNotice.tsx", """\
+    import { retryLabel } from "./retryState";
+    function MarkButton() {
+      return <span className="mark" />;
+    }
+    export function AutoResumeNotice({ retry, t }: Props) {
+      return <output className="notice"><MarkButton />{retry ? retryLabel(t, retry.attempt, retry.of) : null}</output>;
+    }
+""")
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
 
     def test_a_literal_grace_under_the_bound_is_no_bound(self):
         tree = Tree(self)
@@ -483,7 +531,9 @@ class NativeShapes(unittest.TestCase):
     def test_a_web_button_component_is_an_action(self):
         """The Connect GitHub card ("GitHub isn't connected for this repo") draws its own `<ConnectButton>` with the
         tap handler inside it (GitHubConnectCard.tsx); the same line with no button component does not pass."""
-        button = ('export function ConnectCard() {\n'
+        button = ('function ConnectButton({ onConnect }) {\n'
+                  '  return <button onClick={onConnect}>Connect</button>;\n}\n'
+                  'export function ConnectCard() {\n'
                   '  return <div>Reconnecting to GitHub<ConnectButton onConnect={go} /></div>;\n}\n')
         bare = ('export function ConnectLine() {\n'
                 '  return <div>Reconnecting to GitHub<ConnectIcon /></div>;\n}\n')
