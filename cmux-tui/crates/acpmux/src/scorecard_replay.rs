@@ -4,9 +4,14 @@
 //! letting important rfds like that take breaks ... esp when this is stuff that materially
 //! improves the app".
 //!
-//! Each violation names the session, the record (`seq`, `at`) and the invariant. This build
-//! checks two of the RFD's five:
+//! Each violation names the session, the record (`seq`, `at`) and the invariant. All five:
 //!
+//! - **1 `contextExtends`**: each main-loop request's prompt (`used`: its input, cache reads and
+//!   cache writes) is at least the one before's, unless a compaction, a context surgery or a
+//!   `/clear` came between them, or the cache had expired (Claude Code clears old tool results
+//!   once its cache lapses). A shrink under [`SHRINK_TOLERANCE`] of the prompt, or under
+//!   [`MIN_MISS_CONTEXT`] tokens, is no violation: Claude Code trims the tail of the last turn
+//!   (2.3-3.6% in three of 526 calls over twelve recorded sessions, 2026-11-26).
 //! - **2 `stableInputs`**: the model, the tool definitions and the system prompt do not change
 //!   inside a session. Read from Claude Code's `system/init` lines (`claude.system.init`, whose
 //!   repeated sections the log leaves out, `claude_stdio/logged_init.rs`: a section that is
@@ -19,10 +24,19 @@
 //!   compaction, a context surgery (`harness_surgery`) or a config change came between the two,
 //!   the model changed, or the cache had expired (the previous call's `cacheExpiresAt`). The
 //!   cause is classified by `prompt_cache::miss_cause`, the daemon's own.
+//! - **3 `outputCapped`**: no tool result over the output cap enters context (RFD 0147). The
+//!   result is the `tool_call_update` that completes a call, whose text is the `tool_result`
+//!   the model got. The cap is Claude Code's own: a Bash result over [`BASH_CAP_CHARS`] is
+//!   spilled to a file with a short preview; Read and MCP results are capped at 25,000 tokens,
+//!   taken as [`TOKEN_CAP_CHARS`] characters.
+//! - **4 `rereadsBounded`**: after a compaction, a surgery or a `/clear`, the files read before
+//!   it (a `read`-kind call's path) that are read again before the next one stay at most half of
+//!   them, once [`REREAD_MIN_REMOVED`] files were removed (RFD 0149's regret rate). The
+//!   violation names the boundary.
 //!
-//! Not yet (next PRs): 1 (each request's context extends the one before), 3 (no tool result over
-//! the output cap enters context, RFD 0147), 4 (re-reads after a compaction or surgery stay under
-//! a threshold, RFD 0149), and the daemon CI job over a fixed set of recorded sessions.
+//! The daemon's CI replays a fixed set of recorded sessions (`data/scorecard-replay/`, one
+//! derived from a real lane session and one seeded break per invariant) and holds each to the
+//! violations its `expected.json` names (`scorecard_replay_fixtures_tests.rs`).
 //!
 //! Off switch, as the RFD says: `agents.harnessMagic.scorecard.enabled: false` or
 //! `ACPMUX_HM_SCORECARD=0` (`hub/harness_magic.rs`). Its counters,
@@ -46,15 +60,36 @@ const KINDS: &[&str] = &[
     "claude.system.compact_boundary",
     "harness_surgery",
     "config_option_update",
+    "claude.system.conversation_reset",
+    "tool_call",
+    "tool_call_update",
 ];
 
 /// The invariants this build checks, by their number in the RFD and their name.
-pub const CHECKED: &[(u8, &str)] = &[(2, STABLE_INPUTS), (5, CACHE_AGREES)];
-/// The invariants the RFD names that this build does not check yet.
-pub const NOT_YET: &[(u8, &str)] =
-    &[(1, "contextExtends"), (3, "outputCapped"), (4, "rereadsBounded")];
+pub const CHECKED: &[(u8, &str)] = &[
+    (1, CONTEXT_EXTENDS),
+    (2, STABLE_INPUTS),
+    (3, OUTPUT_CAPPED),
+    (4, REREADS_BOUNDED),
+    (5, CACHE_AGREES),
+];
+/// The invariants the RFD names that this build does not check yet: none.
+pub const NOT_YET: &[(u8, &str)] = &[];
+pub const CONTEXT_EXTENDS: &str = "contextExtends";
 pub const STABLE_INPUTS: &str = "stableInputs";
+pub const OUTPUT_CAPPED: &str = "outputCapped";
+pub const REREADS_BOUNDED: &str = "rereadsBounded";
 pub const CACHE_AGREES: &str = "cacheAgrees";
+
+/// Invariant 1: a prompt may come in this share under the one before (per mille) with no
+/// boundary, the tail Claude Code trims.
+pub const SHRINK_TOLERANCE: u64 = 50;
+/// Invariant 3: Claude Code spills a Bash result over this many characters to a file.
+pub const BASH_CAP_CHARS: usize = 30_000;
+/// Invariant 3: Read and MCP results are capped at 25,000 tokens, at four characters a token.
+pub const TOKEN_CAP_CHARS: usize = 25_000 * 4;
+/// Invariant 4: a boundary that removed fewer files than this is not judged.
+pub const REREAD_MIN_REMOVED: usize = 4;
 
 /// The `system/init` sections invariant 2 holds still: the tools, and the system prompt's
 /// reported part.
@@ -84,6 +119,10 @@ pub struct SessionReplay {
     pub calls: u64,
     /// `system/init` lines checked against invariant 2.
     pub inits: u64,
+    /// Tool results checked against invariant 3.
+    pub results: u64,
+    /// Compactions, surgeries and `/clear`s that removed files, checked against invariant 4.
+    pub boundaries: u64,
     /// Calls that read under half of what the call before left, by their cause (declared ones
     /// included: `compaction`, `model`, `expired`, ...).
     pub collapses: BTreeMap<String, u64>,
@@ -107,6 +146,8 @@ pub struct Replay {
 struct LastCall {
     /// What the next call should read: this one's prompt and output.
     context: u64,
+    /// This call's prompt, which the next one's extends.
+    prompt: u64,
     expires_at: u64,
     model: Option<String>,
 }
@@ -121,6 +162,29 @@ struct Fold {
     last: Option<LastCall>,
     /// A compaction, surgery or config change since the last call.
     boundary: Option<String>,
+    /// Each tool call's tool and the path a `read` call names, by call id.
+    calls: BTreeMap<String, Call>,
+    /// Files read since the last boundary that removed context.
+    read: std::collections::BTreeSet<String>,
+    /// The re-reads of what the last such boundary removed.
+    rereads: Option<Rereads>,
+}
+
+#[derive(Default)]
+struct Call {
+    tool: Option<String>,
+    read_path: Option<String>,
+    /// Its result was checked already.
+    done: bool,
+}
+
+/// What one boundary removed, and what of it was read again.
+struct Rereads {
+    seq: u64,
+    at: u64,
+    cause: &'static str,
+    removed: std::collections::BTreeSet<String>,
+    again: std::collections::BTreeSet<String>,
 }
 
 impl Fold {
@@ -154,13 +218,104 @@ impl Fold {
             "compaction" => {
                 let state = update(&r.msg).get("state").and_then(Value::as_str);
                 if state != Some("running") {
-                    self.boundary = Some("compaction".into());
+                    self.removed(r, "compaction");
                 }
             }
-            "claude.system.compact_boundary" => self.boundary = Some("compaction".into()),
-            "harness_surgery" => self.boundary = Some("surgery".into()),
+            "claude.system.compact_boundary" => self.removed(r, "compaction"),
+            "harness_surgery" => self.removed(r, "surgery"),
+            "claude.system.conversation_reset" => self.removed(r, "clear"),
             "config_option_update" => self.boundary = Some("config".into()),
+            "tool_call" | "tool_call_update" => self.tool(r),
             _ => {}
+        }
+    }
+
+    /// A boundary that took context out: what was read before it is gone.
+    fn removed(&mut self, r: &EventRecord, cause: &'static str) {
+        self.boundary = Some(cause.into());
+        // A compaction logs its boundary and its end: the second removes nothing more.
+        if self.read.is_empty() {
+            return;
+        }
+        self.judge_rereads();
+        self.rereads = Some(Rereads {
+            seq: r.seq,
+            at: r.at,
+            cause,
+            removed: std::mem::take(&mut self.read),
+            again: Default::default(),
+        });
+    }
+
+    /// Invariant 4 for the last boundary, once the next one (or the log's end) closes it.
+    fn judge_rereads(&mut self) {
+        let Some(w) = self.rereads.take() else { return };
+        if w.removed.len() < REREAD_MIN_REMOVED {
+            return;
+        }
+        self.out.boundaries += 1;
+        if w.again.len() * 2 > w.removed.len() {
+            let some: Vec<_> = w.again.iter().take(3).map(String::as_str).collect();
+            self.out.violations.push(Violation {
+                session: self.out.session.clone(),
+                invariant: 4,
+                name: REREADS_BOUNDED,
+                seq: w.seq,
+                at: w.at,
+                detail: format!(
+                    "{} of the {} files read before this {} were read again after it ({}, ...)",
+                    w.again.len(),
+                    w.removed.len(),
+                    w.cause,
+                    some.join(", ")
+                ),
+            });
+        }
+    }
+
+    fn tool(&mut self, r: &EventRecord) {
+        let u = update(&r.msg);
+        let Some(id) = u.get("toolCallId").and_then(Value::as_str) else { return };
+        let call = self.calls.entry(id.to_owned()).or_default();
+        if let Some(tool) = u.pointer("/_meta/claude/tool").and_then(Value::as_str) {
+            call.tool = Some(tool.to_owned());
+        }
+        if u.get("kind").and_then(Value::as_str) == Some("read") && call.read_path.is_none() {
+            let path = u
+                .pointer("/_meta/acpmux/canonicalPath")
+                .or_else(|| u.pointer("/rawInput/file_path"))
+                .or_else(|| u.pointer("/rawInput/path"))
+                .and_then(Value::as_str);
+            if let Some(path) = path {
+                call.read_path = Some(path.to_owned());
+                if let Some(w) = self.rereads.as_mut()
+                    && w.removed.contains(path)
+                {
+                    w.again.insert(path.to_owned());
+                }
+                self.read.insert(path.to_owned());
+            }
+        }
+        let status = u.get("status").and_then(Value::as_str);
+        if call.done || !matches!(status, Some("completed" | "failed")) {
+            return;
+        }
+        let Some(blocks) = u.get("content").and_then(Value::as_array) else { return };
+        call.done = true;
+        let chars: usize = blocks
+            .iter()
+            .filter_map(|b| b.pointer("/content/text").and_then(Value::as_str))
+            .map(|t| t.chars().count())
+            .sum();
+        let tool = call.tool.clone().unwrap_or_default();
+        self.out.results += 1;
+        let cap = if tool == "Bash" { BASH_CAP_CHARS } else { TOKEN_CAP_CHARS };
+        if chars > cap {
+            let detail = format!(
+                "a {} result of {chars} characters entered context, over the {cap} cap",
+                if tool.is_empty() { "tool" } else { &tool }
+            );
+            self.violation(r, 3, OUTPUT_CAPPED, detail);
         }
     }
 
@@ -221,8 +376,24 @@ impl Fold {
         self.out.calls += 1;
         let n = |k: &str| u.get(k).and_then(Value::as_u64).unwrap_or(0);
         let read = n("cachedReadTokens");
+        let prompt = u
+            .get("used")
+            .and_then(Value::as_u64)
+            .unwrap_or_else(|| n("inputTokens") + read + n("cachedWriteTokens"));
         let expires_at = u.pointer("/_meta/acpmux/cacheExpiresAt").and_then(Value::as_u64);
         let boundary = self.boundary.take();
+        if let Some(last) = &self.last
+            && !matches!(boundary.as_deref(), Some("compaction" | "surgery" | "clear"))
+            && !(last.expires_at > 0 && r.at >= last.expires_at)
+            && last.prompt.saturating_sub(prompt)
+                >= MIN_MISS_CONTEXT.max(last.prompt * SHRINK_TOLERANCE / 1000)
+        {
+            let detail = format!(
+                "the prompt shrank from {} to {prompt} tokens with no compaction, surgery or /clear and the cache not expired",
+                last.prompt
+            );
+            self.violation(r, 1, CONTEXT_EXTENDS, detail);
+        }
         if let Some(last) = &self.last
             && last.context >= MIN_MISS_CONTEXT
             && read.saturating_mul(2) < last.context
@@ -230,6 +401,7 @@ impl Fold {
             let model_changed = last.model.is_some() && last.model != self.call_model;
             let cause = match boundary.as_deref() {
                 Some("surgery") => "surgery",
+                Some("clear") => "clear",
                 Some("config") => "config",
                 b => {
                     miss_cause(b == Some("compaction"), model_changed, false, last.expires_at, r.at)
@@ -246,6 +418,7 @@ impl Fold {
         }
         self.last = Some(LastCall {
             context: context_after,
+            prompt,
             // A call that names no expiry keeps the last one (`prompt_cache.rs`).
             expires_at: expires_at.or(self.last.as_ref().map(|l| l.expires_at)).unwrap_or(0),
             model: self.call_model.clone(),
@@ -291,6 +464,7 @@ pub fn replay_session(store: &dyn Store, id: &str, harness: &str) -> Result<Sess
         fold.record(&r);
         true
     })?;
+    fold.judge_rereads();
     Ok(fold.out)
 }
 

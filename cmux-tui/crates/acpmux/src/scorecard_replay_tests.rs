@@ -81,7 +81,11 @@ fn a_clean_log_passes_and_counts() {
     assert_eq!(r.counters["harnessMagic.scorecard.replaySessions"], 1);
     assert_eq!(r.counters["harnessMagic.scorecard.violations.stableInputs"], 0);
     assert_eq!(r.counters["harnessMagic.scorecard.violations.cacheAgrees"], 0);
-    assert_eq!(r.not_yet.len(), 3);
+    for name in [CONTEXT_EXTENDS, OUTPUT_CAPPED, REREADS_BOUNDED] {
+        assert_eq!(r.counters[&format!("harnessMagic.scorecard.violations.{name}")], 0);
+    }
+    assert_eq!(r.checked.len(), 5);
+    assert!(r.not_yet.is_empty());
 }
 
 #[test]
@@ -192,4 +196,112 @@ fn the_off_switch_names_scorecard() {
     assert!(!enabled_in("scorecard", None, &|k| (k == "ACPMUX_HM_SCORECARD").then(|| "0".into())));
     let doc = json!({"agents": {"harnessMagic": {"scorecard": {"enabled": false}}}});
     assert!(!enabled_in("scorecard", Some(&doc), &|_| None));
+}
+
+#[test]
+fn a_shrinking_prompt_fails_invariant_1_unless_declared_or_small() {
+    let mut log = clean();
+    // The prompt falls from 29,950 to 19,950 tokens; the cache still read most of it.
+    log[7] = call(8, 19_000, 20_000);
+    let r = run(&log);
+    let v = &r.sessions[0].violations;
+    assert_eq!(v.len(), 1, "{v:#?}");
+    assert_eq!((v[0].invariant, v[0].name, v[0].seq), (1, CONTEXT_EXTENDS, 8));
+    assert!(v[0].detail.contains("29950 to 19950"), "{}", v[0].detail);
+    assert_eq!(r.counters["harnessMagic.scorecard.violations.contextExtends"], 1);
+
+    let mut compacted = log.clone();
+    compacted[5] = rec(6, "in", "claude.system.compact_boundary", json!({}));
+    assert_eq!(run(&compacted).violations, 0);
+
+    // Under the tolerance: the tail Claude Code trims.
+    let mut trimmed = clean();
+    trimmed[7] = call(8, 29_000, 29_000);
+    assert_eq!(run(&trimmed).violations, 0, "{:#?}", run(&trimmed).sessions[0].violations);
+}
+
+fn tool_call(seq: u64, id: &str, tool: &str, kind: &str, path: Option<&str>) -> EventRecord {
+    let mut update = json!({"sessionUpdate": "tool_call_update", "toolCallId": id, "kind": kind,
+        "status": "in_progress", "_meta": {"claude": {"tool": tool}}});
+    if let Some(path) = path {
+        update["rawInput"] = json!({"file_path": path});
+    }
+    rec(seq, "in", "tool_call_update", json!({"params": {"update": update}}))
+}
+
+fn tool_result(seq: u64, id: &str, chars: usize) -> EventRecord {
+    rec(
+        seq,
+        "in",
+        "tool_call_update",
+        json!({"params": {"update": {"sessionUpdate": "tool_call_update", "toolCallId": id,
+            "status": "completed",
+            "content": [{"type": "content", "content": {"type": "text", "text": "x".repeat(chars)}}]}}}),
+    )
+}
+
+#[test]
+fn a_result_over_the_cap_fails_invariant_3() {
+    let results = |tool: &str, chars: usize| {
+        let mut log = clean();
+        log.push(tool_call(9, "t1", tool, "execute", None));
+        log.push(tool_result(10, "t1", chars));
+        // The same result again (a resend) is checked once.
+        log.push(tool_result(11, "t1", chars));
+        run(&log)
+    };
+    let r = results("Bash", BASH_CAP_CHARS + 1);
+    let v = &r.sessions[0].violations;
+    assert_eq!(v.len(), 1, "{v:#?}");
+    assert_eq!((v[0].invariant, v[0].name, v[0].seq), (3, OUTPUT_CAPPED, 10));
+    assert!(v[0].detail.contains("Bash result of 30001"), "{}", v[0].detail);
+    assert_eq!(r.sessions[0].results, 1);
+    assert_eq!(results("Bash", BASH_CAP_CHARS).violations, 0);
+    // A Read is capped in tokens, not at Bash's spill point.
+    assert_eq!(results("Read", 40_000).violations, 0);
+    assert_eq!(results("Read", TOKEN_CAP_CHARS + 1).violations, 1);
+}
+
+fn reads(log: &mut Vec<EventRecord>, seq: &mut u64, files: &[&str]) {
+    for f in files {
+        *seq += 1;
+        let id = format!("r{seq}");
+        log.push(tool_call(*seq, &id, "Read", "read", Some(f)));
+        *seq += 1;
+        log.push(tool_result(*seq, &id, 100));
+    }
+}
+
+fn compacted_then_read(before: &[&str], after: &[&str]) -> Replay {
+    let mut log = clean();
+    let mut seq = 8;
+    reads(&mut log, &mut seq, before);
+    log.push(rec(50, "in", "claude.system.compact_boundary", json!({})));
+    // The compaction's end, right after its boundary, removes nothing more.
+    log.push(rec(
+        51,
+        "in",
+        "compaction",
+        json!({"params": {"update": {"sessionUpdate": "compaction", "state": "completed"}}}),
+    ));
+    seq = 51;
+    reads(&mut log, &mut seq, after);
+    run(&log)
+}
+
+#[test]
+fn rereading_most_of_what_a_compaction_removed_fails_invariant_4() {
+    let four = ["/a", "/b", "/c", "/d"];
+    let r = compacted_then_read(&four, &["/a", "/b", "/c", "/a"]);
+    let v = &r.sessions[0].violations;
+    assert_eq!(v.len(), 1, "{v:#?}");
+    assert_eq!((v[0].invariant, v[0].name, v[0].seq), (4, REREADS_BOUNDED, 50));
+    assert!(v[0].detail.starts_with("3 of the 4 files"), "{}", v[0].detail);
+    assert_eq!(r.sessions[0].boundaries, 1);
+    assert_eq!(r.counters["harnessMagic.scorecard.violations.rereadsBounded"], 1);
+    // Half is the bound, and a new file is no re-read.
+    assert_eq!(compacted_then_read(&four, &["/a", "/b", "/e", "/f"]).violations, 0);
+    // Too few removed to judge.
+    let r = compacted_then_read(&["/a", "/b", "/c"], &["/a", "/b", "/c"]);
+    assert_eq!((r.violations, r.sessions[0].boundaries), (0, 0));
 }
