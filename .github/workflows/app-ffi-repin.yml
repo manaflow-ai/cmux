@@ -143,4 +143,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         shell: bash
-        run: gh workflow run app-ffi-repin.yml --ref feat-cmux-next
+        # The run's installation token shares a rate limit with every other job: run 45792260236's
+        # dispatch got "HTTP 403: API rate limit exceeded for installation" (2026-11-26 09:33Z) and the
+        # pin stayed behind until the next push. Retry on a bounded backoff (about 9 min) instead.
+        run: |
+          for wait in 0 60 120 180 180; do
+            sleep "$wait"
+            if gh workflow run app-ffi-repin.yml --ref feat-cmux-next; then exit 0; fi
+            echo "re-pin dispatch failed; retrying after backoff"
+          done
+          exit 1
