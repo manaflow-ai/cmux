@@ -679,6 +679,7 @@ import {
   startedSessions,
 } from "./started/startedSessions";
 import { experimentArm } from "../../experiments/experiment";
+import { usePaneView } from "./paneViewStore";
 import { useExperimentSwitch } from "../../experiments/switches";
 import { holdWebSwap } from "../../pages/shared/webSwap";
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
@@ -1005,6 +1006,8 @@ function newTabStartFailureOf(error: unknown, harness?: string): Omit<NewTabStar
 }
 
 function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
+  // The pane view this chat is in a shared document (paneViewStore.ts); null on a page of its own.
+  const paneView = usePaneView();
   // Debug measurement (acpmuxPerf): the pane's own render, before its children.
   const paneRenderStart = acpmuxPerf.enabled ? performance.now() : 0;
   acpmuxPerf.render("pane");
@@ -5793,11 +5796,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         revealSessionInfo(section);
         return;
       }
-      setHeaderState({ inspector: true });
+      setHeaderState({ inspector: true }, paneView);
       setSessionInfoSection(section, true);
       setSessionInfoPanelOpen(true);
     },
-    [revealSessionInfo],
+    [revealSessionInfo, paneView],
   );
   // Labs: a workflow's card opens Session Info's Background tasks, which lists its phases and agents.
   const toggleSessionInfo = useRef(sessionInfo.toggle);
@@ -7937,6 +7940,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const focusComposer = () => composerHandle.current?.focus();
   useEffect(() => {
     return paneSnapshotEffect({
+      paneView,
       holdsForComputerUseSetupRef,
       scrollToBottomOnSendRef,
       sandbox,
@@ -8080,6 +8084,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // These are stable for the pane's life (state, provider client, a memoized bridge callback, and
     // the early New Tab flag and the pending pane draw, objects from useState initializers).
   }, [
+    paneView,
     connectedClients,
     folderContinuation,
     harnessSwitch,
@@ -8327,7 +8332,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const toggleSideTabs = () =>
     ignoreFailure(
       callNative<{ shown?: boolean }>("pane.action", { id: "sideTabs" }).then((result) =>
-        setHeaderState({ sideTabs: result?.shown === true }),
+        setHeaderState({ sideTabs: result?.shown === true }, paneView),
       ),
     );
   const archived = snapshot.sessions.some((session) => session.sessionId === snapshot.sessionId && session.archived);
@@ -8731,6 +8736,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const newBrowser = () => runSplitAction(HEADER_ACTIONS.browser, undefined, "open");
   const chatMenu = (): ChatMenuItem[] =>
     chatMenuItems({
+      paneView,
       accessGrants,
       archive,
       avatar,
