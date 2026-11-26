@@ -683,6 +683,7 @@ fn care_stale_only_frees_a_merged_clean_worktree_and_skips_dirty_and_live_ones()
         },
         uses: nothing(),
         open: closed(),
+        guarded: unguarded(),
         apply,
         pressure: Some(Pressure::Critical),
         only,
@@ -741,6 +742,7 @@ fn care_a_chat_opened_after_the_scan_keeps_its_stale_worktree() {
         },
         uses: nothing(),
         open: closed(),
+        guarded: unguarded(),
         apply: true,
         pressure: Some(Pressure::Critical),
         only: vec![wt.clone()],
@@ -789,6 +791,7 @@ fn care_a_chat_opened_while_it_is_archived_keeps_its_stale_worktree() {
         },
         uses: nothing(),
         open: closed(),
+        guarded: unguarded(),
         apply: true,
         pressure: Some(Pressure::Critical),
         only: vec![wt.clone()],
@@ -897,6 +900,9 @@ fn care_a_linked_worktree_in_a_guarded_location_is_left_alone() {
         pressure: Some(Pressure::Critical),
         only: Vec::new(),
         measure: false,
+        stale_only: false,
+        measure_budget: None,
+        sessions_now: None,
     };
     let store = Store::open(base.join("store")).unwrap();
     let report = pass::run(&options, &store).unwrap();
