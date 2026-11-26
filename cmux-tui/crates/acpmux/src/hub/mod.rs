@@ -153,6 +153,7 @@ mod host_level;
 #[cfg(test)]
 mod host_notice_tests;
 mod hosts;
+pub(crate) mod transcript_offload;
 // Row 3b's first PR: the source, driven by tests. Its second PR (the tee at v1's append and the
 // chat registry in the daemon's v2 handle) is its first caller in the daemon.
 pub(crate) mod hub_health;
@@ -535,6 +536,7 @@ pub use retention::RetentionRequest;
 pub(crate) use route_switch::is_chief;
 pub use subagent_transcript::FEATURE as SUBAGENT_TRANSCRIPT_FEATURE;
 pub use tool_start::{ToolStart, tool_start};
+pub use transcript_offload::TranscriptOffloadRequest;
 /// Whether a prompt block is acpmux's lead mark of who wrote it (`prompt_attribution.rs`).
 pub fn prompt_attribution_lead(block: &Value) -> bool {
     prompt_attribution::is_lead(block)
