@@ -46,6 +46,53 @@ pub fn left_alive() -> (usize, usize) {
         (hubs.iter().filter(|w| w.strong_count() > 0).count(), hubs.len())
     })
 }
+/// SIM_LEAK_TRACE: which stage of a hub's life leaves it alive once its runtime is gone.
+pub fn probe() {
+    let alive = |w: &std::sync::Weak<Hub>| w.strong_count();
+    let a = {
+        let hub = Hub::new(config(), Box::new(SimStore(Arc::new(Disk::default()))));
+        Arc::downgrade(&hub)
+    };
+    let rt = || tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let b = {
+        let r = rt();
+        let w = r.block_on(async {
+            let hub = Hub::new(config(), Box::new(SimStore(Arc::new(Disk::default()))));
+            Arc::downgrade(&hub)
+        });
+        drop(r);
+        w
+    };
+    let c = {
+        let r = rt();
+        let w = r.block_on(async {
+            let hub = Hub::new(config(), Box::new(SimStore(Arc::new(Disk::default()))));
+            hub.sim_startup().await;
+            Arc::downgrade(&hub)
+        });
+        drop(r);
+        w
+    };
+    let d = {
+        let r = rt();
+        let w = r.block_on(async {
+            let hub = Hub::new(config(), Box::new(SimStore(Arc::new(Disk::default()))));
+            let _ = hub.person.install_spawn_key(app::PERSON_KEY);
+            hub.sim_startup().await;
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            Arc::downgrade(&hub)
+        });
+        drop(r);
+        w
+    };
+    eprintln!(
+        "leak probe: no runtime {} built in runtime {} +sim_startup {} +spawn key and 2 s {}",
+        alive(&a),
+        alive(&b),
+        alive(&c),
+        alive(&d)
+    );
+}
 static SENT_MADE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 static SENT_DROPPED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 struct Sentinel;

@@ -133,6 +133,9 @@ fn seeds_hold_the_delivery_invariants() {
     // Seeds that fail only by a known gap: they hold once its cause is taken away.
     let mut shown: BTreeMap<String, Vec<u64>> = BTreeMap::new();
     let trace_leaks = std::env::var_os("SIM_LEAK_TRACE").is_some();
+    if trace_leaks {
+        world::probe();
+    }
     for seed in base..base + seeds {
         let run = world::run(seed, &opts);
         if trace_leaks {
