@@ -616,7 +616,31 @@ impl PeakSampler {
         let stopping = stop.clone();
         let thread = std::thread::spawn(move || {
             let (mut anon, mut file, mut threads, mut rss, mut at) = (0u64, 0u64, 0u64, 0u64, 0u64);
+            // Each thread's CPU ticks at the last sample, and the steps of `anon` (every 16 MiB
+            // more) with the threads that ran most since the sample before.
+            let mut ticks: std::collections::HashMap<String, (String, u64)> = Default::default();
+            let mut steps: Vec<Value> = Vec::new();
+            let mut next_step = 0u64;
             while !stopping.load(std::sync::atomic::Ordering::Relaxed) {
+                let mut busy: Vec<(u64, String)> = Vec::new();
+                for task in
+                    std::fs::read_dir(format!("/proc/{pid}/task")).into_iter().flatten().flatten()
+                {
+                    let tid = task.file_name().to_string_lossy().into_owned();
+                    let Ok(stat) = std::fs::read_to_string(task.path().join("stat")) else {
+                        continue;
+                    };
+                    let Some((head, rest)) = stat.rsplit_once(')') else { continue };
+                    let name = head.split_once('(').map_or("", |(_, n)| n).to_owned();
+                    let f: Vec<&str> = rest.split_whitespace().collect();
+                    let t = f.get(11).and_then(|v| v.parse::<u64>().ok()).unwrap_or(0)
+                        + f.get(12).and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
+                    let before = ticks.insert(tid, (name.clone(), t)).map_or(0, |(_, b)| b);
+                    if t > before {
+                        busy.push((t - before, name));
+                    }
+                }
+                busy.sort_by(|a, b| b.0.cmp(&a.0));
                 let Ok(status) = std::fs::read_to_string(format!("/proc/{pid}/status")) else {
                     break;
                 };
@@ -628,7 +652,14 @@ impl PeakSampler {
                         .and_then(|n| n.parse::<u64>().ok())
                         .unwrap_or(0)
                 };
-                anon = anon.max(field("RssAnon:") * 1024);
+                let anon_now = field("RssAnon:") * 1024;
+                if anon_now >= next_step {
+                    next_step = anon_now + (16 << 20);
+                    let top: Vec<String> =
+                        busy.iter().take(3).map(|(t, n)| format!("{n}:{t}")).collect();
+                    steps.push(json!({"ms": ms(spawned), "anon": anon_now, "busy": top}));
+                }
+                anon = anon.max(anon_now);
                 file = file.max(field("RssFile:") * 1024);
                 threads = threads.max(field("Threads:"));
                 let now = field("VmRSS:") * 1024;
@@ -637,7 +668,8 @@ impl PeakSampler {
                 }
                 std::thread::sleep(Self::EVERY);
             }
-            json!({"anon": anon, "file": file, "threads": threads, "rss": rss, "atMs": at})
+            json!({"anon": anon, "file": file, "threads": threads, "rss": rss, "atMs": at,
+                "steps": steps})
         });
         Self { stop, thread }
     }
