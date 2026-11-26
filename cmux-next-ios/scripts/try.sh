@@ -30,7 +30,8 @@
 #     takes feat-cmux-next with the try mode) and the report says so. A cold build waits in the
 #     simulator queue (13+ min behind 30 steps on 2026-11-21); --urgent puts it first (cmux-ci run
 #     --urgent, logged with a reason): only for the person waiting on their phone.
-#  3. On every connected iPhone (scripts/lib/iphone-review-targets.sh; --device-id for one): signs a
+#  3. On every connected iPhone of this Mac's person (scripts/lib/iphone-review-targets.sh: an
+#     unknown Wi-Fi-only phone is skipped; --device-id for one): signs a
 #     copy with this Mac's Apple Development identity (sign_device_app.py: the team wildcard
 #     profile covers dev.cmux.mobile.dev), installs it through the sanctioned install and launches
 #     it. --sign-in launches it signed in with the `personal` profile (the first install needs it

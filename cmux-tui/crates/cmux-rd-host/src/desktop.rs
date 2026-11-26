@@ -38,6 +38,12 @@ pub trait FrameSource: Send {
     fn set_changed_pixels(&mut self, _pixels: u64) {}
     fn kbps(&self) -> u32;
     fn encoder_name(&self) -> String;
+    /// Whether its encoder makes Constrained Baseline whatever profile it was opened for
+    /// ([`cmux_encode::VideoEncoder::constrained_baseline`]): a desktop opened for `high` then
+    /// serves a `h264.baseline` viewer without opening again.
+    fn constrained_baseline(&self) -> bool {
+        false
+    }
     /// The picture the next [`FrameSource::encode`] makes, from the engine's resolution ladder
     /// (design D5): its size (the source scales the stream down to it) and QP ceiling. Set
     /// before each capture; `None` (no ladder): the full stream, no ceiling. The default
@@ -81,6 +87,12 @@ pub trait Desktop {
     /// Reads the cursor, for a desktop opened with cursor metadata (cap `cursor`): it left
     /// the cursor out of its pictures. `None`: this desktop draws the cursor in the picture.
     fn cursor(&mut self) -> Option<crate::cursor::CursorSample> {
+        None
+    }
+    /// The source's rect on the screen, `[x, y, width, height]` in screen pixels, where this
+    /// desktop knows it (Linux X11: the picked monitor, the whole screen or the shared window
+    /// where it is now). `None`: it does not say.
+    fn source_rect(&self) -> Option<[u32; 4]> {
         None
     }
 }
