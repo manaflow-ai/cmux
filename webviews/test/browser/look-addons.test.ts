@@ -60,13 +60,14 @@ await requireBrowserLane("look-addons.test.ts", async () => {
       () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
     );
 
-  async function open(page: Page, variant: string, theme: "light" | "dark") {
+  async function open(page: Page, variant: string, theme: "light" | "dark", accent?: "blue") {
     const port = (vite.httpServer!.address() as { port: number }).port;
     await page.goto(
       `http://127.0.0.1:${port}${galleryFrame(ENTRY, {
         variant,
         theme: theme === "light" ? "Apple System Colors Light" : "Apple System Colors",
         colorScheme: theme,
+        accent,
       })}`,
     );
     await page.locator(".cv-user__bubble").first().waitFor();
@@ -310,6 +311,83 @@ await requireBrowserLane("look-addons.test.ts", async () => {
   } as const;
   for (const [name, [theme, lookCss]] of Object.entries(LITERAL_LOOKS)) {
     test(`a look written for one appearance fails the contrast check over the other (${name})`, async () => {
+      const page = await browser.newPage({ viewport: { width: 1000, height: 900 } });
+      try {
+        await open(page, VARIANT, theme);
+        const plainLines = await readability(page);
+        await applyLook(page, lookCss);
+        expect(unreadable(plainLines, await readability(page)).length).toBeGreaterThan(0);
+      } finally {
+        await page.close();
+      }
+    });
+  }
+
+  // The bubble's ink (--cv-user-bubble-text): a filled pill, as Codex draws its prompt (white on blue),
+  // made from the theme's own colors. It must land on the bubble and on its quiet lines, move no box,
+  // and stay readable in both appearances; the same fill without the ink, or the ink over a pale
+  // fill, must fail the contrast check, so the check guards the token and not only the tint.
+  const PILL_TINT =
+    "--cv-user-bubble-tint: light-dark(color-mix(in srgb, var(--agent-accent) 78%, var(--agent-text)), color-mix(in srgb, var(--agent-accent) 30%, var(--agent-page-bg)));";
+  const PILL_INK = "--cv-user-bubble-text: light-dark(var(--agent-page-bg), var(--agent-text));";
+  // Over a blue accent (the pill Codex draws) and over the neutral one, where the theme's accent is
+  // its own text color, so the pill's mix must still leave room for the ink.
+  for (const [theme, accent] of [
+    ["dark", "blue"],
+    ["light", "blue"],
+    ["dark", undefined],
+    ["light", undefined],
+  ] as const) {
+    test(`a filled pill with its own ink (${theme}, ${accent ?? "neutral"} accent): lands, moves no box, reads`, async () => {
+      const page = await browser.newPage({ viewport: { width: 1000, height: 900 } });
+      try {
+        // The bubble-ink arm: its first prompt is Markdown (a quote, inline code), its second plain text.
+        await open(page, "user-bubble-ink-default", theme, accent);
+        const plain = await boxes(page);
+        const plainLines = await readability(page);
+        await applyLook(page, `:root { ${PILL_TINT} ${PILL_INK} }`);
+        expect(moved(plain, await boxes(page))).toEqual([]);
+        expect(unreadable(plainLines, await readability(page))).toEqual([]);
+        const [ink, wanted, bubbleBg] = await page.evaluate(() => {
+          const probe = document.createElement("div");
+          probe.style.color = "light-dark(var(--agent-page-bg), var(--agent-text))";
+          document.documentElement.appendChild(probe);
+          const wanted = getComputedStyle(probe).color;
+          probe.remove();
+          const bubble = document.querySelector(".cv-user__bubble")!;
+          return [getComputedStyle(bubble).color, wanted, getComputedStyle(bubble).backgroundColor];
+        });
+        expect(ink).toBe(wanted);
+        // The fill is the pill's, opaque: no glass grey under the ink.
+        expect(bubbleBg).not.toBe("rgba(0, 0, 0, 0)");
+        if (out) writeFileSync(path.join(out, `pill-${theme}-${accent ?? "neutral"}.png`), await page.screenshot());
+        // Unset again: the bubble draws exactly what it did.
+        await applyLook(page, "");
+        expect(moved(plain, await boxes(page))).toEqual([]);
+        expect(await page.evaluate(() => getComputedStyle(document.querySelector(".cv-user__bubble")!).color)).toBe(
+          await page.evaluate(() => {
+            const probe = document.createElement("div");
+            probe.style.color = "var(--cv-text)";
+            document.documentElement.appendChild(probe);
+            const color = getComputedStyle(probe).color;
+            probe.remove();
+            return color;
+          }),
+        );
+      } finally {
+        await page.close();
+      }
+    });
+  }
+  const INK_DETECTORS = {
+    "a dark pill without its ink, over light": ["light", `:root { ${PILL_TINT} }`],
+    "light ink on a pale tint, over light": [
+      "light",
+      ":root { --cv-user-bubble-tint: color-mix(in srgb, var(--agent-accent) 12%, transparent); --cv-user-bubble-text: var(--agent-page-bg); }",
+    ],
+  } as const;
+  for (const [name, [theme, lookCss]] of Object.entries(INK_DETECTORS)) {
+    test(`the contrast check catches a bubble ink that does not fit its fill (${name})`, async () => {
       const page = await browser.newPage({ viewport: { width: 1000, height: 900 } });
       try {
         await open(page, VARIANT, theme);

@@ -26,6 +26,10 @@ fn committed_wallpaper_header_is_cbindgen_output() {
         "cmux_wallpaper_schedule",
         "cmux_wallpaper_frame_pack",
         "cmux_wallpaper_pointer_update",
+        "typedef struct CmuxWallpaperScene CmuxWallpaperScene;",
+        "cmux_wallpaper_scene_new",
+        "cmux_wallpaper_scene_evaluate",
+        "cmux_wallpaper_scene_engine_msl",
     ] {
         assert!(text.contains(name), "{name} is missing from the header");
     }

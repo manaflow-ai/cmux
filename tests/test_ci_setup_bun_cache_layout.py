@@ -17,6 +17,10 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 OWNED_ROUTE = re.compile(r"LINUX_RUNNER|RUNNER_POOLS|cmux-gcp|cmux-fleet|CI_TRUSTED_RUNNER|linux_runner")
 NO_CACHE = "${{ !startsWith(github.workspace, '/home/runner/work/') }}"
+# RFD 0148 row 19: setup-bun's built-in cache also saves only on base branches.
+BASE_ONLY = ("github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && "
+             "github.event_name != 'merge_group' && contains(fromJSON('[\"refs/heads/main\",\"refs/heads/feat-cmux-next\",\"refs/heads/nightly-next\"]'), github.ref)")
+NO_CACHE_BASE_ONLY = "${{ !startsWith(github.workspace, '/home/runner/work/') || !(" + BASE_ONLY + ") }}"
 
 
 def setup_bun_steps():
@@ -36,7 +40,7 @@ class SetupBunCacheLayout(unittest.TestCase):
         self.assertTrue(steps)
         # `true` (no cache anywhere, billing.yml) is stricter and also fine.
         wrong = [where for where, step in steps
-                 if str((step.get("with") or {}).get("no-cache")) not in (NO_CACHE, "True", "true")]
+                 if str((step.get("with") or {}).get("no-cache")) not in (NO_CACHE, NO_CACHE_BASE_ONLY, "True", "true")]
         self.assertEqual(wrong, [], f"set `no-cache: {NO_CACHE}` on these setup-bun steps")
 
 

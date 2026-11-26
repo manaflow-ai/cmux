@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(OSLog)
 import OSLog
+#endif
 
 private let log = Logger(subsystem: "dev.cmux.mobile", category: "links")
 
@@ -84,7 +86,7 @@ public struct CmuxLink: Hashable, Sendable {
     }
 
     /// The link `url` names, or nil when it is not a cmux link (another
-    /// scheme or host, the sign-in callback, the pairing code, a malformed id).
+    /// scheme or host, the sign-in callback, a malformed id).
     public init?(url: URL) {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               components.user == nil, components.password == nil,
@@ -103,8 +105,7 @@ public struct CmuxLink: Hashable, Sendable {
         self = link
     }
 
-    /// Whether `scheme` is a cmux build's link scheme. `cmux-next` is the
-    /// pairing code's (PairInvite), never a link.
+    /// Whether `scheme` is a cmux build's link scheme. `cmux-next` is never a link.
     public static func isLinkScheme(_ scheme: String) -> Bool {
         let scheme = scheme.lowercased()
         return ["cmux", "cmux-nightly", "cmux-rc", "cmux-dev"].contains(scheme) || scheme.hasPrefix("cmux-dev-")

@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "subagents.restartPrompt" : {
+      "comment" : "Agent pane: the prompt Restart sends the chat's agent to run a stopped subagent again (subagents/restart.ts); {name} is the subagent's name, {prompt} the prompt it was given, kept as is on the lines after",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "شغّل الوكيل الفرعي \"{name}\" مرة أخرى بالمطالبة نفسها:\n\n{prompt}"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ponovo pokreni podagenta \"{name}\" s istim upitom:\n\n{prompt}"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kør underagenten \"{name}\" igen med samme prompt:\n\n{prompt}"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Führe den Subagenten \"{name}\" mit demselben Prompt erneut aus:\n\n{prompt}"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Run the subagent \"{name}\" again with the same prompt:\n\n{prompt}"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ejecuta de nuevo el subagente \"{name}\" con la misma instrucción:\n\n{prompt}"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Relance le sous-agent \"{name}\" avec la même consigne :\n\n{prompt}"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esegui di nuovo il subagente \"{name}\" con lo stesso prompt:\n\n{prompt}"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サブエージェント「{name}」を同じプロンプトでもう一度実行してください:\n\n{prompt}"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ដំណើរការភ្នាក់ងាររង \"{name}\" ម្តងទៀតជាមួយប្រអប់បញ្ចូលដដែល៖\n\n{prompt}"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "하위 에이전트 \"{name}\"을(를) 같은 프롬프트로 다시 실행해 주세요:\n\n{prompt}"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kjør underagenten \"{name}\" på nytt med samme ledetekst:\n\n{prompt}"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uruchom ponownie podagenta \"{name}\" z tym samym poleceniem:\n\n{prompt}"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Execute de novo o subagente \"{name}\" com o mesmo prompt:\n\n{prompt}"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Снова запусти субагента \"{name}\" с тем же запросом:\n\n{prompt}"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เรียกใช้เอเจนต์ย่อย \"{name}\" อีกครั้งด้วยพรอมต์เดิม:\n\n{prompt}"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "\"{name}\" alt ajanını aynı istemle yeniden çalıştır:\n\n{prompt}"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Знову запусти субагента \"{name}\" з тим самим запитом:\n\n{prompt}"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chạy lại tác tử con \"{name}\" với cùng lời nhắc:\n\n{prompt}"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请用相同的提示再次运行子代理“{name}”：\n\n{prompt}"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請以相同的提示再次執行子代理「{name}」：\n\n{prompt}"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

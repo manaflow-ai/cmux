@@ -130,6 +130,9 @@ public final class LiveFeed: FeedActions {
         .prefix(FeedStore.memoryLimit)
         log.info("feed history \(turns.count, privacy: .public) of \(sessions.count, privacy: .public) sessions")
         store.mergeHistory(turns.map(\.0))
+        // `sessionsLoaded` is the authoritative watch reply, including an empty list.
+        // Marking here avoids treating channel readiness as a fetched Feed.
+        store.markKnown()
         // Replies of cards no longer in the Feed are let go.
         let shown = Set(store.items.map(\.id))
         fullReplies = fullReplies.filter { shown.contains($0.key) }

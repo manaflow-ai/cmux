@@ -201,7 +201,7 @@ class RunnerSetTests(unittest.TestCase):
 
         mac = {name for name, job in jobs.items() if can_take_a_mac(job) and name not in starts_at_once}
         self.assertTrue({"fast-tier", "swift-canary", "swift-test", "daemon-test", "generated-files", "release-compile",
-                         "cmux-scheme-compile", "swift-canary-fleet", "fast-tier-fleet"} <= mac, sorted(mac))
+                         "cmux-scheme-compile", "swift-canary-fleet", "fast-tier-fleet-mac"} <= mac, sorted(mac))
         for name in sorted(mac):
             with self.subTest(job=name):
                 self.assertIn("macos-placement", ancestors(name), f"{name} takes a Mac before the quiet period ends")

@@ -75,9 +75,12 @@ test("the host's refusal becomes Set up Cloud naming the model, never a failure 
   expect(ended?.cloudSetup).toEqual({ family: "claude", model: "claude-opus-5-5" });
   const html = renderToStaticMarkup(<CloudStartView start={ended!} onSetUp={() => undefined} />);
   expect(html).toContain(translate("cloudSetup.title"));
-  expect(html).toContain(translate("cloudSetup.body"));
   expect(html).toContain(translate("cloudSetup.model", { model: "claude-opus-5-5" }));
-  for (const label of ["cloudSetup.claude", "cloudSetup.chatgpt", "cloudSetup.apiKey", "cloudSetup.settings"] as const)
+  // The family's inline connect card leads: its mark, one line and one button; the rest stay quiet.
+  expect(html).toContain('data-connect-card=""');
+  expect(html).toContain(translate("connect.claude.line"));
+  expect(html).toContain(translate("connect.claude.button"));
+  for (const label of ["cloudSetup.chatgpt", "cloudSetup.apiKey", "cloudSetup.settings"] as const)
     expect(html).toContain(translate(label));
   // No checklist and no host words: nothing started.
   expect(html).not.toContain("acpmux-cloud-start__failure");
@@ -132,20 +135,31 @@ test("a set up past its limit shows the card again, naming the same model", asyn
   expect(ended?.cloudSetup).toEqual({ family: "claude", model: "claude-opus-5-5" });
 });
 
-test("a click on the card asks for that way in; while it waits the buttons rest", async () => {
+test("the connect card's one click asks for the family's way in; while it waits it shows progress and Cancel", async () => {
   const mount = installDom();
   root = createRoot(mount);
   const picked: CloudSetupAction[] = [];
   const ended = cloudStartEnded(begun, "k", refused)!;
   await act(async () => root!.render(<CloudStartView start={ended} onSetUp={(action) => picked.push(action)} />));
   const button = (action: string) => mount.querySelector<HTMLButtonElement>(`[data-action="${action}"]`)!;
-  await act(async () => button("setUpClaude").click());
+  await act(async () => mount.querySelector<HTMLButtonElement>('[data-connect-action="begin"]')!.click());
+  await act(async () => undefined);
   expect(picked).toEqual(["setUpClaude"]);
+  let cancelled = 0;
   await act(async () =>
-    root!.render(<CloudStartView start={{ ...ended, state: "starting", signingIn: true }} onSetUp={() => undefined} />),
+    root!.render(
+      <CloudStartView
+        start={{ ...ended, state: "starting", signingIn: true }}
+        onSetUp={() => undefined}
+        onSetUpDismiss={() => void cancelled++}
+      />,
+    ),
   );
-  expect(mount.textContent).toContain(translate("cloudSetup.waiting"));
+  expect(mount.textContent).toContain(translate("connect.claude.signingIn"));
   expect(button("connectChatGPT").disabled).toBe(true);
+  expect(mount.querySelector('[data-action="dismiss"]')).toBeNull();
+  await act(async () => mount.querySelector<HTMLButtonElement>('[data-connect-action="cancel"]')!.click());
+  expect(cancelled).toBe(1);
 });
 
 test("a Set up Cloud press the resend did not take leaves no pick for a later Sign in", async () => {

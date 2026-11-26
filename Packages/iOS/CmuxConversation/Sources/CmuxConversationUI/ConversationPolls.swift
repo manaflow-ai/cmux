@@ -414,7 +414,7 @@ extension ConversationViewController {
         guard pollLayout.cardFrame.contains(shifted) else { return false }
         guard pollModel.interactive,
               let optionID = cell.pollCard.optionID(at: cell.pollCard.convert(shifted, from: cell.shiftable)) else { return true }
-        UISelectionFeedbackGenerator().selectionChanged()
+        ConversationHaptics.selectionChanged()
         store.togglePollVote(messageID: model.message.id, optionID: optionID)
         return true
     }
