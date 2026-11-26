@@ -166,13 +166,12 @@ pub fn transient_refusal(code: &str, message: &str) -> Value {
     json!({ "ok": false, "error": { "code": code, "message": message, "retryable": true } })
 }
 
-/// A 429 that outlasted the machine's own wait: its message names the reset when the platform
-/// gave one (`retry_after`, seconds), and the reply keeps that field for the caller.
+/// Preserve the platform's reset time, in seconds, when its response includes one.
 pub fn rate_limited(service: &str, retry_after: Option<u64>) -> Value {
     let message = match retry_after {
         // retry-prompt-ok: a rate-limit window the person must wait out, with its reset named.
         Some(secs) => format!("{service} is rate limited; it accepts requests again in {secs} s."),
-        None => format!("{service} is rate limited; the limit resets within a few minutes."),
+        None => format!("{service} is rate limited. The platform did not provide a reset time."),
     };
     let mut reply = transient_refusal("rate_limited", &message);
     if let Some(secs) = retry_after {

@@ -141,7 +141,6 @@ pub fn reply_for(answer: &Answer) -> Value {
         Answer::Http { status: 404, .. } => {
             refusal("integration.unavailable", "cmux has no GitHub status route here yet.")
         }
-        // The machine already waited out a short outage or limit (`client::patiently`).
         Answer::Http { status: 429, body } => rate_limited("cmux", retry_after_of(body)),
         Answer::Http { .. } => transient_refusal(
             "integration.unavailable",

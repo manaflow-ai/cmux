@@ -83,7 +83,6 @@ pub fn reply_for(answer: &Answer) -> Value {
         Answer::Http { status: 404, .. } => {
             refusal("carrier.unavailable", "cmux has no carrier route here yet.")
         }
-        // The machine already waited out a short outage or limit (`client::patiently`).
         Answer::Http { status: 429, body } => {
             super::github::rate_limited("cmux", super::github::retry_after_of(body))
         }

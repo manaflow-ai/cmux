@@ -940,17 +940,12 @@ pub(super) const PATIENCE: Duration = Duration::from_secs(6);
 #[cfg(test)]
 pub(super) const PATIENCE: Duration = Duration::from_secs(1);
 
-/// Whether a later send of the same request can pass: nothing came back, the platform failed
-/// (5xx) or is rate limited (429, waited out only when its `retry_after` fits [`PATIENCE`]).
-fn transient(answer: &Answer) -> Option<Option<Duration>> {
-    match answer {
-        Answer::Transport => Some(None),
-        Answer::Http { status: 500 | 502 | 503 | 504, .. } => Some(None),
-        Answer::Http { status: 429, body } => {
-            Some(super::github::retry_after_of(body).map(Duration::from_secs))
-        }
-        Answer::Http { .. } => None,
-    }
+/// Whether a later send of the same request can pass: nothing came back or the platform failed
+/// (5xx). A 429 is returned to the caller once so its reset metadata remains authoritative. This
+/// transport does not expose response headers, so retrying would risk ignoring a longer
+/// `Retry-After` than the JSON body contains.
+fn transient(answer: &Answer) -> bool {
+    matches!(answer, Answer::Transport | Answer::Http { status: 500 | 502 | 503 | 504, .. })
 }
 
 /// `send`, repeated through a transient failure ([`transient`]) for at most [`PATIENCE`];
@@ -959,9 +954,8 @@ pub(super) fn patiently(what: &str, mut send: impl FnMut() -> Answer) -> Answer 
     let mut patience = Patience::new(what, PATIENCE).quiet();
     loop {
         let answer = send();
-        match transient(&answer) {
-            Some(after) if patience.sleep(after) => {}
-            _ => return answer,
+        if !transient(&answer) || !patience.sleep(None) {
+            return answer;
         }
     }
 }

@@ -198,17 +198,27 @@ fn a_transient_platform_failure_is_retried_before_it_is_refused() {
     });
     assert_eq!(got, api_error(403, "policy.denied", "m"));
     assert_eq!(tries, 1);
-    // A rate limit longer than the wait is not slept: its reset is named instead.
-    let started = Instant::now();
-    let mut tries = 0;
+    // A rate limit is returned once, preserving the platform's reset metadata. The transport
+    // cannot see Retry-After headers, so it must not guess that any JSON value is complete.
+    for retry_after in [None, Some(1), Some(60)] {
+        let started = Instant::now();
+        let mut tries = 0;
+        let body = match retry_after {
+            Some(seconds) => {
+                json!({"error":{"code":"rate_limited","message":"m"},"retry_after":seconds})
+            }
+            None => json!({"error":{"code":"rate_limited","message":"m"}}),
+        };
+        let limited = http(429, body);
+        let got = patiently("a test", || {
+            tries += 1;
+            limited.clone()
+        });
+        assert_eq!((got, tries), (limited.clone(), 1));
+        assert!(started.elapsed() < Duration::from_millis(500));
+    }
     let limited =
         http(429, json!({"error":{"code":"rate_limited","message":"m"},"retry_after":60}));
-    let got = patiently("a test", || {
-        tries += 1;
-        limited.clone()
-    });
-    assert_eq!((got, tries), (limited.clone(), 1));
-    assert!(started.elapsed() < Duration::from_millis(500));
     let reply = answer(&ask(json!({})), "team-a", |_| limited.clone());
     assert_eq!(reply["error"]["code"], "rate_limited");
     assert_eq!(reply["error"]["retryable"], true);
