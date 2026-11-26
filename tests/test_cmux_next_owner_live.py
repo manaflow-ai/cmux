@@ -267,5 +267,59 @@ class Route(unittest.TestCase):
         self.assertEqual([(to, area) for to, area, *_ in sent], [("host-a/ios-terminal-first-composer", "iOS tabs")])
 
 
+    def test_a_github_update_branch_merge_carries_no_owned_files(self):
+        """2026-11-26: lane/updater-restore-adopt at a2b890f491d4 told the sidebar lane it changed
+        CmuxNextSidebar/Views/WorkspaceRowView+TrailingCloud.swift. Its head's parent c60664bd4f1f was GitHub's
+        "Merge branch 'feat-cmux-next' into ..." (update branch, committer GitHub), and the file came from that
+        merge: `git diff $(git merge-base HEAD origin/feat-cmux-next) HEAD` of it was empty (lane/link-race-warm,
+        cmux#53632, the same through base merge 0accd367). Neither the merge nor what it brought in is the push's,
+        whether upstream's commit was GitHub's squash or a person's push this clone has under refs/remotes."""
+        guardrails = _load("cmux_next_guardrails_owner_update_branch_test", "scripts/cmux-next/guardrails.py")
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        repo = Path(tmp.name)
+        env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+               "GIT_COMMITTER_EMAIL": "t@t"}
+
+        def git(*args, committer="t@t"):
+            return subprocess.run(["git", *args], cwd=repo, env={**env, "GIT_COMMITTER_EMAIL": committer},
+                                  check=True, capture_output=True, text=True).stdout.strip()
+
+        def commit(path, text, message, committer="t@t"):
+            (repo / path).parent.mkdir(parents=True, exist_ok=True)
+            (repo / path).write_text(text)
+            git("add", "-A")
+            git("commit", "-qm", message, committer=committer)
+
+        sidebar = "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/WorkspaceRowView+TrailingCloud.swift"
+        git("init", "-q", "-b", "feat-cmux-next")
+        commit("plans/cmux-next/OWNERS.md", "| Area | Paths | Owner | Read first |\n|---|---|---|---|\n"
+               "| Sidebar | `Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/` | lanes *sidebar* | "
+               "[AGENTS.md](AGENTS.md) |\n", "base")
+        git("checkout", "-qb", "lane/updater-restore-adopt")
+        commit("Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Restore.swift", "a\n", "own change")
+        old_remote = git("rev-parse", "HEAD")
+        git("checkout", "-q", "feat-cmux-next")
+        commit(sidebar, "cloud\n", "sidebar trailing cloud (#2)", committer=guardrails.GITHUB_COMMITTER)
+        # A person's direct push upstream: not GitHub's, but on a remote-tracking ref this clone fetched.
+        commit(sidebar.replace("TrailingCloud", "Leading"), "lead\n", "sidebar leading", committer="p@p")
+        git("update-ref", "refs/remotes/origin/feat-cmux-next", "HEAD")
+        git("checkout", "-q", "lane/updater-restore-adopt")
+        # GitHub's update-branch merge, then the lane's next commit on top of it.
+        git("merge", "-q", "--no-ff", "--no-edit", "-m", "Merge branch 'feat-cmux-next' into "
+            "lane/updater-restore-adopt", "feat-cmux-next", committer=guardrails.GITHUB_COMMITTER)
+        commit("Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Restore.swift", "b\n", "own change 2")
+        head = git("rev-parse", "HEAD")
+        rows = [row("host-a/sidebar-owner", "running")]
+        for base, before in ((old_remote, ()), (git("merge-base", "HEAD", "feat-cmux-next"), ())):
+            own = types.SimpleNamespace(base=base, head=head, before=before)
+            self.assertEqual(guardrails.owner_route_files(repo, own),
+                             ["Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Restore.swift"])
+            sent = []
+            with mock.patch.object(live, "notify", side_effect=lambda *a: sent.append(a)):
+                lines = guardrails.owner_route(repo, [own], (rows, None), "host-a/coordinator")
+            self.assertEqual((lines, sent), ([], []))
+
+
 if __name__ == "__main__":
     unittest.main()
