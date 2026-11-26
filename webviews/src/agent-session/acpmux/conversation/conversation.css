@@ -2837,7 +2837,7 @@ pre.cv-math-source {
   margin: 0;
 }
 .acpmux-ask-details ul {
-  padding-inline-start: 16px;
+  padding-inline-start: var(--ds-space-fixed-4);
   overflow-wrap: anywhere;
 }
 .acpmux-ask-input {
@@ -3128,7 +3128,7 @@ body {
 }
 .cv-worked .cv-command__bg[data-room="inline"]::before {
   content: "·";
-  padding-inline-end: 4px;
+  padding-inline-end: var(--ds-space-fixed-1);
   color: var(--cv-text-dim);
 }
 .cv-worked .cv-command__bg[data-room="always"] {
@@ -6807,7 +6807,7 @@ a.cv-sha:focus-visible {
   gap: var(--transient-surface-gap);
 }
 .cv-capacity-wait--card .cv-capacity-wait__more {
-  padding-inline-start: calc(16px + var(--grid-gap));
+  padding-inline-start: calc(var(--ds-space-fixed-4) + var(--grid-gap));
 }
 .cv-capacity-wait__track {
   display: block;
@@ -8753,7 +8753,7 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 /* Over the first of the messages queued behind the turn (QueuedMessageCard.tsx): a Stop-held
    message's quiet lead note. Its 18px line is included in model.ts's pending-group estimate. */
 .cv-received__queued-head {
-  padding-inline-start: 4px;
+  padding-inline-start: var(--ds-space-fixed-1);
   color: var(--cv-text-dim);
   font-size: var(--text-caption);
   line-height: 18px;

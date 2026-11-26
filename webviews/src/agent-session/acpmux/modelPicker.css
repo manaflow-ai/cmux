@@ -307,7 +307,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   margin-inline-start: auto;
-  padding-inline-start: 8px;
+  padding-inline-start: var(--ds-space-fixed-2);
   color: var(--agent-muted);
 }
 .acpmux-quick-sub .acpmux-quick-value + .ui-submenu-chevron { margin-inline-start: 6px; }
@@ -609,7 +609,7 @@
 .acpmux-quick-list > .acpmux-quick-more-list { contain: inline-size; }
 /* A filtered row names its harness in secondary text. */
 .acpmux-quick-item:not(.acpmux-quick-sub) .acpmux-quick-value {
-  padding-inline-start: 12px;
+  padding-inline-start: var(--ds-space-fixed-3);
   color: var(--agent-muted);
   white-space: nowrap;
 }
@@ -678,7 +678,7 @@
    note the name carried ("New") is a quiet word after the name. */
 .ui-menu-item.acpmux-quick-item:not(.acpmux-quick-sub) .acpmux-quick-value {
   margin-inline-start: auto;
-  padding-inline-start: 16px;
+  padding-inline-start: var(--ds-space-fixed-4);
 }
 .acpmux-quick-tag {
   flex: none;
@@ -692,7 +692,7 @@
   color: var(--agent-text);
 }
 .ui-menu-item.acpmux-quick-offer {
-  padding-inline-start: calc(var(--ui-row-padding-inline) + 12px);
+  padding-inline-start: calc(var(--ui-row-padding-inline) + var(--ds-space-fixed-3));
 }
 
 /* Model rows own their inset; the list wrapper must not add a second inset. */

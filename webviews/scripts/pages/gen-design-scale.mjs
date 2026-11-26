@@ -3,6 +3,7 @@
 // schemas/type-scale and schemas/motion-scale. It writes:
 //
 // - the design-scale block of src/pages/shared/desktop.css (--ds-*, --elevation-*, --ds-color-*), in git;
+// - src/pages/shared/fixed-spacing.css (--ds-space-fixed-*), a standalone sheet for isolated entries;
 // - src/ui/theme.generated.css: Tailwind 4 `@theme inline` naming those variables, so p-3, rounded-md,
 //   text-body, bg-hover, shadow-elevation-2 and duration-quick resolve to our tokens;
 // - src/ui/designTokens.generated.ts: the same list for the gallery's token sheet.
@@ -626,8 +627,8 @@ function ts(data, type, motion, roles) {
   );
 }
 
-/** Writes the three copies. With `check`, writes the two build outputs only and returns true when
- * desktop.css's block (the copy in git) differs from the schemas. */
+/** Writes the generated copies. With `check`, writes build outputs only and returns true when
+ * desktop.css and fixed-spacing.css (the copies in git) differ from the schemas. */
 export function writeDesignScale({ check = false, log = console.log } = {}) {
   const { data, type, motion, roles } = load();
   const cssPath = path.join(repo, CSS_FILE);

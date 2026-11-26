@@ -32,6 +32,7 @@ bun x esbuild src/optchat-inspector/main.tsx --bundle --format=esm --platform=br
 CSP="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'self'"
 {
   printf '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8" />\n<meta http-equiv="Content-Security-Policy" content="%s" />\n<meta name="viewport" content="width=device-width, initial-scale=1" />\n<title>Chief Memory Inspector</title>\n<style>\n' "$CSP"
+  cat src/pages/shared/fixed-spacing.css
   cat src/optchat-inspector/styles.css
   printf '\n</style>\n</head>\n<body>\n<div id="root"></div>\n<script type="module">\n'
   perl -0pe 's{</script}{<\\/script}ig; s{<!--}{<\\!--}g' "$WORK/app.js"

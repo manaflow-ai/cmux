@@ -46,7 +46,7 @@
 }
 .khg-row > :last-child {
   margin-inline-start: auto;
-  padding-inline-start: 24px;
+  padding-inline-start: var(--ds-space-fixed-5);
 }
 .khg-row .ui-menu-shortcut {
   color: var(--ui-fg-2, color-mix(in srgb, currentColor 60%, transparent));
