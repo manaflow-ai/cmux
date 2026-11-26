@@ -15,6 +15,9 @@ harness (scripts/measure/ios-live-code.py, the same edits and the same pixel che
   duress  rounds of --round-edits live patches each, alternating idle and load, until --minutes pass, on the
           same app process: per round the p50, the app's and the simulator's resident memory, the live
           folder's patch count, and whether the app's process changed (a crash or relaunch)
+  idle    the always-on simulator's own cost with nobody editing: --idle-seconds of no edits and no load, CPU %
+          (of one core, from the CPU time its processes used over the window) and resident MB of the app and of
+          every process of the device, once fresh after `up` and once after the duress rounds
 
 The harness and the probe are read from the slot's own checkout at --ref, so --ref must carry them
 (the live Swift engine, cmux#45397); this script and host.sh run from the reviewed commit. Load is one `yes` per core. Prints JSON lines; the last is the summary.
@@ -86,6 +89,46 @@ def memory(udid):
     return {"app_mb": round(app_mb), "sim_mb": round(sim_mb), "host_free": free}
 
 
+def cpu_seconds(text):
+    """ps TIME ([[dd-]hh:]mm:ss[.ss]) as seconds."""
+    days, _, rest = text.strip().rpartition("-")
+    total = 0.0
+    for part in rest.split(":"):
+        total = total * 60 + float(part)
+    return total + (int(days) * 86400 if days else 0)
+
+
+def cpu_used(udid):
+    """CPU seconds used so far by the app and by every process whose command names the device, keyed by pid."""
+    app, sim = {}, {}
+    for line in sh("ps", "-axo", "pid=,time=,command=", check=False).stdout.splitlines():
+        fields = line.split(None, 2)
+        if len(fields) < 3 or udid not in fields[2]:
+            continue
+        pid, used = int(fields[0]), cpu_seconds(fields[1])
+        sim[pid] = used
+        if "CmuxMobileApp.app/CmuxMobileApp" in fields[2]:
+            app[pid] = used
+    return app, sim
+
+
+def window_pct(before, after, seconds):
+    """CPU % of one core over the window; a process that started during it counts from zero, one that ended drops."""
+    used = sum(after[pid] - before.get(pid, 0.0) for pid in after)
+    return round(100 * used / seconds, 1) if seconds > 0 else None
+
+
+def idle_cost(udid, seconds):
+    """The persistent simulator's cost while nobody edits: no harness, no load, for SECONDS."""
+    app0, sim0 = cpu_used(udid)
+    t0 = time.monotonic()
+    time.sleep(seconds)
+    app1, sim1 = cpu_used(udid)
+    wall = time.monotonic() - t0
+    return {"idle_s": round(wall), "app_cpu_pct": window_pct(app0, app1, wall), "sim_cpu_pct": window_pct(sim0, sim1, wall),
+            **memory(udid)}
+
+
 def screen_center(udid, env):
     shot = tempfile.mktemp(suffix=".bmp")
     try:
@@ -132,11 +175,14 @@ def main():
     ap.add_argument("--n", type=int, default=5)
     ap.add_argument("--minutes", type=float, default=90)
     ap.add_argument("--round-edits", type=int, default=6)
+    ap.add_argument("--idle-seconds", type=float, default=120)
     a = ap.parse_args()
     ref = a.ref or sh("git", "-C", ROOT, "rev-parse", "HEAD").stdout.strip()
     live_root = tempfile.mkdtemp(prefix="ios-live-duress-")
     host = os.path.join(ROOT, "scripts/ios-live/host.sh")
-    env = dict(os.environ, IOS_LIVE_ROOT=live_root)
+    # The scratch root goes at the end; the pinned xcodegen stays in a cache so a run downloads it once.
+    env = dict(os.environ, IOS_LIVE_ROOT=live_root,
+               IOS_LIVE_TOOLS=os.environ.get("IOS_LIVE_TOOLS") or os.path.expanduser("~/Library/Caches/cmux-ios-live/tools"))
     owner = "ios-live-duress"
     udid = None
     started = time.time()
@@ -155,6 +201,8 @@ def main():
         x, y = screen_center(udid, henv)
         point = ["--udid", udid, "--x", str(x), "--y", str(y), "--bundle-id", state["bundle_id"]]
         emit(phase="probe", x=x, y=y, **memory(udid))
+        idle_fresh = idle_cost(udid, a.idle_seconds)
+        emit(phase="idle", when="fresh", **idle_fresh)
 
         # before: the rebuild fallback, in its own warm DerivedData (one warm-up edit, not counted)
         rebuild = point + ["--derived-data", os.path.join(live_root, "dd")]
@@ -191,9 +239,12 @@ def main():
                 emit(phase="duress", failed="the app is not running")
                 break
         last_mem = memory(udid)
+        idle_end = idle_cost(udid, a.idle_seconds) if app_pid(udid) else None
+        emit(phase="idle", when="after-duress", **(idle_end or {"failed": "the app is not running"}))
         emit(phase="summary", before_idle=p(before_idle), before_load=p(before_load), after_idle=p(after_idle), after_load=p(after_load),
              duress={"rounds": rounds, "edits": p(all_live), "process_changed": changed, "app_mb_first": first_mem["app_mb"],
                      "app_mb_last": last_mem["app_mb"], "sim_mb_first": first_mem["sim_mb"], "sim_mb_last": last_mem["sim_mb"]},
+             idle={"fresh": idle_fresh, "after_duress": idle_end},
              minutes=round((time.time() - started) / 60, 1))
     finally:
         if udid:
