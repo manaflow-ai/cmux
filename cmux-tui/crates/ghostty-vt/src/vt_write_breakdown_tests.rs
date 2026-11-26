@@ -6,8 +6,10 @@ use std::time::Instant;
 use super::*;
 
 /// The cmux-tui host-stage payload: compiler-style lines, a quarter of the
-/// words colored with SGR, a tenth UTF-8.
+/// words colored with SGR, a tenth UTF-8. `CMUX_VT_PAYLOAD=utf8` makes every
+/// word non-ASCII (box drawing, CJK, emoji: a TUI or a CJK log).
 fn payload(bytes: usize) -> Vec<u8> {
+    let all_utf8 = std::env::var("CMUX_VT_PAYLOAD").is_ok_and(|value| value == "utf8");
     let words =
         ["cargo", "build", "warning:", "error[E0308]:", "src/main.rs:42:7", "Compiling", "ok"];
     let utf8 = ["é", "→", "✓", "日本語", "│", "🙂"];
@@ -24,7 +26,9 @@ fn payload(bytes: usize) -> Vec<u8> {
             if i > 0 {
                 out.push(b' ');
             }
-            if kind < 25 {
+            if all_utf8 {
+                out.extend_from_slice(utf8[next(utf8.len())].as_bytes());
+            } else if kind < 25 {
                 out.extend_from_slice(
                     format!("\x1b[38;5;{}m{}\x1b[0m", next(256), words[next(words.len())])
                         .as_bytes(),

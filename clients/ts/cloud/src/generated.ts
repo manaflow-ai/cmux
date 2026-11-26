@@ -2400,6 +2400,46 @@ export interface CloudOps {
       readonly delivered: boolean
     }
   }
+  /** Ask for more capacity for the work this machine runs: grows it live within the creator's plan, or says what it takes (over the plan, a kind not offered); past one machine, makes a fan-out of K machines and answers its handle (each machine's id). Never waits for a machine to be ready. No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine). */
+  readonly "cloud.vm.machine.request": {
+    readonly params: {
+      readonly machine: MachineId
+      readonly vcpu: number
+      readonly mem_gib?: number
+      readonly fanout?: number
+      readonly kind?: "linux" | "mac" | "gpu"
+      readonly for: string
+      readonly until?: string
+    }
+    readonly result: {
+      readonly outcome: "fits" | "grow" | "over_plan" | "fanout" | "unavailable" | "refused"
+      readonly message: string
+      readonly machine: string
+      readonly size?: {
+        readonly name?: string
+        readonly vcpu: number | "Infinity" | "-Infinity" | "NaN"
+        readonly mem_gib: number | "Infinity" | "-Infinity" | "NaN"
+      }
+      readonly code?: string
+      readonly fanout?: {
+        readonly handle: string
+        readonly width: number | "Infinity" | "-Infinity" | "NaN"
+        readonly each: {
+          readonly name?: string
+          readonly vcpu: number | "Infinity" | "-Infinity" | "NaN"
+          readonly mem_gib: number | "Infinity" | "-Infinity" | "NaN"
+        }
+        readonly slots: ReadonlyArray<{
+          readonly index: number | "Infinity" | "-Infinity" | "NaN"
+          readonly status: "created" | "refused" | "unconfirmed"
+          readonly machine?: string
+          readonly code?: string
+          readonly message?: string
+        }>
+      }
+      readonly upgrade_plan?: string
+    }
+  }
   /** Read the bound VM's current receiving identities and daemon/SSH permissions, joined to original live install grants, team policy and Native service rules. The lease is at most 120 seconds and never outlives an included grant; admit_until, when present, lets the receiver keep this policy through a failed renewal for at most one hour after checked_at. This hidden VM-only read does not activate a listener or mint a dial credential. VM installs only (kind vm, grant vm-self, its own bound machine). */
   readonly "cloud.vm.network_policy": {
     readonly params: {
@@ -4623,6 +4663,7 @@ export const cloudOpMeta = {
   "cloud.usage.current": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
   "cloud.vm.attention.emit": { class: "mutation", idempotency: "none", owner: "cloud:CloudDO", risk: "execute" },
   "cloud.vm.event.emit": { class: "mutation", idempotency: "none", owner: "cloud:CloudDO", risk: "execute" },
+  "cloud.vm.machine.request": { class: "mutation", idempotency: "none", owner: "cloud:CloudDO", risk: "execute" },
   "cloud.vm.network_policy": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
   "cloud.vm.receiver.lifecycle": { class: "mutation", idempotency: "none", owner: "cloud:CloudDO", risk: "execute" },
   "cloud.vm.self.get": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },

@@ -34,7 +34,7 @@ import { automationHookPath, automationHookSecret } from "./ingress/automation-h
 import { codeRefOf } from "./code-check.ts"
 import { chiefJobGate, isChiefJobCreate } from "./chief-job-gate.ts"
 import type { CodeStorageError } from "./code-storage.ts"
-import { isProvider, providers, scopesToRequest } from "./integrations/providers.ts"
+import { isProvider, providers, scopesToRequest, ProviderError } from "./integrations/providers.ts";
 import { integrationCallbackUrl, signState, verifyState, type ConnectState } from "./integrations/state.ts"
 import { configureAfterLink, githubConnectUrl, type GithubConnectTarget } from "./integrations/github-connect.ts"
 import type { ReadResult, SubmitResult } from "./owner-do.ts"
@@ -487,7 +487,9 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
             : undefined
           const state = yield* Effect.promise(() => signState(requestEnv(), { conn: c.id, team: c.owner, user: c.created_by, provider: c.provider, ...(asked.return_to ? { return_to: asked.return_to } : {}), ...(target?.kind === "installed" ? { installation: target.installation, repo: asked.repo!, configure_url: target.configure_url } : {}) }))
           const scopes = scopesToRequest(requestEnv(), impl, c.scopes_requested)
-          const authorizeUrl = target ? githubConnectUrl(requestEnv(), target, state, callbackUrl()) : yield* Effect.promise(() => Promise.resolve(impl.authorizeUrl(requestEnv(), state, scopes, callbackUrl(), c.id)))
+          // GitHub's install URL names the App's slug as GitHub answers it now (providers.ts githubAppSlug), so it is async.
+          const authorizeUrl = yield* Effect.promise(() => Promise.resolve(target ? githubConnectUrl(requestEnv(), target, state, callbackUrl()) : impl.authorizeUrl(requestEnv(), state, scopes, callbackUrl(), c.id)).catch((e: unknown) => e instanceof ProviderError ? e : Promise.reject(e)))
+          if (authorizeUrl instanceof ProviderError) return { ok: false, op: payload.op, error: { code: authorizeUrl.code, message: authorizeUrl.message, retryable: true }, transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `connections:${principal.team}`, sequence: 0 }
           return { ...response, value: { connection: c, authorize_url: authorizeUrl } }
         }
         // A revoked server also loses its install key: TeamDO pushes the revocation to the owner's UserDO now and retries until it lands.

@@ -261,11 +261,14 @@ export function mockTurn(prompt: string, turn: number): Step[] {
 
 /// How a load run streams its turn: text deltas of `chunkChars` every `chunkMs`, and a large
 /// tool call (a log or an edit) after every `toolEvery` deltas.
+/// `kind`: what each delta is: reply text (the default), a thought's text (`agent_thought_chunk`), or
+/// a status change alone (`usage_update`: the context ring's count moves, no row changes).
 export type LoadStreamOptions = {
   seconds: number;
   chunkChars: number;
   chunkMs: number;
   toolEvery: number;
+  kind?: "text" | "thought" | "status";
   /// Words of reply that arrive at once before the timed stream, and how long they get to reveal.
   prefixWords?: number;
   prefixSettleMs?: number;
@@ -571,7 +574,12 @@ export class MockAcpmuxSocket {
       }
       const chunk = reply.slice(at % reply.length, (at % reply.length) + options.chunkChars);
       at += options.chunkChars;
-      this.emit(target, { update: text(chunk) });
+      const kind = options.kind ?? "text";
+      if (kind === "thought")
+        this.emit(target, { update: { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: chunk } } });
+      else if (kind === "status")
+        this.emit(target, { update: { sessionUpdate: "usage_update", used: 20_000 + at * 4, size: 200_000 } });
+      else this.emit(target, { update: text(chunk) });
       deltas += 1;
       const due = Math.floor(((now - started) * (options.toolLinesPerSecond ?? 0)) / 1000);
       if (due > toolLines) {
