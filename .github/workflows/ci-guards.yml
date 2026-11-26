@@ -237,6 +237,14 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_cloud_capture_provision.py
 
+      - name: Validate the Cloud chat proof script
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cloud_chat_proof.py
+
+      - name: Validate the Cloud chat proof failure evidence
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cloud_chat_proof_failure_evidence.py
+
       - name: Validate the cloud overflow switch
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_cloud_overflow_switch.py
@@ -1060,6 +1068,10 @@ jobs:
       - name: Validate published-in PR comments
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_published_in_comments.py
+
+      - name: Validate every published NIGHTLY gets its PR list (notes checkout, span fetch, dispatch retry)
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_nightly_pr_list_publish.py
 
       - name: Validate the pull request status comment
         if: ${{ !cancelled() && matrix.group == 'ci' }}
