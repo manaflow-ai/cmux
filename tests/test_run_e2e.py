@@ -1617,7 +1617,9 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         self.assertNotIn("SPLIT", yaml.safe_dump(job))
         checkout = next(step for step in job["steps"] if "actions/checkout" in step.get("uses", ""))
         paths = checkout["with"]["sparse-checkout"].split()
-        self.assertEqual(sorted(paths), ["scripts/ci/e2e_runner_pool.py", "scripts/ci/pr_runner_pool.py", "scripts/ci/simple_pool_picker.py"])
+        # The App-token step's local action is the one other path it reads (#50533).
+        self.assertEqual(sorted(paths), [".github/actions/app-token-spread/", "scripts/ci/e2e_runner_pool.py",
+                                         "scripts/ci/pr_runner_pool.py", "scripts/ci/simple_pool_picker.py"])
         self.assertIs(checkout["with"]["persist-credentials"], False)
         # No job gained write access for this: the rescue sweeper finds the run by its marker.
         for name, other in self.jobs.items():
