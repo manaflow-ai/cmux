@@ -11,6 +11,11 @@
 // `idle_wakeups`, FIXTURE=god): 3 beats, and one timer each for the snapshot's quiet write
 // (chatSnapshot/live.ts), the frame budget's rest (frameBudget.ts) and the frame tally's flush
 // (frameTally.ts). On this scheduler the three jobs ride the beats.
+//
+// A job that waits only for the page to go quiet (`atRest`) also runs on the beat that puts the page to
+// rest (`rest()`, pageHealth.ts): the rest is the quiet it waited for, so it never wakes a resting page
+// by itself. With the page resting after one quiet beat, these jobs had been firing alone about 3.4 s
+// into the rest instead.
 
 /** Slack that spans one heartbeat period (pageHealth.ts HEARTBEAT_MS, 2 s) and a little more, so a
  * job's window always holds a beat, and its own deadline never races the beat right at its end. */
@@ -25,7 +30,14 @@ export interface SlackClock {
 interface Job {
   at: number;
   by: number;
-  run: () => void;
+  atRest: boolean;
+  run: (atRest: boolean) => void;
+}
+
+export interface LaterOptions {
+  /** The job waits only for the page to go quiet: it may run early, on the beat that rests the page,
+   * which then tells it `atRest`. */
+  atRest?: boolean;
 }
 
 type TimerHost = Pick<typeof globalThis, "setTimeout" | "clearTimeout">;
@@ -45,11 +57,11 @@ export class SlackTimers {
   constructor(private readonly clock: SlackClock = windowClock(globalThis)) {}
 
   /** Runs `run` once, `ms` to `ms + slack` from now; returns its id for `cancel`. */
-  later(run: () => void, ms: number, slack = RIDE_SLACK_MS): number {
+  later(run: (atRest: boolean) => void, ms: number, slack = RIDE_SLACK_MS, options: LaterOptions = {}): number {
     const now = this.clock.now();
     const id = this.next++;
     const at = now + Math.max(0, ms);
-    this.jobs.set(id, { at, by: at + Math.max(0, slack), run });
+    this.jobs.set(id, { at, by: at + Math.max(0, slack), atRest: options.atRest === true, run });
     this.arm();
     return id;
   }
@@ -65,19 +77,28 @@ export class SlackTimers {
     this.arm();
   }
 
+  /** The page goes to rest on this wake: run every job whose window opened, and every `atRest` job,
+   * so nothing that only waited for quiet wakes the resting page. */
+  rest(): void {
+    this.runDue(true);
+    this.arm();
+  }
+
   /** Jobs waiting (for tests and `cmuxDebug`). */
   get size(): number {
     return this.jobs.size;
   }
 
-  private runDue(): void {
+  private runDue(resting = false): void {
     // A timer can fire a hair early; a job due within 1 ms runs now rather than wake the page again.
     const now = this.clock.now() + 1;
-    for (const [id, job] of this.jobs) {
-      if (job.at > now || !this.jobs.has(id)) continue;
+    // Over a copy: a job that asks again from its run waits for the next wake, even an `atRest` one.
+    for (const [id, job] of [...this.jobs]) {
+      const due = job.at <= now;
+      if (!(due || (resting && job.atRest)) || !this.jobs.has(id)) continue;
       this.jobs.delete(id);
       try {
-        job.run();
+        job.run(resting && !due);
       } catch (error) {
         // One job's throw must not keep the others from running.
         queueMicrotask(() => {
