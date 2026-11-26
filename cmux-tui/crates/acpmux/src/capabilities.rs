@@ -29,6 +29,11 @@ pub const SETTLED_ATTACH: &str = "settled-attach-v1";
 /// `_acpmux/attach {hold:true}` keeps a chat attached while reading no log records.
 pub const HOLD_ATTACH: &str = "attach-hold-v1";
 
+/// `_acpmux/paused_files`: a paused machine's file tree and search answered from its replica and
+/// write journal with no wake (`server/paused_files.rs`, RFD 0144). The same id as the cmux
+/// protocol's `RemoteCapability::PausedReadsV1`.
+pub const PAUSED_READS: &str = "paused-reads-v1";
+
 /// `_acpmux/presence` and `_acpmux/typing` (`hub/presence.rs`).
 pub const CHAT_PRESENCE: &str = "chat-presence-v1";
 
@@ -42,6 +47,8 @@ pub const AUTOCLOUD_FILL: &str = "autocloud-fill-v1";
 /// `_acpmux/info` with `sessionIds` answers the list's rows by key, and `_acpmux/status` says
 /// `closedListed` (`server/requests/info.rs` `rows`).
 pub const INFO_ROWS: &str = "info-rows-v1";
+/// `daemon service install` from an app's bundle runs the LaunchAgent from that bundle.
+pub const DAEMON_SERVICE_APP: &str = "daemon-service-app-v1";
 
 /// The hub carrier can list and probe machine routes.
 pub const MACHINE_ROUTES: &str = "machine-routes-v1";
@@ -280,6 +287,10 @@ pub const CAPABILITIES: &[Capability] = &[
     },
     Capability { id: REMOTE_PIPE, wire: &[method::MUX_REMOTE_PIPE] },
     Capability { id: "machine.join.stdin.v1", wire: &[] },
+    // `acpmux daemon service install` run from a cmux app's bundle points the LaunchAgent at that
+    // bundle's acpmux (`cli/daemon_service.rs` `launchd_program`), which `cmux device setup`
+    // checks before it relies on it. CLI-only: no daemon wire method.
+    Capability { id: DAEMON_SERVICE_APP, wire: &[] },
     // `acpmux machine vault pull|status|forget` (crate::vault): the CLI, which
     // asks the daemon to pull or forget when the values live only in its memory.
     Capability {
@@ -351,6 +362,9 @@ pub const CAPABILITIES: &[Capability] = &[
     // Metadata-only paths for a focused chat's config and state files. The
     // daemon serves this surface on its local Unix socket only.
     Capability { id: "session-files-v1", wire: &[method::MUX_SESSION_FILES] },
+    // A paused machine's file tree and search with no wake; the reply says when it did not
+    // answer (setting off, machine running, replica stale), and the client asks the machine.
+    Capability { id: PAUSED_READS, wire: &[method::MUX_PAUSED_FILES] },
     // Who else works on these files, topic, branch or folder, here and on peers
     // (`hub/touched.rs`).
     Capability { id: "who-else-v1", wire: &[method::MUX_WHO_ELSE] },
@@ -779,7 +793,7 @@ mod tests {
             crate::protocol::registry().iter().map(|decl| decl.name).collect();
         for capability in CAPABILITIES {
             // Machine onboarding is CLI-only and has no daemon wire method.
-            if capability.id == "machine.join.stdin.v1" {
+            if capability.id == "machine.join.stdin.v1" || capability.id == DAEMON_SERVICE_APP {
                 assert!(capability.wire.is_empty());
                 continue;
             }
