@@ -738,6 +738,7 @@ dependencies = [
  "p256",
  "reqwest",
  "ring",
+ "rustls",
  "serde",
  "serde_json",
  "sha2",
@@ -836,6 +837,7 @@ dependencies = [
  "cmux-rd-ffi",
  "cmux-rd-link",
  "cmux-rd-proto",
+ "cmux-rd-screen",
  "cmux-share-approval",
  "cmux-tab-snapshots",
  "cmux-terminal-prediction",
@@ -902,6 +904,7 @@ dependencies = [
  "cmux-rd-core",
  "cmux-rd-proto",
  "cmux-remote-browser",
+ "cmux-share-approval",
  "serde",
  "serde_json",
 ]
@@ -924,6 +927,16 @@ dependencies = [
 name = "cmux-rd-proto"
 version = "0.1.0"
 dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-rd-screen"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "p256",
  "serde",
  "serde_json",
 ]
