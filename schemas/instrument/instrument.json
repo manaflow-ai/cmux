@@ -1,7 +1,7 @@
 {
   "$comment": "The one token file of Instrument, the cmux design system (cmuxterm-hq docs/rfd/0034-design-instrument.md, 'Adopted 2026-11-22', its token table between instrument-tokens:begin/end). Each token has the value Instrument names (`instrument`) and the value the app draws today (`today`), read from the source that sets it now. Where the two differ the Instrument value is recorded, not applied: the generated CSS (webviews/src/ui/instrument.generated.css) carries today's value, so this file moves no pixel. A default moves when its own source moves; scripts/cmux-next/gen-instrument-tokens.py --check then fails until `today` here says the new value, and the pending list (pending-baseline.json) may only shrink. CHANGELOG.md beside this file records every version.",
   "system": "Instrument",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "rfd": "cmuxterm-hq docs/rfd/0034-design-instrument.md",
   "questions": {
     "leo-1": "Two tones on by default, or one colour by default with two tones as the first toggle.",
@@ -35,8 +35,8 @@
     {"name": "ink.step", "rule": "4%: every fill and line is a multiple of it", "waits": "no-token", "drawnOn": "every fill and line"},
     {"name": "ink.surface", "rule": "0%: the surface itself", "drawnOn": "pane, page"},
     {"name": "ink.frame", "instrument": 4, "unit": "%", "today": {"file": "schemas/design-scale/design-scale.json", "path": "surfaces.levels[name=card].fill", "value": 4}, "drawnOn": "sidebar, tab bar, title bar, docks; card fill"},
-    {"name": "ink.hover", "instrument": 8, "unit": "%", "today": {"file": "schemas/design-scale/design-scale.json", "path": "surfaces.levels[name=hover].fill", "value": 6}, "waits": "skeleton", "drawnOn": "hovered row, tab and control; prompt bubble fill"},
-    {"name": "ink.selected", "instrument": 12, "unit": "%", "today": {"file": "schemas/design-scale/design-scale.json", "path": "colors[name=selection].fallback", "value": "color-mix(in srgb, CanvasText 10%, transparent)"}, "waits": "skeleton", "drawnOn": "selected row; hairline; card ring", "note": "The selection role is its own value (design-scale colors selection, 10% ink). The transcript's selected row draws its own fill instead (offToken); the mock draws 6%.", "offToken": [{"file": "webviews/src/agent-session/acpmux/conversation/conversation.css", "line": 2505, "value": "color-mix(in srgb, var(--agent-accent) 8%, transparent)", "on": "selected transcript row"}]},
+    {"name": "ink.hover", "instrument": 8, "unit": "%", "today": {"file": "schemas/design-scale/design-scale.json", "path": "colors[name=hover].inkShare", "value": 8}, "drawnOn": "hovered row, tab and control; prompt bubble fill"},
+    {"name": "ink.selected", "instrument": 12, "unit": "%", "today": {"file": "schemas/design-scale/design-scale.json", "path": "colors[name=selection].inkShare", "value": 12}, "drawnOn": "selected row; hairline; card ring", "note": "The selection role is its own value (design-scale colors selection, 12% ink). The transcript's selected row draws its own fill instead (offToken); the mock draws 6%.", "offToken": [{"file": "webviews/src/agent-session/acpmux/conversation/conversation.css", "line": 2505, "value": "color-mix(in srgb, var(--agent-accent) 8%, transparent)", "on": "selected transcript row"}]},
     {"name": "ink.outline", "instrument": 16, "unit": "%", "today": {"file": "schemas/design-scale/design-scale.json", "path": "surfaces.levels[name=control].line", "value": 16}, "drawnOn": "control outline; pressed fill"},
     {"name": "ink.text", "rule": "100%: the theme's text colour", "drawnOn": "body text, links, primary button, focus ring"},
     {"name": "ink.text-muted", "instrument": "84% light, 80% dark, as a solid mix", "today": {"file": "schemas/design-scale/design-scale.json", "path": "colors[name=muted].fallback", "value": "color-mix(in srgb, CanvasText 62%, transparent)"}, "waits": "skeleton", "drawnOn": "secondary text"},

@@ -45,7 +45,7 @@
   --agent-diff-del: var(--agent-status-failure);
   --agent-shadow: rgba(0, 0, 0, 0.2);
   --agent-control: color-mix(in srgb, var(--agent-input-bg) 44%, transparent);
-  --agent-control-hover: color-mix(in srgb, var(--agent-soft) 8%, transparent);
+  --agent-control-hover: var(--ds-color-hover);
   --agent-card-hover: color-mix(in srgb, var(--agent-input-bg) 96%, transparent);
   --agent-primary: color-mix(in srgb, var(--agent-accent) 90%, var(--agent-text));
   /* Compatibility aliases for older ACPMUX sheets; the host's motion tokens remain authoritative. */

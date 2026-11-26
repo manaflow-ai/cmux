@@ -1,6 +1,6 @@
 .acpmux-composer-gallery-shell {
-  --acpmux-pill-hover: color-mix(in srgb, var(--agent-text) 11%, transparent);
-  --acpmux-pill-open: color-mix(in srgb, var(--agent-text) 16%, transparent);
+  --acpmux-pill-hover: var(--ds-color-hover);
+  --acpmux-pill-open: var(--ds-color-open);
   --acpmux-pill-edge: color-mix(in srgb, var(--agent-text) 24%, transparent);
   display: grid;
   align-content: end;

@@ -95,7 +95,7 @@ test("Button is a focusable button with our variant and size, and disabled silen
   );
   const [run, off] = [...doc.querySelectorAll<HTMLButtonElement>("button")];
   expect(run!.type).toBe("button");
-  expect(run!.dataset.variant).toBe("subtle");
+  expect(run!.dataset.variant).toBe("ghost");
   expect(run!.dataset.size).toBe("md");
   run!.focus();
   expect(doc.activeElement === run).toBe(true);
@@ -117,7 +117,7 @@ test("solid danger buttons keep a danger hover and open-popup fill", () => {
   );
 });
 
-test("an open popup's ghost or subtle button stays pressed under the pointer", () => {
+test("an open popup's ghost or subtle button keeps its open fill under the pointer", () => {
   // The hover rules out-rank the [data-popup-open] rule (one more attribute), so without the
   // exclusion, hovering a button whose menu is open dropped it from pressed back to the hover fill.
   const css = fs.readFileSync(path.join(import.meta.dir, "controls.css"), "utf8");

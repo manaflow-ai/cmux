@@ -8,7 +8,10 @@
   background: var(--ds-color-selection);
 }
 .ui-btn.ui-toggle-button[data-pressed]:hover:not([data-disabled]) {
-  background: color-mix(in srgb, var(--ds-color-fg) 4%, var(--ds-color-selection));
+  background: var(--ds-color-selection);
+}
+.ui-btn.ui-toggle-button:active:not([data-disabled]):is([data-pressed], [data-variant]) {
+  background: var(--ds-color-pressed);
 }
 /* outline: the control hairline at rest, so an unpressed toggle still reads as a control. */
 .ui-btn.ui-toggle-button[data-variant="outline"] {

@@ -88,7 +88,7 @@
     "levels": [
       { "name": "card", "fill": 4, "line": 10, "for": "a container of content in the page: the transcript's tool, edit, error and permission cards, plans, code blocks, tool output, the subagent card" },
       { "name": "inset", "fill": 8, "for": "a piece inside a card or inline in text: an icon tile, inline code, a chip, a key cap, a filled secondary control" },
-      { "name": "hover", "fill": 6, "for": "a control in the page under the pointer: half way from clear to pressed, so it shows over glass and a picture as over an opaque page (the host's chrome hover, ink 4% in light, read ΔL* 2 over a wallpaper)" },
+      { "name": "hover", "role": "hover", "for": "the shared hover wash" },
       { "name": "control", "line": 16, "for": "the outline of a secondary button at rest; its hover and press take the hover and pressed roles" }
     ]
   },
@@ -98,9 +98,10 @@
     { "name": "fg", "var": "--cmux-text", "app": "--cmux-app-text", "fallback": "CanvasText", "for": "primary text" },
     { "name": "muted", "var": "--cmux-text-secondary", "app": "--cmux-app-text-secondary", "fallback": "color-mix(in srgb, CanvasText 62%, transparent)", "for": "secondary text" },
     { "name": "faint", "var": "--cmux-text-tertiary", "app": "--cmux-app-icon", "fallback": "color-mix(in srgb, CanvasText 45%, transparent)", "for": "tertiary text, placeholders and quiet glyphs" },
-    { "name": "hover", "var": "--cmux-hover", "app": "--cmux-app-hover", "fallback": "color-mix(in srgb, CanvasText 6%, transparent)", "for": "a control under the pointer" },
-    { "name": "pressed", "var": "--cmux-pressed", "fallback": "light-dark(color-mix(in srgb, var(--cmux-text, CanvasText) 11%, transparent), color-mix(in srgb, var(--cmux-text, CanvasText) 14%, transparent))", "for": "a control while pressed: the text over clear (pressedFill 11% light, 14% dark), never the app theme's opaque pressed surface, so a press stays a wash on glass and over a picture" },
-    { "name": "selection", "var": "--cmux-selection", "app": "--cmux-app-selection", "fallback": "color-mix(in srgb, CanvasText 10%, transparent)", "for": "a selected row or the checked segment" },
+    { "name": "hover", "inkShare": 8, "for": "a control under the pointer" },
+    { "name": "pressed", "inkShare": 16, "for": "a control while held" },
+    { "name": "selection", "inkShare": 12, "for": "a selected control or row" },
+    { "name": "open", "alias": "selection", "for": "a control while its popup is open" },
     { "name": "separator", "var": "--cmux-separator", "app": "--cmux-app-separator", "fallback": "color-mix(in srgb, CanvasText 8%, transparent)", "for": "hairlines inside a page: list rows, cards and fields" },
     { "name": "divider", "var": "--cmux-chrome-divider", "app": "--cmux-sidebar-line", "fallback": "var(--ds-color-separator)", "for": "a page's chrome line against the window chrome (WebTheme: the separator x the divider strength, the window's sidebar line and split lines); an older app's sidebar line, else the separator" },
     { "name": "focus", "var": "--cmux-focus-ring-color", "fallback": "currentColor", "for": "the keyboard focus ring (desktop.css: the host's ring at 48%)" },
