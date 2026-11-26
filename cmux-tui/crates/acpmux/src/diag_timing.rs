@@ -50,3 +50,23 @@ pub fn line(name: &str, wall_us: u64, cpu_us: u64, extra: u64) {
         let _ = writeln!(f, "{name} {wall_us} {cpu} {extra}");
     }
 }
+
+/// Times `$e`; logs `row.NAME wall cpu` when its wall is over 5 ms.
+#[macro_export]
+macro_rules! dt {
+    ($name:literal, $e:expr) => {{
+        let __w = std::time::Instant::now();
+        let __c = $crate::diag_timing::thread_cpu_us();
+        let __r = $e;
+        let __us = __w.elapsed().as_micros() as u64;
+        if __us > 5_000 {
+            $crate::diag_timing::line(
+                concat!("slow.", $name),
+                __us,
+                $crate::diag_timing::thread_cpu_us().saturating_sub(__c),
+                0,
+            );
+        }
+        __r
+    }};
+}

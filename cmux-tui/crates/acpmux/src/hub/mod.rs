@@ -2705,14 +2705,13 @@ impl Hub {
         // The ids are copied and that lock let go at the end of this statement, before `sessions`
         // is taken: never both at once, so no order against a purge (which holds `sessions`
         // while it updates the index) can deadlock.
-        let ids: Vec<String> = self
-            .live_session_ids
-            .lock()
+        let ids: Vec<String> = crate::dt!("live_ids_lock", self.live_session_ids.lock())
             .unwrap_or_else(|e| e.into_inner())
             .iter()
             .cloned()
             .collect();
-        let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        let sessions =
+            crate::dt!("sessions_lock", self.sessions.lock().unwrap_or_else(|e| e.into_inner()));
         ids.into_iter().filter_map(|id| sessions.get(&id).cloned()).collect()
     }
 
