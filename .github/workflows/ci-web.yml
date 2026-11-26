@@ -2412,11 +2412,6 @@ jobs:
     permissions:
       contents: read
       actions: read
-    # The R2 write credentials (cmux-ci-cache-next) enter only on feat-cmux-next, through next-cache-writer
-    # (deployment branch feat-cmux-next only); the caller passes them only there (cache-receipts guard).
-    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
-    env:
-      CI_CACHE_R2_BUCKET: cmux-ci-cache-next
     steps:
       - name: Checkout the history helper
         id: history-checkout
