@@ -452,11 +452,11 @@ pub fn locate(
     }
     let at = rows.len() - host_from_bottom;
     let mut first = at;
-    while first > 0 && joins(term, rows[first - 1], rows[first], compact) {
+    while first > 0 && joins_at(term, &rows, first - 1, compact) {
         first -= 1;
     }
     let mut last = at;
-    while last + 1 < rows.len() && joins(term, rows[last], rows[last + 1], compact) {
+    while last + 1 < rows.len() && joins_at(term, &rows, last, compact) {
         last += 1;
     }
     let line = rows.get(first..=last)?;
@@ -466,7 +466,7 @@ pub fn locate(
     let mut start = last + 1;
     while start < rows.len() {
         let mut end = start;
-        while end + 1 < rows.len() && joins(term, rows[end], rows[end + 1], compact) {
+        while end + 1 < rows.len() && joins_at(term, &rows, end, compact) {
             end += 1;
         }
         let below = rows.get(start..=end)?;
@@ -486,6 +486,14 @@ fn host_row(term: &Terminal, i: usize) -> Option<&Row> {
 /// compact mode an inline app's word wrap ([`relayout::continues`]).
 pub fn joins(term: &Terminal, prev: &Row, next: &Row, compact: bool) -> bool {
     prev.wrapped || (compact && relayout::continues(term, prev, next, term.cols))
+}
+
+/// Whether `rows[i]` joins `rows[i + 1]`; false when either is out of range.
+fn joins_at(term: &Terminal, rows: &[&Row], i: usize, compact: bool) -> bool {
+    match (rows.get(i), i.checked_add(1).and_then(|j| rows.get(j))) {
+        (Some(prev), Some(next)) => joins(term, prev, next, compact),
+        _ => false,
+    }
 }
 
 /// The last row (an index in `term.history`) of the line starting at
@@ -562,7 +570,7 @@ impl Shape {
         let mut start = 0;
         while start < rows.len() {
             let mut end = start;
-            while end + 1 < rows.len() && joins(term, rows[end], rows[end + 1], compact) {
+            while end + 1 < rows.len() && joins_at(term, &rows, end, compact) {
                 end += 1;
             }
             let in_line =
@@ -907,9 +915,7 @@ impl View {
         let mut start = 0;
         while start < live_rows.len() {
             let mut end = start;
-            while end + 1 < live_rows.len()
-                && joins(term, live_rows[end], live_rows[end + 1], self.compact)
-            {
+            while end + 1 < live_rows.len() && joins_at(term, &live_rows, end, self.compact) {
                 end += 1;
             }
             let in_line =
