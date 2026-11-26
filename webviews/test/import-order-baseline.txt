@@ -9,22 +9,13 @@ test/agent-pane-cached-chat-open.test.ts
 test/agent-pane-costs-export.test.tsx
 test/agent-pane-edited-card-expand.test.tsx
 test/agent-pane-first-paint.test.ts
-test/agent-pane-session-change-coalesce.test.ts
 test/apps-discover-home.test.tsx
 test/composer-draft-survives-load.test.tsx
-test/composer-field-growth.test.ts
-test/composer-paste-images.test.tsx
-test/composer-paste-instant.test.tsx
-test/composer-paste-text.test.tsx
-test/composer-return-sends.test.tsx
 test/composer-upload-first-send.test.tsx
 test/environment-picker.test.tsx
 test/harnesses-page.test.tsx
 test/home-run-cost.test.tsx
-test/host-glass.test.ts
-test/native-row-tools.test.tsx
 test/native-session-info-toggle.test.tsx
-test/new-tab-cards-template.test.tsx
 test/session-info-surfaces.test.tsx
 test/shimmer-cadence.test.tsx
 test/subagent-failed-line.test.tsx
@@ -34,8 +25,6 @@ test/thread-scroll-map-rail.test.tsx
 test/transcript-collapsed-tool-runs.test.tsx
 test/transcript-fold-anchor.test.tsx
 test/transcript-fold-motion.test.tsx
-test/transcript-live-line-row-classes.test.tsx
-test/transcript-row-content-memo.test.tsx
 test/web-sources-follow-ups.test.tsx
 
 # src/

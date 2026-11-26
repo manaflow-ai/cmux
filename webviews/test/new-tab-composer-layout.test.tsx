@@ -11,7 +11,9 @@ import { importWithDom } from "./support/importWithDom";
 
 const { manySessions, noChat } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
 const { proseMirrorGlobals } = await importWithDom(() => import("../src/agent-session/acpmux/promptFieldTesting"));
-const { suggestionsAnchor } = await importWithDom(() => import("../src/agent-session/acpmux/newtab/suggestionsAnchor"));
+const { SUGGESTIONS_GAP, suggestionsAnchor } = await importWithDom(
+  () => import("../src/agent-session/acpmux/newtab/suggestionsAnchor"),
+);
 const { resolveUiOverlayPosition, UI_ANCHOR_GAP } = await importWithDom(() => import("../src/ui/anchor"));
 
 const scope = globalThis as Record<string, unknown>;
@@ -141,7 +143,7 @@ test("Codex slash commands are available before the first message and selecting 
   expect(requests).toEqual(["codex"]);
 });
 
-test("the New Tab card keeps Send in the box and model in the footer", async () => {
+test("the New Tab card holds the field, then one bar: +, the mode and model, the mic and Send", async () => {
   await mount();
   const composer = host.querySelector<HTMLElement>(".nt-composer")!;
   const card = composer.querySelector<HTMLElement>(".nt-box")!;
@@ -150,13 +152,18 @@ test("the New Tab card keeps Send in the box and model in the footer", async () 
   ];
   // The field is the composer's Markdown field (`acpmux-md-field nt-field`): it is named by its New Tab class.
   const name = (part: HTMLElement) => (part.classList.contains("nt-field") ? "nt-field" : part.className.split(" ")[0]);
-  expect(parts.map(name)).toEqual(["acpmux-composer-strip", "nt-field", "acpmux-send", "acpmux-chips"]);
+  // In reading and tab order (Lucas 2026-11-25, the lab's Unified Card): the field, then the bar's chips, then Send.
+  expect(parts.map(name)).toEqual(["acpmux-composer-strip", "nt-field", "acpmux-chips", "acpmux-send"]);
   // The project is the location strip's (hq#1957 composer location strip), as in the agent
   // composer: never in the card or its bar.
   const row = composer.querySelector<HTMLElement>(".acpmux-composer-strip .acpmux-composer-context")!;
   expect(row.textContent).toContain("app");
-  expect(card.querySelector(".acpmux-composer-context, .acpmux-location-button, .acpmux-chips")).toBeNull();
-  expect(composer.querySelector(".acpmux-composer-foot .acpmux-chips")).not.toBeNull();
+  expect(card.querySelector(".acpmux-composer-context, .acpmux-location-button")).toBeNull();
+  // The bar is the card's own row: + and the quiet row's chips sit inside the card, beside the mic and Send.
+  const bar = card.querySelector<HTMLElement>(".nt-input[data-split]")!;
+  expect(bar.querySelector(".nt-split-plus")).not.toBeNull();
+  expect(bar.querySelector(".nt-foot .acpmux-composer-foot .acpmux-chips")).not.toBeNull();
+  expect(bar.querySelector(".nt-send")).not.toBeNull();
 });
 
 test("New Tab keeps Claude and its controls with a Codex gallery preview", async () => {
@@ -177,7 +184,7 @@ test("New Tab keeps Claude and its controls with a Codex gallery preview", async
   act(() => setPreviewComposerLook());
 });
 
-test("suggestions mirror the box-to-chip text gap at every density and zoom", async () => {
+test("suggestions open 8 px under the card at every zoom, and follow it as it grows", async () => {
   await mount();
   const field = host.querySelector<MarkdownFieldElement>(".nt-field")!;
   await act(async () => {
@@ -187,54 +194,36 @@ test("suggestions mirror the box-to-chip text gap at every density and zoom", as
   expect(document.querySelector(".nt-popover .nt-row")).not.toBeNull();
   const composer = host.querySelector<HTMLElement>(".nt-composer")!;
   const box = host.querySelector<HTMLElement>(".nt-box")!;
-  const label = host.querySelector<HTMLElement>(".nt-foot .acpmux-model-name")!;
   const anchor = suggestionsAnchor(composer, box);
-  // jsdom has no layout. Supply viewport rects with density, font and zoom varied independently.
-  for (const density of [0.8, 0.86, 1, 1.2, 1.6]) {
-    for (const zoom of [0.92, 1, 1.25]) {
-      for (const lineHeight of [14, 18, 24]) {
-        let growth = 0;
-        const boxBottom = () => (160 + growth) * zoom;
-        const textTop = () => boxBottom() + (6 * density - 2 + (28 * density - lineHeight) / 2) * zoom;
-        const textBottom = () => textTop() + lineHeight * zoom;
-        composer.getBoundingClientRect = () => new window.DOMRect(40, 80 * zoom, 600 * zoom, (140 + growth) * zoom);
-        box.getBoundingClientRect = () => new window.DOMRect(40, 100 * zoom, 600 * zoom, (60 + growth) * zoom);
-        label.getBoundingClientRect = () => new window.DOMRect(420, textTop(), 100, lineHeight * zoom);
-        const rect = anchor.getBoundingClientRect();
-        const popup = resolveUiOverlayPosition(rect, { width: 600, height: 100 }, { width: 1200, height: 1000 });
-        expect(Math.abs(popup.top - textBottom() - (textTop() - boxBottom()))).toBeLessThanOrEqual(1);
-        expect(rect.width).toBe(composer.getBoundingClientRect().width);
-        const above = resolveUiOverlayPosition(
-          rect,
-          { width: 600, height: 40 },
-          { width: 1200, height: 1000 },
-          { side: "above" },
-        );
-        expect(above.top).toBe(composer.getBoundingClientRect().top - 6 - 40);
-        for (const height of [lineHeight / 4, lineHeight / 2, lineHeight, lineHeight / 2, 0]) {
-          growth = height;
-          const moved = resolveUiOverlayPosition(
-            anchor.getBoundingClientRect(),
-            { width: 600, height: 100 },
-            { width: 1200, height: 1000 },
-          );
-          expect(moved.top - popup.top).toBeCloseTo(growth * zoom);
-        }
-      }
+  // jsdom has no layout. Supply viewport rects with the composer's zoom varied.
+  for (const zoom of [0.8, 0.92, 1, 1.25, 1.6]) {
+    composer.style.setProperty("--cmux-composer-zoom", String(zoom));
+    let growth = 0;
+    const boxBottom = () => (160 + growth) * zoom;
+    composer.getBoundingClientRect = () => new window.DOMRect(40, 80 * zoom, 600 * zoom, (140 + growth) * zoom);
+    box.getBoundingClientRect = () => new window.DOMRect(40, 100 * zoom, 600 * zoom, (60 + growth) * zoom);
+    const rect = anchor.getBoundingClientRect();
+    const popup = resolveUiOverlayPosition(rect, { width: 600, height: 100 }, { width: 1200, height: 1000 });
+    expect(popup.top).toBeCloseTo(boxBottom() + SUGGESTIONS_GAP * zoom);
+    expect(rect.width).toBe(composer.getBoundingClientRect().width);
+    const above = resolveUiOverlayPosition(
+      rect,
+      { width: 600, height: 40 },
+      { width: 1200, height: 1000 },
+      { side: "above" },
+    );
+    expect(above.top).toBe(composer.getBoundingClientRect().top - UI_ANCHOR_GAP - 40);
+    for (const height of [4, 9, 18, 9, 0]) {
+      growth = height;
+      const moved = resolveUiOverlayPosition(
+        anchor.getBoundingClientRect(),
+        { width: 600, height: 100 },
+        { width: 1200, height: 1000 },
+      );
+      expect(moved.top - popup.top).toBeCloseTo(growth * zoom);
     }
   }
-  // A collapsed form keeps its box under visibility: hidden (at the chips' top); the label drawn sets the gap.
-  const ghost = label.cloneNode(true) as HTMLElement;
-  ghost.style.visibility = "hidden";
-  ghost.getBoundingClientRect = () => new window.DOMRect(420, 0, 100, 14);
-  label.before(ghost);
-  composer.getBoundingClientRect = () => new window.DOMRect(40, 80, 600, 140);
-  box.getBoundingClientRect = () => new window.DOMRect(40, 100, 600, 60);
-  label.getBoundingClientRect = () => new window.DOMRect(420, 166, 100, 14);
-  expect(anchor.getBoundingClientRect().bottom).toBe(180 + 166 - 160 - UI_ANCHOR_GAP);
-  ghost.remove();
-  label.getBoundingClientRect = () => new window.DOMRect();
-  expect(anchor.getBoundingClientRect().toJSON()).toEqual(composer.getBoundingClientRect().toJSON());
+  composer.style.removeProperty("--cmux-composer-zoom");
 });
 
 // Review (#20148): the composer's Computer menu listed a remote chat's machine, so the row could

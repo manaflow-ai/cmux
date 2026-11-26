@@ -117,11 +117,11 @@ async function renderCard(
 }
 
 const submitButton = (container: HTMLElement) => container.querySelector<HTMLButtonElement>(".acpmux-question-submit")!;
-/// The button's words, without its keycaps (⌘ and ↩ are one each, as the permission card's) or the
+/// The button's words, without its key hint (⌘↩, one KeyHint, as the permission card's) or the
 /// hidden word whose width it holds (Next holds Send's room and Send Next's, cmux#56534).
 const buttonLabel = (container: HTMLElement) => {
   const button = submitButton(container).cloneNode(true) as HTMLElement;
-  for (const key of button.querySelectorAll(".acpmux-keycap, [aria-hidden='true']")) key.remove();
+  for (const key of button.querySelectorAll(".ui-key-hint, [aria-hidden='true']")) key.remove();
   return button.textContent?.trim() ?? "";
 };
 const activePosition = (container: HTMLElement) =>
