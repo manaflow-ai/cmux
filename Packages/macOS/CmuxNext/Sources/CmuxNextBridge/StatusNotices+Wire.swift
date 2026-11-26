@@ -14,8 +14,8 @@ nonisolated enum StatusNotices {
     }
 
     /// The runs of `statuses` that finished since `running` was busy, in the statuses' order,
-    /// and the runs busy now; nil when the FFI did not answer.
-    static func finished(running: [RunKey], statuses: [WorkspaceStatus]) -> (finished: [FinishedStatusRun], running: [RunKey])? {
+    /// and the runs busy now; nil when the FFI did not answer. Main-actor: ``FinishedStatusRun`` is.
+    @MainActor static func finished(running: [RunKey], statuses: [WorkspaceStatus]) -> (finished: [FinishedStatusRun], running: [RunKey])? {
         let request = RunsRequest(running: running, statuses: statuses.map { status in
             RunsRequest.Status(workspace: status.workspaceID.rawValue, entries: status.entries.map { .init(key: $0.key, state: $0.state) })
         })
