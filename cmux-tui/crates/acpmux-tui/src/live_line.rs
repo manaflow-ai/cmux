@@ -33,12 +33,8 @@ pub(crate) fn compacting(t: &Transcript) -> bool {
 fn wait_words(t: &Transcript) -> String {
     let start = live_prompt(t).map_or(0, |i| i + 1);
     let turn = t.items.get(start..).unwrap_or_default();
-    let heard = |x: &Item| {
-        matches!(
-            x,
-            Item::Assistant { .. } | Item::Thought { .. } | Item::Tool { .. } | Item::Plan { .. }
-        )
-    };
+    let heard =
+        |x: &Item| matches!(x, Item::Assistant { .. } | Item::Thought { .. } | Item::Tool { .. });
     if !turn.iter().any(heard) {
         return "Waiting on the model's first reply".into();
     }
