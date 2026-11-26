@@ -108,6 +108,7 @@ pub mod sidebar_face;
 pub mod sidebar_mirror;
 mod tab_discard;
 pub mod tab_drag;
+mod tab_groups;
 mod tab_strip;
 pub mod typed;
 pub mod window_close_selection;
@@ -629,6 +630,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if notification_notices::handles(operation) => {
                 notification_notices::respond(operation, request)?
             }
+            operation if tab_groups::handles(operation) => tab_groups::respond(operation, request)?,
             operation if screen::handles(operation) => screen::respond(operation, request)?,
             operation if tab_discard::handles(operation) => {
                 tab_discard::respond(operation, request)?
@@ -639,6 +641,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if window_rules::handles(operation) => {
                 window_rules::respond(operation, request)?
             }
+            b"mobile_host" => cmux_mobile_host_core::respond(request).map_err(|_| ERR_INVALID)?,
             operation if tab_strip::handles(operation) => tab_strip::respond(operation, request)?,
             _ => return Err(ERR_INVALID),
         };
