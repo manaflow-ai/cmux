@@ -891,7 +891,7 @@ struct OpenTurn {
 
 // TEMP-PHASE: phase timings for the size sweep; not committed.
 pub(crate) fn phase_note(id: &str, what: &str, since: std::time::Instant) {
-    if let Some(path) = std::env::var_os("ACPMUX_PHASE_LOG") {
+    if let Some(path) = Some("/tmp/sweep-perf/phases.txt") {
         use std::io::Write;
         if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
             let _ = writeln!(f, "{} {} {} {}us", std::process::id(), id, what, since.elapsed().as_micros());
