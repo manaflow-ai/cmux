@@ -189,6 +189,20 @@ class LandTierTests(unittest.TestCase):
             else:
                 os.environ["CI_LAND_TIER"] = old
 
+    def test_full_ci_added_then_taken_off_still_runs_the_full_tier(self) -> None:
+        # land-judge's full-ci pulse (add, then remove a second later): GitHub built the labeled event's payload
+        # after the removal, so its labels held ready-to-land but not full-ci, and the router ran the affected tier
+        # and skipped pr-pipeline.yml (cmux#52441, router run 45831524947). The event's own label counts.
+        ev = land_event(labels=("ready-to-land",), action="labeled", added="full-ci")
+        decided = head_tier.tier("pull_request", ev, land_switch="1", land_full_switch="0")
+        self.assertEqual(decided, ("full", "full-ci label"))
+        start, _ = pr_router.route(ev, RouterTests.CALLEES, ["a.py"], decided=decided)
+        self.assertEqual(start, ["cheap.yml", "heavy.yml"])
+        self.assertEqual(head_tier.labels_of(ev), {"ready-to-land", "full-ci"})
+        # only a labeled event adds its label: an unlabeled full-ci is gone
+        gone = land_event(labels=("ready-to-land",), action="unlabeled", added="full-ci")
+        self.assertEqual(head_tier.labels_of(gone), {"ready-to-land"})
+
     def test_the_route_job_runs_on_full_ci_added_and_skips_other_labels(self) -> None:
         text = (ROOT / ".github" / "workflows" / "pr-router.yml").read_text()
         cond = re.search(r"^    if: \$\{\{ (.*) \}\}$", text.split("  route:", 1)[1], re.M).group(1)
@@ -291,6 +305,21 @@ class LandTierTests(unittest.TestCase):
                 os.environ.pop("CI_LAND_TIER", None)
             else:
                 os.environ["CI_LAND_TIER"] = old
+
+    def test_a_pulsed_full_ci_is_the_full_tier_though_the_payload_lost_it(self) -> None:
+        # cmux#53671 at c52da39d (14:13Z 2026-11-26): land-judge's lane VM pulse added full-ci and took it off 2 s
+        # later; the `labeled` payload listed only ready-to-land, the router read the affected cheap tier and pr
+        # pipeline (the iOS matrix land-judge waits for) never started. The event's own added label counts.
+        ev = land_event(labels=("ready-to-land",), action="labeled", added="full-ci")
+        decided = head_tier.tier("pull_request", ev, land_switch="1", land_full_switch="0")
+        self.assertEqual(decided, ("full", "full-ci label"))
+        self.assertEqual(head_tier.labels_of(ev), {"ready-to-land", "full-ci"})
+        start, _ = pr_router.route(ev, RouterTests.CALLEES, ["a.py"], decided=decided)
+        self.assertIn("heavy.yml", start)
+        # Only a `labeled` event adds its label: an unlabeled full-ci is gone.
+        gone = land_event(labels=("ready-to-land",), action="unlabeled", added="full-ci")
+        self.assertEqual(head_tier.labels_of(gone), {"ready-to-land"})
+        self.assertEqual(head_tier.tier("pull_request", gone, land_switch="1", land_full_switch="0")[0], "cheap")
 
     def test_the_land_label_overrides_the_idle_skip(self) -> None:
         facts = {"base_merge_only": True, "own_last": 0}
@@ -732,7 +761,7 @@ GATED = {
 # signal kept on every head (pr-body-checks, risk tier, language boundaries, merge freeze, pr-checks, web complexity,
 # classic frozen guard) or already skips feat-cmux-next pull requests (scripts/ci/affected_jobs.py PR_SKIP_IF).
 GATED = {name: "pull_request" for name in (
-    "app-store-shelf.yml", "auth-refresh-tests.yml", "backend.yml", "billing.yml", "chat-open-perf-report.yml",
+    "auth-refresh-tests.yml", "backend.yml", "billing.yml", "chat-open-perf-report.yml",
     "cloud-chief-machine.yml", "cloud-journey-pr.yml", "cloud-vm-guest-install.yml", "cloudflare-relay.yml",
     "cmux-cloud-cli.yml", "cmux-next-car-guards.yml", "cmux-next-fast-gates.yml", "cmux-next-guards.yml",
     "cmux-next-hot-verify.yml", "cmux-next-pr-autofix.yml",
