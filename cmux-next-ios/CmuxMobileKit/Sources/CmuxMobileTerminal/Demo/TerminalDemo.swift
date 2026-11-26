@@ -25,9 +25,12 @@ public struct TerminalDemoRoot: View {
         }
         // `-CmuxMobileTerminalDemoAttach`: the phone attaches into htop
         // already running on a Mac pane of 120x40, the Mac answering the
-        // attach and each resize a round trip later (TerminalAttachFirstFrameUITests).
+        // attach and each resize a round trip later (`-CmuxMobileTerminalDemoMac
+        // -CmuxMobileTerminalDemoMacMs N`, default 60), with the attach in series
+        // under `-CmuxMobileTerminalDemoAttachSerial` (TerminalAttachFirstFrameUITests).
         let attach = Self.attachRequested
-            ? MockTerminalSession(playsIntro: false, macResize: Self.macResize ?? .milliseconds(60), attachesTo: (120, 40)) : nil
+            ? MockTerminalSession(playsIntro: false, macResize: Self.macResize ?? .milliseconds(60), attachesTo: (120, 40),
+                                  attachesInSeries: CommandLine.arguments.contains("-CmuxMobileTerminalDemoAttachSerial")) : nil
         let session: any TerminalSession
         var altMac: MacPaneMockSession?
         let phases = TerminalDemoDriver.requestedPhases ?? []

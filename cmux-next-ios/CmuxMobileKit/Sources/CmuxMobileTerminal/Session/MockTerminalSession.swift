@@ -59,6 +59,9 @@ public final class MockTerminalSession: TerminalSession {
     /// the app's round trips (`macResize` each, TerminalAttachPlan) after the start, at the grid the phone sent
     /// before it (`attach-surface {cols, rows}`), or the pane's.
     private let attachesTo: (columns: Int, rows: Int)?
+    /// The demo's before arm: the mock answers the attach two round trips
+    /// later even with the phone's grid (`-CmuxMobileTerminalDemoAttachSerial`).
+    private let attachesInSeries: Bool
     /// The grid the phone gave before the attach went out.
     private var attachSize: (columns: Int, rows: Int)?
     /// The attach went out and its answer has not come yet.
@@ -136,7 +139,7 @@ public final class MockTerminalSession: TerminalSession {
 
     public init(clock: any Clock<Duration> = ContinuousClock(), playsIntro: Bool = true, instantIntro: Bool = false,
                 roundTrip: Duration = .zero, macResize: Duration? = nil, offline: Bool = false,
-                attachesTo: (columns: Int, rows: Int)? = nil) {
+                attachesTo: (columns: Int, rows: Int)? = nil, attachesInSeries: Bool = false) {
         self.clock = clock
         self.playsIntro = playsIntro
         self.instantIntro = instantIntro
@@ -144,6 +147,7 @@ public final class MockTerminalSession: TerminalSession {
         self.macResize = macResize
         self.offline = offline
         self.attachesTo = attachesTo
+        self.attachesInSeries = attachesInSeries
     }
 
     /// The Mac's grid now, and whether an attach or a resize answer is still
@@ -325,7 +329,9 @@ public final class MockTerminalSession: TerminalSession {
         // Mac's answer (TerminalAttachPlan): one when the phone gave its grid
         // before the attach (it rides `set-client-info` + `identify`), two
         // without one (`identify` first, then `attach-surface`).
-        let plan = TerminalAttachPlan.plan(firstAttach: true, claimsSize: true, size: attachSize)
+        // `attachesInSeries`: the attach as it was before the plan (identify
+        // first, then attach-surface): the before arm of the same build.
+        let plan = TerminalAttachPlan.plan(firstAttach: true, claimsSize: true, size: attachesInSeries ? nil : attachSize)
         let delay = (macResize ?? .zero) * plan.roundTrips
         let task = Task { [weak self] in
             try? await ContinuousClock().sleep(for: delay)
