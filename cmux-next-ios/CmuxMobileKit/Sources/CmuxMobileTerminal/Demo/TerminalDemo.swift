@@ -29,7 +29,8 @@ public struct TerminalDemoRoot: View {
         if phases.contains("projection") || phases.contains("altproj") {
             // A Mac pane of 120x40 (or `-CmuxMobileTerminalDemoMacGrid 39x26`, a
             // pane narrower than the phone), through the session the app builds
-            // for a Mac terminal. `altproj`: htop already running in it, and
+            // for a Mac terminal; `-CmuxMobileTerminalDemoMacProgram claude`:
+            // Claude Code inline in it. `altproj`: htop already running in it, and
             // the Mac answering a claim a round trip later
             // (`-CmuxMobileTerminalDemoMacLatencyMs`, default 60: LTE), or never
             // (`-CmuxMobileTerminalDemoMacKeepsSize YES`: Prefer this Mac).
@@ -38,7 +39,8 @@ public struct TerminalDemoRoot: View {
             let alt = phases.contains("altproj")
             let latency = alt ? (defaults.object(forKey: "CmuxMobileTerminalDemoMacLatencyMs") as? Int ?? 60) : 0
             let mac = MacPaneMockSession(columns: grid.count == 2 ? grid.first ?? 120 : 120, rows: grid.count == 2 ? grid.last ?? 40 : 40,
-                                         program: alt ? "htop" : nil, latency: .milliseconds(latency),
+                                         program: alt ? "htop" : defaults.string(forKey: "CmuxMobileTerminalDemoMacProgram"),
+                                         latency: .milliseconds(latency),
                                          keepsSize: alt && defaults.bool(forKey: "CmuxMobileTerminalDemoMacKeepsSize"))
             if alt {
                 altMac = mac
