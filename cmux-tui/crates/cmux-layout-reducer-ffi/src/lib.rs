@@ -66,15 +66,18 @@
 //! `cmux_sidebar_tab_drag_*`, `cmux_sidebar_base_y`, [`drag_handle`]: the rows
 //! cross once per drag, each move with numbers only),
 //! the sidebar row face (`cmux_sidebar_face_*`, [`sidebar_face`]: typed
-//! requests and replies, no JSON), and the column scroll reducer
+//! requests and replies, no JSON), the column scroll reducer
 //! (`cmux_scroll_*`, [`scroll`]: a handle per scrolling strip, typed events
-//! per scroll event and frame).
+//! per scroll event and frame), and the browser tab rules (`browser_tabs_*`,
+//! `cmux-window-rules`' `browser::tabs`: a new tab's engine, its route, the
+//! live tab a page reuses, the machine browser record).
 
 use cmux_layout_reducer::{sidebar_drag, sidebar_drop, sidebar_edits, sidebar_layout};
 use std::ffi::{CString, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 pub mod agent_cursor;
+mod browser_tabs;
 pub mod close_focus;
 pub mod close_selection;
 pub mod closing_panes;
@@ -619,6 +622,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             }
             operation if window_rules::handles(operation) => {
                 window_rules::respond(operation, request)?
+            }
+            operation if browser_tabs::handles(operation) => {
+                browser_tabs::respond(operation, request)?
             }
             _ => return Err(ERR_INVALID),
         };

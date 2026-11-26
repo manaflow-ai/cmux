@@ -199,6 +199,9 @@ pub fn pip_row(facts: PipRowFacts) -> PipRow {
     PipRow { hidden: !shows, exit }
 }
 
+#[path = "browser_tabs.rs"]
+pub mod tabs;
+
 #[cfg(test)]
 #[path = "browser_tests.rs"]
 mod tests;
