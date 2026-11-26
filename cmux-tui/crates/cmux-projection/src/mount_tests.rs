@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use super::*;
 use crate::manifest::{Item, Kind, Manifest};
@@ -479,4 +480,64 @@ fn a_cached_manifest_folder_listing_shows_every_change_made_through_the_mount() 
     std::fs::rename(folder.join("z.rs"), folder.join("e/z.rs")).unwrap();
     assert_eq!(names(), ["e", "new.rs"]);
     mounted.unmount();
+}
+
+#[test]
+fn idle_since_counts_whole_seconds_from_the_last_request() {
+    let idle = Duration::from_secs(30);
+    assert!(!idle_since(100, 129, idle));
+    assert!(idle_since(100, 130, idle));
+    assert!(!idle_since(200, 100, idle), "a clock that went back is not idle");
+}
+
+#[test]
+fn an_idle_mount_unmounts_itself_but_never_while_a_file_is_open() {
+    if !fuse_here() {
+        println!("skipping: no FUSE here (no /dev/fuse or no fusermount3)");
+        return;
+    }
+    let items = vec![Item {
+        path: "README.md".into(),
+        kind: Kind::File,
+        mode: 0o644,
+        size: 5,
+        mtime_ns: 1_700_000_000_000_000_000,
+        link: None,
+    }];
+    let manifest = Arc::new(Manifest::build(1, items).unwrap());
+    let bytes = HashMap::from([(manifest.resolve("README.md").unwrap(), b"hello".to_vec())]);
+    let state = tempfile::tempdir().unwrap();
+    let at = tempfile::tempdir().unwrap();
+    let meta = std::fs::metadata(state.path()).unwrap();
+    let overlay = Arc::new(
+        Overlay::open(manifest, state.path(), Arc::new(Files(bytes)), (meta.uid(), meta.gid()))
+            .unwrap(),
+    );
+    let options = Options { idle_exit: Some(Duration::from_secs(2)), ..Options::default() };
+    let (up, is_up) = channel();
+    let path = at.path().to_owned();
+    let server = std::thread::spawn(move || {
+        serve_with(overlay, &path, options, move || up.send(()).unwrap())
+    });
+    if is_up.recv_timeout(Duration::from_secs(10)).is_err() {
+        println!("skipping: the mount never came up here");
+        return;
+    }
+    let file = at.path().join("README.md");
+
+    // An open file holds it well past the idle time.
+    let held = std::fs::File::open(&file).unwrap();
+    std::thread::sleep(Duration::from_secs(6));
+    assert!(!server.is_finished(), "a mount with an open file stays");
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "hello");
+    drop(held);
+
+    // Nothing holds it: the server unmounts and returns.
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !server.is_finished() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    assert!(server.is_finished(), "an idle mount nobody holds unmounts itself");
+    server.join().unwrap().unwrap();
+    assert!(!file.exists(), "the folder is empty again once unmounted");
 }

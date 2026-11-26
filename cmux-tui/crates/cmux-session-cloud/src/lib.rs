@@ -22,6 +22,7 @@ pub mod offload;
 pub mod seal;
 pub mod store;
 pub mod stub;
+pub mod transcripts;
 
 use sha2::{Digest, Sha256};
 use std::sync::{Arc, Mutex};

@@ -351,6 +351,25 @@ export function sameButRows(drawn: AcpmuxSnapshot, next: AcpmuxSnapshot): boolea
   const after = next as unknown as Record<string, unknown>;
   const keys = Object.keys(after);
   if (keys.length !== Object.keys(before).length) return false;
-  for (const key of keys) if (key !== "rows" && !Object.is(before[key], after[key])) return false;
+  for (const key of keys) {
+    if (key === "rows") continue;
+    if (Object.is(before[key], after[key])) continue;
+    // `direct.ts` projects this metadata from its settled view on every snapshot. The wrapper
+    // object is new each time, while `lastSeq` and `forkSeqs` remain the same. Treat that
+    // value-equivalent projection as unchanged so row-local streams stay on their fast path.
+    if (key === "settled" && sameSettled(before[key], after[key])) continue;
+    return false;
+  }
   return true;
+}
+
+function sameSettled(before: unknown, after: unknown): boolean {
+  if (!before || !after || typeof before !== "object" || typeof after !== "object") return false;
+  const left = before as { lastSeq?: unknown; forkSeqs?: unknown };
+  const right = after as { lastSeq?: unknown; forkSeqs?: unknown };
+  if (left.lastSeq !== right.lastSeq || left.forkSeqs === right.forkSeqs) return left.lastSeq === right.lastSeq;
+  const leftSeqs = left.forkSeqs;
+  const rightSeqs = right.forkSeqs;
+  if (!Array.isArray(leftSeqs) || !Array.isArray(rightSeqs)) return false;
+  return leftSeqs.length === rightSeqs.length && leftSeqs.every((value, index) => value === rightSeqs[index]);
 }

@@ -21,6 +21,7 @@ use prompt_sender::{app_pane_unproven, owner_terminal};
 mod presets;
 mod queued;
 mod session_open;
+mod signature;
 pub use session_open::FEATURE as SESSION_RESUME_FEATURE;
 #[cfg(test)]
 #[path = "requests/hold_attach_tests.rs"]
@@ -1021,6 +1022,14 @@ async fn new_on_peer(
     if super::trust_gate::gated(conn.origin, params) && !peer.supports_trust_gate() {
         return Err(super::trust_gate::peer_unsupported(&peer.name));
     }
+    // A provisioned VM holds one parent session (`hub/agent_vm.rs`): a second
+    // parent-less start there is refused; a sub-session start names its parent.
+    let asks_parent = mux_meta(params)
+        .and_then(|m| m.get(crate::hub::lineage::PARENT_FIELD))
+        .is_some_and(|v| v.as_str().is_some_and(|s| !s.is_empty()));
+    if let Some(refusal) = hub.one_parent_check(&peer, asks_parent) {
+        return Err(refusal);
+    }
     let mut p = params.clone();
     super::peer_forward::strip_new_meta(&mut p);
     // The chat there follows this Mac's answer to cmux's tools (`cmux_tools_answer.rs`).
@@ -1291,7 +1300,7 @@ pub(super) async fn handle_request(
     // was in the receiver's log 186 s after it arrived). A refusal after this is its own line.
     let crossing = cross_host_prompt(conn.origin, m, &params);
     if let Some(fields) = &crossing {
-        crate::xhost_audit::record("received", fields.clone());
+        crate::xhost_audit::record_queued("received", fields.clone());
     }
     let mut reply = if verdict == crate::hub::person::PersonVerdict::PeerOnly {
         // The check saw a peer's prompt: only the peer decides it. If the
@@ -1313,7 +1322,7 @@ pub(super) async fn handle_request(
     if let (Some(mut fields), Err(e)) = (crossing, &reply) {
         // Never the error's text, which may quote the message: its code only.
         fields.set("error", json!(e.code));
-        crate::xhost_audit::record("refused", fields);
+        crate::xhost_audit::record_queued("refused", fields);
     }
     reply
 }
@@ -2975,6 +2984,9 @@ async fn dispatch_request_with_identity(
         "_acpmux/host_health" => Ok(super::peer_status::host_health(hub, conn.origin).await),
         "_acpmux/peer_status" => super::peer_status::peer_status(hub, conn.origin, &params).await,
         super::vm_host::METHOD => super::vm_host::handle(hub, conn, &params).await,
+        super::autocloud_enroll::METHOD => {
+            super::autocloud_enroll::handle(hub, conn, &params).await
+        }
         super::host_notice::METHOD => super::host_notice::handle(hub, conn, &params).await,
         // This daemon's copy of a peer session's events (`hub/peer_snapshot.rs`): transcripts
         // this machine's clients read, so for the app and the unix socket only.
@@ -3020,6 +3032,17 @@ async fn dispatch_request_with_identity(
             ))
         }
         "_acpmux/place" => Ok(super::place::place(hub, &params).await),
+        // Moves a chat from the place menu (`place_set.rs`): this machine's own clients only.
+        "_acpmux/place_set" | "_acpmux/place_undo" | "_acpmux/place_get"
+            if !matches!(conn.origin, Origin::Local | Origin::LocalApp) =>
+        {
+            Err(RpcError::invalid_params(
+                "_acpmux/place_set, place_undo and place_get answer on this machine's unix socket and the app's own pane only",
+            ))
+        }
+        "_acpmux/place_set" => super::place_set::set(hub, &params).await,
+        "_acpmux/place_undo" => super::place_set::undo(hub, &params).await,
+        "_acpmux/place_get" => super::place_set::get(hub, &params).await,
         // A new chat's place mode and where it starts with it (`chat_place.rs`): the composer's
         // place picker and chip, on the same sockets `_acpmux/place` answers on.
         "_acpmux/chat_place" | "_acpmux/chat_place_set"
@@ -3234,6 +3257,7 @@ async fn dispatch_request_with_identity(
         }
         method::MUX_INFO => info::info(hub, conn, &params).await,
         method::MUX_SESSION_RESYNC => super::session_patch::resync(hub, conn, &params),
+        method::MUX_PAUSED_FILES => super::paused_files::handle(hub, conn, &params).await,
         method::MUX_SESSION_FILES => {
             super::session_files::require_local(conn.origin)?;
             let s = hub.resolve(session_key(&params)?)?;
@@ -3263,6 +3287,8 @@ async fn dispatch_request_with_identity(
         }
         // Read-only and the same for every origin, like `_acpmux/schema`.
         method::MUX_PROTOCOL => Ok(crate::protocol::served().clone()),
+        // A pure function of the ids asked, the same for every origin (`requests/signature.rs`).
+        method::SESSION_SIGNATURE => signature::handle(params),
         method::MUX_HISTORY => {
             let s = hub.resolve(session_key(&params)?)?;
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
@@ -3389,6 +3415,7 @@ async fn dispatch_request_with_identity(
         // Auto mode (`auto_session/surface.rs`): the chat's own machine switches it and settles
         // its kept changes, and only for the person (`auto_gate.rs`).
         method::MUX_AUTO_SESSION_SET
+        | method::MUX_AUTO_SESSION_MOVE
         | method::MUX_CHAT_MOVE
         | method::MUX_AUTO_SESSION_LEFTOVER
         | method::MUX_AUTO_SESSION_WAKE
@@ -3413,6 +3440,9 @@ async fn dispatch_request_with_identity(
         }
         method::MUX_HARNESS_ENABLE => {
             super::harness_enable::handle(hub, conn.origin, &params).await
+        }
+        method::MUX_HARNESS_DISABLE => {
+            super::harness_enable::disable(hub, conn.origin, &params).await
         }
         name if super::agent_login::METHODS.contains(&name) => {
             super::agent_login::handle(hub, conn, name, &params).await
@@ -4193,6 +4223,17 @@ async fn dispatch_request_with_identity(
                 hub.respond_choice(&s, pid, choice, answered_by, answerer, control).await?;
                 return Ok(json!({}));
             }
+            // "Fork first" (`fork_risky.rs`): the app forked this machine; only the person's
+            // allow may name the copy as the step's checkpoint.
+            let checkpoint = match params.get("forkCheckpoint").filter(|v| !v.is_null()) {
+                Some(carried) => {
+                    if !conn.is_person() {
+                        return Err(RpcError::invalid_params(crate::hub::person::REASON));
+                    }
+                    Some(hub.fork_checkpoint(&s, pid, option.as_deref(), carried)?)
+                }
+                None => None,
+            };
             // The paired machine that answers, for D13 (`Hub::local_claude_refusal`).
             let device = super::remote_guard::sending_device(conn, &params);
             answerer.device = device.as_deref();
@@ -4207,7 +4248,7 @@ async fn dispatch_request_with_identity(
                 control,
             )
             .await?;
-            Ok(json!({}))
+            Ok(checkpoint.map_or_else(|| json!({}), |c| json!({"forkCheckpoint": c})))
         }
         method::MUX_SET_POLICY => {
             // The chat a proved raise was checked for (`hub/person/policy_grant.rs`).

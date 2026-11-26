@@ -41,6 +41,7 @@ import { rowsByKey } from "./schema";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, resolveHarnessPlacement } from "../../ui/harnessPlacement";
 import { isBackdropRefusal, linkRefusal } from "./backdropRefusal";
 import { t, text as localized } from "./strings";
+import { readLooksAnswer, type LooksOutcome } from "./looksGallery";
 import { pageTransport, TransportError, type SettingsTransport } from "./transport";
 import { readRecipe, readSetupReply, type ResolvedWorktreeRecipe, type WorktreeRecipe } from "../../worktreeRecipe";
 import { readExtensionSettings, type ExtensionSettings } from "./extensionSettings";
@@ -60,6 +61,7 @@ import {
   type CloudEnvironmentsState,
   type LibraryListing,
   type LibraryRun,
+  type LooksRun,
   type Standup,
   type SharesState,
   type TailnetState,
@@ -250,6 +252,8 @@ export class SettingsStore {
   private readonly listeners = new Set<() => void>();
   private readonly unsubscribers: Array<() => void> = [];
   private readonly commandListeners = new Set<(command: PageCommand) => void>();
+  /** Settings > Extensions cards waiting for `cmux.settings.extensions.changed`. */
+  private readonly extensionListeners = new Set<() => void>();
   private disposed = false;
   private openingThemeFile = false;
   private themeColorsRequested = false;
@@ -317,6 +321,10 @@ export class SettingsStore {
       this.listen("cmux.settings.models.changed", (models) =>
         this.queryClient.setQueryData(settingsKeys.models, models),
       ),
+      // An extension was installed, removed or saved (hot reload): Settings > Extensions reads again.
+      this.listen("cmux.settings.extensions.changed", () => {
+        for (const listener of this.extensionListeners) listener();
+      }),
       // A key request arrived or ended: Settings > Keys reads its list again (the event has no values).
       this.listen("cmux.settings.keys.changed", () =>
         this.queryClient.invalidateQueries({ queryKey: [...settingsKeys.all, "keys"] }),
@@ -1054,6 +1062,13 @@ export class SettingsStore {
     return { apps: readExtensionSettings(reply.value), error: null, unavailable: false };
   }
 
+  /** Runs `listener` each time the installed extensions change: an install, a removal, a hide, or a
+   * save of an extension's manifest that the daemon reloaded. */
+  onExtensionsChanged(listener: () => void): () => void {
+    this.extensionListeners.add(listener);
+    return () => this.extensionListeners.delete(listener);
+  }
+
   /** Changes settings of one extension (`null` resets a key): the values it now runs with, or the
    * daemon's refusal text. The running extension hears the change at once. */
   async setExtensionSettings(
@@ -1142,6 +1157,18 @@ export class SettingsStore {
       ? null
       : (answer.message ?? (answer.code ? t("settingsPage.customizeLibrary.notChanged") : null));
     return { library: answer.library ?? null, refusal };
+  }
+
+  /** Settings > Appearance > Looks: one `cmux setup` verb. Answers its JSON, the consent card an
+   * install without `yes` answers, or the CLI's refusal in its own words; null when the host has no
+   * Looks part or no CLI (a call it could not run), so the card draws nothing. */
+  async looks(run: LooksRun): Promise<LooksOutcome | null> {
+    const reply = await this.request("cmux.settings.looks", run);
+    if (!reply.ok) {
+      if (run.verb === "gallery" || run.verb === "preview") return null;
+      return { kind: "refusal", code: reply.error.code, message: userMessage(reply.error, SETTINGS_SENTENCES) };
+    }
+    return readLooksAnswer(reply.value);
   }
 
   /** Settings > Customize's Standup: every library entry as one line (`cmux customize library
@@ -1269,6 +1296,7 @@ export class SettingsStore {
     for (const unsubscribe of this.unsubscribers.splice(0)) unsubscribe();
     this.listeners.clear();
     this.commandListeners.clear();
+    this.extensionListeners.clear();
     this.queryClient.clear();
   }
 

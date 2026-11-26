@@ -448,6 +448,9 @@ impl Seed {
         if not_empty {
             return Err(failed("seed.folder_not_empty", "the folder exists and is not empty"));
         }
+        if self.borrow_clone() {
+            return Ok(());
+        }
         self.clone_into(&folder)
     }
 
