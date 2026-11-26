@@ -170,8 +170,9 @@ pub fn indicator(status: GlanceStatus) -> Indicator {
 
 /// `HomeAgentGlance.shortlist`: indices of the `limit` most urgent agents, stable.
 pub fn shortlist(statuses: &[GlanceStatus], limit: usize) -> Vec<usize> {
-    let mut order: Vec<usize> = (0..statuses.len()).collect();
-    order.sort_by_key(|&i| (statuses[i], i));
+    let mut order: Vec<(GlanceStatus, usize)> =
+        statuses.iter().copied().enumerate().map(|(i, status)| (status, i)).collect();
+    order.sort();
     order.truncate(limit);
-    order
+    order.into_iter().map(|(_, i)| i).collect()
 }
