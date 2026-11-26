@@ -2196,15 +2196,20 @@ jobs:
           BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           REPO_URL: ${{ github.server_url }}/${{ github.repository }}
           WORKFLOW_SHA: ${{ github.sha }}
-          FETCH_TOKEN: ${{ github.token }}
+          # The release App's read-only token, minted for this checkout alone (nightly-next-one's "Mint the
+          # release App token for the warm checkout"): never the shared cmux-bot token, never the job's
+          # GITHUB_TOKEN, never anonymous. Run 45744507889 failed on GitHub's unauthenticated per-IP limit
+          # (raw.githubusercontent.com 429 four times, then git fetch 403). Where no step mints it
+          # (build-nightly-app, whose environment holds no release App key) the job's own token: never anonymous.
+          FETCH_TOKEN: ${{ steps.warm-fetch-token.outputs.token || github.token }}
         run: |
           set -euo pipefail
           [[ "$BUILD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "bad build sha: $BUILD_SHA" >&2; exit 1; }
           # Every read here goes out with the job's token. Anonymous, nightlies 45744507889 and
           # 45756842046..45763487534 (2026-11-26) got 429s for git_fetch_retry.py and a 403 for the
           # fetch from the fleet's shared address. The header lives in this step's environment only,
-          # never in the kept slot's git config; curl reads it from a 0600 file, not its argv.
-          fetch_auth=$(printf 'x-access-token:%s' "$FETCH_TOKEN" | base64 | tr -d '\n')
+          # never in the kept slot's git config.
+          fetch_auth=$(printf 'x-access-token:%s' "${FETCH_TOKEN:-}" | base64 | tr -d '\n')
           echo "::add-mask::$fetch_auth"
           export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.$GITHUB_SERVER_URL/.extraheader" \
             GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $fetch_auth"
@@ -2253,7 +2258,7 @@ jobs:
           fi
           in_mirror() { [ -n "$mirror_ok" ] && git --git-dir="$mirror" cat-file -e "$1^{commit}" 2>/dev/null; }
           from_mirror() {
-            git -c protocol.version=2 -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 fetch -q --no-tags --no-recurse-submodules "$mirror" "$BUILD_SHA" \
+            git -c protocol.version=2 -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 fetch -q --no-tags --no-recurse-submodules "$mirror" "$BUILD_SHA" \
               && git cat-file -e "$BUILD_SHA^{commit}" && source=mirror
           }
           # The mirror is fetched from GitHub every minute by the host's one fetcher (glaeda-git-mirror's
@@ -2284,24 +2289,20 @@ jobs:
           fi
           fetch_retry="$RUNNER_TEMP/git_fetch_retry.py"
           rm -f "$fetch_retry"
-          fetch_header="$RUNNER_TEMP/warm-checkout-auth-header"
-          trap 'rm -f "$fetch_header"' EXIT
-          (umask 077; printf 'Authorization: Bearer %s\n' "$FETCH_TOKEN" > "$fetch_header")
-          # The helper comes from local objects first (the mirror's, borrowed); raw.githubusercontent.com last.
+          # The helper comes from local objects (the slot's, the borrowed mirror's, the mirror itself), never from
+          # raw.githubusercontent.com: that anonymous read is what answered 429.
           git show "$WORKFLOW_SHA:scripts/ci/git_fetch_retry.py" > "$fetch_retry" 2>/dev/null \
+            || { [ -n "$mirror_ok" ] && git --git-dir="$mirror" show "$WORKFLOW_SHA:scripts/ci/git_fetch_retry.py" > "$fetch_retry" 2>/dev/null; } \
             || git show "$BUILD_SHA:scripts/ci/git_fetch_retry.py" > "$fetch_retry" 2>/dev/null \
             || cp scripts/ci/git_fetch_retry.py "$fetch_retry" 2>/dev/null \
-            || curl -fsS --max-time 30 --retry 3 --retry-all-errors -H @"$fetch_header" -o "$fetch_retry" \
-              "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$WORKFLOW_SHA/scripts/ci/git_fetch_retry.py" \
             || rm -f "$fetch_retry"
-          rm -f "$fetch_header"
           retry() {
             if [ -s "$fetch_retry" ]; then python3 "$fetch_retry" --tries 3 --timeout 600 --repo "$GITHUB_WORKSPACE" -- "$@"
             else
               echo "::warning title=warm checkout::git_fetch_retry.py unavailable; running git up to 3 times with the low-speed abort"
               local try
               for try in 1 2 3; do
-                "$1" -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 "${@:2}" && return 0
+                "$1" -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 "${@:2}" && return 0
                 [ "$try" -lt 3 ] && sleep $((try * 30))
               done
               return 1
@@ -2309,11 +2310,15 @@ jobs:
           }
           once() {
             if [ -s "$fetch_retry" ]; then python3 "$fetch_retry" --tries 1 --timeout 600 --repo "$GITHUB_WORKSPACE" -- "$@"
-            else "$1" -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 "${@:2}"; fi
+            else "$1" -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 "${@:2}"; fi
           }
-          # The mirror never got the commit: fetch only that commit from GitHub, authenticated with this job's
-          # own token (never the shared App token), with a bounded backoff on a 429 or 403. Before each try
+          # The mirror never got the commit: fetch only that commit from GitHub, authenticated with the release App's
+          # token (the job's own where none is minted), with a bounded backoff on a 429 or 403. Before each try
           # the mirror is read again, so a pass of the host's fetcher that lands meanwhile wins.
+          if [ -z "$source" ] && [ -z "${FETCH_TOKEN:-}" ]; then
+            echo "::error title=warm checkout::the mirror lacks $BUILD_SHA and this job has no token; refusing an anonymous fetch from GitHub"
+            exit 1
+          fi
           if [ -z "$source" ]; then
             echo "::warning title=warm checkout::the mirror lacks $BUILD_SHA after the wait; fetching only that commit from GitHub"
             for delay in ${CHECKOUT_FETCH_BACKOFF_SECONDS:-0 30 60 120 240}; do
@@ -2342,12 +2347,23 @@ jobs:
           git -c core.hooksPath=/dev/null checkout -q --force --detach "$BUILD_SHA"
           git update-ref refs/remotes/origin/nightly-warm-base "$BUILD_SHA"
           chmod -R u+w .build/go-path 2>/dev/null || true
-          git clean -ffdxq -e /cmux-tui/target/ -e /Native/OptChat/optchat-chief/target/ -e /cmux-next-ios/rust/target/
+          # nightly-next-one checks out .publish-tooling (the claim script) before this step; the clean keeps it.
+          git clean -ffdxq -e /cmux-tui/target/ -e /Native/OptChat/optchat-chief/target/ -e /cmux-next-ios/rust/target/ -e /.publish-tooling/
           git reset -q --hard "$BUILD_SHA"
           git submodule sync -q --recursive
           started=$SECONDS
-          retry git -c protocol.version=2 -c core.hooksPath=/dev/null submodule update --init --force --depth=1 --recursive
-          echo "updated submodules in $((SECONDS - started)) s"
+          # A warm slot holds the submodule commits already: check them out with no network (https refused, so
+          # a missing one fails here instead of cloning anonymously), then fetch only with the App's token.
+          if git -c protocol.https.allow=never -c core.hooksPath=/dev/null submodule update --init --force --no-fetch --recursive \
+              > "$RUNNER_TEMP/submodule-local.log" 2>&1; then
+            echo "updated submodules from local objects in $((SECONDS - started)) s"
+          elif [ -n "${FETCH_TOKEN:-}" ]; then
+            retry git -c protocol.version=2 -c core.hooksPath=/dev/null submodule update --init --force --depth=1 --recursive
+            echo "updated submodules from GitHub with the release App token in $((SECONDS - started)) s"
+          else
+            echo "::error title=warm checkout::the submodules need a GitHub fetch and this job minted no release App token; refusing an anonymous fetch: $(tail -c 400 "$RUNNER_TEMP/submodule-local.log")"
+            exit 1
+          fi
           git submodule foreach -q --recursive 'git clean -ffdxq && git reset -q --hard'
           git submodule foreach -q --recursive git config --local gc.auto 0
           packs=$(find .git/objects/pack -name '*.pack' | wc -l | tr -d ' ')
@@ -3516,7 +3532,7 @@ jobs:
         name: Add the workflow commit's new step scripts to an older build tree
         if: ((env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && hashFiles('scripts/ci/nightly-steps/prepare-thin-bundle.sh') == '') && !env.LEFT_SLOT
         run: |
-          for try in 1 2 3; do git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=120 fetch -q --no-tags --depth=1 origin "$GITHUB_SHA" && break; [ "$try" != 3 ] || exit 1; sleep $((try * 10)); done
+          for try in 1 2 3; do git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=120 fetch -q --no-tags --depth=1 origin "$GITHUB_SHA" && break; [ "$try" != 3 ] || exit 1; sleep $((try * 10)); done
           git diff --name-only --diff-filter=A HEAD FETCH_HEAD -- scripts/ci/nightly-steps | while read -r f; do git checkout FETCH_HEAD -- "$f"; done
 
       - &download-signing-inputs-paralle
@@ -4706,7 +4722,7 @@ jobs:
         name: Add the workflow commit's new step scripts to an older build tree
         if: hashFiles('scripts/ci/nightly-steps/prepare-thin-bundle.sh') == ''
         run: |
-          for try in 1 2 3; do git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=120 fetch -q --no-tags --depth=1 origin "$GITHUB_SHA" && break; [ "$try" != 3 ] || exit 1; sleep $((try * 10)); done
+          for try in 1 2 3; do git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=120 fetch -q --no-tags --depth=1 origin "$GITHUB_SHA" && break; [ "$try" != 3 ] || exit 1; sleep $((try * 10)); done
           git diff --name-only --diff-filter=A HEAD FETCH_HEAD -- scripts/ci/nightly-steps | while read -r f; do git checkout FETCH_HEAD -- "$f"; done
       - &x75
         name: Verify bundled CLI commands run from the bundle alone
@@ -6095,7 +6111,8 @@ jobs:
           name: language-packs
           path: language-packs
           run-id: ${{ steps.source.outputs.language_packs_run || github.run_id }}
-          github-token: ${{ github.token }}
+          # Only another run's packs need the REST API (and its installation rate limit).
+          github-token: ${{ steps.source.outputs.language_packs_run != '' && github.token || '' }}
 
       - &x92b
         name: Publish the language packs
@@ -7134,9 +7151,25 @@ jobs:
       - *hold-the-whole-mac
       - *clear-stale-git-locks-self-hos-2
       - *x8
-      - *x9
       - *checkout-publication-tooling-a
       - *claim-publication-mac
+      # After the claim (the release App key comes after it, rule 7a of
+      # tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py): the key reaches only the action, the
+      # read-only token only the warm checkout's env, which keeps .publish-tooling through its clean. One installation token for this checkout, so its GitHub reads spend the App's own
+      # quota (5,000+ an hour) and never the Mac's shared unauthenticated per-IP limit (run 45744507889).
+      - name: Mint the release App token for the warm checkout
+        id: warm-fetch-token
+        if: inputs.nightly_next_unsigned_run == '' && runner.environment == 'self-hosted' && needs.decide.outputs.track == 'nightly-next'
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: read
+      - *x9
       # Before the leave step's gh calls (tests/test_publish_app_token_workflow.py).
       - *x12
       # Latest wins at the slot too, with no wait on this Mac: it asks main's tick and leaves; bounded gh calls,
@@ -8082,9 +8115,16 @@ jobs:
         id: span
         run: bash scripts/ci/nightly-steps/release-notes-start-span.sh
       - name: Fetch the commits since the newest published notes
+        # With the job token, for this step only, as "Fetch the published span" does: an anonymous
+        # fetch shares the runner egress IP's anonymous limit and got 403s on 2026-11-26.
         env:
           SPAN_SINCE: ${{ steps.span.outputs.since }}
-        run: ./scripts/cmux-next/fetch-release-notes-span.sh origin "$HEAD_SHA" nightly-next ${SPAN_SINCE:+"$SPAN_SINCE"}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::$auth"
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            ./scripts/cmux-next/fetch-release-notes-span.sh origin "$HEAD_SHA" nightly-next ${SPAN_SINCE:+"$SPAN_SINCE"}
       - name: Build and sign the release notes
         env:
           CONTENT_SIGNING_ED25519_PEM: ${{ secrets.CONTENT_SIGNING_ED25519_PEM }}
@@ -8261,7 +8301,27 @@ jobs:
       RUN_ATTEMPT: ${{ github.run_attempt }}
       RETRY: ${{ inputs.nightly_next_loop_retry }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # The retry runs after a failure that is often GitHub refusing this host's git traffic (run 45744507889:
+      # actions/checkout got 403 here too). On an owned Mac, scripts/ci comes from the host's git mirror (fetched
+      # every minute by its one fetcher), with no github.com git fetch; actions/checkout only when it lacks SHA.
+      - name: Read scripts/ci from the host's git mirror
+        id: mirror-scripts
+        if: runner.environment == 'self-hosted'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mirror="${GLAEDA_GIT_MIRROR_DIR:-/Users/Shared/cmux-build-fleet/git}/cmux.git"
+          if [ ! -f "$mirror/glaeda-verified" ] || [ -e "$mirror/glaeda-repair-pending" ]; then echo "no healthy mirror at $mirror"; exit 0; fi
+          until=$((SECONDS + 180))
+          until git --git-dir="$mirror" cat-file -e "$SHA^{commit}" 2>/dev/null; do
+            if [ "$SECONDS" -ge "$until" ]; then echo "the mirror lacks $SHA after 180 s"; exit 0; fi
+            sleep 10
+          done
+          git --git-dir="$mirror" archive "$SHA" scripts/ci | tar -x -C "$GITHUB_WORKSPACE"
+          echo "github.com git fetches: 0 (scripts/ci of $SHA from $mirror)"
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+      - if: steps.mirror-scripts.outputs.ok != 'true'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci
@@ -8328,6 +8388,20 @@ jobs:
           TRACK: ${{ needs.decide.outputs.track || needs.published-build.outputs.track || inputs.nightly_next_post_publish != '' && 'nightly-next' || '' }}
         with:
           script: |
+            // A rate-limited request waits for its reset and goes again (run 45776501690 lost its report to one); a
+            // refused request did nothing, so a write retries safely. 50 min of waits in all, as decide does.
+            const deadline = Date.now() + 50 * 60 * 1000;
+            github.hook.wrap('request', async (request, options) => {
+              for (let attempt = 1; ; attempt += 1) {
+                try { return await request(options); } catch (error) {
+                  const h = (error.response && error.response.headers) || {};
+                  if (!((error.status === 403 || error.status === 429) && (h['x-ratelimit-remaining'] === '0' || h['retry-after'] !== undefined || /rate limit/i.test(String(error.message)))) || Date.now() >= deadline) throw error;
+                  const ms = Math.max(5000, Math.min(Number(h['retry-after']) * 1000 || Number(h['x-ratelimit-reset']) * 1000 - Date.now() + 2000 || 60000 * attempt, deadline - Date.now()));
+                  core.warning(`GitHub API rate limited (${error.status}) on ${options.method} ${options.url}; retrying in ${Math.round(ms / 1000)} s`);
+                  await new Promise((resolve) => setTimeout(resolve, ms));
+                }
+              }
+            });
             const { owner, repo } = context.repo;
             // One label per release track (nightly, rc, nightly-next), so a
             // cmux-next result never opens or closes main's NIGHTLY incident.
