@@ -33,6 +33,7 @@ pub mod local_link;
 mod mac_screen;
 mod mailbox_client;
 mod pair_requests;
+mod pane_filter;
 mod read_store;
 mod relay_hold;
 mod row_layout;
@@ -69,6 +70,10 @@ pub use last_place::{LastPlaceAnchor, LastPlaceRecord, LastPlaceScreen, LastPlac
 pub use link_progress::{HeldKeysExpiryReason, LinkProgressClock, held_keys_expiry};
 pub use link_side::{LinkOpenSide, link_open_side};
 pub use mac_screen::{MacScreenAnswer, MacScreenDisplay, MacScreenIceServer, MacScreenObserver, MacScreenRd};
+pub use pane_filter::{
+    PaneFilter, PaneFilterResult, PaneKind, PaneScope, pane_filter_apply, pane_filter_decode,
+    pane_filter_default, pane_filter_encode, pane_filter_shows,
+};
 pub use read_store::{PhoneReadKey, PhoneReadStore, PhoneReadStoreError};
 pub use share_approval::{ShareApprovalDraft, ShareAsk, share_approval_draft, share_approval_signed};
 pub use tabs::{TabsEvent, TabsMirror, TabsRow, TabsViewport};
