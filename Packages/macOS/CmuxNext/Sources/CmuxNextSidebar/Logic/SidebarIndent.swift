@@ -5,7 +5,8 @@ import CoreGraphics
 /// Every x a row, a members' rail, a lifted card or a drop line takes comes from here, from
 /// the row's level from the groups the list holds (`SidebarRow.indentLevel`), so two rows at the same
 /// level always share one x, in any group, after a drag and after a reload. A level past
-/// ``visualCap(width:)`` draws at the cap: in a narrow sidebar the labels keep their width.
+/// ``visualCap(width:)`` draws at the cap: in a narrow sidebar the labels keep their width. The level a pointer's
+/// x picks at a nested block's bottom edge is Rust's (`sidebar_drop_geometry::Indent::level_at_x`).
 nonisolated struct SidebarIndent: Hashable, Sendable {
     /// One level's step: the members' gutter (`SidebarStyle.groupGutter`), or in the plain-folder look the distance
     /// that puts a member's title under its folder's name (`SidebarStyle.folderMemberStep`).
@@ -35,20 +36,5 @@ nonisolated struct SidebarIndent: Hashable, Sendable {
     /// group's rail sits in the inset beside them. Each deeper level is one step further in, up to the cap.
     func offset(level: Int, width: CGFloat) -> CGFloat {
         CGFloat(min(max(0, indentsTopLevel ? level : level - 1), visualCap(width: width))) * step
-    }
-
-    /// The level a pointer at `x` (from the list's leading inset) points at, in `range`: a drop
-    /// at a block's bottom edge goes to the level its x picks, like an outliner.
-    func level(atX x: CGFloat, width: CGFloat, in range: ClosedRange<Int>) -> Int {
-        guard step > 0 else { return range.lowerBound }
-        let cap = visualCap(width: width)
-        // Level L >= 1 sits at (L - 1) steps (`offset`), level 0 shares level 1's x: a pointer in the first half
-        // step picks 0 (out of the top-level group), the rest of that step 1, then each step one level deeper.
-        // With `indentsTopLevel` each level has its own x, L steps in: the pointer picks the nearest one.
-        let picked = indentsTopLevel ? Int((x / step + 0.5).rounded(.down))
-            : x < step / 2 ? 0 : Int((x / step).rounded(.down)) + 1
-        // Past the cap every level shares one x: the deepest allowed one wins there.
-        let level = (indentsTopLevel ? picked : picked - 1) >= cap ? range.upperBound : picked
-        return min(range.upperBound, max(range.lowerBound, level))
     }
 }
