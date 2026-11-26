@@ -1818,7 +1818,7 @@ jobs:
   # checks line (changes' red_line read); a green call with no red line changed nothing (2026-11-25).
   pr-red-checks:
     needs: [changes, web]
-    if: ${{ (always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && needs.web.result != 'skipped') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","dev-build","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) && (github.event.action != 'labeled' || github.run_attempt > 1 || contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || needs.changes.outputs.red_line != 'false') }}
+    if: ${{ (always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && needs.web.result != 'skipped') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","dev-build","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) && (github.event.action != 'labeled' && github.event.action != 'unlabeled' || github.run_attempt > 1 || contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || needs.changes.outputs.red_line != 'false') }}
     permissions:
       actions: read
       checks: read
