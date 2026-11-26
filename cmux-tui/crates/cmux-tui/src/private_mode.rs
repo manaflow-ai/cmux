@@ -102,6 +102,14 @@ fn render_capabilities(json: bool) -> String {
 #[path = "private_mode_tests.rs"]
 mod tests;
 
+/// The NIGHTLY install check runs only where the app does (cmux-install-check is unix-only).
+#[cfg(not(unix))]
+fn install_check(_args: &[String]) -> i32 {
+    client_log::stderr_log!("startup", "{BIN}: install check: not on Windows yet");
+    1
+}
+
+#[cfg(unix)]
 fn install_check(args: &[String]) -> i32 {
     let mut stdin = String::new();
     if args.first().map(String::as_str) == Some("decide")
