@@ -61,6 +61,14 @@ extension FileHandle {
                     try? handle.close()
                     continuation.finish()
                 }
+                #if !canImport(Darwin)
+                // The non-Darwin readability source may report the last bytes and the writer's close as one
+                // event and not fire again, so an end of file already waiting ends the stream now.
+                if handle.readabilityHandler != nil, handle.endOfFileIsWaiting() {
+                    handle.readabilityHandler = nil
+                    continuation.finish()
+                }
+                #endif
             case .retry:
                 break
             case .end:
@@ -71,3 +79,15 @@ extension FileHandle {
         return (chunks, { continuation.finish() })
     }
 }
+
+#if !canImport(Darwin)
+extension FileHandle {
+    /// True when the writer has closed and nothing is left to read: the next `read(2)` would return end of file.
+    nonisolated func endOfFileIsWaiting() -> Bool {
+        var pending = pollfd(fd: fileDescriptor, events: Int16(POLLIN), revents: 0)
+        guard poll(&pending, 1, 0) == 1, pending.revents & Int16(POLLHUP) != 0 else { return false }
+        var available: Int32 = 0
+        return ioctl(fileDescriptor, UInt(FIONREAD), &available) == 0 && available == 0
+    }
+}
+#endif
