@@ -128,6 +128,8 @@ pub(crate) mod full_access_bound;
 pub(crate) mod full_access_children;
 mod gemini_plan;
 mod git_watch;
+// RFD 0158 §1: the cache-read alarm (`cache_alarm.rs`).
+mod cache_alarm;
 // The dynamic CPU class's controller (`cpu_class/pressure.rs`).
 mod cpu_pressure;
 mod github_owner;
@@ -286,7 +288,7 @@ mod policy_source;
 mod pool;
 pub(crate) mod pool_pressure;
 // Files a prompt names, read into it as the turn starts (harness magic).
-mod prefetch;
+pub(crate) mod prefetch;
 pub mod presence;
 mod processes;
 mod profile_respawn;
@@ -404,6 +406,8 @@ pub mod subsessions;
 mod successors;
 mod surge_triage;
 mod urgent_steer;
+// A task's spend burn-rate warnings during its turn.
+mod spend_burn;
 // Mask old tool output instead of summarizing it (harness magic).
 pub(crate) mod surgery;
 mod surgery_codex;
