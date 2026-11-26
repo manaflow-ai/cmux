@@ -381,6 +381,7 @@ struct ReplayConversationScreen: View {
                     }
                 } else {
                     CmuxSpinner(label: Text("Loading this chat's history…")).frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .placeholderBound("chat.history.loading", .milliseconds(2000))
                 }
             case .empty:
                 ContentUnavailableView("Nothing to replay yet.", systemImage: "arrow.counterclockwise")
@@ -605,6 +606,13 @@ final class ReplaySource: AgentSessionSource {
         if !played.isEmpty { continuation.yield(.batch(played)) }
         continuations.append(continuation)
         return stream
+    }
+
+    /// What has played so far is held whole: the store has it before the replay's first frame.
+    func eventsWithHead() -> (head: [AgentSessionEvent], rest: AsyncStream<AgentSessionEvent>) {
+        let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream(bufferingPolicy: .unbounded)
+        continuations.append(continuation)
+        return (played.isEmpty ? [] : [.batch(played)], stream)
     }
 
     func play(_ events: [AgentSessionEvent]) {
