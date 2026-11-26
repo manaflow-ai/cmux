@@ -479,7 +479,9 @@ mod xz_tests {
         true
     }
 
-    fn run(archive: Vec<u8>, strip: usize) -> (Result<BTreeMap<String, (Vec<u8>, bool)>>, u32) {
+    type Unpacked = Result<BTreeMap<String, (Vec<u8>, bool)>>;
+
+    fn run(archive: Vec<u8>, strip: usize) -> (Unpacked, u32) {
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let mut pid = 0;
