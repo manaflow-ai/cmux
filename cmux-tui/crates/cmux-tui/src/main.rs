@@ -45,8 +45,6 @@ mod cloud_conversations_backend;
 #[cfg(unix)]
 mod cloud_environment;
 #[cfg(unix)]
-mod coderouter_usage;
-#[cfg(unix)]
 #[cfg(unix)]
 mod codex_wrapper;
 #[cfg(not(target_os = "macos"))]
@@ -62,6 +60,8 @@ mod heap_profile;
 #[cfg(unix)]
 mod host_orphan_policy;
 mod local_actor;
+#[cfg(unix)]
+mod machine_identity;
 #[cfg(unix)]
 mod machine_secrets;
 #[cfg(unix)]
@@ -2974,10 +2974,6 @@ fn run_server(
     let served_socket = pending_server.into_bound_path();
     mux.start_journal_plugin(served_socket.clone());
     let mut served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);
-    // Cloud VMs carry coderouter identity in their model-plane env; every
-    // other host resolves no source and gets no poller.
-    #[cfg(unix)]
-    let machine_usage_poller = coderouter_usage::start_poller(Arc::downgrade(&mux));
     #[cfg(unix)]
     cloud_conversations_backend::install(&mux);
     #[cfg(unix)]
@@ -3107,10 +3103,6 @@ fn run_server(
     }
     if let Some(writer) = launch_snapshot_writer {
         writer.stop();
-    }
-    #[cfg(unix)]
-    if let Some(poller) = machine_usage_poller {
-        poller.stop();
     }
     #[cfg(unix)]
     let remote_shutdown = remote_runtime.map(|runtime| runtime.shutdown()).transpose();
