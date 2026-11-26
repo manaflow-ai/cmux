@@ -1,4 +1,4 @@
-use super::{MAX_EVENT_PAGES, Transcript, load, sender_name_of, tab_shows_chat};
+use super::{MAX_EVENT_PAGES, Transcript, load, sender_name_of, shown_in_workspace};
 use serde_json::{Value, json};
 
 fn update(seq: u64, update: Value) -> Value {
@@ -312,19 +312,23 @@ fn reads_of_one_acpmux_share_one_connection() {
 
 /// A chat brought back from a Cloud machine runs with no workspace in its env (the move clears
 /// it); the app's tab for it in a workspace of this session puts it in scope (probe
-/// cloud-session-move-to-local-production, chat.out_of_scope). A tab of another session, or one
-/// of another chat, does not.
+/// cloud-session-move-to-local-production, chat.out_of_scope). A tab in another session's
+/// workspace, or a tab of another chat, does not.
 #[test]
 fn a_chat_a_tab_of_this_session_shows_is_in_scope() {
     let chat = "01a218d8-3400-74e8-bd76-510a00992eb2";
-    let snapshot = json!({"tabs": [{"id": "tab-moved"}, {"id": "tab-other"}]});
-    let chats = std::collections::HashMap::from([
-        ("tab-moved".to_owned(), format!("acp:{chat}")),
-        ("tab-other".to_owned(), "01a218d8-0000-7000-8000-000000000000".to_owned()),
-        ("tab-elsewhere".to_owned(), "01a218d8-1111-7000-8000-000000000000".to_owned()),
-    ]);
-    assert!(tab_shows_chat(&snapshot, &chats, chat));
-    assert!(!tab_shows_chat(&snapshot, &chats, "01a218d8-1111-7000-8000-000000000000"));
-    assert!(!tab_shows_chat(&json!({"tabs": []}), &chats, chat));
-    assert!(!tab_shows_chat(&json!({}), &chats, chat));
+    let other = "01a218d8-1111-7000-8000-000000000000";
+    let snapshot = json!({"workspaces": [{"id": "ws_ours", "extra": {"key": "k1"}}]});
+    let topology = json!({"workspaces": [
+        {"id": "ws_ours", "panes": [{"tabs": [
+            {"id": "tab-moved", "kind": "conversation", "agent_session": format!("acp:{chat}")},
+        ]}]},
+        {"id": "ws_theirs", "panes": [{"tabs": [
+            {"id": "tab-elsewhere", "kind": "conversation", "agent_session": other},
+        ]}]},
+    ]});
+    assert!(shown_in_workspace(&snapshot, &topology, chat));
+    assert!(!shown_in_workspace(&snapshot, &topology, other));
+    assert!(!shown_in_workspace(&json!({"workspaces": []}), &topology, chat));
+    assert!(!shown_in_workspace(&snapshot, &json!({}), chat));
 }

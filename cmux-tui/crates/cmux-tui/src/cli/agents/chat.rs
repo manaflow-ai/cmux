@@ -342,9 +342,10 @@ fn session_workspace_keys(snapshot: &Value) -> HashSet<String> {
         .collect()
 }
 
-/// Whether a tab of this cmux session shows chat `chat`: the app names each chat tab's acpmux
-/// session (`snapshot.get`), and the daemon snapshot holds only this session's tabs. No app
-/// (CI, a headless agent): no tab shows it.
+/// Whether a tab of this cmux session shows chat `chat`: a workspace of the app's topology
+/// (`snapshot.get`) whose tabs show the chat (`agent_session`), and that workspace one of this
+/// session's (the daemon snapshot's, which holds only this session's workspaces). No app (CI, a
+/// headless agent): no tab shows it.
 fn shown_in_session(global: &GlobalArgs, snapshot: &Value, chat: &str) -> bool {
     let Ok(app) =
         mcp::agent_app(global, "snapshot.get", json!({}), super::super::app::READ_TIMEOUT, None)
@@ -352,23 +353,37 @@ fn shown_in_session(global: &GlobalArgs, snapshot: &Value, chat: &str) -> bool {
         return false;
     };
     let Some(topology) = app.get("topology") else { return false };
-    tab_shows_chat(snapshot, &super::app_chat_sessions(topology), chat)
+    shown_in_workspace(snapshot, topology, chat)
 }
 
-/// Whether one of SNAPSHOT's tabs is a chat tab the app binds (CHATS, tab id to acpmux session)
-/// to chat `chat`.
-pub(super) fn tab_shows_chat(
-    snapshot: &Value,
-    chats: &HashMap<String, String>,
-    chat: &str,
-) -> bool {
-    snapshot["tabs"]
+/// [`shown_in_session`]'s check on the two snapshots: the daemon's SNAPSHOT of this session and
+/// the app's TOPOLOGY.
+pub(super) fn shown_in_workspace(snapshot: &Value, topology: &Value, chat: &str) -> bool {
+    fn shows(value: &Value, chat: &str) -> bool {
+        match value {
+            Value::Object(object) => {
+                object
+                    .get("agent_session")
+                    .and_then(Value::as_str)
+                    .is_some_and(|session| session.strip_prefix("acp:").unwrap_or(session) == chat)
+                    || object.values().any(|child| shows(child, chat))
+            }
+            Value::Array(values) => values.iter().any(|value| shows(value, chat)),
+            _ => false,
+        }
+    }
+    let ours: HashSet<&str> = snapshot["workspaces"]
         .as_array()
         .into_iter()
         .flatten()
-        .filter_map(|tab| tab.get("id").and_then(Value::as_str))
-        .filter_map(|id| chats.get(id))
-        .any(|session| session.strip_prefix("acp:").unwrap_or(session) == chat)
+        .filter_map(|workspace| workspace["id"].as_str())
+        .collect();
+    topology["workspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|workspace| workspace["id"].as_str().is_some_and(|id| ours.contains(id)))
+        .any(|workspace| shows(workspace, chat))
 }
 
 /// The caller's own chat: the acpmux session acpmux started it in.
