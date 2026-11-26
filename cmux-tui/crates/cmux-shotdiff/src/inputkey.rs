@@ -51,7 +51,7 @@ pub fn valid_key_name(name: &str) -> bool {
     let b = name.as_bytes();
     !b.is_empty()
         && b.len() <= 64
-        && b[0].is_ascii_alphanumeric()
+        && b.first().is_some_and(u8::is_ascii_alphanumeric)
         && b.iter().all(|c| {
             c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, b'.' | b'_' | b'-')
         })
@@ -236,7 +236,7 @@ fn glob_segments(pat: &[String], path: &[&str]) -> bool {
             if rest.is_empty() {
                 return !path.is_empty();
             }
-            (0..=path.len()).any(|i| glob_segments(rest, &path[i..]))
+            (0..=path.len()).any(|i| path.get(i..).is_some_and(|tail| glob_segments(rest, tail)))
         }
         Some((first, rest)) => match path.split_first() {
             Some((seg, prest)) => {
@@ -250,9 +250,14 @@ fn glob_segments(pat: &[String], path: &[&str]) -> bool {
 fn glob_name(pat: &[u8], name: &[u8]) -> bool {
     match pat.split_first() {
         None => name.is_empty(),
-        Some((b'*', rest)) => (0..=name.len()).any(|i| glob_name(rest, &name[i..])),
-        Some((b'?', rest)) => !name.is_empty() && glob_name(rest, &name[1..]),
-        Some((c, rest)) => name.first() == Some(c) && glob_name(rest, &name[1..]),
+        Some((b'*', rest)) => {
+            (0..=name.len()).any(|i| name.get(i..).is_some_and(|tail| glob_name(rest, tail)))
+        }
+        Some((b'?', rest)) => name.split_first().is_some_and(|(_, tail)| glob_name(rest, tail)),
+        Some((c, rest)) => match name.split_first() {
+            Some((n, tail)) => n == c && glob_name(rest, tail),
+            None => false,
+        },
     }
 }
 
