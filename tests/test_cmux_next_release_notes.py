@@ -589,13 +589,40 @@ class ReleaseNotesTests(unittest.TestCase):
                                      "- and 3 more"])
 
     def test_prs_counts_past_the_change_cap_and_escapes_mentions(self):
+        # The release body names up to 300 PRs, a busy day's whole build (Leo 2026-11-26: "do we display
+        # which prs go into which nightly"); 40 cut most of them.
         since = self.head
-        for number in range(1, 206):
+        for number in range(1, 306):
             git(self.repo, "commit", "-q", "--allow-empty", "-m", f"fix: thanks @someone <x> {number} (#{number})")
         self.head = git(self.repo, "rev-parse", "HEAD")
         lines = run(self.repo, "prs", "--head", self.head, "--since", since).splitlines()
-        self.assertEqual(lines[2], "- [#205](https://github.com/manaflow-ai/cmux/pull/205) fix: thanks &#64;someone &lt;x> 205")
-        self.assertEqual(lines[-1], "- and 165 more")
+        self.assertEqual(lines[2], "- [#305](https://github.com/manaflow-ai/cmux/pull/305) fix: thanks &#64;someone &lt;x> 305")
+        self.assertEqual(lines[-1], "- and 5 more")
+
+    def test_items_name_their_area_and_the_notes_name_their_span(self):
+        # "What's in this build" groups the PRs by area, and `cmux nightly which` needs where a build starts.
+        for path, subject in (("webviews/src/chat.ts", "Chat keeps its scroll (#701)"),
+                              ("cmux-tui/crates/cmux-tui/src/main.rs", "Panes split evenly (#702)"),
+                              ("Packages/macOS/CmuxNext/Sources/A.swift", "Sidebar rows stay put (#703)"),
+                              ("cmux-next-ios/CmuxMobileKit/B.swift", "iPhone keyboard stays open (#704)"),
+                              ("tests/test_x.py", "Cover the sidebar (#705)")):
+            os.makedirs(os.path.join(self.repo, os.path.dirname(path)), exist_ok=True)
+            with open(os.path.join(self.repo, path), "w") as f:
+                f.write(subject)
+            git(self.repo, "add", ".")
+            git(self.repo, "commit", "-q", "-m", subject)
+        since, self.head = self.head, git(self.repo, "rev-parse", "HEAD")
+        notes = self.build(since, build="5")
+        self.assertEqual(notes["since"], since)
+        self.assertEqual({i["pr"]: i.get("area") for i in notes["items"]},
+                         {701: "Agent chat", 702: "Terminal and CLI", 703: "Mac app", 704: "iOS", 705: "Tooling"})
+
+    def test_notes_keep_every_item_past_the_old_cap(self):
+        since = self.head
+        for number in range(1, 251):
+            git(self.repo, "commit", "-q", "--allow-empty", "-m", f"Change {number} (#{number})")
+        self.head = git(self.repo, "rev-parse", "HEAD")
+        self.assertEqual(len(self.build(since, build="6")["items"]), 250)
 
     def test_prs_is_empty_for_an_empty_span(self):
         self.assertEqual(run(self.repo, "prs", "--head", self.head, "--since", self.head), "")
