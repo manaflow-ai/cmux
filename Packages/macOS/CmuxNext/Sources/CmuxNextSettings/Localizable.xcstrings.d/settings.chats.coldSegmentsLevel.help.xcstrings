@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.chats.coldSegmentsLevel.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تستخدم المستويات الأعلى مساحة أقل من القرص وتستغرق وقتًا أطول في الضغط."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Viši nivoi zauzimaju manje prostora na disku i duže se sažimaju."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Højere niveauer bruger mindre diskplads og tager længere tid at komprimere."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Höhere Stufen belegen weniger Speicherplatz und komprimieren langsamer."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Higher levels use less disk and take longer to compress."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los niveles más altos ocupan menos disco y tardan más en comprimir."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les niveaux plus élevés occupent moins de disque et compressent plus lentement."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I livelli più alti occupano meno disco e richiedono più tempo per comprimere."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "レベルが高いほどディスク使用量は減り、圧縮に時間がかかります。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "កម្រិតខ្ពស់ប្រើថាសតិចជាង ហើយចំណាយពេលបង្ហាប់យូរជាង។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "수준이 높을수록 디스크를 덜 쓰고 압축에 더 오래 걸립니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Høyere nivåer bruker mindre diskplass og tar lengre tid å komprimere."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wyższe poziomy zajmują mniej miejsca na dysku i dłużej kompresują."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Níveis mais altos usam menos disco e levam mais tempo para comprimir."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Более высокие уровни занимают меньше места на диске, но сжимают дольше."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ระดับที่สูงขึ้นใช้พื้นที่ดิสก์น้อยลงและใช้เวลาบีบอัดนานขึ้น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daha yüksek düzeyler daha az disk kullanır ve sıkıştırması daha uzun sürer."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вищі рівні займають менше місця на диску, але стискають довше."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mức cao hơn dùng ít dung lượng đĩa hơn và nén lâu hơn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "级别越高，占用的磁盘空间越少，压缩耗时越长。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "等級越高，占用的磁碟空間越少，壓縮耗時越長。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
