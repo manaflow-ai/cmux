@@ -51,6 +51,7 @@ nonisolated public struct UpdateReadyCard: Equatable, Sendable {
         if let failure = self.failure {
             title = UpdaterStrings.installFailedTitle
             detail = failure.summary
+            // retry-prompt-ok: installs the update again: replaces the app's binaries and relaunches
             buttonTitle = UpdaterStrings.tryAgain
             self.notes.headline = failure.message
         }

@@ -109,6 +109,7 @@ pub mod sidebar_face;
 pub mod sidebar_mirror;
 mod tab_discard;
 pub mod tab_drag;
+mod tab_groups;
 mod tab_strip;
 pub mod typed;
 pub mod window_close_selection;
@@ -628,6 +629,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 cloud_machine::respond(operation, request)?
             }
             operation if mac_screen::handles(operation) => mac_screen::respond(operation, request)?,
+            operation if tab_groups::handles(operation) => tab_groups::respond(operation, request)?,
             operation if screen::handles(operation) => screen::respond(operation, request)?,
             operation if tab_discard::handles(operation) => {
                 tab_discard::respond(operation, request)?

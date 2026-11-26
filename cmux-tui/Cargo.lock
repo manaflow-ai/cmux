@@ -2753,6 +2753,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-rd-screen-ffi"
+version = "0.1.0"
+dependencies = [
+ "cmux-rd-screen",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-redact"
 version = "0.1.0"
 dependencies = [
