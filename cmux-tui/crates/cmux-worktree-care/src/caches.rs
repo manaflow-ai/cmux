@@ -147,7 +147,7 @@ pub fn last_activity(folder: &Path) -> Option<u64> {
 }
 
 fn verdict(action: Action, reason: impl Into<String>) -> Verdict {
-    Verdict { action, reason: reason.into() }
+    Verdict { action, reason: reason.into(), idle_ms: None }
 }
 
 /// The verdict for an entry of `family` at `now_ms`: [`Action::Reclaim`]
@@ -463,7 +463,7 @@ mod tests {
         age(&idle, 10);
         let now = crate::inventory::now_ms();
         let held = idle.clone();
-        let uses = move || Ok(vec![Process { pid: 1, cwd: held.join("Build") }]);
+        let uses = move || Ok(vec![Process { pid: 1, cwd: held.join("Build"), session_id: None }]);
         let report = run(&options(&home, Pressure::Normal, now, true, &uses, &not_open));
         assert!(idle.exists());
         assert!(report.items[0].verdict.reason.contains("in use"));
