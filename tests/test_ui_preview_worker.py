@@ -117,7 +117,7 @@ class FakeWorker(w.Worker):
     def ensure_clone(self):
         pass
 
-    def fetch(self, *shas):
+    def fetch(self, *shas, branches=()):
         pass
 
     def on_branch_tip_or_landed(self, head, branch):
@@ -341,7 +341,7 @@ class SpeedTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             worker = FakeWorker(Path(tmp))
             both_fetching = threading.Barrier(2, timeout=5)
-            worker.fetch = lambda *shas: both_fetching.wait()
+            worker.fetch = lambda *shas, **kw: both_fetching.wait()
             jobs = w.queue.Queue()
             for n in "12":
                 jobs.put((request(head_sha=n * 40, branch=f"lane/{n}", ui_files=["webviews/src/a.tsx"]),
@@ -440,12 +440,48 @@ class StallTests(unittest.TestCase):
             try:
                 self.assertTrue(worker.on_branch_tip_or_landed(landed, "lane/x"))
                 self.assertEqual(asked, [], "a landed head asked GitHub")
-                # A head not under the base tip (another branch's commit): GitHub's turn (here: no origin).
+                # A head not under the base tip (another branch's commit): one fetch of the branch and the base,
+                # by tracking refspec as the lane VMs' brokered fetch takes it (here: no origin).
                 with self.assertRaises(w.LookError):
                     worker.on_branch_tip_or_landed(fork, "lane/x")
-                self.assertEqual(asked, ["ls-remote"])
+                self.assertEqual(asked, ["fetch"])
             finally:
                 w.git = real_git
+
+    def test_every_fetch_is_one_the_brokered_fetch_carries_and_a_branch_tip_passes(self):
+        """lane-1/2 (2026-11-26): the lane VMs' git fetch goes through the broker, which carries plain branch names
+        and tracking refspecs only; the worker's --filter=blob:none fetch killed every warm-up."""
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            subprocess.run(["git", "init", "-q", "-b", w.BASE_BRANCH, str(src)], check=True)
+            base = commit(src, {"a": "1"})
+            subprocess.run(["git", "-C", str(src), "checkout", "-q", "-b", "lane/x"], check=True)
+            head = commit(src, {"b": "x"})
+            subprocess.run(["git", "-C", str(src), "checkout", "-q", "-b", "other", base], check=True)
+            other = commit(src, {"c": "z"})  # on no branch the look names, never landed
+            worker = w.Worker(Path(tmp) / "state", None, None, None, host="t")
+            worker.mirror = None
+            subprocess.run(["git", "init", "-q", "--bare", str(worker.clone)], check=True)
+            subprocess.run(["git", "-C", str(worker.clone), "remote", "add", "origin", str(src)], check=True)
+            fetches = []
+            real_git = w.git
+            w.git = lambda repo, *args, **kw: (args[0] == "fetch" and fetches.append(args)) or real_git(repo, *args,
+                                                                                                         **kw)
+            try:
+                worker.fetch(head, base, branches=("lane/x",))
+                self.assertTrue(worker.has_commit(head) and worker.has_commit(base))
+                self.assertTrue(worker.on_branch_tip_or_landed(head, "lane/x"))
+                self.assertEqual(len(fetches), 1, "the branch tip was fetched again for the ancestry check")
+                subprocess.run(["git", "-C", str(worker.clone), "fetch", "-q", "origin", other], check=True)
+                self.assertFalse(worker.on_branch_tip_or_landed(other, "lane/x"))
+            finally:
+                w.git = real_git
+            for args in fetches:
+                words = [a for a in args[1:] if not a.startswith("-")]
+                self.assertEqual(words[0], "origin")
+                self.assertFalse([a for a in args if a.startswith("--filter")], args)
+                for spec in words[1:]:
+                    self.assertRegex(spec, r"^\+refs/heads/([A-Za-z0-9._][A-Za-z0-9._/-]*):refs/remotes/origin/\1$")
 
     def test_a_checkout_that_changes_the_gallery_config_restarts_the_gallery(self):
         with tempfile.TemporaryDirectory() as tmp:

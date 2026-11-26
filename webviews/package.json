@@ -44,6 +44,7 @@
     "check:whole-list-rows": "bun scripts/check-whole-list-rows.ts",
     "check:design-tokens": "bun scripts/check-design-tokens.ts",
     "check:menu-gutters": "bun scripts/check-menu-gutters.ts",
+    "check:cursor-loops": "bun scripts/check-cursor-loops.ts",
     "check:icon-scale": "bun scripts/check-icon-scale.ts",
     "check:fix": "vp check --fix",
     "dev": "bun run protocol:codegen && vp dev",
