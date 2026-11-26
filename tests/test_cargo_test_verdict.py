@@ -349,6 +349,43 @@ class Scope(unittest.TestCase):
         self.assertTrue(starts_a_test(gate + "\n#[test]\nfn b() {}\n"))
         self.assertTrue(starts_a_test("    #[tokio::test]\n    async fn c() {}\n"))
 
+    def test_stop_budget_tests_run_once_alone_and_count_toward_the_verdict(self):
+        stop = (ROOT / self.CRATE / "tests/hub_integration/stop.rs").read_text()
+        budget = ["stop::" + name for name, body in
+                  re.findall(r"#\[tokio::test\]\s+async fn (\w+)\(\) \{(.*?)\n\}", stop, re.S)
+                  if "STOP_BUDGET" in body]
+        self.assertEqual(len(budget), 2)
+        workflow = (ROOT / ".github/workflows/cmux-tui-spec.yml").read_text()
+        run_all = re.search(r"^          run_all\(\) \{.*?^          \}", workflow, re.M | re.S).group()
+        # Record each real phase's arguments. A red in the isolated phase must still collect the
+        # rest of the integration and library results before the verdict judge reads the head log.
+        driver = '''
+            RUNNER_TEMP=$1
+            timing_status=$2
+            shift 2
+            skip=("$@")
+            suites=(--lib --test hub_integration)
+            pkgs=(-p acpmux)
+            targets=(--test hub_integration)
+            bounded() { echo "$*"; [[ " $* " != *" --test-threads=1 "* ]] || return "$timing_status"; }
+        '''
+        with tempfile.TemporaryDirectory() as temp:
+            for skip in ([], ["--exact", "--skip", "a_deferred_test"]):
+                for status in (0, 1):
+                    with self.subTest(skip=skip, status=status):
+                        result = subprocess.run(["bash", "-c", driver + run_all + "\nrun_all",
+                                                 "bash", temp, str(status), *skip], capture_output=True, text=True)
+                        self.assertEqual(result.returncode, status, result.stderr)
+                        build, timing, integration, libraries = result.stdout.splitlines()
+                        self.assertIn("--no-run", build)
+                        self.assertCountEqual(timing.split(" -- ")[1].split(), ["--exact", "--test-threads=1", *budget])
+                        self.assertIn("--test hub_integration --", timing)
+                        omitted = integration.split(" -- ")[1].split()
+                        self.assertEqual(omitted[0], "--exact")
+                        self.assertEqual(omitted[1::2], ["--skip"] * len(omitted[2::2]))
+                        self.assertCountEqual(omitted[2::2], skip[2:] + budget)
+                        self.assertEqual(libraries.split(" --", 1)[1].split(), skip)
+
 
 class BaseLogSave(unittest.TestCase):
     """The base's own test log, which every red pull request run reads first (a test red there is the base's), is
