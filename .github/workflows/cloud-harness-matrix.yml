@@ -21,7 +21,7 @@ on:
     inputs:
       cells:
         description: comma-separated cells (cloud-chat-matrix.ts --list); default every app-start cell
-        default: claude-app-start,codex-app-start,gemini-app-start,grok-app-start,cursor-app-start,opencode-app-start
+        default: claude-app-start,codex-app-start,gemini-app-start,grok-app-start,cursor-app-start,opencode-app-start,antigravity-app-start
 
 permissions:
   contents: read
