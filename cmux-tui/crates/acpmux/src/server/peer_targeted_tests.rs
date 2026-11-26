@@ -47,14 +47,8 @@ async fn explicit_requests_dial_only_the_selected_machines_after_admission() {
                 "machine": "m4", "name": "click", "session": "test", "call_id": "call"
             }),
         ),
-        (
-            method::MUX_HARNESSES,
-            json!({"_meta": {"acpmux": {"peer": "m6"}}}),
-        ),
-        (
-            method::MUX_HARNESS_HEALTH,
-            json!({"_meta": {"acpmux": {"peer": "m6"}}}),
-        ),
+        (method::MUX_HARNESSES, json!({"_meta": {"acpmux": {"peer": "m6"}}})),
+        (method::MUX_HARNESS_HEALTH, json!({"_meta": {"acpmux": {"peer": "m6"}}})),
     ];
     for (i, (method, params)) in requests.into_iter().enumerate() {
         client.send(Message::request(10 + i as i64, method, params)).await;

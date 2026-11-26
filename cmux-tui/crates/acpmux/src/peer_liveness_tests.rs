@@ -693,7 +693,9 @@ fn the_wake_probe_is_the_network_probe_unless_the_peer_proved_slow() {
 
 /// A ready link to `url` that hears nothing, with a 600 ms silence budget: how it ended, how
 /// long it took, and whether a replacement waits for the next connect.
-async fn a_ready_link_that_goes_silent(url: &str) -> (Result<LinkEnd, String>, Duration, bool) {
+async fn a_ready_link_that_goes_silent(
+    url: &str,
+) -> (Arc<Peer>, Result<LinkEnd, String>, Duration, bool) {
     let (tx, _rx) = mpsc::channel(8);
     let mut peer = Peer::new("p", url, None, None, tx);
     {
@@ -715,7 +717,39 @@ async fn a_ready_link_that_goes_silent(url: &str) -> (Result<LinkEnd, String>, D
         .await
         .expect("a silent link ends within 10 s");
     let replaced = peer.replacement.lock_or_recover().is_some();
-    (ended, started.elapsed(), replaced)
+    (peer, ended, started.elapsed(), replaced)
+}
+
+/// A replacement opened for a silent link must be released when demand parks that link as idle.
+#[tokio::test]
+async fn a_switching_link_drops_its_staged_replacement_before_idle_wait() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let server = tokio::spawn(async move {
+        let mut held = Vec::new();
+        while let Ok((stream, _)) = listener.accept().await {
+            if let Ok(ws) = tokio_tungstenite::accept_async(stream).await {
+                held.push(ws);
+            }
+        }
+    });
+    let (peer, ended, _took, replaced) =
+        a_ready_link_that_goes_silent(&format!("ws://127.0.0.1:{port}")).await;
+    server.abort();
+    assert_eq!(ended, Ok(LinkEnd::Switching));
+    assert!(replaced);
+    assert!(peer.replacement.lock_or_recover().is_some());
+    *peer.wanted.demand.used_at.lock_or_recover() = tokio::time::Instant::now() - IDLE_CLOSE_AFTER;
+
+    peer.finish_link(Ok(LinkEnd::Switching), &mut Backoff::default());
+    let waiting = tokio::spawn({
+        let peer = peer.clone();
+        async move { peer.await_demand().await }
+    });
+    tokio::time::sleep(Duration::from_millis(1)).await;
+    assert!(peer.replacement.lock_or_recover().is_none());
+    peer.stop();
+    assert!(!waiting.await.unwrap());
 }
 
 /// Regression 1 after #54052: a 4 s blackout on an idle relay link. A ping sent in its first
@@ -738,7 +772,7 @@ async fn a_silent_link_whose_peer_still_answers_a_dial_moves_to_it_without_a_dro
             }
         }
     });
-    let (ended, took, replaced) =
+    let (_peer, ended, took, replaced) =
         a_ready_link_that_goes_silent(&format!("ws://127.0.0.1:{port}")).await;
     server.abort();
     assert_eq!(ended, Ok(LinkEnd::Switching), "a silent link with a reachable peer was dropped");
@@ -752,7 +786,7 @@ async fn a_silent_link_whose_replacement_does_not_open_still_drops() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     drop(listener);
-    let (ended, took, replaced) =
+    let (_peer, ended, took, replaced) =
         a_ready_link_that_goes_silent(&format!("ws://127.0.0.1:{port}")).await;
     let error = ended.expect_err("the link drops");
     assert!(error.contains("stopped answering"), "{error}");

@@ -1438,15 +1438,14 @@ async fn dispatch_request_with_identity(
             let peer = hub
                 .peer_by_name(name)
                 .ok_or_else(|| RpcError::not_found(format!("no peer {name:?}")))?;
-            let mut answer =
-                tokio::time::timeout(
-                    std::time::Duration::from_secs(5),
-                    super::peer_targeted::request(&peer, m, json!({})),
-                )
-                    .await
-                    .map_err(|_| {
-                        RpcError::internal(format!("peer {name:?} did not report harnesses in 5 s"))
-                    })??;
+            let mut answer = tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                super::peer_targeted::request(&peer, m, json!({})),
+            )
+            .await
+            .map_err(|_| {
+                RpcError::internal(format!("peer {name:?} did not report harnesses in 5 s"))
+            })??;
             answer
                 .as_object_mut()
                 .ok_or_else(|| RpcError::internal("peer did not report a harness object"))?
