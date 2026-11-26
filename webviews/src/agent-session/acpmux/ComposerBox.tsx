@@ -402,6 +402,7 @@ export function ComposerBox({
             }}
             onInlineViews={inline.onInlineViews}
             isInlineAttachment={inline.known}
+            inlineHidden={attachmentView === "strip"}
             onWholeSelection={setWhole}
             onCopy={(copy, cut, commitCut) => {
               const made = composerCopy(copy.parts, copy.whole, staged());

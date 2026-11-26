@@ -3052,6 +3052,7 @@ export function NewTabScreen(props: Props) {
                 onSlash={setCommandTrigger}
                 onInlineViews={!shell ? inline.onInlineViews : undefined}
                 isInlineAttachment={!shell ? inline.known : undefined}
+                inlineHidden={attachmentView === "strip"}
                 attributes={{
                   [WEB_SWAP_KEPT_TEXT]: "",
                   "data-focus-ring": "none",
