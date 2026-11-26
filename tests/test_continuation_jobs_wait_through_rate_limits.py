@@ -45,6 +45,15 @@ class ContinuationJobsWaitThroughRateLimits(unittest.TestCase):
         self.assertNotIn("urlopen(", text)
         self.assertNotIn("https://api.github.com/", text)
 
+    def test_no_gh_call_is_killed_before_the_budget_wait_can_finish(self) -> None:
+        # gh_budget_wait.sh reserves its whole wait (up to GH_BUDGET_WAIT_MAX_SECONDS, 3600 s)
+        # before sleeping. #59218's publish guard ran gh under subprocess timeout=240, so a reset
+        # more than 4 min away was killed mid-wait, its reservation spent, and the next try
+        # failed at once: the same refusal 45868042226 died on. A gh call's timeout outlasts it.
+        text = WORKFLOW.read_text()
+        short = [int(t) for t in re.findall(r'\["gh",[^\n]*\n?[^\n]*?timeout=(\d+)', text) if int(t) <= 3600]
+        self.assertEqual(short, [], "gh calls killed before an hour-long budget wait ends")
+
 
 if __name__ == "__main__":
     unittest.main()
