@@ -16,11 +16,16 @@
 
 pub mod assemble;
 pub mod cdc;
+pub mod cold;
+pub mod dedup;
 pub mod id;
+pub mod lazy;
 pub mod manifest;
 pub mod pack;
 pub mod plan;
 pub mod pointer;
+pub mod public;
+pub mod seed;
 pub mod store;
 
 pub use id::Id;
