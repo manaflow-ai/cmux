@@ -29,6 +29,53 @@ struct WorkspaceGroupTests {
         return manager
     }
 
+    @Test func socketWorkspaceCreateInheritsCallerGroupWithoutChangingSelection() throws {
+        let manager = makeTabManager()
+        let caller = try #require(manager.tabs.first)
+        let selected = try #require(manager.tabs.last)
+        let callerGroup = try #require(manager.createWorkspaceGroup(name: "Caller", childWorkspaceIds: [caller.id]))
+        let selectedGroup = try #require(manager.createWorkspaceGroup(name: "Other", childWorkspaceIds: [selected.id]))
+        manager.selectWorkspace(selected)
+
+        func create(_ params: [String: Any]) throws -> Workspace {
+            let result = TerminalController.shared.v2WorkspaceCreate(params: params, tabManager: manager)
+            guard case .ok(let raw) = result else {
+                throw NSError(domain: "Expected workspace.create to succeed", code: 1)
+            }
+            let payload = try #require(raw as? [String: Any])
+            let id = try #require(payload["workspace_id"] as? String)
+            return try #require(manager.tabs.first { $0.id.uuidString == id })
+        }
+
+        let inherited = try create(["workspace_id": caller.id.uuidString, "focus": false])
+        #expect(inherited.groupId == callerGroup)
+        #expect(manager.selectedWorkspace?.id == selected.id)
+
+        let explicit = try create(["workspace_id": caller.id.uuidString, "group_id": selectedGroup.uuidString])
+        #expect(explicit.groupId == selectedGroup)
+        let loose = try create([:])
+        #expect(loose.groupId == nil)
+        let looseChild = try create(["workspace_id": loose.id.uuidString])
+        #expect(looseChild.groupId == nil)
+        let windowTarget = try create(["workspace_id": caller.id.uuidString, "window_id": UUID().uuidString])
+        #expect(windowTarget.groupId == nil)
+    }
+
+    @Test func socketWorkspaceCreateRejectsMissingCallerWithoutCreatingAWorkspace() throws {
+        let manager = makeTabManager()
+        let originalCount = manager.tabs.count
+        let result = TerminalController.shared.v2WorkspaceCreate(
+            params: ["workspace_id": UUID().uuidString],
+            tabManager: manager
+        )
+        guard case .err(let code, _, _) = result else {
+            Issue.record("Expected the missing workspace to prevent creation")
+            return
+        }
+        #expect(code == "not_found")
+        #expect(manager.tabs.count == originalCount)
+    }
+
     @Test func createGroupUsesFirstChildAsAnchorWithoutCreatingWorkspace() throws {
         let manager = makeTabManager()
         let children = manager.tabs.map(\.id)
