@@ -483,6 +483,36 @@ async fn a_first_turn_begun_before_its_hand_off_is_made_reports_running_once_it_
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_first_turn_retries_the_permission_request_that_could_not_be_sent() {
+    let (mut r, fake) = reporter();
+    fake.answer([not_found()]);
+    r.step(S, began(1)).await;
+    fake.0.lock().unwrap().absent = true;
+    r.step(S, Step::Asks(Some("Permission: Write".to_owned()))).await;
+    fake.0.lock().unwrap().absent = false;
+    tokio::time::advance(UNMADE_AFTER[0]).await;
+    fake.answer([ok(1, "needs-you")]);
+    r.expire().await;
+    assert_eq!(fake.take(), [s(1, "running", None), s(1, "needs-you", Some("Permission: Write"))]);
+    assert_eq!(r.next_deadline(), None);
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_unanswered_first_begin_keeps_the_end_until_the_hand_off_exists() {
+    let (mut r, fake) = reporter();
+    fake.0.lock().unwrap().absent = true;
+    r.step(S, began(1)).await;
+    fake.0.lock().unwrap().absent = false;
+    fake.answer([not_found()]);
+    r.step(S, done(1, "Done.")).await;
+    tokio::time::advance(UNMADE_AFTER[0]).await;
+    fake.answer([ok(1, "done")]);
+    r.expire().await;
+    assert_eq!(fake.take(), [s(1, "done", Some("Done.")), s(1, "done", Some("Done."))]);
+    assert_eq!(r.next_deadline(), None);
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_first_turn_that_ends_before_its_hand_off_is_made_reports_its_end_once() {
     let (mut r, fake) = reporter();
     fake.answer([not_found(), not_found(), not_found()]);

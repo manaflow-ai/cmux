@@ -792,7 +792,9 @@ impl<I: Io> Reporter<I> {
             track.ended = track.ended.max(Some(turn));
         }
         let answer = self.report(session, turn, status, note.clone()).await;
-        if answer == Outcome::NotFound && self.hold_unmade(session, turn, status, &note) {
+        if matches!(answer, Outcome::NotFound | Outcome::Unsent)
+            && self.hold_unmade(session, turn, status, &note)
+        {
             return;
         }
         if let Some(track) = self.tracks.get_mut(session) {
@@ -1018,7 +1020,7 @@ impl<I: Io> Reporter<I> {
         let Some(track) = self.tracks.get_mut(session) else { return };
         // The first turn's prompt may come before its hand-off is made (`FIRST_TURN`): the turn is
         // followed, and its newest report sent again, instead of never being reported.
-        let unmade = matches!(answer, Some((FIRST_TURN, Outcome::NotFound)));
+        let unmade = matches!(answer, Some((FIRST_TURN, Outcome::NotFound | Outcome::Unsent)));
         if unmade {
             let at = tokio::time::Instant::now() + UNMADE_AFTER[0];
             track.unmade = Some(Unmade { status: "running", note: None, tries: 0, at });
@@ -1081,8 +1083,10 @@ impl<I: Io> Reporter<I> {
         note: Option<String>,
     ) {
         let answer = self.report(session, turn, status, note.clone()).await;
-        // The first turn's hand-off is not made yet: this is the report it gets once it is.
-        if answer == Outcome::NotFound && self.hold_unmade(session, turn, status, &note) {
+        // If delivery is uncertain, keep the latest status and note for the pending retry.
+        if matches!(answer, Outcome::NotFound | Outcome::Unsent)
+            && self.hold_unmade(session, turn, status, &note)
+        {
             return self.set_now(session, Now::Reporting { turn, last: None });
         }
         let Some(track) = self.tracks.get_mut(session) else { return };

@@ -114,7 +114,8 @@ extension CloudStartChat {
             // Beside the link's connect (nothing on the machine, cmux#45953): the pin, this Mac's own record, and a new machine's route report (no spare read it ahead), whose exec (1.9-2.5 s) ran after the 8-11 s connect until 2026-11-25; one that does not say the chat starts is read again after (leo: "when you press enter, the stuff should just start playing").
             let pinMachine = plan.machine == nil ? id : nil, key = start.key
             async let pinned: Void = { @MainActor in if let pinMachine { _ = try Self.checked(await cli.startChatPin(key: key, account: text, machine: pinMachine, workspace: workspace)) } }()
-            async let routeAhead: String? = { @MainActor in if let pinMachine { await CloudMachineRoute(api: cloud.machineAPI, machineID: pinMachine).report() } else { nil } }()
+            // A launch carrying its own connection only needs a route probe if prepare finds the daemon cannot serve it.
+            async let routeAhead: String? = { @MainActor in if connection == nil, let pinMachine { await CloudMachineRoute(api: cloud.machineAPI, machineID: pinMachine).report() } else { nil } }()
             let shown = machines.session(id ?? ""); shown?.waking = asker?.waking; defer { shown?.waking = nil } // the card's "Waking machine" while it settles
             let session: CloudMachineSession
             do { session = try await CloudMove(services: services).machine(invocation, pick: pick) } catch { _ = try? await pinned; _ = await routeAhead; throw error }
