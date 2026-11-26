@@ -139,6 +139,8 @@ final class AppControl {
             }.withDeadline(.fixed(.seconds(45))),
             // Installed Chrome extensions, shortcuts and toolbar badges.
             .mainActor("browser.extensions") { [weak services] _ in .value(services.map { ExtensionControl.report($0) } ?? .null) },
+            // `browser.import_offer`: where the Chrome import card stands, read-only (a NIGHTLY read-back; BrowserImportOfferReadout).
+            .mainActor("browser.import_offer") { [weak services] _ in .value(services?.onboarding.browserImportOffer.readout() ?? .null) },
             // `apps.views`: each open extension view and the words it shows now (read-only).
             .mainActor("apps.views") { [weak services] call in .value(services?.apps.client.viewsReport(app: call.params["app"]?.stringValue) ?? .null) },
             // Ghostty config keys and keybind actions cmux does not apply (R92).
@@ -153,6 +155,8 @@ final class AppControl {
         // Frames, hangs, layout counters and switch times in Release too, off by default (PerfProbes):
         // `perf.probes.enable {"on": true}` opens them for `cmux perf profile --frames`.
         service.router.register(perfProbes.methods())
+        // A browser tab's and its popups' pending prompts in Release too (BrowserPromptsControl), for login-flow checks on a NIGHTLY.
+        service.router.register(BrowserPromptsControl.methods(services))
         // Diagnostics for tagged DEV builds; a release build registers none (ControlRouter drops them: Configuration.allowsDebugMethods).
         #if DEBUG || CMUX_BENCH_HOOKS
         // The newest action runs and the over-budget counters (zero-latency.md, the budget contract).
