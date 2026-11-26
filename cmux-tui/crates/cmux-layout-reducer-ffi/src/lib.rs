@@ -34,6 +34,7 @@
 //! `cloud_sequence_*`: the start's one sequencer, its step order and times;
 //! `cloud_hybrid_*`: a hybrid start, the chat here at once beside its machine, then there;
 //! `cloud_computer_status`: one session's computer status for the chat header (RFD 0080);
+//! `cloud_autosize_rows`: one AutoSize notice added to a chat's AutoSize rows (RFD 0080 piece 4);
 //! a Cloud machine reaches models through its edge, so no op decides a login copy),
 //! `cmux-cloud-config`'s rules (`cloud_config_*`: which Cloud a build talks to;
 //! `cloud_auth_*`: the auth rules around the app's Keychain I/O;
@@ -103,6 +104,9 @@ pub mod sidebar_caps;
 pub mod sidebar_face;
 pub mod sidebar_mirror;
 pub mod tab_drag;
+mod tab_groups;
+mod tab_layout;
+mod tab_strip;
 pub mod typed;
 pub mod window_close_selection;
 // The op modules' `mod` lines and dispatch (`respond_op_module`), from the files in src/: see build.rs.
@@ -610,6 +614,53 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&cmux_focus_core::wire::agent_cursor_visibility(&request))
                     .map_err(|_| ERR_INVALID)?
             }
+            operation if cloud_config::handles(operation) => {
+                cloud_config::respond(operation, request)?
+            }
+            operation if cloud_handler::handles(operation) => {
+                cloud_handler::respond(operation, request)?
+            }
+            operation if cloud_handoff::handles(operation) => {
+                cloud_handoff::respond(operation, request)?
+            }
+            operation if cloud_hybrid::handles(operation) => {
+                cloud_hybrid::respond(operation, request)?
+            }
+            operation if cloud_move::handles(operation) => cloud_move::respond(operation, request)?,
+            operation if pane_focus::handles(operation) => pane_focus::respond(request)?,
+            operation if cloud_sequence::handles(operation) => {
+                cloud_sequence::respond(operation, request)?
+            }
+            operation if cloud_task::handles(operation) => cloud_task::respond(operation, request)?,
+            // Before `cloud_machine`: its `cloud_machine_config_` and `cloud_machine_step_` are narrower.
+            operation if cloud_bootstrap::handles(operation) => {
+                cloud_bootstrap::respond(operation, request)?
+            }
+            operation if cloud_machine::handles(operation) => {
+                cloud_machine::respond(operation, request)?
+            }
+            operation if auto_namer::handles(operation) => auto_namer::respond(operation, request)?,
+            operation if onboarding::handles(operation) => onboarding::respond(operation, request)?,
+            operation if pane_placement::handles(operation) => {
+                pane_placement::respond(operation, request)?
+            }
+            operation if tab_groups::handles(operation) => tab_groups::respond(operation, request)?,
+            operation if screen::handles(operation) => screen::respond(operation, request)?,
+            operation if vnc::handles(operation) => vnc::respond(operation, request)?,
+            operation if tab_discard::handles(operation) => {
+                tab_discard::respond(operation, request)?
+            }
+            operation if tab_layout::handles(operation) => tab_layout::respond(operation, request)?,
+            operation if notification_rings::handles(operation) => {
+                notification_rings::respond(operation, request)?
+            }
+            operation if browser_rules::handles(operation) => {
+                browser_rules::respond(operation, request)?
+            }
+            operation if window_rules::handles(operation) => {
+                window_rules::respond(operation, request)?
+            }
+            operation if dock_model::handles(operation) => dock_model::respond(operation, request)?,
             b"mobile_host" => cmux_mobile_host_core::respond(request).map_err(|_| ERR_INVALID)?,
             // Every other op is an op module's (build.rs): adding a module adds no line here.
             operation => match respond_op_module(operation, request) {

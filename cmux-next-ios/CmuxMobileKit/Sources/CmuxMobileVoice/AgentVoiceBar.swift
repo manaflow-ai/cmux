@@ -125,7 +125,7 @@ public struct AgentVoiceBar: View {
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(.white)
                 .frame(width: 36, height: 36)
-                .cmuxMobilePressBackground(Color.red, in: .circle)
+                .cmuxMobilePressBackground(CmuxMobileTheme.standard.colors.danger.color, in: .circle)
         }
         .buttonStyle(.cmuxPressFillInLabel)
         .accessibilityLabel(AgentVoiceText.end)
