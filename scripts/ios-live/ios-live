@@ -9,7 +9,7 @@
 #   ios-live swap                    your whole change (anything): warm rebuild + relaunch (lease)
 #   ios-live up [REF]                rebuild at REF (default origin/feat-cmux-next), no patch (lease)
 #   ios-live undo [--all]            take back the newest live Swift patch (or all of them) (lease)
-#   ios-live relaunch | tap X Y | type TEXT | tree | log [N]
+#   ios-live relaunch [ARG...] | tap X Y | type TEXT | tree | log [N]
 #   ios-live window                  open the Simulator app (Xcode 27: Device Hub) on the live device, in the background
 #   ios-live ffi-sync FROM_HOST      copy the built Rust FFI from FROM_HOST (a host with Rust iOS targets)
 #   ios-live slots                   every slot on every host: base, holder; and how many are free
@@ -138,33 +138,80 @@ quiet() { grep -v -e '^mux_client_request_session' -e '^ControlSocket .* already
 # broker relays the host_sh form on an ios pool host without one), so reach must never take the host to run it.
 on_host() { REACH_AUTO_LEASE=0 reach "$host" "$@" 2> >(quiet); }
 
-# host_sh [--patch FILE] ARGS...: one round trip. The host gets this checkout's host.sh (and the
-# patch) on stdin as a tar, then runs host.sh ARGS. reach does not always pass the remote exit
-# status back (the hop through cmux-lawrence answers 0), so the host prints it as the last line.
+# The lane-gh broker relay a lane VM reaches the slot Macs through takes a command of at most 16384 bytes and carries
+# no stdin. So the command never carries host.sh: it names a commit on origin, and the host reads host.sh at that
+# commit from its own git (cached as bin/SHA/host.sh, so the common case is one round trip and no fetch).
+cmd_max=16384
+repo_url="${IOS_LIVE_REPO_URL:-https://github.com/manaflow-ai/cmux.git}"
+
+# host_ref_pick: sets host_ref, a commit on origin whose scripts/ios-live/host.sh is the one beside this script: HEAD
+# when it is pushed (in its upstream), else the merge base with origin/feat-cmux-next. When neither has this host.sh,
+# the merge base's is used, and stderr says so.
+host_ref=""
+host_ref_pick() {
+  local top want c u mb cands=()
+  top="$(git -C "$here" rev-parse --show-toplevel 2>/dev/null)" || die "$here is not in a git checkout: the host reads host.sh from a commit on origin"
+  want="$(git -C "$top" hash-object "$here/host.sh")"
+  if u="$(git -C "$top" rev-parse -q --verify '@{upstream}' 2>/dev/null)" && git -C "$top" merge-base --is-ancestor HEAD "$u" 2>/dev/null; then
+    cands+=("$(git -C "$top" rev-parse HEAD)")
+  fi
+  mb="$(git -C "$top" merge-base HEAD origin/feat-cmux-next 2>/dev/null)" && cands+=("$mb")
+  (( ${#cands[@]} > 0 )) || die "no commit on origin to take host.sh from: git fetch origin feat-cmux-next (or push this branch)"
+  for c in "${cands[@]}"; do
+    if [[ "$(git -C "$top" rev-parse -q --verify "$c:scripts/ios-live/host.sh" 2>/dev/null)" == "$want" ]]; then host_ref="$c"; return; fi
+  done
+  host_ref="${cands[${#cands[@]}-1]}"
+  echo "ios-live: host.sh at ${host_ref:0:12} is used; push your host.sh change to try it" >&2
+}
+
+# host_boot: the host-side preamble (bash) that leaves host.sh at $host_ref in $f. It reads the blob from the fleet's
+# git mirror, else the host's ios-live checkout, else fetches the one commit (blobless, depth 1, the mirror's objects
+# borrowed) into a small cache repo. A miss also drops bin/SHA folders made over 14 days ago (a later call for
+# one reads it again, from the mirror). Its size is fixed: it does not grow with host.sh.
+host_boot() {
+  local R="$remote_root" s="$host_ref"
+  cat <<BOOT
+f=$R/bin/$s/host.sh
+if ! test -s \$f; then
+  p=$s:scripts/ios-live/host.sh; m=\${CMUX_CI_STEP_GLAEDA_MIRROR_DIR:-/Users/Shared/cmux-build-fleet/git}/cmux.git; c=$R/hostsh.git
+  mkdir -p $R/bin/$s
+  { git -C \$m show \$p 2>/dev/null || git -C $R/src show \$p 2>/dev/null || {
+      { test -d \$c || { git init -q --bare \$c && git -C \$c remote add origin $repo_url && git -C \$c config remote.origin.promisor true \\
+          && git -C \$c config remote.origin.partialclonefilter blob:none && { ! test -d \$m/objects || echo \$m/objects >\$c/objects/info/alternates; }; }; } \\
+      && git -C \$c fetch -q --depth 1 --filter=blob:none origin $s && git -C \$c show \$p; }; } >\$f.tmp \\
+    && mv \$f.tmp \$f || { rm -f \$f.tmp; echo "ios-live: the host has no host.sh at $s (push it, or fetch origin)" >&2; echo; echo __ios_live_rc=69; exit 0; }
+  find $R/bin -mindepth 1 -maxdepth 1 -type d -mtime +14 -exec rm -rf {} + 2>/dev/null || true
+fi
+BOOT
+}
+
+# host_sh [--patch FILE] ARGS...: one round trip, a command of at most $cmd_max bytes. The host runs host.sh at
+# $host_ref with ARGS; a patch rides in the command, base64'd. reach does not always pass the remote exit status
+# back (the hop through cmux-lawrence answers 0), so the host prints it as the last line.
 host_sh() {
-  local stage out rc patch="" name=""
+  local out rc patch="" name="" pre="" script cmd
   if [[ "${1:-}" == --patch ]]; then patch="$2"; shift 2; fi
-  stage="$(mktemp -d)"
-  mkdir -p "$stage/bin" "$stage/incoming"
-  cp "$here/host.sh" "$stage/bin/host.sh"
+  [[ -n "$host_ref" ]] || host_ref_pick
   if [[ -n "$patch" ]]; then
     name="incoming/$(shasum -a 256 "$patch" | cut -c1-16).patch"
-    cp "$patch" "$stage/$name"
+    pre="mkdir -p $remote_root/incoming && printf %s $(base64 <"$patch" | tr -d '\n') | perl -MMIME::Base64 -0777 -ne 'print decode_base64(\$_)' >$remote_root/$name.tmp && mv $remote_root/$name.tmp $remote_root/$name \\
+  || { echo 'ios-live: the host could not write the patch' >&2; echo; echo __ios_live_rc=74; exit 0; }
+"
     set -- "$@" "ios-live/$name"
   fi
   local env=""
   [[ "$slot_mode" == 0 ]] || env="IOS_LIVE_SLOTS_PER_HOST=$per_host ${slot:+IOS_LIVE_SLOT=$slot }${person:+IOS_LIVE_PERSON=$person }"
-  # The payload rides in the command itself when it is small (host.sh alone is about 10 KB gzipped and
-  # base64'd): the broker relay a lane VM reaches the Macs through carries no stdin. A big patch
-  # still goes on stdin.
-  local run="${env}bash $remote_root/bin/host.sh $(printf '%q ' "$@"); r=\$?; echo; echo __ios_live_rc=\$r" b64
-  b64="$(COPYFILE_DISABLE=1 tar -C "$stage" -czf - . | base64 | tr -d '\n')"
-  if (( ${#b64} <= 200000 )); then
-    out="$(on_host "mkdir -p $remote_root && printf %s $b64 | perl -MMIME::Base64 -0777 -ne 'print decode_base64(\$_)' | tar -C $remote_root -xzf - && $run" </dev/null)" || true
-  else
-    out="$(COPYFILE_DISABLE=1 tar -C "$stage" -cf - . | on_host "mkdir -p $remote_root && tar -C $remote_root -xf - && $run")" || true
+  script="$pre$(host_boot)
+${env}bash \$f $(printf '%q ' "$@"); r=\$?; echo; echo __ios_live_rc=\$r"
+  # bash on the host whatever its login shell; single-quoted, so the command is barely longer than the script.
+  local sq="'" q="'\\''"
+  cmd="bash -c '${script//$sq/$q}'"
+  local bytes; bytes="$(printf %s "$cmd" | wc -c | tr -d ' ')"
+  if (( bytes > cmd_max )); then
+    [[ -n "$patch" ]] && die "your patch is $(wc -c <"$patch" | tr -d ' ') bytes, so the command would be $bytes bytes; the broker relay takes at most $cmd_max. Commit and push it, then: ios-live up YOUR_SHA"
+    die "the host command would be $bytes bytes; the broker relay takes at most $cmd_max"
   fi
-  rm -rf "$stage"
+  out="$(on_host "$cmd" </dev/null)" || true
   rc="$(sed -n 's/^__ios_live_rc=\([0-9]*\)$/\1/p' <<<"$out" | tail -n 1)"
   grep -v '^__ios_live_rc=' <<<"$out" || true
   return "${rc:-70}"
@@ -234,6 +281,8 @@ list_slots() {
 }
 
 cmd="${1:-status}"; shift || true
+# One pick per run (host_sh also runs in subshells, which could not keep it), so its warning prints once.
+case "$cmd" in whoami|ffi-sync|-h|--help|help) ;; *) host_ref_pick ;; esac
 if [[ "$slot_mode" == 1 ]]; then
   case "$cmd" in
     person) [[ "${1:-}" == create ]] || die "ios-live person create NAME [HOST]"; shift; person_create "$@"; exit ;;

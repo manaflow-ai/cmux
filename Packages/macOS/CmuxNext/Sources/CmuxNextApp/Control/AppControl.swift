@@ -61,7 +61,7 @@ final class AppControl {
     /// - Parameter mainWork: The app's one main-thread scheduler: control requests are its
     ///   automation tasks, and the watchdog reads its board.
     init(mainWork: MainWorkScheduler) {
-        self.mainWork = mainWork
+        self.mainWork = mainWork; DebugTimings.markLaunch("main.control.fields") // after the watchdog's and the probes' initial values
         frames = FrameBatcher(owner: "Control.frames", budgeted: .automation, on: mainWork)
     }
 
@@ -83,7 +83,7 @@ final class AppControl {
     }
 
     func start(registry: ActionRegistry, settings: SettingsController, launch: LaunchIdentity, services: AppServices) throws {
-        let service = try ControlService.start(registry: registry, settings: settings, launch: launch, frameSource: frames, watchdog: watchdog)
+        let service = try ControlService.start(registry: registry, settings: settings, launch: launch, frameSource: frames, watchdog: watchdog, sessionConsent: .forNightly(launch: launch, auth: services.cloud.auth) { await CmuxDialogCenter.shared.askConsent(title: $0, lines: $1, allow: $2, deny: $3, identifier: "session-consent") })
         self.service = service
         let budget = ActionBudgetReporter(monitor: services.actionBudget, naming: ActionReportNaming(catalog: Set(registry.descriptors.map(\.id.rawValue))),
                                           overBudget: watchdog.overBudget, sampling: recordsTaskBudgets,
@@ -139,6 +139,8 @@ final class AppControl {
             }.withDeadline(.fixed(.seconds(45))),
             // Installed Chrome extensions, shortcuts and toolbar badges.
             .mainActor("browser.extensions") { [weak services] _ in .value(services.map { ExtensionControl.report($0) } ?? .null) },
+            // `browser.import_offer`: where the Chrome import card stands, read-only (a NIGHTLY read-back; BrowserImportOfferReadout).
+            .mainActor("browser.import_offer") { [weak services] _ in .value(services?.onboarding.browserImportOffer.readout() ?? .null) },
             // `apps.views`: each open extension view and the words it shows now (read-only).
             .mainActor("apps.views") { [weak services] call in .value(services?.apps.client.viewsReport(app: call.params["app"]?.stringValue) ?? .null) },
             // Ghostty config keys and keybind actions cmux does not apply (R92).
@@ -153,6 +155,8 @@ final class AppControl {
         // Frames, hangs, layout counters and switch times in Release too, off by default (PerfProbes):
         // `perf.probes.enable {"on": true}` opens them for `cmux perf profile --frames`.
         service.router.register(perfProbes.methods())
+        // A browser tab's and its popups' pending prompts in Release too (BrowserPromptsControl), for login-flow checks on a NIGHTLY.
+        service.router.register(BrowserPromptsControl.methods(services))
         // Diagnostics for tagged DEV builds; a release build registers none (ControlRouter drops them: Configuration.allowsDebugMethods).
         #if DEBUG || CMUX_BENCH_HOOKS
         // The newest action runs and the over-budget counters (zero-latency.md, the budget contract).

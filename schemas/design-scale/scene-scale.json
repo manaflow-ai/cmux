@@ -1,0 +1,35 @@
+{
+  "about": "The extension SDK's scales (cmux-extension-sdk tokens.ts: SPACE, RADIUS, DURATION), each step tied to the app's own scale it comes from, so an extension cannot drift from the app (RFD component-libraries, item 12). `from` names the app step: `design-scale:spacing.N` (design-scale.json spacing.steps), `design-scale:spacing.layout.I`, `design-scale:radii.NAME`, `design-scale:namedRadii.NAME`, `layout-grid:NAME` (layout-grid.json metrics) or `motion-scale:NAME`. A step with `from: null` is the scene DSL's own and says why. scripts/cmux-next/gen-type-scale.py writes `px`/`ms` from `from` and the SDK's tables from this file; its --check fails when either drifted. The type roles come from schemas/type-scale/scene-type.json. `differs` records where the SDK and the app name the same thing differently today: proposals, not applied (renders nothing new).",
+  "space": [
+    { "name": "none", "px": 0, "from": null, "why": "no gap" },
+    { "name": "hairline", "px": 2, "from": "layout-grid:half-step" },
+    { "name": "xxs", "px": 4, "from": "design-scale:spacing.1" },
+    { "name": "xs", "px": 6, "from": null, "why": "tight rows: half of 12; the app's grid has no 6" },
+    { "name": "s", "px": 8, "from": "design-scale:spacing.2" },
+    { "name": "m", "px": 12, "from": "design-scale:spacing.3" },
+    { "name": "l", "px": 16, "from": "design-scale:spacing.4" },
+    { "name": "xl", "px": 20, "from": null, "why": "the comfortable icon box's gap; the app's spacing scale has no 20" },
+    { "name": "xxl", "px": 24, "from": "design-scale:spacing.5" },
+    { "name": "xxxl", "px": 32, "from": "design-scale:spacing.6" },
+    { "name": "huge", "px": 48, "from": "design-scale:spacing.layout.1" }
+  ],
+  "radius": [
+    { "name": "sm", "px": 4, "from": "design-scale:radii.sm" },
+    { "name": "md", "px": 6, "from": "design-scale:radii.md" },
+    { "name": "lg", "px": 8, "from": "design-scale:radii.lg" },
+    { "name": "xl", "px": 12, "from": "design-scale:radii.xl" },
+    { "name": "xxl", "px": 16, "from": "design-scale:radii.2xl" },
+    { "name": "popup", "px": 8, "from": "design-scale:namedRadii.popup" },
+    { "name": "card", "px": 14, "from": "design-scale:namedRadii.card" }
+  ],
+  "duration": [
+    { "name": "quick", "ms": 80, "from": "motion-scale:quick" },
+    { "name": "micro", "ms": 120, "from": "motion-scale:micro" },
+    { "name": "standard", "ms": 180, "from": "motion-scale:standard" },
+    { "name": "large", "ms": 240, "from": "motion-scale:large" }
+  ],
+  "differs": [
+    { "what": "type", "sdk": "caption 12, footnote 11", "app": "caption 11, detail 12 (type-scale.json)", "proposal": "name the SDK roles by the app's steps: caption at 11, detail at 12" },
+    { "what": "space", "sdk": "11 steps (0 2 4 6 8 12 16 20 24 32 48)", "app": "6 steps (4 8 12 16 24 32) and layout 40 48 56", "proposal": "keep 0, 2 and 48, which the app names elsewhere; retire 6 and 20 after a gallery comparison" }
+  ]
+}
