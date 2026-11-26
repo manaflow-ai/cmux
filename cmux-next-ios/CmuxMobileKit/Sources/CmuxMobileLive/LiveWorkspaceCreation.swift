@@ -26,6 +26,8 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     var taskSessions: [String: (session: String, cwd: String)] = [:]
     /// Each workspace's newest Mark as Read / Unread: an older read stops once a newer one is made.
     var readMarks: [String: Int] = [:]
+    /// The daemon client whose Mac refused `close-tabs` (an older phone lane): it closes the old way.
+    var closeTabsRefusedBy: ObjectIdentifier?
 
     /// Whether a Mac streams browser tabs: it said `browser-stream-v1`. A Mac that
     /// has not answered yet keeps the option (an older Mac's refusal then reads plainly).
@@ -590,13 +592,15 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         return parts.first == "Users" && parts.count <= 2 && parts.last != "Shared"
     }
 
-    /// `close-surface` on the Mac, then `close-terminal` for the tab's own
-    /// terminal, then a fresh list. `close-surface` only detaches a terminal
-    /// (the daemon reaps a tab-less one after its grace period, so the Mac
-    /// listed it running 50 s after the close, V5-5); the phone has no undo
-    /// and its close question says the program stops, so the terminal ends
-    /// at once (T-TABS-08), unless another tab still shows it. A refused
-    /// `close-terminal` leaves the reap to the daemon: the tab is closed.
+    /// Close Tab in one round trip: `close-tabs` closes the tab and, with `end_terminals`, ends
+    /// its terminal in one daemon commit (`batch-close-v1`), the Mac's own Close Tab. The phone
+    /// has no undo and its close question says the program stops, so the terminal ends at once
+    /// (T-TABS-08, V5-5), unless another tab still shows it or it is another machine's
+    /// (`terminalsEndedByClosing` is empty: `end_terminals` stays off). The tab list refreshes
+    /// off the close's path: the daemon's `treeChanged` and a fresh list follow it.
+    ///
+    /// A Mac whose phone lane predates `close-tabs` refuses it; that client then gets the old
+    /// three round trips (`legacyClose`): `close-surface`, `close-terminal`, a fresh list.
     public func closeTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws {
         guard canManage(on: workspace.macID), let client = sync.daemon else {
             throw WorkspaceCreationError("Not connected")
@@ -606,12 +610,46 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         }
         let terminals = sync.tree?.terminalsEndedByClosing([tab.id]) ?? []
         do {
-            try WorkspaceSync.check(await client.request("close-surface", params: ["surface": surface]))
-            await end(terminals, on: client)
-            _ = try? await sync.listNow()
+            if closeTabsRefusedBy != ObjectIdentifier(client) {
+                do {
+                    try WorkspaceSync.check(await client.request("close-tabs", params: Self.closeTabsParams(
+                        surface: surface, endTerminals: !terminals.isEmpty, traceID: PhoneTrace.traceID)))
+                    let sync = sync
+                    Task { _ = try? await sync.listNow() }
+                    return
+                } catch let error as DaemonReplyError where Self.laneRefusedCloseTabs(error) {
+                    closeTabsRefusedBy = ObjectIdentifier(client)
+                }
+            }
+            try await legacyClose(surface: surface, terminals: terminals, on: client)
         } catch let error as DaemonReplyError {
             throw WorkspaceCreationError(error.message)
         }
+    }
+
+    /// `close-tabs` of one tab, with the action's trace id (`_meta`, PhoneTrace) when it has one.
+    /// Built from Sendable inputs only, so the dictionary is a fresh region the caller can send.
+    nonisolated static func closeTabsParams(surface: Int, endTerminals: Bool, traceID: String?) -> sending [String: Any] {
+        var params: [String: Any] = ["surfaces": [surface], "end_terminals": endTerminals]
+        if let traceID { params["_meta"] = ["traceId": traceID] }
+        return params
+    }
+
+    /// Whether the Mac's phone lane refused `close-tabs` itself (a lane that predates it: the
+    /// command, or its `_meta`, "is not available to a phone" / "does not take ... from a phone"),
+    /// so the old close still works there. The daemon's own refusals (a stale tab) are not.
+    nonisolated static func laneRefusedCloseTabs(_ error: DaemonReplyError) -> Bool {
+        let message = error.message
+        return message.contains("close-tabs is not available") || message.contains("does not take")
+            || message.contains("_meta")
+    }
+
+    /// The close before `close-tabs`: `close-surface`, then `close-terminal` for the tab's own
+    /// terminal, then a fresh list. A refused `close-terminal` leaves the reap to the daemon.
+    func legacyClose(surface: Int, terminals: [DaemonTree.TerminalRef], on client: DaemonClient) async throws {
+        try WorkspaceSync.check(await client.request("close-surface", params: ["surface": surface]))
+        await end(terminals, on: client)
+        _ = try? await sync.listNow()
     }
 
     /// `close-terminal` for each terminal a phone close ended (`terminalsEndedByClosing`),

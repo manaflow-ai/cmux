@@ -94,6 +94,7 @@ public final class CloudChatRelay {
     init(machine: CloudChatMachine, macID: String) {
         self.machine = machine
         self.macID = macID
+        hub.onSubmit = { CloudWakeOnIntent.shared.input(machine: machine.machineID) }
     }
 
     func bind(_ link: any MacLink, force: Bool = false) {

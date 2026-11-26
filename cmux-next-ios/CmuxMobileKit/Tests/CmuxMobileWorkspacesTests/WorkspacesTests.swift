@@ -5,6 +5,15 @@ import Observation
 import Testing
 @testable import CmuxMobileWorkspaces
 
+/// A source that lists every pane, whatever the overview's pane filter is set to. `ws-cmux` (mock) lists
+/// t-claude (agent), t-zsh (terminal) and t-docs (browser). The default filter (#56982) hides browsers, and
+/// `PaneFilterSetting.shared` reads the test host's UserDefaults. These tests count and find tabs; they do not test the filter.
+@MainActor @discardableResult func everyPane(_ source: WorkspaceTabsSource) -> WorkspaceTabsSource {
+    source.paneFilter = PaneFilterSetting(defaults: nil)
+    source.paneFilter.showsBrowsers = true
+    return source
+}
+
 @Suite struct RelativeStampTests {
     let now = Date(timeIntervalSince1970: 1_800_000_000)
 
@@ -34,7 +43,7 @@ import SwiftUI
         -> (AppStore, WorkspaceTabsSource) {
         let store = AppStore.mock(tabMemory: .inMemory(memory))
         let creator = backend.map { WorkspaceCreator(store: store, backend: $0) }
-        return (store, WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", creator: creator))
+        return (store, everyPane(WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", creator: creator)))
     }
 
     /// Close Tabs to the Left / to the Right: the unpinned tabs before or after the tab in its
@@ -598,7 +607,7 @@ import SwiftUI
     @Test func forkToANewWorkspaceNamesThisMacsWorkspace() async throws {
         let store = AppStore.mock(tabMemory: .inMemory([:]))
         let backend = ForkToWorkspaceBackend(store: store)
-        let source = WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", creator: WorkspaceCreator(store: store, backend: backend))
+        let source = everyPane(WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", creator: WorkspaceCreator(store: store, backend: backend)))
         let chat = try #require(source.workspaceTab("t-claude"))
         await source.fork("t-claude", to: .workspace)
         #expect(source.toastText == "Forked \(chat.title) to Forked Here.")

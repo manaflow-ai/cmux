@@ -83,12 +83,6 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
         }
         .onAppear {
             rowContext.open = { open($0) }
-            rowContext.openFromPeek = { open($0, animated: false) }
-            rowContext.chat = { item in
-                guard let workspace = appStore.workspaces.first(where: { $0.id == item.workspaceID }),
-                      workspace.tabs.contains(where: { $0.id == item.tabID }) else { return nil }
-                return AgentSessionDirectory.shared.existingStore(id: item.tabID, macID: workspace.macID)
-            }
             #if DEBUG
             FeedStressRig.shared.start(store: store)
             // Screenshot rig: CMUX_MOBILE_FEED_SHOT_EVENT=<event id> scrolls that event to the top.
@@ -147,8 +141,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
         #endif
     }
 
-    /// `animated: false`: from the long-press preview, which has already grown to the screen.
-    private func open(_ item: FeedItem, animated: Bool = true) {
+    private func open(_ item: FeedItem) {
         store.markRead(item.id)
         // A Mac Feed request (a PR held for trial) opens its page.
         if let link = item.link {
@@ -160,14 +153,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             openTerminal(item)
             return
         }
-        let destination = AgentChatDestination(workspaceID: item.workspaceID, tabID: item.tabID)
-        guard !animated else {
-            path.append(destination)
-            return
-        }
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) { path.append(destination) }
+        path.append(AgentChatDestination(workspaceID: item.workspaceID, tabID: item.tabID))
     }
 
     /// What can change the list header's height: it is measured again only when this changes (a

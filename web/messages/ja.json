@@ -7568,5 +7568,15 @@
         }
       ]
     }
+  },
+  "connected": {
+    "title": "{app} にサインインしました",
+    "titleGeneric": "サインインしました",
+    "errorTitle": "{app} にサインインできませんでした",
+    "errorTitleGeneric": "サインインが完了しませんでした",
+    "body": "cmux に戻って続けてください。",
+    "errorBody": "cmux に戻って、もう一度お試しください。",
+    "button": "cmux に戻る",
+    "closeHint": "このタブは閉じてかまいません。"
   }
 }
