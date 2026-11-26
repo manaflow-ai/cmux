@@ -53,6 +53,17 @@ Object.assign(scope, replacements);
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 800 });
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 760 });
 
+{
+  const { mock } = await import("bun:test");
+  const real = await import("react");
+  const wrap = (set: (v: unknown) => void) => (v: unknown) => {
+    if ((globalThis as any).__TRACE_ASK) console.log("setState", new Error().stack?.split("\n").slice(2, 5).map((l) => l.trim().replace(/.*webviews\//, "")).join(" | "));
+    return set(v);
+  };
+  const origState = real.useState, origMemo = real.useMemo, copy = { ...real };
+  const useState = (init: unknown) => { const [v, set] = origState(init); return [v, origMemo(() => wrap(set), [set])]; };
+  mock.module("react", () => ({ ...copy, default: { ...copy, useState }, useState }));
+}
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
@@ -118,6 +129,51 @@ test("a chat shown again measures only its rows that changed while it was away",
     measured.clear();
     await render("chat-b", chat("b", 50));
     expect(measured.size).toBe(0);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("a chat shown again as it was renders once: its kept heights ask no second render", async () => {
+  // Before: the switch put the kept heights in while it rendered, past the bookkeeping of what was
+  // last asked of them, so the commit's report of every mounted row (each the height kept) asked a
+  // sync render of the whole transcript that changed nothing, inside the switch's long task
+  // (settled page, Leo 2026-11-21: "workspace switch, opening a recent workspace, chat switch and
+  // restart reach a settled page (zero layout shift after first paint, streaming included) within 2x
+  // of a derived bound").
+  const { Profiler } = await import("react");
+  const host = dom.window.document.createElement("div");
+  dom.window.document.body.append(host);
+  const root = createRoot(host);
+  const expanded = new Set<string>();
+  let commits = 0;
+  const render = (sessionId: string, rows: AcpmuxRow[]) =>
+    act(async () => {
+      root.render(
+        <Profiler id="transcript" onRender={(_i, phase) => { commits += 1; if ((globalThis as any).__TRACE_ASK) console.log("commit", phase); }}>
+          <VirtualTranscript
+            rows={rows}
+            registry={defaultRegistry}
+            sessionId={sessionId}
+            onToggleActivity={() => {}}
+            expanded={expanded}
+          />
+        </Profiler>,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  try {
+    await render("chat-c", chat("c", 60));
+    await render("chat-d", chat("d", 30));
+    commits = 0;
+    await render("chat-c", chat("c", 60));
+    const first = commits;
+    commits = 0;
+    (globalThis as any).__TRACE_ASK = true;
+    await render("chat-d", chat("d", 30));
+    console.log("return commits", first, commits);
+    expect(commits).toBe(1);
   } finally {
     await act(async () => root.unmount());
     host.remove();

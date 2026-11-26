@@ -2012,7 +2012,7 @@ function TranscriptView({
   /// `setDrawn(update)`, noted in `drawnAsk`.
   const askDrawn = useCallback((update: (current: DrawnHeights) => DrawnHeights) => {
     const ask: { ran: boolean; result?: DrawnHeights } = { ran: false };
-    drawnAsk.current = ask;
+    drawnAsk.current = ask; if ((globalThis as any).__TRACE_ASK) console.log("askDrawn", new Error().stack?.split("\n")[2]);
     setDrawn((current) => {
       const next = update(current);
       ask.ran = true;
@@ -2051,7 +2051,13 @@ function TranscriptView({
         ? undefined
         : keptLayouts.show(sessionId, chatLook, attachmentView, registry, gridScale());
     // Its drawn heights name it (`DrawnHeight.sessionId`), so they place only its rows.
-    if (shown && shown !== drawn) setDrawn(shown);
+    // Noted as what was last asked (`askDrawn`): the commit's report of each mounted row at its kept
+    // height then asks nothing, where it asked a sync render of the whole transcript that changed
+    // nothing, inside the switch's long task (test/transcript-return-keeps-layout.test.tsx).
+    if (shown && shown !== drawn) {
+      drawnAsk.current = { ran: true, result: shown };
+      setDrawn(shown);
+    }
   }
   const drawnRef = useRef(drawn);
   drawnRef.current = drawn;
@@ -2717,14 +2723,14 @@ function TranscriptView({
       if (inCommit) {
         readAfterSettle.current = true;
         setFlowWidth(undefined);
-        settleResize();
+        if ((globalThis as any).__TRACE_ASK) console.log("dispatch@2726"); settleResize();
         return;
       }
       // At a new width the settle's render measures its rows at it (RowFrame's rowWidth). A width
       // that came back to the one the rows were placed at renders nothing new: read them then.
       flushSync(() => {
         setFlowWidth(undefined);
-        settleResize();
+        if ((globalThis as any).__TRACE_ASK) console.log("dispatch@2733"); settleResize();
       });
       if (rowWidthRef.current === from) flushSync(readMounted);
     },
@@ -2920,6 +2926,13 @@ function TranscriptView({
     const ids = new Set(rows.map((row) => row.id));
     const cache = measurementCache.current;
     for (const id of cache.keys()) if (!ids.has(id)) cache.delete(id);
+    // A drawn map with no row gone (a chat shown again holds its own rows' heights alone) with nothing
+    // asked still waiting: no update. One asked anyway was a sync render of the whole transcript that
+    // changed nothing, inside every chat switch's long task (test/transcript-return-keeps-layout.test.tsx).
+    const ask = drawnAsk.current;
+    if ((globalThis as any).__TRACE_ASK) console.log("retain guard", ask.ran, ask.result === drawnRef.current);
+    if (ask.ran && ask.result === drawnRef.current && drawnRef.current.retain((id) => ids.has(id)) === drawnRef.current)
+      return;
     askDrawn((current) => current.retain((id) => ids.has(id)));
   }, [rows, queuedTail, askDrawn]);
   useLayoutEffect(() => {
@@ -3086,7 +3099,7 @@ function TranscriptView({
       live.settled = performance.now();
       if (live.flow !== undefined) endFlow(false);
       // Settle whatever left a partial layout, even a step that came late enough to end the drag.
-      else if (lastEstimate.current?.partial) settleResize();
+      if ((globalThis as any).__TRACE_ASK) console.log("dispatch@3102"); else if (lastEstimate.current?.partial) settleResize();
     };
     if (live.rearm) {
       // The run before had a settle on the way: it keeps its time, LIVE_RESIZE_MS after the last width.
@@ -3322,7 +3335,7 @@ function TranscriptView({
     heldRoom.current.room = dockRoomRef.current;
     flushSync(() => {
       setNoticeBase(dockNoticeRef.current);
-      roomTaken();
+      if ((globalThis as any).__TRACE_ASK) console.log("dispatch@3338"); roomTaken();
     });
   }, []);
   const thread = useRef<HTMLDivElement>(null);
@@ -5363,7 +5376,7 @@ function TranscriptView({
         () => {
           floorTimer.current = undefined;
           floor.current = { ...floor.current, height: 0 };
-          releaseFloor();
+          if ((globalThis as any).__TRACE_ASK) console.log("dispatch@5379"); releaseFloor();
         },
         forSent ? FLOOR_HOLD_MS : WITHDRAWN_HOLD_MS,
       );
@@ -5483,7 +5496,7 @@ function TranscriptView({
       heldRoom.current.room = Math.max(dockRoomRef.current, heldRoom.current.reader.kept?.room ?? 0);
       flushSync(() => {
         followRef.current(false);
-        roomTaken();
+        if ((globalThis as any).__TRACE_ASK) console.log("dispatch@5499"); roomTaken();
       });
     };
     node.addEventListener("wheel", giveTrayRoom, { passive: true });
@@ -6758,7 +6771,7 @@ function TranscriptView({
       settleHeldFollowMotion();
       if (!followDeferred.current) return;
       followDeferred.current = false;
-      if (followingRef.current) resumeDeferredFollow();
+      if ((globalThis as any).__TRACE_ASK) console.log("dispatch@6774"); if (followingRef.current) resumeDeferredFollow();
     });
     // attachUserScrollIntent captures the scroller and scrollbar inputs (a drag outside the
     // scroller too), then invokes this reader through the shared subscription before layout or
