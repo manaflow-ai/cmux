@@ -24,8 +24,10 @@ struct AppLanguageTests {
         }
         deinit { try? FileManager.default.removeItem(at: root) }
 
-        /// A bundle with these `.lproj` string tables (`Localizable`).
-        func bundle(_ tables: [String: [String: String]], name: String = "Strings.bundle", in folder: URL? = nil) throws -> Bundle {
+        /// Write a bundle with these `.lproj` string tables (`Localizable`) and return its URL.
+        /// Keeping creation separate lets tests instantiate a subclass before Foundation caches a
+        /// plain `Bundle` for the same path.
+        func bundleURL(_ tables: [String: [String: String]], name: String = "Strings.bundle", in folder: URL? = nil) throws -> URL {
             let url = (folder ?? root).appending(path: name, directoryHint: .isDirectory)
             for (language, strings) in tables {
                 let lproj = url.appending(path: "\(language).lproj", directoryHint: .isDirectory)
@@ -33,6 +35,12 @@ struct AppLanguageTests {
                 let body = strings.map { "\"\($0.key)\" = \"\($0.value)\";" }.joined(separator: "\n")
                 try Data(body.utf8).write(to: lproj.appending(path: "Localizable.strings"))
             }
+            return url
+        }
+
+        /// A bundle with these `.lproj` string tables (`Localizable`).
+        func bundle(_ tables: [String: [String: String]], name: String = "Strings.bundle", in folder: URL? = nil) throws -> Bundle {
+            let url = try bundleURL(tables, name: name, in: folder)
             return try #require(Bundle(url: url))
         }
 
@@ -232,8 +240,8 @@ struct AppLanguageTests {
     /// and an explicit language must do zero path/localization work at 1x, 4x and 10x volume.
     @Test(arguments: [1, 4, 10]) func warmLookupsDoNotResolveBundlePaths(scale: Int) throws {
         let scratch = try Scratch()
-        let fixture = try scratch.bundle(Self.tables)
-        let bundle = try #require(ResolutionCountingBundle(path: fixture.bundlePath))
+        let fixture = try scratch.bundleURL(Self.tables)
+        let bundle = try #require(ResolutionCountingBundle(path: fixture.path))
         let language = AppLanguage()
         language.adopt(bundle)
         for code in [nil, "ja", "de", nil] as [String?] {
