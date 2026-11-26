@@ -62,3 +62,26 @@ async fn the_socket_is_owner_only_and_its_existing_directory_narrowed() {
     // This user still connects.
     tokio::net::UnixStream::connect(&socket).await.unwrap_or_else(|e| panic!("connect: {e}"));
 }
+
+/// The bind never sets the process umask (it is process-wide: a folder another thread made
+/// during the bind came out 0600, so binding a socket in it failed "Permission denied"), and the
+/// private staging folder it binds in is gone afterwards.
+#[tokio::test]
+async fn the_bind_leaves_the_umask_and_no_staging_folder() {
+    let tmp = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let socket = tmp.path().join("acpmux.sock");
+    // SAFETY: umask has no preconditions; read and put back at once.
+    let before = unsafe { libc::umask(0o022) };
+    unsafe { libc::umask(before) };
+    let _listener = bind_unix(&socket).await.unwrap_or_else(|e| panic!("bind: {e:#}"));
+    // SAFETY: as above.
+    let after = unsafe { libc::umask(before) };
+    assert_eq!(after, before, "bind_unix left the umask as it found it");
+    assert_eq!(mode(&socket), 0o600);
+    let left: Vec<_> = std::fs::read_dir(tmp.path())
+        .unwrap_or_else(|e| panic!("read_dir: {e}"))
+        .filter_map(|e| e.ok().map(|e| e.file_name()))
+        .collect();
+    assert_eq!(left, vec![std::ffi::OsString::from("acpmux.sock")], "{left:?}");
+    tokio::net::UnixStream::connect(&socket).await.unwrap_or_else(|e| panic!("connect: {e}"));
+}

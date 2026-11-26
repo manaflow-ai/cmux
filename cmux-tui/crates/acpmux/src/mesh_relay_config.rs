@@ -44,6 +44,13 @@ pub struct MeshControlFrom {
     /// Omitted means all three lifecycle operations; an explicit empty list grants nothing.
     #[serde(default = "lifecycle_ops")]
     pub ops: Vec<String>,
+    /// The widest permission policy a control through this entry runs under here. Omitted means
+    /// `ask`: a start settles into asking mode as a remote start does, and one asking for more is
+    /// held to this. `approve-all` makes the sender this machine's owner for the control, as the
+    /// owner's own daemon over the peer token is (cmux#50026): its start runs in the policy it
+    /// names. `host join` writes it on the person's own `sameUser` entry ([`Self::same_user`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_policy: Option<crate::config::PermissionPolicy>,
 }
 
 impl Default for MeshRelayConfig {
@@ -83,7 +90,28 @@ fn lifecycle_ops() -> Vec<String> {
 impl MeshControlFrom {
     /// The entry `host join` writes: the person's own other machines, for every lifecycle op.
     pub fn same_user() -> Self {
-        Self { daemon_id: String::new(), same_user: true, ops: lifecycle_ops() }
+        Self {
+            daemon_id: String::new(),
+            same_user: true,
+            ops: lifecycle_ops(),
+            max_policy: Some(crate::config::PermissionPolicy::ApproveAll),
+        }
+    }
+
+    /// The `sameUser` entry a join wrote before `maxPolicy` existed, untouched by its owner. A
+    /// join or `host join --status` upgrades it to [`Self::same_user`]; any other entry stays as
+    /// the owner left it.
+    pub fn is_unmarked_join_entry(&self) -> bool {
+        self.same_user
+            && self.daemon_id.is_empty()
+            && self.ops == lifecycle_ops()
+            && self.max_policy.is_none()
+    }
+
+    /// The widest policy a control through this entry runs under: [`Self::max_policy`], else
+    /// `ask`.
+    pub fn policy_cap(&self) -> crate::config::PermissionPolicy {
+        self.max_policy.unwrap_or(crate::config::PermissionPolicy::Ask)
     }
 
     /// Whether this entry lets `from` run `op` here. `from` is the hub-stamped sender (its
@@ -122,6 +150,78 @@ impl MeshControlFrom {
             return by_user && present(from.daemon_id.as_deref()).is_some();
         }
         by_daemon || by_user
+    }
+}
+
+/// How much a policy runs without asking: nothing (`ask`, `deny-all`), reads (`approve-reads`,
+/// `review`), reads and edits (`approve-edits`), everything (`approve-all`).
+pub fn policy_reach(policy: crate::config::PermissionPolicy) -> u8 {
+    use crate::config::PermissionPolicy as P;
+    match policy {
+        P::Ask | P::DenyAll => 0,
+        P::ApproveReads | P::Review => 1,
+        P::ApproveEdits => 2,
+        P::ApproveAll => 3,
+    }
+}
+
+/// The `sameUser` entry an older join wrote (no `maxPolicy`, untouched by its owner) becomes
+/// the one a join writes now, so the person's own machines keep starting chats on each other in
+/// the policy they name. An entry the owner changed keeps its choice. True when one changed.
+pub fn upgrade_join_entries(control_from: &mut [MeshControlFrom]) -> bool {
+    let mut changed = false;
+    for entry in control_from.iter_mut().filter(|entry| entry.is_unmarked_join_entry()) {
+        *entry = MeshControlFrom::same_user();
+        changed = true;
+    }
+    changed
+}
+
+/// The widest cap among `entries` that grant `op` to `from` here (each entry's
+/// [`MeshControlFrom::policy_cap`]), or None when none grants it.
+pub fn control_cap(
+    entries: &[MeshControlFrom],
+    from: &crate::mesh::Sender,
+    own_user: Option<&str>,
+    op: &str,
+) -> Option<crate::config::PermissionPolicy> {
+    entries
+        .iter()
+        .filter(|entry| entry.allows(from, own_user, op))
+        .map(MeshControlFrom::policy_cap)
+        .max_by_key(|cap| policy_reach(*cap))
+}
+
+impl MeshRelayConfig {
+    /// The origin without a trailing slash, when it is one the relay may use.
+    pub fn origin(&self) -> Result<String, String> {
+        let url = reqwest::Url::parse(self.url.trim())
+            .map_err(|e| format!("meshRelay.url is no URL: {e}"))?;
+        let loopback = matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"));
+        if !(url.scheme() == "https" || (url.scheme() == "http" && loopback)) {
+            return Err("meshRelay.url must be https (http only on a loopback address)".into());
+        }
+        // Nothing secret may ride in the URL: it is logged, and the token goes in a header.
+        if !url.username().is_empty() || url.password().is_some() {
+            return Err("meshRelay.url must carry no user or password".into());
+        }
+        if url.query().is_some() || url.fragment().is_some() {
+            return Err("meshRelay.url must carry no query or fragment".into());
+        }
+        if self.credential.as_deref() != Some("join")
+            && self.token_command.first().is_none_or(|p| p.trim().is_empty())
+        {
+            return Err("meshRelay.tokenCommand names no program".into());
+        }
+        let path = url.path().trim_end_matches('/');
+        Ok(format!("{}{path}", url.origin().ascii_serialization()))
+    }
+
+    /// What a log may say of the hub: its scheme, host and port, never its path.
+    pub fn shown(&self) -> String {
+        reqwest::Url::parse(self.url.trim())
+            .map(|u| u.origin().ascii_serialization())
+            .unwrap_or_default()
     }
 }
 
@@ -168,37 +268,30 @@ mod tests {
         let only_move_out = MeshControlFrom { ops: vec![MOVE_OUT_OP.into()], ..default };
         assert!(!only_move_out.allows(&from, Some("person"), MOVE_OUT_OP));
     }
-}
 
-impl MeshRelayConfig {
-    /// The origin without a trailing slash, when it is one the relay may use.
-    pub fn origin(&self) -> Result<String, String> {
-        let url = reqwest::Url::parse(self.url.trim())
-            .map_err(|e| format!("meshRelay.url is no URL: {e}"))?;
-        let loopback = matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"));
-        if !(url.scheme() == "https" || (url.scheme() == "http" && loopback)) {
-            return Err("meshRelay.url must be https (http only on a loopback address)".into());
-        }
-        // Nothing secret may ride in the URL: it is logged, and the token goes in a header.
-        if !url.username().is_empty() || url.password().is_some() {
-            return Err("meshRelay.url must carry no user or password".into());
-        }
-        if url.query().is_some() || url.fragment().is_some() {
-            return Err("meshRelay.url must carry no query or fragment".into());
-        }
-        if self.credential.as_deref() != Some("join")
-            && self.token_command.first().is_none_or(|p| p.trim().is_empty())
-        {
-            return Err("meshRelay.tokenCommand names no program".into());
-        }
-        let path = url.path().trim_end_matches('/');
-        Ok(format!("{}{path}", url.origin().ascii_serialization()))
-    }
-
-    /// What a log may say of the hub: its scheme, host and port, never its path.
-    pub fn shown(&self) -> String {
-        reqwest::Url::parse(self.url.trim())
-            .map(|u| u.origin().ascii_serialization())
-            .unwrap_or_default()
+    #[test]
+    fn an_older_join_entry_runs_at_the_cap_a_join_writes_now_and_an_owner_choice_stays() {
+        // 2026-11-25: lane VMs joined before `maxPolicy` kept `{"sameUser": true}` (cap `ask`),
+        // so the coordinator's `acpmux new --machine LANE --policy approve-all` was refused.
+        let own = sender(Some("person"), Some("mac"));
+        let unmarked: MeshControlFrom =
+            serde_json::from_value(serde_json::json!({"sameUser": true})).unwrap();
+        let chosen: MeshControlFrom =
+            serde_json::from_value(serde_json::json!({"sameUser": true, "maxPolicy": "ask"}))
+                .unwrap();
+        let mut entries = vec![unmarked.clone()];
+        assert_eq!(
+            control_cap(&entries, &own, Some("person"), "start"),
+            Some(crate::config::PermissionPolicy::Ask)
+        );
+        assert!(upgrade_join_entries(&mut entries));
+        assert_eq!(entries, vec![MeshControlFrom::same_user()]);
+        assert_eq!(
+            control_cap(&entries, &own, Some("person"), "start"),
+            Some(crate::config::PermissionPolicy::ApproveAll)
+        );
+        let mut kept = vec![chosen.clone()];
+        assert!(!upgrade_join_entries(&mut kept));
+        assert_eq!(kept, vec![chosen]);
     }
 }

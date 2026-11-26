@@ -31,7 +31,6 @@ pub use process::{ProcessSubscription, ProcessSubscriptionError};
 use query::{ContinuationDelivery, WorkspaceQueryContext, WorkspaceQueryService};
 use route::RouteManager;
 
-const MAX_WORKSPACES: usize = 256;
 const MAX_PENDING_CANCELLATIONS: usize = 4_096;
 const WORKSPACE_CODEC_JOBS: usize = 2;
 const REQUEST_QUIESCE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
@@ -819,12 +818,6 @@ impl WorkspaceService {
                 root: existing.display_root(),
             });
         }
-        if catalog.workspaces.len() >= MAX_WORKSPACES {
-            return Err(RpcError::new(
-                "resource-exhausted",
-                format!("workspace limit of {MAX_WORKSPACES} reached"),
-            ));
-        }
         let response = WorkspaceResponse::Workspace {
             id: candidate.id.clone(),
             root: candidate.display_root(),
@@ -1003,5 +996,24 @@ fn computer_feature_name(feature: ComputerUseFeature) -> &'static str {
         ComputerUseFeature::Keyboard => "keyboard",
         ComputerUseFeature::TextInput => "text-input",
         ComputerUseFeature::Scroll => "scroll",
+    }
+}
+
+#[cfg(all(test, unix))]
+mod open_tests {
+    use super::*;
+
+    /// Every folder opens as a workspace, past the old cap of 256: each holds one directory
+    /// descriptor until its last lease ends.
+    #[tokio::test]
+    async fn workspaces_past_the_old_cap_open() {
+        let service = WorkspaceService::new();
+        let dirs: Vec<_> = (0..300).map(|_| tempfile::tempdir().unwrap()).collect();
+        let scope = ClientScope::local();
+        for dir in &dirs {
+            let response = service.open_workspace(&scope, dir.path().to_str().unwrap()).await;
+            assert!(matches!(response, Ok(WorkspaceResponse::Workspace { .. })), "{response:?}");
+        }
+        assert_eq!(service.inner.catalog.read().await.workspaces.len(), 300);
     }
 }
