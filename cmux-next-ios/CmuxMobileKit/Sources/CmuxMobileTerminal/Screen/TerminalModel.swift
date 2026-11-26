@@ -26,7 +26,25 @@ public final class TerminalModel {
     public internal(set) var programName: String
     /// The Mac the session runs on (`Workspace.macID`): the terminal shows that Mac's terminal
     /// theme (``CmuxMobileTerminalThemes``). Nil for a placeholder or mock session.
-    public var hostMacID: String?
+    public var hostMacID: String? {
+        didSet {
+            guard oldValue != nil, oldValue != hostMacID else { return }
+            cancelAttachmentSend()
+            attachmentPrestager.cancelAll()
+            // The old closure captures the previous Mac's id. Clear it before the
+            // new tab binding arrives, even when both Macs use the same folder.
+            uploaderDirectory = nil
+            uploader = nil
+            for index in attachments.indices {
+                if let id = attachments[index].uploadID {
+                    (attachments[index].uploadSender ?? attachmentSender)?.cancel(id)
+                }
+                attachments[index].uploadID = nil
+                attachments[index].uploadSender = nil
+            }
+            attachmentSender = nil
+        }
+    }
     /// The terminal theme the surface shows now (its card paints the same background); nil until
     /// a Mac ever sent one.
     public internal(set) var hostTheme: CmuxMobileTerminalTheme?
@@ -105,11 +123,23 @@ public final class TerminalModel {
     /// Sends one attachment to the Mac and returns its path there (the
     /// link's `upload` service). Nil hides the attachment menu: without a
     /// Mac to receive them there is nothing honest to attach.
-    public var uploader: (@MainActor (_ payload: LinkUpload.Payload, _ name: String) async throws -> String)?
+
+    public var uploader: (@MainActor (_ payload: LinkUpload.Payload, _ name: String) async throws -> String)? {
+        didSet {
+            syncAttachmentUploads()
+        }
+    }
+    /// The Mac folder captured with `uploader`. A terminal upload must not reuse
+    /// a pre-transfer after the shell changes directory.
+    @ObservationIgnored private var uploaderDirectory: String?
+    @ObservationIgnored private let attachmentPrestager = ComposerAttachmentPrestager()
+
     /// The live upload queue (the Rust engine): an attachment starts sending
     /// when it is picked, each tile shows its progress, and every stage can
     /// be cancelled. When set, it carries attachments instead of `uploader`.
-    public var attachmentSender: (any TerminalAttachmentSending)?
+    public var attachmentSender: (any TerminalAttachmentSending)? {
+        didSet { syncAttachmentUploads() }
+    }
     /// The composer shows its `+` menu: a Mac can receive attachments, or
     /// the DEBUG mock stands in for one so layout captures match live (SPEC M4).
     var attachmentsAvailable: Bool {
@@ -424,6 +454,13 @@ public final class TerminalModel {
         if connection != connectionState {
             connectionState = connection
             quietStatus.update(down: !connection.isAttached)
+            if connection.isAttached {
+                syncAttachmentUploads()
+            } else {
+                // The Rust queue resumes its Mac link; legacy uploads have no reconnect owner.
+                if attachmentSender == nil { cancelAttachmentSend() }
+                attachmentPrestager.cancelAll()
+            }
         }
         // Attached again: a held composer send went out (or was dropped, which says so
         // first); a later drop must never put already-sent text back.
@@ -696,6 +733,10 @@ public final class TerminalModel {
     public static let debugKeyAccepted = Notification.Name("cmux.debug.terminal.keyAccepted")
     /// DEBUG: the terminal demo driver's last step (`TerminalDemoDriver`).
     var demoNote = "start"
+    /// DEBUG: the grid the Mac's program ends at, and whether an answer to a
+    /// resize is still on its way (the demo's `attach` phase). Set, the page
+    /// keeps a ``TerminalAttachTrace`` from its view loading on.
+    var demoFinalGrid: (() -> (columns: Int, rows: Int, inFlight: Bool))?
     /// DEBUG: the grid columns the full-screen app ends at (the mock Mac's
     /// PTY), nil while a size change is on its way (the settle probe).
     @ObservationIgnored var demoFinalColumns: (@MainActor () -> Int?)?
@@ -749,6 +790,16 @@ public final class TerminalModel {
             self.snapshot = image
             Self.dumpCard(image)
         }
+    }
+
+    /// The card's picture as last drawn, once the off-main render in flight (if any) lands: kept
+    /// as the tab's last-known picture when the person leaves the tab or the app goes to the
+    /// background (`TabCardSnapshots`). The page's snapshot once it drew the Mac's output, else
+    /// the frame the tab was restored with: never a page from before the first attach (as
+    /// `frameToKeep`). Nothing is rendered here.
+    public func cardPictureToKeep() async -> UIImage? {
+        await cardRender?.value
+        return drewLiveOutput ? snapshot : restoredFrame
     }
 
     /// The last off-main card render (tests await it).
@@ -943,8 +994,20 @@ public final class TerminalModel {
         if let attachmentSender {
             sendQueued(pressReturn: pressReturn, via: attachmentSender)
         } else if let uploader {
+            let claimed = attachmentPrestager.claim(attachments, directory: uploaderDirectory)
             waitForAttachments(pressReturn: pressReturn) { attachment in
-                try await uploader(try attachment.payload(), attachment.name)
+                if let entry = claimed[attachment.id] {
+                    do {
+                        return try await entry.task.value
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        try Task.checkCancellation()
+                    }
+                }
+                let transfer = try await attachment.transferPayload()
+                try Task.checkCancellation()
+                return try await uploader(transfer.payload, transfer.name)
             }
         } else {
             attachmentError = "Connect to the Mac to send attachments."
@@ -989,6 +1052,7 @@ public final class TerminalModel {
                 } catch {
                     guard let self, !Task.isCancelled else { return }
                     self.pendingSend = nil
+                    self.attachmentPrestager.cancelClaimed()
                     self.attachmentError = "Couldn't send \(attachment.name): \(Self.message(error))"
                     return
                 }
@@ -1001,6 +1065,7 @@ public final class TerminalModel {
 
     private func finishAttachmentSend(paths: [String], ids: Set<ComposerAttachment.ID>, pressReturn: Bool) {
         pendingSend = nil
+        attachmentPrestager.releaseClaimed()
         let draft = composerText
         let submit = ComposerSubmit(attachmentPaths: paths, text: draft, pressReturn: pressReturn)
         if pressReturn { controller?.noteSent(draft) }
@@ -1012,6 +1077,7 @@ public final class TerminalModel {
         if !viaDaemon { controller?.surface.perform(submit) }
         composerText = ""
         attachments.removeAll { ids.contains($0.id) }
+        syncAttachmentUploads()
     }
 
     /// Keep the draft, completed Mac paths and any picks made after Send.
@@ -1020,6 +1086,7 @@ public final class TerminalModel {
         guard let pendingSend else { return }
         pendingSend.task.cancel()
         self.pendingSend = nil
+        attachmentPrestager.cancelClaimed()
         for index in attachments.indices where pendingSend.attachmentIDs.contains(attachments[index].id) {
             guard let id = attachments[index].uploadID,
                   let sender = attachments[index].uploadSender ?? attachmentSender,
@@ -1037,6 +1104,11 @@ public final class TerminalModel {
         return (attachment.uploadSender ?? attachmentSender)?.progress(id)
     }
 
+    /// Stops an attachment send without discarding the draft or its tiles.
+    public func cancelAttachmentSend() {
+        cancelSend()
+    }
+
     static func message(_ error: any Error) -> String {
         (error as? LocalizedError)?.errorDescription ?? String(describing: error)
     }
@@ -1048,6 +1120,7 @@ public final class TerminalModel {
             attachment.startUpload(via: attachmentSender)
         }
         attachments.append(attachment)
+        syncAttachmentUploads()
     }
 
     /// A tapped attachment, before sending: every attachment opens full screen, to swipe between.
@@ -1090,11 +1163,13 @@ public final class TerminalModel {
         guard attachments.isEmpty, self !== previous else { return }
         previous.pendingSend?.task.cancel()
         previous.pendingSend = nil
+        previous.attachmentPrestager.cancelAll()
         attachments = previous.attachments
         previous.attachments.removeAll()
         pendingPicks = previous.pendingPicks
         previous.pendingPicks.removeAll()
         for pick in pendingPicks.values { pick.model = self }
+        syncAttachmentUploads()
     }
 
     /// A Photos placeholder keeps its place as its image bytes or movie arrive.
@@ -1113,6 +1188,7 @@ public final class TerminalModel {
         }
         attachments[index].isLoading = false
         if let attachmentSender { attachments[index].startUpload(via: attachmentSender) }
+        syncAttachmentUploads()
     }
 
     func removeAttachment(_ id: ComposerAttachment.ID) {
@@ -1126,12 +1202,32 @@ public final class TerminalModel {
             // Invalidate the path list. Other tiles still in the tray keep their pick-time transfers.
             pendingSend?.task.cancel()
             pendingSend = nil
+            attachmentPrestager.cancelClaimed()
             attachmentError = nil
         }
+        syncAttachmentUploads()
         if attachments.isEmpty { attachmentError = nil }
     }
 
     func clearAttachmentError() { attachmentError = nil }
+
+
+    func syncAttachmentUploads() {
+        guard attachmentSender == nil, connectionState.isAttached else {
+            attachmentPrestager.cancelAll()
+            return
+        }
+        attachmentPrestager.sync(attachments, directory: uploaderDirectory, upload: uploader)
+    }
+
+    /// Updates the upload closure and its destination as one snapshot. The live
+    /// host calls this when its daemon tree publishes a new working directory.
+    public func setUploader(_ uploader: (@MainActor (LinkUpload.Payload, String) async throws -> String)?,
+                            directory: String?) {
+        uploaderDirectory = directory
+        self.uploader = uploader
+    }
+
 
     // MARK: Key bar
 

@@ -19,14 +19,22 @@ on:
 permissions: {}
 
 concurrency:
-  group: cmux-next-ios-energy-nightly-${{ github.sha }}
+  # One run at a time per workflow on nightly-next tips, not one per commit (ci-min-per-pr-30; Leo, 2026-11-21:
+  # "de facto, im asking for 99% fewer minutes of ci time, period."). nightly-next moves about 20 times a day,
+  # and a per-commit group let every push start its own gateway job at once: they queued behind one another
+  # at the fleet's one simulator per Mac while each held a gateway runner, and on 11-26 eleven clips and
+  # energy runs sat to their timeout (240 and 150 min) and were cancelled: 1,172 of the 2,071 runner-min the
+  # three simulator benches spent in the timing feed's 24 h to 19Z. One group keeps the run in flight and only the newest pushed tip pending (GitHub drops the older
+  # pending one, a tip the newer one supersedes), and a pending run holds no runner. cmux-next-media.yml's
+  # nightly tour does the same (cmux-next-media-nightly-tip).
+  group: cmux-next-ios-energy-nightly-tip
   cancel-in-progress: false
 
 jobs:
   bench:
     name: Energy bench on a fleet simulator
     if: ${{ github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' }}
-    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
     timeout-minutes: 150
     permissions:
       contents: read

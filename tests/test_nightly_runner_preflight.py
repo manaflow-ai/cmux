@@ -228,7 +228,7 @@ class Wiring(unittest.TestCase):
         text = json.dumps(job)
         self.assertNotIn("secrets.", text)
         self.assertNotRegex(text, r"cancel|gh run|actions/runs")
-        self.assertIn("/scripts/ci/deadline_http.py", job["steps"][0]["with"]["sparse-checkout"])
+        self.assertIn("/scripts/ci/deadline_http.py", next(s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/checkout@"))["with"]["sparse-checkout"])
         step_env = job["steps"][-1]["env"]
         self.assertEqual(step_env["GITHUB_TOKEN"], "${{ github.token }}")
         for name in ("CI_RUNNER_STATE", "CI_NIGHTLY_MINI", "CI_NIGHTLY_MINI_BUILDER", "CI_NIGHTLY_ONLY_RUNNER"):

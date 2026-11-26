@@ -225,32 +225,59 @@ import Testing
         #expect(session.submitted == ["/mac/first first"])
     }
 
-    /// The legacy uploader may still return a path after its Task was cancelled.
-    @Test func removingALegacyPickDiscardsPathsAndDoesNotStartTheNextUpload() async throws {
+    /// The base prestager starts all legacy picks early; a late cancelled path must never submit.
+    @Test func removingALegacyPickDiscardsLatePathsAndRetryKeepsOnlyRemainingTiles() async throws {
         let session = QuietSession()
         let model = Self.model(session: session)
-        let first = Self.video()
+        let first = ComposerAttachment(kind: .video, name: "first.mov", data: Data([1]))
+        let second = ComposerAttachment(kind: .video, name: "second.mov", data: Data([2]))
         var waiting: CheckedContinuation<String, Never>?
-        var calls = 0
-        model.uploader = { _, _ in
-            calls += 1
-            if calls == 2 { return await withCheckedContinuation { waiting = $0 } }
-            return "/mac/item\(calls)"
+        model.uploader = { _, name in
+            if name == "first.mov" { return await withCheckedContinuation { waiting = $0 } }
+            return "/mac/" + name
         }
         model.addAttachment(first)
-        model.addAttachment(Self.video())
-        model.addAttachment(Self.video())
+        model.addAttachment(second)
         model.composerText = "keep"
         model.send()
         try #require(await Self.waitFor { waiting != nil })
         model.removeAttachment(first.id)
         let late = try #require(waiting)
         late.resume(returning: "/mac/late")
+        await Self.settle()
         #expect(!model.isUploading)
+        #expect(session.submitted.isEmpty)
         model.send()
         #expect(await Self.waitFor { !model.isUploading })
-        #expect(calls == 4)
-        #expect(session.submitted == ["/mac/item3 /mac/item4 keep"])
+        #expect(session.submitted == ["/mac/second.mov keep"])
+    }
+
+    @Test func queuedPicksNeverAlsoStartTheLegacyPrestager() async {
+        let model = Self.model()
+        let sender = FakeSender()
+        var legacyCalls = 0
+        model.uploader = { _, _ in legacyCalls += 1; return "/mac/duplicate" }
+        model.attachmentSender = sender
+        model.addAttachment(Self.video())
+        model.syncAttachmentUploads()
+        await Self.settle()
+        #expect(sender.started == ["u1"])
+        #expect(legacyCalls == 0)
+        model.removeAttachment(model.attachments[0].id)
+    }
+
+    @Test func changingMacDiscardsEvenCompletedQueuedPaths() async {
+        let model = Self.model()
+        let sender = FakeSender()
+        model.hostMacID = "first-mac"
+        model.attachmentSender = sender
+        model.addAttachment(Self.video())
+        sender.finish("u1", .success("/first-mac/file"))
+        model.hostMacID = "second-mac"
+        #expect(model.attachments[0].uploadID == nil)
+        #expect(model.attachments[0].uploadSender == nil)
+        #expect(model.attachmentSender == nil)
+        #expect(sender.cancelled == ["u1"])
     }
 
     @Test func pickerCopyLivesThroughStopAndPreviewThenReleasesItsDirectory() async throws {

@@ -40,14 +40,14 @@ final class TerminalCancelMidSendUITests: XCTestCase {
         XCTAssertEqual(send.label, "Send")
         let sentAt = Date()
         send.tap()
-        XCTAssertTrue(waitFor(timeout: 3) { send.label == "Stop sending" }, "Send turns into Stop while the video uploads: \(send.label)")
+        XCTAssertTrue(waitFor(timeout: 3) { send.label == "Cancel sending" }, "Send turns into Stop while the video uploads: \(send.label)")
         attach(app, "sending")
 
         // Partway: a few seconds into a 12 s upload. Stop still showing proves the send is waiting.
         Thread.sleep(forTimeInterval: max(0, 3 - Date().timeIntervalSince(sentAt)))
         let uploading = app.descendants(matching: .any)["Uploading"].firstMatch
         let percent = uploading.exists ? (uploading.value as? String ?? "?") : "badge not exposed"
-        XCTAssertEqual(send.label, "Stop sending", "still sending when Stop is tapped")
+        XCTAssertEqual(send.label, "Cancel sending", "still sending when Stop is tapped")
         let stoppedAfter = Date().timeIntervalSince(sentAt)
         send.tap()
 

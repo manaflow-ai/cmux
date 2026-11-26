@@ -485,6 +485,7 @@ final class ShellModel {
             terminalTabs.attachmentSenderProvider = { [weak live] tab, macID in
                 EngineAttachmentSender { [weak live] in live?.terminalAttachmentDestination(tabID: tab.id, macID: macID) }
             }
+            terminalTabs.uploaderDirectoryProvider = { [weak live] tab, macID in live?.terminalDirectory(tabID: tab.id, macID: macID) }
             terminalTabs.screenTextProvider = { [weak live] tab, macID in await live?.terminalScreenText(tabID: tab.id, macID: macID) }
             // Grid cards and the close prompt's programs follow the Mac's output, not a timer.
             live.onTerminalOutput = { [weak terminalTabs] tab, macID in terminalTabs?.macOutput(tabID: tab, macID: macID) }
@@ -548,6 +549,7 @@ final class ShellModel {
             terminalTabs.artifactSourceProvider = nil
             terminalTabs.uploaderProvider = nil
             terminalTabs.attachmentSenderProvider = nil
+            terminalTabs.uploaderDirectoryProvider = nil
             terminalTabs.screenTextProvider = nil
             creator.backend = offlineCreation
         }
