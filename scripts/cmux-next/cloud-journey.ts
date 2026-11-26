@@ -3876,8 +3876,8 @@ export function machineIds(rows: any[]): string[] {
 
 /**
  * How old a journey's own machine must be before a later run may sweep it: well past the longest job that runs a
- * journey (up to 90 min; cloud-journey.test.ts checks every timeout-minutes in a workflow that runs it to be at most
- * half of this), so a journey that is still running never loses its machine. A long run (--resume-matrix,
+ * journey (up to 90 min; cloud-journey.test.ts checks every timeout-minutes in a workflow job that runs it to be at
+ * most half of this; a job that runs none, like backend.yml's 95 min `test`, makes no journey machine), so a journey that is still running never loses its machine. A long run (--resume-matrix,
  * --wake-echo) names its machines `cloud journey auto jr-<tag> long…` and gets LONG_JOURNEY_MS instead.
  */
 export const STALE_JOURNEY_MS = 3 * 3_600_000;
