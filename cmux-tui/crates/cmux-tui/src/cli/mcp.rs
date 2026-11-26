@@ -53,6 +53,7 @@ mod slides_tool;
 mod terminal_talk_tools;
 #[cfg(test)]
 mod tests;
+mod token_tools;
 mod tool_list;
 mod transport;
 mod upstream;
@@ -1300,6 +1301,9 @@ impl<B: Backend> Server<B> {
             return Ok(result);
         }
         if let Some(result) = device_tools::call(name, &arguments) {
+            return Ok(result);
+        }
+        if let Some(result) = token_tools::call(name, &arguments) {
             return Ok(result);
         }
         if let Some(tool) = remote_tools::find(name) {

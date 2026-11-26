@@ -13,7 +13,7 @@ describe("Settings switches pick experiment arms", () => {
     expect(settingArms()).toEqual({});
     expect(experimentArm(menuStyleV2, { overrides: {}, stored: {} })).toBe("off");
     expect(experimentArm(menuRowStates, { overrides: {}, stored: {} })).toBe("off");
-    expect(experimentArm(trayFoldHeadLook, { overrides: {}, stored: {} })).toBe("groups");
+    expect(experimentArm(trayFoldHeadLook, { overrides: {}, stored: {} })).toBe("line");
   });
 
   test("the composer hat switch is on by default; turned off it keeps the earlier look", () => {
@@ -39,11 +39,11 @@ describe("Settings switches pick experiment arms", () => {
     expect(settingArms()).toEqual({
       "menu-style-v2": "v2",
       "menu-row-states": "on",
-      "subagent-tray-fold-head": "groups",
+      "subagent-tray-fold-head": "line",
     });
     expect(experimentArm(menuStyleV2, { overrides: {}, stored: {} })).toBe("v2");
     expect(experimentArm(menuStyleV2, { overrides: { "menu-style-v2": "v2-glass" }, stored: {} })).toBe("v2-glass");
-    expect(experimentArm(trayFoldHeadLook, { overrides: {}, stored: {} })).toBe("groups");
+    expect(experimentArm(trayFoldHeadLook, { overrides: {}, stored: {} })).toBe("line");
   });
 
   test("each menu experiment has one switch", () => {
