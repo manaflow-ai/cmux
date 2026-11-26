@@ -103,18 +103,28 @@ impl Hub {
         if stale.is_empty() {
             return HarnessRestarts::default();
         }
-        let marked = stale.len();
+        let mut now = 0;
+        let mut marked = 0;
         for id in &stale {
             if let Ok(session) = self.resolve(id) {
-                self.respawn_when_quiet(&session);
+                // A proxy can become stale while a chat is between turns. Reuse the
+                // full quietness/census path immediately in that case; active work stays
+                // marked and is hibernated only after it really becomes quiet.
+                if self.end_quiet_stale(&session, "stale-proxy", None).await {
+                    now += 1;
+                } else {
+                    self.respawn_when_quiet(&session);
+                    marked += 1;
+                }
             }
         }
         tracing::info!(
             code = "vault.egress_stale_agents",
-            count = marked,
+            now,
+            after_turn = marked,
             "agents on a stale proxy wait for quiet and hibernate before their next prompt"
         );
-        HarnessRestarts { after_turn: marked, ..HarnessRestarts::default() }
+        HarnessRestarts { now, after_turn: marked, ..HarnessRestarts::default() }
     }
 
     /// Whether `session`'s live agent was started on another start of this machine's vault

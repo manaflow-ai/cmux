@@ -52,12 +52,15 @@ impl Hub {
             if !changed || session.child.lock().await.is_none() {
                 continue;
             }
-            tracing::info!(session = %session.id, harness = %meta.harness, "harness profile changed: waiting for quiet before hibernating");
+            tracing::info!(session = %session.id, harness = %meta.harness, "harness profile changed: hibernating now if quiet, otherwise waiting");
             self.mark_profile_respawn(&session);
-            // Work can start after this snapshot, including an unreported child. Only the
-            // idle pass's final gates and census may end an automatic profile restart.
-            self.respawn_when_quiet(&session);
-            marked += 1;
+            // A reload of an idle chat should take effect immediately. Work can start after
+            // this snapshot, including an unreported child; the shared quietness/census path
+            // rechecks every gate before ending it and leaves a mark when it refuses.
+            if !self.end_quiet_stale(&session, "profile-changed", None).await {
+                self.respawn_when_quiet(&session);
+                marked += 1;
+            }
         }
         HarnessRestarts { after_turn: marked, ..HarnessRestarts::default() }
     }

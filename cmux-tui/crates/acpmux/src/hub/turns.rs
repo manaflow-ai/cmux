@@ -1078,6 +1078,13 @@ impl Hub {
             false,
             opts.provenance.as_ref(),
         )?;
+        // A route/credential/gateway/profile restart marked while this chat was between turns
+        // must not let the next ordinary prompt reuse the old environment. Recheck the same
+        // quietness and process census used by the reaper before claiming the turn; if work is
+        // still present, the mark remains and the prompt may continue on the live child.
+        if running.is_none() && session.respawn_when_quiet.load(Ordering::SeqCst) {
+            let _ = self.end_quiet_stale(session, "prompt-restart", None).await;
+        }
         // The person's steer to an agent that steers, sent while no turn showed yet: another
         // prompt holds the turn and is still starting (its agent spawning, its uploads read), so
         // this one queues behind it, and steers in once that turn shows (`queue.rs`
