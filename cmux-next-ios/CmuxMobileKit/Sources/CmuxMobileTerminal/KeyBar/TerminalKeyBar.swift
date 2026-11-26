@@ -8,7 +8,7 @@ import SwiftUI
 /// of keys that hug their labels, in `KeyBarLayout`'s order (classic's, with
 /// the arrows before the agent launchers), ending in Hide Toolbar.
 /// It shows only over the soft keyboard (`TerminalDockVisibility.showsKeyRow`).
-/// Every key is a 44 pt target. How the keys are drawn is `KeyBarStyle`:
+/// Every key is classic's 28 pt cap, and its cap is its whole hit area. How the keys are drawn is `KeyBarStyle`:
 /// separate Liquid Glass caps (classic: `.glass()` / `.prominentGlass()`), in
 /// cmux NEXT's small-radius shape, by default.
 struct TerminalKeyBar: View {
@@ -56,12 +56,16 @@ struct TerminalKeyBar: View {
             // falls through to a hidden key scrolled under them.
             .contentShape(.rect)
         }
-        // Room above and below the 44 pt row for the glass's touch lift,
+        // Room above and below the 28 pt row for the glass's touch lift,
         // which the scroller would otherwise clip; the row's layout height
-        // stays 44 pt.
+        // stays 28 pt.
         .contentMargins(.vertical, KeyRowGlass.liftRoom, for: .scrollContent)
         .frame(height: TerminalDockMetrics.keyRowHeight + 2 * KeyRowGlass.liftRoom)
         .padding(.vertical, -KeyRowGlass.liftRoom)
+        // The glass lift is visual only. Keep the row's hit region inside its
+        // 28 pt layout so taps in the composer gap belong to the composer.
+        .frame(height: TerminalDockMetrics.keyRowHeight)
+        .contentShape(Rectangle())
         // The strip style: one glass bar behind every key, like the system
         // keyboard's own suggestion bar, instead of a cap per key.
         .background {
@@ -149,6 +153,9 @@ struct KeyBarScrollerKey: View {
                 // The system paste control: no "Allow Paste" prompt (Codex QA F14).
                 // It draws its own cap: no glass over it (`PasteKeyCap`).
                 PasteKeyCap(model: model)
+                    // A paste control's colours are fixed when it is made (writing them later throws),
+                    // so a new Mac theme makes a new control.
+                    .id(PasteKeyCap.ThemeKey(palette: CmuxMobileMacTheme.shared.palette))
                     .frame(width: TerminalDockMetrics.minKeyWidth, height: TerminalDockMetrics.keyRowHeight)
                     .clipShape(RoundedRectangle(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous))
             } else {
@@ -198,8 +205,8 @@ struct KeyboardToggleKey: View {
     }
 }
 
-/// One key cap: a 44 pt target hugging its label (a glyph key is 44 pt
-/// wide), radius 8. A Button keeps the scroller scrollable; arrows repeat
+/// One key cap: 28 pt tall, hugging its label (a glyph key is 32 pt wide),
+/// radius 8. A Button keeps the scroller scrollable; arrows repeat
 /// while held. No haptic: these are keys, and whether keys tick is the system
 /// keyboard's own Keyboard Feedback setting, which no app can read (Leo,
 /// 2026-11-23: "dont inject haptic noise when i havent asked for it. ever.").
@@ -255,18 +262,18 @@ enum KeyClick {
     static func play() { AudioServicesPlaySystemSound(sound) }
 }
 
-/// A key cap's shape and size: a 44 pt target hugging its label (a glyph key
-/// is 44 pt wide), radius 8 (cmux NEXT draws no capsules). Its look follows
+/// A key cap's shape and size: 28 pt tall, hugging its label (a glyph key is
+/// 32 pt wide), radius 8 (cmux NEXT draws no capsules). Its look follows
 /// `KeyBarStyle`; pressed, the label dims a little under the glass's own lift.
 struct KeyCapStyle: ButtonStyle {
-    /// SF Symbol keys, and text keys (Esc, Tab, ^C): the system keyboard's
-    /// accessory rows use 17 pt; 16 keeps "PgUp" inside a 44 pt cap.
-    static let glyphSize: CGFloat = 17
-    static let labelSize: CGFloat = 16
+    /// SF Symbol keys, and text keys (Esc, Tab, ^C): classic's 13 and 14 pt
+    /// (#53325 had 17 and 16 for its 44 pt caps).
+    static let glyphSize: CGFloat = 13
+    static let labelSize: CGFloat = 14
 
     var locked = false
     var armed = false
-    /// A fixed width; nil hugs the label with a 10 pt inset.
+    /// A fixed width; nil hugs the label with a 6 pt inset.
     var width: CGFloat?
 
     func makeBody(configuration: Configuration) -> some View {
@@ -288,47 +295,46 @@ private struct KeyCapBody<Label: View>: View {
         let shape = RoundedRectangle(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous)
         let inset = style.capInset
         label
-            .padding(.horizontal, width == nil ? 10 : 0)
+            .padding(.horizontal, width == nil ? 6 : 0)
             .frame(minWidth: (width ?? TerminalDockMetrics.minKeyWidth) - 2 * inset, maxWidth: width.map { $0 - 2 * inset },
                    minHeight: TerminalDockMetrics.keyRowHeight - 2 * inset,
                    maxHeight: TerminalDockMetrics.keyRowHeight - 2 * inset)
             .overlay(alignment: .bottom) {
                 // Locked: a 2 pt underline under the armed tint (SPEC M1).
                 if locked {
-                    Capsule().fill(Color.cmuxMobileOnAccent).frame(height: 2).padding(.horizontal, 7).padding(.bottom, 3)
+                    Capsule().fill(Color.cmuxMobileOnAccent).frame(height: 2).padding(.horizontal, 7).padding(.bottom, 2)
                 }
             }
             .cmuxMobilePressFill(pressed, in: shape)
             .keyGlass(style: style, armed: locked || armed)
-            // The drawn cap may be smaller than the target (`KeyBarStyle.inset`):
-            // the whole 44 pt square takes the tap.
+            // The drawn cap may be smaller than its slot (`KeyBarStyle.inset`):
+            // the whole slot takes the tap, and no more.
             .padding(inset)
             .contentShape(.rect(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous))
     }
 }
 
-/// How the key row draws its keys. Every style keeps 44 pt targets; the
+/// How the key row draws its keys. Every style keeps the same targets; the
 /// gallery (`-cmux-mobile-recovery-gallery keybar`) shows them side by side.
 enum KeyBarStyle: String, CaseIterable, Sendable {
-    /// A Liquid Glass cap per key, 44 pt (the shipped look).
+    /// A Liquid Glass cap per key (the shipped look).
     case caps
     /// One glass bar behind plain keys, like the system keyboard's suggestion
     /// bar; only an armed modifier gets its own (accent) cap.
     case strip
-    /// 36 pt glass caps centered in 44 pt targets: the old row's lighter look,
-    /// with the bigger targets.
+    /// Smaller glass caps centered in the same targets: a lighter look.
     case inset
 
     var title: String {
         switch self {
-        case .caps: "Caps (44 pt glass caps)"
+        case .caps: "Caps (a glass cap per key)"
         case .strip: "Strip (one glass bar)"
-        case .inset: "Inset (36 pt caps, 44 pt targets)"
+        case .inset: "Inset (smaller caps, same targets)"
         }
     }
 
-    /// How far the drawn cap sits inside its 44 pt target, each side.
-    var capInset: CGFloat { self == .inset ? 4 : 0 }
+    /// How far the drawn cap sits inside its target, each side.
+    var capInset: CGFloat { self == .inset ? 2 : 0 }
 }
 
 extension EnvironmentValues {
@@ -344,9 +350,11 @@ enum KeyRowGlass {
     static let stripCornerRadius: CGFloat = 12
     /// Space the scroller leaves above and below its keys for the glass's lift on touch.
     static let liftRoom: CGFloat = 8
-    /// Paste's own cap (`PasteKeyCap`): opaque, the tone of a glass key over
-    /// the terminal's black.
-    static let pasteBackground = UIColor(white: 0.2, alpha: 1)
+    /// Paste's own cap (`PasteKeyCap`): opaque, the theme's raised surface (the
+    /// tone of a glass key over the terminal's ground), so it follows the Mac's theme.
+    static var pasteBackground: UIColor { CmuxMobileTheme.standard.colors.surfaceRaised.uiColor }
+    /// Paste's glyph: the theme's text color.
+    static var pasteForeground: UIColor { CmuxMobileTheme.standard.colors.label.uiColor }
 }
 
 extension View {
@@ -382,7 +390,7 @@ struct PasteKeyCap: UIViewRepresentable {
         configuration.cornerStyle = .medium
         // Opaque, near the dark glass keys over the terminal's black.
         configuration.baseBackgroundColor = KeyRowGlass.pasteBackground
-        configuration.baseForegroundColor = .white
+        configuration.baseForegroundColor = KeyRowGlass.pasteForeground
         let control = UIPasteControl(configuration: configuration)
         control.target = model.controller?.surface
         control.accessibilityIdentifier = "terminal.key.paste"
@@ -391,6 +399,12 @@ struct PasteKeyCap: UIViewRepresentable {
 
     func updateUIView(_ control: UIPasteControl, context: Context) {
         if control.target == nil { control.target = model.controller?.surface }
+    }
+
+    /// The Mac theme the control was made in: its `.id`, so a theme change makes a new control.
+    struct ThemeKey: Hashable {
+        let palette: CmuxMobileMacPalette?
+        func hash(into hasher: inout Hasher) {}
     }
 }
 #endif

@@ -11,6 +11,8 @@ source "$SCRIPT_DIR/lib/dev-secrets.sh"
 source "$SCRIPT_DIR/lib/stop-app-instances.sh"
 # shellcheck source=lib/cmux-dev-shim-install
 source "$SCRIPT_DIR/lib/cmux-dev-shim-install"
+# shellcheck source=scripts/lib/swiftpm-seed.sh
+source "$SCRIPT_DIR/lib/swiftpm-seed.sh"
 # shellcheck source=scripts/lib/dev-sign-identity.sh
 source "$SCRIPT_DIR/lib/dev-sign-identity.sh"
 
@@ -1970,6 +1972,8 @@ build_dirty=false
 # xcodebuild invocations can trample that daemon, and parallel builds swap a
 # laptop to a halt, so reload.sh builds take one of XCODEBUILD_LOCK_CONCURRENCY
 # slots (machine_build_slots above).
+# Runner slots sharing one SwiftPM artifact cache: seed it first (scripts/lib/swiftpm-seed.sh).
+seed_swiftpm_binary_artifacts "$SCRIPT_DIR/.."
 XCODEBUILD_STARTED=1
 set_xcodebuild_command
 python3 -c '
@@ -2367,7 +2371,6 @@ case "$cmux_next_tui_source" in
     exit 1
     ;;
 esac
-"$PWD/scripts/install-coderouter-client.sh" "$APP_PATH"
 if command -v xattr >/dev/null 2>&1; then
   xattr -cr "$APP_PATH" || true
 fi
