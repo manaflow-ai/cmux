@@ -343,7 +343,7 @@ class SweepTests(unittest.TestCase):
         rules = job["steps"][1]["with"]
         # main by branch name or by its full ref (refs/heads/main: never a tag of that name).
         self.assertIn(rules["ref"], ("main", "refs/heads/main"))
-        self.assertEqual(rules["sparse-checkout"].strip(), "scripts/ci/delivery_workflows.py")
+        self.assertEqual(rules["sparse-checkout"].split(), ["scripts/ci/delivery_workflows.py", ".gitmodules"])
         step = job["steps"][-1]
         self.assertTrue(step.get("continue-on-error"))
         self.assertIn("--rules .main-rules/scripts/ci/delivery_workflows.py --settle --chain \"$CHAIN\"", step["run"])
