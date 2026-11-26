@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.sidebar.floatOnHover.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "عندما يكون الشريط الجانبي مخفيًا، أشر إلى حافة النافذة لإظهاره فوق عملك."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dok je bočna traka skrivena, pokažite na rub prozora da se prikaže iznad vašeg rada."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Når sidepanelet er skjult, så peg på vinduets kant for at vise det over dit arbejde."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ist die Seitenleiste ausgeblendet, zeige auf den Fensterrand, um sie über deiner Arbeit einzublenden."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "With the sidebar hidden, point at the window's edge to show it over your work."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Con la barra lateral oculta, apunta al borde de la ventana para mostrarla sobre tu trabajo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Barre latérale masquée, pointez sur le bord de la fenêtre pour l’afficher par-dessus votre travail."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Con la barra laterale nascosta, punta il bordo della finestra per mostrarla sopra il tuo lavoro."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "サイドバーが非表示のとき、ウインドウの端にポインタを置くと作業の上にサイドバーが表示されます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ពេលរបារចំហៀងត្រូវបានលាក់ ចង្អុលទៅគែមបង្អួច ដើម្បីបង្ហាញវាលើការងាររបស់អ្នក។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "사이드바가 숨겨져 있을 때 창 가장자리를 가리키면 작업 위에 사이드바가 표시됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Når sidepanelet er skjult, pek på vinduets kant for å vise det over arbeidet ditt."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gdy pasek boczny jest ukryty, wskaż krawędź okna, aby pokazać go nad pracą."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Com a barra lateral oculta, aponte para a borda da janela para mostrá-la sobre o seu trabalho."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Когда боковая панель скрыта, наведите указатель на край окна, чтобы показать её поверх работы."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เมื่อซ่อนแถบด้านข้าง ให้ชี้ที่ขอบหน้าต่างเพื่อแสดงแถบเหนืองานของคุณ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kenar çubuğu gizliyken, işinizin üzerinde göstermek için pencerenin kenarına gelin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Коли бічну панель приховано, наведіть вказівник на край вікна, щоб показати її поверх роботи."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Khi thanh bên bị ẩn, trỏ vào cạnh cửa sổ để hiện thanh bên trên công việc của bạn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "侧边栏隐藏时，将指针移到窗口边缘即可让它浮在内容上方显示。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "側邊欄隱藏時，將指標移到視窗邊緣，側邊欄會浮在你的工作上方顯示。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

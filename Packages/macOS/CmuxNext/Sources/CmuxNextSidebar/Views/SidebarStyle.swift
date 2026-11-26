@@ -139,7 +139,7 @@ enum SidebarStyle {
     /// The house's ink width over the extent the optical fit holds to the glyph size, measured once: the house's drawing
     /// does not change while the app runs (the icon pack's overlay is fixed at launch, `IconPack.overlaid`).
     @MainActor private static let homeGlyphWidthRatio: CGFloat = {
-        let probe = NSImage.icon(SidebarBuiltIn.home.icon, size: 32)
+        let probe = NSImage.icon(IconName.home, size: 32)  // Home's house (SidebarBuiltIn.home.icon)
         guard let ink = SidebarGlyphInk.shared.box(of: probe, glyph: "sidebar.homeProbe"),
               SidebarOpticalGlyph.fittedExtent(ink.size) > 0 else { return 1 }
         return ink.width / SidebarOpticalGlyph.fittedExtent(ink.size)

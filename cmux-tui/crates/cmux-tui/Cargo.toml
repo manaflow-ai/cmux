@@ -6,6 +6,8 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 description = "cmux-tui: tmux-like terminal multiplexer TUI backed by libghostty-vt"
+# The integration tests are one binary, `it` (tests/it/main.rs), not one per file (#56677).
+autotests = false
 
 [lints]
 workspace = true
@@ -92,6 +94,7 @@ png.workspace = true
 # cmux-conversation, no new crate.
 pulldown-cmark = { version = "0.13", default-features = false }
 cmux-tui-core.workspace = true
+cmux-palette-ranker.workspace = true
 cmux-daemon-launch-core = { path = "../cmux-daemon-launch-core" }
 # The tab a pane shows after a close (close_focus::tab), the app's and the daemon's rule.
 cmux-focus-core.workspace = true
@@ -239,6 +242,7 @@ plist = "1.10"
 cmux-build-identity.workspace = true
 cmux-host-budget.workspace = true
 cmux-remote.workspace = true
+cmux-braid-path.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-wg.workspace = true
 cmux-link.workspace = true
@@ -270,11 +274,58 @@ cmux-repro = { path = "../cmux-repro" }
 tokio.workspace = true
 windows-sys = { workspace = true, features = ["Win32_System_LibraryLoader"] }
 
+# Every file in tests/ is a module of this one test binary (tests/it/main.rs): a change below
+# cmux-tui links one test binary, not one per file (#56677). Its build lists the files.
+[[test]]
+name = "it"
+path = "tests/it/main.rs"
+
+# These files change their whole test process, so each keeps a binary of its own; the
+# list of `it` leaves out every file named here.
+# The hermetic environment of acpmux/tests/support/daemon_env.rs, installed before main:
+[[test]]
+name = "acp_subsession_mcp"
+path = "tests/acp_subsession_mcp.rs"
+[[test]]
+name = "acpmux_bin_cmux_layout"
+path = "tests/acpmux_bin_cmux_layout.rs"
+[[test]]
+name = "agent_cli_job_journey"
+path = "tests/agent_cli_job_journey.rs"
+[[test]]
+name = "chief_work_daemons"
+path = "tests/chief_work_daemons.rs"
+[[test]]
+name = "inventory_refresh_journey"
+path = "tests/inventory_refresh_journey.rs"
+[[test]]
+name = "native_workflow"
+path = "tests/native_workflow.rs"
+# The process environment (std::env::set_var), one test per binary:
+[[test]]
+name = "agent_message_launch_credential"
+path = "tests/agent_message_launch_credential.rs"
+[[test]]
+name = "spill_first_path"
+path = "tests/spill_first_path.rs"
+[[test]]
+name = "spill_to_cloud"
+path = "tests/spill_to_cloud.rs"
+# Windows only: the Windows CI job builds and runs just these for x86_64-pc-windows-gnu.
+[[test]]
+name = "windows_daemon_start"
+path = "tests/windows_daemon_start.rs"
+[[test]]
+name = "windows_terminal_hosts"
+path = "tests/windows_terminal_hosts.rs"
+
 [build-dependencies]
 # build.rs reads the browser registry's ids and names.
 serde_json.workspace = true
 
 [dev-dependencies]
+# tests/it/main.rs: the list of test files (tests/it/modules/build.rs).
+cmux-tui-test-modules = { path = "tests/it/modules" }
 cmux-build-space = { workspace = true, features = ["testing"] }
 # cli/ext tests: the fake daemon renders a mount with the real QuickJS app host.
 cmux-app-host = { workspace = true, features = ["engine"] }
