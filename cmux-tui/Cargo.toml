@@ -44,6 +44,7 @@ members = [
     "crates/cmux-cloud-environment",
     "crates/cmux-conversation",
     "crates/cmux-sync",
+    "crates/cmux-team-messaging",
     "crates/cmux-message-preview",
     "crates/cmux-share-approval",
     "crates/cmux-chief",
@@ -68,6 +69,7 @@ members = [
     "crates/cmux-agent-customize",
     "crates/cmux-tui-util",
     "crates/cmux-json",
+    "crates/cmux-intent",
     "crates/cmux-local-url",
     "crates/cmux-journal",
     "crates/cmux-session-pack",
@@ -81,6 +83,7 @@ members = [
     "crates/cmux-follow-cam",
     "crates/cmux-cloud-start-core",
     "crates/cmux-tab-discard",
+    "crates/cmux-browser-rules",
     "crates/cmux-lifeline",
     "crates/cmux-cloud-machine",
     "crates/cmux-auto-session",
@@ -115,6 +118,7 @@ members = [
     "crates/cmux-deadline",
     "crates/cmux-tailnet-join",
     "crates/cmux-bounded",
+    "crates/cmux-no-checkout",
     "crates/cmux-remote-protocol",
     "crates/cmux-braid-session",
     "crates/cmux-build-identity",
@@ -162,6 +166,7 @@ members = [
     "crates/cmux-terminal-iface",
     "crates/cmux-rd-proto",
     "crates/cmux-rd-core",
+    "crates/cmux-rd-screen",
     "crates/cmux-rd-engine",
     "crates/cmux-rd-link",
     "crates/cmux-vnc",
@@ -176,6 +181,7 @@ members = [
     "crates/cmux-health-core",
     "crates/cmux-launch-image",
     "crates/cmux-pane-pictures",
+    "crates/cmux-screenshots",
     "crates/cmux-supervise-core",
     "crates/cmux-cookie-sync",
     "crates/cmux-browser-import",
@@ -252,6 +258,7 @@ default-members = [
     "crates/cmux-agent-customize",
     "crates/cmux-tui-util",
     "crates/cmux-json",
+    "crates/cmux-intent",
     "crates/cmux-local-url",
     "crates/cmux-journal",
     "crates/cmux-api-compat",
@@ -260,6 +267,7 @@ default-members = [
     "crates/cmux-focus-core",
     "crates/cmux-cloud-start-core",
     "crates/cmux-tab-discard",
+    "crates/cmux-browser-rules",
     "crates/cmux-lifeline",
     "crates/cmux-cloud-machine",
     "crates/cmux-auto-session",
@@ -330,6 +338,7 @@ default-members = [
     "crates/cmux-terminal-iface",
     "crates/cmux-rd-proto",
     "crates/cmux-rd-core",
+    "crates/cmux-rd-screen",
     "crates/cmux-rd-engine",
     "crates/cmux-rd-link",
     "crates/cmux-vnc",
@@ -342,6 +351,7 @@ default-members = [
     "crates/cmux-health-core",
     "crates/cmux-launch-image",
     "crates/cmux-pane-pictures",
+    "crates/cmux-screenshots",
     "crates/cmux-supervise-core",
     "crates/cmux-cookie-sync",
     "crates/cmux-browser-import",
@@ -436,6 +446,7 @@ cmux-deadline = { path = "crates/cmux-deadline" }
 cmux-interactivity = { path = "crates/cmux-interactivity" }
 cmux-tailnet-join = { path = "crates/cmux-tailnet-join" }
 cmux-bounded = { path = "crates/cmux-bounded" }
+cmux-no-checkout = { path = "crates/cmux-no-checkout" }
 cmux-worktree-care = { path = "crates/cmux-worktree-care" }
 cmux-conductor-import = { path = "crates/cmux-conductor-import" }
 cmux-migrate = { path = "crates/cmux-migrate" }
@@ -517,6 +528,7 @@ cmux-agent-customize = { path = "crates/cmux-agent-customize" }
 cmux-tui-util = { path = "crates/cmux-tui-util" }
 cmux-terminal-host-protocol = { path = "crates/cmux-terminal-host-protocol" }
 cmux-json = { path = "crates/cmux-json" }
+cmux-intent = { path = "crates/cmux-intent" }
 cmux-embed = { path = "crates/cmux-embed" }
 cmux-local-url = { path = "crates/cmux-local-url" }
 cmux-journal = { path = "crates/cmux-journal" }
