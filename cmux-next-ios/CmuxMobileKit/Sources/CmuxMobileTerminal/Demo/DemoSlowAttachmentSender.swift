@@ -7,8 +7,7 @@ import Observation
 /// (TerminalCancelMidSendUITests): an upload queue with no Mac behind it whose
 /// bytes move at a fixed pace, so Stop lands partway through a large video.
 /// Each upload runs `duration` seconds end to end, ticking progress every
-/// 100 ms, and keeps going after Stop as the live engine does (cancelSend
-/// calls off the send, not the upload).
+/// 100 ms until it finishes or the person taps Stop.
 @MainActor
 @Observable
 public final class DemoSlowAttachmentSender: TerminalAttachmentSending {
