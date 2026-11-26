@@ -1750,7 +1750,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<integer>1</integer>
+			<integer>0</integer>
 			<key>pfm_description</key>
 			<string>After this many consecutive capacity errors, Opus or Fable switches to Sonnet until a turn succeeds. Set to 0 to stay on the original model.</string>
 			<key>pfm_name</key>
@@ -1806,7 +1806,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<integer>60000</integer>
+			<integer>20000</integer>
 			<key>pfm_description</key>
 			<string>Chats with at least this much context are compacted, whatever their window.</string>
 			<key>pfm_name</key>
@@ -3080,7 +3080,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_name</key>
 			<string>customize.doctorNotice</string>
 			<key>pfm_title</key>
