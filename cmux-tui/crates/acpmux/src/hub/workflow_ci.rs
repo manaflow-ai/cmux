@@ -172,7 +172,7 @@ pub(crate) async fn prepare(
     command: &str,
     options: &Value,
 ) -> Result<CiIntent, RpcError> {
-    let repo = github_repo(&git(&run.cwd, &["remote", "get-url", "origin"]).await?)?;
+    let repo = github_repo(&git(&run.cwd, &["config", "--get", "remote.origin.url"]).await?)?;
     let source_ref = git(&run.cwd, &["rev-parse", "--verify", "HEAD^{commit}"]).await?;
     if source_ref.len() != 40 || !source_ref.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(error("CI source must resolve to a full commit SHA"));
