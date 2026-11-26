@@ -130,9 +130,9 @@ mod code_mode;
 mod codex_app_server;
 mod command;
 mod completion;
-mod intent;
 #[cfg(unix)]
 mod env_command;
+mod intent;
 #[cfg(unix)]
 mod key_broker;
 #[cfg(unix)]
