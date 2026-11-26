@@ -1,10 +1,10 @@
 // l10n-allow-file: gallery fixtures (sample prompts, thoughts, commands and replies), not shipped UI.
 // A turn organized as Claude Code desktop draws one (Leo, 2026-10-29: "we want to have that
 // capabilitiy of rendering like claude code desktop has stuff organized."): a paragraph, a
-// question asked and answered (the answered QuestionCard), a plan of three steps, then a thought
+// question asked and answered (the answered QuestionCard), then a thought
 // and five shell steps under "Ran 5 commands", opened, and the prose after them. Drawn through the
-// real transcript (TurnRows.tsx, ToolGroupRow.tsx), so the step bodies and the question and plan
-// cards show here as they change. The arms are the opened group's looks
+// real transcript (TurnRows.tsx, ToolGroupRow.tsx), so the step bodies and the question
+// card show here as they change. The arms are the opened group's looks
 // (`data-tool-steps-look`, conversation.css `.cv-steps`): shared (the transcript's default, no step
 // icons and no guide, Leo 2026-11-03), guide (the replaced cmux#32363 look), card, tree and zebra.
 // The opened lead thought's line has its own looks (`data-lead-thought-look`): its own first line with
@@ -17,7 +17,7 @@ import answeredCollapsed from "../../../../../Packages/Shared/CmuxAgentQuestion/
 import { agentPaneEntry, type AgentPaneVariant } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { Play } from "../../../gallery/play";
-import type { AcpmuxActivity, AcpmuxPlanEntry } from "../model";
+import type { AcpmuxActivity } from "../model";
 import type { AgentQuestion } from "../question/model";
 import { QUESTION_RECORD } from "../question/record";
 import { mixedToolTurnFixture } from "./mixedToolRunFixture";
@@ -36,8 +36,6 @@ const step = (description: string, command: string, output: string, minute: numb
     endedAt: at(minute) + 1_400,
   });
 
-const todo = (content: string, status: AcpmuxPlanEntry["status"]): AcpmuxPlanEntry => ({ content, status });
-
 const LEAD =
   "The fetch helper retries every failure the same way, so a 404 waits through three backoffs before it fails. " +
   "I should read how the helper decides to retry, find who calls it, and check whether the tests already cover a client error.\n\n" +
@@ -52,13 +50,6 @@ function turn() {
       8.8,
     ),
     row(QUESTION_RECORD, 8.6, { question: answeredCollapsed as unknown as AgentQuestion }),
-    row("plan", 8.4, {
-      plan: [
-        todo("Find where the helper decides to retry", "completed"),
-        todo("Stop retrying 4xx responses", "in_progress"),
-        todo("Cover it with a test", "pending"),
-      ],
-    }),
     activity(
       [
         thought(LEAD, { startedAt: at(1), endedAt: at(1) + 6_000 }),

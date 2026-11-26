@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useLinkDownSaid } from "./afterDelay";
-import { Spinner } from "./conversation/icons";
 import { useT, type Translate } from "./i18n";
 import type { PeerLink } from "./peerLink";
 import "./machineLinkStatus.css";
@@ -27,9 +26,9 @@ export function linkWords(link: PeerLink, t: Translate): string {
 
 /// The link of the machine a chat on another machine runs on, in the composer's quiet row (Leo,
 /// 2026-10-28: "you just get a little green dot ... as if you were working on your own computer,
-/// but now it's remote"). Connected is the dot alone; connecting or reconnecting turns the dot into
-/// a spinner in the dot's own box and names the machine and its state; down names them in the
-/// danger ink with Reconnect. A chat on this Mac draws nothing (`link` null).
+/// but now it's remote"). Connected is the dot alone, and so is a link connecting or reconnecting on
+/// its own (Leo, 2026-11-24); down names the machine and its state in the danger ink with Reconnect,
+/// and a reason acpmux knows (a refused sign-in, an update, this Mac's network) is said. A chat on this Mac draws nothing (`link` null).
 ///
 /// One element from the first frame to the last, after the mode chip: the words grow from the
 /// dot and fade in, so the model chip and the ring (anchored at the row's end) never move, and
@@ -57,7 +56,12 @@ export function MachineLinkStatus({
   // the machine needs is said at once.
   const waits = link !== null && link.link !== "connected" && !link.stuck;
   const due = useLinkDownSaid(waits, link?.since, quietMs);
-  const quiet = waits && !due;
+  // A link still dialing that needs no person is the plain dot however long it takes (Leo, 2026-11-24:
+  // "all the connecting... indicators and the graying out of workspaces, nah let's not do that. let's
+  // just keep optimistically connecting"): no spinner, no Connecting or Reconnecting. A link down
+  // (offline) still says so past the bound, with Reconnect; a refused sign-in or an update at once.
+  const onItsWay = link !== null && link.link === "connecting" && !link.why && !link.stuck;
+  const quiet = onItsWay || (waits && !due);
   // The last words said, kept while they fold away on a link that came back, so the fold-out shows
   // what was said rather than "Connected" (state derived during render, not in an effect).
   const words = link ? linkWords(link, t) : "";
@@ -84,7 +88,6 @@ export function MachineLinkStatus({
     >
       <span className="acpmux-machine-link-mark" aria-hidden="true">
         <span className="acpmux-machine-link-dot" />
-        {link.link === "connecting" && !quiet && <Spinner size={12} loading className="acpmux-machine-link-spinner" />}
       </span>
       {look !== "dot" && (
         // Folds open from the dot and closed into it (grid track 0fr to 1fr) while it fades.

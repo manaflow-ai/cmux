@@ -983,12 +983,6 @@ pub(crate) fn print_item(item: &Item) {
         Item::Tool { title, kind, status, .. } => {
             println!("\x1b[2m[{kind} {status}] {title}\x1b[0m")
         }
-        Item::Plan { entries } => {
-            println!("\x1b[35mplan:\x1b[0m");
-            for (s, c) in entries {
-                println!("  [{s}] {c}");
-            }
-        }
         Item::Permission { title, decided, .. } => match decided {
             Some(d) => println!("\x1b[33mpermission {title}: {d}\x1b[0m"),
             None => println!("\x1b[33mpermission needed: {title}\x1b[0m"),

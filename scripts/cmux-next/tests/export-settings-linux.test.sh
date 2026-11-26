@@ -15,7 +15,7 @@ repo="$tmp/repo"
 pkg=Packages/macOS/CmuxNext
 for rel in schemas/settings scripts/cmux-next/linux-exports docs/mdm \
   "$pkg/Sources/CmuxNextSettings" "$pkg/Sources/CmuxNextDesign" "$pkg/Sources/CmuxNextDesignTokens" \
-  scripts/cmux-next/settings-exports.txt scripts/cmux-next/export-settings-linux.sh; do
+  scripts/cmux-next/settings-exports.txt scripts/cmux-next/export-settings-linux.sh scripts/cmux-next/string_catalogs.py; do
   mkdir -p "$repo/$(dirname "$rel")"
   cp -R "$src/$rel" "$repo/$rel"
 done
@@ -26,17 +26,18 @@ run() { "$repo/scripts/cmux-next/export-settings-linux.sh" "$@"; }
 # The copy's catalog gets every key the sources name, so the strict export can run whatever this
 # tree's catalog lacks (that case is checked below on its own).
 python3 -I - "$repo" <<'PY'
-import json, os, sys
+import json, os, pathlib, sys
 root = sys.argv[1]
 sys.path.insert(0, os.path.join(root, "scripts/cmux-next/linux-exports"))
 import settings_schema
 schema = settings_schema.Schema(root)
 schema.document(strict=False)
-path = os.path.join(root, settings_schema.CATALOG)
-data = json.load(open(path, encoding="utf-8"))
+sys.path.insert(0, os.path.join(root, "scripts/cmux-next"))
+import string_catalogs
 for key in schema.missing:
-    data["strings"][key] = {"localizations": {"en": {"stringUnit": {"state": "translated", "value": key}}}}
-json.dump(data, open(path, "w", encoding="utf-8"), indent=2)
+    entry = {"localizations": {"en": {"stringUnit": {"state": "translated", "value": key}}}}
+    path = string_catalogs.entry_file(pathlib.Path(root, settings_schema.CATALOG), key)
+    path.write_text(string_catalogs.entry_text(key, entry), encoding="utf-8")
 PY
 
 run >/dev/null || fail "write exited $?"
@@ -76,10 +77,8 @@ run --check || fail "reverting the source does not return to fresh"
 
 python3 -I - "$repo" <<'PY'
 import json, os, sys
-path = os.path.join(sys.argv[1], "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings")
-data = json.load(open(path, encoding="utf-8"))
-del data["strings"]["settings.agents.cacheCompact.enabled"]
-json.dump(data, open(path, "w", encoding="utf-8"), indent=2)
+table = os.path.join(sys.argv[1], "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings.d")
+os.remove(os.path.join(table, "settings.agents.cacheCompact.enabled.xcstrings"))
 PY
 set +e; run --check 2>/dev/null; code=$?; set -e
 [ "$code" = 2 ] || fail "a missing catalog key exited $code, not 2"

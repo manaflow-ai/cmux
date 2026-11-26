@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.layout.mainPane.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keeps a chat as the main pane, with what it opens in a column on its right."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يُبقي محادثة في اللوحة الرئيسية، مع ما تفتحه في عمود على يمينها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Drži chat kao glavno okno, a ono što otvori ide u kolonu s njegove desne strane."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Beholder en chat som hovedruden med det, den åbner, i en kolonne til højre for den."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Behält einen Chat als Hauptbereich, mit allem, was er öffnet, in einer Spalte rechts daneben."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mantiene un chat como panel principal, con lo que abre en una columna a su derecha."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Garde une discussion comme panneau principal, ce qu’elle ouvre s’affichant dans une colonne à sa droite."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mantiene una chat come riquadro principale, con ciò che apre in una colonna alla sua destra."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "チャットをメインペインとして保持し、チャットが開いたものを右側のカラムに表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "រក្សាការជជែកជាផ្ទាំងមេ ជាមួយអ្វីដែលវាបើកក្នុងជួរឈរនៅខាងស្តាំ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "채팅을 기본 패널로 유지하고, 채팅에서 연 항목은 오른쪽 열에 표시합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Beholder en chat som hovedrute, med det den åpner i en kolonne til høyre."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zostawia czat jako panel główny, a to, co otworzy, w kolumnie po jego prawej stronie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mantém um chat como painel principal, com o que ele abre em uma coluna à direita."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Оставляет чат основной панелью, а то, что он открывает, — в колонке справа."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "คงแชทไว้เป็นแผงหลัก โดยสิ่งที่แชทเปิดจะอยู่ในคอลัมน์ทางขวา"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bir sohbeti ana bölme olarak tutar; açtıkları sağındaki bir sütunda görünür."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Залишає чат основною панеллю, а те, що він відкриває, — у колонці праворуч від нього."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Giữ một cuộc trò chuyện làm ngăn chính, những gì nó mở nằm trong một cột bên phải."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "将聊天保持为主窗格，它打开的内容显示在其右侧的一栏中。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "將聊天保持為主窗格，它打開的內容顯示在其右側的一欄中。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

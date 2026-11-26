@@ -38,13 +38,13 @@
  *   bun scripts/cmux-next/auto-journey.ts --backend staging --cleanup DIR
  */
 import { spawn, type ChildProcess } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Api, CHAT_START_SIZE, STACK, directExec, http, listAllMachines, passwordSignIn, resolveBackend, scrub, sleep, staleJourneyInstalls, staleJourneyMachines, waitMachine } from "./cloud-journey.ts";
+import { Api, CHAT_START_SIZE, STACK, directExec, http, listAllMachines, passwordSignIn, resolveBackend, scrub, sleep, staleJourneyInstalls, staleJourneyMachines, waitRunning } from "./cloud-journey.ts";
 
 type Step = { step: string; status: "pass" | "fail" | "skip"; ms: number; detail: string };
 type View = { id: string; holder: string; epoch: number; version: number; lastSeq: number; snapshot: number; standby: string[]; auto: boolean; move?: unknown };
@@ -73,7 +73,7 @@ printf '%s\\n' "side=${side} prompt=$p" >> ${RAN_FILE}
 echo "AUTO_JOURNEY_REPLY side=${side} prompt=$p"
 `;
 const harnessProfile = (cmuxTui: string, script: string) =>
-  `protocol = "acp"\ncommand = ${JSON.stringify(cmuxTui)}\nargs = ["acp", "cli-agent", "--", ${JSON.stringify(script)}]\n`;
+  `schema = 1\nid = "${HARNESS}"\nprotocol = "acp"\ncommand = ${JSON.stringify(cmuxTui)}\nargs = ["acp", "cli-agent", "--", ${JSON.stringify(script)}]\n`;
 
 // ---------------------------------------------------------------- the install's token, for the Mac daemon
 
@@ -316,7 +316,7 @@ async function main(): Promise<number> {
       });
       owned.machine = v.machine.id as string;
       keep();
-      const m = await waitMachine(api, owned.machine, (x) => x.status === "running" && Boolean(x.host), 300_000);
+      const m = await waitRunning(api, owned.machine, 300_000);
       return { value: owned.machine, detail: `${owned.machine} running, daemon ${m.image?.daemon_version ?? "?"}` };
     });
     meta.machine = machine;
@@ -336,7 +336,7 @@ async function main(): Promise<number> {
     await J.step("stand-in harness on the machine", async () => {
       const script = "$HOME/.cmux/auto-journey-agent.sh";
       const cmd = `${GUEST}set -e; mkdir -p "$HOME/.config/cmux/harnesses"; cat > "${script}" <<'AJ_AGENT'\n${agentScript("vm")}AJ_AGENT\nchmod 755 "${script}"; ` +
-        `printf '%s\\n' 'protocol = "acp"' "command = \\"$c\\"" "args = [\\"acp\\", \\"cli-agent\\", \\"--\\", \\"${script.replace("$HOME", "'\"$HOME\"'")}\\"]" > "$HOME/.config/cmux/harnesses/${HARNESS}.toml"; ` +
+        `printf '%s\\n' 'schema = 1' 'id = "${HARNESS}"' 'protocol = "acp"' "command = \\"$c\\"" "args = [\\"acp\\", \\"cli-agent\\", \\"--\\", \\"${script.replace("$HOME", "'\"$HOME\"'")}\\"]" > "$HOME/.config/cmux/harnesses/${HARNESS}.toml"; ` +
         `"$c" acp daemon reload >/dev/null 2>&1 || true; "$c" --version 2>/dev/null | head -1; echo "@@ok"`;
       const r = await exec(cmd, 120_000);
       if (!/@@ok/.test(r.stdout)) throw new Error(`exit ${r.code}: ${(r.stdout + r.stderr).slice(-400)}`);
@@ -352,6 +352,8 @@ async function main(): Promise<number> {
     await J.step("Mac daemon (cloud.autoCloud on, this run's HOME)", async () => {
       mkdirSync(path.join(home, ".config", NEXT_DIR, "harnesses"), { recursive: true });
       const settings = path.join(home, ".config", "cmux", "cmux-next.json");
+      // The settings folder is not the profile folder on macOS (`cmux` vs `cmux-next`), so make it on its own.
+      mkdirSync(path.dirname(settings), { recursive: true });
       writeFileSync(settings, JSON.stringify({ cloud: { autoCloud: true } }, null, 2));
       const script = path.join(home, "auto-journey-agent.sh");
       writeFileSync(script, agentScript("mac"));
@@ -394,7 +396,12 @@ async function main(): Promise<number> {
       git(["commit", "--quiet", "-m", "auto journey local commit"]);
       writeFileSync(path.join(work, "uncommitted.txt"), "uncommitted on the Mac\n");
       meta.mac_head = git(["rev-parse", "HEAD"]);
-      const created = await S.call("session/new", { cwd: work, mcpServers: [], _meta: { acpmux: { harness: HARNESS, policy: "approve-all" } } });
+      const created = await S.call("session/new", { cwd: work, mcpServers: [], _meta: { acpmux: { harness: HARNESS, policy: "approve-all" } } }).catch((e: unknown) => {
+        // The daemon's own words about the profile folder, so a refused harness names its cause.
+        const harnessLines = readFileSync(path.join(out, "daemon.log"), "utf8").split("\n").filter((l) => /harness|profile/i.test(l)).slice(-6).join(" / ").slice(0, 700);
+        const folder = path.join(home, ".config", NEXT_DIR, "harnesses");
+        throw new Error(`${e instanceof Error ? e.message : String(e)}; ${folder}: [${existsSync(folder) ? readdirSync(folder).join(",") : "missing"}]; daemon log: ${harnessLines || "no harness lines"}`);
+      });
       const sid = String(created.sessionId);
       const set = await S.call("_acpmux/auto_session/set", { sessionId: sid, auto: true });
       if (set?.autoSession?.auto !== true) throw new Error(`Auto did not go on: ${short(set)}`);
