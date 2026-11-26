@@ -79,7 +79,7 @@ pub(super) fn output_fed(command: &mut Command, input: &[u8]) -> Result<Vec<u8>,
             command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
         // Fed from a thread: git may answer before it has read every line, and a full stdout
         // pipe would then stall a writer that waits for git to read.
-        let mut stdin = child.stdin.take().expect("stdin is piped");
+        let mut stdin = child.stdin.take().ok_or_else(|| std::io::Error::other("no stdin"))?;
         let input = input.to_vec();
         let feeder = std::thread::spawn(move || stdin.write_all(&input));
         let out = child.wait_with_output()?;
