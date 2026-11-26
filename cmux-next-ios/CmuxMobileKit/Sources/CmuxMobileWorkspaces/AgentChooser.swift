@@ -19,6 +19,9 @@ struct AgentChooser: View {
     @State private var phase: Phase = .loading
     @State private var harnessID: String?
     @State private var modelID: String?
+    /// A failed catalog is asked for again on its own (no Check Again): the spinner stays, and
+    /// the failure shows only past the quiet bound, without a button.
+    @State private var autoRetry = AutoRetry()
 
     enum Phase {
         case loading
@@ -53,23 +56,34 @@ struct AgentChooser: View {
                 }
         }
         .task { await reload() }
+        .autoRetry(autoRetry, failing: loadFailed) { await reload(keepingFailure: true) }
+    }
+
+    /// The catalog failed to load.
+    private var loadFailed: Bool {
+        if case .failed = phase { return true }
+        return false
     }
 
     @ViewBuilder
     private var content: some View {
         switch phase {
         case .loading:
-            // placeholder-ok: this Mac has never supplied an agent catalog to this phone.
-            CmuxSpinner(label: Text("Loading agents…"))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .placeholderBound("agents.loading", .milliseconds(2000))
+            loading
         case .failed(let message):
-            ContentUnavailableView {
-                Label("Couldn't load the agents", systemImage: "exclamationmark.circle")
-            } description: {
-                Text(message)
-            } actions: {
-                Button("Check again") { Task { await reload() } }
+            // Nothing to decide: `autoRetry` asks the Mac again on its own. The spinner stays
+            // through a short failure; past the quiet bound the page says why, with no button.
+            if autoRetry.isQuietLineShown {
+                ContentUnavailableView {
+                    Label("Couldn't load the agents", systemImage: "exclamationmark.circle")
+                } description: {
+                    Text(message)
+                } actions: {
+                    AutoRetryQuietLine(autoRetry)
+                }
+                .accessibilityIdentifier("agentChooser.failed")
+            } else {
+                loading
             }
         case .loaded(let catalog):
             List {
@@ -89,6 +103,13 @@ struct AgentChooser: View {
                 }
             }
         }
+    }
+
+    private var loading: some View {
+        // placeholder-ok: this Mac has never supplied an agent catalog to this phone.
+        CmuxSpinner(label: Text("Loading agents…"))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .placeholderBound("agents.loading", .milliseconds(2000))
     }
 
     private func harnessRow(_ harness: AgentHarnessChoice) -> some View {
@@ -165,11 +186,13 @@ struct AgentChooser: View {
         start(selection)
     }
 
-    private func reload() async {
+    /// Reads the Mac's agents. `keepingFailure`: the screen's own retry, which leaves the page
+    /// as it is while it asks (no blink back to the spinner on every try).
+    private func reload(keepingFailure: Bool = false) async {
         let cached = cache.load(macID: macID)
         if let cached {
             phase = .loaded(cached)
-        } else {
+        } else if !keepingFailure {
             phase = .loading
         }
         do {
@@ -183,7 +206,7 @@ struct AgentChooser: View {
                 phase = .loaded(cached)
                 return
             }
-            phase = .failed(UserFacingError.message(error, fallback: "Couldn't load the agents. Try again."))
+            phase = .failed(UserFacingError.message(error, fallback: "Couldn't load the agents."))
         }
     }
 }
