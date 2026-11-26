@@ -599,6 +599,10 @@ export const SubagentTray = memo(function SubagentTray({
     [foldHead, facesArm, t, items, finished, chatHarness],
   );
   if (items.length === 0 && finished.length === 0) return null;
+  // The `line` arm names no silent turn (trayHeadLine): a hat of only those has no words, so it draws
+  // nothing rather than an empty line over the composer (chat-flow-shift-budget's compaction-steer:
+  // the compaction's silent turn put a bare hat in at its end and pushed the transcript 75px).
+  if (lineHead && lineText === "") return null;
   // The counts, split by kind, then what ended and failed (trayHeadKinds.ts; Leo, 2026-11-03: "the
   // top bit aka what the collapsed area shows i think can show much more interesting stuf fthan it
   // does now").
@@ -789,6 +793,7 @@ export const SubagentTray = memo(function SubagentTray({
     focusRoute(headButton.current, "system", "the composer hat folded");
   };
   return (
+    // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape tucks the open list from anywhere inside it.
     <section
       ref={setTrayRef}
       className={`acpmux-running-tray${carded ? " ui-glass ui-glass-floats acpmux-stack-material" : ""}`}
