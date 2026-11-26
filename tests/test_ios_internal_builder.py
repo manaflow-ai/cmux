@@ -651,6 +651,35 @@ class GitHubApiTests(CapturedOutput):
                       self.out.getvalue())
         self.assertIn("skip: GitHub API rate-limited or down", self.out.getvalue())
 
+    def test_a_spent_quota_reads_again_on_the_fallback_token_and_plans(self):
+        """2026-11-25 21:35Z and 21:38Z: the shared GITHUB_TOKEN quota was spent and two decides in a row
+        skipped. A rate limit on GH_TOKEN now reads again on GH_FALLBACK_TOKEN and the plan goes on."""
+        seen = []
+
+        def gh(argv, **kw):
+            seen.append(os.environ.get("GH_TOKEN"))
+            if os.environ.get("GH_TOKEN") == "app":
+                return subprocess.CompletedProcess(argv, *RATE_LIMITED)
+            return subprocess.CompletedProcess(argv, 0, RUNS_JSON if "runs" in argv[-1] else "[]", "")
+        with mock.patch.object(ib, "_show", return_value="x"), \
+                mock.patch.object(ib, "builder_has_script", return_value=True), \
+                mock.patch.object(ib, "builder_tip", return_value=None), \
+                mock.patch.object(ib, "changed_files", return_value=["cmux-next-ios/App/A.swift"]), \
+                mock.patch.dict(os.environ, {"GITHUB_OUTPUT": "", "GH_TOKEN": "app", "GH_FALLBACK_TOKEN": "wf"}):
+            code = ib.cmd_plan(B, ".", runner=gh, sleep=lambda _s: None)
+        self.assertEqual(code, 0)
+        self.assertIn("app", seen)
+        self.assertIn("wf", seen)
+        self.assertIn("reading again with GH_FALLBACK_TOKEN", self.out.getvalue())
+        self.assertNotIn("skip: GitHub API rate-limited", self.out.getvalue())
+
+    def test_both_tokens_spent_is_an_error_annotation(self):
+        with mock.patch.object(ib, "_show", return_value="x"), \
+                mock.patch.object(ib, "builder_has_script", return_value=True), \
+                mock.patch.dict(os.environ, {"GITHUB_OUTPUT": "", "GH_TOKEN": "app", "GH_FALLBACK_TOKEN": "wf"}):
+            ib.cmd_plan(A, ".", runner=FakeGh(RATE_LIMITED), sleep=lambda _s: None)
+        self.assertIn("::error title=cmux INTERNAL trigger blind::", self.out.getvalue())
+
     def test_other_api_errors_still_fail(self):
         gh = FakeGh((1, "", "gh: Resource not accessible by integration (HTTP 403)"))
         with self.assertRaises(subprocess.CalledProcessError):
