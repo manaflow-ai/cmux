@@ -26,7 +26,7 @@ import Testing
                 return .object(["machine": Self.machine, "boot": .string("snapshot")])
             },
             confirm: { _ in true },
-            approve: { request, op, _ in calls.approved.append((request, op)); calls.pending = false },
+            approve: { request, op, _ in calls.approved.append((request, op)); calls.pending = false; return nil },
             pause: { _ in })
     }
 
