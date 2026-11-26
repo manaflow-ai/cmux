@@ -616,9 +616,22 @@ jobs:
           # .git, so the last run's base worktree stays registered and a plain
           # add fails ("missing but already registered worktree"). A job killed
           # mid-add leaves the entry locked, which prune skips: -f -f takes it.
+          # One transient clone failure dropped every before clip of a tour:
+          # run 45837430593 (job 139976029698) lost ghostty-next's clone to
+          # "curl 18" and "early EOF", so 3 highlights sharing before tree
+          # 8f9660c2 got no app. Try 3 times, 30 s apart (an intentional
+          # bounded delay before retrying a network fetch).
+          submodules() {  # TREE
+            local try
+            for try in 1 2 3; do
+              git -C "$1" submodule update --init --recursive && return 0
+              [ "$try" = 3 ] || sleep "${MEDIA_SUBMODULE_RETRY_SECONDS:-30}"
+            done
+            return 1
+          }
           git worktree prune
           git worktree add -f -f --detach "$RUNNER_TEMP/cmux-next-base" "$MERGE_BASE"
-          git -C "$RUNNER_TEMP/cmux-next-base" submodule update --init --recursive
+          submodules "$RUNNER_TEMP/cmux-next-base"
           (cd "$RUNNER_TEMP/cmux-next-base" && \
             GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)" ./scripts/download-prebuilt-ghosttykit.sh)
 
@@ -853,6 +866,19 @@ jobs:
             bounded python3 scripts/cmux-next/media/tour.py --app "$app" --out "$out/$role" --fresh-state "$@" \
               || echo "::warning title=What's New clip::a $role tour failed (exit $?); its clip is left out"
           }
+          # One transient clone failure dropped every before clip of a tour:
+          # run 45837430593 (job 139976029698) lost ghostty-next's clone to
+          # "curl 18" and "early EOF", so 3 highlights sharing before tree
+          # 8f9660c2 got no app. Try 3 times, 30 s apart (an intentional
+          # bounded delay before retrying a network fetch).
+          submodules() {  # TREE
+            local try
+            for try in 1 2 3; do
+              git -C "$1" submodule update --init --recursive && return 0
+              [ "$try" = 3 ] || sleep "${MEDIA_SUBMODULE_RETRY_SECONDS:-30}"
+            done
+            return 1
+          }
           record after "$HEAD_APP"
           record before "$BASE_APP" --before "${CLIPS_BASE:-$MERGE_BASE}"
           for sha in $(python3 "$clips" tours --plan "$out/plan.json" --role before --dir . \
@@ -861,7 +887,7 @@ jobs:
             tree="$RUNNER_TEMP/cmux-next-clip-before"
             git fetch --no-tags --quiet --depth=1 origin "$sha" \
               && git worktree add -f -f --detach "$tree" "$sha" \
-              && git -C "$tree" submodule update --init --recursive \
+              && submodules "$tree" \
               && (cd "$tree" && GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)" ./scripts/download-prebuilt-ghosttykit.sh) \
               && CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR="$HOME/Library/Caches/cmux-ci-media/optchat-chief-target/${RUNNER_NAME:?}" \
                 bounded "$MEDIA_TOUR_CI/media_build_app.sh" "$tree" "${TOUR_TAG}-base" "$RUNNER_TEMP/reload-clip-before.out" clip_before_app \
