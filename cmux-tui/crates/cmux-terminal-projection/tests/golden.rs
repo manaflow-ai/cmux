@@ -418,7 +418,9 @@ fn headers_claude_code() {
                 trimmed.ends_with("◯ IDE disconnected"),
                 "status right part at the edge: {trimmed:?}"
             );
-            assert_eq!(UnicodeWidthStr::width(trimmed), 54, "{trimmed:?}");
+            // The host's one-cell right margin stays, as Claude Code keeps it
+            // at any width.
+            assert_eq!(UnicodeWidthStr::width(trimmed), 53, "{trimmed:?}");
         }
     }
     // The cursor is in the input box, after "> ".
@@ -518,8 +520,8 @@ fn left_and_right_aligned() {
                 .collect::<String>()
         })
         .collect();
-    // The right prompt stays whole and ends at the phone's edge. With "ls"
-    // typed, both parts do not fit one phone row (36 + 2 + 18 > 54), so the
+    // The right prompt stays whole and ends one cell short of the phone's
+    // edge. With "ls" typed, both parts do not fit one phone row, so the
     // right part goes on the row below, right-aligned (zsh itself would
     // hide it at 54 columns); without, they share the row.
     let prompt_rows: Vec<usize> =
@@ -527,10 +529,12 @@ fn left_and_right_aligned() {
     assert_eq!(prompt_rows.len(), 2, "each right prompt is whole on one row: {texts:#?}");
     for &i in &prompt_rows {
         let t = &texts[i];
+        // zsh's right prompt keeps its one-cell indent from the edge
+        // (ZLE_RPROMPT_INDENT), at the phone's width as at the Mac's.
         assert_eq!(
             UnicodeWidthStr::width(t.trim_end()),
-            54,
-            "right part at the phone's edge: {t:?}"
+            53,
+            "right part one cell short of the phone's edge: {t:?}"
         );
         let left = if t.starts_with("leo@") { t } else { &texts[i - 1] };
         assert!(
@@ -539,15 +543,21 @@ fn left_and_right_aligned() {
         );
     }
     assert!(texts[prompt_rows[0] - 1].starts_with("leo@cosmic-gray ~/Projects/cmux % ls"));
-    assert!(texts[prompt_rows[1]].starts_with("leo@cosmic-gray ~/Projects/cmux %   [main"));
-    let clock = texts.iter().find(|t| t.contains("build finished")).unwrap();
+    assert!(texts[prompt_rows[1]].starts_with("leo@cosmic-gray ~/Projects/cmux %  [main"));
+    let clock = texts
+        .iter()
+        .find(|t| t.contains("build finished"))
+        .unwrap_or_else(|| panic!("the clock is on the phone: {texts:#?}"));
     assert_eq!(
         UnicodeWidthStr::width(clock.trim_end()),
         54,
         "right-aligned at the edge: {clock:?}"
     );
     // The title centered on the Mac is centered on the phone, on one row.
-    let title = texts.iter().find(|t| t.contains("Release notes")).unwrap();
+    let title = texts
+        .iter()
+        .find(|t| t.contains("Release notes"))
+        .unwrap_or_else(|| panic!("the title is on the phone: {texts:#?}"));
     assert_eq!(title.trim_end(), format!("{}== Release notes ==", " ".repeat(17)));
 
     // The cursor waits after the left prompt, as on the Mac.
@@ -1045,7 +1055,10 @@ fn a_box_table_at_the_macs_width_is_laid_out_at_the_phones() {
     let rows = phone_rows(&case);
     for (text, wrapped) in &rows {
         if text.starts_with(['┌', '├', '└']) {
-            assert_eq!(visible_width(text), 54, "border at the phone's width: {text:?}");
+            // The table ends a cell short of the Mac's edge (119 of 120):
+            // the host's right margin stays on the phone, as it does on the
+            // Mac at any width.
+            assert_eq!(visible_width(text), 53, "border at the phone's width: {text:?}");
             assert!(!wrapped, "a border is one phone row: {text:?}");
         }
         assert!(visible_width(text) <= 54, "{text:?}");

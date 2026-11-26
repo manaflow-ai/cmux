@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.display.thinking.glyph.help" : {
+      "comment" : "Settings > Chat > Thinking Glyph: help; cmux.particles/1 is a format name, keep it",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dots a look plays while the agent works, as a cmux.particles/1 document."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "نقاط يعرضها المظهر أثناء عمل الوكيل، كمستند cmux.particles/1."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tačke koje izgled prikazuje dok agent radi, kao cmux.particles/1 dokument."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prikker, som et look viser, mens agenten arbejder, som et cmux.particles/1-dokument."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Punkte, die ein Look abspielt, während der Agent arbeitet, als cmux.particles/1-Dokument."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Puntos que un estilo muestra mientras el agente trabaja, como documento cmux.particles/1."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Points qu'un style anime pendant que l'agent travaille, sous forme de document cmux.particles/1."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Puntini che uno stile anima mentre l'agente lavora, come documento cmux.particles/1."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "エージェントの作業中にルックが再生するドット（cmux.particles/1 ドキュメント）。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ចំណុចដែលរូបរាងបង្ហាញពេលភ្នាក់ងារកំពុងធ្វើការ ជាឯកសារ cmux.particles/1។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "에이전트가 작업하는 동안 룩이 재생하는 점(cmux.particles/1 문서)."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prikker et utseende spiller mens agenten jobber, som et cmux.particles/1-dokument."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kropki, które wygląd odtwarza, gdy agent pracuje, jako dokument cmux.particles/1."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pontos que um visual exibe enquanto o agente trabalha, como documento cmux.particles/1."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Точки, которые оформление показывает, пока агент работает, в виде документа cmux.particles/1."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "จุดที่ธีมแสดงขณะเอเจนต์ทำงาน ในรูปเอกสาร cmux.particles/1"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ajan çalışırken bir görünümün oynattığı noktalar, cmux.particles/1 belgesi olarak."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Крапки, які оформлення показує, поки агент працює, як документ cmux.particles/1."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Các chấm mà giao diện phát khi tác tử đang làm việc, dưới dạng tài liệu cmux.particles/1."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "代理工作时外观播放的圆点，格式为 cmux.particles/1 文档。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "代理工作時外觀播放的圓點，格式為 cmux.particles/1 文件。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

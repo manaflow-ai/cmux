@@ -4,6 +4,7 @@ import { ChoiceOrNumberEditor } from "./ChoiceOrNumberEditor";
 import { ChoiceOrUrlEditor } from "./ChoiceOrUrlEditor";
 import { ChoiceSetEditor } from "./ChoiceSetEditor";
 import { ColorEditor } from "./ColorEditor";
+import { DefaultImageEditor, DEFAULT_IMAGE_KEY } from "./DefaultImageEditor";
 import { DomainListEditor } from "./DomainListEditor";
 import { ChatRootsEditor } from "./ChatRootsEditor";
 import { FolderListEditor } from "./FolderListEditor";
@@ -59,6 +60,8 @@ export function Editor(props: EditorProps): ReactNode {
     case "sound":
       return <SoundEditor {...props} />;
     case "text":
+      // Settings > Cloud > Default Image picks one of the account's environments, never free text.
+      if (row.key === DEFAULT_IMAGE_KEY) return <DefaultImageEditor {...props} />;
       return <TextEditor {...props} />;
     case "url":
       return row.validation === "domain:search_template" ? (

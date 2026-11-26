@@ -145,9 +145,10 @@ export const TRANSCRIPT_SPACING_KINDS: readonly SpacingRow[] = [
   {
     id: "footer-to-received",
     between: "a reply footer's glyph centre and the received message line under it, centre to centre",
-    value: 16 + 24 + TRANSCRIPT_LINE_ROW / 2,
+    value: 16 + 16 + TRANSCRIPT_LINE_ROW / 2,
     tolerance: 1,
-    source: "as footer-to-next: 16 + 24 + 11; Claude 24 from the button row to the next block",
+    source:
+      "16 + 16 + 11: the run gap the next turn's Working for stands under the footer (transcriptGrid.ts FOOTER_WORKING_GAP_LOOKS); Claude 24 from the button row to the next block",
   },
   {
     id: "received-to-status",
@@ -263,9 +264,9 @@ export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & {
     id: "reply-footer-to-received",
     variant: "reply-received",
     between: "an earlier reply's footer glyph centre (hover-revealed) and the received line under it, centre to centre",
-    value: 16 + 24 + TRANSCRIPT_LINE_ROW / 2,
+    value: 16 + 16 + TRANSCRIPT_LINE_ROW / 2,
     tolerance: 1,
-    source: "as footer-to-received: 16 + 24 + 11",
+    source: "as footer-to-received: 16 + 16 + 11",
   },
   {
     id: "received-to-sent",
@@ -325,7 +326,7 @@ export const LONE_SYSTEM_ROWS = {
   /** The line's centre to the next prompt bubble's top edge: 11 + 32 (step-to-prompt). */
   lineToPrompt: TRANSCRIPT_LINE_ROW / 2 + 32,
   /** Another agent's line under the footer: footer-to-received. */
-  footerToReceived: 16 + 24 + TRANSCRIPT_LINE_ROW / 2,
+  footerToReceived: 16 + 16 + TRANSCRIPT_LINE_ROW / 2,
   tolerance: 1,
   variants: [
     "background-update",

@@ -113,3 +113,38 @@ test("a place whose slots are all held lists the holders by title; a place with 
   const titles = rows().map((row) => row.textContent);
   expect(titles).toEqual(["Port the settings page"]);
 });
+
+test("Keep Running: choosing Hybrid again on a lit chip turns it off, on an unlit one turns it on (chatPriority.set)", async () => {
+  setHeaderState({
+    place: { mode: "auto", at: "local", keep: { priority: "high", lit: true, waiting: false, used: 1, total: 3 } },
+  });
+  const { container, calls } = await drawChip();
+  const hybrid = container.querySelector<HTMLElement>('[role="radio"][data-mode="auto"]');
+  expect(hybrid).not.toBeNull();
+  await act(async () => hybrid!.click());
+  expect(calls).toEqual([{ id: "chatPriority.set", priority: "normal", session: "s-1" }]);
+  calls.length = 0;
+  await act(async () =>
+    setHeaderState({
+      place: { mode: "auto", at: "local", keep: { priority: "normal", lit: false, waiting: false, used: 0, total: 3 } },
+    }),
+  );
+  await act(async () => container.querySelector<HTMLElement>('[role="radio"][data-mode="auto"]')!.click());
+  expect(calls).toEqual([{ id: "chatPriority.set", priority: "high", session: "s-1" }]);
+});
+
+test("Keep Running waiting for a slot: the chip says so, and a click turns the ask off", async () => {
+  setHeaderState({
+    place: { mode: "auto", at: "local", keep: { priority: "high", lit: false, waiting: true, used: 1, total: 1 } },
+  });
+  const { container, calls } = await drawChip();
+  await act(async () => container.querySelector<HTMLElement>('[role="radio"][data-mode="auto"]')!.click());
+  expect(calls).toEqual([{ id: "chatPriority.set", priority: "normal", session: "s-1" }]);
+});
+
+test("no keep (plan unknown): choosing Hybrid again sends nothing", async () => {
+  setHeaderState({ place: { mode: "auto", at: "local" } });
+  const { container, calls } = await drawChip();
+  await act(async () => container.querySelector<HTMLElement>('[role="radio"][data-mode="auto"]')!.click());
+  expect(calls).toEqual([]);
+});

@@ -143,7 +143,7 @@ fn drive(machine: &mut Machine, start: u64) -> Result<u64, Refusal> {
 /// surfaces no error.
 #[test]
 fn fuzz_claim_against_pause_surfaces_no_error() {
-    let mut rng = Lcg(0x2599_86a6_c4);
+    let mut rng = Lcg(0x25_9986_a6c4);
     let mut surfaced = Vec::new();
     let mut waited_max = 0;
     for iteration in 0..100 {

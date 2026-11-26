@@ -175,6 +175,9 @@ pub(crate) fn run(args: &[String]) -> i32 {
         ) {
             return seed_cli::run(args.get(1..).unwrap_or_default());
         }
+        if args.get(1).map(String::as_str) == Some("workspace-remote") {
+            return seed::workspace_remote::run(args.get(2..).unwrap_or_default());
+        }
         return seed::run(&args[1..]);
     }
     // So do `agent` and `access`.
@@ -189,6 +192,10 @@ pub(crate) fn run(args: &[String]) -> i32 {
             return machine_pin::run(args.get(2..).unwrap_or_default());
         }
         return machine_update::run(&args[1..]);
+    }
+    // `open` and `mint`: runnable links (cli/runnable_link.rs, hq#23807), off by default.
+    if matches!(args.first().map(String::as_str), Some("open" | "mint")) {
+        return crate::cli::runnable_link::run(args, json);
     }
     if args.first().map(String::as_str) == Some("start-chat") {
         return start_chat_cli::run(args.get(1..).unwrap_or_default());
