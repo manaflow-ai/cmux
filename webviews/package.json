@@ -18,7 +18,7 @@
     "check:look-addons": "bun scripts/check-look-addons.ts",
     "check:surface-roles": "python3 ../scripts/cmux-next/check-surface-roles.py",
     "check:layout-grid": "python3 ../scripts/cmux-next/gen-layout-grid.py --check",
-    "check:design-scale": "node scripts/pages/gen-design-scale.mjs --check",
+    "check:design-scale": "node scripts/pages/gen-design-scale.mjs --check && python3 ../scripts/cmux-next/gen-design-scale-swift.py --check",
     "check:instrument-tokens": "python3 -I ../scripts/cmux-next/gen-instrument-tokens.py --check",
     "check:glass-levels": "bun scripts/check-glass-levels.ts",
     "check:one-material": "bun scripts/check-one-material.ts && bun scripts/check-no-nested-glass.ts && bun scripts/check-one-stroke.ts",
