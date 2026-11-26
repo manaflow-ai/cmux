@@ -123,6 +123,9 @@ class FakeWorker(w.Worker):
     def on_branch_tip_or_landed(self, head, branch):
         return head == HEAD
 
+    def has_gallery(self, sha):
+        return getattr(self, "gallery_in_tree", True)
+
     def ensure_tree(self, tree, sparse, sha):
         self.checked_out = sha
 
@@ -177,6 +180,24 @@ class LookTests(unittest.TestCase):
             receipt = worker.look(request(ui_files=["Packages/macOS/CmuxNext/Sources/CmuxNextApp/A.swift"]))
             self.assertIn("needs an app build", receipt["error"])
             self.assertEqual(worker.shot, [])
+
+    def test_a_web_push_off_main_has_no_gallery_and_shoots_nothing(self):
+        # Branches off main carry webviews/ but no gallery: touched.ts was "Module not found" and each one a miss.
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            worker.gallery_in_tree = False
+            receipt = worker.look(request(ui_files=["webviews/src/a.tsx"]))
+            self.assertIsNone(receipt["posted_at"])
+            self.assertTrue(receipt["error"].startswith("no scene shows these files"), receipt["error"])
+            self.assertTrue(receipt["plan"]["no_gallery"])
+            self.assertEqual(worker.shot, [])
+
+    def test_a_web_push_with_a_gallery_is_shot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            receipt = worker.look(request(ui_files=["webviews/src/a.tsx"]))
+            self.assertIsNotNone(receipt["posted_at"], receipt.get("error"))
+            self.assertIn(f"web:{HEAD}", worker.shot)
 
     def test_a_web_only_worker_shoots_no_swift(self):
         with tempfile.TemporaryDirectory() as tmp:

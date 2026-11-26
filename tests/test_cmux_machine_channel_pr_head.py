@@ -29,15 +29,17 @@ def pull(**over):
 
 
 class Fake:
-    def __init__(self, pulls, runs, artifacts, jobs=None, tips=None):
+    def __init__(self, pulls, runs, artifacts, jobs=None, tips=None, numbered=None):
         self.pulls, self.runs, self.artifacts, self.jobs = pulls, runs, artifacts, jobs or {}
-        self.tips = tips or []
+        self.tips, self.numbered = tips or [], numbered or {}
         self.calls = []
 
     def __call__(self, path):
         self.calls.append(path)
         if path.startswith("commits/"):
             return self.pulls
+        if path.startswith("pulls/"):
+            return self.numbered.get(int(path.split("/")[1]), {})
         if "branch=lane%2Fmerge-train" in path:
             return {"workflow_runs": self.tips}
         if path.startswith("actions/workflows/"):
@@ -49,12 +51,12 @@ class Fake:
         return {"jobs": self.jobs.get(run, [])}
 
 
-def run_find(api, keys=None, wait=0.0, tree="t" * 40):
+def run_find(api, keys=None, wait=0.0, tree="t" * 40, subject=""):
     keys = keys or {MERGE: "k1", HEAD: "k1"}
     clock = [0.0]
     return pr_head.find(api, REPO, MERGE, PREFIX, wait, key=lambda r: keys.get(r, ""),
                         sleep=lambda s: clock.__setitem__(0, clock[0] + s), now=lambda: clock[0],
-                        tree=lambda r: tree if r == MERGE else "")
+                        tree=lambda r: tree if r == MERGE else "", subject=lambda r: subject if r == MERGE else "")
 
 
 TIP = "p" * 40
@@ -69,6 +71,20 @@ class FindTest(unittest.TestCase):
         api = Fake([pull()], [{"id": 7, "status": "completed"}], {7: BOTH})
         self.assertEqual(run_find(api), 7)
         self.assertIn(f"actions/workflows/pr-router.yml/runs?head_sha={HEAD}&event=pull_request&per_page=20", api.calls)
+
+    def test_the_squash_subject_s_own_number_is_read_first(self):
+        # 2026-11-26 run 45874893836: the merge's own PR was past the first 30 of commits/SHA/pulls.
+        older = [pull(merge_commit_sha="x" * 40) for _ in range(30)]
+        api = Fake(older, [{"id": 7, "status": "completed"}], {7: BOTH}, numbered={54329: pull()})
+        self.assertEqual(run_find(api, subject="fix(mobile): per-phone mailbox paging (#54329)"), 7)
+        self.assertIn("pulls/54329", api.calls)
+        self.assertFalse([c for c in api.calls if c.startswith("commits/")])
+
+    def test_a_number_that_is_not_this_merge_falls_back_to_the_full_list(self):
+        api = Fake([pull()], [{"id": 7, "status": "completed"}], {7: BOTH},
+                   numbered={12: pull(merge_commit_sha="x" * 40)})
+        self.assertEqual(run_find(api, subject="revert something (#12)"), 7)
+        self.assertIn(f"commits/{MERGE}/pulls?per_page=100", api.calls)
 
     def test_the_newest_run_with_both_wins(self):
         api = Fake([pull()], [{"id": 5, "status": "completed"}, {"id": 9, "status": "completed"}], {5: BOTH, 9: BOTH})
