@@ -294,6 +294,17 @@ class DecideTests(unittest.TestCase):
                          ["build", "fresh", "chat-anim", "sidebar", "motion"],
                          "only a part with no row anywhere goes before the goal's part")
 
+    def test_memory_agents_goes_right_after_the_build_once_due(self):
+        # memory-per-chat: the part feeds NOW's chat_memory_vs_empty_ratio; without a goal it sat behind every stale
+        # Mac part and tips were given up before it ran (2026-11-23..26).
+        self.assertEqual(cron.PART_BY_NAME["memory-agents"].get("goal"), "memory-per-chat")
+        state = cron.empty_state(T0)
+        state["part_stored"] = {"memory-agents": {"at": cron.iso(at(1))}, "motion": {"at": cron.iso(T0)},
+                                "stress": {"at": cron.iso(T0)}}
+        t = at(cron.PART_STALE_HOURS + 2)
+        self.assertEqual(cron.part_order(state, ["build", "motion", "stress", "memory-agents"], t),
+                         ["build", "memory-agents", "motion", "stress"])
+
     def test_a_part_with_a_goal_that_is_not_due_keeps_its_place(self):
         state = cron.empty_state(T0)
         t = at(1)
@@ -486,6 +497,23 @@ class RegressionTests(unittest.TestCase):
         regs = cron.find_regressions({"perf_gate.tabs.failed_checks": row(1, "checks", 0.5)},
                                      {"perf_gate.tabs.failed_checks": row(0, "checks", 0.5)}, None, None, budgets_mod)
         self.assertEqual(len(regs), 1)
+
+    def test_a_wakeup_row_regresses_by_the_timer_that_woke_it(self):
+        """shadow-leo on goal idle-cpu-wakeups: "make a new idle timer fail the PR that adds it" by name. The bench's
+        rest_wakeups row carries its sources (perfRow.ts); the regression and the issue cell name them."""
+        named = ["3x timeouts: armRequestCheck < noteRequest @ 10,2010,4010 ms", "1x frames: frameTally | x"]
+        rows = cron.webui_rows([{"name": "chat_switch.god.unread.rest_wakeups", "p95": 4, "unit": "count",
+                                 "target": 0, "floor": 0.5, "sources": named + [7, ""]}])
+        now = rows["webui.chat_switch.god.unread.rest_wakeups"]
+        self.assertEqual(now["sources"], named, "strings only, busiest first")
+        regs = cron.find_regressions(rows, {"webui.chat_switch.god.unread.rest_wakeups": {**now, "p95": 1}},
+                                     None, None, budgets_mod)
+        self.assertEqual(regs[0]["sources"], named)
+        cell = cron.sources_note(regs[0])
+        self.assertIn("woken by: 3x timeouts: armRequestCheck", cell)
+        self.assertIn("frameTally \\| x", cell, "a pipe is escaped: it never splits the issue table")
+        self.assertEqual(cron.sources_note({"name": "a"}), "", "a row with no sources keeps its cell")
+        self.assertNotIn("sources", cron.webui_rows([{"name": "a.b", "p95": 1}])["webui.a.b"])
 
     def test_no_baseline_no_regression(self):
         self.assertEqual(cron.find_regressions({"a": row(9.0)}, {}, None, None, budgets_mod), [])
@@ -727,6 +755,51 @@ class PartTests(unittest.TestCase):
         cron.record_part(cur, "motion", {"state": "failed", "tail": ["error: 60 compiler lines"], "build_failed": True}, "r")
         self.assertEqual(cur["parts_todo"], [], "a part that had to build and failed ends the rest too, whatever its tail")
 
+
+    def test_a_build_the_fleet_failed_runs_again_at_the_same_tip(self):
+        # 2026-11-15 to 11-26 no measurement finished: 8 tips in turn lost every Mac part, chat-anim among them, to a
+        # build the fleet failed (HTTP 403 checkout, a 503 reviewed-tip fetch, no published cmux-tui tree).
+        causes = ["checkout: GitHub refused the fetch (HTTP 403)",
+                  "ci-step reviewed check: no reviewed tip could be fetched: http://h/v1/git/x returned error: 503",
+                  "no published cmux-tui tree for a0b1c2d3 for 2 h"]
+        for why in causes:
+            cur = cron.new_measurement("a" * 40, "tip", ["build", "chat-anim", "sidebar"], T0)
+            for n in range(cron.BUILD_INFRA_RETRIES):
+                cron.record_part(cur, "build", {"state": "failed", "tail": [why], "build_failed": True}, "r")
+                self.assertEqual(cur["parts_todo"], ["build", "chat-anim", "sidebar"], why)
+                self.assertEqual(cur["parts"]["build"]["infra_retries"], n + 1)
+                self.assertFalse(cron.commit_failed(cur), "the fleet's failure is not the commit's")
+                self.assertTrue(cron.build_failed_tip(cur), "a newer tip may take the retry (supersede_for_unread)")
+                self.assertTrue(cron.build_never_ran(cur), "and the base is not judged broken")
+            cron.record_part(cur, "build", {"state": "failed", "tail": [why], "build_failed": True}, "r")
+            self.assertEqual(cur["parts_todo"], [], "past BUILD_INFRA_RETRIES the Mac parts end as before")
+            self.assertEqual(cur["parts"]["chat-anim"]["state"], "build_failed")
+
+    def test_a_retried_build_that_then_builds_measures_the_parts(self):
+        cur = cron.new_measurement("a" * 40, "tip", ["build", "chat-anim"], T0)
+        cron.record_part(cur, "build", {"state": "failed", "tail": ["GitHub refused the fetch"], "build_failed": True}, "r")
+        cron.record_part(cur, "build", {"state": "done"}, "r")
+        self.assertEqual(cur["parts_todo"], ["chat-anim"])
+        self.assertNotIn("infra_retried", cur["parts"]["build"])
+        cur = cron.new_measurement("a" * 40, "tip", ["build", "chat-anim"], T0)
+        cron.record_part(cur, "build", {"state": "failed", "tail": ["GitHub refused the fetch"], "build_failed": True}, "r")
+        cron.record_part(cur, "build", {"state": "failed", "tail": ["error: no member 'x'"], "build_failed": True}, "r")
+        self.assertEqual(cur["parts"]["chat-anim"]["state"], "build_failed", "the retry's own compile error ends it")
+        self.assertFalse(cron.build_never_ran(cur))
+        self.assertTrue(cron.commit_failed(cur))
+
+    def test_a_compile_error_still_fails_the_tip_at_once(self):
+        for tail in (["error: cannot find 'Foo' in scope", "** BUILD FAILED **"], ["build: step exited 65"]):
+            cur = cron.new_measurement("a" * 40, "tip", ["build", "chat-anim", "sidebar"], T0)
+            cron.record_part(cur, "build", {"state": "failed", "tail": tail, "build_failed": True}, "r")
+            self.assertEqual(cur["parts_todo"], [], tail)
+            self.assertEqual(cur["parts"]["chat-anim"]["state"], "build_failed")
+            self.assertTrue(cron.commit_failed(cur))
+
+    def test_a_timed_out_build_is_not_retried_as_the_fleet_s(self):
+        cur = cron.new_measurement("a" * 40, "tip", ["build", "chat-anim"], T0)
+        cron.record_part(cur, "build", {"state": "failed", "timed_out": True, "tail": ["returned error: 503"]}, "r")
+        self.assertNotIn("infra_retries", cur["parts"]["build"])
 
 class DisplayTests(OneRunRule):
     def test_a_frame_row_on_another_refresh_is_not_compared(self):
