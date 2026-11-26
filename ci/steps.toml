@@ -2108,6 +2108,34 @@ python3 -I tests/test_check_removed_ui.py || status=1
 exit "$status"
 '''
 
+# The generator follows TypeScript imports for props and scans src for gallery entries.
+# Keep those recursive inputs on PRs. The linux checkout includes the tracked Rust fallback.
+[step.component-manifest]
+job = "linux"
+timeout = 300
+title = "Embedded component manifest"
+about = "the Rust customization SDK embeds the manifest generated from the current web kit"
+needs = ["bun"]
+pr_scope = false
+inputs = [
+  "cmux-tui/crates/cmux-customize/src/component_manifest.json",
+  "webviews/scripts/gen-component-manifest.ts",
+  "webviews/src/**/*.ts",
+  "webviews/src/**/*.tsx",
+  "webviews/src/**/*.json",
+  "schemas/**/*.json",
+  "webviews/bun.lock",
+  "webviews/bunfig.toml",
+  "webviews/package.json",
+  "webviews/tsconfig.json",
+]
+run = '''
+test -f cmux-tui/crates/cmux-customize/src/component_manifest.json || { echo "Missing embedded component manifest"; exit 1; }
+cd webviews
+flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile
+bun run check:component-manifest
+'''
+
 # cmux-next-web-lint.yml's `webviews typecheck (whole tree)` job and its hook tests, which ran on every
 # feat-cmux-next push only. Leo's ask for it: "Every push to main gets a webview type check, so a break shows up on
 # the status board within minutes." A pull request now runs it on the merge commit, so the break shows before the
