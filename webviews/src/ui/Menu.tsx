@@ -34,6 +34,7 @@ import { isMousePress, trackPressRelease } from "./pressRelease";
 import { focusAfterEscape } from "./escapeFocus";
 import { focusWithRing } from "./focusWithRing";
 import { useNativeFinalFocus } from "./useNativeFinalFocus";
+import { markPopupWithin } from "./popupWithin";
 import { usePopupSettle } from "./popupSettle";
 import { useExperimentArm } from "../experiments/useExperimentArm";
 import { MENU_V2_INSET, menuStyleV2, type MenuStyleArm } from "./menuStyleV2.experiment";
@@ -272,11 +273,17 @@ export function MenuButton({
   children,
 }: MenuButtonProps) {
   const context = use(MenuContext);
+  const self = useRef<HTMLButtonElement | null>(null);
+  const isOpen = !!context?.isOpen;
+  // While open, its row keeps its actions shown (ui/popupWithin.ts), in the frame its
+  // `data-popup-open` lands; cleared on close and on unmount.
+  useLayoutEffect(() => (isOpen ? markPopupWithin(self.current) : undefined), [isOpen]);
   // menu-row-states "on": the open trigger takes the panel's fill (popupSurface.css).
   const joined = useExperimentArm(menuRowStates) === "on";
   return (
     <BaseMenu.Trigger
       ref={(node: HTMLButtonElement | null) => {
+        self.current = node;
         if (context) context.trigger.current = node;
         if (buttonRef) buttonRef.current = node;
       }}
@@ -614,7 +621,8 @@ export interface MenuItemProps {
   "data-value"?: string;
   disabled?: boolean;
   /** Why a disabled row is disabled, one amber line under its label ("Needs sign-in"); drawn under
-   *  the menu-row-states experiment. */
+   *  the menu-row-states experiment.
+   * @status experimental */
   reason?: string;
   /** The row's keyboard shortcut ("⌘C", "↩"), drawn with the one key hint (ui/KeyHint). */
   shortcut?: string | undefined;
