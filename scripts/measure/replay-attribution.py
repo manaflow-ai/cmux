@@ -260,6 +260,20 @@ def stack_of(node_id: int, by_id: dict, parent: dict) -> list[str]:
     return frames  # innermost first
 
 
+def where_of(node_id: int, by_id: dict, parent: dict) -> list[str]:
+    """The stack as name@bundle:line (the function's first line in the unminified bundle), innermost first: a React
+    Compiler closure (t1) or an effect's (anon) names no source, its line does."""
+    frames, at = [], node_id
+    while at is not None:
+        f = by_id[at]["callFrame"]
+        if f.get("functionName") != "(root)":
+            url = (f.get("url") or "").rsplit("/", 1)[-1]
+            frames.append(f"{f.get('functionName') or '(anon)'}@{url}:{f.get('lineNumber', -1) + 1}" if url
+                          else f.get("functionName") or "(anon)")
+        at = parent.get(at)
+    return frames
+
+
 def script_owner(frames: list[str]) -> str:
     outer = list(reversed(frames))  # outermost first
     for i, name in enumerate(outer):
@@ -334,9 +348,12 @@ def analyze(doc: dict, min_ms: float) -> dict:
                             idle[frames[0] if frames else "(root)"] += 1
                             continue
                     if frames:
-                        owners[script_owner(frames)] += weight[i]
-                        top = " < ".join(frames[:4])
-                        stacks[script_owner(frames)][(kind, top)] += weight[i]
+                        o = script_owner(frames)
+                        owners[o] += weight[i]
+                        # Keyed by the owner's own label, so "layout forced by X" lists the stacks that forced it.
+                        label = o if kind in ("script", "other") else f"{kind.split('-')[0]} forced by {o}"
+                        top = " < ".join(where_of(samples[i][1], by_id, parent)[:5])
+                        stacks[label][(kind, top)] += weight[i]
                 if owners:
                     matched += 1
                     total = sum(owners.values())
@@ -397,8 +414,7 @@ def main() -> int:
         print(f"  {n:4d} tasks  {total.get(o, 0):8.0f} ms  {o}")
     print("\n== hottest self-time stacks (innermost < callers) of the top owners")
     for o, _ in sorted(total.items(), key=lambda kv: -kv[1])[:6]:
-        base = o.split(" forced by ")[-1]
-        rows = stacks.get(base)
+        rows = stacks.get(o)
         if not rows:
             continue
         print(f"  {o}:")
