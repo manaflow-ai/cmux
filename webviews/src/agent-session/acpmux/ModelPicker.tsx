@@ -41,13 +41,11 @@ import { curatedSections, modelSections } from "./modelSections";
 import { ModelSearchIndex } from "./modelSearch";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
 import { effortWords, fitsQuery, matchingModels, modelEffort, parseQuery, type ParsedQuery } from "./modelQuery";
-import { listsFeedModels } from "./feedHarnesses";
-import { INSTALL_COMMANDS } from "./harnesses/harnessRows";
 import { groupVariants } from "./modelVariants";
 import { registerPicker } from "./pickerOpeners";
 import { OnNewTab } from "./newTabComposer";
 import { relevantModelSections } from "./relevantModels";
-import { type QuickFamily, type QuickModel } from "./quickModelMenuModel";
+import { type QuickFamily, type QuickModel, hostTabBrand } from "./quickModelMenuModel";
 import { QuickModelColumns } from "./QuickModelColumns";
 import { EffortPicker } from "./EffortPicker";
 import { PickerChoiceGroup } from "./PickerChoiceGroup";
@@ -146,9 +144,12 @@ function sectionsFor(
   const cached = choiceCache.get(entry);
   if (cached?.lang === lang) return cached.sections;
   const seen = new Set<string>();
+  // A route of another brand's tab (Antigravity in Gemini's) lists only that brand's models.
+  const hostBrand = hostTabBrand(entry.mark ?? entry.id);
   const choices = entry.models.flatMap((model): ModelChoice[] => {
     const defaultChoice = entry.family === "prime" && isDefaultChoice(model);
     if (isDefaultChoice(model) && !defaultChoice) return [];
+    if (hostBrand && agentBrand(model.id) !== hostBrand) return [];
     if (seen.has(model.id)) return [];
     seen.add(model.id);
     return [
@@ -891,12 +892,15 @@ export function ModelPicker(props: ModelPickerProps) {
     () =>
       modelsNeeded
         ? new ModelSearchIndex(
-            harnesses.filter((entry) => entry.pickable && !blockedProfile(entry) && offered(entry)),
+            // A harness that is not installed lists no models, also in a search (Lucas 2026-11-25).
+            harnesses.filter(
+              (entry) => entry.pickable && !blockedProfile(entry) && !missingHere(entry) && offered(entry),
+            ),
             (entry) => choicesFor(entry, lang),
             (entry) => entry.name,
           )
         : undefined,
-    [modelsNeeded, harnesses, offered, lang],
+    [modelsNeeded, harnesses, missingHere, offered, lang],
   );
   const owners = useMemo(() => {
     const owner = new Map<ModelChoice, HarnessChoice>();
@@ -1242,19 +1246,15 @@ export function ModelPicker(props: ModelPickerProps) {
         entry.pickable &&
         !blockedProfile(entry) &&
         entry.folder?.state !== "needs-enable" &&
+        // A harness that is not installed lists no models, also in a search (Lucas 2026-11-25: "we
+        // should not display their models if they are not installed"). Its tab offers Install.
+        !missingHere(entry) &&
         offered(entry) &&
         // A harness whose probe failed has stale rows: the search finds none of them, unless it runs the chat.
         (!staleHere(entry) || entry.ids.includes(harness ?? "")),
     );
-    // The harnesses set up here first, then the vendors' own ones a pick installs (Gemini CLI for a
-    // Gemini model), then those listing the feed's models until they run (OpenCode serves Gemini
-    // too), then those no pick can install (their pick opens the Harnesses page).
-    const rank = (entry: HarnessChoice) => {
-      if (!needsSetup(entry)) return 0;
-      const id = entry.acpmuxHarness ?? entry.id;
-      if (entry.notInstalled && !INSTALL_COMMANDS[id]) return 3;
-      return entry.notInstalled && listsFeedModels(id) ? 2 : 1;
-    };
+    // The harnesses set up here first, then those a pick signs in first.
+    const rank = (entry: HarnessChoice) => (needsSetup(entry) ? 1 : 0);
     const found = searchModels(searchable, typed, lang);
     // A model several providers serve is one match, in the place of its best-ranked provider's row.
     const groupOf = new Map<ModelChoice, ModelChoice>();
@@ -1274,8 +1274,8 @@ export function ModelPicker(props: ModelPickerProps) {
       seen.add(model);
       const effort = modelEffort(model, typed.effort);
       // The harness travels on its own: the menu heads each harness's matches with its name. One
-      // that a pick sets up first says so ("Not installed": the pick installs it).
-      const setup = missingHere(entry) ? notInstalledText : signInNoteFor(entry);
+      // that a pick signs in first says so.
+      const setup = signInNoteFor(entry);
       const hint = [model.provider, effort, typed.fast ? fastText : undefined, setup].filter(Boolean).join(" · ");
       const row = quickRow(entry.id, model);
       return [
@@ -1326,17 +1326,17 @@ export function ModelPicker(props: ModelPickerProps) {
     for (const entry of startable) {
       const signInNote = signInNoteFor(entry);
       const signInAction = signInActionFor(entry);
-      const { shown, more } =
-        signInNote && !cloudDisconnected(entry)
-          ? { shown: [], more: [] }
-          : quickSections(entry, entry.ids.includes(harness ?? "") ? props.model : undefined, undefined, lang);
-      // A harness this machine does not have lists its catalog models, none of them pickable, with
-      // its Install… row.
       const missing = missingHere(entry);
-      // With onSetUpPick a pick of one installs the harness first, so its rows stay pickable.
       const locked = cloudDisconnected(entry);
-      const tabRow = (model: ModelChoice) =>
-        (missing && !onSetUpPick) || locked ? { ...row(entry, model), disabled: true } : row(entry, model);
+      const { shown, more } = listsModels(entry)
+        ? quickSections(entry, entry.ids.includes(harness ?? "") ? props.model : undefined, undefined, lang)
+        : { shown: [], more: [] };
+      const ownModelless = !missing && !signInNote && picksOwnModel(entry.family);
+      // A failed local probe has stale models. A started chat keeps its working route, and a
+      // named launch setup can still start from its tab.
+      const unavailable = staleHere(entry) && !(forkHarnesses && entry.ids.includes(harness ?? ""));
+      const unavailableHere = unavailable && !missing && !signInNote && !launchSuffix(entry.id);
+      const tabRow = (model: ModelChoice) => (locked ? { ...row(entry, model), disabled: true } : row(entry, model));
       list.push({
         id: entry.id,
         name: entry.name,
@@ -1345,7 +1345,9 @@ export function ModelPicker(props: ModelPickerProps) {
         ...(hasAgentMark(entry.mark ?? entry.id) ? { mark: entry.mark ?? entry.id } : {}),
         models: shown.map(tabRow),
         more: more.map(tabRow),
-        ...(staleHere(entry) ? { unavailable: true } : {}),
+        ...(unavailable ? { unavailable: true } : {}),
+        ...(ownModelless ? { note: t("picker.chiefOwnModel") } : {}),
+        ...(unavailableHere ? { note: unavailableText } : {}),
         ...(missing ? { note: t("harnesses.notInstalled") } : {}),
         ...(missing && onAddAgent ? { setUp: onAddAgent } : {}),
         ...(signInNote ? { note: signInNote } : {}),
@@ -1418,13 +1420,13 @@ export function ModelPicker(props: ModelPickerProps) {
     current?.folder,
     signInNoteFor,
     signInActionFor,
+    listsModels,
     needsSetup,
     cloudDisconnected,
     missingHere,
     staleHere,
     pickerState,
     onAddAgent,
-    onSetUpPick,
     favorites,
     starredText,
     harness,
@@ -1434,6 +1436,7 @@ export function ModelPicker(props: ModelPickerProps) {
     props.profiles,
     signedOut,
     claudeConnect,
+    unavailableText,
   ]);
   /// A compact-menu pick: this harness's model lands in place; another harness's starts a chat there.
   /// A searched row with an effort or fast mode lands as one combo, as the full picker's does.
@@ -2249,20 +2252,7 @@ export function ModelPicker(props: ModelPickerProps) {
                   )}
                 {selected && !searching && !starredView && missingHere(selected) ? (
                   <>
-                    <div className={emptyNote}>{t("harnesses.notInstalled")}</div>
-                    {/* Catalog models remain discoverable before install, while every row is inert. */}
-                    {choicesFor(selected, lang).map((model) => (
-                      <PickerOption
-                        key={model.id}
-                        type="button"
-                        active={false}
-                        disabled
-                        aria-disabled="true"
-                        className={`acpmux-mp-row ${modelRow} ${rowFill(false)} text-muted`}
-                      >
-                        <span className="acpmux-menu-label min-w-0 flex-1 truncate">{model.name}</span>
-                      </PickerOption>
-                    ))}
+                    <div className={emptyNote}>{t("harnesses.notInstalledNamed", { agent: selected.name })}</div>
                     {onAddAgent && (
                       <button
                         type="button"

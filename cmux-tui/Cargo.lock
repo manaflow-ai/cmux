@@ -3086,6 +3086,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-team-messaging"
+version = "0.1.0"
+dependencies = [
+ "cmux-forum-hosted",
+ "cmux-sync",
+ "proptest",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-terminal-client"
 version = "0.1.0"
 dependencies = [

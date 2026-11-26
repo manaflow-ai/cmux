@@ -197,8 +197,6 @@ extension DeepLink {
 
     /// Settings anchors opened through the app action, CLI, MCP, or older Cloud setup links.
     public static func modelSettingsRoute(focus: String, fromSend: Bool = false) -> String? {
-        let environment = query.first { $0.name == "environment" }?.value
-        let recoverySession = query.first { $0.name == "recoverySession" }?.value
         let focus = focus.trimmingCharacters(in: .whitespacesAndNewlines)
         if focus.hasPrefix("models.add.") || ["models.add", "claude-login", "codex-login", "gemini-login"].contains(focus) {
             let encoded = focus.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(CharacterSet(charactersIn: ".-"))) ?? ""
