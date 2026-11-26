@@ -57,6 +57,13 @@
             "scripts/ci/init-submodule.sh", "scripts/ci/apt-ensure.sh"
           ]
         },
+        "remote-web-interop": {
+          "name": "cmux remote web against the daemon",
+          "crates": ["cmux-tui/crates/cmux-remote-web", "cmux-tui/crates/cmux-remote"],
+          "inputs": [
+            "ghostty-next", "scripts/install-zig-ci.sh", "scripts/ci/init-submodule.sh", "scripts/ci/apt-ensure.sh"
+          ]
+        },
         "acpmux-protocol-ir": {
           "name": "acpmux protocol IR is current",
           "crates": ["cmux-tui/crates/acpmux"],

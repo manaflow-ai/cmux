@@ -22,4 +22,15 @@ wasm-bindgen.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.3", features = ["wasm_js"] }
+# ring 0.17 (snow's ChaCha and BLAKE2 backend) draws its randomness through getrandom 0.2, which
+# needs `js` on wasm32-unknown-unknown; without it the wasm build fails in getrandom itself.
+getrandom02 = { package = "getrandom", version = "0.2", features = ["js"] }
 
+
+# The daemon side of the handshake, native only: tests/daemon_interop.rs runs the browser client
+# against cmux-remote's own accept_secure_link, so a wire change on either side fails here.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+async-trait.workspace = true
+bytes.workspace = true
+cmux-remote.workspace = true
+tokio.workspace = true

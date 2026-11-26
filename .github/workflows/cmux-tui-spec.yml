@@ -179,6 +179,8 @@ jobs:
       acpmux_sim_tree: ${{ steps.graph.outputs.acpmux_sim_tree }}
       carrier_sim: ${{ steps.graph.outputs.carrier_sim || steps.gate.outputs.carrier_sim }}
       carrier_sim_tree: ${{ steps.graph.outputs.carrier_sim_tree }}
+      remote_web_interop: ${{ steps.graph.outputs.remote_web_interop || steps.gate.outputs.remote_web_interop }}
+      remote_web_interop_tree: ${{ steps.graph.outputs.remote_web_interop_tree }}
       router_changed: ${{ steps.graph.outputs.router_changed || steps.gate.outputs.router_changed }}
       acpmux_own: ${{ steps.acpmux-own.outputs.changed }}
     steps:
@@ -1097,6 +1099,81 @@ jobs:
       - name: Build cmux-remote-web for wasm32
         working-directory: cmux-tui
         run: cargo build --locked --target wasm32-unknown-unknown -p cmux-remote-web
+
+      # The measurement RFD 0083 slice 1 tracks: what a browser tab downloads for the T2 client.
+      - name: Report the release wasm size
+        working-directory: cmux-tui
+        run: |
+          cargo build --locked --release --target wasm32-unknown-unknown -p cmux-remote-web
+          w=target/wasm32-unknown-unknown/release/cmux_remote_web.wasm
+          echo "cmux-remote-web release wasm: $(stat -c %s "$w") bytes, $(gzip -9c "$w" | wc -c) gzip -9" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # RFD 0083 slice 1: the browser's T2 client against the daemon's own handshake (cmux-remote
+  # accept_secure_link, tests/daemon_interop.rs), so a wire change on either side fails here and not
+  # in a browser. By the crate graph: it runs when cmux-remote-web or anything it builds on changes.
+  remote-web-interop:
+    name: cmux remote web against the daemon
+    needs: changes
+    if: ${{ (inputs.only == '' || inputs.only == 'remote-web-interop') && (!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.remote_web_interop != 'false')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 30
+    env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
+      CMUX_GHOSTTY_SRC: ""
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.sha || '' }}
+
+      - name: Reuse a green result for the same input tree
+        id: tree
+        uses: ./.github/actions/tree-result
+        with:
+          mode: restore
+          job: remote-web-interop
+          key: ${{ needs.changes.outputs.remote_web_interop_tree }}
+
+      - name: Install Linux build dependencies
+        if: ${{ steps.tree.outputs.hit != 'true' }}
+        run: bash scripts/ci/apt-ensure.sh clang libclang-dev pkg-config
+
+      # cmux-remote depends on ghostty-vt: ghostty-vt-sys builds libghostty-vt from the ghostty-next
+      # gitlink with zig, as carrier-sim does.
+      - name: Init the ghostty-next submodule (libghostty-vt for ghostty-vt-sys)
+        if: ${{ steps.tree.outputs.hit != 'true' }}
+        run: bash scripts/ci/init-submodule.sh ghostty-next
+
+      - name: Install zig
+        if: ${{ steps.tree.outputs.hit != 'true' }}
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Set up pinned Rust
+        if: ${{ steps.tree.outputs.hit != 'true' }}
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Cache cargo build
+        if: ${{ steps.tree.outputs.hit != 'true' }}
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: cmux-tui -> target
+          shared-key: cmux-tui-carrier-sim-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
+          save-if: false
+          add-rust-environment-hash-key: false
+
+      - name: cargo test -p cmux-remote-web
+        if: ${{ steps.tree.outputs.hit != 'true' }}
+        working-directory: cmux-tui
+        run: cargo test --locked -p cmux-remote-web
+
+      - name: Record this green result for its input tree
+        if: ${{ success() && steps.tree.outputs.hit != 'true' }}
+        uses: ./.github/actions/tree-result
+        with:
+          mode: save
+          job: remote-web-interop
+          key: ${{ needs.changes.outputs.remote_web_interop_tree }}
 
   # PR CI never runs cmux-tui.yml (dispatch only), whose workspace clippy is the only
   # `--all-targets` lint of cmux-tui, and the fast tier's cargo entries only run tests.
