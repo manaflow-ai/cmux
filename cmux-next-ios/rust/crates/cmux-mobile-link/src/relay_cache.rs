@@ -16,8 +16,8 @@
 
 use base64::Engine as _;
 use cmux_relay_snapshot::delta::{self, ApplyError};
-use cmux_relay_snapshot::{Floor, Opened, Position};
-use p256::{PublicKey, SecretKey};
+use cmux_relay_snapshot::{Floor, Opened, Position, Viewer};
+use p256::PublicKey;
 use serde::{Deserialize, Serialize};
 
 use crate::api::{ApiClient, ApiError};
@@ -150,6 +150,9 @@ pub struct Resumed {
     pub surface: String,
     pub applied: Vec<Opened>,
     pub floor: Floor,
+    /// The position the relay says it holds through; past `floor` with nothing stopped, the
+    /// relay withheld the tail (over the budget).
+    pub head: Position,
     /// The first delta that was not the next one or did not open; the rest wait for the Mac.
     pub stopped: Option<ApplyError>,
 }
@@ -194,15 +197,7 @@ impl RelayCache {
     }
 
     fn path(&self, source: &str, what: &str, query: &[(&str, &str)]) -> String {
-        let mut path =
-            format!("/v1/relay-cache/{}/{what}?deviceId={}", source.to_ascii_lowercase(), self.device);
-        for (name, value) in query {
-            path.push('&');
-            path.push_str(name);
-            path.push('=');
-            path.push_str(&encode_query(value));
-        }
-        path
+        path(&self.device, source, what, query)
     }
 
     async fn send(&self, request: reqwest::RequestBuilder) -> Result<reqwest::Response, RelayCacheError> {
@@ -251,11 +246,11 @@ impl RelayCache {
 
     /// A cold open: the snapshot from the relay, opened under `floor` (which rises to it). `None`
     /// when the relay holds none; then the phone waits for the Mac as today.
-    pub async fn cold_open(
+    pub async fn cold_open<V: Viewer + ?Sized>(
         &self,
         source: &str,
         source_key: &PublicKey,
-        viewer: &SecretKey,
+        viewer: &V,
         stream: &str,
         floor: &mut Floor,
     ) -> Result<Option<ColdOpen>, RelayCacheError> {
@@ -267,11 +262,11 @@ impl RelayCache {
     /// A cold open of `stream`'s first screen ([`first_screen_stream`]), opened under `floor` (the
     /// first screen's own floor; its signature names its own stream). `None` when the source put
     /// none; then the caller opens the whole snapshot.
-    pub async fn cold_open_first_screen(
+    pub async fn cold_open_first_screen<V: Viewer + ?Sized>(
         &self,
         source: &str,
         source_key: &PublicKey,
-        viewer: &SecretKey,
+        viewer: &V,
         stream: &str,
         floor: &mut Floor,
     ) -> Result<Option<ColdOpen>, RelayCacheError> {
@@ -286,10 +281,7 @@ impl RelayCache {
         budget_bytes: usize,
     ) -> Result<CatchUpReply, RelayCacheError> {
         self.on()?;
-        if asks.len() > MAX_SURFACES {
-            return Err(RelayCacheError::Bad(format!("{} surfaces is over {MAX_SURFACES}", asks.len())));
-        }
-        let body = serde_json::json!({ "surfaces": asks, "budgetBytes": budget_bytes.min(MAX_BUDGET_BYTES) });
+        let body = catch_up_body(asks, budget_bytes)?;
         let request =
             self.api.request(reqwest::Method::POST, &self.path(source, "catch-up", &[])).json(&body);
         let response = self.send(request).await?;
@@ -300,49 +292,30 @@ impl RelayCache {
     /// surface's in order and stops that surface at the first that is not the next or does not
     /// open. Each floor in `floors` rises to what applied. A surface with no floor (never opened)
     /// is not asked: it needs a snapshot first.
-    pub async fn resume(
+    pub async fn resume<V: Viewer + ?Sized>(
         &self,
         source: &str,
         source_key: &PublicKey,
-        viewer: &SecretKey,
+        viewer: &V,
         floors: &mut [(String, Floor)],
         budget_bytes: usize,
     ) -> Result<Resume, RelayCacheError> {
-        let asks: Vec<CatchUpAsk> = floors
-            .iter()
-            .filter_map(|(surface, floor)| {
-                Some(CatchUpAsk { surface: surface.clone(), after: WirePosition(floor.position()?) })
-            })
-            .collect();
+        let asks = resume_asks(floors);
         if asks.is_empty() {
             return Ok(Resume::default());
         }
         let reply = self.catch_up(source, &asks, budget_bytes).await?;
-        let mut resume = Resume { cut: reply.cut, ..Resume::default() };
-        for answered in reply.surfaces {
-            let Some((_, floor)) = floors.iter_mut().find(|(s, _)| *s == answered.surface) else { continue };
-            let mut sealed = Vec::with_capacity(answered.sealed.len());
-            for text in &answered.sealed {
-                match b64url_decode(text) {
-                    Some(bytes) => sealed.push(bytes),
-                    None => return Err(RelayCacheError::Bad("a delta is not base64url".into())),
-                }
-            }
-            resume.bytes += sealed.iter().map(Vec::len).sum::<usize>();
-            let (applied, stopped) = delta::apply(floor, viewer, source_key, &answered.surface, &sealed);
-            resume.surfaces.push(Resumed { surface: answered.surface, applied, floor: *floor, stopped });
-        }
-        Ok(resume)
+        apply_catch_up(reply, source_key, viewer, floors)
     }
 
     /// [`RelayCache::resume`], then for each surface the relay cut (over the budget, or its deltas
     /// wrapped) or that stopped early, the newest snapshot instead: one catch-up and at most one
     /// `GET snapshot` per such surface, so a long sleep still lands on the Mac's newest state.
-    pub async fn resume_or_snapshot(
+    pub async fn resume_or_snapshot<V: Viewer + ?Sized>(
         &self,
         source: &str,
         source_key: &PublicKey,
-        viewer: &SecretKey,
+        viewer: &V,
         floors: &mut [(String, Floor)],
         budget_bytes: usize,
     ) -> Result<Resume, RelayCacheError> {
@@ -365,7 +338,7 @@ impl RelayCache {
     /// them. Returns how many it drained.
     pub async fn ack(&self, source: &str, stream: &str, through: Position) -> Result<u64, RelayCacheError> {
         self.on()?;
-        let body = serde_json::json!({ "through": WirePosition(through) });
+        let body = ack_body(through);
         let request = self
             .api
             .request(reqwest::Method::POST, &self.path(source, "ack", &[("stream", stream)]))
@@ -410,6 +383,91 @@ impl RelayCache {
             self.api.request(method, &path).header("content-type", "application/octet-stream").body(envelope);
         self.send(request).await.map(drop)
     }
+}
+
+// The calls without their I/O, for a client that sends them itself (the iOS app, through its own
+// authenticated URLSession): the same request, the same reading of the reply.
+
+/// The route of a relay-cache call (`what`: `snapshot`, `catch-up`, `ack`, ...) to `source`'s
+/// cache as `device`, under the relay's origin.
+pub fn path(device: &str, source: &str, what: &str, query: &[(&str, &str)]) -> String {
+    let mut path = format!(
+        "/v1/relay-cache/{}/{what}?deviceId={}",
+        source.to_ascii_lowercase(),
+        device.to_ascii_lowercase()
+    );
+    for (name, value) in query {
+        path.push('&');
+        path.push_str(name);
+        path.push('=');
+        path.push_str(&encode_query(value));
+    }
+    path
+}
+
+/// What to ask for each surface in `floors`, in order (the budget cuts from the end): those with
+/// a floor, after it. A surface with none needs a snapshot first.
+pub fn resume_asks(floors: &[(String, Floor)]) -> Vec<CatchUpAsk> {
+    floors
+        .iter()
+        .filter_map(|(surface, floor)| {
+            Some(CatchUpAsk { surface: surface.clone(), after: WirePosition(floor.position()?) })
+        })
+        .collect()
+}
+
+/// `POST catch-up`'s body.
+pub fn catch_up_body(asks: &[CatchUpAsk], budget_bytes: usize) -> Result<serde_json::Value, RelayCacheError> {
+    if asks.len() > MAX_SURFACES {
+        return Err(RelayCacheError::Bad(format!("{} surfaces is over {MAX_SURFACES}", asks.len())));
+    }
+    Ok(serde_json::json!({ "surfaces": asks, "budgetBytes": budget_bytes.min(MAX_BUDGET_BYTES) }))
+}
+
+/// Reads `POST catch-up`'s reply body.
+pub fn read_catch_up(body: &[u8]) -> Result<CatchUpReply, RelayCacheError> {
+    let reply: CatchUpReply =
+        serde_json::from_slice(body).map_err(|e| RelayCacheError::Bad(e.to_string()))?;
+    if !reply.from_relay {
+        return Err(RelayCacheError::Bad("not the relay's catch-up reply".into()));
+    }
+    Ok(reply)
+}
+
+/// Opens each answered surface's deltas in order under its floor in `floors`, stopping that
+/// surface at the first that is not the next or does not open; each floor rises to what applied.
+pub fn apply_catch_up<V: Viewer + ?Sized>(
+    reply: CatchUpReply,
+    source_key: &PublicKey,
+    viewer: &V,
+    floors: &mut [(String, Floor)],
+) -> Result<Resume, RelayCacheError> {
+    let mut resume = Resume { cut: reply.cut, ..Resume::default() };
+    for answered in reply.surfaces {
+        let Some((_, floor)) = floors.iter_mut().find(|(s, _)| *s == answered.surface) else { continue };
+        let mut sealed = Vec::with_capacity(answered.sealed.len());
+        for text in &answered.sealed {
+            match b64url_decode(text) {
+                Some(bytes) => sealed.push(bytes),
+                None => return Err(RelayCacheError::Bad("a delta is not base64url".into())),
+            }
+        }
+        resume.bytes += sealed.iter().map(Vec::len).sum::<usize>();
+        let (applied, stopped) = delta::apply(floor, viewer, source_key, &answered.surface, &sealed);
+        resume.surfaces.push(Resumed {
+            surface: answered.surface,
+            applied,
+            floor: *floor,
+            head: answered.head.0,
+            stopped,
+        });
+    }
+    Ok(resume)
+}
+
+/// `POST ack`'s body (the route's `stream` query names the stream).
+pub fn ack_body(through: Position) -> serde_json::Value {
+    serde_json::json!({ "through": WirePosition(through) })
 }
 
 /// Percent-encodes what a stream name may hold (`[A-Za-z0-9._/-]`) and anything else.
