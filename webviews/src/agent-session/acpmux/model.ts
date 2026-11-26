@@ -1,11 +1,12 @@
 import type { BrowserWorkspaces } from "./browser/workspaces";
-import type { ChatTaskList } from "./chatTaskList";
+import type { ApprovedPlan } from "./approvedPlan";
 import { experimentArm } from "../../experiments/experiment";
 import type { PromptHeads } from "./promptHeads";
-import { permissionCardHeight } from "./permissions/cardHeight";
+import { nextStepCardHeight, permissionCardHeight } from "./permissions/cardHeight";
 import { freshMeasureContext } from "./measureContext";
 import type { SentFrom } from "./conversation/sentFromHarness";
 import type { PeerLinkDetail } from "./linkState";
+import type { ComposerStatus } from "./composerStatusModel";
 import { BUBBLE } from "./transcriptSpacing";
 import {
   footerAfter,
@@ -34,6 +35,8 @@ import {
 } from "./transcriptGrid";
 import type { MachineResources } from "./machineResources";
 import type { AutoResumeStatus } from "./autoResumeStatus";
+import type { AutoSession } from "./autoSession/autoSession";
+import type { CapacityWaitState } from "./capacityWait";
 import type { VideoInfo } from "./composer/videoAttachments";
 import type { AttachmentSource } from "./attachments";
 import type { HarnessIconSpec } from "../shared/harnessIcons";
@@ -45,6 +48,7 @@ import type { AgentQuestion } from "./question/model";
 import type { NextStepAsk } from "./conversation/nextStepAsk";
 import { webSources } from "./conversation/webSourceList";
 import { isRunPart } from "./conversation/runPartId";
+import { keptPrefix } from "./conversation/prefixFlatMap";
 import { outputTail, stripAnsi } from "./conversation/toolOutputModel";
 import type { WatchedAsk } from "./needsYou/model";
 import type { PermissionDecision } from "./permissions/record";
@@ -59,9 +63,11 @@ import { MEMORY_OFFER, memoryCardState, type MemoryOffer } from "./conversation/
 import { COACH_LINE_PX, coachLines, PROMPT_COACH, type PromptCoach } from "./conversation/promptCoach";
 import { PRESET_APPROVAL, type PresetApproval } from "./conversation/presetApproval";
 import type { TurnCopyPart } from "./conversation/turnCopy";
+import type { LiveWait } from "./conversation/liveWait";
+import type { GitHubConnectNeed } from "./conversation/githubConnect";
 import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
-import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
+import { SUBAGENTS, type Subagent } from "./subagents/subagent";
 import { BACKGROUND_TURN } from "./conversation/backgroundTurns";
 import { TASK_LINE, type StartedTask } from "./conversation/taskLineKind";
 import type { SubagentRetryNotice } from "./subagents/retryState";
@@ -70,7 +76,6 @@ import {
   SUBAGENT_DONE,
   SUBAGENT_STARTED,
   SUBAGENT_EMPTY,
-  SUBAGENT_OF,
   SUBAGENT_ROW,
   WORKFLOW_CARD,
 } from "./subagents/subagentRows";
@@ -91,13 +96,13 @@ import {
   recordedBody,
 } from "./conversation/promptCollapse";
 import { sentPasteJoin } from "./conversation/sentPasteJoin.experiment";
-import { attachmentOnlyPrompt, bubbleLayout } from "./conversation/bubbleParts";
+import { attachmentOnlyPrompt, bubbleLayout, stripAttachments } from "./conversation/bubbleParts";
 import { composerSettingsSnapshot } from "./composerSettings";
 import { isPromptMarkdown } from "./conversation/promptMarkdown";
 import { sentUIPick, sentUIPickSegments, type SentPromptSegment } from "./conversation/sentUIPickModel";
-import { SENT_IMAGE_HEIGHT, SENT_IMAGE_MAX_WIDTH, sentImageSize, sentImageWidth } from "./conversation/userBubbleModel";
+import { linkedImagePath, sentImageSize, sentVideoSize } from "./conversation/userBubbleModel";
 import { sentVideoOf, sentVideosOf } from "./conversation/sentVideos";
-import { fileSizeLabel } from "./fileAttachmentModel";
+import { fileSizeLabel, shownFileSize } from "./fileAttachmentModel";
 import { mcpCall } from "./conversation/mcpCalls";
 import { hidesEveryCall, visibleToolItems } from "./conversation/mcpPresentation";
 import { subsessionCall } from "./conversation/subsessionCalls";
@@ -117,12 +122,6 @@ import { PASS_MARK, PlacedHeightIndex } from "./placedHeightIndex";
 
 export type { HeightChange, IndexedLayoutGeometry, LayoutGeometry } from "./conversationGeometry";
 export { applyHeightChanges, geometryFromHeights, geometryFromIndex } from "./conversationGeometry";
-
-/** One item of an agent's todo list (an ACP `plan` entry). */
-export type AcpmuxPlanEntry = {
-  content: string;
-  status: "pending" | "in_progress" | "completed";
-};
 
 /** How a background shell ended (acpmux `background_task_update`, cx-ncc.84). */
 export type AcpmuxBackgroundTask = {
@@ -227,6 +226,7 @@ export type AcpmuxBackgroundTurn = {
 /// that ran it when the chat did not (a subagent's or workflow agent's shell).
 export type AcpmuxBackgroundSource = {
   command?: string;
+  description?: string;
   ownerId?: string;
   ownerTitle?: string;
 };
@@ -273,6 +273,10 @@ export type AcpmuxBackgroundRun = {
   other: number;
   /// How many members are background shells' ends: a run of only those reads "N background commands".
   commands: number;
+  /// How many members are subagents' ends (a harness event, folded as a tool call is), and how they
+  /// ended when they all ended alike: a run of only those reads "N subagents stopped".
+  subagents?: number;
+  subagentEnd?: "finished" | "stopped" | "disconnected" | "failed";
   rows: string[];
 };
 
@@ -384,6 +388,11 @@ export type QueuedPrompt = {
   /// acpmux's ask to resume a failed subagent (subagents/retryState.ts `subagentRetryNotice`): its
   /// row names the subagent instead of drawing the prompt's text.
   retry?: SubagentRetryNotice;
+  /// acpmux's own prompt to the chat's agent, by its provenance kind (`surge_digest`,
+  /// `subagent_retry`, `auto_resume`, ...; acpmux `QueuedPromptSummary.origin` `acpmux`,
+  /// hub/queue_origin.rs). Not the person's: it draws apart from their steer rows, with none of
+  /// their actions (ComposerQueue.tsx `SystemNotes`; Leo, 2026-11-24).
+  system?: string;
   /// Another agent's message the person's Stop holds (acpmux `queue_paused` with `reason: "stop"`,
   /// hub/cancel.rs): it waits until the person's next turn completes or the queue is resumed, not
   /// for the turn to end, and its card says so (conversation/QueuedMessageCard.tsx).
@@ -441,6 +450,10 @@ export type PromptContentPart =
       pageCount?: number;
       uri?: string;
       video?: VideoInfo;
+      /// A video's picture size, which acpmux keeps with its part (hub/prompt_images.rs), so its
+      /// sent tile has its box from the first frame after a reload (conversation/sentVideos.ts).
+      width?: number;
+      height?: number;
       source?: AttachmentSource;
     };
 /// A queued prompt's image: `src` is its data URL when the pane has its bytes (it sent them, or
@@ -470,6 +483,12 @@ export type AcpmuxTurnRetry = {
   maxRetries?: number;
   error?: string;
   errorStatus?: number;
+  /// What acpmux classified the failure as (hub/outage.rs): the connection failed, not the model.
+  cause?: "dns" | "refused" | "timeout" | "unreachable";
+  /// The host that could not be reached, when the harness's words name one.
+  host?: string;
+  /// When the harness tries again, epoch ms (acpmux adds the harness's delay to its own clock).
+  retryAt?: number;
 };
 
 /// The client's row that carries the running turn's retries (direct.ts): kind "typing", so no
@@ -491,6 +510,9 @@ export type AcpmuxRow = {
   version: number;
   at: number;
   kind: string;
+  /// The row-store group whose children this activity row comes from. Closed groups are paged on
+  /// demand when their transcript disclosure opens.
+  foldId?: number;
   /// The acpmux event a turn summary came from, where a fork through that turn ends.
   seq?: number;
   /// The daemon's stable identity for a turn. Turn results can be replayed with a new seq, so
@@ -510,14 +532,6 @@ export type AcpmuxRow = {
   /// A prompt this pane sent: where it is on its way (PromptDelivery).
   delivery?: PromptDelivery;
   items?: AcpmuxActivity[];
-  /// A plan row's todo list (cx-ncc.80): the agent's latest `plan` update in its turn.
-  plan?: AcpmuxPlanEntry[];
-  /// A plan row that stands for an earlier turn's list under the running turn (turns.ts
-  /// `earlierTurnPlan`): it reads as from before the person's last message, and nothing spins.
-  planEarlier?: boolean;
-  /// A plan row whose list a later turn cleared before writing one of its own (an empty `plan`,
-  /// direct.ts): it stays folded in its own turn but no longer carries over (turns.ts `earlierTurnPlan`).
-  planCleared?: boolean;
   /// A background task row's shell, which ended where the row sits (cx-ncc.84).
   backgroundTask?: AcpmuxBackgroundTask;
   /// A compaction row's compaction, noted where it happened.
@@ -541,6 +555,11 @@ export type AcpmuxRow = {
   background?: AcpmuxBackgroundTurn;
   /// A row a background turn made: that turn's id, so its line can fold it (backgroundTurns.ts).
   inBackground?: string;
+  /// A row of the running turn that was already there when the chat was opened or reloaded (a v1
+  /// chat: direct.ts `noteReadWork`), with how many of its items were (an activity row's; 0 for any
+  /// other row). The running turn draws what of it its fold will hold folded from the first frame,
+  /// as the row store sends an open turn's settled work (turns.ts `withoutReadWork`).
+  readAtOpen?: number;
   /// An agent reply to the person's own prompt (conversation/turns.ts answeringPerson): its text
   /// draws even when it is only punctuation (visibleMessage.ts).
   answersPerson?: true;
@@ -653,6 +672,9 @@ export type AcpmuxRow = {
   /// A finished turn footer's timed tool calls and thoughts, in order, for its waterfall
   /// (conversation/waterfallSpans.ts `turnWork`, TurnWaterfall.tsx); undefined when none was timed.
   turnWork?: AcpmuxActivity[];
+  /// The chat's last turn's GitHub call that found no GitHub connection for this chat
+  /// (conversation/githubConnect.ts): its footer draws the Connect GitHub card.
+  githubConnect?: GitHubConnectNeed;
   /// A footer turns.ts `supersededFooters` added where the person came in on a stretch of a turn (a
   /// steer that landed in it, or a new prompt over a turn with no summary): the stretch counts as
   /// ended, and the footer offers its Copy.
@@ -696,6 +718,9 @@ export type AcpmuxRow = {
   runOpen?: true;
   /// A "Worked for" line that names the work it holds after its time (turnFoldSteered `header` arm).
   workedRuns?: AcpmuxActivity[];
+  /// The calls a "Worked for" hides, which its line counts with the Fold Summary Counts switch on
+  /// (conversation/turns.ts `workedCountsText`, `FOLD_COUNTS_SWITCH`).
+  foldCalls?: AcpmuxActivity[];
   /// A run of one-line rows carrying messages between agents, folded under one line
   /// (conversation/messageRuns.ts): what its line counts and the rows it folds.
   messageRun?: AcpmuxMessageRun;
@@ -730,6 +755,9 @@ export type AcpmuxRow = {
   /// behind, by id and version, while that text still moves.
   doingAt?: number;
   doingShell?: boolean;
+  /// The acpmux tool kind of the call the live line names (`execute`, `read`, ...): a look's thinking
+  /// glyph plays the document's trigger for it (conversation/thinkingGlyphModel.ts `glyphTrigger`).
+  doingKind?: string;
   /// The Codex-style live line names a command still running in an earlier run, which that run
   /// draws no row for (conversation/turns.ts `lineCall`, `codexRuns`): its call id. While the reader
   /// is scrolled up, the call stays out of its run when the line lets go of it
@@ -753,6 +781,9 @@ export type AcpmuxRow = {
   /// That should replace the thinking area").
   liveState?: "subagents" | "writing" | "compacting";
   liveAgents?: number;
+  /// The names of the foreground subagents the line waits on, as the tray shows them (conversation/
+  /// turns.ts `foregroundAgentNames`): "Waiting on subagent Explore auth", never only a count.
+  liveAgentNames?: readonly string[];
   liveCompaction?: AcpmuxCompaction;
   /// With the line reading "Thinking" past the first step (conversation/turns.ts `liveClock`, this
   /// computer's clock): when this stretch of thinking began, the time beside the word ticking from
@@ -761,6 +792,10 @@ export type AcpmuxRow = {
   phaseAt?: number;
   heardAt?: number;
   heardKey?: string;
+  /// What a silent line waits on, so it never reads a bare "Waiting" (conversation/liveWait.ts):
+  /// the model reading the call that just returned, its first reply, another agent's message, the
+  /// person's queued message, or its next step.
+  liveWait?: LiveWait;
   /// With the line reading "Waiting on N subagents" (conversation/turns.ts, this computer's clock):
   /// when that wait began, the last moment the turn's own rows did anything, so the time beside the
   /// words is the wait's, never the turn's whole time.
@@ -851,8 +886,6 @@ export type AcpmuxRow = {
   continuable?: boolean;
   /// An edited-files card of a turn that has ended, which offers Undo (conversation/turns.ts).
   ended?: boolean;
-  /// A todo list whose turn has ended: a step left in progress no longer spins (conversation/turns.ts).
-  turnEnded?: boolean;
   /// The final drawn row of a latest turn that has no turnSummary. It keeps the same turn gap as a
   /// footer without adding a permanent runway under every turn (conversation/turns.ts).
   lastTurn?: boolean;
@@ -907,6 +940,8 @@ export type AcpmuxRow = {
   shell?: ShellRun;
   /// A subagent group's subagents (subagents/subagentFold.ts).
   subagents?: Subagent[];
+  /// A start line's: how many of its `subagents` it names; it counts the rest (runningTray.ts `startedLineModel`).
+  startedNamed?: number;
   /// On a background turn's line: the subagent whose report started the turn, which the line names
   /// (subagents/runningTray.ts `withSubagentLines`; conversation/BackgroundTurnLine.tsx).
   subagentReport?: Subagent;
@@ -933,6 +968,10 @@ export type AcpmuxActivity = {
     awaitingCall?: true;
     inputSummary?: string;
     output?: string;
+    /// The output starts after the beginning of what the call printed: a long call's oldest lines went
+    /// with their records when the chat let go of its oldest (direct.ts `shedOlderHeld`), and scrolling
+    /// up reads them back (`foldOlder`). Its Shell block marks the cut as a read tail's is marked.
+    earlierOutput?: true;
     /// A shell call's command line (`rawInput.command`), for its Shell block.
     command?: string;
     /// What the call says it does in a few words (Claude Code's Bash `rawInput.description`): a
@@ -962,6 +1001,10 @@ export type AcpmuxActivity = {
     /// The harness metadata that names a built-in tool. Titles are user-visible labels and are
     /// not sufficient to identify plumbing calls with names such as ToolSearch.
     provenance?: { claudeTool?: string; claudeCodeToolName?: string };
+    /// The name of the subagent a SendMessage call goes to, as the daemon's subagent list names
+    /// it (`_meta.acpmux.recipient`, acpmux subagents.rs `recipient`): the "Sent to" row reads it
+    /// when the page holds no row of the subagent's Agent call.
+    recipient?: string;
   };
 };
 
@@ -1071,6 +1114,9 @@ export type ExternalAccess = {
 
 export type AcpmuxPermission = {
   externalAccess?: ExternalAccess;
+  /// A risky step on a Cloud machine (acpmux fork_risky.rs, behind `cloud.autoCloud`): "Fork first"
+  /// has the app fork the machine under `clientKey` before the step runs; the copy stays as the checkpoint.
+  forkOffer?: { machine: string; reason: string; clientKey: string };
   permissionId: string;
   groupId?: string;
   turnId?: string;
@@ -1088,6 +1134,9 @@ export type AcpmuxPermission = {
   /// The plan a plan approval asks about, as Markdown (Claude Code's ExitPlanMode, Grok's
   /// `x.ai/exit_plan_mode`, Cursor's `create_plan`; direct.ts `permissionPlan`).
   plan?: string;
+  /// Whether the person may edit the plan before approving it: Claude Code's ExitPlanMode, whose
+  /// allow carries the edited plan back to the agent (`_acpmux/plan/build` `plan`).
+  planEditable?: boolean;
   pending: boolean;
   options: {
     id: string;
@@ -1252,21 +1301,18 @@ export type AcpmuxTimeBreakdown = {
 
 export type AcpmuxSnapshot = {
   type: "snapshot";
+  /// The one-shot admission warning of an Auto start: with no `sessionId` while `session/new` waits
+  /// for a machine being added (`_acpmux/admission_waiting`), then the one `session/new` returned,
+  /// while its chat is starting.
+  startupAdmission?: { sessionId?: string; scalingUp: true };
   /** The selected chat's daemon-owned retry, including the last automatic attempt. */
   autoResume?: AutoResumeStatus;
+  /** The chat acpmux holds for capacity (hub/capacity_wait.rs): one calm state, never red. */
+  capacityWait?: CapacityWaitState;
   protocolVersion: number;
   rows: AcpmuxRow[];
   /// Reply row ids removed by explicit message_superseded events; refresh retention must not restore them.
   supersededRows?: string[];
-  /// The chat's latest TodoWrite/update_plan checklist (liveProgress.ts), beside the rows so Session
-  /// Info's Progress updates without rescanning the transcript on every streamed token. `ended` once
-  /// its turn stopped or a later prompt came in.
-  progress?: {
-    plan: AcpmuxPlanEntry[];
-    completed?: number;
-    total?: number;
-    ended?: boolean;
-  };
   /// Each subagent's own view by subagent id: its rows, opened from its line in a group
   /// (subagents/childRows.ts).
   subagentViews?: Record<string, AcpmuxRow[]>;
@@ -1311,8 +1357,8 @@ export type AcpmuxSnapshot = {
   peerResources?: Record<string, MachineResources>;
   /// The open chat is a fork: the seq of its `forked` event, where the copied history ends (cx-ncc.61).
   forkedAtSeq?: number;
-  /// The chat's held surge, its newest snapshot (conversation/surgeHold.ts): the composer hat's one
-  /// row for it (SurgeHoldRow.tsx).
+  /// The chat's held surge, its newest snapshot (conversation/surgeHold.ts): Session Info's Background
+  /// tasks row (session-info/agentSide.ts).
   surge?: SurgeHold;
   summary?: {
     sessionId: string;
@@ -1346,6 +1392,13 @@ export type AcpmuxSnapshot = {
     machine?: string;
     peer?: string;
     hostKind?: "local" | "cloud";
+    /// The composer footer's status dot items and quiet facts, as acpmux decided them
+    /// (`composerStatus`, acpmux `protocol/composer_status.rs`); absent from an older acpmux. Read
+    /// through composerStatusModel.ts `readComposerStatus`, which takes a null field as absent.
+    composerStatus?: ComposerStatus;
+    /// Where an Auto chat stands (acpmux `autoSession`, autoSession/autoSession.ts): unset from an
+    /// acpmux without Auto, and the pane then offers and draws nothing of it.
+    autoSession?: AutoSession;
     /// The folders the chat sees beside its own (acpmux `additionalDirectories`, cmux#32811).
     additionalDirectories?: readonly string[];
     branch?: string;
@@ -1360,9 +1413,9 @@ export type AcpmuxSnapshot = {
     icon?: HarnessIconSpec;
     /** Codex's persisted thread goal, when the harness reported one. */
     goal?: TaskGoal;
-    /// The chat's task list across its turns (acpmux `taskList`, chatTaskList.ts): the harness's
-    /// latest plan, else the one its agent or Chief keeps. Unset until one is written.
-    taskList?: ChatTaskList;
+    /// The plan the person approved, kept while the agent builds it (acpmux `approvedPlan`,
+    /// approvedPlan.ts). Unset until a plan approval is answered with an allow.
+    approvedPlan?: ApprovedPlan;
     harness?: string;
     /// The harness family acpmux files the session under (`codex`, `opencode`, ...), when it says.
     family?: string;
@@ -1434,9 +1487,6 @@ export type AcpmuxSnapshot = {
     /// The chat's tools (acpmux `tools`, cx-thur3) and whether `_acpmux/set_tools` can change them.
     tools?: ChatTool[];
     toolsMutable?: boolean;
-    /// Where the chat stands and its next action (acpmux `rollingSummary`, kept after each turn a
-    /// person started); the header draws it beside the title (header/ChatSummaryLine.tsx).
-    rollingSummary?: { text: string; next?: string };
   };
   connection: string;
   /** The first request that crossed its progress threshold while the socket stayed open. */
@@ -1468,6 +1518,10 @@ export type AcpmuxSnapshot = {
   /// The client has read the daemon's chat list once: `sessions` is the daemon's, not the empty
   /// list a connection starts with (newtab/chatStore.ts publishes only such a list).
   listedSessions?: true;
+  /// With `listedSessions`: `sessions` is only the newest window of the daemon's list (the first
+  /// `SESSION_PAGE` rows and their changes; sessionPages.ts `holdsAll` false), not the whole list,
+  /// so it says nothing about the chats older than its oldest row (newtab/chatStore.ts merges it).
+  sessionsWindowed?: true;
   /// This page drew the chat from a kept tail (tailCache.ts) rather than from acpmux's attach, so
   /// its rows were on screen in the frame the open landed on. The pane's host reads it in the
   /// page's first-paint report: a chat read cold fades in over the loading state, this one shows
@@ -1520,6 +1574,9 @@ export type AcpmuxSnapshot = {
   clockOffsetMs?: number;
   /// acpmux serves `acp.session.fork` (operations.ts), so a turn can be forked from.
   canFork?: boolean;
+  /// acpmux forks a subagent's own context into a chat of its own (`acp.session.fork.subagent.v1`):
+  /// a subagent's chips offer Fork with <model>… and Fork with <mode>… (SubagentForkChips.tsx).
+  canForkSubagent?: true;
   /// The chat's own machine (a Cloud or SSH chat) opens its side chats there: New side chat and
   /// `/side` (direct.ts `sideChatOnMachine`).
   sideChatOnMachine?: true;
@@ -1591,6 +1648,12 @@ export type AcpmuxSnapshot = {
     /** Its chats, or its startup probe, report permission modes (`_acpmux/harnesses` `reported`,
      * permissionModes.ts). Absent while unknown or none. */
     reportsModes?: true;
+    /** Those modes (`_acpmux/harnesses` `reported.modes`): a new chat's Mode menu before any chat of
+     * the harness is open here. Present with `reportsModes`. */
+    reportedModes?: { id: string; name?: string; description?: string }[];
+    /** The mode the harness's own `session/new` starts a chat in when acpmux sets none
+     * (`reported.startModeId`, its startup probe's answer): Antigravity's Default. */
+    ownStartMode?: string;
     /** `_acpmux/harnesses` `start`: the model and effort acpmux starts a new chat here on (the
      * person's saved pick, else the catalog's default; acpmux start_defaults.rs). */
     start?: {
@@ -1625,6 +1688,12 @@ export type AcpmuxSnapshot = {
   promptCount?: number;
   /** The oldest event seq the pane holds: it moves with each older read, even one that drew no row. */
   historyFrom?: number;
+  /**
+   * The time of the oldest event the pane holds. A row older than it left with the records a chat left open let go
+   * of (direct.ts `shedOlderHeld`), so the view does not keep it on screen (conversation/turns.ts
+   * `retainVisibleReplies`).
+   */
+  heldFromAt?: number;
   /**
    * The chat goes on past the rows: a reader scrolled far up holds a window of the chat, whose newest records
    * are read again as the view nears the rows' end (direct.ts `loadNewer`), or with the newest page when the
@@ -1681,10 +1750,16 @@ export type PreparedRow = {
   closedEnd: number;
   /// The characters the last update lexed (tests, perf).
   lexedLength: number;
+  /// The blocks the last update measured (tests, perf): the ones closed since, and the tail's.
+  measuredBlocks?: number;
   /// Measured text by its source, kept across a streaming row's versions; null where it can't be measured.
   prepared: Map<string, PreparedText | null>;
   /// A plain user row's final line height, keyed by text, font, line height and width.
   plainHeight?: { key: string; height: number };
+  /// The summed heights of the first `count` closed blocks (`last` the last of them), at the width
+  /// and metrics `key` names, and the prepared texts they read: a streaming reply measures only
+  /// the blocks that closed since and its tail, never every block again for each delta.
+  closedHeight?: { key: string; count: number; last: Token | undefined; height: number; used: Set<string> };
 };
 
 export type ConversationLayout = {
@@ -1711,6 +1786,9 @@ export type ConversationLayout = {
   /// Some row keeps its height from another width (layoutConversation `near`), so the tops below it
   /// are not this width's: nothing may keep them as measured (transcriptHeights.ts keepPromptTops).
   remembered?: true;
+  /// A cold open's layout (layoutConversation `roughAbove`): rows above the measured end hold rough
+  /// heights until the transcript lays the chat out whole, after the first paint. Also `remembered`.
+  rough?: true;
 };
 
 /// Metrics of conversation/conversation.css (`--cv-font-size`, `--cv-line-height`, `.cv-*`): the
@@ -1752,6 +1830,8 @@ const META_ROW_PT = gridLength("transcript-action-control");
 const metaRow = () => META_ROW_PT * chromeScale;
 /// A reply footer's line: its 32 buttons (transcriptGrid.ts `TRANSCRIPT_FOOTER_CONTROL`).
 const footerRow = () => TRANSCRIPT_FOOTER_CONTROL * chromeScale;
+/// The Connect GitHub card above a footer: its line and button, in the failure card's padding.
+const GITHUB_CONNECT_CARD = 56;
 const MESSAGE_GAP = 0;
 /// A collapsed sub-session disclosure (subagents/AgentCard.css): one 26px line plus its transcript
 /// rhythm margins. Expanded Markdown is measured by the virtual transcript after the reader opens it.
@@ -1773,11 +1853,9 @@ const isStepRow = (row: AcpmuxRow) =>
   row.kind === SUBAGENT_ROW ||
   (row.kind === SUBAGENTS && !isRunGroup(row)) ||
   isWorkedLine(row) ||
-  (row.kind === ACTIVITY_LINE && !row.below) ||
   isLineRow(row);
 /// The running turn's live line, drawn as its last row (`below`, conversation/turns.ts).
-export const isLiveLine = (row: AcpmuxRow) =>
-  row.below === true && (row.kind === WORKING || row.kind === THINKING || row.kind === ACTIVITY_LINE);
+export const isLiveLine = (row: AcpmuxRow) => row.below === true && (row.kind === WORKING || row.kind === THINKING);
 /// The running turn's line as its last row (`below`) right under a step row or a status row ("Subagent
 /// finished", "Scheduled check", a compaction): its box and the gap over it are transcriptGrid.ts's
 /// (TRANSCRIPT_LIVE_STEP_BOX, MARK_LIVE_STEP; `.acpmux-row--below.acpmux-row--after-step`); the waiting
@@ -1788,10 +1866,12 @@ export const isLiveStep = (row: AcpmuxRow, prev: AcpmuxRow | undefined) =>
   isLiveLine(row) && prev !== undefined && (isStepRow(prev) || isStatusRow(prev));
 /// A row's kind for the gap rules (transcriptGrid.ts transcriptGap), `prev` the drawn row above it.
 /// A live line under a step is MARK_LIVE_STEP, not another step, which would sit flush.
-export const gridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>
+/// `above`, the drawn row over `prev`, tells a received line under its own turn's "Working for" apart
+/// from one that opens its turn over that line (`headsIncomingTurn`).
+export const gridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined, above?: AcpmuxRow): number =>
   (wokenUnderFooter(row, prev) && wokenGapLook() === "tail" ? MARK_STATUS : rowGridMark(row, prev)) |
   (opensBackgroundTurn(row, prev) ? MARK_OPENS_TURN : 0) |
-  (headsIncomingTurn(row, prev) ? MARK_HEADS_TURN : 0) |
+  (headsIncomingTurn(row, prev, above) ? MARK_HEADS_TURN : 0) |
   (topsIncomingTurn(row, prev) ? MARK_TOPS_TURN : 0);
 /// Whether `row` is the top of a turn another agent's line opened, right under the turn before's last
 /// reply (transcriptGrid.ts MARK_TOPS_TURN): that notice or message (not a steer into the running turn,
@@ -1816,11 +1896,27 @@ const topsIncomingTurn = (row: AcpmuxRow, prev: AcpmuxRow | undefined): boolean 
 /// under the fold's rule, over its "Sent to" (Leo, 2026-11-22 08:29Z, ST-02: "this one seems to have an
 /// unnecessary gap due to being a recieved message. these aren't categorized properly under our tool
 /// call formatting"; sim scenario `received-sent-as-activity`). O(1).
-const headsIncomingTurn = (row: AcpmuxRow, prev: AcpmuxRow | undefined): boolean =>
+/// Neither when the line sits under its own turn's "Working for" / "Worked for" (`worked-<its id>`,
+/// conversation/turns.ts): that line already heads the turn, and the received line is one step of
+/// its work, flush under it on the tool rows' pitch, with the live line a step's gap under it. The
+/// head gap there drew it as a prompt, 16 under the turn's line and 16 over "Thinking" (Leo,
+/// 2026-11-22: "sometimes you get these way-too-big gaps. i think it's the message recieving not
+/// properly getting treated like the tool call ish thing it should be and instead as if it were a
+/// message?"; sim/scenarios.ts `incoming-message-turn`, rule (d)).
+const headsIncomingTurn = (row: AcpmuxRow, prev: AcpmuxRow | undefined, above?: AcpmuxRow): boolean =>
   prev !== undefined &&
   (prev.kind === "user"
-    ? isLiveLine(row) && isStatusRow(prev)
-    : prev.kind === "worked" && prev.foldOpen !== true && row.kind === "user" && isStatusRow(row));
+    ? isLiveLine(row) && isStatusRow(prev) && !isOwnTurnLine(above, prev)
+    : prev.kind === "worked" &&
+      prev.foldOpen !== true &&
+      row.kind === "user" &&
+      isStatusRow(row) &&
+      !(prev.turnPhase === "running" && isOwnTurnLine(prev, row)));
+/// Under its own turn's ended, closed "Worked for" the line still opens the next turn: the head gap stays
+/// (test/received-sent-activity-gap.test.ts, ST-02); only the running header takes it in as a step.
+/// Whether `line` is the "Working for" / "Worked for" line of the turn `user` opened. O(1).
+const isOwnTurnLine = (line: AcpmuxRow | undefined, user: AcpmuxRow): boolean =>
+  line !== undefined && isWorkedLine(line) && line.id === `${WORKED}-${user.id}`;
 /// Whether `row` is the first tool row of a turn the agent ran on its own, right under the footer
 /// row of the turn before it: a background task's end woke the agent after that turn ended, and the
 /// task's line between them draws nothing (backgroundTurns.ts `drawsBackgroundLine`). O(1).
@@ -1887,9 +1983,16 @@ const LIVE_STEP_EDGE = "+step";
 /// The room around "Worked for"'s rule (Lucas, 2026-11-07; Leo, 2026-11-09): 4 under its words, 8 over the next row,
 /// conversation.css `.cv-worked.has-divider.is-toggle`; no stack gap follows (MARK_WORKED).
 const WORKED_GAP_PT = gridLength("gap-foot") + gridLength("gap");
-/// Read once per layout pass, with the scale (layoutConversation).
+/// Read once per layout pass (layoutConversation). `--cv-tool-row-height` is 22px plus the row air at every
+/// Interface Size (conversation.css `:root`), so the row is too: scaled with the grid, a closed group's line was
+/// placed 22 × (scale − 1) px too tall at a larger Interface Size.
 let lineRowPt = TRANSCRIPT_LINE_ROW;
-const toolRowHeight = () => lineRowPt * chromeScale;
+const toolRowHeight = () => (editsEstimateOn() ? lineRowPt : lineRowPt * chromeScale);
+/// Settings > Advanced > Experiments > Expanded Edits Estimate (`experiments.expandedEditsEstimate`, default off;
+/// Leo, 2026-11-24, ask-82b08b7ed7: UI changes wait behind a switch). On: an opened edits group is estimated at
+/// its files' diff cards (`openEditsBody`) and a tool row at its drawn 22 px line at every Interface Size. Off:
+/// the estimates as they were, an edits group at its closed line and a tool row scaled with the grid.
+const editsEstimateOn = () => experimentSwitchOn("expandedEditsEstimate");
 /// A later part of a running turn's long run keeps the room the run's flex gap gave its first entry
 /// (conversation/runParts.ts; conversation.css `.acpmux-row--run-part`).
 const runPartTop = (row: AcpmuxRow) => (isRunPart(row) ? gridLength("base") * chromeScale : 0);
@@ -2149,10 +2252,145 @@ export function openRunBody(steps: number): number {
   return base + (experimentArm(runScroll) === "box" ? Math.min(steps, RUN_SCROLL_UNITS * base) : steps);
 }
 
+/// An opened edits group's body under its line (ToolGroupRow.tsx, its `kind === "edits"` arm): the
+/// line's gap, then a diff card per changed file (EditDiff.tsx) and a row for each edit that carried
+/// no diff (a delete, a move); with no file to show, the edits' rows. No scroll box: the cards are as
+/// tall as they draw.
+function openEditsBody(
+  items: readonly AcpmuxActivity[],
+  width: number,
+  sessionId?: string,
+  rowId = "",
+  thoughts = 0,
+): number {
+  const files = toolFiles(items.flatMap((item) => (item.tool ? [item.tool] : [])));
+  const gap = gridLength("base") * chromeScale;
+  if (!files.length) return gap + stepsHeight(items, width, sessionId, rowId, thoughts);
+  const plain = items.filter((item) => !item.tool?.diffs?.length);
+  return (
+    gap +
+    files.reduce((sum, file) => sum + editDiffHeight(file, width), 0) +
+    (plain.length ? stepsHeight(plain, width, sessionId, rowId, thoughts) : 0)
+  );
+}
+
+/// One changed file's diff card (EditDiff.tsx, conversation.css `.cv-edit-diff`), at the lengths the card draws
+/// with (conversation/editDiffBox.ts, at the chat's text and code size and the Interface Size): the room above and
+/// below it, its head, and its body: the edits' rows, with the separator Pierre draws before a hunk that skips
+/// lines of the file (EditDiffLoading.tsx `editParts`, whose placeholder is drawn at the rendered diff's height),
+/// and the scrollbar lane under unwrapped rows (`--cv-edit-diff-lane`, padded in every engine). Past PREVIEW_LINES rows the body is cut to that many
+/// and the lane (`--cv-block-cut`). An edit with no line changes is its note. Wrapped (a prose file, by default), a
+/// row takes as many lines as its text needs at the card's width.
+function editDiffHeight(file: TurnFile, width: number): number {
+  const box = editDiffBox(drawnFontSize(chatDisplay()), chatCodeBlock(), chromeScale);
+  const wrap = blockWrapOf(fileBlockKind(file.path));
+  // The card is as wide as the group's body, inside its icon column (conversation.css `.cv-tool-group`).
+  const card = width - gridLength("icon-box") * chromeScale;
+  let rows = 0;
+  let body = 0;
+  for (const edit of file.edits) {
+    if (!edit.hunks.length) {
+      body += box.empty;
+      continue;
+    }
+    // Wrapped, a row's room: the card less the number column (or the unnumbered indicator lane) and the
+    // row's hanging indent (sideways.ts PIERRE_BLOCK_CSS), in monospace cells.
+    const room = wrap ? wrapRoom(edit, card, box.code) : undefined;
+    let lastEnd = 0;
+    for (const hunk of edit.hunks) {
+      const kept = hunk.lines.filter((line) => line.type !== "del");
+      const start = kept[0]?.newLine ?? Math.max(0, (hunk.lines.find((line) => line.type !== "add")?.oldLine ?? 1) - 1);
+      if (start - 1 - lastEnd > 0) body += box.separator;
+      lastEnd = start + kept.length - 1;
+      for (const line of hunk.lines) {
+        const lines = room ? wrappedRows(line.text, room.first, room.rest) : 1;
+        rows += lines;
+        body += lines * box.row;
+      }
+    }
+  }
+  if (rows > PREVIEW_LINES) body = PREVIEW_LINES * box.row + (wrap ? 0 : EDIT_DIFF_LANE);
+  else if (!wrap && rows) body += EDIT_DIFF_LANE;
+  return box.margins + box.head + body;
+}
+
+/// A wrapped diff row's room in monospace cells (a cell is `monoAdvance()` of the code's size): the card's width less
+/// Pierre's number column (its digits, 4 at least, 3ch of padding and a 2px divider; EditDiffLoading.tsx draws the
+/// same) or, unnumbered, its 6px indicator lane, then the row's 1ch end padding and its hanging indent: 2ch on its
+/// first line, 4ch under it (sideways.ts PIERRE_BLOCK_CSS).
+function wrapRoom(edit: TurnFile["edits"][number], card: number, code: number): { first: number; rest: number } {
+  const cell = code * monoAdvance();
+  let digits = 4;
+  for (const hunk of edit.hunks)
+    for (const line of hunk.lines)
+      digits = Math.max(digits, String(Math.max(line.newLine ?? 0, line.oldLine ?? 0)).length);
+  const lead = edit.numbered ? (digits + 3) * cell + 2 : 6;
+  const cells = (card - lead) / cell - 1;
+  return { first: Math.max(8, Math.floor(cells - 2)), rest: Math.max(8, Math.floor(cells - 4)) };
+}
+
+/// A monospace cell's width per px of size, in the face the chat's code draws in (`--cv-mono`, or the chat's own
+/// code font, chatDisplay.ts): read once per code font from a probe the page lays out, so a wrapped diff's rows
+/// break where the engine's face breaks them (Menlo and SF Mono are 0.602; a face with another advance moves a
+/// long line's wrap by a row). 0.602 where nothing lays out or the font is still loading (not kept then).
+const MONO_ADVANCE = 0.602;
+const monoAdvanceRead = new Map<string, number>();
+function monoAdvance(): number {
+  const display = chatDisplay();
+  const key = display.codeFamily ?? "";
+  const known = monoAdvanceRead.get(key);
+  if (known !== undefined) return known;
+  if (typeof document === "undefined" || !document.body) return MONO_ADVANCE;
+  const family = chatDisplayVariables(display)["--cv-mono"] ?? "var(--cv-mono)";
+  const probe = document.createElement("span");
+  probe.style.cssText = "position:absolute;left:-10000px;top:0;visibility:hidden;white-space:pre";
+  probe.style.fontFamily = family;
+  probe.textContent = "0".repeat(50);
+  document.body.append(probe);
+  // The probe takes the page's own size (no size of its own, webviews/src/ui/README.md Type scale): the
+  // advance is a share of whatever size it drew at.
+  const width = probe.getBoundingClientRect().width;
+  const size = Number.parseFloat(document.defaultView?.getComputedStyle(probe).fontSize ?? "");
+  probe.remove();
+  const styled =
+    (document.defaultView?.getComputedStyle(document.documentElement).getPropertyValue("--cv-mono").trim() ?? "") !==
+    "";
+  if (!styled || !(width > 0) || !(size > 0) || document.fonts?.status === "loading") return MONO_ADVANCE;
+  const advance = width / (50 * size);
+  monoAdvanceRead.set(key, advance);
+  return advance;
+}
+
+/// How many lines `text` takes wrapped as `pre-wrap` with `break-word` does: whole words while they fit, a word
+/// longer than a line broken where the line ends; `first` cells on its first line, `rest` on the others.
+function wrappedRows(text: string, first: number, rest: number): number {
+  let rows = 1;
+  let room = first;
+  let used = 0;
+  for (const word of text.split(" ")) {
+    let left = word.length;
+    if (used > 0 && used + 1 + left <= room) {
+      used += 1 + left;
+      continue;
+    }
+    if (used > 0) {
+      rows += 1;
+      room = rest;
+    }
+    while (left > room) {
+      left -= room;
+      rows += 1;
+      room = rest;
+    }
+    used = left;
+  }
+  return rows;
+}
+
 /// An entry a folded run keeps on its own line: a group starts closed there (ToolGroupRow.tsx
 /// `folded`), one line, as a sent message's row is (SentMessageLine.tsx); anything else is its calls.
-/// Open (`closed` false), a group is its line over its calls, but an edits group stays closed
-/// (ToolGroupRow.tsx).
+/// Open (`closed` false), a group is its line over its calls; an edits group, over its files' diffs
+/// (`openEditsBody`).
 /// `sessionId`, `rowId` and `thoughts` (the row's thoughts before it) read the lines in it the reader
 /// opened (`stepsHeight`); `live`, its last thought may still stream.
 function foldedGroupHeight(
@@ -2164,8 +2402,13 @@ function foldedGroupHeight(
   thoughts = 0,
   live = false,
 ): number {
-  if (group.type === "group" && !closed && group.kind !== "edits")
-    return toolRowHeight() + openRunBody(stepsHeight(group.items, width, sessionId, rowId, thoughts));
+  if (group.type === "group" && !closed && (group.kind !== "edits" || editsEstimateOn()))
+    return (
+      toolRowHeight() +
+      (group.kind === "edits"
+        ? openEditsBody(group.items, width, sessionId, rowId, thoughts)
+        : openRunBody(stepsHeight(group.items, width, sessionId, rowId, thoughts)))
+    );
   if (group.type === "send")
     return (
       messageRowHeight(group.send.state !== "failed" && Boolean(group.send.text?.trim() || group.send.file)) +
@@ -2323,9 +2566,38 @@ export const transcriptRowWidth = (paneWidth: number, column?: ChatColumn, endRe
 };
 
 /// A message's markdown blocks. Blank lines between blocks are only spacing, never blocks of their own.
+/// A setext underline (`===` or `---` alone on its line, up to 3 spaces in) on one of `src`'s lines after
+/// its first and before its first blank line: the only text marked's `lheading` rule can match (its
+/// body never crosses a blank line). False means the rule cannot match `src`; true, that it may.
+const SETEXT_UNDERLINE = /^ {0,3}(?:=+|-+) *$/;
+export function maySetextHeading(src: string): boolean {
+  let start = src.indexOf("\n") + 1;
+  while (start > 0) {
+    const end = src.indexOf("\n", start);
+    const line = end < 0 ? src.slice(start) : src.slice(start, end);
+    if (SETEXT_UNDERLINE.test(line)) return true;
+    if (line.trim() === "") return false;
+    start = end + 1;
+  }
+  return false;
+}
+
+/// marked's tokenizer, its `lheading` rule asked only of text that may hold a setext heading. Under
+/// JavaScriptCore (WKWebView) that rule's regex costs time quadratic in a paragraph's length when it
+/// fails, which is nearly always: the streaming reply's open paragraph, lexed again on every token
+/// (`lexIncrementally`), spent most of its estimate there (bench/markdown-estimate-lex.bench.ts).
+/// The tokens are the same: the rule is skipped only where it cannot match.
+class EstimateTokenizer extends Tokenizer {
+  override lheading(src: string) {
+    return maySetextHeading(src) ? super.lheading(src) : undefined;
+  }
+}
+
 export function markdownBlocks(source: string): Token[] {
   try {
-    return lexer(source, { gfm: true, breaks: true }).filter((token) => token.type !== "space");
+    return lexer(source, { gfm: true, breaks: true, tokenizer: new EstimateTokenizer() }).filter(
+      (token) => token.type !== "space",
+    );
   } catch {
     return [{ type: "text", raw: source, text: source } as Token];
   }
@@ -2346,12 +2618,13 @@ export function visibleRowRange(
 /// The room under the edited-files card (styles.css `.acpmux-edited` margin-bottom).
 const EDITED_CARD_BELOW = 6;
 /// The edited-files card's height for `files` changed files with diffs and `plain` edits listed
-/// without one (styles.css `.acpmux-edited`): its 64px head, and, while `open`, a 36px row for each
-/// of the first `maxRows` and for "Show N more". A lone file with a diff is named in the head.
-export function editedCardHeight(files: number, plain = 0, open = true, maxRows = 3): number {
-  const entries = files + plain;
-  if ((entries <= 1 && plain === 0) || !open) return 64;
-  return 64 + 36 * Math.min(entries, maxRows) + (entries > maxRows ? 36 : 0);
+/// without one (styles.css `.acpmux-edited`): its one 64px row, and, once the reader opened it, the
+/// stacked diffs under it (EditedFilesCard.css `.acpmux-edited-stack`): a file's 32px name and about
+/// six lines, a plain edit's 36px line, the box at most 60% of `viewport` tall. The drawn height
+/// replaces it once measured.
+export function editedCardHeight(files: number, plain = 0, open = false, viewport = 800): number {
+  if (!open || files + plain === 0) return 64;
+  return 64 + Math.min(files * (32 + 6 * 18) + plain * 36, Math.round(viewport * 0.6));
 }
 
 /// What edits without a diff list as in the edited-files card: each path they name, once
@@ -2628,15 +2901,17 @@ export function finalFooterId(rows: readonly AcpmuxRow[]): string | undefined {
 }
 /// turns.ts isEmptyFooter, which this module cannot import.
 const isBlankFooter = (row: AcpmuxRow) =>
-  row.status !== "failed" && row.status !== "error" && !row.text && !((row.turnCopy?.length ?? 0) > 0);
+  row.status !== "failed" &&
+  row.status !== "error" &&
+  !row.text &&
+  !row.githubConnect &&
+  !((row.turnCopy?.length ?? 0) > 0);
 const isTurnWork = (row: AcpmuxRow) =>
   row.kind === "assistant" ||
   row.kind === "activity" ||
-  row.kind === "plan" ||
   row.kind === WORKED ||
   row.kind === WORKING ||
-  row.kind === THINKING ||
-  row.kind === ACTIVITY_LINE;
+  row.kind === THINKING;
 /// A completed turn followed by more of this chat's assistant. Incoming agents are user rows,
 /// so a user/agent speaker change keeps the full turn gap. Check only the next drawn row.
 export const isContinuationFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
@@ -2644,11 +2919,9 @@ export const isContinuationFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined
   next !== undefined &&
   (next.kind === "assistant" ||
     next.kind === "activity" ||
-    next.kind === "plan" ||
     next.kind === WORKED ||
     next.kind === WORKING ||
-    next.kind === THINKING ||
-    next.kind === ACTIVITY_LINE);
+    next.kind === THINKING);
 /// What the row after a row changes about its height (`beforeFooter`, and the room a reply keeps,
 /// `keepsReplyRoom`), as one key.
 const rowEdge = (row: AcpmuxRow, next: AcpmuxRow | undefined, prev: AcpmuxRow | undefined) => {
@@ -2701,19 +2974,21 @@ function fallbackRowHeight(
         ),
       );
       const plain = plainEditLabels(edits).filter((entry) => !entry.path || !files.has(entry.canonical ?? entry.path));
-      // Its file rows show unless agentPane.editedFiles.show is collapsed and the reader has not
-      // opened it (EditedFilesCard.tsx `open`, turnChanges/openStore.ts), at most maxRows of them.
-      const settings = editedFilesSettings();
-      const open = settings.show !== "collapsed" || cardOpen(row.id);
-      return finish(EDITED_CARD_BELOW + editedCardHeight(files.size, plain.length, open, settings.maxRows));
+      // One row until the reader opens it (EditedFilesCard.tsx, turnChanges/openStore.ts); opened, its
+      // stacked diffs in a box at most 60% of the view tall.
+      const open = cardOpen(row.id);
+      const viewport = typeof window === "undefined" ? undefined : window.innerHeight || undefined;
+      return finish(EDITED_CARD_BELOW + editedCardHeight(files.size, plain.length, open, viewport));
     }
     // A folded run (the Codex-style runs) that keeps an entry in sight (a message to another agent)
     // draws its stretches; one with nothing kept in sight draws one summary line, or its one call.
     if (row.foldRun && items.length) {
       const groups = toolGroups(items);
       // A run line open from the start (`runOpen`) draws each stretch's line over its steps; one the
-      // reader opened draws them too.
-      if (row.runOpen || groups.some(staysInSight) || isFoldedRun(items))
+      // reader opened draws them too. An edits group draws as its group even alone (a lone edit with a
+      // diff, toolGroups.ts), its line opening to its files' diffs (`openEditsBody`).
+      const editsGroup = editsEstimateOn() && groups.some((group) => group.type === "group" && group.kind === "edits");
+      if (row.runOpen || groups.some(staysInSight) || isFoldedRun(items) || editsGroup)
         return finish(runPartTop(row) + TOOL_RUN_TOP + TOOL_RUN_BOTTOM + foldedRunSteps(row, groups, width, sessionId));
     }
     if (!items.length) return finish(runPartTop(row) + TOOL_RUN_TOP + TOOL_RUN_BOTTOM + toolRowHeight());
@@ -2741,33 +3016,61 @@ function fallbackRowHeight(
     (!row.text?.trim() || attachmentOnlyPrompt(row)) &&
     (row.images?.length || row.retryAttachments?.length || row.inlineParts?.some((part) => part.kind !== "text"))
   ) {
-    // Sent thumbnails wrap at the 70% user column. Use the widest thumbnail (userBubbleModel.ts
-    // SENT_IMAGE_MAX_WIDTH, plus its 8px gap) when estimating columns so a wide image never lets a
-    // second attachment row overlap the next row.
+    // A prompt whose recorded parts are its attachments alone draws them in the strip
+    // (UserBubble.tsx `inlineAttachmentOnly`), each at its own sent size: measured as that strip,
+    // so a short wide video or screenshot is not reserved a 160px row.
+    // One whose `images` hold more than its parts (UserBubble.tsx `looseImages`) keeps the rows below.
+    const recorded = attachmentOnlyPrompt(row) ? stripAttachments(row) : undefined;
+    const recordedImages = recorded?.filter((part) => part.kind === "image").length ?? 0;
+    if (recorded?.length && (row.images?.length ?? 0) <= recordedImages) {
+      const bandWidth = USER_BUBBLE_SHARE * width + 2 * INLINE_ATTACHMENT_MARGIN.x;
+      const band =
+        attachmentBandHeight(row, recorded, bandWidth, new Map(), new Set()) +
+        ATTACHMENT_BAND_BELOW -
+        INLINE_ATTACHMENT_MARGIN.y;
+      return finish(band + messageBelow(beforeFooter) + chromeHeight(row, actions));
+    }
+    // The thumbnail band (conversation.css .cv-user__images: flex-wrap in the 70% user column, an
+    // 8px gap): the video tiles lead, then the images, each at its own sent size (UserBubble.tsx
+    // sentVideoSize, sentImageSize; a 160px square when no size is known), so a short wide video or
+    // screenshot reserves its own height, not a 160px row.
     const inlineParts = row.inlineParts ?? [];
-    // A video sent with its frames draws as a SENT_IMAGE_HEIGHT tile in the thumbnail row (UserBubble.tsx
-    // SentVideoTiles), not as a file chip.
-    const videoCount = sentVideosOf(row).length;
-    const imageCount =
-      Math.max(
-        row.images?.length ?? 0,
-        inlineParts.filter((part) => part.kind === "image").length,
-        row.retryAttachments?.filter((part) => part.kind === "image").length ?? 0,
-      ) + videoCount;
-    const columns = Math.max(1, Math.floor((width * USER_BUBBLE_SHARE + 8) / (SENT_IMAGE_MAX_WIDTH + 8)));
-    const imageRows = imageCount ? Math.ceil(imageCount / columns) : 0;
+    const videos = sentVideosOf(row);
+    const imageSources = [
+      row.images ?? [],
+      inlineParts.filter((part) => part.kind === "image"),
+      row.retryAttachments?.filter((part) => part.kind === "image") ?? [],
+    ];
+    const images = imageSources.reduce((most, one) => (one.length > most.length ? one : most), imageSources[0]!);
+    const boxes = [
+      ...videos.map((video) => sentVideoSize(video)),
+      ...images.map((image) => sentImageSize(image as { width?: number; height?: number })),
+    ];
+    const column = width * USER_BUBBLE_SHARE;
+    let bandHeight = 0;
+    let rowWidth = 0;
+    let rowHeight = 0;
+    for (const box of boxes) {
+      const shown = Math.min(box.width, column);
+      const tall = (box.height * shown) / box.width;
+      if (rowWidth > 0 && rowWidth + 8 + shown > column) {
+        bandHeight += rowHeight + 8;
+        rowWidth = 0;
+        rowHeight = 0;
+      }
+      rowWidth += (rowWidth > 0 ? 8 : 0) + shown;
+      rowHeight = Math.max(rowHeight, tall);
+    }
+    bandHeight += rowHeight;
     const otherAttachments = Math.max(
       0,
       Math.max(
         row.retryAttachments?.filter((part) => part.kind !== "image").length ?? 0,
         inlineParts.filter((part) => part.kind !== "text" && part.kind !== "image").length,
-      ) - videoCount,
+      ) - videos.length,
     );
-    // Each thumbnail row and the gap under it (conversation.css .cv-user__images, its 8px row gap
-    // and its ATTACHMENT_BAND_BELOW margin under the last row).
-    const attachmentHeight = imageRows
-      ? imageRows * SENT_IMAGE_HEIGHT + (imageRows - 1) * 8 + ATTACHMENT_BAND_BELOW + otherAttachments * 36
-      : otherAttachments * 36;
+    // The band and the gap under it (its ATTACHMENT_BAND_BELOW margin), then each file chip.
+    const attachmentHeight = (boxes.length ? bandHeight + ATTACHMENT_BAND_BELOW : 0) + otherAttachments * 36;
     // Its pending state is its footer's time slot (PromptDelivery.tsx), taking no line of its own,
     // so the row keeps its height when the send lands.
     return finish(attachmentHeight + messageBelow(beforeFooter) + chromeHeight(row, actions));
@@ -2777,8 +3080,6 @@ function fallbackRowHeight(
   // WorkflowCard: head, metadata, latest line, progress bar and focus line.
   if (row.kind === WORKFLOW_CARD) return finish(124);
   if (row.kind === SUBAGENT_ROW) return finish(row.status === "last" || row.status === "only" ? 56 : 48);
-  // The child view's 28px "Subagent of" pill with 8px above and below it.
-  if (row.kind === SUBAGENT_OF) return finish(44);
   // Empty child copy is measured on mount; start with two body lines.
   if (row.kind === SUBAGENT_EMPTY) return finish(2 * metrics().lineHeight);
   // The 27px disclosure line, and the live status lines in its place.
@@ -2791,23 +3092,13 @@ function fallbackRowHeight(
   // The running turn's "Working for" over its work keeps the "Worked for" line's box (WorkingFor.tsx).
   if (row.kind === WORKED || row.kind === WORKING) return finish(toolRowHeight() + WORKED_GAP_PT * chromeScale);
   if (row.kind === WORKING || row.kind === THINKING) return finish(metaRow());
-  // The activity line under a plan is the live footer. It reserves the finished footer's 24px
-  // line and turn gap so swapping in `turnSummary` never changes the transcript geometry.
-  if (row.kind === ACTIVITY_LINE) return finish(row.below ? footerRow() : metaRow());
   // The 20px date line with 8px above it.
   if (row.kind === DATE) return finish(20);
-  // A tagged ask's card (conversation/NextStepCard.tsx): waiting, 12px padding over the question
-  // and its muted line, then a 36px row of answers; answered or superseded, the question over the
-  // answer in 8px.
+  // A tagged ask's card (conversation/NextStepCard.tsx), the same in every pane, waiting or answered
+  // (permissions/cardHeight.ts `nextStepCardHeight`).
   if (row.kind === NEXT_STEP && row.nextStep) {
     const { ask, answer, superseded } = row.nextStep;
-    const perLine = Math.max(120, width - 32) / 7.5;
-    const lines = (text: string | undefined) => (text ? Math.max(1, Math.ceil(text.length / perLine)) : 0);
-    return finish(
-      answer === undefined && !superseded
-        ? 24 + 2 + (lines(ask.question) + lines(ask.detail)) * 20 + 8 + 36
-        : 16 + 2 + (lines(ask.question) + lines(answer)) * 20 + 4,
-    );
+    return finish(nextStepCardHeight(ask, width, { answer, superseded }));
   }
   // A walkthrough strip (conversation/Walkthrough.tsx): its 28px head and, open, the 96px row of
   // shots over two 16px caption lines, with 8px above and below.
@@ -2883,18 +3174,13 @@ function fallbackRowHeight(
   }
   // A session start draws nothing (rows/SessionStartRow.tsx): no height, no gap.
   if (row.kind === "sessionStart") return finish(0);
-  // The plan card's 24px items inside 8px of padding and 8px margins (conversation/PlanList.tsx).
-  // Ended, it folds to its one 24px progress line, with no card and no padding or margin
-  // (conversation.css `.cv-plan[data-ended]`), unless the reader opened it, which adds the items.
-  if (row.kind === "plan" && row.plan) {
-    const items = row.plan.length * 24;
-    // An earlier turn's list adds its one "from before your last message" line.
-    if (row.planEarlier) return finish(40 + 24 + items);
-    return finish(row.turnEnded ? 24 + (planOpen(row.id) ? items : 0) : 40 + items);
-  }
   // A turn's footer: its line of buttons (the stack gives the gaps). An empty footer (only hover
   // controls, conversation/turns.ts isEmptyFooter) takes no extra line; its gap fits the controls.
-  if (row.kind === "turnSummary") return finish(isEmptyFooter(row) ? Math.max(metaRow(), TURN_GAP) : footerRow());
+  // A Connect GitHub card (conversation/GitHubConnectCard.tsx) adds its one line and button above it.
+  if (row.kind === "turnSummary")
+    return finish(
+      isEmptyFooter(row) ? Math.max(metaRow(), TURN_GAP) : footerRow() + (row.githubConnect ? GITHUB_CONNECT_CARD : 0),
+    );
   // A finished subagent's line: the chat's reply to its end is the chat's own message, never under it
   // (direct.ts `settleReaction`).
   if (row.kind === SUBAGENT_DONE || row.kind === SUBAGENT_STARTED) return finish(toolRowHeight());
@@ -2904,7 +3190,6 @@ function fallbackRowHeight(
     row.kind === "compaction" ||
     row.kind === "failover" ||
     row.kind === "policyUnenforced" ||
-    row.kind === "plan" ||
     row.kind === "typing" ||
     row.kind === BACKGROUND_TURN
   )
@@ -3007,13 +3292,39 @@ function trimPreparedRows(cache: Map<string, PreparedRow>): void {
   }
 }
 
-function trimPreparedCache(prepared: Map<string, PreparedText | null>, used: ReadonlySet<string>): void {
-  const limit = used.size + PREPARED_CACHE_SPARE;
+function trimPreparedCache(
+  prepared: Map<string, PreparedText | null>,
+  used: ReadonlySet<string>,
+  /// The closed blocks' prepared texts, measured once (`closedHeight`) and kept as used.
+  kept?: ReadonlySet<string>,
+): void {
+  const limit = used.size + (kept?.size ?? 0) + PREPARED_CACHE_SPARE;
   if (prepared.size <= limit) return;
   for (const key of prepared.keys()) {
     if (prepared.size <= limit) break;
-    if (!used.has(key)) prepared.delete(key);
+    if (!used.has(key) && !kept?.has(key)) prepared.delete(key);
   }
+}
+
+/// The sum of `entry`'s closed block heights in a column `width` wide: the blocks measured before
+/// at the same width and metrics count as they did, and only the ones that closed since measure.
+// perf-hot: 1ms/delta agent-chat-stream-reveal
+function closedBlocksHeight(entry: PreparedRow, width: number): { height: number; used: Set<string> } {
+  const closed = entry.closedBlocks;
+  const { lineHeight, blockCodeSize, codeLineHeight, codeCharWidth } = metrics();
+  // proseFont: a reply measures in the reply face (measuringReply), another row in the chat's.
+  const key = `${width}\n${proseFont()}\n${lineHeight}\n${blockCodeSize}\n${codeLineHeight}\n${codeCharWidth}`;
+  let kept = entry.closedHeight;
+  // The closed blocks only grow by appending; dropped (a text that is not this one's continuation),
+  // their objects are new, so the last one measured is not where it was.
+  if (!kept || kept.key !== key || kept.count > closed.length || (kept.count && closed[kept.count - 1] !== kept.last))
+    kept = { key, count: 0, last: undefined, height: 0, used: new Set() };
+  let height = kept.height;
+  entry.measuredBlocks = closed.length - kept.count;
+  for (let index = kept.count; index < closed.length; index += 1)
+    height += blockHeight(closed[index]!, width, entry.prepared, kept.used);
+  entry.closedHeight = { key, count: closed.length, last: closed.at(-1), height, used: kept.used };
+  return entry.closedHeight;
 }
 
 function textHeight(
@@ -3204,9 +3515,6 @@ function measuredRowHeight(
     if (isOverlayFooter(row)) return 0;
     return footerRow();
   }
-  // The live activity line under a plan has a label, but its row still reserves the footer slot.
-  // On the grid every activity line is the footer slot's one line, live or not (fallbackRowHeight).
-  if (row.kind === ACTIVITY_LINE) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
   // A message run's line (conversation/messageRuns.ts): its rows, when open, are rows of their own.
   if (row.kind === MESSAGE_RUN) return finish(lineRow());
   // A task notification from another agent is a tool row's line (conversation/IncomingMessageCard.tsx)
@@ -3314,6 +3622,11 @@ function measuredRowHeight(
     let height = (grouped ? head : 0) + (threads.length > 1 && inboxNoticeLook() === "card" ? 6 : 0);
     for (const thread of threads) {
       const key = inboxThreadKey(row.id, thread.threadId);
+      // A tool's notice shut is its one compact line (noticeRowLook.ts), no card under it.
+      if (thread.notice && noticeRowLook() !== "off" && !messageOpened(sessionId, key)) {
+        height += line + messagePreviewLine(true);
+        continue;
+      }
       const messages = thread.messages?.length
         ? thread.messages
         : (threadRead(sessionId, key, readForIds(thread.promptIds)) ?? undefined);
@@ -3377,6 +3690,7 @@ function measuredRowHeight(
   const contentWidth = Math.max(80, row.kind === "user" ? userBubbleShare() * width - userBubbleSides() : width);
   const picks = row.kind === "user" && !inline && !pasted && !plainUser ? sentUIPickSegments(row.text) : undefined;
   const usedPrepared = new Set<string>();
+  let keptPrepared: Set<string> | undefined;
   // A long prompt shut on its fold draws its first lines and Show more whatever follows them
   // (collapsedPromptHeight, below): when its head is past the fold already, the head is all there
   // is to lex and measure. Measured whole, a prompt sent from a draft of thousands of lines laid
@@ -3438,11 +3752,17 @@ function measuredRowHeight(
           );
     } else {
       if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
-      const blocksHeight = () =>
-        entry.blocks.reduce(
-          (sum, block) => sum + blockHeight(block, contentWidth, entry.prepared, usedPrepared),
-          (entry.blocks.length - 1) * blockGap(),
-        );
+      // `entry.blocks` is the closed blocks followed by the tail's (lexIncrementally): the closed ones
+      // are measured once each (closedBlocksHeight), the tail's every time.
+      const blocksHeight = () => {
+        const closed = closedBlocksHeight(entry, contentWidth);
+        keptPrepared = closed.used;
+        let height = (entry.blocks.length - 1) * blockGap() + closed.height;
+        for (let index = entry.closedBlocks.length; index < entry.blocks.length; index += 1)
+          height += blockHeight(entry.blocks[index]!, contentWidth, entry.prepared, usedPrepared);
+        entry.measuredBlocks! += entry.blocks.length - entry.closedBlocks.length;
+        return height;
+      };
       contentHeight = blocksHeight();
       if (lexed !== row.text && contentHeight <= foldLimit) {
         lexIncrementally(entry, (lexed = row.text));
@@ -3453,7 +3773,7 @@ function measuredRowHeight(
   // A stream changes only its tail block. Preserve prepared entries for the unchanged blocks and
   // trim stale revisions once per row, never once per token or across the transcript. `usedPrepared`
   // includes list items, whose text count can be much larger than the block count.
-  trimPreparedCache(entry.prepared, usedPrepared);
+  trimPreparedCache(entry.prepared, usedPrepared, keptPrepared);
   // A long prompt opens collapsed to its first lines over Show more (conversation/UserBubble.tsx); a
   // Chief's draws its own bubble (ChiefPromptBubble.tsx). One the reader opened (PromptText.tsx, its
   // `prompt:` disclosure) draws whole over the same line, Show less.
@@ -3599,13 +3919,13 @@ function attachmentBox(
   };
   if (part.kind === "image") return thumbnail(sentImageSize(part));
   const video = part.kind === "file" ? sentVideoOf(part, videos) : undefined;
-  if (video)
-    return thumbnail({
-      width: sentImageWidth(video),
-      height: SENT_IMAGE_HEIGHT,
-    });
+  // A video's tile: its own shape under the same rule (UserBubble.tsx `sentVideoSize`).
+  if (video) return thumbnail(sentVideoSize(video));
+  // An image sent as its file's link draws as a sent image of unknown size (UserBubble.tsx
+  // `SentLinkedImage`) until it is read.
+  if (linkedImagePath(part)) return thumbnail(sentImageSize({}));
   const chip = INLINE_FILE_CHIP;
-  const size = part.name.endsWith("/") ? undefined : fileSizeLabel(part.size, "en");
+  const size = part.name.endsWith("/") ? undefined : fileSizeLabel(shownFileSize(part), "en");
   const content =
     2 * chip.side +
     chip.glyph +
@@ -3744,7 +4064,52 @@ function pickedPromptHeight(
 /// The row's edge is kept too: a reply's height changes when its turn's footer arrives after it, and
 /// a footer's when a prompt follows it.
 /// `scale` is the Interface Size it was measured at (gridScale), which a remembered height must share.
-export type RowHeights = WeakMap<AcpmuxRow, { width: number; height: number; edge?: string; scale?: number }>;
+/// `open` is the row's state signature then (conversation/rowOpenState.ts): an estimate taken with a
+/// run, group, call or message open is never reused for the row once it is closed, or the other way.
+/// `width` and `height` are the newest measure; `older` holds the ones before it at other widths, newest
+/// first, up to ROW_HEIGHT_WIDTHS in all: a divider dragged narrow and back finds every row's height at
+/// the width it comes back to and measures none of them again. The older ones share the newest's edge,
+/// scale and open state (`withHeight` drops them when one changes).
+export type RowHeights = WeakMap<AcpmuxRow, RowHeight>;
+export interface RowHeight {
+  width: number;
+  height: number;
+  edge?: string;
+  scale?: number;
+  open?: string;
+  older?: readonly { width: number; height: number }[];
+}
+/// How many widths a row's estimated height is kept at (`RowHeight.older`).
+export const ROW_HEIGHT_WIDTHS = 4;
+/// The row's kept height at `width`, when it was measured there at this edge and scale.
+function heightAt(
+  kept: RowHeight | undefined,
+  width: number,
+  edge: string | undefined,
+  scale: number,
+): number | undefined {
+  if (!kept || kept.edge !== edge || (kept.scale ?? 1) !== scale) return undefined;
+  if (kept.width === width) return kept.height;
+  return kept.older?.find((entry) => entry.width === width)?.height;
+}
+/// The row's entry with `height` at `width` as its newest measure; its other widths stay while the edge,
+/// scale and open state do.
+function withHeight(
+  kept: RowHeight | undefined,
+  width: number,
+  height: number,
+  edge: string | undefined,
+  scale: number,
+  open: string | undefined,
+): RowHeight {
+  if (!kept || kept.edge !== edge || (kept.scale ?? 1) !== scale || (kept.open ?? "") !== (open ?? ""))
+    return { width, height, edge, scale, open };
+  if (kept.width === width) return { ...kept, height };
+  const older = [{ width: kept.width, height: kept.height }];
+  for (const entry of kept.older ?? [])
+    if (entry.width !== width && older.length < ROW_HEIGHT_WIDTHS - 1) older.push(entry);
+  return { width, height, edge, scale, open, older };
+}
 
 /// A footer with nothing to show at rest (turns.ts isEmptyFooter) lays its hover controls over the gap
 /// and takes no height. A reply's footer is a row of its own: ChatGPT's 32 line of buttons, 8 under
@@ -3781,7 +4146,15 @@ export function layoutConversation(
   /// view and the cached ones, not the whole chat. This is Chromium's `content-visibility: auto` with
   /// `contain-intrinsic-size: auto`: content off screen keeps its last remembered size and is laid out
   /// again as it is rendered; here the row's drawn height replaces it once it mounts.
-  near?: { from: number; to: number },
+  /// `all`: every row away from the view keeps its last height, prepared or not, whatever it draws: a
+  /// new box width (a divider that held, a window edge, a sidebar) then costs the rows near the view
+  /// whatever the chat's length, not every prepared row and every row with no text again.
+  near?: { from: number; to: number; all?: boolean },
+  /// A cold open at the chat's end: the rows within this many px of the end are measured, and every
+  /// row above them with no known height takes its rough height (`fallbackRowHeight`, no text is
+  /// prepared). The layout is then `rough`, and the transcript lays it out whole after the first
+  /// paint. The open's first frame costs the rows it mounts, not the whole page of history.
+  roughAbove?: number,
 ): ConversationLayout {
   const gaps = new Float64Array(rows.length);
   const marks = new Uint8Array(rows.length);
@@ -3797,8 +4170,9 @@ export function layoutConversation(
   let start = 0;
   // Kept rows keep their gaps only at the scale they were placed at.
   if (previous && (previous.layout.scale ?? 1) === scale && (previous.layout.gapScale ?? 1) === gapFactor) {
-    const limit = Math.min(rows.length, previous.rows.length);
-    while (start < limit && rows[start] === previous.rows[start]) start += 1;
+    // Asked of the same two row arrays by the pane's other passes too: walked once a pair, or not at
+    // all where the rows' maker said how many it kept (prefixFlatMap.ts `noteKeptPrefix`).
+    start = keptPrefix(previous.rows, rows);
     // A row after the kept ones can change the height of the last kept row that draws (a footer
     // after a reply, a prompt after the last footer, past rows that draw nothing): place it again.
     let drawn = start - 1;
@@ -3826,13 +4200,29 @@ export function layoutConversation(
   let nextDrawn = start;
   // The drawn row above the current one, carried along the pass for the same reason.
   let prevDrawn = prevDrawnRow(rows, start);
+  // The first row measured whole in a cold open (`roughAbove`); rows before it are rough.
+  let roughBefore = 0;
+  let rough = false;
+  if (roughAbove !== undefined && start === 0 && !resizing) {
+    let below = 0;
+    roughBefore = rows.length;
+    while (roughBefore > 0 && below < roughAbove) {
+      roughBefore -= 1;
+      const row = rows[roughBefore]!;
+      if (!drawsNothing(row)) below += fallbackRowHeight(row, width);
+    }
+  }
   for (let index = start; index < rows.length; index += 1) {
     const row = rows[index]!;
     // The mark is taken against the row the gap is taken from (`previousContent`, the last row with
     // height), not the last row that is not bookkeeping: a run that draws 0 px (only a thought, a call
     // the live line names, a run split by a steer) between a steer and "Thinking" marked the line a
     // live step while its gap came from the steer, the turn gap (32) where 24 is due.
-    marks[index] = gridMark(row, previousContent >= 0 ? rows[previousContent] : prevDrawn);
+    marks[index] = gridMark(
+      row,
+      previousContent >= 0 ? rows[previousContent] : prevDrawn,
+      beforeContent >= 0 ? rows[beforeContent] : undefined,
+    );
     messages.visit(row, index, previous?.rows[index]);
     if (nextDrawn <= index) {
       nextDrawn = index + 1;
@@ -3842,8 +4232,13 @@ export function layoutConversation(
     if (!drawsNothing(row)) prevDrawn = row;
     const edge = rowEdge(row, rows[nextDrawn], prev);
     const kept = known?.get(row);
+    // The row's open state now (rowOpenState.ts), read only when a remembered estimate could place it:
+    // one taken in another open state is estimated again, from the same stores the DOM opens from.
+    const open = kept ? rowOpenState(sessionId, row) : undefined;
+    const keptOpen = kept !== undefined && (kept.open ?? "") === open;
+    const keptHere = heightAt(kept, width, edge, scale);
     let height: number;
-    if (kept && kept.width === width && kept.edge === edge) height = kept.height;
+    if (keptOpen && keptHere !== undefined) height = keptHere;
     else if (
       resizing &&
       (resizing.layout.scale ?? 1) === scale &&
@@ -3854,19 +4249,38 @@ export function layoutConversation(
       // Out of view during a live resize: its height at the last width, never recorded as this width's.
       height = resizing.layout.heights[index]!;
     else {
-      const customHeight = measureOverride?.(row, width);
+      const away =
+        near !== undefined &&
+        kept !== undefined &&
+        keptOpen &&
+        kept.edge === edge &&
+        (kept.scale ?? 1) === scale &&
+        (index < near.from || index >= near.to);
+      const customHeight = away && near.all ? undefined : measureOverride?.(row, width);
       const custom = customHeight !== undefined && Number.isFinite(customHeight) && customHeight >= 0;
       if (
         !custom &&
-        near &&
-        kept &&
-        kept.edge === edge &&
-        (kept.scale ?? 1) === scale &&
-        (index < near.from || index >= near.to) &&
+        index < roughBefore &&
+        !kept &&
+        (row.kind === "assistant" || row.kind === "user") &&
         row.text &&
+        !row.received &&
         !cache.has(row.id)
       ) {
-        // Away from the view, with its prepared text gone (PREPARED_ROWS): its last height, never
+        // Above a cold open's measured rows: its rough height, never recorded as this width's.
+        height = fallbackRowHeight(
+          row,
+          width,
+          edge?.startsWith("footer") === true,
+          edge?.startsWith("last-turn") === true,
+          edge?.endsWith(ACTIONS_EDGE) === true,
+          sessionId,
+        );
+        if (height > 0) height += statusDelta(row, statusEdge(row, rows[nextDrawn], prev));
+        rough = true;
+        remembered = true;
+      } else if (away && (near.all || (!custom && row.text && !cache.has(row.id)))) {
+        // Away from the view, at a new width or with its prepared text gone (PREPARED_ROWS): its last height, never
         // recorded as this width's. Its drawn height replaces it once it mounts, and a layout that
         // measures it (near the view, after a change above it) records this width's.
         height = kept.height;
@@ -3894,7 +4308,7 @@ export function layoutConversation(
         }
         // A row that draws nothing stays at 0; a custom renderer's height is its own.
         if (!custom && height > 0) height += statusDelta(row, statusEdge(row, rows[nextDrawn], prev));
-        known?.set(row, { width, height, edge, scale });
+        known?.set(row, withHeight(kept, width, height, edge, scale, open ?? rowOpenState(sessionId, row)));
       }
     }
     if (height > 0) {
@@ -3918,6 +4332,7 @@ export function layoutConversation(
     ...(gapFactor !== 1 ? { gapScale: gapFactor } : {}),
     totalHeight: top,
     ...(remembered ? { remembered: true as const } : {}),
+    ...(rough ? { rough: true as const } : {}),
   };
   trimPreparedRows(cache);
   messages.finish(rows, layout);
@@ -4245,10 +4660,10 @@ export function mergeRowRanges(ranges: RowRange[]): RowRange[] {
 export const PREDICTED_JITTER = 0.05;
 
 /// The rows a transcript at `scrollTop` mounts while it moves `delta` per scroll: the view and
-/// `steps` scrolls of motion ahead of it, capped at `maxLead`. A scroll past the cap (a fling or a
-/// scrollbar drag that moves several viewports a frame) also mounts each view the next `steps`
-/// frames reach (a jump past the cap itself, only the next one), with a margin for uneven frames:
-/// the rows between them are never on screen, so they are not built (cx-j33s4).
+/// `steps` scrolls of motion ahead of it, capped at `maxLead`. A scroll whose lead runs past the cap
+/// also mounts each view the next `steps` frames reach, with a margin for uneven frames: the rows
+/// between them are never on screen, so they are not built (cx-j33s4). A jump (more than a view a
+/// frame: a fling or a scrollbar drag) mounts its view alone.
 /// A moving scroll within the cap also keeps `trail` px behind the view mounted: the rows the
 /// reader just passed, already drawn. Dropping them the moment they left the view made a quick
 /// reversal (up and down fast) scroll the compositor into bare background for a frame before its
@@ -4275,8 +4690,8 @@ export function scrollLeadRanges(
     const top = delta < 0 ? scrollTop - lead : scrollTop - behind;
     return [visibleLayoutRange(layoutModel, top, viewportHeight + lead + behind)];
   }
-  // A jump lands past the rows between the views, so each of its frames mounts the view and the view
-  // the next frame reaches, not the rows it jumps over: a fling of tens of viewports a frame (a god
+  // A jump lands past the rows between the views, so each of its frames mounts its view, not the rows
+  // it jumps over: a fling of tens of viewports a frame (a god
   // session) built 5 viewports of rows a frame that no frame showed. A view it lands short of (a drag
   // that stops) is mounted by the commit that draws it.
   const contiguous = jumping ? 0 : lead;
@@ -4290,17 +4705,19 @@ export function scrollLeadRanges(
       overscan,
     ),
   ];
-  // A jump builds one window ahead, so it takes a viewport of margin either side: a paced fling's
-  // frames vary by a fifth of a 5-viewport jump, past the half viewport a two-window lead used.
-  const margin = Math.min(Math.abs(delta) / 4, jumping ? viewportHeight : viewportHeight / 2);
+  // A jump builds no view ahead of it. The view the next frame would reach, with the viewport of
+  // margin either side its frame-to-frame unevenness needed, was three views of rows built and
+  // measured (each new row's height read back from layout) in the commit of a frame that showed one;
+  // a fling's next frame builds its own view in its own commit anyway. In one harness at 3,000 rows,
+  // dropping it took fling React p95 from 57 to 24 ms (Chromium) and 30 to 22 ms (WebKit, 7 pairs),
+  // with no blank frame either way (2026-11-24).
+  if (jumping) return ranges;
+  const margin = Math.min(Math.abs(delta) / 4, viewportHeight / 2);
   // The next views are built only while their margin holds a frame's unevenness (a few percent of
   // its jump): past that, the next frame lands outside the window it built as often as in it, and
   // the view it lands on is built in its own commit anyway.
   if (margin < Math.abs(delta) * PREDICTED_JITTER) return ranges;
-  // A jump builds only the next frame's view: the commit after it builds the one after that, and a
-  // second window ahead doubled the rows a frame built (and drew again as rows above them measured).
-  const predicted = jumping ? 1 : steps;
-  for (let step = 1; step <= predicted; step += 1)
+  for (let step = 1; step <= steps; step += 1)
     ranges.push(
       visibleLayoutRange(layoutModel, scrollTop + delta * step - margin, viewportHeight + 2 * margin, overscan),
     );
@@ -4317,7 +4734,7 @@ import {
   type PreparedText,
   type PreparedTextWithSegments,
 } from "@chenglou/pretext";
-import { lexer, type Token, type Tokens } from "marked";
+import { lexer, Tokenizer, type Token, type Tokens } from "marked";
 import { runStretches, staysInSight, stretchStart, toolGroups, type ToolGroup } from "./conversation/toolGroups";
 import {
   callDisclosureKey,
@@ -4328,15 +4745,15 @@ import {
 import { groupDisclosureKey, runDisclosureKey, runLinks, thoughtIds } from "./conversation/turnRowsModel";
 import { thoughtChoices } from "./conversation/thoughtChoices";
 import { PREVIEW_LINES } from "./conversation/blockPartsModel";
+import { blockWrapOf, fileBlockKind } from "./conversation/blockWrap";
+import { toolFiles, type TurnFile } from "./diff";
 import { cardOpen } from "./turnChanges/openStore";
-import { editedFilesSettings } from "./turnChanges/settings";
 import { runScroll } from "./conversation/runScroll.experiment";
 import { acpmuxSendCalls } from "./conversation/acpmuxSends";
 import { isFoldedRun } from "./conversation/toolRunSummary";
 import { isQuietThought, isThought, mergeThoughts, thoughtParts } from "./conversation/thoughts";
 import { RENDER_FRAME_MIN_HEIGHT } from "./conversation/renderCall";
 import {
-  ACTIVITY_LINE,
   DATE,
   isEmptyFooter,
   isFoldedCopy,
@@ -4356,17 +4773,24 @@ import { lastBlockBoundary } from "./conversation/incrementalMarkdown";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { chatColumn, type ChatColumn } from "./chatWidth";
 import {
+  chatCodeBlock,
   chatDensityTextScale,
   chatDisplay,
+  chatDisplayVariables,
   currentChatMetrics,
   type ChatMetrics,
+  drawnFontSize,
   promptCoachEnabled,
   transcriptGapScale,
 } from "./chatDisplay";
+import { EDIT_DIFF_LANE, editDiffBox } from "./conversation/editDiffBox";
+import { experimentSwitchOn } from "../../experiments/switches";
 import { userBubbleBox } from "./conversation/transcriptLook";
 import { messageOpened } from "./conversation/incomingOpened";
+import { rowOpenState } from "./conversation/rowOpenState";
 import { inboxThreadKey } from "./conversation/inboxNotice";
 import { foldsThreads, inboxNoticeLook } from "./conversation/inboxNoticeLook";
+import { noticeRowLook } from "./conversation/noticeRowLook";
 import { fitsLine, newestWholeKey, readForIds, THREAD_PAGE, threadRead } from "./conversation/inboxThreadRead";
 import { inboxThreadLook } from "./conversation/inboxThreadLook";
 import { CLAMP_MORE_HEIGHT, CLAMPED_LINES } from "./conversation/lineCut";
@@ -4374,7 +4798,6 @@ import { laneNotice } from "./conversation/laneReport";
 import { receivedLook } from "./conversation/receivedLook";
 import { MESSAGE_PREVIEW_LINE_PT, messageLineLook } from "./conversation/messageLineLook";
 import { isDiagram, isUnlabeledLang } from "./conversation/codeShape";
-import { planOpen } from "./conversation/planOpen";
 import type { SurgeHold } from "./conversation/surgeHold";
 
 /// The pane's fallback accessible name and problem-only header status. A handshake that is

@@ -1468,6 +1468,141 @@ async fn a_circuit_the_daemon_never_joins_is_given_up_after_the_peer_join_wait()
     assert!(waited >= Duration::from_millis(2_900), "a resume keeps control_timeout: {waited:?}");
 }
 
+/// A relay that answers each Connect on its one control socket after the
+/// next of `delays`, then serves that Connect's circuit.
+async fn answer_connects_after(
+    delays: Vec<Duration>,
+) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (mut control, _) = accept_with_authorization(stream).await;
+        let mut circuits = Vec::new();
+        for (index, delay) in delays.into_iter().enumerate() {
+            let RelayControl::Connect { lane, generation, .. } =
+                receive_test_control(&mut control).await
+            else {
+                panic!("expected client connect");
+            };
+            tokio::time::sleep(delay).await;
+            let circuit = CircuitId(format!("circuit-{index}"));
+            send_test_control(
+                &mut control,
+                &RelayControl::Allocated {
+                    circuit: circuit.clone(),
+                    lane: lane.clone(),
+                    generation,
+                    join_ticket: format!("join-ticket-{index}"),
+                },
+            )
+            .await;
+            let (stream, _) = listener.accept().await.unwrap();
+            let (mut circuit_socket, _) = accept_with_authorization(stream).await;
+            assert!(matches!(
+                receive_test_control(&mut circuit_socket).await,
+                RelayControl::Join { .. }
+            ));
+            send_test_control(
+                &mut circuit_socket,
+                &RelayControl::Ready { circuit, lane, generation },
+            )
+            .await;
+            circuits.push(circuit_socket);
+        }
+        for mut circuit_socket in circuits {
+            let _ = circuit_socket.next().await;
+        }
+        let _ = control.next().await;
+    });
+    (address, server)
+}
+
+fn first_allocation_test_config() -> RelayClientConfig {
+    RelayClientConfig {
+        slot: "test-slot".into(),
+        ticket: "client-ticket".into(),
+        maximum_frame_bytes: 64,
+        control_timeout: Duration::from_millis(100),
+    }
+}
+
+fn first_allocation_test_request(address: std::net::SocketAddr) -> ConnectRequest {
+    ConnectRequest {
+        endpoint: Url::parse(&format!("relay+ws://{address}/v1/relay")).unwrap(),
+        session: SessionId::ZERO,
+        lane_policy: LanePolicy::Isolated,
+        routing: BTreeMap::new(),
+    }
+}
+
+/// The carrier's park redial at a tenth of its scale (a 1 s first-lane
+/// deadline for its 10 s, a 5 s dial deadline): a first lane allocated just
+/// inside the first-lane deadline (0.95 s) leaves a later lane, opened after
+/// it, the dial's deadline to be allocated in (0.6 s more), not the 50 ms left
+/// of the first lane's.
+#[tokio::test]
+async fn a_later_lane_waits_the_dial_deadline_after_a_slow_first_allocation() {
+    let (address, server) =
+        answer_connects_after(vec![Duration::from_millis(950), Duration::from_millis(600)]).await;
+    let started = Instant::now();
+    let provider = RelayProvider::new(first_allocation_test_config())
+        .unwrap()
+        .with_allocation_deadline(started + Duration::from_secs(5))
+        .with_first_allocation_deadline(started + Duration::from_secs(1));
+    let group = provider.connect(first_allocation_test_request(address)).await.unwrap();
+    let first = group
+        .open(LinkRequest { lane: Lane::Interactive, generation: 0 })
+        .await
+        .expect("the first lane is allocated inside its deadline");
+    let second = group
+        .open(LinkRequest { lane: Lane::Bulk, generation: 0 })
+        .await
+        .expect("a later lane waits the dial's deadline, not what is left of the first lane's");
+    let waited = started.elapsed();
+    assert!(waited >= Duration::from_millis(1500), "both allocations took {waited:?}");
+    assert!(waited < Duration::from_secs(5), "waited {waited:?}, past the dial's deadline");
+    first.close().await.unwrap();
+    second.close().await.unwrap();
+    group.close().await.unwrap();
+    tokio::time::timeout(Duration::from_secs(10), server).await.unwrap().unwrap();
+}
+
+/// A first lane the relay parks for good still gives up at the first-lane
+/// deadline (the carrier's park redial), well before the dial's deadline.
+#[tokio::test]
+async fn a_first_lane_parked_past_its_deadline_times_out_at_it() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        // The client's reconnect after the timeout is refused at once.
+        drop(listener);
+        let (mut control, _) = accept_with_authorization(stream).await;
+        let RelayControl::Connect { .. } = receive_test_control(&mut control).await else {
+            panic!("expected client connect");
+        };
+        while control.next().await.is_some() {}
+    });
+    let started = Instant::now();
+    let provider = RelayProvider::new(first_allocation_test_config())
+        .unwrap()
+        .with_allocation_deadline(started + Duration::from_secs(5))
+        .with_first_allocation_deadline(started + Duration::from_secs(1));
+    let group = provider.connect(first_allocation_test_request(address)).await.unwrap();
+    let error = group
+        .open(LinkRequest { lane: Lane::Interactive, generation: 0 })
+        .await
+        .err()
+        .expect("a first lane parked past its deadline fails");
+    let waited = started.elapsed();
+    assert!(error.to_string().contains("allocation timed out"), "{error}");
+    assert!(waited >= Duration::from_millis(900), "gave up after {waited:?}, before the deadline");
+    assert!(waited < Duration::from_secs(3), "waited {waited:?}, toward the dial's deadline");
+    let _ = group.close().await;
+    server.abort();
+}
+
 /// A WebSocket sink that hands each message, with the (virtual) instant it was
 /// sent, to the test: the batched sender's socket with no host in the way.
 struct RecordingSink {
@@ -1902,4 +2037,295 @@ async fn plain_credentials_send_no_grant_on_connect() {
     let credentials =
         RelayCredentialSource::callback(|| async { Ok::<_, ()>("plain-ticket".to_owned()) });
     assert_eq!(connect_grant_for(credentials).await, None);
+}
+
+/// The daemon's Join of an `Incoming` is hedged: an attempt that never answers
+/// gets a second beside it after the stagger, and the first Ok wins.
+#[tokio::test(start_paused = true)]
+async fn a_hung_daemon_join_gets_a_second_attempt_after_the_stagger() {
+    let started = Instant::now();
+    let launched = Arc::new(AtomicUsize::new(0));
+    let joined = hedged_join(
+        {
+            let launched = launched.clone();
+            move || {
+                let n = launched.fetch_add(1, AtomicOrdering::SeqCst);
+                async move {
+                    if n == 0 {
+                        std::future::pending::<()>().await;
+                    }
+                    tokio::time::sleep(Duration::from_millis(300)).await;
+                    Ok::<_, ProviderError>(n)
+                }
+            }
+        },
+        Duration::from_secs(1),
+        4,
+        Duration::from_secs(15),
+    )
+    .await
+    .unwrap();
+    assert_eq!(joined, 1, "the second attempt joined");
+    assert_eq!(launched.load(AtomicOrdering::SeqCst), 2, "no third attempt once one joined");
+    assert_eq!(started.elapsed(), Duration::from_millis(1_300));
+}
+
+/// A healthy Join is the only one; attempts that all fail end with the last
+/// error once they ran out; attempts that never answer end at the budget.
+#[tokio::test(start_paused = true)]
+async fn a_daemon_join_is_one_attempt_when_it_answers_and_bounded_when_none_does() {
+    let launched = Arc::new(AtomicUsize::new(0));
+    let fast = hedged_join(
+        {
+            let launched = launched.clone();
+            move || {
+                launched.fetch_add(1, AtomicOrdering::SeqCst);
+                async { Ok::<_, ProviderError>(()) }
+            }
+        },
+        Duration::from_secs(1),
+        4,
+        Duration::from_secs(15),
+    )
+    .await;
+    assert!(fast.is_ok());
+    assert_eq!(launched.load(AtomicOrdering::SeqCst), 1);
+
+    let started = Instant::now();
+    let launched = Arc::new(AtomicUsize::new(0));
+    let failing = hedged_join(
+        {
+            let launched = launched.clone();
+            move || {
+                let n = launched.fetch_add(1, AtomicOrdering::SeqCst);
+                async move { Err::<(), _>(relay_carrier_error(format!("refused {n}"))) }
+            }
+        },
+        Duration::from_secs(1),
+        4,
+        Duration::from_secs(15),
+    )
+    .await;
+    assert_eq!(launched.load(AtomicOrdering::SeqCst), 4);
+    assert!(failing.unwrap_err().to_string().contains("refused 3"));
+    assert_eq!(started.elapsed(), Duration::from_secs(3));
+
+    let started = Instant::now();
+    let hung = hedged_join(
+        std::future::pending::<Result<(), ProviderError>>,
+        Duration::from_secs(1),
+        4,
+        Duration::from_secs(15),
+    )
+    .await;
+    assert!(hung.unwrap_err().to_string().contains("join timed out"));
+    assert_eq!(started.elapsed(), Duration::from_secs(15));
+}
+
+/// A registered daemon whose first circuit WebSocket hangs before its upgrade
+/// (the relay never answers it) joins the circuit on a second WebSocket within
+/// the client's 4 s peer-join wait, instead of giving the circuit up at the
+/// relay's 10 s connect bound with nothing logged.
+#[tokio::test]
+async fn a_daemon_joins_an_incoming_circuit_on_a_second_socket_when_the_first_hangs() {
+    use crate::identity::AuthDatabase;
+    use crate::session::SessionLimits;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = Url::parse(&format!("relay+ws://{}", listener.local_addr().unwrap())).unwrap();
+    let (joined_tx, joined_rx) = oneshot::channel();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (mut control, _) = accept_with_authorization(stream).await;
+        assert!(matches!(receive_test_control(&mut control).await, RelayControl::Register { .. }));
+        send_test_control(&mut control, &RelayControl::Registered { lease_seconds: 30 }).await;
+        let circuit = CircuitId("first-circuit".into());
+        let lane = LaneToken("lane-0".into());
+        send_test_control(
+            &mut control,
+            &RelayControl::Incoming {
+                circuit: circuit.clone(),
+                lane: lane.clone(),
+                generation: 0,
+                join_ticket: "daemon-join".into(),
+            },
+        )
+        .await;
+        let accepted = Instant::now();
+        // The first circuit socket connects and is never answered.
+        let (_hung, _) = listener.accept().await.unwrap();
+        let (stream, _) = listener.accept().await.unwrap();
+        let second_after = accepted.elapsed();
+        let (mut circuit_socket, authorization) = accept_with_authorization(stream).await;
+        assert_eq!(authorization, "Bearer daemon-join");
+        assert!(matches!(
+            receive_test_control(&mut circuit_socket).await,
+            RelayControl::Join { role: RelayRole::Daemon, .. }
+        ));
+        send_test_control(
+            &mut circuit_socket,
+            &RelayControl::Ready { circuit, lane, generation: 0 },
+        )
+        .await;
+        let _ = joined_tx.send(second_after);
+        tokio::select! {
+            _ = async { while control.next().await.is_some() {} } => {}
+            _ = async { while circuit_socket.next().await.is_some() {} } => {}
+        }
+    });
+
+    let directory = tempfile::tempdir().unwrap();
+    let auth = AuthDatabase::load_or_create(directory.path(), "relay-hedged-join", true).unwrap();
+    let (daemon, _clients) = RemoteDaemon::new(auth, SessionLimits::default());
+    let registration = register_relay_daemon(
+        daemon,
+        RelayDaemonConfig {
+            endpoint,
+            slot: "hedged-join-slot".into(),
+            ticket: "registration-ticket".into(),
+            maximum_frame_bytes: 65_535,
+            control_timeout: Duration::from_secs(15),
+        },
+    )
+    .await
+    .unwrap();
+    let second_after = tokio::time::timeout(Duration::from_secs(4), joined_rx)
+        .await
+        .expect("the daemon did not join on a second socket inside the client's 4 s wait")
+        .unwrap();
+    eprintln!("second circuit socket {second_after:?} after the Incoming");
+    assert!(second_after < Duration::from_secs(3), "{second_after:?}");
+    tokio::time::timeout(Duration::from_secs(2), registration.shutdown())
+        .await
+        .expect("relay registration shutdown did not complete");
+    server.abort();
+}
+
+/// A daemon's registration open is hedged like its circuit Join: an open that never answers gets a
+/// second beside it after the stagger, and the first Ok wins.
+#[tokio::test(start_paused = true)]
+async fn a_hung_registration_open_gets_a_second_attempt_after_the_stagger() {
+    let started = Instant::now();
+    let launched = Arc::new(AtomicUsize::new(0));
+    let opened = hedged_open(
+        {
+            let launched = launched.clone();
+            move || {
+                let n = launched.fetch_add(1, AtomicOrdering::SeqCst);
+                async move {
+                    if n == 0 {
+                        std::future::pending::<()>().await;
+                    }
+                    tokio::time::sleep(Duration::from_millis(300)).await;
+                    Ok::<_, &str>(n)
+                }
+            }
+        },
+        Duration::from_secs(1),
+        3,
+        |_| false,
+    )
+    .await;
+    assert_eq!(opened, Ok(1), "the second open won");
+    assert_eq!(launched.load(AtomicOrdering::SeqCst), 2, "no third open once one opened");
+    assert_eq!(started.elapsed(), Duration::from_millis(1_300));
+}
+
+/// A healthy open is the only one, a refused authentication or a failure with nothing else in
+/// flight ends it at once (the caller's retry decides), and a fatal error does not wait for a
+/// hung open beside it.
+#[tokio::test(start_paused = true)]
+async fn a_registration_open_that_answers_or_fails_fast_is_never_hedged() {
+    let launched = Arc::new(AtomicUsize::new(0));
+    let fast = hedged_open(
+        {
+            let launched = launched.clone();
+            move || {
+                launched.fetch_add(1, AtomicOrdering::SeqCst);
+                async { Ok::<_, &str>(()) }
+            }
+        },
+        Duration::from_secs(1),
+        3,
+        |_| false,
+    )
+    .await;
+    assert!(fast.is_ok());
+    assert_eq!(launched.load(AtomicOrdering::SeqCst), 1);
+
+    let started = Instant::now();
+    let refused =
+        hedged_open(|| async { Err::<(), _>("refused") }, Duration::from_secs(1), 3, |_| false)
+            .await;
+    assert_eq!(refused, Err("refused"));
+    assert_eq!(started.elapsed(), Duration::ZERO, "a fast failure is the caller's retry");
+
+    let started = Instant::now();
+    let launched = Arc::new(AtomicUsize::new(0));
+    let fatal = hedged_open(
+        {
+            let launched = launched.clone();
+            move || {
+                let n = launched.fetch_add(1, AtomicOrdering::SeqCst);
+                async move {
+                    if n == 0 {
+                        std::future::pending::<()>().await;
+                    }
+                    Err::<(), _>("unauthorized")
+                }
+            }
+        },
+        Duration::from_secs(1),
+        3,
+        |error| *error == "unauthorized",
+    )
+    .await;
+    assert_eq!(fatal, Err("unauthorized"));
+    assert_eq!(started.elapsed(), Duration::from_secs(1));
+}
+
+/// A fresh machine's first registration WebSocket hangs before its upgrade (its network is still
+/// settling): the daemon registers on a second one in about the stagger, instead of after the
+/// 10 s open bound. The registration's own time is the harness's create-to-registered number.
+#[tokio::test]
+async fn a_daemon_registers_on_a_second_socket_when_the_first_open_hangs() {
+    use crate::identity::AuthDatabase;
+    use crate::session::SessionLimits;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = Url::parse(&format!("relay+ws://{}", listener.local_addr().unwrap())).unwrap();
+    let server = tokio::spawn(async move {
+        // The first open connects and is never answered.
+        let (_hung, _) = listener.accept().await.unwrap();
+        let (stream, _) = listener.accept().await.unwrap();
+        let (mut control, _) = accept_with_authorization(stream).await;
+        assert!(matches!(receive_test_control(&mut control).await, RelayControl::Register { .. }));
+        send_test_control(&mut control, &RelayControl::Registered { lease_seconds: 30 }).await;
+        while control.next().await.is_some() {}
+    });
+
+    let directory = tempfile::tempdir().unwrap();
+    let auth =
+        AuthDatabase::load_or_create(directory.path(), "relay-hedged-register", true).unwrap();
+    let (daemon, _clients) = RemoteDaemon::new(auth, SessionLimits::default());
+    let started = Instant::now();
+    let registration = register_relay_daemon(
+        daemon,
+        RelayDaemonConfig {
+            endpoint,
+            slot: "hedged-register-slot".into(),
+            ticket: "registration-ticket".into(),
+            maximum_frame_bytes: 65_535,
+            control_timeout: Duration::from_secs(15),
+        },
+    )
+    .await
+    .unwrap();
+    let registered_after = started.elapsed();
+    eprintln!("registered {registered_after:?} after the first open hung");
+    assert!(registered_after < Duration::from_secs(3), "{registered_after:?}");
+    tokio::time::timeout(Duration::from_secs(2), registration.shutdown())
+        .await
+        .expect("relay registration shutdown did not complete");
+    server.abort();
 }

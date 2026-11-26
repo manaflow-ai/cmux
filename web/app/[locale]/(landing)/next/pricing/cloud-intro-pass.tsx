@@ -1,5 +1,6 @@
 import { FeatureList, PlanCard, pricingActionClassName } from "../../../../components/pricing-shared";
 import { CLOUD_INTRO_CHECKOUT_PLAN, CLOUD_INTRO_RENEW_PARAM } from "../../../../../services/billing/cloudIntro";
+import { cloudIntroProofStats } from "../../../../../services/billing/cloudIntroProof";
 import { cloudIntroOfferFacts, type CloudIntroLayout } from "../../../../../services/billing/cloudIntroOffer";
 
 type Translate = (key: string, values?: Record<string, string | number>) => string;
@@ -18,6 +19,7 @@ export type CloudIntroCopy = {
   afterTitle: string;
   after: string;
   who: string;
+  proof: { title: string; note: string; stats: { id: string; value: string; label: string }[] };
 };
 
 const count = (value: number) => value.toLocaleString("en-US");
@@ -48,6 +50,15 @@ export function cloudIntroCopy(t: Translate): CloudIntroCopy {
     afterTitle: t("intro.afterTitle", { days }),
     after: t("intro.after", { keepDays: f.keepDays }),
     who: t("intro.who"),
+    proof: {
+      title: t("proof.title"),
+      note: t("proof.note", { count: f.concurrentMachines }),
+      stats: cloudIntroProofStats().map((stat) => ({
+        id: stat.id,
+        value: t("proof.seconds", { seconds: stat.seconds }),
+        label: t(`proof.${stat.id}`, { machines: stat.machines ?? 0 }),
+      })),
+    },
   };
 }
 
@@ -90,6 +101,24 @@ function CloudIntroFinePrint({ copy }: { copy: CloudIntroCopy }) {
   );
 }
 
+/** Three measured numbers where the pass is sold; each is from cloudIntroProof.ts. */
+function CloudIntroProof({ copy }: { copy: CloudIntroCopy }) {
+  return (
+    <div data-testid="cloud-intro-proof" className="mt-5">
+      <p className="text-xs font-medium text-muted">{copy.proof.title}</p>
+      <dl className="mt-2 grid gap-4 sm:grid-cols-3">
+        {copy.proof.stats.map((stat) => (
+          <div key={stat.id} data-proof={stat.id} className="border-l border-foreground pl-3">
+            <dt className="text-2xl font-medium tabular-nums tracking-tight">{stat.value}</dt>
+            <dd className="mt-1 text-xs leading-relaxed text-muted">{stat.label}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="mt-2 text-xs text-muted">{copy.proof.note}</p>
+    </div>
+  );
+}
+
 const badgeClass = "border border-border px-2 py-1 text-xs font-medium";
 
 /** (a) A slim band above the plan cards. */
@@ -104,6 +133,7 @@ function CloudIntroBand({ copy }: { copy: CloudIntroCopy }) {
             <span className="text-sm text-muted">{copy.period}</span>
           </div>
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted">{copy.summary}</p>
+          <CloudIntroProof copy={copy} />
           <details className="mt-3 text-sm">
             <summary className="cursor-pointer font-medium">{copy.includedTitle}</summary>
             <FeatureList items={copy.included} />
@@ -125,6 +155,7 @@ export function CloudIntroCard({ copy }: { copy: CloudIntroCopy }) {
       <PlanCard name={copy.name} price={copy.price} period={copy.period} badge={<span className={badgeClass}>{copy.badge}</span>}>
         <p className="mb-4 text-sm leading-relaxed text-muted">{copy.summary}</p>
         <CloudIntroBuyForm copy={copy} />
+        <CloudIntroProof copy={copy} />
         <FeatureList items={copy.included} />
         <CloudIntroFinePrint copy={copy} />
       </PlanCard>
@@ -139,6 +170,7 @@ function CloudIntroHero({ copy }: { copy: CloudIntroCopy }) {
       <span className={badgeClass}>{copy.badge}</span>
       <h2 className="mt-4 text-2xl font-medium tracking-tight sm:text-3xl">{copy.name}</h2>
       <p className="mt-3 max-w-2xl text-[15px] leading-relaxed text-muted">{copy.summary}</p>
+      <CloudIntroProof copy={copy} />
       <div className="mt-6 grid gap-8 md:grid-cols-[1fr_18rem]">
         <div>
           <p className="text-sm font-medium">{copy.includedTitle}</p>

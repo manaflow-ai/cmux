@@ -147,7 +147,7 @@ extension SidebarController {
     }
 
     /// A row lifted toward the grid, drawn as the tile it would become: its avatar at the
-    /// tile's avatar place and its name below.
+    /// tile's avatar place and its name below (no name in the compact list, as its tiles).
     private func avatarGhost(_ c: ConversationSummary) -> CALayer {
         let ghost = CALayer()
         ghost.bounds = CGRect(origin: .zero, size: tileSize)
@@ -159,8 +159,8 @@ extension SidebarController {
         avatar.contentsScale = renderContext.scale
         avatar.minificationFilter = .trilinear
         ghost.addSublayer(avatar)
-        if let name = SidebarDraw.tileNameImage(c, emphasized: false, keyWidth: SidebarDraw.tileNameKeyWidth(
-            natural: SidebarDraw.tileNatural(c).name, tileWidth: tileSize.width), ctx: renderContext) {
+        if !metrics.compact, let name = SidebarDraw.tileNameImage(c, emphasized: false, keyWidth: SidebarDraw.tileNameKeyWidth(
+            natural: SidebarDraw.tileNatural(c).name, tileWidth: metrics.tileNameWidth), ctx: renderContext) {
             let label = CALayer()
             let w = CGFloat(name.width) / renderContext.scale
             label.frame = CGRect(x: ((tileSize.width - w) / 2).rounded(), y: ar.maxY + SidebarMetrics.pinNameGap,
@@ -204,11 +204,7 @@ extension SidebarController {
     /// The grid slot under `p` for a grid of `count` tiles; nil below the grid.
     private func gridSlot(_ p: CGPoint, count: Int) -> Int? {
         guard count > 0, p.y < metrics.pinnedHeight(count: count) else { return nil }
-        let cols = metrics.columns
-        let rows = (count + cols - 1) / cols
-        let col = min(cols - 1, max(0, Int(exactly: ((p.x - metrics.tileRect(0).minX) / metrics.tileWidth).rounded(.down)) ?? 0))
-        let row = min(rows - 1, max(0, Int(exactly: (max(0, p.y) / metrics.tileHeight).rounded(.down)) ?? 0))
-        return min(row * cols + col, count - 1)
+        return metrics.tileSlot(at: p, count: count)
     }
 
     /// Tiles to their slots in the drawn order; the rows below follow the grid's drawn height.
@@ -219,7 +215,7 @@ extension SidebarController {
         let order = drag.order
         for (id, l) in shownTiles {
             guard let id, id != drag.id, let slot = order.firstIndex(of: id) else { continue }
-            slide(l, to: tileRect(slot), animated: animated)
+            slide(l, to: metrics.tileRect(slot, count: order.count), animated: animated)
         }
         let dy = metrics.pinnedHeight(count: order.count) - pinnedHeight
         let rows = listRowLayers()
@@ -234,6 +230,11 @@ extension SidebarController {
             let below = source.map { l.position.y > $0.position.y } ?? false
             shift(l, by: dy - (closes && below ? (source?.bounds.height ?? 0) : 0), animated: animated)
         }
+        // The avatar strip's divider moves with the rows; it goes while no pinned avatar is left, and shows when the drag
+        // pins the first one.
+        if pinnedItems.isEmpty { layoutPinDivider(forPreview: !order.isEmpty) }
+        shift(pinDivider, by: dy, animated: animated)
+        pinDivider.opacity = order.isEmpty ? 0 : 1
     }
 
     private func finishPinDrag(cancelled: Bool) {
@@ -269,6 +270,10 @@ extension SidebarController {
             l.transform = CATransform3DIdentity
             l.opacity = 1
         }
+        pinDivider.removeAnimation(forKey: "cmux.pinDrag.shift")
+        pinDivider.transform = CATransform3DIdentity
+        pinDivider.opacity = 1
+        layoutPinDivider()
         switch drag.outcome {
         case .none: break
         case let .place(id, index): placer?.sidebar(self, place: id, at: index)
@@ -346,7 +351,7 @@ extension SidebarController {
         if landedAsTile { ghost.removeFromSuperlayer(); return }
         // Unpinned, or a row that stayed a row: the ghost's avatar shrinks onto the row's avatar and fades.
         let ar = SidebarDraw.tileAvatar(metrics)
-        var scale = SidebarMetrics.avatar / max(1, ar.width)
+        var scale = (metrics.compact ? metrics.compactAvatar : SidebarMetrics.avatar) / max(1, ar.width)
         var to = ghost.position
         if let id = landingID, case let .row(r)? = position(of: id) {
             let row = rowRect(r), own = metrics.rowAvatar(rowHeight: row.height)

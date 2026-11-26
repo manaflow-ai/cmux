@@ -17,6 +17,8 @@ type Reply = oneshot::Sender<Result<Value, RpcError>>;
 
 /// How many requests may wait on one client at once; past that a request fails at once
 /// instead of queueing behind a client that stopped reading.
+/// Measured: each is a lent GitHub action (`github_broker.rs`), one `gh` process on that Mac,
+/// 29.5 MB max RSS for `gh --version` alone (gh 2.45).
 const WAITING_MAX: usize = 8;
 
 /// One connection's requests waiting on the client, by id.

@@ -9,7 +9,8 @@ run-name: ${{ github.event_name == 'push' && 'cmux-next-ios INTERNAL builder bra
 # branch rc/cnx-ios-builder (the `release` environment admits rc/**). The
 # workflow file and the signing script therefore come from that frozen branch;
 # feat-cmux-next code (inputs.sha) runs only in `archive`, which reads no
-# secret. Archive on the dedicated mini while it is free, else Blacksmith; sign/validate/upload on an
+# secret. Archive on the dedicated mini while it is free, else on a fleet Mac
+# that has Xcode 27 (labels cmux-mac + xcode-27.0); sign/validate/upload on an
 # ephemeral Blacksmith Mac. "What to Test" is written by `notes`, which holds
 # no signing secret (scripts/ci/ios_internal_notes.py).
 on:
@@ -57,10 +58,11 @@ env:
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
-  # The archive prefers the dedicated mini (vars.CI_IOS_INTERNAL_RUNNER, its own
-  # glaeda-runner-<runner name> label, warm caches) but never waits on it: this
-  # job hands it on only while that mini is online and idle (up to 5 min while
-  # busy), else the archive takes Blacksmith. Before, runs-on read the variable
+  # The archive prefers the dedicated minis (vars.CI_IOS_INTERNAL_RUNNER: one or
+  # more glaeda-runner-<runner name> labels, preferred first, each a machine that
+  # runs no PR code, warm caches) but never waits on them: this job hands on the
+  # first one online and idle (up to 5 min while one is busy), else the archive
+  # takes a fleet Mac with Xcode 27. Before, runs-on read the variable
   # directly, and a set variable never falls through, so every archive waited
   # on one mini (scripts/ci/ios_internal_runner.py). No PR pool: the archive is
   # what ships to TestFlight. Reads the runner list only; no feat-cmux-next code.
@@ -98,7 +100,7 @@ jobs:
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-administration: read
 
-      - name: Pick the dedicated mini while it can take the job, else Blacksmith
+      - name: Pick the dedicated mini while it can take the job, else an Xcode 27 fleet Mac
         id: pick
         continue-on-error: true
         timeout-minutes: 8
@@ -111,11 +113,15 @@ jobs:
   archive:
     name: Archive (unsigned, no secrets)
     needs: pick-archive-runner
-    # !cancelled(): a failed picker leaves its outputs empty and the archive takes Blacksmith.
+    # !cancelled(): a failed picker leaves its outputs empty and the archive takes the fallback.
     if: "!cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/rc/cnx-ios-builder'"
     # The pick counts only on the attempt it was made for, so a re-run of failed
-    # jobs that keeps the picker's outputs takes Blacksmith.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-archive-runner.outputs.attempt == format('{0}', github.run_attempt) && needs.pick-archive-runner.outputs.dedicated != '' && needs.pick-archive-runner.outputs.dedicated || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    # jobs that keeps the picker's outputs takes the fallback. The fallback asks for
+    # cmux-mac AND xcode-27.0: the fleet scheduler places an xcode-X label only on a
+    # Mac that has that Xcode (build-fleet sched grant.go, Mac.canRun). Plain
+    # cmux-mac (#49326) also took 26.6-only Macs (cmux8s, cmux10s), where
+    # "Pin Xcode 27" fails: no INTERNAL build shipped after 08:16Z 11-25.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-archive-runner.outputs.attempt == format('{0}', github.run_attempt) && needs.pick-archive-runner.outputs.dedicated != '' && needs.pick-archive-runner.outputs.dedicated || vars.CI_OVERFLOW_MAC || fromJSON('["cmux-mac","xcode-27.0"]') }}
     timeout-minutes: 90
     outputs:
       marketing: ${{ steps.stamp.outputs.marketing }}
@@ -123,7 +129,7 @@ jobs:
     env:
       SHA: ${{ inputs.sha }}
       # The dedicated mini keeps ~/cmux-mobile-builds/.cache (xcframework, cargo,
-      # SwiftPM) warm between builds; a Blacksmith fallback builds under its temp.
+      # SwiftPM) warm between builds; a fallback Mac builds under its temp.
       HOSTED_FALLBACK: ${{ !(needs.pick-archive-runner.outputs.attempt == format('{0}', github.run_attempt) && needs.pick-archive-runner.outputs.dedicated != '') }}
     steps:
       - name: Check the commit
@@ -131,17 +137,23 @@ jobs:
           set -euo pipefail
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "sha must be 40 lowercase hex" >&2; exit 1; }
 
+      # Bounded: a fetch that hangs on the mini (run 45608822951, 2026-11-25:
+      # 90 min in this step, then the job timeout cancelled the run) fails
+      # here in minutes, and the trigger's backoff retries it.
       - name: Checkout the commit
+        timeout-minutes: 20
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           ref: ${{ inputs.sha }}
-          # testflight-build.sh archives the commit with `git archive`.
-          fetch-depth: 0
+          # testflight-build.sh reads only this commit (`git archive`, `git show`,
+          # `git log -1`), so one commit is enough. Full history took 63 min on
+          # cmux10s (run 45642754959).
+          fetch-depth: 1
 
       # App Store Connect warns (ITMS-90725, one email per upload) on any build
-      # made with an SDK older than iOS 27, and will refuse it. Blacksmith's
-      # macOS 26 image carries Xcode 27 beside the pool's 26.6 pin
+      # made with an SDK older than iOS 27, and will refuse it. The archive Mac
+      # (xcode-27.0 label, or the dedicated mini) carries Xcode 27 beside the pool's 26.6 pin
       # (scripts/ci/xcode-pins.txt), so this job pins a released Xcode 27
       # instead: vars.IOS_STORE_XCODE_APP if set, else Xcode 27.1, else the
       # newest Xcode_27.x on the image. Betas and release candidates are refused (App
@@ -173,13 +185,14 @@ jobs:
             pick="$best"
           fi
           if [ -z "$pick" ] || [ ! -d "$pick/Contents/Developer" ]; then
-            echo "::error::No released Xcode 27 on this runner (looked for ${pick:-/Applications/Xcode_27*.app}); App Store Connect needs the iOS 27 SDK (ITMS-90725). Installed: $(ls -d /Applications/Xcode*.app 2>/dev/null | tr '\n' ' ')" >&2
+            echo "::error::No released Xcode 27 on this runner (looked for ${pick:-/Applications/Xcode_27*.app}); App Store Connect needs the iOS 27 SDK (ITMS-90725). Installed: $(find /Applications -maxdepth 1 -name "Xcode*.app" 2>/dev/null | sort | tr '\n' ' ')" >&2
             exit 1
           fi
           sdk="$(DEVELOPER_DIR="$pick/Contents/Developer" xcrun --sdk iphoneos --show-sdk-version)"
           case "$sdk" in 27|27.*) ;; *) echo "::error::$pick has iOS SDK $sdk, not 27" >&2; exit 1 ;; esac
           echo "Pinned $pick (iOS SDK $sdk) for App Store Connect"
           echo "CMUX_CI_XCODE_APP=$pick" >> "$GITHUB_ENV"
+          CMUX_CI_XCODE_APP="$pick" ./scripts/select-ci-xcode.sh
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -291,7 +304,12 @@ jobs:
     needs: previous-build
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/rc/cnx-ios-builder' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    timeout-minutes: 15
+    # Every step below has its own bound, together under this one. A job
+    # timeout reads as `cancelled`, which continue-on-error does not cover: it
+    # turned runs whose upload succeeded into cancelled runs (45580371273 and
+    # 45630066679, 2026-11-25), and every reader skips a cancelled run. A step
+    # timeout is a failed step, which continue-on-error does cover.
+    timeout-minutes: 30
     continue-on-error: true
     permissions:
       contents: read
@@ -303,6 +321,8 @@ jobs:
       ASC_REF: ${{ needs.previous-build.outputs.ref }}
     steps:
       - name: Checkout the builder branch (trusted script)
+        timeout-minutes: 12
+        continue-on-error: true
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -314,6 +334,7 @@ jobs:
 
       # A failed note never stops the upload: the signer then sends the first line only.
       - name: Write the note
+        timeout-minutes: 10
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -351,16 +372,35 @@ jobs:
       ASC_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
     steps:
+      # Only the signing script's files are read from the builder branch, so the
+      # signer checks out those and fetches no other file content: the whole tree
+      # (72,000 files, 1.4 GB, half of it cmux-next-ios/verify/) took 7.1 min p50,
+      # 11.6 min p90 of this job (fleet-data-raw, 35 uploads, 2026-11-18..24), more
+      # than signing, validating, uploading and App Store processing together
+      # (4.7 min). Kept: root files (.xcode-version), scripts/ (select-ci-xcode.sh,
+      # scripts/ci, the checkers' fallbacks) and cmux-next-ios/ without verify/
+      # (testflight-build.sh and its helpers, the entitlements it reads). Anything
+      # else testflight-build.sh reads comes from the built commit by `git show`,
+      # which fetches that one object on demand (the repository is public).
+      # Measured: cmuxterm-hq docs/findings/2026-11-25-ios-cicd-equilibrium.md.
       - name: Checkout the builder branch (trusted signing script)
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          fetch-depth: 0
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            /*
+            !/*/
+            /scripts/
+            /cmux-next-ios/
+            !/cmux-next-ios/verify/
+          sparse-checkout-cone-mode: false
 
       - name: Fetch the built commit
         run: |
           set -euo pipefail
-          git fetch --no-tags origin "$SHA"
+          git fetch --no-tags --depth=1 origin "$SHA"
           git cat-file -e "$SHA^{commit}"
 
       - name: Check the builder branch carries the signing script
@@ -404,13 +444,14 @@ jobs:
             pick="$best"
           fi
           if [ -z "$pick" ] || [ ! -d "$pick/Contents/Developer" ]; then
-            echo "::error::No released Xcode 27 on this runner (looked for ${pick:-/Applications/Xcode_27*.app}); App Store Connect needs the iOS 27 SDK (ITMS-90725). Installed: $(ls -d /Applications/Xcode*.app 2>/dev/null | tr '\n' ' ')" >&2
+            echo "::error::No released Xcode 27 on this runner (looked for ${pick:-/Applications/Xcode_27*.app}); App Store Connect needs the iOS 27 SDK (ITMS-90725). Installed: $(find /Applications -maxdepth 1 -name "Xcode*.app" 2>/dev/null | sort | tr '\n' ' ')" >&2
             exit 1
           fi
           sdk="$(DEVELOPER_DIR="$pick/Contents/Developer" xcrun --sdk iphoneos --show-sdk-version)"
           case "$sdk" in 27|27.*) ;; *) echo "::error::$pick has iOS SDK $sdk, not 27" >&2; exit 1 ;; esac
           echo "Pinned $pick (iOS SDK $sdk) for App Store Connect"
           echo "CMUX_CI_XCODE_APP=$pick" >> "$GITHUB_ENV"
+          CMUX_CI_XCODE_APP="$pick" ./scripts/select-ci-xcode.sh
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh

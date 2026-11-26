@@ -50,22 +50,29 @@ on:
       - "cmux-tui/crates/cmux-action-catalog/**"
       - "cmux-tui/crates/cmux-agent-pane-policy/**"
       - "cmux-tui/crates/cmux-bookmarks-core/**"
+      - "cmux-tui/crates/cmux-build-space/**"
       - "cmux-tui/crates/cmux-cloud-config/**"
+      - "cmux-tui/crates/cmux-cloud-disk/**"
       - "cmux-tui/crates/cmux-cloud-environment/**"
       - "cmux-tui/crates/cmux-cloud-handlers/**"
       - "cmux-tui/crates/cmux-cloud-machine/**"
       - "cmux-tui/crates/cmux-cloud-start-core/**"
       - "cmux-tui/crates/cmux-tab-discard/**"
       - "cmux-tui/crates/cmux-cloud-tasks/**"
+      - "cmux-tui/crates/cmux-config/**"
       - "cmux-tui/crates/cmux-cookie-sync/**"
       - "cmux-tui/crates/cmux-daemon-conn-core/**"
       - "cmux-tui/crates/cmux-daemon-launch-core/**"
       - "cmux-tui/crates/cmux-health-core/**"
       - "cmux-tui/crates/cmux-launch-image/**"
+      - "cmux-tui/crates/cmux-pane-pictures/**"
       - "cmux-tui/crates/cmux-focus-core/**"
       - "cmux-tui/crates/cmux-imessage/**"
+      - "cmux-tui/crates/cmux-keymap/**"
+      - "schemas/keymap/key-styles.json"
       - "cmux-tui/crates/cmux-launch-record/**"
       - "cmux-tui/crates/cmux-launch-shell/**"
+      - "cmux-tui/crates/cmux-layout-cache/**"
       - "cmux-tui/crates/cmux-layout-reducer/**"
       - "cmux-tui/crates/cmux-lifeline/**"
       - "cmux-tui/crates/cmux-local-auth/**"
@@ -73,8 +80,10 @@ on:
       - "cmux-tui/crates/cmux-palette-ranker/**"
       - "cmux-tui/crates/cmux-process/**"
       - "cmux-tui/crates/cmux-motion/**"
+      - "cmux-tui/crates/cmux-interactivity/**"
       - "cmux-tui/crates/cmux-wallpaper/**"
       - "cmux-tui/crates/cmux-rd-core/**"
+      - "cmux-tui/crates/cmux-rd-engine/**"
       - "cmux-tui/crates/cmux-rd-proto/**"
       - "cmux-tui/crates/cmux-rd-ffi/**"
       - "cmux-tui/crates/cmux-sdk-ffi/**"
@@ -187,7 +196,9 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          sparse-checkout: scripts/ci
+          sparse-checkout: |
+            scripts/ci
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Mint the owned-pool read token
@@ -486,6 +497,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/app_ffi_rescue.py
             scripts/ci/deadline_http.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Watch the build and rescue it
         env:
@@ -554,7 +566,17 @@ jobs:
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
       - name: Cache the pinned cctools-port ld64
+        if: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ${{ runner.temp }}/macos-cross/cctools
+            ${{ runner.temp }}/macos-cross/dispatch
+          key: macos-cross-cctools-${{ runner.os }}-${{ runner.arch }}-llvm19-${{ hashFiles('scripts/ci/macos-cross.sh') }}
+
+      - name: Cache the pinned cctools-port ld64 (restore only off base branches)
+        if: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: |
             ${{ runner.temp }}/macos-cross/cctools

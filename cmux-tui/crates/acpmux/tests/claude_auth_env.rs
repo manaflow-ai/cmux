@@ -1116,6 +1116,38 @@ async fn vertex_from_the_login_shell_keeps_its_regions() {
     assert_eq!(v["vertexRegions"], json!([]), "{v}");
 }
 
+/// (d3) Foundry switched on in the login shell with an Entra ID service principal: the agent
+/// gets the AZURE_* names Azure's credential chain reads (never Codex's AZURE_OPENAI_API_KEY);
+/// without the switch it gets none; a profile's own switch unlocks only the non-secret ones.
+#[tokio::test]
+async fn foundry_from_the_login_shell_keeps_its_azure_sign_in() {
+    let azure = "export AZURE_TENANT_ID=t\nexport AZURE_CLIENT_ID=c\nexport AZURE_CLIENT_SECRET=s\nexport AZURE_OPENAI_API_KEY=o\n";
+    let dir = scratch(
+        "foundry",
+        &format!("export CLAUDE_CODE_USE_FOUNDRY=1\nexport ANTHROPIC_FOUNDRY_RESOURCE=r\n{azure}"),
+    );
+    let d = start(&dir, json!({"claude": claude(json!({}))}), &[]).await;
+    let (reply, _) = ask(&d, "claude").await;
+    let v = found(&reply);
+    assert_eq!(v["auth"], json!(["foundry"]), "{v}");
+    assert_eq!(
+        v["azureKeys"],
+        json!(["AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET", "AZURE_TENANT_ID"]),
+        "{v}"
+    );
+    drop(d);
+    let dir = scratch("nofoundry", &format!("export ANTHROPIC_API_KEY=sk-login\n{azure}"));
+    let d = start(&dir, json!({"claude": claude(json!({}))}), &[]).await;
+    let (reply, _) = ask(&d, "claude").await;
+    assert_eq!(found(&reply)["azureKeys"], json!([]));
+    drop(d);
+    let dir = scratch("foundryprof", azure);
+    let harnesses = json!({"claude": claude(json!({"CLAUDE_CODE_USE_FOUNDRY": "1"}))});
+    let d = start(&dir, harnesses, &[]).await;
+    let (reply, _) = ask(&d, "claude").await;
+    assert_eq!(found(&reply)["azureKeys"], json!(["AZURE_CLIENT_ID", "AZURE_TENANT_ID"]));
+}
+
 /// A profile's own Bedrock switch (any local client can add a profile)
 /// unlocks only the non-secret AWS names; the AWS keys need the person's
 /// own switch in the login shell or the daemon's environment.

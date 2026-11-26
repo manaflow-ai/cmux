@@ -19,8 +19,9 @@ final class NativeNewTabRowView: NSView {
     /// The detail label (tests read its frame).
     var detailField: NSTextField { detail }
     private(set) var selected = false
-    /// Runs the row, as a click on it does.
-    var activate: @MainActor () -> Void = {}
+    /// Runs the row, as a click on it does: with the click's event, or nil for an accessibility press (no event of its
+    /// own: `NSApp.currentEvent` then is an older, unrelated one).
+    var activate: @MainActor (NSEvent?) -> Void = { _ in }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -150,11 +151,11 @@ final class NativeNewTabRowView: NSView {
 
     override func mouseUp(with event: NSEvent) {
         guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
-        activate()
+        activate(event)
     }
 
     override func accessibilityPerformPress() -> Bool {
-        activate()
+        activate(nil)
         return true
     }
 }

@@ -109,6 +109,7 @@ impl ResourceOperation {
                 | Self::SettingsList
                 | Self::SettingsGet
                 | Self::SettingsSnapshot
+                | Self::SettingsHistory
                 | Self::KeybindingsGet
                 | Self::LanguagePacksEnsure
                 | Self::BrowserDevicesList
@@ -116,11 +117,13 @@ impl ResourceOperation {
                 | Self::SidebarLayoutGet
                 | Self::SidebarGet
                 | Self::ProjectList
+                | Self::ProjectActionsList
                 | Self::PaletteUsageGet
                 | Self::PaletteRank
                 | Self::ThemeSchemeConvert
                 | Self::ThemeSchemeExport
                 | Self::ThemeSchemeFromImage
+                | Self::ThemeSlotsResolve
                 | Self::StashList
                 | Self::ClassicImportPlan
                 | Self::ConductorImportPlan

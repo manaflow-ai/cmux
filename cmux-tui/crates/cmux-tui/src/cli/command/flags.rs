@@ -17,6 +17,9 @@ pub(super) const SWITCH_OR_VALUE_FLAGS: &[&str] = &["fit", "approve"];
 
 pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "ack",
+    // `git comments send --threads` and `git comments resolve --reopen`.
+    "threads",
+    "reopen",
     // `app publish --include-dirty`: without this it would swallow a following `--json`.
     "include-dirty",
     // `terminal <t> screen read --details`: the screen record's fields, not its text alone.
@@ -36,6 +39,8 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     // `workspace create --no-focus`: accepted and ignored (creation does not
     // move focus without `--focus`); agents pass it out of habit.
     "no-focus",
+    // `project actions --no-global`: without this it would swallow a following `--json`.
+    "no-global",
     // `agent list`: only the agents waiting on the person.
     "needs-me",
     // `terminal list --agents`: without this it would swallow a following `--json`.
