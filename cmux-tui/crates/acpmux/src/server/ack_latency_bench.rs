@@ -33,19 +33,19 @@ pub(super) const MIRRORED: usize = 2_000;
 pub(super) const PEERS: [&str; 2] = ["box", "lane"];
 /// An own chat's title: summaries keep about this much of one.
 const TITLE_BYTES: usize = 2_000;
-/// The plan text a mirrored row carries: rows of a busy peer are several KB.
-const PLAN_BYTES: usize = 5_500;
-/// [`hub_with`]'s plan text for a whole list of about 31 MB.
-const LARGE_PLAN_BYTES: usize = 6_200;
+/// The preview text a mirrored row carries: rows of a busy peer are several KB.
+const TEXT_BYTES: usize = 5_500;
+/// [`hub_with`]'s preview text for a whole list of about 31 MB.
+const LARGE_TEXT_BYTES: usize = 6_200;
 
 /// The hub: [`OWN`] chats of its own and [`MIRRORED`] from each of [`PEERS`].
 pub(super) async fn hub() -> Arc<crate::hub::Hub> {
-    hub_with(PLAN_BYTES).await
+    hub_with(TEXT_BYTES).await
 }
 
-/// [`hub`] with peer rows of `plan_bytes` of plan text: [`LARGE_PLAN_BYTES`] makes a whole list of
+/// [`hub`] with peer rows of `text_bytes` of preview text: [`LARGE_TEXT_BYTES`] makes a whole list of
 /// about 31 MB, just under the one-reply bound, as the dogfood Mac's was (31,454,601 bytes).
-pub(super) async fn hub_with(plan_bytes: usize) -> Arc<crate::hub::Hub> {
+pub(super) async fn hub_with(text_bytes: usize) -> Arc<crate::hub::Hub> {
     let mut config = Config::default();
     config.store.mode = StoreMode::Memory;
     let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
@@ -67,7 +67,7 @@ pub(super) async fn hub_with(plan_bytes: usize) -> Arc<crate::hub::Hub> {
             .map(|i| {
                 json!({"sessionId": format!("{name}-chat-{i}"), "name": "lane", "harness": "claude",
                     "cwd": "/work", "status": "idle", "updatedAt": i as u64 + 10,
-                    "planStep": "x".repeat(plan_bytes)})
+                    "preview": "x".repeat(text_bytes)})
             })
             .collect();
         let mut settled = peer.settled();
@@ -405,7 +405,7 @@ async fn pane_reconnect_bench() {
     let window = Duration::from_secs(
         std::env::var("PANE_WINDOW_SECS").ok().and_then(|s| s.parse().ok()).unwrap_or(120),
     );
-    let hub = hub_with(LARGE_PLAN_BYTES).await;
+    let hub = hub_with(LARGE_TEXT_BYTES).await;
     // The whole list's size, as one reply would hold it.
     let whole = Client::on(&hub, Origin::Local).await;
     let list_bytes: usize = whole
@@ -426,7 +426,7 @@ async fn pane_reconnect_bench() {
                 let row = json!({"sessionId": format!("{}-chat-{i}", PEERS[0]), "name": "lane",
                     "harness": "claude", "cwd": "/work",
                     "status": if n.is_multiple_of(2) { "running" } else { "idle" },
-                    "updatedAt": i as u64 + 10, "planStep": "x".repeat(LARGE_PLAN_BYTES)});
+                    "updatedAt": i as u64 + 10, "preview": "x".repeat(LARGE_TEXT_BYTES)});
                 let notice =
                     PeerNotice::SessionChanged { session: row, kind: "status".into(), seq: n };
                 let _ = hub.peer_notices.send((PEERS[0].to_owned(), generation, notice)).await;

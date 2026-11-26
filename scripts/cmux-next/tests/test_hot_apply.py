@@ -716,6 +716,8 @@ class HotKeys(unittest.TestCase):
         self.assertNotIn("via", plan)
         self.assertEqual(plan["parts"], ["rust"])  # cmux#37155's real diff
         self.publish(FIX, rules="a" * 64)
+        # The first plan kept FIX's record under state/keys/hot; CI's republish replaces it there too.
+        (self.tmp / "state" / "keys" / "hot" / f"{FIX}.json").unlink()
         code, plan, err = self.plan()
         self.assertEqual(code, 0, err)
         self.assertEqual(plan["via"], "published keys")
@@ -1345,7 +1347,10 @@ class PinCompatibility(unittest.TestCase):
 class StringCatalogs(unittest.TestCase):
     """A string catalog gen-strings.mjs reads is web: the bundle built for a commit carries its words."""
 
-    WEB_CATALOG = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings"
+    # gen-strings.mjs names a one-file-per-key table by its directory (scripts/cmux-next/string_catalogs.py); an
+    # edit is to one key's file in it.
+    WEB_TABLE = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings.d"
+    WEB_CATALOG = f"{WEB_TABLE}/settings.demo.title.xcstrings"
     SWIFT_CATALOG = "Packages/macOS/CmuxNext/Sources/CmuxNextOnlySwift/Localizable.xcstrings"
 
     def setUp(self):
@@ -1358,7 +1363,7 @@ class StringCatalogs(unittest.TestCase):
         self.git("config", "user.name", "t")
         gen = self.repo / "webviews/scripts/pages/gen-strings.mjs"
         gen.parent.mkdir(parents=True)
-        gen.write_text(f'export const PAGES = {{ settings: {{ catalogs: [{{ file: "{self.WEB_CATALOG}" }}] }} }};\n')
+        gen.write_text(f'export const PAGES = {{ settings: {{ catalogs: [{{ file: "{self.WEB_TABLE}" }}] }} }};\n')
         (self.repo / "webviews/src").mkdir(parents=True)
         (self.repo / "webviews/src/web-abi.json").write_text('{"abi": 3}\n')
         for catalog in (self.WEB_CATALOG, self.SWIFT_CATALOG):
@@ -2293,5 +2298,82 @@ class RefusedOverlayRollback(unittest.TestCase):
         self.assertIn("overlay", json.loads(self.web_dev.read_text()))
 
 
+
+class AppCommitOnAShallowSource(unittest.TestCase):
+    """A fleet Mac's step source is a shallow bundle (hq#27830/#27935): one commit, no history, and an origin
+    it cannot reach. ext-rows-nightly.py crashed there resolving the NIGHTLY's short CMUXCommit (step
+    2a681326817c4454aeb4e856, 2026-11-26): `CMUXCommit 0a6830e is not one commit in .../src`."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="hot-apply-shallow-"))
+        upstream = self.tmp / "upstream"
+        env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+               "GIT_COMMITTER_EMAIL": "t@t"}
+
+        def git(repo, *args):
+            return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, check=True,
+                                  env=env).stdout.strip()
+        subprocess.run(["git", "init", "-q", "-b", "feat-cmux-next", str(upstream)], check=True)
+        for n in (1, 2):
+            (upstream / "f").write_text(f"{n}\n")
+            git(upstream, "add", "f")
+            git(upstream, "commit", "-q", "-m", f"c{n}")
+        self.nightly = git(upstream, "rev-parse", "HEAD~1")  # the app's commit: not the checkout's head
+        self.clone = self.tmp / "src"
+        subprocess.run(["git", "clone", "-q", "--depth", "1", "-b", "feat-cmux-next", f"file://{upstream}",
+                        str(self.clone)], check=True)
+        self.assertEqual(git(self.clone, "rev-parse", "--is-shallow-repository"), "true")
+        # GitHub 403s the office IP: the origin is unreachable.
+        git(self.clone, "remote", "set-url", "origin", str(self.tmp / "unreachable"))
+        self.app = self.tmp / "cmux NIGHTLY.app"
+        (self.app / "Contents/Resources/bin").mkdir(parents=True)
+        with open(self.app / "Contents/Info.plist", "wb") as handle:
+            plistlib.dump({"CMUXCommit": self.nightly[:7]}, handle)
+        spec = importlib.util.spec_from_file_location("hot_apply_shallow", SCRIPT)
+        self.hot = importlib.util.module_from_spec(spec)
+        sys.modules["hot_apply_shallow"] = self.hot
+        spec.loader.exec_module(self.hot)
+
+    def tearDown(self):
+        subprocess.run(["rm", "-rf", str(self.tmp)])
+
+    def test_the_bundle_s_own_full_commit_resolves_the_short_stamp(self):
+        (self.app / "Contents/Resources/bin/cmux-tui.version").write_text(
+            f"mode=tree\nkey=k\ncommit={self.nightly}\nsource=release-manifest\n")
+        self.assertEqual(self.hot.app_commit(self.app, self.clone), self.nightly)
+        self.assertEqual(self.hot.app_commit_receipt(self.app, self.clone),
+                         {"app_commit": self.nightly, "app_commit_resolved": True})
+
+    def test_a_bundle_commit_of_another_commit_is_not_taken(self):
+        (self.app / "Contents/Resources/bin/cmux-tui.version").write_text(f"commit={'f' * 40}\n")
+        self.assertFalse(self.hot.resolve_app_commit(self.app, self.clone)["resolved"])
+
+    def test_an_unresolved_stamp_is_a_receipt_as_given_and_a_refusal_for_a_plan(self):
+        receipt = self.hot.app_commit_receipt(self.app, self.clone)
+        self.assertEqual(receipt["app_commit"], self.nightly[:7])
+        self.assertIs(receipt["app_commit_resolved"], False)
+        self.assertIn("a shallow checkout", receipt["app_commit_unresolved"])
+        # What diffs or compares the commit (plan, hot-verify) still refuses: the ancestry is unknown here.
+        with self.assertRaisesRegex(RuntimeError, "is not one commit in a shallow checkout"):
+            self.hot.app_commit(self.app, self.clone)
+
+    def test_a_reachable_origin_deepens_a_shallow_checkout_by_a_day_of_merges(self):
+        subprocess.run(["git", "-C", str(self.clone), "remote", "set-url", "origin",
+                        f"file://{self.tmp / 'upstream'}"], check=True)
+        found = self.hot.resolve_app_commit(self.app, self.clone)
+        self.assertEqual((found["commit"], found["via"]), (self.nightly, "fetch"))
+
+    def test_the_cli_prints_it_for_shell_callers(self):
+        done = subprocess.run([sys.executable, "-I", str(SCRIPT), "app-commit", str(self.app), "--repo",
+                               str(self.clone), "--no-fetch"], capture_output=True, text=True)
+        self.assertEqual(done.returncode, 1, done.stderr)
+        self.assertEqual(json.loads(done.stdout)["commit"], self.nightly[:7])
+
 if __name__ == "__main__":
-    unittest.main()
+    # `--shard I/N`: the checks job runs this file as four pool commands (tests/unittest_shard.py); whole it
+    # ran 260 s on Linux and past the pool's 600 s deadline beside 15 other commands.
+    _shard_spec = importlib.util.spec_from_file_location(
+        "unittest_shard", Path(__file__).resolve().parents[3] / "tests" / "unittest_shard.py")
+    unittest_shard = importlib.util.module_from_spec(_shard_spec)
+    _shard_spec.loader.exec_module(unittest_shard)
+    unittest_shard.main()
