@@ -24,13 +24,14 @@ extension SettingsController {
             guard managedKeys[descriptor.id] == nil else { return false }
             if let value, !descriptor.accepts(value) { return false }
         }
-        let writes: [([String], JSONValue?)] = edits.flatMap { descriptor, value -> [([String], JSONValue?)] in
-            // The write's linked keys preview with it (Opacity leaves Material "Ghostty").
-            [(descriptor.path, value)] + windowBackgroundLinkedEdits(writing: descriptor.path, value: value, in: snapshot.root)
-                .map { ($0.path, $0.value) }
-        }
         func edit(_ root: JSONValue) -> JSONValue {
-            writes.reduce(root) { Self.replacing($1.0, with: $1.1, in: $0) }
+            edits.reduce(root) { current, edit in
+                let (descriptor, value) = edit
+                // Each linked edit sees the preceding preview edits, just as a saved batch does.
+                let linked = windowBackgroundLinkedEdits(writing: descriptor.path, value: value, in: current)
+                let written = Self.replacing(descriptor.path, with: value, in: current)
+                return linked.reduce(written) { Self.replacing($1.path, with: $1.value, in: $0) }
+            }
         }
         // From the settings under the theme file, so a previewed theme file replaces the active one.
         var root = edit(themeFile == nil ? snapshot.root : rootUnderThemeFile)

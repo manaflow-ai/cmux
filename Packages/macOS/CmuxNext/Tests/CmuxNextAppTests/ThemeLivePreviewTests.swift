@@ -117,6 +117,24 @@ import Testing
         withExtendedLifetime(terminal) {}
     }
 
+    @Test func groupedWindowBackgroundPreviewsKeepEarlierMaterialEdits() async throws {
+        let (settings, url) = try await make()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let material = try descriptor("appearance.backgroundBlur")
+        let opacity = try descriptor("appearance.backgroundOpacity")
+        #expect(settings.snapshot.root.value(at: material.path) == nil)
+        #expect(settings.preview([(material, .string("frosted")), (opacity, .number(0.5))]))
+        #expect(settings.applied.root.value(at: material.path) == .string("frosted"))
+        #expect(settings.applied.root.value(at: opacity.path) == .number(0.5))
+        settings.endPreview()
+        #expect(settings.applied.root.value(at: material.path) == nil)
+        // Resetting Material after an Opacity preview also resets that earlier opacity.
+        #expect(settings.preview([(opacity, .number(0.5)), (material, nil)]))
+        #expect(settings.applied.root.value(at: material.path) == nil)
+        #expect(settings.applied.root.value(at: opacity.path) == nil)
+        settings.endPreview()
+    }
+
     @Test func previewingAnAppThemeReachesTheChromeAndEndingRevertsIt() async throws {
         let (settings, url) = try await make()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }

@@ -81,6 +81,16 @@ final class ThemeCoordinator {
     private var artObservation: Task<Void, Never>?
     private var machineColorsObservation: Task<Void, Never>?
 
+    // Task handles are Sendable: cancellation needs no main-actor hop during teardown.
+    nonisolated deinit {
+        observation?.cancel()
+        chromeObservation?.cancel()
+        accentObservation?.cancel()
+        artAccentObservation?.cancel()
+        artObservation?.cancel()
+        machineColorsObservation?.cancel()
+    }
+
     /// Follows `appearance.appTheme`: the theme the native chrome (window, sidebar, tab strips, light/dark)
     /// and the pages (`--cmux-app-*`, `WebTheme`) take: the system appearance's variant, its file and edits only
     /// (`GhosttyThemeConfig.appColors`; config color lines stay the terminals'). `followTerminal` leaves each scope on its own theme.

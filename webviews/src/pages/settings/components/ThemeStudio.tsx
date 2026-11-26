@@ -204,7 +204,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
     if (name) {
       previewOwners.current.set("terminal", owner ?? {});
       setPreviewing({ name, target: "terminal" });
-      store.preview(THEME_KEY, name, owner, wholeAppOn ? [{ key: APP_THEME_KEY, value: null }] : undefined);
+      store.preview(THEME_KEY, name, owner, wholeAppOn ? [{ key: APP_THEME_KEY, value: "followTerminal" }] : undefined);
     } else if (!owner || previewOwners.current.get("terminal") === owner) {
       previewOwners.current.delete("terminal");
       setPreviewing((current) => (current?.target === "terminal" ? null : current));
@@ -246,12 +246,12 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
       store.previewEnd(APP_THEME_KEY, owner);
     }
   };
-  // A whole-app pick resets the App Theme only once the terminal theme is written, so a refused
-  // write leaves both as they were.
+  // Save an explicit follow mode after the terminal write succeeds: resetting would restore
+  // an App Theme supplied by the active theme file.
   const pickWholeApp = (onPick: (name: string | null) => void | Promise<unknown>) => async (name: string | null) => {
     const result = (await onPick(name)) as WriteResult | undefined;
     if (result && !result.ok) return result;
-    return writeApp(null);
+    return store.set(APP_THEME_KEY, "followTerminal");
   };
   const paired = spec?.kind === "pair";
   const current = (side: "light" | "dark") => (spec ? themeFor(spec, side, fallbackName) : null);

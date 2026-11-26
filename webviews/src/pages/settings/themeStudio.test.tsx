@@ -383,17 +383,20 @@ test("Preview on the Whole App previews a terminal theme on the chrome too, and 
   expect(previews().at(-1)).toEqual({
     key: "appearance.theme",
     value: "Dracula",
-    also: [{ key: "appearance.appTheme", value: null }],
+    also: [{ key: "appearance.appTheme", value: "followTerminal" }],
   });
   expect(ops(page.provider, "cmux.settings.set")).toEqual([]);
   // A pick writes the terminal theme and puts the App Theme back to matching it.
   await fire(option("Dracula"), "mousedown");
-  await until(() => ops(page!.provider, "cmux.settings.reset").length > 0, "the App Theme reset");
-  expect(ops(page.provider, "cmux.settings.set").at(-1)).toEqual({ key: "appearance.theme", value: "Dracula" });
-  expect(ops(page.provider, "cmux.settings.reset")).toEqual([{ key: "appearance.appTheme" }]);
+  await until(() => ops(page!.provider, "cmux.settings.set").length === 2, "the App Theme follow mode");
+  expect(ops(page.provider, "cmux.settings.set")).toEqual([
+    { key: "appearance.theme", value: "Dracula" },
+    { key: "appearance.appTheme", value: "followTerminal" },
+  ]);
+  expect(ops(page.provider, "cmux.settings.reset")).toEqual([]);
 });
 
-// A whole-app pick whose terminal write is refused keeps the App Theme: the reset waits for the write.
+// A whole-app pick whose terminal write is refused keeps the App Theme: the follow mode waits for the write.
 test("Preview on the Whole App: a refused terminal pick leaves the App Theme as it was", async () => {
   page = await renderPage({
     path: "/settings/theme",
@@ -408,9 +411,10 @@ test("Preview on the Whole App: a refused terminal pick leaves the App Theme as 
   await click(theme(page).querySelector('[data-theme-row="single"] [data-theme-picker]')!);
   await fire(option("Dracula"), "mousedown");
   await until(() => ops(page!.provider, "cmux.settings.set").length > 0, "the terminal theme write");
-  // fixed-wait: proving the reset never goes out needs a quiet window after the refused write.
+  // fixed-wait: proving the follow mode never goes out needs a quiet window after the refused write.
   await new Promise((resolve) => setTimeout(resolve, 50));
   expect(ops(page.provider, "cmux.settings.reset")).toEqual([]);
+  expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key: "appearance.theme", value: "Dracula" }]);
 });
 
 test("Open Theme File, below the Theme File row, asks the host to open the theme file", async () => {
