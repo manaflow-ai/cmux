@@ -128,6 +128,7 @@ import Testing
         }
         // One step of a window drag: both pages of the pane take the new size in one turn.
         let made = ports.made.count
+        let hiddenResized = Shim.resized[hidden.browser, default: 0]
         for page in [shown, hidden] { page.setFrameSize(NSSize(width: 360, height: 280)) }
         #expect(ports.made.count == made + 1, "the step opened no fence for the shown page")
         guard let fence = ports.made.last else { return }
@@ -137,7 +138,7 @@ import Testing
         endTurn()
         #expect(ports.sendRights(fence) == 0,
                 "the step's fence still holds the window's commit after the shown page painted: a page that is not drawing joined it")
-        #expect(Shim.resized[hidden.browser, default: 0] <= 1, "the hidden page was resized while hidden")
+        #expect(Shim.resized[hidden.browser, default: 0] == hiddenResized, "the hidden page was resized while hidden")
     }
 
     @Test func aHiddenPagesSizeGoesToChromiumWhenItIsShown() {
