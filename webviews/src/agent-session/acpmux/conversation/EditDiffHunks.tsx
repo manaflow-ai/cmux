@@ -21,10 +21,11 @@ const cardUnsafeCSS = `${diffUnsafeCSS}
   --diffs-dark-bg: transparent;
   --diffs-light-bg: transparent;
   --diffs-font-size: var(--cv-codeblock-size, var(--cmux-diff-font-size, var(--text-detail)));
-  --diffs-line-height: var(--cv-codeblock-line-height, var(--cmux-diff-line-height, 18px));
+  --diffs-line-height: var(--cv-edit-diff-row);
   --diffs-font-family: var(--cv-mono);
   background: transparent;
 }
+[data-separator="line-info"] { height: var(--cv-edit-diff-separator); }
 ${PIERRE_BLOCK_CSS}`;
 
 /// Pierre's options for an edit placed in its file (numbered) and for a bare fragment; `wrap` wraps
