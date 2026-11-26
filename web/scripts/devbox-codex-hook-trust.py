@@ -137,8 +137,10 @@ def main():
     args = parser.parse_args()
 
     argv = wrapper_argv(args.wrapper, args.socket, args.terminal)
-    if argv[:2] != ["--enable", "hooks"]:
-        print("%s: the wrapper injected no hooks: %r" % (args.label, argv[:4]), file=sys.stderr)
+    # The pair may follow the chat config the wrapper also passes
+    # (`-c agents.max_depth=16`, ...), which since cmux#54161 goes first.
+    if not any(argv[i : i + 2] == ["--enable", "hooks"] for i in range(len(argv))):
+        print("%s: the wrapper injected no hooks: %r" % (args.label, argv[:8]), file=sys.stderr)
         return 1
     injected = sum(1 for arg in argv if arg.startswith("hooks.") and not arg.startswith("hooks.state"))
     try:
