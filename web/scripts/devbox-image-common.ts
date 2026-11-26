@@ -73,15 +73,20 @@ export const webRoot = path.resolve(__dirname, "..");
  * through this: back off and ask again for up to ten minutes, and rethrow any
  * other error at once.
  */
+/** Freestyle's "no start capacity right now" answer: 429 / INFRASTRUCTURE_OVERLOADED. */
+export function isFreestyleOverload(error: unknown): boolean {
+  const e = error as { status?: unknown; code?: unknown } | null;
+  return e?.status === 429 || e?.code === "INFRASTRUCTURE_OVERLOADED";
+}
+
 export async function retryFreestyleOverload<T>(label: string, start: () => Promise<T>, budgetMs = 10 * 60_000, firstWaitMs = 15_000): Promise<T> {
   const deadline = Date.now() + budgetMs;
   for (let attempt = 1, waitMs = firstWaitMs; ; attempt += 1, waitMs = Math.min(waitMs * 2, Math.max(firstWaitMs, 120_000))) {
     try {
       return await start();
     } catch (error) {
-      const e = error as { status?: unknown; code?: unknown; message?: unknown } | null;
-      const overloaded = e?.status === 429 || e?.code === "INFRASTRUCTURE_OVERLOADED";
-      if (!overloaded || Date.now() + waitMs > deadline) throw error;
+      const e = error as { message?: unknown; code?: unknown } | null;
+      if (!isFreestyleOverload(error) || Date.now() + waitMs > deadline) throw error;
       console.log(`${label}: Freestyle start capacity overloaded (${String(e?.message ?? e?.code)}); retry ${attempt} in ${waitMs / 1000}s`);
       await new Promise((resolve) => setTimeout(resolve, waitMs));
     }

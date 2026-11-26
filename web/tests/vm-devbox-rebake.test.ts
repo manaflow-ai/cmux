@@ -15,7 +15,7 @@ import {
   settledAwaiting,
   type SnapshotRow,
 } from "../scripts/devbox-rebake";
-import { readDevboxAwaitingRebake, repoRoot, retryFreestyleOverload, type DevboxAwaitingRebake } from "../scripts/devbox-image-common";
+import { isFreestyleOverload, readDevboxAwaitingRebake, repoRoot, retryFreestyleOverload, type DevboxAwaitingRebake } from "../scripts/devbox-image-common";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // Bun's YAML parser; web/tests are typed by tests/bun-test.d.ts, which has no Bun global.
@@ -177,5 +177,12 @@ describe("retryFreestyleOverload", () => {
     let calls = 0;
     await expect(retryFreestyleOverload("t", async () => { calls += 1; throw overloaded; }, 30, 10)).rejects.toBe(overloaded);
     expect(calls).toBeGreaterThan(1);
+  });
+
+  test("isFreestyleOverload names the 429 overload and nothing else", () => {
+    expect(isFreestyleOverload(overloaded)).toBe(true);
+    expect(isFreestyleOverload({ code: "INFRASTRUCTURE_OVERLOADED" })).toBe(true);
+    expect(isFreestyleOverload(Object.assign(new Error("bad snapshot"), { status: 400 }))).toBe(false);
+    expect(isFreestyleOverload(null)).toBe(false);
   });
 });

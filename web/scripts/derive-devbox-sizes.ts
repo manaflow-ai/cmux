@@ -33,7 +33,7 @@ import {
 } from "../services/vms/images/sizes";
 import { CMUX_TUI_SESSION, cmuxTuiRunCommand } from "../services/vms/drivers/cmuxTuiDaemon";
 import { DEVBOX_HOSTNAME } from "../services/vms/images/identity";
-import { retryFreestyleOverload, argValue, cmuxTuiWebsocketSmokeCommand, devboxParkDaemonCommand, devboxPrepareTemplateTerminalCommand, devboxSettleBeforeSnapshotCommand, devboxSnapshotClockCommand, devboxWaitForDaemonCommand, hasFlag } from "./devbox-image-common";
+import { isFreestyleOverload, retryFreestyleOverload, argValue, cmuxTuiWebsocketSmokeCommand, devboxParkDaemonCommand, devboxPrepareTemplateTerminalCommand, devboxSettleBeforeSnapshotCommand, devboxSnapshotClockCommand, devboxWaitForDaemonCommand, hasFlag } from "./devbox-image-common";
 
 const apiKey = process.env.FREESTYLE_API_KEY;
 const stackToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN;
@@ -152,20 +152,27 @@ const smokeSize = sizes[sizes.length - 1];
  * Every row is independent (its own VMs, its own snapshot), so they run
  * concurrently; the master and the manifest are read-only here.
  */
-async function deriveSize(name: VmImageSizeName): Promise<void> {
+/** Snapshots a row already took, so a row deferred on an overload resumes at its verify boot. */
+const derivedImage = new Map<VmImageSizeName, string>();
+
+async function deriveSize(name: VmImageSizeName, overloadBudgetMs?: number): Promise<void> {
     const size = vmImageSize(name);
     const slug = name === "md" && slugPrefix !== masterSlug ? slugPrefix : `${slugPrefix}-${name}`;
     const t0 = Date.now();
     let imageId: string;
 
-    if (masterShape.cpu === size.cpu && Math.abs(masterShape.memoryMb - size.memoryMb) < size.memoryMb * 0.1 && masterShape.rootMb >= size.storageMb * 0.85) {
+    const already = derivedImage.get(name);
+    if (already) {
+      imageId = already;
+      console.log(`${name}: resuming at the verify boot of ${already}`);
+    } else if (masterShape.cpu === size.cpu && Math.abs(masterShape.memoryMb - size.memoryMb) < size.memoryMb * 0.1 && masterShape.rootMb >= size.storageMb * 0.85) {
       imageId = master;
       console.log(`${name}: master already has this shape; reusing ${master}`);
     } else {
       if (masterShape.cpu > size.cpu || masterShape.memoryMb > size.memoryMb) {
         throw new Error(`${name}: master (${masterShape.cpu} vCPU, ${masterShape.memoryMb} MiB) is larger than the target; resize is grow-only, bake on a smaller base`);
       }
-      const { vm } = await retryFreestyleOverload(`${name} derive`, () => fs.vms.create({ snapshotId: master, displayName: `${slugPrefix} derive ${name}`, firewall: FIREWALL }));
+      const { vm } = await retryFreestyleOverload(`${name} derive`, () => fs.vms.create({ snapshotId: master, displayName: `${slugPrefix} derive ${name}`, firewall: FIREWALL }), overloadBudgetMs);
       try {
         const clock = await sh(vm, devboxSnapshotClockCommand);
         if (clock.code !== 0) throw new Error(`${name}: snapshot clock is unavailable`);
@@ -200,13 +207,14 @@ async function deriveSize(name: VmImageSizeName): Promise<void> {
         const snap = await vm.snapshot({ displayName: `cmux devbox ${slug} (${size.cpu} vCPU · ${size.memoryMb} MiB · ${size.storageMb} MiB)` });
         if (!snap.snapshotId) throw new Error(`${name}: snapshot response carried no id`);
         imageId = snap.snapshotId;
+        derivedImage.set(name, imageId);
       } finally {
         await vm.delete().catch(() => {});
       }
     }
 
     // Boot the derived snapshot itself: the shape must survive the round trip.
-    const check = await retryFreestyleOverload(`${name} verify`, () => fs.vms.create({ snapshotId: imageId, displayName: `${slugPrefix} verify ${name}`, firewall: FIREWALL }));
+    const check = await retryFreestyleOverload(`${name} verify`, () => fs.vms.create({ snapshotId: imageId, displayName: `${slugPrefix} verify ${name}`, firewall: FIREWALL }), overloadBudgetMs);
     let measured: Awaited<ReturnType<typeof measure>>;
     try {
       // The daemon is the last thing to come up on a resumed snapshot, so
@@ -246,6 +254,15 @@ const t0All = Date.now();
 // while the other workers still hold VMs, leaking them. Every worker runs to
 // completion (each cleans up in its own finally), then the first failure is
 // rethrown. A failed worker also drains the queue so the rest stop early.
+//
+// A row whose VM start stays overloaded past its ten-minute budget is not a
+// failure yet: Freestyle's largest shapes (xl 16 vCPU, 2xl 32 vCPU) wait on
+// the scarcest hosts, and in rebake run 45857305941 xl and 2xl asked for one
+// at the same moment for ten minutes after sm..lgx had all passed. Such rows
+// are deferred and run again one at a time once the concurrent pass is over,
+// each with OVERLOAD_RETRY_BUDGET_MS and the snapshot it already took.
+const OVERLOAD_RETRY_BUDGET_MS = 30 * 60_000;
+const deferred: VmImageSizeName[] = [];
 let failure: unknown;
 const outcomes = await Promise.allSettled(
   Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
@@ -253,6 +270,11 @@ const outcomes = await Promise.allSettled(
       try {
         await deriveSize(next);
       } catch (error) {
+        if (isFreestyleOverload(error)) {
+          console.log(`${next}: Freestyle start capacity still overloaded; deferred to a serial pass`);
+          deferred.push(next);
+          continue;
+        }
         failure ??= error;
         queue.length = 0;
         throw error;
@@ -264,6 +286,10 @@ if (failure !== undefined) {
   const failed = outcomes.filter((o) => o.status === "rejected").length;
   console.error(`${failed} of ${outcomes.length} derive workers failed; all VMs have been cleaned up`);
   throw failure;
+}
+for (const name of deferred) {
+  console.log(`${name}: serial pass, up to ${OVERLOAD_RETRY_BUDGET_MS / 60_000} minutes for Freestyle start capacity`);
+  await deriveSize(name, OVERLOAD_RETRY_BUDGET_MS);
 }
 console.log(`derived ${sizes.length} sizes in ${((Date.now() - t0All) / 1000).toFixed(0)}s (concurrency ${concurrency})`);
 
