@@ -69,8 +69,8 @@ upload.
 
 `video_plan(width, height, duration_ms, bytes, codec) -> Plan`: send the original when it is
 small (≤ 25 MB) or already ≤ 1080p at ≤ 12 Mbit/s; otherwise re-encode to HEVC with the long side at
-most 1920 px (`AVAssetExportPresetHEVC1920x1080`). A 1-minute 4K clip goes from about 400 MB
-(H.264) / 170 MB (HEVC) to about 40-60 MB. Swift runs `AVAssetExportSession`, reporting its
+most 1920 px (`AVAssetExportPresetHEVC1920x1080`). The resulting byte reduction depends on the
+source and needs a real-media measurement; no fixed output size is guaranteed. Swift runs `AVAssetExportSession`, reporting its
 progress as the `compressing` stage; cancel stops the export.
 
 ### What it does not do
@@ -107,13 +107,14 @@ What this section adds:
    a long side of 2048 px and re-encode JPEG q 0.85 (HEIC in, JPEG out: agents read JPEG). Swift glue
    runs ImageIO (`CGImageSourceCreateThumbnailAtIndex`) and reports it as `compressing`. Screenshots
    with text stay legible at 2048 px.
-3. **Original on demand.** When a plan re-encoded, the composer chip keeps the original's local
-   identifier and offers "Send original"; it starts a second upload of the untouched file, deduped
-   like any other. The agent's message names the sent copy's size, so the agent can ask for it.
+3. **Proposed follow-up: original on demand.** A composer action could retain the original's local
+   identifier and offer "Send original", starting another upload of the untouched file. This action
+   is not implemented by the current sender or composer.
 4. **Progress-based deadlines, not fixed ones.** A held chat prompt comes back to the composer after
    10 s (`AcpmuxHub.heldPromptWindow`). It becomes: held while its attachment upload or the link's
    redial makes progress, and returned only after 10 s with no progress. The other fixed bounds on
    the attach path (open 15 s, have 10 s, final 60 s) already end an attempt, not the send.
 
-Measured before and after, on lte and lossy-3, idle and under duress: bytes on the wire and time
-from pick to "sent" for a 12 MP photo, a 1-minute 4K clip, and a re-send of each.
+Required verification, not yet a measured result: before and after on lte and lossy-3, idle and
+under duress, record bytes on the wire and time from pick to "sent" for a 12 MP photo, a
+1-minute 4K clip, and a re-send of each. Tie receipts to the tested source revision.
