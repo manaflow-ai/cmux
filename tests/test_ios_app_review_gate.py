@@ -935,6 +935,22 @@ class AppReviewGateTests(unittest.TestCase):
         self.assertEqual(findings[0]["rule"], "asc.metadata.required.whats_new")
         self.assertEqual(findings[0]["guideline"], "2.3")
 
+    def test_a_retired_subscription_is_never_a_blocker(self) -> None:
+        # Readiness run 45748224089 (2026-11-26) counted the unused trial App
+        # Store Connect cannot delete as two blockers (no promotional image,
+        # READY_TO_SUBMIT); Go Monthly's READY_TO_SUBMIT stays one.
+        asc = self.root / "asc-validate.json"
+        asc.write_text(json.dumps({"remediation": {"steps": [
+            {"blocking": True, "severity": "warning", "checkId": "subscriptions.images.recommended",
+             "message": "trial has no subscription promotional image", "resourceId": "6822947304"},
+            {"blocking": True, "severity": "warning", "checkId": "subscriptions.review_readiness.needs_attention",
+             "message": "trial is READY_TO_SUBMIT", "resourceId": "6822947304"},
+            {"blocking": True, "severity": "warning", "checkId": "subscriptions.review_readiness.needs_attention",
+             "message": "Go Monthly is READY_TO_SUBMIT", "resourceId": "6818445194"}]}}))
+        findings = gate.asc_findings(asc)
+        self.assertEqual([(f["where"], f["severity"]) for f in findings],
+                         [("6822947304", "info"), ("6822947304", "info"), ("6818445194", "blocker")])
+
     def test_a_version_apple_already_has_is_not_blocked_on_its_state(self) -> None:
         # Readiness run 45615832158 (2026-11-25): asc validate on 1.0.0 in
         # WAITING_FOR_REVIEW gave "version is in non-editable state", and the
