@@ -65,7 +65,7 @@ if [[ "$only" != chat ]]; then
   (
     cd "$root/cmux-tui"
     # Every profile in link-profiles.json, 120 turns (the test's own fixture); `links=` and `turns=` pick the chat's.
-    RESTART_ATTACH=snapshot ROUNDS="$rounds" cargo test --locked --release -p cmux-tui --test terminal_restart_settled -- --ignored --nocapture
+    RESTART_ATTACH=snapshot ROUNDS="$rounds" cargo test --locked --release -p cmux-tui --test it -- terminal_restart_settled:: --ignored --nocapture
   ) >"$out/terminal.log" 2>&1 || { status=1; echo "restart-settled: the terminal measure failed:"; tail -n 30 "$out/terminal.log"; }
   grep -E "^TERMINAL_RESTART_JSON " "$out/terminal.log" || true
 fi
