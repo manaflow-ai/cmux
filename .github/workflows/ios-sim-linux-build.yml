@@ -63,12 +63,12 @@ jobs:
           PR_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
           # The 12vcpu pool the screenshots lane resolves to sat queued an hour
           # (run 45371366406); the 6vcpu macOS 26 pool is the one PR jobs run on.
-          REQUESTED_RUNNER: ${{ vars.CMUX_IOS_SIM_LINUX_BUILD_RUNNER }}
+          REQUESTED_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CMUX_IOS_SIM_LINUX_BUILD_RUNNER || 'blacksmith-6vcpu-macos-26' }}
         run: |
           set -euo pipefail
           route="$(python3 scripts/ci/ios_runner_pool.py \
             --lane screenshots \
-            --requested "${REQUESTED_RUNNER:-blacksmith-6vcpu-macos-26}" \
+            --requested "$REQUESTED_RUNNER" \
             --variable "$RUNNER_VARIABLE" \
             --ios-owned "$IOS_OWNED" \
             --owned "$POOL_OWNED" \

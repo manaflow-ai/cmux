@@ -765,7 +765,10 @@ def run_one(step: RunStep, environ: dict[str, str], scratch: Path) -> RunResult:
         except subprocess.TimeoutExpired:
             import signal  # noqa: PLC0415
 
-            os.killpg(proc.pid, signal.SIGKILL)
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass  # the group already exited; macOS answers EPERM, not ESRCH, when only zombies are left
             proc.wait()
             code = 124
             with log.open("ab") as tail:
