@@ -50,7 +50,9 @@ afterAll(async () => {
 
 const rows = (popup: Element) =>
   [...popup.querySelectorAll(".acpmux-chat-menu-item")].map((row) =>
-    [row.querySelector(".acpmux-chat-menu-label")?.textContent, row.querySelector("kbd")?.textContent].filter(Boolean),
+    [row.querySelector(".acpmux-chat-menu-label")?.textContent, row.querySelector(".ui-key-hint")?.textContent].filter(
+      Boolean,
+    ),
   );
 
 test("Copy offers the link with its keycap, the last response and the chat as Markdown", async () => {
