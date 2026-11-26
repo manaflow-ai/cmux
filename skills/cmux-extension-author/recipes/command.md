@@ -16,6 +16,10 @@ and as a tool agents can call. It is declared in `catalog.json`; the manifest na
   "runtime": { "main": "dist/main.js" },
   "catalog": "catalog.json",
   "cli": { "name": "greet" },
+  "activation": ["onKeybinding"],
+  "contributes": {
+    "keybindings": [{ "key": "cmd+shift+g", "command": "local.recipe_command.hello" }]
+  },
   "files": ["dist/", "catalog.json"]
 }
 ```
@@ -64,6 +68,15 @@ export const hello = command(async (args: { name?: string }, { cmux }) => {
 
 Rules: `cli.name` is 2 to 24 lowercase letters, digits and dashes and not a cmux command; a
 write (`class: "write"`) asks before it runs; keep `input` closed (`additionalProperties: false`).
+
+`contributes.keybindings` binds keys as typed data, in keybindings.json form (`{key, command,
+when?, args?}`, the same parser): `command` is one of the app's own ops (no `args`; Cmd-Shift-G
+runs `hello` as its palette row does) or a cmux action id with its `args`, such as
+`{ "key": "ctrl+k s", "command": "newTab", "args": { "name": "scratch" } }`. The first stroke
+needs cmd or ctrl, up to four strokes. They sit above cmux's defaults and below the person's
+keybindings.json, which can remove them; an app cannot remove a binding. `onKeybinding` says the
+app may start on its first key press (it needs `contributes.keybindings`). A pair bound twice in
+one app warns (`keybindings.shortcutConflict`); an op not in `catalog.json` is refused.
 
 ```sh
 cmux ext dev --once --json
