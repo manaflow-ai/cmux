@@ -27,6 +27,9 @@ struct CmuxMobileApp: App {
         // Launch to first interaction (LaunchMarks): dyld, static initializers and UIKit's start end here.
         LaunchMarks.shared.mark("app_init")
         #if DEBUG
+        // Offline duress (`CmuxMobileDuress` = a `cmux-duress gen` folder; unset: nothing runs). First,
+        // so the list rig reads the folder's workspace count (cmux-next-ios/design/duress-sim.md).
+        MobileDuress.startIfRequested()
         // `CMUX_MOBILE_LAUNCH_MARKS=1`: resume-after-switch marks for ResumeFromSwitchUITests.
         ResumeMarks.startIfRequested()
         #endif
