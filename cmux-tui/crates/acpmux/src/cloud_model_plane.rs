@@ -169,11 +169,16 @@ fn origin_host(url: &str) -> &str {
 
 /// How long one spawn waits for the resolver before it starts without the route.
 const RESOLVE_WAIT: Duration = Duration::from_secs(5);
-/// How long an answer is reused, so a burst of spawns asks the resolver once.
+/// How long "it resolves" is reused, so a burst of spawns asks the resolver once.
+///
+/// Only that answer is reused. "Does not resolve" and "no answer" are asked again by the next
+/// spawn: a claimed spare's edge rule is swapped at the claim and its resolver can stall or answer
+/// NXDOMAIN for a while after (cmux-platform NeverBoundProbe.ts BIND_DNS_NUDGE_AFTER_MS, cmux#58163).
+/// Reused for a minute, that answer dropped the route from every Claude and Codex start in it, and
+/// each failed auth.signed_out on a machine whose route was fine (probe cloud-chat-replies-production,
+/// 2026-11-26, vm_d4fd30ea21883bace99c). A machine with no rule pays one lookup per spawn: an
+/// NXDOMAIN is quick, a hung resolver at most [`RESOLVE_WAIT`].
 const ANSWER_REUSE: Duration = Duration::from_secs(60);
-/// How long "the resolver did not answer" is reused: a hung resolver costs one wait per burst of
-/// spawns, not one per spawn.
-const NO_ANSWER_REUSE: Duration = Duration::from_secs(10);
 
 /// The last answer [`plane_host_resolves`] kept: the host, until when, and the answer.
 type ResolveCache = Mutex<Option<(String, Instant, bool)>>;
@@ -214,11 +219,8 @@ fn resolves_cached(
     {
         return *ok;
     }
-    let (ok, reuse) = match lookup(host) {
-        Some(ok) => (ok, ANSWER_REUSE),
-        None => (false, NO_ANSWER_REUSE),
-    };
-    *cache() = Some((host.to_owned(), now + reuse, ok));
+    let ok = lookup(host) == Some(true);
+    *cache() = ok.then(|| (host.to_owned(), now + ANSWER_REUSE, true));
     ok
 }
 
