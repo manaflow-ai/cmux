@@ -8,6 +8,11 @@
 //!
 //! - [`close`]: what closing tabs asks first (a working agent, a foreground
 //!   program) and whether the close earns an undo toast.
+//! - [`desktop_center`], [`desktop_attention`], [`desktop_bursts`],
+//!   [`desktop_announce`]: the desktop notification rules (whether a launch
+//!   uses Notification Center, a banner's category and what its actions do,
+//!   the Needs you banners a mark change posts or withdraws, agent-finished
+//!   bursts and VoiceOver's status line).
 //! - [`tabs`]: what a new tab or pane opens and where (its kind, the browser
 //!   open plan, a split's plan), tab moves, numbers, duplicates, restarts and
 //!   icons; [`tabs::panes`] the pane and terminal tables; [`tabs::strip`]
@@ -33,6 +38,10 @@
 //!   tab a verb reads, the trail walks, the SSH machine an action names, a
 //!   page fit, Picture in Picture's page, where a file or diff opens, the
 //!   appearance verbs).
+//! - [`notification_rings`]: the notification service's attention rings and
+//!   reads (which panes ring, what a look or Dismiss Highlight reads, the
+//!   turn-end burst, where an arriving notification goes, a banner reply's
+//!   guard, a workspace mark's resend).
 //! - [`launch`]: whether the launch snapshot drawn before the daemon answered
 //!   is that daemon's, or stale (the launch then goes on as a bare one), and
 //!   where the launch lands: the last workspace and tab, or Home.
@@ -40,17 +49,25 @@
 //!   a folder (the person's `editor.default`, else the first installed).
 //! - [`update_idle`]: whether Update When Idle installs a staged app update
 //!   now, or why it waits (input, a running turn, an unsent draft).
+//! - [`onboarding`]: the onboarding tool window's footer (the primary
+//!   button, Skip, Back) and Import from Browser's selection rules.
 
 pub mod appearance;
 pub mod browser;
 pub mod chat;
 pub mod close;
 pub mod closed;
+pub mod desktop_announce;
+pub mod desktop_attention;
+pub mod desktop_bursts;
+pub mod desktop_center;
 pub mod editors;
 pub mod files;
 pub mod history;
 pub mod launch;
+pub mod notification_rings;
 pub mod notifications;
+pub mod onboarding;
 pub mod remote;
 pub mod restore;
 pub mod right_column;
