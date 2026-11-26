@@ -63,6 +63,11 @@ class ClassicReleaseCompile(unittest.TestCase):
         wrapper.chmod(0o755)
         self.env = {"PATH": str(self.root / "bin"), "HOME": str(self.root / "home"),
                     "CALL_LOG": str(self.log), "LC_ALL": "C"}
+        # setup-python's shared-library interpreter needs its loader path even
+        # when the fixture removes host tools, credentials and shell startup.
+        for name in ("LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH"):
+            if name in os.environ:
+                self.env[name] = os.environ[name]
 
     def run_script(self, *args, **env):
         return subprocess.run(["/bin/bash", str(self.script), *args],
