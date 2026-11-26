@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 36ab2a01878e60067442068dda6e79c645030e9832f6de975788de578bf959c1. */
+/* cmux-tui mux protocol 12; the IR SHA-256 is SDK_IR_SHA256 in metadata.ts. */
 
 export * from "./types.js";
 export * from "./commands.js";
