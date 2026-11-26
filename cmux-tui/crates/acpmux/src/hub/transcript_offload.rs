@@ -130,8 +130,8 @@ impl Hub {
                 cmux_session_cloud::transcripts::restore_all(&home, &state, &cloud)
             })
             .await
-            .map_err(|e| RpcError::internal(&e.to_string()))?
-            .map_err(|e| RpcError::internal(&format!("{e:#}")))?;
+            .map_err(|e| RpcError::internal(e.to_string()))?
+            .map_err(|e| RpcError::internal(format!("{e:#}")))?;
             return Ok(json!({"restored": back}));
         }
         let set = tokio::task::spawn_blocking(settings_now).await.ok().flatten();
@@ -175,9 +175,9 @@ impl Hub {
             )
         })
         .await
-        .map_err(|e| RpcError::internal(&e.to_string()))?
-        .map_err(|e| RpcError::internal(&format!("{e:#}")))?;
-        serde_json::to_value(report).map_err(|e| RpcError::internal(&e.to_string()))
+        .map_err(|e| RpcError::internal(e.to_string()))?
+        .map_err(|e| RpcError::internal(format!("{e:#}")))?;
+        serde_json::to_value(report).map_err(|e| RpcError::internal(e.to_string()))
     }
 
     /// Fetch on open: brings back a chat's transcripts a pass removed, before its agent resumes

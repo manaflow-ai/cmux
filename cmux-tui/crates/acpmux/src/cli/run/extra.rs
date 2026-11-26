@@ -2087,6 +2087,80 @@ async fn place_session(args: crate::cli::command::PlaceSessionArgs, json_out: bo
     }
 }
 
+/// `daemon transcript-offload --dry-run`: the pass's report with nothing uploaded or changed,
+/// in this process, as if local removal were on (what would go). The daemon's pass also keeps
+/// pinned and busy chats' files, which this cannot see.
+fn transcript_dry_run(older_than_days: Option<u32>) -> Result<Value> {
+    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home folder"))?;
+    let days = u64::from(older_than_days.unwrap_or(14));
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64);
+    let policy = cmux_session_cloud::transcripts::Policy {
+        older_than_ms: days.saturating_mul(86_400_000),
+        delete_local: true,
+        keep: Default::default(),
+        now_ms,
+    };
+    let report = cmux_session_cloud::transcripts::pass(
+        &home,
+        &crate::config::home(),
+        None,
+        &policy,
+        true,
+        &|| false,
+    )?;
+    Ok(serde_json::to_value(report)?)
+}
+
+fn print_transcript_report(v: &Value) {
+    let mb = |key: &str| v[key].as_u64().unwrap_or(0) as f64 / 1_048_576.0;
+    let dry = v["dryRun"].as_bool().unwrap_or(false);
+    println!("{} transcripts, {:.1} MB, by agent {}", v["files"], mb("bytes"), v["byAgent"]);
+    println!(
+        "{} {} ({:.1} MB), {} already copied",
+        v["copied"],
+        if dry { "would be copied" } else { "copied" },
+        mb("copiedBytes"),
+        v["unchanged"]
+    );
+    println!(
+        "{} {} locally ({:.1} MB)",
+        v["removed"],
+        if dry { "would be removed" } else { "removed" },
+        mb("removedBytes")
+    );
+    println!("skipped: {}", v["skipped"]);
+    for e in v["errors"].as_array().into_iter().flatten() {
+        println!("error: {}", e.as_str().unwrap_or("?"));
+    }
+}
+
+/// The text form of a `_acpmux/history_delete` or `_acpmux/history_offload` report.
+fn print_history_report(v: &Value, verb: &str, key: &str) {
+    let count = v.get(key).or_else(|| v.get("wouldDelete")).or_else(|| v.get("wouldOffload"));
+    println!(
+        "{} chats unchanged for over {} days {verb}: {:.1} MB",
+        count.and_then(Value::as_u64).unwrap_or(0),
+        v["olderThanDays"],
+        v["bytes"].as_u64().unwrap_or(0) as f64 / 1_048_576.0,
+    );
+    for chat in v["chats"].as_array().into_iter().flatten() {
+        let bytes = chat.get("bytes").or_else(|| chat.get("archiveBytes")).and_then(Value::as_u64);
+        println!(
+            "  {}  {}d  {:.1} MB  {}",
+            chat["sessionId"].as_str().unwrap_or("?"),
+            chat["idleDays"],
+            bytes.unwrap_or(0) as f64 / 1_048_576.0,
+            chat["name"].as_str().unwrap_or(""),
+        );
+    }
+    println!("skipped: {}", v["skipped"]);
+    if let Some(to) = v.get("export").and_then(Value::as_str) {
+        println!("exported to {to}");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{not_resumed_line, peer_add_params, resume_moves_off};
@@ -2143,79 +2217,5 @@ mod tests {
         assert!(line.contains("`acpmux session resume lane-a --open`"), "{line}");
         assert_eq!(not_resumed_line(&json!({"queue": []}), "lane-a"), "nothing is held");
         assert_eq!(not_resumed_line(&json!({"personHold": null}), "lane-a"), "nothing is held");
-    }
-}
-
-/// The text form of a `_acpmux/history_delete` or `_acpmux/history_offload` report.
-fn print_history_report(v: &Value, verb: &str, key: &str) {
-    let count = v.get(key).or_else(|| v.get("wouldDelete")).or_else(|| v.get("wouldOffload"));
-    println!(
-        "{} chats unchanged for over {} days {verb}: {:.1} MB",
-        count.and_then(Value::as_u64).unwrap_or(0),
-        v["olderThanDays"],
-        v["bytes"].as_u64().unwrap_or(0) as f64 / 1_048_576.0,
-    );
-    for chat in v["chats"].as_array().into_iter().flatten() {
-        let bytes = chat.get("bytes").or_else(|| chat.get("archiveBytes")).and_then(Value::as_u64);
-        println!(
-            "  {}  {}d  {:.1} MB  {}",
-            chat["sessionId"].as_str().unwrap_or("?"),
-            chat["idleDays"],
-            bytes.unwrap_or(0) as f64 / 1_048_576.0,
-            chat["name"].as_str().unwrap_or(""),
-        );
-    }
-    println!("skipped: {}", v["skipped"]);
-    if let Some(to) = v.get("export").and_then(Value::as_str) {
-        println!("exported to {to}");
-    }
-}
-
-/// `daemon transcript-offload --dry-run`: the pass's report with nothing uploaded or changed,
-/// in this process, as if local removal were on (what would go). The daemon's pass also keeps
-/// pinned and busy chats' files, which this cannot see.
-fn transcript_dry_run(older_than_days: Option<u32>) -> Result<Value> {
-    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home folder"))?;
-    let days = u64::from(older_than_days.unwrap_or(14));
-    let now_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as u64);
-    let policy = cmux_session_cloud::transcripts::Policy {
-        older_than_ms: days.saturating_mul(86_400_000),
-        delete_local: true,
-        keep: Default::default(),
-        now_ms,
-    };
-    let report = cmux_session_cloud::transcripts::pass(
-        &home,
-        &crate::config::home(),
-        None,
-        &policy,
-        true,
-        &|| false,
-    )?;
-    Ok(serde_json::to_value(report)?)
-}
-
-fn print_transcript_report(v: &Value) {
-    let mb = |key: &str| v[key].as_u64().unwrap_or(0) as f64 / 1_048_576.0;
-    let dry = v["dryRun"].as_bool().unwrap_or(false);
-    println!("{} transcripts, {:.1} MB, by agent {}", v["files"], mb("bytes"), v["byAgent"]);
-    println!(
-        "{} {} ({:.1} MB), {} already copied",
-        v["copied"],
-        if dry { "would be copied" } else { "copied" },
-        mb("copiedBytes"),
-        v["unchanged"]
-    );
-    println!(
-        "{} {} locally ({:.1} MB)",
-        v["removed"],
-        if dry { "would be removed" } else { "removed" },
-        mb("removedBytes")
-    );
-    println!("skipped: {}", v["skipped"]);
-    for e in v["errors"].as_array().into_iter().flatten() {
-        println!("error: {}", e.as_str().unwrap_or("?"));
     }
 }
