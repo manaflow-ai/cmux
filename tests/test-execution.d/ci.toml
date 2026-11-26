@@ -192,9 +192,8 @@ path = "tests/test_ci_owned_mac_jobs_no_sudo.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_iroh_transport_lock_pins_iroh_ffi.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_iroh_transport_lock_pins_iroh_ffi.py"
+path = "tests/test_ci_workflows_registered.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_ephemeral_pool_readers.py"
@@ -982,6 +981,11 @@ lane = "linux-guard"
 path = "tests/test_ci_swiftpm_prefetch_shared_cache.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_swiftpm_prefetch_shared_cache.py"
+
+[[test]]
+path = "tests/test_ci_github_fetch_auth.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_github_fetch_auth.py"
 
 [[test]]
 path = "tests/test_ci_target_graph.py"
