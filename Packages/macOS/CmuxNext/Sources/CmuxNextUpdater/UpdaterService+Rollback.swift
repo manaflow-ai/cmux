@@ -96,9 +96,11 @@ extension UpdaterService {
         let partialRecord = runningRecord()
         let log = log
         let work = work
-        // task-owner: one clone that ends by itself; the install waits for nothing it does. The clone runs on the
-        // files lane, best effort (nobody waits), and quit waits for it: only the clone, never the signature read.
+        // task-owner: one clone that ends by itself; the install waits for nothing it does. The clone and the
+        // prune's signature reads run on the files lane, best effort (nobody waits), and quit waits for them.
         keepTask = Task(priority: WorkPriority.bestEffort.taskPriority) { [weak self] in
+            // The stores this build reads, from its own CLI when its Info.plist does not say: asked
+            // now, so going back to it never waits on that probe.
             let record = partialRecord
             let kept = (try? await work.run(.bestEffort, mayBlock: .files, shutdown: .blockShutdown) { [record] () -> Bool in
                 #if DEBUG || CMUX_BENCH_HOOKS
@@ -109,49 +111,26 @@ extension UpdaterService {
                     UpdateHarness.mark("keep_previous_end")
                     #endif
                 }
-                return UpdaterService.cloneForRollback(store: store, bundle: bundle, build: build, limit: limit, record: record, log: log)
+                do {
+                    try store.keep(bundle: bundle, build: build, limit: limit, record: record)
+                    log.append("kept \(build) for rollback when the update staged")
+                    return true
+                } catch {
+                    log.append("could not keep \(build) for rollback: \(error)")
+                    return false
+                }
             }) ?? false
             self?.keptRunningBuild = kept ? .kept : nil
+            // The kept copy's own CLI runs once now (KeptWarmup): macOS checks a new bundle's code on
+            // its first launch (3.4 s for a NIGHTLY clone), so going back to it later does not; its
+            // answer is the stores the copy reads when its Info.plist does not say. The keep is done
+            // before it: a quit waits for the clone only, never this run (a Restart to Update right
+            // after staging waited 3.4 s for it, ask-ad4a68e740); one cut short runs again at the next
+            // launch (``KeptWarmup/warmPending(store:log:runningBuild:running:)``).
             guard kept else { return }
-            // task-owner: the kept copy's seal, then one run of its CLI; both end by themselves and nobody waits
-            // on them (the quit waits on `keepTask`, which ended above).
-            Task(priority: WorkPriority.bestEffort.taskPriority) {
-                // The full check of every file of the copy, sealed. A quit no longer waits for it: under load
-                // it held a Restart to Update's blank gap seconds longer (keep_previous_end 550 ms after
-                // will_relaunch, ask-ad4a68e740). A quit drops it or ends it mid-read; the next launch seals
-                // the copy then (``KeptVersionStore/sealPending(runningBuild:)``).
-                _ = try? await work.run(.bestEffort, mayBlock: .files, shutdown: .skipOnShutdown) {
-                    UpdaterService.sealKept(store: store, build: build, log: log)
-                }
-                // The kept copy's own CLI runs once now (KeptWarmup): macOS checks a new bundle's code on
-                // its first launch (3.4 s for a NIGHTLY clone), so going back to it later does not; its
-                // answer is the stores the copy reads when its Info.plist does not say. After the seal: the
-                // schemas it reads go only into a record the seal signed. One cut short runs again at the
-                // next launch (``KeptWarmup/warmPending(store:log:runningBuild:running:)``).
-                await KeptWarmup.warm(store: store, build: build, log: log, runningBuild: build)
-            }
+            // task-owner: one run of the kept copy's CLI that ends by itself; nobody waits on it (the quit waits on `keepTask`).
+            Task(priority: WorkPriority.bestEffort.taskPriority) { await KeptWarmup.warm(store: store, build: build, log: log, runningBuild: build) }
         }
-    }
-
-    /// The staging keep's first step, the one a quit waits for: the running bundle cloned as `build`
-    /// with its record, and no signature read (``KeptVersionStore/Check/later``). Blocking.
-    nonisolated static func cloneForRollback(store: KeptVersionStore, bundle: URL, build: String, limit: Int,
-                                             record: KeptRecord, log: UpdateLogBuffer) -> Bool {
-        do {
-            try store.keep(bundle: bundle, build: build, limit: limit, record: record, check: .later)
-            log.append("kept \(build) for rollback when the update staged")
-            return true
-        } catch {
-            log.append("could not keep \(build) for rollback: \(error)")
-            return false
-        }
-    }
-
-    /// The staging keep's second step, which nothing waits for: the full check of every file of each copy
-    /// kept unchecked, sealed, so going back to it later is quick. Blocking.
-    nonisolated static func sealKept(store: KeptVersionStore, build: String, log: UpdateLogBuffer) {
-        let sealed = store.sealPending(runningBuild: build)
-        if !sealed.isEmpty { log.append("sealed \(sealed.joined(separator: ", ")) for rollback") }
     }
 
     /// Sparkle is about to replace the running bundle. The bundle was kept
