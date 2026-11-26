@@ -63,12 +63,17 @@ path = "tests/test_ios_link_ffi_key.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ios_link_ffi_sh.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ios_live_lease_owner.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ios_mobile_core_package_mac_when_asked.py"
-lane = "linux-guard"
+path = "tests/test_ios_mobile_core_linux_only.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ios_mobile_core_linux_only.py"
 
 [[test]]
 path = "tests/test_ios_placeholder_bounds.py"
@@ -90,6 +95,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ios_sim_create.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_sim_logic_xctestrun.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ios_sim_logic_xctestrun.py"
 
 [[test]]
 path = "tests/test_ios_sim_runtime.py"
