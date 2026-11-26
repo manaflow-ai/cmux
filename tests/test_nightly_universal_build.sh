@@ -20,17 +20,19 @@ if ! awk '
   /^      - name: Build (universal nightly app|nightly app) \(Release\)/ { in_universal=1; next }
   in_universal && /^      - name:/ { in_universal=0 }
   in_universal && /-destination '\''generic\/platform=macOS'\''/ { saw_universal_destination=1 }
-  in_universal && (/ARCHS="arm64 x86_64"/ || /archs="arm64 x86_64"/) { saw_universal_archs=1 }
+  # Nightly ships arm64 only; Intel and universal ship from the stable release.
+  in_universal && (/ARCHS="arm64"/ || /archs="arm64"/) { saw_universal_archs=1 }
+  in_universal && /x86_64/ { saw_intel=1 }
   in_universal && (/ONLY_ACTIVE_ARCH=NO/ || /only_active="NO"/) { saw_universal_only_active_arch=1 }
   in_universal && /-quiet/ { saw_quiet=1 }
   in_universal && /COMPILATION_CACHE_ENABLE_CACHING=YES/ { saw_compilation_cache=1 }
   in_universal && /COMPILER_INDEX_STORE_ENABLE=NO/ { saw_index_disabled=1 }
   in_universal && /-showBuildTimingSummary/ { saw_timing_summary=1 }
   END {
-    exit !(saw_universal_destination && saw_universal_archs && saw_universal_only_active_arch && !saw_quiet && saw_compilation_cache && saw_index_disabled && saw_timing_summary)
+    exit !(saw_universal_destination && saw_universal_archs && !saw_intel && saw_universal_only_active_arch && !saw_quiet && saw_compilation_cache && saw_index_disabled && saw_timing_summary)
   }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly workflow must build the universal app with visible timing output, compilation caching, and no index store"
+  echo "FAIL: nightly workflow must build the arm64-only app with visible timing output, compilation caching, and no index store"
   exit 1
 fi
 
@@ -147,7 +149,7 @@ if ! awk -v refresh_runner="runs-on: \${{ github.repository_owner != 'manaflow-a
   in_refresh && /uses: (actions\/cache\/restore@|\.\/\.github\/actions\/cache-restore$)/ { saw_restore_action=1 }
   in_refresh && /id: compilation-cache-restore/ { saw_restore_id=1 }
   in_refresh && /^      - name: Save Xcode compilation cache/ { saw_cache=1 }
-  in_refresh && /^      - name: Refresh universal nightly compilation cache/ { saw_refresh=1 }
+  in_refresh && /^      - name: Refresh nightly compilation cache \(arm64\)/ { saw_refresh=1 }
   in_refresh && /if: steps\.compilation-cache-restore\.outputs\.cache-hit != '\''true'\''/ { saw_change_gate=1 }
   in_refresh && /-showBuildTimingSummary/ { saw_timing_summary=1 }
   in_refresh && /-quiet/ { saw_quiet=1 }
@@ -230,8 +232,10 @@ if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai
   # Every nightly helper build takes Blacksmith macOS 15 (its SDK 15 Xcode),
   # never a GitHub-hosted Mac. Match the whole expression.
   job == "helper" && index($0, helper_runner) { saw_helper_runner=1 }
-  job == "helper" && /build-ghostty-cli-helper\.sh --universal/ { saw_build=1 }
-  job == "helper" && /lipo .* -verify_arch arm64 x86_64/ { saw_arch_assert=1 }
+  # Nightly ships arm64 only; the universal helper is a stable-release build.
+  job == "helper" && /build-ghostty-cli-helper\.sh --target aarch64-macos/ { saw_build=1 }
+  job == "helper" && /build-ghostty-cli-helper\.sh --universal/ { saw_universal_build=1 }
+  job == "helper" && /lipo .* -verify_arch arm64$/ { saw_arch_assert=1 }
   job == "helper" && /name: cmux-nightly-ghostty-cli-helper/ { saw_helper_artifact=1 }
   job == "app" && index($0, app_runner) { saw_app_runner=1 }
   job == "app" && /CMUX_CI_XCODE_APP_MACOS_26/ { saw_app_xcode=1 }
@@ -247,7 +251,7 @@ if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai
   job == "publish" && /path: nightly-inputs\/app/ { saw_app_download_path=1 }
   job == "publish" && /tar -C "\$products" -xzf nightly-inputs\/app\/cmux-nightly-unsigned\.tar\.gz/ { saw_app_restore=1 }
   job == "publish" && /^      - name: Upload dSYMs to Sentry/ { saw_publish_dsym_upload=1 }
-  END { exit !(saw_helper_runner && saw_build && saw_arch_assert && saw_helper_artifact && saw_app_runner && saw_app_xcode && saw_app_selection && saw_app_artifact && saw_app_only_archive && saw_app_dsym_upload && saw_publish_needs_helper && saw_publish_needs_app && saw_publish_xcode && saw_publish_selection && saw_app_download && saw_app_download_path && saw_app_restore && !saw_publish_dsym_upload) }
+  END { exit !(saw_helper_runner && saw_build && !saw_universal_build && saw_arch_assert && saw_helper_artifact && saw_app_runner && saw_app_xcode && saw_app_selection && saw_app_artifact && saw_app_only_archive && saw_app_dsym_upload && saw_publish_needs_helper && saw_publish_needs_app && saw_publish_xcode && saw_publish_selection && saw_app_download && saw_app_download_path && saw_app_restore && !saw_publish_dsym_upload) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: nightly must build and hand off the macOS 15 helper and Xcode 26.5 app before publishing"
   exit 1
@@ -329,10 +333,19 @@ if ! grep -Fq "bundleId: 'com.cmuxterm.app.nightly'," "$WORKFLOW_FILE" || ! grep
   exit 1
 fi
 
-if ! grep -Fq 'cp appcast.xml appcast-universal.xml' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly workflow must keep the compatibility appcast-universal.xml feed"
-  exit 1
-fi
+# Nightly is arm64 only. The x86_64, universal and legacy feeds and the
+# x86_64, universal and plain download aliases are frozen at the last build
+# that had them, so neither publish path may write them: an Intel Mac reads only
+# appcast-x86_64.xml and must never be offered an arm64 build.
+for frozen_file in "$WORKFLOW_FILE" "$ROOT_DIR/.github/workflows/auto-resume-nightly-notarization.yml"; do
+  for frozen in 'appcast-x86_64.xml' 'appcast-universal.xml' 'nightly-out/appcast.xml' 'cp appcast.xml' \
+      'PREFIX}-x86_64.dmg' 'PREFIX}-universal.dmg' 'PREFIX}.dmg' 'x86_64-${NIGHTLY_BUILD}.dmg' 'universal-${NIGHTLY_BUILD}.dmg'; do
+    if grep -v '^ *#' "$frozen_file" | grep -v '^ *- Intel and universal' | grep -Fq -- "$frozen"; then
+      echo "FAIL: $(basename "$frozen_file") must not publish or assemble the frozen nightly asset $frozen"
+      exit 1
+    fi
+  done
+done
 
 if ! grep -Fq './scripts/sparkle_generate_appcast.sh "$NIGHTLY_DMG_IMMUTABLE" "$CHANNEL_RELEASE_TAG" "$NIGHTLY_APPCAST"' "$WORKFLOW_FILE"; then
   echo "FAIL: nightly workflow must generate one appcast per variant"
@@ -389,21 +402,16 @@ if ! awk '
   exit 1
 fi
 
-if ! awk '
-  /^      - name: Assemble legacy nightly names/ { in_legacy=1; next }
-  in_legacy && /^      - name:/ { in_legacy=0 }
-  in_legacy && /cp "\$\{CHANNEL_DMG_PREFIX\}-universal\.dmg" "\$\{CHANNEL_DMG_PREFIX\}\.dmg"/ { saw_universal_legacy=1 }
-  in_legacy && /\$\{CHANNEL_DMG_PREFIX\}-x86_64\.dmg" "\$\{CHANNEL_DMG_PREFIX\}\.dmg/ { saw_intel_legacy=1 }
-  END { exit !(saw_universal_legacy && !saw_intel_legacy) }
-' "$WORKFLOW_FILE"; then
-  echo "FAIL: the legacy nightly DMG and feed must stay universal: browsers cannot pick an architecture, the app can"
+if ! grep -Fq "const variants = ['arm64'];" "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly must build arm64 only; Intel and universal ship from the stable release"
   exit 1
 fi
-
-if ! grep -Fq "const variants = fastBuild ? ['arm64'] : ['arm64', 'x86_64', 'universal'];" "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly must always build the universal download alongside the thin update tracks"
-  exit 1
-fi
+for frozen_matrix in 'variant: [arm64, x86_64, universal]' 'for variant in arm64 x86_64'; do
+  if grep -Fq -- "$frozen_matrix" "$ROOT_DIR/.github/workflows/auto-resume-nightly-notarization.yml"; then
+    echo "FAIL: the nightly notarization continuation must wait for and publish arm64 only"
+    exit 1
+  fi
+done
 
 if ! grep -Fq 'description: Build one arm64 dogfood DMG without Intel or Sparkle delta work' "$WORKFLOW_FILE"; then
   echo "FAIL: workflow dispatch must expose the fast arm64 dogfood build"
@@ -604,7 +612,8 @@ assert "CMUX_RESUME_APP_ONLY=true" in stapled and "CMUX_NOTARY_SUBMIT_ONLY=true"
 assert "stapled_app=true" in stapled
 assert "STATE_STAPLED_APP" in resume_script and "RESUME_APP_ONLY" in resume_script
 assert "wait-and-staple:" in auto
-assert "matrix:" in auto and "[arm64, x86_64, universal]" in auto
+# Nightly is arm64 only; Intel and universal ship from the stable release.
+assert "matrix:" in auto and "variant: [arm64]" in auto and "[arm64, x86_64, universal]" not in auto
 assert "needs.wait-and-staple.result == 'success'" in auto
 assert "CMUX_NOTARY_WAIT_TIMEOUT=2m" in auto
 assert "publish-release-assets.py" in auto
@@ -897,9 +906,11 @@ if ! awk '
   in_publish && /--immutable .*universal-.*NIGHTLY_BUILD/ { saw_immutable_universal=1 }
   in_publish && /--alias .*CHANNEL_DMG_PREFIX.*\.dmg/ { alias_count++ }
   in_publish && /--feed nightly-out\/appcast/ { feed_count++ }
-  END { exit !(saw_publish_if && saw_publisher && saw_immutable_arm && saw_immutable_intel && saw_immutable_universal && alias_count == 4 && feed_count == 4) }
+  # Nightly is arm64 only: one immutable DMG, one alias, one feed. The x86_64,
+  # universal and legacy assets stay frozen at their last build.
+  END { exit !(saw_publish_if && saw_publisher && saw_immutable_arm && !saw_immutable_intel && !saw_immutable_universal && alias_count == 1 && feed_count == 1) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly publication must verify every architecture and publish all aliases before the four feeds"
+  echo "FAIL: nightly publication must publish the arm64 DMG, alias and feed only, leaving the frozen Intel and universal assets alone"
   exit 1
 fi
 
@@ -909,7 +920,7 @@ fi
 # never reaches the helper, signing, notarization, dSYM upload, or publication,
 # and cold_cache (skip the compilation cache restore) is only honoured there.
 for expected in \
-  'description: Measure the unsigned universal build only. Never builds the helper, signs, notarizes, uploads dSYMs, or publishes.' \
+  'description: Measure the unsigned arm64 nightly build only. Never builds the helper, signs, notarizes, uploads dSYMs, or publishes.' \
   'description: Skip the Xcode compilation cache restore so the measurement run is a cache miss. Only honoured with build_only.' \
   "const buildOnly = process.env.BUILD_ONLY === 'true';" \
   "const coldCache = buildOnly && process.env.COLD_CACHE === 'true';" \
@@ -1024,4 +1035,4 @@ for cache_workflow in "$WORKFLOW_FILE"; do
   fi
 done
 
-echo "PASS: nightly workflow builds once, thins per architecture, and keeps the legacy track migrating"
+echo "PASS: nightly workflow builds arm64 once and leaves the frozen Intel and universal tracks alone"

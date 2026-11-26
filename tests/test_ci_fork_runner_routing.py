@@ -1073,8 +1073,7 @@ def outsider_triggered_workflows() -> list[Path]:
 # environment, no container or services, and steps that are each a literal `run` with no expression. 2026-11-25
 # 21:22-21:50Z: 96 of 127 queued one-job gate jobs were this echo and gate jobs waited about 14 min for a VM.
 INERT_POOL_RUNNER = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
-                     "vars.CI_GATE_SKIP_FLEET != '1' && (vars.CI_OVERFLOW_LINUX || 'cmux-linux') || "
-                     "'blacksmith-4vcpu-ubuntu-2404' }}")
+                     "vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}")
 INERT_POOL_RUNNER_LINE = re.compile(r"^\s*runs-on:\s*" + re.escape(INERT_POOL_RUNNER) + r"\s*(?:#.*)?$")
 
 

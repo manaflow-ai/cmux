@@ -417,9 +417,9 @@ jobs:
     name: ${{ github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next' && 'backend migrations metadata edit (ignored)' || github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["backend:apply-migrations","full-ci"]'), github.event.label.name) && 'backend migrations label (ignored)' || 'backend migrations applied' }}
     needs: plan
     if: ${{ !cancelled() && !(github.event.pull_request.state == 'closed' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && startsWith(github.event.label.name, 'fix-cause:')) && !(github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next') && !(github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["backend:apply-migrations","full-ci"]'), github.event.label.name)) && needs.plan.result == 'success' && needs.plan.outputs.migrations == 'false' }}
-    # No runner variable but the overflow switch (the merge-group bridges' shape): test_ci_fork_runner_routing.py
+    # The merge-group bridges' selector (#57252): cmux-linux behind only the fleet-wide overflow switch. test_ci_fork_runner_routing.py
     # INERT_POOL_RUNNER_LINE admits this one line only for a job with no permissions and only literal echo steps.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_GATE_SKIP_FLEET != '1' && (vars.CI_OVERFLOW_LINUX || 'cmux-linux') || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     permissions: {}
     steps:
