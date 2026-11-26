@@ -179,6 +179,7 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             /scripts/cmux-next/base-autofix-window.sh
+            /.gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Repair now, or hold for the window
