@@ -234,6 +234,39 @@ for (const family of ["claude", "codex"])
     }
   });
 
+for (const ending of ["summary", "next prompt"] as const)
+  test(`stacked steers keep one Copy for the whole turn when it ends on a ${ending}`, () => {
+    const previous = globalThis.cmuxExperiments;
+    globalThis.cmuxExperiments = { ...previous, "turn-fold-steered": "stacked" };
+    try {
+      const reply = row("r1", "assistant", { text: "Transfer is ready." });
+      const tool = bash("b1");
+      const rows = [
+        row("u", "user", { text: "Check the transfer" }),
+        reply,
+        tool,
+        row("s1", "user", { text: "Hold there", steer: "landed" }),
+        ending === "summary"
+          ? row("sum", "turnSummary", { status: "completed", durationMs: 40_000 })
+          : row("next", "user", { text: "Check again" }),
+      ];
+      for (const expanded of [new Set<string>(), new Set(["worked-u"])]) {
+        const view = turnView(rows, expanded, { agentFamily: "codex", now: START + 1e6 });
+        const shown = footers(view);
+        expect(shown).toHaveLength(1);
+        expect(shown[0]).toMatchObject({
+          text: reply.text,
+          answerId: reply.id,
+          turnCopy: [{ text: reply.text }, { tools: tool.items }],
+        });
+        expect(markup(shown[0]!)).toContain(COPY);
+      }
+    } finally {
+      if (previous === undefined) delete globalThis.cmuxExperiments;
+      else globalThis.cmuxExperiments = previous;
+    }
+  });
+
 test("two messages in a row, then the turn ended: still no row under them", () => {
   const second = row("s2", "user", { text: "AND THIS", steer: "landed" });
   const view = turnView(steeredThenEnded([second]), new Set(), { agentFamily: "claude", now: START + 1e6 });
