@@ -121,9 +121,9 @@ pub trait RelayViewerKey: Send + Sync {
     fn agree(&self, peer: Vec<u8>) -> Result<Vec<u8>, CatchUpError>;
 }
 
-struct ViewerAdapter {
-    key: Arc<dyn RelayViewerKey>,
-    public: p256::PublicKey,
+pub(crate) struct ViewerAdapter {
+    pub(crate) key: Arc<dyn RelayViewerKey>,
+    pub(crate) public: p256::PublicKey,
 }
 
 impl cmux_relay_snapshot::Viewer for ViewerAdapter {
@@ -191,35 +191,40 @@ impl PhoneCatchUp {
         self.cursors.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn floors(&self) -> std::sync::MutexGuard<'_, Floors> {
+    pub(crate) fn floors(&self) -> std::sync::MutexGuard<'_, Floors> {
         self.floors.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     fn take(&self, answer: &Answer, now: u64) -> CatchUpAnswer {
         self.cursors().apply_catch_up(answer, now);
         self.floors().set_from_mac(&answer.relay_heads);
-        let tree = answer.workspaces.as_ref().map(|tree| match tree {
-            Workspaces::Tree(_) => CatchUpTree::Whole,
-            Workspaces::Unchanged(_) => CatchUpTree::Unchanged,
-            Workspaces::Delta(_) => CatchUpTree::Delta,
-        });
-        CatchUpAnswer {
-            tree,
-            workspaces_json: answer.workspaces.as_ref().map(|tree| tree.data().to_string()),
-            chat_list_json: answer.chat_list.as_ref().map(Value::to_string),
-            chats: answer
-                .chats
-                .iter()
-                .map(|chat| CatchUpChatPage {
-                    session_id: chat.session_id.clone(),
-                    page_json: chat.page.to_string(),
-                    through_seq: chat.through_seq,
-                    has_more: chat.has_more,
-                    older_before: chat.older_before,
-                })
-                .collect(),
-            cut: cuts(&answer.cut, &answer.cut_why),
-        }
+        answer_record(answer)
+    }
+}
+
+/// `answer` as the FFI record, moving nothing.
+pub(crate) fn answer_record(answer: &Answer) -> CatchUpAnswer {
+    let tree = answer.workspaces.as_ref().map(|tree| match tree {
+        Workspaces::Tree(_) => CatchUpTree::Whole,
+        Workspaces::Unchanged(_) => CatchUpTree::Unchanged,
+        Workspaces::Delta(_) => CatchUpTree::Delta,
+    });
+    CatchUpAnswer {
+        tree,
+        workspaces_json: answer.workspaces.as_ref().map(|tree| tree.data().to_string()),
+        chat_list_json: answer.chat_list.as_ref().map(Value::to_string),
+        chats: answer
+            .chats
+            .iter()
+            .map(|chat| CatchUpChatPage {
+                session_id: chat.session_id.clone(),
+                page_json: chat.page.to_string(),
+                through_seq: chat.through_seq,
+                has_more: chat.has_more,
+                older_before: chat.older_before,
+            })
+            .collect(),
+        cut: cuts(&answer.cut, &answer.cut_why),
     }
 }
 

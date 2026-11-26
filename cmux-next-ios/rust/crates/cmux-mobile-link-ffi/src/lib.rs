@@ -35,6 +35,7 @@ mod mailbox_client;
 mod pair_requests;
 mod pane_filter;
 mod read_store;
+mod relay_cold_open;
 mod relay_hold;
 mod row_layout;
 mod share_approval;

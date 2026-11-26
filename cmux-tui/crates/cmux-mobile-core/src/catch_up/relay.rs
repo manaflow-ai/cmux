@@ -220,8 +220,9 @@ pub fn take(floors: &mut Floors, relay_cut: &[String], opened: &[Opened<'_>]) ->
     out
 }
 
-/// One delta's plaintext as the `catch-up` answer of its surface.
-fn answer_of(surface: &str, plaintext: &[u8]) -> Option<Answer> {
+/// One delta's (or a cold open's first screen's) plaintext as the `catch-up` answer of its
+/// surface; `None` when it is not that surface's answer.
+pub fn answer_of(surface: &str, plaintext: &[u8]) -> Option<Answer> {
     let value: Value = serde_json::from_slice(plaintext).ok()?;
     if !value.is_object() {
         return None;
