@@ -54,7 +54,7 @@ impl Client {
         loop {
             let line = tokio::time::timeout(Duration::from_secs(30), self.1.recv())
                 .await
-                .expect("no reply in 30 s")
+                .unwrap_or_else(|_| panic!("no reply in 30 s: {m} id {id}"))
                 .unwrap();
             let v: Value = serde_json::from_str(&line).unwrap();
             if v.get("id") == Some(&json!(id)) {
