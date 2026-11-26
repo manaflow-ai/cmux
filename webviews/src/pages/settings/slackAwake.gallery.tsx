@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 import { componentEntry } from "../../gallery/format";
 import { useEffect, useState } from "react";
-import { SlackAwakeCard, type SlackAwakeLook } from "./components/SlackAwakeCard";
+import { SlackAwakeCard } from "./components/SlackAwakeCard";
 import type { SlackAwake, SlackNames } from "./slackAwake";
 
 const TODAY = "2026-11-26";
@@ -18,9 +18,9 @@ const busyDay: SlackAwake = {
   ],
 };
 
-type Props = { awake: SlackAwake; look: SlackAwakeLook };
+type Props = { awake: SlackAwake; busy?: boolean };
 
-function SlackAwakeGallery({ awake, look }: Props) {
+function SlackAwakeGallery({ awake, busy }: Props) {
   const [value, setValue] = useState(awake);
   useEffect(() => {
     const previous = document.documentElement.dataset.settingsLook;
@@ -39,7 +39,7 @@ function SlackAwakeGallery({ awake, look }: Props) {
               awake={value}
               today={TODAY}
               names={names}
-              look={look}
+              busy={busy}
               setAllowance={(seconds) => setValue({ ...value, allowance_seconds: seconds ?? value.default_seconds })}
             />
           </div>
@@ -59,11 +59,11 @@ export default componentEntry<Props>({
   load: async () => SlackAwakeGallery,
   styles: () => import("./page.css"),
   variants: {
-    "stepper-busy-day": { props: { awake: busyDay, look: "stepper" } },
-    "presets-busy-day": { props: { awake: busyDay, look: "presets" } },
-    "slider-busy-day": { props: { awake: busyDay, look: "slider" } },
-    "stepper-quiet": { props: { awake: base, look: "stepper" } },
-    "presets-owner-only": { props: { awake: { ...busyDay, allowance_seconds: 0 }, look: "presets" } },
-    "slider-custom-4h": { props: { awake: { ...busyDay, allowance_seconds: 14400 }, look: "slider" } },
+    "busy-day": { props: { awake: busyDay } },
+    quiet: { props: { awake: base } },
+    "owner-only": { props: { awake: { ...busyDay, allowance_seconds: 0 } } },
+    "custom-4h": { props: { awake: { ...busyDay, allowance_seconds: 14400 } } },
+    "off-preset-90min": { props: { awake: { ...busyDay, allowance_seconds: 5400 } } },
+    saving: { props: { awake: busyDay, busy: true } },
   },
 });
