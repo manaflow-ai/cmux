@@ -86,10 +86,11 @@ await requireBrowserLane("glass-material.test.ts", async () => {
   const SPECULAR_BAND = "1px 1.5px 1px -1px inset";
   const RETURN_BAND = "-1px -1px 1px -1px inset";
   const SHEEN = "0px 16px 20px -16px inset";
-  // The composer's own depth (glass.css --glass-material-depth-composer; Leo 2026-11-06: "maybe less
-  // shadow? ... Probably just a little bit more subtle."): the material's two steps at about half the
-  // reach and half the dark, never the floating glass's 0 12px 32px -12px at 22% / 55%.
-  const DEPTH = "0px 6px 18px -8px";
+  // The composer's own depth (glass.css --glass-material-depth-composer): the popups' one drop,
+  // --elevation-2 (0 2px 6px at 11%, 16% in dark), so the composer and its pickers are one material
+  // (Leo 2026-11-21: "our shitty multi layer glass + web view"). Still subtle (Leo 2026-11-06: "maybe less
+  // shadow?"), never the floating glass's 0 12px 32px -12px at 22% / 55%. Before: 0 6px 18px -8px.
+  const DEPTH = "0px 2px 6px 0px";
   const FLOATING_DEPTH = "0px 12px 32px -12px";
   const windows: { name: string; attributes: Record<string, string> }[] = [
     { name: "an opaque window", attributes: {} },
@@ -123,7 +124,8 @@ await requireBrowserLane("glass-material.test.ts", async () => {
     test(`${colorScheme}, art under Plain glass: the frost keeps the art's colors vivid`, async () => {
       const page = await open(colorScheme, { "data-cmux-see-through": "", "data-glass": "plain" });
       const { fill, backdrop } = await look(page);
-      expect(backdrop).toContain("blur(24px)");
+      // The popups' transient blur (design-scale transientMaterial webBlur 32): one material with them.
+      expect(backdrop).toContain("blur(32px)");
       expect(backdrop).toContain("saturate(1.6)");
       // Chromium's underlay (glass.css) is the fill's color layer: under floating glass it hides
       // crisp text at the design scale's 40% (design/glass-system.md, rule 6). A card outside the dock keeps it.
@@ -147,10 +149,11 @@ await requireBrowserLane("glass-material.test.ts", async () => {
   test("an opaque window keeps the card's tint and blur (the transcript under it, not art)", async () => {
     const page = await open("dark", {});
     const { fill, backdrop } = await look(page);
-    // The popover level's dark tint (design-scale glass popover darkTint 72: 64 broke the legibility
-    // floor, and 70 left the prompt's code at 4.48:1 over a white page).
+    // The popups' transient dark tint (design-scale transientMaterial webTintDark 72, the popover level's
+    // dark 72 before: 64 broke the legibility floor, and 70 left the prompt's code at 4.48:1 over a white
+    // page) under their 32 px blur (24 px before).
     expect(fill).toBeCloseTo(0.72, 2);
-    expect(backdrop).toContain("blur(24px)");
+    expect(backdrop).toContain("blur(32px)");
     // One saturation (design/glass-system.md): the opaque window's card frosts at the level's 1.6 too.
     expect(backdrop).toContain("saturate(1.6)");
     await page.close();
@@ -218,7 +221,8 @@ await requireBrowserLane("glass-material.test.ts", async () => {
     const { shadow } = await look(page);
     expect(layerAlpha(shadow, SPECULAR_BAND)).toBe(0);
     expect(layerAlpha(shadow, SHEEN)).toBe(0);
-    expect(layerAlpha(shadow, DEPTH)).toBeGreaterThan(0.2);
+    // --elevation-2's dark 16% (the composer's own 28% before).
+    expect(layerAlpha(shadow, DEPTH)).toBeGreaterThan(0.1);
     await page.close();
   });
 

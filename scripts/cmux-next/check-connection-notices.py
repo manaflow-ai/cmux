@@ -111,8 +111,8 @@ TIME_GATES = re.compile(
     r"\b("
     r"CONNECTION_QUIET_MS|useConnectionQuiet|connectionQuiet|NoticeTiming|QuietStatusGate"  # the shared bound
     r"|useLasting|useLastingKeys|useConnectionQuietKeys|LASTING_MS|useAfterDelay|RESUME_NOTE_DELAY_MS"  # web holds
-    r"|HOST_ERROR_DEADLINE_MS|hostErrorShows|hostRecoveryLine"
-    r"|revealDelay|NoticePolicy|noticePolicy|RemoteLatencyHold|QuietHold|connectionChip|connectionLasting"  # native holds
+    r"|HOST_ERROR_DEADLINE_MS|hostErrorShows|hostRecoveryLine|useAutoRetry|stillTrying|useLinkDownSaid|LINK_DOWN_SAID_MS"
+    r"|revealDelay|NoticePolicy|noticePolicy|RemoteLatencyHold|QuietHold|AutoRetry|connectionChip|connectionLasting"  # native holds
     r")\b"
 )
 # A gate helper called with a literal grace: `useLasting(x, 500)`, `useAfterDelay(x, 1_000)`.
@@ -134,8 +134,6 @@ BOUND_COPIES: tuple[tuple[str, str, int], ...] = (
 # A person action on the same unit.
 PERSON_ACTIONS = re.compile(
     r"(\bonClick\s*=|\bonPress\s*=|<Button\b|<button\b|\bonAction\b|\bprimaryAction\b"  # web
-    # A web component the unit draws whose name says it is a button (`<ConnectButton onConnect={...} />`).
-    r"|<[A-Z]\w*Button\b"
     r"|\bButton\s*[({]|\bNSButton\b|\.onTapGesture\b|\baddAction\b|#selector\(|\bUIAction\b|\.swipeActions\b"  # Swift
     r"|\baction:\s*\{|\bactions:\s*\[|\baction:\s*\."
     # A Swift model that names the person's action for its state (`var action: Action?`), drawn by a view.
@@ -416,6 +414,7 @@ def scan(tree: Tree) -> list[Unit]:
                               if int(m.group(2).replace("_", "")) < bound]
         unit.literal_grace += [m.group(0) + ")" for m in SWIFT_LITERAL_GRACE.finditer(text)
                                if int(m.group(2).replace("_", "")) * (1000 if m.group(1) == "seconds" else 1) < bound]
+    drawn_actions(units, imports)
     propagate(units, imports)
     tree.unit_ids = set(units)  # every declaration read, connection words or not
     for unit in units.values():
@@ -424,9 +423,62 @@ def scan(tree: Tree) -> list[Unit]:
     return [u for u in units.values() if u.hits and not ERROR_TYPE.search(u.name) and not OUTCOME_UNIT.search(u.name)]
 
 
+# A component named for the action it draws (`ConnectButton`, `RetryAction`, `CardActions`); a component that only
+# holds some other click (a disclosure, a row) does not lend it to the words beside it.
+DRAWN_ACTION = re.compile(r"[A-Z]\w*(?:Button|Action|Actions)$")
+# A web component the unit draws whose name says it is a button (`<ConnectButton onConnect={...} />`). One the tree
+# declares (in the file or imported from it) lends its action only if it carries one (drawn_actions); one declared
+# out of sight (a kit package) is taken at its name.
+DRAWN_BUTTON = re.compile(r"<([A-Z]\w*Button)\b")
+
+
+def drawn_actions(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]]) -> None:
+    """A web view that draws a button component (`<ConnectButton onConnect={...} />`, its `<button onClick>` inside)
+    carries that action too: the button sits on the same card as the words. The component is named for its action
+    (DRAWN_ACTION) and declared in the same file or imported into it; a few hops, so a button wrapping a button counts."""
+    acted_by_file: dict[str, set[str]] = {}
+    path_of: dict[str, str] = {}  # module path without suffix (and without a trailing /index) -> file
+    for unit in units.values():
+        if unit.path.endswith(".tsx"):
+            stem = unit.path[:-len(".tsx")]
+            path_of[stem] = unit.path
+            path_of.setdefault(stem.rsplit("/index", 1)[0], unit.path)
+    declared_by_file: dict[str, set[str]] = {}
+    for unit in units.values():
+        if unit.path.endswith(".tsx"):
+            declared_by_file.setdefault(unit.path, set()).add(unit.name)
+    for unit in units.values():
+        if unit.acted or not unit.path.endswith(".tsx"):
+            continue
+        known = set(declared_by_file.get(unit.path, set()))
+        known |= {local for local, target in imports.get(unit.path, [])
+                  if local in declared_by_file.get(path_of.get(target, ""), set())}
+        if any(name not in known for name in DRAWN_BUTTON.findall("\n".join(unit.lines))):
+            unit.acted = True
+    for _round in range(3):
+        acted_by_file = {}
+        for unit in units.values():
+            if unit.acted and unit.path.endswith(".tsx") and DRAWN_ACTION.match(unit.name):
+                acted_by_file.setdefault(unit.path, set()).add(unit.name)
+        moved = False
+        for unit in units.values():
+            if unit.acted or not unit.path.endswith(".tsx"):
+                continue
+            names = set(acted_by_file.get(unit.path, set())) - {unit.name}
+            for local, target in imports.get(unit.path, []):
+                if local in acted_by_file.get(path_of.get(target, ""), set()):
+                    names.add(local)
+            if names and re.search(r"<(?:%s)\b" % "|".join(sorted(map(re.escape, names))), "\n".join(unit.lines)):
+                unit.acted = True
+                moved = True
+        if not moved:
+            break
+
+
 def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]]) -> None:
     """Move a provider's unbounded hits to the units that draw them, up to a few hops. A provider with a bound or an
-    action keeps its hits (it passes). A map or strings member no unit draws shows nothing and is dropped; a helper
+    action keeps its hits (it passes). A map or strings member no unit draws, or a word set read only to drop what it
+    names, shows nothing and is dropped; a helper
     function no unit is seen to call keeps its hits (a call the scan cannot follow must not hide it)."""
     by_file: dict[str, list[Unit]] = {}
     for unit in units.values():
@@ -466,20 +518,27 @@ def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]])
                     if path != unit.path and any(local == unit.name and target in (stem, stem.rsplit("/index", 1)[0])
                                                  for local, target in bindings):
                         pool.extend(by_file.get(path, []))
+            # A word set read only to drop what it names (`if (SELF_HEALING.has(raw.words)) return undefined;`,
+            # composerStatusModel.ts since cmux#55968) draws none of its words: that use is no drawing.
+            drop = re.compile(rf"\b{name}\.has\([^()]*(?:\([^()]*\)[^()]*)*\)\s*\)\s*(?:\{{\s*)?(?:return|continue)\b")
             consumers = []
+            dropped = False
             for other in pool:
                 if other.name == "<file>":
                     continue  # its imports, not a drawing
                 by_value = instance is not None and bool(named.search("\n".join(other.lines)))
                 for i, line in enumerate(other.lines):
                     m = use.search(line) or (instance.search(line) if by_value else None)
+                    if m and drop.search(line) and not use.search(drop.sub("", line)):
+                        dropped = True
+                        continue
                     if m:
                         member = m.groupdict().get("m")
                         said = next((h for h in unit.hits if member_at(unit, h.index) == member), unit.hits[0])
                         consumers.append((other, i, said))
                         break
             if not consumers:
-                if None not in members and not unit.path.endswith(".swift"):
+                if dropped or (None not in members and not unit.path.endswith(".swift")):
                     # A strings map's member that no unit draws (`L.x`, `L[...]`) shows nothing. A Swift strings
                     # member can reach its drawing through a value the scan cannot follow, so it keeps its hits.
                     unit.hits = []

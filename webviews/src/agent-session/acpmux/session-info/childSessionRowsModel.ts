@@ -28,14 +28,18 @@ const retryOf = (child: StartedSession) => {
 export const sessionStatus = (child: StartedSession): SubagentStatus =>
   retryOf(child) ? "running" : stateOf(child).status;
 
-/// A started chat's state in words ("Running", "Done"), as its row says it, and whether it works (the
-/// turning ring). One acpmux retries reads Running with the ring, never "Retrying (2/4) …": the
-/// retry is acpmux's own and the person can do nothing about it (Leo, 2026-11-14, asked
-/// connectivity to stay quiet).
-export function sessionStateText(t: Translate, child: StartedSession): { text: string; working: boolean } {
-  return retryOf(child)
-    ? { text: t(SESSION_STATE.running.word), working: true }
-    : { text: t(stateOf(child).word), working: false };
+/// A started chat's state in words ("Done", "Failed"), as its row says it, and whether it works (the
+/// turning ring). Running is the ring with no word (Leo, 2026-11-23: "\"running\" doesn't need text. it can
+/// usually just be. you can put symbols for state."). One acpmux retries reads the same, never
+/// "Retrying (2/4) …": the retry is acpmux's own and the person can do nothing about it (Leo,
+/// 2026-11-14, asked connectivity to stay quiet).
+export function sessionStateText(
+  t: Translate,
+  child: StartedSession,
+): { text: string; working: boolean; word: string } {
+  const word = t(stateOf(child).word);
+  if (retryOf(child) || stateOf(child).status === "running") return { text: "", working: true, word };
+  return { text: word, working: false, word };
 }
 
 /// The started chats in list order: waiting on the person first, then running, failed and idle,

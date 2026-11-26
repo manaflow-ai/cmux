@@ -4,7 +4,6 @@ import type {
   AcpmuxBackgroundState,
   AcpmuxBackgroundTask,
   AcpmuxCompaction,
-  AcpmuxPlanEntry,
 } from "../model";
 
 /// Claude Code says it is still compacting every 30 seconds (2.1.305): a running note this soon
@@ -121,13 +120,3 @@ export function backgroundNoticeLabel(task: BackgroundUpdate): string | undefine
   return state === task.state ? notice[1]?.trim() || undefined : undefined;
 }
 
-/// An ACP `plan` update's entries as a todo list; an entry without text is left out.
-export function planEntries(entries: unknown): AcpmuxPlanEntry[] {
-  if (!Array.isArray(entries)) return [];
-  return entries.flatMap((entry) => {
-    const content = typeof entry?.content === "string" ? entry.content.trim() : "";
-    if (!content) return [];
-    const status = entry.status === "completed" || entry.status === "in_progress" ? entry.status : "pending";
-    return [{ content, status }];
-  });
-}

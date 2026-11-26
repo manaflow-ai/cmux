@@ -42,7 +42,7 @@ afterEach(async () => {
   saved.clear();
 });
 
-test("an offline chat uses a neutral status spinner", async () => {
+test("an offline chat says Offline as a status, with no spinner", async () => {
   const container = installDom();
   root = createRoot(container);
   await act(async () => {
@@ -61,11 +61,12 @@ test("an offline chat uses a neutral status spinner", async () => {
   });
   expect(container.querySelector('[role="status"]')).not.toBeNull();
   expect(container.querySelector('[role="alert"]')).toBeNull();
-  expect(container.querySelector(".cv-spinner")).not.toBeNull();
-  expect(container.textContent).toContain("Reconnecting…");
+  expect(container.querySelector(".cv-spinner")).toBeNull();
+  expect(container.textContent).toContain("Offline");
+  expect(container.textContent).not.toContain("Reconnecting…");
 });
 
-test("an offline chat shows nothing until the drop has lasted past the threshold, then Reconnecting…", async () => {
+test("an offline chat shows nothing until the drop has lasted past the threshold, then Offline", async () => {
   jest.useFakeTimers();
   const container = installDom();
   root = createRoot(container);
@@ -86,10 +87,10 @@ test("an offline chat shows nothing until the drop has lasted past the threshold
   expect(container.querySelector('[data-unavailable="offline"]')).toBeNull();
   await act(async () => void jest.advanceTimersByTime(1));
   expect(container.querySelector('[data-unavailable="offline"]')).not.toBeNull();
-  expect(container.textContent).toContain("Reconnecting…");
+  expect(container.textContent).toContain("Offline");
 });
 
-test("a machine whose link dropped says nothing for 10 s, acpmux's own redial, then Reconnecting… once", async () => {
+test("a machine whose link dropped says nothing for 10 s, acpmux's own redial, then Offline once", async () => {
   // Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up". Before, the state
   // showed 1.5 s into any drop, which a redial after a dead ssh link (6 s to notice, then a login)
   // always outlasts.
@@ -111,7 +112,7 @@ test("a machine whose link dropped says nothing for 10 s, acpmux's own redial, t
   expect(container.textContent).toBe("");
   await act(async () => void jest.advanceTimersByTime(1));
   expect(container.querySelector('[data-unavailable="offline"]')).not.toBeNull();
-  expect(container.textContent).toContain("Reconnecting…");
+  expect(container.textContent).toContain("Offline");
 });
 
 test("a chat still connecting shows nothing: no spinner, no text, no buttons", async () => {
@@ -212,6 +213,30 @@ test("a resume keeps its spinner's slot from the first frame and fills it only p
   });
   expect(container.querySelector(".acpmux-unavailable-progress")).toBe(slot);
   expect(slot!.querySelector(".cv-spinner")).not.toBeNull();
+});
+
+test("an offline chat reads the machines and the chat list again on its own, with no Reconnect button", async () => {
+  // Leo, 2026-11-22: "vacuous decisions like that should be just done".
+  jest.useFakeTimers();
+  const container = installDom();
+  root = createRoot(container);
+  let asks = 0;
+  await act(async () => {
+    root!.render(
+      <ChatUnavailableState
+        unavailable={{ reason: "offline", machine: "remote" }}
+        machine="remote"
+        onRemove={() => undefined}
+        onReconnect={() => asks++}
+        noteDelayMs={0}
+      />,
+    );
+  });
+  expect(container.querySelector('[data-action="reconnect"]')).toBeNull();
+  await act(async () => void jest.advanceTimersByTime(1_000));
+  expect(asks).toBe(1);
+  await act(async () => void jest.advanceTimersByTime(2_000));
+  expect(asks).toBe(2);
 });
 
 test("a resume past the slow bound says it is taking longer and enables Resume machine again", async () => {

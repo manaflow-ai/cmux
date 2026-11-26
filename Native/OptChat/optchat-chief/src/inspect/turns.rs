@@ -283,7 +283,7 @@ pub fn system_parts(system_text: &str) -> Vec<Value> {
     let mut out = vec![
         part(
             "The spec's prompt",
-            "Taelin's one prompt for turns and compactions: the view, turns, compactions.",
+            "The Chief turn's prompt: the view and turn rules.",
             &base,
         ),
         part(

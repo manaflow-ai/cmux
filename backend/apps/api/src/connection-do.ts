@@ -20,7 +20,7 @@ import * as ghTokens from "./integrations/github-tokens.ts"
 import * as ghUser from "./integrations/github-user-tokens.ts"
 import { createConfigurePageTable, githubConnectTarget, installationPage, type GithubConnectTarget } from "./integrations/github-connect.ts"
 import { addListener, createListenerTable, githubChangeOf, GithubPushCoalescer, listeners, removeListener, type IntegrationChangedFrame } from "./integrations/github-push.ts"
-import { github, githubScopesOf, ProviderError, providerForOp, providers, scopesToRequest, type Credential, type Http } from "./integrations/providers.ts"
+import { github, githubAppSlug, githubScopesOf, ProviderError, providerForOp, providers, scopesToRequest, type Credential, type Http } from "./integrations/providers.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
 import { claimGitHubDelivery, createGitHubDeliveryTable, finishGitHubDelivery } from "./ingress/github-deliveries.ts"
@@ -292,13 +292,15 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
    * page, GitHub's 404 (cmux#55104). `stateOf` is read again after each reconcile.
    */
   private async githubStatusOf(stateOf: () => ConnectionsState, principal: Principal) {
+    // The slug GitHub names the App now (providers.ts githubAppSlug, cached), read once per status read.
+    const appSlug = await githubAppSlug(this.env)
     for (let reconciled = 0; ; reconciled++) {
       const state = stateOf()
       const c = ghTokens.githubStatusConnection(state, principal)
       const installation = c ? githubInstallationOf(c) : undefined
-      if (!c?.account || installation === undefined || !github.configured(this.env) || ghTokens.githubInstallationGone(c)) return ghTokens.githubStatus(this.env, state, principal, null)
+      if (!c?.account || installation === undefined || !github.configured(this.env) || ghTokens.githubInstallationGone(c)) return ghTokens.githubStatus(this.env, state, principal, null, appSlug)
       const page = await installationPage(this.ctx.storage.sql, this.env, this.http, installation, c.account.name, Date.now())
-      if (!page.gone || reconciled >= MAX_STATUS_RECONCILES) return ghTokens.githubStatus(this.env, state, principal, page.url)
+      if (!page.gone || reconciled >= MAX_STATUS_RECONCILES) return ghTokens.githubStatus(this.env, state, principal, page.url, appSlug)
       this.markNeedsReauth(c, ghTokens.GITHUB_GONE_DETAIL)
     }
   }

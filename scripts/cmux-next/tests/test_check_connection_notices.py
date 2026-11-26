@@ -214,6 +214,15 @@ IOS_FIXED = """\
     }
 """
 
+DROP_SET = """\
+    const SELF_HEALING: ReadonlySet<string> = new Set([
+      "Reconnecting",
+    ]);
+    export function readStatusItem(raw: Raw): Item | undefined {
+      if (SELF_HEALING.has(raw.words)) return undefined;
+      return { words: raw.words };
+    }
+"""
 WEB = "webviews/src/agent-session/acpmux"
 PAGE = "webviews/src/pages/editor"
 MAC = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Remote"
@@ -309,6 +318,54 @@ class WebShapes(unittest.TestCase):
         code, out = tree.check()
         self.assertEqual(code, 1, "only the outcome's words are exempt, not any unit named failed*")
 
+    def test_a_view_drawing_its_own_button_component_carries_the_action(self):
+        tree = Tree(self)
+        tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)
+        tree.write(f"{WEB}/AutoResumeNotice.tsx", """\
+    import { retryLabel } from "./retryState";
+    function RetryButton({ onRetry }: { onRetry: () => void }) {
+      return <button type="button" onClick={onRetry}>Retry</button>;
+    }
+    export function AutoResumeNotice({ retry, t, onRetry }: Props) {
+      return <output className="notice">{retry ? retryLabel(t, retry.attempt, retry.of) : null}<RetryButton onRetry={onRetry} /></output>;
+    }
+""")
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+
+    def test_a_view_drawing_an_imported_button_component_carries_the_action(self):
+        tree = Tree(self)
+        tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)
+        tree.write(f"{WEB}/RetryButton.tsx", """\
+    export function RetryButton({ onRetry }: { onRetry: () => void }) {
+      return <button type="button" onClick={onRetry}>Retry</button>;
+    }
+""")
+        tree.write(f"{WEB}/AutoResumeNotice.tsx", """\
+    import { retryLabel } from "./retryState";
+    import { RetryButton } from "./RetryButton";
+    export function AutoResumeNotice({ retry, t, onRetry }: Props) {
+      return <output className="notice">{retry ? retryLabel(t, retry.attempt, retry.of) : null}<RetryButton onRetry={onRetry} /></output>;
+    }
+""")
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+
+    def test_a_drawn_component_without_an_action_is_no_action(self):
+        tree = Tree(self)
+        tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)
+        tree.write(f"{WEB}/AutoResumeNotice.tsx", """\
+    import { retryLabel } from "./retryState";
+    function MarkButton() {
+      return <span className="mark" />;
+    }
+    export function AutoResumeNotice({ retry, t }: Props) {
+      return <output className="notice"><MarkButton />{retry ? retryLabel(t, retry.attempt, retry.of) : null}</output>;
+    }
+""")
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+
     def test_a_literal_grace_under_the_bound_is_no_bound(self):
         tree = Tree(self)
         tree.write("schemas/notice-timing/notice-timing.json", json.dumps({"connectionQuietMs": 10000}))
@@ -335,6 +392,18 @@ class WebShapes(unittest.TestCase):
         tree.write(f"{PAGE}/PhaseBadge.tsx", NOT_TEXT)
         code, out = tree.check()
         self.assertEqual(code, 0, out)
+
+
+    def test_a_word_set_read_only_to_drop_what_it_names_shows_nothing(self):
+        """composerStatusModel.ts (cmux#55968) keeps the self-healing link words to drop an older acpmux's item."""
+        tree = Tree(self)
+        tree.write(f"{WEB}/statusModel.ts", DROP_SET)
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+        tree.write(f"{WEB}/statusModel.ts", DROP_SET.replace(
+            "if (SELF_HEALING.has(raw.words)) return undefined;", "const shown = SELF_HEALING.has(raw.words);"))
+        code, out = tree.check()
+        self.assertEqual(code, 1, "a set read for anything but a drop still carries its words to its reader")
 
 
 class NativeShapes(unittest.TestCase):

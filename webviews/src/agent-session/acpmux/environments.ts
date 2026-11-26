@@ -124,11 +124,12 @@ export function peerStatesFromStatus(status: unknown): Record<string, string> {
 }
 
 /// Whether a chat can start on the machine now: this Mac always; a peer once acpmux says its link
-/// is `connected` (a `degraded` link has not finished its handshake), or, from a daemon that says no
-/// state, while it is not marked disconnected. A Cloud chat's host acpmux does not list counts.
+/// is `connected` (a `degraded` link has not finished its handshake) or `idle` (left closed because
+/// unused: the start connects it, acpmux `peer_demand.rs`), or, from a daemon that says no state,
+/// while it is not marked disconnected. A Cloud chat's host acpmux does not list counts.
 export function environmentReady(environment: Environment): boolean {
   if (environment.kind === "local") return true;
-  if (environment.state !== undefined) return environment.state === "connected";
+  if (environment.state !== undefined) return environment.state === "connected" || environment.state === "idle";
   return environment.connected !== false;
 }
 
@@ -157,6 +158,23 @@ export function environmentUnavailable(environment: Environment, now: number): b
   if (environment.state === undefined) return environment.connected === false;
   if (!UNREACHABLE_STATES.has(environment.state)) return false;
   return environment.downSince === undefined || now - environment.downSince >= UNAVAILABLE_AFTER_MS;
+}
+
+/// The link states of a machine acpmux is still dialing: its first attempt, a handshake not finished,
+/// a dropped link redialing, a daemon restarting.
+const ON_ITS_WAY_STATES: ReadonlySet<string> = new Set(["connecting", "degraded", "reconnecting", "restarting"]);
+
+/// Whether the machine is a pick and reads as live: ready, or still dialing and not yet long down
+/// (`environmentUnavailable`). Leo, 2026-11-24: "all the connecting... indicators and the graying out
+/// of workspaces, nah let's not do that. let's just keep optimistically connecting and reinforcing the
+/// connection". A machine on its way is never greyed, never says Connecting or Reconnecting, and a chat
+/// picked on it waits for its link (the prompt queue's `hostWaitMs`), as the Mac's New Agent Chat
+/// picker does (`Destination.opens`, cmux#55058). Offline, a refused sign-in, an update and a long
+/// drop still say so.
+export function environmentPickable(environment: Environment, now: number = Date.now()): boolean {
+  if (environmentReady(environment)) return true;
+  if (environment.state === undefined || !ON_ITS_WAY_STATES.has(environment.state)) return false;
+  return !environmentUnavailable(environment, now);
 }
 
 /// The name the picker's This Mac row shows. The host sends this Mac's own name as

@@ -30,6 +30,7 @@ import { ChatRecencyMenu } from "./ChatRecencyMenu";
 import { liveMatches, withRecency } from "./chatQueryTerms";
 import { AllChatsLoading } from "./AllChatsLoading";
 import { useLasting } from "../../../ui/lasting";
+import { useAutoRetry } from "../autoRetry";
 import {
   type AllChatsRow,
   type LoadChatsPage,
@@ -404,10 +405,27 @@ export function AllChatsList({
   const menuKey = useRef<string | undefined>(undefined);
   const [menuTarget, setMenuTarget] = useState<string | undefined>(undefined);
   const { rows, nextCursor } = state;
-  // The skeleton holds the rows' layout while a read is out (no text, no shift when it lands); a read
-  // that never answers is said as the failure line, with Try again, once it passes the ceiling.
+  // The skeleton holds the rows' layout while a read is out (no text, no shift when it lands). A first
+  // page that failed, or a read that never answers past the ceiling, is asked again on its own
+  // (autoRetry.ts): asking again is the only answer, so it is no one's decision (Leo, 2026-11-22). The
+  // skeleton stays while it does; only a failure that lasts says one quiet line, with no button.
   const waiting = rows.length === 0 && (!state.loaded || state.loading || (!state.ready && !state.failed));
   const unanswered = useLasting(rows.length === 0 && (!state.loaded || state.loading), CHATS_READ_CEILING_MS);
+  // A read past the ceiling is still in flight but stuck: the next ask starts a new one over it.
+  const { stillTrying: firstStillTrying } = useAutoRetry(
+    state.failed || unanswered,
+    () => fetchPage(state.query, undefined),
+    { busy: state.loading && !unanswered },
+  );
+  // A later page that failed keeps its cursor and its loader row, and is asked again the same way.
+  const failedCursor = nextCursor !== undefined && state.failedCursor === nextCursor ? nextCursor : undefined;
+  const { stillTrying: pageStillTrying } = useAutoRetry(
+    failedCursor,
+    () => {
+      if (failedCursor) fetchPage(state.query, failedCursor);
+    },
+    { busy: state.loading },
+  );
   const [view, setView] = useState<"chats" | "projects">("chats");
   const [filter, setFilter] = useState<ChatStatusFilter>("all");
   // Working and Needs input are live chats only; the indexed rows are finished chats.
@@ -494,9 +512,8 @@ export function AllChatsList({
     if (!onBring || selected.length === 0) return;
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
-      // Let focused controls keep their native keyboard action. In particular, the inline
-      // later-page retry is a button: swallowing Enter here would open the current selection
-      // instead of retrying the failed page.
+      // Let focused controls keep their native keyboard action: swallowing Enter on a focused
+      // button (the open failure's Try again, a header tab) would open the current selection instead.
       const control = target?.closest("button, input, textarea, select, a, [role=menu]");
       if (event.defaultPrevented || (control && !control.classList.contains("nt-all-row"))) return;
       if (event.key === "Enter") {
@@ -524,19 +541,13 @@ export function AllChatsList({
   const renderRow = (index: number, style: React.CSSProperties) => {
     const entry = entries[index];
     if (!entry) {
-      const failedPage = nextCursor !== undefined && state.failedCursor === nextCursor;
-      if (failedPage) {
+      // The loader row stays while a failed page is asked again (its ref fires once per mount, so it
+      // asks nothing more); a failure that lasts turns it into one quiet line, which holds through the
+      // asks that follow (`stillTrying` spans the attempts in flight) until a page lands.
+      if (pageStillTrying) {
         return (
           <output key={`more-${nextCursor}`} className="nt-all-item nt-chats-failed" style={style}>
-            {nt("chatsLoadFailed")}
-            <button
-              type="button"
-              className="nt-chats-retry"
-              disabled={state.loading}
-              onClick={() => fetchPage(state.query, nextCursor)}
-            >
-              {t("picker.tryAgain")}
-            </button>
+            {nt("chatsStillLoading")}
           </output>
         );
       }
@@ -665,6 +676,8 @@ export function AllChatsList({
       {openFeedback.failure && (
         <div className="nt-chats-empty nt-chats-failed" role="alert">
           {openFeedback.failure.message}
+          {/* retry-prompt-ok: opening a chat opens a workspace and moves the person to it; asked again
+              on its own it would pull them away later, so only their click opens it again. */}
           {openFeedback.failure.key && (
             <button
               type="button"
@@ -695,25 +708,14 @@ export function AllChatsList({
       )}
       {!indexed ? (
         activeShown.length === 0 && <p className="nt-chats-empty">{t("sidebar.noMatches")}</p>
-      ) : waiting && !unanswered ? (
-        <AllChatsLoading rowHeight={ROW_HEIGHT} design={state.design} view={view} />
-      ) : (state.loaded || unanswered) && rows.length === 0 ? (
-        state.failed || unanswered ? (
-          <output className="nt-chats-empty nt-chats-failed">
-            {nt("chatsLoadFailed")}
-            <button
-              type="button"
-              className="nt-chats-retry"
-              // A read past the ceiling is still in flight: Try again starts a new one over it.
-              disabled={state.loading && !unanswered}
-              onClick={() => fetchPage(state.query, undefined)}
-            >
-              {t("picker.tryAgain")}
-            </button>
-          </output>
+      ) : rows.length === 0 && (waiting || state.failed || unanswered) ? (
+        firstStillTrying ? (
+          <output className="nt-chats-empty nt-chats-failed">{nt("chatsStillLoading")}</output>
         ) : (
-          state.ready && <p className="nt-chats-empty">{state.query ? t("sidebar.noMatches") : nt("noChats")}</p>
+          <AllChatsLoading rowHeight={ROW_HEIGHT} design={state.design} view={view} />
         )
+      ) : state.loaded && rows.length === 0 ? (
+        state.ready && <p className="nt-chats-empty">{state.query ? t("sidebar.noMatches") : nt("noChats")}</p>
       ) : (
         <ContextMenu className="nt-all-host" items={items} onOpen={() => setMenuTarget(menuKey.current)}>
           <div className="nt-all-scroll" onContextMenuCapture={() => (menuKey.current = undefined)}>

@@ -453,6 +453,39 @@ def test_the_callers_pass_whether_their_own_checks_passed():
         assert job["with"]["own_checks_green"] == (
             "${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}"), workflow
 
+
+def test_one_writer_per_head_and_green_callers_start_no_runner():
+    """ci.yml's call (every pull request that changes more than prose) is the head's writer; a cmux-next.yml or
+    cmux-next-guards.yml call whose own checks passed starts no runner on a first attempt (2026-11-25 13Z..23Z:
+    about 7,800 calls and 10.7k runner-min across the callers, 0 real catches). A red call or a rerun still runs."""
+    import re
+    import yaml
+    reusable = yaml.safe_load((ROOT / ".github/workflows/pr-red-checks-comment.yml").read_text())
+    trigger = reusable.get("on", reusable.get(True))
+    assert trigger["workflow_call"]["inputs"]["writer"] == {**trigger["workflow_call"]["inputs"]["writer"],
+                                                           "type": "boolean", "default": False}
+    condition = reusable["jobs"]["comment"]["if"]
+
+    def runs(writer, own_green, attempt):
+        expr = condition.strip().removeprefix("${{").removesuffix("}}")
+        expr = (expr.replace("always()", "True").replace("!cancelled()", "True")
+                .replace("github.event_name == 'pull_request'", "True")
+                .replace("github.event.pull_request.base.ref == 'feat-cmux-next'", "True")
+                .replace("inputs.writer", repr(writer)).replace("inputs.own_checks_green", repr(own_green))
+                .replace("github.run_attempt != '1'", repr(attempt != 1)))
+        expr = re.sub(r"!(?=[A-Z(])", " not ", expr).replace("&&", " and ").replace("||", " or ")
+        return eval(expr, {"__builtins__": {}}, {})  # noqa: S307 - this repository's own workflow text
+
+    assert runs(True, True, 1)                     # the writer always runs
+    assert not runs(False, True, 1)                # a green caller on a first attempt starts no runner
+    assert runs(False, False, 1)                   # a red caller writes its red
+    assert runs(False, True, 2)                    # a rerun clears the red it fixed
+    writers = {}
+    for workflow in ("ci.yml", "cmux-next.yml", "cmux-next-guards.yml"):
+        job = yaml.safe_load((ROOT / ".github/workflows" / workflow).read_text())["jobs"]["pr-red-checks"]
+        writers[workflow] = job["with"].get("writer", False)
+    assert writers == {"ci.yml": True, "cmux-next.yml": False, "cmux-next-guards.yml": False}
+
 def test_a_call_for_a_superseded_head_writes_nothing():
     # A late call for an old head: its red is not the pull request's, and the current head's line stays.
     fake = FakeGitHub([run("web / react-apps-check", "failure")], [{"id": 5, "body": status(checks="web and size checks: green")}],
@@ -590,6 +623,17 @@ def test_a_null_step_or_annotation_leaves_that_run_to_rest():
     red.prefetch_details(gh, [{"id": i, "node_id": f"n{i}"} for i in (1, 2, 3)], query=lambda q, v: data)
     assert sorted(gh.details) == [3]
 
+def test_ci_and_cmux_next_call_only_after_their_tracked_job_ran():
+    # A call after a skipped tracked job has no red of its own to add; cmux-next-guards.yml's call on every
+    # head writes the `ran` line and clears an older head's red (about 12k runner-min a day, 11-25).
+    import yaml
+    for workflow, need in (("ci.yml", "web"), ("cmux-next.yml", "checks")):
+        job = yaml.safe_load((ROOT / ".github/workflows" / workflow).read_text())["jobs"]["pr-red-checks"]
+        assert job["needs"] == [need], workflow
+        assert f"needs.{need}.result != 'skipped'" in job["if"], workflow
+    guards = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text())["jobs"]["pr-red-checks"]
+    assert "skipped" not in guards["if"]
+
 
 if __name__ == "__main__":
     import traceback
@@ -604,4 +648,5 @@ if __name__ == "__main__":
                 print("FAIL", _name)
                 traceback.print_exc(limit=1)
     sys.exit(1 if bad else 0)
+
 

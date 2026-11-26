@@ -78,6 +78,8 @@ pub struct Snapshot<K, V> {
     pub vv: Vv,
     pub acked: Vv,
     pub entries: Vec<(K, Entry<V>)>,
+    #[serde(default)]
+    pub history: Vec<(K, Entry<V>)>,
 }
 
 /// One replica of a map.
@@ -89,11 +91,21 @@ pub struct Replica<K: Ord, V> {
     /// What the home last said it covers: local dots past it are pending.
     acked: Vv,
     entries: BTreeMap<K, Entry<V>>,
+    /// Every edit still needed by a replica whose vector is behind. The materialized map keeps
+    /// only the winner for each key, while this history lets a causal-gap receiver catch up after
+    /// an older edit was overwritten locally.
+    history: BTreeMap<Dot, (K, Entry<V>)>,
 }
 
 impl<K: Ord + Clone, V: Clone> Replica<K, V> {
     pub fn new(actor: Actor) -> Self {
-        Self { clock: Clock::new(actor), vv: Vv::new(), acked: Vv::new(), entries: BTreeMap::new() }
+        Self {
+            clock: Clock::new(actor),
+            vv: Vv::new(),
+            acked: Vv::new(),
+            entries: BTreeMap::new(),
+            history: BTreeMap::new(),
+        }
     }
 
     pub fn actor(&self) -> &Actor {
@@ -135,11 +147,27 @@ impl<K: Ord + Clone, V: Clone> Replica<K, V> {
     fn write(&mut self, key: K, value: Option<V>, wall_ms: u64) -> Delta<K, V> {
         let actor = self.actor().clone();
         let seq = self.vv.get(&actor) + 1;
-        let stamp = self.clock.now(wall_ms);
+        let mut stamp = self.clock.now(wall_ms);
+        // A far-future remote stamp is deliberately not allowed to poison the HLC. A local
+        // overwrite must still win that key, though, so advance only this key's stamp when the
+        // wall clock is behind its current winner.
+        if let Some(current) = self.entries.get(&key)
+            && stamp <= current.stamp
+        {
+            stamp = current.stamp.clone();
+            if stamp.n == u32::MAX {
+                stamp.ms = stamp.ms.saturating_add(1);
+                stamp.n = 0;
+            } else {
+                stamp.n += 1;
+            }
+            stamp.actor = actor.clone();
+        }
         let dot = Dot { actor: actor.clone(), seq };
         self.vv.set(actor.clone(), seq);
         let entry = Entry { value, stamp, dot };
         self.entries.insert(key.clone(), entry.clone());
+        self.history.insert(entry.dot.clone(), (key.clone(), entry.clone()));
         let mut since = Vv::new();
         since.set(actor.clone(), seq - 1);
         let mut covers = Vv::new();
@@ -151,8 +179,8 @@ impl<K: Ord + Clone, V: Clone> Replica<K, V> {
     /// covers is one it holds or one it holds a newer edit for, so nothing it needs is left out.
     pub fn delta_since(&self, theirs: &Vv) -> Delta<K, V> {
         let entries = self
-            .entries
-            .iter()
+            .history
+            .values()
             .filter(|(_, e)| !theirs.covers(&e.dot))
             .map(|(k, e)| (k.clone(), e.clone()))
             .collect();
@@ -165,6 +193,7 @@ impl<K: Ord + Clone, V: Clone> Replica<K, V> {
         let mut ahead_ms = 0;
         for (key, theirs) in &delta.entries {
             ahead_ms = ahead_ms.max(self.clock.observe(&theirs.stamp, wall_ms));
+            self.history.entry(theirs.dot.clone()).or_insert_with(|| (key.clone(), theirs.clone()));
             let wins = match self.entries.get(key) {
                 Some(mine) => theirs.stamp > mine.stamp,
                 None => true,
@@ -210,6 +239,7 @@ impl<K: Ord + Clone, V: Clone> Replica<K, V> {
         let floor = Vv::meet(everyone);
         let before = self.entries.len();
         self.entries.retain(|_, e| e.value.is_some() || !floor.covers(&e.dot));
+        self.history.retain(|_, (_, e)| !floor.covers(&e.dot));
         before - self.entries.len()
     }
 
@@ -219,22 +249,35 @@ impl<K: Ord + Clone, V: Clone> Replica<K, V> {
             vv: self.vv.clone(),
             acked: self.acked.clone(),
             entries: self.entries.iter().map(|(k, e)| (k.clone(), e.clone())).collect(),
+            history: self.history.values().cloned().collect(),
         }
     }
 
     pub fn restore(snapshot: Snapshot<K, V>) -> Self {
-        Self {
-            clock: snapshot.clock,
-            vv: snapshot.vv,
-            acked: snapshot.acked,
-            entries: snapshot.entries.into_iter().collect(),
+        let entries: BTreeMap<K, Entry<V>> = snapshot.entries.into_iter().collect();
+        let mut history: BTreeMap<Dot, (K, Entry<V>)> = snapshot
+            .history
+            .into_iter()
+            .map(|(key, entry)| (entry.dot.clone(), (key, entry)))
+            .collect();
+        // Snapshots written before edit history was persisted still have their current winners.
+        // They cannot recover overwritten edits, but retaining the winners keeps future deltas
+        // correct and lets those snapshots upgrade without data loss.
+        if history.is_empty() {
+            history.extend(
+                entries
+                    .iter()
+                    .map(|(key, entry)| (entry.dot.clone(), (key.clone(), entry.clone()))),
+            );
         }
+        Self { clock: snapshot.clock, vv: snapshot.vv, acked: snapshot.acked, entries, history }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::hlc::MAX_DRIFT_MS;
 
     type R = Replica<String, String>;
 
@@ -290,6 +333,37 @@ mod tests {
         assert!(!b.apply(&fill, 4).gap);
         assert_eq!(b.vv(), a.vv());
         drop(first);
+    }
+
+    #[test]
+    fn a_gap_for_an_overwritten_key_can_still_be_filled() {
+        let (mut a, mut b) = (r("a"), r("b"));
+        let first = a.set(k("x"), k("1"), 1);
+        let second = a.set(k("x"), k("2"), 2);
+        let got = b.apply(&second, 3);
+        assert!(got.gap);
+        assert_eq!(b.get(&k("x")), Some(&k("2")));
+        let fill = a.delta_since(b.vv());
+        assert_eq!(fill.entries.len(), 2);
+        assert!(!b.apply(&fill, 4).gap);
+        assert_eq!(b.vv(), a.vv());
+        assert_eq!(b.get(&k("x")), Some(&k("2")));
+        drop(first);
+    }
+
+    #[test]
+    fn a_local_edit_after_a_far_remote_stamp_wins_the_round_trip() {
+        let (mut remote, mut local) = (r("remote"), r("local"));
+        let far = remote.set(k("x"), k("remote"), MAX_DRIFT_MS + 10_000);
+        local.apply(&far, 0);
+        let mine = local.set(k("x"), k("local"), 1);
+        assert!(mine.entries[0].1.stamp > far.entries[0].1.stamp);
+        remote.apply(&mine, 1);
+        let local_vv = local.vv().clone();
+        let back = remote.delta_since(&local_vv);
+        local.apply(&back, 1);
+        assert_eq!(remote.get(&k("x")), Some(&k("local")));
+        assert_eq!(local.get(&k("x")), Some(&k("local")));
     }
 
     #[test]
