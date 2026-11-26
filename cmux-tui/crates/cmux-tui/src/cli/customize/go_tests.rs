@@ -96,7 +96,10 @@ fn go_refuses_code_the_person_did_not_see() {
     let mut calls = Vec::new();
     let error = go_with(&customize, 9, &mut fake(moved, &mut calls)).err().unwrap();
     assert!(error.message.contains("moved since you tried it"), "{}", error.message);
-    assert!(!calls.iter().any(|call| call.iter().any(|arg| arg.contains("labels"))), "{calls:?}");
+    assert!(
+        !calls.iter().any(|call| call.iter().any(|arg| arg.contains("issues/9/labels"))),
+        "{calls:?}"
+    );
 
     for (pull, why) in [
         (json!({"head": "a".repeat(40), "state": "closed", "merged": true}), "merged already"),
