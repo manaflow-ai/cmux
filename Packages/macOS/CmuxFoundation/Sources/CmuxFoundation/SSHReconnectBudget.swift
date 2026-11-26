@@ -64,13 +64,17 @@ public struct SSHReconnectBudget: Sendable {
     ///     generator also writes `\(variable)_requested` and
     ///     `\(variable)_rejected`.
     ///   - fallback: Budget used when the supplied value is unusable.
+    ///   - allowsZero: Whether 0 is a budget (no retries) rather than unusable.
     /// - Returns: POSIX `/bin/sh` lines.
     public func limitNormalizationShellLines(
         variable: String,
-        fallback: Int? = nil
+        fallback: Int? = nil,
+        allowsZero: Bool = false
     ) -> [String] {
         let fallback = fallback ?? fallbackLimit
         let ceilingDigits = String(maximumLimit).count
+        let zeroBranch = allowsZero ? ":" : "\(variable)_rejected=1; \(variable)=\(fallback)"
+        let lowest = allowsZero ? 0 : 1
         return [
             "\(variable)=\"${\(limitEnvironmentName):-\(fallback)}\"",
             "\(variable)_requested=\"$\(variable)\"",
@@ -78,11 +82,11 @@ public struct SSHReconnectBudget: Sendable {
             "case \"$\(variable)\" in ''|*[!0-9]*) \(variable)_rejected=1; \(variable)=\(fallback) ;; *) "
                 + "while [ \"${\(variable)#0}\" != \"$\(variable)\" ] && [ \"$\(variable)\" != 0 ]; do "
                 + "\(variable)=\"${\(variable)#0}\"; done; "
-                + "if [ \"$\(variable)\" = 0 ]; then \(variable)_rejected=1; \(variable)=\(fallback); "
+                + "if [ \"$\(variable)\" = 0 ]; then \(zeroBranch); "
                 + "elif [ \"${#\(variable)}\" -gt \(ceilingDigits) ] || [ \"$\(variable)\" -gt \(maximumLimit) ]; then "
                 + "\(variable)_rejected=1; \(variable)=\(maximumLimit); fi ;; esac",
             "if [ \"$\(variable)_rejected\" = 1 ]; then printf "
-                + "'[cmux] \(limitEnvironmentName)=%s is not an attempt count in 1-\(maximumLimit); using %s.\\n' "
+                + "'[cmux] \(limitEnvironmentName)=%s is not an attempt count in \(lowest)-\(maximumLimit); using %s.\\n' "
                 + "\"$\(variable)_requested\" \"$\(variable)\" >&2 || true; fi",
         ]
     }
@@ -114,7 +118,8 @@ public struct SSHReconnectBudget: Sendable {
     /// The Freestyle attach/reconnect loop shared by every launcher that
     /// re-runs `vm-pty-attach` when the connection drops.
     ///
-    /// Normalizes the limit (falling back to ``maximumLimit``) and the delay,
+    /// Normalizes the limit (falling back to ``maximumLimit``; 0 keeps meaning
+    /// one attach with no reconnect) and the delay,
     /// exports the normalized values so the child attach sees them, then runs
     /// `attachCommand` until it exits with anything other than 254 or 255, or
     /// the retry budget is spent.
@@ -123,7 +128,7 @@ public struct SSHReconnectBudget: Sendable {
     ///   performs one attach.
     /// - Returns: POSIX `/bin/sh` lines.
     public func attachRetryLoopShellLines(attachCommand: String) -> [String] {
-        limitNormalizationShellLines(variable: "cmux_freestyle_reconnect_limit", fallback: maximumLimit)
+        limitNormalizationShellLines(variable: "cmux_freestyle_reconnect_limit", fallback: maximumLimit, allowsZero: true)
             + delayNormalizationShellLines(variable: "cmux_freestyle_reconnect_delay")
             + [
                 "\(limitEnvironmentName)=\"$cmux_freestyle_reconnect_limit\"",
