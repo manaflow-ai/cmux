@@ -210,6 +210,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_app_spend_mark.py
 
+      - name: Validate every recurring github.token spender stops at a floor
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_job_token_floor.py
+
       - name: Validate fast checks take their size from the linux runner pool
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fast_checks_failover.py
@@ -252,7 +256,9 @@ jobs:
 
       - name: Validate fast checks prefetch SwiftPM binary artifacts
         if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_fast_checks_swiftpm_artifacts.py
+        run: |
+          python3 tests/test_ci_fast_checks_swiftpm_artifacts.py
+          python3 tests/test_ci_swiftpm_prefetch_shared_cache.py
 
       - name: Validate fast checks refuse cargo -p of a crate outside its workspace
         if: ${{ matrix.group == 'ci' }}
@@ -585,6 +591,7 @@ jobs:
           python3 tests/test_localization_catalog.py
           python3 tests/test_localize_changes.py
           python3 tests/test_localization_defaults.py
+          python3 tests/test_localization_fill.py
 
       - name: Test fake-socket CLI test helpers
         if: ${{ matrix.group == 'preflight' }}
@@ -882,6 +889,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_github_token_budget.py
 
+      - name: Validate scheduled workflows dispatch on the cmux bot App token
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_cron_dispatch_token_lint.py
+
       - name: Validate the nightly-next tick waits through GitHub API rate limits
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_gh_budget_wait.py
@@ -1013,6 +1024,10 @@ jobs:
       - name: Validate main's shed sweep keeps base autofix runs
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_shed_superseded_runs.py
+
+      - name: Validate the shed sweep survives the token rate limit
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_shed_rate_limit.py
 
       # Reads the other branch's workflows too (origin/feat-cmux-next here, origin/main on
       # feat-cmux-next); under Actions the test fetches it blob-less and fails if it cannot.

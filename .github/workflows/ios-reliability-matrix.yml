@@ -32,10 +32,12 @@ jobs:
       actions: write # dispatch ios-reliability-matrix.yml
       contents: read
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
-    timeout-minutes: 20
+    # Room for one full wait through github.token's hour (below) when the App token cannot be minted.
+    timeout-minutes: 70
     env:
-      # A scheduled job's GitHub API waits stop here and fail loud (scripts/ci/gh_budget_wait.sh).
-      GH_BUDGET_WAIT_MAX_SECONDS: "900"
+      # A scheduled job's GitHub API waits stop here and fail loud (scripts/ci/gh_budget_wait.sh). An hour:
+      # the 11-25 dispatch was refused with the reset 1610 s away, past the old 900 s, and no nightly ran.
+      GH_BUDGET_WAIT_MAX_SECONDS: "3600"
       GH_TOKEN: ${{ github.token }}
     steps:
       # This commit's GitHub API wait (scripts/ci/gh_budget_wait.sh): every later gh call, and
@@ -55,5 +57,23 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
 
+      # The job token shares the repository's per-hour Actions budget with every other workflow: the
+      # 2026-11-23 and 2026-11-25 nightlies ended "HTTP 403: API rate limit exceeded for installation"
+      # (runs 45138996666, 45576360618), so no matrix ran and the ios-app-store-live probe's matrix part
+      # went stale. The cmux bot App's token has its own hour (cmux#55829 does the same for the post-merge
+      # batch); the job token stays the fallback when the App cannot be minted.
+      - name: Mint the cmux bot App token
+        id: app-token
+        if: ${{ vars.CMUX_BOT_APP_ID != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+          permission-contents: read
       - name: Dispatch the full matrix on feat-cmux-next
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: gh workflow run ios-reliability-matrix.yml -R "$GITHUB_REPOSITORY" --ref feat-cmux-next

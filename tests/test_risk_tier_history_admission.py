@@ -4,7 +4,8 @@
 The existing recent-revert classifier blames base-side lines deleted by the PR.
 A PR with exactly zero deleted lines cannot take back another PR's code by
 deletion, irrespective of its added files or risk tier. Unknown metadata must
-keep the full audit; every event must still publish a risk evidence verdict.
+keep the full audit; every event that can change the verdict must still
+publish a risk evidence verdict.
 """
 from pathlib import Path
 import unittest
@@ -35,10 +36,18 @@ class HistoryAdmission(unittest.TestCase):
         self.assertIn('echo "BASE_HISTORY=$history"', history["run"])
 
     def test_the_risk_gate_and_all_its_reads_still_run_on_every_event(self):
-        # A skipped JOB can be mistaken for a passed required risk evidence
-        # check. Restrict the optimization to history, keeping the check itself
-        # and its classification, signoff and labels untouched.
-        self.assertNotIn("if", self.job)
+        # A skipped JOB named risk evidence can be mistaken for a passed required
+        # check (#38003). The one job-level if skips only a label event that cannot
+        # change the verdict (any label but risk:human-ok or risk:waived, including
+        # the risk:* label this job sets), and that skipped run takes another name
+        # and its own concurrency group, so the newest "risk evidence" is always a
+        # real grade (the backend-migrations gate's "label (ignored)" pattern).
+        ignored = ("(github.event.action == 'labeled' || github.event.action == 'unlabeled') && "
+                   "github.event.label.name != 'risk:human-ok' && github.event.label.name != 'risk:waived'")
+        self.assertEqual(self.job["if"], "${{ !(" + ignored + ") }}")
+        self.assertEqual(self.job["name"],
+                         "${{ " + ignored + " && 'risk evidence label (ignored)' || 'risk evidence' }}")
+        self.assertIn(ignored + " && format('-label-{0}', github.run_id)", self.job["concurrency"]["group"])
         for name in ("Checkout the classifier at the tip of the pull request's base branch",
                      "Grade the pull request", "Set the risk label",
                      "Hold only an unowned takeback"):
