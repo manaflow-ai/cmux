@@ -255,7 +255,7 @@ test("a local steer still has its stretch to copy before it joins the stack", ()
     ];
     const view = turnView(rows, new Set(), { working: true, agentFamily: "codex", now: at });
     expect(ids(footers(view))).toEqual([`${SUPERSEDED}-s2`]);
-    expect(footers(view)[0]?.turnCopy).toEqual([{ text: after.text }]);
+    expect(footers(view)[0]?.turnCopy).toEqual([{ text: after.text! }]);
   } finally {
     if (previous === undefined) delete globalThis.cmuxExperiments;
     else globalThis.cmuxExperiments = previous;
