@@ -537,7 +537,7 @@ fn ready_machine(runner: &mut dyn Runner, target: &str) -> Result<String, Value>
                 started,
                 timeout: vm_ready::DEFAULT_TIMEOUT,
                 created: &Value::Null,
-                replaces: None,
+                existing: &[],
             },
         )?
     };
