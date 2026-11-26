@@ -5,11 +5,12 @@
 //   bun scripts/gen-component-manifest.ts           write the outputs
 //   bun scripts/gen-component-manifest.ts --check   fail when the source no longer generates, or not the same twice
 //
-// Outputs (gitignored, made on demand: no committed generated files; docs only, nothing imports them;
-// output is sorted and byte-stable):
+// Outputs (the web docs are gitignored and made on demand; the Rust fallback
+// is tracked because installed builds do not have a checkout or Bun):
 //   src/ui/components.generated.json   name, file, tier, props, data-* attributes, gallery entries, status
 //   src/ui/llms.txt                    one line per component, linking to its page
 //   src/ui/docs/<Name>.md              summary, props, data attributes, gallery entries, an example
+//   ../cmux-tui/crates/cmux-customize/src/component_manifest.json  shipped fallback registry
 //
 // A component is an exported, capitalised function or const with a call signature in src/ui or
 // src/kit (a *.tsx that is not a test or gallery file), or a name the kit barrel (src/kit/index.ts)
@@ -31,6 +32,7 @@ const UI = join(SRC, "ui");
 const KIT = join(SRC, "kit");
 const DOCS = join(UI, "docs");
 const MANIFEST = join(UI, "components.generated.json");
+const BUILTIN_MANIFEST = join(ROOT, "../cmux-tui/crates/cmux-customize/src/component_manifest.json");
 const LLMS = join(UI, "llms.txt");
 const GALLERY_PATH = "/gallery";
 
@@ -353,8 +355,7 @@ function render(): Map<string, string> {
   const all = build();
   const files = new Map<string, string>();
   const names = new Map<Component, string>(all.map((c) => [c, pageName(c, all)]));
-  files.set(
-    MANIFEST,
+  const manifest =
     JSON.stringify(
       {
         generatedBy: "webviews/scripts/gen-component-manifest.ts",
@@ -363,8 +364,9 @@ function render(): Map<string, string> {
       },
       null,
       2,
-    ) + "\n",
-  );
+    ) + "\n";
+  files.set(MANIFEST, manifest);
+  files.set(BUILTIN_MANIFEST, manifest);
   const llms = [
     "# cmux web component library",
     "",
@@ -384,11 +386,22 @@ function render(): Map<string, string> {
 
 const files = render();
 if (process.argv.includes("--check")) {
-  // The outputs are gitignored (no committed generated files), so there is nothing on disk to compare:
-  // the check is that the source still generates, and generates the same bytes twice.
+  // The web outputs are gitignored, so the check is that the source generates the same bytes twice.
+  // The Rust fallback is tracked and must stay byte-identical to the generated manifest.
   const again = render();
   const problems: string[] = [];
-  for (const [f, text] of files) if (again.get(f) !== text) problems.push(`${rel(f)} differs between two runs`);
+  for (const [f, text] of files) {
+    if (again.get(f) !== text) problems.push(`${rel(f)} differs between two runs`);
+    if (f === BUILTIN_MANIFEST) {
+      let current = "";
+      try {
+        current = readFileSync(f, "utf8");
+      } catch {
+        problems.push(`${rel(f)} is missing`);
+      }
+      if (current && current !== text) problems.push(`${rel(f)} is stale`);
+    }
+  }
   if (![...files.keys()].some((f) => f.startsWith(DOCS))) problems.push("no component was found");
   if (problems.length > 0) {
     console.error(`gen-component-manifest: ${problems.join("; ")}`);
