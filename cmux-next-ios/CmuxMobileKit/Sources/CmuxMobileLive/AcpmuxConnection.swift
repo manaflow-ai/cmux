@@ -130,7 +130,7 @@ public actor AcpmuxConnection {
             sends[id] = Task {
                 do {
                     try Task.checkCancellation()
-                    try await channel.send(data)
+                    try await send(data)
                     sends[id] = nil
                 } catch { fail(id, error) }
             }
@@ -297,7 +297,17 @@ public actor AcpmuxConnection {
         if let ended { throw ended }
         start()
         let message: JSONValue = .object(["jsonrpc": .string("2.0"), "method": .string(method), "params": params])
-        try await channel.send(try JSONEncoder().encode(message))
+        try await send(try JSONEncoder().encode(message))
+    }
+
+    /// A request or notification may queue behind a multi-frame prompt. Cancelling the caller
+    /// must release its native waiter before a later write can send the abandoned request.
+    private func send(_ data: Data) async throws {
+        let write = channel.observedWrite(data)
+        try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            try await write.send()
+        } onCancel: { write.cancel() }
     }
 
     public func close() async {
