@@ -135,8 +135,12 @@ def main():
 
     sys.path.insert(0, os.path.join(ROOT, "scripts/cas"))
     import derived_data_replay as mod
-    line = f"r2-cache: saved {PREFIX}{'a' * 40} (3.1 GiB)"
-    assert mod.prefix_from_key(mod.KEY_RE.findall(line)[-1]) == PREFIX
+    log = (f"r2-cache: restored {PREFIX}{'b' * 40}\n"
+           f"r2-cache: saved {PREFIX}{'a' * 40}\n  key: {PREFIX}{'c' * 40}\n")
+    assert mod.saved_key(log) == PREFIX + "a" * 40
+    assert mod.prefix_from_key(mod.saved_key(log)) == PREFIX
+    assert mod.saved_key(f"adopted {PREFIX}{'b' * 40}") == PREFIX + "b" * 40
+    assert mod.saved_key("nothing") is None
     print("ok test_cas_derived_data_replay")
 
 

@@ -52,6 +52,7 @@ USER_AGENT = "cmux-cas-replay-b1"
 # seed_derived_data.py MAX_RAW_BYTES: a seed tree is at most this big.
 MAX_RAW = 12 * 1024**3
 KEY_RE = re.compile(r"admission-derived-data-v1-[A-Za-z0-9._-]+?-j[0-9]+-[0-9a-f]{40}")
+SAVED_RE = re.compile(r"r2-cache: saved (" + KEY_RE.pattern + ")")
 TARGET = 20
 
 
@@ -74,6 +75,16 @@ def prefix_from_key(key):
     return key[:-40]
 
 
+def saved_key(log):
+    """The seed key a seed job's log says r2-cache saved (it also names the N-1 seed it
+    adopted, under the same prefix), else the last seed key it names, else None."""
+    saved = SAVED_RE.findall(log)
+    if saved:
+        return saved[-1]
+    keys = KEY_RE.findall(log)
+    return keys[-1] if keys else None
+
+
 def discover_prefix(repo, token, budget):
     """The scoped prefix the newest successful main seed run saved under."""
     runs = api(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?branch=main&status=success&per_page=5",
@@ -83,9 +94,9 @@ def discover_prefix(repo, token, budget):
             if job.get("conclusion") != "success":
                 continue
             log = api(f"repos/{repo}/actions/jobs/{job['id']}/logs", token, raw=True, budget=budget)
-            keys = KEY_RE.findall(log.decode("utf-8", "replace"))
-            if keys:
-                return prefix_from_key(keys[-1])
+            key = saved_key(log.decode("utf-8", "replace"))
+            if key:
+                return prefix_from_key(key)
     raise Skip("no successful main seed run names a seed key")
 
 
