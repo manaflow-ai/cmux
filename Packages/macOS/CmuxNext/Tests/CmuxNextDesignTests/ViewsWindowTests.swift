@@ -111,6 +111,36 @@ import Testing
         #expect(ViewsWindowSlotView.install(over: container) === slot, "a second page made a second slot")
     }
 
+    /// The fork's widget view (its class name stands in for the fork's `CmuxViewsBridgedContentView`).
+    @objc(CmuxViewsBridgedContentView) final class FakeWidgetView: NSView {}
+
+    @Test func aWidgetViewTheForkPutOnTheContentMovesIntoTheSlot() {
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 800, height: 500), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let root = window.contentView!
+        let content = NSView(frame: root.bounds)
+        let container = FakeContainer(frame: NSRect(x: 400, y: 0, width: 400, height: 500))
+        content.addSubview(container)
+        let sidebar = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 500))
+        root.addSubview(content)
+        root.addSubview(sidebar)
+        // No slot yet: the fork put its widget view on top of the window's content.
+        let widget = FakeWidgetView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+        root.addSubview(widget)
+        #expect(NSStringFromClass(FakeWidgetView.self) == ViewsWindowSlotView.widgetViewClassName)
+        let slot = ViewsWindowSlotView.install(over: container)
+        #expect(widget.superview === slot, "the widget view stayed over the title bar and the sidebar")
+        #expect(widget.frame == slot?.bounds)
+        #expect(root.subviews.map { ObjectIdentifier($0) } == [content, slot!, sidebar].map { ObjectIdentifier($0) })
+        // A slot that is already there takes it too.
+        let late = FakeWidgetView(frame: .zero)
+        root.addSubview(late)
+        #expect(ViewsWindowSlotView.install(over: container) === slot)
+        #expect(late.superview === slot)
+    }
+
     @Test func aPageViewStandsInForItsContainer() {
         let f = Self.fixture()
         defer { f.window.close() }

@@ -104,16 +104,37 @@ public final class ViewsWindowSlotView: NSView {
     /// The slot of `view`'s window, made at the first page: in the window's content view, right above its subview
     /// that holds `view` (the workspace content, for a page's container), so the title bar, the sidebar and their
     /// controls stay over the pages. Nil when `view` is in no window.
+    ///
+    /// A page's container joins its window after its page joined the tree when its workspace was made ahead, parked
+    /// out of every window: the container installs the slot again when it joins one (`CEFInTreePageView`). If the fork
+    /// still found no slot, it put Views' content view on top of the window's content; that view moves into the slot.
     @discardableResult
     public static func install(over view: NSView) -> ViewsWindowSlotView? {
         guard let root = view.window?.contentView else { return nil }
-        if let slot = root.subviews.lazy.compactMap({ $0 as? ViewsWindowSlotView }).first { return slot }
-        var top = view
-        while let parent = top.superview, parent !== root { top = parent }
-        guard top.superview === root else { return nil }
-        let slot = ViewsWindowSlotView(frame: root.bounds)
-        root.addSubview(slot, positioned: .above, relativeTo: top)
+        let slot: ViewsWindowSlotView
+        if let found = root.subviews.lazy.compactMap({ $0 as? ViewsWindowSlotView }).first {
+            slot = found
+        } else {
+            var top = view
+            while let parent = top.superview, parent !== root { top = parent }
+            guard top.superview === root else { return nil }
+            slot = ViewsWindowSlotView(frame: root.bounds)
+            root.addSubview(slot, positioned: .above, relativeTo: top)
+        }
+        slot.takeWidgetView(from: root)
         return slot
+    }
+
+    /// The class of the fork's view for Views' content view (`CmuxViewsBridgedContentView`, cmux_views_window_mac.mm).
+    public nonisolated static let widgetViewClassName = "CmuxViewsBridgedContentView"
+
+    /// Moves the fork's widget view from the window's content view `root` into this slot (the fork found no slot).
+    private func takeWidgetView(from root: NSView) {
+        for stray in root.subviews where NSStringFromClass(type(of: stray)) == Self.widgetViewClassName {
+            stray.removeFromSuperview()
+            stray.frame = bounds
+            addSubview(stray, positioned: .above, relativeTo: nil)
+        }
     }
 
     public override init(frame: NSRect) {
