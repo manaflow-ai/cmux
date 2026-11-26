@@ -170,7 +170,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     });
 
     // Earlier runs cut off before their delete: their exact name, over an hour old.
-    for (const m of await listAllMachines((p) => api.read("cloud.machine.list", p))) {
+    const listed = await listAllMachines((p) => api.read("cloud.machine.list", p));
+    report.accountMachines = listed.filter((m) => m.status !== "deleted" && m.status !== "deleting").length;
+    say(`the account has ${report.accountMachines} live machine(s)`);
+    for (const m of listed) {
       const t = new RegExp(`^${NAME_PREFIX}([0-9a-z]+)-[0-9a-z]+$`).exec(String(m?.name ?? ""));
       const at = t ? parseInt(t[1], 36) : NaN;
       if (Number.isFinite(at) && at > Date.UTC(2026, 0, 1) && Date.now() - at > 3_600_000 && m.status !== "deleted" && m.status !== "deleting") await remove(String(m.id));
@@ -248,7 +251,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const c = await cli(homeA, ["sync"]);
       if (c.code !== 0) throw new Error(show(c));
       const row = (c.json?.machines ?? []).find((m: any) => m.id === machine);
-      if (!row) throw new Error(`sync did not reach ${machine}: ${show(c)}`);
+      // cmux-platform VaultMachines.ts lists at most VAULT_MACHINES_MAX (64) machines, in row order: an account with
+      // more never sees a new one (run 45722765202).
+      if (!row) throw new Error(`sync did not reach ${machine}: the vault listed ${(c.json?.machines ?? []).length} machine(s) (cmux-platform caps the list at 64)`);
       report.sync = row;
       return { value: null, detail: `${machine}: ${row.outcome} (${(row.names ?? []).join(", ")}); ${(c.json?.machines ?? []).length} machine(s) in all` };
     });
