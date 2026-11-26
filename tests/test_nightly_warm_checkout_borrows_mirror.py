@@ -143,7 +143,7 @@ class WarmCheckoutBorrowsMirrorTest(unittest.TestCase):
                "CHECKOUT_MIRROR_WAIT_SECONDS": "1", "CHECKOUT_FETCH_BACKOFF_SECONDS": "0", "FETCH_TOKEN": "test-token",
                "GLAEDA_GIT_MIRROR_TOOL": str(self.temp / "no-mirror-tool"), **extra,
                "GITHUB_WORKSPACE": str(self.ws), "RUNNER_TEMP": str(self.temp / "runner-temp"),
-               "GITHUB_REPOSITORY": "o/r", "GLAEDA_GIT_MIRROR_DIR": str(self.fleet_git),
+               "GITHUB_REPOSITORY": "o/r", "GITHUB_SERVER_URL": "https://github.com", "GLAEDA_GIT_MIRROR_DIR": str(self.fleet_git),
                "SHIM_REAL_GIT": REAL_GIT, "SHIM_LOG": str(self.log), "SHIM_RECORD": RECORD,
                "SHIM_OBJECTS": self.objects}
         # The runner's default for a `run:` step with no `shell:` is `bash -e {0}`.
