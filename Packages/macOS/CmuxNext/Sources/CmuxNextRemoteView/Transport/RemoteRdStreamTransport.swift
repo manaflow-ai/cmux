@@ -69,6 +69,8 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         var endReason: String?
         /// The carrier's latest progress text while the path opens; cleared once it is ready.
         var connectingReason: String?
+        /// Whether this session's report went to `RemoteRdSessionReports` (once, at the end).
+        var reported = false
 
         init(core: RemoteRdSession, input: RemoteRdInput, service: String) {
             self.core = core
@@ -125,6 +127,7 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         queue.async { [self] in
             guard !engine.started, !engine.handshake.isEnded else { return }
             engine.started = true
+            engine.core.noteConnectStarted(atMicros: nowMicros())
             carrier.start(queue: queue) { [weak self] event in
                 self?.carrierEvent(event)
             }
@@ -442,6 +445,10 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         engine.clipboard = nil
         timer.cancel()
         carrier.cancel()
+        if !engine.reported {
+            engine.reported = true
+            if let report = engine.core.sessionReport() { RemoteRdSessionReports.send(report) }
+        }
         state.withLock { state in
             state.units?.finish()
             state.cursors?.finish()
