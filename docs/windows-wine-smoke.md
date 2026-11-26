@@ -73,12 +73,12 @@ Stay on Blacksmith. The data, from the Actions API over 20 runs (15 Windows jobs
 - Blacksmith `4vcpu-windows-2025`:
   - job p50 / p95: 3.2 / 14.4 min
   - queue p50 / p95: 11 / 16 s
-  - price: $0.016/min (quoted)
+  - price per minute: the baseline
 - A GCE `n2-standard-4` Windows VM:
-  - price: $0.0063/min on demand, or $0.0049 spot, license included (quoted)
+  - price per minute: about 40% of Blacksmith's on demand, 30% spot, Windows license included (quoted)
   - boot: 1.5 to 4 min from an image, or about 0.5 to 1 min from a stopped, prebaked disk
   - also needs an image, a just-in-time runner and a reaper
-- At roughly 12k Windows minutes a month, GCE would save about $50 to 80 a month, but each job would wait
-  minutes instead of seconds, on jobs whose median is 3 minutes. Blacksmith's flex scheduling (-40%) is the
+- At roughly 12k Windows minutes a month, that saving is small next to the upkeep of our own runner images,
+  and each job would wait minutes instead of seconds, on jobs whose median is 3 minutes. Blacksmith's flex scheduling (-40%) is the
   cheaper lever.
 - Revisit GCE only if Windows minutes grow more than 10x or a job needs GCE's network or a GPU.
