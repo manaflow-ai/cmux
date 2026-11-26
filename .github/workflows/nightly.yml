@@ -205,6 +205,31 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 123 || 3 }}
     steps:
+      - &github-token-for-git
+        name: Give git this job's token (self-hosted Macs get 403 on anonymous reads)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          FETCH_TOKEN: ${{ github.token }}
+        run: |
+          # The Macs get 403 from github.com on anonymous requests. Every checkout here sets
+          # persist-credentials: false, so actions/checkout's clean of a reused partial clone (a lazy
+          # promisor fetch, before it sets up auth) and every later git fetch went out with no credential.
+          # One header job-wide: the empty entry clears any header in .git/config (two make GitHub answer
+          # 400); a step that sets its own GIT_CONFIG_COUNT still sends only its own.
+          set -euo pipefail
+          [ -n "${FETCH_TOKEN:-}" ] || exit 0
+          header=$(printf 'x-access-token:%s' "$FETCH_TOKEN" | base64 | tr -d '\n')
+          echo "::add-mask::$header"
+          n=${GIT_CONFIG_COUNT:-0}
+          key="http.${GITHUB_SERVER_URL:-https://github.com}/.extraheader"
+          {
+            echo "GIT_CONFIG_KEY_$n=$key"
+            echo "GIT_CONFIG_VALUE_$n="
+            echo "GIT_CONFIG_KEY_$((n+1))=$key"
+            echo "GIT_CONFIG_VALUE_$((n+1))=AUTHORIZATION: basic $header"
+            echo "GIT_CONFIG_COUNT=$((n+2))"
+          } >> "$GITHUB_ENV"
       - name: Check out the preflight
         if: github.repository == 'manaflow-ai/cmux'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -287,6 +312,7 @@ jobs:
       app_input_digest: ${{ steps.app-input-digest.outputs.app_input_digest }}
       would_reuse: ${{ steps.app-input-digest.outputs.would_reuse }}
     steps:
+      - *github-token-for-git
       - name: Check out the revision under consideration
         if: github.ref != 'refs/heads/nightly-next'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -982,6 +1008,7 @@ jobs:
             find "$ws" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
           fi
 
+      - *github-token-for-git
       - &legacy-route-shared-4
         name: Checkout the promote guard from main
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1140,6 +1167,7 @@ jobs:
       # First, before any checkout or secret: the whole mini (glaeda's exclusive class), as the signing jobs.
       - *hold-the-whole-mac
       - *clean-owned-workdir
+      - *github-token-for-git
       - *legacy-route-shared-4
       - name: Decide again and check the approver
         id: ack
@@ -1252,6 +1280,7 @@ jobs:
             find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
           fi
 
+      - *github-token-for-git
       - name: Checkout cache ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -1388,6 +1417,7 @@ jobs:
     steps:
       - *clear-stale-git-locks-self-hos
 
+      - *github-token-for-git
       - name: Checkout cache ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -1502,6 +1532,7 @@ jobs:
     outputs:
       hit: ${{ steps.upload.outcome == 'success' && 'true' || 'false' }}
     steps:
+      - *github-token-for-git
       - name: Checkout reuse script
         if: inputs.nightly_next_unsigned_run == ''
         continue-on-error: true
@@ -1572,6 +1603,7 @@ jobs:
             find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
           fi
 
+      - *github-token-for-git
       - name: Checkout helper ref
         if: inputs.nightly_next_unsigned_run == ''
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1629,6 +1661,8 @@ jobs:
         if: inputs.nightly_next_unsigned_run == '' && needs.resolve-nightly-ghostty-cli-helper.outputs.hit != 'true'
         env:
           HELPER_CACHE_HIT: ${{ steps.helper-cache.outputs.cache-hit }}
+          # The Zig package mirror is a github.com release; the Macs get 403 on anonymous downloads.
+          GH_DOWNLOAD_TOKEN: ${{ github.token }}
         run: bash scripts/ci/nightly-steps/helper-build.sh
 
       # The strip-release-bundle.sh pass that prepare-nightly-variant ran on
@@ -1668,6 +1702,8 @@ jobs:
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true') && !env.LEFT_SLOT
         env:
           CMUX_NEXT_SOURCE_ARCHIVE_TARBALL: ${{ vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' && '1' || '0' }}
+          # The Zig package mirror is a github.com release; the Macs get 403 on anonymous downloads.
+          GH_DOWNLOAD_TOKEN: ${{ github.token }}
         run: bash scripts/ci/nightly-steps/helper-source-archive.sh
 
       - &x5
@@ -1738,6 +1774,7 @@ jobs:
       contents: read
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 150 || 30 }}
     steps:
+      - *github-token-for-git
       - &checkout-build-ref
         name: Checkout build ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1872,6 +1909,7 @@ jobs:
       blacksmith: ${{ steps.pick.outputs.blacksmith }}
       attempt: ${{ steps.pick.outputs.attempt }}
     steps:
+      - *github-token-for-git
       - name: Checkout the runner picker at the workflow commit
         if: github.ref == 'refs/heads/nightly-next'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -3014,6 +3052,7 @@ jobs:
         if: inputs.nightly_next_unsigned_run != ''
         run: echo "The original run's daemon assets were retained by the unsigned resume."
 
+      - *github-token-for-git
       - name: Checkout build ref
         if: inputs.nightly_next_unsigned_run == ''
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -3082,6 +3121,7 @@ jobs:
       id-token: write
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 195 || 75 }}
     steps:
+      - *github-token-for-git
       - name: Checkout attestation controls
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -3172,6 +3212,7 @@ jobs:
         id: daemon-build
         run: echo "build=${GITHUB_RUN_ID}$(printf '%02d' "${GITHUB_RUN_ATTEMPT:-1}")" >> "$GITHUB_OUTPUT"
 
+      - *github-token-for-git
       - name: Checkout build ref
         id: checkout
         # A reused checkout whose store makes git's pack-objects BUG() out (signal 6) fails every retry in place;
@@ -3198,6 +3239,8 @@ jobs:
 
       - &ensure-gh
         name: Install gh if this runner lacks it
+        env:
+          GH_PIN_TOKEN: ${{ github.token }}
         run: bash scripts/ci/nightly-steps/ensure-gh.sh
 
       - &wait-through-github-api-rate-l
@@ -3307,6 +3350,7 @@ jobs:
       # fixit-compile found no machine fix for the type check: the fixit-handoff job dispatches its revert.
       fixit_nofix: ${{ steps.fixit-nofix.outputs.nofix }}
     steps:
+      - *github-token-for-git
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -3361,6 +3405,7 @@ jobs:
     outputs:
       sha: ${{ steps.shelf.outcome == 'success' && needs.resolve-nightly-cmux-tui-client.outputs.build_sha || '' }}
     steps:
+      - *github-token-for-git
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -3393,6 +3438,7 @@ jobs:
       # nightly-next-one and retry-nightly-next skip it. Default: a red check is a stale-part report, not a hold.
       red_sha: ${{ vars.NIGHTLY_COMPONENT_GATES == 'block' && steps.checks.outcome == 'failure' && needs.decide.outputs.head_sha || '' }}
     steps:
+      - *github-token-for-git
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -3480,6 +3526,7 @@ jobs:
           fi
 
 
+      - *github-token-for-git
       - &checkout-build-ref-2
         name: Checkout build ref
         if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
@@ -3722,6 +3769,7 @@ jobs:
       - *clear-stale-git-locks-self-hos-3
 
 
+      - *github-token-for-git
       - *checkout-build-ref-2
 
 
@@ -3832,6 +3880,7 @@ jobs:
       # A newer run's build is already on the feed: build-sign-notarize-nightly skips.
       overtaken: ${{ steps.overtaken.outputs.overtaken }}
     steps:
+      - *github-token-for-git
       - name: Checkout publication tooling at the workflow commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -3992,6 +4041,7 @@ jobs:
           fi
 
 
+      - *github-token-for-git
       - name: Checkout build ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -4665,6 +4715,7 @@ jobs:
       CHANNEL_APP_PATH: signed/${{ needs.decide.outputs.app_name }}.app
       CHANNEL_ENTITLEMENTS: ${{ needs.decide.outputs.entitlements }}
     steps:
+      - *github-token-for-git
       - *checkout-build-ref
 
       # nightly-next's license check reads ghostty-next/build.zig.zon.
@@ -4773,6 +4824,7 @@ jobs:
       TRACK: ${{ needs.decide.outputs.track }}
       CHANNEL_DMG_PREFIX: ${{ needs.decide.outputs.dmg_prefix }}
     steps:
+      - *github-token-for-git
       - *checkout-build-ref
 
       # Publication tooling from this workflow's own commit (see publish-nightly).
@@ -4834,6 +4886,7 @@ jobs:
         timeout-minutes: 5
         env:
           BUDGET_VARIANT: ${{ vars.CMUX_NEXT_CEF_ON_DEMAND == '1' && 'arm64-cef-on-demand' || 'arm64' }}
+          GH_DOWNLOAD_TOKEN: ${{ github.token }}
         run: bash .publish-tooling/scripts/ci/nightly-steps/verify-final-dmg-bundle-size-budget.sh
 
       - name: Upload tested DMG digests
@@ -4882,6 +4935,7 @@ jobs:
       found: ${{ steps.find.outputs.found }}
       candidates: ${{ steps.find.outputs.candidates }}
     steps:
+      - *github-token-for-git
       - &checkout-default
         name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -4964,6 +5018,7 @@ jobs:
       # exclusive class) or fails here (tests/test_ci_signing_owned_mac.py CLAIM_GATE).
       - *hold-the-whole-mac
 
+      - *github-token-for-git
       - *checkout-default
 
       # Before any secret: the same check again, and a signing keychain a killed job left is removed.
@@ -5076,6 +5131,7 @@ jobs:
     steps:
       # The same checkout the continuation used: its bundle notice check ran
       # from this workflow commit too.
+      - *github-token-for-git
       - *checkout-default
 
       - *legacy-route-shared-5
@@ -5136,6 +5192,7 @@ jobs:
       language_packs: ${{ steps.fetch.outputs.language_packs }}
       source_archive: ${{ steps.fetch.outputs.source_archive }}
     steps:
+      - *github-token-for-git
       - *checkout-default
 
       - name: Fetch the source run's verified build
@@ -5257,6 +5314,7 @@ jobs:
       mode: ${{ steps.mode.outputs.mode }}
       why: ${{ steps.mode.outputs.why }}
     steps:
+      - *github-token-for-git
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -5330,6 +5388,7 @@ jobs:
       - name: Clear stale git locks (self-hosted reused workspace)
         run: rm -f "${GITHUB_WORKSPACE:-$PWD}/.git/index.lock" 2>/dev/null || true
 
+      - *github-token-for-git
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -5465,6 +5524,7 @@ jobs:
       verdict: ${{ steps.await.outputs.verdict }}
       blocks: ${{ steps.await.outputs.blocks }}
     steps:
+      - *github-token-for-git
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -5533,6 +5593,7 @@ jobs:
       contents: read
       issues: write # the fix-forward issue
     steps:
+      - *github-token-for-git
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -5554,6 +5615,7 @@ jobs:
       contents: read
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 180 || 60 }}
     steps:
+      - *github-token-for-git
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -5734,6 +5796,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "NIGHTLY_BUILD=$build" >> "$GITHUB_ENV"
 
+      - *github-token-for-git
       - name: Checkout publish ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -6242,6 +6305,7 @@ jobs:
     steps:
       # Only the source archive reads the build's tree; every other step runs .publish-tooling. The full
       # checkout took 2 min of the whole Mac on run 42018687632, whose archive step was off.
+      - *github-token-for-git
       - name: Checkout publish ref
         if: needs.published-build.outputs.publish_source_archive == 'true'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -6448,6 +6512,7 @@ jobs:
       # First, before any checkout or secret: the whole mini (glaeda's exclusive class), as the signing jobs.
       - *hold-the-whole-mac
       - *clean-owned-workdir
+      - *github-token-for-git
       - *checkout-publication-tooling-a
 
       # Before any release App secret: the claim again, and a keychain a killed job left is removed.
@@ -6511,6 +6576,7 @@ jobs:
       BUILD: ${{ needs.published-build.outputs.publish_build }}
       BUILD_SHA: ${{ needs.published-build.outputs.publish_build_sha }}
     steps:
+      - *github-token-for-git
       - *checkout-publication-tooling-a
 
       - name: Find the attempt that compiled the published build
@@ -6567,6 +6633,7 @@ jobs:
     steps:
       # Publication tooling at the workflow commit: it has the keyless mode even when the build commit predates
       # it, and it ships no source (only scripts/, into .publish-tooling).
+      - *github-token-for-git
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -6696,6 +6763,7 @@ jobs:
 
       # Only scripts/ (and, by cone mode, the root .xcode-version) is read from it, so it is sparse: a full
       # clone took 96 s of the whole-Mac hold (run 42033609306, 14:11:49-14:13:25Z).
+      - *github-token-for-git
       - &legacy-route-shared-3
         name: Checkout build ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -6839,6 +6907,7 @@ jobs:
       - *hold-the-whole-mac
       - *clean-owned-workdir
       - *forget-kept-sparse-mode
+      - *github-token-for-git
       - *legacy-route-shared-3
       - name: Checkout publication tooling at the workflow commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -6954,6 +7023,7 @@ jobs:
       pin: ${{ steps.pick.outputs.pin }}
       attempt: ${{ github.run_attempt }}
     steps:
+      - *github-token-for-git
       - name: Checkout pick tooling at the workflow commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -7011,6 +7081,7 @@ jobs:
     steps:
       - *hold-the-whole-mac
       - *forget-kept-sparse-mode
+      - *github-token-for-git
       - *legacy-route-shared-3
       - *checkout-the-gh-token-wrapper
       - *claim-publication-mac
@@ -7189,6 +7260,8 @@ jobs:
         if: steps.reuse.outputs.hit != 'true' && !env.LEFT_SLOT
         env:
           HELPER_CACHE_HIT: ${{ steps.helper-cache.outputs.cache-hit }}
+          # The Zig package mirror is a github.com release; the Macs get 403 on anonymous downloads.
+          GH_DOWNLOAD_TOKEN: ${{ github.token }}
         run: bash scripts/ci/nightly-steps/helper-build.sh && strip -S -x nightly-helper/ghostty
       - *x4
       - name: Mark the kept Zig package cache complete
@@ -7524,6 +7597,7 @@ jobs:
         timeout-minutes: 5
         env:
           BUDGET_VARIANT: ${{ vars.CMUX_NEXT_CEF_ON_DEMAND == '1' && 'arm64-cef-on-demand' || 'arm64' }}
+          GH_DOWNLOAD_TOKEN: ${{ github.token }}
         run: bash .publish-tooling/scripts/ci/nightly-steps/verify-final-dmg-bundle-size-budget.sh
       # Not the rolling-name DMG, a second copy of the build's DMG. Why: docs/ci/nightly-workflow-notes.md#note-32
       - name: Upload nightly variant artifacts
@@ -7645,6 +7719,7 @@ jobs:
       contents: read
       actions: write
     steps:
+      - *github-token-for-git
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -7719,6 +7794,7 @@ jobs:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
     steps:
+      - *github-token-for-git
       - *checkout-default
       - *select-xcode
       - *select-xcode-sdk
@@ -7766,6 +7842,7 @@ jobs:
       COMMIT: ${{ needs.nightly-next-one.outputs.build_sha }}
     steps:
       - *hold-the-whole-mac
+      - *github-token-for-git
       - *checkout-default
       - name: Claim the whole Mac for signing
         run: ./scripts/ci/signing-runner-claim.sh
@@ -7880,6 +7957,7 @@ jobs:
       RUN_ATTEMPT: ${{ github.run_attempt }}
       SHA: ${{ github.sha }}
     steps:
+      - *github-token-for-git
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -7942,6 +8020,7 @@ jobs:
       RUN_ATTEMPT: ${{ github.run_attempt }}
       SHA: ${{ github.sha }}
     steps:
+      - *github-token-for-git
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -8020,6 +8099,7 @@ jobs:
       HEAD_SHA: ${{ needs.published-build.outputs.resolve_build_sha }}
       PUBLISHED_SHA: ${{ needs.published-build.outputs.published_sha }}
     steps:
+      - *github-token-for-git
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ needs.published-build.outputs.resolve_build_sha }}
@@ -8064,6 +8144,7 @@ jobs:
       PUBLISHED_SHA: ${{ needs.published-build.outputs.published_sha }}
       CONTENT_PUBLIC_KEY: AnrDI4vqN4lFGX2IpzeWPZsa/Hk7yQMkVIKppFwAst4=
     steps:
+      - *github-token-for-git
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ needs.published-build.outputs.resolve_build_sha }}
@@ -8126,6 +8207,7 @@ jobs:
       contents: read
     steps:
       # scripts/ci only: a full checkout stalled on the JIT VM (tails 45689720464, 45679817194).
+      - *github-token-for-git
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ needs.published-build.outputs.resolve_build_sha }}
@@ -8194,6 +8276,7 @@ jobs:
     permissions:
       contents: write
     steps:
+      - *github-token-for-git
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ needs.published-build.outputs.resolve_build_sha }}
@@ -8259,6 +8342,7 @@ jobs:
       RUN_ATTEMPT: ${{ github.run_attempt }}
       RETRY: ${{ inputs.nightly_next_loop_retry }}
     steps:
+      - *github-token-for-git
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
