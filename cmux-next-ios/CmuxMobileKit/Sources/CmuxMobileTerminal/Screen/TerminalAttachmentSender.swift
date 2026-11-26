@@ -8,7 +8,7 @@ import Foundation
 /// upload starts then, not on Send, and every stage can be cancelled
 /// (design/attachment-upload.md).
 @MainActor
-public protocol TerminalAttachmentSending: AnyObject {
+public protocol TerminalAttachmentSending: AnyObject, Sendable {
     /// Starts sending the attachment; nil when there is no Mac to send it to.
     func start(_ attachment: ComposerAttachment) -> String?
     /// Stops it at any stage, at once.
@@ -39,8 +39,9 @@ public final class EngineAttachmentSender: TerminalAttachmentSending {
         guard let url = attachment.fileURL else { return nil }
         guard attachment.kind == .video else { return client.start(url, name: attachment.name, to: destination) }
         let id = client.reserve(name: attachment.name, to: destination)
-        exports[id] = Task { [weak self] in
-            let prepared = await VideoCompressor.prepare(url) { fraction in
+        exports[id] = Task { [weak self, pickedMovie = attachment.pickedMovie] in
+            defer { withExtendedLifetime(pickedMovie) {} }
+            let prepared = await VideoCompressor.prepare(ScopedFile(url)) { fraction in
                 self?.client.compressProgress(id, fraction: fraction)
             }
             guard let self, !Task.isCancelled else {
@@ -81,9 +82,15 @@ enum VideoCompressor {
         var plan: VideoPlan?
     }
 
-    static func prepare(_ source: URL, progress: @escaping @MainActor (Double) -> Void) async -> Prepared {
+    static func prepare(_ file: ScopedFile, progress: @escaping @MainActor (Double) -> Void) async -> Prepared {
+        // The picker closes its own scope after adding the tile. AVFoundation reads
+        // the source lazily, through the end of export.
+        let access = file.open()
+        defer { access.close() }
+        let source = access.url
         let asset = AVURLAsset(url: source)
-        guard let plan = await plan(for: asset, at: source), plan.reencode else { return Prepared(output: nil, plan: nil) }
+        guard !Task.isCancelled, let plan = await plan(for: asset, at: source) else { return Prepared(output: nil, plan: nil) }
+        guard !Task.isCancelled, plan.reencode else { return Prepared(output: nil, plan: plan) }
         guard let session = AVAssetExportSession(asset: asset, presetName: plan.preset) else { return Prepared(output: nil, plan: plan) }
         let type: AVFileType = source.pathExtension.lowercased() == "mp4" ? .mp4 : .mov
         let folder = FileManager.default.temporaryDirectory

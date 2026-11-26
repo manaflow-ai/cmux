@@ -81,7 +81,7 @@ struct TerminalComposer: View {
         .onChange(of: photoItems) { _, items in
             guard !items.isEmpty else { return }
             photoItems = []
-            Task { await loadPhotos(items) }
+            loadPhotos(items)
         }
         .fullScreenCover(isPresented: $showCamera) {
             TerminalCameraPicker { image in
@@ -361,44 +361,69 @@ struct TerminalComposer: View {
 
     // MARK: Loading attachments
 
+    /// Photos can be backed by iCloud and may leave a provider request open
+    /// indefinitely. Each tile owns a cancellable, bounded request so removing
+    /// one item does not hold up the other picks.
+    private enum PhotoLoadError: LocalizedError {
+        case deadline
+        case unavailable
+
+        var errorDescription: String? {
+            switch self {
+            case .deadline: "Photos took too long to provide this item."
+            case .unavailable: "Photos could not provide this item."
+            }
+        }
+    }
+
+    private static let photoLoadDeadline: Duration = .seconds(30)
+
+    private static func loadWithDeadline<T: Sendable>(
+        _ operation: @escaping @Sendable () async throws -> T?
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T?.self) { group in
+            group.addTask { try await operation() }
+            group.addTask {
+                try await Task.sleep(for: Self.photoLoadDeadline)
+                throw PhotoLoadError.deadline
+            }
+            defer { group.cancelAll() }
+            guard let value = try await group.next() else { throw PhotoLoadError.unavailable }
+            guard let value else { throw PhotoLoadError.unavailable }
+            return value
+        }
+    }
+
     /// Picked photos and videos keep their bytes (a video its local copy).
     /// Photos has no file name for an item without library access, so the
     /// name says what it is and when it was attached.
-    private func loadPhotos(_ items: [PhotosPickerItem]) async {
+    private func loadPhotos(_ items: [PhotosPickerItem]) {
         let stamp = Self.stamp()
         for (index, item) in items.enumerated() {
             let suffix = items.count > 1 ? " \(index + 1)" : ""
             let isVideo = item.supportedContentTypes.contains { $0.conforms(to: .movie) }
-            if isVideo {
-                // A tile at once: Photos may copy (or download from iCloud) for a
-                // while, and the person can remove it meanwhile.
-                let ext = item.supportedContentTypes.first { $0.conforms(to: .movie) }?.preferredFilenameExtension ?? "mov"
-                let placeholder = ComposerAttachment(kind: .video, name: "Video \(stamp)\(suffix).\(ext)", isLoading: true)
-                model.addAttachment(placeholder)
-                let movie: MovieFile?
-                do {
-                    movie = try await item.loadTransferable(type: MovieFile.self)
-                } catch {
-                    movie = nil
+            let ext = item.supportedContentTypes.first { type in
+                isVideo ? type.conforms(to: .movie) : type.conforms(to: .image)
+            }?.preferredFilenameExtension ?? (isVideo ? "mov" : "jpg")
+            let kind: ComposerAttachment.Kind = isVideo ? .video : .image
+            let placeholder = ComposerAttachment(kind: kind,
+                                                  name: "\(isVideo ? "Video" : "Photo") \(stamp)\(suffix).\(ext)",
+                                                  isLoading: true)
+            model.loadPickedAttachment(placeholder) { [item] in
+                if isVideo {
+                    let movie = try await Self.loadWithDeadline {
+                        try await item.loadTransferable(type: MovieFile.self)
+                    }
+                    let thumbnail = await Self.videoThumbnail(movie.url)
+                    let size = (try? movie.url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+                    return .movie(movie.copy, thumbnail: thumbnail, byteCount: size)
                 }
-                guard model.attachments.contains(where: { $0.id == placeholder.id }) else {
-                    if let movie { try? FileManager.default.removeItem(at: movie.url) }
-                    continue
+                let data = try await Self.loadWithDeadline {
+                    try await item.loadTransferable(type: Data.self)
                 }
-                guard let movie else {
-                    model.removeAttachment(placeholder.id)
-                    model.attachmentError = "Couldn't load \(placeholder.name) from Photos."
-                    continue
-                }
-                let thumbnail = await Self.videoThumbnail(movie.url)
-                let size = (try? movie.url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
-                model.attachmentLoaded(placeholder.id, thumbnail: thumbnail, byteCount: size, fileURL: movie.url)
-            } else if let data = try? await item.loadTransferable(type: Data.self), let image = UIImage(data: data) {
-                let thumbnail = await image.byPreparingThumbnail(ofSize: CGSize(width: 168, height: 168))
-                let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
-                model.addAttachment(ComposerAttachment(kind: .image, name: "Photo \(stamp)\(suffix).\(ext)", thumbnail: thumbnail, data: data))
-            } else {
-                model.attachmentError = "Couldn't load an item from Photos."
+                guard UIImage(data: data) != nil else { throw PhotoLoadError.unavailable }
+                let thumbnail = await UIImage(data: data)?.byPreparingThumbnail(ofSize: CGSize(width: 168, height: 168))
+                return .image(data, thumbnail: thumbnail)
             }
         }
     }
@@ -496,17 +521,14 @@ extension View {
 
 /// A picked movie, copied out of the Photos sandbox.
 struct MovieFile: Transferable {
-    let url: URL
+    let copy: PickedMovieCopy
+    var url: URL { copy.url }
 
     static var transferRepresentation: some TransferRepresentation {
         FileRepresentation(contentType: .movie) { movie in
             SentTransferredFile(movie.url)
         } importing: { received in
-            let folder = FileManager.default.temporaryDirectory.appendingPathComponent("picked-\(UUID().uuidString)", isDirectory: true)
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            let copy = folder.appendingPathComponent(received.file.lastPathComponent)
-            try FileManager.default.copyItem(at: received.file, to: copy)
-            return MovieFile(url: copy)
+            MovieFile(copy: try PickedMovieCopy(copying: received.file))
         }
     }
 }
