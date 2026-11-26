@@ -109,6 +109,8 @@ public final class LiveCoordinator {
     public let pairRequests = MacPairRequests()
     /// Each Mac's one-request catch-up cursors (`LiveCoordinator+CatchUp.swift`, off by default).
     @ObservationIgnored let catchUps = MacCatchUps()
+    /// Per Mac, the relay first screens a cold open showed and where each stood (`relayColdOpen`).
+    @ObservationIgnored var relayColdOpened: [String: [String: (epoch: UInt64, seq: UInt64)]] = [:]
     #endif
     /// Every linked Mac's tabs as its `tabs` service pushes them: what the grid's cards show
     /// of tabs this phone never opened. The shell sets its sink (the phone's card store).
@@ -1031,6 +1033,9 @@ public final class LiveCoordinator {
         session.acpmux.onStall = { [weak self] in await self?.recoverAcpmuxChannel(macID: macID) }
         wire(session)
         sessions[mac.id] = session
+        #if canImport(CmuxMobileLinkFFI)
+        Task { [weak self] in await self?.relayColdOpen(session) }
+        #endif
         if let parked = parkedTerminals.removeValue(forKey: mac.id) {
             // Their state follows this session's link from its first phase change.
             session.terminals = parked.filter { $0.session != nil }

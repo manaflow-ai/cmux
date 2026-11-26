@@ -58,6 +58,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                 }
             .overlay(alignment: .bottom) { DoneUndoBar(store: store) }
             .overlay(alignment: .top) { newPill }
+            .overlay(alignment: .topTrailing) { cachedAsOf }
             .background(Color.cmuxMobileBackground)
             .navigationTitle("Feed")
             .navigationBarTitleDisplayMode(.inline)
@@ -258,6 +259,25 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     }
 
     @ViewBuilder
+    /// Rows a cold open painted from the relay cache (RFD 0142 R2) say so, and since when, until
+    /// the live link replaces them. An overlay, so nothing below it moves when it goes.
+    @ViewBuilder
+    private var cachedAsOf: some View {
+        if let asOf = store.cachedAsOf {
+            Text("As of \(asOf, style: .time)")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(.thinMaterial, in: .capsule)
+                .padding(.trailing, 12)
+                .padding(.top, 4)
+                .allowsHitTesting(false)
+                .accessibilityIdentifier("feed.cachedAsOf")
+                .transition(.opacity)
+        }
+    }
+
     private var newPill: some View {
         let count = list.newAbove + store.unseenNewIDs.count
         // The pill stays through its jump: had it gone at the tap, a second tap on the same spot

@@ -481,7 +481,12 @@ public final class FeedStore {
     /// Whether the Mac's events have been read on the current link. Until
     /// then an empty Feed is unknown, not empty (live mode starts at
     /// `.connecting`; mock mode is always `.live`).
-    public var syncState: SyncState = .live
+    public var syncState: SyncState = .live {
+        didSet { if syncState == .live { cachedAsOf = nil } }
+    }
+    /// While set, the rows came from the relay cache on a cold open (RFD 0142 R2), as of this
+    /// time; the live link (``syncState`` `.live`) or catch-up past them clears it.
+    public var cachedAsOf: Date?
     public enum SyncState: Hashable, Sendable { case connecting, live }
     public var mutedWorkspaces: Set<String> = [] {
         didSet { if mutedWorkspaces != oldValue { refreshDerived() } }

@@ -6068,6 +6068,25 @@ public protocol PhoneCatchUpProtocol: AnyObject, Sendable {
      */
     func relayRestore(kept: Data) 
     
+    /**
+     * Opens one fetched first screen: `envelope` (the reply's body) unsealed with the phone's key
+     * (`viewer`) as the Mac's identity key (`source_public`, SEC1) signed it for `surface`'s first
+     * screen. `None` when the phone already holds `surface` past it. Moves nothing.
+     */
+    func relayColdOpen(surface: String, envelope: Data, asOfMs: UInt64?, viewer: RelayViewerKey, sourcePublic: Data) throws  -> RelayColdOpen?
+    
+    /**
+     * The first-screen fetches for a cold open: the chat list, then each of `chats` (the open
+     * one first), each once.
+     */
+    func relayColdOpenCalls(sourceDevice: String, viewerDevice: String, chats: [String])  -> [RelayColdOpenCall]
+    
+    /**
+     * Whether live or catch-up state the phone holds for `surface` has reached a cold open at
+     * `(epoch, seq)`: then the cached rows and their "as of" give way.
+     */
+    func relayColdOpenReplaced(surface: String, epoch: UInt64, seq: UInt64)  -> Bool
+    
 }
 /**
  * One Mac's catch-up cursors, and the relay positions they reached.
@@ -6257,6 +6276,54 @@ open func relayRestore(kept: Data)  {try! rustCall() {
         FfiConverterData.lower(kept),$0
     )
 }
+}
+    
+    /**
+     * Opens one fetched first screen: `envelope` (the reply's body) unsealed with the phone's key
+     * (`viewer`) as the Mac's identity key (`source_public`, SEC1) signed it for `surface`'s first
+     * screen. `None` when the phone already holds `surface` past it. Moves nothing.
+     */
+open func relayColdOpen(surface: String, envelope: Data, asOfMs: UInt64?, viewer: RelayViewerKey, sourcePublic: Data)throws  -> RelayColdOpen?  {
+    return try  FfiConverterOptionTypeRelayColdOpen.lift(try rustCallWithError(FfiConverterTypeCatchUpError_lift) {
+    uniffi_cmux_mobile_link_ffi_fn_method_phonecatchup_relay_cold_open(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(surface),
+        FfiConverterData.lower(envelope),
+        FfiConverterOptionUInt64.lower(asOfMs),
+        FfiConverterTypeRelayViewerKey_lower(viewer),
+        FfiConverterData.lower(sourcePublic),$0
+    )
+})
+}
+    
+    /**
+     * The first-screen fetches for a cold open: the chat list, then each of `chats` (the open
+     * one first), each once.
+     */
+open func relayColdOpenCalls(sourceDevice: String, viewerDevice: String, chats: [String]) -> [RelayColdOpenCall]  {
+    return try!  FfiConverterSequenceTypeRelayColdOpenCall.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_phonecatchup_relay_cold_open_calls(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(sourceDevice),
+        FfiConverterString.lower(viewerDevice),
+        FfiConverterSequenceString.lower(chats),$0
+    )
+})
+}
+    
+    /**
+     * Whether live or catch-up state the phone holds for `surface` has reached a cold open at
+     * `(epoch, seq)`: then the cached rows and their "as of" give way.
+     */
+open func relayColdOpenReplaced(surface: String, epoch: UInt64, seq: UInt64) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_phonecatchup_relay_cold_open_replaced(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(surface),
+        FfiConverterUInt64.lower(epoch),
+        FfiConverterUInt64.lower(seq),$0
+    )
+})
 }
     
 
@@ -6511,6 +6578,144 @@ public func FfiConverterTypePhoneReadStore_lift(_ handle: UInt64) throws -> Phon
 #endif
 public func FfiConverterTypePhoneReadStore_lower(_ value: PhoneReadStore) -> UInt64 {
     return FfiConverterTypePhoneReadStore.lower(value)
+}
+
+
+
+
+
+
+/**
+ * One link's relay-held send route.
+ */
+public protocol RelayHoldRouteProtocol: AnyObject, Sendable {
+    
+    /**
+     * Hold `sealed` under `id` and wait up to `wait_ms` for the relay.
+     */
+    func send(id: String, sealed: String, waitMs: UInt32) async  -> RelayHoldOutcome
+    
+}
+/**
+ * One link's relay-held send route.
+ */
+open class RelayHoldRoute: RelayHoldRouteProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_relayholdroute(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_relayholdroute(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Hold `sealed` under `id` and wait up to `wait_ms` for the relay.
+     */
+open func send(id: String, sealed: String, waitMs: UInt32)async  -> RelayHoldOutcome  {
+    return
+        try!  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_relayholdroute_send(
+                    self.uniffiCloneHandle(),
+                    FfiConverterString.lower(id),FfiConverterString.lower(sealed),FfiConverterUInt32.lower(waitMs)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeRelayHoldOutcome_lift,
+            errorHandler: nil
+            
+        )
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRelayHoldRoute: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = RelayHoldRoute
+
+    public static func lift(_ handle: UInt64) throws -> RelayHoldRoute {
+        return RelayHoldRoute(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: RelayHoldRoute) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RelayHoldRoute {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: RelayHoldRoute, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRelayHoldRoute_lift(_ handle: UInt64) throws -> RelayHoldRoute {
+    return try FfiConverterTypeRelayHoldRoute.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRelayHoldRoute_lower(_ value: RelayHoldRoute) -> UInt64 {
+    return FfiConverterTypeRelayHoldRoute.lower(value)
 }
 
 
@@ -6878,144 +7083,6 @@ public func FfiConverterTypeRelayViewerKey_lift(_ handle: UInt64) throws -> Rela
 #endif
 public func FfiConverterTypeRelayViewerKey_lower(_ value: RelayViewerKey) -> UInt64 {
     return FfiConverterTypeRelayViewerKey.lower(value)
-}
-
-
-
-
-
-
-/**
- * One link's relay-held send route.
- */
-public protocol RelayHoldRouteProtocol: AnyObject, Sendable {
-    
-    /**
-     * Hold `sealed` under `id` and wait up to `wait_ms` for the relay.
-     */
-    func send(id: String, sealed: String, waitMs: UInt32) async  -> RelayHoldOutcome
-    
-}
-/**
- * One link's relay-held send route.
- */
-open class RelayHoldRoute: RelayHoldRouteProtocol, @unchecked Sendable {
-    fileprivate let handle: UInt64
-
-    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    public struct NoHandle {
-        public init() {}
-    }
-
-    // TODO: We'd like this to be `private` but for Swifty reasons,
-    // we can't implement `FfiConverter` without making this `required` and we can't
-    // make it `required` without making it `public`.
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    required public init(unsafeFromHandle handle: UInt64) {
-        self.handle = handle
-    }
-
-    // This constructor can be used to instantiate a fake object.
-    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
-    //
-    // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    public init(noHandle: NoHandle) {
-        self.handle = 0
-    }
-
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    public func uniffiCloneHandle() -> UInt64 {
-        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_relayholdroute(self.handle, $0) }
-    }
-    // No primary constructor declared for this class.
-
-    deinit {
-        if handle == 0 {
-            // Mock objects have handle=0 don't try to free them
-            return
-        }
-
-        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_relayholdroute(handle, $0) }
-    }
-
-    
-
-    
-    /**
-     * Hold `sealed` under `id` and wait up to `wait_ms` for the relay.
-     */
-open func send(id: String, sealed: String, waitMs: UInt32)async  -> RelayHoldOutcome  {
-    return
-        try!  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_cmux_mobile_link_ffi_fn_method_relayholdroute_send(
-                    self.uniffiCloneHandle(),
-                    FfiConverterString.lower(id),FfiConverterString.lower(sealed),FfiConverterUInt32.lower(waitMs)
-                )
-            },
-            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
-            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_rust_buffer,
-            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_rust_buffer,
-            liftFunc: FfiConverterTypeRelayHoldOutcome_lift,
-            errorHandler: nil
-            
-        )
-}
-    
-
-    
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeRelayHoldRoute: FfiConverter {
-    typealias FfiType = UInt64
-    typealias SwiftType = RelayHoldRoute
-
-    public static func lift(_ handle: UInt64) throws -> RelayHoldRoute {
-        return RelayHoldRoute(unsafeFromHandle: handle)
-    }
-
-    public static func lower(_ value: RelayHoldRoute) -> UInt64 {
-        return value.uniffiCloneHandle()
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RelayHoldRoute {
-        let handle: UInt64 = try readInt(&buf)
-        return try lift(handle)
-    }
-
-    public static func write(_ value: RelayHoldRoute, into buf: inout [UInt8]) {
-        writeInt(&buf, lower(value))
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeRelayHoldRoute_lift(_ handle: UInt64) throws -> RelayHoldRoute {
-    return try FfiConverterTypeRelayHoldRoute.lift(handle)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeRelayHoldRoute_lower(_ value: RelayHoldRoute) -> UInt64 {
-    return FfiConverterTypeRelayHoldRoute.lower(value)
 }
 
 
@@ -12157,6 +12224,161 @@ public func FfiConverterTypeRelayCatchUpAnswer_lift(_ buf: RustBuffer) throws ->
 #endif
 public func FfiConverterTypeRelayCatchUpAnswer_lower(_ value: RelayCatchUpAnswer) -> RustBuffer {
     return FfiConverterTypeRelayCatchUpAnswer.lower(value)
+}
+
+
+/**
+ * A first screen opened from the relay cache.
+ */
+public struct RelayColdOpen: Equatable, Hashable {
+    public var surface: String
+    /**
+     * Apply as a `catch-up` answer would be, marked cached: `chat_list_json` for `chat-list`,
+     * one `chats` page for a chat.
+     */
+    public var answer: CatchUpAnswer
+    /**
+     * When the relay stored it (ms since the epoch), from `x-cmux-cache-at`; `None` when the
+     * relay sent no time.
+     */
+    public var asOfMs: UInt64?
+    /**
+     * Where the Mac's stream stood when it sealed it.
+     */
+    public var epoch: UInt64
+    public var seq: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(surface: String, 
+        /**
+         * Apply as a `catch-up` answer would be, marked cached: `chat_list_json` for `chat-list`,
+         * one `chats` page for a chat.
+         */answer: CatchUpAnswer, 
+        /**
+         * When the relay stored it (ms since the epoch), from `x-cmux-cache-at`; `None` when the
+         * relay sent no time.
+         */asOfMs: UInt64?, 
+        /**
+         * Where the Mac's stream stood when it sealed it.
+         */epoch: UInt64, seq: UInt64) {
+        self.surface = surface
+        self.answer = answer
+        self.asOfMs = asOfMs
+        self.epoch = epoch
+        self.seq = seq
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension RelayColdOpen: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRelayColdOpen: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RelayColdOpen {
+        return
+            try RelayColdOpen(
+                surface: FfiConverterString.read(from: &buf), 
+                answer: FfiConverterTypeCatchUpAnswer.read(from: &buf), 
+                asOfMs: FfiConverterOptionUInt64.read(from: &buf), 
+                epoch: FfiConverterUInt64.read(from: &buf), 
+                seq: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: RelayColdOpen, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.surface, into: &buf)
+        FfiConverterTypeCatchUpAnswer.write(value.answer, into: &buf)
+        FfiConverterOptionUInt64.write(value.asOfMs, into: &buf)
+        FfiConverterUInt64.write(value.epoch, into: &buf)
+        FfiConverterUInt64.write(value.seq, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRelayColdOpen_lift(_ buf: RustBuffer) throws -> RelayColdOpen {
+    return try FfiConverterTypeRelayColdOpen.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRelayColdOpen_lower(_ value: RelayColdOpen) -> RustBuffer {
+    return FfiConverterTypeRelayColdOpen.lower(value)
+}
+
+
+/**
+ * One cold-open fetch: `GET` `path` (under the relay's origin); its `x-cmux-cache-at` header
+ * (milliseconds) is the "as of" time.
+ */
+public struct RelayColdOpenCall: Equatable, Hashable {
+    /**
+     * `chat-list` or `chat/<sessionId>`.
+     */
+    public var surface: String
+    public var path: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * `chat-list` or `chat/<sessionId>`.
+         */surface: String, path: String) {
+        self.surface = surface
+        self.path = path
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension RelayColdOpenCall: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRelayColdOpenCall: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RelayColdOpenCall {
+        return
+            try RelayColdOpenCall(
+                surface: FfiConverterString.read(from: &buf), 
+                path: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: RelayColdOpenCall, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.surface, into: &buf)
+        FfiConverterString.write(value.path, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRelayColdOpenCall_lift(_ buf: RustBuffer) throws -> RelayColdOpenCall {
+    return try FfiConverterTypeRelayColdOpenCall.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRelayColdOpenCall_lower(_ value: RelayColdOpenCall) -> RustBuffer {
+    return FfiConverterTypeRelayColdOpenCall.lower(value)
 }
 
 
@@ -17789,6 +18011,30 @@ fileprivate struct FfiConverterOptionTypeRelayCall: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeRelayColdOpen: FfiConverterRustBuffer {
+    typealias SwiftType = RelayColdOpen?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeRelayColdOpen.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeRelayColdOpen.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeTranscriptPaint: FfiConverterRustBuffer {
     typealias SwiftType = TranscriptPaint?
 
@@ -18596,6 +18842,31 @@ fileprivate struct FfiConverterSequenceTypeRelayCall: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeRelayCall.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeRelayColdOpenCall: FfiConverterRustBuffer {
+    typealias SwiftType = [RelayColdOpenCall]
+
+    public static func write(_ value: [RelayColdOpenCall], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeRelayColdOpenCall.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [RelayColdOpenCall] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [RelayColdOpenCall]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeRelayColdOpenCall.read(from: &buf))
         }
         return seq
     }
@@ -20308,6 +20579,15 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_phonecatchup_relay_restore() != 22105) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_phonecatchup_relay_cold_open() != 2515) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_phonecatchup_relay_cold_open_calls() != 60552) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_phonecatchup_relay_cold_open_replaced() != 24821) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_relayviewerkey_public_key() != 2092) {

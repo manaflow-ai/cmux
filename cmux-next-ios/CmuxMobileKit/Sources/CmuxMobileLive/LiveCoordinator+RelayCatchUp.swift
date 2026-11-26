@@ -92,6 +92,7 @@ extension LiveCoordinator {
         for ack in answer.acks {
             Task.detached { _ = try? await api.relayCache(pathAndQuery: ack.path, json: ack.body) }
         }
+        relayColdOpenReplaced(macID)
         return !answer.answers.isEmpty
     }
 }

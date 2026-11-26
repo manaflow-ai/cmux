@@ -321,25 +321,44 @@ public struct LiveAPI: Sendable {
     /// `POST` `pathAndQuery` (from Rust's `PhoneCatchUp.relayRequest`: `/v1/relay-cache/...?deviceId=`)
     /// with a JSON body already encoded, bearer refreshed once on a 401 like ``call(_:_:body:)``.
     func relayCache(pathAndQuery: String, json: String) async throws -> Data {
+        try await relayCacheSend(pathAndQuery: pathAndQuery, json: json, missing: false)!.data
+    }
+
+    /// `GET` a relay first screen (`/v1/relay-cache/<mac>/snapshot?...`, from Rust's
+    /// `PhoneCatchUp.relayColdOpenCalls`): its sealed bytes and `x-cmux-cache-at` (ms), or nil
+    /// when the relay holds none (404).
+    func relayCacheSnapshot(pathAndQuery: String) async throws -> (data: Data, cachedAtMs: UInt64?)? {
+        try await relayCacheSend(pathAndQuery: pathAndQuery, json: nil, missing: true)
+    }
+
+    private func relayCacheSend(
+        pathAndQuery: String, json: String?, missing: Bool
+    ) async throws -> (data: Data, cachedAtMs: UInt64?)? {
         let parts = pathAndQuery.split(separator: "?", maxSplits: 1)
         var components = URLComponents(url: baseURL.appending(path: String(parts.first ?? "")), resolvingAgainstBaseURL: false)
         if parts.count == 2 { components?.percentEncodedQuery = String(parts[1]) }
         guard let url = components?.url else { throw Failure(status: 0, code: "bad_request", message: "relay cache path") }
         var request = URLRequest(url: url)
-        request.httpMethod = "POST"
         request.timeoutInterval = 15
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = Data(json.utf8)
+        if let json {
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = Data(json.utf8)
+        } else {
+            request.httpMethod = "GET"
+        }
         try buildSpace.apply(to: &request)
         for forceRefresh in [false, true] {
             request.setValue("Bearer \(try await accessToken(forceRefresh))", forHTTPHeaderField: "Authorization")
             let (data, response) = try await session.data(for: request)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            let http = response as? HTTPURLResponse
+            let status = http?.statusCode ?? 0
             if status == 401, !forceRefresh { continue }
+            if status == 404, missing { return nil }
             guard (200..<300).contains(status) else {
-                throw Self.failure(status: status, data: data, requestID: Self.requestID(response as? HTTPURLResponse))
+                throw Self.failure(status: status, data: data, requestID: Self.requestID(http))
             }
-            return data
+            return (data, (http?.value(forHTTPHeaderField: "x-cmux-cache-at")).flatMap { UInt64($0) })
         }
         throw Failure(status: 401, code: "unauthorized", message: "token refresh failed")
     }
