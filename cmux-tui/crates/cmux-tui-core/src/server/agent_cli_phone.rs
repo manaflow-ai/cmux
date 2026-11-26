@@ -225,7 +225,7 @@ fn record(kind: &str, msg: Value, at: Option<u64>) -> Value {
 
 /// The records an adopted chat replays for `turns` (`hub/adoption.rs`), the last turn left
 /// open when one runs.
-pub(super) fn records(turns: &[acpmux::adopt_replay::PastTurn], open: bool) -> Vec<Value> {
+pub(super) fn records(turns: &[PastTurn], open: bool) -> Vec<Value> {
     let last = turns.len().saturating_sub(1);
     let mut out = Vec::new();
     for (i, turn) in turns.iter().enumerate() {
