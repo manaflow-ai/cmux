@@ -1,4 +1,4 @@
-import { SignInBackend } from "../../../../ui/SignInButton";
+import { SignInBackend } from "../../ui/SignInButton";
 // "Set Up cmux" on Home (goal next-first-run-setup): what this Mac still lacks for a first run,
 // drawn in Home's chat column above Chief's composer, with no window of its own. Three looks the
 // gallery compares (`rows` ships): only the progress and the next row's action (`next`), every row
