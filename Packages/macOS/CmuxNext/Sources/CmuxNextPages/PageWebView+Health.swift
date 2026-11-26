@@ -82,7 +82,7 @@ extension PageWebView {
         guard !isClosed else { return }
         guard loaded else { return reloadAfterCrashes() }
         await saveState(within: saveWait)
-        guard !isClosed else { return }
+        guard !isClosed, !Task.isCancelled else { return }
         // The web layer watcher's reloader: one owner of every page's reload cover.
         WebDevOverrideWatcher.shared.pageReload.reloadUnderCover(self)
     }

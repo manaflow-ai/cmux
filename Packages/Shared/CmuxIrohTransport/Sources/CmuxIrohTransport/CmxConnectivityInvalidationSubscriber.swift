@@ -1,6 +1,9 @@
 public import CmuxEgress
 import CMUXMobileCore
 public import Foundation
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
 
 /// Revision-only message carried by the account connectivity channel.
 ///

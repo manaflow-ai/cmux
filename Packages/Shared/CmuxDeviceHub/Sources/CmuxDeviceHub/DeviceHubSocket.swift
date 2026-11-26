@@ -1,6 +1,9 @@
 
 import CmuxEgress
 public import Foundation
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
 
 /// One open text WebSocket.
 public protocol DeviceHubSocketConnection: Sendable {

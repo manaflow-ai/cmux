@@ -75,12 +75,15 @@ extension DaemonService {
     /// `start(launch:… prestart:)` takes it over. Nil when the launcher cannot be made (the later `start`
     /// reports why). The caller owns the preparation task and cancels it at Quit; if cancelled after
     /// preparation, the caller cancels the returned attempt instead of starting the service.
+    /// A tagged DEV build first starts its reaper, which ends every helper of the build once this
+    /// process exits, however it exits (DevBuildReaper).
     public nonisolated static func prestart(launch: LaunchIdentity, terminalEnvironment: [String: String],
                                      terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
                                      resolvesShellIntegration: Bool = false,
                                      echoesPlacementShift: Bool = false) -> Task<DaemonPrestart?, Never> {
+        DevBuildReaper.current()?.start()
         // task-owner: AppDelegate.finishLaunching awaits this task and forwards cancellation from cloudBootstrap.
-        Task.detached(priority: .userInitiated) {
+        return Task.detached(priority: .userInitiated) {
             guard !Task.isCancelled else { return nil }
             DaemonLaunchTimings.shared.mark("daemon.prepare_start")
             defer { DaemonLaunchTimings.shared.mark("daemon.prepare_end") }

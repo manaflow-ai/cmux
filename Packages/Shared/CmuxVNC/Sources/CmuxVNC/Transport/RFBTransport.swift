@@ -1,6 +1,8 @@
-import CmuxEgress
 import Foundation
+#if canImport(Network)
+import CmuxEgress
 import Network
+#endif
 
 /// A byte stream to an RFB server. `NetworkRFBTransport` is TCP; an app can
 /// supply another carrier (a tunnel, a test pipe).
@@ -16,6 +18,7 @@ public protocol RFBTransport: AnyObject, Sendable {
     func close()
 }
 
+#if canImport(Network)
 /// TCP through Network.framework, Nagle off (input events go out at once).
 public final class NetworkRFBTransport: RFBTransport {
     private let connection: NWConnection
@@ -133,3 +136,4 @@ final class TransportLifecycle: @unchecked Sendable {
         finishOpen(RFBError.connectionClosed)
     }
 }
+#endif

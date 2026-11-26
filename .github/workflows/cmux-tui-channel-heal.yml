@@ -34,7 +34,7 @@ jobs:
   heal:
     name: heal the feat-cmux-next acpmux channel
     if: github.repository == 'manaflow-ai/cmux' && (vars.CMUX_TUI_CHANNEL_HEAL || '1') != '0'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || fromJSON(vars.RUNNER_POOLS || '{}').linux_4 || 'ubuntu-24.04' }} # ephemeral-required: holds an actions-write token to rerun or dispatch the artifacts workflow; the repair pool, as cmux-next-package-deps-heal.yml
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || fromJSON(vars.RUNNER_POOLS || '{}').linux_4 }} # ephemeral-required: holds an actions-write token to rerun or dispatch the artifacts workflow; the repair pool, as cmux-next-package-deps-heal.yml
     timeout-minutes: 5
     permissions:
       actions: write

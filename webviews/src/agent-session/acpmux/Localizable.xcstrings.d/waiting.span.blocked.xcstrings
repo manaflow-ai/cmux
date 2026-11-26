@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "waiting.span.blocked" : {
+      "comment" : "Agent pane: Waiting on me, the home's swimlanes of agent working and waiting time today (waiting/)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Waited on you for {duration} from {time}. Click to go there."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "انتظرك {duration} منذ {time}. انقر للانتقال إليه."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Čekao na tebe {duration} od {time}. Klikni da odeš tamo."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ventede på dig i {duration} fra {time}. Klik for at gå dertil."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hat {duration} ab {time} auf dich gewartet. Klicken, um dorthin zu gehen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Te esperó {duration} desde las {time}. Haz clic para ir allí."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vous a attendu {duration} à partir de {time}. Cliquez pour y aller."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ti ha aspettato {duration} dalle {time}. Fai clic per andarci."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{time} から {duration} あなたを待ちました。クリックで移動します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បានរង់ចាំអ្នក {duration} ចាប់ពី {time}។ ចុចដើម្បីទៅទីនោះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{time}부터 {duration} 동안 나를 기다렸습니다. 클릭하면 이동합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ventet på deg i {duration} fra {time}. Klikk for å gå dit."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Czekał na ciebie {duration} od {time}. Kliknij, aby tam przejść."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Esperou por você {duration} a partir de {time}. Clique para ir até lá."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ждал вас {duration} с {time}. Нажмите, чтобы перейти."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "รอคุณ {duration} ตั้งแต่ {time} คลิกเพื่อไปที่นั่น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{time} itibarıyla {duration} sizi bekledi. Oraya gitmek için tıklayın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Чекав на вас {duration} з {time}. Натисніть, щоб перейти."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đã chờ bạn {duration} từ {time}. Bấm để đến đó."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "从 {time} 起等待你 {duration}。点按以前往。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "從 {time} 起等待你 {duration}。按一下以前往。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -211,16 +211,16 @@ public struct SkeletonList: View {
         HStack(spacing: 12) {
             if let leadingSquare {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(theme.colors.surfaceRaised)
+                    .fill(Color.cmuxMobileContentFill(.inset))
                     .frame(width: leadingSquare, height: leadingSquare)
             }
             GeometryReader { proxy in
                 VStack(alignment: .leading, spacing: 8) {
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(theme.colors.surfaceRaised)
+                        .fill(Color.cmuxMobileContentFill(.inset))
                         .frame(width: proxy.size.width * 0.6, height: 14)
                     RoundedRectangle(cornerRadius: 5.5, style: .continuous)
-                        .fill(theme.colors.surfaceRaised)
+                        .fill(Color.cmuxMobileContentFill(.inset))
                         .frame(width: proxy.size.width * 0.4, height: 11)
                 }
                 .frame(maxHeight: .infinity, alignment: .center)
@@ -285,7 +285,7 @@ public struct SkeletonList: View {
                 GeometryReader { line in
                     let height = max(8, line.size.height * fraction)
                     RoundedRectangle(cornerRadius: height / 2, style: .continuous)
-                        .fill(theme.colors.surfaceRaised)
+                        .fill(Color.cmuxMobileContentFill(.inset))
                         .frame(width: width, height: height)
                         .frame(maxHeight: .infinity, alignment: .center)
                 }
@@ -462,7 +462,7 @@ private struct ToastHost: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
                 .frame(minHeight: 36)
-                .glassEffect(.regular, in: .capsule)
+                .cmuxMobileFloatingGlass(in: .capsule)
                 .padding(.top, 8)
                 .transition(.opacity.combined(with: .offset(y: -12)))
                 .id(value.id)

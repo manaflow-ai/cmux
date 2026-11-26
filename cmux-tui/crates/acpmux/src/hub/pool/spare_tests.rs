@@ -54,3 +54,44 @@ fn a_harness_whose_spare_idled_out_is_missing_and_a_warming_or_ready_one_is_not(
     let week = u64::try_from(RECENT.as_millis()).unwrap();
     assert!(missing(&list, week + 100, |_| false).is_empty(), "only a recent harness");
 }
+
+#[test]
+fn a_reserve_moves_home_chat_shapes_to_its_folder_and_remembers_the_persons_picks() {
+    let home = std::path::Path::new("/home/p");
+    let old = "/home/p/chats/r0123456789abcdef0123456789abcdef";
+    let next = std::path::Path::new("/home/p/chats/rfedcba9876543210fedcba9876543210");
+    // A Codex home chat in the folder it took, and a harness used in a project folder.
+    let mut list = vec![r("codex", old, 5), r("opencode", "/home/p/src/app", 6)];
+    let given = vec![super::reserved::HomeShape {
+        harness: "claude".into(),
+        preset: None,
+        model: Some("opus".into()),
+    }];
+    home_shapes(&mut list, home, next, given, 9);
+    let next_s = next.to_str().unwrap();
+    let mut claude = r("claude", next_s, 9);
+    claude.model = Some("opus".into());
+    assert_eq!(
+        list,
+        vec![r("codex", next_s, 5), r("opencode", "/home/p/src/app", 6), claude],
+        "the home chat's harness waits in the next folder with its old use time; a project \
+         folder's stays"
+    );
+}
+
+#[test]
+fn the_shapes_sent_read_the_file_this_pool_writes() {
+    let mut codex = r("codex", "/a", 50);
+    codex.model = Some("gpt-5.5".into());
+    let list =
+        vec![r("claude", "/a", 10), codex, r("a", "/a", 20), r("b", "/a", 30), r("c", "/a", 40)];
+    let bytes = serde_json::to_vec(&SpareFile { spares: list }).unwrap();
+    let sent: Vec<Value> = cmux_cloud_start_core::spare_shapes::shapes(&bytes, 60)
+        .into_iter()
+        .map(|s| serde_json::to_value(s).unwrap())
+        .collect();
+    assert_eq!(sent.len(), 4);
+    assert_eq!(sent[0], json!({"harness": "codex", "model": "gpt-5.5"}));
+    assert!(sent.iter().all(|v| v.get("cwd").is_none()));
+    assert!(!sent.contains(&json!({"harness": "claude"})), "the oldest is left out");
+}

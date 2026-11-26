@@ -9,8 +9,10 @@
 //! The switch is `CMUX_SEED_CARRY`: `off` never carries; anything else (the default) carries
 //! whenever the machine serves `git-seed-carry-v1`, the repository is not a partial clone (a
 //! blob it lacks would be fetched from GitHub here first) and the pack is at most
-//! `CMUX_SEED_CARRY_MAX_MB` (default [`DEFAULT_MAX_MB`]); past that the machine's own clone is
-//! the better bet over a slow uplink.
+//! the cap `cmux link seed push` picks from the measured link speed to the machine
+//! (`seed_cli/link_speed.rs`: `CMUX_SEED_CARRY_MAX_MB` when set, else what the link sends in
+//! `CMUX_SEED_CARRY_BUDGET_S`, else [`DEFAULT_MAX_MB`]); past that the machine's own clone is the
+//! better bet over a slow uplink.
 
 use std::io::Write as _;
 use std::path::Path;
@@ -27,17 +29,10 @@ pub fn enabled() -> bool {
     !std::env::var("CMUX_SEED_CARRY").is_ok_and(|value| value.eq_ignore_ascii_case("off"))
 }
 
-fn max_bytes() -> u64 {
-    std::env::var("CMUX_SEED_CARRY_MAX_MB")
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok())
-        .unwrap_or(DEFAULT_MAX_MB)
-        .saturating_mul(1024 * 1024)
-}
-
 /// Writes the depth-1 pack of `base` from the repository at `folder` to `out`; its bytes.
-/// `Err` (why) when it cannot or should not be carried: the seed then goes without it.
-pub fn pack(folder: &Path, base: &str, out: &Path) -> Result<u64, String> {
+/// `Err` (why) when it cannot or should not be carried (past `max_bytes`, among others): the
+/// seed then goes without it.
+pub fn pack(folder: &Path, base: &str, out: &Path, max_bytes: u64) -> Result<u64, String> {
     if git::optional(git::at(folder).args(["config", "--get", "extensions.partialClone"])).is_some()
     {
         return Err("the repository is a partial clone".into());
@@ -64,9 +59,9 @@ pub fn pack(folder: &Path, base: &str, out: &Path) -> Result<u64, String> {
         ));
     }
     let bytes = std::fs::metadata(out).map_err(|error| format!("cannot read: {error}"))?.len();
-    if bytes > max_bytes() {
+    if bytes > max_bytes {
         let _ = std::fs::remove_file(out);
-        return Err(format!("the pack is {bytes} bytes, over CMUX_SEED_CARRY_MAX_MB"));
+        return Err(format!("the pack is {bytes} bytes, over the {max_bytes}-byte cap"));
     }
     Ok(bytes)
 }

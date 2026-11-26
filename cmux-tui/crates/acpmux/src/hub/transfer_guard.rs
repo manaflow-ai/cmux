@@ -196,6 +196,12 @@ pub(super) fn bundle_path_kind(path: &str) -> Option<bool> {
         {
             Some(true)
         }
+        // A Claude subagent's transcript, beside the session's: `<dir>/<sid>/subagents/<f>`.
+        ["native", "claude-subagent", ".claude", "projects", dir, sid, "subagents", f]
+            if !dir.is_empty() && !sid.is_empty() && jsonl(f) =>
+        {
+            Some(true)
+        }
         ["native", "pi-session", ".pi", "agent", "sessions", dir, f]
             if !dir.is_empty() && jsonl(f) =>
         {

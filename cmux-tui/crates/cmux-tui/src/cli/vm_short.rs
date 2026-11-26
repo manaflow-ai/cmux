@@ -372,7 +372,7 @@ pub(super) fn table(listed: &Value) -> String {
             row.get(key).and_then(Value::as_str).filter(|text| !text.is_empty()).unwrap_or("-");
         super::wire::sanitize_remote_text(text)
     };
-    let mut lines: Vec<[String; 4]> = rows
+    let mut lines: Vec<[String; 5]> = rows
         .iter()
         .map(|row| {
             let created = text(row, "created_at");
@@ -381,12 +381,13 @@ pub(super) fn table(listed: &Value) -> String {
                 format!("vm:{}", text(row, "machine_id")),
                 text(row, "status"),
                 created.get(..10).unwrap_or(&created).to_owned(),
+                disk_cell(row.get("disk")),
             ]
         })
         .collect();
     lines.extend(creating.iter().map(|row| {
         // The app names a VM being made `name` (a listed VM's is `title`).
-        [text(row, "name"), "-".to_owned(), text(row, "status"), "-".to_owned()]
+        [text(row, "name"), "-".to_owned(), text(row, "status"), "-".to_owned(), "-".to_owned()]
     }));
     if lines.is_empty() && listed.get("loaded").and_then(Value::as_bool) == Some(false) {
         return "The VM list has not loaded yet; run `cmux vm ls` again in a moment.\n".to_owned();
@@ -395,8 +396,8 @@ pub(super) fn table(listed: &Value) -> String {
         return "No Cloud VMs. Make one: cmux vm new (or cmux chat --on vm:new 'PROMPT')\n"
             .to_owned();
     }
-    lines.insert(0, ["NAME", "ID", "STATUS", "CREATED"].map(str::to_owned));
-    let widths: Vec<usize> = (0..4)
+    lines.insert(0, ["NAME", "ID", "STATUS", "CREATED", "DISK"].map(str::to_owned));
+    let widths: Vec<usize> = (0..5)
         .map(|column| {
             lines
                 .iter()
@@ -413,6 +414,23 @@ pub(super) fn table(listed: &Value) -> String {
         out.push('\n');
     }
     out
+}
+
+/// A row's disk bar (cmux-cloud-disk's view) as the DISK cell: used over allocated, then the
+/// system / project / caches split when the guest reports one ("13.2 / 20 GB system 5.3 project
+/// 6.2 caches 1.7"); "-" when nothing says how big the disk is.
+fn disk_cell(disk: Option<&Value>) -> String {
+    let Some(label) = disk.and_then(|disk| disk.get("label")).and_then(Value::as_str) else {
+        return "-".to_owned();
+    };
+    let segments = disk.and_then(|disk| disk.get("segments")).and_then(Value::as_array);
+    let split = segments.map_or(&[][..], Vec::as_slice).iter().filter_map(|segment| {
+        let kind = segment.get("kind").and_then(Value::as_str)?;
+        let gb = segment.get("gb").and_then(Value::as_f64)?;
+        matches!(kind, "system" | "project" | "caches")
+            .then(|| format!("{kind} {}", cmux_cloud_disk::number(gb)))
+    });
+    std::iter::once(label.to_owned()).chain(split).collect::<Vec<_>>().join(" ")
 }
 
 /// `Some(exit code)` when `args` is a short `vm` verb and the cmux app is here; `None` leaves
