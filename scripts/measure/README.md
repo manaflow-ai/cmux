@@ -273,6 +273,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 
 | name | what it measures | ticket / owner | last touched | status |
 |---|---|---|---|---|
+| `acpmux-reload-profile.sh` | A one-line acpmux edit's reload-build rebuild, release against devbuild profile. | - | 2026-11-17 | active |
 | `projection-macos.sh` | One agent checkout's FSEvents (events, unique paths), seconds, first `git status`, disk: git worktree, APFS clone (wt today), recycled checkout, projected (cmux-projection over NFSv3 from localhost); JOBS at once; fseventsd RSS (`projection-macos/fsevents-count.swift`). | projectionfs harder (2026-11-23) | 2026-11-23 | active |
 | `lane-start-qos-macos.sh` | A lane start's git (`wt new`: cold clone or warm fetch, worktree, the six reads lw#9927 counted) under `taskpolicy -b` (before leo-workspace #9927/#10714) against normal priority, and git-fetch-once's fetch throttled (`nice 10`, `taskpolicy -d throttle`) against `GIT_FETCH_ONCE_PRIORITY=normal`; idle and under `yes` spinners; n, p50, max. | lane start priority (Leo, 2026-11-24) | 2026-11-26 | active |
 | `projection-scale/measure.py` | RFD 0065 piece 14: projection serve/link/mount and git clone matrix; seconds, bytes, asks; TSV or Markdown with RFD 0067 link profiles ([README](projection-scale/README.md)). | RFD 0065 | 2026-11-24 | active |
