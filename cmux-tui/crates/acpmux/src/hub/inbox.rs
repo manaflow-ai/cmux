@@ -1470,7 +1470,11 @@ impl Hub {
         let wakes_before_rule = (surge_on && fire_notice(provenance.and_then(|p| p.get("notice"))))
             || wakes_as(&meta_now, class, is_report(provenance), waited, sender_session.as_deref());
         // A chat on the coordinator list wakes only for a page (`inbox_page_rule.rs`).
-        let page_rule_on = page_rule::listed(&*self.config.read().await, &meta_now.name);
+        // Admission must reach its acceptance callback without waiting on a config writer.
+        // If a reload owns the lock, fail open as an unlisted chat and let the normal wake rules
+        // decide. The next delivery observes the new page rule.
+        let page_rule_on =
+            self.config.try_read().is_ok_and(|cfg| page_rule::listed(&cfg, &meta_now.name));
         let continuing = self.continuation_pending(session);
         // It would sit in an idle chat's inbox until a flush: said in its acceptance, and a
         // sender that waits for it is refused at once (`not_woken`).

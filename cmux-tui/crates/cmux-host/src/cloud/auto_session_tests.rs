@@ -159,6 +159,7 @@ fn calls() -> Vec<(Call, &'static str, String)> {
         (Call::read(Kind::Get, "as_1"), "GET", at("")),
         (Call::write(Kind::Lease, "as_1", lease), "POST", at("/lease")),
         (Call::write(Kind::Release, "as_1", fence()), "POST", at("/release")),
+        (Call::write(Kind::Give, "as_1", fence()), "POST", at("/give")),
         (Call::write(Kind::EventsAppend, "as_1", events), "POST", at("/events")),
         (Call::page(Kind::Events, "as_1", 7, Some(100)), "GET", at("/events?after=7&limit=100")),
         (Call::page(Kind::Events, "as_1", 0, None), "GET", at("/events?after=0")),

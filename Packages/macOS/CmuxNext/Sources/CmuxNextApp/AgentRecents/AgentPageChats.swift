@@ -53,6 +53,8 @@ final class AgentPageChats {
     private(set) var runNotices: SandboxRunNotices?
     /// A Cloud chat's hand-off turn (``CloudHandoffTurnOpener``), one runner for every page, given the pane that asked.
     var handoffTurn: (@MainActor (AgentPaneView?, String) async -> [String: Any])?
+    /// "Fork first" on a risky step of a Cloud chat (``CloudHandoffTurnOpener/forkFirst(_:services:)``), one runner for every page, given the pane that asked.
+    var forkFirst: (@MainActor (AgentPaneView?, AgentPaneForkFirst) async -> [String: Any])?
     /// The app-level waiter on every hand-off of a chat to a Cloud machine, and its notification.
     private(set) var handoffNotices: HandoffNotices?
 
@@ -119,6 +121,13 @@ final class AgentPageChats {
         } else {
             view.model.onCloudHandoffTurn = nil
         }
+        if let run = forkFirst {
+            view.model.onCloudForkFirst = { @MainActor [weak view] (fork: AgentPaneForkFirst) async -> [String: Any] in
+                await run(view, fork)
+            }
+        } else {
+            view.model.onCloudForkFirst = nil
+        }
         // Written out with its type: Xcode 26.6 could not type the `map` form.
         if let run = cloudStart {
             view.model.onCloudStartChat = { @MainActor [weak view] (start: AgentPaneCloudStart) async -> [String: Any] in
@@ -154,7 +163,7 @@ final class AgentPageChats {
         CloudStartChat.wireSetup(services)
         tabs.pageChats.cloudSetup = services.cloud.setup
         tabs.pageChats.cloudRepick = CloudStartChat.repickRunner(tabs, services: services)
-        tabs.pageChats.gitHub = .live(CloudGitHubPicker(auth: services.cloud.auth, identity: services.cloud.installIdentity)) { LinkRouter.shared.open($0) }
+        tabs.pageChats.gitHub = .live(CloudGitHubPicker(auth: services.cloud.auth, identity: services.cloud.installIdentity)) { LinkRouter.shared.openGitHubConnect($0) }
         tabs.pageChats.cloudReservation = { [weak services] request in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
             if !request.release, services.cloud.mayCallCloud { CloudStartChat.warmSpare(services); Task { await services.cloud.capability.prefetch(services.cloud.installIdentity) } } // never awaited (task-owner: fire and forget): Send's gesture ticket waits only on the reserve; the pre-approval while they type
@@ -175,6 +184,7 @@ final class AgentPageChats {
         tabs.pageChats.handoffNotices = handoffs
         handoffs.start()
         tabs.pageChats.handoffTurn = CloudHandoffTurnOpener.runner(tabs, services: services)
+        tabs.pageChats.forkFirst = CloudHandoffTurnOpener.forkFirst(tabs, services: services)
         tabs.pageChats.sandboxRun = { [weak services] task, agent, key, incognito in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
             // Cloud turned off by policy, or the managed team it requires missing: a definite

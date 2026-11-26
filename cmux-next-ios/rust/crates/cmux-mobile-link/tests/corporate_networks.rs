@@ -76,6 +76,16 @@ async fn link(
     mac_options: DialOptions,
     signaling_egress: &Egress,
 ) -> Result<Run, DialError> {
+    link_taking(phone_options, mac_options, signaling_egress, None).await
+}
+
+/// [`link`], the dial taking `early`, a TURN allocation started before it.
+async fn link_taking(
+    phone_options: DialOptions,
+    mac_options: DialOptions,
+    signaling_egress: &Egress,
+    early: Option<dial::EarlyTurn>,
+) -> Result<Run, DialError> {
     // `RUST_LOG=cmux_mobile_link=debug` shows the routes, allocations and proxy hops.
     let _ = tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
@@ -97,9 +107,15 @@ async fn link(
     .await
     .expect("the phone's signaling socket");
     let started = Instant::now();
-    let connected =
-        dial::connect(&phone, &mac_id, TransportKind::WireGuard, &phone_options, LinkConfig::default())
-            .await?;
+    let connected = dial::connect_with_early_turn(
+        &phone,
+        &mac_id,
+        TransportKind::WireGuard,
+        &phone_options,
+        LinkConfig::default(),
+        early,
+    )
+    .await?;
     let mut channel = connected.link.open("echo", serde_json::json!({})).await.unwrap();
     let payload: Vec<u8> = (0..200_000u32).map(|i| (i % 251) as u8).collect();
     channel.send(Bytes::from(payload.clone())).await.unwrap();
@@ -258,4 +274,37 @@ async fn a_firewall_that_drops_wireguard_still_links_over_turn_tls() {
         "the firewall dropped nothing: the test proves nothing"
     );
     assert!(turn.stream_connections() >= 1, "TURN over TLS never opened");
+}
+
+/// (b) A cold dial behind the proxy whose TURN allocation started when
+/// `/v1/ice` answered, beside the signaling socket's open
+/// ([`dial::EarlyTurn::for_dial`], [`dial::connect_with_early_turn`]): the
+/// dial takes that allocation instead of opening a second tunnel and
+/// allocating again after signaling.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_proxied_dial_takes_the_allocation_started_before_it() {
+    let turn = TestTurn::start().await;
+    let proxy = TestProxy::start(ProxyAuth::None).await;
+    let egress = Egress { proxy: proxy.config(), require_proxy: true, ..Egress::default() };
+    let phone = DialOptions {
+        ice_servers: vec![turn.ice.clone()],
+        turn_tls_roots: Some(std::sync::Arc::clone(&turn.roots)),
+        block_udp: true,
+        egress: egress.clone(),
+        ..options()
+    };
+    let early =
+        dial::EarlyTurn::for_dial(TransportKind::WireGuard, &phone).expect("a WireGuard dial's allocation");
+    // The allocation is under way (its tunnel and TLS stream are open)
+    // before the dial starts.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while turn.stream_connections() == 0 {
+        assert!(Instant::now() < deadline, "the early allocation never reached the TURN server");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let run = link_taking(phone, options(), &egress, Some(early)).await.expect("a link through the proxy");
+    assert_eq!(run.phone, LinkPath::TurnTls, "{run:?}");
+    let to_turn = proxy.tunnels().iter().filter(|target| **target == turn.tls_address()).count();
+    assert_eq!(to_turn, 1, "the dial allocated again: {:?}", proxy.tunnels());
+    assert_eq!(turn.stream_connections(), 1, "the dial opened a second TURN stream");
 }

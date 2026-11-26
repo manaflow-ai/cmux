@@ -278,7 +278,8 @@ final class AgentCardRasterizer: NSObject {
     static let log = Logger(subsystem: "com.cmux.app", category: "agent-card-raster")
 
     static func render(_ feed: AgentCardFeed, _ key: AgentCardRasterKey) -> UIImage? {
-        let content = AgentChatPreview(store: feed.store, turns: key.turns, topInset: key.topInset, bottomInset: key.bottomInset)
+        let content = AgentChatPreview(store: feed.store, turns: key.turns, topInset: key.topInset, bottomInset: key.bottomInset,
+                                       cardSlice: key.visibleHeight)
             .frame(width: key.page.width, height: key.page.height)
             .frame(width: key.page.width, height: key.visibleHeight, alignment: .top)
             .clipped()
@@ -367,7 +368,8 @@ struct AgentTabCard: View {
                     TabSnapshotPicture(image: lastKnown).background(Color.cmuxMobileBackground)
                 }
             case .live:
-                AgentChatPreview(store: feed.store, turns: feed.turns, topInset: topInset, bottomInset: bottomInset)
+                AgentChatPreview(store: feed.store, turns: feed.turns, topInset: topInset, bottomInset: bottomInset,
+                                 cardSlice: key.visibleHeight)
             }
         }
         .onAppear { rasterizer.setShown(feed, true) }
