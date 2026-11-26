@@ -223,13 +223,15 @@ function pickSays(props: ThinkingProps): Says {
 }
 
 /// The line's words held for `LINE_DWELL_MS` since they last changed (one timeout per held change,
-/// cleared by the next; no loop). Reduced or no motion shows each change at once: nothing rolls there.
+/// cleared by the next; no loop). The timeout firing ends the dwell whatever the clock reads, so a
+/// clock that stands still (a frozen `now`) never holds the words for good. Reduced or no motion shows
+/// each change at once: nothing rolls there.
 function useLineDwell(props: ThinkingProps): ThinkingProps {
   const key = saysKey(props);
   const clock = props.now ?? Date.now;
-  const [shown, setShown] = useState(() => ({ key, at: clock(), says: pickSays(props) }));
-  // Each wake reads the clock again: a timeout that fires a moment early arms the rest.
+  // A wake since the shown words were set means their dwell ran out.
   const [woken, wake] = useReducer((n: number) => n + 1, 0);
+  const [shown, setShown] = useState(() => ({ key, at: clock(), says: pickSays(props), woken }));
   let hold = false;
   if (shown.key !== key) {
     const at = clock();
@@ -238,10 +240,11 @@ function useLineDwell(props: ThinkingProps): ThinkingProps {
       !rollsNothing(props) &&
       !rollsNothing(shown.says) &&
       at - shown.at < LINE_DWELL_MS &&
+      woken === shown.woken &&
       motionMode() === "full" &&
       // The line as it was before the dwell, for the gallery's before frames (agent-pane.status-swap `rapid-send-before`).
       document.documentElement.dataset.liveDwell !== "off";
-    if (!hold) setShown({ key, at, says: pickSays(props) });
+    if (!hold) setShown({ key, at, says: pickSays(props), woken });
   }
   const since = shown.at;
   useEffect(() => {
