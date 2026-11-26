@@ -27,6 +27,9 @@ enum Behavior {
     Refuse,
     /// Answer as the engine does once the person stopped the session.
     Stopped,
+    /// Return the typed Screen Recording handoff result, then stop accepting
+    /// calls so the bridge must reconnect to the next worker.
+    ScreenCaptureRestart,
 }
 
 /// A worker: one socket, one secret, answering per [`Behavior`], and
@@ -102,6 +105,23 @@ impl FakeWorker {
                     continue;
                 }
                 let call_id = request["call_id"].as_str().unwrap_or_default().to_owned();
+                if behavior == Behavior::ScreenCaptureRestart
+                    && crashed.lock().unwrap().insert(call_id.clone())
+                {
+                    let result = json!({
+                        "is_error": true,
+                        "code": "screen_capture_restarting",
+                        "body": {"error": "Screen Recording was just turned on; Computer Use is restarting to use it."},
+                        "png": null
+                    });
+                    let _ = writeln!(
+                        out,
+                        "{}",
+                        json!({"id": request["id"], "ok": true, "result": result})
+                    );
+                    drop(out);
+                    break;
+                }
                 if behavior == Behavior::CrashOnce
                     && crashed.lock().unwrap().insert(call_id.clone())
                 {
@@ -293,6 +313,50 @@ fn a_refused_secret_asks_the_daemon_again() {
     let caller = caller(FakeDaemon::new(vec![Ok(stale), Ok(worker.ready())]));
     let out = caller.call("status", &json!({}), "call-s");
     assert!(matches!(out, Outcome::Output(ref o) if !o.is_error), "{out:?}");
+}
+
+#[test]
+fn a_screen_grant_restart_retries_read_only_calls_after_worker_handoff() {
+    let dir = tmp();
+    let first = FakeWorker::start(dir.path(), "a", Behavior::ScreenCaptureRestart, Arc::default());
+    let second = FakeWorker::start(dir.path(), "b", Behavior::Answer, Arc::default());
+    let daemon = FakeDaemon::new(vec![
+        Ok(first.ready()),
+        Ok(json!({"state": "starting"})),
+        Ok(second.ready()),
+    ]);
+    let caller = caller(daemon);
+    let Outcome::Output(out) = caller.call("screenshot", &json!({"window_id": "w1"}), "grant-r")
+    else {
+        panic!("grant restart surfaced as an error")
+    };
+    assert!(!out.is_error, "{out:?}");
+    assert_eq!(out.body, json!({"ran": "screenshot"}));
+    assert_eq!(first.seen.lock().unwrap()[0]["call_id"], "grant-r");
+    assert_eq!(second.seen.lock().unwrap()[0]["call_id"], "grant-r");
+    assert_eq!(second.ran.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn a_screen_grant_restart_does_not_replay_an_acting_call() {
+    let dir = tmp();
+    let first = FakeWorker::start(dir.path(), "a", Behavior::ScreenCaptureRestart, Arc::default());
+    let second = FakeWorker::start(dir.path(), "b", Behavior::Answer, Arc::default());
+    let daemon = FakeDaemon::new(vec![
+        Ok(first.ready()),
+        Ok(json!({"state": "starting"})),
+        Ok(second.ready()),
+    ]);
+    let caller = caller(daemon);
+    let Outcome::Output(out) =
+        caller.call("click", &json!({"window_id": "w1", "x": 1, "y": 2}), "grant-a")
+    else {
+        panic!("acting call did not return the worker result")
+    };
+    assert!(out.is_error, "{out:?}");
+    assert_eq!(out.code.as_deref(), Some("screen_capture_restarting"));
+    assert_eq!(first.seen.lock().unwrap().len(), 1);
+    assert!(second.seen.lock().unwrap().is_empty(), "acting call was replayed");
 }
 
 #[test]

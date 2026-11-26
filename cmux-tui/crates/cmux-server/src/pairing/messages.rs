@@ -293,6 +293,7 @@ pub(crate) fn for_locale(locale: &str) -> Messages {
             unpair_skipped: "Did not contact cmux Cloud (--local): remove this server in the cmux app.",
             unpair_removed: "Removed this machine's pairing identity and keys.",
             unpair_nothing: "This machine was not paired; nothing to do.",
+            // retry-prompt-ok: retrying cloud sign-out or deleting the local record are separate choices.
             unpair_failed: "Could not sign this machine out of cmux Cloud; nothing was removed. Try again, or run `cmux server unpair --local` to forget it here only",
         },
     }

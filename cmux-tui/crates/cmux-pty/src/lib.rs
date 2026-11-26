@@ -90,6 +90,7 @@ impl fmt::Display for PtyOpenError {
         match self.kind {
             PtyOpenErrorKind::CapacityExhausted => write!(
                 f,
+                // retry-prompt-ok: closing a live terminal or tmux session can end its running jobs; the user chooses which one.
                 "PTY capacity exhausted; close unused terminals or tmux sessions and retry: {}",
                 self.source
             ),

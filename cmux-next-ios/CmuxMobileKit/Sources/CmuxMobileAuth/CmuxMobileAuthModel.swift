@@ -573,7 +573,21 @@ public final class CmuxMobileAuthModel {
         if isMock { return nil }
         guard let stack, let coordinator else { throw AuthError.unauthorized }
         let before = Set(teams.map(\.id))
-        try await stack.acceptTeamInvitation(code: code)
+        guard let signingUser = user?.id else { throw AuthError.unauthorized }
+        do {
+            try await TeamInviteAcceptance.run {
+                guard self.user?.id == signingUser else { throw AuthError.unauthorized }
+                try await stack.acceptTeamInvitation(code: code)
+            } checkUnused: {
+                guard self.user?.id == signingUser else { throw AuthError.unauthorized }
+                try await stack.verifyTeamInvitationCode(code)
+            }
+        } catch TeamInviteFailure.joinUnconfirmed {
+            // Publish current memberships without selecting an unrelated newly added team.
+            if user?.id == signingUser { await coordinator.refreshTeams() }
+            throw TeamInviteFailure.joinUnconfirmed
+        }
+        guard user?.id == signingUser else { throw AuthError.unauthorized }
         await coordinator.refreshTeams()
         return Self.joinedTeam(before: before, after: teams)
     }

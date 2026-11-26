@@ -16,7 +16,7 @@ use cmux_forum_hosted::{
 };
 use std::future::Future;
 use std::pin::Pin;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub const URL_ENV: &str = "CMUX_FORUM_URL";
 pub const TEAM_ENV: &str = "CMUX_FORUM_TEAM";
@@ -26,6 +26,9 @@ pub const NOT_SET_UP: &str =
     "The hosted forum is not set up on this machine (set CMUX_FORUM_TEAM and CMUX_FORUM_KEY).";
 /// Longest one tool call waits on the hosted forum, every request it makes included.
 pub const CALL_TIMEOUT: Duration = Duration::from_secs(15);
+/// A GET can be repeated safely after a dropped connection or a transient 5xx.
+const READ_RETRIES: u8 = 2;
+const READ_RETRY_DELAY: Duration = Duration::from_millis(100);
 /// Most hits a search answers.
 pub const MAX_HITS: usize = 10;
 /// Most per-session clients kept; past it the cache starts over (each only holds a token).
@@ -212,6 +215,48 @@ impl HostedForum {
             .with_data(json!({"reason": "forum.timeout"}))),
         }
     }
+
+    /// A read gets a short automatic retry window. Writes stay on [`bounded`] because a lost
+    /// response leaves their side effect unknown and repeating one could duplicate it.
+    async fn bounded_read<R, F, Fut>(&self, mut call: F) -> Result<R, RpcError>
+    where
+        F: FnMut() -> Fut,
+        Fut: Future<Output = Result<R, ForumError>>,
+    {
+        let deadline = Instant::now() + CALL_TIMEOUT;
+        let mut retries = 0;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(RpcError::internal(format!(
+                    "The hosted forum did not answer within {} s after automatic retries.",
+                    CALL_TIMEOUT.as_secs()
+                ))
+                .with_data(json!({"reason": "forum.timeout"})));
+            }
+            match tokio::time::timeout(remaining, call()).await {
+                Ok(Ok(value)) => return Ok(value),
+                Ok(Err(error)) if retries < READ_RETRIES && is_transient_read(&error) => {
+                    retries += 1;
+                    let delay =
+                        READ_RETRY_DELAY.min(deadline.saturating_duration_since(Instant::now()));
+                    tokio::time::sleep(delay).await;
+                }
+                Ok(Err(error)) => return Err(self.refusal(&error)),
+                Err(_) => {
+                    return Err(RpcError::internal(format!(
+                        "The hosted forum did not answer within {} s after automatic retries.",
+                        CALL_TIMEOUT.as_secs()
+                    ))
+                    .with_data(json!({"reason": "forum.timeout"})));
+                }
+            }
+        }
+    }
+}
+
+fn is_transient_read(error: &ForumError) -> bool {
+    matches!(error, ForumError::Unavailable { .. } | ForumError::Transport(_))
 }
 
 fn state_text(state: ThreadState) -> &'static str {
@@ -320,7 +365,7 @@ impl Hub {
         let client = forum.client(&session.id);
         let space = space.map(str::trim).filter(|s| !s.is_empty());
         let hits = forum
-            .bounded(async {
+            .bounded_read(|| async {
                 let mut hits = client.search(query, space).await?;
                 hits.truncate(MAX_HITS);
                 // A hit carries no comment count: each thread's, read together; a failed read is 0.
@@ -365,6 +410,45 @@ mod tests {
         let err = forum.refusal(&ForumError::Transport("echo cfk_secret_value".into()));
         assert!(!err.message.contains("cfk_secret_value"), "{}", err.message);
         assert!(!format!("{err:?}").contains("cfk_secret_value"));
+    }
+
+    #[tokio::test]
+    async fn read_retries_transient_transport_failures() {
+        struct Noop;
+        impl Transport for Noop {
+            async fn send(&self, _: Request) -> Result<Response, TransportError> {
+                Err(TransportError::new("unused"))
+            }
+        }
+        let forum = HostedForum::new(AnyTransport::new(Noop), "team-a", "key");
+        let mut attempts = 0;
+        let value = forum
+            .bounded_read(|| {
+                attempts += 1;
+                let result = if attempts < 3 {
+                    Err(ForumError::Transport("connection reset".into()))
+                } else {
+                    Ok("loaded")
+                };
+                async move { result }
+            })
+            .await
+            .unwrap();
+        assert_eq!(value, "loaded");
+        assert_eq!(attempts, 3);
+    }
+
+    #[test]
+    fn only_transient_read_errors_are_retried() {
+        assert!(is_transient_read(&ForumError::Transport("reset".into())));
+        assert!(is_transient_read(&ForumError::Unavailable {
+            status: 503,
+            message: String::new()
+        }));
+        assert!(!is_transient_read(&ForumError::Unauthorized {
+            code: "bad_key".into(),
+            message: String::new(),
+        }));
     }
 
     /// Seeded secrets on the wire (cmux_egress::capture): the agent key rides only in the token

@@ -202,6 +202,7 @@ function Tile({
       {detail.length > 0 && <div className="row-help connections-detail">{detail.join(" · ")}</div>}
       {lapsing && (
         <div className="row-help" data-connections-expiry={status}>
+          {/* retry-prompt-ok: an expired provider sign-in requires the person to reconnect it. */}
           {connectStrings.format(
             status === "reauth" ? "connect.expired.detail" : "connect.expiring.detail",
             expiryText(lapsing, navigator.language),

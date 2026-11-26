@@ -45,6 +45,7 @@ export const READINESS_ACTION_KEY: Record<ReadinessAction, string> = {
   install: "signIn.install",
   signIn: "signIn.account.signIn",
   addAccount: "signIn.account.add",
+  // retry-prompt-ok: a failed provider sign-in starts a fresh sign-in flow by person choice.
   tryAgain: "signIn.tryAgain",
 };
 

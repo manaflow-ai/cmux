@@ -204,6 +204,7 @@ function ImageTile({
       className={`hc-att-image${single ? " single" : ""}${src ? "" : failed ? " failed" : " loading"}`}
       style={size}
       data-attachment={part.hash}
+      /* retry-prompt-ok: rereading a failed attachment is an explicit person action after bounded automatic retries. */
       aria-label={retries ? `${strings.t("pending.retry")} ${part.name}` : part.name}
       /* tooltip-allow: a loaded image shows no name; the name shows only once it fails */
       title={part.name}
@@ -215,6 +216,7 @@ function ImageTile({
       {failed && (
         <span className="hc-att-unread">
           <span className="hc-att-name">{part.name}</span>
+          {/* retry-prompt-ok: rereading a failed attachment is an explicit person action after bounded automatic retries. */}
           <span className="hc-att-meta">{retries ? strings.t("pending.retry") : formatBytes(part.byteCount)}</span>
         </span>
       )}
@@ -653,6 +655,7 @@ function TrayItem({
         </span>
       )}
       {state === "failed" && item.retryable && onRetry && (
+        /* retry-prompt-ok: resending an attachment is an explicit person action after bounded automatic retries. */
         <button type="button" className="lg-link-button hc-tray-retry" onClick={onRetry}>
           {strings.t("pending.retry")}
         </button>

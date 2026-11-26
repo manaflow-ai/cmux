@@ -13,6 +13,8 @@ public enum TeamInviteFailure: Error, Equatable, Sendable {
     /// The invite was sent to an email this account does not have.
     case otherEmail
     case offline
+    /// The accept response was lost and the invite could already have been consumed.
+    case joinUnconfirmed
     case alreadyMember
     /// Anything else (a malformed link, a refused request): the caller's own fallback.
     case other
@@ -49,9 +51,41 @@ public enum TeamInviteFailure: Error, Equatable, Sendable {
         switch self {
         case .expired: "This invite expired. Ask for a new one."
         case .otherEmail: "This invite is for another email."
-        case .offline: "You're offline. Try again when you're connected."
+        case .offline: "Couldn't reach the invitation service."
+        case .joinUnconfirmed: "Couldn't confirm the join. Check your teams before opening the invite again."
         case .alreadyMember: "You're already on this team."
         case .other: fallback
+        }
+    }
+}
+
+/// A lost accept response can mean that Stack already consumed the one-time invite.
+/// Only a successful read of that same code authorizes one more submission.
+@MainActor
+enum TeamInviteAcceptance {
+    static func run(accept: () async throws -> Void, checkUnused: () async throws -> Void) async throws {
+        do {
+            try await accept()
+            return
+        } catch {
+            guard TeamInviteFailure(error) == .offline else { throw error }
+        }
+        try Task.checkCancellation()
+        do {
+            try await checkUnused()
+        } catch {
+            try Task.checkCancellation()
+            throw TeamInviteFailure.joinUnconfirmed
+        }
+        try Task.checkCancellation()
+        do {
+            try await accept()
+        } catch {
+            try Task.checkCancellation()
+            if TeamInviteFailure(error) == .offline || TeamInviteFailure(error) == .expired {
+                throw TeamInviteFailure.joinUnconfirmed
+            }
+            throw error
         }
     }
 }

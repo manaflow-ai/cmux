@@ -19,7 +19,7 @@ import Testing
     @Test func messagesAndFallback() {
         #expect(TeamInviteFailure.expired.message(fallback: "x") == "This invite expired. Ask for a new one.")
         #expect(TeamInviteFailure.otherEmail.message(fallback: "x") == "This invite is for another email.")
-        #expect(TeamInviteFailure.offline.message(fallback: "x") == "You're offline. Try again when you're connected.")
+        #expect(TeamInviteFailure.offline.message(fallback: "x") == "Couldn't reach the invitation service.")
         #expect(TeamInviteFailure.alreadyMember.message(fallback: "x") == "You're already on this team.")
         #expect(TeamInviteFailure.other.message(fallback: "That invite link didn't work") == "That invite link didn't work")
     }
@@ -32,6 +32,37 @@ import Testing
         #expect(TeamInviteFailure(CmuxMobileAuthModel.InviteError.requestFailed) == .other)
         #endif
         #expect(TeamInviteFailure(TeamInviteFailure.expired) == .expired)
+    }
+
+    @Test func lostResponseResubmitsOnlyAStillUnusedCode() async throws {
+        var calls = [String]()
+        try await TeamInviteAcceptance.run {
+            calls.append("accept")
+            if calls.count == 1 { throw TeamInviteFailure.offline }
+        } checkUnused: { calls.append("check") }
+        #expect(calls == ["accept", "check", "accept"])
+    }
+
+    @Test func consumedCodeAfterLostResponsePreservesUncertainty() async {
+        var accepts = 0
+        await #expect(throws: TeamInviteFailure.joinUnconfirmed) {
+            try await TeamInviteAcceptance.run {
+                accepts += 1
+                throw TeamInviteFailure.offline
+            } checkUnused: { throw TeamInviteFailure.expired }
+        }
+        #expect(accepts == 1)
+    }
+
+    @Test func repeatedLostResponseStopsAfterSecondSubmission() async {
+        var accepts = 0
+        await #expect(throws: TeamInviteFailure.joinUnconfirmed) {
+            try await TeamInviteAcceptance.run {
+                accepts += 1
+                throw TeamInviteFailure.offline
+            } checkUnused: {}
+        }
+        #expect(accepts == 2)
     }
 
     // CmuxMobileAuthModel is iOS-only; `swift test` on macOS builds this suite without it.

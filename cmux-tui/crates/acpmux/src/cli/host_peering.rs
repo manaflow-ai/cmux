@@ -235,6 +235,7 @@ pub(crate) async fn peer_step(
         Some(p) if connected(p) && (!fix || !lend || lends_github(p)) => {
             result(Step::Peer, StepState::Ok, format!("{name} at {url}, connected"))
         }
+        // retry-prompt-ok: doctor is read-only unless --fix authorizes forcing a peer reconnect.
         Some(p) if !fix => fail(format!("{name} at {url} is not connected{}", last_error(p)))
             .with_fix("Check again with --fix to reconnect it."),
         // Enrolled again, after it was added without GitHub: added again with it, under its own

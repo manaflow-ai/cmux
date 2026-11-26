@@ -1105,7 +1105,7 @@ fn busy_frames(id: &str, retry_after_s: u64) -> [Value; 3] {
         "error": {
             "type": "overloaded_error",
             "code": "inference.gateway_busy",
-            "message": "the inference gateway is at its call limit; retry",
+            "message": "the inference gateway is at its call limit",
         },
     });
     let data = base64::engine::general_purpose::STANDARD.encode(body.to_string());
@@ -1127,7 +1127,7 @@ async fn send(tx: &mpsc::Sender<String>, frame: &Value) {
 /// A call the stopping gateway does not take. The machine gets it as a 502 and retries; by then the API holds it for
 /// the next gateway.
 fn restarting(id: &str) -> Value {
-    error_frame(id, "inference.gateway_restarting", "the inference gateway is restarting; retry")
+    error_frame(id, "inference.gateway_restarting", "the inference gateway is restarting")
 }
 
 fn error_frame(id: &str, code: &str, message: &str) -> Value {

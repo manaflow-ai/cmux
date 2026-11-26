@@ -50,6 +50,7 @@ struct MacRecoveryPanel: View {
                     .accessibilityIdentifier("mac.recovery.sign-in")
             } else if reach.action == .retry || attempt?.action == .retry, let retry {
                 // While a Retry runs the button keeps its word and spins; the steps above say how far it got.
+                // retry-prompt-ok: reaching or reopening a remote Mac is an explicit troubleshooting action.
                 PrimaryCapsule("Retry", systemImage: "arrow.clockwise", isLoading: attempt?.isRunning == true,
                                action: retry)
                     .padding(.top, 20)

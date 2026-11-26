@@ -776,7 +776,32 @@ impl<D: Daemon> Caller<D> {
             if let Some(endpoint) = endpoint {
                 self.attach(&endpoint);
                 match exchange(&endpoint, request) {
-                    Ok(result) => return Ok(result),
+                    Ok(result) => {
+                        // A Screen Recording grant is observed by a fresh
+                        // worker before capture starts. Replay that one
+                        // read-only call after the worker handoff, keeping
+                        // the same call id. Acting calls stay terminal because
+                        // the bridge cannot know whether their side effect
+                        // happened before a permission error was returned.
+                        let read_only = request["method"] == "tools/call"
+                            && request["name"]
+                                .as_str()
+                                .and_then(cmux_computer_use::tools::find)
+                                .is_some_and(|tool| !tool.acts());
+                        let restarting = read_only
+                            && ToolOutput::from_json(&result).is_some_and(|out| {
+                                out.code.as_deref() == Some("screen_capture_restarting")
+                            });
+                        if restarting {
+                            if let Ok(mut slot) = self.endpoint.lock() {
+                                *slot = None;
+                            }
+                            last = "the worker is restarting after Screen Recording was granted"
+                                .into();
+                        } else {
+                            return Ok(result);
+                        }
+                    }
                     Err(Attempt::Worker(message)) => {
                         return Err(Outcome::Failed { code: "worker_error".into(), message });
                     }

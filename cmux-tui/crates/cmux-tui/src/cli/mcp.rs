@@ -263,7 +263,7 @@ pub(super) trait Backend {
         Err(CallFailure::local(
             FailureKind::NotRun,
             "repo.unavailable",
-            "Connect to the Cloud machine and retry.",
+            "This backend does not provide Cloud repository actions.",
         ))
     }
 

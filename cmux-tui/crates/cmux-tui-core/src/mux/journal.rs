@@ -739,7 +739,7 @@ impl Mux {
                 self.clear_projected_agent_hook(ingress, origin, idempotency_key)
             {
                 self.report_internal_diagnostic(
-                    "agent hook projection applied; retry bookkeeping cleanup deferred",
+                    "agent hook projection applied; cleanup of retry bookkeeping deferred",
                 );
             }
             // After the clear of this row: ends the terminal's wait when no

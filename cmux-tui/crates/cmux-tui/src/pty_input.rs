@@ -1080,6 +1080,7 @@ fn process_event(
             reservation_id,
             label: if reject_known_exit { TERMINAL_EXITED_LABEL } else { event.label },
             error: if exhausted_ambiguous_release {
+                // retry-prompt-ok: release delivery is ambiguous, so detaching is a user choice before more input
                 format!(
                     "mouse release timed out after {REMOTE_RELEASE_MAX_ATTEMPTS} attempts; detach and reconnect before sending more input"
                 )
@@ -1119,6 +1120,7 @@ fn process_event(
             &mut state,
             session_generation,
             if exhausted_ambiguous_release {
+                // retry-prompt-ok: detaching abandons the ambiguous release and must be chosen before more input
                 "canceled after mouse release recovery timed out; detach and reconnect"
             } else {
                 "canceled after the remote transport failed"
@@ -1163,6 +1165,7 @@ fn process_event(
                 &mut state,
                 lane,
                 reservation_id.filter(|_| kind == Some(PtyInputKind::Press)),
+                // retry-prompt-ok: delivery is ambiguous, so reconnecting before replaying input is a user choice
                 "canceled after ambiguous surface delivery; detach and reconnect",
             ));
         }

@@ -29,7 +29,7 @@ import Testing
     }
 
     @Test func aFailedJoinSaysWhy() {
-        #expect(ShellModel.joinFailureText(URLError(.notConnectedToInternet)) == "You're offline. Try again when you're connected.")
+        #expect(ShellModel.joinFailureText(URLError(.notConnectedToInternet)) == "Couldn't reach the invitation service.")
         #expect(ShellModel.joinFailureText(URLError(.badServerResponse)) == "That invite link didn't work")
     }
 
@@ -40,7 +40,7 @@ import Testing
         #expect(ShellModel.sendInviteFailureText(rejected) == InviteEmail.invalidMessage)
         let refused = LiveAPI.Failure(status: 502, code: "invite_failed", message: "Stack refused")
         #expect(ShellModel.sendInviteFailureText(refused) == "Couldn't send the invitation")
-        #expect(ShellModel.sendInviteFailureText(URLError(.notConnectedToInternet)) == "You're offline. Try again when you're connected.")
+        #expect(ShellModel.sendInviteFailureText(URLError(.notConnectedToInternet)) == "Couldn't reach the invitation service.")
     }
 }
 #endif
