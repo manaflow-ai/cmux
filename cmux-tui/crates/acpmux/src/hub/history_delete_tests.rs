@@ -35,6 +35,20 @@ fn chat(store: &dyn crate::store::Store, id: &str, status: &str, updated_at: u64
     store.close_log(id);
 }
 
+/// Whether chat `id` is deleted: still there, hidden (archived) and tagged with when.
+fn is_deleted(hub: &Hub, id: &str) -> bool {
+    let meta = hub.resolve(id).unwrap().meta();
+    meta.tags.contains_key(DELETED_TAG) && meta.tags.contains_key("archived")
+}
+
+/// Moves chat `id`'s delete `days` back, as if its undo window had been running that long.
+fn deleted_days_ago(hub: &Hub, id: &str, days: u64) {
+    let session = hub.resolve(id).unwrap();
+    let mut set = serde_json::Map::new();
+    set.insert(DELETED_TAG.into(), json!((now_ms() - days * DAY).to_string()));
+    hub.set_tags(&session, Some(&set), &[], None);
+}
+
 fn open(root: &Path) -> Arc<Hub> {
     let mut cfg = Config::default();
     cfg.store.mode = StoreMode::Local;
@@ -66,17 +80,27 @@ async fn a_closed_chat_past_the_bound_is_deleted_and_one_inside_is_kept() {
     attached.attached.fetch_add(1, Ordering::SeqCst);
     let after = std::time::Duration::from_millis(30 * DAY);
     assert_eq!(hub.history_delete_pass_after(after).await, 1);
-    assert!(hub.resolve("old").is_err(), "the chat past the bound is gone");
-    assert!(!old_dir.exists(), "its folder is gone from disk");
+    assert!(is_deleted(&hub, "old"), "the chat past the bound is deleted");
+    assert!(old_dir.exists(), "its folder stays for the undo window");
     for kept in ["inside", "today", "open", "pinned", "attached"] {
-        assert!(hub.resolve(kept).is_ok(), "{kept} is kept");
+        assert!(!is_deleted(&hub, kept), "{kept} is kept");
         assert!(hub.store.session_path(kept).unwrap().exists(), "{kept}'s folder is kept");
     }
+    // Inside its undo window, a pass purges nothing.
+    assert_eq!(hub.history_delete_pass_after(after).await, 0);
+    assert!(old_dir.exists());
+    // Past it, the next pass purges it: folder and all.
+    deleted_days_ago(&hub, "old", UNDO_DAYS + 1);
+    let req = HistoryDeleteRequest { older_than_days: Some(30), ..Default::default() };
+    let report = hub.history_delete_now(req).await.unwrap();
+    assert_eq!(report["purged"], 1, "{report}");
+    assert!(hub.resolve("old").is_err(), "purged");
+    assert!(!old_dir.exists(), "its folder is gone from disk");
     // A client let go: the next pass deletes it.
     attached.attached.fetch_sub(1, Ordering::SeqCst);
     assert_eq!(hub.history_delete_pass_after(after).await, 1);
-    assert!(hub.resolve("attached").is_err());
-    assert!(hub.resolve("inside").is_ok());
+    assert!(is_deleted(&hub, "attached"));
+    assert!(!is_deleted(&hub, "inside"));
     hub.shutdown_all().await;
 }
 
@@ -99,7 +123,7 @@ async fn a_cold_archived_idle_chat_past_the_bound_is_deleted() {
     let req = HistoryDeleteRequest { older_than_days: Some(30), ..Default::default() };
     let report = hub.history_delete_now(req).await.unwrap();
     assert_eq!(report["deleted"], 1, "{report}");
-    assert!(hub.resolve("cold").is_err());
+    assert!(is_deleted(&hub, "cold"));
     hub.shutdown_all().await;
 }
 
@@ -108,6 +132,18 @@ fn the_setting_deletes_nothing_by_default() {
     assert_eq!(delete_after(&json!({})), None);
     assert_eq!(delete_after(&json!({"agents": {"chats": {"deleteHistoryAfterDays": 0}}})), None);
     assert_eq!(delete_after(&json!({"agents.chats.deleteHistoryAfterDays": "never"})), None);
+    assert_eq!(delete_after(&json!({"agents": {"chats": {"autoDelete": false}}})), None);
+    // The design's switch: on is 180 days unless its days say otherwise.
+    assert_eq!(
+        delete_after(&json!({"agents": {"chats": {"autoDelete": true}}})),
+        Some(std::time::Duration::from_secs(180 * 86_400))
+    );
+    assert_eq!(
+        delete_after(
+            &json!({"agents.chats.autoDelete": true, "agents.chats.autoDeleteAfterDays": 90})
+        ),
+        Some(std::time::Duration::from_secs(90 * 86_400))
+    );
     assert_eq!(
         delete_after(&json!({"agents": {"chats": {"deleteHistoryAfterDays": 30}}})),
         Some(std::time::Duration::from_secs(30 * 86_400))
@@ -133,7 +169,8 @@ async fn a_dry_run_previews_the_old_chats_and_deletes_nothing() {
         store.flush().unwrap();
     }
     let hub = open(&root.0);
-    let req = HistoryDeleteRequest { dry_run: true, older_than_days: Some(30), export: None };
+    let req =
+        HistoryDeleteRequest { dry_run: true, older_than_days: Some(30), ..Default::default() };
     let report = hub.history_delete_now(req).await.unwrap();
     assert_eq!(report["wouldDelete"], 1, "{report}");
     assert_eq!(report["chats"][0]["sessionId"], "old");
@@ -171,12 +208,13 @@ async fn an_export_copies_the_chat_before_it_goes_and_a_failed_one_keeps_it() {
         dry_run: false,
         older_than_days: Some(30),
         export: Some(export.clone()),
+        ..Default::default()
     };
     let report = hub.history_delete_now(req).await.unwrap();
     assert_eq!(report["deleted"], 1, "{report}");
     assert_eq!(report["skipped"]["export"], 1);
-    assert!(hub.resolve("old").is_err());
-    assert!(hub.resolve("blocked").is_ok(), "a chat whose export failed is kept");
+    assert!(is_deleted(&hub, "old"));
+    assert!(!is_deleted(&hub, "blocked"), "a chat whose export failed is kept");
     let copy = export.join("old");
     assert!(copy.join("session.json").is_file(), "the export holds its metadata");
     let saved: Value =
@@ -228,15 +266,75 @@ async fn a_chat_pinned_in_the_list_or_starred_is_never_deleted() {
     assert!(super::history_delete::kept_by_person(&sidebar.meta()));
     let after = std::time::Duration::from_millis(30 * DAY);
     assert_eq!(hub.history_delete_pass_after(after).await, 2);
-    assert!(hub.resolve("plain").is_err());
-    assert!(hub.resolve("star-expired").is_err(), "a star that expired keeps nothing");
+    assert!(is_deleted(&hub, "plain"));
+    assert!(is_deleted(&hub, "star-expired"), "a star that expired keeps nothing");
     for kept in ["sidebar", "starred"] {
-        assert!(hub.resolve(kept).is_ok(), "{kept} is kept");
-        assert!(hub.store.session_path(kept).unwrap().exists(), "{kept}'s folder is kept");
+        assert!(!is_deleted(&hub, kept), "{kept} is kept");
     }
     // Unpinned, it goes like any other.
     hub.set_pinned(&sidebar, false).unwrap();
     assert_eq!(hub.history_delete_pass_after(after).await, 1);
-    assert!(hub.resolve("sidebar").is_err());
+    assert!(is_deleted(&hub, "sidebar"));
+    // Pinned again inside its undo window, it is never purged.
+    hub.set_pinned(&sidebar, true).unwrap();
+    deleted_days_ago(&hub, "sidebar", UNDO_DAYS + 1);
+    let req = HistoryDeleteRequest { older_than_days: Some(30), ..Default::default() };
+    let report = hub.history_delete_now(req).await.unwrap();
+    assert_eq!(report["purged"], 0, "{report}");
+    assert!(hub.resolve("sidebar").is_ok());
+    hub.shutdown_all().await;
+}
+
+#[tokio::test]
+async fn a_deleted_chat_is_hidden_listed_and_restored_as_it_was() {
+    // Leo-Ask-Trace: ask-a4c6c940cc. The design's undo: "Tombstone: hidden from the list; local
+    // data and cloud copy kept for an undo window", restored through Recently deleted.
+    let root =
+        Root(std::env::temp_dir().join(format!("acpmux-history-undo-{}", uuid::Uuid::now_v7())));
+    let mut cfg = Config::default();
+    cfg.store.mode = StoreMode::Local;
+    let now = now_ms();
+    {
+        let store = crate::store::open(&cfg.store, &root.0).unwrap();
+        chat(&*store, "old", "closed", now - 40 * DAY, json!({}));
+        // Archived by its person before: a restore keeps that archive.
+        chat(&*store, "shelved", "closed", now - 40 * DAY, json!({"archived": {"value": "5"}}));
+        // Restored by an unarchive from a list instead.
+        chat(&*store, "unarchived", "closed", now - 40 * DAY, json!({}));
+        store.flush().unwrap();
+    }
+    let hub = open(&root.0);
+    let before = hub.resolve("old").unwrap().meta().last_seq;
+    let after = std::time::Duration::from_millis(30 * DAY);
+    assert_eq!(hub.history_delete_pass_after(after).await, 3);
+    let deleted = hub.history_deleted();
+    assert_eq!(deleted["undoDays"], UNDO_DAYS);
+    let rows = deleted["chats"].as_array().unwrap();
+    assert_eq!(rows.len(), 3, "{deleted}");
+    for row in rows {
+        assert_eq!(row["deletedBy"], "auto");
+        let at = row["deletedAt"].as_u64().unwrap();
+        assert_eq!(row["purgesAt"].as_u64().unwrap(), at + UNDO_DAYS * DAY);
+    }
+    // Restored: no delete, no archive the delete made, its log as it was.
+    let old = hub.resolve("old").unwrap();
+    assert!(hub.history_restore(&old).unwrap());
+    let meta = old.meta();
+    assert!(!meta.tags.contains_key(DELETED_TAG) && !meta.tags.contains_key(DELETED_BY_TAG));
+    assert!(!meta.tags.contains_key("archived"), "back in the lists");
+    assert!(meta.last_seq >= before, "nothing of its log went");
+    assert!(!hub.history_restore(&old).unwrap(), "a second restore changes nothing");
+    // The person's own archive stays.
+    let shelved = hub.resolve("shelved").unwrap();
+    assert!(hub.history_restore(&shelved).unwrap());
+    assert_eq!(shelved.meta().tags.get("archived").map(|t| t.value.as_str()), Some("5"));
+    // An unarchive from any list is a restore: never purged later.
+    let unarchived = hub.resolve("unarchived").unwrap();
+    assert!(hub.set_archived(&unarchived, false, false).unwrap());
+    assert!(!unarchived.meta().tags.contains_key(DELETED_TAG));
+    assert!(hub.history_deleted()["chats"].as_array().unwrap().is_empty());
+    // Restored chats start a new period: the next pass inside the bound deletes none.
+    // (Their tag writes moved `updatedAt` to now.)
+    assert_eq!(hub.history_delete_pass_after(after).await, 0);
     hub.shutdown_all().await;
 }

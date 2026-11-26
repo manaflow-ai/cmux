@@ -132,6 +132,27 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::HistoryDelete(args) if args.deleted || args.restore.is_some() => {
+            let client = connect(true).await?;
+            let params = match &args.restore {
+                Some(id) => json!({"restore": id}),
+                None => json!({"deleted": true}),
+            };
+            let v = client.request(method::MUX_HISTORY_DELETE, params).await?;
+            if json_out {
+                print_json(&v);
+            } else if args.restore.is_some() {
+                let id = v["sessionId"].as_str().unwrap_or("?");
+                if v["restored"].as_bool().unwrap_or(false) {
+                    println!("{id} restored");
+                } else {
+                    println!("{id} was not deleted: nothing to restore");
+                }
+            } else {
+                print_recently_deleted(&v);
+            }
+            Ok(())
+        }
         Command::HistoryDelete(args) => {
             let client = connect(true).await?;
             let export = args.export.map(std::path::absolute).transpose()?;
@@ -2122,6 +2143,22 @@ mod tests {
         assert!(line.contains("`acpmux session resume lane-a --open`"), "{line}");
         assert_eq!(not_resumed_line(&json!({"queue": []}), "lane-a"), "nothing is held");
         assert_eq!(not_resumed_line(&json!({"personHold": null}), "lane-a"), "nothing is held");
+    }
+}
+
+/// The text form of Recently deleted (`_acpmux/history_delete` `{deleted: true}`).
+fn print_recently_deleted(v: &Value) {
+    let chats = v["chats"].as_array().map(Vec::as_slice).unwrap_or_default();
+    println!("{} deleted chats can be restored for {} days:", chats.len(), v["undoDays"]);
+    let now = crate::store::now_ms();
+    for chat in chats {
+        let purges = chat["purgesAt"].as_u64().unwrap_or(0);
+        println!(
+            "  {}  purged in {}d  {}",
+            chat["sessionId"].as_str().unwrap_or("?"),
+            purges.saturating_sub(now).div_ceil(86_400_000),
+            chat["name"].as_str().unwrap_or(""),
+        );
     }
 }
 
