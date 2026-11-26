@@ -47,8 +47,8 @@ pub fn parse_url(text: &str) -> Option<Url<'_>> {
     };
     let end = after.find(['/', '?', '#']).unwrap_or(after.len());
     let (authority, tail) = after.split_at(end);
-    let (userinfo, hostport) = match authority.rfind('@') {
-        Some(at) => (Some(&authority[..at]), &authority[at + 1..]),
+    let (userinfo, hostport) = match authority.rsplit_once('@') {
+        Some((info, hostport)) => (Some(info), hostport),
         None => (None, authority),
     };
     let (user, password) = match userinfo {
@@ -59,12 +59,11 @@ pub fn parse_url(text: &str) -> Option<Url<'_>> {
         },
     };
     let host = if let Some(inner) = hostport.strip_prefix('[') {
-        let close = inner.find(']')?;
-        let port = &inner[close + 1..];
+        let (host, port) = inner.split_once(']')?;
         if !port.is_empty() && !port.starts_with(':') {
             return None;
         }
-        &inner[..close]
+        host
     } else {
         let host = hostport.split(':').next().unwrap_or("");
         if let Some((_, port)) = hostport.split_once(':')
@@ -80,24 +79,22 @@ pub fn parse_url(text: &str) -> Option<Url<'_>> {
 }
 
 fn percent_decode(text: &str) -> String {
-    let bytes = text.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            let hex = &bytes[i + 1..i + 3];
-            if let Some(v) = std::str::from_utf8(hex)
+    let mut out = Vec::with_capacity(text.len());
+    let mut rest = text.as_bytes();
+    while let Some((&first, tail)) = rest.split_first() {
+        if first == b'%'
+            && let Some((hex, after)) = tail.split_first_chunk::<2>()
+            && let Some(v) = std::str::from_utf8(hex)
                 .ok()
                 .filter(|h| h.bytes().all(|b| b.is_ascii_hexdigit()))
                 .and_then(|h| u8::from_str_radix(h, 16).ok())
-            {
-                out.push(v);
-                i += 3;
-                continue;
-            }
+        {
+            out.push(v);
+            rest = after;
+            continue;
         }
-        out.push(bytes[i]);
-        i += 1;
+        out.push(first);
+        rest = tail;
     }
     String::from_utf8_lossy(&out).into_owned()
 }
