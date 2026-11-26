@@ -237,7 +237,7 @@ select {
   padding: var(--grid-gap) var(--grid-gap);
   border: 1px solid var(--cloud-separator);
   border-left: 3px solid var(--cloud-text-2);
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   background: var(--cloud-elevated);
 }
 
@@ -290,7 +290,7 @@ select {
   align-items: center;
   gap: 9px;
   min-width: 0;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   cursor: default;
 }
 
@@ -416,7 +416,7 @@ select {
   display: flex;
   flex: 1 1 160px;
   max-width: 320px;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   background: color-mix(in srgb, var(--cloud-text-2) 18%, transparent);
 }
 
@@ -604,7 +604,7 @@ select {
 
 .cloud-input {
   padding: 3px 8px;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   border: 1px solid var(--cloud-separator);
   background: transparent;
   outline: none;
@@ -920,7 +920,7 @@ select {
   padding: 6px 8px;
   overflow: auto;
   border: 1px solid var(--cloud-separator);
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -1045,6 +1045,11 @@ select {
 .cloud-store-cta .cloud-button {
   padding: 6px 14px;
   font-weight: 600;
+}
+
+/* Beside Sign In: what it signs in to ("Signs in to cmux.com"). */
+.cloud-store-cta .ui-sign-in__backend {
+  align-self: center;
 }
 
 .cloud-store-art {
