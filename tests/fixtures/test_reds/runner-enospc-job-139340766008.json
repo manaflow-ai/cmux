@@ -1,0 +1,300 @@
+{
+  "id": 139340766008,
+  "run_id": 45649635922,
+  "workflow_name": "v1;sha=a7cf656c918754077355e43145890e2d55e10dfb;ref=lane/webview-reds-contrast;cache=r2;release=arm64;coverage=compile-only",
+  "head_branch": "lane/webview-reds-contrast",
+  "run_url": "https://api.github.com/repos/manaflow-ai/cmux/actions/runs/45649635922",
+  "run_attempt": 1,
+  "node_id": "CR_kwDORDHQWM8AAAAgcVtbOA",
+  "head_sha": "a7cf656c918754077355e43145890e2d55e10dfb",
+  "url": "https://api.github.com/repos/manaflow-ai/cmux/actions/jobs/139340766008",
+  "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/45649635922/job/139340766008",
+  "status": "completed",
+  "conclusion": "failure",
+  "created_at": "2026-11-25T16:19:27Z",
+  "started_at": "2026-11-25T16:19:29Z",
+  "completed_at": "2026-11-25T16:33:57Z",
+  "name": "web / react-apps-base-check",
+  "steps": [
+    {
+      "name": "Set up job",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 1,
+      "started_at": "2026-11-25T16:19:30Z",
+      "completed_at": "2026-11-25T16:19:33Z"
+    },
+    {
+      "name": "Set up runner",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 2,
+      "started_at": "2026-11-25T16:19:33Z",
+      "completed_at": "2026-11-25T16:19:35Z"
+    },
+    {
+      "name": "Checkout the merge commit",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 3,
+      "started_at": "2026-11-25T16:19:35Z",
+      "completed_at": "2026-11-25T16:21:09Z"
+    },
+    {
+      "name": "Download head webview results",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 4,
+      "started_at": "2026-11-25T16:21:09Z",
+      "completed_at": "2026-11-25T16:21:11Z"
+    },
+    {
+      "name": "Join the head shards' results",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 5,
+      "started_at": "2026-11-25T16:21:11Z",
+      "completed_at": "2026-11-25T16:21:11Z"
+    },
+    {
+      "name": "Download the early base results",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 6,
+      "started_at": "2026-11-25T16:21:11Z",
+      "completed_at": "2026-11-25T16:21:11Z"
+    },
+    {
+      "name": "Use the merge parent as the base",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 7,
+      "started_at": "2026-11-25T16:21:11Z",
+      "completed_at": "2026-11-25T16:21:12Z"
+    },
+    {
+      "name": "Restore the base's webview test history",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 8,
+      "started_at": "2026-11-25T16:21:12Z",
+      "completed_at": "2026-11-25T16:21:18Z"
+    },
+    {
+      "name": "Restore pinned Bun 1.4.4 from the CI cache bucket",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 9,
+      "started_at": "2026-11-25T16:21:18Z",
+      "completed_at": "2026-11-25T16:21:18Z"
+    },
+    {
+      "name": "Setup Bun",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 10,
+      "started_at": "2026-11-25T16:21:18Z",
+      "completed_at": "2026-11-25T16:21:18Z"
+    },
+    {
+      "name": "Use the base's bun",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 11,
+      "started_at": "2026-11-25T16:21:18Z",
+      "completed_at": "2026-11-25T16:21:18Z"
+    },
+    {
+      "name": "Cache Bun package cache",
+      "status": "completed",
+      "conclusion": "skipped",
+      "number": 12,
+      "started_at": "2026-11-25T16:21:18Z",
+      "completed_at": "2026-11-25T16:21:18Z"
+    },
+    {
+      "name": "Cache Bun package cache (restore only off feat-cmux-next)",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 13,
+      "started_at": "2026-11-25T16:21:18Z",
+      "completed_at": "2026-11-25T16:22:17Z"
+    },
+    {
+      "name": "Cache Playwright browsers",
+      "status": "completed",
+      "conclusion": "skipped",
+      "number": 14,
+      "started_at": "2026-11-25T16:22:17Z",
+      "completed_at": "2026-11-25T16:22:17Z"
+    },
+    {
+      "name": "Cache Playwright browsers (restore only off feat-cmux-next)",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 15,
+      "started_at": "2026-11-25T16:22:17Z",
+      "completed_at": "2026-11-25T16:22:29Z"
+    },
+    {
+      "name": "Restore pinned Node 24.22.1 from the CI cache bucket",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 16,
+      "started_at": "2026-11-25T16:22:29Z",
+      "completed_at": "2026-11-25T16:22:30Z"
+    },
+    {
+      "name": "Setup Node",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 17,
+      "started_at": "2026-11-25T16:22:30Z",
+      "completed_at": "2026-11-25T16:22:30Z"
+    },
+    {
+      "name": "Install webview dependencies",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 18,
+      "started_at": "2026-11-25T16:22:30Z",
+      "completed_at": "2026-11-25T16:22:32Z"
+    },
+    {
+      "name": "Build base web bundles",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 19,
+      "started_at": "2026-11-25T16:22:32Z",
+      "completed_at": "2026-11-25T16:26:00Z"
+    },
+    {
+      "name": "Install headless engines",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 20,
+      "started_at": "2026-11-25T16:26:00Z",
+      "completed_at": "2026-11-25T16:28:35Z"
+    },
+    {
+      "name": "Run base reds and compare",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 21,
+      "started_at": "2026-11-25T16:28:35Z",
+      "completed_at": "2026-11-25T16:33:07Z"
+    },
+    {
+      "name": "Share this base replay",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 22,
+      "started_at": "2026-11-25T16:33:07Z",
+      "completed_at": "2026-11-25T16:33:07Z"
+    },
+    {
+      "name": "Upload this base replay",
+      "status": "completed",
+      "conclusion": "skipped",
+      "number": 23,
+      "started_at": "2026-11-25T16:33:07Z",
+      "completed_at": "2026-11-25T16:33:07Z"
+    },
+    {
+      "name": "Check out the head again",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 24,
+      "started_at": "2026-11-25T16:33:07Z",
+      "completed_at": "2026-11-25T16:33:07Z"
+    },
+    {
+      "name": "Use the head's bun",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 25,
+      "started_at": "2026-11-25T16:33:07Z",
+      "completed_at": "2026-11-25T16:33:07Z"
+    },
+    {
+      "name": "Install head webview dependencies",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 26,
+      "started_at": "2026-11-25T16:33:07Z",
+      "completed_at": "2026-11-25T16:33:08Z"
+    },
+    {
+      "name": "Build head web bundles",
+      "status": "in_progress",
+      "conclusion": null,
+      "number": 27,
+      "started_at": "2026-11-25T16:33:08Z",
+      "completed_at": null
+    },
+    {
+      "name": "Install head headless engines",
+      "status": "pending",
+      "conclusion": null,
+      "number": 28,
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "name": "Re-run the change's reds alone on the head",
+      "status": "pending",
+      "conclusion": null,
+      "number": 29,
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "name": "Fail on the change's own reds",
+      "status": "pending",
+      "conclusion": null,
+      "number": 30,
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "name": "Post Setup Node",
+      "status": "pending",
+      "conclusion": null,
+      "number": 57,
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "name": "Post Setup Bun",
+      "status": "pending",
+      "conclusion": null,
+      "number": 58,
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "name": "Post Checkout the merge commit",
+      "status": "pending",
+      "conclusion": null,
+      "number": 59,
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "name": "Complete runner",
+      "status": "pending",
+      "conclusion": null,
+      "number": 60,
+      "started_at": null,
+      "completed_at": null
+    }
+  ],
+  "check_run_url": "https://api.github.com/repos/manaflow-ai/cmux/check-runs/139340766008",
+  "labels": [
+    "cmux-linux"
+  ],
+  "runner_id": 12017684,
+  "runner_name": "cmux-runner-pool-w1b-0056",
+  "runner_group_id": 31,
+  "runner_group_name": "cmux-fleet-linux"
+}
