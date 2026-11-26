@@ -28,6 +28,7 @@
 // the state alone and is hidden from assistive tech: the radios carry every answer.
 import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { cx } from "../../ui/cx";
+import { Button } from "../../ui/Button";
 import { Switch } from "../../ui/Switch";
 import { SlidingIndicator } from "../../ui/motion/SlidingIndicator";
 import type { ChatsRunIn, MakeItYoursBackground, MakeItYoursMaterial, MakeItYoursState, WorkStyle } from "./ops";
@@ -486,17 +487,17 @@ export function MakeItYoursStep({
         ))}
       </div>
       {folds && densities.length < choices.densities.length && (
-        <button
+        <Button
           type="button"
-          className="ui-button ui-btn onb-walk-more-button"
-          data-variant="ghost"
-          data-size="sm"
+          className="onb-walk-more-button"
+          variant="ghost"
+          size="sm"
           data-density-more=""
           aria-expanded={false}
           onClick={() => setOuterShown(true)}
         >
           {strings.t("onboarding.makeItYours.density.more")}
-        </button>
+        </Button>
       )}
     </Group>
   );
