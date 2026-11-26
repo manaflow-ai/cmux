@@ -264,6 +264,8 @@ final class CEFOffscreenPages {
         /// The latest resize-to-frame times, ms (each resize until its frame at the new size).
         var resizeToFrameMs: [Double] = []
         var beginFrames = 0
+        /// Sizes a page took while not drawing, kept from Chromium until it is shown (``CEFOffscreenPageView``).
+        var sizesDeferred = 0
     }
 
     /// Whether this process makes its pages off screen: the switch is on and the shim has the calls.
@@ -354,6 +356,10 @@ final class CEFOffscreenPages {
         stats.fencesReleased += 1
     }
 
+    func sizeDeferred() {
+        stats.sizesDeferred += 1
+    }
+
     func resizeReachedFrame(afterMs ms: Double) {
         stats.resizeToFrameMs.append(ms)
         if stats.resizeToFrameMs.count > 2_000 { stats.resizeToFrameMs.removeFirst(stats.resizeToFrameMs.count - 2_000) }
@@ -411,6 +417,7 @@ final class CEFOffscreenPages {
             "fences_released": Double(stats.fencesReleased),
             "resize_to_frame_samples": Double(sorted.count),
             "begin_frames_sent": Double(stats.beginFrames),
+            "sizes_deferred": Double(stats.sizesDeferred),
             "shim_frames": Double(shim[0]), "shim_letterboxed": Double(shim[1]), "shim_blit_us_total": Double(shim[2]),
             "shim_refreshes": Double(shim[3]), "shim_popup_frames": Double(shim[4]), "shim_blit_failures": Double(shim[5]),
             "shim_surfaces_made": Double(shim[6]), "shim_offscreen_browsers": Double(shim[7]),
@@ -524,7 +531,11 @@ final class CEFOffscreenPageView: NSView, InTreePageContainer, NSTextInputClient
     private var closed = false
 
     /// The size Chromium lays the page out at: whole points (GetViewRect).
-    private(set) var pageSize = CGSize(width: 1, height: 1)
+    private(set) var pageSize = CEFOffscreenPageView.unsized
+    private static let unsized = CGSize(width: 1, height: 1)
+    /// The size this page took while it was not drawing (a hidden tab, or out of its window): Chromium gets it when the
+    /// page is shown (``updateHidden()``).
+    private var deferredSize: CGSize?
     /// The pixel size of the last frame shown.
     private var shownPixels = CGSize.zero
     /// The pixel size a resize waits for, and when it began (`CEFOffscreenPages.awaitFrame`).
@@ -602,12 +613,29 @@ final class CEFOffscreenPageView: NSView, InTreePageContainer, NSTextInputClient
         if frame != fitted { frame = fitted }
     }
 
-    override func setFrameSize(_ newSize: NSSize) { // perf-hot: one WasResized per off-screen page per resize step
+    override func setFrameSize(_ newSize: NSSize) { // perf-hot: one WasResized per drawing off-screen page per resize step
         super.setFrameSize(newSize)
         let size = CGSize(width: max(1, newSize.width.rounded(.down)), height: max(1, newSize.height.rounded(.down)))
-        guard size != pageSize, !closed else { return }
+        guard !closed else { return }
+        // A page nobody sees keeps its size: it never paints, so a fence it joined held the window's commit to its
+        // deadline on every step of a window drag (other-Mac run osr-tr-base-2: 955 of 955 window fences expired with a
+        // hidden tab in each pane). Its first size still goes, so a page made in a hidden tab lays out at its pane's size.
+        if !isDrawing, pageSize != Self.unsized {
+            if size != (deferredSize ?? pageSize) { CEFRuntime.shared.offscreenPages.sizeDeferred() }
+            deferredSize = size == pageSize ? nil : size
+            return
+        }
+        deferredSize = nil
+        takeSize(size)
+    }
+
+    /// Chromium lays the page out at `size`; a drawing page then waits for its frame at that size, in this turn's window
+    /// fence (``CEFOffscreenPages/awaitFrame(_:)``).
+    private func takeSize(_ size: CGSize) {
+        guard size != pageSize else { return }
         pageSize = size
         calls.wasResized(browser)
+        guard isDrawing else { return }
         let pixels = CGSize(width: (size.width * backingScale).rounded(), height: (size.height * backingScale).rounded())
         guard pixels != shownPixels else { return }
         if awaitedPixels == nil { resizeStarted = CACurrentMediaTime() }
@@ -658,8 +686,24 @@ final class CEFOffscreenPageView: NSView, InTreePageContainer, NSTextInputClient
         let hidden = !isDrawing
         guard hidden != reportedHidden else { return }
         reportedHidden = hidden
+        if hidden { giveUpFences() }
         calls.wasHidden(browser, hidden ? 1 : 0)
-        if !hidden { calls.invalidate(browser) }
+        guard !hidden else { return }
+        if let size = deferredSize {
+            deferredSize = nil
+            takeSize(size)
+        }
+        calls.invalidate(browser)
+    }
+
+    /// Hidden while a resize waited for its frame: that frame will not come, so the fences it holds go now (as not
+    /// presented) instead of at their deadline.
+    private func giveUpFences() {
+        awaitedPixels = nil
+        guard !fenceHolds.isEmpty else { return }
+        let holds = fenceHolds
+        fenceHolds.removeAll()
+        for done in holds { done(false) }
     }
 
     /// A view point (DIP, top-left origin) in screen coordinates (Cocoa's, bottom-left origin), as cefclient's.
