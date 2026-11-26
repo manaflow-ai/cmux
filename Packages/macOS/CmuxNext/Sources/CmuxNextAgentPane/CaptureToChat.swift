@@ -29,25 +29,34 @@ public struct CaptureToChat: Sendable {
     /// The app the picture comes from: cmux took it, so its chip wears cmux's icon, as + > Attach
     /// Screenshot…'s does.
     let source: String?
+    /// Removes a capture that finished after its caller was cancelled.
+    let discard: @Sendable (URL) -> Void
+    private let gate = CaptureGate()
 
     init(take: @escaping @MainActor @Sendable (ScreenshotToChat.Pick) async -> ScreenshotToChat.Outcome,
          attach: @escaping @MainActor @Sendable ([URL], String?) -> Void,
-         session: @escaping @MainActor @Sendable (URL) -> String?, source: String?) {
+         session: @escaping @MainActor @Sendable (URL) -> String?, source: String?,
+         discard: @escaping @Sendable (URL) -> Void = { file in try? FileManager.checked.removeItem(at: file) }) {
         self.take = take
         self.attach = attach
         self.session = session
         self.source = source
+        self.discard = discard
     }
 
     /// The app's: the picture kept under Chat Uploads, handed to `attach` (the App's route into a
     /// chat) as cmux's own. The answer identifies the chat that received that file, when known.
     public init(route: AgentPaneExternalAttach, attach: @escaping @MainActor @Sendable ([URL], String?) -> Void) {
+        let folders = ChatUploadFolders.standard
         self.init(take: { pick in
-            guard let folders = ChatUploadFolders.standard else { return .failed("no Application Support folder") }
+            guard let folders else { return .failed("no Application Support folder") }
             return await ScreenshotToChat(folders: folders).take(pick)
         }, attach: attach, session: { [weak route] file in
             route?.session(for: file)
-        }, source: Bundle.main.bundleIdentifier)
+        }, source: Bundle.main.bundleIdentifier, discard: { file in
+            if let folders { folders.discardUpload(file: file) }
+            else { try? FileManager.checked.removeItem(at: file) }
+        })
     }
 
     /// Takes `pick` and, when a picture was taken, hands it to the route.
@@ -59,18 +68,33 @@ public struct CaptureToChat: Sendable {
     /// Takes, routes and records the destination in one main-actor turn. The session lookup follows
     /// `attach` synchronously, before this method's caller can interleave another route operation.
     @MainActor private func runAndReport(_ pick: ScreenshotToChat.Pick) async -> (ScreenshotToChat.Outcome, String?) {
+        guard await gate.begin() else { return (.cancelled, nil) }
         let outcome = await take(pick)
+        await gate.end()
         // A control deadline cancels the capture task. If the picker finished at the same time,
         // do not attach a late result after the socket has already answered timeout.
         guard !Task.isCancelled else {
             if case .taken(let file, _) = outcome {
-                await Task.detached(priority: .utility) { try? FileManager.checked.removeItem(at: file) }.value
+                let discard = self.discard
+                await Task.detached(priority: .utility) { discard(file) }.value
             }
             return (.cancelled, nil)
         }
         guard case .taken(let file, _) = outcome else { return (outcome, nil) }
         attach([file], source)
         return (outcome, session(file))
+    }
+
+    private actor CaptureGate {
+        private var active = false
+
+        func begin() -> Bool {
+            guard !active else { return false }
+            active = true
+            return true
+        }
+
+        func end() { active = false }
     }
 
     /// The action: the pick shows at once (macOS's own), and the attach follows it. A pick that could
