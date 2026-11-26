@@ -58,6 +58,9 @@ on:
       - "webviews/src/pages/shared/desktop.css"
       - "webviews/src/pages/shared/pageDensity.css"
       - "scripts/gallery-matrix/**"
+      - "!scripts/gallery-matrix/**/*.md"
+      - "!webviews/src/kit/**/*.md"
+      - "!webviews/src/ui/**/*.md"
       - ".github/workflows/gallery-advisory.yml"
   workflow_dispatch:
 

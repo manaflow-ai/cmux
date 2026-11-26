@@ -456,10 +456,12 @@ class Fallback(unittest.TestCase):
         self.assertEqual(self.plan(pull_request_event("synchronize", changed=1), ["docs/a.md"], None), [])
 
     def test_a_ci_label_on_a_docs_only_pull_request_calls_what_listens_for_it(self):
-        listens = sorted(n for n, c in self.calls.items() if "labeled" in c["types"])
-        self.assertEqual(listens, ["ci.yml"])
         for label in docs.LABEL_OPT_INS:
             for base in BASES:
+                listens = sorted(n for n, c in self.calls.items()
+                                 if "labeled" in c["types"]
+                                 and (c["branches"] is None or filters.admits("paths", c["branches"], base)))
+                self.assertIn("ci.yml", listens)
                 event = pull_request_event("labeled", base=base, label=label)
                 self.assertTrue(gate_runs(event), (label, base))
                 self.assertEqual(self.plan(event, ["docs/a.md"], None), listens, (label, base))
@@ -474,9 +476,11 @@ class Fallback(unittest.TestCase):
         files = PROSE + [CODE]
         event = pull_request_event("labeled", label="full-ci", changed=len(files))
         earlier = [{"path": ".github/workflows/ci.yml", "created": 0.0}]
-        self.assertEqual(self.plan(event, files, earlier, since=10_000.0), ["ci.yml"], "a run before the label")
+        listens = sorted(n for n, c in self.calls.items() if "labeled" in c["types"])
+        self.assertEqual(self.plan(event, files, earlier, since=10_000.0), listens, "a run before the label")
         this_event = [{"path": ".github/workflows/ci.yml", "created": 9_999.0}]
-        self.assertEqual(self.plan(event, files, this_event, since=10_000.0), [])
+        self.assertEqual(self.plan(event, files, this_event, since=10_000.0),
+                         [name for name in listens if name != "ci.yml"])
 
     def test_every_filtered_workflow_is_callable_and_called(self):
         fallback = load(Path(docs.FALLBACK).name)

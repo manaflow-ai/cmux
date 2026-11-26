@@ -39,6 +39,16 @@ EXEMPTIONS: dict[str, str] = {
 # patterns may appear on push without pull_request. Any other difference in the
 # workflow, including any path guarded only on pull requests, still fails.
 PUSH_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
+    "gallery-advisory.yml": (
+        "paths",
+        frozenset({
+            "bun.lock",
+            "scripts/ci/gallery_select.py",
+            "scripts/cmux-next/build-agent-pane-web.sh",
+            "webviews/**",
+        }),
+        "push receipts cover the whole webview tree; pull requests capture the component render inputs",
+    ),
     # A nightly repair must earn this commit's Release compile before promotion
     # carries it to nightly-next, so feat-cmux-next and main pushes also start
     # cmux-next.yml for the nightly release inputs (#21144).
@@ -82,6 +92,19 @@ PUSH_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
 # name -> (filter, pull-request-only patterns, why). The mirror allowance: only
 # these broad patterns may appear on pull requests without push.
 PULL_REQUEST_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
+    "gallery-advisory.yml": (
+        "paths",
+        frozenset({
+            "!scripts/gallery-matrix/**/*.md",
+            "!webviews/src/kit/**/*.md",
+            "!webviews/src/ui/**/*.md",
+            "webviews/src/kit/**",
+            "webviews/src/pages/shared/desktop.css",
+            "webviews/src/pages/shared/pageDensity.css",
+            "webviews/src/ui/**",
+        }),
+        "pull requests capture only render inputs; push receipts cover the whole webview tree",
+    ),
     # Empty since cmux-next.yml's push list took the rest of its pull_request list (#21504's product and CI
     # inputs): a pull request skips its checks job (scripts/ci/affected-jobs.json
     # pull_request_skip), so the push that lands it must start on every path the pull request does.
@@ -95,7 +118,7 @@ PULL_REQUEST_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
             "plans/cmux-next/feed/prototypes/webkit-duplicate/README.md", "plans/cmux-next/formal/README.md",
             "plans/cmux-next/helium-density/README.md", "plans/cmux-next/home-messaging-invites/REPORT.md",
             "plans/cmux-next/markdown-omnibar-DESIGN.md", "plans/cmux-next/sidebar-owner/README.md",
-            "plans/cmux-next/spec-proposals/visuals/README.md",
+            "plans/cmux-next/spec-proposals/visuals/README.md", "plans/cmux-next/status-notices/README.md",
         }),
         "a pull request of plan docs no Swift target names starts no run (tests/test_ci_docs_only_prs.py)",
     ),
