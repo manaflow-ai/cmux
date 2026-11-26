@@ -12,6 +12,8 @@ public struct TerminalCommentStrings {
     static var sent: String { text("terminalComments.sent", "Sent") }
     static var waiting: String { text("terminalComments.waiting", "Waiting for the agent's reply…") }
     static var resolve: String { text("terminalComments.resolve", "Resolve") }
+    static var show: String { text("terminalComments.show", "Show in Terminal") }
+    static var gone: String { text("terminalComments.gone", "That text is no longer in the terminal's scrollback.") }
     public static var notSent: String { text("terminalComments.notSent", "The comment was not sent to the chat.") }
 
     private static func text(_ key: StaticString, _ english: String.LocalizationValue) -> String {
