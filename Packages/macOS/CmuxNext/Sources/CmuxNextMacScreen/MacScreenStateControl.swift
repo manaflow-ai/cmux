@@ -143,7 +143,8 @@ extension MacScreenPages {
         row["connect_stage"] = .string(session.connectStage.name)
         row["timed_out_at"] = session.timedOutStage.map { .string($0.name) } ?? .null
         // Why it failed, in the words of the side that knew (the host's grant, display list or helper; this Mac's link).
-        row["failure"] = switch session.failureCause {
+        // The card's cause: the session's own, else the host's reason the hub carried (`failed: <reason>`).
+        row["failure"] = switch pane.model.failureCause {
         case let .host(reason)?: ["by": "host", "reason": .string(reason)]
         case let .link(reason)?: ["by": "link", "reason": .string(reason)]
         case nil: .null
