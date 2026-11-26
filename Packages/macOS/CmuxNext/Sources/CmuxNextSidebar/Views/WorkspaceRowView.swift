@@ -95,10 +95,6 @@ final class WorkspaceRowView: SidebarRowView {
     /// cluster, in the tertiary text color, beside the row's own icon and status (#56146: a grouped pinned row drew no
     /// pin at rest, so it read as unpinned).
     let pinMark = DecorativeImageView()
-    /// A runaway agent chat in the workspace (`SidebarWorkspace.usageWarnings`: no autocompact
-    /// cap, a huge context, a storm of subagents): a small warning triangle in the trailing
-    /// cluster, apart from the working spinner; its tooltip says each rule and the number.
-    let usageWarningMark = DecorativeImageView()
     /// The workspace's tabs play sound (or are muted): a small speaker in the
     /// trailing cluster, always shown while they do, crossed out while they
     /// are muted. A click mutes or unmutes them (`onToggleAudio`). Made when it first shows
@@ -227,10 +223,7 @@ final class WorkspaceRowView: SidebarRowView {
         pinMark.imageScaling = .scaleProportionallyDown
         pinMark.isHidden = true
         pinMark.setAccessibilityElement(false) // the row's label says Pinned
-        usageWarningMark.imageScaling = .scaleProportionallyDown
-        usageWarningMark.isHidden = true
-        usageWarningMark.setAccessibilityElement(false)
-        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, pinMark, mutedMark, usageWarningMark, badge, rowBadge, presenceDots, driveIndicator, tabCount, prBadge, placeholderBar, statusBlock,
+        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, pinMark, mutedMark, badge, rowBadge, presenceDots, driveIndicator, tabCount, prBadge, placeholderBar, statusBlock,
          treeLine, pullRequests, keycap, rollUp, subagentsView].forEach(addSubview)
         headFill.isHidden = true
         layer?.insertSublayer(headFill, at: 0)
@@ -424,10 +417,6 @@ final class WorkspaceRowView: SidebarRowView {
         pinMark.isHidden = pinMark.image == nil
         // The bell-slash alone does not say what is muted: notifications, not the tabs' sound. The row's hover card
         // and its accessibility label say it (a1315's cut 3: rows carry no tooltips).
-        // acpmux's own lines name the rule and the number ("90 subagents started in the last hour, above 40").
-        usageWarningMark.image = ws.usageWarnings.isEmpty || isShowingPlaceholder ? nil
-            : NSImage.icon(symbol: "exclamationmark.triangle.fill", size: .iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1))
-        usageWarningMark.isHidden = usageWarningMark.image == nil
         audio = isShowingPlaceholder ? nil : ws.audio
         if audio != nil { _ = audioSlot.control(in: self) }
         audioSlot.made.map(applyAudio)
