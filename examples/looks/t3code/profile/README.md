@@ -43,7 +43,7 @@ Shift-Command-F (find) are cmux's defaults already.
 
 ## Feature checklist
 
-61 features: 24 matched, 7 missing, 30 partial.
+61 features: 24 matched, 30 partial, 7 missing.
 
 | Feature | Status | How, or the gap |
 | --- | --- | --- |
@@ -111,7 +111,7 @@ Shift-Command-F (find) are cmux's defaults already.
 
 ## Motion checklist
 
-23 motions: 12 gap, 10 matched, 1 partial.
+23 motions: 10 matched, 1 partial, 12 gap.
 
 | Motion | The app | Status | How, or the gap |
 | --- | --- | --- | --- |
