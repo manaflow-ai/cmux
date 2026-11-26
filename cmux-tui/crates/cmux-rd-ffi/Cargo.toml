@@ -14,7 +14,9 @@ description = "C ABI of the cmux remote desktop viewer core: cmux.rd/1 bytes in,
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]
-cmux-rd-core = { path = "../cmux-rd-core" }
+# c-abi: the screen viewer core's C ABI (cmux-rd-core include/cmux_screen_kit.h)
+# rides in the app library for CmuxScreenKit.
+cmux-rd-core = { path = "../cmux-rd-core", features = ["c-abi"] }
 # `serde`: the app line reader reads the host's typed lines (app_line::AppLine).
 cmux-rd-proto = { path = "../cmux-rd-proto", features = ["serde"] }
 # The remote browser tab client reducer (REMOTE-TAB-R1 Q4: rb client reducers link here).
