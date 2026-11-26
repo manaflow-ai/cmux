@@ -19,7 +19,7 @@ use crate::text::{push_percent_byte, split_before};
 
 /// The parts of a parsed URL the resolver reads.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Parts<'a> {
+pub struct Parts<'a> {
     /// As written (not lowercased).
     pub scheme: &'a str,
     /// The host as written, brackets kept for an IP literal; `None` when the
