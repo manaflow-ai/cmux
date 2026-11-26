@@ -20,6 +20,9 @@
 //! - CPU: `ACPMUX_SESSION_CPU_WEIGHT` (default 50, systemd's is 100) and a ceiling
 //!   `ACPMUX_SESSION_CPU_QUOTA_PCT`, a percent of the whole machine (default 75: one session
 //!   never takes every core).
+//!   CPU classes (RFD 0182 B2), off unless `ACPMUX_SESSION_CPU_CLASSES=1`: the harness scope and
+//!   `acpmuxsessions.slice` at [`SESSION_CLASS_WEIGHT`] (400), background task and agent host
+//!   scopes at [`TASK_CLASS_WEIGHT`] (100), so a session's builds yield to its agent.
 //! - IO: `ACPMUX_SESSION_IO_WEIGHT` (default 50). It takes effect only where the user manager
 //!   has the `io` controller delegated (`Delegate=` on `user@.service`) and a block device runs a
 //!   weight policy (iocost `enable=1` in the root `io.cost.qos`, or the `bfq` scheduler); else
@@ -73,6 +76,32 @@ pub(crate) const MEMORY_FLOOR: u64 = 2 << 30;
 pub(crate) const CPU_QUOTA_PCT: u64 = 75;
 /// The default CPU and IO weights (systemd's own are 100).
 pub(crate) const CPU_WEIGHT: u64 = 50;
+/// CPU classes (cmuxterm-hq RFD 0182 B2, T7), off unless `ACPMUX_SESSION_CPU_CLASSES` is on: a
+/// session's harness scope (the agent and the turns a person waits on) and the sessions slice
+/// take [`SESSION_CLASS_WEIGHT`], a background task or agent host scope (the builds and tests a
+/// session starts with `bg_start`) takes [`TASK_CLASS_WEIGHT`]. Under contention 400:100 gives the
+/// sessions up to 80% of the CPU their builds fight them for (RFD 0175's overload: 53.2 cores of
+/// builds over 6.5 of sessions); idle, either takes the whole machine. A set
+/// `ACPMUX_SESSION_CPU_WEIGHT` still wins for both.
+pub(crate) const SESSION_CLASS_WEIGHT: u64 = 400;
+pub(crate) const TASK_CLASS_WEIGHT: u64 = 100;
+
+/// Whether CPU classes are on (`ACPMUX_SESSION_CPU_CLASSES` `1`, `on` or `true`); default off.
+pub(crate) fn cpu_classes_on(get: &dyn Fn(&str) -> Option<String>) -> bool {
+    get("ACPMUX_SESSION_CPU_CLASSES")
+        .is_some_and(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "on" | "true"))
+}
+
+/// The weight `class_weight` gives when classes are on and no weight is set; None otherwise.
+fn class_weight(get: &dyn Fn(&str) -> Option<String>, class_weight: u64) -> Option<u64> {
+    (cpu_classes_on(get) && get("ACPMUX_SESSION_CPU_WEIGHT").is_none()).then_some(class_weight)
+}
+
+/// The sessions slice's `CPUWeight` under CPU classes ([`SESSION_CLASS_WEIGHT`] against its
+/// siblings in the user manager at 100: builds and CI started outside any session); None off.
+pub(crate) fn sessions_slice_weight(get: &dyn Fn(&str) -> Option<String>) -> Option<u64> {
+    class_weight(get, SESSION_CLASS_WEIGHT)
+}
 pub(crate) const IO_WEIGHT: u64 = 50;
 /// The default ceiling of every agent host scope together, a percent of the RAM (the sessions
 /// slice's own default is 85%).
@@ -248,7 +277,10 @@ impl Budget {
         let high = knob("ACPMUX_SESSION_MEMORY_HIGH_MB").map_or(memory_max / 10 * 9, mb);
         let memory_high = if memory_max > 0 { high.min(memory_max) } else { high };
         let swap_max = knob("ACPMUX_SESSION_SWAP_MB").map_or(host.swap / 4, mb);
-        let cpu_weight = knob("ACPMUX_SESSION_CPU_WEIGHT").unwrap_or(CPU_WEIGHT).min(10_000);
+        let cpu_weight = knob("ACPMUX_SESSION_CPU_WEIGHT")
+            .or_else(|| class_weight(get, SESSION_CLASS_WEIGHT))
+            .unwrap_or(CPU_WEIGHT)
+            .min(10_000);
         let quota_pct = knob("ACPMUX_SESSION_CPU_QUOTA_PCT").unwrap_or(CPU_QUOTA_PCT).min(100);
         let cpu_quota = host.cores.saturating_mul(quota_pct);
         let io_weight = knob("ACPMUX_SESSION_IO_WEIGHT").unwrap_or(IO_WEIGHT).min(10_000);
@@ -467,6 +499,9 @@ pub(crate) fn task_budget() -> (Budget, Host) {
 /// [`task_budget`] from a knob reader.
 pub(crate) fn task_budget_from(get: &dyn Fn(&str) -> Option<String>, host: &Host) -> Budget {
     let mut budget = Budget::read(get, host);
+    if let Some(w) = class_weight(get, TASK_CLASS_WEIGHT) {
+        budget.cpu_weight = w;
+    }
     if host.swap == 0 && get("ACPMUX_SESSION_MEMORY_HIGH_MB").is_none() {
         budget.memory_high = 0;
     }
