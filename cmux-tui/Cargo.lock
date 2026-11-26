@@ -1718,6 +1718,7 @@ name = "cmux-cloud-config"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-cloud-environment",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -2477,7 +2478,10 @@ name = "cmux-mobile-core"
 version = "0.1.0"
 dependencies = [
  "cmux-cloud-wire",
+ "cmux-relay-snapshot",
  "cmux-terminal-sizing",
+ "p256",
+ "rand_core 0.6.4",
  "serde_json",
 ]
 
@@ -3364,6 +3368,7 @@ dependencies = [
  "cmux-signed-bundle",
  "cmux-stack-auth",
  "cmux-sync",
+ "cmux-tag-cache",
  "cmux-tailnet-join",
  "cmux-terminal-client",
  "cmux-theme-pack",
