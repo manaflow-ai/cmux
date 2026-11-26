@@ -173,19 +173,19 @@ The first table (FIELDS.md) has a reader for each. The list summary (e) also car
 
 ### AcpmuxActivity (row.items)
 
-| field                                                    | read by the chat view                                               | home          | source / builder                                                                                    |
-| -------------------------------------------------------- | ------------------------------------------------------------------- | ------------- | --------------------------------------------------------------------------------------------------- |
-| kind, tool.kind                                          | conversation/EditedFilesCard.tsx:77                                 | a             | `row.kind`, `body.kind` (v1.rs:290). Built; Claude's kind is 2c                                     |
-| text                                                     | conversation/TurnRows.tsx:219                                       | a             | `body.text` (v1.rs:309). Built                                                                      |
-| startedAt, endedAt, tool.startedAt, tool.endedAt         | ToolGroupRow.tsx:133, AgentCallCard.tsx:123-124                     | a             | in ms on tool rows. Built (decision 231)                                                            |
-| tool.id, tool.title, tool.status                         | TurnRows.tsx:223, ToolRunSteps.tsx:46, ToolRow.tsx:87               | a             | `body.callId` (mod.rs:1172), `title` (v1.rs:300), `status` (v1.rs:291). Built; Claude's title is 2c |
-| tool.inputSummary, command, description, inputPath       | ToolRow.tsx:149/137, SentMessageLine.tsx:438, artifactWrites.ts:50  | a (page-made) | from `body.input` (v1.rs:303; claude.rs:138). Built; `inputPath.canonical` is 2c                    |
-| tool.output, diffs, images                               | SubsessionCallCard.tsx:308, ToolGroupRow.tsx:505, videoFrames.ts:75 | a             | `body.content` (v1.rs:306; claude.rs:80), `body.text`, `row.blob`. Built                            |
-| tool.approved                                            | CommandRow.tsx                                                      | a             | `body.approved` on an open call, `approvedAfterSettle` on its durable patch                         |
-| tool.locations, exitCode, background, reaction           | turns.ts:2204, CommandRow.tsx:181/59/165/166                        | a             | 2c                                                                                                  |
-| tool.awaitingCall                                        | hiddenTools.ts:25                                                   | a             | Needs nothing: the call and its result are one row. (Correction to A0's c.)                         |
-| tool.provenance                                          | hiddenTools.ts:26                                                   | a             | `body.provenance` (v1.rs; claude.rs). Built                                                         |
-| tool.recipient                                           | MessageCard.tsx:46, SentMessageLine.tsx:517                         | a             | `body.recipient` (v1.rs:415, from `_meta.acpmux.recipient`, acpmux subagents.rs `recipient`). Built |
+| field                                              | read by the chat view                                               | home          | source / builder                                                                                    |
+| -------------------------------------------------- | ------------------------------------------------------------------- | ------------- | --------------------------------------------------------------------------------------------------- |
+| kind, tool.kind                                    | conversation/EditedFilesCard.tsx:77                                 | a             | `row.kind`, `body.kind` (v1.rs:290). Built; Claude's kind is 2c                                     |
+| text                                               | conversation/TurnRows.tsx:219                                       | a             | `body.text` (v1.rs:309). Built                                                                      |
+| startedAt, endedAt, tool.startedAt, tool.endedAt   | ToolGroupRow.tsx:133, AgentCallCard.tsx:123-124                     | a             | in ms on tool rows. Built (decision 231)                                                            |
+| tool.id, tool.title, tool.status                   | TurnRows.tsx:223, ToolRunSteps.tsx:46, ToolRow.tsx:87               | a             | `body.callId` (mod.rs:1172), `title` (v1.rs:300), `status` (v1.rs:291). Built; Claude's title is 2c |
+| tool.inputSummary, command, description, inputPath | ToolRow.tsx:149/137, SentMessageLine.tsx:438, artifactWrites.ts:50  | a (page-made) | from `body.input` (v1.rs:303; claude.rs:138). Built; `inputPath.canonical` is 2c                    |
+| tool.output, diffs, images                         | SubsessionCallCard.tsx:308, ToolGroupRow.tsx:505, videoFrames.ts:75 | a             | `body.content` (v1.rs:306; claude.rs:80), `body.text`, `row.blob`. Built                            |
+| tool.approved                                      | CommandRow.tsx                                                      | a             | `body.approved` on an open call, `approvedAfterSettle` on its durable patch                         |
+| tool.locations, exitCode, background, reaction     | turns.ts:2204, CommandRow.tsx:181/59/165/166                        | a             | 2c                                                                                                  |
+| tool.awaitingCall                                  | hiddenTools.ts:25                                                   | a             | Needs nothing: the call and its result are one row. (Correction to A0's c.)                         |
+| tool.provenance                                    | hiddenTools.ts:26                                                   | a             | `body.provenance` (v1.rs; claude.rs). Built                                                         |
+| tool.recipient                                     | MessageCard.tsx:46, SentMessageLine.tsx:517                         | a             | `body.recipient` (v1.rs:415, from `_meta.acpmux.recipient`, acpmux subagents.rs `recipient`). Built |
 
 ## Not yet
 
