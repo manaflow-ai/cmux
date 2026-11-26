@@ -162,9 +162,6 @@ fn pending_turn(session: &Session, prompt_id: &str) -> Option<(String, bool)> {
     })
 }
 
-/// How long a prompt under admission waits to read whether its chat's agent runs.
-const LIVE_CHECK_WITHIN: std::time::Duration = std::time::Duration::from_secs(2);
-
 /// How many recent first-run acceptances a session keeps for resends (`Session::accepted_prompts`).
 pub(super) const KEPT_ACCEPTS: usize = 512;
 

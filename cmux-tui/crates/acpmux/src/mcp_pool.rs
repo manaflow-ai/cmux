@@ -263,7 +263,7 @@ fn ensure_server(sh: &Arc<Shared>, st: &mut State, scope: &cmux_scope::Scope) ->
     let mut command = cmux_process::Command::new(&spec.command);
     command
         .args(&spec.args)
-        .envs(spec.env.iter().map(|(k, v)| (k, v)))
+        .envs(spec.env.iter())
         .stdin(cmux_process::Stdio::piped())
         .stdout(cmux_process::Stdio::piped())
         .stderr(cmux_process::Stdio::piped());

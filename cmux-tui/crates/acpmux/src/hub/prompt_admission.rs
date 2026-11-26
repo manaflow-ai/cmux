@@ -203,6 +203,7 @@ pub(super) struct Deferral {
 }
 
 /// How a prompt with no answer by its due time ends.
+#[allow(clippy::large_enum_variant)] // one per unanswered prompt, matched at once; boxing buys nothing
 pub(super) enum Unanswered {
     /// Queued durably; its run from the queue answers it.
     Defer(Deferral),
@@ -340,8 +341,7 @@ impl Hub {
                     .unwrap_or_else(|e| e.into_inner())
                     .push((row.prompt_id.clone(), row.turn_id.clone()));
                 outcome
-            })
-            .map_err(|refused| refused)?
+            })?
         };
         // The queue's own from now on, as `restore_queues` makes a prompt it read back: the
         // queue runs it, and a resend of its id waits on its ledger entry.

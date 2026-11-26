@@ -222,6 +222,7 @@ pub(super) mod aliases {
 }
 
 #[derive(Subcommand)]
+#[allow(clippy::large_enum_variant)] // parsed once per process and matched at once; boxing buys nothing
 pub enum Command {
     /// Run a task on several models in separate worktrees and compare the reviewer's winner.
     #[command(subcommand)]

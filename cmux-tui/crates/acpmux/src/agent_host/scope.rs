@@ -66,6 +66,7 @@ pub(crate) fn unified(cgroup: &str) -> Option<&str> {
 }
 
 /// Whether `cgroup` text places a process in the host scope `unit`.
+#[cfg(test)]
 pub(crate) fn names_scope(cgroup: &str, unit: &str) -> bool {
     names_scope_in(cgroup, HOST_SLICE, unit)
 }
@@ -84,6 +85,7 @@ pub(crate) fn names_scope_in(cgroup: &str, slice: &str, unit: &str) -> bool {
 /// reaches it, so a profile override applies to the session scope only. A host's scope holds its
 /// session's harness too when that harness got no scope of its own (no `systemd-run`, a remote
 /// profile), so a runaway stops there as it would in a session scope.
+#[cfg(test)]
 pub(crate) fn busctl_args(unit: &str, pid: u32, limits: &[[String; 3]]) -> Vec<String> {
     busctl_args_in(unit, pid, HOST_SLICE, limits)
 }

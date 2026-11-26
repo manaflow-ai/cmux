@@ -6,7 +6,9 @@ use acpmux_book::index::OriginState;
 use cmux_json::JsonSet as _;
 
 mod resolve;
-pub(super) use resolve::{names_remote, remote_closed, remote_segment};
+pub(super) use resolve::remote_closed;
+#[cfg(test)]
+pub(super) use resolve::{names_remote, remote_segment};
 #[cfg(test)]
 mod test_hooks;
 #[cfg(test)]
