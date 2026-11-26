@@ -114,7 +114,7 @@ public final class HomeChiefArchive {
             // archive may have shown the Chief again meanwhile.
             let request = ArchiveSyncRequest(hidden: hidden.contains(id) ? [id] : [], account: ArchiveAccount(account))
             guard let reply: ArchiveSyncReply = try? HomeRules.call("cloud.archive_sync", request) else { continue }
-            switch reply.sync[id] {
+            switch reply.sync[id] ?? "skip" {
             case "unhide": set(id, hidden: false)
             case "archive": _ = await cloudArchive(id, in: account)
             default: break
