@@ -39,6 +39,11 @@ enum PhoneRules {
     /// The tool's output as the JSON string Rust reads.
     static func text(_ output: Data) -> String { String(decoding: output, as: UTF8.self) }
 
+    /// `value` as a request field (its JSON object); null when it does not encode.
+    static func field<T: Encodable>(_ value: T) -> Any {
+        (try? JSONEncoder().encode(value)).flatMap { try? JSONSerialization.jsonObject(with: $0, options: .fragmentsAllowed) } ?? NSNull()
+    }
+
     private static func raw(_ op: String, _ fields: [String: Any]) -> Data? {
         var body = fields
         body["op"] = op
@@ -75,8 +80,8 @@ private extension Optional {
     }
 }
 
-/// A device as `cmux-phone-core` writes it (`os_version`, `state.kind`).
-struct PhoneDeviceReply: Decodable {
+/// A device as `cmux-phone-core` reads and writes it (`os_version`, `state.kind`).
+struct PhoneDeviceReply: Codable {
     let id: PhoneDeviceID
     let name: String
     let model: String
@@ -89,9 +94,24 @@ struct PhoneDeviceReply: Decodable {
         case osVersion = "os_version"
     }
 
-    struct State: Decodable {
+    struct State: Codable {
         let kind: String
         let reason: String?
+    }
+
+    init(_ device: PhoneDevice) {
+        id = device.id
+        name = device.name
+        model = device.model
+        osVersion = device.osVersion
+        transport = device.transport
+        state = switch device.state {
+        case .shutdown: State(kind: "shutdown", reason: nil)
+        case .booting: State(kind: "booting", reason: nil)
+        case .ready: State(kind: "ready", reason: nil)
+        case .disconnected: State(kind: "disconnected", reason: nil)
+        case .unavailable(let reason): State(kind: "unavailable", reason: reason)
+        }
     }
 
     var device: PhoneDevice {

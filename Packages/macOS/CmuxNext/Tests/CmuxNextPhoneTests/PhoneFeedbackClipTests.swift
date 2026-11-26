@@ -24,7 +24,7 @@ import Testing
         {"messageType":"Error","eventMessage":"payment request timed out","processImagePath":"/Applications/Shop.app/Shop"}
         {"messageType":"Fault","eventMessage":"layout loop","processImagePath":"/System/UIKitCore"}
         """
-        let clip = PhoneFeedbackClip(recording(), logTail: PhoneLogTail(ndjson: Data(log.utf8)))
+        let clip = PhoneFeedbackClip(recording(), log: Data(log.utf8))
         let text = clip.markdown
         #expect(text.contains("Test Phone (iPhone 18 Pro, iOS 27.0) · 0:42.3 · 3 inputs, 1 taps"))
         #expect(text.contains("Checkout spinner never stops."))

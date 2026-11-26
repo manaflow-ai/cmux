@@ -9104,7 +9104,7 @@ CmuxNextPhone	enum	PhoneAppearance	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources
 CmuxNextPhone	enum	PhoneError	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneBackend.swift	from protocol PhoneBackend:6: Phone backend protocol
 CmuxNextPhone	extension	PhoneBackend	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneBackend.swift	Phone backend protocol
 CmuxNextPhone	protocol	PhoneBackend	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneBackend.swift	Phone backend protocol
-CmuxNextPhone	struct	PhoneCapabilities	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneCapabilities.swift	Phone capabilities
+CmuxNextPhone	struct	PhoneCapabilities	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneCapabilities.swift	thin call into the Rust rules (cmux-phone-core, the app FFI phone op): passes the device mode, live input and Android flag and reads the answer; no rule in Swift
 CmuxNextPhone	extension	PhoneCommandRunning	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneCommandRunning.swift	from struct PhoneCommandResult:4: Command result
 CmuxNextPhone	protocol	PhoneCommandRunning	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneCommandRunning.swift	from struct PhoneCommandResult:4: Command result
 CmuxNextPhone	protocol	PhoneRunningCommand	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneCommandRunning.swift	from struct PhoneCommandResult:4: Command result
@@ -9113,26 +9113,26 @@ CmuxNextPhone	struct	PhoneDevice	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/C
 CmuxNextPhone	struct	PhoneDeviceID	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneDeviceID.swift	Phone device, id, state, element models
 CmuxNextPhone	enum	PhoneDeviceState	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneDeviceState.swift	Phone device, id, state, element models
 CmuxNextPhone	struct	PhoneElement	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneElement.swift	Phone device, id, state, element models
-CmuxNextPhone	struct	PhoneFeedbackClip	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneFeedbackClip.swift	Feedback clip packaging
+CmuxNextPhone	struct	PhoneFeedbackClip	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneFeedbackClip.swift	thin call into the Rust rules (cmux-phone-core, the app FFI phone op): passes the recording, its folder, the log and the localized strings and reads the answer; no rule in Swift
 CmuxNextPhone	protocol	PhoneFeedbackSink	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneFeedbackSink.swift	from protocol PhoneFeedbackSink:4: Feedback sink seam
-CmuxNextPhone	enum	PhoneButton	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneInput.swift	from struct PhonePoint:4: Phone point/input geometry
-CmuxNextPhone	enum	PhoneInput	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneInput.swift	from struct PhonePoint:4: Phone point/input geometry
+CmuxNextPhone	enum	PhoneButton	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneInput.swift	the button names cmux-phone-core reads: hand copy of its PhoneButton serde shape
+CmuxNextPhone	enum	PhoneInput	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneInput.swift	thin call into the Rust rules (cmux-phone-core, the app FFI phone op): passes the input and the device and reads the answer; no rule in Swift
 CmuxNextPhone	struct	PhonePoint	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneInput.swift	Phone point/input geometry
 CmuxNextPhone	struct	PhoneLogTail	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneLogTail.swift	thin call into the Rust rules (cmux-phone-core, the app FFI phone op): passes the log tail and reads the answer; no rule in Swift
 CmuxNextPhone	enum	PhoneMode	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneMode.swift	Phone mode enum
 CmuxNextPhone	class	PhoneProcess	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneProcess.swift	Child process wrapper
 CmuxNextPhone	struct	PhoneProcessRunner	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneProcessRunner.swift	xcrun process runner
-CmuxNextPhone	actor	PhoneRecorder	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneRecorder.swift	Phone recorder: video, log and input events
-CmuxNextPhone	extension	Double	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneRecorder.swift	from actor PhoneRecorder:7: Phone recorder: video, log and input events
-CmuxNextPhone	extension	CodingUserInfoKey	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneRecording.swift	from struct PhoneRecording:6: Recording model
-CmuxNextPhone	struct	PhoneRecording	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneRecording.swift	Recording model
-CmuxNextPhone	struct	PhoneRecordingEvent	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneRecordingEvent.swift	Recording event model
+CmuxNextPhone	actor	PhoneRecorder	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneRecorder.swift	thin call into the Rust rules (cmux-phone-core, the app FFI phone op): passes the recorder state, the plan and the stop time and reads the answer; no rule in Swift
+CmuxNextPhone	struct	PhoneRecording	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneRecording.swift	the Recording cmux-phone-core writes (manifest.json): hand copy of its serde shape plus this Mac's folder
+CmuxNextPhone	struct	PhoneRecordingEvent	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneRecordingEvent.swift	thin call into the Rust rules (cmux-phone-core, the app FFI phone op): passes the input and the time and reads the answer; no rule in Swift
+CmuxNextPhone	struct	PhoneRecorderWire	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneRecordingWire.swift	the recorder and recording JSON cmux-phone-core reads and writes (started_at, started_nanos): hand copy of its serde shape
+CmuxNextPhone	struct	PhoneRecordingWire	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneRecordingWire.swift	the recorder and recording JSON cmux-phone-core reads and writes (started_at, started_nanos): hand copy of its serde shape
 CmuxNextPhone	struct	PhoneRect	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneRect.swift	Phone rect
 CmuxNextPhone	enum	PhoneRotation	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneRotation.swift	Rotation enum
 CmuxNextPhone	enum	PhoneRules	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneRules.swift	FFI glue: builds the phone op request, calls cmux_layout_reducer_json, decodes the answer or its error; no rule
 CmuxNextPhone	extension	Optional	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneRules.swift	FFI glue: a missing answer field throws unreadable
 CmuxNextPhone	struct	PhoneDeviceReply	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneRules.swift	the device JSON cmux-phone-core writes (os_version, state.kind): hand copy of its Device serde shape
-CmuxNextPhone	class	PhoneService	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneService.swift	from class PhoneService:10: Phone service: device list and input log
+CmuxNextPhone	class	PhoneService	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneService.swift	thin call into the Rust rules (cmux-phone-core, the app FFI phone op): passes the device list, the touch, the input and the log line and reads the answer; no rule in Swift
 CmuxNextPhone	struct	PhoneStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneStrings.swift	Strings
 CmuxNextPhone	extension	PhoneTabView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneTabView+Layout.swift	Phone tab views
 CmuxNextPhone	class	PhoneTabView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/PhoneTabView.swift	from class PhoneTabView:10: Phone tab views
@@ -9147,7 +9147,8 @@ CmuxNextPhone	let	logger	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNext
 CmuxNextPhone	struct	SurfaceFrameFeed	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/CloudDesktopSurfaceServer.swift	CVPixelBuffer frame callback seam
 CmuxNextPhone	class	CloudDesktopSurfaceSources	0	MIXED	85	15	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/CloudDesktopSurfaceSources.swift	tab-key parse (copies hostd cloud_desktop_of), refusal codes, per-tab sources, liveness watch LOGIC; refusal codes and tab key repeat hostd MIRROR (#31795); F14
 CmuxNextPhone	let	logger	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/CloudDesktopSurfaceSources.swift	os.Logger
-CmuxNextPhoneAccess	class	CloudHostReplicaFollower	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhoneAccess/CloudHostReplicaFollower.swift	from class CloudHostReplicaFollower:21: follows settings, reconciles wanted cloud host replica state per daemon/account
+CmuxNextPhoneAccess	class	CloudHostReplicaFollower	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhoneAccess/CloudHostReplicaFollower.swift	thin call into the Rust rules (cmux-phone-core, the app FFI phone op): passes the want, the defaults marks, the daemon status and the token and reads the answer; no rule in Swift
+CmuxNextPhoneAccess	enum	ReplicaRules	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhoneAccess/ReplicaRules.swift	FFI glue: builds the phone op replica_* request, calls cmux_layout_reducer_json, decodes the answer; no rule
 CmuxNextPhoneAccess	struct	PhoneAccessLeftovers	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPhoneAccess/PhoneAccessLeftovers.swift	UserDefaults cleanup of the removed Phone Access listener's flag, platform plumbing
 CmuxNextPopups	class	BrowserPopupWindow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextPopups/BrowserPopupWindow.swift	NSWindow for browser popup
 CmuxNextPopups	enum	BrowserPopupWindowGeometry	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPopups/BrowserPopupWindowGeometry.swift	popup window size rules (Chrome AdjustToFit)
