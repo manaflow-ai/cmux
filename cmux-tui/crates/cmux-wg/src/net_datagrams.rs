@@ -35,6 +35,8 @@ pub struct DatagramDrops {
     pub media_full: u64,
     /// Interactive datagrams refused by a full queue.
     pub interactive_full: u64,
+    /// Screen-state datagrams refused by a full queue.
+    pub screen_full: u64,
     /// Bulk datagrams refused by a full queue.
     pub bulk_full: u64,
     /// Received datagrams dropped because the bound socket's reader fell behind.
@@ -138,6 +140,7 @@ impl WgNet {
             media_stale: load(&self.drops.media_stale),
             media_full: load(&self.drops.media_full),
             interactive_full: load(&self.drops.interactive_full),
+            screen_full: load(&self.drops.screen_full),
             bulk_full: load(&self.drops.bulk_full),
             inbox_full: load(&self.drops.inbox_full),
         }

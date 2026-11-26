@@ -94,6 +94,7 @@ pub fn open(cfg: &SessionCfg) -> Res<Halves> {
         preset: &cfg.preset,
         profile: &cfg.profile,
         openh264_lib: cfg.openh264_lib.as_deref(),
+        sharp_text: cfg.sharp_text,
     })?;
     let desktop = X11Desktop {
         injector: Injector::new(&cfg.display)?,
@@ -266,6 +267,10 @@ impl FrameSource for X11Frames {
 
     fn encoder_name(&self) -> String {
         self.enc.name()
+    }
+
+    fn constrained_baseline(&self) -> bool {
+        self.enc.constrained_baseline()
     }
 
     fn idr_cause(&self) -> Option<&'static str> {

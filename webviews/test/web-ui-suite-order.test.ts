@@ -1,7 +1,15 @@
 // The web UI perf harness lists rows slowest first relative to their target (bench/web-ui-suite.ts); a row whose
 // target is 0 (a layout shift or an idle wakeup count, bench/stability.ts) is over it whenever it is above 0.
 import { describe, expect, test } from "bun:test";
-import { BENCHES, failureTail, overTarget, slowestFirst, SUITE_CAP_MS } from "../bench/web-ui-suite";
+import {
+  BENCHES,
+  failureTail,
+  overTarget,
+  SHARED_BUILDS_CAP_MS,
+  sharedEnv,
+  slowestFirst,
+  SUITE_CAP_MS,
+} from "../bench/web-ui-suite";
 import { PERF_ROW_MARK } from "../bench/perfRow";
 import path from "node:path";
 
@@ -56,7 +64,38 @@ describe("web-ui-suite failureTail", () => {
 describe("web-ui-suite timeouts", () => {
   test("the benches the suite runs by default fit perf-cron.py's cap on it", () => {
     const sum = BENCHES.filter((bench) => !bench.ownPart).reduce((total, bench) => total + bench.timeoutMs, 0);
-    expect(sum).toBeLessThanOrEqual(SUITE_CAP_MS);
+    expect(sum + SHARED_BUILDS_CAP_MS).toBeLessThanOrEqual(SUITE_CAP_MS);
+  });
+});
+
+// Each browser bench built its page cold inside its own timeout, and on a small Linux pool runner the builds ate the
+// timeouts: seven benches killed with exit 137 and no row stored (perf cron run 45457645242).
+describe("web-ui-suite shared builds", () => {
+  test("every bench that builds the agent pane, the fling page or the gallery takes the suite's build", () => {
+    const named = (build: string) =>
+      BENCHES.filter((bench) => bench.builds?.includes(build as never))
+        .map((bench) => bench.name)
+        .sort();
+    expect(named("pane")).toEqual([
+      "chat-open",
+      "chat-switch",
+      "thread-rail-jump",
+      "tool-call-burst",
+      "transcript-replay",
+      "transcript-turn-end-shift",
+    ]);
+    expect(named("page:/test/browser/transcript-fling.html")).toEqual(["transcript-scroll-frame"]);
+    expect(named("gallery")).toEqual(["ui-stability"]);
+  });
+
+  test("a bench is handed only the finished builds it names", () => {
+    const bench = BENCHES.find((each) => each.name === "transcript-scroll-frame")!;
+    const pane = BENCHES.find((each) => each.name === "chat-open")!;
+    const dirs = new Map([["pane", "/tmp/pane"]] as const);
+    expect(sharedEnv(pane, { dirs })).toEqual({ CMUX_BENCH_PANE_DIR: "/tmp/pane" });
+    expect(sharedEnv(bench, { dirs })).toEqual({});
+    const withPage = new Map<never, string>([["page:/test/browser/transcript-fling.html" as never, "/tmp/p/x"]]);
+    expect(sharedEnv(bench, { dirs: withPage, pagesDir: "/tmp/p" })).toEqual({ CMUX_BENCH_PAGES_DIR: "/tmp/p" });
   });
 });
 
@@ -72,5 +111,14 @@ describe("web-ui-suite --timeout-s", () => {
       expect(got.exitCode).toBe(2);
       expect(got.stderr.toString()).toContain("--timeout-s");
     }
+  });
+
+  test("a valid one replaces the bench's own timeout and names itself when it fires", () => {
+    // edit-turns-stream's own timeout is 30 s; 0.01 s kills it before Bun has started it.
+    const suite = path.join(import.meta.dir, "..", "bench", "web-ui-suite.ts");
+    const got = Bun.spawnSync(["bun", suite, "--only", "edit-turns-stream", "--timeout-s", "0.01"], {
+      cwd: path.join(import.meta.dir, ".."),
+    });
+    expect(got.stdout.toString()).toContain("edit-turns-stream FAILED (timed out after 0.01 s)");
   });
 });

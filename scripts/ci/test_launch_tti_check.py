@@ -82,6 +82,19 @@ class FreshCopy(unittest.TestCase):
         self.assertFalse(self.app.exists())
 
 
+class FirstKeyReading(unittest.TestCase):
+    """hq#22681: a terminal round that took no key names what the app's key hold read of the probe's key."""
+
+    def test_a_lost_key_names_the_holds_reading(self):
+        marks = {M.PROBE_TYPED: 1032.5, "terminal.first_key.terminal_not_live_terminal": 1032.9}
+        out = M.round_failures("terminal", "in_app", {"input_ms": None}, marks, 30)
+        self.assertEqual(out, ["the terminal took no key within 30 s (in_app); its key hold read terminal_not_live_terminal"])
+
+    def test_without_the_mark_the_failure_reads_as_before(self):
+        out = M.round_failures("terminal", "in_app", {"input_ms": None}, {M.PROBE_TYPED: 1032.5}, 30)
+        self.assertEqual(out, ["the terminal took no key within 30 s (in_app)"])
+
+
 class UpdaterOff(unittest.TestCase):
     """Every copy the check starts (the cold_install round's fresh copy of an older build included) has the app's
     updater off: on 2026-11-22 a cold_install copy saw a newer build, downloaded it, and Sparkle's installer asked
@@ -94,6 +107,23 @@ class UpdaterOff(unittest.TestCase):
         env = smoke.fresh_env(root, root / "s.sock", 3)
         for path in ("in_app", "posted"):
             self.assertEqual(M.launch_env(env, root / "probe.csv", path)["CMUX_DISABLE_AUTO_UPDATE"], "1")
+
+
+class NewProcessFound(unittest.TestCase):
+    """`open` starts the copy at its resolved path: a copy under /tmp runs as /private/tmp/... in ps, and a match on the
+    path as given alone found no new process on every `open` round (nightly dogfood launch tti, 2026-11-26)."""
+
+    def test_a_process_at_the_resolved_path_counts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            real = Path(tmp) / "real"
+            (real / "cmux NIGHTLY.app" / "Contents" / "MacOS").mkdir(parents=True)
+            link = Path(tmp) / "link"
+            link.symlink_to(real)
+            executable = link / "cmux NIGHTLY.app" / "Contents" / "MacOS" / "cmux"
+            resolved = os.path.realpath(executable)
+            self.assertNotEqual(resolved, str(executable))
+            ps = f"  101 {resolved}\n  102 /Applications/Other.app/Contents/MacOS/cmux\n  103 {executable}\n"
+            self.assertEqual(M.pids_running(ps, M.executable_paths(executable)), {101, 103})
 
 
 if __name__ == "__main__":

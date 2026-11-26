@@ -28,6 +28,10 @@ Environment=ACPMUX_BIN=/opt/cmux/current/bin/acpmux
 # itself not dumpable, so its /proc/PID/exe is hidden and acpmux_peer.rs admits only a daemon this host started.
 Environment=ACPMUX_HOME=/home/cmux/.cmux/chief/acpmux
 EnvironmentFile=-/etc/cmux/chief.env
+# The owner's Claude credential for the Chief's turns (OPTCHAT_CHIEF_TURN_CREDENTIALS=1 and one token), root's
+# 0600 file on tmpfs that machine.chief_start writes (cmux-cloud-api chief_turn.rs); absent: nothing changes.
+# Keep this line and fallback_unit's (chief_machine.rs) the same.
+EnvironmentFile=-/run/cmux-chief/turn.env
 # First start on a machine whose image carries no build yet: fetch the newest one (root, the `+`).
 ExecStartPre=+/usr/local/sbin/cmux-chief-update --if-missing
 ExecStart=/usr/local/lib/cmux-chief/cmux-chief-host

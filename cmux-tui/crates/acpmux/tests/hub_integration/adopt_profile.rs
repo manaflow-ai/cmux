@@ -160,10 +160,26 @@ async fn an_adopt_nobody_proved_the_person_asked_for_starts_claude_without_sugge
     }
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
-    // What each adopt's start asked Claude Code for: its own initialize lines.
-    let asked = |log: &std::path::Path, seen: usize| -> Vec<String> {
-        let all = std::fs::read_to_string(log).unwrap_or_default();
-        all.lines().skip(seen).map(|l| l.rsplit(' ').next().unwrap().to_owned()).collect()
+    // What each adopt's start asked Claude Code for: its own initialize lines. The adopt answers
+    // once its start wrote Claude Code's initialize, which Claude Code reads (and the fake logs)
+    // after that: wait up to 10 s for the line.
+    let asked = |log: &std::path::Path, seen: usize| {
+        let log = log.to_owned();
+        async move {
+            let deadline = std::time::Instant::now() + Duration::from_secs(10);
+            loop {
+                let all = std::fs::read_to_string(&log).unwrap_or_default();
+                let lines: Vec<String> = all
+                    .lines()
+                    .skip(seen)
+                    .map(|l| l.rsplit(' ').next().unwrap().to_owned())
+                    .collect();
+                if !lines.is_empty() || std::time::Instant::now() > deadline {
+                    return lines;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        }
     };
     let transcript = |chat: &str| {
         let path = config_dir.join(format!("projects/p/{chat}.jsonl"));
@@ -179,7 +195,7 @@ async fn an_adopt_nobody_proved_the_person_asked_for_starts_claude_without_sugge
     let mut lane = connect(&hub, &config_dir).await;
     let s = lane.request(method::SESSION_NEW, adopt("claude", &lane_chat, &project)).await.unwrap();
     assert!(hub.resolve(s["sessionId"].as_str().unwrap()).unwrap().meta().created_by.is_none());
-    let lane_asked = asked(&log, 0);
+    let lane_asked = asked(&log, 0).await;
 
     // The person's app.
     let person_chat = uuid::Uuid::new_v4().to_string();
@@ -195,7 +211,7 @@ async fn an_adopt_nobody_proved_the_person_asked_for_starts_claude_without_sugge
     let init = json!({"protocolVersion": 1, "clientInfo": {"name": "test"}});
     app.request(method::INITIALIZE, init).await.unwrap();
     app.request(method::SESSION_NEW, adopt("claude", &person_chat, &project)).await.unwrap();
-    let person_asked = asked(&log, lane_asked.len());
+    let person_asked = asked(&log, lane_asked.len()).await;
 
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(root);

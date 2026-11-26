@@ -33,6 +33,28 @@
 //! - `{"id", "cmd": "projection.drop", "name"}`: the same with no mark (a Mac from before
 //!   `projection.brought_back`); `{"id", "ok": true, "data": {"dropped"}}`.
 //!
+//! Pinned folders (`cmux_projection::overlay::pin`, "available offline"), by projection `name`,
+//! mounted here, each one request and its answer:
+//! - `{"id", "cmd": "projection.pin", "name", "path"}`: `path` (relative to the projected folder,
+//!   `""` for all of it) is recorded and every file under it fetched onto this machine's disk
+//!   before the answer, `{"id", "ok": true, "data": {"path", "files", "bytes", "fetched_bytes",
+//!   "failed", "first_error", "away", "pinned_bytes", "pins"}}`. With the Mac away the pin still
+//!   holds (`"away": true`) and the next mount finishes it. A pin the disk cannot hold is refused
+//!   first, `projection.no_space`; a path the folder lacks, `projection.not_found`;
+//! - `{"id", "cmd": "projection.unpin", "name", "path"}`: its bytes go back to the cache, which
+//!   may evict them: `{"path", "unpinned": true, "pinned_bytes", "pins"}`;
+//! - `{"id", "cmd": "projection.pins", "name"}`: `{"pinned_bytes", "pins"}`.
+//! - `{"id", "cmd": "projection.warm", "name", "paths"}`: the files at or under `paths` (in order,
+//!   at most [`WARM_MAX_FILES`] files and [`WARM_MAX_BYTES`] bytes) fetched into the cache like a
+//!   read's, before the answer: nothing pinned, recorded or shown in `pins`. The Mac sends its
+//!   predicted hot set (instruction files, its changed and newest files) once the folder is
+//!   mounted, so the agent's first reads find their bytes here. `{"files", "bytes",
+//!   "fetched_bytes", "failed", "first_error", "away"}`. A daemon older than this answers it
+//!   unknown, and the Mac lets it go.
+//!
+//! `pins` is one `{"path", "files", "bytes", "local_bytes", "present", "complete"}` per pin, and
+//! `pinned_bytes` the bytes kept on disk for them; a mount's answer carries both too.
+//!
 //! When a chat is archived or deleted, `{"id", "cmd": "projection.release", "name", "why":
 //! "archived" | "deleted"}` ends its projection, deletes its state and its empty mount point:
 //! `{"freed_bytes", "dropped": true}`. The reaper ([`start_reaper`]) frees the rest on its own,
@@ -61,6 +83,15 @@
 //! A dial whose line says `"lines": true` sends every byte after that line, and gets every byte
 //! after its answer, as text lines instead ([`LineReader`], [`LineWriter`]): the Cloud carrier
 //! carries a dial as a `mux-control` stream, which moves whole lines only.
+//!
+//! Wire 2 (RFD 0065, "Projection answers compressed and binary"; negotiated on the dial, no
+//! capability): a `projection.serve` line with `"wire": 2` says the Mac reads binary lines and
+//! packed answers. This daemon then answers with `"wire": 2` in its data, writes binary lines
+//! ([`LineWriter::binary`]: the raw bytes with only a newline and the escape byte escaped, not
+//! base64's +33%), and takes the Mac's packed answers (`cmux_projection::wire::OK_ZSTD`, zstd
+//! level 3 per file where it shrinks). The Mac packs and writes binary only once the answer says
+//! `"wire": 2`, so with either side older than this the dial keeps base64 lines and plain
+//! answers. A [`LineReader`] takes either kind of line.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -79,6 +110,9 @@ use serde_json::{Value, json};
 pub const PROJECTION_CAPABILITY: &str = "projection-v1";
 /// The capability that carries `"head"` and `"extend"` on `projection.serve`.
 pub const PROJECTION_EXTEND_CAPABILITY: &str = "projection-extend-v1";
+/// The wire version a `projection.serve` line and its answer name for binary lines and packed
+/// answers (module docs).
+pub const WIRE: u32 = 2;
 /// The one op: a dial that serves a projection.
 pub const SERVE: &str = "projection.serve";
 /// Bring Back's dials (module docs).
@@ -89,6 +123,16 @@ pub const DROP: &str = "projection.drop";
 pub const BROUGHT_BACK: &str = "projection.brought_back";
 /// The chat is archived or deleted: free its projection.
 pub const RELEASE: &str = "projection.release";
+/// Pinned folders' dials (module docs).
+pub const PIN: &str = "projection.pin";
+pub const UNPIN: &str = "projection.unpin";
+pub const PINS: &str = "projection.pins";
+/// The Mac's predicted hot set, fetched into the cache (module docs).
+pub const WARM: &str = "projection.warm";
+/// The most files one [`WARM`] fetches.
+pub const WARM_MAX_FILES: usize = 256;
+/// The most bytes one [`WARM`] fetches.
+pub const WARM_MAX_BYTES: u64 = 32 * 1024 * 1024;
 /// How long after the daemon starts the first reaper pass runs (acpmux starts beside it).
 const REAP_FIRST_AFTER: std::time::Duration = std::time::Duration::from_secs(60);
 /// How often the reaper runs.
@@ -110,6 +154,9 @@ struct ServeLine {
     /// The bytes after this line, both ways, travel as [`LineWriter`] lines.
     #[serde(default)]
     lines: bool,
+    /// [`WIRE`] or more: the Mac reads binary lines and packed answers (module docs).
+    #[serde(default)]
+    wire: u32,
     /// With no manifest bytes and no mount of this name: the stored revision to mount instead
     /// (RFD 0007, open question 3). The Mac sends this on a resume, so the listing comes from the
     /// store and not over its uplink.
@@ -122,6 +169,10 @@ struct ServeLine {
     /// `projection-extend-v1`: the manifest is the whole folder's, for the mount of `name`.
     #[serde(default)]
     extend: bool,
+    /// The folder on the Mac this projects, as that Mac names it. The mount table carries it
+    /// ([`fsname_for`]), so the agent's `this_folder` tool can say which Mac folder it mirrors.
+    #[serde(default)]
+    from: Option<String>,
 }
 
 /// A revision in the person's store, and the read grant to fetch it with.
@@ -160,19 +211,30 @@ fn fetch_revision(revision: &RevisionRef) -> Result<cmux_projection::manifest::M
 /// The first byte of every [`LineWriter`] line: never a JSON value's first byte, so a carrier
 /// that sorts lines by their JSON never reads one as a request or a reply.
 const LINE_MARK: u8 = b'~';
-/// The most bytes one [`LineWriter`] line carries (1.4 MB of text, far below the carrier's
-/// 16 MiB line limit).
+/// The first byte of every binary [`LineWriter`] line: never a JSON value's first byte either.
+const BINARY_MARK: u8 = b'!';
+/// In a binary line, the byte that escapes the next: `\\` is itself and `\n` a newline.
+const ESCAPE: u8 = b'\\';
+/// The most bytes one [`LineWriter`] line carries (1.4 MB of text, or at most 2 MiB of escaped
+/// binary, far below the carrier's 16 MiB line limit).
 const LINE_BYTES: usize = 1024 * 1024;
 
-/// Bytes written as text lines: each `write` of up to [`LINE_BYTES`] becomes one line,
-/// `~` and its base64.
+/// Bytes written as lines: each `write` of up to [`LINE_BYTES`] becomes one line, `~` and its
+/// base64, or with [`LineWriter::binary`] `!` and the bytes with each newline and [`ESCAPE`]
+/// escaped (0.8% more on compressed bytes, against base64's 33%).
 pub struct LineWriter<W: Write> {
     inner: W,
+    binary: bool,
 }
 
 impl<W: Write> LineWriter<W> {
     pub fn new(inner: W) -> Self {
-        Self { inner }
+        Self { inner, binary: false }
+    }
+
+    /// A writer of binary lines, for a reader that said it takes them (`"wire": 2`).
+    pub fn binary(inner: W) -> Self {
+        Self { inner, binary: true }
     }
 }
 
@@ -183,9 +245,24 @@ impl<W: Write> Write for LineWriter<W> {
         if chunk.is_empty() {
             return Ok(0);
         }
-        let mut line = Vec::with_capacity(chunk.len() / 3 * 4 + 6);
-        line.push(LINE_MARK);
-        line.extend_from_slice(base64::engine::general_purpose::STANDARD.encode(chunk).as_bytes());
+        let mut line;
+        if self.binary {
+            line = Vec::with_capacity(chunk.len() + chunk.len() / 64 + 2);
+            line.push(BINARY_MARK);
+            for &byte in chunk {
+                match byte {
+                    b'\n' => line.extend_from_slice(&[ESCAPE, b'n']),
+                    ESCAPE => line.extend_from_slice(&[ESCAPE, ESCAPE]),
+                    byte => line.push(byte),
+                }
+            }
+        } else {
+            line = Vec::with_capacity(chunk.len() / 3 * 4 + 6);
+            line.push(LINE_MARK);
+            line.extend_from_slice(
+                base64::engine::general_purpose::STANDARD.encode(chunk).as_bytes(),
+            );
+        }
         line.push(b'\n');
         self.inner.write_all(&line)?;
         Ok(chunk.len())
@@ -220,8 +297,11 @@ impl<R: std::io::BufRead> Read for LineReader<R> {
             if line.last() == Some(&b'\n') {
                 line.pop();
             }
-            let text = match line.split_first() {
-                Some((&LINE_MARK, text)) => text,
+            self.decoded = match line.split_first() {
+                Some((&LINE_MARK, text)) => base64::engine::general_purpose::STANDARD
+                    .decode(text)
+                    .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?,
+                Some((&BINARY_MARK, escaped)) => unescape(escaped)?,
                 _ => {
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::InvalidData,
@@ -229,9 +309,6 @@ impl<R: std::io::BufRead> Read for LineReader<R> {
                     ));
                 }
             };
-            self.decoded = base64::engine::general_purpose::STANDARD
-                .decode(text)
-                .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
             self.at = 0;
         }
         let rest = self.decoded.get(self.at..).unwrap_or_default();
@@ -244,9 +321,39 @@ impl<R: std::io::BufRead> Read for LineReader<R> {
     }
 }
 
+/// The bytes of a binary line's `escaped` text (after its mark, before its newline).
+fn unescape(escaped: &[u8]) -> std::io::Result<Vec<u8>> {
+    let mut bytes = Vec::with_capacity(escaped.len());
+    let mut rest = escaped.iter();
+    while let Some(&byte) = rest.next() {
+        bytes.push(if byte == ESCAPE {
+            match rest.next() {
+                Some(b'n') => b'\n',
+                Some(&ESCAPE) => ESCAPE,
+                _ => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "a bad escape in a projection line",
+                    ));
+                }
+            }
+        } else {
+            byte
+        });
+    }
+    Ok(bytes)
+}
+
 /// Whether the dial line `first` asks for [`LineWriter`] lines.
 fn wants_lines(first: &str) -> bool {
     serde_json::from_str::<ServeLine>(first).is_ok_and(|line| line.lines)
+}
+
+/// Whether the dial line `first` is a `projection.serve` whose Mac reads binary lines and packed
+/// answers ([`WIRE`]).
+fn wants_wire(first: &str) -> bool {
+    serde_json::from_str::<ServeLine>(first)
+        .is_ok_and(|line| line.cmd == SERVE && line.wire >= WIRE)
 }
 
 /// `projection.serve` (or one of Bring Back's dials) when `line` asks for it, exactly.
@@ -261,7 +368,9 @@ pub fn frame_command(line: &str) -> Option<&'static str> {
         return None;
     }
     let cmd = object.get("cmd")?.as_str()?;
-    [SERVE, LAYER, FILES, DROP, BROUGHT_BACK, RELEASE].into_iter().find(|known| *known == cmd)
+    [SERVE, LAYER, FILES, DROP, BROUGHT_BACK, RELEASE, PIN, UNPIN, PINS, WARM]
+        .into_iter()
+        .find(|known| *known == cmd)
 }
 
 /// The capabilities to advertise: [`PROJECTION_CAPABILITY`] where a projection can mount (Linux,
@@ -283,6 +392,7 @@ struct Projected {
     /// extend, the full manifest's.
     digest: AtomicU64,
     at: PathBuf,
+    /// What the mount serves: its pins are read and changed here.
     #[cfg(target_os = "linux")]
     overlay: Arc<cmux_projection::overlay::Overlay>,
     /// The full manifest's mapping once the mount was extended (the streams then speak its indices).
@@ -343,7 +453,11 @@ pub fn serve_io(
     let reader = std::io::Cursor::new(leftover).chain(reader);
     if wants_lines(first) {
         let reader = LineReader::new(std::io::BufReader::with_capacity(256 * 1024, reader));
-        serve_dial(reader, writer, first, roots, LineWriter::new);
+        if wants_wire(first) {
+            serve_dial(reader, writer, first, roots, LineWriter::binary);
+        } else {
+            serve_dial(reader, writer, first, roots, LineWriter::new);
+        }
     } else {
         serve_dial(reader, writer, first, roots, |writer| writer);
     }
@@ -367,7 +481,13 @@ fn serve_dial<R: Read, W: Write + Send + 'static, F: Write + Send + 'static>(
         return;
     }
     let projected = match attach(first, &mut reader, roots) {
-        Ok((projected, data)) => {
+        Ok((projected, mut data)) => {
+            // The Mac packs its answers (and writes binary lines) once it reads this.
+            if wants_wire(first)
+                && let Some(object) = data.as_object_mut()
+            {
+                object.insert("wire".into(), json!(WIRE));
+            }
             if send_line(&mut writer, &json!({"id": id, "ok": true, "data": data})).is_err() {
                 return;
             }
@@ -486,6 +606,12 @@ struct WayBackLine {
     /// [`RELEASE`]'s reason.
     #[serde(default)]
     why: Option<String>,
+    /// [`PIN`]'s and [`UNPIN`]'s path, relative to the projected folder.
+    #[serde(default)]
+    path: Option<String>,
+    /// [`WARM`]'s paths, relative to the projected folder.
+    #[serde(default)]
+    paths: Vec<String>,
 }
 
 /// A projection name: 1-64 letters, digits, `-` or `_`.
@@ -591,6 +717,7 @@ fn way_back_answer(
             Ok((json!({}), WayBackBody::Files(state, paths)))
         }
         BROUGHT_BACK | RELEASE => Ok((free(cmd, &line, &state)?, WayBackBody::None)),
+        PIN | UNPIN | PINS | WARM => Ok((pin_answer(cmd, &line)?, WayBackBody::None)),
         _ => {
             end(
                 &mut projections().lock().unwrap_or_else(PoisonError::into_inner),
@@ -603,6 +730,102 @@ fn way_back_answer(
             }
             Ok((json!({"dropped": dropped}), WayBackBody::None))
         }
+    }
+}
+
+/// [`PIN`], [`UNPIN`], [`PINS`] or [`WARM`] of projection `line.name`, mounted here (module docs).
+fn pin_answer(cmd: &str, line: &WayBackLine) -> Result<Value, Refusal> {
+    let projected =
+        projections().lock().unwrap_or_else(PoisonError::into_inner).get(&line.name).cloned();
+    let Some(projected) = projected else {
+        return Err((
+            "projection.unknown",
+            format!("projection {} is not mounted here", line.name),
+        ));
+    };
+    let Some(pins) = projected.pins() else {
+        return Err(("projection.unavailable", "projected folders mount on Linux only".into()));
+    };
+    let path = || {
+        line.path.as_deref().ok_or(("projection.params_invalid", format!("{cmd} needs the path")))
+    };
+    let mut data = match cmd {
+        PIN => {
+            let path = path()?;
+            let report = pins
+                .pin(path)
+                .map_err(|errno| pin_refusal(errno, path, "not in the projected folder"))?;
+            let away = report.first_error == Some(cmux_projection::FetchError::Away.errno());
+            json!({"path": path, "files": report.files, "bytes": report.bytes,
+                   "fetched_bytes": report.fetched_bytes, "failed": report.failed,
+                   "first_error": report.first_error, "away": away})
+        }
+        UNPIN => {
+            let path = path()?;
+            pins.unpin(path).map_err(|errno| pin_refusal(errno, path, "not pinned"))?;
+            json!({"path": path, "unpinned": true})
+        }
+        WARM => {
+            // A cache fill, not a pin: no pin status in its answer.
+            let report = pins.warm(&line.paths, WARM_MAX_FILES, WARM_MAX_BYTES);
+            let away = report.first_error == Some(cmux_projection::FetchError::Away.errno());
+            return Ok(json!({"files": report.files, "bytes": report.bytes,
+                             "fetched_bytes": report.fetched_bytes, "failed": report.failed,
+                             "first_error": report.first_error, "away": away}));
+        }
+        _ => json!({}),
+    };
+    if let (Some(fields), Value::Object(status)) = (data.as_object_mut(), pin_status(pins)) {
+        fields.extend(status);
+    }
+    Ok(data)
+}
+
+/// A pin's or an unpin's `errno` as an answer's code and message.
+/// `missing` says what `ENOENT` means for it.
+fn pin_refusal(errno: i32, path: &str, missing: &str) -> Refusal {
+    let shown = if path.is_empty() { "the whole folder" } else { path };
+    match errno {
+        libc::ENOENT => ("projection.not_found", format!("{shown}: {missing}")),
+        libc::ENOSPC => (
+            "projection.no_space",
+            format!("{shown}: pinning it would leave too little free disk on this machine"),
+        ),
+        libc::EINVAL => ("projection.params_invalid", format!("{shown}: not a path in the folder")),
+        errno => {
+            ("projection.io", format!("{shown}: {}", std::io::Error::from_raw_os_error(errno)))
+        }
+    }
+}
+
+/// `{"pinned_bytes", "pins"}` of `overlay` (module docs).
+fn pin_status(overlay: &cmux_projection::overlay::Overlay) -> Value {
+    let pins: Vec<Value> = overlay
+        .pin_states()
+        .into_iter()
+        .map(|pin| {
+            let complete = pin.complete();
+            let mut value = serde_json::to_value(pin).unwrap_or(Value::Null);
+            if let Some(fields) = value.as_object_mut() {
+                fields.insert("complete".into(), Value::Bool(complete));
+            }
+            value
+        })
+        .collect();
+    json!({"pinned_bytes": overlay.pinned_bytes(), "pins": pins})
+}
+
+impl Projected {
+    /// The overlay whose pins this mount keeps.
+    #[cfg(target_os = "linux")]
+    fn pins(&self) -> Option<&cmux_projection::overlay::Overlay> {
+        Some(&self.overlay)
+    }
+
+    /// None off Linux, where nothing mounts.
+    #[cfg(not(target_os = "linux"))]
+    fn pins(&self) -> Option<&cmux_projection::overlay::Overlay> {
+        None
     }
 }
 
@@ -772,11 +995,73 @@ pub fn reap_once(acpmux_socket: Option<&Path>) -> cmux_projection::reap::Report 
     report
 }
 
+/// One aging pass over every mounted projection's content store
+/// (`cmux_projection::overlay::content::Content::age`: unread bytes go cold, then are deleted
+/// unless pinned), then the machine's held number (`cmux_projection::hold::held`) written to
+/// `projection-held.json` in the workspace state folder for NOW's now-bytes source. Logs both.
+pub fn age_once() -> Option<cmux_projection::hold::Held> {
+    let started = std::time::Instant::now();
+    #[cfg(target_os = "linux")]
+    {
+        let now = std::time::SystemTime::now();
+        let aging = cmux_projection::overlay::content::Aging::default();
+        let live: Vec<(String, Arc<Projected>)> = projections()
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .map(|(name, projected)| (name.clone(), projected.clone()))
+            .collect();
+        for (name, projected) in live {
+            let Some(report) = projected.overlay.age(now, &aging) else { continue };
+            if report.went_cold_blobs + report.deleted_blobs > 0 {
+                eprintln!(
+                    "cmux projection aging: {name}: {} blobs cold ({} bytes, {} saved), {} \
+                     deleted ({} bytes freed); holds {} bytes",
+                    report.went_cold_blobs,
+                    report.went_cold_bytes,
+                    report.went_cold_saved_bytes,
+                    report.deleted_blobs,
+                    report.deleted_stored_bytes,
+                    report.held_bytes()
+                );
+            }
+        }
+    }
+    let state = crate::platform::workspace_state_dir()?;
+    let held = cmux_projection::hold::held(&state.join("projections"));
+    let line = serde_json::to_vec(&json!({
+        "schema": "projection-held/v1",
+        "at": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
+        "held": held,
+    }))
+    .ok()?;
+    let to = state.join("projection-held.json");
+    let temp = to.with_extension("json.new");
+    if std::fs::write(&temp, line).and_then(|()| std::fs::rename(&temp, &to)).is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    eprintln!(
+        "cmux projection held: {} logical bytes ({} stored, {} duplicate) in {} blobs ({} cold) \
+         over {} projections, in {} ms",
+        held.logical_bytes,
+        held.stored_bytes,
+        held.duplicate_bytes,
+        held.blobs,
+        held.cold_blobs,
+        held.projections,
+        started.elapsed().as_millis()
+    );
+    Some(held)
+}
+
 /// Starts the reaper thread: a pass [`REAP_FIRST_AFTER`] the daemon starts, then every
 /// [`REAP_EVERY`]. Only where this daemon serves projections (Linux, with file roots), and once.
 pub fn start_reaper(acpmux_socket: Option<PathBuf>) {
     static STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    if advertised().is_empty() || STARTED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+    if advertised().is_empty() || STARTED.swap(true, Ordering::SeqCst) {
         return;
     }
     let spawned =
@@ -784,6 +1069,7 @@ pub fn start_reaper(acpmux_socket: Option<PathBuf>) {
             std::thread::sleep(REAP_FIRST_AFTER);
             loop {
                 reap_once(acpmux_socket.as_deref());
+                age_once();
                 std::thread::sleep(REAP_EVERY);
             }
         });
@@ -829,7 +1115,10 @@ fn attach(
         let existing = existing.filter(|projected| projected.at == at);
         if let Some(projected) = existing {
             attached(&line.name, &at);
-            return Ok((projected, json!({"at": at, "attached": true})));
+            return Ok((
+                projected.clone(),
+                with_pins(json!({"at": at, "attached": true}), &projected),
+            ));
         }
         // Not mounted here (a resume, a daemon restart): the stored revision, when the Mac named one.
         let Some(revision) = &line.revision else {
@@ -844,7 +1133,10 @@ fn attach(
             projected.digest.load(Ordering::Relaxed) == digest && projected.at == at
         }) {
             attached(&line.name, &at);
-            return Ok((projected, json!({"at": at, "attached": true})));
+            return Ok((
+                projected.clone(),
+                with_pins(json!({"at": at, "attached": true}), &projected),
+            ));
         }
         let manifest = cmux_projection::manifest::Manifest::decode(&encoded)
             .map_err(|error| ("projection.params_invalid", format!("bad manifest: {error:#}")))?;
@@ -854,7 +1146,8 @@ fn attach(
     let entries = manifest.len();
     // The upper layer and the cache: this daemon's own state, beside the folder roots, never in them.
     let state = state_of(&line.name)?;
-    let projected = mount(&line.name, manifest, &state, &at, digest, line.head)?;
+    let projected =
+        mount(&line.name, manifest, &state, &at, digest, line.head, line.from.as_deref())?;
     if let (Some(dir), Some(home)) = (state.parent(), std::env::var_os("HOME"))
         && let Err(error) = git_stat::keep(dir, Path::new(&home), &at)
     {
@@ -868,7 +1161,17 @@ fn attach(
         "mount_ms": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
         "revision_ms": from_store,
     });
-    Ok((projected, data))
+    Ok((projected.clone(), with_pins(data, &projected)))
+}
+
+/// A mount's answer `data` with its pins' status added (module docs).
+fn with_pins(mut data: Value, projected: &Projected) -> Value {
+    if let (Some(fields), Some(Value::Object(status))) =
+        (data.as_object_mut(), projected.pins().map(pin_status))
+    {
+        fields.extend(status);
+    }
+    data
 }
 
 /// `projection-extend-v1`: the mount of `name` at `at` takes the full manifest `encoded` in place
@@ -989,6 +1292,7 @@ fn mount(
     at: &Path,
     digest: u64,
     head: bool,
+    from: Option<&str>,
 ) -> Result<Arc<Projected>, Refusal> {
     use std::os::unix::fs::MetadataExt as _;
     let mut table = projections().lock().unwrap_or_else(PoisonError::into_inner);
@@ -1029,9 +1333,24 @@ fn mount(
     )
     .map_err(|error| io("opening the projection", &format!("{error:#}")))?
     .with_away(away.clone());
+    // RFD 0065 piece 8: record this start's first reads and replay the last start's list.
+    // `CMUX_PROJECTION_REPLAY=0` keeps the folder read-ahead alone, as before.
+    let replay = std::env::var_os("CMUX_PROJECTION_REPLAY").is_none_or(|value| value != "0");
+    let overlay = if replay { overlay.with_replay("start") } else { overlay };
     let overlay = Arc::new(overlay);
-    let mounted = cmux_projection::mount::mount(overlay.clone(), at)
-        .map_err(|error| ("projection.mount_failed", format!("{error:#}")))?;
+    let named =
+        cmux_projection::mount::Options { fsname: Some(fsname_for(from)), ..Default::default() };
+    let mounted = match cmux_projection::mount::mount_with(overlay.clone(), at, named) {
+        Ok(mounted) => Ok(mounted),
+        // The Mac folder's name in the mount table is a label only: a mount that refuses it
+        // mounts as before, under the plain name.
+        Err(error) if from.is_some() => {
+            eprintln!("cmux-tui: projection {name}: mounting with its Mac folder named: {error:#}");
+            cmux_projection::mount::mount(overlay.clone(), at)
+        }
+        Err(error) => Err(error),
+    }
+    .map_err(|error| ("projection.mount_failed", format!("{error:#}")))?;
     // Pinned folders an earlier mount recorded are fetched whole in the background, so they read
     // with the Mac away again (a new manifest starts a fresh cache). Mac away: it stops at the
     // first absence, and the next mount tries again.
@@ -1039,6 +1358,27 @@ fn mount(
         let pinned = overlay.clone();
         let _ = std::thread::Builder::new().name("projection-pins".into()).spawn(move || {
             let _ = pinned.hydrate_pins();
+        });
+    }
+    // The last start's access list is fetched in the background, so its files are local before
+    // the agent asks (it stops at the first batch the Mac is away for).
+    if !overlay.replay_list().is_empty() {
+        let replaying = overlay.clone();
+        let _ = std::thread::Builder::new().name("projection-replay".into()).spawn(move || {
+            let _ = replaying.replay_prefetch();
+        });
+    }
+    // RFD 0065 piece 11: behind the mount, the rest of the tree comes down at low priority so the
+    // folder ends up local. Off unless `CMUX_PROJECTION_BULK_COPY=1`: it moves the whole tree over
+    // the Mac's link, and the path-ordered pack transport the RFD sizes it with is not built yet.
+    if std::env::var_os("CMUX_PROJECTION_BULK_COPY").is_some_and(|value| value == "1") {
+        let copying = overlay.clone();
+        let _ = std::thread::Builder::new().name("projection-bulk-copy".into()).spawn(move || {
+            cmux_projection::overlay::bulk::lower_priority();
+            let _ = copying.bulk_copy(
+                &cmux_projection::overlay::bulk::BulkOptions::default(),
+                &std::sync::atomic::AtomicBool::new(false),
+            );
         });
     }
     let projected = Arc::new(Projected {
@@ -1126,9 +1466,39 @@ fn mount(
     _at: &Path,
     _digest: u64,
     _head: bool,
+    _from: Option<&str>,
 ) -> Result<Arc<Projected>, Refusal> {
     Err(("projection.unavailable", "projected folders mount on Linux only".into()))
 }
+
+/// The mount table's source for a projection: [`FSNAME`], then `:` and the Mac folder it mirrors
+/// when the Mac named one, percent-encoded so no mount option separator, space or escape is in
+/// it (decoded by acpmux's `this_folder`). `CMUX_PROJECTION_NAMES_MAC_FOLDER=0` leaves it out.
+pub fn fsname_for(from: Option<&str>) -> String {
+    let off = std::env::var("CMUX_PROJECTION_NAMES_MAC_FOLDER")
+        .is_ok_and(|value| matches!(value.as_str(), "0" | "false"));
+    let Some(from) = from.filter(|from| {
+        !off && !from.is_empty()
+            && from.len() <= MAX_FROM_BYTES
+            && !from.chars().any(char::is_control)
+    }) else {
+        return FSNAME.to_owned();
+    };
+    let mut name = format!("{FSNAME}:");
+    for byte in from.bytes() {
+        if byte.is_ascii_alphanumeric() || b"/._~+-".contains(&byte) {
+            name.push(char::from(byte));
+        } else {
+            name.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    name
+}
+
+/// The mount table's source of every projection, alone or before `:` and its Mac folder.
+pub const FSNAME: &str = "cmux-projection";
+/// The longest Mac folder name a mount carries; a longer one is left out.
+const MAX_FROM_BYTES: usize = 1024;
 
 /// Git in a projected folder compares a file's size and whole-second mtime only. The index came
 /// from the Mac, so its inode, device, owner and ctime never match this mount's: with git's

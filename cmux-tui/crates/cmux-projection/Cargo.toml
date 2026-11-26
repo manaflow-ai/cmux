@@ -28,9 +28,18 @@ sha1 = "0.10"
 sha1collisiondetection = { version = "0.3", default-features = false }
 sha2.workspace = true
 zstd.workspace = true
+# The repo archive (repo_archive.rs): a `.git` folder as one tar, zstd level 3.
+tar.workspace = true
 # O_NOFOLLOW for the way back (layer.rs), on the Mac too.
 libc.workspace = true
 cmux-file-lock.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+# The overlay served over NFSv3 (nfs.rs), which a Mac mounts from localhost with its own mount_nfs:
+# no kernel or app extension, no prompt.
+async-trait.workspace = true
+nfsserve = "0.11"
+tokio.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # git-mount --sparse: the non-cone patterns are gitignore patterns (sparse.rs), as ripgrep reads them.
@@ -40,5 +49,6 @@ ignore.workspace = true
 fuser = { version = "=0.14.0", default-features = false, features = ["abi-7-31"] }
 
 [dev-dependencies]
+cmux-egress = { workspace = true, features = ["blocking", "capture"] }
 ignore.workspace = true
 tempfile = "3"

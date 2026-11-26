@@ -38,6 +38,12 @@ pub trait FrameSource: Send {
     fn set_changed_pixels(&mut self, _pixels: u64) {}
     fn kbps(&self) -> u32;
     fn encoder_name(&self) -> String;
+    /// Whether its encoder makes Constrained Baseline whatever profile it was opened for
+    /// ([`cmux_encode::VideoEncoder::constrained_baseline`]): a desktop opened for `high` then
+    /// serves a `h264.baseline` viewer without opening again.
+    fn constrained_baseline(&self) -> bool {
+        false
+    }
     /// The picture the next [`FrameSource::encode`] makes, from the engine's resolution ladder
     /// (design D5): its size (the source scales the stream down to it) and QP ceiling. Set
     /// before each capture; `None` (no ladder): the full stream, no ceiling. The default
@@ -197,6 +203,10 @@ pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
     };
     #[cfg(all(target_os = "macos", feature = "bench"))]
     if let Some(source) = crate::synthetic::selected() {
+        // A generated picture has no windows; never stream it in place of the one named.
+        if let Some(id) = cfg.window {
+            return Err(format!("window {id}: a synthetic source has no windows").into());
+        }
         return crate::mac::synthetic::open(cfg, source);
     }
     #[cfg(target_os = "macos")]
@@ -223,6 +233,26 @@ pub fn displays(which: &str) -> Res<crate::mac::capture::Displays> {
         Some(size) => Ok((vec![size], 0, Vec::new())),
         None => crate::mac::capture::displays(which),
     }
+}
+
+/// The windows a viewer may share one of (macOS; the setup line's `window`): none for a
+/// synthetic source or when ScreenCaptureKit cannot list them (the display list says why).
+#[cfg_attr(not(feature = "link"), allow(dead_code))]
+#[cfg(target_os = "macos")]
+pub fn windows() -> Vec<cmux_rd_proto::app_line::LineWindow> {
+    if synthetic_size().is_some() {
+        return Vec::new();
+    }
+    crate::mac::window::list()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|w| cmux_rd_proto::app_line::LineWindow {
+            id: w.id,
+            title: w.title,
+            width: w.size.0,
+            height: w.size.1,
+        })
+        .collect()
 }
 
 /// The frame rate cap when neither `--max-fps` nor the viewer names one: macOS, the captured

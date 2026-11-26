@@ -1,6 +1,13 @@
 {
   "family": "cloud",
   "ops": {
+    "cloud.allotment.get": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "a24f88a2f0799132"
+    },
     "cloud.auth.status": {
       "source": "app",
       "owner": "app:cmux/cloud",
@@ -13,7 +20,7 @@
       "owner": "cloud:CloudDO",
       "class": "mutation",
       "risk": "money",
-      "digest": "333c4534d71a65c0"
+      "digest": "a5fe0856a56f4a54"
     },
     "cloud.browser.open": {
       "source": "app",
@@ -168,7 +175,7 @@
       "owner": "cloud:CloudDO",
       "class": "mutation",
       "risk": "money",
-      "digest": "0e5c01ef5e37ba4e"
+      "digest": "8b49f3a3ff528f5b"
     },
     "cloud.machine.delete": {
       "source": "cloud",
@@ -183,6 +190,11 @@
       "class": "mutation",
       "risk": "mutate-shared",
       "digest": "386f1c6f21f27cb0"
+    },
+    "cloud.machine.fork": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "2c91c140d5cebeff"
     },
     "cloud.machine.get": {
       "source": "cloud",
@@ -252,6 +264,11 @@
       "risk": "money",
       "digest": "ede6fe44ffcb2a4a"
     },
+    "cloud.machine.setup_desktop": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "e8130d729b74d5ac"
+    },
     "cloud.machine.share_chat": {
       "source": "local",
       "class": "mutation",
@@ -312,10 +329,25 @@
       "class": "read",
       "digest": "3d8680b859d23639"
     },
+    "cloud.owner.github_clone_token": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "48c3cf7f287ca4e2"
+    },
+    "cloud.owner.github_complete": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "48c3cf7f287ca4e2"
+    },
     "cloud.owner.github_connect": {
       "source": "local",
       "class": "mutation",
       "digest": "48c3cf7f287ca4e2"
+    },
+    "cloud.owner.github_list": {
+      "source": "local",
+      "class": "read",
+      "digest": "3d8680b859d23639"
     },
     "cloud.owner.github_repos": {
       "source": "local",
@@ -493,6 +525,13 @@
       "risk": "read",
       "digest": "498711a0b2046067"
     },
+    "cloud.usage.current": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "34636fdecb9b6e88"
+    },
     "cloud.vm.attention.emit": {
       "source": "cloud",
       "owner": "cloud:CloudDO",
@@ -531,6 +570,13 @@
       "source": "local",
       "class": "read",
       "digest": "0304aec0e3361028"
+    },
+    "cloud.vm.machine.request": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "mutation",
+      "risk": "execute",
+      "digest": "bd1a173ec0a3df5e"
     },
     "cloud.vm.network_policy": {
       "source": "cloud",

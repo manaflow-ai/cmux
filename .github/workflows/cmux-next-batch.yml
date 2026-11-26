@@ -83,7 +83,7 @@ env:
 jobs:
   debounce:
     if: ${{ github.event_name != 'workflow_dispatch' && github.repository_owner == 'manaflow-ai' && vars.CMUX_NEXT_BATCH_ENABLED == '1' && (github.event_name == 'push' || (github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.event.pull_request.head.ref, 'next-batch/'))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     # Skipped while the queue is off. Each event's run waits for quiet; an older
     # run that sees a newer one exits 0 (next_batch.py superseded), never cancelled.
@@ -113,7 +113,7 @@ jobs:
   batch:
     environment: cmux-next-batch-agent
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'batch' && github.repository_owner == 'manaflow-ai' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # Room for a batch plus a bisect; each validation is one heavy-tier run.
     timeout-minutes: 340
     # One batch at a time. A running batch is never cancelled; a newer
@@ -231,11 +231,16 @@ jobs:
 
       # regenerate-swift-exports.sh then rebuilds the docs reference data with
       # web/scripts/export-next-docs.ts, which needs bun (or Node 22.18+).
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
       # The minis share ~/.bun with workflows that install another bun; this
       # job runs on its own copy of the pinned one (private-bun.sh).
@@ -259,6 +264,9 @@ jobs:
             scripts/cmux-next/lib/warm-swiftpm.sh
             scripts/ci/swift-test-debug-info.sh
             scripts/ci/swiftpm-binary-module-guard.sh
+            scripts/ci/github-egress-direct.sh
+            scripts/ci/github-egress-run.sh
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Regenerate the Swift exports
@@ -312,7 +320,7 @@ jobs:
 
   regen-linux:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'regen-linux' && startsWith(inputs.branch, 'next-batch/') && github.repository_owner == 'manaflow-ai' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -323,13 +331,24 @@ jobs:
           persist-credentials: false
           submodules: false
 
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
 
       - name: Setup Node
+        timeout-minutes: 5
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"

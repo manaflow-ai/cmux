@@ -26,7 +26,7 @@ impl LocalStore {
         let Some(cloud) = self.cloud()? else { return Ok(None) };
         let stage = tempfile::tempdir_in(self.dir(id))?;
         let lines = stage.path().join("log");
-        let mut log = File::create(&lines)?;
+        let mut log = crate::home_fs::create_file(&lines)?;
         let mut marker = Vec::new();
         let (header, hashes) = decode_files(&archive, &mut |entry, part, hash| {
             if entry.name == super::super::compact::MARKER {
@@ -91,9 +91,8 @@ impl LocalStore {
 
     /// Rebuild every original events file into the private thaw directory before publishing it.
     pub(super) fn thaw_packed(&self, id: &str, cloud: &Cloud, thaw: &Path) -> Result<Header> {
-        let record: PackedArchive = serde_json::from_reader(crate::home_fs::private_state_file(
-            &self.cloud_stub_path(id),
-        )?)?;
+        let record: PackedArchive =
+            serde_json::from_reader(crate::home_fs::private_state_file(self.cloud_stub_path(id))?)?;
         let cache = self.packed_cache(id)?;
         let pack = fetch::open_pack(&record.history, &cache, cloud)?;
         anyhow::ensure!(pack.manifest.name == id, "history belongs to another chat");

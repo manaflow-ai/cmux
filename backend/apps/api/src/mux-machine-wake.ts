@@ -16,11 +16,13 @@ import { platformCloud, type PlatformCloud } from "./platform-cloud.ts"
  * run for RUNNING_GRACE_MS. A start that keeps failing never drops the message: the wake row stays, and the next
  * message (or the host's own start) delivers it.
  */
-const POLL_MS = 5_000
+export const POLL_MS = 5_000
 const MAX_BACKOFF_MS = 60_000
-const GIVE_UP_MS = 6 * 3600_000
+export const GIVE_UP_MS = 6 * 3600_000
 /** After the machine runs, how long the line waits for the host's ack before it ends anyway. */
-const RUNNING_GRACE_MS = 120_000
+export const RUNNING_GRACE_MS = 120_000
+/** How long to wait after failed try number `tries` (1 s doubling to 60 s). Auto mode's machine start shares it (auto-sessions/machine-start.ts). */
+export const wakeBackoffMs = (tries: number): number => Math.min(MAX_BACKOFF_MS, 1_000 * 2 ** Math.min(tries - 1, 16))
 /** The line the sender sees while the machine resumes. */
 export const WAKING_LINE = "Waking"
 
@@ -147,7 +149,7 @@ export const stepWake = async (sql: SqlStorage, cloud: (team: string) => WakeClo
   if (step.act === "retry") {
     const tries = row.tries + 1
     console.warn(JSON.stringify({ msg: "chief_machine.wake_retry", agent, machine: row.machine, tries, error: step.error }))
-    sql.exec(`UPDATE mux_machine_wake SET tries = ?, next_at = ? WHERE k = 1`, tries, now + Math.min(MAX_BACKOFF_MS, 1_000 * 2 ** Math.min(tries - 1, 16)))
+    sql.exec(`UPDATE mux_machine_wake SET tries = ?, next_at = ? WHERE k = 1`, tries, now + wakeBackoffMs(tries))
   } else {
     const running = step.act === "running" ? row.running_at || now : 0
     if (step.act === "start") console.log(JSON.stringify({ msg: "chief_machine.wake_start", agent, machine: row.machine }))

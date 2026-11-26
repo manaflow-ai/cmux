@@ -99,9 +99,14 @@ UNGATED_BLACKSMITH_ALLOWED = {
         "report text that prints the lane's effective label, not a runs-on value"
     ),
     ("cmux-next-fast-tier-seed.yml",
-     '[{"pool": "blacksmith", "runner": "blacksmith-6vcpu-macos-26", "workspace": "/Users/runner/_work/cmux/cmux", "timeout": 30}]'): (
+     '[{"pool": "blacksmith", "runner": "blacksmith-6vcpu-macos-26", "workspace": "/Users/runner/_work/cmux/cmux", "timeout": 30},'): (
         "a seed pool row in the `due` job, which runs only when github.repository == 'manaflow-ai/cmux' "
         "(stricter than the owner check); the seed job reading it has the same gate"
+    ),
+    ("cmux-next-fast-tier-seed.yml",
+     '{"pool": "blacksmith-root2", "runner": "blacksmith-6vcpu-macos-26", "workspace": "/Users/runner/_work/cmux-2/cmux", "timeout": 30}]'): (
+        "the second seed root's pool row in the same `due` job (github.repository == 'manaflow-ai/cmux'); "
+        "the seed job reading it has the same gate"
     ),
 }
 # Release publication controls are trusted release-environment jobs. They must
@@ -123,6 +128,7 @@ RELEASE_JOBS_FORK_GATED = {
     "publish-release-notes": "publishes release notes; runs on GitHub-hosted ubuntu-24.04 behind the owner fork branch",
     "nightly-next-one": "builds, signs, notarizes and publishes nightly-next on the signing Mac; starts with the owner fork branch",
     "sign-live-code-variant": "signs, notarizes and publishes the live code variant on the signing Mac; starts with the owner fork branch",
+    "nightly-next-pkg": "builds, signs, notarizes and uploads the pre-warming .pkg on the signing Mac; starts with the owner fork branch",
 }
 
 
@@ -277,7 +283,8 @@ FORK_PULL_REQUEST_CONDITIONS = frozenset(
 # sends every pull request, fork or not, to the label.
 PULL_REQUEST_CONDITION = ("==", "github.event_name", "'pull_request'")
 FORK_PULL_REQUEST_LABEL = re.compile(
-    r"blacksmith-\d+vcpu-(?:macos|ubuntu|windows)-[a-z0-9.]+|macos-\d+|ubuntu-[a-z0-9.-]+|windows-\d+"
+    # Blacksmith's ARM Linux labels end in -arm (blacksmith-4vcpu-ubuntu-2404-arm): a Blacksmith VM like the rest.
+    r"blacksmith-\d+vcpu-(?:macos|ubuntu|windows)-[a-z0-9.]+(?:-arm)?|macos-\d+|ubuntu-[a-z0-9.-]+|windows-\d+"
 )
 # Values that can resolve to an owned self-hosted label. A variable counts on
 # any line (env mirrors such as CMUX_PRODUCT_RUNNER must agree with runs-on); a
@@ -694,10 +701,9 @@ def _runner_value_error(
 FORK_WRAPPED_POOL_READ = re.compile(
     r"\(github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != "
     r"github\.repository && ('blacksmith-[^']+') \|\| fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+\)"
-    # The one Linux label's group (scripts/ci/one_linux_label.py): a fork takes CI_FORK_LINUX_RUNNER, a
-    # fork-only variable that is GitHub-hosted 'ubuntu-24.04' while unset, so the gate reads that literal.
+    # The one Linux label's group (scripts/ci/one_linux_label.py): a fork takes GitHub-hosted 'ubuntu-24.04'.
     r"|\(github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != "
-    r"github\.repository && \(vars\.CI_FORK_LINUX_RUNNER \|\| ('ubuntu-24\.04')\) \|\| 'cmux-linux'\)"
+    r"github\.repository && ('ubuntu-24\.04') \|\| 'cmux-linux'\)"
 )
 # A route whose owned fallback is itself behind the macOS Blacksmith switch.
 # The fork branch still wins before the fallback; reduce the whole expression
@@ -826,6 +832,84 @@ def fork_excluded_job_lines(text: str) -> set[int]:
                     and excludes_fork_pull_request(jobs[job_key.value].get("if"))):
                 excluded.update(range(job_key.start_mark.line + 2, job_value.end_mark.line + 1))
     return excluded
+
+
+# Owned Macs take our own branches' jobs (Leo, 2026-11-19: "if we literally dont allow forks to run on ours
+# automatically/require qpproval each time for external ci running"), so no route may hand a fork head one.
+# OWNED_RUNNER_SELECTOR above names the variables that can hold an owned label; a picker job's output
+# (`needs.<job>.outputs.*`) can hold one too, and nothing checked those. A runs-on may read a picker output
+# ahead of its top-level fork branch only when a fork pull request cannot set it to an owned label:
+#   - the picker job's own `if` proves it never starts on a fork pull request (excludes_fork_pull_request), so
+#     on a fork run its outputs are empty and the expression falls through to the fork branch; or
+#   - it is listed here with why that picker never names an owned label for a fork head.
+# Any other picker read ahead of the fork branch fails, so a new picker must do one or the other.
+PICKER_OUTPUT = re.compile(r"needs\.([A-Za-z0-9_-]+)\.outputs\.[A-Za-z0-9_]+", re.IGNORECASE)
+FORK_SAFE_PICKER_OUTPUTS = {
+    ("ci-macos.yml", "macos-compile-admission"): (
+        "its `runner` output is CMUX_PRODUCT_RUNNER, which restates admission's own runs-on; that runs-on reads "
+        "inputs.pr_runner, so the gate above already holds it to the fork branch first (Blacksmith for a fork)"
+    ),
+    ("test-ios.yml", "runner"): (
+        "ios_runner_pool.py --fork returns its ephemeral Blacksmith pool for a fork head before reading any "
+        "variable (tests/test_ci_pr_runner_pool.py test_a_fork_pull_request_never_routes_or_reads)"
+    ),
+}
+
+
+def _top_level_disjuncts_before_fork_branch(node: tuple) -> list[tuple]:
+    """The top-level `||` operands a fork run evaluates before the fork branch (all of them when there is none)."""
+    disjuncts = node[1] if node[0] == "or" else [node]
+    before: list[tuple] = []
+    for disjunct in disjuncts:
+        if _is_fork_pull_request_branch(disjunct):
+            break
+        before.append(disjunct)
+    return before
+
+
+def picker_reads_before_fork_branch(runs_on: str) -> list[str]:
+    """Picker job names whose outputs a runs-on reads ahead of its fork branch. Raises ExpressionSyntaxError."""
+    jobs: list[str] = []
+    for expression in EXPRESSION.findall(runs_on):
+        for disjunct in _top_level_disjuncts_before_fork_branch(parse_expression(expression)):
+            for ref in _refs(disjunct):
+                match = PICKER_OUTPUT.fullmatch(ref)
+                if match and match.group(1) not in jobs:
+                    jobs.append(match.group(1))
+    return jobs
+
+
+def fork_unsafe_picker_errors(name: str, text: str,
+                              allowed: dict[tuple[str, str], str] | None = None) -> tuple[list[str], set[tuple[str, str]]]:
+    """(errors, the listed pickers used) for one workflow's runs-on values that a fork pull request evaluates."""
+    allowed = FORK_SAFE_PICKER_OUTPUTS if allowed is None else allowed
+    errors: list[str] = []
+    used: set[tuple[str, str]] = set()
+    jobs = workflow_jobs.jobs(text)
+    for job_id, job in jobs.items():
+        if excludes_fork_pull_request(job.get("if")):
+            continue
+        runs_on = workflow_jobs.runs_on(job)
+        if not isinstance(runs_on, str) or "needs." not in runs_on:
+            continue
+        try:
+            pickers = picker_reads_before_fork_branch(runs_on)
+        except (ExpressionSyntaxError, gh_expressions.Unterminated) as error:
+            errors.append(f"{name} {job_id}: runs-on has an expression the guard cannot parse ({error})")
+            continue
+        for picker in pickers:
+            producer = jobs.get(picker)
+            if producer is not None and excludes_fork_pull_request(producer.get("if")):
+                continue
+            if (name, picker) in allowed:
+                used.add((name, picker))
+                continue
+            errors.append(
+                f"{name} {job_id}: runs-on reads needs.{picker}.outputs ahead of the fork pull-request branch, "
+                f"and job {picker} can run on a fork pull request; gate {picker} to same-repository heads, "
+                "put the fork branch first, or list it in FORK_SAFE_PICKER_OUTPUTS with why"
+            )
+    return errors, used
 
 
 def pull_request_workflows() -> list[Path]:
@@ -1275,6 +1359,58 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                     failures.append(f"{path.name}:{number} {error}: {line.strip()}")
         self.assertEqual(failures, [])
         self.assertGreater(checked, 0)
+
+    def test_picker_outputs_ahead_of_the_fork_branch_cannot_name_an_owned_runner(self) -> None:
+        """A picker read before the fork branch comes from a fork-excluded job or a listed fork-safe picker."""
+        failures: list[str] = []
+        used: set[tuple[str, str]] = set()
+        workflows = fork_exercised_workflows()
+        for path in workflows:
+            errors, listed = fork_unsafe_picker_errors(path.name, path.read_text(encoding="utf-8"))
+            failures.extend(errors)
+            used |= listed
+        self.assertEqual(failures, [])
+        # A listed picker that is no longer read ahead of a fork branch (or now excludes forks itself) is stale.
+        self.assertEqual(sorted(set(FORK_SAFE_PICKER_OUTPUTS) - used), [])
+        # Parser anchor: the scan must still see the pickers that are fork-excluded by their own `if`.
+        reads = {
+            (path.name, picker)
+            for path in workflows
+            for job in workflow_jobs.jobs(path.read_text(encoding="utf-8")).values()
+            if "needs." in workflow_jobs.runs_on(job)
+            for picker in picker_reads_before_fork_branch(workflow_jobs.runs_on(job))
+        }
+        self.assertIn(("ci-macos.yml", "late-placement"), reads)
+        self.assertIn(("cmux-next-media.yml", "route"), reads)
+
+    def test_picker_output_rule_reads_the_producer_gate(self) -> None:
+        fork = ("github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != "
+                "github.repository && 'blacksmith-6vcpu-macos-26'")
+
+        def workflow(pick_if: str, runs_on: str) -> str:
+            return (
+                "on:\n  pull_request:\njobs:\n"
+                f"  pick:\n    if: {pick_if}\n    runs-on: ubuntu-24.04\n    steps: [{{run: 'true'}}]\n"
+                f"  build:\n    needs: pick\n    runs-on: ${{{{ {runs_on} }}}}\n    steps: [{{run: 'true'}}]\n"
+            )
+
+        same_repo = "github.event.pull_request.head.repo.full_name == github.repository"
+        early = "needs.pick.outputs.runner || " + fork + " || 'blacksmith-6vcpu-macos-26'"
+        late = fork + " || needs.pick.outputs.runner || 'blacksmith-6vcpu-macos-26'"
+        nested = "fromJSON(needs.pick.outputs.runs_on || '[]')"
+        # The picker can run on a fork pull request and is read first: refused.
+        self.assertTrue(fork_unsafe_picker_errors("w.yml", workflow("always()", early), {})[0])
+        self.assertTrue(fork_unsafe_picker_errors("w.yml", workflow("always()", nested), {})[0])
+        # A picker gated to same-repository heads has empty outputs on a fork run.
+        self.assertEqual(fork_unsafe_picker_errors("w.yml", workflow(same_repo, early), {})[0], [])
+        # Read only after the fork branch: a fork never reaches it.
+        self.assertEqual(fork_unsafe_picker_errors("w.yml", workflow("always()", late), {})[0], [])
+        # A listed fork-safe picker passes and is reported as used.
+        errors, used = fork_unsafe_picker_errors("w.yml", workflow("always()", early), {("w.yml", "pick"): "why"})
+        self.assertEqual((errors, used), ([], {("w.yml", "pick")}))
+        # An OR that only mentions the same-repository test is no gate.
+        loose = f"{same_repo} || github.event_name == 'pull_request'"
+        self.assertTrue(fork_unsafe_picker_errors("w.yml", workflow(loose, early), {})[0])
 
     def test_job_condition_proves_fork_exclusion_without_trusting_unknowns(self) -> None:
         same = "github.event.pull_request.head.repo.full_name == github.repository"

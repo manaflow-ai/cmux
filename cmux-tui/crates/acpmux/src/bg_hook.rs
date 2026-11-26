@@ -233,6 +233,9 @@ pub struct TaskCli {
     pub words: Vec<String>,
     pub denied: std::path::PathBuf,
     pub key: String,
+    /// The command the task runs instead of the call's own: the call wrapped in
+    /// `acpmux run-vm` when it goes to a run VM (`placement/run_vm.rs`, RFD 0144 piece 3).
+    pub run_vm: Option<String>,
 }
 
 /// The `--route` word of `process start` for each [`Route`], and back: the CLI's answer names
@@ -313,7 +316,7 @@ as asked."
     if let Some(why) = slow {
         words.extend(["--slow".to_owned(), why.to_owned()]);
     }
-    words.extend(["--".to_owned(), command.to_owned()]);
+    words.extend(["--".to_owned(), cli.run_vm.as_deref().unwrap_or(command).to_owned()]);
     let mut tool_input = input.get("tool_input").filter(|t| t.is_object())?.clone();
     tool_input.set("command", json!(crate::agent_tools::quoted(&words)));
     tool_input.set("run_in_background", json!(false));
@@ -622,10 +625,32 @@ pub(crate) fn answer(home: &std::path::Path, session: &str, input: Value) -> Opt
     if input.get("tool_name").and_then(Value::as_str) != Some("Bash") {
         return None;
     }
-    if input.pointer("/tool_input/run_in_background").and_then(Value::as_bool) != Some(true)
-        && slow_reason(command).is_none()
-    {
-        return subagent_mark(&input);
+    let self_words = || {
+        let this = crate::self_command::SelfCommand::current()
+            .unwrap_or_else(|_| crate::self_command::SelfCommand::new("acpmux".into(), Vec::new()));
+        let mut words = vec![this.exe.to_string_lossy().into_owned()];
+        words.extend(this.args_lossy::<&str>(&[]));
+        words
+    };
+    // A heavy build or test on a Cloud machine with AutoCloud on runs on a fork (RFD 0144
+    // piece 3): the class is read from the text first, so no other call reads the settings.
+    // With `CMUX_WORK_PLACER=1` the work placer decides instead, from this host's samples
+    // (`placement/work_wire.rs`); off, nothing changes.
+    let run_vm = crate::placement::run_vm::heavy_class(command)
+        .and_then(|_| {
+            let machine = crate::placement::sub_fork::this_machine();
+            let on = crate::placement::run_vm::run_vms_on();
+            if crate::placement::work_place::enabled() {
+                return crate::placement::work_wire::hook_goes(on, machine.as_deref(), command);
+            }
+            crate::placement::run_vm::goes(on, machine.as_deref(), command)
+        })
+        .map(|_| crate::placement::run_vm::wrap(&self_words(), command));
+    let background =
+        input.pointer("/tool_input/run_in_background").and_then(Value::as_bool) == Some(true);
+    if !background && slow_reason(command).is_none() {
+        let Some(wrapped) = run_vm else { return subagent_mark(&input) };
+        return run_vm_answer(&input, &wrapped);
     }
     let config = crate::agent_tools::mcp_config_path(home, session);
     let route = std::fs::read(&config)
@@ -636,11 +661,14 @@ pub(crate) fn answer(home: &std::path::Path, session: &str, input: Value) -> Opt
     // Keyed by what the call runs, not its per-call ids.
     let what = json!([input.get("cwd"), input.get("tool_input")]);
     let key = crate::sha256::sha256_hex(what.to_string().as_bytes());
-    let this = crate::self_command::SelfCommand::current()
-        .unwrap_or_else(|_| crate::self_command::SelfCommand::new("acpmux".into(), Vec::new()));
-    let mut words = vec![this.exe.to_string_lossy().into_owned()];
-    words.extend(this.args_lossy::<&str>(&[]));
-    let cli = TaskCli { words, denied: denied_path(&config), key };
+    if route.is_none()
+        && let Some(wrapped) = &run_vm
+    {
+        // No daemon task to run it in: the call itself runs on the fork, as asked otherwise.
+        return run_vm_answer(&input, wrapped);
+    }
+    let cli =
+        TaskCli { words: self_words(), denied: denied_path(&config), key, run_vm: run_vm.clone() };
     if let Some(answer) = decide(&input, route, &cli) {
         // The same call turned away, or rewritten into a task that did not start, just before
         // runs as asked (the replacement may be unusable). A task that started forgets the key
@@ -659,7 +687,25 @@ pub(crate) fn answer(home: &std::path::Path, session: &str, input: Value) -> Opt
             return Some(marked.unwrap_or(answer));
         }
     }
-    subagent_mark(&input)
+    match &run_vm {
+        Some(wrapped) => run_vm_answer(&input, wrapped),
+        None => subagent_mark(&input),
+    }
+}
+
+/// The call rewritten to run `wrapped` (`acpmux run-vm -- CMD`) in its place, everything else
+/// as it was, with a subagent's mark when it has one.
+fn run_vm_answer(input: &Value, wrapped: &str) -> Option<Value> {
+    let mut tool_input = input.get("tool_input").filter(|t| t.is_object())?.clone();
+    tool_input.set("command", json!(wrapped));
+    let mut call = input.clone();
+    call.set("tool_input", tool_input.clone());
+    subagent_mark(&call).or_else(|| {
+        Some(json!({"hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "updatedInput": tool_input,
+        }}))
+    })
 }
 
 /// Whether `key` is new to the chat's denied calls: then it is added (true); a repeat is taken
@@ -742,7 +788,12 @@ mod tests {
     /// A stand-in for this binary: a shell that prints each argument it gets on a line.
     fn cli() -> TaskCli {
         let words = ["sh", "-c", "printf '%s\\n' \"$@\"", "acpmux"].map(str::to_owned).to_vec();
-        TaskCli { words, denied: "/h/chat's mcp.json.bg-denied".into(), key: "k1".to_owned() }
+        TaskCli {
+            words,
+            denied: "/h/chat's mcp.json.bg-denied".into(),
+            key: "k1".to_owned(),
+            run_vm: None,
+        }
     }
 
     /// The rewritten call's input, or a panic when the hook did not rewrite it.

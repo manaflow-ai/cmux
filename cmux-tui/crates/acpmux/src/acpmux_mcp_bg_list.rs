@@ -246,12 +246,12 @@ impl Page {
 /// carrying it: an end that has not happened (`endedAt`, `exitCode`, `signal`), a spool that
 /// did not fail (`outputError`), the lead agent (`startedBy`), no output dropped
 /// (`keptFromByte`), and `notify` and `resultLine` as `bg_start` leaves them.
-fn is_default(key: &str, v: &Value) -> bool {
+pub(super) fn is_default(key: &str, v: &Value) -> bool {
     match key {
         "endedAt" | "exitCode" | "signal" | "outputError" | "startedBy" => v.is_null(),
         "resultLine" => v == &json!(false),
         "notify" => v == &json!(true),
-        "keptFromByte" => v == &json!(0),
+        "keptFromByte" | "skippedBytes" => v == &json!(0),
         _ => false,
     }
 }
@@ -478,7 +478,10 @@ mod tests {
         assert!(after * 2 < before, "{after} of {before} bytes: less than half was cut");
         // full: true is the call that asks for everything, and still gets it.
         let (whole, _) = page(json!({"full": true})).apply(as_the_daemon_lists(2), NOW);
-        assert_eq!(whole["tasks"], as_the_daemon_lists(2)["tasks"]);
+        // Every field of every task, newest first as every page lists them (the daemon's oldest first).
+        let mut newest_first = as_the_daemon_lists(2)["tasks"].as_array().unwrap().clone();
+        newest_first.reverse();
+        assert_eq!(whole["tasks"], json!(newest_first));
         assert!(whole.get("sessionId").is_none(), "nothing hoisted out of a full page");
     }
 
