@@ -62,6 +62,7 @@ GLOBAL_INPUTS = (
     "scripts/select-ci-xcode.sh",
     "scripts/ci/xcode-pins.txt",
     ".xcode-version",
+    "cmux-next-ios/rust/scripts/build-xcframework.sh",
     "ghostty",
 )
 

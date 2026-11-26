@@ -558,6 +558,8 @@ export interface AccountEvent {
   signedIn: boolean;
   user?: string | null;
   team?: string | null;
+  /** Signed out: what Sign In signs in to ("Signs in to cmux.com"), made by the app; absent from an older host. */
+  signInBackend?: string | null;
 }
 
 /** `cloud.auth.status`: the host answers from its own sign-in. */
