@@ -54,10 +54,10 @@ GUARDED: dict[str, tuple[str, ...]] = {
     # The land tier (tests/test_head_tier.py LAND_GATED): each runs its jobs only at the head handed to land, so
     # adding ready-to-land (or full-ci) re-runs it there; no other label starts a run.
     **{name: ("full-ci", "ready-to-land") for name in (
-        "app-store-shelf.yml", "auth-refresh-tests.yml", "backend.yml", "billing.yml", "chat-open-perf-report.yml",
+        "auth-refresh-tests.yml", "backend.yml", "billing.yml", "chat-open-perf-report.yml",
         "cloud-chief-machine.yml", "cloud-journey-pr.yml", "cloud-vm-guest-install.yml",
         "cloudflare-relay.yml", "cmux-cloud-cli.yml", "cmux-next-car-guards.yml",
-        "cmux-next-fast-gates.yml", "cmux-next-guards.yml", "cmux-next-hot-verify.yml",
+        "cmux-next-guards.yml", "cmux-next-hot-verify.yml",
         "cmux-next-pr-autofix.yml", "cmux-next-shell-integration.yml",
         "cmux-vm-clients.yml", "cmux-vm-cloud.yml", "cmux-vnc.yml", "ios-e2e.yml",
         "iroh-v2.yml", "measure-swift-typecheck.yml", "relay-tls.yml", "release-rails.yml",

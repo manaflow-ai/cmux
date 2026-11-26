@@ -21,6 +21,8 @@ final class MacScreenCardView: MacScreenThemedView {
         var look = MacScreenViewerLook.current
         /// The session's link is up (read only by a full-pane look, whose connect steps name it).
         var linkConnected = false
+        /// The pane retries the card's failure on its own, so it offers no Try Again (``MacScreenPaneModel/retriesOnItsOwn(_:)``).
+        var retriesOnItsOwn = false
         /// The offline card's Start cmux on NAME and its run (``MacScreenDeviceSetupRow/none`` on every other card).
         var setup = MacScreenDeviceSetupRow.none
     }
@@ -115,6 +117,7 @@ final class MacScreenCardView: MacScreenThemedView {
     private func render() {
         let next = withObservationTracking { () -> Shown in
             var next = Shown(card: model.card, name: model.name, failedDetail: Self.failedDetail(model.card, model), look: model.viewerLook, setup: Self.setup(model))
+            next.retriesOnItsOwn = model.retriesOnItsOwn(next.card)
             if next.look.style.cardLayout == .fullPane { next.linkConnected = model.session?.linkConnected ?? false }
             return next
         } onChange: { [weak self] in
@@ -167,9 +170,16 @@ final class MacScreenCardView: MacScreenThemedView {
         }
     }
 
-    /// The failure's detail for `card`: the failed card's (``MacScreenPaneModel/failedDetail``), or
-    /// for a hub end that says the stream failed, the host's reason when it gave one; else empty.
+    /// The failure's detail for `card`: a retry's cover says the failure's as it was when it failed
+    /// (``MacScreenRetryCover``), else the state's (``stateFailedDetail(_:_:)``).
     static func failedDetail(_ card: MacScreenCard?, _ model: MacScreenPaneModel) -> String {
+        if let cover = model.retryCover, cover.card == card { return cover.detail }
+        return stateFailedDetail(card, model)
+    }
+
+    /// The failure's detail for `card` now: the failed card's (``MacScreenPaneModel/failedDetail``), or
+    /// for a hub end that says the stream failed, the host's reason when it gave one; else empty.
+    static func stateFailedDetail(_ card: MacScreenCard?, _ model: MacScreenPaneModel) -> String {
         switch card {
         case .failed?: model.failedDetail
         case .hubEnded(.failed)?, .hubRevoked(.failed)?: model.hubFailureDetail ?? ""
@@ -269,10 +279,11 @@ final class MacScreenCardView: MacScreenThemedView {
             // shown. Only a cause a side named (the host's reason, the link's) is, in failedDetail.
             title(L.t("macScreen.card.failedTitle", "Couldn’t connect"))
             reason(shown?.failedDetail ?? model.failedDetail, else: "")
-            buttons([closeTab(), primary(L.t("macScreen.card.retry", "Try Again"), hint: .return, id: "macScreen.card.retry") { $0.connect() }])
+            buttons(retryRow(card))
         case .ended:
             title(L.t("macScreen.card.endedTitle", "Disconnected"))
-            buttons([closeTab(), primary(L.t("macScreen.card.reconnect", "Reconnect"), hint: .return, id: "macScreen.card.reconnect") { $0.connect() }])
+            // retry-prompt-ok: retryRow drops the button whenever the pane retries on its own; it stays for an Ask permission (asking prompts the host's person)
+            buttons(retryRow(card, title: L.t("macScreen.card.reconnect", "Reconnect"), id: "macScreen.card.reconnect"))
         case .hubConnect, .hubRequesting, .hubWaiting, .hubDeclined, .hubRefused, .hubRevoked, .hubAccessLowered, .hubEnded:
             hubContent(card)
         }
@@ -298,6 +309,7 @@ final class MacScreenCardView: MacScreenThemedView {
         case let .hubDeclined(scope):
             title(L.t("macScreen.hub.declinedTitle", "Declined"))
             detail(String(format: L.t("macScreen.hub.declinedBody", "%@ declined your request."), name))
+            // retry-prompt-ok: the host's person declined; asking again prompts them again
             buttons([closeTab(), primary(L.t("macScreen.hub.askAgain", "Ask Again"), id: "macScreen.hub.askAgain") { $0.requestScope(scope) }])
         case let .hubRefused(refusal, requested):
             refusedContent(refusal, requested: requested)
@@ -308,6 +320,7 @@ final class MacScreenCardView: MacScreenThemedView {
             self.reason(hostReason, else: reason.text(host: name))
             var row = [closeTab()]
             if reason.canReconnect {
+                // retry-prompt-ok: the host revoked or changed this Mac's access; a new session is the person's choice
                 row.append(primary(L.t("macScreen.hub.connectAgain", "Connect Again"), id: "macScreen.hub.connectAgain") { $0.connect() })
             }
             buttons(row)
@@ -318,11 +331,9 @@ final class MacScreenCardView: MacScreenThemedView {
         case let .hubEnded(reason):
             title(reason.removesAccess ? L.t("macScreen.hub.revokedTitle", "Access Removed") : L.t("macScreen.card.endedTitle", "Disconnected"))
             self.reason(hostReason, else: reason.text(host: name))
-            var row = [closeTab()]
-            if reason.canReconnect {
-                row.append(primary(L.t("macScreen.card.reconnect", "Reconnect"), hint: .return, id: "macScreen.card.reconnect") { $0.connect() })
-            }
-            buttons(row)
+            // retry-prompt-ok: retryRow drops the button whenever the pane retries on its own; it stays for a person's own end, the host's Stop, or an Ask permission
+            buttons(reason.canReconnect ? retryRow(card, title: L.t("macScreen.card.reconnect", "Reconnect"), id: "macScreen.card.reconnect")
+                : [closeTab()])
         default:
             break
         }
@@ -351,21 +362,32 @@ final class MacScreenCardView: MacScreenThemedView {
             }
             var row: [NSView] = [closeTab()]
             if refusal == .notSignedIn {
-                // Not signed in: Sign In, the shared button every "sign in" place shows (msg 3790); Try Again
-                // asks once more after it.
-                row.append(MacScreenButton(L.t("macScreen.card.retry", "Try Again"), id: "macScreen.card.retry") { [weak self] in
-                    self?.actions.requestScope(requested)
-                })
+                // Not signed in: Sign In, the shared button every "sign in" place shows (msg 3790); the pane asks
+                // again on its own once it is signed in.
                 row.append(signInButton())
-            } else if refusal.canRetry, refusal == .hostOffline, setup.showsStart {
+            } else if refusal.canRetry, !model.retriesOnItsOwn(.hubRefused(refusal, requested: requested)), refusal == .hostOffline, setup.showsStart {
+                // retry-prompt-ok: the host's permission is Ask, so asking again prompts the person at that Mac
                 row.append(MacScreenButton(L.t("macScreen.card.retry", "Try Again"), id: "macScreen.card.retry") { [weak self] in
                     self?.actions.requestScope(requested)
                 })
-            } else if refusal.canRetry {
+            } else if refusal.canRetry, !model.retriesOnItsOwn(.hubRefused(refusal, requested: requested)) {
+                // retry-prompt-ok: the host's permission is Ask, so asking again prompts the person at that Mac
                 row.append(primary(L.t("macScreen.card.retry", "Try Again"), id: "macScreen.card.retry") { $0.requestScope(requested) })
             }
             buttons(row)
+            // Under the row: the backend this Sign In signs in to ("Signs in to cmux.com").
+            if refusal == .notSignedIn, let line = SignInButton.backendLineLabel(actions.signInBackend()) { stack.addArrangedSubview(line) }
         }
+    }
+
+    /// Close Tab, and the button that asks the hub again (`title`, Try Again by default) only when the pane does not
+    /// retry `card` on its own (``MacScreenPaneModel/retriesOnItsOwn(_:)``).
+    // retry-prompt-ok: returns Close Tab only whenever the pane retries on its own (retriesOnItsOwn); the button stays for an Ask permission
+    private func retryRow(_ card: MacScreenCard, title: String? = nil, id: String = "macScreen.card.retry") -> [NSView] {
+        guard !model.retriesOnItsOwn(card) else { return [closeTab()] }
+        // retry-prompt-ok: a person's own end, the host's Stop, or an Ask permission: asking again is their choice
+        let again = primary(title ?? L.t("macScreen.card.retry", "Try Again"), hint: .return, id: id) { $0.connect() }
+        return [closeTab(), again]
     }
 
     /// Start cmux on NAME (the daemon's `device-setup` start) and, once pressed, its steps.
@@ -417,7 +439,7 @@ final class MacScreenCardView: MacScreenThemedView {
         case .notSignedIn: L.t("macScreen.hub.signedOutBody", "Sign in to cmux to see your devices.")
         case let .other(reason?):
             String(format: L.t("macScreen.hub.otherBodyReason", "The device hub could not start the session: %@"), reason)
-        case .permissionNone, .scopeExceeds, .other: L.t("macScreen.hub.otherBody", "The device hub could not start the session. Try again.")
+        case .permissionNone, .scopeExceeds, .other: L.t("macScreen.hub.otherBody", "The device hub could not start the session.")
         }
     }
 
