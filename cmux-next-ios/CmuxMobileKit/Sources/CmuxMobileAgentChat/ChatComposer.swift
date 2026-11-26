@@ -133,7 +133,7 @@ struct ChatComposer: View {
         }
         // Files start for the Mac the moment they are picked, not at Send (AttachmentPrestager).
         .onChange(of: attachments.map(\.id), initial: true) { _, _ in
-            store.composerAttachmentsChanged(attachments)
+            syncPreparedAttachments()
         }
         .onChange(of: photoItems) { _, items in
             guard !items.isEmpty else { return }

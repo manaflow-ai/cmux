@@ -31,7 +31,10 @@ public final class TerminalModel {
             guard oldValue != nil, oldValue != hostMacID else { return }
             cancelAttachmentSend()
             attachmentPrestager.cancelAll()
-            syncAttachmentUploads()
+            // The old closure captures the previous Mac's id. Clear it before the
+            // new tab binding arrives, even when both Macs use the same folder.
+            uploaderDirectory = nil
+            uploader = nil
         }
     }
     /// The terminal theme the surface shows now (its card paints the same background); nil until
