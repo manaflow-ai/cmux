@@ -1133,6 +1133,15 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: ["CCmuxAppFFI"],
             swiftSettings: daemonSwiftSettings
         ),
+        // The focus machine's own tests (no app, no AppKit): they build and run on Linux too.
+        .testTarget(
+            name: "CmuxNextFocusTests",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
+                "CmuxNextFocus",
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
         .target(
             name: "CmuxNextWindowRules",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
@@ -3106,6 +3115,8 @@ let linuxTargetNames: Set<String> = [
     "CmuxNextCompat",
     "CmuxNextCompatTests",
     "CmuxNextCopyMode",
+    "CmuxNextFocus",
+    "CmuxNextFocusTests",
     "CmuxNextHostPressure",
     "CmuxNextHostPressureTests",
     "CmuxNextTerminalFind",
@@ -3113,7 +3124,13 @@ let linuxTargetNames: Set<String> = [
     "CmuxNextTerminalGeometryTests",
 ]
 
-let linuxTargets: [Target] = !targetsLinux ? [] : packageTargets.filter { linuxTargetNames.contains($0.name) }
+// CCmuxAppFFI on Linux: a system library over the crates' headers (LinuxAppFFI/module.modulemap, written by
+// scripts/ci/app_ffi_linux.py from build-app-ffi.sh's headers_in) and libcmux_app_ffi.a built for the host
+// (`app_ffi_linux.py build`, passed to swift build as -Xlinker -L DIR), in place of the xcframework.
+let linuxAppFFI: Target = .systemLibrary(name: "CCmuxAppFFI", path: "LinuxAppFFI")
+let linuxTargets: [Target] = !targetsLinux ? [] : packageTargets.filter {
+    linuxTargetNames.contains($0.name) && $0.name != appFFI.name
+} + [linuxAppFFI]
 
 let linuxPackageDependencies: [Package.Dependency] = [
     .package(path: "../../Shared/CmuxEgress"),
