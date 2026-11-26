@@ -61,8 +61,6 @@ import {
   type CloudEnvironmentsState,
   type LibraryListing,
   type LibraryRun,
-  type LooksRun,
-  type Standup,
   type SharesState,
   type TailnetState,
   type DevicesRun,
@@ -95,8 +93,6 @@ import {
   type AgentToolsCardState,
   type McpServersRun,
   type McpServersState,
-  type HubRun,
-  type HubState,
   type RowNoteData,
   type AgentSkillsRun,
   type AgentSkillsState,
@@ -106,9 +102,13 @@ import {
   type AgentHooksState,
   type AgentConfigAnswer,
   type AgentConfigRun,
+  type HubRun,
+  type HubState,
   type AccountsRunReply,
   type DoctorReport,
   type DoctorRun,
+  type LooksRun,
+  type Standup,
   type ArchivedRun,
   type ArchivedState,
   type ConnectionsRun,
@@ -826,6 +826,11 @@ export class SettingsStore {
   /** The host's calls for Agents > Chiefs (`cmux.chief.profile.*`, `cmux.chief.backend.*`): the
    * Chief editor reaches the Chief owner through the host's page relay, as Home does. */
   readonly chiefCalls = {
+    call: <R>(op: string, params: unknown): Promise<R> => this.client.call<R>(op, params),
+  };
+
+  /** The Slack row owns its TS state; the host forwards authenticated Cloud requests only. */
+  readonly slackCalls = {
     call: <R>(op: string, params: unknown): Promise<R> => this.client.call<R>(op, params),
   };
 
