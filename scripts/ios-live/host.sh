@@ -176,13 +176,10 @@ ensure_xcodegen() {
   local d="$tools_root/xcodegen-$xcodegen_version"
   xcodegen="$d/xcodegen/bin/xcodegen"
   [[ -x "$xcodegen" ]] && return 0
-  # Unzipped beside the final folder and renamed in, so a failed or concurrent download leaves no half tree.
+  # Fetched beside the final folder and renamed in, so a failed or concurrent download leaves no half tree.
   local tmp; tmp="$(mktemp -d "$tools_root/.xcodegen.XXXXXX")"
-  curl -fsSL --retry 3 --retry-all-errors -o "$tmp/xcodegen.zip" \
-    "https://github.com/yonaskolb/XcodeGen/releases/download/$xcodegen_version/xcodegen.zip" \
-    || { rm -rf "$tmp"; die "could not download xcodegen $xcodegen_version from GitHub releases"; }
-  [[ "$(shasum -a 256 "$tmp/xcodegen.zip" | awk '{print $1}')" == "$xcodegen_sha256" ]] || { rm -rf "$tmp"; die "xcodegen checksum mismatch"; }
-  unzip -q "$tmp/xcodegen.zip" -d "$tmp"
+  bash "$src/scripts/ci/fetch-xcodegen.sh" "$xcodegen_version" "$xcodegen_sha256" "$tmp" >/dev/null \
+    || { rm -rf "$tmp"; die "xcodegen fetch failed"; }
   mv "$tmp" "$d" 2>/dev/null || rm -rf "$tmp"
   [[ -x "$xcodegen" ]] || die "no xcodegen binary at $xcodegen"
 }
