@@ -126,11 +126,6 @@ typedef struct {
 } CmuxScreenshotsEnvironment;
 
 /*
- The ABI version of this library.
- */
-uint32_t cmux_screenshots_abi_version(void);
-
-/*
  Frees a string this library returned; null does nothing.
 
  # Safety
@@ -154,19 +149,6 @@ bool cmux_screenshots_page_matches(const uint8_t *url, size_t url_len);
  `key` is null or `key_len` readable bytes.
  */
 bool cmux_screenshots_looks_like_folder_key(const uint8_t *key, size_t key_len);
-
-/*
- The string value of `key` in a settings file's `text` (format 1 ini, 2 json); null when
- missing, empty or the format is unknown.
-
- # Safety
- `key` and `text` are null or their lengths' readable bytes.
- */
-char *cmux_screenshots_settings_value(uint32_t format,
-                                      const uint8_t *key,
-                                      size_t key_len,
-                                      const uint8_t *text_ptr,
-                                      size_t text_len);
 
 /*
  The name of an image dropped as data, from the local time it was saved.

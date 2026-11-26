@@ -13,7 +13,6 @@ use crate::gate::Gate;
 use crate::listing::{Item, Listing};
 use crate::reader::{self, Entry, EntryKind};
 use crate::rule::{MediaKind, ScanRule};
-use crate::settings::SettingsFormat;
 use crate::{names, page};
 use std::collections::HashSet;
 use std::ffi::{CString, c_char, c_void};
@@ -123,12 +122,6 @@ fn out(value: Option<String>) -> *mut c_char {
     value.and_then(|v| CString::new(v).ok()).map_or(std::ptr::null_mut(), CString::into_raw)
 }
 
-/// The ABI version of this library.
-#[unsafe(no_mangle)]
-pub extern "C" fn cmux_screenshots_abi_version() -> u32 {
-    CMUX_SCREENSHOTS_ABI_VERSION
-}
-
 /// Frees a string this library returned; null does nothing.
 ///
 /// # Safety
@@ -165,26 +158,6 @@ pub unsafe extern "C" fn cmux_screenshots_looks_like_folder_key(
     // SAFETY: caller contract.
     let key = unsafe { text(key, key_len) };
     guard(false, || looks_like_folder_key(&key))
-}
-
-/// The string value of `key` in a settings file's `text` (format 1 ini, 2 json); null when
-/// missing, empty or the format is unknown.
-///
-/// # Safety
-/// `key` and `text` are null or their lengths' readable bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn cmux_screenshots_settings_value(
-    format: u32,
-    key: *const u8,
-    key_len: usize,
-    text_ptr: *const u8,
-    text_len: usize,
-) -> *mut c_char {
-    // SAFETY: caller contract.
-    let (key, body) = unsafe { (text(key, key_len), text(text_ptr, text_len)) };
-    guard(std::ptr::null_mut(), || {
-        out(SettingsFormat::from_raw(format).and_then(|f| f.value(&key, &body)))
-    })
 }
 
 /// The name of an image dropped as data, from the local time it was saved.
@@ -783,7 +756,6 @@ mod tests {
 
     #[test]
     fn small_functions_answer() {
-        assert_eq!(cmux_screenshots_abi_version(), CMUX_SCREENSHOTS_ABI_VERSION);
         let url = "CMUX://screenshots";
         // SAFETY: valid bytes.
         assert!(unsafe { cmux_screenshots_page_matches(url.as_ptr(), url.len()) });
@@ -792,21 +764,6 @@ mod tests {
         let key = "exportPath";
         // SAFETY: valid bytes.
         assert!(unsafe { cmux_screenshots_looks_like_folder_key(key.as_ptr(), key.len()) });
-        let (k, t) = ("savePath", "savePath = /a ");
-        // SAFETY: valid bytes.
-        assert_eq!(
-            take(unsafe {
-                cmux_screenshots_settings_value(1, k.as_ptr(), k.len(), t.as_ptr(), t.len())
-            }),
-            Some("/a".into())
-        );
-        // SAFETY: valid bytes.
-        assert_eq!(
-            take(unsafe {
-                cmux_screenshots_settings_value(9, k.as_ptr(), k.len(), t.as_ptr(), t.len())
-            }),
-            None
-        );
         assert_eq!(
             take(cmux_screenshots_dropped_name(2026, 11, 26, 9, 5, 3)),
             Some("Dropped Image 2026-11-26 at 09.05.03.png".into())
