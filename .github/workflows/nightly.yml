@@ -2233,6 +2233,7 @@ jobs:
           fetch_retry="$RUNNER_TEMP/git_fetch_retry.py"
           rm -f "$fetch_retry"
           fetch_header="$RUNNER_TEMP/warm-checkout-auth-header"
+          trap 'rm -f "$fetch_header"' EXIT
           (umask 077; printf 'Authorization: Bearer %s\n' "$FETCH_TOKEN" > "$fetch_header")
           git show "$WORKFLOW_SHA:scripts/ci/git_fetch_retry.py" > "$fetch_retry" 2>/dev/null \
             || curl -fsS --max-time 30 --retry 3 --retry-all-errors -H @"$fetch_header" -o "$fetch_retry" \
