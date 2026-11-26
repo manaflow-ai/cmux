@@ -80,4 +80,24 @@ import Testing
         }
         #expect(view.decodedPicture === picture)
     }
+
+    /// A picture keeps its own pixels per point, not the window's: one taken on a display of another scale, or a
+    /// hover card thumbnail standing in for a page with no full-size frame, is drawn over the page area it pictures.
+    @Test func aPictureIsDrawnAtItsOwnScaleNotTheWindows() throws {
+        let host = NSView(frame: .zero)
+        let window = Self.window(showing: host)
+        defer { window.close() }
+        // A picture of this pane at 1 pixel per point, on any display.
+        let single = BrowserPictureView(decoded: try Self.picture(points: Self.pane, scale: 1), scale: 1)
+        host.addSubview(single)
+        single.frame = host.bounds
+        #expect(single.layer?.contentsScale == 1)
+        #expect(try Self.rendered(single).alphaAt(CGPoint(x: 398, y: 298)) == 255, "a 1x picture of the pane does not cover it")
+        // A 320 px thumbnail of the 400 pt pane: 0.8 pixels per point, filling it.
+        let thumbnail = try Self.picture(points: CGSize(width: 320, height: 240), scale: 1)
+        let small = BrowserPictureView(picture: { thumbnail }, scale: { 0.8 })
+        host.addSubview(small)
+        small.frame = host.bounds
+        #expect(small.pixelsPerPoint == 0.8)
+    }
 }

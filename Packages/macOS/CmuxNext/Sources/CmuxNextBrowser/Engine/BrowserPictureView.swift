@@ -9,14 +9,16 @@ import AppKit
 /// first frame and keeps them for its short life: decoding again would leave it empty for the
 /// first frames, the blank frame the stand-in exists to remove.
 ///
-/// The picture is drawn top-left at its own size, one picture pixel per window backing pixel, never
-/// stretched to the pane, as a Chromium page shows its last frame while its pane changes size and as
+/// The picture is drawn top-left at its own size (its pixels over its own pixels per point, the backing
+/// scale of the page area it was taken of; the window's when unknown), never stretched to the pane, as a Chromium page shows its last frame while its pane changes size and as
 /// an agent pane draws its launch image (`PaneContentView.showLaunchImage`). Stretched to the pane
 /// (cmux#57419), a picture taken at another pane size drew the page's text at the wrong size, and a
 /// picture with fewer pixels than the pane (a 640 px hover card thumbnail) drew it blurry until the
 /// page painted.
 final class BrowserPictureView: NSView {
     private let picture: @MainActor () -> CGImage?
+    /// The picture's own pixels per point; nil: the window's backing scale.
+    private let pictureScale: @MainActor () -> CGFloat?
     /// Pixels decoded before the view was made; shown at once and never dropped.
     private let ready: CGImage?
     private var decoding: Task<Void, Never>?
@@ -26,16 +28,18 @@ final class BrowserPictureView: NSView {
     /// a hibernated tab's wake is timed to it (`HibernationWakes` `picture_ms`).
     var onShown: (@MainActor () -> Void)?
 
-    init(picture: @escaping @MainActor () -> CGImage?) {
+    init(picture: @escaping @MainActor () -> CGImage?, scale: @escaping @MainActor () -> CGFloat? = { nil }) {
         self.picture = picture
+        pictureScale = scale
         ready = nil
         super.init(frame: .zero)
         configureLayer()
     }
 
     /// A view showing `decoded` (pixels already drawn into a bitmap) from its first frame, in or out of a window.
-    init(decoded: CGImage) {
+    init(decoded: CGImage, scale: CGFloat? = nil) {
         picture = { decoded }
+        pictureScale = { scale }
         ready = decoded
         super.init(frame: .zero)
         configureLayer()
@@ -51,15 +55,21 @@ final class BrowserPictureView: NSView {
         layerContentsRedrawPolicy = .never
         layer?.contentsGravity = .topLeft
         layer?.contentsScale = pixelsPerPoint
+        layer?.actions = ["contents": NSNull(), "contentsScale": NSNull()]
     }
 
-    /// The window's backing scale: a page picture holds the device pixels of the page area it was taken of.
-    /// Out of a window, the main screen's (2 when none).
+    /// The picture's own pixels per point when known (a picture of a page area on another display, one scaled down
+    /// to a pixel budget, or a hover card thumbnail); else the window's backing scale, the device pixels of the page
+    /// area a page picture holds. Out of a window, the main screen's (2 when none).
     var pixelsPerPoint: CGFloat {
-        window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        if let scale = pictureScale(), scale > 0, scale.isFinite { return scale }
+        return window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
     }
 
     override var isOpaque: Bool { false }
+    /// The layer's contents are set directly; AppKit never draws the view.
+    override var wantsUpdateLayer: Bool { true }
+    override func updateLayer() {}
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)

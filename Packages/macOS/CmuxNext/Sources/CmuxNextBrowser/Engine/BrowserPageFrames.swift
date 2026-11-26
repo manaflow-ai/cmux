@@ -37,6 +37,11 @@ package final class BrowserPageFrames {
     private var work: BackgroundWork?
     /// The last run's pictures, compressed, by tab key; nil until the launch read ended.
     private var saved: [String: Data]?
+    /// The pixels per point of each of the last run's pictures (its file name's), by tab key.
+    private var savedScales: [String: Int] = [:]
+    /// Pictures saved in this run whose file is not written yet: ``lastFrame(_:)`` hands them out before the file,
+    /// so a read never finds the picture this one replaces (cmux#57419 review: the read's lane can run first).
+    private var pending: [String: (image: CGImage, scale: Int)] = [:]
     /// Set at quit before its own writes: no write or removal posted earlier lands after them.
     private let stopped = StopFlag()
     /// The tabs with a picture in the folder: the last run's the launch read, and each saved in this run (handed out
@@ -68,10 +73,11 @@ package final class BrowserPageFrames {
         guard let directory else { saved = [:]; return Task {} }
         let capacity = capacity
         return Task { [weak self] in
-            let read = (try? await work.run(.userVisible, mayBlock: .files) { Self.readAll(in: directory, capacity: capacity) }) ?? [:]
+            let frames = (try? await work.run(.userVisible, mayBlock: .files) { Self.readFrames(in: directory, capacity: capacity) }) ?? [:]
             guard let self else { return }
             // A picture saved or removed in this run meanwhile is newer than the read's.
-            let removed = removedDuringRead
+            let removed = removedDuringRead, read = frames.mapValues(\.data)
+            savedScales = frames.mapValues(\.scale)
             saved = read.merging(saved ?? [:]) { _, current in current }.filter { !$0.value.isEmpty }
             keys.formUnion(read.keys.filter { !removed.contains($0) })
             removedDuringRead = []
@@ -86,20 +92,28 @@ package final class BrowserPageFrames {
 
     /// `key`'s picture from the last run (decoded when first drawn), handed out once; nil when it has none or the
     /// launch read has not ended.
-    package func take(_ key: String) -> CGImage? {
+    package func take(_ key: String) -> CGImage? { takeFrame(key)?.image }
+
+    /// ``take(_:)`` with the picture's pixels per point (the page area's backing scale when it was taken).
+    package func takeFrame(_ key: String) -> (image: CGImage, scale: Int)? {
         guard let data = saved?[key], !data.isEmpty else { return nil }
         saved?[key] = nil
-        return Self.image(data)
+        return Self.image(data).map { ($0, savedScales[key] ?? 2) }
     }
 
     /// `key`'s last picture without handing it out: the last run's while it was not handed out, else its file, read
     /// off the main thread; nil when it has none. For the phones' tab overview, which needs a picture of a tab whose
     /// page has none to give (not made since the relaunch, or its pictures in memory went).
-    package func lastPicture(_ key: String) async -> CGImage? {
-        if let data = saved?[key], !data.isEmpty { return Self.image(data) }
+    package func lastPicture(_ key: String) async -> CGImage? { await lastFrame(key)?.image }
+
+    /// ``lastPicture(_:)`` with its pixels per point and, when read from its file, its compressed bytes (nil for a
+    /// picture of this run whose file is not written yet, handed out as it was saved).
+    package func lastFrame(_ key: String) async -> (image: CGImage, data: Data?, scale: Int)? {
+        if let picture = pending[key] { return (picture.image, nil, picture.scale) }
+        if let data = saved?[key], !data.isEmpty { return Self.image(data).map { ($0, data, savedScales[key] ?? 2) } }
         guard keys.contains(key), let directory, let work, LaunchFrameFiles.isFileSafe(key) else { return nil }
-        guard let data = try? await work.run(.bestEffort, mayBlock: .files, { Self.read(key, in: directory) }) else { return nil }
-        return Self.image(data)
+        guard let file = try? await work.run(.bestEffort, mayBlock: .files, { Self.readFrame(key, in: directory) }) else { return nil }
+        return Self.image(file.data).map { ($0, file.data, file.scale) }
     }
 
     private nonisolated static func image(_ data: Data) -> CGImage? {
@@ -113,9 +127,13 @@ package final class BrowserPageFrames {
         guard let directory, let work, LaunchFrameFiles.isFileSafe(key), !stopped.isSet else { return }
         saved?[key] = Data()
         keys.insert(key)
+        pending[key] = (image, scale)
         let capacity = capacity, stopped = stopped
-        work.post(.bestEffort, mayBlock: .files) {
-            guard let data = Self.encoded(image), !stopped.isSet else { return }
+        work.post(.bestEffort, mayBlock: .files) { [weak self] in
+            defer { MainDelivery().run { if self?.pending[key]?.image === image { self?.pending[key] = nil } } }
+            guard !stopped.isSet else { return }
+            // A picture that cannot be written takes the older one with it: no read finds a picture this one replaced.
+            guard let data = Self.encoded(image) else { return Self.removeAll(of: key, in: directory) }
             Self.write(data, key: key, scale: scale, to: directory, capacity: capacity)
         }
     }
@@ -125,6 +143,7 @@ package final class BrowserPageFrames {
         guard let directory, let work, !stopped.isSet else { return }
         saved?[key] = nil
         keys.remove(key)
+        pending[key] = nil
         if saved == nil { removedDuringRead.insert(key) }
         let stopped = stopped
         work.post(.bestEffort, mayBlock: .files) {
@@ -157,21 +176,30 @@ package final class BrowserPageFrames {
 
     /// Every saved picture's bytes in `directory`, newest first, until `capacity` bytes.
     package nonisolated static func readAll(in directory: URL, capacity: Int) -> [String: Data] {
-        var pictures: [String: Data] = [:]
+        readFrames(in: directory, capacity: capacity).mapValues(\.data)
+    }
+
+    /// ``readAll(in:capacity:)`` with each picture's pixels per point (its file name's).
+    package nonisolated static func readFrames(in directory: URL, capacity: Int) -> [String: (data: Data, scale: Int)] {
+        var pictures: [String: (data: Data, scale: Int)] = [:]
         var total = 0
         for file in files(in: directory) where pictures[file.key] == nil {
             guard total + file.size <= capacity, file.size <= maximumBytes,
                   let data = try? Data(blockingContentsOf: directory.appending(path: file.name)) else { continue }
-            pictures[file.key] = data
+            pictures[file.key] = (data, LaunchFrameFiles.scale(of: file.name) ?? 2)
             total += data.count
         }
         return pictures
     }
 
     /// The bytes of `key`'s newest picture file in `directory`; nil when it has none or it is too large.
-    package nonisolated static func read(_ key: String, in directory: URL) -> Data? {
-        guard let file = files(in: directory).first(where: { $0.key == key }), file.size <= maximumBytes else { return nil }
-        return try? Data(blockingContentsOf: directory.appending(path: file.name))
+    package nonisolated static func read(_ key: String, in directory: URL) -> Data? { readFrame(key, in: directory)?.data }
+
+    /// ``read(_:in:)`` with the picture's pixels per point (its file name's).
+    package nonisolated static func readFrame(_ key: String, in directory: URL) -> (data: Data, scale: Int)? {
+        guard let file = files(in: directory).first(where: { $0.key == key }), file.size <= maximumBytes,
+              let data = try? Data(blockingContentsOf: directory.appending(path: file.name)) else { return nil }
+        return (data, LaunchFrameFiles.scale(of: file.name) ?? 2)
     }
 
     /// Writes `key`'s picture, removes its others, then the least recently written pictures past `capacity`.

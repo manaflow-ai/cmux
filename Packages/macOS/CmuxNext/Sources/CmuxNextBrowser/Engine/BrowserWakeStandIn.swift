@@ -19,7 +19,17 @@ public import CoreGraphics
     ///   - cap: The longest the picture may stand in for the page: a page that paints late must
     ///     not look frozen.
     ///   - clock: The clock the cap runs on (tests advance a manual one).
+    ///   - scale: `picture`'s pixels per point, so it is drawn at its own size (`BrowserPictureView`); nil: the
+    ///     window's backing scale.
     /// - Returns: False when the page cannot show a stand-in now (nothing covers it).
     @discardableResult
-    func showStandIn(_ picture: CGImage, decoded: Bool, cap: Duration, clock: any Clock<Duration>) -> Bool
+    func showStandIn(_ picture: CGImage, decoded: Bool, cap: Duration, clock: any Clock<Duration>, scale: CGFloat?) -> Bool
+}
+
+extension BrowserWakeStandIn {
+    /// ``showStandIn(_:decoded:cap:clock:scale:)`` drawn at the window's backing scale.
+    @discardableResult
+    public func showStandIn(_ picture: CGImage, decoded: Bool, cap: Duration, clock: any Clock<Duration>) -> Bool {
+        showStandIn(picture, decoded: decoded, cap: cap, clock: clock, scale: nil)
+    }
 }

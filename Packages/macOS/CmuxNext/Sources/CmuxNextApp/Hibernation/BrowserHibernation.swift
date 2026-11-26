@@ -800,7 +800,7 @@ final class BrowserHibernation {
         let page = entry.tab
         let placeholder = HibernatedBrowserTab(
             id: page.id, engine: page.engineKind, profile: page.profileID, state: page.state,
-            favicon: page.favicon, restoreState: saved.state, snapshot: { [weak self] in self?.snapshots.image(for: key) }
+            favicon: page.favicon, restoreState: saved.state, snapshot: { [weak self] in self?.snapshots.image(for: key) }, snapshotScale: { [weak self] in self?.snapshots.scale(for: key) }
         )
         placeholder.onWake = { [weak self] wake in self?.wakeForNavigation(key, wake) }
         placeholder.onPictureShown = { [weak self] in self?.wakeLog.pictureShown(key) }

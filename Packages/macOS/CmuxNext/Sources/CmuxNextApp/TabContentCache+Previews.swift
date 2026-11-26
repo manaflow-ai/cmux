@@ -125,16 +125,16 @@ extension TabContentCache {
     /// The stand-in page of restored Chromium tab `tab` while its page is made; nil for a tab opened here.
     func restoringStandIn(_ tab: TabModel, url: URL?) -> DeferredBrowserTab? {
         guard !browserTabs.wasOpenedHere(tab), browsers[tab.id] == nil else { return nil }
-        let page = DeferredBrowserTab(id: BrowserTabID(rawValue: tab.id), engine: .cef, profile: browserProfile?(tab.id) ?? .default, url: url,
-                                      title: tab.titleText.isEmpty ? nil : tab.titleText, picture: pageFrames?.take(tab.id), restoresPage: true)
+        let frame = pageFrames?.takeFrame(tab.id), page = DeferredBrowserTab(id: BrowserTabID(rawValue: tab.id), engine: .cef, profile: browserProfile?(tab.id) ?? .default, url: url,
+            title: tab.titleText.isEmpty ? nil : tab.titleText, picture: frame?.image, pictureScale: frame.map { CGFloat($0.scale) }, restoresPage: true) // at its own size (cmux#57419)
         install(page, for: tab.id)
         return page
     }
 
     /// A restored tab's page made now (WebKit): its last picture covers it until it paints.
     func coverRestored(_ entry: BrowserEntry, _ tab: TabModel) -> BrowserEntry {
-        if !browserTabs.wasOpenedHere(tab), let picture = pageFrames?.take(tab.id) {
-            (entry.tab as? any BrowserWakeStandIn)?.showStandIn(picture, decoded: true, cap: Self.relaunchStandInCap, clock: ContinuousClock())
+        if !browserTabs.wasOpenedHere(tab), let frame = pageFrames?.takeFrame(tab.id) {
+            (entry.tab as? any BrowserWakeStandIn)?.showStandIn(frame.image, decoded: true, cap: Self.relaunchStandInCap, clock: ContinuousClock(), scale: CGFloat(frame.scale))
         }
         return entry
     }

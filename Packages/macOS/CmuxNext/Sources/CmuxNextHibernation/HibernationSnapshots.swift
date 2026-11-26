@@ -41,14 +41,18 @@ package final class HibernationSnapshots {
     /// File writes and deletions not yet done (`settled()`).
     private var pending: [UInt64: Task<Void, Never>] = [:]
 
-    /// One page's picture: `data` is the JPEG or PNG, `image` decodes from it.
+    /// One page's picture: `data` is the JPEG or PNG, `image` decodes from it. `scale`: its pixels per point (the
+    /// page area it pictures is `image.width / scale` points wide), so it is drawn at its own size (cmux#57419); nil
+    /// when unknown (drawn at the window's backing scale).
     package nonisolated struct Picture: Sendable {
         package let data: Data
         package let image: CGImage
+        package var scale: CGFloat?
 
-        package init(data: Data, image: CGImage) {
+        package init(data: Data, image: CGImage, scale: CGFloat? = nil) {
             self.data = data
             self.image = image
+            self.scale = scale
         }
     }
 
@@ -57,6 +61,7 @@ package final class HibernationSnapshots {
         let token: UInt64
         let bytes: Int
         var stored: Stored
+        var scale: CGFloat?
     }
 
     private enum Stored {
@@ -97,6 +102,9 @@ package final class HibernationSnapshots {
         return url
     }
 
+    /// The pixels per point of `key`'s picture (``Picture/scale``); nil when it has none or it is unknown.
+    package func scale(for key: String) -> CGFloat? { entries[key]?.scale }
+
     package func image(for key: String) -> CGImage? {
         guard let entry = entries[key] else { return nil }
         let image: CGImage
@@ -122,7 +130,7 @@ package final class HibernationSnapshots {
         remove(key)
         nextToken += 1
         let token = nextToken
-        entries[key] = Entry(token: token, bytes: cost, stored: .memory(picture))
+        entries[key] = Entry(token: token, bytes: cost, stored: .memory(picture), scale: picture.scale)
         order.append(key)
         totalBytes += cost
         memoryBytes += cost
@@ -196,6 +204,18 @@ package final class HibernationSnapshots {
     /// with a transparent background); nil when ImageIO cannot encode it.
     package nonisolated static func compress(_ image: CGImage, quality: Double = 0.8) async -> Picture? {
         await Task.detached(priority: .userInitiated) { compressed(image, quality: quality) }.value
+    }
+
+    /// The picture of a page area `points` wide: `image` compressed (``compress(_:quality:)``, which may scale it
+    /// down), or kept as the compressed `data` it decodes from, with its pixels per point (`scale`, else its pixels
+    /// over `points`; unknown when `points` is not positive), so it is drawn at the page area's size, sharp when it
+    /// has the pixels for it and never stretched past that size (cmux#57419).
+    package nonisolated static func picture(of image: CGImage, data: Data? = nil, scale: CGFloat? = nil, pointsWide points: CGFloat) async -> Picture? {
+        let made: Picture? = if let data { Picture(data: data, image: image) } else { await compress(image) }
+        guard var picture = made else { return nil }
+        if let scale { picture.scale = scale * CGFloat(picture.image.width) / CGFloat(max(image.width, 1)) }
+        else if points > 0 { picture.scale = CGFloat(picture.image.width) / points }
+        return picture
     }
 
     package nonisolated static func compressed(_ image: CGImage, quality: Double) -> Picture? {

@@ -32,6 +32,9 @@ public final class HibernatedBrowserTab: BrowserTab {
     /// picture still decodes. A wake hands them to the new page's stand-in
     /// (`BrowserWakeStandIn`), which then needs no decode of its own.
     public var shownPicture: CGImage? { pictureView.decodedPicture }
+    /// The snapshot's pixels per point (`BrowserPictureView`); nil: the window's backing scale.
+    public var snapshotScale: CGFloat? { snapshotScaleSource() }
+    private let snapshotScaleSource: @MainActor () -> CGFloat?
     @ObservationIgnored private let pictureView: BrowserPictureView
     /// Called when the pane, showing this placeholder, got the last frame's decoded pixels: the
     /// host times a wake's last frame to it.
@@ -53,7 +56,8 @@ public final class HibernatedBrowserTab: BrowserTab {
     @ObservationIgnored public let contentView: NSView
 
     public init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, state: BrowserTabState,
-                favicon: NSImage?, restoreState: BrowserRestoreState, snapshot: @escaping @MainActor () -> CGImage?) {
+                favicon: NSImage?, restoreState: BrowserRestoreState, snapshot: @escaping @MainActor () -> CGImage?,
+                snapshotScale: @escaping @MainActor () -> CGFloat? = { nil }) {
         self.id = id
         self.engineKind = engine
         self.profileID = profile
@@ -70,7 +74,8 @@ public final class HibernatedBrowserTab: BrowserTab {
         self.favicon = favicon
         self.restoreState = restoreState
         self.snapshotSource = snapshot
-        pictureView = BrowserPictureView(picture: snapshot)
+        snapshotScaleSource = snapshotScale
+        pictureView = BrowserPictureView(picture: snapshot, scale: snapshotScale)
         contentView = pictureView
     }
 

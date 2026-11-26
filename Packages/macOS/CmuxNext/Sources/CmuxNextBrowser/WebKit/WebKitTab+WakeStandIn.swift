@@ -8,11 +8,11 @@ import CmuxNextWakeups
 /// the web content process ends, or the tab closes.
 extension WebKitTab: BrowserWakeStandIn {
     @discardableResult
-    public func showStandIn(_ picture: CGImage, decoded: Bool, cap: Duration, clock: any Clock<Duration>) -> Bool {
+    public func showStandIn(_ picture: CGImage, decoded: Bool, cap: Duration, clock: any Clock<Duration>, scale: CGFloat?) -> Bool {
         guard !isClosed else { return false }
         removeStandIn()
         // Pixels already decoded cover the page from the swap's first frame.
-        let view = decoded ? BrowserPictureView(decoded: picture) : BrowserPictureView(picture: { picture })
+        let view = decoded ? BrowserPictureView(decoded: picture, scale: scale) : BrowserPictureView(picture: { picture }, scale: { scale })
         view.frame = container.bounds
         view.autoresizingMask = [.width, .height]
         container.addSubview(view, positioned: .above, relativeTo: webView)

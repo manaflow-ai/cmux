@@ -10,10 +10,10 @@ import CmuxNextWakeups
 /// cap, and when the tab closes.
 extension CEFTab: BrowserWakeStandIn {
     @discardableResult
-    public func showStandIn(_ picture: CGImage, decoded: Bool, cap: Duration, clock: any Clock<Duration>) -> Bool {
+    public func showStandIn(_ picture: CGImage, decoded: Bool, cap: Duration, clock: any Clock<Duration>, scale: CGFloat?) -> Bool {
         guard !isClosed else { return false }
         removeStandIn()
-        let view = decoded ? BrowserPictureView(decoded: picture) : BrowserPictureView(picture: { picture })
+        let view = decoded ? BrowserPictureView(decoded: picture, scale: scale) : BrowserPictureView(picture: { picture }, scale: { scale })
         // The container places it on the page area (`CEFTabContentView.layoutContent`), as it places the page.
         view.frame = container.bounds
         container.addSubview(view, positioned: .above, relativeTo: nil)

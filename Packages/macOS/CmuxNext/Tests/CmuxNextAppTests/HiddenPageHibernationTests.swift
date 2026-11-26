@@ -190,9 +190,10 @@ import CmuxNextTestSupport
     /// earlier URL from a dropped leave picture.
     ///
     /// cmux#57419: the leave picture it sleeps behind is the page at its full size (the frame the same capture wrote
-    /// to disk, `BrowserPageFrames`), never the 640 px hover card thumbnail, which drew the page blurry over the whole
-    /// pane until the woken page painted. A page with no full-size frame (`missing`: the frames' budget dropped it, or
-    /// an incognito page's never written) sleeps with none rather than behind the thumbnail.
+    /// to disk, `BrowserPageFrames`, even while its write is still queued), with its pixels per point, never the 640 px
+    /// hover card thumbnail, which drew the page blurry over the whole pane until the woken page painted. Only a page
+    /// with no full-size frame (`missing`: the frames' budget dropped it, or an incognito page's never written) falls
+    /// back to the thumbnail, at its own scale (it fills the page area, as before, rather than none).
     @Test(arguments: ["current", "retitled", "stale", "missing"])
     func aPageWithNoPictureOfItsOwnHibernatesBehindItsCurrentFullSizeLeaveFrameOnly(state: String) async throws {
         let current = state == "current" || state == "retitled"
@@ -209,11 +210,9 @@ import CmuxNextTestSupport
         let key = try await rig.hide(page)
         try await rig.until("the leave capture ended") { cache.pageCapturesInFlight.isEmpty }
         // The leave capture: the page at its full size on disk, its hover card thumbnail in memory.
+        // Not awaited on disk: hibernation must find the frame even while its write is still queued.
         let frame = try Self.picture(shade: 0.6, width: 1600, height: 1000)
-        frames.save(frame, for: key)
-        try await rig.until("the leave frame is on disk") {
-            BrowserPageFrames.read(key, in: framesFolder).flatMap { NSBitmapImageRep(data: $0)?.pixelsWide } == 1600
-        }
+        frames.save(frame, for: key, scale: 2)
         let thumbnail = try Self.picture(shade: 0.3, width: 640, height: 400)
         cache.pageThumbnails.insert(thumbnail, for: key)
         cache.pageThumbnailVersions[key] = state == "current" ? page.state.pictureVersion : page.state.pictureVersion &+ 1
@@ -224,15 +223,20 @@ import CmuxNextTestSupport
         rig.hibernation.replan()
         try await rig.until("the page hibernated") { rig.isHibernated(key) || rig.exemption(key) != nil }
         try #require(rig.isHibernated(key))
-        let snapshot = (cache.browsers[key]?.tab as? HibernatedBrowserTab)?.snapshotImage
+        let asleep = cache.browsers[key]?.tab as? HibernatedBrowserTab
+        let snapshot = asleep?.snapshotImage
         if current {
             #expect(snapshot?.width == 1600 && snapshot?.height == 1000,
                     "a hibernated page slept behind \(snapshot.map { "a \($0.width) x \($0.height) picture" } ?? "no picture"), not its full-size leave frame")
+            #expect(asleep?.snapshotScale == 2, "the frame's pixels per point were lost: it would draw at the window's scale")
             #expect(rig.hibernation.snapshots.missing.isEmpty, "a page that kept its picture was counted as missing one")
+        } else if state == "missing" {
+            #expect(snapshot?.width == 640, "a page with no full-size frame slept blank instead of behind its thumbnail")
+            let width = page.contentView.bounds.width
+            if width > 0 { #expect(abs((asleep?.snapshotScale ?? 0) - 640 / width) < 0.01, "the thumbnail is not drawn over the page area it pictures") }
         } else {
-            #expect(snapshot == nil, "a page hibernated behind a picture of an earlier URL, or behind its hover card thumbnail")
-            let reason = state == "stale" ? "url_moved" : "leave_frame_missing"
-            #expect(Set(rig.hibernation.snapshots.missing.keys) == [reason], "a blank sleep was not counted by its cause")
+            #expect(snapshot == nil, "a page hibernated behind a picture of an earlier URL")
+            #expect(Set(rig.hibernation.snapshots.missing.keys) == ["url_moved"], "a blank sleep was not counted by its cause")
         }
     }
 

@@ -24,8 +24,10 @@ public final class DeferredBrowserTab: BrowserTab {
     /// Called once, with the URL to open, when the user asks for the page.
     @ObservationIgnored public var onStart: ((URL?) -> Void)?
     @ObservationIgnored public let contentView: NSView
-    /// The picture the tab shows (nil: none), drawn from the first frame.
+    /// The picture the tab shows (nil: none), drawn from the first frame at its own size: `pictureScale` pixels per
+    /// point (nil: the window's backing scale).
     public let picture: CGImage?
+    public let pictureScale: CGFloat?
     /// It stands in for a restored tab's page while the page is made (`handOver(to:cap:)`): not a page to drive yet.
     public let restoresPage: Bool
     /// The address the user asked for before the page took over (`.some(nil)`: a reload); nil when none.
@@ -33,10 +35,11 @@ public final class DeferredBrowserTab: BrowserTab {
     @ObservationIgnored private var started = false
 
     public init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID = .default, url: URL?, title: String?,
-                picture: CGImage? = nil, restoresPage: Bool = false) {
+                picture: CGImage? = nil, pictureScale: CGFloat? = nil, restoresPage: Bool = false) {
         self.picture = picture
+        self.pictureScale = pictureScale
         self.restoresPage = restoresPage
-        contentView = picture.map { BrowserPictureView(decoded: $0) } ?? NSView()
+        contentView = picture.map { BrowserPictureView(decoded: $0, scale: pictureScale) } ?? NSView()
         self.id = id
         self.engineKind = engine
         self.profileID = profile
@@ -53,7 +56,7 @@ public final class DeferredBrowserTab: BrowserTab {
     /// The restored tab's page is here: the tab's picture covers it until it paints (`BrowserWakeStandIn`, at most
     /// `cap`), and a load or reload the user asked for meanwhile runs on it. Call after the page replaced this one.
     public func handOver(to page: any BrowserTab, cap: Duration, clock: any Clock<Duration> = ContinuousClock()) {
-        if let picture { (page as? any BrowserWakeStandIn)?.showStandIn(picture, decoded: true, cap: cap, clock: clock) }
+        if let picture { (page as? any BrowserWakeStandIn)?.showStandIn(picture, decoded: true, cap: cap, clock: clock, scale: pictureScale) }
         switch startRequest {
         case .some(.some(let url)): page.load(url)
         case .some(.none): page.reload()
