@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # scripts/ci/toolchain-r2.sh restore puts the pinned Node, Bun and Rust where setup-node, setup-bun and rustup
-# look first, from the CI cache bucket, on a Freestyle runner only; every miss, bad copy or odd runner leaves
+# look first, from the CI cache bucket, on a Freestyle runner only (bun on a Mac: from the Mac's own store); every miss, bad copy or odd runner leaves
 # the real installer to run. Same shape as test_ci_zig_tarball_r2.sh.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -92,6 +92,33 @@ bash "$SCRIPT" restore rust "$TMP/rust-toolchain.toml" | grep -q "does not run a
 if env -u AWS_ACCESS_KEY_ID RUNNER_ARCH=ARM64 bash "$SCRIPT" seed node 9.9.9 2>/dev/null; then fail "seed ran without credentials"; fi
 bash "$SCRIPT" seed node 9.9.9 2>/dev/null && fail "seed without credentials passed" || true
 AWS_ACCESS_KEY_ID=x AWS_SECRET_ACCESS_KEY=x CI_CACHE_R2_ENDPOINT=x CI_CACHE_R2_BUCKET=x bash "$SCRIPT" seed node 9.9.9 | grep -q "already holds" || fail "seed did not see the held key"
+
+# bun on a Mac (any runner, no bucket): the bun there is kept under its version, a stored version comes back
+# with no download, and a missing one is downloaded once and checked against its pin.
+mac="$TMP/mac"; mkdir -p "$mac/home/.bun/bin" "$mac/rel/bun-v6.6.6/bun-darwin-$ba"
+printf '#!/bin/sh\necho 5.5.5\n' > "$mac/home/.bun/bin/bun"; chmod +x "$mac/home/.bun/bin/bun"
+printf '#!/bin/sh\necho 6.6.6\n' > "$mac/rel/bun-v6.6.6/bun-darwin-$ba/bun"; chmod +x "$mac/rel/bun-v6.6.6/bun-darwin-$ba/bun"
+(cd "$mac/rel/bun-v6.6.6" && python3 -c 'import zipfile,sys; z=zipfile.ZipFile(sys.argv[1],"w"); z.write(sys.argv[2]); z.close()' "bun-darwin-$ba.zip" "bun-darwin-$ba/bun")
+macpins="$mac/pins"; cp "$TMP/pins" "$macpins"
+echo "$(sha256sum "$mac/rel/bun-v6.6.6/bun-darwin-$ba.zip" | cut -d' ' -f1)  bun-v6.6.6-darwin-$ba.zip" >> "$macpins"
+macrun() { HOME="$mac/home" RUNNER_NAME=cmux7s-mac-mini-glaeda-1 TOOLCHAIN_R2_URL= TOOLCHAIN_R2_TEST_OS=Darwin \
+  TOOLCHAIN_PINS_FILE="$macpins" TOOLCHAIN_BUN_RELEASE_BASE="file://$mac/rel" bash "$SCRIPT" restore bun "$@"; }
+out="$(macrun 6.6.6)"
+grep -q "downloaded bun 6.6.6 once" <<<"$out" || fail "mac bun was not downloaded: $out"
+[[ "$("$mac/home/.bun/bin/bun" --version)" == 6.6.6 && -x "$mac/home/.bun/cmux-versions/5.5.5/bun" ]] || fail "mac bun not swapped or the old one not kept: $out"
+rm -rf "$mac/rel"
+out="$(macrun 5.5.5)"; grep -q "restored to" <<<"$out" || fail "a stored mac bun was not restored: $out"
+[[ "$("$mac/home/.bun/bin/bun" --version)" == 5.5.5 ]] || fail "mac bun 5.5.5 not back: $out"
+out="$(macrun 6.6.6)"; [[ "$("$mac/home/.bun/bin/bun" --version)" == 6.6.6 ]] || fail "mac bun 6.6.6 needed a second download: $out"
+out="$(macrun 6.6.6)"; grep -q "is at" <<<"$out" || fail "mac bun at the version was touched: $out"
+out="$(macrun 4.4.4)"; grep -q "no pin" <<<"$out" || fail "an unpinned mac bun was not left to setup-bun: $out"
+# A download that does not match its pin is never installed.
+mkdir -p "$mac/bad/bun-v3.3.3/bun-darwin-$ba"; cp "$mac/home/.bun/bin/bun" "$mac/bad/bun-v3.3.3/bun-darwin-$ba/bun"
+(cd "$mac/bad/bun-v3.3.3" && python3 -c 'import zipfile,sys; z=zipfile.ZipFile(sys.argv[1],"w"); z.write(sys.argv[2]); z.close()' "bun-darwin-$ba.zip" "bun-darwin-$ba/bun")
+echo "0000000000000000000000000000000000000000000000000000000000000000  bun-v3.3.3-darwin-$ba.zip" >> "$macpins"
+out="$(HOME="$mac/home" RUNNER_NAME=m TOOLCHAIN_R2_TEST_OS=Darwin TOOLCHAIN_PINS_FILE="$macpins" TOOLCHAIN_BUN_RELEASE_BASE="file://$mac/bad" bash "$SCRIPT" restore bun 3.3.3)"
+grep -q "does not match its pin" <<<"$out" || fail "a bad mac download was not refused: $out"
+[[ ! -e "$mac/home/.bun/cmux-versions/3.3.3" ]] || fail "a bad mac download was stored"
 
 # The real pins file covers every exact Node and Bun version the workflows set up, and the wiring is in place.
 python3 -I "$ROOT/tests/check_toolchain_r2_wiring.py" || fail "toolchain wiring"

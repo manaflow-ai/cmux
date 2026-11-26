@@ -2196,9 +2196,22 @@ jobs:
           BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           REPO_URL: ${{ github.server_url }}/${{ github.repository }}
           WORKFLOW_SHA: ${{ github.sha }}
+          FETCH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           [[ "$BUILD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "bad build sha: $BUILD_SHA" >&2; exit 1; }
+          # Fetch as the job, as actions/checkout does: an anonymous fetch spends the office address's
+          # shared budget, and GitHub refuses it with 403 when that runs out (docs/ci/nightly-workflow-notes.md#note-54).
+          # The header lives in this step's environment only; nothing is written to .git/config.
+          if [ -n "${FETCH_TOKEN:-}" ]; then
+            # An empty value first clears any header a checkout left in .git/config, so one AUTHORIZATION goes.
+            export GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0="http.${GITHUB_SERVER_URL:-https://github.com}/.extraheader" GIT_CONFIG_VALUE_0=""
+            export GIT_CONFIG_KEY_1="$GIT_CONFIG_KEY_0"
+            GIT_CONFIG_VALUE_1="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$FETCH_TOKEN" | base64 | tr -d '\n')"
+            echo "::add-mask::$GIT_CONFIG_VALUE_1"
+            export GIT_CONFIG_VALUE_1
+          fi
+          unset FETCH_TOKEN
           cd "$GITHUB_WORKSPACE"
           [ -d .git ] || git init -q .
           git config gc.auto 0
