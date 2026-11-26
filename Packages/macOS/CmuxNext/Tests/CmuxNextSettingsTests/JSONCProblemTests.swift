@@ -3,7 +3,8 @@ import Foundation
 import Testing
 
 /// A cmux-next.json (or theme file) that does not parse is told as where and what, never as the
-/// error's dump (Leo, 2026-11-20: "bad toast of unreadable json").
+/// error's dump (Leo, 2026-11-20: "bad toast of unreadable json"). Rust words the problem
+/// (cmux-config `app_ops::jsonc`, whose tests hold the cases); these read it through the app.
 struct JSONCProblemTests {
     private func problem(_ source: String) -> String {
         do {
@@ -40,13 +41,6 @@ struct JSONCProblemTests {
         #expect(toast.hasPrefix("cmux-next.json could not be read ("))
         #expect(!toast.contains("Error Domain"))
         #expect(toast.contains("line 1"))
-    }
-
-    @Test func positionsCountCharactersNotBytes() {
-        #expect(JSONC.position(of: 0, in: "{}") == "line 1, column 1")
-        #expect(JSONC.position(of: 4, in: "{\n  x") == "line 2, column 3")
-        // "é" is two UTF-8 bytes and one column.
-        #expect(JSONC.position(of: 3, in: "\"é\"") == "line 1, column 3")
     }
 
     @Test func aReadFailureIsItsPlainDescription() {

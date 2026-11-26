@@ -32,11 +32,21 @@ STRING = r'"((?:[^"\\]|\\.)*)"'
 
 
 class Catalog:
-    """A String Catalog (.xcstrings) as the English text a compiled bundle returns."""
+    """A String Catalog as the English text a compiled bundle returns.
+
+    `rel` is a `.xcstrings` file or a `<Table>.xcstrings.d/` directory of one-key catalogs
+    (scripts/cmux-next/string_catalogs.py), whose entries merge into one table.
+    """
 
     def __init__(self, root, rel):
-        data = json.loads(read(root, rel))
-        self.strings = data["strings"]
+        path = os.path.join(root, rel)
+        if os.path.isdir(path):
+            self.strings = {}
+            for name in sorted(os.listdir(path)):
+                if name.endswith(".xcstrings"):
+                    self.strings.update(json.loads(read(path, name))["strings"])
+        else:
+            self.strings = json.loads(read(root, rel))["strings"]
 
     def keys(self):
         return set(self.strings)
