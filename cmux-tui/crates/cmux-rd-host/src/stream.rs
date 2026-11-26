@@ -582,6 +582,11 @@ impl MediaSession {
         self.encoder.encoder_name()
     }
 
+    /// The source's rect on the screen, where the desktop knows it (`Desktop::source_rect`).
+    pub fn source_rect(&self) -> Option<[u32; 4]> {
+        self.desktop.source_rect()
+    }
+
     /// Runs until the viewer stops, the host stops the session, or the carrier fails, then logs
     /// what the clipboard channel refused. Returns why the session ended.
     pub fn run(
