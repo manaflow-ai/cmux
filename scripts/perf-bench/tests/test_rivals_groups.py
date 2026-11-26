@@ -113,5 +113,44 @@ class Bounds(unittest.TestCase):
         self.assertIn('PERF_ROW {"clock": "cpu", "floor": 0.1, "name": "growth.idle_short"', text)
 
 
+class ByProcess(unittest.TestCase):
+    """RFD 0062: a group's growth split into processes that grew and processes born or gone in the soak."""
+
+    def series(self):
+        ticks = list(range(0, 301, 30))
+        return {
+            1: {"kind": "renderer", "command": "steady", "points": [(t, 100.0 + t / 60) for t in ticks]},  # +1 MB/min
+            2: {"kind": "renderer", "command": "born", "points": [(t, 200.0) for t in ticks if t >= 180]},
+            3: {"kind": "helper", "command": "gone", "points": [(t, 50.0) for t in ticks if t <= 150]},
+            4: {"kind": "renderer", "command": "warmup", "points": [(t, 10.0) for t in ticks if t < 90]},
+        }
+
+    def test_steady_and_churn(self):
+        rows = rivals.growth_by_process(self.series(), 90)
+        by_pid = {r["pid"]: r for r in rows}
+        self.assertNotIn(4, by_pid)  # gone before the settle cut
+        self.assertTrue(by_pid[1]["steady"])
+        self.assertAlmostEqual(by_pid[1]["growth_mb_per_min"], 1.0, places=3)
+        self.assertEqual(by_pid[2]["born_s"], 180)
+        self.assertEqual(by_pid[2]["added_mb"], 200.0)
+        self.assertEqual(by_pid[3]["gone_s"], 150)
+        self.assertEqual(by_pid[3]["added_mb"], -50.0)
+        self.assertEqual(rows[0]["pid"], 2)  # sorted by MB added
+        split = rivals.growth_split(rows, "renderer", 3.5)
+        self.assertAlmostEqual(split["steady"], 1.0, places=3)
+        self.assertAlmostEqual(split["churn"], 200 / 3.5, places=2)
+        self.assertEqual((split["born"], split["gone"]), (1, 0))
+
+    def test_report_section(self):
+        rows = rivals.growth_by_process(self.series(), 90)
+        sample = {"browser": "cmux", "round": 1, "row": "soak-growth-by-process", "value": len(rows),
+                  "settle_cut": 90, "minutes": 3.5, "pids": rows,
+                  "split": {g: rivals.growth_split(rows, g, 3.5) for g in rivals.GROUPS}}
+        text = "\n".join(rivals.growth_by_process_lines([sample], ["cmux"]))
+        self.assertIn("Idle growth by process: cmux NEXT", text)
+        self.assertIn("| renderer | +1.000 | +57.143 | 1 | 0 |", text)
+        self.assertIn("| 2 | renderer | renderer | 200.0 | 200.0 | +200.0 |", text)
+
+
 if __name__ == "__main__":
     unittest.main()

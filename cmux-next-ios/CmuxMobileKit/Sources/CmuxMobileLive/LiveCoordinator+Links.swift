@@ -107,6 +107,8 @@ extension LiveCoordinator {
             guard let self, let session, self.sessions[session.macID] === session else { return }
             session.tree = tree
             self.store.updateWorkspaces(macID: session.macID, rows: tree.workspaces.filter { ids.contains($0.id) })
+            // A tab closed inside a workspace: its Feed rows go.
+            self.feedStore.setOpenTabs(FeedOpenTabs(tree: tree), macID: session.macID)
             if agentChanged {
                 session.terminalFeed.treeChanged(tree, macID: session.macID,
                                                 connection: session.workspaces.connectionSerial, changedWorkspaceIDs: ids)
@@ -1063,6 +1065,8 @@ extension LiveCoordinator {
         }
         store.replaceWorkspaces(macID: macID, with: tree.workspaces)
         store.handleMacData(.received(count: tree.workspaces.count), macID: macID)
+        // Rows of tabs and workspaces closed on the Mac or on this phone leave the Feed.
+        feedStore.setOpenTabs(FeedOpenTabs(tree: tree), macID: macID)
         session.fedData = true
         // Streamed browser tabs of workspaces closed on the Mac go: a redial
         // must not open them again (transport-verify-20261019.md defect 7).
