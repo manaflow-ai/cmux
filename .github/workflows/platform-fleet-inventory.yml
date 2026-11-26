@@ -18,11 +18,18 @@ name: Platform fleet inventory
 #
 # Like the census, it places a fresh one-time FLEET_INVENTORY_TOKEN on the Worker, posts with it and deletes it in an
 # always() step. That token reaches only the inventory route. The census places and deletes the same name at :23 each
-# hour, so NOW dispatches this run in the second half of the hour only.
+# hour, so NOW dispatches this run outside minutes 15-32 only (fleet-reconciler-now.yml promote step, hq#26360).
 #
-# Dispatch-only, at feat-cmux-next. Public logs: only counts and the route's answer status are printed, never a name.
+# Dispatched at feat-cmux-next. Public logs: only counts and the route's answer status are printed, never a name.
+#
+# The push trigger is how GitHub learns this workflow exists: a workflow only on feat-cmux-next, not on the default
+# branch, is unknown to the Actions API until it has run once, so NOW's `gh workflow run` and `gh run list --workflow`
+# both answered 404 (no run ever started). A push that changes this file runs it once and registers it.
 on:
   workflow_dispatch:
+  push:
+    branches: [feat-cmux-next]
+    paths: [.github/workflows/platform-fleet-inventory.yml]
 
 permissions:
   contents: read

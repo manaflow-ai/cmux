@@ -1954,20 +1954,6 @@
     "agent-pane.permission-panel#pending": [],
     "agent-pane.permission-panel#receipt": [],
     "agent-pane.permission-panel#uncertain": [],
-    "agent-pane.plan-list-looks#borderless": [],
-    "agent-pane.plan-list-looks#card": [],
-    "agent-pane.plan-list-looks#card-ended": [],
-    "agent-pane.plan-list-looks#card-midway": [],
-    "agent-pane.plan-list-looks#count": [],
-    "agent-pane.plan-list#activity-line": [
-      "center-line:row plan-5"
-    ],
-    "agent-pane.plan-list#finished": [
-      "center-line:row plan-9"
-    ],
-    "agent-pane.plan-list#running": [
-      "center-line:row plan-2"
-    ],
     "agent-pane.preview-card#gallery-stage": [],
     "agent-pane.preview-card#loaded": [],
     "agent-pane.preview-card#loopback-host": [],
