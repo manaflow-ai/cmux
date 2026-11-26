@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { aggregate, gapSchedule, guestLine, integrate, markdownTable, parseGuestUpdate, stalePauseAbMachines, type MachineResult } from "./pause-ab.ts";
+import { GUEST_CMUX, aggregate, gapLine, gapSchedule, guestLine, integrate, markdownTable, parseGuestUpdate, stalePauseAbMachines, type MachineResult } from "./pause-ab.ts";
 
 describe("gapSchedule", () => {
   test("same seed, same gaps, only from the choices", () => {
@@ -25,7 +25,7 @@ const machine = (arm: string, awake: number, paused: number, resumes: (number | 
   arm, name: `pause-ab-x-${arm}-1`, id: "vm", effective_policy: arm, policy_refused: null, capabilities: adv ? ["activity-turn-end"] : [],
   turn_end_advertised: adv, daemon_version: null, guest_update_start: null, guest_update_end: null, turns_ok: resumes.length,
   turns: resumes.map((ms, i) => ({ turn: i + 1, gap_s: 20, resumed: ms !== null, resume_ms: ms, reply_ms: 1000 })),
-  samples: [], awake_s: awake, paused_s: paused, pauses: 0, error: null,
+  tail_kept: null, samples: [], awake_s: awake, paused_s: paused, pauses: 0, error: null,
 });
 
 describe("aggregate", () => {
@@ -69,5 +69,19 @@ describe("parseGuestUpdate", () => {
   });
   test("no output at all says so", () => {
     expect(parseGuestUpdate("").error).toContain("no output");
+  });
+});
+
+describe("idle decision per gap", () => {
+  test("the guest cmux is the supervisor's own path, never a bare name sudo cannot find", () => {
+    expect(GUEST_CMUX).toContain("/opt/cmux/current/bin/cmux");
+  });
+  test("a gap row names the keep reason and listeners; pipes are escaped", () => {
+    const t = { turn: 2, gap_s: 180, resumed: false, resume_ms: null, reply_ms: 10, kept: 'status running; kept by {"why":"workload","ports":[39735]}', listeners: '127.0.0.1:39735 users:(("python3",pid=9,fd=3))|x' };
+    const line = gapLine("pause-ab-x-turn_end-1", t);
+    expect(line).toContain('"why":"workload"');
+    expect(line).toContain("39735");
+    expect(line).toContain("\\|x");
+    expect(gapLine("m", { turn: 1, gap_s: 20, resumed: false, resume_ms: null, reply_ms: null })).toBe("| m | 1 | 20 | n/a | n/a |");
   });
 });

@@ -23,12 +23,15 @@
  *
  * Per machine it also records the daemon's capabilities as the platform stored them from its last status report
  * (`cloud.machine.connect_info` daemon.capabilities: is `activity-turn-end` advertised?), the guest's build commit
- * (`sudo -n cmux host update status --json`, start and end: binary, applied commit, channel commit, updater outcome) and the effective pause policy (a refused `turn_end` falls back to
+ * (`sudo -n /opt/cmux/current/bin/cmux host update status --json`, start and end: binary, applied commit, channel commit, updater outcome) and the effective pause policy (a refused `turn_end` falls back to
  * `aggressive` with policy_refused set).
  *
  * The model stub listens on loopback. cmux-host's workload probe (cloud/workload.rs) counts any listening socket as
  * work that keeps a machine awake unless its owner is a system process, so the stub runs through a symlink to python3
  * named `cmux-tui-pab-stub` (a `cmux-tui` prefix): it stands in for a remote model endpoint and both arms get it.
+ * At each gap's end the drill reads the host's idle decision (`cloud.machine.get`: paused, or idleHeldBy's clock and
+ * `idle_kept` reason with ports) and, when the machine is awake, the guest's listeners with their owners, so a run
+ * that never pauses names what kept it awake (summary.md "Idle decision per gap", the "idle decision per gap" step).
  *
  * Output (--out DIR): pause-ab.json (every machine's timeline, turns, resumes) and summary.md (one table row per arm:
  * awake s, paused s, resumes, mean resume ms), plus journey.json (steps). Every machine this run created is deleted
@@ -41,7 +44,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   Api, CHAT_START_SIZE, IDLE_JOURNEY_MS, JOURNEY_STUB_SCRIPT, Journey, MODEL_STUB_PY, STACK, STALE_JOURNEY_MS, directExec, http,
-  launchCredentialStartProgram, listAllMachines, oidcSignIn, passwordSignIn, readEnvFile, resolveBackend, sharedCleanup,
+  idleHeldBy, launchCredentialStartProgram, listAllMachines, oidcSignIn, passwordSignIn, readEnvFile, resolveBackend, sharedCleanup,
   type Exec,
 } from "./cloud-journey.ts";
 
@@ -120,7 +123,9 @@ export type MachineResult = {
   guest_update_start: GuestUpdate | null;
   guest_update_end: GuestUpdate | null;
   turns_ok: number;
-  turns: { turn: number; gap_s: number; resumed: boolean; resume_ms: number | null; reply_ms: number | null; error?: string }[];
+  turns: { turn: number; gap_s: number; resumed: boolean; resume_ms: number | null; reply_ms: number | null; error?: string; kept?: string | null; listeners?: string | null }[];
+  /** The host's idle decision after the tail (idleHeldBy), read without touching the guest. */
+  tail_kept: string | null;
   samples: Sample[];
   awake_s: number | null;
   paused_s: number | null;
@@ -193,7 +198,20 @@ function stubStartCommand(nonce: string): string {
 }
 
 // The guest updater's own status (cmux-host updater/role.rs `status --json`), as root: errors are kept, not hidden.
-const GUEST_UPDATE = `out=$(sudo -n cmux host update status --json 2>&1); echo "@@exit $?"; printf '%s\n' "$out"`;
+/** The guest's `cmux` (the `cmux host` surface of cmux-tui): the supervisor unit runs `/opt/cmux/current/bin/cmux host
+ * run`, and sudo's secure_path has no `cmux` on it (run 45779107347: "sudo: cmux: command not found"). */
+export const GUEST_CMUX = `cx=/opt/cmux/current/bin/cmux; [ -x "$cx" ] || cx=$(command -v cmux 2>/dev/null || echo /opt/cmux/current/bin/cmux); `;
+const GUEST_UPDATE = `${GUEST_CMUX}out=$(sudo -n "$cx" host update status --json 2>&1); echo "@@exit $?"; printf '%s\n' "$out"`;
+
+/** The guest's TCP listeners with their owners (comm, pid), for a gap the machine did not pause in: the workload rule
+ * (cmux-host cloud/workload.rs) counts a LISTEN socket a non-system process owns, so this names which one held it. */
+export const GUEST_LISTENERS = `{ sudo -n ss -ltnpH 2>/dev/null || ss -ltnpH; } | awk '{print $4, $6}' | head -n 20`;
+
+/** One gap's line in the per-gap table. */
+export function gapLine(name: string, t: MachineResult["turns"][number]): string {
+  const cell = (v: string | null | undefined) => (v ?? "n/a").replace(/\|/g, "\\|").replace(/\n/g, "; ");
+  return `| ${name} | ${t.turn} | ${t.gap_s} | ${cell(t.kept)} | ${cell(t.listeners)} |`;
+}
 
 /** One reading of the guest updater, its parts kept apart: the binary running, what the updater applied, the
  * channel's published commit, and the updater's last outcome. `error` holds a failed read verbatim. */
@@ -291,7 +309,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const api = new Api(backend.api, team);
   const results: MachineResult[] = arms.flatMap((arm) => Array.from({ length: perArm }, (_, i) => ({
     arm, name: `${NAME_PREFIX}${tag}-${arm}-${i + 1}`, id: null, effective_policy: null, policy_refused: null, capabilities: null,
-    turn_end_advertised: null, daemon_version: null, guest_update_start: null, guest_update_end: null, turns_ok: 0, turns: [], samples: [],
+    turn_end_advertised: null, daemon_version: null, guest_update_start: null, guest_update_end: null, turns_ok: 0, turns: [], tail_kept: null, samples: [],
     awake_s: null, paused_s: null, pauses: null, error: null,
   } as MachineResult)));
   let usageBefore: number | null = null;
@@ -313,8 +331,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     writeFileSync(path.join(outDir, "summary.md"), `# Pause-policy A/B (${backend.name})\n\n` +
       `${perArm} machine(s) per arm, ${turnCount} stub turns, seed ${seed}, gaps ${gaps.join(", ")} s, tail ${tailS} s. ` +
       `Awake/paused from \`cloud.machine.get\` status every ${pollMs / 1000} s. Account VM seconds over the run (all machines, cross-check): ${usage ?? "n/a"}.\n\n` +
-      `${markdownTable(rows)}\n\n## Guest updater (\`sudo -n cmux host update status --json\`)\n\n` +
+      `${markdownTable(rows)}\n\n## Guest updater (\`sudo -n /opt/cmux/current/bin/cmux host update status --json\`)\n\n` +
       results.map((r) => `- start ${guestLine(r.name, r.guest_update_start)}\n- end ${guestLine(r.name, r.guest_update_end)}`).join("\n") +
+      `\n\n## Idle decision per gap (\`cloud.machine.get\` at the gap's end; guest listeners when awake)\n\n` +
+      `| machine | turn | gap s | idle decision | listeners (addr, owner) |\n|---|---|---|---|---|\n` +
+      results.flatMap((r) => [...r.turns.map((t) => gapLine(r.name, t)), `| ${r.name} | tail | ${tailS} | ${(r.tail_kept ?? "n/a").replace(/\|/g, "\\|")} | n/a |`]).join("\n") +
       `\n\n## Steps\n\n| status | step | ms | detail |\n|---|---|---|---|\n${steps}\n`);
   };
 
@@ -407,6 +428,17 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         }
       }
       await sleep(gaps[i] * 1000);
+      // The host's idle decision at the gap's end: paused, or why not (idle_kept: workload ports, sessions, clock).
+      // The listener read execs on the guest, so it runs only when the machine is awake anyway and a turn follows.
+      const m = await api.read("cloud.machine.get", { machine: id }).catch(() => null);
+      if (m?.status === "paused") turn.kept = "paused";
+      else {
+        turn.kept = `status ${m?.status ?? "?"}; ${await idleHeldBy(api, id)}`;
+        if (i < turnCount - 1) {
+          const l = await exec(GUEST_LISTENERS, 30_000).catch((e: Error) => ({ stdout: `read failed: ${e.message.slice(0, 120)}` }));
+          turn.listeners = l.stdout.trim().split("\n").join("; ").slice(0, 400) || "none";
+        }
+      }
     }
   };
 
@@ -506,6 +538,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     await J.step(`drive ${turnCount} turns on every machine`, async () => {
       await Promise.all(results.map((r) => runMachine(r).catch((e) => { r.error = String((e as Error)?.message ?? e).slice(0, 300); })));
       await sleep(tailS * 1000);
+      await Promise.all(results.filter((r) => r.id).map(async (r) => {
+        const m = await api.read("cloud.machine.get", { machine: r.id }).catch(() => null);
+        r.tail_kept = m?.status === "paused" ? "paused" : `status ${m?.status ?? "?"}; ${await idleHeldBy(api, r.id!)}`;
+      }));
       return { value: null, detail: results.map((r) => `${r.name} ${r.turns_ok}/${r.turns.length} ok`).join("; ") };
     }).catch(() => undefined);
     windowEnd = Date.now();
@@ -524,6 +560,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return { value: null, detail: results.map((r) => guestLine(r.name, r.guest_update_end)).join(" | ") };
     }).catch(() => undefined);
     usageAfter = await api.read("cloud.plan.get", {}).then((p) => Number(p?.usage?.vm_hours_used_by_you ?? NaN)).then((n) => (Number.isFinite(n) ? n : null)).catch(() => null);
+    J.record({
+      step: "idle decision per gap", status: "pass", ms: 0,
+      detail: results.map((r) => `${r.name}: ${r.turns.map((t) => `gap ${t.turn} (${t.gap_s} s) ${t.kept ?? "n/a"}${t.listeners ? ` [listeners ${t.listeners}]` : ""}`).join(" / ")} / tail ${r.tail_kept ?? "n/a"}`).join(" || "),
+    });
     J.record({ step: "result", status: results.every((r) => r.turns_ok === r.turns.length) ? "pass" : "fail", ms: windowEnd - windowStart, detail: markdownTable(aggregate(results, arms)).split("\n").slice(2).join(" ") });
   } catch {
     // The failed step is recorded; cleanup below.
@@ -534,6 +574,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     writeOut();
   }
   console.log(`\n${markdownTable(aggregate(results, arms))}`);
+  for (const r of results) for (const t of r.turns) console.log(gapLine(r.name, t));
   const failed = J.steps.filter((s) => s.status === "fail");
   return failed.length ? 1 : 0;
 }
