@@ -54,6 +54,9 @@ MAX_RAW = 12 * 1024**3
 KEY_RE = re.compile(r"admission-derived-data-v1-[A-Za-z0-9._-]+?-j[0-9]+-[0-9a-f]{40}")
 SAVED_RE = re.compile(r"r2-cache: saved (" + KEY_RE.pattern + ")")
 TARGET = 20
+# Seeds are bsdtar archives from macOS: GNU tar warns once per Apple xattr header it skips.
+TAR_QUIET = "--warning=no-unknown-keyword" if b"GNU tar" in subprocess.run(
+    ["tar", "--version"], capture_output=True).stdout else ""
 
 
 class Skip(Exception):
@@ -127,7 +130,7 @@ def restore(key, tree):
     os.makedirs(tree)
     url = f"{PUBLIC}/{NAMESPACE}/objects/{key}.tar.zst"
     cmd = (f"curl --fail --silent --show-error --location --retry 3 -A {USER_AGENT} '{url}'"
-           f" | zstd -dc | tar -xf - -C '{tree}'")
+           f" | zstd -dc | tar {TAR_QUIET} -xf - -C '{tree}'")
     r = subprocess.run(["bash", "-o", "pipefail", "-c", cmd])
     if r.returncode != 0:
         shutil.rmtree(tree, ignore_errors=True)
@@ -180,6 +183,8 @@ def main():
     ap.add_argument("--max-p50", type=float)
     a = ap.parse_args()
     os.makedirs(a.work, exist_ok=True)
+    if not os.access(a.cas_replay, os.X_OK):
+        raise SystemExit(f"no cas-replay at {a.cas_replay}: build it first (cargo build -p cmux-cas --bin cas-replay)")
     made = []
     try:
         if a.from_dir:
