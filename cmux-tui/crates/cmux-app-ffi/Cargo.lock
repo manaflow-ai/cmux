@@ -195,6 +195,7 @@ dependencies = [
  "cmux-daemon-conn-core",
  "cmux-daemon-launch-core",
  "cmux-health-core",
+ "cmux-home-rules",
  "cmux-interactivity",
  "cmux-keymap",
  "cmux-launch-image",
@@ -432,6 +433,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-home-rules"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-imessage"
 version = "0.1.0"
 dependencies = [
@@ -507,7 +516,6 @@ dependencies = [
 name = "cmux-layout-reducer-ffi"
 version = "0.1.0"
 dependencies = [
- "base64",
  "cmux-bookmarks-core",
  "cmux-browser-rules",
  "cmux-cloud-config",
@@ -591,6 +599,7 @@ dependencies = [
  "cmux-rd-engine",
  "cmux-rd-proto",
  "cmux-remote-browser",
+ "cmux-share-approval",
  "serde",
  "serde_json",
 ]
@@ -652,6 +661,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-share-approval"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-tab-discard"
 version = "0.1.0"
 dependencies = [
@@ -698,6 +715,7 @@ name = "cmux-wallpaper"
 version = "0.1.0"
 dependencies = [
  "naga",
+ "serde",
  "serde_json",
 ]
 
