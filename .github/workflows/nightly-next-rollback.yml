@@ -331,7 +331,9 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          sparse-checkout: scripts/ci/nightly_next_fix_forward.py
+          sparse-checkout: |
+            scripts/ci/nightly_next_fix_forward.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Start the fix-forward
