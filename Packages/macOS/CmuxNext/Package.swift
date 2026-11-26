@@ -157,8 +157,15 @@ import PackageDescription
 //     MetricKit and watchdog inputs, allow-list redaction, leak scan, rotating install id, outbox,
 //     upload; no UI, no daemon; plans/cmux-next/hang-reports-DESIGN.md)
 
+/// MEASUREMENT BRANCH ONLY (feat-cmux-next-chromium-views-window-bench, never merged): the bench configuration
+/// (scripts/cmux-next/lib/bench-swift-defines.sh, `reload.sh --config bench`) for a fleet Release build, whose
+/// recipe passes no Swift defines: the debug.* control surface (debug.mouse, the app recorder) and the Chromium extra
+/// switches in an optimized app, so approach 3 (views window) is measured on the other Mac (artifacts/in-tree-pages/
+/// approaches/views-window). The marker (BenchHooksMarker.swift) keeps it from ever shipping (check-no-bench-hooks.sh).
+let benchConfiguration: [SwiftSetting] = [.define("CMUX_BENCH_HOOKS"), .define("CMUX_BLOCKING_CHECKS")]
+
 /// Settings shared by every UI target: Swift 6 mode, main-actor by default.
-let uiSwiftSettings: [SwiftSetting] = [
+let uiSwiftSettings: [SwiftSetting] = benchConfiguration + [
     .swiftLanguageMode(.v6),
     .defaultIsolation(MainActor.self),
     .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
@@ -168,7 +175,7 @@ let uiSwiftSettings: [SwiftSetting] = [
 ]
 
 /// The daemon client is not main-actor by default: one actor owns the socket.
-let daemonSwiftSettings: [SwiftSetting] = [
+let daemonSwiftSettings: [SwiftSetting] = benchConfiguration + [
     .swiftLanguageMode(.v6),
     .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
     .enableUpcomingFeature("InferIsolatedConformances"),
