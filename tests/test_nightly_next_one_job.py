@@ -182,6 +182,19 @@ class NightlyNextOneJobTests(unittest.TestCase):
         # A slow notarization fails the job (the loop retries it) instead of handing an artifact to a later run.
         self.assertEqual(notarize["env"]["CMUX_NOTARY_PENDING_ON_TIMEOUT"], "false")
 
+    def test_it_joins_the_acpmux_build_before_release(self) -> None:
+        steps = self.job.get("steps") or []
+        names = [str(step.get("name") or "") for step in steps]
+        join = names.index("Finish building in-tree acpmux for the compilation cache")
+        release = names.index("Build nightly app (Release)")
+        self.assertLess(join, release, "nightly-next-one must join acpmux before the Release build")
+        self.assertEqual(steps[join].get("run"), "bash scripts/ci/nightly-steps/app-build-in-tree-acpmux.sh join")
+        self.assertIn("steps.nightly-product.outputs.hit != 'true'", one_line(steps[join].get("if")))
+        split_steps = self.jobs["build-nightly-app"].get("steps") or []
+        split_join = next(step for step in split_steps
+                          if step.get("name") == "Finish building in-tree acpmux for the compilation cache")
+        self.assertEqual(split_join.get("run"), steps[join].get("run"))
+
     def test_the_split_pipeline_skips_in_one_job_mode(self) -> None:
         for name in PIPELINE_ROOTS:
             condition = one_line(self.jobs[name].get("if"))
