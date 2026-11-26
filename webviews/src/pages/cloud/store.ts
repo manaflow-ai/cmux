@@ -4,6 +4,7 @@
 // projections"). Money, destructive and view-changing ops go to the host as native actions (ops.ts
 // NATIVE_ACTIONS). React reads it through `useSyncExternalStore`; tests drive it directly.
 import { isPageError, type PageClient, pageError } from "../shared/pageClient";
+import { subscribePageStreams } from "../shared/pageStreams";
 import { userMessage } from "../shared/userMessage";
 import { AccountReader } from "./account";
 import { connectionFailure } from "./connectionFailure";
@@ -56,6 +57,12 @@ export type Connection = "connecting" | "connected" | "disconnected" | "failed";
 /** The first and the longest wait before the store reads the page again after a failed read. */
 export const CLOUD_RESTART_MIN_MS = 1_000;
 export const CLOUD_RESTART_MAX_MS = 10_000;
+/**
+ * Quiet re-reads of a retryable Cloud service failure (a backend blip, `owner.unreachable`, a busy
+ * relay) on the page's own reads, 1 s apart and doubling: the page says nothing unless the read
+ * still fails after them (about 7 s in all).
+ */
+export const CLOUD_BLIP_RETRIES = 3;
 
 export interface CreateDraft {
   /** One key per sheet: a retry after a failure sends the same key, so the owner creates once. */
@@ -192,6 +199,10 @@ export class CloudStore {
   private unwatch?: () => void;
   /** The account stream (`cmux.cloud.auth.watch`): lives from start to stop, across sessions. */
   private unwatchAuth?: () => void;
+  /** The host's `cmux.page.connection` stream: lives from the first listener to the last. */
+  private unwatchLink?: () => void;
+  /** Bumped when the last listener leaves: a link subscribe that answers after that closes itself. */
+  private linkLifetime = 0;
   /** Bumped by stop: an auth stream that subscribes after it is closed at once. */
   private lifetime = 0;
   /** The lifetime whose account subscribe is in flight, if any. */
@@ -211,6 +222,10 @@ export class CloudStore {
   private restartAttempts = 0;
   /** Inside `stop`: the session it ends is not a failure to read again. */
   private halting = false;
+  /** The quiet re-read after a retryable Cloud service failure (`readAgainQuietly`); cleared by stop. */
+  private blip: ReturnType<typeof setTimeout> | undefined;
+  /** Quiet re-reads in a row; a read that answers resets it. */
+  private blips = 0;
   /**
    * The cached list's account, while the page shows that list and the owner has not answered yet:
    * the first auth read (and the account stream's first event) drop it when they name another.
@@ -298,10 +313,18 @@ export class CloudStore {
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
-    if (this.listeners.size === 1) void this.start();
+    if (this.listeners.size === 1) {
+      void this.followLink();
+      void this.start();
+    }
     return () => {
       this.listeners.delete(listener);
-      if (this.listeners.size === 0) this.stop();
+      if (this.listeners.size === 0) {
+        this.linkLifetime += 1;
+        this.unwatchLink?.();
+        this.unwatchLink = undefined;
+        this.stop();
+      }
     };
   };
 
@@ -316,6 +339,12 @@ export class CloudStore {
     } catch (error) {
       if (session !== this.session) return;
       this.started = false;
+      if (
+        this.readAgainQuietly(error, () => {
+          if (this.listeners.size > 0) void this.start();
+        })
+      )
+        return;
       const failed = failure(error);
       const connection = connectionFailure(error);
       // The account could not be read at all: a kept list it never confirmed leaves the screen (a link
@@ -333,6 +362,7 @@ export class CloudStore {
     // start (as a first start does). The backoff resets only once the whole page
     // read (auth and, signed in, the machine list) succeeds.
     const recovered = this.restartAttempts > 0;
+    this.blips = 0;
     // A kept list of another account or team (or a sign-out elsewhere) goes before anything shows it.
     if (this.seeded && (!auth.signedIn || (auth.team ?? null) !== this.seeded.team)) this.dropSeeded();
     this.seeded = undefined;
@@ -357,8 +387,33 @@ export class CloudStore {
     clearTimeout(this.restart);
     this.restart = undefined;
     this.restartAttempts = 0;
+    clearTimeout(this.blip);
+    this.blip = undefined;
+    this.blips = 0;
     this.endSession();
     this.halting = false;
+  }
+
+  /**
+   * A read of the page's own (the account, the machine watch and list) that the Cloud service
+   * refused as retryable is read again after 1 s, then 2 s and 4 s, keeping what the page shows
+   * and logging each; true when it will. Only reads: they change nothing, so asking again is safe
+   * (an owner operation is never replayed on its retryable). A link failure has its own backoff.
+   */
+  private readAgainQuietly(error: unknown, read: () => void): boolean {
+    // The Cloud service's own refusals (`cmux.cloud.*`): a bridge or page code is never a service blip.
+    if (!isPageError(error) || !error.retryable || !error.code.startsWith("cmux.cloud.")) return false;
+    if (this.blips >= CLOUD_BLIP_RETRIES) return false;
+    const delay = CLOUD_RESTART_MIN_MS * 2 ** this.blips++;
+    console.warn(
+      `cloud page: ${error.code} on a read; reading again in ${delay} ms (${this.blips}/${CLOUD_BLIP_RETRIES})`,
+    );
+    clearTimeout(this.blip);
+    this.blip = setTimeout(() => {
+      this.blip = undefined;
+      read();
+    }, delay);
+    return true;
   }
 
   /**
@@ -1017,6 +1072,10 @@ export class CloudStore {
   private restartSession(): number {
     this.accountEpoch += 1;
     this.endSession();
+    // Another account or team starts with its own quiet re-reads, not the old one's spent count.
+    clearTimeout(this.blip);
+    this.blip = undefined;
+    this.blips = 0;
     return this.session;
   }
 
@@ -1054,6 +1113,7 @@ export class CloudStore {
         revision = event.revision;
       }
       buffer = null;
+      this.blips = 0;
       this.setMirror(machines, revision, {
         loading: false,
         connection: "connected",
@@ -1063,7 +1123,14 @@ export class CloudStore {
       void this.readArchives(session);
     } catch (error) {
       buffer = null;
-      if (session === this.session) this.set({ loading: false, connection: "failed", ...failure(error) });
+      if (session !== this.session) return;
+      if (
+        this.readAgainQuietly(error, () => {
+          if (session === this.session) void this.loadSignedIn(session);
+        })
+      )
+        return;
+      this.set({ loading: false, connection: "failed", ...failure(error) });
       return;
     }
     await this.account.load(session);
@@ -1340,6 +1407,37 @@ export class CloudStore {
     // keeping what it shows (a first read that failed has its own `startLater`).
     if (!wasDown && this.state.connection === "disconnected" && this.started) this.reconnectLater();
     for (const listener of this.listeners) listener();
+  }
+
+  /**
+   * Follows the host's word on the owner link (`cmux.page.connection`): the moment it says the link
+   * is up again, a page that is still disconnected reads again at once instead of at its next backoff
+   * step (up to CLOUD_RESTART_MAX_MS later). A host without the stream (an older one, the mock) leaves
+   * the backoff alone.
+   */
+  private async followLink(): Promise<void> {
+    if (!this.client) return;
+    const lifetime = this.linkLifetime;
+    try {
+      const stop = await subscribePageStreams(this.client, {
+        onConnection: (connected) => {
+          if (connected && lifetime === this.linkLifetime) this.relinkNow();
+        },
+      });
+      if (lifetime !== this.linkLifetime) return stop();
+      this.unwatchLink = stop;
+    } catch {
+      // The link is down now: the backoff reads again, and the next first listener subscribes again.
+    }
+  }
+
+  /** The link is back: a disconnected page reads again now, as Retry does, with nothing cleared from the screen. */
+  private relinkNow(): void {
+    if (this.listeners.size === 0 || this.state.connection !== "disconnected") return;
+    clearTimeout(this.restart);
+    this.restart = undefined;
+    if (this.started) this.stop();
+    void this.start();
   }
 
   /**

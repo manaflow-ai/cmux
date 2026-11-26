@@ -385,8 +385,6 @@ async function mount(): Promise<void> {
       return (await import("./pages")).mountAppsPage(entry.variants[variantName]!, context);
     case "cloud-page":
       return (await import("./pages")).mountCloudPage(entry.variants[variantName]!, context);
-    case "coderouter-page":
-      return (await import("./pages")).mountCodeRouterPage(entry.variants[variantName]!, context);
     case "changelog-page":
       return (await import("./pages")).mountChangelogPage(entry.variants[variantName]!, context);
     case "icon-picker-page":
