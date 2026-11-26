@@ -386,4 +386,39 @@ struct BrowserSingleSignOnNavigationGateTests {
 
         #expect(journal.decisions == ["first:allow"])
     }
+
+    @Test func navigationWhoseWebViewWentAwayBeforeItReachedTheGateIsCancelled() {
+        let gate = makeGate()
+        let journal = Journal()
+        var first: WebView? = WebView()
+
+        let navigation = gate.begin(owner: first!)
+        first = nil
+        gate.admit(navigation, url: plainURL, admission: journal.admission("first"))
+
+        #expect(journal.decisions == ["first:cancel"])
+    }
+
+    @Test func navigationBegunWhileTheOlderOneIsCancelledIsTheNewest() {
+        let gate = makeGate()
+        let journal = Journal()
+        let first = WebView()
+        let second = WebView()
+
+        navigate(gate, to: signInURL, in: first, admission: journal.admission("first"))
+        navigate(gate, to: signInURL, in: second) { admitted in
+            journal.decisions.append("second:\(admitted ? "allow" : "cancel")")
+            if !admitted {
+                navigate(gate, to: signInURL, in: second, admission: journal.admission("second-inner"))
+            }
+            return true
+        }
+        let outer = gate.begin(owner: second)
+        gate.admit(outer, url: signInURL, admission: journal.admission("second-outer"))
+        #expect(journal.decisions == ["first:allow", "second:cancel", "second-outer:cancel"])
+
+        gate.resolve(first)
+        gate.resolve(second)
+        #expect(journal.decisions == ["first:allow", "second:cancel", "second-outer:cancel", "second-inner:allow"])
+    }
 }
