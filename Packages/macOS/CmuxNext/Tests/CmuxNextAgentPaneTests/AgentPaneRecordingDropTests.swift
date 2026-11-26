@@ -25,6 +25,7 @@ struct AgentPaneRecordingDropTests {
             self.saved = saved
             let clock = clock
             model.droppedPaths = AgentPaneDroppedPaths(now: { clock.now })
+            model.hasHandshake = true
             model.onLocalPaths = { true }
             model.hasHandshake = true
             model.chatUploadFolders = ChatUploadFolders(root: saved)
