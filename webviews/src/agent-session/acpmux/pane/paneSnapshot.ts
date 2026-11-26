@@ -1,3 +1,5 @@
+import { oneRowChangeFrom } from "../rowChanges";
+import { sameButRows } from "../liveToolOutput";
 import { startDevMotionAudit } from "../devMotionAudit";
 import { openFork, openInOwnTab } from "../conversation/openFork";
 import React from "react";
@@ -1323,6 +1325,11 @@ export function paneSnapshotEffect({
           if (drawn && !pendingPaneDraw.pending && usageOnly(drawn, next)) {
             liveSummary.set(drawn.summary!, next.summary!);
             return;
+          }
+          if ((globalThis as any).__WHY !== false && drawn && received) {
+            const a = received as any, b = next as any;
+            const diff = Object.keys(b).filter((k) => k !== "rows" && !Object.is(a[k], b[k]));
+            console.log("WHY", JSON.stringify({ one: oneRowChangeFrom(next.rows, received.rows), len: [received.rows.length, next.rows.length], diff, blocked: streamingRowBlocked(), pending: pendingPaneDraw.pending, sbr: sameButRows(received, next) }));
           }
           streamingRow.clear();
           liveSummary.clear();

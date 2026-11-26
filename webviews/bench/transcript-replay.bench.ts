@@ -87,6 +87,12 @@ const CPU_CLOCK = process.env.CLOCK === "cpu";
 /// burst of one right after the same burst of the other (`pairedLiveRound`), and prints both runs' rows: the god
 /// ones with `god` in their names, as FIXTURE=god does. No open phase. bench/god-ratio-ab.sh runs it this way.
 const PAIRED = process.env.PAIRED === "1";
+/// `RENDERS=1` counts, per burst record, the components React committed again (perf.ts `renders`, counted by
+/// `useCountedRender` and `acpmuxPerf.render`): the pane, its header and composer, each transcript row and its content.
+/// It emits `transcript_replay.long.<kind>.renders_per_record` (every component) and `.row_renders_per_record` (the
+/// transcript's `row:` frames) and prints each kind's components. An appended record that touches one row commits one
+/// row and nothing else. Counting turns the pane's perf measurement on, so a RENDERS run's ms rows are not clean ones.
+const RENDERS = process.env.RENDERS === "1";
 /// `INVALIDATIONS=1` prints, per burst, what restyled the page and the rows React drew (`invalidations`).
 const INVALIDATIONS = process.env.INVALIDATIONS === "1";
 /// `HEAP_SNAPSHOT=FILE` writes a heap snapshot (DevTools' .heapsnapshot) of the burst log's page once its replay
@@ -390,6 +396,7 @@ async function openPage(ctx: Ctx, daemon: Daemon, log: ReplayLog, served: number
   const play: Play = { log, served, status };
   daemon.play = play;
   const page = await ctx.browser.newPage({ viewport: { width: 900, height: 700 } });
+  page.on("console", (m) => { const t = m.text(); if (t.startsWith("WHY")) fs.appendFileSync("/tmp/s3-why.log", t + "\n"); });
   await page.addInitScript(instrument, start);
   await installPaintedFrames(page);
   if (PROBE) await installFoldProbe(page);
@@ -479,6 +486,8 @@ type BurstResult = {
   /// PROBE=1: what one record cost besides time (foldFrameReport.ts): geometry reads from script, the
   /// layouts script forced, transcript rows React drew again, and the most layout objects and restyled
   /// elements one pass touched. Work per update that follows the rows in view shows here.
+  /// RENDERS=1: committed renders per record by component (`row:<id>` counts as `row`), and their sum (events apart).
+  renders?: { total: number; byComponent: Record<string, number> };
   probe?: {
     reads: number;
     forced: number;
@@ -488,6 +497,32 @@ type BurstResult = {
     styled: number;
   };
 };
+/// Names of perf.ts `renders` that count something other than one more component commit: the transcript's anchor
+/// passes, scroll flushes and layout flags, a row's mount (`mount:`), and RowFrame's commit (`frame:`), which is the
+/// same render `row:` already counted. They print, but stay out of a record's render total.
+const RENDER_EVENTS = /^(transcript:|layout\.|frame:|mount:)/;
+/// Names whose part after the first `:` is one row's id: each folds into its kind (`row:a`, `row:b` count as `row`).
+const PER_ROW = new Set(["row", "content", "notice", "frame", "mount"]);
+/// A burst's render counts (perf.ts `renders`) per record, by component (pure): `total` sums components' commits,
+/// events (`RENDER_EVENTS`) apart; `byComponent` lists both, most first.
+export function rendersPerRecord(
+  counts: Record<string, number>,
+  records: number,
+): { total: number; byComponent: Record<string, number> } {
+  const per = (value: number) => Math.round((value / Math.max(records, 1)) * 100) / 100;
+  const groups = new Map<string, number>();
+  let total = 0;
+  for (const [name, count] of Object.entries(counts)) {
+    const head = name.split(":")[0]!;
+    const group = PER_ROW.has(head) ? head : name;
+    groups.set(group, (groups.get(group) ?? 0) + count);
+    if (!RENDER_EVENTS.test(name)) total += count;
+  }
+  const byComponent = Object.fromEntries(
+    [...groups.entries()].sort((a, b) => b[1] - a[1]).map(([name, count]) => [name, per(count)]),
+  );
+  return { total: per(total), byComponent };
+}
 /// The page's size as a burst leaves it: a per-update cost that grows with the transcript while these stay flat is
 /// script work over every row; one that grows with them is the page's own (style, layout).
 const domSize = (page: Page) =>
@@ -700,6 +735,7 @@ async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<Live
       };
       const records = burst.toSeq - burst.fromSeq + 1;
       let probe: BurstResult["probe"];
+      let renders: BurstResult["renders"];
       if (PROBE) {
         await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.());
         const cost = await measureToggle(page, burst.kind, playBurst, () => paint(page, 2), cdp);
@@ -718,6 +754,15 @@ async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<Live
           layoutObjects: cost.layoutObjectsMax ?? 0,
           styled: cost.styleElementsMax ?? 0,
         };
+      } else if (RENDERS) {
+        await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.());
+        await playBurst();
+        await paint(page, 2);
+        const counts = (await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.() ?? {})) as Record<
+          string,
+          number
+        >;
+        renders = rendersPerRecord(counts, records);
       } else if (INVALIDATIONS) {
         await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.());
         console.log(`  ${burst.kind} at ${burst.rows} rows: ${await invalidations(cdp, playBurst, page, records)}`);
@@ -742,6 +787,7 @@ async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<Live
       bursts.push({
         dom,
         ...(probe ? { probe } : {}),
+        ...(renders ? { renders } : {}),
         kind: burst.kind,
         rows: burst.rows,
         msPerRecord: Math.round((taskMs / records) * 1000) / 1000,
@@ -970,6 +1016,31 @@ export function judge(opens: Open[], lives: Live[], burstLog = "long"): { rows: 
         },
         `one ${BURST_NAMES[kind]} costs more main-thread time than a frame's work`,
       );
+      const counted = longLive.bursts.filter((b) => b.kind === kind && b.renders);
+      if (counted.length) {
+        const totals = counted.map((b) => b.renders!.total);
+        row(
+          {
+            name: `transcript_replay.long.${kind}.renders_per_record`,
+            p50: median(totals),
+            p95: worst(totals),
+            unit: "count",
+            floor: 0.5,
+          },
+          `one ${BURST_NAMES[kind]} commits this many components again`,
+        );
+        const rowRenders = counted.map((b) => b.renders!.byComponent.row ?? 0);
+        row(
+          {
+            name: `transcript_replay.long.${kind}.row_renders_per_record`,
+            p50: median(rowRenders),
+            p95: worst(rowRenders),
+            unit: "count",
+            floor: 0.5,
+          },
+          `one ${BURST_NAMES[kind]} commits this many transcript rows again`,
+        );
+      }
       const growth = Math.round(slope(points) * 1000) / 1000;
       row(
         {
@@ -1177,6 +1248,13 @@ if (import.meta.main) {
                 ? ` probe per record: reads ${burst.probe.reads} forced ${burst.probe.forced} row renders ` +
                   `${burst.probe.rowRenders} content renders ${burst.probe.contentRenders}; most layout objects ` +
                   `${burst.probe.layoutObjects} restyled ${burst.probe.styled}`
+                : "") +
+              (burst.renders
+                ? ` renders per record ${burst.renders.total}: ` +
+                  Object.entries(burst.renders.byComponent)
+                    .slice(0, Number(process.env.RENDERS_TOP) || 12)
+                    .map(([name, count]) => `${name}=${count}`)
+                    .join(" ")
                 : ""),
           );
         // PROFILE_JSON=FILE writes every profiled burst's self and total times, for comparing two runs.
