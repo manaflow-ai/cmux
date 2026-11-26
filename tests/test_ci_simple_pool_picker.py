@@ -982,6 +982,23 @@ class GuiPoolTests(unittest.TestCase):
         state = observed(runners, {}, env=dict(env, CI_OWNED_POOL_SLOTS=json.dumps(slots)))
         self.assertTrue({item.label: item.gui for item in state.owned}[self.LIGHT_POOL])
 
+    def test_run_45238525234_shards_take_the_gui_label_not_the_pool(self):
+        """ci-macos.yml's shards read shard_runner before gui_runner. Main's run 45238525234 (2026-11-23) got
+        shard_runner=glaeda-std-xcode-26.6 beside gui_runner=glaeda-gui-std-xcode-26.6, so shards 3, 6 and 7 all
+        ran on one mini and shard 3 failed take-gui after 1800 s behind shard 7. With a gui label the shards take it."""
+        state = picker.State(jobs=15, owned=self.owned(), owned_enabled=True, wait_on_owned=True,
+                             gui_required=True, blacksmith_on=False)
+        choice = picker.pick(state)
+        slots = json.loads(OWNED_ENV["CI_OWNED_POOL_SLOTS"])
+        env = dict(OWNED_ENV, RUN_MACOS="true", RUN_FULL_SUITE="true", CI_BLACKSMITH_MACOS="",
+                   CI_OWNED_POOL_SLOTS=json.dumps({**slots, "glaeda-gui-std-xcode-26.6": 10}))
+        values = picker.write_outputs(choice, 15, env=env)
+        self.assertEqual(values["gui_runner"], "glaeda-gui-std-xcode-26.6")
+        self.assertEqual(values["shard_runner"], "")
+        # A pool with no gui label keeps its own label for the shards.
+        values = picker.write_outputs(choice, 15, env=dict(env, CI_OWNED_POOL_SLOTS=json.dumps(slots)))
+        self.assertEqual((values["gui_runner"], values["shard_runner"]), ("", self.STD_POOL))
+
     def test_run_44150654568_full_suite_skips_light(self):
         # Std busy with a long queue, three of four light runners idle: the switch-off wait took light.
         runners = [std_runner(index, busy=True) for index in range(8)] + [light_runner(index, busy=index == 0) for index in range(4)]
