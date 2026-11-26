@@ -147,7 +147,7 @@ jobs:
           # R2, not the GitHub cache: that store is over its 10 GB cap and evicted this small entry before
           # pull requests read it, so their base comparison missed and every base red was charged to them.
           backend: r2
-          path: .webviews-test-history-cache/history.json
+          path: .webviews-test-history-cache
           key: webviews-test-history-${{ github.base_ref }}-${{ github.run_id }}
           restore-keys: webviews-test-history-${{ github.base_ref }}-
 
@@ -1833,7 +1833,7 @@ jobs:
         with:
           # R2, as web-subarea-scope reads it: the GitHub cache is over its 10 GB cap and evicts this entry.
           backend: r2
-          path: .webviews-test-history-cache/history.json
+          path: .webviews-test-history-cache
           key: webviews-test-history-${{ github.base_ref }}-${{ github.run_id }}
           restore-keys: webviews-test-history-${{ github.base_ref }}-
       - name: Restore the base's webview test history
@@ -2457,7 +2457,7 @@ jobs:
           CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
         with:
           backend: r2
-          path: .webviews-test-history-cache/history.json
+          path: .webviews-test-history-cache
           key: webviews-test-history-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: webviews-test-history-${{ github.ref_name }}-
 
@@ -2508,8 +2508,8 @@ jobs:
 
       # The same history in the Actions cache, which a pull request's web-subarea-scope restores with no REST
       # request. A key a run: a cache entry is immutable, so one fixed key was never replaced (2026-11-08), and the
-      # restore-keys prefix takes the newest. A path relative to the workspace in every save and restore: the cache
-      # version hashes the path as written, and runner.temp differs between a VM's runners (runner, runner2).
+      # restore-keys prefix takes the newest. Use the same staging directory in each step. The R2
+      # action archives a directory and restores its contents there, including history.json.
       - name: Stage the history for the cache
         id: history-stage
         if: ${{ steps.history-record.outcome == 'success' }}
@@ -2529,7 +2529,7 @@ jobs:
           CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
         with:
           backend: r2
-          path: .webviews-test-history-cache/history.json
+          path: .webviews-test-history-cache
           key: webviews-test-history-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       # A base red is excused on every pull request, so nothing made it anyone's: react-apps-check was red on every

@@ -1073,7 +1073,9 @@ class Workflow(unittest.TestCase):
             self.assertIn(f"key: {key}\n", text)
             paths = re.findall(r"path: ([^\n]+)\n\s+key: webviews-test-history-", text)
             self.assertTrue(paths)
-            self.assertEqual(set(paths), {".webviews-test-history-cache/history.json"})
+            # r2-cache.sh saves directories. Passing history.json itself quietly skips the upload.
+            self.assertEqual(set(paths), {".webviews-test-history-cache"})
+            self.assertIn("cached=.webviews-test-history-cache/history.json", text)
         self.assertIn("restore-keys: webviews-test-history-${{ github.ref_name }}-\n", upkeep)
         self.assertIn("restore-keys: webviews-test-history-${{ github.base_ref }}-\n", scope)
         self.assertIn("uses: ./.github/actions/cache-save\n", upkeep)
@@ -1085,8 +1087,8 @@ class Workflow(unittest.TestCase):
         # requests read it (2026-11-25), so base comparisons missed. Every save and restore of it names the backend.
         for text in (upkeep, scope, base_check):
             self.assertNotIn("actions/cache/", text.split("webviews-test-history-")[0][-400:])
-            self.assertEqual(len(re.findall(r"backend: r2\n\s+path: \.webviews-test-history-cache/", text)),
-                             len(re.findall(r"path: \.webviews-test-history-cache/history\.json\n\s+key:", text)))
+            self.assertEqual(len(re.findall(r"backend: r2\n\s+path: \.webviews-test-history-cache\n", text)),
+                             len(re.findall(r"path: \.webviews-test-history-cache\n\s+key:", text)))
         # Optional upkeep: every step keeps going, so a stalled download or save never reddens a push. Only the last
         # step, which names reds stuck on the base, may turn the job red, and it runs after the history is saved.
         steps = upkeep.split("\n      - name: ")[1:]
