@@ -330,7 +330,6 @@ export function randomTurn(seed: number, count: number): GapEvent[] {
     [{ kind: "reply", streaming: false }, 1],
     [{ kind: "message" }, 2],
     [{ kind: "steer" }, 1],
-    [{ kind: "plan" }, 0.3],
   ];
   const total = kinds.reduce((sum, [, weight]) => sum + weight, 0);
   const out: GapEvent[] = [];
