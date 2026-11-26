@@ -29,6 +29,7 @@ mod view_offset;
 
 pub use adapters::{EMPTY_AREA_CELL, RowId, RowScroll, ScrollAreaScroll};
 pub use geometry::{adjacent_snap, projected_offset, rubber_band, snap_target};
+pub(crate) use state::anchor_shift;
 pub use state::{
     CenterFocusedColumn, ColumnFocusSource, ColumnScrollEffects, ColumnScrollEvent,
     ColumnScrollState, Gesture, RestorePoint, Sample, Spring,

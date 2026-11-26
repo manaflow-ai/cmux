@@ -3,7 +3,7 @@
 //!
 //! Every function here is a line-by-line port of its Swift twin, in `CGFloat` (f64) arithmetic with
 //! Swift's own `min`, `max` and `rounded()` semantics, so each answer is the one the Swift gave bit for
-//! bit (schemas/layout-geometry/vectors.json pins it). Coordinates are flipped: y grows down.
+//! bit (tests/data/layout_geometry_vectors.json pins it). Coordinates are flipped: y grows down.
 //!
 //! - [`drop_zones`]: the tab drop targets of a screen and their preview rects (`DropZoneGeometry`).
 //! - [`dock_strip`]: which columns dock and where the docks and the strip sit (`DockStripGeometry`).
@@ -11,13 +11,23 @@
 //! - [`wire`]: the `layout_geometry_*` JSON operations the app calls over the FFI.
 //! - [`pane_chrome`]: a pane's content rect inside its cell (`PaneChromeGeometry`, its `LayoutStyle`
 //!   metrics).
+//! - [`split_layout`]: a split tree's frames, dividers, minimums and drag ratios (`SplitGeometry`,
+//!   `EvenSplitRatios`, `PushResize`).
+//! - [`row_stack`]: a column of rows and a row-edge drag (`RowStackGeometry`, `RowResize`).
+//! - [`strip_math`]: column-edge drags and the keep-alive band (`StripStart`, `UniformEdge`,
+//!   `KeepAliveBand`).
 
 pub mod divider_band;
 pub mod dock_strip;
 pub mod drop_zones;
 pub mod pane_chrome;
+pub mod row_stack;
+pub mod split_layout;
+pub mod strip_math;
 pub mod wire;
 
+#[cfg(test)]
+mod split_tests;
 #[cfg(test)]
 mod tests;
 

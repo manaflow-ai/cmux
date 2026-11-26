@@ -1,6 +1,8 @@
 //! The layout geometry rules' vectors (`tests/data/layout_geometry_vectors.json`): random requests for
 //! every `layout_geometry_*` operation, answered by a line-by-line transliteration of the Swift
-//! (`CmuxNextLayout/Geometry` DropZoneGeometry, DockStripGeometry, DividerBand, PaneChromeGeometry).
+//! (`CmuxNextLayout/Geometry` DropZoneGeometry, DockStripGeometry, DividerBand, PaneChromeGeometry;
+//! `layout_geometry_split_vectors.json`: SplitGeometry, EvenSplitRatios, PushResize, RowStackGeometry,
+//! RowResize, StripStart, UniformEdge, KeepAliveBand).
 //! Every case answers the Swift's reply; numbers compare as f64.
 
 use cmux_layout_reducer::geometry::wire;
@@ -22,10 +24,8 @@ fn same(a: &Value, b: &Value) -> bool {
     }
 }
 
-#[test]
-fn layout_geometry_vectors_answer_the_swift_rules() {
-    let cases: Vec<Value> =
-        serde_json::from_str(include_str!("data/layout_geometry_vectors.json")).expect("vectors");
+fn replay(vectors: &str) {
+    let cases: Vec<Value> = serde_json::from_str(vectors).expect("vectors");
     assert!(cases.len() >= 1000, "the vectors lost cases: {}", cases.len());
     for (index, case) in cases.iter().enumerate() {
         let op = case["op"].as_str().expect("op");
@@ -40,6 +40,16 @@ fn layout_geometry_vectors_answer_the_swift_rules() {
             answer
         );
     }
+}
+
+#[test]
+fn layout_geometry_vectors_answer_the_swift_rules() {
+    replay(include_str!("data/layout_geometry_vectors.json"));
+}
+
+#[test]
+fn layout_geometry_split_vectors_answer_the_swift_rules() {
+    replay(include_str!("data/layout_geometry_split_vectors.json"));
 }
 
 #[test]

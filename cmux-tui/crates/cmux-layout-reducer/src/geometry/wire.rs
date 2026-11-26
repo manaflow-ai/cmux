@@ -9,10 +9,14 @@ use super::drop_zones::{
     self, Bars, CLASSIC_PANE_PADDING, DropGeometry, DropStyle, DropTarget, PaneDropZone,
 };
 use super::pane_chrome::{self, ChromeStyle};
+use super::row_stack::{self, Row, RowStack};
+use super::split_layout::{self, DividerGeometry, PointerRatio, PushResize, SplitNode, SplitStyle};
+use super::strip_math::{self, StripStart, UniformEdge};
 use super::{DockEdge, Point, Rect, Size, SplitAxis};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
+use std::collections::{BTreeMap, HashMap};
 
 /// The prefix every operation here starts with.
 pub const PREFIX: &str = "layout_geometry_";
@@ -141,6 +145,136 @@ struct ChromeRequest {
     scale: Option<f64>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SplitLayoutRequest {
+    node: SplitNode,
+    rect: Rect,
+    #[serde(default)]
+    style: SplitStyle,
+    scale: Option<f64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FirstExtentRequest {
+    ratio: f64,
+    available: f64,
+    minimum_a: f64,
+    minimum_b: f64,
+    scale: Option<f64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SplitRatioRequest {
+    pointer: f64,
+    container: Rect,
+    axis: SplitAxis,
+    #[serde(default)]
+    style: SplitStyle,
+    #[serde(flatten)]
+    options: PointerRatio,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EvenRatiosRequest {
+    root: SplitNode,
+    axis: SplitAxis,
+    /// Set: the ratios once this pane splits (`changes(splitting:)`); unset: `changes(equalizing:)`.
+    pane: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PushResizeRequest {
+    split: String,
+    column: String,
+    #[serde(default)]
+    docked: bool,
+    trees: Vec<SplitNode>,
+    column_width: f64,
+    dividers: Vec<DividerGeometry>,
+    viewport: f64,
+    gap: f64,
+    divider_thickness: f64,
+    /// The drag deltas to answer `targets(delta:)` for.
+    #[serde(default)]
+    deltas: Vec<f64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EdgeThickness {
+    line_thickness: f64,
+    hit_thickness: f64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RowStackRequest {
+    column: String,
+    rows: Vec<Row>,
+    #[serde(default)]
+    minimum_heights: Vec<f64>,
+    frame: Rect,
+    gap: f64,
+    #[serde(default)]
+    fits: bool,
+    scale: Option<f64>,
+    /// Set: the reply carries the row edges too.
+    edges: Option<EdgeThickness>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RowPixelRequest {
+    column_height: f64,
+    gap: f64,
+    permille: Option<f64>,
+    height: Option<f64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RowResizeRequest {
+    rows: Vec<Row>,
+    stack: RowStack,
+    upper: String,
+    pointer_y: f64,
+    #[serde(default)]
+    minimums: HashMap<String, f64>,
+    #[serde(default)]
+    fits: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StripRequest {
+    strip: StripStart,
+    /// Set: `trading(column, to: width)`; unset: `uniform(width)`.
+    column: Option<String>,
+    width: f64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UniformEdgeRequest {
+    edge: UniformEdge,
+    place: f64,
+    /// Widths to report `edge`, `presented` and `addsTravel` at.
+    #[serde(default)]
+    probes: Vec<f64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct KeepAliveRequest {
+    displayed: BTreeMap<String, Rect>,
+    viewport: Rect,
+}
+
 fn parse<T: DeserializeOwned>(request: Value) -> Result<T, String> {
     serde_json::from_value(request).map_err(|error| error.to_string())
 }
@@ -264,6 +398,130 @@ pub fn call(operation: &str, request: Value) -> Result<Value, String> {
                 "cornerRadius": rounded.map(|rect| pane_chrome::corner_radius(rect, r.style.pane_corner_radius)),
                 "hairlineWidth": pane_chrome::hairline_width(r.scale.unwrap_or(2.)),
             }))
+        }
+        "split_layout" => {
+            let r: SplitLayoutRequest = parse(request)?;
+            let layout = split_layout::layout(&r.node, r.rect, &r.style, r.scale.unwrap_or(2.));
+            Ok(json!({
+                "panes": layout.panes,
+                "dividers": layout.dividers,
+                "minimumSize": split_layout::minimum_size(&r.node, &r.style),
+            }))
+        }
+        "split_first_extent" => {
+            let r: FirstExtentRequest = parse(request)?;
+            to_value(split_layout::first_extent(
+                r.ratio,
+                r.available,
+                r.minimum_a,
+                r.minimum_b,
+                r.scale.unwrap_or(2.),
+            ))
+        }
+        "split_ratio" => {
+            let r: SplitRatioRequest = parse(request)?;
+            to_value(split_layout::ratio_for_pointer(
+                r.pointer,
+                r.container,
+                r.axis,
+                &r.style,
+                &r.options,
+            ))
+        }
+        "even_ratios" => {
+            let r: EvenRatiosRequest = parse(request)?;
+            to_value(match r.pane {
+                Some(pane) => split_layout::even_ratios_splitting(&pane, r.axis, &r.root),
+                None => split_layout::even_ratios_equalizing(&r.root, r.axis),
+            })
+        }
+        "push_resize" => {
+            let r: PushResizeRequest = parse(request)?;
+            let push = PushResize::new(
+                &r.split,
+                &r.column,
+                r.docked,
+                &r.trees,
+                r.column_width,
+                &r.dividers,
+                r.viewport,
+                r.gap,
+                r.divider_thickness,
+            );
+            let targets: Vec<_> = match &push {
+                Some(push) => r.deltas.iter().map(|&delta| push.targets(delta)).collect(),
+                None => vec![],
+            };
+            Ok(json!({ "push": push, "targets": targets }))
+        }
+        "row_stack" => {
+            let r: RowStackRequest = parse(request)?;
+            let scale = r.scale.unwrap_or(2.);
+            let stack = RowStack::compute(
+                &r.column,
+                &r.rows,
+                &r.minimum_heights,
+                r.frame,
+                r.gap,
+                r.fits,
+                scale,
+            );
+            let edges =
+                r.edges.map(|edges| stack.edges(edges.line_thickness, edges.hit_thickness, scale));
+            Ok(json!({
+                "scrolls": stack.scrolls(),
+                "maxOffset": stack.max_offset(),
+                "edges": edges,
+                "stack": stack,
+            }))
+        }
+        "row_pixel" => {
+            let r: RowPixelRequest = parse(request)?;
+            Ok(json!({
+                "pixelHeight": r.permille.map(|p| row_stack::pixel_height(p, r.column_height, r.gap)),
+                "permille": r.height.map(|h| row_stack::permille(h, r.column_height, r.gap)),
+            }))
+        }
+        "row_resize" => {
+            let r: RowResizeRequest = parse(request)?;
+            to_value(row_stack::resize_heights(
+                &r.rows,
+                &r.stack,
+                &r.upper,
+                r.pointer_y,
+                &r.minimums,
+                r.fits,
+            ))
+        }
+        "strip_start" => {
+            let r: StripRequest = parse(request)?;
+            to_value(match r.column {
+                Some(column) => r.strip.trading(&column, r.width),
+                None => r.strip.uniform(r.width),
+            })
+        }
+        "uniform_edge" => {
+            let r: UniformEdgeRequest = parse(request)?;
+            let edge = r.edge;
+            if edge.index >= edge.widths.len() {
+                return Err(format!("index {} past {} widths", edge.index, edge.widths.len()));
+            }
+            let probes: Vec<_> = r
+                .probes
+                .iter()
+                .map(|&width| {
+                    json!({
+                        "edge": edge.edge(width),
+                        "presented": edge.presented(width),
+                        "addsTravel": edge.adds_travel(width),
+                    })
+                })
+                .collect();
+            Ok(json!({ "target": edge.target(r.place), "probes": probes }))
+        }
+        "keep_alive" => {
+            let r: KeepAliveRequest = parse(request)?;
+            to_value(strip_math::keep_alive(&r.displayed, r.viewport))
         }
         _ => Err(format!("unknown operation {operation}")),
     }
