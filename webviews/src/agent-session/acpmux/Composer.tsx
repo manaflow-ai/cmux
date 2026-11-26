@@ -1,20 +1,22 @@
 import { acpmuxPerf } from "./perf";
+import { withoutHandedBack } from "./handedBack";
 import { sentWords } from "./computerUse/computerUseState";
 import { runResumed, submitResumed } from "./composer/resumedSend";
 import { holdFlag, resumeOrFail, setRef } from "./heldFlag";
-import { useStableHandlers } from "./stableHandlers";
+import { useStableHandlers, usePropChurn } from "./stableHandlers";
+import { useStableProps } from "./stableProps";
 import { chatPlace } from "./chatMachine";
 import React, {
   useCallback,
   useEffect,
+  useId,
   useImperativeHandle,
+  useInsertionEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
-  useInsertionEffect,
-  useId,
 } from "react";
 import type { ExtraFolderControl } from "./extraFolders";
 import { createPortal, flushSync } from "react-dom";
@@ -29,10 +31,10 @@ import {
   MAX_IMAGE_BYTES,
   placeInline,
   withoutInlineTokens,
-  inlineTokenSpans,
   type ComposerAttachment,
   type DroppedKind,
   type KnownPaths,
+  inlineTokenSpans,
 } from "./attachments";
 import { useReleasedPicks } from "./designSelection";
 import type { SendGesture } from "./heldPrompt";
@@ -51,7 +53,7 @@ import { chatHasFirstSend, showsLocationRow, stripSlot, type StripSlot } from ".
 import { createUnsentDraftThrottle, type UnsentDraftThrottle } from "./unsentDraftThrottle";
 import { ComposerQueue } from "./ComposerQueue";
 import { ownQueue } from "./conversation/queuedMessages";
-import { BuildIcon, ContextRing, PlanIcon } from "./ComposerPickers";
+import { BuildIcon, PlanIcon, LiveContextRing } from "./ComposerPickers";
 import { type Choice } from "./composerPickerModel";
 import { SendSlotGlyph, SendSlot, StopPulse } from "./composer/SendSlotGlyph";
 import { useStopPresence } from "./composer/turnPresence";
@@ -125,9 +127,9 @@ import {
   readsDurableDrafts,
   readPersistedDraft,
   settlePendingDraftWrites,
-  useDraftActionsVersion,
   writePersistedDraft,
   restoredPrompt,
+  onDraftActionsChanged,
 } from "./composerDraft";
 import { RESTORED_CHAT_EVENT, replacedRestoredDraft, restoredDraft } from "./chatSnapshot/restoredDraft";
 import type { MarkdownFieldHandle, MarkdownFieldProps } from "./MarkdownField";
@@ -171,7 +173,6 @@ import { ComposerPlusMenu } from "./ComposerPlusMenu";
 import { loadRecentCommandNames, recentCommands, rememberRecentCommand } from "./recentCommands";
 import { openPicker } from "./pickerOpeners";
 import type { RepickMachine } from "./cloudRepick";
-import { compactingUsage } from "./usageStats";
 import { useExperimentSwitch } from "../../experiments/switches";
 import { experimentArm } from "../../experiments/experiment";
 import { promptSuggestionLook } from "./promptSuggestionLook.experiment";
@@ -217,6 +218,18 @@ const STOP_GUARD_MS = 600;
 const UNSENT_DRAFT_INTERVAL_MS = 300;
 /// A field change this soon after the person's key, text input or composition is their edit.
 const TYPED_WINDOW_MS = 250;
+/// How long a typed change's draft writes wait (`flushTyped`): the key's own task does none of them.
+const TYPED_FLUSH_MS = 150;
+/// Runs `run` with `flag` set to `typing`, then clears it even when `run` throws. A plain function:
+/// the React Compiler does not lower a `try` without a `catch` inside a component.
+function editWhileTyping(flag: { current: boolean }, typing: boolean, run: () => void) {
+  flag.current = typing;
+  try {
+    run();
+  } finally {
+    flag.current = false;
+  }
+}
 /// With Cmd held, the keys that edit the prompt (undo, redo, cut, paste, delete a line); any other
 /// Cmd chord (select all, copy, a shortcut) changes nothing the person typed.
 const CMD_EDIT_KEYS = new Set(["z", "y", "x", "v", "Backspace", "Delete"]);
@@ -254,6 +267,9 @@ export type ComposerHandle = {
   /// Puts a held-back prompt in: `text` before what is typed now, `attachments` before the rest
   /// (`behind`: after them, for prompts sent after one already given back).
   restore(text: string, attachments: ComposerAttachment[], behind?: boolean): void;
+  /// Takes a handed-back prompt out again, because acpmux took it after all (handedBack.ts): its
+  /// words where they still stand in the prompt, its chips by id. Nothing the person changed goes.
+  withdraw(text: string, attachments: ComposerAttachment[]): void;
   /// Snapshot the unsent text without attachment markers or taking it out of this chat.
   draftText(): string;
   /// Prevent ordinary session-switch attachment handoff for text-only recovery.
@@ -505,6 +521,8 @@ type Props = {
   onOffload?(kind: OffloadKind): void;
   /// The place control, for a started chat (see ComposerContext).
   placeControl?: React.ReactNode;
+  /// The New Tab page's Hybrid control, before a chat starts (see ComposerContext).
+  newTabPlaceControl?: React.ReactNode;
   offloads?: readonly OffloadKind[];
   /// Why each offered move would refuse now (see ComposerContext).
   offloadReasons?: OffloadReasons;
@@ -729,7 +747,18 @@ function useRelayProps(props: Props): Props {
 const CALL_TIME_PROPS = ["holdsSend"] as const;
 
 export function Composer(props: Props) {
-  return <MemoComposer {...useStableHandlers(useRelayProps(props), CALL_TIME_PROPS)} />;
+  const stable = useStableHandlers(useRelayProps(props), CALL_TIME_PROPS);
+  // The pane builds the place control inline (pane/PaneComposer.tsx: PlaceChip and HybridChip with their
+  // own `claims`), a new element on every pane render, so each replayed record drew the composer, its box
+  // and its field again with nothing changed. The same element with the same parts is the one given before
+  // (stableProps.ts); its `claims` and `say` call the newest ones, read only at a pick. Kept per chat.
+  const place = useStableProps(
+    { placeControl: stable.placeControl },
+    undefined,
+    stable.snapshot.sessionId,
+  ).placeControl;
+  usePropChurn("composer", stable, acpmuxPerf.enabled, (key) => acpmuxPerf.render(key));
+  return <MemoComposer {...stable} {...(place === undefined ? {} : { placeControl: place })} />;
 }
 
 /// The prompt box with the agent's `/` command menu:
@@ -808,6 +837,7 @@ function ComposerFrame({
   onConnect,
   onOffload,
   placeControl,
+  newTabPlaceControl,
   offloads,
   offloadReasons,
   onRefreshMachines,
@@ -853,9 +883,6 @@ function ComposerFrame({
   const queueing = useQueueing();
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
   useMenuPressGuard();
-  // The native action map is replaced on reconnect while the session stays the same. Subscribe
-  // so a durable read retries as soon as that map is available again.
-  const draftActionsVersion = useDraftActionsVersion();
   /// Where the open Search files palette draws (the composer form's parent); null while closed.
   const [findingFiles, setFindingFiles] = useState<HTMLElement | null>(null);
   // `/help`'s sheet (HelpSheet.tsx), where the `/` list draws.
@@ -910,6 +937,7 @@ function ComposerFrame({
   /// Each write from here (not the field's own typing) renders the frame once, so the caret it
   /// asked for (`pendingCaret`) is applied after the field takes the text.
   const writeText = (value: string, at: number) => {
+    flushTyped();
     if (field.current && field.current.value() !== value) field.current.reset(value);
     promptRef.current.set(value, at);
     promptRef.current.draw();
@@ -917,10 +945,41 @@ function ComposerFrame({
   /// Runs a text change's draft writes (the text effects of before) once per change, after the
   /// handler that made it, as React's flush of the change ran them.
   const textChanged = useRef<() => void>(() => {});
+  /// The session `textChanged` writes for, so a switch runs a typed change's writes for the chat it was typed in.
+  const textChangedFor = useRef<string | undefined>(undefined);
+  /// The person's typing presence (`onTyping`) for the text as it is now.
+  const typingSignal = useRef<() => void>(() => {});
+  /// The text change being made is the person's own key (`promptChange`): its writes wait.
+  const typingChange = useRef(false);
+  /// A typed change's draft writes (remount cache, acpmux's draft, a new chat's `chat.unsentDraft`) and
+  /// typing presence, run once `TYPED_FLUSH_MS` after the first key of a run, never in the key's own
+  /// task (goals/typing-latency.md: together about 0.5 ms a key on Linux WebKit). Each reads the text
+  /// as it is when it runs, so the keys in between cost one write. Any other write of the text, a
+  /// send, a blur, the page hidden, a switch, a quit and the composer going run them first, at once.
+  const typedFlush = useRef<{ timer: ReturnType<typeof setTimeout>; text: boolean; signal: boolean } | undefined>(
+    undefined,
+  );
+  const flushTyped = () => {
+    const pending = typedFlush.current;
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    typedFlush.current = undefined;
+    if (pending.text) textChanged.current();
+    if (pending.signal) typingSignal.current();
+  };
+  const holdTyped = (part: "text" | "signal") => {
+    let pending = typedFlush.current;
+    if (pending == null) {
+      pending = { timer: setTimeout(() => flushTyped(), TYPED_FLUSH_MS), text: false, signal: false };
+      typedFlush.current = pending;
+    }
+    pending[part] = true;
+  };
   useEffect(() => {
     let live = true;
     let queued = false;
     const stop = promptRef.current.subscribeText(() => {
+      if (typingChange.current) return holdTyped("text");
       if (queued) return;
       queued = true;
       queueMicrotask(() => {
@@ -928,9 +987,18 @@ function ComposerFrame({
         if (live) textChanged.current();
       });
     });
+    const hidden = () => {
+      if (document.visibilityState === "hidden") flushTyped();
+    };
+    window.addEventListener("pagehide", flushTyped);
+    document.addEventListener("visibilitychange", hidden);
     return () => {
+      // Unmounting (or a new store): what was typed is written before the composer goes.
+      flushTyped();
       live = false;
       stop();
+      window.removeEventListener("pagehide", flushTyped);
+      document.removeEventListener("visibilitychange", hidden);
     };
   }, [promptText]);
   const [doneWhen, setDoneWhen] = useState("");
@@ -1073,11 +1141,6 @@ function ComposerFrame({
   const look = useComposerLookWithV2();
   const buttonsVisible = useExperimentSwitch("composerButtonsVisible");
   const quietActions = plainFooter && !lookRowInBox(look);
-  const usage = compactingUsage(
-    snapshot.summary?.usage,
-    snapshot.summary?.usageStats,
-    snapshot.summary?.contextBreakdown,
-  );
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
   /// `sending`, as Send's look reads it during render.
@@ -1115,7 +1178,6 @@ function ComposerFrame({
     unsettled,
     cancel,
     goAhead,
-    retry,
     revive,
     originalFailures,
     originalUploads,
@@ -1441,6 +1503,21 @@ function ComposerFrame({
       },
       restore: (restoredText, restoredAttachments, behind) =>
         restoreNow.current(restoredText, restoredAttachments, behind),
+      withdraw(landedText, landedAttachments) {
+        const now = field.current?.value() ?? promptRef.current.text;
+        const next = withoutHandedBack(now, landedText);
+        if (next !== now) {
+          notTyped();
+          if (!field.current?.type(next)) writeText(next, next.length);
+        }
+        const ids = landedAttachments
+          .map((chip) => chip.id)
+          .filter((id) => attachmentsRef.current.some((chip) => chip.id === id));
+        if (!ids.length) return;
+        attachmentsRef.current = attachmentsRef.current.filter((chip) => !ids.includes(chip.id));
+        setAttachments((current) => current.filter((chip) => !ids.includes(chip.id)));
+        for (const id of ids) field.current?.removeInline(id);
+      },
       attach(attachment) {
         // A Cloud start is out: no chip comes in from any caller (a highlight, a selection, a
         // recording, a link pick, the focused tab), and the note says why (`refusal`).
@@ -1495,6 +1572,8 @@ function ComposerFrame({
         };
       },
       async settleDraft() {
+        // A typed change's writes still waiting go first: what follows compares with what they queued.
+        flushTyped();
         // The editor's value, not React's state: a keystroke whose effects have not run yet counts.
         let typed = field.current?.value() ?? promptRef.current.text;
         const session = persistedSession.current;
@@ -1672,32 +1751,45 @@ function ComposerFrame({
   useEffect(() => {
     if (!switching) carryPrompt.current = false;
   }, [switching]);
+  // Read again each time the native action map is installed or replaced (a reconnect), through a
+  // subscription rather than a render: a drop and its reconnect ("Waiting for the agent service")
+  // drew the composer again only to run this (Leo, 2026-11-22: "idk if the waiting for agent service
+  // bullshit has anything to do with it").
   useEffect(() => {
-    let current = true;
-    void readDurableDraftState(sessionId).then((state) => {
-      if (!current) return;
-      // Settled once acpmux answered, or the page asked it and it could not say (an acpmux without
-      // drafts, a dropped read): not while no client can ask yet.
-      if (sessionId && (state || readsDurableDrafts())) onDraftSettled?.(sessionId);
-      // acpmux did not answer (its action map not installed yet, a connection that failed or
-      // dropped): nothing is known of its draft, so the chat is not hydrated. What the person types
-      // meanwhile stays in the remount cache and goes to acpmux only once a read answered and
-      // merged it (the action map's next version runs this again). Before, an unanswered read
-      // counted as "no draft", and the typed text then replaced the draft acpmux kept.
-      if (sessionId && !state) return;
-      applyDraftRead(sessionId, state?.draft);
-      // A web update reloaded the page while the prompt had the keyboard: it takes it back, the
-      // caret after the text as it was (pages/shared/webSwap.ts).
-      if (takeWebSwapFocus("composer"))
-        requestAnimationFrame(() => {
-          focusRoute(field.current, "system", "the composer mounted");
-          field.current?.setCaret(Number.MAX_SAFE_INTEGER);
-        });
-    });
-    return () => {
-      current = false;
+    // A counter object, not a captured `let`: the React Compiler cannot lower `++` on a variable a
+    // closure captures, and skipped the whole component.
+    const generation = { n: 0 };
+    const read = () => {
+      generation.n += 1;
+      const request = generation.n;
+      void readDurableDraftState(sessionId).then((state) => {
+        if (request !== generation.n) return;
+        // Settled once acpmux answered, or the page asked it and it could not say (an acpmux without
+        // drafts, a dropped read): not while no client can ask yet.
+        if (sessionId && (state || readsDurableDrafts())) onDraftSettled?.(sessionId);
+        // acpmux did not answer (its action map not installed yet, a connection that failed or
+        // dropped): nothing is known of its draft, so the chat is not hydrated. What the person types
+        // meanwhile stays in the remount cache and goes to acpmux only once a read answered and
+        // merged it (the action map's next version runs this again). Before, an unanswered read
+        // counted as "no draft", and the typed text then replaced the draft acpmux kept.
+        if (sessionId && !state) return;
+        applyDraftRead(sessionId, state?.draft);
+        // A web update reloaded the page while the prompt had the keyboard: it takes it back, the
+        // caret after the text as it was (pages/shared/webSwap.ts).
+        if (takeWebSwapFocus("composer"))
+          requestAnimationFrame(() => {
+            focusRoute(field.current, "system", "the composer mounted");
+            field.current?.setCaret(Number.MAX_SAFE_INTEGER);
+          });
+      });
     };
-  }, [sessionId, draftActionsVersion, onDraftSettled]);
+    read();
+    const off = onDraftActionsChanged(read);
+    return () => {
+      generation.n += 1;
+      off();
+    };
+  }, [sessionId, onDraftSettled]);
   // The relaunch copy's script loads `async`, so it can land after this composer mounted: its prompt
   // still goes in before acpmux's read answers, while nothing was typed and the prompt is empty.
   useEffect(() => {
@@ -1761,9 +1853,16 @@ function ComposerFrame({
     if (cloudStarting) unsentDraft.current?.flush();
   }, [sessionId, onUnsentDraft, cloudStarting]);
   useInsertionEffect(() => {
+    // Another chat now: a typed change still waiting is the previous chat's, written with its own writes.
+    if (textChangedFor.current !== sessionId) flushTyped();
+    textChangedFor.current = sessionId;
     textChanged.current = () => {
       persistText(sessionId, promptRef.current.text);
       pushUnsent(promptRef.current.text);
+    };
+    typingSignal.current = () => {
+      const value = promptRef.current.text;
+      if (value.trim()) onTyping?.(value, sessionId);
     };
   });
   const commands = snapshot.commands;
@@ -1802,7 +1901,8 @@ function ComposerFrame({
   const typedSlash = slash !== undefined && !facts.slashDismissed && !recalling ? slash : undefined;
   const query = typedSlash?.query;
   // The person's saved prompts lead the list (savedPrompts.ts); the prompt colours only the chat's own.
-  const savedPrompts = useSavedPrompts();
+  const slashOpen = typedSlash !== undefined;
+  const savedPrompts = useSavedPrompts(slashOpen);
   const menuCommands = useMemo(
     () => [...savedPromptCommands(savedPrompts), ...(commands ?? [])],
     [savedPrompts, commands],
@@ -1811,7 +1911,6 @@ function ComposerFrame({
   const open = typedSlash !== undefined && (typedSlash.leading || matches.length > 0);
   const slashNames = useSlashNames(commands);
   // Each opening reads the list again, so a prompt saved in another chat is there.
-  const slashOpen = typedSlash !== undefined;
   useEffect(() => {
     if (slashOpen) void refreshSavedPrompts();
   }, [slashOpen]);
@@ -1819,10 +1918,12 @@ function ComposerFrame({
   // A new word or the list opening highlights the first row again; Return takes it (returnPicks). The
   // row the arrows chose matters for a `$word` only: a new word, a cleared draft or the list closing forgets it.
   const [arrowed, setArrowed] = useState(false);
+  // The mark counts too: a row the arrows chose at `/emil` is not chosen at `$emil`.
+  const queryMark = typedSlash?.mark;
   useLayoutEffect(() => {
     setActive(0);
     setArrowed(false);
-  }, [query, open]);
+  }, [query, queryMark, open]);
   // Typing @ at a word start lists the plugins (toolMentions.ts), then, for a specific word, the
   // chat's folders and files that match what follows (mentionItems.ts). Computer use and browser use
   // are always offered, so the menu always has rows.
@@ -1931,6 +2032,7 @@ function ComposerFrame({
     // Esc closes a list for the text it was pressed on; an edit ends that, even one that comes back to
     // the same text (Backspace and the letter again, or the prompt cleared and typed again), so the @
     // and emoji lists come back as the / list does.
+    if (!typingChange.current) flushTyped();
     promptRef.current.set(value, at, true);
     if (!typed) promptRef.current.draw();
     // Emptied (a command run, a prompt sent, the text deleted): this pane no longer types, and the
@@ -2294,6 +2396,7 @@ function ComposerFrame({
     const fromSend = document.activeElement?.classList.contains("acpmux-send") ?? false;
     // The key that sent it is spent: what the composer writes back after the send is not typing.
     notTyped();
+    flushTyped();
     unsentDraft.current?.flush();
     // Each paste still in the text as pasted goes as a pasted block, never as typed words
     // (composer/pasteMarks.ts); a slash command's text stays the command.
@@ -2694,6 +2797,7 @@ function ComposerFrame({
   // Focus leaving the composer closes the menu and takes back what + wrote.
   const blur = (event: React.FocusEvent<HTMLFormElement>) => {
     if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+    flushTyped();
     unsentDraft.current?.flush();
     const unrendered = plusDraft.current?.shown === false;
     const original = unwrapped();
@@ -2849,6 +2953,7 @@ function ComposerFrame({
       onConnect={onConnect}
       {...(onOffload ? { onOffload } : {})}
       {...(placeControl ? { placeControl } : {})}
+      {...(newTabPlaceControl ? { newTabPlaceControl } : {})}
       {...(offloads ? { offloads } : {})}
       {...(offloadReasons ? { offloadReasons } : {})}
       summary={snapshot.summary}
@@ -3261,14 +3366,19 @@ function ComposerFrame({
     // IME composition. A value applied from outside (a draft coming back on open or a switch, a
     // failed prompt restored, the field normalizing either) comes with none.
     promptChange.current = (value, at) => {
-      edit(value, at, true);
-      if (performance.now() - typedAt.current >= TYPED_WINDOW_MS) return;
+      const typing = performance.now() - typedAt.current < TYPED_WINDOW_MS;
+      // The person's key: its draft writes and typing presence wait (`flushTyped`). Not while a Cloud
+      // start is out: the host may open its chat at any moment, seeded with what it holds then.
+      editWhileTyping(typingChange, typing && !cloudStarting, () => edit(value, at, true));
+      if (!typing) return;
       if (hydratedSession.current !== sessionId) editedBeforeHydration.current = true;
       // Kept past this mount: a composer that comes back keeps the person's text over acpmux's.
       noteDraftEdited(sessionId);
       // One change per key: what the field does after it (normalizing) is not another.
       typedAt.current = Number.NEGATIVE_INFINITY;
-      if (value.trim()) onTyping?.(value, sessionId);
+      if (value.trim() && cloudStarting) onTyping?.(value, sessionId);
+      else if (value.trim()) holdTyped("signal");
+      // The key's own gesture wakes a paused Cloud machine: at once.
       if (value.trim()) onPromptEdit?.(value);
     };
     promptCaret.current = promptRef.current.setCaret;
@@ -3611,7 +3721,6 @@ function ComposerFrame({
           cancel(id);
           field.current?.focus();
         }}
-        onRetryAttachment={retry}
         onReviveAttachment={revive}
         originalFailures={originalFailures}
         onPasteFile={(file) => void attach([file], true, "paste")}
@@ -3806,14 +3915,11 @@ function ComposerFrame({
           showContextUsage &&
           chatHasFirstSend(snapshot) && (
             <UsageRingMenu>
-              <ContextRing
+              <LiveContextRing
+                // A usage update renders this ring alone, not the composer (liveSummary.ts).
+                summary={snapshot.summary}
                 // The chat the reading is of: switching chats shows the new one's at once, uneased.
                 chat={snapshot.summary?.sessionId || sessionId}
-                used={usage?.used}
-                size={usage?.size}
-                setup={usage?.setup}
-                cacheExpiresAt={usage?.cacheExpiresAt}
-                breakdown={snapshot.summary?.contextBreakdown}
                 onOpenDetails={onOpenContext}
                 onCompact={onCompact}
                 // A turn or a compaction running (a compaction is a turn): the row stays, inert.

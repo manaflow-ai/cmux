@@ -13,6 +13,11 @@ export function githubSource(state: GitHubPickerState): {
 } {
   if (state.connecting || state.status?.connecting)
     return { status: "source.github.opening", message: "source.github.opening" };
+  // The app's own GitHub panel is open, or the app is finishing what GitHub handed back: say so, no click needed.
+  if (state.status?.progress === "on_github" && state.status.state !== "ready")
+    return { status: "source.github.onGitHub", message: "source.github.onGitHubDetail" };
+  if (state.status?.progress === "finishing" && state.status.state !== "ready")
+    return { status: "source.github.finishing", message: "source.github.finishing" };
   if (!state.status) return { status: "harnesses.checking", message: "harnesses.checking" };
   if (state.status.state === "unavailable") {
     switch (state.status.reason) {
@@ -30,7 +35,8 @@ export function githubSource(state: GitHubPickerState): {
     return {
       status: state.status.pendingApproval ? "source.github.needsApproval" : "composer.githubConnect",
       action: "connect",
-      ...(state.status.pendingApproval ? { message: "source.github.approvalDetail" as const } : {}),
+      // What happens next, not only what is missing: the repositories come here once an owner approves (Leo 2026-11-25).
+      ...(state.status.pendingApproval ? { message: "source.github.approvalNext" as const } : {}),
     };
   if (state.error)
     return { status: state.rateLimited ? "source.github.busy" : "source.github.offline", action: "retry" };

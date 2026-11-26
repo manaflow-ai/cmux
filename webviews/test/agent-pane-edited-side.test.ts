@@ -168,16 +168,19 @@ await requireBrowserLane("agent-pane-edited-side.test.ts", async () => {
     const before = await counts.evaluate((node) => [getComputedStyle(node).opacity, node.textContent]);
     await counts.hover();
     expect(await counts.evaluate((node) => [getComputedStyle(node).opacity, node.textContent])).toEqual(before);
-    // A file row opens its own diff under it, inside the card.
-    const row = card.locator("button.acpmux-edited-file").first();
-    expect(await row.getAttribute("aria-expanded")).toBe("false");
-    await row.click();
-    await card.locator(".acpmux-edited-entry").first().locator(".acpmux-edited-diff .cv-edit-diff").waitFor();
-    expect(await row.getAttribute("aria-expanded")).toBe("true");
-    expect(await card.locator(".acpmux-edited-diff .cv-edit-diff").count()).toBe(1);
+    // One click on the card's one row stacks every file's diff inside it (Leo, 2026-11-25), each
+    // with its own Open in Changes.
+    const chevron = card.locator("button.acpmux-edited-chevron");
+    expect(await chevron.getAttribute("aria-expanded")).toBe("false");
+    expect(await card.locator(".acpmux-edited-stack").count()).toBe(0);
+    await card.locator(".acpmux-edited-head").click();
+    await card.locator(".acpmux-edited-stack .cv-edit-diff").first().waitFor();
+    expect(await chevron.getAttribute("aria-expanded")).toBe("true");
+    const diffs = await card.locator(".acpmux-edited-stack .cv-edit-diff").count();
+    expect(diffs).toBeGreaterThan(0);
     expect(
-      await card.locator(".acpmux-edited-diff").getByRole("button", { name: "Open in Changes", exact: true }).count(),
-    ).toBe(1);
+      await card.locator(".acpmux-edited-stack").getByRole("button", { name: "Open in Changes", exact: true }).count(),
+    ).toBe(diffs);
     await page.close();
   });
 });

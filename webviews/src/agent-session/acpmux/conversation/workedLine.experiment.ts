@@ -5,7 +5,11 @@ import { defineExperiment } from "../../../experiments/experiment";
 /// outcome, not the steps: the line is the transcript's one look at past work, and today it spends
 /// it on a duration. The arms name what the turn did, from the calls the fold already holds (no
 /// model call; one pass over the turn's calls). Compare in `agent-pane.worked-line`.
-/// `outcome` ships (Leo, 2026-11-22: "the taste ones i agree with all actually"); `time`, the earlier line, stays as an arm to compare against.
+/// `time` ships: a closed Worked for reads "Worked for 36s" alone, its counts inside the fold on the
+/// run lines (Leo, 2026-11-07, ask-db01e91a83: "inside the worked for, then you wouldn't need to have,
+/// like, the top-level finished two and ran eight"; 2026-11-25, on "23s · Ran 2 commands": "did we
+/// remove these yet"). `outcome` shipped once in #49934 and brought the counts back; it stays an arm.
+/// workedForTimeOnly.test.tsx holds the default to the time alone.
 export const workedLine = defineExperiment({
   id: "worked-line",
   title: "What a closed Worked for says",
@@ -30,5 +34,5 @@ export const workedLine = defineExperiment({
       description: "Edited a file and ran 2 commands: 1 failed, tests failed · 36s; the outcome first, the time last.",
     },
   },
-  defaultArm: "outcome",
+  defaultArm: "time",
 });
