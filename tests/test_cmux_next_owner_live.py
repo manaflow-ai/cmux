@@ -123,8 +123,11 @@ class Notify(unittest.TestCase):
         self.env = mock.patch.dict(os.environ, {"CMUX_OWNER_NOTICES": str(Path(self.tmp.name) / "n.json"),
                                                 "ACPMUX_SESSION_ID": "id-pusher"})
         self.env.start()
+        self.me = mock.patch.object(live, "sender_name", return_value="host-p/pusher")
+        self.me.start()
 
     def tearDown(self):
+        self.me.stop()
         self.env.stop()
         self.tmp.cleanup()
 
@@ -155,6 +158,37 @@ class Notify(unittest.TestCase):
         with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(live.subprocess, "run") as run:
             self.assertEqual(live.notify("h/s", "a", "h", "t"), live.NO_SENDER)
         run.assert_not_called()
+
+    def test_the_notice_names_the_pusher_as_host_slash_name(self):
+        # 2026-11-26: notices arrived labelled "gcp-agent-lane-5" (a bare host) and inbox_reply could not answer them.
+        ok = types.SimpleNamespace(returncode=0, stdout="id", stderr="")
+        with mock.patch.object(live.subprocess, "run", return_value=ok) as run:
+            self.assertIsNone(live.notify("h/s", "acpmux", "a" * 40, "you hold it now."))
+        self.assertIn("From host-p/pusher; answer with `lane-gh send host-p/pusher -`", run.call_args.kwargs["input"])
+
+    def test_a_session_acpmux_cannot_name_sends_nothing(self):
+        with mock.patch.object(live, "sender_name", return_value=None), mock.patch.object(live.subprocess, "run") as run:
+            self.assertEqual(live.notify("h/s", "a", "h", "t"), live.NO_SENDER_NAME)
+        run.assert_not_called()
+
+    def test_sender_name_is_host_slash_name_never_a_bare_host(self):
+        self.me.stop()
+        try:
+            info = types.SimpleNamespace(returncode=0, stdout="machine\tgcp-agent-lane-5\nname\tfix-sidebar\n", stderr="")
+            with mock.patch.object(live.subprocess, "run", return_value=info) as run:
+                self.assertEqual(live.sender_name(), "gcp-agent-lane-5/fix-sidebar")
+            self.assertEqual(run.call_args.args[0][:4], ["acpmux", "session", "info", "id-pusher"])
+            host_only = types.SimpleNamespace(returncode=0, stdout="machine\tgcp-agent-lane-5\nname\t\n", stderr="")
+            gone = types.SimpleNamespace(returncode=4, stdout="", stderr="no_session")
+            for out in (host_only, gone):
+                with mock.patch.object(live.subprocess, "run", return_value=out):
+                    self.assertIsNone(live.sender_name())
+            env = {k: v for k, v in os.environ.items() if k not in ("ACPMUX_SESSION_ID", "ACPMUX_SESSION_NAME")}
+            with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(live.subprocess, "run") as run:
+                self.assertIsNone(live.sender_name())
+            run.assert_not_called()
+        finally:
+            self.me.start()
 
     def test_ci_lists_nothing(self):
         with mock.patch.dict(os.environ, {"CI": "true"}):

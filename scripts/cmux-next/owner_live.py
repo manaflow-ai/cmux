@@ -243,12 +243,45 @@ def sender() -> str | None:
     return next((os.environ[name] for name in SENDER_ENV if os.environ.get(name, "").strip()), None)
 
 
+# A notice names its pusher as HOST/NAME, the address `lane-gh send` and inbox_reply take. On 2026-11-26 three notices
+# reached a coordinator labelled with a bare host ("gcp-agent-lane-5", "fs-agent-lane-7", "gcp-codex-lane-12") and
+# inbox_reply failed with "no live or closed session named 'gcp-agent-lane-5' on any machine": the holder could not
+# answer the pusher. The notice now carries the address it was sent from, and a session acpmux cannot name sends none.
+NO_SENDER_NAME = "the pushing session has no HOST/NAME acpmux can resolve; tell the holder yourself"
+
+
+def sender_name(timeout: float = LIST_TIMEOUT_S) -> str | None:
+    """The pushing session as HOST/NAME (from `acpmux session info`), or None when acpmux cannot name it."""
+    ident = (os.environ.get("ACPMUX_SESSION_ID") or os.environ.get("ACPMUX_SESSION_NAME") or "").strip()
+    if not ident:
+        return None
+    try:
+        out = subprocess.run(["acpmux", "session", "info", ident, "--fields", "machine,name"],
+                             capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if out.returncode != 0:
+        return None
+    fields = dict(line.split("\t", 1) for line in out.stdout.splitlines() if "\t" in line)
+    host, name = fields.get("machine", "").strip(), _short(fields.get("name", "").strip())
+    return f"{host}/{name}" if host and name else None
+
+
+def signed(text: str, me: str) -> str:
+    """TEXT with a line naming the pusher, so the holder can answer it."""
+    return f"{text}\n\nFrom {me}; answer with `lane-gh send {me} -` or `acpmux send {me} -`."
+
+
 def notify(to: str, area: str, head: str, text: str) -> str | None:
     """Send TEXT to TO once per (TO, AREA, HEAD); None when sent or already sent, else why it was not."""
     if os.environ.get("CMUX_OWNER_NOTIFY") == "0":
         return "CMUX_OWNER_NOTIFY=0"
     if not sender():
         return NO_SENDER
+    me = sender_name()
+    if not me:
+        return NO_SENDER_NAME
+    text = signed(text, me)
     key = hashlib.sha1(f"{to}\n{area}\n{head}".encode()).hexdigest()[:16]
     path = _notices_path()
     try:
