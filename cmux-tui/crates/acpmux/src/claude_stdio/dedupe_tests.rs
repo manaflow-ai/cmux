@@ -225,8 +225,9 @@ fn a_git_read_is_stubbed_until_a_ref_moves() {
 
 #[test]
 fn the_switches() {
-    assert!(enabled_in(None));
-    assert!(enabled_in(Some(&json!({}))));
+    // Off unless the person turns it on.
+    assert!(!enabled_in(None));
+    assert!(!enabled_in(Some(&json!({}))));
     assert!(!enabled_in(Some(
         &json!({"agents": {"harnessMagic": {"dedupe": {"enabled": false}}}})
     )));
@@ -246,9 +247,7 @@ fn the_stub_is_one_line() {
 /// Through the translator: the callback's answers and the turn result's counts.
 #[tokio::test]
 async fn the_translator_stubs_a_repeated_read_and_counts_it() {
-    if !super::dedupe::enabled() {
-        return;
-    }
+    super::dedupe::ON_FOR_TEST.with(|on| on.set(true));
     let dir = tempfile::tempdir().unwrap();
     let f = file(dir.path(), "a.txt", "hello\n");
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");
