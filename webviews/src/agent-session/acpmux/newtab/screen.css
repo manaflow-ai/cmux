@@ -1497,10 +1497,9 @@
   --uc-field-inline: 18px;
   --uc-field-text: calc(var(--text-content) * 14.5 / 14);
   --uc-field-line: calc(var(--text-content) * 1.5);
-  /* The suggestions' rows: 9 px from glyph to title; a shortcut's keycaps 3 px apart, 5 px in. */
+  /* The suggestions' rows: 9 px from glyph to title; a shortcut's keys 3 px apart. */
   --uc-row-gap: 9px;
   --uc-key-gap: 3px;
-  --uc-key-pad: 5px;
 }
 /* The card, not its popups: they read the shared transient material (glass-levels.test.ts). */
 :root:not([data-cmux-see-through]) .nt-composer > .nt-box.nt-composer-surface.ui-glass {
@@ -1784,12 +1783,6 @@ html:root .nt-screen .nt-composer .nt-input .acpmux-picker.nt-split-plus > .acpm
 :root .ui-popup.nt-popover .nt-row-detail { font-size: var(--text-detail); letter-spacing: normal; }
 :root .ui-popup.nt-popover .nt-row-return { display: none; }
 :root .ui-popup.nt-popover .nt-row-shortcut { gap: var(--uc-key-gap); }
-:root .ui-popup.nt-popover .nt-row-shortcut kbd {
-  padding: var(--grid-half-step) var(--uc-key-pad);
-  background: color-mix(in srgb, var(--uc-ink) 8%, var(--uc-base));
-  color: var(--uc-muted);
-  font: var(--text-caption) / 1 var(--font-ui);
-}
 
 /* +'s menu: under it, on its left edge (Picker's side), 12 px radius, 5 px padding, 206 to 300 px wide, in the shared
    menu material; 28 px rows at 7 px radius, 9 px padding, 8 px gap, 13 px in the chips' ink, 14 px icons. No subtitles, Return hint
