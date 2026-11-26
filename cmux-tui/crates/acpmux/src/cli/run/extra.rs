@@ -198,6 +198,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::PlaceSession(args) => place_session(args, json_out).await,
         Command::WakeAgent { session } => {
             let client = connect(true).await?;
             unsupported_pause(&client)?;
@@ -1955,6 +1956,84 @@ async fn print_start_modes() {
         );
     }
     println!("# change: acpmux config --set permissions.default=yolo|standard|ask|default");
+}
+
+/// `acpmux session place-set`: `_acpmux/place_set`, `place_undo` or `place_get`, and what each chat
+/// answered. A refused or unconfirmed chat ends the command non-zero.
+async fn place_session(args: crate::cli::command::PlaceSessionArgs, json_out: bool) -> Result<()> {
+    use crate::cli::errors::{AppError, Code};
+    let client = connect(true).await?;
+    let mut ids = Vec::new();
+    for s in &args.sessions {
+        ids.push(resolve_id(&client, s).await?);
+    }
+    let v = if args.undo {
+        let mut chats = Vec::new();
+        for id in &ids {
+            let one = client
+                .request("_acpmux/place_undo", json!({"sessionId": id, "confirm": args.yes}))
+                .await?;
+            chats.extend(one["chats"].as_array().cloned().unwrap_or_default());
+        }
+        json!({"chats": chats})
+    } else if args.status {
+        client.request("_acpmux/place_get", json!({"sessionIds": ids})).await?
+    } else {
+        let mut place = match args.mode.as_deref() {
+            Some("cloud") => json!({"mode": "cloud"}),
+            Some("machine") => {
+                let Some(machine) = args.machine.as_deref() else {
+                    return Err(AppError::usage("--mode machine needs --machine NAME").into());
+                };
+                json!({"mode": "machine", "machine": machine})
+            }
+            _ => json!({"mode": "auto"}),
+        };
+        if let Some(cwd) = &args.cwd {
+            cmux_json::JsonSet::set(&mut place, "cwd", json!(cwd));
+        }
+        let mut params = json!({"sessionIds": ids, "place": place, "confirm": args.yes});
+        if let Some(why) = &args.why {
+            cmux_json::JsonSet::set(&mut params, "why", json!(why));
+        }
+        client.request("_acpmux/place_set", params).await?
+    };
+    let chats = v["chats"].as_array().cloned().unwrap_or_default();
+    if json_out {
+        print_json(&v);
+    } else {
+        for c in &chats {
+            let reason = c["reason"].as_str().map(|r| format!(": {r}")).unwrap_or_default();
+            println!(
+                "{}: {}{reason}",
+                c["sessionId"].as_str().unwrap_or("?"),
+                c["state"].as_str().unwrap_or("?")
+            );
+            for l in c["leftBehind"].as_array().into_iter().flatten() {
+                println!("  stays here: {}", l["detail"].as_str().unwrap_or("?"));
+            }
+            if c["state"] == "needs_confirm" {
+                println!("  pass --yes to move anyway");
+            }
+        }
+    }
+    let bad =
+        chats.iter().find(|c| matches!(c["state"].as_str(), Some("refused" | "needs_confirm")));
+    match bad {
+        Some(c) if c["state"] == "refused" => Err(AppError::new(
+            Code::Refused,
+            "place_refused",
+            c["reason"].as_str().unwrap_or("refused"),
+        )
+        .into()),
+        Some(_) => Err(AppError::new(
+            Code::Refused,
+            "place_needs_confirm",
+            "the move leaves things behind: nothing moved; pass --yes to move anyway",
+        )
+        .into()),
+        None => Ok(()),
+    }
 }
 
 #[cfg(test)]
