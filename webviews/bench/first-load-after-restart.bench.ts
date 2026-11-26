@@ -95,7 +95,7 @@ import {
 import { snapshotCss } from "../scripts/agent-pane/snapshotCss.mjs";
 import { installPaintedFrames } from "../test/support/paintedFrames";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
-import { classifyFrames, type FrameMetrics, type FrameRecord } from "./firstLoadFrames";
+import { classifyFrames, type FrameMetrics, type FrameRail, type FrameRecord } from "./firstLoadFrames";
 import { perfRow } from "./perfRow";
 import { newestPage } from "./daemonPage";
 import { connectDelay, LinkPipe, linkProfile } from "./linkModel";
@@ -686,6 +686,7 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
     scrollTop: number | null;
     bottomText: string;
     rootHidden: boolean;
+    rail: FrameRail | null;
   };
   let stopped = false;
   const recording = {
@@ -756,6 +757,23 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
       : Array.from(scope.querySelectorAll(".acpmux-composer-box"))
           .map((element) => element.getBoundingClientRect())
           .find((box) => box.height > 0);
+    const railNode = rootHidden ? null : scope.querySelector<HTMLElement>(".acpmux-minimap__rail");
+    const railBox = railNode?.getBoundingClientRect();
+    const rail: FrameRail | null =
+      railNode && railBox && railBox.height > 0
+        ? {
+            top: railBox.top,
+            height: railBox.height,
+            rows: Number(railNode.querySelector("[aria-setsize]")?.getAttribute("aria-setsize") ?? 0),
+            listTop: railNode.querySelector<HTMLElement>(".acpmux-minimap__list")?.scrollTop ?? 0,
+            lit: Array.from(railNode.querySelectorAll<HTMLElement>("[data-tick][aria-current]"))
+              .map((tick) => tick.dataset.tick)
+              .join(","),
+            animating: railNode
+              .getAnimations({ subtree: true })
+              .filter((animation) => animation.playState === "running").length,
+          }
+        : null;
     if (!recording.latestAt && rows.some((row) => row.text.includes(latest))) recording.latestAt = performance.now();
     if (!recording.liveLatestAt && !host && !rootHidden && rows.some((row) => row.text.includes(latest)))
       recording.liveLatestAt = performance.now();
@@ -767,6 +785,7 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
       scrollTop: scroller && !rootHidden ? scroller.scrollTop : null,
       bottomText: (rows.at(-1)?.text ?? "").trim().replace(/\s+/g, " ").slice(0, 48),
       rootHidden,
+      rail,
     };
   };
   window.cmuxAfterPaint(() => {
@@ -1711,6 +1730,7 @@ try {
   const PICKS = {
     blankAfterContent: (r: Round) => r.metrics.blankAfterContent,
     shiftFrames: (r: Round) => r.metrics.shiftFrames,
+    railFrames: (r: Round) => r.metrics.railFrames,
     finalFirstPaintMs: (r: Round) => r.metrics.finalFirstPaintMs,
     firstContentMs: (r: Round) => r.metrics.firstContentMs,
     layoutShift: (r: Round) => r.layoutShift,
@@ -1724,7 +1744,7 @@ try {
       `first-load-after-restart [${mode}]: ${TURNS} turns, acpmux unavailable ${DOWN_MS} ms from navigation, recorded ${recordMs(mode)} ms, ${rounds.length} rounds; content ${CONTENT}, ${HEIGHT_DELTA} px shorter, ${PAGES} pages`,
     );
     console.log(
-      "round | blank after content | shift frames | final first paint ms | first content ms | layout shift | frames | copy drawn ms | swap ms | tail asked ms | acpmux up ms | refused | socket ms | initialize ms | attach ms | live ms",
+      "round | blank after content | shift frames | rail frames | final first paint ms | first content ms | layout shift | frames | copy drawn ms | swap ms | tail asked ms | acpmux up ms | refused | socket ms | initialize ms | attach ms | live ms",
     );
     rounds.forEach((r, at) =>
       console.log(
@@ -1732,6 +1752,7 @@ try {
           at + 1,
           r.metrics.blankAfterContent,
           r.metrics.shiftFrames,
+          r.metrics.railFrames,
           ms(r.metrics.finalFirstPaintMs),
           ms(r.metrics.firstContentMs),
           r.layoutShift.toFixed(4),
@@ -1887,13 +1908,14 @@ try {
     );
     if (bad.length > 0) failed = true;
     if (TRACE) {
-      const score = (r: Round) => r.metrics.blankAfterContent + r.metrics.shiftFrames;
+      const score = (r: Round) => r.metrics.blankAfterContent + r.metrics.shiftFrames + r.metrics.railFrames;
       const worst = [...rounds].sort(
         (a, b) => score(b) - score(a) || (b.metrics.finalFirstPaintMs ?? 0) - (a.metrics.finalFirstPaintMs ?? 0),
       )[0];
       if (worst) {
         console.log(`trace of the worst ${mode} round (ms from navigation; B blank after content, S shift):`);
         const shifts = new Map(worst.metrics.shiftAt.map(({ index, why }) => [index, why]));
+        const railMoves = new Map(worst.metrics.railAt.map(({ index, why }) => [index, why]));
         const blanks = new Set(worst.metrics.blankAt);
         const final = new Set((worst.frames.at(-1)?.rows ?? []).map((row) => row.id));
         worst.frames.forEach((frame, at) => {
@@ -1910,6 +1932,8 @@ try {
               `bottom ${bottom ? `${bottom.id}@${bottom.top.toFixed(1)}` : "-"} "${frame.bottomText}"`,
               `composer ${composer}`,
               `scrollTop ${frame.scrollTop === null ? "-" : frame.scrollTop.toFixed(0)}`,
+              `rail ${frame.rail ? `${frame.rail.top.toFixed(0)}+${frame.rail.height.toFixed(0)} ${frame.rail.rows} rows list ${frame.rail.listTop.toFixed(0)} lit ${frame.rail.lit || "-"}${frame.rail.animating ? ` anim ${frame.rail.animating}` : ""}` : "-"}`,
+              ...(railMoves.has(at) ? [`R ${railMoves.get(at)!}`] : []),
               ...(gone.length
                 ? [
                     `gone later ${gone.length}: ${gone
