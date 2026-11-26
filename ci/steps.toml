@@ -296,6 +296,47 @@ python3 tests/test_nightly_guard_steps.py
 python3 scripts/ci/nightly_guard_steps.py
 '''
 
+# ci-guards.yml's ci group, which a feat-cmux-next pull request reached only through cmux-next-guards.yml's
+# ci-guard-group: a Tier B pull_request_skip job (scripts/ci/affected-jobs.json), so it was skipped there. #57964
+# added a bare urlopen of files-next.cmux.com (the CDN refuses Python-urllib's agent, 403 error code 1010) and
+# test_ci_cdn_user_agent.py, which finds that read, went red only on the feat-cmux-next push (cas/1 replay; fixed
+# by #59707). Any Python or JSON change now runs it before the merge.
+[step.cdn-user-agent]
+job = "linux"
+timeout = 300
+title = "CDN readers name their client"
+about = "every read of a cmux CDN host (files-next.cmux.com and the rest) sends a User-Agent, since the CDN refuses Python-urllib's default with 403 error code 1010"
+inputs = ["**/*.py", "**/*.json"]
+run = '''
+python3 tests/test_ci_cdn_user_agent.py
+'''
+
+# The other cheap (under 2 s each) pure-Python guards of ci-guards.yml's ci group that a feat-cmux-next pull
+# request skipped for the same reason (cdn-user-agent, above), on the scripts and workflows they read.
+[step.ci-group-guards]
+job = "linux"
+timeout = 300
+title = "CI tooling guards (timing readout, repo variables, iOS fast verdict, routed jobs)"
+about = "the ci guard group's quick unit tests: the CI timing readout, the repository variable check, the iOS fast verdict and that routed jobs check the results of what they need"
+inputs = [
+  ".github/workflows/**",
+  "scripts/ci/ci_timing_readout.py",
+  "scripts/ci/check_repo_variables.py",
+  "scripts/ci/ios_fast_verdict.*",
+  "tests/test_ci_timing_readout.py",
+  "tests/test_ci_check_repo_variables.py",
+  "tests/test_ci_ios_fast_verdict.py",
+  "tests/test_ci_routed_jobs_check_needs.py",
+]
+run = '''
+status=0
+python3 tests/test_ci_timing_readout.py || status=1
+python3 tests/test_ci_check_repo_variables.py || status=1
+python3 tests/test_ci_ios_fast_verdict.py || status=1
+python3 tests/test_ci_routed_jobs_check_needs.py || status=1
+exit "$status"
+'''
+
 [step.skill-contracts]
 job = "linux"
 timeout = 300
