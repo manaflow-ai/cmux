@@ -109,8 +109,7 @@ fn one_pass_cell_places_match_wrap_line_per_cell() {
     }
     let n = term.primary_rows().iter().take_while(|r| r.wrapped).count() + 1;
     let rows: Vec<&Row> = term.primary_rows()[..n].iter().collect();
-    let cells: Vec<(usize, usize)> =
-        (0..n).flat_map(|k| (0..12).map(move |x| (k, x))).collect();
+    let cells: Vec<(usize, usize)> = (0..n).flat_map(|k| (0..12).map(move |x| (k, x))).collect();
     for compact in [false, true] {
         for cols in [3, 4, 5, 7, 12, 30] {
             let places = wrap_line_cells(&term, &rows, 12, cols, compact, &cells);
