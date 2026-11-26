@@ -1330,7 +1330,7 @@ Object.assign(variants, {
   "theme-app-separate": variant("theme", {
     allThemes: true,
     options: { values: { "appearance.theme": "Gruvbox Dark", "appearance.appTheme": "Rose Pine" } },
-    note: "An app theme apart from the terminal theme (appearance.appTheme).",
+    note: "An app theme apart from the terminal theme (appearance.appTheme); the one Match System Appearance switch sets both.",
   }),
   "theme-app-light-dark": variant("theme", {
     allThemes: true,
@@ -1341,7 +1341,7 @@ Object.assign(variants, {
         "appearance.accent": "magenta",
       },
     },
-    note: "One Theme card: the terminal and the app theme each with Match System Appearance, then the accent.",
+    note: "One Theme card: one Match System Appearance for the terminal and the app theme together, then the accent.",
   }),
   "theme-long-name": variant("theme", {
     allThemes: true,
