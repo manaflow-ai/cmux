@@ -686,12 +686,22 @@ PY
       done
       "$EVAL_BIN/screen-eval-ocr" "$EVAL_STATE/ocr-host-$rep.png" "$EVAL_STATE/ocr-viewer-$rep.png" "$dir/truth.txt" \
         >"$dir/ocr-$rep.json" || err "ocr $rep failed"
+      # The crop receipt: same pixels on both sides, sizes checked above.
+      python3 -I "$here/same_pixels.py" "$dir/ocr-$rep.json" "$dir/host-$rep.png" "$dir/viewer-frame-$rep" "$cx,$cy,$cw,$ch" ||
+        err "ocr $rep: same-pixel receipt failed"
     elif [[ -n "${EVAL_SCENE_NONCE:-}" ]]; then
       # The common marker reserves a region above the text. Full-window OCR
       # would include it and Apple chrome; calibrated pixel crops are required.
       printf '{"cer":null,"comparison_ready":false,"reason":"common source marker requires calibrated host/viewer OCR crops"}\n' >"$dir/ocr-$rep.json"
     elif [[ -s "$dir/host-$rep.png" && -s "$dir/viewer-frame-$rep" ]]; then
       "$EVAL_BIN/screen-eval-ocr" "$dir/host-$rep.png" "$dir/viewer-frame-$rep" "$dir/truth.txt" >"$dir/ocr-$rep.json" || err "ocr $rep failed"
+      # An rd viewer frame is the host display decoded at the host's size, and with no source
+      # marker the whole display is the scene's text: the two images are comparable whole once
+      # their sizes match (same_pixels.py checks, and says why not when they differ).
+      if [[ "$name" == rd || "$name" == rd-* ]]; then
+        python3 -I "$here/same_pixels.py" "$dir/ocr-$rep.json" "$dir/host-$rep.png" "$dir/viewer-frame-$rep" ||
+          err "ocr $rep: same-pixel receipt failed"
+      fi
     else
       err "ocr $rep: missing $( [[ -s "$dir/host-$rep.png" ]] || echo 'host screenshot ')$( [[ -s "$dir/viewer-frame-$rep" ]] || echo 'viewer frame')"
     fi
