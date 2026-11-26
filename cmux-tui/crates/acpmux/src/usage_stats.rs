@@ -886,7 +886,8 @@ pub fn launcher(argv: &[String]) -> Option<String> {
 /// `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` in its env, and no settings file (its own settings.json, a
 /// project's `.claude/settings.json` or `settings.local.json` in its folder or above) that names
 /// `autoCompactWindow` or either key in its `env`. acpmux then starts it with its own
-/// window (`harness_limits::CLAUDE_AUTOCOMPACT_WINDOW`). False when its argv is not this
+/// window when the settings name one (`harness_limits::claude_autocompact_window`). False when
+/// its argv is not this
 /// daemon's, or settings.json cannot be read.
 pub fn claude_autocompact_unset(source: &Source) -> bool {
     const KEYS: [&str; 2] = ["CLAUDE_CODE_AUTO_COMPACT_WINDOW", "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"];
