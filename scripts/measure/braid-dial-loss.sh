@@ -76,6 +76,8 @@ if [[ -n "$before_ref" ]]; then
   bin=$(build "$work/before" "$repo/cmux-tui/target-before") || { echo "braid-dial-loss.sh: bench build failed at $before_ref" >&2; exit 1; }
   arms+=(before); bins+=("$bin"); shas+=("$(git -C "$work/before" rev-parse HEAD)")
 fi
+# root runs the bench inside the netns; a user-only FUSE checkout denies root exec, so run copies
+for i in "${!bins[@]}"; do cp "${bins[$i]}" "$work/bench-${arms[$i]}"; bins[$i]="$work/bench-${arms[$i]}"; done
 
 id=$$; c="bdl-$id-c"; s="bdl-$id-s"; vc="bdl${id}c"; vs="bdl${id}s"
 cleanup() {
