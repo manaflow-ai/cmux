@@ -32,6 +32,7 @@ mod tests;
 const AUTH_ENV: &[&str] = &[
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_BASE_URL",
     "CLAUDE_CODE_OAUTH_TOKEN",
     "CLAUDE_CONFIG_DIR",
     "OPENAI_API_KEY",
@@ -83,6 +84,13 @@ const CLAUDE_SETTINGS_HELPERS: &[&str] = &["apiKeyHelper", "awsCredentialExport"
 enum Reader {
     /// `~/.claude.json`: OAuth account/organization and a saved `primaryApiKey`.
     ClaudeAccount,
+    /// Claude Code's `settings.json`: the login and endpoint its `env` sets (`ANTHROPIC_API_KEY` from
+    /// `agent_login`'s api_key, an `ANTHROPIC_BASE_URL` gateway) and its `apiKeyHelper`. Claude reads
+    /// them at start, so a spare started before they changed talks to the old endpoint or login (a
+    /// Cloud machine pointed at a model gateway got a 401 from the spare warmed a moment before).
+    /// Reads the keys in [`CLAUDE_SETTINGS_ENV`] and [`CLAUDE_SETTINGS_HELPERS`]. Not an account: it
+    /// changes the key, never the account fingerprint.
+    ClaudeSettings,
     /// Codex `auth.json`: `auth_mode`, `tokens.account_id`, `OPENAI_API_KEY`.
     CodexAuth,
     /// OpenCode `auth.json`: each provider's type, account and key.
@@ -94,9 +102,6 @@ enum Reader {
     GrokAuth,
     /// No account field (token files): present or not.
     Stat,
-    /// Claude's user `settings.json`: the keys in [`CLAUDE_SETTINGS_ENV`] and
-    /// [`CLAUDE_SETTINGS_HELPERS`]. A route, not an account.
-    ClaudeSettings,
     /// The agent's file in `codex_cloud_auth::CHOICE_DIR`: `own` or `team`. A route, not an account.
     Choice,
 }

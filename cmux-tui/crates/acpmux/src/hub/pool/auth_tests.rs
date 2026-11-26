@@ -47,6 +47,34 @@ fn pool_auth_claude_saved_api_key_rotation_and_removal_change_the_key() {
 }
 
 #[test]
+fn pool_auth_claude_settings_endpoint_and_key_change_the_key_not_the_account() {
+    let files = LoginFiles::new("claude-settings");
+    let cache = AuthCache::default();
+    files.write(".claude.json", json!({"oauthAccount": {"accountUuid": "fixture-account"}}));
+    files.write(".claude/settings.json", json!({"model": "sonnet"}));
+    let first = files.fingerprint(&cache, "claude");
+    files.write(".claude/settings.json", json!({"model": "opus"}));
+    let model = files.fingerprint(&cache, "claude");
+    assert_eq!(first, model, "a model pick in settings.json must keep the warm session");
+    files.write(
+        ".claude/settings.json",
+        json!({"model": "opus", "env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:18080"}}),
+    );
+    let gateway = files.fingerprint(&cache, "claude");
+    assert_ne!(model.0, gateway.0, "a session warmed before the endpoint moved must not match");
+    assert_eq!(model.1, gateway.1, "the endpoint is not the account");
+    files.write(
+        ".claude/settings.json",
+        json!({"env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:18080", "ANTHROPIC_API_KEY": "fixture-key"}}),
+    );
+    assert_ne!(
+        gateway.0,
+        files.fingerprint(&cache, "claude").0,
+        "a key set in settings.json must not match"
+    );
+}
+
+#[test]
 fn pool_auth_codex_api_key_rotation_changes_the_key() {
     let home = LoginFiles::new("codex-env-key");
     let cache = AuthCache::default();
