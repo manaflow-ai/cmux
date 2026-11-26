@@ -285,19 +285,15 @@ impl OwnHost {
         vcpus: u32,
         mem_mib: u32,
     ) -> Result<String, String> {
-        let mut sizes = Vec::new();
-        for t in [format!("{template}@{vcpus}x{mem_mib}"), template.to_owned()] {
-            let Ok(sid) = std::fs::read_to_string(self.dir.join("templates").join(&t)) else {
-                continue;
-            };
-            let sid = sid.trim().to_owned();
-            let Some(meta) = self.host.snapshot_meta(&sid) else { continue };
-            if fits(&meta, vcpus, mem_mib) {
-                return Ok(sid);
-            }
-            sizes.push(format!("{t} is {}x{}", meta.vcpus, meta.mem_mib));
-        }
-        Err(sizes.join(", "))
+        let found = [format!("{template}@{vcpus}x{mem_mib}"), template.to_owned()]
+            .into_iter()
+            .filter_map(|t| {
+                let sid = std::fs::read_to_string(self.dir.join("templates").join(&t)).ok()?;
+                let meta = self.host.snapshot_meta(sid.trim())?;
+                Some((t, meta))
+            })
+            .collect::<Vec<_>>();
+        choose(&found, vcpus, mem_mib)
     }
 
     fn view(&self, m: &MachineMeta) -> Value {
@@ -671,26 +667,51 @@ fn fits(meta: &SnapshotMeta, vcpus: u32, mem_mib: u32) -> bool {
     u32::from(meta.vcpus) == vcpus && meta.mem_mib == mem_mib
 }
 
+/// The first found template (name, snapshot) whose snapshot fits, by id; else the sizes there
+/// are (empty when no template was found), for `size_unavailable`.
+fn choose(found: &[(String, SnapshotMeta)], vcpus: u32, mem_mib: u32) -> Result<String, String> {
+    if let Some((_, meta)) = found.iter().find(|(_, m)| fits(m, vcpus, mem_mib)) {
+        return Ok(meta.id.clone());
+    }
+    let sizes = found.iter().map(|(t, m)| format!("{t} is {}x{}", m.vcpus, m.mem_mib));
+    Err(sizes.collect::<Vec<_>>().join(", "))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     // Run 45882763507 (2026-11-26): a default 2x4096 create on the bare `autocloud` template, snapshotted
     // at 4x8192, came back 4x8192 and the platform claimed it as a default-size spare.
-    #[test]
-    fn only_a_snapshot_at_the_asked_size_fits() {
-        let meta = SnapshotMeta {
-            id: "s".into(),
+    fn snap(id: &str, vcpus: u8, mem_mib: u32) -> SnapshotMeta {
+        SnapshotMeta {
+            id: id.into(),
             source_machine: "m".into(),
             image: "i".into(),
-            vcpus: 4,
-            mem_mib: 8192,
+            vcpus,
+            mem_mib,
             egress: Egress::default(),
             created_unix_ms: 0,
-        };
-        assert!(fits(&meta, 4, 8192));
-        assert!(!fits(&meta, 2, 4096));
-        assert!(!fits(&meta, 4, 4096));
+        }
+    }
+
+    #[test]
+    fn only_a_snapshot_at_the_asked_size_is_chosen() {
+        let bare = ("autocloud".to_owned(), snap("s-bare", 4, 8192));
+        // Only the bare template, at 4x8192: a 2x4096 create is refused and told the size there is.
+        assert_eq!(choose(std::slice::from_ref(&bare), 2, 4096), Err("autocloud is 4x8192".into()));
+        // The bare template still serves a create at its own size.
+        assert_eq!(choose(std::slice::from_ref(&bare), 4, 8192), Ok("s-bare".into()));
+        // A sized template wins; one PUT at the wrong size is named, never used.
+        let sized = ("autocloud@2x4096".to_owned(), snap("s-2x4", 2, 4096));
+        assert_eq!(choose(&[sized, bare.clone()], 2, 4096), Ok("s-2x4".into()));
+        let wrong = ("autocloud@2x4096".to_owned(), snap("s-wrong", 4, 8192));
+        assert_eq!(
+            choose(&[wrong, bare], 2, 4096),
+            Err("autocloud@2x4096 is 4x8192, autocloud is 4x8192".into())
+        );
+        // No template at all is template_not_found (an empty list), not size_unavailable.
+        assert_eq!(choose(&[], 2, 4096), Err(String::new()));
     }
 
     #[test]
