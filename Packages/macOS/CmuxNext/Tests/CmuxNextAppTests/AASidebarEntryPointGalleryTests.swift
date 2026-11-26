@@ -322,7 +322,10 @@ struct AASidebarEntryPointGalleryTests {
         let stage = try Stage(width: width, height: height, dark: dark)
         defer { stage.close() }
         try stage.sidebar(goodJSON, frame: NSRect(x: 0, y: 0, width: side, height: height))
+        // A menu panel sizes by constraints (GlassMenu pins it); placed by hand here, it sizes by its frame, else the
+        // capture's layout pass shrinks it to its 10-point minimum and the menu draws as a dot.
         let panel = Glass.makeMenuPanel(content: list)
+        panel.translatesAutoresizingMaskIntoConstraints = true
         panel.frame = NSRect(x: click, y: height - 120 - size.height, width: size.width, height: size.height)
         stage.root.addSubview(panel)
         panel.layoutSubtreeIfNeeded()
@@ -333,6 +336,7 @@ struct AASidebarEntryPointGalleryTests {
             let hovered = try #require(list.view(at: parent))
             let anchor = stage.root.convert(hovered.convert(hovered.bounds, to: nil), from: nil)
             let sidePanel = Glass.makeMenuPanel(content: child)
+            sidePanel.translatesAutoresizingMaskIntoConstraints = true
             sidePanel.frame = PopupPlacement.sideBySideFrame(anchor: anchor, size: childSize, screen: stage.root.bounds,
                                                              gap: gap, margin: 0).frame
             stage.root.addSubview(sidePanel)
