@@ -48,6 +48,9 @@ const FULL_SCREEN_SINCE: &str = "2.1.320";
 const KEEP_TURNS: usize = 200;
 /// A transcript bigger than this, met for the first time, is folded from its newest part only.
 const FIRST_READ_BYTES: u64 = 64 << 20;
+/// An unended line held longer than this is dropped up to its end: no record Claude Code writes
+/// is near it, and a runaway one must not grow the daemon.
+const MAX_PARTIAL_BYTES: usize = 16 << 20;
 
 /// One viewer's Claude Code drawn at its grid.
 pub(super) struct PhoneGrid {
@@ -56,10 +59,14 @@ pub(super) struct PhoneGrid {
     transcript: PathBuf,
     /// The host facts seen so far: the banner's persist after it scrolls away.
     seen: Chrome,
-    /// The transcript folded so far, up to `offset`; `partial` is a line not yet ended.
+    /// The transcript folded so far, up to `offset`; `partial` is a line not yet ended
+    /// (`skipping`: one dropped for its length, up to its end).
     fold: Fold,
     offset: u64,
     partial: Vec<u8>,
+    skipping: bool,
+    /// The file read (device, inode): another file at the path is another transcript.
+    file_id: Option<(u64, u64)>,
 }
 
 /// The transcript of the Claude Code session `session_id`, under the login's Claude home.
@@ -79,6 +86,8 @@ impl PhoneGrid {
             fold: Fold::new("claude", true),
             offset: 0,
             partial: Vec::new(),
+            skipping: false,
+            file_id: None,
         })
     }
 
@@ -105,20 +114,23 @@ impl PhoneGrid {
     /// file shorter than what was read is a new one, folded from its start.
     fn refresh(&mut self) {
         let Ok(mut file) = std::fs::File::open(&self.transcript) else { return };
-        let Ok(len) = file.metadata().map(|m| m.len()) else { return };
-        if len < self.offset {
+        let Ok(meta) = file.metadata() else { return };
+        let len = meta.len();
+        let id = file_id(&meta);
+        if len < self.offset || id != self.file_id {
             self.fold = Fold::new("claude", true);
             self.offset = 0;
             self.partial.clear();
+            self.skipping = false;
+            self.file_id = id;
         }
         if len == self.offset {
             return;
         }
         // The first read of a huge transcript starts near its end, past the partial line there.
-        let mut skip_line = false;
         if self.offset == 0 && len > FIRST_READ_BYTES {
             self.offset = len - FIRST_READ_BYTES;
-            skip_line = true;
+            self.skipping = true;
         }
         if file.seek(SeekFrom::Start(self.offset)).is_err() {
             return;
@@ -130,11 +142,10 @@ impl PhoneGrid {
         }
         self.offset += bytes.len() as u64;
         let mut rest = bytes.as_slice();
-        if skip_line {
-            rest = rest.iter().position(|&b| b == b'\n').map_or(&[][..], |i| &rest[i + 1..]);
-        }
         while let Some(end) = rest.iter().position(|&b| b == b'\n') {
-            if self.partial.is_empty() {
+            if std::mem::take(&mut self.skipping) {
+                // The rest of a line dropped (cut by the first read, or too long): not a record.
+            } else if self.partial.is_empty() {
                 self.fold.line(&rest[..end]);
             } else {
                 self.partial.extend_from_slice(&rest[..end]);
@@ -142,15 +153,38 @@ impl PhoneGrid {
             }
             rest = &rest[end + 1..];
         }
-        self.partial.extend_from_slice(rest);
+        if !self.skipping {
+            self.partial.extend_from_slice(rest);
+            if self.partial.len() > MAX_PARTIAL_BYTES {
+                self.partial = Vec::new();
+                self.skipping = true;
+            }
+        }
         // Older turns never change again: let them go, so memory stays bounded too.
         self.fold.settle(KEEP_TURNS);
+    }
+
+    /// Bytes held for a line not yet ended (at most [`MAX_PARTIAL_BYTES`]).
+    #[cfg(test)]
+    pub(super) fn partial_len(&self) -> usize {
+        self.partial.len()
     }
 
     #[cfg(test)]
     pub(super) fn transcript(&self) -> &std::path::Path {
         &self.transcript
     }
+}
+
+#[cfg(unix)]
+fn file_id(meta: &std::fs::Metadata) -> Option<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    Some((meta.dev(), meta.ino()))
+}
+
+#[cfg(not(unix))]
+fn file_id(_: &std::fs::Metadata) -> Option<(u64, u64)> {
+    None
 }
 
 fn update(update: Value) -> Value {

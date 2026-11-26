@@ -157,3 +157,57 @@ fn a_growing_transcript_folds_only_what_it_gained() {
     assert!(phone.turns().is_empty());
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// Another file at the transcript's path (a rewrite or a log rotation, even one longer than
+/// what was read) is folded from its start: two sessions never mix.
+#[test]
+fn another_file_at_the_path_is_folded_from_its_start() {
+    let whole = std::fs::read(fixture().join("transcript.jsonl")).unwrap();
+    let dir = std::env::temp_dir().join(format!("cmux-phone-grid-swap-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("transcript.jsonl");
+    std::fs::write(&path, &whole).unwrap();
+    let mut phone = PhoneGrid::new(50, 34, path.clone()).unwrap();
+    phone.refresh();
+    let full = phone.turns().to_vec();
+    assert!(!full.is_empty());
+    // A new file, renamed over the old one, holding the old one's first turn twice over.
+    let first_turn_end = whole.iter().position(|&b| b == b'\n').unwrap() + 1;
+    let mut other = whole[..first_turn_end].to_vec();
+    other.extend_from_slice(&whole);
+    let next = dir.join("next.jsonl");
+    std::fs::write(&next, &other).unwrap();
+    std::fs::rename(&next, &path).unwrap();
+    phone.refresh();
+    assert_eq!(phone.offset, other.len() as u64);
+    let reread = acpmux::adopt_replay::read("claude", &path);
+    assert_eq!(phone.turns(), reread.as_slice());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// A line that never ends holds at most its bound, is dropped up to its end, and the records
+/// after it fold as usual.
+#[test]
+fn a_runaway_unended_line_is_bounded_and_skipped() {
+    let whole = std::fs::read(fixture().join("transcript.jsonl")).unwrap();
+    let dir = std::env::temp_dir().join(format!("cmux-phone-grid-long-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("transcript.jsonl");
+    std::fs::write(&path, b"").unwrap();
+    let mut phone = PhoneGrid::new(50, 34, path.clone()).unwrap();
+    let chunk = vec![b'x'; 4 << 20];
+    for _ in 0..6 {
+        let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        std::io::Write::write_all(&mut f, &chunk).unwrap();
+        phone.refresh();
+        assert!(phone.partial_len() <= super::MAX_PARTIAL_BYTES);
+    }
+    let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+    std::io::Write::write_all(&mut f, b"\n").unwrap();
+    std::io::Write::write_all(&mut f, &whole).unwrap();
+    phone.refresh();
+    assert_eq!(phone.partial_len(), 0);
+    let full = acpmux::adopt_replay::read("claude", &fixture().join("transcript.jsonl"));
+    assert_eq!(phone.turns(), full.as_slice());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
