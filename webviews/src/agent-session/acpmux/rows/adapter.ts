@@ -118,11 +118,26 @@ export function adaptRow(
       return [{ ...head, kind: "assistant", text: String(body.text ?? ""), streaming: row.open }];
     case "thinking":
       return [
-        { ...head, kind: "activity", items: [{ kind: "thought", text: String(body.text ?? "") }], streaming: row.open },
+        {
+          ...head,
+          kind: "activity",
+          ...(row.group !== undefined ? { foldId: row.group } : {}),
+          items: [{ kind: "thought", text: String(body.text ?? "") }],
+          streaming: row.open,
+        },
       ];
     case "tool": {
       const item = mergeToolItem(undefined, body, String(body.callId ?? ""), textFromContent(body.content));
-      return [{ ...head, kind: "activity", toolCount: 1, items: [item], streaming: row.open }];
+      return [
+        {
+          ...head,
+          kind: "activity",
+          ...(row.group !== undefined ? { foldId: row.group } : {}),
+          toolCount: 1,
+          items: [item],
+          streaming: row.open,
+        },
+      ];
     }
     case "notice":
       return body.notice === "turn_result"

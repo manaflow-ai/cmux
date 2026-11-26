@@ -365,7 +365,40 @@
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
 }
+/* A decided line is one row: its text cut at the end, then (refused only) a quiet Try again that never shrinks. */
 .guest-mine__decided {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.guest-mine__decided-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.guest-mine__retry {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--agent-muted);
+  font: inherit;
+  text-decoration: underline;
+}
+.guest-mine__retry:hover {
+  color: var(--agent-text);
+}
+.guest-mine__retry:focus-visible {
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--agent-text);
+  outline-offset: 2px;
+}
+/* "Waiting for <owner>" under a held bubble: a long owner name is cut, never widens the dock. */
+.guest-mine__label {
+  max-width: 100%;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

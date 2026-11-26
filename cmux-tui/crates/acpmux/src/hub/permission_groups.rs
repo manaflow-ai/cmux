@@ -17,6 +17,8 @@ const WINDOW: Duration = Duration::from_millis(100);
 /// way (`AskInFlight`); one later than that forms a group of its own.
 const LANDING_BOUND: Duration = Duration::from_secs(2);
 const MAX_ITEMS: usize = 32;
+/// Measured: advertised as `batching.maxPendingGroups` (spec/acpmux-protocol.json); each ask
+/// scans every group's items under the permission lock, 64 x MAX_ITEMS = 2,048 at most.
 const MAX_GROUPS: usize = 64;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

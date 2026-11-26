@@ -256,7 +256,7 @@
   },
   {
    "name": "agent.fork",
-   "meaning": "Fork the agent conversation into a new chat (to the right/left/above/below).",
+   "meaning": "Fork the agent conversation into a new chat (to the right/left/above/below): the split arrow Claude and Codex draw for branching a chat, a stem that runs on up and right while a detached arm peels off down and right.",
    "sf": "arrow.branch",
    "family": "agent",
    "overrides": [

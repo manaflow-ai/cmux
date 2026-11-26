@@ -96,6 +96,10 @@ mod page_bridge;
 #[cfg(unix)]
 mod page_calls;
 #[cfg(unix)]
+mod page_keys;
+#[cfg(unix)]
+mod pane_flow;
+#[cfg(unix)]
 mod provider;
 #[cfg(unix)]
 mod relay;
@@ -158,6 +162,8 @@ pub(crate) mod timer;
 #[cfg(unix)]
 mod toolbar;
 #[cfg(unix)]
+mod view_state;
+#[cfg(unix)]
 mod widgets;
 
 use std::sync::{Arc, Mutex, OnceLock};
@@ -165,9 +171,9 @@ use std::sync::{Arc, Mutex, OnceLock};
 use crate::panic_free::RecoverPoison;
 
 #[cfg(unix)]
-pub(crate) use git_install::store_op_fetches;
-#[cfg(unix)]
 pub(crate) use chat_actions::{ChatActionRequest, ChatMessage};
+#[cfg(unix)]
+pub(crate) use git_install::store_op_fetches;
 #[cfg(unix)]
 pub(crate) use mirror::{HiddenAccess, Origin, SetOp};
 #[cfg(unix)]

@@ -35,21 +35,21 @@ Run it on cmux-ci (`cmux-ci test -- ...`), never on a person's Mac. Values are t
 
 | Worst case | Bound | Sum |
 |---|---|---|
-| dead link noticed | 8 s | silence budget 6 s + one ping interval 2 s |
-| dead link noticed, budget grown | 82 s | silence cap 80 s + one ping interval 2 s |
-| first redial attempt gives up | 11.5 s | noticed 8 s + first wait 0.5 s + ssh connect 3 s |
-| first redial gives up, slow banner | 28.5 s | noticed 8 s + first wait 0.5 s + slow ssh connect 20 s |
-| second redial begins, client waiting | 12.5 s | first attempt gave up 11.5 s + wanted cap 1 s |
+| dead link noticed | 6 s | silence budget 6 s, checked when it runs out |
+| dead link noticed, budget grown | 80 s | silence cap 80 s |
+| first redial attempt gives up | 9.5 s | noticed 6 s + first wait 0.5 s + ssh connect 3 s |
+| first redial gives up, slow banner | 26.5 s | noticed 6 s + first wait 0.5 s + slow ssh connect 20 s |
+| second redial begins, client waiting | 10.5 s | first attempt gave up 9.5 s + wanted cap 1 s |
 | dead after a sleep noticed | 35 s | sleep check 5 s + wake probe 30 s |
 <!-- liveness-table:end -->
 
 ## Reading a slow reconnect against it
 
-- Under 12.5 s: one dead-link notice and at most one failed ssh attempt. Normal.
+- Under 10.5 s: one dead-link notice and at most one failed ssh attempt. Normal.
 - 18 to 30 s: the sums above reach this only through the slow ssh connect (a banner timeout or a waking
   machine sets it, `Peer::ssh_connect_secs`) or a silence budget that grew for a peer that answered late
   (`SilenceBudget`). Check the run's log for `banner` and for the budget before blaming the network.
-- Past 35 s: no default sum reaches it except a grown budget (up to 82 s) or a refused login
+- Past 35 s: no default sum reaches it except a grown budget (up to 80 s) or a refused login
   (`Backoff::login_refused`, minutes). Either is visible in `host ls`.
 
 The ssh keepalive (45 s) is a backstop: the link's own ping always notices first. A test

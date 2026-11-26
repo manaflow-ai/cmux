@@ -59,6 +59,7 @@ mod try_cmd;
 mod version;
 pub(super) mod wait;
 mod web_pieces;
+pub(super) use try_cmd::cu_upgrade;
 pub(crate) use try_cmd::spawn_daemon_updates;
 pub(super) use web_pieces::USAGE as WEB_PIECES_USAGE;
 
@@ -88,7 +89,7 @@ pub(super) const APP_SCOPES: &[&str] = &[
 /// Control-plane requests answer within the app's own 2 s deadline. A run
 /// that waits for its work may wait for a terminal to start (6 s) or for a
 /// network action the app bounds itself (`ActionDescriptor.resultDeadline`,
-/// 40 s, Connect to CodeRouter), so the CLI gives the app longer than that.
+/// 40 s), so the CLI gives the app longer than that.
 pub(super) const READ_TIMEOUT: Duration = Duration::from_secs(5);
 /// The app method `cmux app remote-views` reads; the app registers it in every
 /// build (RemoteViewTabsControl.releaseMethods, whose test reads this line).
@@ -797,6 +798,15 @@ pub(super) fn run_action(
             "yes" if super::action_hint::action_takes_argument(action, "confirm") => {
                 arguments.insert("confirm".into(), value);
             }
+            // `--contents-file FILE` (`cloud file-write`): the text read here, so it never sits in
+            // this process's argv where `ps` shows it (`cmux migrate` carries files this way).
+            "contents-file" if super::action_hint::action_takes_argument(action, "contents") => {
+                let path = caller_path(value);
+                let path = path.as_str().unwrap_or_default();
+                let text = std::fs::read_to_string(path)
+                    .map_err(|error| UsageError::new(format!("--contents-file {path}: {error}")))?;
+                arguments.insert("contents".into(), json!(text));
+            }
             _ => {
                 let key = argument_name(&name);
                 // A file or folder of the caller's working directory, for an app that runs elsewhere.
@@ -1342,7 +1352,7 @@ fn busy_retry_delay(error: &Value) -> Duration {
 }
 
 /// The app control socket of a command the app serves (`cmux identify`,
-/// `cmux app …`, `cmux window list`, action verbs, `cmux coderouter …`).
+/// `cmux app …`, `cmux window list`, action verbs).
 ///
 /// This is the one owner of the explicit-socket rule for the app (cx-siev):
 /// a socket the caller names is the only socket tried, never a default

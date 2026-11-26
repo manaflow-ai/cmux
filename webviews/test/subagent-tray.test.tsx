@@ -12,10 +12,11 @@
 //   only the transcript knows (a peer's chat, whose end never arrived) does not pin the tray.
 // - The tray's lines are the summary card's Subagents rows: one component (AgentLine.tsx).
 import { PHASE_DWELL_MS } from "../src/agent-session/acpmux/subagents/hatStep";
-import { afterAll, afterEach, beforeAll, describe, expect, setSystemTime, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, setSystemTime, test, afterEach } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { teardownDom } from "./support/domTeardown";
 import { RUNNING_TRAY_LINE, RUNNING_TRAY_LIST_LINE } from "../src/agent-session/acpmux/subagents/subagentSelectors";
+import type { trayFoldHeadLook } from "../src/agent-session/acpmux/subagents/trayFoldHead.experiment";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -76,7 +77,7 @@ const { SubagentFold } = await import("../src/agent-session/acpmux/subagents/sub
 /// (the default since #48542) draws each kind's own mark instead. A test of the stack pins the
 /// `counts` arm, read when the tray mounts; every test ends with the arm unpinned.
 const experiments = globalThis as { cmuxExperiments?: Record<string, string> };
-function pinFoldHead(arm: "counts" | "one" | "two" | "kinds" | "tally") {
+function pinFoldHead(arm: keyof typeof trayFoldHeadLook.arms) {
   experiments.cmuxExperiments = { ...experiments.cmuxExperiments, "subagent-tray-fold-head": arm };
 }
 // This suite checks the headers from before the `tally` arm (the default since Leo's 2026-11-23 ask);
@@ -1912,29 +1913,6 @@ describe("subagents show their harness logos", () => {
   });
 });
 
-// A plan with nothing running has no lines to stack: the header's slot stays blank, never the 3/4
-// ring Leo rejected (2026-11-01).
-test("a plan-only tray's header draws the Plan mode mark over its rows' status column, not the ring (2026-11-14)", async () => {
-  const { root, done } = await render(
-    createElement(SubagentTray, {
-      items: [],
-      working: true,
-      waiting: new Set<string>(),
-      onOpen: () => {},
-      plan: [{ content: "Fix the grid", status: "in_progress" }],
-    }),
-  );
-  try {
-    const head = root.querySelector(".acpmux-running-tray__head")!;
-    expect(head.querySelector(".acpmux-running-tray__stack")).toBeNull();
-    const mark = head.querySelector(".acpmux-lineage__icon");
-    expect(mark?.hasAttribute("data-blank")).toBe(false);
-    expect(mark?.querySelector('[data-icon="mode.plan"]')).not.toBeNull();
-  } finally {
-    await done();
-  }
-});
-
 test("many live and finished commands share one terminal header mark without hiding agents", async () => {
   pinFoldHead("counts");
   const { SubagentHarnessContext } = await import("../src/agent-session/acpmux/subagents/subagentGroupModel");
@@ -2069,4 +2047,128 @@ describe("the tally header", () => {
       await shown.done();
     }
   });
+});
+
+// The `summary` arm, the default (trayFoldHead.experiment.ts, HeadSummary.tsx; Leo, 2026-11-23: "this 2
+// is too bare. it being alone, it's just bad. ... x subagents running y commands running etc with full
+// text when you have space and it gradually shrinks when there is none").
+describe("the summary header", () => {
+  const proto = dom.window.HTMLElement.prototype;
+  /// Lays the probe out as a browser would, 7 px a character and 12 px a mark, in a line `line` px wide.
+  function layOut(line: number): () => void {
+    Object.defineProperty(proto, "getBoundingClientRect", {
+      configurable: true,
+      value(this: HTMLElement) {
+        const text = this.dataset.text ?? this.querySelector<HTMLElement>("[data-text]")?.dataset.text ?? "";
+        const mark = this.dataset.form ? 12 + 4 : 0;
+        const gap = this.dataset.probe === "gap" ? 12 : 0;
+        const width = text.length * 7 + mark + gap;
+        return { x: 0, y: 0, top: 0, left: 0, right: width, bottom: 10, width, height: 10, toJSON: () => ({}) };
+      },
+    });
+    Object.defineProperty(proto, "clientWidth", {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.classList.contains("acpmux-running-tray__summary-line") ? line : 0;
+      },
+    });
+    return () => {
+      delete (proto as { getBoundingClientRect?: unknown }).getBoundingClientRect;
+      delete (proto as { clientWidth?: unknown }).clientWidth;
+    };
+  }
+  const three = () => {
+    const now = Date.now();
+    return trayItems(
+      [
+        agent("A", { startedAt: now - 5000, harness: "claude", task: "Review the tray columns" }),
+        agent("B", { startedAt: now - 4000, harness: "claude" }),
+      ],
+      [command("bg1", { command: "bun run dev", startedAt: now - 3000 })],
+      NONE,
+      true,
+    );
+  };
+  const kindsOf = (head: HTMLElement) =>
+    [...head.querySelectorAll<HTMLElement>(".acpmux-running-tray__summary-line > * > .acpmux-running-tray__kind")].map(
+      (kind) => [kind.dataset.kind, kind.dataset.form, kind.textContent],
+    );
+
+  test("with room, every kind in words; a reader hears the long form", async () => {
+    pinFoldHead("summary");
+    const shown = await render(
+      createElement(SubagentTray, { items: three(), working: true, waiting: new Set<string>(), onOpen: () => {} }),
+    );
+    try {
+      const head = shown.root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
+      const title = head.querySelector<HTMLElement>(".acpmux-running-tray__summary")!;
+      expect(title.dataset.summary).toBe("long");
+      // The probe's words are CSS content: the header's text is only what it draws.
+      expect(title.textContent).toBe("2 subagents running · 1 server running");
+      expect(kindsOf(head)).toEqual([
+        ["agents:claude", "long", "2 subagents running"],
+        ["servers", "long", "1 server running"],
+      ]);
+      expect(
+        [...head.querySelectorAll<HTMLElement>(".acpmux-running-tray__summary-line > * > [aria-label]")].map((kind) =>
+          kind.getAttribute("aria-label"),
+        ),
+      ).toEqual(["2 subagents running", "1 server running"]);
+    } finally {
+      await shown.done();
+    }
+  });
+
+  test("a lone subagent reads its task, never a bare 1", async () => {
+    pinFoldHead("summary");
+    const one = trayItems(
+      [agent("Solo", { startedAt: Date.now() - 5000, task: "Bisect the fold test" })],
+      [],
+      NONE,
+      true,
+    );
+    const shown = await render(
+      createElement(SubagentTray, { items: one, working: true, waiting: new Set<string>(), onOpen: () => {} }),
+    );
+    try {
+      const head = shown.root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
+      const title = head.querySelector<HTMLElement>(".acpmux-running-tray__summary")!;
+      expect(title.dataset.summary).toBe("named");
+      expect(title.textContent).toBe("Bisect the fold test");
+      expect(head.querySelector(".acpmux-running-tray__summary-line [aria-label]")?.getAttribute("aria-label")).toBe(
+        "1 subagent running · Bisect the fold test",
+      );
+    } finally {
+      await shown.done();
+    }
+  });
+
+  for (const [width, form, text] of [
+    [400, "long", "2 subagents running · 1 server running"],
+    // "2 subagents · 1 server": 11 + 8 characters, two marks and a separator.
+    [200, "short", "2 subagents · 1 server"],
+    [80, "count", "21"],
+    // The two counts need 58 px; one count, a gap and "+99" 56.
+    [57, "count", "2+1"],
+  ] as const) {
+    test(`at ${width} px the whole line takes the ${form} step`, async () => {
+      pinFoldHead("summary");
+      const restore = layOut(width);
+      const shown = await render(
+        createElement(SubagentTray, { items: three(), working: true, waiting: new Set<string>(), onOpen: () => {} }),
+      );
+      try {
+        const title = shown.root.querySelector<HTMLElement>(".acpmux-running-tray__summary")!;
+        expect(title.dataset.summary).toBe(form);
+        expect(title.textContent).toBe(text);
+        if (width === 57) {
+          const more = title.querySelector<HTMLElement>(".acpmux-running-tray__summary-more")!;
+          expect(more.getAttribute("aria-label")).toBe("1 server running");
+        }
+      } finally {
+        await shown.done();
+        restore();
+      }
+    });
+  }
 });

@@ -28,7 +28,7 @@ public protocol PaneTabRowSharing: AnyObject {
     /// toolbar a hole, and where it paints its own surface across the row (alone in its pane) the hole would
     /// show the pane's instead, a block of another shade beside the tools. Nil: the row is clear there.
     var tabRowHoleFill: CGColor? { get }
-    /// The most the row's accessories (a chat's rolling summary, header/tabRow.ts TAB_ROW_ACCESSORY) may take, in points:
+    /// The most the row's accessories (header/tabRow.ts TAB_ROW_ACCESSORY, none today) may take, in points:
     /// the room the tabs leave free at their full width, past the tools' need (#53314). Called before
     /// ``setTabRow(height:trailingInset:)``; `.infinity` sets no limit.
     func setTabRowAccessoryRoom(_ points: CGFloat)

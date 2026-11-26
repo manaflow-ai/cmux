@@ -59,9 +59,9 @@ RELEASE_FEATURES = "openh264,link"
 # This repository's own crates in a release cmux-rd, all GPL-3.0-or-later. A crate passes as
 # one only by name and from a path, never from a registry.
 OWN_CRATES = frozenset((
-    "cmux-encode", "cmux-file-lock", "cmux-hub-host", "cmux-process", "cmux-rd-core",
-    "cmux-rd-engine",
-    "cmux-rd-host", "cmux-rd-link", "cmux-rd-proto", "cmux-transport",
+    "cmux-braid-class", "cmux-braid-path", "cmux-encode", "cmux-file-lock", "cmux-hub-host", "cmux-process",
+    "cmux-rd-core", "cmux-rd-engine",
+    "cmux-rd-host", "cmux-rd-link", "cmux-rd-proto", "cmux-transport", "cmux-wg",
 ))
 NAME = "cmux-rd"
 VERSION_RE = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.]+)?")

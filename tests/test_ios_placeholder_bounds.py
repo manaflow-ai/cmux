@@ -100,6 +100,20 @@ class PlaceholderBoundsTests(unittest.TestCase):
         self.assertEqual(bounds.check(root), [])
         self.assertIn('"chip": "item 3, cmux#1"', (root / bounds.KNOWN_SWIFT).read_text())
 
+    def test_known_layout_shift_flow_must_be_driven_and_name_its_fix(self):
+        suite = 'watch(app, flow: "workspaces", for: 10)\n'
+        root = tree({bounds.SUITE_SWIFT: suite}, [], known=[])
+        inv = root / bounds.INVENTORY
+        doc = json.loads(inv.read_text())
+        doc["known_layout_shifts"] = [{"flow": "workspaces", "item": "1a", "fix": "cmux#1"}, {"flow": "gone"}]
+        inv.write_text(json.dumps(doc))
+        bounds.main(["--root", str(root), "--write-known"])
+        problems = "\n".join(bounds.check(root))
+        self.assertIn("known_layout_shifts 'gone' needs the item", problems)
+        self.assertIn("known_layout_shifts 'gone' is not a flow", problems)
+        self.assertNotIn("'workspaces'", problems)
+        self.assertIn('"workspaces": "1a, cmux#1"', (root / bounds.KNOWN_SWIFT).read_text())
+
     def test_missing_inventory_fails(self):
         root = Path(tempfile.mkdtemp())
         self.assertIn("missing", bounds.check(root)[0])

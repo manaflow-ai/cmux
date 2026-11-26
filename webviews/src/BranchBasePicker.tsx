@@ -399,6 +399,9 @@ export function BranchBasePicker({
             <div
               ref={popoverRef}
               className="base-picker-popover ui-popup ui-glass"
+              // "results": it opens on "Loading" and the branches (the answer to the typed filter)
+              // arrive with no input to the popup (ui/popupSettle.ts).
+              data-popup-settle="results"
               // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
               role="dialog"
               aria-label={label("branchPickerOpen")}

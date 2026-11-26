@@ -106,9 +106,10 @@ struct AgentChatDestinationsTests {
         #expect(provider.immediateItems?.first?.id == "option:local")
         #expect(provider.refreshesOnOpen)
         let items = await provider.items()
-        let offline = try #require(items.first { $0.id == "option:build-box" })
-        #expect(!offline.isEnabled)
-        #expect(offline.subtitle == "reconnecting")
+        // A redialing peer is neither greyed nor labelled (Leo, 2026-11-24: "the graying out of workspaces, nah").
+        let redialing = try #require(items.first { $0.id == "option:build-box" })
+        #expect(redialing.isEnabled)
+        #expect(redialing.subtitle == nil)
         let peer = try #require(items.first { $0.id == "option:dev-box" })
         // A row's run is decided when it is picked (`.deferred`, #42286), as the palette does with `resolved()`.
         guard case .perform(let pick) = peer.primary.effect.resolved() else { Issue.record("no pick"); return }

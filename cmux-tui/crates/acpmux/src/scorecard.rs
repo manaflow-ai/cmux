@@ -34,8 +34,10 @@
 //! - **Cache-hit ratio**: cache reads over all input (fresh input, cache reads and writes).
 //! - **Leo-units**: dollars at list price: the harness's own cost of the turn, else its tokens at
 //!   the bundled price table (`crate::pricing`); a turn neither prices counts in `unpricedTurns`.
-//! - **Pull requests**: those a session's `gh pr create` printed in the range
-//!   (`SessionMeta::pull_requests`), counted on the group of the turn that opened them. Settled:
+//! - **Pull requests**: those a session opened in the range: its meta's
+//!   (`SessionMeta::pull_requests`) and those its log shows a create opened (`gh pr create`, a
+//!   lane VM broker's `pr_create` tool or `lane-gh call pr_create`, also behind `timeout`, a pipe
+//!   or `bg_start`; `hub/pull_requests.rs`), counted on the group of the turn that opened them. Settled:
 //!   one any session on this machine merged or closed (`closed_pull_requests`); this machine
 //!   cannot tell a merge from a close nor see a merge done elsewhere, so the fleet tool asks GitHub
 //!   which merged. `tokensPerSettledPr` is every token the group spent per such pull request.
@@ -405,6 +407,11 @@ struct SessionFold {
     /// Tool call id -> (kind, runs `git commit`).
     calls: HashMap<String, (Option<String>, bool)>,
     last_head: Option<String>,
+    /// Pull request creates still running (`hub/pull_requests.rs`), and what the log shows they
+    /// opened, at when: the broker shapes the daemon's meta may predate (`pr_create` tools, `gh pr
+    /// create` behind `timeout` or a pipe, one run by `bg_start`).
+    creates: crate::hub::pull_requests::Creates,
+    opened: Vec<(String, u64)>,
 }
 
 impl SessionFold {
@@ -417,6 +424,8 @@ impl SessionFold {
             seen_prompts: HashSet::new(),
             calls: HashMap::new(),
             last_head: None,
+            creates: Default::default(),
+            opened: vec![],
         }
     }
 
@@ -427,13 +436,19 @@ impl SessionFold {
     fn record(&mut self, r: &EventRecord) {
         let at = r.at;
         match (r.dir.as_str(), r.kind.as_str()) {
-            ("mux", "user_message") => self.user_message(at, &r.msg),
+            ("mux", "user_message") => {
+                let urls = crate::hub::pull_requests::follow_notice(&mut self.creates, &r.msg);
+                self.note_opened(urls, at);
+                self.user_message(at, &r.msg);
+            }
             ("mux", "forked") => {
                 // Everything before it is the parent's: counted there.
                 self.closed.clear();
                 self.open = None;
                 self.seen_prompts.clear();
                 self.calls.clear();
+                self.creates.clear();
+                self.opened.clear();
             }
             ("mux", "turn_result") => self.turn_result(at, &r.msg),
             ("out", "session/prompt") => {
@@ -459,8 +474,18 @@ impl SessionFold {
         }
     }
 
+    fn note_opened(&mut self, urls: Vec<String>, at: u64) {
+        for url in urls {
+            if !self.opened.iter().any(|(u, _)| *u == url) {
+                self.opened.push((url, at));
+            }
+        }
+    }
+
     fn tool(&mut self, at: u64, msg: &Value) {
         let u = msg.pointer("/params/update").unwrap_or(msg);
+        let urls = crate::hub::pull_requests::follow(&mut self.creates, u);
+        self.note_opened(urls, at);
         let Some(id) = u.get("toolCallId").and_then(Value::as_str) else { return };
         let entry = self.calls.entry(id.to_owned()).or_insert((None, false));
         if let Some(kind) = u.get("kind").and_then(Value::as_str) {
@@ -599,8 +624,21 @@ impl SessionFold {
                 .session_ttfu
                 .push(useful.saturating_sub(start));
         }
-        for url in &meta.pull_requests {
-            let opened = meta.pull_request_times.get(url).copied().unwrap_or(meta.created_at);
+        // The meta's, then any the log shows that it lacks.
+        let mut opened_prs: Vec<(String, u64)> = meta
+            .pull_requests
+            .iter()
+            .map(|url| {
+                (url.clone(), meta.pull_request_times.get(url).copied().unwrap_or(meta.created_at))
+            })
+            .collect();
+        for (url, at) in self.opened {
+            if !opened_prs.iter().any(|(u, _)| *u == url) {
+                opened_prs.push((url, at));
+            }
+        }
+        for (url, opened) in &opened_prs {
+            let (url, opened) = (url, *opened);
             if opened < options.since || opened > options.until {
                 continue;
             }

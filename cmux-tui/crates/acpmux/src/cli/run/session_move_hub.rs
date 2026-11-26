@@ -333,7 +333,7 @@ impl Timing {
             "freezeMs": commit_ms.saturating_sub(self.begin_ms),
         });
         if let (Some(out), Some(target)) = (value.as_object_mut(), self.target.as_object()) {
-            for key in ["dialMs", "pagesMs", "finishMs"] {
+            for key in ["dialMs", "pages", "pageBytes", "pagesMs", "finishMs", "via"] {
                 if let Some(value) = target.get(key) {
                     out.insert(key.to_owned(), value.clone());
                 }
@@ -397,7 +397,8 @@ impl Moving<'_> {
             .map_err(|e| anyhow!(e))?;
             let mut sent = json!({"sessionId": id, "transferId": begun.transfer_id,
                                   "epoch": begun.epoch, "manifest": begun.begin,
-                                  "folder": folder_value(&folder, home, args.cwd.is_some())?});
+                                  "folder": folder_value(&folder, home, args.cwd.is_some())?,
+                                  "host": host});
             if let Some(stage_id) = &begun.stage_id {
                 sent.set("stageId", json!(stage_id));
             }

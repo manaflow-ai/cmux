@@ -51,6 +51,8 @@ public struct PaletteSources {
     public var scopePrefixes: (@MainActor () -> [PaletteScopeID: String?])?
     /// The user's aliases and pins (cmux.json `palette.aliases`, `palette.pins`). Read on every open.
     public var rankSettings: (@MainActor () -> PaletteRankSettings)?
+    /// The palette experiments the person turned on (`experiments.paletteV2`, `experiments.palettePreview`). Read on every open.
+    public var experiments: (@MainActor () -> PaletteExperiments)?
 
     public init(
         workspaces: (any PaletteWorkspaceSource)? = nil,

@@ -14,6 +14,7 @@ import { AgentIdentity } from "./AgentIdentity";
 import { foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "./agentIdentityModel";
 import { useSenderIconLook } from "./senderIconLook";
 import { subagentProgress } from "./subagentProgress";
+import { orderedCountWords } from "../session-info/subagentsSectionModel";
 import { subagentDisplayName } from "./subsessions";
 import { namedAction } from "./trayDetail";
 import { waveProps } from "../../../ui/wave";
@@ -70,11 +71,8 @@ function groupLabel(t: Translate, language: PaneLanguage, agents: readonly Subag
   const stopped = count("cancelled") + count("disconnected");
   if (n > 0 && done === n) return t("subagents.allDone", { n });
   if (n > 0 && failed === n) return t("subagents.allFailed", { n });
-  const states = [
-    failed > 0 && t("summary.subagents.failed", { n: failed }),
-    stopped > 0 && t("summary.subagents.stopped", { n: stopped }),
-    runningCount === 0 && done > 0 && t("summary.subagents.done", { n: done }),
-  ].filter((part): part is string => typeof part === "string");
+  // Running is the default the mark carries; only the states that differ are worded, in the shared order.
+  const states = orderedCountWords({ failed, stopped, done: runningCount === 0 ? done : 0 }, t);
   const total = t("subagents.count", { n });
   if (states.length === 0) return total;
   const list = intl.ListFormat(language, { type: "unit", style: "short" }).format(states);
@@ -226,50 +224,5 @@ export function StopButton({
     >
       <Icon name="action.stop" size={12} selected={solid} />
     </button>
-  );
-}
-
-/// The child view's first line: a "Subagent of" pill naming the agent that spawned it (`text`) and
-/// what the subagent was asked to do (its task, Claude's Agent call description), "Subagent of
-/// <chat> · <task>"; a click goes back to that agent's view, or to the session's own.
-export function SubagentOfRow({ row }: { row: AcpmuxRow }) {
-  const t = useT();
-  const open = useContext(SubagentNavContext);
-  const actions = useContext(TurnActionsContext);
-  const agent = row.subagents?.[0];
-  if (!agent) return null;
-  // The pill's text goes back to the parent (its parent subagent's view, else the chat's); its ×
-  // closes the subagent's view to the chat's, as Escape does (subagentEscape.ts). Leo, 2026-11-03:
-  // "this opened subagent has no close button".
-  return (
-    <div className="cv-subagent-of">
-      <span className="cv-subagent-of__frame">
-        <button type="button" className="cv-subagent-of__pill" onClick={() => open?.(agent.parent ?? undefined)}>
-          <Icon name="agent.session" size={12} />
-          <span className="cv-subagent-of__label">{t("subagents.of")}</span>
-          <span className="cv-subagent-of__parent">{row.text}</span>
-          {agent.task ? (
-            <>
-              <span className="cv-subagent-of__dot" aria-hidden="true">
-                ·
-              </span>
-              <span className="cv-subagent-of__task">{agent.task}</span>
-            </>
-          ) : null}
-        </button>
-        <button
-          type="button"
-          className="cv-subagent-of__close"
-          aria-label={t("subagents.close")}
-          title={t("subagents.close")}
-          onClick={() => open?.(undefined)}
-        >
-          <Icon name="action.close" size={12} />
-        </button>
-      </span>
-      {/* The helper's own tab: a stopped one offers Resume here, at its head (Leo, 2026-11-12: "A
-          Resume button in cmux on a stopped helper's row and tab"). */}
-      <ResumeControl agent={agent} actions={actions} />
-    </div>
   );
 }

@@ -48,7 +48,7 @@ final class QuitCoordinator {
     /// Chromium's close, the quit's last engine step (tests replace it). An app quit closes every page
     /// without its beforeunload (`cmux_shim_close_all` answers any question with Leave), then `engineWillStop`.
     lazy var closeEngines: @MainActor () async -> Void = { [weak self] in
-        await self?.services.cache.cef.shutdown(timeout: QuitDeadline.engineCloseWait, beforeEngineStop: { await self?.engineWillStop() })
+        await self?.services.cache.cef.shutdown(timeout: QuitDeadline.engineCloseWait, stopsEngine: self?.services.updater.relaunchingForUpdate != true, beforeEngineStop: { await self?.engineWillStop() }) // an update's relaunch skips CefShutdown (ask-ad4a68e740)
     }
 
     /// Right before CefShutdown, which never returned before the 4 s deadline in the quit hang files (cmuxterm-hq#8608, #11994): the windows
@@ -77,7 +77,8 @@ final class QuitCoordinator {
     /// asks "Quit cmux?" in the active window (Quit, Cancel, "Don't ask again").
     func holdsShortcutQuit(_ invocation: ActionInvocation) -> Bool {
         let enabled = !isQuitting && (services.settings?.snapshot.warnBeforeQuitShortcut ?? CmuxConfigSnapshot.warnBeforeQuitShortcutDefault)
-        return shortcutGuard.holds(invocation, event: services.inputDispatch.event, enabled: enabled) { [weak self] in self?.askShortcutQuit($0) ?? false }
+        return shortcutGuard.holds(invocation, event: services.inputDispatch.event, enabled: enabled,
+                                    qwerty: services.registry.matchesQwertyPositions) { [weak self] in self?.askShortcutQuit($0) ?? false }
     }
 
     /// The question; its "Don't ask again" with Quit turns `app.warnBeforeQuitShortcut` off.
@@ -179,7 +180,6 @@ final class QuitCoordinator {
         logger.notice("quit choice=\(choice.rawValue, privacy: .public)")
         DebugTimings.markLaunch("quit.decided")
         let services = services
-        await services.updater.afterimage?.untilShown(limit: .milliseconds(600)) // a relaunch's pictures are up before any step takes a window off screen (RelaunchAfterimage)
         // Sparkle installs a staged update as the app exits unless `updates.installOnQuit` is off
         // (then it is cancelled now), once the keep for rollback its staging started ends (bounded).
         await services.updater.prepareForQuitAfterKeep()
@@ -208,11 +208,11 @@ final class QuitCoordinator {
                 await QuitSaveSteps(
                     remoteSnapshots: { await services.remoteTerminals.saveSnapshots() },
                     agentComposers: { await services.agentTabs.relaunchWake.save(AgentQuitFiles.composers(services.agentTabs, isIncognito: { AgentQuitFiles.contains(incognito, $0) })) },
-                    agentImages: { services.launchImages.pictures?.stop(); await AgentQuitFiles.saveImages(services.agentTabs) { AgentQuitFiles.contains(incognito, $0) } },
+                    agentImages: { services.launchImages.pictures?.stop(); if let saved = services.updater.savedForRelaunch { await saved.value } else { await AgentQuitFiles.saveImages(services.agentTabs) { AgentQuitFiles.contains(incognito, $0) } } }, // a relaunch saved them while its windows were on screen (UpdateWindowHandoff.savesBeforeLeaving)
                     terminalFrames: {
                         await TerminalLaunchFrames.beside(services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
                             .save(services.cache.terminals.mapValues(\.session))
-                        await services.cache.savePageFramesForQuit() // and browser pages' (`BrowserPageFrames`)
+                        if services.updater.savedForRelaunch == nil { await services.cache.savePageFramesForQuit() } // and browser pages' (`BrowserPageFrames`); a relaunch saved them on screen
                     },
                     browserRecords: { await services.cache.browserTabs.flushRecords() },
                     windows: {
@@ -220,7 +220,7 @@ final class QuitCoordinator {
                         // the step waits for them: every quit, Keep included, waits for a step past its limit.
                         services.incognitoChats.closingForQuit(services)
                         await services.windows.prepareForTermination()
-                        await services.incognitoChats.drain()
+                        await services.incognitoChats.drain(); await services.daemon.connection?.flushLaunchSnapshot()
                     },
                     stopSavingWindows: { services.windows.stopSavingForTermination() },
                     sidebar: { await services.sidebarSnapshots.flush() },

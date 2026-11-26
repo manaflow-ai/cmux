@@ -111,6 +111,20 @@ test("a send that fails says so and keeps the answers", async () => {
   expect(named(container, "Box").disabled).toBe(false);
 });
 
+// https://github.com/manaflow-ai/cmux/issues/52766: "this text over text thing is weird". The
+// "Needs your input" line was a row of its own, cut out of the transcript's mask (data-dock-clear),
+// so the chat's words drew under it. It is now the card's own bar, on the card's fill.
+test("the Needs your input line is inside the card, never a see-through row over the transcript", async () => {
+  const container = await render(
+    <PendingAsks asks={[asked]} onAnswer={() => Promise.resolve()} onDismiss={() => undefined} />,
+  );
+  const bar = container.querySelector(".acpmux-pending-ask .acpmux-next-step__bar")!;
+  expect(bar).not.toBeNull();
+  expect(bar.parentElement?.classList.contains("acpmux-next-step")).toBe(true);
+  expect(container.querySelectorAll(".acpmux-pending-ask > :not(.acpmux-next-step)")).toHaveLength(0);
+  expect(container.querySelector(".acpmux-pending-ask [data-dock-clear]")).toBeNull();
+});
+
 test("Dismiss names the card, and the chat keeps it across a reload", async () => {
   const dismissed: string[] = [];
   const container = await render(

@@ -5,7 +5,6 @@
 //!
 //! Both daemons are real, with the permission policy "ask"; the agent is the fake sample harness
 //! (`FAKE_ASK_MODE`): a prompt naming `hostname` announces that tool call and asks before it runs.
-use super::session_move::prompt;
 use super::session_move_live::{Side, events, move_to_the_other};
 use super::*;
 

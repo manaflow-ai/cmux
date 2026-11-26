@@ -13,6 +13,9 @@ per (transport, path, continent, country, hub colo) and per path overall:
 - loss: lost pings / pings sent;
 - setup p50/p95: ms from connect to the first pong, over first stats.
 
+A direct link whose route is the Mac's NAT-mapped endpoint (PCP, NAT-PMP or UPnP-IGD; PROTOCOL.md "Mapped
+endpoints") counts as path `direct-mapped`, so its share of direct links shows.
+
 The lines carry no user, device or address; still, rows are per continent unless --by-country, and a group
 fewer than --min-group links came up in folds its country (then its continent) into "*" and prints no row
 of its own, so the output never singles out one person's location.
@@ -75,8 +78,9 @@ def stat_of(event):
         pings, lost = num(j.get("pings"), 100_000), num(j.get("lost"), 100_000)
         if pings is None or lost is None:
             return None
+        path = "direct-mapped" if j["path"] == "direct" and j.get("portmapUsed") is True else j["path"]
         return {
-            "transport": j["transport"], "path": j["path"], "reason": j["reason"], "pings": pings, "lost": lost,
+            "transport": j["transport"], "path": path, "reason": j["reason"], "pings": pings, "lost": lost,
             "rttN": num(j.get("rttN"), 100_000) or 0, "rttP50": num(j.get("rttP50")), "rttP95": num(j.get("rttP95")),
             "setupMs": num(j.get("setupMs")) if j["reason"] == "first" or "marks" in j else None,
             "continent": code(j.get("continent")) or "?", "country": code(j.get("country")) or "?",

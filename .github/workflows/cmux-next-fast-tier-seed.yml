@@ -32,7 +32,10 @@ permissions: {}
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
-  SEED_INTERVAL_MINUTES: "30"
+  # 240, was 30: the seed warms Blacksmith, which the fast tier reaches only as overflow (the owned minis keep
+  # their own builds), and its 856 Blacksmith macOS minutes a day (2026-11-23..24) bought a cache nothing read.
+  # A push that changes a package input still seeds at once (the due check's inputs field).
+  SEED_INTERVAL_MINUTES: "240"
   CI_CACHE_R2_BUCKET: cmux-ci-cache-next
   CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
 
@@ -40,7 +43,7 @@ jobs:
   due:
     if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
     name: Is a fast-tier seed due
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
     permissions:
@@ -75,6 +78,7 @@ jobs:
             scripts/cmux-next/fast-tier-seed-due.py
             scripts/cmux-next/fast-tier-cache-key.sh
             scripts/ci/r2_cache_census.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Check each pool's newest seed's age
@@ -158,6 +162,44 @@ jobs:
           bash scripts/ci/init-submodule.sh ghostty-next
           bash scripts/ci/zig-tarball-r2.sh seed "$RUNNER_TEMP/cmux-zig-tarballs"
 
+  # The pinned Node, Bun and Rust, for Freestyle runners: their setup-node, setup-bun and rustup installs
+  # read nodejs.org, github.com and static.rust-lang.org at 0.3-1 MB/s and took 190 s / 96 s / 522 s at p50
+  # (697 / 580 / 1,357 s at p90) on 2026-11-23. scripts/ci/toolchain-r2.sh restore reads these copies; a key
+  # the bucket holds exits after one HEAD request, and a failed seed is only a miss for the readers.
+  toolchains:
+    if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
+    name: Seed the pinned Node, Bun and Rust copies
+    concurrency:
+      group: cmux-next-toolchains-${{ github.ref }}
+      cancel-in-progress: false
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 30
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/r2-cache.sh
+            scripts/ci/lan_cache_fetch.py
+            scripts/ci/toolchain-r2.sh
+            scripts/ci/toolchain-archives.sha256
+            cmux-tui/rust-toolchain.toml
+            .gitmodules
+          sparse-checkout-cone-mode: false
+
+      - name: Save the pinned Node, Bun and Rust
+        continue-on-error: true
+        timeout-minutes: 25
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+          TOOLCHAIN_R2_URL: ${{ env.CI_CACHE_R2_PUBLIC_URL }}
+        run: bash scripts/ci/toolchain-r2.sh seed all
+
   # The .deb files .github/actions/playwright-apt-cache restores, one key per week and engine set, in R2 instead
   # of the GitHub store (one 1,020 MB copy there on 2026-11-24, a tenth of its 10 GB cap). Downloaded in a bare
   # ubuntu:24.04 container, so the archive holds everything a runner image might lack and nothing older: the
@@ -182,6 +224,7 @@ jobs:
             scripts/ci/playwright-apt-deps.sh
             scripts/ci/r2-cache.sh
             scripts/ci/lan_cache_fetch.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Save this week's Playwright apt packages

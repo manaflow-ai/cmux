@@ -263,10 +263,11 @@ test("a working chat whose stream stops while its socket stays open gets every t
   expect(result.duplicates).toBe(0);
   // Quiet 20 s, the check, a refused reconnect, then a 12 s handshake: well under a minute.
   expect(result.timeToRecoverMs!).toBeLessThan(60_000);
-  // The drop said nothing; the refused reconnect is the transport's word, and then the pane said so, quietly.
+  // The drop and the refused reconnect say nothing: the pane keeps connecting quietly (Leo, 2026-11-24:
+  // "let's just keep optimistically connecting and reinforcing the connection").
   expect(result.lineBeforeRefusal).toBe("");
-  expect(result.lineWhileWedged).toContain("Reconnecting…");
-  expect(result.lineWhileWedged).toContain('data-host-recovering="reconnecting"');
+  expect(result.lineWhileWedged).not.toContain("Reconnecting…");
+  expect(result.lineWhileWedged).not.toContain('data-host-recovering="reconnecting"');
   // The deaf socket, the refused one, the slow one: no reconnect loop after it is back.
   expect(result.sockets).toBe(3);
 });

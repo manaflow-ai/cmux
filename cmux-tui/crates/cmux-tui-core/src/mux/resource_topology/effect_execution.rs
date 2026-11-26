@@ -716,6 +716,9 @@ impl Mux {
             &workspace_mutation,
             crate::state::home_store::EmptyWorkspaceMark::ephemeral(ephemeral),
             focus,
+            // Only `workspace.create` names the workspace it makes here: the
+            // caller's own name (CLI and MCP `--name`), pinned (#56422).
+            true,
         )?;
         crate::debug_spans::mark("effect.workspace_created");
         self.effect_create_terminal_in_workspace(intent, placement.workspace, options)

@@ -1047,12 +1047,12 @@ fn app_try_takes_the_nearest_build_that_contains_the_commit() {
         panic!("expected the nearest full build, got {plan:?}")
     };
     assert_eq!((picked["build"].as_str(), from.as_str()), (Some("500"), "400"));
-    let text = super::plan_human(&plan, C0, Path::new("/A.app"), None);
+    let text = plan_human(&plan, C0, Path::new("/A.app"), None);
     assert!(text.contains("500") && text.contains(&C1[..10]) && text.contains(&C0[..12]), "{text}");
-    assert_eq!(super::plan_json(&plan, C0, Path::new("/A.app"), None)["nearest"], true);
+    assert_eq!(plan_json(&plan, C0, Path::new("/A.app"), None)["nearest"], true);
 
     // A pulled build is passed over for the next one.
-    let mut pulled = listing.clone();
+    let mut pulled = listing;
     pulled["builds"][2] = build("500", C1, false, "pulled");
     let Plan::Full { build: picked, .. } = nearest(C0, &pulled, Ok(&descent), vec![]) else {
         panic!("expected full")
@@ -1698,8 +1698,8 @@ fn app_try_live_set_covers_every_helper_app_the_app_bundles() {
     );
     for (script, bundle) in &helpers {
         // `$name` is the app's name ("cmux NIGHTLY"): the live set's helper is every
-        // `<app name> Helper.app`.
-        let covered = bundle.strip_prefix("$name").is_some_and(|tail| tail == helper::SUFFIX);
+        // `<app name> Helper.app` (or the older `<app name> Screen Sharing.app`).
+        let covered = bundle.strip_prefix("$name").is_some_and(|tail| helper::is_helper_name(tail));
         assert!(covered, "{script} bundles {bundle}, which `cmux app try` does not carry live");
     }
 }
@@ -1802,6 +1802,9 @@ fn app_try_sha_from_a_file_before_daemon_from_says_so() {
     };
     assert!(left.iter().any(|reason| reason.contains("predates daemon_from")), "{left:?}");
 }
+
+#[path = "cu_upgrade_tests.rs"]
+mod cu_upgrade_tests;
 
 const TREE: &str = "cccccccccccccccccccccccccccccccccccccccc";
 const SIGNED_CMUX: &[u8] = b"new cmux, Team-signed, longer still";

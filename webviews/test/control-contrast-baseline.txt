@@ -30,7 +30,6 @@ button.acpmux-chief-dock-tool icon 1.05
 button.acpmux-cloud-ask__button text 4.37
 button.acpmux-cu-preview__open icon 1.94
 button.acpmux-diff-back text 1.85
-button.acpmux-edited-summary text 2.31
 button.acpmux-env-button.acpmux-env-submit text 1.99
 button.acpmux-finish-stage__replay text 3.63
 button.acpmux-folder-choice-button text 4.10

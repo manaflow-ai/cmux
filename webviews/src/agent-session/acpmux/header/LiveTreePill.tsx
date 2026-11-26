@@ -57,6 +57,9 @@ export function LiveTreePill({ cwd, readStatus }: { cwd?: string; readStatus: ()
         anchor={button}
         label={t("header.liveTree")}
         className="acpmux-pr-status acpmux-live-tree-status"
+        // "results": opens on "…" and the lanes' report arrives after, with no input from the
+        // person; the box follows the report (ui/popupSettle.ts).
+        popupSettle="results"
         side="bottom"
         finalFocus={buttonRef}
       >

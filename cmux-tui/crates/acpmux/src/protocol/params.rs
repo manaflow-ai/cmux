@@ -83,6 +83,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "approverDecisions",
     "argv",
     "author",
+    "autoPlace",
     "beforePromptId",
     "callerKind",
     "callerProtocol",
@@ -196,11 +197,15 @@ keyed! {
     /// `_acpmux/app_reply`.
     AppReplyParams: ["sessionId", "to", "replyTo", "threadId", "text", "replyId"];
     /// `_acpmux/archive`.
-    ArchiveParams: ["sessionId", "archived"];
+    ArchiveParams: ["sessionId", "archived", "opId"];
     /// `_acpmux/attachment`.
     AttachmentParams: ["sessionId", "id"];
     /// `_acpmux/turn_shots`.
     TurnShotsParams: ["sessionId", "turnId"];
+    /// `_acpmux/turn_frames`.
+    TurnFramesParams: ["sessionId", "turnId", "index", "sinceSeq", "look"];
+    /// `_acpmux/customize_run`.
+    CustomizeRunParams: ["run"];
     /// `_acpmux/bookmark_get`.
     BookmarkGetParams: ["sessionId"];
     /// `_acpmux/bookmark_set`.
@@ -262,7 +267,7 @@ keyed! {
     /// `_acpmux/peers`.
     PeersParams: [];
     /// `_acpmux/prewarm`.
-    PrewarmParams: ["harness", "cwd", "release", "model", "workspaceId", "credentials", "reserveHome", "wait"];
+    PrewarmParams: ["harness", "cwd", "release", "model", "workspaceId", "credentials", "reserveHome", "wait", "shapes"];
     /// `_acpmux/process/kill`.
     ProcessKillParams: ["sessionId", "processId", "signal"];
     /// `_acpmux/process/list`.

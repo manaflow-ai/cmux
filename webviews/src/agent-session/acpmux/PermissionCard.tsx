@@ -1,11 +1,11 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { KeyHint } from "../../ui/KeyHint";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../ui/Menu";
 import { playResize } from "./conversation/fold";
 import { ChevronDown } from "./conversation/icons";
 import { Markdown } from "./conversation/Markdown";
 import { toolIcon } from "./conversation/toolRowModel";
 import { useT } from "./i18n";
-import { Keycap } from "./Keycap";
 import type { AcpmuxPermission } from "./model";
 import { postNative } from "./native";
 import { NativeError } from "./nativeError";
@@ -53,7 +53,7 @@ export const PermissionCardFrame = React.forwardRef<HTMLFieldSetElement, Permiss
     const titleId = React.useId();
     // The ask role's shell (ui/surface): the content material, the card corner, the hairline, the
     // type and the padding are the role's, the same as every other card in the transcript. The
-    // `acpmux-permission-card` class is a hook for keys.css and the tests, with no shell rules.
+    // `acpmux-permission-card` class is a hook for styles.css and the tests, with no shell rules.
     return (
       <Surface
         as="fieldset"
@@ -78,20 +78,6 @@ export const PermissionCardFrame = React.forwardRef<HTMLFieldSetElement, Permiss
 
 /// How many asks' answers a card remembers: far more than a card shows before the snapshot moves on.
 const KEPT_ANSWERS = 32;
-
-/** A button's shortcut as a light hint after its label: the modifiers fainter than the key, so the
- * eye finds 1, 2, 3 as in Claude Code's and Codex's numbered prompts. Decoration only: the button
- * carries the key in `aria-keyshortcuts`. */
-function KeyHint({ shortcut }: { shortcut: string }) {
-  const key = Array.from(shortcut).at(-1) ?? "";
-  const modifiers = shortcut.slice(0, shortcut.length - key.length);
-  return (
-    <kbd className="acpmux-permission-action-shortcut" aria-hidden="true">
-      {modifiers && <span className="acpmux-permission-action-modifiers">{modifiers}</span>}
-      {key}
-    </kbd>
-  );
-}
 
 /// A key the card itself answers (Esc, ⌘↩), drawn as a keycap in its button: `keys` as shown,
 /// `aria` in `aria-keyshortcuts` form. `letter` is the answer's letter (y, a, n), drawn first.
@@ -130,18 +116,20 @@ export function PermissionActionButton({
       <span className="acpmux-permission-action-label">{label}</span>
       {cardKey ? (
         <Surface.Keys className="acpmux-permission-keys">
-          {cardKey.letter && <Keycap>{cardKey.letter.toUpperCase()}</Keycap>}
+          {cardKey.letter && <KeyHint keys={cardKey.letter.toUpperCase()} aria-hidden="true" />}
           {cardKey.letter && (cardKey.keys.length > 0 || shortcut) && (
             <span className="acpmux-permission-keys-or" aria-hidden="true">
               /
             </span>
           )}
-          {cardKey.keys.length > 0
-            ? cardKey.keys.map((key) => <Keycap key={key}>{key}</Keycap>)
-            : shortcut && <KeyHint shortcut={shortcut} />}
+          {cardKey.keys.length > 0 ? (
+            <KeyHint keys={cardKey.keys.join("")} aria-hidden="true" />
+          ) : (
+            shortcut && <KeyHint keys={shortcut} aria-hidden="true" />
+          )}
         </Surface.Keys>
       ) : (
-        shortcut && <KeyHint shortcut={shortcut} />
+        shortcut && <KeyHint keys={shortcut} aria-hidden="true" />
       )}
     </>
   );
@@ -279,6 +267,7 @@ export function PermissionCard({
   onDraft,
   onBuildPlan,
   onApproveEditedPlan,
+  onForkFirst,
   hold: holdOverride,
 }: {
   permission: AcpmuxPermission;
@@ -312,12 +301,18 @@ export function PermissionCard({
   /// before Approve"). With it, the card offers Edit plan; an Approve after an edit sends the edit
   /// here instead of the plain allow, and a build elsewhere starts from it.
   onApproveEditedPlan?(plan: string): Promise<unknown>;
+  /// "Fork first" on a risky step of a Cloud chat (`permission.forkOffer`, acpmux fork_risky.rs):
+  /// the app forks the machine, keeps the copy as a checkpoint, then allows `optionId`. A promise
+  /// that rejects is a refusal the card shows (the fork failed: the step still waits).
+  onForkFirst?(optionId: string): unknown;
   /// Hold to approve's scope and hold time, in place of the experiments' (holdToApprove.experiment.ts);
   /// `reduced` draws the stepped ring. The pane passes none; the gallery and tests do.
   hold?: { scope: HoldScope; durationMs: number; reduced?: boolean };
 }) {
   const t = useT();
   const command = permissionCommand(permission);
+  /// "Fork first" shows only where the pane can carry it out, and only while the ask waits.
+  const forkOffer = onForkFirst && permission.pending ? permission.forkOffer : undefined;
   const preview = useMemo(() => commandPreview(command), [command]);
   const external = permission.externalAccess;
   const [settingsError, setSettingsError] = useState<{ id: string; message: string }>();
@@ -482,16 +477,18 @@ export function PermissionCard({
   };
   // After an answer the keyboard goes back to the composer, so a stray key never answers the next
   // ask in line.
-  const answer = (option: PermissionOption) => {
+  const answer = (option: PermissionOption, forkFirst = false) => {
     const sent = begin();
     if (!sent) return;
     let reply: unknown;
     try {
       // Approve plan after an edit: the edited plan goes with the approval.
       reply =
-        option === allowOnce && editedText !== undefined && onApproveEditedPlan
-          ? onApproveEditedPlan(editedText)
-          : onAnswer(option.id);
+        forkFirst && onForkFirst
+          ? onForkFirst(option.id)
+          : option === allowOnce && editedText !== undefined && onApproveEditedPlan
+            ? onApproveEditedPlan(editedText)
+            : onAnswer(option.id);
     } catch (error) {
       reply = Promise.reject(error);
     }
@@ -718,10 +715,20 @@ export function PermissionCard({
         {title}
       </Surface.Header>
       {/* Rendered only with content: an empty slot would still add the role's gap. */}
-      {(waiting > 0 || detail || (fullAccessMode && permission.pending) || plan || editedText !== undefined) && (
+      {(waiting > 0 ||
+        detail ||
+        forkOffer ||
+        (fullAccessMode && permission.pending) ||
+        plan ||
+        editedText !== undefined) && (
         <Surface.Body className="acpmux-permission-request" data-harness={harness || undefined}>
           {waiting > 0 && <p className="acpmux-permission-waiting">{t("permission.moreWaiting", { n: waiting })}</p>}
           {detail && <p className="acpmux-permission-request-description">{detail}</p>}
+          {forkOffer && (
+            <p className="acpmux-permission-fork-offer">
+              {t("permission.forkFirstDetail", { reason: forkOffer.reason })}
+            </p>
+          )}
           {fullAccessMode && permission.pending && (
             <p className="acpmux-permission-one-time">
               {t(allowOnce ? "permission.fullAccessStillAsks" : "permission.fullAccessStillAsksNoOnce", {
@@ -846,6 +853,15 @@ export function PermissionCard({
           {(allowAlways || allowOnce) && (
             // The allows keep the trailing edge together, so a narrow card wraps them as a pair.
             <Surface.Trailing className="acpmux-permission-allows">
+              {forkOffer && allowOnce && (
+                <PermissionActionButton
+                  label={t("permission.forkFirst")}
+                  title={forkOffer.machine}
+                  kind="secondary"
+                  className="acpmux-permission-fork-first"
+                  onClick={() => answer(allowOnce, true)}
+                />
+              )}
               {allowAlways && allowAlwaysLabel && (
                 <PermissionActionButton
                   label={allowAlwaysLabel}
@@ -940,7 +956,7 @@ export function PermissionCard({
             <Surface.Action aria-keyshortcuts="Escape" disabled={writing.sending} onClick={closeFeedback}>
               {t("permission.feedbackCancel")}
               <Surface.Keys>
-                <Keycap>{DENY_KEY.keys[0]}</Keycap>
+                <KeyHint keys={DENY_KEY.keys.join("")} aria-hidden="true" />
               </Surface.Keys>
             </Surface.Action>
             <Surface.Action
@@ -952,7 +968,7 @@ export function PermissionCard({
             >
               {t("permission.feedbackSend")}
               <Surface.Keys>
-                <Keycap>↩</Keycap>
+                <KeyHint keys="↩" aria-hidden="true" />
               </Surface.Keys>
             </Surface.Action>
           </div>

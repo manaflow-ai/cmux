@@ -211,7 +211,12 @@ export function WorkflowSideTab({ workflow, onClose, onStop, onOpenWorkflowAgent
   const elapsed = elapsedFor(workflow, now);
   const counts = tally(workflow.agents);
   return (
-    <aside className="acpmux-workflow-side-tab" data-layout={layout} aria-label={workflow.title}>
+    <aside
+      className="acpmux-workflow-side-tab ui-glass"
+      data-glass-level="popover"
+      data-layout={layout}
+      aria-label={workflow.title}
+    >
       <header className="acpmux-workflow-side-tab__head">
         <div className="acpmux-workflow-side-tab__title">
           <Icon name="agent.session" size={ROW_ICON} row />
