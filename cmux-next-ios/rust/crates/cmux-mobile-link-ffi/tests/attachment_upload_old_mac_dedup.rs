@@ -42,6 +42,7 @@ async fn an_older_mac_ignoring_sha256_still_gets_every_upload_whole() {
         agent_tab_host: None,
         uploads_dir: dirs.path().join("uploads"),
         pairing: None,
+        viewport_sync: None,
     };
     let mac_id = uuid::Uuid::new_v4().to_string();
     let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
@@ -71,6 +72,9 @@ async fn an_older_mac_ignoring_sha256_still_gets_every_upload_whole() {
             video_lane: false,
             webrtc_media: false,
             ultra: cmux_mobile_link::UltraSetting::Off,
+            proxy_only: false,
+            drop_wireguard: false,
+            force_relay: false,
         },
         None,
     )
