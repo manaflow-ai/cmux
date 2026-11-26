@@ -71,6 +71,8 @@ function KeyOverlay({ bottom, left, width }: { bottom: number; left: number; wid
     <div
       data-prototype="modifier-overlay"
       data-host-glass="popover"
+      // Its box is fixed by the composer's measured place and width (ui/popupSettle.ts).
+      data-popup-settle="own"
       className="ui-popup ui-glass"
       style={{
         position: "fixed",

@@ -4,7 +4,7 @@
 // top like normal."
 //
 // One placement rule for every attachment kind:
-// 1. the view is `agentPane.attachmentView`, inline by default;
+// 1. the view is `agentPane.attachmentView`, the tray (strip) by default;
 // 2. the composer's right-click offers Attachments Inline and Attachments at Top, checked by the
 //    view, and picking one sets it;
 // 3. detector: the inline view's placement (composer/inlineAttachments.tsx `place` and `ready`) never
@@ -25,36 +25,35 @@ import {
 } from "../src/agent-session/acpmux/composerSettings";
 import { translate } from "../src/agent-session/acpmux/i18n";
 
-afterEach(() => setComposerSettings({ attachmentView: "inline" }));
+afterEach(() => setComposerSettings({ attachmentView: "strip" }));
 
-test("attachments show inline by default", () => {
-  expect(DEFAULT_COMPOSER.attachmentView).toBe("inline");
-  expect(readComposerSettings({}).attachmentView).toBe("inline");
-  expect(readComposerSettings({ attachmentView: "sideways" }).attachmentView).toBe("inline");
-  expect(readComposerSettings({ attachmentView: "strip" }).attachmentView).toBe("strip");
+test('attachments show in the tray by default, and "both" reads as the tray', () => {
+  expect(DEFAULT_COMPOSER.attachmentView).toBe("strip");
+  expect(readComposerSettings({}).attachmentView).toBe("strip");
+  expect(readComposerSettings({ attachmentView: "sideways" }).attachmentView).toBe("strip");
+  expect(readComposerSettings({ attachmentView: "both" }).attachmentView).toBe("strip");
+  expect(readComposerSettings({ attachmentView: "inline" }).attachmentView).toBe("inline");
 });
 
 test("the right-click offers Attachments Inline and Attachments at Top, checked by the view", () => {
   const items = (view: AttachmentView) => attachmentViewMenu(view, translate);
-  expect(items("inline").map((item) => [item.label, item.checked])).toEqual([
-    ["Attachments Inline", true],
-    ["Attachments at Top", false],
+  expect(items("strip").map((item) => [item.label, item.checked])).toEqual([
+    ["Attachments Inline", false],
+    ["Attachments at Top", true],
   ]);
-  expect(items("strip").map((item) => item.checked)).toEqual([false, true]);
-  // The "both" view a cmux-next.json can set checks neither; picking one replaces it.
-  expect(items("both").map((item) => item.checked)).toEqual([false, false]);
+  expect(items("inline").map((item) => item.checked)).toEqual([true, false]);
   expect(items("inline")[0]!.separatorBefore).toBe(true);
 });
 
 test("picking an item sets the attachment view", () => {
-  expect(composerSettingsSnapshot().attachmentView).toBe("inline");
-  attachmentViewMenu("inline", translate)[1]!.onSelect();
   expect(composerSettingsSnapshot().attachmentView).toBe("strip");
   attachmentViewMenu("strip", translate)[0]!.onSelect();
   expect(composerSettingsSnapshot().attachmentView).toBe("inline");
-  // The same path the host persists through (pane.setAttachmentView).
-  setAttachmentView("strip");
+  attachmentViewMenu("inline", translate)[1]!.onSelect();
   expect(composerSettingsSnapshot().attachmentView).toBe("strip");
+  // The same path the host persists through (pane.setAttachmentView).
+  setAttachmentView("inline");
+  expect(composerSettingsSnapshot().attachmentView).toBe("inline");
 });
 
 test("the composer's right-click menu holds the attachment view items", () => {

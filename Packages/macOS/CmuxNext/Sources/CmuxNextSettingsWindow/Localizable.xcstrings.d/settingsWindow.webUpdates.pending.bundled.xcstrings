@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.webUpdates.pending.bundled" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The built-in web UI loads the next time cmux is in the background."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تُحمَّل واجهة الويب المضمّنة في المرة التالية التي يكون فيها cmux في الخلفية."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ugrađeno web sučelje se učitava kada cmux sljedeći put bude u pozadini."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Den indbyggede webbrugerflade indlæses, næste gang cmux er i baggrunden."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die integrierte Web-Oberfläche wird geladen, sobald cmux das nächste Mal im Hintergrund ist."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La interfaz web integrada se carga la próxima vez que cmux esté en segundo plano."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’interface web intégrée se charge la prochaine fois que cmux passe en arrière-plan."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’interfaccia web integrata si carica la prossima volta che cmux è in background."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "内蔵の Web UI は、次に cmux がバックグラウンドになったときに読み込まれます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ចំណុចប្រទាក់វេបដែលភ្ជាប់មកជាមួយនឹងផ្ទុកនៅពេលបន្ទាប់ដែល cmux នៅផ្ទៃខាងក្រោយ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "기본 제공 웹 UI는 다음에 cmux가 백그라운드에 있을 때 로드됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Det innebygde nettgrensesnittet lastes neste gang cmux er i bakgrunnen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wbudowany interfejs webowy wczyta się, gdy cmux następnym razem będzie w tle."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A interface web integrada carrega na próxima vez que o cmux estiver em segundo plano."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Встроенный веб-интерфейс загрузится, когда cmux в следующий раз окажется в фоне."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "UI เว็บในตัวจะโหลดเมื่อ cmux อยู่เบื้องหลังครั้งถัดไป"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yerleşik web arayüzü, cmux bir dahaki sefere arka planda olduğunda yüklenir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вбудований вебінтерфейс завантажиться, коли cmux наступного разу буде у фоні."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Giao diện web tích hợp sẵn sẽ tải vào lần tới cmux chạy nền."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "内置网页界面会在 cmux 下次处于后台时载入。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "內建網頁介面會在 cmux 下次處於背景時載入。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

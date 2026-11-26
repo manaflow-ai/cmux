@@ -41,10 +41,11 @@ async fn a_pick_pins_asks_first_and_moves_with_one_line() {
     let mut src = Rpc::connect(&source.socket).await;
     let id = chat(&source, &mut src).await;
 
-    // No stored mode: pinned to the machine it is on.
+    // A chat made after this daemon's place-mode cutoff has no pin and is new: Auto (older
+    // chats were pinned to their machine by the migration: `tests/place_mode_migration.rs`).
     let got = src.call("_acpmux/place_get", json!({"sessionId": id})).await;
     assert_eq!(got["state"], "pinned", "{got}");
-    assert_eq!(got["mode"]["mode"], "machine", "{got}");
+    assert_eq!(got["mode"]["mode"], "auto", "{got}");
 
     // Auto is stored, nothing moves; Cloud would move (the folder is no repository), so it asks
     // first and stores nothing.

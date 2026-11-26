@@ -2,12 +2,13 @@
 //! would leave behind (`left_behind`), and the state a pick lands in (`plan`). Pure: the
 //! daemon's glue (`server/place_set.rs`) gathers the inputs and does the moving.
 //!
-//! The pick is the chat's pin, stored per chat (`server/place_set.rs`). A chat with no stored
-//! mode reads as pinned to the machine it is on (`effective`), so nothing moves
-//! unasked when this ships. `Auto` is only stored here: its later move to Cloud (lid closed,
-//! offline, overloaded) is not built yet and never goes back on its own. `Cloud` moves the chat
-//! to a fresh Cloud machine, started for it through the `cmux` CLI's own machine start
-//! ([`cloud_new_words`]).
+//! The pick is the chat's pin, kept in its metadata so it moves with it
+//! (`SessionMeta::place_mode`). A chat with no pin reads as `place_pin::effective` says: pinned
+//! to the machine it is on until this machine's one-time migration pinned every older chat
+//! there, Auto after it (a chat created since), so nothing moves unasked when this ships.
+//! `Auto` is only stored here: its later move to Cloud (lid closed, offline, overloaded) is not
+//! built yet and never goes back on its own. `Cloud` moves the chat to a fresh Cloud machine,
+//! started for it through the `cmux` CLI's own machine start ([`cloud_new_words`]).
 
 use crate::place_mode::PlaceMode;
 use serde::Serialize;
@@ -18,11 +19,6 @@ use std::path::{Path, PathBuf};
 /// `place` as a request carries it (`PlaceMode`'s wire shape, `place_mode.rs`).
 pub fn parse(place: &Value) -> Result<PlaceMode, String> {
     PlaceMode::from_params(place)
-}
-
-/// The pick of a chat with no stored mode: pinned to the machine it is on.
-pub fn effective(stored: Option<PlaceMode>, here: &str) -> PlaceMode {
-    stored.unwrap_or_else(|| PlaceMode::Machine { id: here.to_owned() })
 }
 
 /// What the chat's move line names: `Cloud`, `Auto` or the machine.

@@ -1,5 +1,5 @@
 //! `_acpmux/place_set`, `_acpmux/place_undo` and `_acpmux/place_get`: move an existing chat from
-//! the place menu (`acpmux session place`). The rules are `place_move.rs`'s; this gathers what
+//! the place menu (`acpmux session place-set`). The rules are `place_move.rs`'s; this gathers what
 //! they read, keeps the chat's pin, writes the move line and runs the move.
 //!
 //! * `place_set {sessionId | sessionIds, place, confirm?, why?}`, `place` being
@@ -20,8 +20,9 @@
 //! turn to end here and then moves (`after_turn`). The move line (transcript kind `moved`) is
 //! written before the move so it travels with the chat; a move that fails writes one more with
 //! `failed: true`.
-//! The pin is stored per chat in `place-modes.json` in the daemon's home; a chat with none
-//! reads as pinned to the machine it is on, so nothing moves unasked.
+//! The pin is the chat's own metadata (`SessionMeta::place_mode`), so it moves with the chat; a
+//! chat with none reads as `place_pin::effective` says (pinned here until this machine's
+//! one-time migration ran, `hub/place_migrate.rs`; Auto after it), so nothing moves unasked.
 //!
 //! Not here yet: Auto's later move.
 
@@ -32,7 +33,6 @@ use crate::rpc::RpcError;
 use crate::store::SessionStatus;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -45,7 +45,6 @@ const PAUSE_LIMIT: Duration = Duration::from_secs(120);
 /// How long a pick waits for a move the target turns away before answering `moving`.
 const EARLY_REFUSAL: Duration = Duration::from_secs(8);
 const DEFAULT_WHY: &str = "you chose it";
-const PINS: &str = "place-modes.json";
 
 /// Where a chat's move stands in this daemon's memory.
 #[derive(Clone, Debug)]
@@ -70,32 +69,6 @@ fn set_stand(id: &str, stand: Option<Stand>) {
         Some(s) => all.insert(id.to_owned(), s),
         None => all.remove(id),
     };
-}
-
-fn pins_path() -> PathBuf {
-    crate::config::home().join(PINS)
-}
-
-fn read_pins() -> BTreeMap<String, PlaceMode> {
-    std::fs::read(pins_path())
-        .ok()
-        .and_then(|b| serde_json::from_slice(&b).ok())
-        .unwrap_or_default()
-}
-
-/// Stores (or with `None` clears) a chat's pin, under one lock so two picks never lose each other.
-fn write_pin(id: &str, mode: Option<&PlaceMode>) -> std::io::Result<()> {
-    static LOCK: Mutex<()> = Mutex::new(());
-    let _held = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let mut pins = read_pins();
-    match mode {
-        Some(m) => pins.insert(id.to_owned(), m.clone()),
-        None => pins.remove(id),
-    };
-    let path = pins_path();
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, serde_json::to_vec_pretty(&pins).map_err(std::io::Error::other)?)?;
-    std::fs::rename(&tmp, &path)
 }
 
 fn ids_of(params: &Value) -> Result<(Vec<String>, bool), RpcError> {
@@ -161,8 +134,6 @@ pub(super) async fn set(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErro
 
 pub(super) async fn get(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
     let (ids, single) = ids_of(params)?;
-    let here = crate::hub::host_label();
-    let pins = read_pins();
     let mut chats = Vec::new();
     for key in &ids {
         let session = match hub.resolve(key) {
@@ -173,7 +144,7 @@ pub(super) async fn get(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErro
             }
         };
         let id = session.meta().id;
-        let mode = pm::effective(pins.get(&id).cloned(), here);
+        let mode = hub.place_mode_of(&session);
         chats.push(match stand_of(&id) {
             Some(Stand::AfterTurn) => chat(&id, State::AfterTurn, &mode, &[], None),
             Some(Stand::Moving) => chat(&id, State::Moving, &mode, &[], None),
@@ -196,7 +167,7 @@ pub(super) async fn undo(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
     };
     let sid = session.meta().id;
     let Some(back) = last_move_from(hub, &sid) else {
-        let here = pm::effective(read_pins().get(&sid).cloned(), crate::hub::host_label());
+        let here = hub.place_mode_of(&session);
         return Ok(reply(vec![refused(&sid, &here, "this chat has no move to undo")], true));
     };
     let want = PlaceMode::Machine { id: back };
@@ -241,7 +212,7 @@ async fn one(
     };
     let meta = session.meta();
     let id = meta.id.clone();
-    let current = pm::effective(read_pins().get(&id).cloned(), here);
+    let current = hub.place_mode_of(&session);
     if meta.status == SessionStatus::Closed {
         return refused(&id, &current, "this chat is closed");
     }
@@ -255,9 +226,9 @@ async fn one(
         if pm::needs_left(want, here, on_cloud) { gather(&meta.cwd).await } else { Vec::new() };
     let plan = pm::plan(want, here, on_cloud, running, &left, confirm);
     if plan.store
-        && let Err(e) = write_pin(&id, Some(want))
+        && let Err(e) = hub.set_place_mode(&session, Some(want.clone()))
     {
-        return refused(&id, &current, format!("could not store the pick: {e}"));
+        return refused(&id, &current, format!("could not store the pick: {}", e.message));
     }
     let Some(to) = plan.move_to.clone() else {
         let mode = if plan.store { want } else { &current };

@@ -70,6 +70,9 @@ struct Fake {
     /// The requests `Backend::resource_sender` sent (a live file's reloads); no sender
     /// when unset.
     reloads: Option<std::sync::Arc<std::sync::Mutex<Vec<Value>>>>,
+    /// `Backend::resource_job`: a terminal wait sent from its own thread answers
+    /// `resource_result` after this long; none (a wait on the server's thread) when unset.
+    wait_job: Option<Duration>,
     sent: RefCell<Vec<Value>>,
 }
 
@@ -190,6 +193,21 @@ impl Backend for Fake {
         Some(std::sync::Arc::new(move |plan: RequestPlan| {
             reloads.lock().unwrap().push(request_value(&plan).expect("a valid request"));
             Ok(json!({}))
+        }))
+    }
+
+    fn resource_job(&self, _session: Option<&str>) -> Option<ResourceJob> {
+        let delay = self.wait_job?;
+        let answer = self.resource_result.clone().unwrap_or_else(|| json!({}));
+        Some(Box::new(move |plan, _prefixes| {
+            assert!(matches!(
+                plan.operation,
+                super::super::command::WireOperation::Typed(
+                    ResourceOperation::TerminalWait | ResourceOperation::TerminalWaitExit
+                )
+            ));
+            std::thread::sleep(delay);
+            Ok(answer)
         }))
     }
 
@@ -1731,6 +1749,7 @@ mod retained;
 mod settings;
 mod slides;
 mod terminal_wait_timeout;
+mod wait_head_of_line;
 
 fn code_mode_server(fake: Fake) -> Server<Fake> {
     let mut server = Server::new(fake, None);
@@ -1826,6 +1845,18 @@ fn code_mode_lists_only_exec_and_a_script_reaches_every_tool() {
     assert_eq!(both["isError"], true, "{both}");
     let other = call(&mut server, "cmux_exec", json!({"source": "return 1;"}));
     assert_eq!(other["isError"], true, "{other}");
+}
+
+/// A script makes more calls than the old limit of 2000; past the call log's length they are
+/// only counted.
+#[test]
+fn code_mode_scripts_make_more_calls_than_the_old_limit() {
+    let mut server = code_mode_server(Fake::with_actions());
+    let script = "for (let i = 0; i < 2100; i++) { await cmux.workspace_list({}); } return 1;";
+    let ran = call(&mut server, "cmux_exec", json!({"script": script}));
+    assert_eq!(ran["isError"], false, "{ran}");
+    assert_eq!(ran["structuredContent"]["calls"], 2100);
+    assert_eq!(ran["structuredContent"]["result"], 1);
 }
 
 #[test]
