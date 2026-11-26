@@ -34,6 +34,32 @@ import Testing
         try await rig.until("the player freezes once its video stops") { rig.hibernation.frozen.contains(player) }
     }
 
+    /// The probe: the tab's report of media that plays, muted or not, or the page's own answer (`plays`, a playing
+    /// element in the top document) keeps it from a freeze; paused media, or none, does not. It is no keep reason
+    /// against a discard (Chrome's Memory Saver discards a muted tab).
+    @Test func playingMediaMutedOrNotStopsAFreezeOnly() async {
+        #expect(PageProbe.plays(Self.mutedVideo))
+        #expect(!PageProbe.plays(Self.mutedVideoPaused))
+        #expect(!PageProbe.plays(nil))
+        #expect(PageProbe(mediaPlays: true).stopsWhenFrozen)
+        #expect(PageProbe(mediaPlays: true).exemption == nil)
+        #expect(PageProbe.unanswered(media: Self.mutedVideo, muted: false).stopsWhenFrozen, "an unanswered page loses its reported video")
+
+        let reported = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com")))
+        reported.evaluationResult = .string(#"{"media":false,"plays":false,"form":false}"#)
+        reported.simulate(.mediaChanged(Self.mutedVideo))
+        #expect(await BrowserHibernation.probe(reported).stopsWhenFrozen, "the tab's report of a muted video did not keep it")
+
+        let answered = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com")))
+        answered.evaluationResult = .string(#"{"media":false,"plays":true,"form":false}"#)
+        #expect(await BrowserHibernation.probe(answered).stopsWhenFrozen, "the page's own playing element did not keep it")
+
+        let idle = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com")))
+        idle.evaluationResult = .string(#"{"media":false,"form":false}"#)
+        idle.simulate(.mediaChanged(Self.mutedVideoPaused))
+        #expect(await BrowserHibernation.probe(idle).stopsWhenFrozen == false, "a paused muted video kept the page")
+    }
+
     /// A loaded WebKit page, `prepare`d, installed as a tab, shown once, then hidden.
     private func hiddenPage(_ name: String, in rig: NeighborTabsWakeTests.Rig,
                             prepare: (WebKitTab) -> Void = { _ in }) async throws -> String {
