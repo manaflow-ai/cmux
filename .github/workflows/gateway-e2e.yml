@@ -51,7 +51,7 @@ jobs:
       deployment: false
     # An ephemeral Blacksmith VM, never LINUX_RUNNER (which may name a persistent host): this job holds the
     # stack pair.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 60
     steps:
       - name: Refuse any ref but feat-cmux-next
@@ -74,8 +74,13 @@ jobs:
 
       - name: Install Linux build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config
+          fi
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -151,7 +156,7 @@ jobs:
     # mac job takes Blacksmith macOS, which cannot reach sr; its first step then says so.
     needs: e2e
     if: ${{ !cancelled() && github.ref == 'refs/heads/feat-cmux-next' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     # Reads the queue janitor's pool snapshot (e2e_runner_pool.py's budget)
     # and the owned runners through the routing App's own budget.
@@ -176,6 +181,7 @@ jobs:
             scripts/ci/deadline_http.py
             scripts/ci/simple_pool_picker.py
             scripts/ci/warm_distance.py
+            .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
