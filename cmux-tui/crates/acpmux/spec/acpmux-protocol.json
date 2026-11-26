@@ -4592,6 +4592,29 @@
       ],
       "type": "object"
     },
+    "ForkCheckpoint": {
+      "additionalProperties": false,
+      "description": "The machine copy the app made before allowing a risky step.",
+      "properties": {
+        "fork": {
+          "type": "string"
+        },
+        "forkMs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "machine": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "machine",
+        "fork",
+        "forkMs"
+      ],
+      "type": "object"
+    },
     "ForkParams": {
       "additionalProperties": false,
       "description": "`acp.session.fork`: a completed-turn, live, or before-prompt fork.\nBefore-prompt requests require requestId and omit both throughSeq and live.",
@@ -6555,6 +6578,16 @@
         },
         "answers": {
           "description": "A question's answers, by question."
+        },
+        "forkCheckpoint": {
+          "anyOf": [
+            {
+              "$ref": "#/types/ForkCheckpoint"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "optionId": {
           "description": "The option chosen; absent cancels the request.",
