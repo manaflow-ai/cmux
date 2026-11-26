@@ -476,6 +476,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         self.chrome = chrome
         super.init(nibName: nil, bundle: nil)
         model.controller = self
+        navigationTransition = { [weak self] in self?.uikitNavigationTransition() }
     }
 
     @available(*, unavailable)
@@ -4747,20 +4748,42 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     @discardableResult
     private func holdsForNavigation(_ note: Notification?) -> Bool {
         guard !SwipeBackWholePage.legacy, !replayingHeldNotes, chrome == .embedded,
-              let coordinator = transitionCoordinator, coordinator.isAnimated else { return false }
-        if let note { heldKeyboardNotes.append(note) }
-        guard navigationHold == nil else { return true }
+              let register = navigationTransition() else { return false }
+        if navigationHold != nil {
+            if let note { heldKeyboardNotes.append(note) }
+            return true
+        }
         // The stack stays where it is drawn now, above whatever the guide does.
         view.layoutIfNeeded()
         let hold = bottomStack.bottomAnchor.constraint(equalTo: view.bottomAnchor,
                                                        constant: bottomStack.frame.maxY - view.bounds.maxY)
         hold.priority = .required - 1
+        // Only a transition that will report its end holds the page: a coordinator that declines
+        // (it has already finished) would leave the dock pinned and every later keyboard note
+        // held, so this note goes through as if there were no transition (#56696 review, F2).
+        let accepted = register { [weak self] cancelled in
+            self?.endNavigationHold(cancelled: cancelled)
+        }
+        guard accepted else { return false }
         hold.isActive = true
         navigationHold = hold
-        coordinator.animate(alongsideTransition: nil) { [weak self] context in
-            self?.endNavigationHold(cancelled: context.isCancelled)
-        }
+        if let note { heldKeyboardNotes.append(note) }
         return true
+    }
+
+    /// The animated transition this page is part of, as the call that registers for its end
+    /// (true: it will call back, with whether it was cancelled; false: it declined). Nil: none.
+    /// Tests stand in for UIKit's coordinator.
+    var navigationTransition: () -> ((@escaping (_ cancelled: Bool) -> Void) -> Bool)? = { nil }
+
+    /// Whether the dock is held where the page drew it, for tests.
+    var holdsDockForNavigation: Bool { navigationHold != nil }
+
+    private func uikitNavigationTransition() -> ((@escaping (_ cancelled: Bool) -> Void) -> Bool)? {
+        guard let coordinator = transitionCoordinator, coordinator.isAnimated else { return nil }
+        return { done in
+            coordinator.animate(alongsideTransition: nil) { context in done(context.isCancelled) }
+        }
     }
 
     private func endNavigationHold(cancelled: Bool) {
