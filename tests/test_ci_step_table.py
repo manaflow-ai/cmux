@@ -1344,6 +1344,30 @@ class PipelineTest(unittest.TestCase):
             for path in ("web/app/page.tsx", "cmux-tui/src/main.rs", "scripts/ci/pr_router.py"):
                 self.assertFalse(ci_steps.routed(step, [path]), (step.name, path))
 
+    def test_the_fleet_artifact_edge_tests_run_as_a_step_into_feat_cmux_next(self) -> None:
+        # Slice 16: fleet-artifact-cdn.yml's test job keeps its other pull requests, main pushes and the dispatch
+        # deploy; a pull request into feat-cmux-next runs its commands as the fleet-artifact-cdn-test step.
+        wf = yaml.safe_load((ROOT / ".github/workflows/fleet-artifact-cdn.yml").read_text())
+        on = wf.get("on", wf.get(True))
+        self.assertEqual(on["pull_request"]["branches-ignore"], ["feat-cmux-next"])
+        self.assertEqual(on["push"]["branches"], ["main"])
+        self.assertIn("workflow_dispatch", on)
+        self.assertEqual(wf["jobs"]["deploy"]["needs"], "test")
+        job = wf["jobs"]["test"]
+        step = ci_steps.load().steps["fleet-artifact-cdn-test"]
+        self.assertEqual((step.job, step.needs), ("linux", ("node",)))
+        self.assertFalse(step.alone)
+        self.assertLessEqual(step.timeout, min(360, job["timeout-minutes"] * 60))
+        self.assertEqual(set(step.inputs), set(on["pull_request"]["paths"]))
+        for s in job["steps"]:
+            if "run" in s:
+                self.assertIn(f"cd {s['working-directory']}\n{s['run']}", step.run)
+        for path in ("workers/fleet-artifacts/src/index.mjs", "workers/fleet-artifacts/test/worker.test.mjs",
+                     ".github/workflows/fleet-artifact-cdn.yml"):
+            self.assertTrue(ci_steps.routed(step, [path]), path)
+        for path in ("workers/ci-artifacts/src/index.ts", "workers/device-hub/src/index.ts", "web/app/page.tsx"):
+            self.assertFalse(ci_steps.routed(step, [path]), path)
+
     def test_a_step_that_runs_bun_or_node_says_so(self) -> None:
         # The tools come from [tools], only for a routed step that lists them; nothing else puts bun or node
         # on the linux job's PATH, and the runner image is not assumed to hold either.
@@ -1352,7 +1376,8 @@ class PipelineTest(unittest.TestCase):
         wants_bun = {"app-platform", "mux", "automation-bench", "cloud-vm-image-lock", "cmux-vm-sdk", "web-complexity",
                      "web-typecheck", "webviews-typecheck", "diff-sidecar-check", "web-tests-1", "web-tests-2", "web-tests-3",
                      "web-tests-4", "web-production-build", "cmux-vm-cloud"}
-        wants_node = {"ci-artifact-worker", "web-complexity", "webviews-typecheck", "cmux-vm-cloud"}
+        wants_node = {"ci-artifact-worker", "fleet-artifact-cdn-test", "web-complexity", "webviews-typecheck",
+                      "cmux-vm-cloud"}
         self.assertEqual(table.steps["remote-daemon-packaging"].needs, ("go",))
         for name, step in table.steps.items():
             if step.job != "linux":
