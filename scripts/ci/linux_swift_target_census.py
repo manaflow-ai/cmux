@@ -21,7 +21,7 @@ compile, so the count it reports is measured, not inferred.
 `check` compares a fresh census with the checked-in baseline: the number of
 targets that build on Linux may only go up, and no target in the baseline's
 `builds` list may drop off it. A target that newly builds is reported so the
-baseline can be raised (`census --write-baseline`).
+baseline can be raised (`check --build --write-baseline`).
 """
 
 from __future__ import annotations
@@ -355,8 +355,9 @@ def main() -> int:
         p.add_argument("--scratch", type=Path, default=Path("/tmp/linux-swift-census"))
         p.add_argument("--json", type=Path, help="write the full per-target report here")
         p.add_argument("--baseline", type=Path, default=Path("scripts/ci/linux_swift_targets.json"))
-        if name == "census":
-            p.add_argument("--write-baseline", action="store_true")
+        p.add_argument("--write-baseline", action="store_true",
+                       help="with --build, record what builds as the new baseline (check compiles every "
+                            "target that can build, so it measures the same set as census in minutes)")
     args = parser.parse_args()
     root = args.root.resolve()
     data = census(root, args.swift, args.jobs)
@@ -373,11 +374,11 @@ def main() -> int:
     if args.json:
         args.json.write_text(json.dumps(dict(summary=summary, targets=data["targets"]), indent=1, sort_keys=True) + "\n")
     print(json.dumps({k: v for k, v in summary.items() if k != "builds"}, indent=1))
+    if args.write_baseline and args.build:
+        baseline_path.write_text(json.dumps(
+            dict(builds_on_linux=summary["builds_on_linux"], targets=summary["targets"],
+                 builds=summary["builds"]), indent=1) + "\n")
     if args.cmd == "census":
-        if args.write_baseline:
-            baseline_path.write_text(json.dumps(
-                dict(builds_on_linux=summary["builds_on_linux"], targets=summary["targets"],
-                     builds=summary["builds"]), indent=1) + "\n")
         return 0
     # A removed or renamed target is not a regression; one that still exists
     # and stopped compiling is.
@@ -389,7 +390,7 @@ def main() -> int:
         print(f"::error title=Linux Swift ratchet::{key} built on Linux in the baseline and no longer does: {why}")
     if gained:
         print(f"::notice title=Linux Swift ratchet::{len(gained)} more target(s) build on Linux: {', '.join(gained)}. "
-              "Raise the baseline: python3 scripts/ci/linux_swift_target_census.py census --build --write-baseline")
+              "Raise the baseline: python3 scripts/ci/linux_swift_target_census.py check --build --write-baseline")
     if lost:
         return 1
     print(f"Linux Swift ratchet: {summary['builds_on_linux']} of {summary['targets']} targets build on Linux "
