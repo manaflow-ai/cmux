@@ -29,9 +29,9 @@ final class SwipeBackWholePageUITests: XCTestCase {
         let field: String
         /// The page's identifier once it is on screen.
         let shown: String
-        /// The back control on the page (nil: the bar's own back button).
+        /// The back control on the page (nil: the system navigation bar's own back button).
         let back: String?
-        /// Back from the list to this page (nil: only the held swipe runs).
+        /// Back from the list to this page (nil: a fresh launch, whose demo pushes it again).
         let reopen: String?
     }
 
@@ -55,7 +55,7 @@ final class SwipeBackWholePageUITests: XCTestCase {
 
     @MainActor
     func testHomeAgentChatMovesAsOne() {
-        run(Self.homeChat, appearances: [.dark])
+        run(Self.homeChat)
     }
 
     /// The same swipes with the whole-page behavior off (`-CmuxMobileSwipeBackLegacy`): the
@@ -166,14 +166,18 @@ final class SwipeBackWholePageUITests: XCTestCase {
             }
             back(to: "held")
             attach(app, "\(label)-held-after")
-            guard let row else { break steps }
 
             // 2. A short swipe let go slowly: cancelled, the page stays.
             guard reopen("cancel") else { break steps }
             edge.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.45)),
                        withVelocity: 120, thenHoldForDuration: 0.8)
             RunLoop.current.run(until: Date().addingTimeInterval(1.0))
-            XCTAssertTrue(shown.exists && !row.isHittable, "\(label): a short swipe let go slowly is cancelled")
+            XCTAssertTrue(shown.exists && shown.isHittable && !(row?.isHittable ?? false),
+                          "\(label): a short swipe let go slowly is cancelled")
+            if !legacy {
+                // A cancelled swipe keeps the page: root chrome stays out over it.
+                XCTAssertFalse(app.tabBars.firstMatch.isHittable, "\(label): the root tab bar shows over a page after a cancelled swipe")
+            }
             attach(app, "\(label)-cancel-after")
             if keyboard {
                 // The dock as it was before the swipe, the composer usable.
@@ -186,12 +190,12 @@ final class SwipeBackWholePageUITests: XCTestCase {
             }
 
             // 3. The back button.
-            guard let backLabel = page.back else { break steps }
-            let button = app.buttons[backLabel].firstMatch
+            let button = page.back.map { app.buttons[$0].firstMatch }
+                ?? app.navigationBars.firstMatch.buttons.element(boundBy: 0)
             if button.waitForExistence(timeout: 5), button.isHittable {
                 button.tap()
             } else {
-                XCTFail("\(label): no back button \(backLabel)")
+                XCTFail("\(label): no back button \(page.back ?? "in the navigation bar")")
                 edge.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.45)),
                            withVelocity: .fast, thenHoldForDuration: 0)
             }

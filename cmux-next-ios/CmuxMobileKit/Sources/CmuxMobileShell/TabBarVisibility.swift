@@ -126,12 +126,57 @@ private struct TabBarVisibilityEnforcer: UIViewControllerRepresentable {
             // mid-pop must not leave the shell's root chrome permanently held.
             let accepted = coordinator.animate(alongsideTransition: nil) { [self] _ in
                 following = false
-                moving?(false)
+                // Not a release by itself: this transition may be a push that a Back emptied
+                // the path during, whose pop UIKit has not started yet (#56696 F2). The next
+                // turn reads the stack as it settled and releases only at its root.
+                DispatchQueue.main.async { [weak self] in self?.settle() }
             }
             if !accepted {
-                // UIKit declined the callback (for example a nonanimated change). The next
-                // layout reads the settled stack; do not spin main-queue retries meanwhile.
+                // UIKit declined the callback (for example a nonanimated change): read the
+                // stack once it settles, bounded by `RootHold.bound` (no unbounded retries).
                 following = false
+                DispatchQueue.main.async { [weak self] in self?.settle() }
+            }
+        }
+
+        /// When the hold first waited on a pop UIKit had not started (nil: not waiting).
+        private var waitingSince: Date?
+        private var recheckScheduled = false
+
+        /// Decide the tab's root hold from the stack as it is now (`RootHold.step`): follow a
+        /// transition, wait a bounded time for a pop UIKit has not started, or release. Runs
+        /// whether or not the tab is selected: a hidden tab's emptied path must not stay held
+        /// until it is shown again (#56696 F1).
+        private func settle() {
+            guard !SwipeBackWholePage.legacy, !following else { return }
+            let navigation = stack
+            let waited = waitingSince.map { Date().timeIntervalSince($0) } ?? 0
+            switch RootHold.step(transitioning: navigation?.transitionCoordinator != nil, rootRequested: rootRequested,
+                                 depth: navigation?.viewControllers.count, waited: waited) {
+            case .follow:
+                waitingSince = nil
+                follow(later: true)
+            case .wait:
+                if waitingSince == nil { waitingSince = Date() }
+                guard !recheckScheduled else { return }
+                // UIKit starts the pop within a frame or two of SwiftUI emptying the path, and
+                // no layout or update is promised to reach this controller when it does (a
+                // nonanimated pop): look again on a short timer until the bound.
+                recheckScheduled = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + RootHold.recheck) { [weak self] in
+                    guard let self else { return }
+                    self.recheckScheduled = false
+                    self.settle()
+                }
+            case .release:
+                if waited >= RootHold.bound {
+                    tabBarLog.error("root hold released at its bound: UIKit did not pop (depth \(navigation?.viewControllers.count ?? -1, privacy: .public))")
+                }
+                waitingSince = nil
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, !self.following else { return }
+                    self.moving?(false)
+                }
             }
         }
 
@@ -144,25 +189,11 @@ private struct TabBarVisibilityEnforcer: UIViewControllerRepresentable {
         /// hidden from accessibility and takes no touches, and a shown one
         /// gets both back; the three are set together every time.
         func apply(animated: Bool) {
+            if !SwipeBackWholePage.legacy { settle() }
             guard let tabs = tabBarController, let selected = tabs.selectedViewController,
                   isDescendant(of: selected) else { return }
-            if !SwipeBackWholePage.legacy {
-                if stack?.transitionCoordinator != nil {
-                    follow(later: true)
-                    // Keep root chrome out until completion, including programmatic Back.
-                    if rootRequested { return }
-                } else if rootRequested, let navigation = stack {
-                    // SwiftUI's path can empty before UIKit starts its pop. A main-queue
-                    // turn is not proof that the page has gone; wait for the actual stack.
-                    guard navigation.viewControllers.count == 1 else { return }
-                    DispatchQueue.main.async { [weak self] in
-                        guard let self, self.rootRequested, !self.following,
-                              let navigation = self.stack, navigation.transitionCoordinator == nil,
-                              navigation.viewControllers.count == 1 else { return }
-                        self.moving?(false)
-                    }
-                }
-            }
+            // Keep root chrome out until the page has left, including programmatic Back.
+            if !SwipeBackWholePage.legacy, rootRequested, stack?.transitionCoordinator != nil { return }
             let bar = tabs.tabBar
             guard tabs.isTabBarHidden != hidden || bar.accessibilityElementsHidden != hidden
                 || bar.isUserInteractionEnabled == hidden else { return }
@@ -186,3 +217,37 @@ private struct TabBarVisibilityEnforcer: UIViewControllerRepresentable {
     }
 }
 #endif
+
+import Foundation
+
+/// What a tab's root hold does next (`TabBarVisibilityEnforcer`): the hold keeps the tab bar and
+/// New Task out while a page leaves the tab's stack. A pure rule, so each way UIKit can (not) pop
+/// is a unit test (`RootHoldTests`).
+enum RootHoldStep: Equatable {
+    /// A transition runs: hold until it completes, then decide again.
+    case follow
+    /// The path is empty but UIKit has not popped and no transition runs yet: hold, look again.
+    case wait
+    /// The stack is settled (or there is nothing to wait on): show the root chrome.
+    case release
+}
+
+enum RootHold {
+    /// The longest the hold waits for a pop UIKit never starts. Failing open (root chrome
+    /// shown) beats a tab bar that never returns (#56696 F1).
+    static let bound: TimeInterval = 1.0
+    /// How often a waiting hold looks at the stack again.
+    static let recheck: TimeInterval = 0.05
+
+    /// `transitioning`: the stack has a transition coordinator. `rootRequested`: the tab's path
+    /// is empty. `depth`: the stack's view controllers (nil: no stack found). `waited`: how long
+    /// this hold has waited on a pop that has not started.
+    static func step(transitioning: Bool, rootRequested: Bool, depth: Int?, waited: TimeInterval) -> RootHoldStep {
+        if transitioning { return .follow }
+        // A page is (again) pushed: a hold means nothing under it.
+        guard rootRequested else { return .release }
+        // No stack to wait on: nothing would ever release the hold.
+        guard let depth, depth > 1 else { return .release }
+        return waited < bound ? .wait : .release
+    }
+}
