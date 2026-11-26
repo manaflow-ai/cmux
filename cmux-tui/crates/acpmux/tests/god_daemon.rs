@@ -606,6 +606,21 @@ struct Daemon {
     socket_connect_us: u64,
 }
 
+/// PROBE: each thread's name and CPU ticks (utime + stime) from /proc.
+fn probe_threads(pid: u32) -> Value {
+    let mut out = serde_json::Map::new();
+    for e in std::fs::read_dir(format!("/proc/{pid}/task")).into_iter().flatten().flatten() {
+        let stat = std::fs::read_to_string(e.path().join("stat")).unwrap_or_default();
+        let comm = std::fs::read_to_string(e.path().join("comm")).unwrap_or_default();
+        let rest = stat.rsplit_once(')').map(|(_, r)| r).unwrap_or("");
+        let f: Vec<&str> = rest.split_whitespace().collect();
+        let ticks = f.get(11).and_then(|u| u.parse::<u64>().ok()).unwrap_or(0)
+            + f.get(12).and_then(|u| u.parse::<u64>().ok()).unwrap_or(0);
+        out.insert(format!("{}:{}", e.file_name().to_string_lossy(), comm.trim()), json!(ticks));
+    }
+    Value::Object(out)
+}
+
 impl Daemon {
     fn start(scratch: &Path, home: &Path, dhat: Option<&Path>) -> Self {
         let socket = scratch.join("s.sock");
@@ -2339,13 +2354,49 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let profile = std::env::var("ACPMUX_GOD_DHAT")
         .is_ok_and(|v| v == "1")
         .then(|| scratch.join("dhat-heap.json"));
+    // PROBE (cold attach at 1G): a system-wide perf record around the cold attach, and the
+    // daemon's /proc io and per-thread CPU before and after it.
+    let probe_dir = std::env::var_os("ACPMUX_GOD_COLD_PROBE").map(PathBuf::from);
+    let perf = probe_dir.as_ref().map(|dir| {
+        let out = dir.join(format!("perf-{label}.data"));
+        let child = std::process::Command::new("perf")
+            .args(["record", "-F", "4999", "-g", "-a", "-o"])
+            .arg(&out)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
+        std::thread::sleep(Duration::from_millis(1500));
+        child
+    });
     let mut daemon = Daemon::start(&scratch, &home, profile.as_deref());
     let mut rpc = Rpc::connect(&daemon.socket);
     rpc.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "size-sweep"}}))
         .unwrap();
+    let probe_pid = daemon.child.id();
+    let io_before = std::fs::read_to_string(format!("/proc/{probe_pid}/io")).unwrap_or_default();
+    let threads_before = probe_threads(probe_pid);
     let asked = Instant::now();
     let cold = rpc.call("_acpmux/attach", app_attach(&id));
     let cold_attach_us = micros(asked);
+    let io_after = std::fs::read_to_string(format!("/proc/{probe_pid}/io")).unwrap_or_default();
+    let threads_after = probe_threads(probe_pid);
+    if let Some(Ok(mut child)) = perf {
+        let _ = std::process::Command::new("kill").args(["-INT", &child.id().to_string()]).status();
+        let _ = child.wait();
+    }
+    if probe_dir.is_some() {
+        let again = Instant::now();
+        let _ = rpc.call("_acpmux/attach", app_attach(&id));
+        let second_us = micros(again);
+        println!(
+            "COLD-PROBE {}",
+            json!({"size": label, "coldAttachUs": cold_attach_us, "nextAttachUs": second_us,
+                   "sinceSpawnMs": ms(daemon.spawned),
+                   "ioBefore": io_before, "ioAfter": io_after,
+                   "threadsBefore": threads_before, "threadsAfter": threads_after})
+        );
+    }
     let cold_attach_ms = ms(daemon.spawned);
     let cold_records = cold.as_ref().ok().and_then(|a| a["events"].as_array().map(Vec::len));
     rpc.notes.clear();
