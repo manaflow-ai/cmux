@@ -638,7 +638,10 @@ jobs:
           suites=(--locked -p acpmux -p acpmux-book -p acpmux-build-id -p acpmux-client -p acpmux-core
             -p acpmux-list-types --lib --test hub_integration --test ffi --test v2_client
             --test v2_gate_home --test v2_chat_recorded_stream --test permission_matrix
-            --test daemon_list_order_start --no-fail-fast)
+            --test daemon_list_order_start --test transfer_cli --no-fail-fast)
+          # transfer_cli holds the session-move matrix (RFD 0138): cmux#53758 merged three of its rows red, seen
+          # only by the 3-hourly probe after merge (cmuxterm-hq session-move-matrix-probe.yml), because no pull
+          # request job ran the suite.
           # The two concurrent runs below: every package with the libraries, every package with the
           # integration test targets (tests/test_cargo_test_verdict.py reads `suites` itself).
           pkgs=() targets=()
