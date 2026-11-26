@@ -5,7 +5,7 @@
 //! The bundle carries `refs/cmux-seed/head` (HEAD), `refs/cmux-seed/index`
 //! (a commit of the staged tree, parent HEAD), `refs/cmux-seed/work` (a
 //! commit of the working tree with untracked files that are not ignored,
-//! less the secrets [`secrets`] names, heavy folders and big files (each
+//! less the secrets [`secrets`] names, heavy folders and big files past a cap (each
 //! named in `skipped`), parent the index commit) and
 //! `refs/cmux-seed/stash` when there is a stash, with `^BASE` as its one
 //! prerequisite. Git leaves out of the bundle any seed ref whose commit
@@ -101,6 +101,10 @@ pub struct Planned {
     /// (`seed_cli::asks_head_first`).
     #[serde(skip)]
     pub lfs_attributes: Vec<String>,
+    /// The LFS pointers in the work commit and whether this Mac holds their content; empty
+    /// unless `CMUX_SEED_LFS=1` ([`super::lfs::enabled`]).
+    #[serde(skip)]
+    pub lfs_files: Vec<super::lfs::LfsFile>,
 }
 
 /// The commits an earlier seed of this folder sent ([`plan_since`]).
@@ -337,6 +341,7 @@ pub fn plan_recorded(
         bundle_bytes,
         unchanged: false,
         lfs_attributes,
+        lfs_files: Vec::new(),
     })
 }
 
@@ -619,6 +624,13 @@ fn build(
     let stash = repo.commit("refs/stash");
     let lfs_attributes = lfs_attributes(repo, &skipped);
     skipped.extend(submodule_work);
+    let lfs_files = if super::lfs::enabled() {
+        let dir = repo.git_path("lfs")?;
+        super::lfs::scan(&repo.top, &dir, &work_commit)
+    } else {
+        Vec::new()
+    };
+    skipped.extend(super::lfs::skipped(&lfs_files));
 
     let mut refs = vec![
         ("refs/cmux-seed/head", repo.head.as_str()),
@@ -706,6 +718,7 @@ fn build(
         bundle_bytes,
         unchanged,
         lfs_attributes,
+        lfs_files,
     })
 }
 
@@ -837,14 +850,24 @@ fn write(path: &Path, contents: impl AsRef<[u8]>) -> Result<(), Fallback> {
         .map_err(|error| failed(&format!("writing {}", path.display()), error.to_string()))
 }
 
+/// An untracked file bigger than this is a big one: it goes in the work
+/// commit while it fits [`BIG_UNTRACKED_FILE_CAP`] and what is left of
+/// [`BIG_UNTRACKED_TOTAL_CAP`] (RFD 0066 piece 4; it used to stay here).
+const BIG_UNTRACKED: u64 = 5 * 1024 * 1024;
+
 /// An untracked file bigger than this stays on this Mac, named with its
 /// size: one checkpoint or dataset would outweigh the rest of the seed.
-const BIG_UNTRACKED: u64 = 5 * 1024 * 1024;
+pub(crate) const BIG_UNTRACKED_FILE_CAP: u64 = 100_000_000;
+
+/// The most bytes the big untracked files (over [`BIG_UNTRACKED`]) add to a
+/// seed together; one that would pass it stays on this Mac, named.
+pub(crate) const BIG_UNTRACKED_TOTAL_CAP: u64 = 1_000_000_000;
 
 /// Untracked files that are not ignored but stay on this Mac: likely
 /// secrets, git repositories nested in the folder (not submodules), heavy
 /// folders the project rebuilds on the machine (one entry each, as a copy
-/// names them) and files over [`BIG_UNTRACKED`].
+/// names them) and big files past [`BIG_UNTRACKED_FILE_CAP`] or, in path
+/// order, past what is left of [`BIG_UNTRACKED_TOTAL_CAP`].
 fn untracked_left_out(repo: &Repo) -> Result<Vec<Skipped>, Fallback> {
     use std::os::unix::ffi::OsStrExt as _;
     let listed =
@@ -852,6 +875,7 @@ fn untracked_left_out(repo: &Repo) -> Result<Vec<Skipped>, Fallback> {
             .map_err(|error| failed("listing untracked files", error))?;
     let mut skipped = Vec::new();
     let mut heavy_named = std::collections::BTreeSet::new();
+    let mut big_sent = 0_u64;
     for raw in listed.split(|byte| *byte == 0).filter(|path| !path.is_empty()) {
         let path = String::from_utf8_lossy(raw).into_owned();
         if let Some((folder, why)) =
@@ -877,18 +901,34 @@ fn untracked_left_out(repo: &Repo) -> Result<Vec<Skipped>, Fallback> {
             std::fs::symlink_metadata(repo.top.join(std::ffi::OsStr::from_bytes(raw)))
                 .ok()
                 .filter(|meta| meta.is_file() && meta.len() > BIG_UNTRACKED)
-                .map(|meta| {
-                    format!(
-                        "a big file ({}) that stays on this Mac",
-                        sync_cli::bytes_text(meta.len())
-                    )
-                })
+                .and_then(|meta| big_left_here(meta.len(), &mut big_sent))
         };
         if let Some(why) = why {
             skipped.push(Skipped { path, why, raw: raw.to_vec() });
         }
     }
     Ok(skipped)
+}
+
+/// Why a big untracked file of `len` bytes stays on this Mac, or None when
+/// it goes (counted into `sent`, the big files' bytes so far).
+pub(super) fn big_left_here(len: u64, sent: &mut u64) -> Option<String> {
+    let size = sync_cli::bytes_text(len);
+    if len > BIG_UNTRACKED_FILE_CAP {
+        return Some(format!(
+            "a big file ({size}) that stays on this Mac: over the seed's {} limit for one untracked file",
+            sync_cli::bytes_text(BIG_UNTRACKED_FILE_CAP)
+        ));
+    }
+    if sent.saturating_add(len) > BIG_UNTRACKED_TOTAL_CAP {
+        return Some(format!(
+            "a big file ({size}) that stays on this Mac: the seed already carries {} of big untracked files, its limit is {}",
+            sync_cli::bytes_text(*sent),
+            sync_cli::bytes_text(BIG_UNTRACKED_TOTAL_CAP)
+        ));
+    }
+    *sent = sent.saturating_add(len);
+    None
 }
 
 /// Each submodule with the commit checked out in it, and the submodules

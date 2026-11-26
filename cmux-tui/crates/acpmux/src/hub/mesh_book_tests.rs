@@ -372,3 +372,29 @@ async fn a_given_handle_rides_the_heartbeat_and_names_the_hub_row() {
     assert_eq!(hub.mesh_book_resolve("machine-b/Kiwi").as_deref(), Some(B_ID));
     assert_eq!(hub.mesh_book_resolve("machine-b/Mango"), None);
 }
+
+/// A machine's health read through the hub goes via one session the hub lists on it (the hub
+/// takes a read only when it names a session): one of that machine's, never a session of a
+/// machine whose name it starts with, and none for a machine the book lists no session on.
+#[test]
+fn a_machine_read_goes_through_one_of_its_own_listed_sessions() {
+    let hub = hub();
+    let mut b = book();
+    b.daemons.push(daemon("d-b2", "machine-b2", "person-1"));
+    b.sessions.push(session(
+        "0198f2a4-0000-7000-8000-0000000000b2",
+        "other",
+        "machine-b2",
+        "d-b2",
+        "ready",
+    ));
+    hub.apply_mesh_book(b, "person-1", Some("d-a"));
+    assert_eq!(hub.mesh_book_session_on("machine-b").as_deref(), Some(B_ID));
+    assert_eq!(
+        hub.mesh_book_session_on("machine-b2").as_deref(),
+        Some("0198f2a4-0000-7000-8000-0000000000b2")
+    );
+    assert_eq!(hub.mesh_book_session_on("machine-c"), None);
+    hub.set_mesh_book(Default::default(), Vec::new());
+    assert_eq!(hub.mesh_book_session_on("machine-b"), None);
+}

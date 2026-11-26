@@ -620,13 +620,48 @@ export const CloudSnapshotDelete = cloudMutation(
 )
 
 export const CloudPlanGet = cloudRead("cloud.plan.get", Schema.Struct({}), CloudPlan, [], "The team's plan: limits and usage this period. Read from the billing owner, never from a request.", "cloud plan get")
+/**
+ * The team's Cloud usage so far this calendar month (UTC) and what it costs (cmux-platform metering): awake
+ * vCPU-seconds and memory GiB-seconds of the machine's size, and GiB-seconds of disk held while paused. `usd` is the
+ * billing owner's own price of each meter; a client shows it and computes no price. `gaps`: spans the meter has not
+ * counted yet (a VM whose usage is still arriving); empty when every second is in. Spare machines are never usage.
+ * `payment_method`: whether the team has a card on file (brand and last four only; no card data enters cmux).
+ * `stripe_mode`: "test" while payments run in the processor's test mode.
+ */
+export const CloudUsageCurrent = Schema.Struct({
+  /** The billing month, "YYYY-MM" (UTC). */
+  period: Schema.String.check(isPattern(/^\d{4}-\d{2}$/)),
+  /** When the meter was last read. */
+  as_of: Millis,
+  /** When metering began for this team in this period (later than the month's start for a team new this month); null before the first metered second. */
+  metered_since: Schema.NullOr(Millis),
+  vcpu_seconds: Schema.Number,
+  memory_gib_seconds: Schema.Number,
+  stored_gib_seconds: Schema.Number,
+  usd: Schema.Struct({ vcpu: Schema.Number, memory: Schema.Number, stored: Schema.Number, total: Schema.Number }),
+  gaps: Schema.Array(Schema.String),
+  payment_method: Schema.Struct({
+    attached: Schema.Boolean,
+    brand: Schema.optionalKey(Schema.NullOr(Schema.String)),
+    last4: Schema.optionalKey(Schema.NullOr(Schema.String.check(isPattern(/^\d{4}$/))))
+  }),
+  stripe_mode: Schema.Literals(["test", "live"])
+}).annotate({ identifier: "CloudUsageCurrent" })
+export const CloudUsageCurrentGet = cloudRead(
+  "cloud.usage.current",
+  Schema.Struct({}),
+  CloudUsageCurrent,
+  [],
+  "The team's Cloud usage so far this month (awake vCPU and memory, disk held while paused), its price from the billing owner, and whether a payment method is on file.",
+  "cloud usage current"
+)
 export const CloudBillingCheckout = cloudMutation(
   "cloud.billing.checkout",
   "money",
-  Schema.Struct({ plan: PlanId }),
+  Schema.Struct({ plan: Schema.optionalKey(PlanId) }),
   Schema.Struct({ url: Schema.String.check(isPattern(/^https:\/\//)) }),
-  [],
-  "Start a plan checkout: an https URL the client opens in the browser. No card data enters cmux.",
+  ["cloud.billing.off"],
+  "Start a checkout: an https URL the client opens in the browser. With a plan it changes the plan; without one it attaches a payment method. No card data enters cmux. cloud.billing.off: payments are not open for this deployment.",
   "cloud billing checkout",
   true
 )
@@ -664,7 +699,7 @@ export const CloudMigrationStart = cloudMutation(
  * cmux-platform because they are in this catalog (platform-forward.ts). Same shapes as cmux-platform
  * src/server/cloud/domain/SurgeOps.ts.
  */
-export const SURGE_CAP = 8
+export const SURGE_CAP = 100
 // The operation catalog reads input fields from the top-level schema, so leave this struct inline.
 export const SurgeRequest = Schema.Struct({
   count: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: SURGE_CAP })),
@@ -738,6 +773,7 @@ export const cloudMachineOps = [
   CloudSnapshotRestore,
   CloudSnapshotDelete,
   CloudPlanGet,
+  CloudUsageCurrentGet,
   CloudBillingCheckout,
   CloudShellOpen,
   CloudMigrationStatus,

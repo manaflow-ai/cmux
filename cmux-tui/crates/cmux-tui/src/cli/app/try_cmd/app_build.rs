@@ -513,7 +513,7 @@ pub(super) fn run_swap(spec_path: &Path) -> i32 {
         "undo" => put_back(&spec),
         _ => swap(&spec),
     };
-    let mut receipt = spec.receipt.clone();
+    let mut receipt = spec.receipt;
     super::set(&mut receipt, "swap_secs", json!(started.elapsed().as_secs_f64()));
     super::set(&mut receipt, "at", json!(super::now()));
     let code = match result {
@@ -578,13 +578,6 @@ fn put_back(spec: &Spec) -> Result<String, String> {
 /// Whether `app` is an in-place try now (an update that replaced it ended it).
 pub(super) fn is_try(app: &Path) -> bool {
     info_plist(app).is_ok_and(|plist| plist.contains_key(MARKER))
-}
-
-/// The receipt's `commit` of the try the app runs, from its marker.
-pub(super) fn try_commit(app: &Path) -> Option<String> {
-    let plist = info_plist(app).ok()?;
-    let marker = plist.get(MARKER)?.as_dictionary()?;
-    marker.get("commit")?.as_string().map(str::to_owned)
 }
 
 /// Reads `value`'s `original` path as the receipt names it.

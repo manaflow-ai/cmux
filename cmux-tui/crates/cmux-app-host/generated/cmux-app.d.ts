@@ -59,7 +59,7 @@ declare namespace Cmux {
   type ChiefRetryResult = { retried: boolean; reason?: string }
   type ChiefRevision = { rev: number; at: string; actor: string; operation: string; record: Cmux.ChiefRecord }
   type ChiefStopResult = { stopped: boolean; subagents?: Array<string>; note?: string; restarted?: Array<string>; errors?: Array<string> }
-  type ClassicImportPlanResult = { ledger: "none" | "ledger" | "newer" | "unreadable" | "failed"; decision: Cmux.JsonValue | null; source: Cmux.JsonValue | null; backups: Array<string>; error: string | null; classic_running: boolean; plan: Cmux.JsonValue | null; preview: Cmux.JsonValue | null }
+  type ClassicImportPlanResult = { available?: boolean; already_imported?: boolean; observed?: string; settings_only?: boolean; ledger: "none" | "ledger" | "newer" | "unreadable" | "failed"; decision: Cmux.JsonValue | null; source: Cmux.JsonValue | null; backups: Array<string>; error: string | null; classic_running: boolean; plan: Cmux.JsonValue | null; preview: Cmux.JsonValue | null }
   type ClassicImportRecordResult = { state: "inProgress" | "completed" | null; runs: number; workspaces: number; changed: boolean }
   type ClientSnapshot = { id: string /* client_… */; session_id: string /* session_… */; name: string | null; client_kind: string | null; transport: Cmux.ClientTransport; connected_seconds: string; attached_terminal_ids: Array<string /* terminal_… */>; sizes: Array<Cmux.ClientTerminalSize>; self: boolean; extra?: Record<string, Cmux.JsonValue> }
   type ClientTerminalSize = { terminal_id: string /* terminal_… */; cols: number | null; rows: number | null; participating: boolean }
@@ -108,6 +108,7 @@ declare namespace Cmux {
   type CloudSurgePreview = { count: number; ttl_seconds: number; provider: string | null; available: boolean; reason: string; estimated_cost_usd: unknown | null }
   type CloudSurgeReceipt = { count: number; ttl_seconds: number; slots: Array<Cmux.CloudSurgeSlot> }
   type CloudSurgeSlot = { index: number; status: "created" | "queued" | "refused"; machine_id: Cmux.MachineId | null; provider: string | null; reason: string; retryable: boolean }
+  type CloudUsageCurrent = { period: string; as_of: number; metered_since: number | null; vcpu_seconds: unknown; memory_gib_seconds: unknown; stored_gib_seconds: unknown; usd: { vcpu: unknown; memory: unknown; stored: unknown; total: unknown }; gaps: Array<string>; payment_method: { attached: boolean; brand?: string | null; last4?: string | null }; stripe_mode: "test" | "live" }
   type CloudVmNetwork = { tenant: Cmux.NativeTenantId; mesh: Cmux.NativeMeshId; ipv4_cidr: string; ipv4: string | null }
   type CloudVmNetworkPolicyView = { schema_version: 2; machine: Cmux.MachineId; host: Cmux.HostId; epoch: number; receiver_generation: string | null; user: Cmux.UserId; install: Cmux.InstallId; team: Cmux.TeamId; origin: string; tenant: Cmux.NativeTenantId; mesh: Cmux.NativeMeshId; vm: string; ipv4: string | null; wg_public_key: Cmux.WgPublicKey; install_public_key: string; authority_version: string; checked_at: number; expires_at: number; admit_until?: number; acl_version: number; policy_digest: string; peers: Array<Cmux.CloudVmReceiverPeer> }
   type CloudVmReceiverPeer = { host: Cmux.HostId; user: Cmux.UserId; install: Cmux.InstallId; device: Cmux.NativeDeviceId; wg_public_key: Cmux.WgPublicKey; install_public_key: string; authority_version: string; services: Array<"daemon" | "ssh" | "desktop"> }
@@ -156,7 +157,8 @@ declare namespace Cmux {
   type DiffCommentsDeleteResult = { deleted: number; ids: Array<string> }
   type DiffCommentsListResult = { root: string; comments: Array<Cmux.DiffComment>; review?: Cmux.DiffReviewTarget }
   type DiffCommentsSaveResult = { comment: Cmux.DiffComment }
-  type DiffCommentsSendResult = { sent: number; cleared: Array<string> }
+  type DiffCommentsSendResult = { sent: number; cleared: Array<string>; threads?: Array<string> }
+  type DiffCommentsThreadResult = { comment: Cmux.DiffComment }
   type DiffReviewTarget = { url: string; repo: string; number: number; title: string; head: string; base: string }
   type EgressHost = string
   type EmailAddress = string
@@ -441,6 +443,8 @@ declare namespace Cmux {
   type SettingsChange = { keys: Array<string> }
   type SettingsEdit = { op: "set" | "set_exact" | "set_unset" | "reset" | "reset_unchanged"; key?: string; path?: Array<string>; value?: Cmux.JsonValue }
   type SettingsEditChange = { keys: Array<string>; applied: Array<number> }
+  type SettingsHistory = { entries: Array<Cmux.SettingsHistoryEntry> }
+  type SettingsHistoryEntry = { at: string; keys: Array<string>; origin: "user" | "cli" | "mcp" | "script" | "remote" | "app" | "file"; revision: string; undoes?: string }
   type Sharing = "team" | "private"
   type ShutdownResult = { accepted: boolean }
   type SidebarAttachItem = unknown
@@ -545,6 +549,8 @@ declare namespace Cmux {
   type ThemeSchemeFromImageResult = { appearance: "dark" | "light"; accent: string; glassTint: string; swatches: Array<Cmux.ThemeSchemeSwatch>; format: "ghostty" | "base16" | "iterm2" | "windows-terminal" | "vscode"; text: string; scheme: Cmux.ThemeScheme }
   type ThemeSchemeSwatch = { color: string; share: number }
   type ThemeSchemeText = { from?: "ghostty" | "base16" | "iterm2" | "windows-terminal" | "vscode" | null; name?: string | null; format: "ghostty" | "base16" | "iterm2" | "windows-terminal" | "vscode"; text: string; scheme: Cmux.ThemeScheme }
+  type ThemeSlotsDiagnostic = { kind: "unreadable_file" | "invalid_value" | "corrected_value"; path: string; message: string; line: number | null }
+  type ThemeSlotsResolveResult = { slots: Record<string, string>; diagnostics: Array<Cmux.ThemeSlotsDiagnostic> }
   type Timestamp = string
   type Trigger = { id: Cmux.TriggerId; status: "active" | "not_yet_supported"; spec: Cmux.TriggerInput; next_at: number | null }
   type TriggerId = string
@@ -600,7 +606,12 @@ interface CmuxFetchResponse { status: number; ok: boolean; headers: Record<strin
 // App action ids are not enumerated here: the registry changes daily. List them at runtime with cmux.actions.list().
 type CmuxActionId = string
 
-interface CmuxAppContext { readonly [key: string]: unknown }
+/** A view's mount context (a section, a pane, a widget). `keep(name, initial)` is a signal ([read, write]) whose value cmux keeps with the mount: a hot reload (`cmux ext dev`), a host restart or a Reload renders it again; closing the view forgets it. `state` is every kept value this mount got back (at most 64 KiB as JSON; values must be JSON). */
+interface CmuxAppContext { readonly [key: string]: unknown; readonly state: Readonly<Record<string, unknown>>; keep<T>(name: string, initial: T): [() => T, (next: T | ((prev: T) => T)) => void] }
+/** What `cmux.app.openPane` resolves with: the pane's `ctx.close(result)` value, or `dismissed` when the person closed the pane first or a newer open replaced this one. */
+interface CmuxPaneResult<T = unknown> { result: T | null; dismissed: boolean }
+/** A `cmux.pane/1` mount's context: `args` are the open's arguments (`cmux.app.openPane`), null when the person opened the pane themselves. `close(result)` answers the opener (the tab stays open: closing it is the person's); `onOpen(fn)` runs after the render with the arguments of an open; `onClose(fn)` runs when this mount ends (the tab closed, a newer open, a reload). */
+interface CmuxPaneContext extends CmuxAppContext { readonly args: Record<string, unknown> | null; close(result?: unknown): Promise<{ closed: boolean }>; onOpen(fn: (args: Record<string, unknown>) => void): void; onClose(fn: () => void): void }
 
 /** One block of a page's main text (`page.read`): a heading has `level` (1-6), an image `src` and its alt text. */
 interface CmuxPageBlock { kind: "heading" | "paragraph" | "list_item" | "quote" | "code" | "image"; text: string; level?: number; src?: string }
@@ -935,6 +946,10 @@ interface CmuxGlobal {
       /** `cloud.surge.preview` (read, scope `cloud:read`): Estimate a bounded Cloud capacity burst at the current running list rate and report whether the team can request it. */
       preview: CmuxOp<{ count: number; ttl_seconds: number }, Cmux.CloudSurgePreview>
     }
+    usage: {
+      /** `cloud.usage.current` (read, scope `cloud:read`): The team's Cloud usage so far this month (awake vCPU and memory, disk held while paused), its price from the billing owner, and whether a payment method is on file. */
+      current: CmuxOp<Record<string, never>, Cmux.CloudUsageCurrent>
+    }
     vm: {
       attention: {
         /** `cloud.vm.attention.emit` (mutation, scope `cloud:execute`): Send a durable APNs attention notification for a Cloud chat question, permission request, or completed turn. The HTTP request has no idempotency key; event_id is the stable replay key: a duplicate event_id and payload replays the original result, while reusing event_id with a different payload is an idempotency conflict. VM installs only (kind vm, grant vm-self, its own bound machine). */
@@ -943,6 +958,10 @@ interface CmuxGlobal {
       event: {
         /** `cloud.vm.event.emit` (mutation, scope `cloud:execute`): Send one event to the team's subscribers as the ephemeral team event cloud.machine.event (never stored). v1 kinds only; data per kind, at most 4 KB, URL query strings and fragments removed; 10/s, burst 50 per install. No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine). */
         emit: CmuxOp<{ machine: Cmux.MachineId; kind: "agent.started" | "agent.finished" | "agent.needs_input" | "notification" | "browser.lease.changed" | "cua.session.started" | "cua.session.ended" | "service.port.opened" | "service.port.closed"; at: number; data: string }, Cmux.MutationResult<{ delivered: boolean }>>
+      }
+      machine: {
+        /** `cloud.vm.machine.request` (mutation, scope `cloud:execute`): Ask for more capacity for the work this machine runs: grows it live within the creator's plan, or says what it takes (over the plan, a kind not offered); past one machine, makes a fan-out of K machines and answers its handle (each machine's id). Never waits for a machine to be ready. No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine). */
+        request: CmuxOp<{ machine: Cmux.MachineId; vcpu: number; mem_gib?: number; fanout?: number; kind?: "linux" | "mac" | "gpu"; for: string; until?: string }, Cmux.MutationResult<{ outcome: "fits" | "grow" | "over_plan" | "fanout" | "unavailable" | "refused"; message: string; machine: string; size?: { name?: string; vcpu: unknown; mem_gib: unknown }; code?: string; fanout?: { handle: string; width: unknown; each: { name?: string; vcpu: unknown; mem_gib: unknown }; slots: Array<{ index: unknown; status: "created" | "refused" | "unconfirmed"; machine?: string; code?: string; message?: string }> }; upgrade_plan?: string }>>
       }
       /** `cloud.vm.network_policy` (read, scope `cloud:read`): Read the bound VM's current receiving identities and daemon/SSH permissions, joined to original live install grants, team policy and Native service rules. The lease is at most 120 seconds and never outlives an included grant; admit_until, when present, lets the receiver keep this policy through a failed renewal for at most one hour after checked_at. This hidden VM-only read does not activate a listener or mint a dial credential. VM installs only (kind vm, grant vm-self, its own bound machine). */
       network_policy: CmuxOp<{ machine: Cmux.MachineId }, Cmux.CloudVmNetworkPolicyView>
@@ -971,20 +990,6 @@ interface CmuxGlobal {
     save: CmuxOp<{ doc?: string }, unknown>
     /** `codemirror.toggle_read_only` (mutation, scope `codemirror:write`, owner `app:cmux/codemirror`): Turn read-only mode on or off in the focused editor. */
     toggle_read_only: CmuxOp<Record<string, never>, unknown>
-  }
-  coderouter: {
-    app: {
-      /** `coderouter.app.connect_account` (mutation, scope `coderouter:write`, owner `app:cmux/coderouter`): Connect a provider account to CodeRouter; cmux handles the secret. */
-      connect_account: CmuxOp<{ provider?: "codex" | "claude" | "openai" | "anthropic" | "openrouter" | "bedrock" }, unknown>
-      /** `coderouter.app.create_key` (mutation, scope `coderouter:write`, owner `app:cmux/coderouter`): Create a CodeRouter API key; cmux shows it once in its own sheet. */
-      create_key: CmuxOp<{ label?: string }, unknown>
-      /** `coderouter.app.open` (mutation, scope `coderouter:write`, owner `app:cmux/coderouter`): Open the CodeRouter pane. */
-      open: CmuxOp<Record<string, never>, unknown>
-      /** `coderouter.app.run_test` (mutation, scope `coderouter:execute`, owner `app:cmux/coderouter`): Send one tiny test prompt through CodeRouter. */
-      run_test: CmuxOp<Record<string, never>, unknown>
-      /** `coderouter.app.start_onboarding` (mutation, scope `coderouter:write`, owner `app:cmux/coderouter`): Start the CodeRouter setup. */
-      start_onboarding: CmuxOp<Record<string, never>, unknown>
-    }
   }
   column: {
     /** `column.update` (mutation, scope `column:write`) */
@@ -1031,6 +1036,8 @@ interface CmuxGlobal {
       list: CmuxOp<{ machine?: string; session?: string; root: string }, Cmux.DiffCommentsListResult>
       /** `diff.comments.save` (mutation, scope `diff:write`) */
       save: CmuxOp<{ machine?: string; session?: string; root: string; comment: Cmux.DiffComment }, Cmux.MutationResult<Cmux.DiffCommentsSaveResult>>
+      /** `diff.comments.thread` (mutation, scope `diff:write`) */
+      thread: CmuxOp<{ machine?: string; session?: string; root: string; id: string; reply?: string; author?: "reviewer" | "agent"; resolved?: boolean }, Cmux.MutationResult<Cmux.DiffCommentsThreadResult>>
     }
   }
   diffs: {
@@ -1614,6 +1621,8 @@ interface CmuxGlobal {
   settings: {
     /** `settings.get` (read, scope `settings:read`) */
     get: CmuxOp<{ machine?: string; session?: string; key?: string; path?: Array<string> }, Cmux.JsonValue>
+    /** `settings.history` (read, scope `settings:read`) */
+    history: CmuxOp<{ machine?: string; session?: string }, Cmux.SettingsHistory>
     /** `settings.list` (read, scope `settings:read`) */
     list: CmuxOp<{ machine?: string; session?: string; section?: string }, Array<Cmux.JsonValue>>
     /** `settings.schema` (read, scope `settings:read`) */
@@ -2000,7 +2009,7 @@ interface CmuxGlobal {
   timer: { after(ms: number, fn: () => void): number; every(ms: number, fn: () => void): number; clear(id: number): void }
   /** Time zones. The sandbox has no Intl and `toLocaleString` ignores `timeZone`: `zone(name, at?)` gives an IANA zone's offset (minutes east of UTC) and short name at `at` (epoch ms, default now). An unknown name throws CmuxError `zone.unknown`. Local time is `new Date(utcMs + offsetMinutes * 60000)` read with the getUTC* methods. */
   time: { zone(name: string, at?: number): { zone: string; offsetMinutes: number; abbreviation: string } }
-  app: { readonly id: string; readonly version: string; readonly apiVersion: string; readonly locale: string; settings: { (): Record<string, unknown>; set(values: Record<string, unknown>): Promise<unknown> }; context(): CmuxAppContext }
+  app: { readonly id: string; readonly version: string; readonly apiVersion: string; readonly locale: string; settings: { (): Record<string, unknown>; set(values: Record<string, unknown>): Promise<unknown> }; context(): CmuxAppContext; openPane<T = unknown>(args?: Record<string, unknown>, options?: CmuxCallOptions): Promise<CmuxPaneResult<T>> }
   /** The current user-gesture token, else null. On a command's ctx.cmux: the invocation's token while the command runs. On the global: the event token, only inside a user event handler before its first await; pass it as options.gesture later. */
   gesture(): string | null
   /** The app's string for key in the user's locale, else fallback; {name} placeholders. */
@@ -2136,7 +2145,7 @@ interface CmuxView {
   fontDesign(v: Bindable<"default" | "rounded" | "serif" | "monospaced">): this
   color(v: Bindable<string | null>): this; secondary(): this; lineLimit(v: Bindable<number>): this; truncation(v: Bindable<"head" | "middle" | "tail">): this
   strikethrough(v?: Bindable<boolean>): this; marquee(delaySeconds?: number): this; fade(width: Bindable<number>): this
-  transition(v: "opacity" | "slide" | "scale" | "move"): this; contentTransition(v: "numericText" | "opacity"): this; animation(v?: "smooth" | "snappy" | "none"): this
+  contentTransition(v: "numericText" | "opacity"): this
   padding(v?: Bindable<number | Record<string, number>>): this; paddingHorizontal(v: Bindable<number>): this; paddingVertical(v: Bindable<number>): this
   frame(v: Bindable<Record<string, number | string>>): this; layoutPriority(v: Bindable<number>): this; fixedSize(axis?: "both" | "horizontal" | "vertical"): this
   background(v: Bindable<CmuxFill | null>): this; hoverBackground(v: Bindable<string | null>): this; glass(level?: Bindable<"chrome" | "popover" | "menu" | "chip" | null>): this; cornerRadius(v: Bindable<number>): this
@@ -2151,9 +2160,75 @@ interface CmuxView {
   position(v: Bindable<{ x?: number; y?: number; unit?: "points" | "fraction" }>): this
   cursor(v: "pointer" | "default"): this; help(v: Bindable<string>): this
   fixed(): this; destructive(): this; disabled(v?: Bindable<boolean>): this; onTap(fn: () => unknown): this; contextMenu(items: CmuxView[] | (() => CmuxView[])): this
+  /** Animate this node's own prop changes from the value on screen: `smooth` (the default), `snappy` and `none` (the motion scale's steps) its opacity, colors, rotation and strikethrough; a motion token, spring or timed curve every animatable prop (opacity, rotation, scale, offset, blur, trim, frame size, colors, glow, ProgressView value). */
+  animation(v?: Bindable<CmuxMotion | null>): this
+  /** Scale about the node's center (1 = identity). */
+  scale(v: Bindable<number>): this
+  /** Move the drawing by points without changing layout. */
+  offset(v: Bindable<CmuxOffset>): this
+  /** Gaussian blur radius in points. */
+  blur(v: Bindable<number>): this
+  /** A colored, zero-offset shadow around the node's shape; `null` removes it. */
+  glow(v: Bindable<CmuxGlow | null>): this
+  /** A linear gradient fill (shapes) or background (stacks, panels): angle 0 = left to right, 90 (default) = top to bottom. */
+  gradient(v: Bindable<CmuxLinearGradient | null>): this
+  /** Draw only this fraction of a stroked Circle, Capsule, Rectangle or RoundedRectangle outline (a circle starts at 12 o'clock, clockwise). */
+  trim(v: Bindable<CmuxTrim | null>): this
+  /** A host-run effect that repeats forever with no JS; `null` stops it. Stops under Reduce Motion. */
+  loop(v: Bindable<CmuxLoop | null>): this
+  /** How the node enters when a render adds it (not on the first scene) and leaves when one removes it (kept on screen until its exit ends): opacity, slide (up from below), scale (from 90 %), move (from the leading edge), pop (from 60 %, past full size); `{kind, motion}` times it with a motion token, spring or timed curve. */
+  transition(v: Bindable<CmuxTransition | CmuxTimedTransition | null>): this
+  /** Clip the node's content (children, a sliding transition, a glow) to its frame and corner radius. */
+  clipped(v?: Bindable<boolean>): this
   /** How an Icon's layers take color, as SF Symbols draw them: monochrome (the default), hierarchical, palette (1 to 3 colors, in layer order) or multicolor (the symbol's own colors, the tint where it has none). */
   symbolRendering(mode: "monochrome" | "hierarchical" | "palette" | "multicolor", colors?: readonly string[]): this
 }
+/** `smooth`, `snappy`, `none`: the motion scale's standard and micro steps, or none; `move`, `appear`, `disappear`, `fade`: the design-token springs and fade; `bouncy` = spring 0.45 s / 0.6. Times in seconds, clamped to [0.05, 10]; damping to [0.3, 1]. */
+type CmuxMotion =
+  | "smooth" | "snappy" | "none"
+  | "move" | "appear" | "disappear" | "fade" | "bouncy"
+  | { spring: { response: number; dampingFraction: number } }
+  | { duration: number; curve?: "easeOut" | "easeInOut" | "linear" }
+type CmuxOffset = { x?: number; y?: number }
+type CmuxGlow = { color: string; radius: number; opacity?: number }
+/** The `gradient` modifier: angle 0 = left to right, 90 (default) = top to bottom. */
+type CmuxLinearGradient = { colors: string[]; angle?: number }
+type CmuxTrim = { from?: number; to: number }
+type CmuxLoopEffect = "pulse" | "breathe" | "spin" | "float" | "wiggle" | "bounce" | "shimmer"
+/** `period` in seconds; `amount` scales the effect's default amplitude. */
+type CmuxLoop = { effect: CmuxLoopEffect; period?: number; amount?: number }
+type CmuxTransition = "opacity" | "slide" | "scale" | "move" | "pop"
+/** A transition on its own timing: `motion` times the move and the fade, in and out (the bare kind keeps the renderer's springs). */
+type CmuxTimedTransition = { kind: CmuxTransition; motion?: CmuxMotion | null }
+type CmuxParticlePreset = "confetti" | "sparkles" | "rain" | "snow" | "embers" | "stars"
+/** `rate` multiplies a continuous preset's emission (default 1); each increase of `burst` fires one burst. */
+/** A choreography curve: the Motion curves, a spring, or a cubic Bezier. A frame's `ease` shapes the segment that ends at it. */
+type CmuxChoreographyEase = "linear" | "easeIn" | "easeOut" | "easeInOut" | "smooth" | "snappy" | { spring: { response: number; dampingFraction?: number } } | { bezier: [number, number, number, number] }
+/** `[x, y, scale]`: points from the glyph's centre (+y down), scale 0 to 4 over `particle.size`. */
+type CmuxChoreographyDot = [number, number, number]
+type CmuxChoreographyFrame = { at: number; dots?: CmuxChoreographyDot[]; formation?: string; ease?: CmuxChoreographyEase }
+type CmuxChoreographyPhase = {
+  duration: number
+  ease?: CmuxChoreographyEase
+  frames?: CmuxChoreographyFrame[]
+  sites?: [number, number][]
+  spawn?: { every: number; order: number[]; life: number }
+  lifeFrames?: { at: number; pos: "centre" | "site" | "between"; offset?: [number, number]; s: number; ease?: CmuxChoreographyEase }[]
+}
+/** The acpmux tool kinds and session states a choreography's `triggers` may name (`cycle` plays for any other kind). */
+type CmuxChoreographyTrigger = "read" | "edit" | "delete" | "move" | "search" | "execute" | "think" | "fetch" | "switch_mode" | "other" | "sendMessage" | "turnStart" | "thinking" | "idle" | "cursor" | "cycle"
+/** A `cmux.particles/1` document (ABI.md "Particles choreography"). The host refuses unknown keys and anything past a limit (16 dots, 32 phases, 64 frames, 50 ms to 30 s, scale 0 to 4, 32 KiB). */
+type CmuxParticleChoreography = {
+  $schema: "cmux.particles/1"
+  particle: { shape?: "circle" | "square"; size: number; color?: string; max?: number }
+  phases: Record<string, CmuxChoreographyPhase>
+  formations?: Record<string, CmuxChoreographyDot[]>
+  triggers?: Partial<Record<CmuxChoreographyTrigger, string[] | { intro?: string[]; loop: string[] }>>
+}
+/** `rate` multiplies a continuous preset's emission (default 1); each increase of `burst` fires one burst. With `choreography` the node plays that glyph instead: `trigger` picks the phases by acpmux kind (read when a phase ends), `phase` loops one phase, `size` (points) and `colors[0]` override the document's particle. */
+type CmuxParticlesProps = { preset?: Bindable<CmuxParticlePreset>; colors?: Bindable<string[] | null>; rate?: Bindable<number>; burst?: Bindable<number>; choreography?: Bindable<CmuxParticleChoreography | null>; trigger?: Bindable<CmuxChoreographyTrigger | string | null>; phase?: Bindable<string | null>; size?: Bindable<number> }
+/** A particle field (confetti, sparkles, rain, snow, embers, stars) that fills its frame and takes no input, or a choreographed glyph of dots (`choreography`) centred in it; first in a ZStack, it draws behind its siblings. Host-run; stops off screen and under Reduce Motion. */
+declare function Particles(props: CmuxParticlesProps): CmuxView
 type CmuxChildren = Array<CmuxView | (() => unknown) | null | undefined | false>
 interface CmuxListSpec<T> { items: () => readonly T[] | null | undefined; key: (item: T, index: number) => string | number; onMove?: (id: string, index: number, extra: { side?: string; block?: boolean }) => unknown; onDragChange?: (state: unknown) => unknown; spacing?: number }
 declare function VStack(propsOrChildren?: Record<string, unknown> | CmuxChildren, children?: CmuxChildren): CmuxView

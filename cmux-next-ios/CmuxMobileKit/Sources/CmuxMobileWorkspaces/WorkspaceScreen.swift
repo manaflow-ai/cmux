@@ -101,6 +101,8 @@ public struct WorkspaceScreen: View {
                 Int(overviewColumns(width: Double(proxy.size.width)))
             } action: { columns in
                 overviewColumnCount = columns
+                // Agent cards draw their pictures at the grid's card size.
+                if source.overviewColumns != columns { source.overviewColumns = columns }
             }
             .overlay(alignment: .top) {
                 // Select Tabs puts its Close | More where Back is.
@@ -121,6 +123,9 @@ public struct WorkspaceScreen: View {
             }
             .background(theme.colors.bg.color.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
+            // Its own layer: the Workspaces bar (title, Macs online, Search) never
+            // draws over it through a swipe back (Leo, 2026-11-24).
+            .cmuxMobilePaneLayer()
             .background(InteractivePopEnabler())
             // Search Agent Chats, Screens, Panes and a tab group's pages, and Fork Conversation…'s destinations.
             .modifier(WorkspacePages(source: source))
@@ -135,6 +140,7 @@ public struct WorkspaceScreen: View {
             // The grid's view stays "visible" in the background: its refresh stops here.
             // Inactive (Control Center, the app switcher's first moment) still shows it.
             .onChange(of: scenePhase) { _, phase in source.sceneActiveChanged(phase != .background) }
+            .onDisappear { source.screenDisappeared() }
             #if DEBUG
             .onChange(of: director.serial) { run(director.command) }
             #endif
@@ -146,7 +152,8 @@ public struct WorkspaceScreen: View {
             // New Agent Chat With…: the Mac's agents and models.
             .sheet(isPresented: Binding(get: { source.choosingAgent }, set: { source.choosingAgent = $0 })) {
                 AgentChooser(load: { [source] in try await source.agentCatalog() },
-                             start: { [source] start in source.startAgentChat(start) })
+                             start: { [source] start in source.startAgentChat(start) },
+                             macID: source.workspace?.macID ?? "")
                     .presentationDetents([.medium, .large])
             }
             // + › Screen Sharing: the account's Macs; this workspace's Mac connects at once.
@@ -183,8 +190,7 @@ public struct WorkspaceScreen: View {
                 set: { shown in if !shown { source.renamingTab = nil } }
             )) {
                 TextField(renamePlaceholder, text: $renameText)
-                    // Names and prompts are code-like: no autocorrect, no capitals (full verify D5).
-                    .autocorrectionDisabled()
+                    // Names and prompts are code-like: no capitals (full verify D5); autocorrect stays on, as on every GUI field (Leo, 2026-11-23).
                     .textInputAutocapitalization(.never)
                 Button("Cancel", role: .cancel) {}
                 Button("Rename") {
@@ -380,38 +386,52 @@ struct WorkspaceGridHeader: View {
     private let metrics = TabsKitTheme.mobile.metrics
 
     var body: some View {
-        ZStack {
+        HStack(spacing: 8) {
+            Button {
+                source.exit()
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: metrics.toolbarGlyph, weight: .medium))
+                    .foregroundStyle(theme.colors.label.color)
+                    .frame(width: metrics.overviewTopControl, height: metrics.overviewTopControl)
+                    .contentShape(.circle)
+            }
+            .buttonStyle(.cmuxPressGlass)
+            .glassEffect(.regular.interactive(), in: .circle)
+            .accessibilityLabel("Workspaces")
+            // The title takes the room between Back and the filter: centered over the grid it ran
+            // under the filter ("2 of 3 t…" in the simulator's grid shot).
             VStack(spacing: 1) {
                 Text(source.workspace?.title ?? "").font(.headline)
-                Text(macLine).font(.footnote).foregroundStyle(theme.colors.label2.color)
+                // The Mac's name gives way first: the tab count says when panes are hidden.
+                HStack(spacing: 0) {
+                    Text(macName).truncationMode(.tail)
+                    Text(macName.isEmpty ? tabCount : " · \(tabCount)").layoutPriority(1)
+                }
+                .font(.footnote).foregroundStyle(theme.colors.label2.color)
             }
             .lineLimit(1)
-            .frame(maxWidth: 220)
-            HStack {
-                Button {
-                    source.exit()
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: metrics.toolbarGlyph, weight: .medium))
-                        .foregroundStyle(theme.colors.label.color)
-                        .frame(width: metrics.overviewTopControl, height: metrics.overviewTopControl)
-                        .contentShape(.circle)
-                }
-                .buttonStyle(.cmuxPressGlass)
-                .glassEffect(.regular.interactive(), in: .circle)
-                .accessibilityLabel("Workspaces")
-                Spacer()
-            }
+            .frame(maxWidth: .infinity)
+            // The pane filter, beside TabsKit's More (drawn by the grid at the trailing edge).
+            PaneFilterControl(setting: source.paneFilter, result: source.paneFilterResult)
+            Color.clear.frame(width: metrics.overviewTopControl, height: 1)
         }
         .padding(.horizontal, 20)
         .padding(.top, 4)
     }
 
-    private var macLine: String {
+    private var macName: String {
         guard let workspace = source.workspace else { return "" }
-        let mac = source.store.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name ?? ""
+        return source.store.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name ?? ""
+    }
+
+    private var tabCount: String {
+        guard let workspace = source.workspace else { return "" }
         let count = workspace.tabs.count
-        return "\(mac) · \(count == 1 ? "1 tab" : "\(count) tabs")"
+        // Filtered: "3 of 7 tabs", so the hidden ones are never a surprise.
+        let shown = source.tabs.count
+        if shown < count { return "\(shown) of \(count) tabs" }
+        return count == 1 ? "1 tab" : "\(count) tabs"
     }
 }
 

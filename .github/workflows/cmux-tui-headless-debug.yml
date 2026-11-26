@@ -118,11 +118,12 @@ jobs:
         if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
           add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-tui-headless-debug
+          shared-key: cmux-tui-headless-debug-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
           cache-workspace-crates: "true"
 
       - name: Build exact headless cmux-tui
@@ -140,7 +141,7 @@ jobs:
           cargo build -p cmux-tui --bin cmux-tui --locked
 
       - name: Save the headless cmux-tui build
-        if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
+        if: ${{ (steps.headless-cache.outputs.cache-hit != 'true') && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: cmux-tui/target/debug/cmux-tui

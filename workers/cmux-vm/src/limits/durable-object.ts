@@ -20,6 +20,7 @@ import {
   type RateDecision,
   type RateRule,
   type ReserveDecision,
+  type RetainedCreationSlot,
 } from "./ledger.ts";
 
 const storageOf = (store: DurableObjectStorage | DurableObjectTransaction): LedgerStorage => ({
@@ -37,6 +38,7 @@ export class TenantLimitsObject extends DurableObject {
 
   beginCreateSend(key: string, vmId: string, token: string, nowMs: number): Promise<boolean> { return this.ledger.beginCreateSend(key, vmId, token, nowMs); }
   settleAbsentCancellation(key: string, vmId: string, nowMs: number): Promise<boolean> { return this.ledger.settleAbsentCancellation(key, vmId, nowMs); }
+  retainedCreations(createdBy: string, limit: number): Promise<ReadonlyArray<RetainedCreationSlot>> { return this.ledger.retainedCreations(createdBy, limit); }
   readmitCreation(key: string, vmId: string, limit: number, liveCount: number, nowMs: number): Promise<"readmitted" | "over_quota" | "none"> { return this.ledger.readmitCreation(key, vmId, limit, liveCount, nowMs); }
   rejectCreateSend(key: string, vmId: string, token: string): Promise<boolean> { return this.ledger.rejectCreateSend(key, vmId, token); }
   creationActive(key: string, vmId: string): Promise<boolean> { return this.ledger.creationActive(key, vmId); }

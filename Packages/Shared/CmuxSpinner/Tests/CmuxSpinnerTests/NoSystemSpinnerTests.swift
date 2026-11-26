@@ -22,7 +22,9 @@ import Testing
 
     /// Findings in one file's text, as "line: text"; comments are not code.
     static func findings(in text: String) -> [String] {
-        text.split(separator: "\n", omittingEmptySubsequences: false).enumerated().compactMap { index, raw in
+        // Every match holds one of these words; the regex is slow, so a file without them is not split into lines.
+        guard ["ProgressView(", "UIActivityIndicatorView(", "NSProgressIndicator("].contains(where: text.contains) else { return [] }
+        return text.split(separator: "\n", omittingEmptySubsequences: false).enumerated().compactMap { index, raw in
             let line = raw.split(separator: "//", maxSplits: 1, omittingEmptySubsequences: false).first ?? ""
             guard line.contains(spinner), !line.contains(".progressViewStyle(.linear") else { return nil }
             return "\(index + 1): \(raw.trimmingCharacters(in: .whitespaces))"
@@ -35,7 +37,13 @@ import Testing
         for folder in Self.roots {
             let base = root.appendingPathComponent(folder)
             guard let walker = FileManager.default.enumerator(at: base, includingPropertiesForKeys: nil) else { continue }
-            for case let url as URL in walker where url.pathExtension == "swift" {
+            for case let url as URL in walker {
+                // Build output (.build, DerivedData) holds whole checkouts of dependencies: walking it took minutes.
+                if [".build", "DerivedData", ".swiftpm"].contains(url.lastPathComponent) {
+                    walker.skipDescendants()
+                    continue
+                }
+                guard url.pathExtension == "swift" else { continue }
                 let path = url.path
                 guard !Self.skipped.contains(where: path.contains) else { continue }
                 let text = try String(contentsOf: url, encoding: .utf8)

@@ -935,6 +935,19 @@ class AppReviewGateTests(unittest.TestCase):
         self.assertEqual(findings[0]["rule"], "asc.metadata.required.whats_new")
         self.assertEqual(findings[0]["guideline"], "2.3")
 
+    def test_a_version_apple_already_has_is_not_blocked_on_its_state(self) -> None:
+        # Readiness run 45615832158 (2026-11-25): asc validate on 1.0.0 in
+        # WAITING_FOR_REVIEW gave "version is in non-editable state", and the
+        # gate made it a blocker for the whole review.
+        asc = self.root / "asc-validate.json"
+        for state, severity in (("WAITING_FOR_REVIEW", "info"), ("IN_REVIEW", "info"),
+                                ("PENDING_DEVELOPER_RELEASE", "info"), ("DEVELOPER_REJECTED", "blocker")):
+            asc.write_text(json.dumps({"remediation": {"steps": [
+                {"order": 1, "blocking": True, "severity": "error", "checkId": "version.state.editable",
+                 "message": f'version is in non-editable state "{state}"', "field": "appVersionState"}]}}))
+            findings = gate.asc_findings(asc)
+            self.assertEqual([f["severity"] for f in findings], [severity], state)
+
     def test_the_asc_job_saves_the_app_store_version_history(self) -> None:
         workflow = (ROOT / ".github/workflows/ios-review-gate.yml").read_text()
         self.assertIn('asc versions list --app "$ASC_APP_ID" --platform IOS --paginate --output json > app-store-versions.json',
@@ -1293,6 +1306,7 @@ class GateWorkflowTests(unittest.TestCase):
             patterns = on[event]["paths"]
             with self.subTest(event=event):
                 for path in ("cmux-next-ios/SECURITY.md", "cmux-next-ios/verify/parity-mac.md",
+                             "cmux-next-ios/verify/parity-mac/2026-11-25-find-in-terminal.md",
                              "cmux-next-ios/verify/alignment/alignscan.swift", "Packages/Shared/README.md"):
                     self.assertFalse(github_paths_match(patterns, path), path)
                 for path in ("cmux-next-ios/CmuxMobileApp/App.swift", "cmux-next-ios/project.yml",
@@ -1306,22 +1320,29 @@ class GateWorkflowTests(unittest.TestCase):
         # app and still ran CmuxMobileKit's tests, then went red on kit tests it never touched.
         import yaml  # noqa: PLC0415
 
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import ci_steps  # noqa: PLC0415
+
         doc = yaml.safe_load((ROOT / ".github/workflows/cmux-next-ios-kit.yml").read_text())
         on = doc.get("on", doc.get(True))
-        for event in ("push", "pull_request"):
-            patterns = on[event]["paths"]
+        # A push runs the workflow; a feat-cmux-next pull request runs its tests as the ios-kit table step.
+        kit = ci_steps.load().steps["ios-kit"]
+        matchers = {"push": lambda path: github_paths_match(on["push"]["paths"], path),
+                    "pull_request": lambda path: ci_steps.routed(kit, [path])}
+        for event, matches in matchers.items():
             with self.subTest(event=event):
                 for path in ("cmux-next-ios/SECURITY.md", "cmux-next-ios/verify/parity-mac.md",
+                             "cmux-next-ios/verify/parity-mac/2026-11-25-find-in-terminal.md",
                              "cmux-next-ios/verify/alignment/alignscan.swift",
                              "cmux-next-ios/CmuxMobileKit/README.md", "Packages/Shared/CmuxSpinner/README.md"):
-                    self.assertFalse(github_paths_match(patterns, path), path)
+                    self.assertFalse(matches(path), path)
                 for path in ("cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/X.swift",
                              "cmux-next-ios/CmuxMobileKit/Package.swift", "cmux-next-ios/rust/Cargo.toml",
                              "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileModel/Resources/notes.md",
                              "Packages/Shared/CmuxSpinner/Sources/CmuxSpinner/Resources/x.md",
-                             "Packages/iOS/CmuxConversation/Sources/X.swift",
-                             ".github/workflows/cmux-next-ios-kit.yml"):
-                    self.assertTrue(github_paths_match(patterns, path), path)
+                             "Packages/iOS/CmuxConversation/Sources/X.swift"):
+                    self.assertTrue(matches(path), path)
+        self.assertTrue(matchers["push"](".github/workflows/cmux-next-ios-kit.yml"))
 
 
 def github_paths_match(patterns: list[str], path: str) -> bool:
