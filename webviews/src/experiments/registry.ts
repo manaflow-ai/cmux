@@ -14,6 +14,7 @@ import { hoverActions } from "../ui/hoverActions.experiment";
 import { pastePlaceholderLook } from "../agent-session/acpmux/composer/pastePlaceholder.experiment";
 import { attachStripSize } from "../agent-session/acpmux/composer/attachStrip.experiment";
 import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.experiment";
+import { forumCallLook } from "../agent-session/acpmux/conversation/forumCall.experiment";
 import { tableActionsPlace } from "../agent-session/acpmux/conversation/tableActions.experiment";
 import { expandRowLook } from "../agent-session/acpmux/conversation/expandRow.experiment";
 import { backgroundReactionLook } from "../agent-session/acpmux/conversation/backgroundReaction.experiment";
@@ -200,6 +201,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   hoverLook,
   questionPreviewLayout,
   toolErrorLook,
+  forumCallLook,
   tableActionsPlace,
   expandRowLook,
   backgroundReactionLook,
