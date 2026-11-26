@@ -7,12 +7,13 @@
 // while the page does (incomingOpened.ts), so it survives the virtualized list and new arrivals,
 // and the row estimator reads it; Find opens it for a match in one of its messages. It opens at
 // once, never fading in.
-import { useContext, useId, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
+import { useContext, useId, useLayoutEffect, useMemo, type ReactNode } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { FindReveal } from "./chatFind";
-import { messageOpened, setDigestOpened, setMessageOpened } from "./incomingOpened";
+import { setDigestOpened } from "./incomingOpened";
+import { useDisclosure, useDisclosureRun } from "./useDisclosure";
 import { bySender } from "./pendingMessages";
 import { inboxThreadKey } from "./inboxNotice";
 import { SenderName } from "./IncomingMessageCard";
@@ -52,11 +53,9 @@ export function PendingMessagesCard({
 }) {
   const t = useT();
   const session = useContext(PromptMarksSession);
-  const [open, setOpen] = useState(() => messageOpened(session, row.id));
-  const show = (next: boolean) => {
-    setMessageOpened(session, row.id, next);
-    setOpen(next);
-  };
+  // One open-state store (useDisclosure.ts): a click is one transition of the transcript's owner.
+  const { open, set: show } = useDisclosure({ message: row.id, sessionId: session });
+  const runDisclosure = useDisclosureRun();
   const bodyId = useId();
   const rows = row.pendingMessages?.rows;
   const displayRows = row.pendingMessages?.displayRows ?? rows;
@@ -123,8 +122,7 @@ export function PendingMessagesCard({
           bodyId={bodyId}
           onToggle={() => {
             // The head opens the group with every message in it open (incomingOpened.ts).
-            setDigestOpened(session, row.id, digestMembers(displayRows ?? rows), !open);
-            setOpen(!open);
+            runDisclosure(() => setDigestOpened(session, row.id, digestMembers(displayRows ?? rows), !open));
           }}
           className="cv-pending__toggle"
           iconClassName="cv-pending__icon"
