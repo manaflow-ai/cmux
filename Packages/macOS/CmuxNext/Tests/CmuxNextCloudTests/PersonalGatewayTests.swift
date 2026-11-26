@@ -97,7 +97,7 @@ struct PersonalGatewayTests {
         let children = Children([[]]) // never comes online
         let gateway = make(children, clock: clock)
         gateway.start()
-        let beside = gateway.onlineBeside(within: .seconds(10)) { true }
+        let beside = gateway.onlineBeside(within: .seconds(10)) { .organization(family: "claude") }
         #expect(await beside.value) // no deadline advanced: answered at once
         #expect(gateway.state == .starting)
     }
@@ -108,7 +108,7 @@ struct PersonalGatewayTests {
         let children = Children([[]])
         let gateway = make(children, clock: clock)
         gateway.start()
-        let beside = gateway.onlineBeside(within: .seconds(10)) { false }
+        let beside = gateway.onlineBeside(within: .seconds(10)) { .gateway(family: "claude") }
         try await clock.waitForSleeper()
         clock.advance(by: .seconds(10))
         #expect(await beside.value == false)
@@ -133,6 +133,24 @@ struct PersonalGatewayTests {
         #expect(children.live.count == 1, "no restart on its own")
         // A Cloud chat started on this Mac: this Mac takes its machines back.
         #expect(await gateway.ensureOnline(within: .seconds(60)))
+        #expect(children.live.count == 2)
+    }
+
+    /// Another gateway of the person's took over and the team's gateway serves the chat (the start's choice read it online):
+    /// the start waits for none and does not take the machines back (the probe's gateway rows waited 2.5 to 4.4 s on it).
+    @Test func aStartTheGatewayThatTookOverServesWaitsForNoRestart() async {
+        let children = Children([[#"{"event":"stopped","reason":"replaced"}"#, "EXIT"], [#"{"event":"online"}"#]])
+        let gateway = make(children)
+        gateway.start()
+        #expect(await gateway.ensureOnline(within: .seconds(60)) == false)
+        #expect(gateway.state == .replaced)
+        let beside = gateway.onlineBeside(within: .seconds(10)) { .gateway(family: "claude") }
+        #expect(await beside.value)
+        #expect(gateway.state == .replaced)
+        #expect(children.live.count == 1, "not taken back")
+        // A route the team's gateway does not serve still starts this one again.
+        #expect(!gateway.servedElsewhere(.fallback))
+        #expect(await gateway.onlineBeside(within: .seconds(60)) { .fallback }.value)
         #expect(children.live.count == 2)
     }
 

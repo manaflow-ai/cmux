@@ -29,6 +29,8 @@ mod agents;
 #[cfg(unix)]
 mod agents_doctor;
 #[cfg(unix)]
+mod api_tokens;
+#[cfg(unix)]
 mod app;
 pub(crate) mod app_action_help;
 #[cfg(unix)]
@@ -60,6 +62,7 @@ mod billing;
 mod caller_browser;
 mod caller_scope;
 mod capability_cache;
+#[cfg(unix)]
 mod share_requests;
 // `cmux settings change-background [VALUE]`: a YouTube address, file or id as the picker sets it.
 #[cfg(unix)]
@@ -108,6 +111,7 @@ mod cloud_preflight;
 mod cloud_provider;
 #[cfg(unix)]
 mod cloud_repo;
+#[cfg(unix)]
 mod cloud_retention;
 #[cfg(unix)]
 mod cloud_route;
@@ -126,6 +130,7 @@ mod code_mode;
 mod codex_app_server;
 mod command;
 mod completion;
+mod intent;
 #[cfg(unix)]
 mod key_broker;
 #[cfg(unix)]
@@ -175,6 +180,7 @@ mod lifecycle;
 mod live_code;
 #[cfg(unix)]
 mod mcp_loopback;
+#[cfg(unix)]
 mod mcp_servers;
 #[cfg(unix)]
 mod ps_gc;
@@ -182,6 +188,8 @@ mod ps_gc;
 mod repo_hold;
 #[cfg(unix)]
 mod repo_mcp_lazy;
+#[cfg(unix)]
+mod repo_remote;
 #[cfg(unix)]
 pub(crate) mod runnable_link;
 #[cfg(unix)]
@@ -202,6 +210,7 @@ mod vm;
 mod vm_bootstrap;
 #[cfg(unix)]
 mod vm_cleanup;
+#[cfg(unix)]
 mod vm_gcp;
 #[cfg(unix)]
 mod vm_ready;
@@ -219,12 +228,14 @@ pub(crate) use auth_token::{app_token, app_token_in};
 
 /// The app's Cloud machines (`cloud.machines` rows), best effort: `None` with no app or a failed
 /// read (`cmux spill`'s Cloud place).
+#[cfg(unix)]
 pub(crate) fn app_cloud_machines() -> Option<Vec<serde_json::Value>> {
     cloud_workspaces::read(&GlobalArgs::default())
 }
 
 /// The Cloud machine `selector` names among `machines` (its id, `machine:` target or exact
 /// title); `Err` when a title is ambiguous (`cmux spill --to cloud:NAME`).
+#[cfg(unix)]
 pub(crate) fn find_cloud_machine<'a>(
     machines: &'a [serde_json::Value],
     selector: &str,
@@ -273,7 +284,9 @@ mod machine_doctor;
 mod machine_join;
 #[cfg(unix)]
 mod machine_link;
+#[cfg(unix)]
 mod machine_request;
+#[cfg(unix)]
 mod mobile_pair_requests;
 #[cfg(unix)]
 pub(crate) use machine_join::{
@@ -1101,6 +1114,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| mcp_servers::run_if_requested(args))
         .or_else(|| automation::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))
+        .or_else(|| api_tokens::run_if_requested(args))
         .or_else(|| auth_token::run_if_requested(args))
         .or_else(|| auth_token::whoami_if_requested(args))
         .or_else(|| live_code::run_if_requested(args))
@@ -1231,6 +1245,16 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
                 .and_then(|(global, _)| skew::reexec_at_dead_end(&global).err().flatten());
             #[cfg(not(unix))]
             let skew: Option<String> = None;
+            // A mistyped or synonym scope or verb (`cmux sessions ls`) runs the one word it
+            // meant, said on stderr; once, so a still-refused command ends here (cli/intent.rs).
+            static INTENT_TRIED: std::sync::atomic::AtomicBool =
+                std::sync::atomic::AtomicBool::new(false);
+            if skew.is_none()
+                && !INTENT_TRIED.swap(true, std::sync::atomic::Ordering::Relaxed)
+                && let Some(fixed) = intent::retry(args, startup_usage)
+            {
+                return run(&fixed, startup_usage);
+            }
             let message = if matches!(failure.output, OutputMode::Quiet | OutputMode::Human) {
                 format!("cmux: {}", failure.error)
             } else {
@@ -1886,6 +1910,7 @@ fn scope_help_with_keys(
         "pairing" => Cow::Borrowed(PAIRING_HELP),
         "projection" => Cow::Borrowed(PROJECTION_HELP),
         "provider" => Cow::Borrowed(PROVIDER_HELP),
+        #[cfg(unix)]
         "share" => Cow::Borrowed(share_requests::HELP),
         "raw" => Cow::Borrowed(RAW_HELP),
         #[cfg(unix)]
