@@ -7,6 +7,7 @@
 pub mod agent_check;
 pub mod approval_answer;
 pub mod ask;
+pub mod autosize_row;
 pub mod balance;
 pub mod capability;
 pub mod computer_status;
