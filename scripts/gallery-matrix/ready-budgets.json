@@ -44,7 +44,7 @@
     "agent-pane.send-stream-motion#steer-mid-stream": 3200,
     "agent-pane.send-stream-motion#tools-turn": 3600,
     "agent-pane.start-folder#worktree-creating": 2800,
-    "agent-pane.stream-follow-fold#linear-runs": 5200,
+    "agent-pane.stream-follow-fold#linear-runs": 1500,
     "agent-pane.streaming-follow-motion#stream": 2100,
     "agent-pane.streaming-text#claude": 14600,
     "agent-pane.streaming-text#codex": 17700,
