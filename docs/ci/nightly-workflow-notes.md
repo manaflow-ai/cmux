@@ -229,8 +229,6 @@ Every failure after the feed only warns (continue-on-error on each step): a delt
 
 The base DMGs stay on the signer: the kept workspace built the earlier builds, so after each feed write the final DMG is copied to $HOME/.cmux-nightly-next-dmg-cache (the newest 4 builds; nightly_next_previous_dmgs.py --save) and the next build uses a cached copy instead of the R2 download when its size equals the Content-Length R2 serves for that build's DMG (one HEAD request); a copy that disagrees is deleted and downloaded. The size check, not a hash, is the verification: the copy is the exact file the same job uploaded, and R2 stores a build's DMG write-once.
 
-Since 2026-11-25 (ask-c0123d25e8) those deltas run in their own job, nightly-next-deltas, which needs nightly-next-one: published-build and the GitHub release start as soon as nightly-next-one ends instead of waiting the ~5 min the deltas took (run 45575194160: 283 s build, 17 s upload). nightly-next-one only hands the job the build number, DMG names, appcast and minimum system version (step deltas-inputs, no secret); the job downloads the arm64 variant artifact into its own `.nightly-next-deltas` directory, runs the same two scripts with DELTAS_ONLY_WHILE_NEWEST=1, and removes that directory. It is continue-on-error, so a missing delta never fails the run.
-
 ## note-32
 
 nightly-next-one, Upload nightly variant artifacts (2026-11-21):
