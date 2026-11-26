@@ -1,0 +1,168 @@
+name: RFD 0135 gates (nightly)
+
+# RFD 0135 ("why not a $5 VPS", cmuxterm-hq docs/rfd/0135-why-not-a-five-dollar-vps.md), "What to build next",
+# gates 2 to 4 as numbers, re-run nightly (scripts/cmux-next/rfd0135_gates.py):
+#   2. lid-close: switch on, lid closed 30 min mid-task, open: the work continued and the chat shows it. 10 of 10.
+#   3. move: cmux#51824 landed, p95 under 10 s each way, 56 of 56 in the kill matrix.
+#   4. phone: read and reply to a kept-running chat from the phone with the Mac powered down.
+# Leo, 2026-11-24: "honestly guys these rfds need to be built asap/arguably built in parallel with the writeups if
+# they're good. should not have had a wait on decisions. we simply go and move."
+#
+# A gate that is NO is a number, not a red job: the jobs fail only when a gate could not run. The verdicts are the
+# summary job's step summary and the rfd0135-gates artifact.
+
+on:
+  schedule:
+    - cron: "17 9 * * *"
+  workflow_dispatch:
+    inputs:
+      lid_runs:
+        description: Lid-close runs (at once)
+        required: false
+        default: "10"
+        type: string
+      lid_secs:
+        description: Seconds each lid stays closed
+        required: false
+        default: "1800"
+        type: string
+      move_matrix:
+        description: Run the 56-cell kill matrix (slow)
+        required: false
+        default: true
+        type: boolean
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - scripts/cmux-next/rfd0135_gates.py
+      - tests/test_rfd0135_gates.py
+      - cmux-tui/crates/cmux-tui/tests/lid_close_gate.rs
+      - .github/workflows/rfd0135-gates.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rfd0135-gates-${{ github.event.pull_request.number || github.run_id }}
+  # Only a pull request's newer push cuts its older run; a nightly always finishes.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  unit:
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # A schedule (and a dispatch from main) runs main's copy of this file; the gates are feat-cmux-next's code.
+          ref: ${{ (github.event_name == 'schedule' || github.ref_name == 'main') && 'feat-cmux-next' || '' }}
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/cmux-next
+            tests
+      - name: Gate runner tests
+        run: python3 tests/test_rfd0135_gates.py
+
+  gates:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.RUNNER_POOLS && fromJSON(vars.RUNNER_POOLS).linux_8 || 'cmux-linux' }}
+    # A pull request runs one short lid (60 s) and no matrix; the nightly, 10 lids of 30 min at once and the matrix.
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        gate: [lid-close, move, phone]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # A schedule (and a dispatch from main) runs main's copy of this file; the gates are feat-cmux-next's code.
+          ref: ${{ (github.event_name == 'schedule' || github.ref_name == 'main') && 'feat-cmux-next' || '' }}
+          persist-credentials: false
+          submodules: false
+      - name: Initialize Ghostty protocol submodules
+        if: matrix.gate != 'phone'
+        run: git submodule update --init --depth 1 ghostty ghostty-next
+      - name: Install Linux cmux-tui build dependencies
+        if: matrix.gate != 'phone'
+        run: |
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config
+          fi
+      - name: Set up cmux-tui Rust
+        if: matrix.gate != 'phone'
+        uses: ./.github/actions/setup-cmux-tui-rust
+      - name: Resolve Ghostty Zig version
+        if: matrix.gate != 'phone'
+        id: ghostty-zig-version
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+        run: |
+          set -euo pipefail
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          [[ -n "$version" ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Set up Zig for Ghostty
+        if: matrix.gate != 'phone'
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        if: matrix.gate != 'phone'
+        uses: ./.github/actions/zig-global-cache
+      - name: Gate ${{ matrix.gate }}
+        if: matrix.gate != 'move' || github.event_name == 'schedule' || inputs.move_matrix
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GATE: ${{ matrix.gate }}
+          LID_RUNS: ${{ github.event_name == 'pull_request' && '2' || inputs.lid_runs || '10' }}
+          LID_SECS: ${{ github.event_name == 'pull_request' && '60' || inputs.lid_secs || '1800' }}
+          CARGO_NET_RETRY: "10"
+          CARGO_HTTP_TIMEOUT: "120"
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+          CMUX_GHOSTTY_SRC: ""
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/rfd0135/$GATE"
+          rc=0
+          python3 scripts/cmux-next/rfd0135_gates.py "$GATE" --runs "$LID_RUNS" --secs "$LID_SECS" --out "$out" || rc=$?
+          { echo "### RFD 0135 gate: $GATE"; echo; cat "$out/summary.md" 2>/dev/null || echo "(no result)"; } >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rfd0135-gate-${{ matrix.gate }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/rfd0135/${{ matrix.gate }}/*.json
+          if-no-files-found: ignore
+          retention-days: 3
+
+  summary:
+    needs: gates
+    if: ${{ !cancelled() }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # A schedule (and a dispatch from main) runs main's copy of this file; the gates are feat-cmux-next's code.
+          ref: ${{ (github.event_name == 'schedule' || github.ref_name == 'main') && 'feat-cmux-next' || '' }}
+          persist-credentials: false
+          sparse-checkout: scripts/cmux-next
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: rfd0135-gate-*-${{ github.run_id }}
+          path: ${{ runner.temp }}/gates
+      - name: RFD 0135 gates 2 to 4
+        run: |
+          set -euo pipefail
+          python3 scripts/cmux-next/rfd0135_gates.py summary "$RUNNER_TEMP"/gates/* --out "$RUNNER_TEMP/summary" || true
+          { echo "## RFD 0135 gates 2 to 4"; echo; cat "$RUNNER_TEMP/summary/summary.md" 2>/dev/null || echo "(no result)"; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rfd0135-gates-${{ github.run_id }}
+          path: ${{ runner.temp }}/summary
+          retention-days: 3
