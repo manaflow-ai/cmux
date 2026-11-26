@@ -18,6 +18,8 @@
 //! are discarded or are kept),
 //! `cmux-browser-rules`' browser pane rules (`browser_rules_*`: where a clicked or page-requested
 //! link opens, and the one decision for every window Chromium wants to open),
+//! `cmux-app-workspace-creation`'s workspace creation rules (`workspace_creation_*`: a new
+//! workspace's name, folder, environment, slot and request, and a half-created one's repair),
 //! Keep Mac Awake's command rule (`keep_awake_plan`: which terminal commands
 //! hold off idle sleep and when to look again),
 //! `cmux-bookmarks-core`'s optimistic bookmark tree (`bookmarks_apply`: the
@@ -115,6 +117,7 @@ mod tab_strip;
 pub mod typed;
 pub mod window_close_selection;
 mod window_rules;
+mod workspace_creation;
 use sidebar_mirror::Mirror;
 
 pub const ABI_VERSION: u32 = 1;
@@ -649,6 +652,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             }
             operation if window_rules::handles(operation) => {
                 window_rules::respond(operation, request)?
+            }
+            operation if workspace_creation::handles(operation) => {
+                workspace_creation::respond(operation, request)?
             }
             b"mobile_host" => cmux_mobile_host_core::respond(request).map_err(|_| ERR_INVALID)?,
             operation if tab_strip::handles(operation) => tab_strip::respond(operation, request)?,
