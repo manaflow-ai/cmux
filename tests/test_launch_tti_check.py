@@ -106,6 +106,22 @@ class InAppPathTests(unittest.TestCase):
         [why] = tti.round_failures("terminal", "in_app", row, marks, 30)
         self.assertIn("probe_no_key_window", why)
 
+    def test_in_app_chat_round_without_the_echo_fails_nothing(self):
+        # The app's one key goes in before a chat page is up: an in_app chat round measures nothing, fails nothing.
+        row = {"post_access": False, "input_ms": None}
+        self.assertEqual([], tti.round_failures("chat", "in_app", row, {"agent_pane.painted": 900.0}, 30))
+        # The posted path's keys time the chat: a build with the mark that never echoes fails the round.
+        self.assertTrue(tti.round_failures("chat", "posted", {"post_access": True, "input_ms": None}, {}, 30))
+
+    def test_measured_launches_may_take_the_front(self):
+        # fresh_home_launch_smoke's own launch runs with CMUX_NEXT_NO_ACTIVATE=1, under which no window ever takes
+        # key: every launch the run times runs without it, and nothing else in the environment changes.
+        env = {"HOME": "/h", tti.NO_ACTIVATE_VARIABLE: "1", "CMUX_NEXT_SOCKET_PATH": "/s"}
+        out = tti.interactive_env(env)
+        self.assertEqual({"HOME": "/h", "CMUX_NEXT_SOCKET_PATH": "/s"}, out)
+        self.assertEqual("1", env[tti.NO_ACTIVATE_VARIABLE])
+        self.assertNotIn(tti.NO_ACTIVATE_VARIABLE, tti.launch_env(out, Path("/p.csv"), "in_app"))
+
     def test_probe_that_took_the_front_is_measured_and_named(self):
         # A background runner's launch is never key at the first frame: the probe took the front as a Dock launch.
         for mark, focus in (("terminal.probe_app_inactive", "app_inactive"),
@@ -142,6 +158,43 @@ class InputMarkTests(unittest.TestCase):
             self.assertFalse(tti.bundle_has_input_mark(app))
             (pages / "composer-chunk.js").write_bytes(b"x.post(\"pane.inputEchoed\")")
             self.assertTrue(tti.bundle_has_input_mark(app))
+
+
+class KeptMarksTests(unittest.TestCase):
+    """A round's line carries the steps between the first frame and the chat drawn, so a late stage can be split."""
+
+    def test_chromium_page_and_chat_marks_are_kept_beside_the_named_ones(self):
+        marks = {"main_start": 50.0, "first_window_frame_committed": 900.0, "cef.initialize_start": 910.0,
+                 "cef.step.framework_mapped": 905.0, "cef.ready": 1200.0, "chromium_page.browser_created": 1300.0,
+                 "first_page.navigation_start": 1320.0, "agent_pane.handshake_start": 1400.0,
+                 "agent_pane.painted": 1600.0, "daemon_connected": 700.0, "unrelated.mark": 5.0}
+        kept = tti.kept_marks(marks)
+        self.assertNotIn("unrelated.mark", kept)
+        for name in set(marks) - {"unrelated.mark"}:
+            self.assertEqual(marks[name], kept[name])
+
+    def test_the_daemon_steps_are_kept(self):
+        marks = {"main_start": 50.0, "daemon.prepare_start": 60.0, "daemon.reused": 80.0,
+                 "daemon.socket_connected": 90.0, "daemon_connected": 95.0}
+        kept = tti.kept_marks(marks)
+        for name in marks:
+            self.assertEqual(marks[name], kept[name])
+
+    def test_the_prefixed_marks_are_capped_in_launch_order_and_named_ones_always_fit(self):
+        marks = {f"cef.step.s{i:03d}": float(1000 - i) for i in range(tti.KEPT_MARKS_MAX + 30)}
+        marks.update({"main_start": 50.0, "agent_pane.painted": 1600.0})
+        kept = tti.kept_marks(marks)
+        self.assertEqual(tti.KEPT_MARKS_MAX, len(kept))
+        self.assertIn("main_start", kept)
+        self.assertIn("agent_pane.painted", kept)
+        # The earliest prefixed marks win the room left.
+        latest_kept = max(v for k, v in kept.items() if k.startswith("cef.step."))
+        dropped = [v for k, v in marks.items() if k.startswith("cef.step.") and k not in kept]
+        self.assertTrue(all(v >= latest_kept for v in dropped))
+
+    def test_load_reads_a_number_or_nothing(self):
+        value = tti.load_1m()
+        self.assertTrue(value is None or value >= 0)
 
 
 if __name__ == "__main__":

@@ -26,7 +26,7 @@ extern "C" {
 #endif
 
 /* Version of this ABI; bumped on every incompatible change. */
-#define CMUX_RD_FFI_ABI_VERSION 8u
+#define CMUX_RD_FFI_ABI_VERSION 9u
 
 /* Carriers. */
 #define CMUX_RD_CARRIER_DATAGRAM 0u
@@ -105,6 +105,7 @@ typedef struct CmuxRdStats {
     uint64_t frames_lost;
     uint32_t acked_frame;
     bool need_recovery;
+    uint64_t frames_skipped; /* frames a newer keyframe replaced on the ready queue (ABI 9) */
 } CmuxRdStats;
 
 /* One viewer input event. Fields the kind does not use are ignored. */
@@ -125,8 +126,11 @@ typedef struct CmuxRdInputEvent {
 
 uint32_t cmux_rd_ffi_abi_version(void);
 
-/* Returns NULL for an unknown carrier. deadline_us: how long a frame may wait
-   for missing shards; nack_after_us: how long before its gaps are NACKed. */
+/* Returns NULL for an unknown carrier. deadline_us: the longest a frame may
+   wait for missing shards (each is NACKed and retried every RTT + 10 ms, at most 50 ms,
+   and the frame waits two RTT + 10 ms windows after the request, the RTT measured by the
+   receiver; deadline_us caps that wait);
+   nack_after_us: how long before its gaps are NACKed. */
 CmuxRdReceiver *cmux_rd_receiver_new(uint32_t carrier, uint64_t deadline_us, uint64_t nack_after_us);
 void cmux_rd_receiver_free(CmuxRdReceiver *receiver);
 
@@ -529,6 +533,28 @@ int32_t cmux_rd_line_reader_push(CmuxRdLineReader *reader, const uint8_t *bytes,
 /* Takes the next ready line into *out: 1 when it wrote one, CMUX_RD_OK (0)
    when none is ready. */
 int32_t cmux_rd_line_reader_next(CmuxRdLineReader *reader, CmuxRdLine *out);
+
+/* ---- Viewer rules (CmuxNextRemoteView) ----
+   The remote desktop viewer's rules and state (cmux_rd_ffi::view): keyboard
+   routing, held keys and HID usages, the system shortcut tap, scroll
+   accumulation, text chunking, the pane state reducer and the latency hold,
+   and the remote-view tab record (URL) and open policy. A request is JSON
+   {"op": "...", ...camelCase fields}; ops are keyboard.*, hid.*, keys.*,
+   mouse.button, shortcuts.*, scroll.add, text.events, pane.reduce, pane.view,
+   latency.sample and tab.*. Every op is pure: state in, next state out.
+   Modifiers are NSEvent.ModifierFlags raw bits, phases NSEvent.Phase bits,
+   instants nanoseconds (int64). The result bytes stay valid until the next
+   call on the same handle. No I/O, no threads; a panic poisons the handle. */
+typedef struct CmuxRdView CmuxRdView;
+
+/* NULL only when allocation fails. */
+CmuxRdView *cmux_rd_view_new(void);
+/* NULL is ignored. */
+void cmux_rd_view_free(CmuxRdView *view);
+/* Runs one request. CMUX_RD_OK with *result and *result_len set (JSON);
+   CMUX_RD_ERR_INVALID when json is not a request. */
+int32_t cmux_rd_view_call(CmuxRdView *view, const uint8_t *json, size_t json_len,
+                          const uint8_t **result, size_t *result_len);
 
 #ifdef __cplusplus
 }

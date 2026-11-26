@@ -35,9 +35,11 @@ import sys
 # marked.min.js is inlined into the webviews app's agent-session.html; the design, type and motion
 # scales feed gen-design-scale.mjs (its Tailwind theme and token list, build output gen-strings.mjs
 # makes: motion-scale.json is imported by no source, so a change to it left this key unchanged, and a
-# sparse checkout given these inputs had no file for it, 2026-11-22).
+# sparse checkout given these inputs had no file for it, 2026-11-22); the acpmux protocol IR is what
+# webviews' postinstall and gen-strings.mjs generate the pane's protocol types from (#50853).
 INPUTS = [
     "webviews",
+    "cmux-tui/crates/acpmux/spec/acpmux-protocol.json",
     "schemas/settings",
     "schemas/design-scale/design-scale.json",
     "schemas/type-scale/type-scale.json",
@@ -59,7 +61,9 @@ INPUTS = [
 # narrows it to the catalogs gen-strings.mjs names (gen_strings_catalogs below).
 CATALOG_GLOB = ":(glob)Packages/macOS/CmuxNext/Sources/**/*.xcstrings"
 GEN_STRINGS = "webviews/scripts/pages/gen-strings.mjs"
-GEN_STRINGS_FILE = re.compile(r"""\bfile:\s*["'`]([^"'`]+\.xcstrings)["'`]""")
+# A catalog is a file or a one-file-per-key directory (`<Table>.xcstrings.d`, scripts/cmux-next/string_catalogs.py);
+# a directory is a pathspec of every file in it.
+GEN_STRINGS_FILE = re.compile(r"""\bfile:\s*["'`]([^"'`]+\.xcstrings(?:\.d)?)["'`]""")
 GEN_STRINGS_CONST = re.compile(r"""^const (\w+) = ["']([^"'$]+)["'];""", re.M)
 
 # What the builders write (build-web-bundles.sh).

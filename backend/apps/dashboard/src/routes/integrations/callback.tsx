@@ -1,10 +1,13 @@
-import { createFileRoute, Link, redirect } from "@tanstack/react-router"
+import { createFileRoute, Link } from "@tanstack/react-router"
 import { useEffect, useRef } from "react"
 import { useLoad } from "../../lib/hooks"
-import { integrationAppHandoff, integrationCompletionRequest, integrationConfigureLink, integrationReturnLink } from "../../lib/integration-callback"
+import { AUTHORIZE_REFUSED, integrationAppHandoff, integrationAppHandoffResponse, integrationAuthorizeBounce, integrationCompletionRequest, integrationConfigureLink, integrationReturnLink, integrationSavedOnGitHub, integrationTeamHint } from "../../lib/integration-callback"
 import { callbackSearch } from "../../lib/search"
-import { completeIntegration } from "../../lib/server"
+import { apiUrl, completeIntegration } from "../../lib/server"
 import { setSignedIn, useSignedIn } from "../../lib/session"
+import { integrationCallbackReturnPath, saveReturnPath } from "../../lib/return-path"
+import { CANCELLED_MESSAGE, integrationMessage, OWNER_REQUEST_MESSAGE, type IntegrationMessage } from "../../lib/integration-messages"
+import { IntegrationNotice } from "./-notice"
 import { INTEGRATION_RETURN_TEAM_KEY, integrationReturnPath, integrationReturnTeamKey } from "./-return"
 
 /**
@@ -16,9 +19,20 @@ import { INTEGRATION_RETURN_TEAM_KEY, integrationReturnPath, integrationReturnTe
  */
 export const Route = createFileRoute("/integrations/callback")({
   validateSearch: callbackSearch,
+  // The provider's redirect is a full page load: before the router runs, the server sends a GitHub redirect that has
+  // no code on to GitHub's authorize page, and answers an app handoff with a 302.
+  server: {
+    handlers: {
+      GET: ({ request, next }) =>
+        integrationAuthorizeBounce(request.url, { api: apiUrl, host: request.headers.get("x-forwarded-host") ?? request.headers.get("host") }) ??
+        integrationAppHandoffResponse(request.url) ??
+        next(),
+    },
+  },
+  // Reached in the browser only (a client navigation here): the router refuses to redirect to an app scheme.
   beforeLoad: ({ search }) => {
     const handoff = integrationAppHandoff(search)
-    if (handoff) throw redirect({ href: handoff, reloadDocument: true })
+    if (handoff && typeof window !== "undefined") window.location.replace(handoff)
   },
   component: Callback
 })
@@ -29,7 +43,7 @@ function Callback() {
   const redirectScheduled = useRef(false)
   // A connect the app started is the app's to finish (beforeLoad sent the browser there); never finish it here too.
   const handoff = integrationAppHandoff(search)
-  const result = useLoad<{ ok: boolean; message: string; returnTo?: string; configure?: string; development?: boolean }>(signedIn && search.state && !search.error && !handoff ? `complete:${search.state}` : null, async () => {
+  const result = useLoad<{ ok: boolean; message: string; failure?: IntegrationMessage; returnTo?: string; configure?: string; development?: boolean }>(signedIn && search.state && !search.error && !handoff ? `complete:${search.state}` : null, async () => {
     // The key is derived from the state, so a reload of this page replays instead of exchanging the code twice.
     const r = await completeIntegration({ data: integrationCompletionRequest(search.state!, search) })
     if (r.status === 401) setSignedIn(false)
@@ -43,7 +57,9 @@ function Callback() {
     const configure = r.body.ok ? integrationConfigureLink(r.body.value) : undefined
     if (r.body.ok && configure) return { ok: true, message: "Connected, but this repository is not in the installation yet. Opening GitHub to add it.", configure, ...(returnTo ? { returnTo } : {}) }
     if (r.body.ok) return { ok: true, message: returnTo ? "Connected. Opening cmux." : "Connected.", ...(returnTo ? { returnTo } : {}) }
-    return { ok: false, message: `${r.body.error?.code ?? r.status}: ${r.body.error?.message ?? "failed"}` }
+    // An organization member's install: GitHub sent it to the organization's owners; waiting, not failed.
+    const failure = search.setup_action === "request" ? OWNER_REQUEST_MESSAGE : integrationMessage(r.body.error, r.status)
+    return { ok: false, message: failure.text, failure }
   })
   useEffect(() => {
     if (!result.data?.ok || result.data.development || redirectScheduled.current) return
@@ -53,7 +69,9 @@ function Callback() {
     let team: string | null = null
     try {
       const key = integrationReturnTeamKey(search.state)
-      team = sessionStorage.getItem(key)
+      // A connect that went on through GitHub's authorize page comes back with a new state, so the key misses:
+      // the state's own team (the one the connection was started in) is the same answer.
+      team = sessionStorage.getItem(key) ?? integrationTeamHint(search.state) ?? null
       sessionStorage.removeItem(key)
       // Clean up the pre-keyed value left by older dashboard builds.
       if (key !== INTEGRATION_RETURN_TEAM_KEY) sessionStorage.removeItem(INTEGRATION_RETURN_TEAM_KEY)
@@ -69,26 +87,53 @@ function Callback() {
     const timer = window.setTimeout(() => window.location.replace(integrationReturnPath(team)), 350)
     return () => window.clearTimeout(timer)
   }, [result.data?.ok])
+  // Any provider's connect (GitHub, Linear, Slack) the app started: the app finishes it. In the cmux browser the app
+  // takes the link without asking and closes this tab; elsewhere this page stays as the fallback.
   if (handoff)
     return (
       <p>
-        <a href={handoff}>Open cmux</a> to finish connecting GitHub.
+        Finishing the connection in cmux. If cmux didn&rsquo;t open, <a href={handoff}>open cmux</a>. You can close this page after.
       </p>
     )
-  if (signedIn === false)
+  // Said before any sign-in prompt: a connect the app started has no session here, and signing in would not help.
+  if (search.error === AUTHORIZE_REFUSED)
+    return (
+      <p className="error">
+        This connection link expired. <Link to="/integrations">Start the connection again</Link>.
+      </p>
+    )
+  // Saved on GitHub's own installation page: no connect to finish, so no sign-in to ask for (#55104).
+  if (integrationSavedOnGitHub(search))
     return (
       <p>
-        <Link to="/">Sign in</Link> as the person who started this connection, then open the link again.
+        GitHub saved the change. Go back to cmux: it picks up the new access by itself, and you can close this page.
       </p>
     )
+  // Signed out: sign-in comes back here and finishes the connection, no second trip through the provider.
+  if (signedIn === false) {
+    const back = integrationCallbackReturnPath(search)
+    return (
+      <p>
+        <a
+          href="/"
+          onClick={() => {
+            if (back) saveReturnPath(back)
+          }}
+        >
+          Sign in to cmux
+        </a>{" "}
+        as the person who started this connection. cmux finishes connecting after you sign in.
+      </p>
+    )
+  }
   return (
     <>
       <h2>Connecting</h2>
-      {search.error ? <p className="error">The provider reported: {search.error}</p> : null}
+      {search.error ? <IntegrationNotice message={CANCELLED_MESSAGE} /> : null}
       {!search.state ? <p className="error">This page needs the provider's redirect (no state).</p> : null}
       {result.loading ? <p className="muted">Finishing the connection</p> : null}
       {result.error ? <p className="error">{result.error}</p> : null}
-      {result.data ? <p className={result.data.ok ? undefined : "error"}>{result.data.message}</p> : null}
+      {result.data?.failure ? <IntegrationNotice message={result.data.failure} /> : result.data ? <p>{result.data.message}</p> : null}
       {result.data?.configure ? (
         <p>
           <a href={result.data.configure}>Add the repository on GitHub</a>

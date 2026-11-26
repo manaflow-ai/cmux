@@ -26,7 +26,11 @@
 //!    newest build says which builds contain it, and the oldest of those that
 //!    is not older than the app's own build is installed. An app whose build
 //!    already contains the commit is left alone.
-//! 3. Otherwise it says which build is missing and exits 1: it never builds.
+//! 3. **Whole app in place.** No feed build holds the commit (a PR head, a branch), but CI published its
+//!    Release app (`cmux-tui/<sha>/mac-app.json`, reload-build with `release` and `publish`): it replaces
+//!    this app under the app's own identity, every session kept, and `undo` puts the app back
+//!    (try_cmd/app_build.rs). It comes before a daemon-only live plan: it brings the Swift that one leaves out.
+//! 4. Otherwise it says which build is missing and exits 1: it never builds.
 //!
 //! Every run writes a receipt (`last.json`, `history.jsonl`) with its phases
 //! and steps; `undo` puts back what the last try replaced, `status` prints it.
@@ -50,7 +54,9 @@ use crate::localization::TryMessages;
 use helper::{Prepared, Signing, WantedHelper};
 use live::{Change, Daemon, LivePayload, Phases, Store, Wanted};
 
+mod app_build;
 mod copy;
+pub(in crate::cli) mod cu_upgrade;
 mod daemon_updates;
 mod helper;
 mod live;
@@ -94,6 +100,10 @@ pub(crate) enum Command {
         dry_run: bool,
     },
     Status,
+    /// `cmux app try __swap SPEC`: the detached half of an in-place app try or undo (app_build.rs).
+    Swap {
+        spec: PathBuf,
+    },
 }
 
 fn messages() -> &'static TryMessages {
@@ -177,6 +187,9 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
             }
             Ok(Command::Status)
         }
+        [verb, spec] if verb == app_build::SWAP_VERB && !dry_run && app.is_none() => {
+            Ok(Command::Swap { spec: PathBuf::from(spec) })
+        }
         [verb] if verb == "undo" => {
             if app.is_some() {
                 return Err(unexpected("--app"));
@@ -219,6 +232,9 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
     if let Command::Link { link, dry_run } = command {
         return share::open_link(global, link, *dry_run);
     }
+    if let Command::Swap { spec } = command {
+        return app_build::run_swap(spec);
+    }
     // `status` and `undo` read the store of the app this CLI belongs to.
     let (app, _) = find_app(global, None);
     let Some(store) = store_for(app.as_deref()) else {
@@ -231,6 +247,7 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
         | Command::Channel { .. }
         | Command::Copy { .. }
         | Command::Link { .. }
+        | Command::Swap { .. }
         | Command::Status => status(global, &store),
     }
 }
@@ -288,6 +305,10 @@ enum Plan {
         from: String,
         nearest: bool,
     },
+    /// CI's Release app of the commit, swapped in place of the app (app_build.rs).
+    App {
+        payload: Box<app_build::AppPayload>,
+    },
     /// The app's own build already contains the commit.
     Have {
         build: Value,
@@ -302,6 +323,7 @@ impl Plan {
         match self {
             Self::Live { .. } => "live",
             Self::Full { .. } => "full",
+            Self::App { .. } => "app",
             Self::Have { .. } => "current",
             Self::None { .. } => "none",
         }
@@ -542,6 +564,12 @@ fn plan_json(plan: &Plan, commit: &str, app: &Path, app_commit: Option<&str>) ->
             set(&mut value, "from_build", json!(from));
             set(&mut value, "nearest", json!(nearest));
         }
+        Plan::App { payload } => {
+            set(&mut value, "zip", json!(payload.app.url));
+            set(&mut value, "sha256", json!(payload.app.sha256));
+            set(&mut value, "size", json!(payload.app.size));
+            set(&mut value, "run_id", json!(payload.run_id));
+        }
         Plan::Have { build } => {
             set(&mut value, "build", build.clone());
         }
@@ -580,6 +608,12 @@ fn plan_human(plan: &Plan, commit: &str, app: &Path, app_commit: Option<&str>) -
                 .replace("{commit}", short(commit))
                 .replace("{from}", from)
         }
+        Plan::App { payload } => messages
+            .plan_app
+            .replace("{commit}", short(commit))
+            .replace("{run}", &payload.run_id)
+            .replace("{app}", &app.to_string_lossy())
+            .replace("{app_commit}", short(app_commit.unwrap_or_default())),
         Plan::Have { build } => messages
             .have
             .replace("{build}", build.get_str("build").unwrap_or_default())
@@ -852,6 +886,25 @@ fn run_try(
         }
         phases.add("plan", t);
     }
+    // No feed build holds it: CI's Release app of the commit, whole, in place of a daemon-only plan.
+    if !live_only && matches!(plan, Plan::None { .. } | Plan::Live { scope: Scope::Daemon(_), .. })
+    {
+        let t = Instant::now();
+        match app_build::read(&commit, &base) {
+            Ok(Some(payload)) => plan = Plan::App { payload: Box::new(payload) },
+            Ok(None) => {
+                if let Plan::None { why } = &mut plan {
+                    why.push(messages.why_no_app_build.replace("{commit}", short(&commit)));
+                }
+            }
+            Err(error) => {
+                if let Plan::None { why } = &mut plan {
+                    why.push(messages.why_app_build_refused.replace("{error}", &error));
+                }
+            }
+        }
+        phases.add("plan", t);
+    }
     let planned = plan_json(&plan, &commit, &app, app_commit.as_deref());
     let mut receipt = json!({
         "schema": 1, "action": "try", "target": target, "commit": commit,
@@ -901,6 +954,78 @@ fn run_try(
     };
     match plan {
         Plan::None { .. } | Plan::Have { .. } => 1,
+        Plan::App { payload } => {
+            if global.output == OutputMode::Human {
+                println!(
+                    "{}",
+                    plan_human(
+                        &Plan::App { payload: payload.clone() },
+                        &commit,
+                        &app,
+                        app_commit.as_deref()
+                    )
+                );
+            }
+            let staged = app_build::stage(store, &payload, &base, &app, &mut phases);
+            let staged = match staged {
+                Ok(staged) => staged,
+                Err(error) => {
+                    set(&mut receipt, "ok", json!(false));
+                    set(&mut receipt, "error", json!(error));
+                    set(&mut receipt, "phases", phases.json());
+                    let _ = store.append_history(&receipt);
+                    let text = messages
+                        .failed
+                        .replace("{commit}", short(&commit))
+                        .replace("{error}", &error);
+                    return failure("try.failed", &text, global.output);
+                }
+            };
+            let Some(socket) = app_socket(stream.as_mut()) else {
+                return failure(
+                    "app.transport",
+                    "no app answers on its control socket",
+                    global.output,
+                );
+            };
+            set(&mut receipt, "socket", json!(socket.to_string_lossy()));
+            let original = app_build::original_path(store, &app);
+            set(&mut receipt, "original", json!(original.to_string_lossy()));
+            set(&mut receipt, "run_id", json!(payload.run_id));
+            set(&mut receipt, "sha256", json!(payload.app.sha256));
+            set(&mut receipt, "phases", phases.json());
+            set(&mut receipt, "stage_secs", json!(started.elapsed().as_secs_f64()));
+            let spec = app_build::Spec {
+                mode: "try".to_owned(),
+                app: app.clone(),
+                original,
+                staged: Some(staged.app),
+                stage_root: Some(staged.root),
+                replaces_try: staged.replaces_try,
+                store: store.root.clone(),
+                socket,
+                receipt: receipt.clone(),
+            };
+            if let Err(error) = app_build::spawn(&spec) {
+                set(&mut receipt, "ok", json!(false));
+                set(&mut receipt, "error", json!(error));
+                let _ = store.append_history(&receipt);
+                return failure("try.failed", &error, global.output);
+            }
+            let text = messages
+                .app_swapping
+                .replace("{commit}", short(&commit))
+                .replace("{seconds}", &format!("{:.0}", started.elapsed().as_secs_f64()))
+                .replace("{app}", &app.to_string_lossy());
+            if global.output == OutputMode::Human {
+                println!("{text}");
+                return 0;
+            }
+            let mut value = planned;
+            set(&mut value, "swapping", json!(true));
+            set(&mut value, "message", json!(text));
+            super::super::wire::print_local_success(&value, global.output)
+        }
         Plan::Full { build, from, nearest } => {
             set(&mut receipt, "build", build.get("build").cloned().unwrap_or(Value::Null));
             set(&mut receipt, "from_build", json!(from));
@@ -941,22 +1066,56 @@ fn run_try(
         }
         Plan::Live { files, helper, .. } => {
             let daemon = app_daemon(&app);
-            let result = try_live(
-                &app,
-                &files,
-                helper.as_ref(),
-                store,
-                &daemon,
-                &helper::SystemSigning,
-                &mut phases,
-            );
+            // The nightly-live channel into a Team-signed app (its own bin/cmux runs this, from the
+            // daemon updater) takes the tree's Team-signed set and checks each file's Team ID.
+            let team = live_only && cmux_link::app_caller::signed_app_build();
+            let result =
+                if team { team_files(files, &live, &base) } else { Ok(files) }.and_then(|files| {
+                    try_live_checked(
+                        &app,
+                        &files,
+                        helper.as_ref(),
+                        store,
+                        &daemon,
+                        &helper::SystemSigning,
+                        &mut phases,
+                        &|path| if team { same_team(path) } else { Ok(()) },
+                    )
+                });
             finish(global, store, receipt, result, phases, started, &commit, &app, changed_out)
         }
     }
 }
 
+/// `files` from the tree's Team-signed set the live file names (`tree_key`), else why not.
+fn team_files(files: Vec<Wanted>, live: &Live, base: &str) -> Result<Vec<Wanted>, String> {
+    let Live::Found(payload) = live else {
+        return Err("the live file is missing".to_owned());
+    };
+    let key = live::tree_key(payload.tree_key.as_deref()).ok_or(
+        "this Team-signed app takes only a Team-signed build, and the live file names no tree",
+    )?;
+    let body = live::get_small(&live::team_signed_url(base, key), live::LIVE_MAX_BYTES)?
+        .ok_or_else(|| format!("tree {key} has no Team-signed set yet"))?;
+    let completion: Value = serde_json::from_slice(&body)
+        .map_err(|error| format!("the Team-signed set of tree {key}: {error}"))?;
+    live::team_signed(files, key, &completion, base)
+}
+
+/// Refuses a file not signed with this build's Team ID.
+fn same_team(path: &Path) -> Result<(), String> {
+    match cmux_link::app_caller::same_team_as_this_build(path) {
+        Ok(cmux_link::app_caller::TeamMatch::SameTeam) => Ok(()),
+        Ok(cmux_link::app_caller::TeamMatch::UnsignedBuild) => {
+            Err(format!("{}: this build has no Team ID to check it against", path.display()))
+        }
+        Err(error) => Err(format!("{}: not signed by this app's team ({error})", path.display())),
+    }
+}
+
 /// Fetches and checks every file and the Screen Sharing helper, then swaps them
 /// in: nothing in the app changes before every byte is here and checked.
+#[cfg(test)]
 fn try_live(
     app: &Path,
     files: &[Wanted],
@@ -966,10 +1125,28 @@ fn try_live(
     signing: &dyn Signing,
     phases: &mut Phases,
 ) -> Result<live::Applied, String> {
+    try_live_checked(app, files, helper, store, daemon, signing, phases, &|_| Ok(()))
+}
+
+/// As [`try_live`], every fetched file passing `check` (the Team ID) before any is swapped in.
+#[allow(clippy::too_many_arguments)]
+fn try_live_checked(
+    app: &Path,
+    files: &[Wanted],
+    helper: Option<&WantedHelper>,
+    store: &Store,
+    daemon: &dyn Daemon,
+    signing: &dyn Signing,
+    phases: &mut Phases,
+    check: &dyn Fn(&Path) -> Result<(), String>,
+) -> Result<live::Applied, String> {
     let t = Instant::now();
     let mut changes = Vec::new();
     for wanted in files {
         let to = store.fetch(wanted)?;
+        if let Some(path) = &to {
+            check(path)?;
+        }
         let sha = wanted.binary.as_ref().map(|binary| binary.sha256.clone());
         changes.push(Change { file: wanted.file.clone(), to: to.zip(sha), expect: None });
     }
@@ -1176,6 +1353,9 @@ fn undo(global: &GlobalArgs, store: &Store, dry_run: bool) -> i32 {
     };
     let commit = last.get_str("commit").unwrap_or_default().to_owned();
     let app = PathBuf::from(last.get_str("app").unwrap_or_default());
+    if last.get_str("path") == Some("app") {
+        return undo_app(global, store, &last, &commit, &app, dry_run);
+    }
     if last.get_str("path") == Some("full") {
         let from = last.get_str("from_build").unwrap_or_default().to_owned();
         let text = messages.undo_full.replace("{build}", &from);
@@ -1252,6 +1432,93 @@ fn undo(global: &GlobalArgs, store: &Store, dry_run: bool) -> i32 {
     let result = apply_with_helper(&app, &changes, &helper, store, &daemon, &mut phases);
     let receipt = json!({ "schema": 1, "action": "undo", "path": "live", "commit": commit, "app": app.to_string_lossy(), "at": now() });
     finish(global, store, receipt, result, phases, started, &commit, &app, None)
+}
+
+/// The control socket the app answering `stream` listens on (`system.identify`'s `socket_path`).
+fn app_socket(stream: Option<&mut std::os::unix::net::UnixStream>) -> Option<PathBuf> {
+    match super::exchange(stream?, "system.identify", json!({}), super::READ_TIMEOUT) {
+        Ok(Ok(value)) => value.get_nonempty_str("socket_path").map(PathBuf::from),
+        _ => None,
+    }
+}
+
+/// Undoes an in-place app try: the kept original goes back the way the try went in (a detached swap), unless
+/// an update already replaced the try.
+fn undo_app(
+    global: &GlobalArgs,
+    store: &Store,
+    last: &Value,
+    commit: &str,
+    app: &Path,
+    dry_run: bool,
+) -> i32 {
+    let messages = messages();
+    let original =
+        app_build::receipt_original(last).unwrap_or_else(|| app_build::original_path(store, app));
+    if !app_build::is_try(app) || !original.is_dir() {
+        let text = messages
+            .undo_app_updated
+            .replace("{app}", &app.to_string_lossy())
+            .replace("{commit}", short(commit));
+        if !dry_run {
+            let _lock = store.lock();
+            let _ = std::fs::remove_dir_all(&original);
+            let receipt = json!({ "schema": 1, "action": "undo", "path": "app", "commit": commit, "app": app.to_string_lossy(), "at": now(), "ok": true, "note": text });
+            let _ = store.record(&receipt);
+        }
+        if global.output == OutputMode::Human {
+            println!("{text}");
+            return 0;
+        }
+        return super::super::wire::print_local_success(
+            &json!({ "path": "app", "updated": true, "message": text }),
+            global.output,
+        );
+    }
+    let text = messages
+        .undo_app
+        .replace("{original}", &original.to_string_lossy())
+        .replace("{app}", &app.to_string_lossy());
+    if global.output == OutputMode::Human {
+        println!("{text}");
+    }
+    if dry_run {
+        if global.output == OutputMode::Human {
+            println!("{}", messages.dry_run);
+            return 0;
+        }
+        return super::super::wire::print_local_success(
+            &json!({ "path": "app", "app": app.to_string_lossy(), "original": original.to_string_lossy() }),
+            global.output,
+        );
+    }
+    let socket = super::connect_command(global)
+        .ok()
+        .and_then(|mut stream| app_socket(Some(&mut stream)))
+        .or_else(|| last.get_nonempty_str("socket").map(PathBuf::from));
+    let Some(socket) = socket else {
+        return failure("app.transport", "no app answers on its control socket", global.output);
+    };
+    let receipt = json!({ "schema": 1, "action": "undo", "path": "app", "commit": commit, "app": app.to_string_lossy(), "original": original.to_string_lossy(), "socket": socket.to_string_lossy(), "at": now() });
+    let spec = app_build::Spec {
+        mode: "undo".to_owned(),
+        app: app.to_path_buf(),
+        original,
+        staged: None,
+        stage_root: None,
+        replaces_try: false,
+        store: store.root.clone(),
+        socket,
+        receipt,
+    };
+    match app_build::spawn(&spec) {
+        Ok(()) if global.output == OutputMode::Human => 0,
+        Ok(()) => super::super::wire::print_local_success(
+            &json!({ "path": "app", "swapping": true, "message": text }),
+            global.output,
+        ),
+        Err(error) => failure("try.failed", &error, global.output),
+    }
 }
 
 /// The helper swap that puts back what the try `last` replaced. A helper that cannot go back

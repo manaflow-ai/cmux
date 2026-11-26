@@ -1,0 +1,23 @@
+/* A light web coding agent's chat: near-black prose on white, gray activity lines, your prompt in a #f1f1f1 bubble,
+   a white composer with a hairline #e5e5e5 edge. Paint only: no size or spacing changes, so nothing moves when this
+   applies or comes off. */
+:root {
+  --cv-text: #171717;
+  --cv-text-muted: #707070;
+  --cv-activity-text: #707070;
+  --cv-bubble: #f1f1f1;
+  --cv-link: #0b62d6;
+  --cv-code-bg: #f4f4f4;
+}
+:root .acpmux-shell,
+:root[data-borders] .acpmux-shell {
+  --acpmux-composer-bg: #ffffff;
+  --acpmux-composer-edge: #e5e5e5;
+  --acpmux-composer-hover: #fafafa;
+  --acpmux-composer-placeholder: #8f8f8f;
+  --acpmux-composer-dim: #8f8f8f;
+}
+:root .acpmux-composer-box {
+  --acpmux-composer-radius: 12px;
+  --acpmux-card-ring: inset 0 0 0 1px var(--acpmux-composer-edge);
+}

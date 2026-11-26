@@ -88,8 +88,46 @@ export function graduate(rows: readonly SummaryRow[], previous: Graduated, minPe
 }
 
 /**
+ * The commands a graduated apt name promises, run after the install: a name listed here whose command does not run
+ * fails the bake, so an image never ships without a tool people were told it has. ffmpeg, imagemagick and
+ * poppler-utils were added by hand (Leo, 2026-11-25: a Cloud chat on a folder of MP4s answered "ffprobe isn't
+ * installed"); the rest are the small everyday tools agents reach for.
+ */
+export const GRADUATED_APT_CHECKS: Readonly<Record<string, string>> = {
+  ffmpeg: "ffmpeg -hide_banner -version >/dev/null && ffprobe -hide_banner -version >/dev/null",
+  imagemagick: "convert -version >/dev/null && identify -version >/dev/null",
+  "poppler-utils": "pdfinfo -v 2>&1 | grep -qi poppler && command -v pdftotext >/dev/null && command -v pdftoppm >/dev/null",
+  sqlite3: "sqlite3 --version >/dev/null",
+  "git-lfs": "git lfs version >/dev/null",
+  "fd-find": "fd --version >/dev/null",
+  unzip: "unzip -v >/dev/null",
+  zip: "zip -v >/dev/null",
+  file: "file --version >/dev/null",
+  tree: "tree --version >/dev/null",
+  bc: "echo 1+1 | bc >/dev/null",
+};
+
+/**
+ * Wiring a name needs after its install: Debian names fd `fdfind`, and git-lfs's filters go in the system gitconfig
+ * so every clone, the work user's included, fetches LFS objects.
+ */
+const GRADUATED_APT_AFTER: Readonly<Record<string, string>> = {
+  "fd-find": "{ command -v fd >/dev/null || ln -sf \"$(command -v fdfind)\" /usr/local/bin/fd; }",
+  "git-lfs": "git lfs install --system --skip-repo >/dev/null",
+};
+
+/** The checks of the graduated apt names that have one: each prints its result, and any failure exits 1. */
+export function graduatedCheckCommand(g: Graduated): string {
+  const names = g.apt.filter((n) => n in GRADUATED_APT_CHECKS);
+  if (names.length === 0) return "";
+  const lines = names.map((n) => `if { ${GRADUATED_APT_CHECKS[n]}; } 2>/dev/null; then echo "graduated: check ${n} ok"; else echo "graduated: check ${n} FAILED"; bad=1; fi`);
+  return `bad=0; ${lines.join("; ")}; [ "$bad" = 0 ]`;
+}
+
+/**
  * The agents layer's install of the graduated names, as root, by name. A name the archive or registry no longer
- * has does not stop the bake: the batch retries one name at a time and a name that still fails is reported.
+ * has does not stop the bake: the batch retries one name at a time and a name that still fails is reported. A name
+ * with a check (GRADUATED_APT_CHECKS) must then run, or the command exits 1 and the bake stops.
  */
 export function graduatedInstallCommand(g: Graduated, aptUpdate: string): string {
   const parts: string[] = [];
@@ -98,11 +136,14 @@ export function graduatedInstallCommand(g: Graduated, aptUpdate: string): string
     parts.push(
       `${aptUpdate}; ${one} ${g.apt.join(" ")} >/tmp/graduated-apt.log 2>&1 || for n in ${g.apt.join(" ")}; do ${one} "$n" >>/tmp/graduated-apt.log 2>&1 || echo "graduated: apt $n did not install"; done`,
     );
+    for (const n of g.apt) if (GRADUATED_APT_AFTER[n]) parts.push(`${GRADUATED_APT_AFTER[n]} || echo "graduated: wiring ${n} failed"`);
   }
   if (g.npm.length > 0) {
     const one = "npm i -g --no-audit --no-fund --no-update-notifier";
     parts.push(`${one} ${g.npm.join(" ")} >/tmp/graduated-npm.log 2>&1 || for n in ${g.npm.join(" ")}; do ${one} "$n" >>/tmp/graduated-npm.log 2>&1 || echo "graduated: npm $n did not install"; done`);
   }
+  const check = graduatedCheckCommand(g);
+  if (check) parts.push(`{ ${check}; } || { tail -20 /tmp/graduated-apt.log; exit 1; }`);
   parts.push(`echo "graduated: ${g.apt.length} apt, ${g.npm.length} npm"`);
   return parts.join("; ");
 }

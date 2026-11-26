@@ -4,7 +4,7 @@
 
    Each token is the composer's own formula (agent-session/acpmux/composerStates.css and styles.css),
    built from the host's theme tokens (WebTheme: --cmux-surface-solid, --cmux-text, --cmux-hairline)
-   and the design scale (--ds-glass-popover-*, --grid-composer-box, --grid-composer-radius), so a
+   and the design scale (--ds-transient-web-tint, --grid-composer-box, --grid-composer-radius), so a
    theme, a see-through window, Borders: none and Reduce Transparency change both surfaces alike.
    test/updated-card-composer-material.test.ts fails when either side drifts from the other.
    A surface that wears it says `data-composer-material`, so the tokens resolve against the theme in
@@ -16,8 +16,9 @@
     color-mix(in srgb, var(--cmux-surface-solid, Canvas) 35%, var(--cmux-tone-light, #fff)),
     color-mix(in srgb, var(--cmux-text, CanvasText) 7%, var(--cmux-surface-solid, Canvas))
   );
-  /* The card's glass on an opaque window: the popover level's share of the surface. */
-  --composer-material-tint: color-mix(in srgb, var(--composer-material-solid) var(--ds-glass-popover-tint, 70%), transparent);
+  /* The card's glass: the composer's, at the popups' transient share (composerStates.css, ONE MATERIAL
+     FAMILY; 80% light, 72% dark) on an opaque window and over art alike. */
+  --composer-material-tint: color-mix(in srgb, var(--composer-material-solid) var(--ds-transient-web-tint, 80%), transparent);
   /* The edge (--acpmux-composer-edge): the text at 22% over the page under it, one device pixel,
      all four sides. Mixed toward the page (opaque on an opaque window, clear on a see-through one),
      never toward transparent, so on an opaque theme it is the composer's line, not a fainter one. */
@@ -39,8 +40,12 @@
   --composer-material-height: var(--grid-composer-box, 48px);
   --composer-material-radius: var(--grid-composer-radius, 12px);
 }
-/* Over art or a see-through window the composer is clearer: the level's art share. */
-:where(:root[data-cmux-see-through], :root[data-cmux-see-through] [data-composer-material]) {
+/* Previous glass (appearance.previousGlass) keeps the card's share from before: the popover level's,
+   its art share over art. */
+:where(:root[data-glass-levels="previous"], :root[data-glass-levels="previous"] [data-composer-material]) {
+  --composer-material-tint: color-mix(in srgb, var(--composer-material-solid) var(--ds-glass-popover-tint, 70%), transparent);
+}
+:where(:root[data-glass-levels="previous"][data-cmux-see-through], :root[data-glass-levels="previous"][data-cmux-see-through] [data-composer-material]) {
   --composer-material-tint: color-mix(in srgb, var(--composer-material-solid) var(--ds-glass-popover-art-tint, 50%), transparent);
 }
 :where(:root[data-borders="none"], :root[data-borders="none"] [data-composer-material]) {

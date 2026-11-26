@@ -388,9 +388,6 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/SettingsPageProvider+Backdrop.swift": {
   "synchronous file write or file-system change": 1
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/SettingsPageProvider.swift": {
-  "directory walk": 1
- },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/SettingsSharedLinks.swift": {
   "JSON / property-list encode": 2
  },
