@@ -104,6 +104,26 @@ struct SidebarAppTopRegionTests {
         window.close()
     }
 
+    /// Without the document (the bands draw the layout): the top band draws the app section.
+    @Test(arguments: [SidebarRegion.top, .middle])
+    func withoutTheDocumentTheBandDrawsTheAppSection(region: SidebarRegion) {
+        let model = SidebarModel()
+        model.layout = Self.projection(region: region, workspaces: []).layout
+        model.setSections(Self.raw([]))
+        let sidebar = SidebarView(model: model, design: DesignSettings.shared)
+        let provider = Provider()
+        sidebar.appSections = provider
+        sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 400, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView?.addSubview(sidebar)
+        sidebar.layoutSubtreeIfNeeded()
+        provider.view.deliver()
+        sidebar.layoutSubtreeIfNeeded()
+        Self.expectDrawn(sidebar, provider, "no document, \(region)")
+        window.close()
+    }
+
     /// The control r25 drew: the same section in the middle region.
     @Test(arguments: [[], ["ws-1", "ws-2"]])
     func aMiddleRegionAppSectionDrawsItsView(workspaces: [String]) {
