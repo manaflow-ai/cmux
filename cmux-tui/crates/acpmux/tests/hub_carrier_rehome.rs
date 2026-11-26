@@ -325,20 +325,18 @@ async fn hub_carrier_registers_on_and_dials_the_nearest_placed_relay() {
     let b_key = public(&key_b);
     until_serving(&b, &platform.route(), Duration::from_secs(15)).await;
 
-    // The first dial goes the platform's way while the placed relay is measured behind it; once
-    // measured, dials go over the placed relay.
+    // The first dial goes the platform's way while the placed relay is measured behind it (a
+    // probe of at most 1 s); A keeps that one circuit open, so later dials ride it.
     echo_once(&a, &b_key, Duration::from_secs(10)).await.expect("first echo");
-    let started = Instant::now();
-    while a.relay_of(&b_key).as_deref() != Some(placed.route().as_str()) {
-        assert!(started.elapsed() < Duration::from_secs(15), "A never dialed the placed relay");
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        echo_once(&a, &b_key, Duration::from_secs(10)).await.expect("echo while measuring");
-    }
+    assert_eq!(a.relay_of(&b_key).as_deref(), Some(platform.route().as_str()));
+    tokio::time::sleep(Duration::from_secs(2)).await;
 
-    // The platform's relay dies; B stays registered on it (one relay named, nothing re-homes),
-    // and the echo still comes over the placed relay.
+    // The platform's relay dies, and A's kept circuit with it. B stays registered on it (one
+    // relay named, nothing re-homes); A's next circuit goes over the measured placed relay.
     platform.kill();
-    echo_once(&a, &b_key, Duration::from_secs(10)).await.expect("echo over the placed relay");
+    let gap = first_echo(&a, &b_key, Duration::from_secs(15)).await;
+    let gap = gap.expect("no echo over the placed relay after the platform's relay died");
     assert_eq!(a.relay_of(&b_key).as_deref(), Some(placed.route().as_str()));
+    eprintln!("placed relay: platform relay kill to first echo {} ms", gap.as_millis());
     assert_eq!(b.stats().rehomes.load(Ordering::Relaxed), 0);
 }
