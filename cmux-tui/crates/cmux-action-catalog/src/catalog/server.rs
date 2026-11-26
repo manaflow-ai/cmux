@@ -31,6 +31,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("devOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action server-stop-serving",
         is_debug_only: true,
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
