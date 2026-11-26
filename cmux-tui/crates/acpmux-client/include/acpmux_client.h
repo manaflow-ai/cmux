@@ -223,8 +223,9 @@ int32_t acpmux_client_chat_blob(void *handle, const uint8_t *request, size_t req
 
 /*
  Reads remembered row heights from `{ "sid", "rows": [...] }` and returns a matching
- `rows` array. Each result carries `height: null` when the exact row revision, view signature,
- and width have not been measured yet.
+ `rows` array. Each result carries `height: null` when the exact edition, row revision,
+ view signature, and width have not been measured yet. Every row must include the current
+ chat window's `edition`; a batch before the first window or with a stale edition is rejected.
 
  # Safety
  `handle`, `request`, and `out` satisfy the pointer and length contract for the duration of
@@ -238,6 +239,8 @@ int32_t acpmux_client_row_heights_read(void *handle,
 /*
  Stores measured row heights from `{ "sid", "entries": [{ ..., "height" }] }`.
  Heights are bounded CSS-pixel values and the cache evicts its oldest entries at a fixed cap.
+ Every entry must include the current chat window's `edition`. Before the first window or
+ if any entry has a stale edition, the entire batch is rejected without storing measurements.
  Returns `{ "stored" }`.
 
  # Safety

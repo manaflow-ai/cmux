@@ -255,6 +255,7 @@ async fn a_configured_wireguard_peer_gets_no_overlay_found_or_recalled() {
         peer_token: None,
         vm_boundary: false,
         github_broker: false,
+        group: None,
     };
     assert!(configured.names_route());
     assert!(!crate::config::PeerConfig { wireguard: None, ..configured.clone() }.names_route());

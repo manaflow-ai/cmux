@@ -391,7 +391,7 @@ public final class PaneToolbarView: NSView {
         guard count > 0 else { return NSSize(width: 0, height: NSView.noIntrinsicMetric) }
         let buttonWidth = allButtons.reduce(CGFloat.zero) { $0 + $1.preferredWidth }
         let reservedWidth = CGFloat(max(0, count - allButtons.count)) * Metrics.tabBarControlSide // the zoom button, pins another tab shows
-        let gaps = CGFloat(max(count - 1, 0)) * Metrics.space1 / 2
+        let gaps = CGFloat(max(count - 1, 0)) * Self.toolGap
         return NSSize(width: buttonWidth + reservedWidth + gaps + Self.trailingGap, height: NSView.noIntrinsicMetric)
     }
 
@@ -405,14 +405,24 @@ public final class PaneToolbarView: NSView {
     public var tabRowWidth: CGFloat {
         let allButtons = buttons + nativeButtons
         let buttonWidth = allButtons.reduce(CGFloat.zero) { $0 + $1.preferredWidth }
-        let gaps = CGFloat(max(shownCount - 1, 0)) * Metrics.space1 / 2
+        let gaps = CGFloat(max(shownCount - 1, 0)) * Self.toolGap
         return buttonWidth + (zoomed ? 1 : 0) * Metrics.tabBarControlSide + gaps + Self.trailingGap
     }
 
     /// The bar's width in a pane `width` wide, which gives it at most half: `sharing`, beside a chat's tools in the row
-    /// (``tabRowWidth(fitting:)``, only the buttons that still show), else what the strip keeps for it.
+    /// (``tabRowWidth(fitting:)``, only the buttons that still show), else what the strip keeps for it (``fittedWidth(cap:)``).
     public func paneWidth(in width: CGFloat, sharing: Bool) -> CGFloat {
-        sharing ? tabRowWidth(fitting: width / 2) : min(intrinsicContentSize.width, width / 2)
+        sharing ? tabRowWidth(fitting: width / 2) : fittedWidth(cap: width / 2)
+    }
+
+    /// The bar's width beside its tab alone in a pane that gives it at most `cap`: its intrinsic width (with the room kept
+    /// for pins another tab shows) while that fits, else only what ``layout()`` still shows at the cap
+    /// (``tabRowWidth(fitting:)``). The capped intrinsic width kept the room of the buttons that fold at the cap (the
+    /// + menu's creation buttons, a button with no whole slot) empty beside the tabs, which then shrank to fit the rest
+    /// (Leo 2026-11-24: "why half of the space taken up by blank!?").
+    public func fittedWidth(cap: CGFloat) -> CGFloat {
+        let intrinsic = intrinsicContentSize.width
+        return intrinsic <= cap ? intrinsic : min(max(0, cap), tabRowWidth(fitting: cap))
     }
 
     /// The bar's width beside a parked chat in a pane `width` wide (#37548): its width the last time a chat of the pane
@@ -426,7 +436,7 @@ public final class PaneToolbarView: NSView {
     /// resize's hold), so its need is kept: this bar as it is now, and `sharer`'s tools.
     public func stripSlot(_ tools: CGFloat, in width: CGFloat, of model: TabStripModel, recording: Bool, sharer: PaneTabRowSharing?) -> CGFloat {
         if recording, let selected = model.selectedID {
-            trailingSlots.record(.init(intrinsic: intrinsicContentSize.width, shared: sharer == nil ? nil : tabRowWidth,
+            trailingSlots.record(.init(intrinsic: fittedWidth(cap: width / 2), shared: sharer == nil ? nil : tabRowWidth,
                                        tools: sharer?.tabRowToolsNeed), for: selected, live: model.tabs)
         }
         return max(tools, trailingSlots.reserve(in: width, besides: model.selectedID))
@@ -440,7 +450,7 @@ public final class PaneToolbarView: NSView {
     public func tabRowWidth(fitting limit: CGFloat) -> CGFloat {
         let full = tabRowWidth
         guard full > limit else { return full }
-        let side = Metrics.tabBarControlSide, gap = Metrics.space1 / 2
+        let side = Metrics.tabBarControlSide, gap = Self.toolGap
         let allButtons = buttons + nativeButtons
         // The same walk as layout(), at the capped width: a button shows only in a whole slot; creation buttons fold
         // together once the bar is capped (`alwaysVisible`, the cap being why we are here).
@@ -458,9 +468,13 @@ public final class PaneToolbarView: NSView {
         return max(0, min(limit, limit - leading))
     }
 
+    /// The gap between the pane's tool buttons: a look's `appearance.metrics.toolbarButtonGap` (its header buttons'
+    /// pitch less their size), else half a `space1`.
+    static var toolGap: CGFloat { Metrics.lookOverride(.toolbarButtonGap) ?? Metrics.space1 / 2 }
+
     override public func layout() {
         super.layout()
-        let side = Metrics.tabBarControlSide, gap = Metrics.space1 / 2
+        let side = Metrics.tabBarControlSide, gap = Self.toolGap
         // Fixed slots from the trailing end: Exit Zoom in the last while the pane is zoomed, the buttons before it in
         // order, so fewer pins leave room only at the leading end.
         let y = buttonTop

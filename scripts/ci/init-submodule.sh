@@ -135,7 +135,7 @@ while :; do
   started="$(date +%s)"
   status=0
   # The +-expansion keeps an empty array legal under set -u in bash 3.2.
-  ${timeout_cmd[@]+"${timeout_cmd[@]}"} git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 \
+  ${timeout_cmd[@]+"${timeout_cmd[@]}"} git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 \
     submodule update --init --depth 1 -- "$path" || status=$?
   if [[ "$status" -eq 0 ]]; then
     echo "init-submodule: $path at ${pin:0:12} in $(( $(date +%s) - started )) s (attempt $attempt)"

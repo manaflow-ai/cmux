@@ -29,7 +29,8 @@
  * - Model-plane env and the coderouter CLI point at the VM edge alias; no
  *   login and no token in the image.
  * - The resolver is systemd-resolved with /etc/resolv.conf its stub (dns.ts), checked by
- *   /usr/local/sbin/cmux-dns-check, so Tailscale on a machine runs in resolved mode.
+ *   /usr/local/sbin/cmux-dns-check, so Tailscale on a machine runs in resolved mode. cmux-dns-scope.path
+ *   keeps public resolvers behind the provider's TLS-edge resolver on a machine created with an edge rule.
  * - cmux-machine-health.timer (machine-health.ts): a bounded pass every 60 s that checks and heals
  *   DNS, disk, RAM, acpmux and cmux-tui units and writes /run/cmux/machine-health.json; ssh and login sessions get
  *   memory and task limits, and the user's systemd manager outlives a runaway session.
@@ -66,6 +67,7 @@ import {
   vmGuestModelPlaneEnv,
 } from "../../services/coderouter/vmGuestEnv";
 import {
+  ACPMUX_UNIT_PATH,
   cmuxTuiAcpmuxLinkCommand,
   cmuxTuiInstallCommand,
   cmuxTuiLayoutSelector,
@@ -73,7 +75,7 @@ import {
   cmuxTuiServiceInstallCommand,
   type CmuxTuiSource,
 } from "../../services/vms/drivers/cmuxTuiDaemon";
-import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER, devboxWorkUserSetupCommand } from "../../services/vms/images/workUser";
+import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER, devboxWorkUserSetupCommand } from "../../services/vms/workUser";
 import { npmCachePrefillCommand, npmCacheSizeCommand } from "./dep-cache";
 import { graduatedInstallCommand, readGraduated } from "./graduate";
 import {
@@ -88,7 +90,7 @@ import {
   devboxSnapshotClockCommand,
   devboxTerminfoInstallCommand,
   devboxWaitForDaemonCommand,
-} from "../devbox-image-common";
+} from "./machine-commands";
 import {
   devTreeCredentialCheckCommand,
   devTreeLock,
@@ -117,7 +119,7 @@ import {
   rdSetupCommand,
 } from "./agent-tools";
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
-import { DNS_CHECK_PATH, dnsCheckScript, resolverBakeCommand } from "./dns";
+import { DNS_CHECK_PATH, DNS_SCOPE_PATH, dnsCheckScript, dnsScopeScript, dnsScopeUnits, resolverBakeCommand } from "./dns";
 import { DISK_RECORD_COMMAND, parseDiskOutput } from "./disk-record";
 import { MACHINE_HEALTH_ARM_COMMAND, machineHealthBakeCommand, machineHealthFiles } from "./machine-health";
 import { chiefBinary, chiefHostFiles, chiefHostInstallCommand } from "./chief-host";
@@ -156,7 +158,7 @@ import {
   metadataGuardProblems,
   metadataGuardRules,
   metadataGuardUnit,
-} from "../../services/vms/images/metadataGuard";
+} from "./metadata-guard";
 import {
   cronAtAllowCommand,
   cronAtAllowProblems,
@@ -197,6 +199,7 @@ import {
   storeEntry,
   ROLES_MANIFEST_PATH,
   rolesManifest,
+  pinnedFetchCommand,
   sq,
   STORE_DIR,
   ubuntuSourcesFile,
@@ -560,6 +563,19 @@ export function storeProfileScript(): string {
   return `# cmux store: user-space programs (images/cmux-vm). Managed, do not edit.\ncase ":$PATH:" in *:${CURRENT_BIN}:*) ;; *) PATH=${CURRENT_BIN}:$PATH ;; esac\ncase ":$PATH:" in *:${GITHUB_SHIM_DIR}:*) ;; *) PATH=${GITHUB_SHIM_DIR}:$PATH ;; esac\nexport PATH\n`;
 }
 
+/**
+ * acpmux.service's PATH on the image: the store first, as a login shell has it (00-cmux-store.sh,
+ * storeUserProfilePathCommand), then the unit's own. Without it the daemon finds claude, codex and
+ * the other store CLIs only through its 3 s login shell read; image roll 45862819601 (same cmux-tui
+ * 99de33e5 as the live image) lost that read on its probe clone and every picker harness was
+ * refused "unknown harness ... the login shell did not answer in time" (hq#12175's class).
+ */
+export const ACPMUX_STORE_PATH_DROPIN = "/etc/systemd/user/acpmux.service.d/10-cmux-store-path.conf";
+
+export function acpmuxStorePathDropIn(): string {
+  return `# cmux store on acpmux's own PATH (images/cmux-vm). Managed, do not edit.\n[Service]\nEnvironment=PATH=${GITHUB_SHIM_DIR}:${CURRENT_BIN}:${ACPMUX_UNIT_PATH}\n`;
+}
+
 /** Where the Antigravity CLI's updater is turned off: login shells, and the systemd user manager (acpmux.service). */
 export const AGY_PROFILE_PATH = "/etc/profile.d/cmux-agy.sh";
 export const AGY_USER_ENV_PATH = "/etc/environment.d/60-cmux-agy.conf";
@@ -833,6 +849,9 @@ async function installStore(ctx: Ctx): Promise<void> {
   await writeGuestFile(vm, AGY_PROFILE_PATH, agyProfileScript(), 0o644);
   await L.step(vm, "agy-user-env-dir", "mkdir -p /etc/environment.d");
   await writeGuestFile(vm, AGY_USER_ENV_PATH, agyUserEnvironment(), 0o644);
+  // Before wireCmuxTui's acpmux-service step, whose daemon-reload and start read it.
+  await L.step(vm, "acpmux-store-path-dir", `mkdir -p ${path.posix.dirname(ACPMUX_STORE_PATH_DROPIN)}`);
+  await writeGuestFile(vm, ACPMUX_STORE_PATH_DROPIN, acpmuxStorePathDropIn(), 0o644);
   await L.step(vm, "store-user-profile", storeUserProfilePathCommand());
   ctx.result.storeBytes = (await L.step(vm, "store-size", `du -sb ${STORE_DIR} | cut -f1`)).trim();
   // git and gh with repo-scoped GitHub App tokens and no secret at rest (github-auth.ts).
@@ -898,6 +917,8 @@ async function configureSystem(ctx: Ctx): Promise<void> {
     "echo shell-env-ok",
   ].join(" && "));
   await writeGuestFile(vm, DNS_CHECK_PATH, dnsCheckScript(), 0o755);
+  await writeGuestFile(vm, DNS_SCOPE_PATH, dnsScopeScript(), 0o755);
+  for (const [unitPath, text] of Object.entries(dnsScopeUnits())) await writeGuestFile(vm, unitPath, text, 0o644);
   ctx.result.resolver = (await L.step(vm, "resolver", resolverBakeCommand(), 120_000)).trim();
   await L.step(vm, "snapshot-resume-quiet","{ [ ! -e /sys/module/workqueue/parameters/watchdog_thresh ] || echo 0 > /sys/module/workqueue/parameters/watchdog_thresh; } && echo ok");
 }
@@ -1163,7 +1184,10 @@ export function acpmuxHarnessChecksDoneCommand(limitSeconds = 180): string {
  * which writes under /tmp (/tmp/opencode, /tmp/claude-<uid>, /tmp/cursor-agent-logs-<uid>), for up to 60 s before
  * acpmux kills it. A probe still running at clean writes again after tmp-empty and fails tmp-no-writer. Every probe
  * runs in `<acpmux home>/unattended` (protected_folders.rs unattended_cwd), so wait until no process of the daemon
- * user has its cwd there. On timeout, name the probes still running. `unattended` is for tests.
+ * user has its cwd there. At the bound, name the probes still running and stop them (TERM, then KILL): a probe CLI
+ * that hangs past acpmux's own kill (2026-11-26 roll 45732114266: two `cursor-agent acp` probes alive after 120 s)
+ * is the bake's own process and must not fail the roll; only a probe that survives KILL does. `unattended` is for
+ * tests.
  */
 export function acpmuxProbesQuietCommand(limitSeconds = 120, unattended?: string): string {
   const dir = unattended === undefined ? '"$CMUX_TUI_HOME/.acpmux/unattended"' : sq(unattended);
@@ -1178,8 +1202,14 @@ export function acpmuxProbesQuietCommand(limitSeconds = 120, unattended?: string
     `dir=${dir}`,
     `probes() {\n${probes}\n}`,
     `i=0; while [ "$i" -lt ${limitSeconds} ] && [ -n "$(probes)" ]; do i=$((i + 1)); sleep 1; done`,
-    `left="$(probes)"; if [ -n "$left" ]; then echo "acpmux's model probes still run after ${limitSeconds}s:" >&2; printf '%s\\n' "$left" >&2; exit 1; fi`,
-    'echo "acpmux-probes-quiet after ${i}s"',
+    `left="$(probes)"`,
+    'if [ -z "$left" ]; then echo "acpmux-probes-quiet after ${i}s"; exit 0; fi',
+    `echo "acpmux's model probes still run after ${limitSeconds}s; stopping them:"; printf '%s\\n' "$left"`,
+    `stop() { for p in $(probes | sed -n 's/^  probe pid \\([0-9]*\\):.*/\\1/p'); do kill "-$1" "$p" 2>/dev/null || true; done; }`,
+    'stop TERM; j=0; while [ "$j" -lt 5 ] && [ -n "$(probes)" ]; do j=$((j + 1)); sleep 1; done',
+    'if [ -n "$(probes)" ]; then stop KILL; j=0; while [ "$j" -lt 5 ] && [ -n "$(probes)" ]; do j=$((j + 1)); sleep 1; done; fi',
+    `left="$(probes)"; if [ -n "$left" ]; then echo "acpmux's model probes survived KILL:" >&2; printf '%s\\n' "$left" >&2; exit 1; fi`,
+    'echo "acpmux-probes-quiet after ${i}s (stopped the rest)"',
   ].join(" && ");
 }
 
@@ -1242,13 +1272,22 @@ export function syftFetchCommand(syft: { url: string; sha256: string; size: numb
   const tgz = `${dir}/syft.tgz`;
   return [
     `mkdir -p ${dir}`,
-    `{ test "$(stat -c %s ${tgz} 2>/dev/null)" = ${syft.size} || curl -fsSL --retry 3 -C - -o ${tgz} ${sq(syft.url)}; }`,
+    pinnedFetchCommand(tgz, syft.sha256, syft.size, syft.url),
     `{ printf '%s  %s\\n' ${syft.sha256} ${tgz} | sha256sum -c --quiet - || { rm -f ${tgz}; false; }; }`,
     `test "$(stat -c %s ${tgz})" = ${syft.size}`,
     `tar -xzf ${tgz} -C ${dir} syft`,
     `test -x ${dir}/syft`,
   ].join(" && ");
 }
+
+/**
+ * Each inventory step's budget (StepLog.detachedStep). The image is the same size from roll to roll (33179 SBOM
+ * components in every roll of 2026-11-25/26) but the builder is not: the syft scan took 65 to 275 s and the file
+ * manifest 32 to 232 s, both on the same builder at once, beside the smoke. Rolls 45862819601 and 45890407908 finished
+ * the scan at 268 and 278 s under its old 280 s `timeout`; roll 45779971043 hit both old bounds (scan 281 s, manifest
+ * 301 s at the 300 s exec cap). 600 s is about twice the slowest finish; SLOW_STEP marks a step past half of it.
+ */
+export const INVENTORY_STEP_BUDGET_MS = 600_000;
 
 export async function collectInventory(vm: Vm, L: StepLog, options: Pick<BakeOptions, "devTree" | "outDir">, lock: InputsLock, result: Record<string, unknown>, name: string, out = "/tmp/cmux-out"): Promise<void> {
   const syft = lock.tools.syft;
@@ -1262,16 +1301,18 @@ export async function collectInventory(vm: Vm, L: StepLog, options: Pick<BakeOpt
   // syft comes from GitHub releases, which ran at about 100 KB/s into the builder on 2026-11-23: its 29 MB took about
   // 230 s of the sbom step's 285 s in roll 45119294989 and pushed it past the guest's 5-minute exec cap in roll
   // 45126299464 (status 124). The download is its own resumed, retried step (installStoreProgram); the scan follows.
+  // The scan and the manifest are detached steps (StepLog.detachedStep) with their own budget, not one exec each.
   const scanSbom = async (): Promise<string> => {
     await installStoreProgram(L, vm, "sbom-syft", syftFetchCommand(syft, `${out}-syft`));
-    return L.step(vm, "sbom", [
+    return L.detachedStep(vm, "sbom", [
     "t=$(date +%s)",
-    `cd / && SYFT_CHECK_FOR_APP_UPDATE=false HOME=${out}-syft timeout 280 ${out}-syft/syft scan dir:/ --select-catalogers +javascript-package-cataloger --exclude './proc/**' --exclude './sys/**' --exclude './dev/**' --exclude './run/**' --exclude './tmp/**' ${skip.map((p) => `--exclude ${sq(`.${p}/**`)}`).join(" ")} -o cyclonedx-json=${out}/sbom.cdx.json -q`,
+    `cd / && SYFT_CHECK_FOR_APP_UPDATE=false HOME=${out}-syft ${out}-syft/syft scan dir:/ --select-catalogers +javascript-package-cataloger --exclude './proc/**' --exclude './sys/**' --exclude './dev/**' --exclude './run/**' --exclude './tmp/**' ${skip.map((p) => `--exclude ${sq(`.${p}/**`)}`).join(" ")} -o cyclonedx-json=${out}/sbom.cdx.json -q`,
     "echo syft-secs $(( $(date +%s) - t ))",
     `gzip -9f ${out}/sbom.cdx.json`,
-  ].join(" && "));
+  ].join(" && "), { dir: `${out}/job-sbom`, budgetMs: INVENTORY_STEP_BUDGET_MS });
   };
-  const settled = await Promise.allSettled([L.step(vm, "file-manifest", `python3 ${out}/manifest.py ${out}/manifest.tsv ${skip.map(sq).join(" ")} && gzip -9f ${out}/manifest.tsv`), scanSbom()]);
+  const fileManifest = () => L.detachedStep(vm, "file-manifest", `python3 ${out}/manifest.py ${out}/manifest.tsv ${skip.map(sq).join(" ")} && gzip -9f ${out}/manifest.tsv`, { dir: `${out}/job-file-manifest`, budgetMs: INVENTORY_STEP_BUDGET_MS });
+  const settled = await Promise.allSettled([fileManifest(), scanSbom()]);
   const failed = inventoryFailure(settled);
   if (failed !== undefined) throw failed;
   const [manifest, sbomOut] = settled.map((s) => (s as PromiseFulfilledResult<string>).value);
