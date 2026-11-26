@@ -188,10 +188,10 @@ fn the_configured_mirror_folder_is_laid_out_as_wt_keeps_it() {
     let root = world.home.join("mirrors");
     std::fs::create_dir_all(root.join("o/n.git")).unwrap();
     let root = root.to_str().unwrap();
-    let found = super::super::run::borrow::mirror_under(root, URL);
+    let found = run::borrow::mirror_under(root, URL);
     assert_eq!(found, Some(format!("{root}/o/n.git")));
-    assert_eq!(super::super::run::borrow::mirror_under(root, "https://github.com/o/m.git"), None);
-    assert_eq!(super::super::run::borrow::mirror_under("relative", URL), None);
+    assert_eq!(run::borrow::mirror_under(root, "https://github.com/o/m.git"), None);
+    assert_eq!(run::borrow::mirror_under("relative", URL), None);
 }
 
 /// A Cloud chat opened with a folder (clone only): the folder borrows a mirror baked before the

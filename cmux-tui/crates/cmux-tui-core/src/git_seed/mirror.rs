@@ -84,7 +84,7 @@ pub(crate) fn root_for(switch: Option<&str>, home: Option<std::ffi::OsString>) -
 
 /// The mirror's file name for `remote`: the same as AutoCloud's.
 pub(crate) fn key(remote: &str) -> String {
-    Sha256::digest(remote.as_bytes())[..8].iter().map(|b| format!("{b:02x}")).collect()
+    Sha256::digest(remote.as_bytes()).iter().take(8).map(|b| format!("{b:02x}")).collect()
 }
 
 /// What the attempt to borrow came to.

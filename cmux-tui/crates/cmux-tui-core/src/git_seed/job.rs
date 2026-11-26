@@ -294,7 +294,7 @@ impl Job {
 pub struct Config {
     pub git: Git,
     pub credentials: Option<Vec<Credential>>,
-    pub mirrors: Option<std::path::PathBuf>,
+    pub mirrors: Option<PathBuf>,
 }
 
 #[derive(Default)]
@@ -332,7 +332,7 @@ impl GitSeedService {
     #[must_use]
     pub fn new(roots: Roots) -> Self {
         // The machine's warm mirrors, on unless `CMUX_SEED_MIRROR=off` ([`super::run::mirror`]).
-        let config = Config { mirrors: super::run::mirror::default_root(), ..Config::default() };
+        let config = Config { mirrors: run::mirror::default_root(), ..Config::default() };
         Self::with_config(roots, config)
     }
 

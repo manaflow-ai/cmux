@@ -380,7 +380,7 @@ fn a_submodule_comes_from_its_own_warm_mirror() {
     };
     let service = GitSeedService::with_config(Roots::new([world.home.path.clone()]), config);
     let root = || std::fs::canonicalize(world.mirrors.as_ref().unwrap()).unwrap();
-    let mut add = |name: &str| {
+    let add = |name: &str| {
         let folder = world.home.join(name);
         let job = start(&service, &clone_params(&folder, None)).unwrap();
         let status = wait(&service, &job);
