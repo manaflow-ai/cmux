@@ -62,7 +62,7 @@ class Tree:
         self.repo, self.rev = repo, rev
         self.cache: dict[str, bytes | None] = {}
         # path -> blob id, from files()' listing: load() asks cat-file by id. Asked `<rev>:<path>`, git resolves each
-        # path from the root tree again, about 4 ms a file on big-red's cmux mirror (2026-11-21).
+        # path from the root tree again, about 4 ms a file on a Linux workstation's cmux mirror (2026-11-21).
         self.ids: dict[str, str] = {}
 
     def covered(self, path: str) -> None:
