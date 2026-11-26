@@ -283,6 +283,9 @@ impl App {
                 if let Some(t) = self.transcripts.get_mut(&id) {
                     let added = t.prepend_events(&events);
                     self.shift_folds(&id, added);
+                    if let Some(line) = self.new_line.as_mut() {
+                        line.shift(&id, added);
+                    }
                     // `offset` counts rows: keep the rows on screen where they are by keeping
                     // the distance to the end, which the prepended rows do not change.
                     if let Some(v) = self.viewport.get_mut(&id)
@@ -353,9 +356,24 @@ impl App {
                     }
                 }
             }
-            AppMsg::DraftFailed => {
+            AppMsg::DraftFailed { draft, images } => {
                 for d in self.drafts.iter_mut() {
                     d.creating = false;
+                }
+                if let Some(d) = self.drafts.iter_mut().find(|d| d.id == draft)
+                    && d.images.is_empty()
+                {
+                    d.images = images;
+                }
+            }
+            AppMsg::StartLost { draft, text, images } => {
+                for d in self.drafts.iter_mut().filter(|d| d.id == draft) {
+                    d.creating = false;
+                }
+                self.start_after_reconnect = Some((draft, text, images));
+                // A connection that is already back (the client was replaced) runs it now.
+                if !self.client.is_closed() {
+                    self.start_lost_draft_again();
                 }
             }
             AppMsg::Info(s) => self.status = s,

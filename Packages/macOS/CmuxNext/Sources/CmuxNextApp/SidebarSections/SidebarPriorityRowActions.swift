@@ -47,7 +47,8 @@ struct SidebarPriorityRowActions {
         case .snooze(let id): (Self.snooze, id)
         case .archive(let id): (Self.archive, id)
         case .restore(let id): (Self.restore, id)
-        case .open, .setCollapsed, .toggleShown, .place, .answer, .openArchived, .setArchivedFolded, .showMoreArchived: nil
+        case .open, .setCollapsed, .toggleShown, .place, .answer, .setFilter, .markAllRead, .openArchived, .setArchivedFolded,
+             .showMoreArchived: nil
         }
     }
 

@@ -161,16 +161,58 @@ class DownloadsThroughTheControllerWhileGitHubRefuses(unittest.TestCase):
     def test_the_proxy_goes_first_and_github_is_the_fallback(self) -> None:
         seen = []
 
-        def fetch(url, destination, retries="4"):
-            seen.append(url)
-            if "ctl" in url:
-                raise PREFETCH.subprocess.CalledProcessError(22, ["curl"])
+        def run(args, **kwargs):
+            seen.append(args[-1])
+            raise PREFETCH.subprocess.CalledProcessError(22, args)
 
-        PREFETCH.curl_download(URL, Path("/nonexistent"), fetch=fetch, environ=self.PROXY)
+        def github(url, destination, environ, run):
+            seen.append(url)
+
+        PREFETCH.curl_download(URL, Path("/nonexistent"), environ=self.PROXY, run=run, fetch=github)
         self.assertEqual(seen, [PREFETCH.release_proxy_url(URL, self.PROXY), URL])
         seen.clear()
-        PREFETCH.curl_download(URL, Path("/nonexistent"), fetch=fetch, environ={})
+        PREFETCH.curl_download(URL, Path("/nonexistent"), environ={}, run=run, fetch=github)
         self.assertEqual(seen, [URL])
+
+
+class ReloadSeedsBeforeXcodebuild(unittest.TestCase):
+    """reload.sh's xcodebuild reads the same shared cache: cloud-chat-proof run 45797490933 failed resolving
+    Sparkle and sentry-cocoa with "already exists in file system" on cmux10s-mac-mini-glaeda-13."""
+
+    def seeded(self, env: dict[str, str]) -> list[str]:
+        import subprocess
+        with tempfile.TemporaryDirectory() as scratch:
+            stub = Path(scratch) / "python3"
+            calls = Path(scratch) / "calls"
+            stub.write_text(f'#!/bin/sh\necho "$@" >> "{calls}"\n')
+            stub.chmod(0o755)
+            # A repo root holding what the seed reads: the seed script and the app's package directory.
+            root = Path(scratch) / "repo"
+            (root / "scripts/ci").mkdir(parents=True)
+            (root / "scripts/ci/swiftpm_prefetch_binary_artifacts.py").write_text("")
+            (root / "Packages/macOS/CmuxNext").mkdir(parents=True)
+            clean = {k: v for k, v in os.environ.items() if k not in ("CI", "GITHUB_ACTIONS")}
+            subprocess.run(["bash", "-c", 'source "$1"; seed_swiftpm_binary_artifacts "$2"', "seed",
+                            str(ROOT / "scripts/lib/swiftpm-seed.sh"), str(root)], check=True, capture_output=True,
+                           env={**clean, "PATH": f"{scratch}:{os.environ['PATH']}", **env})
+            return calls.read_text().splitlines() if calls.exists() else []
+
+    def test_ci_seeds_the_app_package_graph(self) -> None:
+        for env in ({"GITHUB_ACTIONS": "true"}, {"CI": "true"}, {"CMUX_RELOAD_SEED_SWIFTPM_ARTIFACTS": "1"}):
+            with self.subTest(env=env):
+                [call] = self.seeded(env)
+                self.assertIn("swiftpm_prefetch_binary_artifacts.py --package-path", call)
+                self.assertTrue(call.endswith("Packages/macOS/CmuxNext"), call)
+
+    def test_a_local_build_or_an_opt_out_does_not(self) -> None:
+        self.assertEqual(self.seeded({}), [])
+        self.assertEqual(self.seeded({"GITHUB_ACTIONS": "true", "CMUX_RELOAD_SEED_SWIFTPM_ARTIFACTS": "0"}), [])
+
+    def test_reload_seeds_before_it_starts_xcodebuild(self) -> None:
+        text = (ROOT / "scripts/reload.sh").read_text()
+        self.assertIn('source "$SCRIPT_DIR/lib/swiftpm-seed.sh"', text)
+        seed = text.index('seed_swiftpm_binary_artifacts "$SCRIPT_DIR/.."')
+        self.assertLess(seed, text.index("XCODEBUILD_STARTED=1"))
 
 
 if __name__ == "__main__":
