@@ -117,7 +117,11 @@ extension ControlMethod {
         }
         // What went wrong rides in the text too, as the system said it (a terminal prints only the message): the
         // probe's "answer cmux can't use" was a Keychain refusal no one could see (2026-11-15).
-        let cause = refusal.code == "forbidden" || refusal.code == "client_too_old" ? nil : refusal.detail
+        // A refusal's own `auth.*` code is what the membership text already says. Any other owner code rides along:
+        // production probes, 2026-11-24, read "Check that your account belongs to it" for an account whose cmux-api
+        // head was full (owner.state_full, cmux-platform#1843), and the real code was only in the app's log.
+        let restates = refusal.code == "client_too_old" || (refusal.code == "forbidden" && (refusal.detail?.hasPrefix("auth.") ?? true))
+        let cause = restates ? nil : refusal.detail
         return ControlError(code: refusal.code == "bad_reply" ? "unavailable" : refusal.code,
                             message: cause.map { "\(message) (\($0))" } ?? message, data: detail)
     }
