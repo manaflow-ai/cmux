@@ -84,6 +84,7 @@ DIVERSE = (
                      "rewrite the function from that list rather than patching the old code, and check every item."),
 )
 TERMINAL = {"completed", "failed", "cancelled"}
+ABSTAINED = "reviewer did not select"
 
 
 def tasks(only: str | None) -> list[str]:
@@ -178,6 +179,10 @@ def settle(state: dict, name: str, wait: bool) -> bool:
         if not wait:
             return False
         time.sleep(15)
+    # `race stop` turns an ended race's record into "cancelled" and drops its reason, so keep the verdict first:
+    # a reviewer that judged every attempt wrong leaves state "failed", winnerId null (2026-11-26: 14 of 36 races
+    # read "cancelled" for that and score dropped them, hiding the judge's misses).
+    state.setdefault("verdicts", {})[name] = {k: race.get(k) for k in ("state", "reason", "winnerId", "updatedAt")}
     try:
         acpmux("race", "stop", state["races"][name], "--parent", state["parent"])
     except RuntimeError:
@@ -330,6 +335,9 @@ def score(work: Path, wait_s: float, out: Path | None) -> dict:
         time.sleep(20)
     rows = []
     for name, race in sorted(races.items()):
+        verdict = (state.get("verdicts") or {}).get(name)
+        if verdict and race.get("state") == "cancelled":
+            race = {**race, **verdict}
         cands = []
         for c in race.get("candidates", []):
             cwd = c.get("cwd")
@@ -340,8 +348,13 @@ def score(work: Path, wait_s: float, out: Path | None) -> dict:
         winner = race.get("winnerId")
         pick = next((c for c in cands if c["id"] == winner), None)
         n = len(cands) or 1
+        # Judged: the reviewer gave a verdict on every attempt, a pick or an abstention ("did not select"), which
+        # scores as a pick that fails. A race whose attempts or review never finished measures nothing.
+        judged = race.get("state") == "completed" or (
+            race.get("state") == "failed" and ABSTAINED in (race.get("reason") or "")
+            and cands and all(c["state"] == "completed" for c in cands))
         rows.append({
-            "task": name, "race": race.get("id"), "state": race.get("state"), "winner": winner,
+            "task": name, "race": race.get("id"), "state": race.get("state"), "winner": winner, "judged": judged,
             "reason": (race.get("reason") or "")[:400],
             "single": sum(c["solved"] for c in cands) / n,
             "single_tests": sum(c["passed"] / c["total"] for c in cands) / n,
@@ -353,7 +366,7 @@ def score(work: Path, wait_s: float, out: Path | None) -> dict:
             "wall_s": round(((race.get("updatedAt") or 0) - (race.get("createdAt") or 0)) / 1000, 1),
             "candidates": cands,
         })
-    done = [r for r in rows if r["state"] == "completed"]
+    done = [r for r in rows if r["judged"]]
     mean = lambda key: round(sum(r[key] for r in done) / len(done), 4) if done else None  # noqa: E731
     doc = {
         "schema": SCHEMA,
@@ -362,7 +375,7 @@ def score(work: Path, wait_s: float, out: Path | None) -> dict:
         "model": state["model"], "attempts": state["attempts"], "reviewer": state["reviewer"],
         "effort": state.get("effort"), "diverse": state.get("diverse"), "plan": state.get("plan"),
         "hints_emulated": state.get("hints_emulated"),
-        "n_tasks": len(done), "n_started": len(rows),
+        "n_tasks": len(done), "n_started": len(rows), "n_abstained": sum(r["winner"] is None for r in done),
         "single_solve_rate": mean("single"), "pick_solve_rate": mean("pick"), "oracle_solve_rate": mean("oracle"),
         "single_test_share": mean("single_tests"), "pick_test_share": mean("pick_tests"),
         "oracle_test_share": mean("oracle_tests"), "mean_wall_s": mean("wall_s"),
