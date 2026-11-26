@@ -31,7 +31,7 @@
 //! ([`CmuxAgentPaneBytes`]) belongs to the caller, who frees it with
 //! [`cmux_agent_pane_policy_bytes_free`].
 
-use crate::canonical::canonical_digest;
+use crate::canonical::{canonical_digest, canonical_json};
 use crate::check::{Checked, FrameState, GesturePick, PaneScope, check_frame, own_prompt_id};
 use crate::data::policy;
 use crate::error::Refusal;
@@ -45,7 +45,7 @@ use std::ffi::{CStr, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 /// Bumped on any change to a type, a function or an op in the header.
-pub const ABI_VERSION: u32 = 3;
+pub const ABI_VERSION: u32 = 4;
 pub const OK: i32 = 0;
 /// `filter_reply`: the method has no reply shape; the host relays the reply as it is.
 pub const NO_SHAPE: i32 = 1;
@@ -183,6 +183,9 @@ impl Pane {
 ///   turn's label ([`own_prompt_id`]).
 /// - `canonical_digest` `{value}`: `{"digest": hex|null}`, the sha256 of the
 ///   value's canonical JSON ([`canonical_digest`]); null when it has none.
+/// - `canonical_json` `{value}`: `{"json": text|null}`, the value's canonical
+///   JSON text ([`canonical_json`]), the bytes `canonical_digest` hashes; null
+///   when it has none.
 /// - `service_wait` `{process_alive, socket_accepts}`: `{"state":
 ///   "busy"|"starting"|"down", "restart": bool}`, what the pane's line says
 ///   while it waits and whether it offers Restart agent service (only when
@@ -217,6 +220,10 @@ pub fn call(op: &str, request: &Value) -> Result<Value, i32> {
         "canonical_digest" => {
             let value = request.get("value").ok_or(ERR_INVALID)?;
             Ok(json!({"digest": canonical_digest(value)}))
+        }
+        "canonical_json" => {
+            let value = request.get("value").ok_or(ERR_INVALID)?;
+            Ok(json!({"json": canonical_json(value)}))
         }
         "service_wait" => crate::service_wait::call(request).ok_or(ERR_INVALID),
         // A pane's own op without a pane.
