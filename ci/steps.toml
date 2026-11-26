@@ -1956,6 +1956,12 @@ status=0
 # in one process they measured their neighbours). The Instant list bench stays in the kit workflow's push runs.
 swift test --package-path cmux-next-ios/CmuxMobileKit --skip CmuxMobileInstantPerfTests --skip TerminalSelfRecoveryTests --skip MockTerminalStreamMemoryTests || status=1
 swift test --package-path cmux-next-ios/CmuxMobileKit --no-parallel --filter TerminalSelfRecoveryTests --filter MockTerminalStreamMemoryTests || status=1
+# Fail fast: a red macOS run already fails the step, and the simulator leg below runs the same kit again for 40 min
+# or more (11-25 red jobs: swift test failed about 8 min in, the step then ran on to 58 min, or to its 3600 s kill).
+if (( status )); then
+  echo "::error title=ios-kit::the kit's macOS swift tests failed (above); the iOS simulator leg is skipped, fix these first"
+  exit 1
+fi
 # LiveCoordinator, the banner and the FFI-backed transport are iOS only, so their tests run only on the simulator.
 # Coverage off: its profiler crashes Swift 6.3.3 on an isolated deinit. arm64 only: the xcframework has no x86_64
 # simulator slice.
