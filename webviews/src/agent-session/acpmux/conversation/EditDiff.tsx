@@ -13,6 +13,7 @@ import {
   useRef,
   useState,
   type ComponentType,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import { editPatch, type TurnFile } from "../diff";
@@ -25,6 +26,7 @@ import { usePreview, useSidewaysRef } from "./blockPartsModel";
 import { FindReveal, foldFind } from "./chatFind";
 import { useMoreBelowOn } from "./moreBelow";
 import { EditDiffLoading } from "./EditDiffLoading";
+import { EDIT_DIFF_VARS } from "./editDiffBox";
 import { useDiffPainted } from "./editDiffLoadingModel";
 import { loadEditDiffHunks } from "./editDiffModel";
 const EditDiffHunks = lazy(() => loadEditDiffHunks().then((module) => ({ default: module.EditDiffHunks })));
@@ -105,7 +107,12 @@ export function EditDiffFrame({
   const painted = useDiffPainted(hunks);
   useMoreBelowOn(body, painted);
   return (
-    <div className="cv-edit-diff" data-wrap={wrap} data-flat={flat || undefined}>
+    <div
+      className="cv-edit-diff"
+      data-wrap={wrap}
+      data-flat={flat || undefined}
+      style={EDIT_DIFF_VARS as CSSProperties}
+    >
       <div className="cv-edit-diff__header">
         <span
           className="cv-edit-diff__name"
