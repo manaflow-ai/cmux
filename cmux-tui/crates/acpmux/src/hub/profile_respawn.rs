@@ -1,8 +1,8 @@
 //! Part of `Hub`; see `hub/mod.rs`. A live agent whose harness profile's launch (its argv and
 //! env, `HarnessProfile::launch_digest`) changed since it started restarts on the new profile
-//! and resumes the same conversation (`claude --resume`, ACP `session/load`), the way an update's
-//! restart does (`route_switch.rs` `restart_harnesses`): between turns now, in a turn when the
-//! turn ends, never cancelled. Checked when the catalog reloads (a profile file changed,
+//! and resumes the same conversation (`claude --resume`, ACP `session/load`). Every idle gate
+//! and the process census must find it quiet (`idle.rs`); it then hibernates until the next
+//! prompt. Never cancelled. Checked when the catalog reloads (a profile file changed,
 //! `cmux harness reload`, `_acpmux/reload_config`) and once the daemon has adopted the agents
 //! the previous one left, by the digest each session keeps on disk (`SessionMeta::launch_digest`).
 //! Until the new agent starts, lists say `respawn pending: profile changed`.
@@ -13,9 +13,9 @@
 
 use super::*;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
-/// What `respawnPending` says while a respawn waits for the turn to end.
+/// What `respawnPending` says while a respawn waits for all work to end.
 pub(crate) const PROFILE_CHANGED: &str = "profile changed";
 
 /// The log record a respawn's mark writes, a change every list and watcher sees.
@@ -37,7 +37,7 @@ impl Hub {
                 })
                 .collect()
         };
-        let mut stale = BTreeSet::new();
+        let mut marked = 0;
         for session in self.sessions() {
             let meta = session.meta();
             // A Home Chief session is never swept, as Update Everything never sweeps one.
@@ -52,24 +52,17 @@ impl Hub {
             if !changed || session.child.lock().await.is_none() {
                 continue;
             }
-            tracing::info!(session = %session.id, harness = %meta.harness, "harness profile changed since its agent started: respawning it at its turn end");
+            tracing::info!(session = %session.id, harness = %meta.harness, "harness profile changed: waiting for quiet before hibernating");
             self.mark_profile_respawn(&session);
-            // A background process or subagent at work would end with the harness, at the turn's
-            // end too: it restarts once nothing runs in it instead (`idle.rs` `respawn_when_quiet`),
-            // as an agent on a replaced binary does (`stale_host_respawn.rs`).
-            if self.holds_work_below(&session) {
-                self.respawn_when_quiet(&session);
-                continue;
-            }
-            stale.insert(session.id.clone());
+            // Work can start after this snapshot, including an unreported child. Only the
+            // idle pass's final gates and census may end an automatic profile restart.
+            self.respawn_when_quiet(&session);
+            marked += 1;
         }
-        if stale.is_empty() {
-            return HarnessRestarts::default();
-        }
-        self.restart_harnesses(None, Some(&stale)).await
+        HarnessRestarts { after_turn: marked, ..HarnessRestarts::default() }
     }
 
-    /// The session's agent restarts on its profile's new launch at its turn end. Lists and
+    /// The session's agent hibernates when quiet, then starts on its profile's new launch. Lists and
     /// watchers see it (`respawnPending`, a `respawn_pending` record) until the new agent starts.
     pub(super) fn mark_profile_respawn(&self, session: &Session) {
         if !session.profile_respawn.swap(true, Ordering::SeqCst) {

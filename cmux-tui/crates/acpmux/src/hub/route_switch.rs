@@ -312,29 +312,15 @@ impl Hub {
 impl Hub {
     /// An adopted agent whose host (an older build) recorded no caller token
     /// cannot prove its session, so its sub-session tools are refused. It
-    /// restarts as `acpmux session restart` asks, in the same conversation
-    /// and keeping its sub-sessions, once it is between turns: a recovered
-    /// turn ends its process when it ends (`hosts.rs`), a later turn moves it
-    /// before the next one (`turns.rs`), and an idle agent ends now and starts
-    /// again at its next prompt. Never during a turn or an open permission
-    /// prompt.
+    /// hibernates only after the idle gates and process census find no work. The next
+    /// prompt starts it with a caller token on the same conversation, keeping its
+    /// sub-sessions. A turn ending alone is not proof that it is quiet.
     pub(super) fn restart_unproven(self: &Arc<Self>, session: &Arc<Session>, proven: bool) {
         if proven {
             return;
         }
-        tracing::info!(session = %session.id, "adopted agent has no caller token this daemon knows (an older host build): restarting it between turns for its sub-session tools");
-        session.route_switch.store(true, Ordering::SeqCst);
-        let hub = self.clone();
-        let session = session.clone();
-        tokio::spawn(async move {
-            let _turn = session.turn_lock.lock().await;
-            if session.turn().is_none()
-                && session.pending_permissions().is_empty()
-                && session.route_switch.swap(false, Ordering::SeqCst)
-            {
-                hub.detach_child(&session).await;
-            }
-        });
+        tracing::info!(session = %session.id, "adopted agent has no caller token this daemon knows (an older host build): waiting for quiet to restart it for its sub-session tools");
+        self.respawn_when_quiet(session);
     }
 }
 

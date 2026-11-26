@@ -312,6 +312,17 @@ async fn profile_change_respawns_a_busy_agent_with_the_new_args_after_its_turn()
     };
     assert_eq!(reply["result"]["stopReason"], "end_turn", "the turn was not cut: {reply}");
 
+    // An automatic profile change hibernates only after the quiet period, with a census.
+    // Reading the summary does not keep the harness awake or start its replacement.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+    while hub.resolve(&chat).unwrap().meta().hibernated_ms == 0 {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the quiet profile change never hibernated"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
     // The next turn runs on a new agent with the new argv, resuming the same agent session.
     let next = local.harness_args(&chat).await;
     assert!(
