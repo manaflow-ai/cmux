@@ -308,6 +308,9 @@ exit "$rc"
 [step.cache-receipts]
 job = "linux"
 timeout = 300
+# A pull request runs it on every workflow change (--pr-scope keeps its whole route): the read-only guard says no
+# pull request job holds the cache-writer credentials, and a poisoned cache found after landing is already written.
+pr_scope = false
 title = "CI cache receipt contract"
 about = "cache restore receipts classify a restore, and their test is deterministic"
 inputs = [
@@ -440,6 +443,8 @@ about = "every acpmux method and param key the Swift app names is in the acpmux 
 inputs = [
   "Packages/macOS/CmuxNext/Sources/**",
   "cmux-tui/crates/acpmux/spec/acpmux-protocol.json",
+  "cmux-tui/crates/cmux-agent-pane-policy/policy.json",
+  "scripts/cmux-next/gen-agent-pane-policy-swift.py",
   "scripts/ci/check-swift-acpmux-protocol.py",
   "scripts/ci/swift-acpmux-protocol-allowlist.txt",
   "tests/test_check_swift_acpmux_protocol.py",
@@ -469,6 +474,11 @@ inputs = [
   "Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/**",
   "scripts/cmux-next/check-app-platform.sh",
   "scripts/cmux-next/sync-app-runtime.sh",
+  # gen-cmux-global.ts's catalog inputs (loadCatalog): a pull request that added actions to action-surfaces.json
+  # left schema/merged/index.json stale on the base without routing this check (11-24, the merged index's 21 ids).
+  "plans/cmux-next/action-surfaces.json",
+  "backend/catalog/cloud-operations.json",
+  "cmux-tui/spec/resource-operations-v2.json",
 ]
 run = "bash scripts/cmux-next/check-app-platform.sh"
 
@@ -498,11 +508,14 @@ run = "bun test tests/automation-bench"
 # that jump (move in one frame and stay), blink or settle in steps; the seeded recordings here (rows pushed by a
 # banner, a card pushed sideways, a 30 fps capture) must fail and a glide, a still screen and content arriving in
 # place must pass. The iOS simulator's `video` runs and the Mac media captures run the same check on real recordings.
+# Leo, 2026-11-24: "we simply shouldnt be running into this problem if we design out the failure mode/error classes":
+# a notice, spinner or pushing banner that comes and goes within 3 s must fail as a flash, and a notice that stays or
+# one for a real 5 s outage must pass. The classes and their design-outs: docs/cmux-next/spurious-ui.md.
 [step.recording-shifts]
 job = "linux"
 timeout = 300
 title = "Recording layout-shift check (seeded fixtures)"
-about = "scripts/cmux-next/flicker-check.py finds the jump, blink and staggered frames planted in seeded YUV4MPEG2 recordings and passes the clean ones"
+about = "scripts/cmux-next/flicker-check.py finds the jump, flash, blink and staggered frames planted in seeded YUV4MPEG2 recordings and passes the clean ones"
 inputs = [
   "scripts/cmux-next/flicker-check.py",
   "scripts/cmux-next/recording-shifts-report.py",
@@ -1033,6 +1046,9 @@ bun run vercel-build
 [step.security-holes]
 job = "linux"
 timeout = 300
+# A pull request runs it on every change (not left to the post-merge batch, --pr-scope): a secret or a workflow hole
+# found after landing is already out.
+pr_scope = false
 title = "Workflow security holes and secrets"
 about = "the ratchet's tests pass, the change adds no workflow security hole (zizmor) and no secret (gitleaks), and no job is pinned to one runner size"
 inputs = ["**"]
@@ -1605,10 +1621,13 @@ fetch --shallow-since="14 days ago" origin "$BASE_SHA" "$HEAD_SHA" \
   || true
 # A merge base found while the window cut history between it and the head (an old branch that merged the
 # base since; a cut commit lists in .git/shallow) skews commits= and files=: deepen for it as for none.
-mb=$(git -C "$repo" merge-base "$BASE_SHA" "$HEAD_SHA" 2>/dev/null || true)
+# A window fetch that fails still records origin as a promisor remote: without GIT_NO_LAZY_FETCH a merge-base or
+# rev-list over a missing commit fetches it from origin one object at a time, unbounded, and finds a merge base
+# the window never had (git 2.45+), so the deepen below never ran.
+mb=$(GIT_NO_LAZY_FETCH=1 git -C "$repo" merge-base "$BASE_SHA" "$HEAD_SHA" 2>/dev/null || true)
 cut=""
 if [ -n "$mb" ] && [ -f "$repo/.git/shallow" ]; then
-  cut=$({ echo "$mb"; git -C "$repo" rev-list "$mb..$HEAD_SHA"; } | grep -Fxf "$repo/.git/shallow" | head -1 || true)
+  cut=$({ echo "$mb"; GIT_NO_LAZY_FETCH=1 git -C "$repo" rev-list "$mb..$HEAD_SHA"; } | grep -Fxf "$repo/.git/shallow" | head -1 || true)
 fi
 if [ -z "$mb" ] || [ -n "$cut" ]; then
   echo "No merge base in the last 14 days, or history cut inside the pull request; fetching the whole history of the two commits."
@@ -1725,6 +1744,64 @@ case "$chrome" in CMUX_CHROME_HEADLESS_SHELL=*) export "$chrome" ;; esac
 CMUX_INSTANT_SKIP_TYPECHECK=1 bun run test:instant
 '''
 
+# ci-web.yml's react-apps-check (its 8-shard matrix and react-apps-base-check) for a feat-cmux-next pull request
+# whose shard pick runs only touched tests: one runner pays the checkout, install, bundles and engines once, the
+# PR-scoped rules run beside the build, and the touched tests' reds are judged on the base in the same step
+# (scripts/ci/react-apps-check-fleet.sh). scripts/ci/react_apps_fleet.py decides, the same way on both sides: a push,
+# full-ci, a whole-shard pick, the audit sample and CI_REACT_APPS_FLEET=0 keep the matrix, and this step exits 0.
+[step.react-apps-check]
+job = "web-browser"
+timeout = 1800
+# Its verdict follows the head's labels, sha and base, not only its tree.
+reuse = false
+title = "React apps check"
+about = "webviews' source checks, bundles, PR-scoped rules and touched tests, judged against the base"
+needs = ["bun", "node"]
+inputs = [
+  "webviews/**",
+  "Resources/markdown-viewer/**",
+  "config/vite-plus/**",
+  "schemas/**",
+  "release-notes/next/highlights/*.md",
+  "web/data/**",
+  "Packages/macOS/CmuxNext/Sources/**/*.xcstrings",
+  "Packages/macOS/CmuxNext/Sources/**/Resources/**",
+  "scripts/build-webviews-app.sh",
+  "scripts/check-webviews-bun-version.sh",
+  "scripts/check-webviews-diff-budget.mjs",
+  "scripts/check-webviews-react-compiler.mjs",
+  "scripts/webviews_bun_version.py",
+  "scripts/cmux-next/build-*-web.sh",
+  "scripts/cmux-next/build-web-bundles.sh",
+  "scripts/cmux-next/regenerate-web-bundles.sh",
+  "scripts/cmux-next/web-bundle-key.py",
+  "scripts/ci/react-apps-check-fleet.sh",
+  "scripts/ci/react_apps_fleet.py",
+  "scripts/ci/webviews_pr_shards.py",
+  "scripts/ci/webviews_affected.py",
+  "scripts/ci/run-webviews-tests.sh",
+  "scripts/ci/webviews_test_shards.py",
+  "scripts/ci/webviews_retry_pool.py",
+  "scripts/ci/webviews-tests-new-reds.sh",
+  "scripts/ci/webviews_test_results.py",
+  "scripts/ci/guards_new_reds.py",
+  "scripts/ci/unittest_results.py",
+  "scripts/ci/fast_gate_webviews_checks.py",
+  "scripts/ci/ensure-system-chrome.sh",
+  "scripts/ci/pin-browser-test-font.sh",
+  "scripts/ci/web_subareas.py",
+  "scripts/tests/test_pr_scoped_webviews_checks.py",
+  "scripts/install-git-hooks.sh",
+  "tests/test_install_git_hooks.py",
+  "tests/test_format_post_edit.py",
+  ".gitattributes",
+  ".github/workflows/ci-web.yml",
+]
+run = '''
+python3 -I scripts/ci/web_subareas.py has react_apps || exit 0
+bash scripts/ci/react-apps-check-fleet.sh
+'''
+
 [step.agent-pane-real-acpmux]
 job = "web-browser"
 timeout = 1800
@@ -1734,10 +1811,122 @@ title = "Agent pane on real acpmux"
 about = "the agent pane's new-chat and picks-hold browser tests against a freshly built acpmux daemon"
 needs = ["bun", "node", "rust"]
 inputs = [
+  # web_subareas.py counts the react-apps-check fleet scripts in agent_pane too (REACT_EXACT).
+  "scripts/ci/react-apps-check-fleet.sh",
+  "scripts/ci/react_apps_fleet.py",
   "webviews/**",
   "Resources/markdown-viewer/**",
   "config/vite-plus/**",
-  "cmux-tui/**",
+  # Only what `cargo build -p acpmux --bin acpmux` reads: acpmux and its path dependencies (cmux-tui/crates, from Cargo.toml
+  # `path =` deps, normal and build kinds, transitively), their include_str! files, the workspace manifest and lock, the
+  # vendored patches, .cargo, the ghostty-next gitlink and the cloud client's codegen source. A change to any other cmux-tui crate cannot reach the daemon this step runs.
+  "cmux-tui/crates/acpmux/**",
+  "cmux-tui/crates/acpmux-book/**",
+  "cmux-tui/crates/acpmux-build-id/**",
+  "cmux-tui/crates/acpmux-client/**",
+  "cmux-tui/crates/acpmux-core/**",
+  "cmux-tui/crates/acpmux-hot/**",
+  "cmux-tui/crates/acpmux-list-types/**",
+  "cmux-tui/crates/cmux-action-catalog/**",
+  "cmux-tui/crates/cmux-agent-customize/**",
+  "cmux-tui/crates/cmux-agent-pane-policy/**",
+  "cmux-tui/crates/cmux-app-host/**",
+  "cmux-tui/crates/cmux-apps/**",
+  "cmux-tui/crates/cmux-auto-session/**",
+  "cmux-tui/crates/cmux-bounded/**",
+  "cmux-tui/crates/cmux-braid-path/**",
+  "cmux-tui/crates/cmux-braid-session/**",
+  "cmux-tui/crates/cmux-build-space/**",
+  "cmux-tui/crates/cmux-chat-index/**",
+  "cmux-tui/crates/cmux-cloud-api/**",
+  "cmux-tui/crates/cmux-cloud-client/**",
+  "cmux-tui/crates/cmux-cloud-disk/**",
+  "cmux-tui/crates/cmux-cloud-environment/**",
+  "cmux-tui/crates/cmux-cloud-machine/**",
+  "cmux-tui/crates/cmux-cloud-start-core/**",
+  "cmux-tui/crates/cmux-cloud-wire/**",
+  "cmux-tui/crates/cmux-coderouter/**",
+  "cmux-tui/crates/cmux-command-class/**",
+  "cmux-tui/crates/cmux-computer-use/**",
+  "cmux-tui/crates/cmux-config/**",
+  "cmux-tui/crates/cmux-deadline/**",
+  "cmux-tui/crates/cmux-device-kind/**",
+  "cmux-tui/crates/cmux-egress/**",
+  "cmux-tui/crates/cmux-embed/**",
+  "cmux-tui/crates/cmux-embed-macros/**",
+  "cmux-tui/crates/cmux-felt/**",
+  "cmux-tui/crates/cmux-file-lock/**",
+  "cmux-tui/crates/cmux-flow-trace/**",
+  "cmux-tui/crates/cmux-forum-hosted/**",
+  "cmux-tui/crates/cmux-git/**",
+  "cmux-tui/crates/cmux-git-cache/**",
+  "cmux-tui/crates/cmux-host/**",
+  "cmux-tui/crates/cmux-host-budget/**",
+  "cmux-tui/crates/cmux-hub-host/**",
+  "cmux-tui/crates/cmux-image-linear/**",
+  "cmux-tui/crates/cmux-journal/**",
+  "cmux-tui/crates/cmux-json/**",
+  "cmux-tui/crates/cmux-layout-reducer/**",
+  "cmux-tui/crates/cmux-lifeline/**",
+  "cmux-tui/crates/cmux-link/**",
+  "cmux-tui/crates/cmux-local-auth/**",
+  "cmux-tui/crates/cmux-local-url/**",
+  "cmux-tui/crates/cmux-mcp-connect/**",
+  "cmux-tui/crates/cmux-netwatch/**",
+  "cmux-tui/crates/cmux-palette-ranker/**",
+  "cmux-tui/crates/cmux-panic-log/**",
+  "cmux-tui/crates/cmux-process/**",
+  "cmux-tui/crates/cmux-pty/**",
+  "cmux-tui/crates/cmux-remote/**",
+  "cmux-tui/crates/cmux-remote-protocol/**",
+  "cmux-tui/crates/cmux-scope/**",
+  "cmux-tui/crates/cmux-server/**",
+  "cmux-tui/crates/cmux-server-core/**",
+  "cmux-tui/crates/cmux-session-cloud/**",
+  "cmux-tui/crates/cmux-session-pack/**",
+  "cmux-tui/crates/cmux-share-approval/**",
+  "cmux-tui/crates/cmux-signed-bundle/**",
+  "cmux-tui/crates/cmux-signed-envelope/**",
+  "cmux-tui/crates/cmux-stack-auth/**",
+  "cmux-tui/crates/cmux-supervise-core/**",
+  "cmux-tui/crates/cmux-sync/**",
+  "cmux-tui/crates/cmux-tag-cache/**",
+  "cmux-tui/crates/cmux-tailnet/**",
+  "cmux-tui/crates/cmux-tailnet-front/**",
+  "cmux-tui/crates/cmux-tailnet-join/**",
+  "cmux-tui/crates/cmux-tailnet-local/**",
+  "cmux-tui/crates/cmux-terminal-host-protocol/**",
+  "cmux-tui/crates/cmux-theme-tokens/**",
+  "cmux-tui/crates/cmux-transport/**",
+  "cmux-tui/crates/cmux-tui-hooks/**",
+  "cmux-tui/crates/cmux-tui-platform/**",
+  "cmux-tui/crates/cmux-tui-util/**",
+  "cmux-tui/crates/cmux-unix-socket/**",
+  "cmux-tui/crates/cmux-usage-patterns/**",
+  "cmux-tui/crates/cmux-usage-share/**",
+  "cmux-tui/crates/cmux-vault-egress/**",
+  "cmux-tui/crates/cmux-wg/**",
+  "cmux-tui/crates/cmux-worktree-care/**",
+  "cmux-tui/crates/ghostty-vt/**",
+  "cmux-tui/crates/ghostty-vt-sys/**",
+  "cmux-tui/bindings/rust/**",
+  "cmux-tui/crates/cmux-browser-host/js/**",
+  "cmux-tui/crates/cmux-rd-host/systemd/**",
+  "cmux-tui/Cargo.toml",
+  "cmux-tui/Cargo.lock",
+  "cmux-tui/rust-toolchain.toml",
+  "cmux-tui/vendor/**",
+  "cmux-tui/build-support/**",
+  "cmux-tui/spec/**",
+  ".cargo/**",
+  "ghostty-next",
+  "workers/cmux-vm/cli/crates/cmux-vm-codegen/src/normalize.rs",
+  "skills/**",
+  "persisted-formats/**",
+  "Resources/sidebar-looks/**",
+  "Resources/theme-files/**",
+  "plans/cmux-next/spec-proposals/visuals/design-tokens.json",
+  "docs/remote-agents-and-cloud.md",
   "schemas/**",
   "release-notes/next/highlights/*.md",
   "web/data/**",
@@ -1785,6 +1974,7 @@ CARGO_INCREMENTAL=0 cargo build --locked -p acpmux --bin acpmux
 target_dir="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
 export ACPMUX_BIN="$target_dir/debug/acpmux"
 cd "$root/webviews"
+"$root/scripts/ci/apt-no-service-restarts.sh"
 ./node_modules/.bin/playwright install --with-deps webkit
 log="$(mktemp)"
 bash "$root/scripts/ci/ensure-system-chrome.sh" | tee "$log"
@@ -1994,7 +2184,9 @@ rustup toolchain install "$channel" --profile minimal --component clippy,rustfmt
 # The build env cmux-tui-artifacts.yml's feat-cmux-next push job tests with, so its saved target is fresh here: no
 # incremental state (it only fills the disk), the ghostty-next gitlink's sources, Zig from PATH.
 export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_HTTP_MULTIPLEXING=false TMPDIR=/tmp CMUX_GHOSTTY_SRC=""
-export GHOSTTY_ZIG_SOURCE=ghostty-next CARGO_INCREMENTAL=0
+# Fork pull requests use a 4-vCPU Linux runner. Keep cold rustc fan-out within that
+# runner's memory budget after an unrestricted compile killed rustc with SIGKILL.
+export GHOSTTY_ZIG_SOURCE=ghostty-next CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2
 unset CMUX_ZIG ZIG
 # The last feat-cmux-next push's build (read only; a miss builds cold): unchanged crates are not compiled again.
 ../scripts/ci/cmux-tui-test-target.sh restore
@@ -2172,6 +2364,9 @@ python3 scripts/tests/test_pr_scoped_lint_gates.py
 job = "linux"
 timeout = 360
 alone = true
+# A pull request runs it on its whole route (--pr-scope keeps it): the one rule that fails it, a namespace type the
+# pull request adds, is read from the pull request's own diff (--pr), which the post-merge batch does not have.
+pr_scope = false
 title = "Package conventions lint"
 about = "the iOS package conventions gate on the files the pull request changes (package-conventions-gate.sh --pr), warn-only into feat-cmux-next but for an added namespace type"
 inputs = [
@@ -2267,6 +2462,7 @@ inputs = [
   "Packages/Shared/CmuxEgress/**",
   "Packages/Shared/CmuxGhosttyKit/**",
   "Packages/Shared/CmuxHomeCore/**",
+  "Packages/Shared/CmuxLiveCode/**",
   "Packages/Shared/CmuxScreenKit/**",
   "Packages/Shared/CmuxSpinner/**",
   "Packages/Shared/CmuxTheme/**",
@@ -2312,7 +2508,13 @@ fi
 status=0
 # The suites that bound wall-clock time or the process footprint run alone after the rest (among 2580 parallel tests
 # in one process they measured their neighbours). The Instant list bench stays in the kit workflow's push runs.
-swift test --package-path cmux-next-ios/CmuxMobileKit --skip CmuxMobileInstantPerfTests --skip TerminalSelfRecoveryTests --skip MockTerminalStreamMemoryTests || status=1
+# CmuxMobileAuthTests, CmuxMobileDesignCoreTests, CmuxMobileModelTests, CmuxMobileNotificationsTests,
+# CmuxMobileRealtimeTests and CmuxMobileTransportTests run on Linux (swift-linux-packages.yml, group ios-kit, which
+# pr-router.yml starts for every change this step's inputs reach in those modules), as cmux-next-ios-kit.yml's macOS
+# swift test already skips them; the simulator run below still runs all six.
+swift test --package-path cmux-next-ios/CmuxMobileKit --skip CmuxMobileInstantPerfTests --skip TerminalSelfRecoveryTests --skip MockTerminalStreamMemoryTests \
+  --skip CmuxMobileAuthTests --skip CmuxMobileDesignCoreTests --skip CmuxMobileModelTests --skip CmuxMobileNotificationsTests \
+  --skip CmuxMobileRealtimeTests --skip CmuxMobileTransportTests || status=1
 swift test --package-path cmux-next-ios/CmuxMobileKit --no-parallel --filter TerminalSelfRecoveryTests --filter MockTerminalStreamMemoryTests || status=1
 # LiveCoordinator, the banner and the FFI-backed transport are iOS only, so their tests run only on the simulator.
 # Coverage off: its profiler crashes Swift 6.3.3 on an isolated deinit. arm64 only: the xcframework has no x86_64
