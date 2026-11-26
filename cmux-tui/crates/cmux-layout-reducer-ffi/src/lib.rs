@@ -157,6 +157,43 @@ unsafe fn write_output(
     OK
 }
 
+/// Whether a module answers an operation.
+type Handles = fn(&[u8]) -> bool;
+/// A module's answer to an operation it handles.
+type Respond = fn(&[u8], &[u8]) -> Result<Vec<u8>, i32>;
+
+/// The modules `cmux_layout_reducer_json` asks after its named operations, one line each, sorted
+/// by name so parallel PRs adding a module touch different lines. The first module that handles
+/// an operation answers it; `module_handlers_tests` keeps every operation to one module, save the
+/// overlaps it names (`cloud_machine_repo_*`: `cloud_bootstrap` before `cloud_machine`).
+const MODULE_HANDLERS: &[(&str, Handles, Respond)] = &[
+    ("browser_rules", browser_rules::handles, browser_rules::respond),
+    ("cloud_bootstrap", cloud_bootstrap::handles, cloud_bootstrap::respond),
+    ("cloud_config", cloud_config::handles, cloud_config::respond),
+    ("cloud_handler", cloud_handler::handles, cloud_handler::respond),
+    ("cloud_handoff", cloud_handoff::handles, cloud_handoff::respond),
+    ("cloud_hybrid", cloud_hybrid::handles, cloud_hybrid::respond),
+    ("cloud_machine", cloud_machine::handles, cloud_machine::respond),
+    ("cloud_move", cloud_move::handles, cloud_move::respond),
+    ("cloud_sequence", cloud_sequence::handles, cloud_sequence::respond),
+    ("cloud_task", cloud_task::handles, cloud_task::respond),
+    ("pane_focus", pane_focus::handles, |_, request| pane_focus::respond(request)),
+    ("screen", screen::handles, screen::respond),
+    ("tab_discard", tab_discard::handles, tab_discard::respond),
+    ("tab_groups", tab_groups::handles, tab_groups::respond),
+    ("tab_strip", tab_strip::handles, tab_strip::respond),
+    ("window_rules", window_rules::handles, window_rules::respond),
+];
+
+/// The module in [`MODULE_HANDLERS`] that answers `operation`.
+fn module_for(operation: &[u8]) -> Option<&'static (&'static str, Handles, Respond)> {
+    MODULE_HANDLERS.iter().find(|(_, handles, _)| handles(operation))
+}
+
+#[cfg(test)]
+#[path = "module_handlers_tests.rs"]
+mod module_handlers_tests;
+
 #[unsafe(no_mangle)]
 pub extern "C" fn cmux_layout_reducer_ffi_abi_version() -> u32 {
     ABI_VERSION
@@ -601,45 +638,11 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&cmux_focus_core::wire::agent_cursor_visibility(&request))
                     .map_err(|_| ERR_INVALID)?
             }
-            operation if cloud_config::handles(operation) => {
-                cloud_config::respond(operation, request)?
-            }
-            operation if cloud_handler::handles(operation) => {
-                cloud_handler::respond(operation, request)?
-            }
-            operation if cloud_handoff::handles(operation) => {
-                cloud_handoff::respond(operation, request)?
-            }
-            operation if cloud_hybrid::handles(operation) => {
-                cloud_hybrid::respond(operation, request)?
-            }
-            operation if cloud_move::handles(operation) => cloud_move::respond(operation, request)?,
-            operation if pane_focus::handles(operation) => pane_focus::respond(request)?,
-            operation if cloud_sequence::handles(operation) => {
-                cloud_sequence::respond(operation, request)?
-            }
-            operation if cloud_task::handles(operation) => cloud_task::respond(operation, request)?,
-            // Before `cloud_machine`: its `cloud_machine_config_` and `cloud_machine_step_` are narrower.
-            operation if cloud_bootstrap::handles(operation) => {
-                cloud_bootstrap::respond(operation, request)?
-            }
-            operation if cloud_machine::handles(operation) => {
-                cloud_machine::respond(operation, request)?
-            }
-            operation if tab_groups::handles(operation) => tab_groups::respond(operation, request)?,
-            operation if screen::handles(operation) => screen::respond(operation, request)?,
-            operation if tab_discard::handles(operation) => {
-                tab_discard::respond(operation, request)?
-            }
-            operation if browser_rules::handles(operation) => {
-                browser_rules::respond(operation, request)?
-            }
-            operation if window_rules::handles(operation) => {
-                window_rules::respond(operation, request)?
-            }
             b"mobile_host" => cmux_mobile_host_core::respond(request).map_err(|_| ERR_INVALID)?,
-            operation if tab_strip::handles(operation) => tab_strip::respond(operation, request)?,
-            _ => return Err(ERR_INVALID),
+            operation => match module_for(operation) {
+                Some((_, _, respond)) => respond(operation, request)?,
+                None => return Err(ERR_INVALID),
+            },
         };
         Ok(response)
     }));
