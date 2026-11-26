@@ -36,7 +36,7 @@ from pathlib import Path
 IMPORT_LINE = re.compile(
     r"^(?P<prefix>(?:@[A-Za-z_]+(?:\([^)]*\))?\s+)*(?:(?:public|package|internal|fileprivate|private)\s+)?)import\s+(?P<module>[A-Za-z_][A-Za-z0-9_.]*)\s*$"
 )
-NEEDS_COMPAT = re.compile(r"\bDarwin\.[a-z_]|\bString\(localized:")
+NEEDS_COMPAT = re.compile(r"\bDarwin\.[a-z_]|\bString\(localized:|\bSHA256\.hash\(")
 URL_TYPES = re.compile(r"\b(URLSession\w*|URLRequest|HTTPURLResponse|URLResponse|URLProtocol|URLCache|HTTPCookie\w*|URLCredential\w*|URLAuthenticationChallenge)\b")
 OS_MODULES = {"os", "OSLog", "os.log", "os.signpost"}
 
@@ -60,8 +60,9 @@ def rewrite(text: str) -> str:
                 out += ["#if canImport(Darwin)", line,
                         "#elseif canImport(Glibc)", f"{match.group('prefix')}import Glibc", "#endif"]
                 continue
-            if module in OS_MODULES:
-                out += ["#if canImport(os)", line, "#endif"]
+            if module in OS_MODULES or module == "CryptoKit":
+                guard = "os" if module in OS_MODULES else module
+                out += [f"#if canImport({guard})", line, "#endif"]
                 continue
             if module == "CoreGraphics":
                 out += ["#if canImport(CoreGraphics)", line, "#else",

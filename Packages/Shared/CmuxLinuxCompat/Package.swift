@@ -10,7 +10,8 @@ import PackageDescription
 // * `CmuxLinuxCompat` declares `public enum Darwin` with the libc calls our
 //   code spells `Darwin.close(fd)` (qualified so a type's own `close()` does
 //   not capture the call), each forwarding to Glibc, and the
-//   `String(localized:defaultValue:)` initializer corelibs Foundation lacks.
+//   `String(localized:defaultValue:)` initializer corelibs Foundation lacks,
+//   and a digest-only `SHA256.hash(data:)` where CryptoKit is missing.
 //   scripts/ci/linux_swift_portable_imports.py adds its import.
 let package = Package(
     name: "CmuxLinuxCompat",
@@ -25,5 +26,6 @@ let package = Package(
             providers: [.apt(["libsqlite3-dev"])]
         ),
         .target(name: "CmuxLinuxCompat"),
+        .testTarget(name: "CmuxLinuxCompatTests", dependencies: ["CmuxLinuxCompat"]),
     ]
 )

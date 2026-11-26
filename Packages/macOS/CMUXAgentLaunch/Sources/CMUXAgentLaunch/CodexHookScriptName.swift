@@ -1,9 +1,10 @@
 #if canImport(CryptoKit)
 import CryptoKit
-#else
-import Crypto
 #endif
 import Foundation
+#if canImport(CmuxLinuxCompat)
+import CmuxLinuxCompat
+#endif
 
 /// The immutable filename identity of a cmux-generated Codex hook script.
 public struct CodexHookScriptName: Equatable, Sendable {
