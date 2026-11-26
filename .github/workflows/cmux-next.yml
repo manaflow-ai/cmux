@@ -70,7 +70,6 @@ on:
       - plans/cmux-next/markdown-omnibar-DESIGN.md
       - plans/cmux-next/sidebar-owner/README.md
       - plans/cmux-next/spec-proposals/visuals/README.md
-      - plans/cmux-next/status-notices/README.md
       - docs/mdm/**
       - docs/configuration.md
       # Why: note-353
