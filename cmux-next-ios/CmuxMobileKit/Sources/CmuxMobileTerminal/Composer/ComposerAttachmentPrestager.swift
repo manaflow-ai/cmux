@@ -15,7 +15,14 @@ final class ComposerAttachmentPrestager {
     struct Entry {
         let task: Task<String, any Error>
         let name: String
-        let payload: LinkUpload.Payload
+        let payloadKey: PayloadKey
+    }
+
+    /// A cheap identity for deciding whether a composer row changed. Comparing
+    /// `Data` values here would scan every byte on the main actor.
+    private enum PayloadKey: Equatable {
+        case data(Int)
+        case file(URL)
     }
 
     private(set) var entries: [ComposerAttachment.ID: Entry] = [:]
@@ -35,17 +42,30 @@ final class ComposerAttachmentPrestager {
 
         for attachment in attachments where claimedEntries[attachment.id] == nil {
             guard let payload = try? attachment.payload() else { continue }
+            let payloadKey: PayloadKey = switch payload {
+            case .data(let data): .data(data.count)
+            case .file(let url): .file(url)
+            }
             if let existing = entries[attachment.id] {
-                if existing.name == attachment.name, existing.payload == payload { continue }
+                if existing.name == attachment.name, existing.payloadKey == payloadKey,
+                   !existing.task.isCancelled { continue }
                 existing.task.cancel()
                 entries[attachment.id] = nil
             }
-            let task = Task<String, any Error> { @MainActor in
-                let transfer = try await attachment.transferPayload()
-                try Task.checkCancellation()
-                return try await upload(transfer.payload, transfer.name)
+            let task = Task<String, any Error> { @MainActor [weak self] in
+                do {
+                    let transfer = try await attachment.transferPayload()
+                    try Task.checkCancellation()
+                    return try await upload(transfer.payload, transfer.name)
+                } catch {
+                    // A failed pre-send task must not suppress the next retry.
+                    if self?.entries[attachment.id]?.payloadKey == payloadKey {
+                        self?.entries[attachment.id] = nil
+                    }
+                    throw error
+                }
             }
-            entries[attachment.id] = Entry(task: task, name: attachment.name, payload: payload)
+            entries[attachment.id] = Entry(task: task, name: attachment.name, payloadKey: payloadKey)
         }
     }
 

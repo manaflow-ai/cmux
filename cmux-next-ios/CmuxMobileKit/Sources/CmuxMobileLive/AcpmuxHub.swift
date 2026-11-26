@@ -1479,7 +1479,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         let attachments = await Self.inlinePDFs(attachments)
         let inline = Self.inlineDocuments(attachments)
         var promptRefs: [String: (uploadID: String, fileName: String, ownerToken: String?)] = [:]
-        for attachment in attachments where (attachment.imageMIMEType == nil && !inline.contains(attachment.id))
+        for attachment in attachments where (attachment.kind != .image && !inline.contains(attachment.id))
             || (promptUpload != nil && attachment.kind == .image) {
             let payload: LinkUpload.Payload
             if attachment.data == nil, attachment.fileURL == nil, let path = attachment.macPath {
@@ -1569,8 +1569,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     }
 
     /// Streams a prompt upload over acpmux's resumable request surface.
-    static func uploadPrompt(_ payload: LinkUpload.Payload, name: String, sessionID: String,
-                             over connection: AcpmuxConnection) async throws -> AttachmentPrestager.Result {
+    nonisolated static func uploadPrompt(_ payload: LinkUpload.Payload, name: String, sessionID: String,
+                                         over connection: AcpmuxConnection) async throws -> AttachmentPrestager.Result {
         let size: Int
         let nextChunk: (Int) throws -> Data
         let close: () -> Void
@@ -1593,7 +1593,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 access.close()
                 throw LinkUpload.Failure(code: "unreadable", message: "Couldn't read \(name) on this iPhone.")
             }
-            nextChunk = { _ in try handle.read(upToCount: 512 << 10) ?? Data() }
+            nextChunk = { offset in
+                try handle.seek(toOffset: UInt64(offset))
+                return try handle.read(upToCount: 512 << 10) ?? Data()
+            }
             close = { try? handle.close(); access.close() }
         }
         defer { close() }
@@ -1675,10 +1678,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         if !text.isEmpty { blocks.append(.object(["type": .string("text"), "text": .string(text)])) }
         for attachment in attachments {
             if let ref = promptRefs[attachment.id] {
-                let metadata: JSONValue = .object(["acpmux": .object(["upload": .object([
-                    "uploadId": .string(ref.uploadID), "fileName": .string(ref.fileName),
-                    "owned": ref.ownerToken.map(JSONValue.string) ?? .null,
-                ])])])
+                var upload: [String: JSONValue] = ["uploadId": .string(ref.uploadID), "fileName": .string(ref.fileName)]
+                if let ownerToken = ref.ownerToken { upload["owned"] = .string(ownerToken) }
+                let metadata: JSONValue = .object(["acpmux": .object(["upload": .object(upload)])])
                 if attachment.kind == .image {
                     blocks.append(.object(["type": .string("image"), "name": .string(ref.fileName), "_meta": metadata]))
                 } else {
