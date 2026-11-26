@@ -773,6 +773,13 @@ impl Session {
     pub fn meta(&self) -> SessionMeta {
         self.meta.lock().unwrap().clone()
     }
+    /// Tests only: put a chat in the state a past capacity switch left it in
+    /// (`tests/hub_integration/auto_resume_capacity_failover.rs`).
+    #[doc(hidden)]
+    pub fn set_capacity_fallback_for_test(&self, fallback: Option<crate::store::CapacityFallback>) {
+        self.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner).capacity_fallback =
+            fallback;
+    }
     /// Read only the needed fields without copying large metadata payloads. The
     /// callback must not acquire other session/hub locks or call back into this session.
     pub(crate) fn read_meta<T>(&self, read: impl FnOnce(&SessionMeta) -> T) -> T {
