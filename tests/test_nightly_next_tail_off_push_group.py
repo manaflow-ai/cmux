@@ -72,6 +72,22 @@ else:
             failures.append(f"published-build must run in the run that published or an older dispatch ({term})")
     if "track != 'nightly-next'" in cond:
         failures.append("published-build must run in nightly-next's own push run too: the tail is part of the loop")
+    # A refused publication is a green publish job that moved no feed (run 45607031207: the final gate refused on a
+    # red App Store shelf, and published-build, its dispatch and the dispatched tail all went green).
+    for term in ("needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true'",
+                 "needs.nightly-next-one.outputs.left != 'true' && needs.nightly-next-one.outputs.refused != 'true'"):
+        if term not in cond:
+            failures.append(f"published-build must not run for a refused publication ({term})")
+    readback = next((s for s in source.get("steps", []) if "nightly_next_delta_check.py published" in str(s.get("run", ""))),
+                    None)
+    if readback is None:
+        failures.append("published-build must read its build back from the live feed (nightly_next_delta_check.py published)")
+    else:
+        steps = source.get("steps", [])
+        if steps.index(readback) != len(steps) - 1 or "set -o pipefail" not in str(readback.get("run", "")) \
+                or "steps.record.outputs.publish_build" not in str((readback.get("env") or {}).get("BUILD", "")) \
+                or "steps.record.outputs.track == 'nightly-next'" not in str(readback.get("if", "")):
+            failures.append("published-build's read-back must check the record's build on nightly-next, last, and fail red")
     body = job_text("published-build")
     if "nightly_published_build.py outputs" not in body:
         failures.append("published-build must write its outputs with nightly_published_build.py outputs")
