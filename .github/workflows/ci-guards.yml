@@ -850,6 +850,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_file_size.py
 
+      - name: Check that no workflow gates a step on hashFiles() outside the workspace
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_workflow_hashfiles_in_workspace.py
+
       - name: Check that no workflow submits a build-fleet job with a lapsing --pool
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflows_pin_no_fleet_pool.py

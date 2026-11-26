@@ -689,12 +689,14 @@ jobs:
           { echo "verdict=$verdict"; echo "reason=$reason"; } >> "$GITHUB_OUTPUT"
 
       - name: Upload the fleet pool result
-        if: ${{ !cancelled() && steps.sim-linux.outcome == 'success' && hashFiles(format('{0}/sim-linux/result.tgz', runner.temp)) != '' }}
+        # No hashFiles() gate: it sees only the workspace, never runner.temp, so it skipped every upload.
+        if: ${{ !cancelled() && steps.sim-linux.outcome == 'success' }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: kit-sim-linux-result-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/sim-linux/result.tgz
+          if-no-files-found: ignore
           retention-days: 3
 
       - name: Fleet pool verdict
@@ -957,12 +959,14 @@ jobs:
           { echo "verdict=$verdict"; echo "seconds=$seconds"; } >> "$GITHUB_OUTPUT"
 
       - name: Upload the fleet pool result
-        if: ${{ !cancelled() && hashFiles(format('{0}/sim-linux/result.tgz', runner.temp)) != '' }}
+        # No hashFiles() gate: it sees only the workspace, never runner.temp, so it skipped every upload.
+        if: ${{ !cancelled() }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: kit-sim-linux-result-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/sim-linux/result.tgz
+          if-no-files-found: ignore
           retention-days: 3
 
       - name: Fleet pool verdict
