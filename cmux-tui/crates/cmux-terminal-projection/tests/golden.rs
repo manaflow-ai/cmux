@@ -1055,7 +1055,10 @@ fn a_box_table_at_the_macs_width_is_laid_out_at_the_phones() {
     let rows = phone_rows(&case);
     for (text, wrapped) in &rows {
         if text.starts_with(['┌', '├', '└']) {
-            assert_eq!(visible_width(text), 54, "border at the phone's width: {text:?}");
+            // The table ends a cell short of the Mac's edge (119 of 120):
+            // the host's right margin stays on the phone, as it does on the
+            // Mac at any width.
+            assert_eq!(visible_width(text), 53, "border at the phone's width: {text:?}");
             assert!(!wrapped, "a border is one phone row: {text:?}");
         }
         assert!(visible_width(text) <= 54, "{text:?}");
