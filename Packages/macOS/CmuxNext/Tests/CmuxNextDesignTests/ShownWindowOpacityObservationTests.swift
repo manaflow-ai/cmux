@@ -20,7 +20,7 @@ struct ShownWindowOpacityObservationTests {
     @Test func aNewPictureChangesTheObservedShownOpacity() throws {
         let scope = ThemeScope(level: .room)
         let work = try #require(BackdropSelection(id: "van-gogh-starry-night"))
-        #expect(try observing({ _ = scope.shownWindowOpacity }, while: { scope.setBackdropSelection(work) }))
+        #expect(observing({ _ = scope.shownWindowOpacity }, while: { scope.setBackdropSelection(work) }))
         #expect(observing({ _ = scope.shownWindowOpacity }, while: { scope.setBackdropSelection(nil) }))
     }
 
@@ -29,6 +29,6 @@ struct ShownWindowOpacityObservationTests {
         let room = ThemeScope(level: .room)
         let workspace = ThemeScope(level: .workspace, parent: room)
         let work = try #require(BackdropSelection(id: "van-gogh-starry-night"))
-        #expect(try observing({ _ = workspace.shownWindowOpacity }, while: { room.setBackdropSelection(work) }))
+        #expect(observing({ _ = workspace.shownWindowOpacity }, while: { room.setBackdropSelection(work) }))
     }
 }
