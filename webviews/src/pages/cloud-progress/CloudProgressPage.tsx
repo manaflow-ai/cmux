@@ -8,6 +8,7 @@
 // our affected, possibly affected elements in the cohesive way").
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { experimentArm } from "../../experiments/experiment";
+import { Panel } from "../../kit";
 import { Button } from "../../ui/Button";
 import { Disclosure } from "../../ui/Disclosure";
 import { StatusGlyph } from "../../ui/StatusGlyph";
@@ -191,7 +192,7 @@ export function CloudProgressView({
   if (arm === "card") {
     return (
       <div className="cloud-progress" data-look="card" data-stage={state.stage} data-slow={slow || undefined}>
-        <div className="cloud-progress__card ui-card ui-glass ui-glass-content">
+        <Panel role="card" className="cloud-progress__card">
           <h1 className="cloud-progress__title">{title}</h1>
           {status}
           <div className="cloud-progress__bar" role="presentation">
@@ -203,7 +204,7 @@ export function CloudProgressView({
             {detail}
           </p>
           {actions}
-        </div>
+        </Panel>
         {note}
       </div>
     );

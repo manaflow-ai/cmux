@@ -181,6 +181,29 @@ test("a paused machine offers Resume and no Copy Error", async () => {
   store.stop();
 });
 
+test("the card arm uses the Instrument card surface", async () => {
+  const previous = globalThis.cmuxExperiments;
+  globalThis.cmuxExperiments = { ...(previous ?? {}), "cloud-progress-look": "card" };
+  const store = new CloudProgressStore(new MockCloudProgressProvider({ state: sampleState("booting") }));
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => {
+      root.render(<CloudProgressPage store={store} strings={strings} />);
+      await store.start();
+    });
+    const card = host.querySelector(".cloud-progress__card");
+    expect(card?.getAttribute("data-surface-role")).toBe("card");
+    expect(card?.classList.contains("ui-glass-content")).toBe(true);
+    expect(host.querySelectorAll(".cloud-progress__actions button")).toHaveLength(3);
+  } finally {
+    await act(async () => root.unmount());
+    store.stop();
+    globalThis.cmuxExperiments = previous;
+  }
+});
+
 test("a question takes the buttons' place, and its answer carries its id", async () => {
   const calls: { op: string; params: unknown }[] = [];
   const provider = new MockCloudProgressProvider({
