@@ -62,7 +62,17 @@ else root mkdir -p /var/run/tailscale; root setsid tailscaled --state=/var/lib/t
 /// through WireGuard but around the packet filter, so it works where the policy refuses this
 /// node dialing the user's devices. A disco ping alone starts no handshake (it did not help);
 /// disco pings before the TSMP ping delayed the handshake past its use (measured worse).
-const PEER_KICK: &str = "( i=0; until tailscale status --json --peers=false 2>/dev/null | tr -d '\\n' | grep -q '\"Addrs\": *\\[ *\"'; do i=$((i+1)); [ $i -gt 20 ] && break; sleep 0.1; done; tailscale status --self=false 2>/dev/null | awk '($1 ~ /^100\\./ || $1 ~ /^fd7a:/) && $0 !~ / offline/ {print $1}' | head -n 64 | while read -r ip; do tailscale ping --tsmp -c 1 --timeout 3s \"$ip\" & done; wait ) </dev/null >/dev/null 2>&1 &";
+///
+/// The kick runs twice. The first waits (2 s at most) until `tailscale status --peers=false` lists
+/// this node's own `Addrs`; on a few moves in 40 the laptop still waited ~7 s after it, because the
+/// peers had armed their 5 s handshake retry before control told them where this machine is.
+/// Control echoes this node's endpoints back in its own netmap (`tailscale debug netmap`,
+/// `SelfNode.Endpoints`, read above `Peers`) once it has published them, so the second kick waits
+/// for that (0.1 s polls, 6 s at most) and starts the handshakes again toward peers that know.
+const PEER_KICK: &str = "( addrs() { i=0; until tailscale status --json --peers=false 2>/dev/null | tr -d '\\n' | grep -q '\"Addrs\": *\\[ *\"'; do i=$((i+1)); [ $i -gt 20 ] && break; sleep 0.1; done; }; \
+kick() { tailscale status --self=false 2>/dev/null | awk '($1 ~ /^100\\./ || $1 ~ /^fd7a:/) && $0 !~ / offline/ {print $1}' | head -n 64 | while read -r ip; do tailscale ping --tsmp -c 1 --timeout 3s \"$ip\" & done; wait; }; \
+(addrs; kick) & \
+i=0; until tailscale debug netmap 2>/dev/null | sed '/\"Peers\"/,$d' | tr -d ' \\n' | grep -q '\"Endpoints\":\\[\"'; do i=$((i+1)); [ $i -gt 60 ] && break; sleep 0.1; done; kick; wait ) </dev/null >/dev/null 2>&1 &";
 
 /// One exec on the old holder: stop `tailscaled`, print its state as one base64 word, print the
 /// machine's clock at the stop. The state file stays on the machine until [`forget_command`], so
