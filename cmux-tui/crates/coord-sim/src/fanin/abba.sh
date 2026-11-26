@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # An ABBA duress comparison of one acpmux change, on a CI Linux runner, from the repo root:
 #   cmux-ci test --setup rust --timeout 10800 --artifact DIR -- \
-#     bash cmux-tui/crates/coord-sim/src/fanin/abba.sh BASE [RAMPS] [WINDOW_S] [HOSTS] [ROUNDS]
-# BASE is the commit the change sits on: the base daemon is this checkout with
-# cmux-tui/crates/acpmux as BASE has it, the head daemon this checkout as it is. Runs ci.sh four
+#     bash cmux-tui/crates/coord-sim/src/fanin/abba.sh PATCH [RAMPS] [WINDOW_S] [HOSTS] [ROUNDS]
+# PATCH is the change, `git diff BASE HEAD -- cmux-tui/crates/acpmux | gzip | base64 -w0` (a CI
+# checkout is shallow and cannot fetch BASE): the base daemon is this checkout with PATCH
+# reversed, the head daemon this checkout as it is. Runs ci.sh four
 # times (base, head, head, base) with each daemon in turn, samples every host daemon's CPU each
 # second, and writes abba.md: per run the hosts' CPU per prompt over each fan-out burst (above the
 # idle rate of the 10 s before it, divided by the sessions), the fan-out spread and lost/dup.
 set -uo pipefail
-BASE=${1:?usage: abba.sh BASE [RAMPS] [WINDOW_S] [HOSTS] [ROUNDS]}
+PATCH=${1:?usage: abba.sh PATCH [RAMPS] [WINDOW_S] [HOSTS] [ROUNDS]}
 shift
 ROOT=$(pwd)
 OUT=${FAST_CHECKS_OUT:-/tmp/abba-out}
@@ -16,16 +17,15 @@ HERE=cmux-tui/crates/coord-sim/src/fanin
 mkdir -p "$OUT"
 export CARGO_TARGET_DIR=$ROOT/target-fanin
 BINS=$(mktemp -d /tmp/abba-bin.XXXXXX)
-git cat-file -e "$BASE^{commit}" 2>/dev/null || git fetch --quiet --depth=1 origin "$BASE" \
-  || { echo "ABBA: cannot fetch base $BASE"; exit 1; }
-echo "ABBA: base $BASE, head $(git rev-parse HEAD); acpmux files that differ:"
-git diff --stat "$BASE" HEAD -- cmux-tui/crates/acpmux | tail -20
+printf %s "$PATCH" | base64 -d | gunzip > "$BINS/change.patch" || { echo "ABBA: PATCH does not decode"; exit 1; }
+echo "ABBA: head $(git rev-parse HEAD); the change:"
+git apply --stat "$BINS/change.patch"
 build() {
   (cd cmux-tui && cargo build --release -p acpmux --bin acpmux) || { echo "ABBA: $1 build failed"; exit 1; }
   cp "$CARGO_TARGET_DIR/release/acpmux" "$BINS/$1"
 }
 build head
-git checkout "$BASE" -- cmux-tui/crates/acpmux || { echo "ABBA: cannot check out base acpmux"; exit 1; }
+git apply -R "$BINS/change.patch" || { echo "ABBA: the change does not reverse on this checkout"; exit 1; }
 build base
 git checkout HEAD -- cmux-tui/crates/acpmux
 git diff --quiet HEAD -- cmux-tui/crates/acpmux || { echo "ABBA: head acpmux not restored"; exit 1; }
