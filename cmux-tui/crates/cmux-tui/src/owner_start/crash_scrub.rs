@@ -92,7 +92,7 @@ pub(super) fn scrub(text: &str, home: Option<&str>) -> String {
     let users_dir = |home: &&str| {
         // A Windows drive (`C:`) before `\Users` is still the users' directory.
         let bare = match home.as_bytes() {
-            [drive, b':', ..] if drive.is_ascii_alphabetic() => &home[2..],
+            [drive, b':', ..] if drive.is_ascii_alphabetic() => home.get(2..).unwrap_or(home),
             _ => home,
         };
         matches!(
