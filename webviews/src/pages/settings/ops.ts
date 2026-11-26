@@ -1167,6 +1167,15 @@ export type TailnetVMReply = {
   error?: string;
 };
 
+/** `cmux vm tailnet acl --json`: the policy lines the Connect sheet shows (cmux-tailnet-join `acl_snippet`). */
+export type TailnetACLReply = {
+  ok: boolean;
+  tag?: string;
+  acl?: string;
+  errorCode?: "cli_unavailable" | "acl_unavailable";
+  error?: string;
+};
+
 /** One entry of the customize library (`cmux --json customize library`; cmux-customize
  * `library.rs` `Listed`): something the person applied, kept as a layer they turn on and off. */
 export type LibraryEntry = {
@@ -2575,6 +2584,23 @@ export type SettingsOps = {
     },
     TailnetVMReply,
   ];
+  /** Native: RFD 0169's one stable node, `cmux vm tailnet connect VM --key-stdin` (Tailscale SSH on,
+   * never ephemeral, named `hostname` or YOU-cmux, kept in the person's vault). */
+  "cmux.settings.tailnet.connectVM": [
+    {
+      vm: string;
+      key: string;
+      oauth?: boolean;
+      loginServer?: string;
+      hostname?: string;
+      tags?: string[];
+      allowHttp?: boolean;
+      switch?: boolean;
+    },
+    TailnetVMReply,
+  ];
+  /** Native, a read: the policy lines for `tag` (default tag:cmux), as `cmux vm tailnet acl` prints them. */
+  "cmux.settings.tailnet.acl": [{ tag?: string }, TailnetACLReply];
   /** Native: removes one Cloud machine from the person's tailnet. */
   "cmux.settings.tailnet.leaveVM": [{ vm: string }, TailnetVMReply];
   /** Native: one `cmux customize` verb through the bundled CLI, for the try-on bar. */

@@ -15,7 +15,7 @@ public import Foundation
 @MainActor
 public final class SettingsTailnet: PageProvider {
     public nonisolated static let prefix = "cmux.settings.tailnet."
-    private static let verbs: Set<String> = ["state", "start", "login", "logout", "joinVM", "leaveVM"]
+    private static let verbs: Set<String> = ["state", "start", "login", "logout", "joinVM", "connectVM", "leaveVM", "acl"]
 
     /// This app's acpmux; nil in a showcase or with the mock agent host.
     private let environment: @MainActor () -> AcpmuxEnvironment?
@@ -30,11 +30,15 @@ public final class SettingsTailnet: PageProvider {
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         let verb = String(op.dropFirst(Self.prefix.count))
         guard op.hasPrefix(Self.prefix), Self.verbs.contains(verb) else { throw PageError.unknownOp(op) }
-        guard verb == "state" || (context.page == PageDescriptor.settings.id && context.userGesture) else {
+        // Reading the state or the policy lines changes nothing, so neither needs the person's click.
+        guard verb == "state" || verb == "acl" || (context.page == PageDescriptor.settings.id && context.userGesture) else {
             throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
         }
-        if verb == "joinVM" || verb == "leaveVM" {
+        if verb == "joinVM" || verb == "connectVM" || verb == "leaveVM" {
             return try await runVM(verb: verb, params: params)
+        }
+        if verb == "acl" {
+            return try await runACL(params: params)
         }
         guard let environment = environment(), let line = await AcpmuxPersonLine.open(environment) else { return .null }
         defer { line.close() }
@@ -51,9 +55,12 @@ public final class SettingsTailnet: PageProvider {
         }
         // Ask the bundled CLI for its machine-readable envelope. The global flag is safe for both
         // join and leave, and keeps the page from parsing human-facing progress text.
-        var arguments = ["--json", "vm", "tailnet", verb == "joinVM" ? "join" : "leave", vm]
+        // `connectVM` is RFD 0169's one stable node: `cmux vm tailnet connect` turns Tailscale SSH on,
+        // never makes it ephemeral, names it YOU-cmux unless the sheet names it, and the vault keeps it.
+        let connect = verb == "connectVM"
+        var arguments = ["--json", "vm", "tailnet", connect ? "connect" : verb == "joinVM" ? "join" : "leave", vm]
         var stdin: Data?
-        if verb == "joinVM" {
+        if verb == "joinVM" || connect {
             guard let key = params["key"]?.stringValue, !key.isEmpty else {
                 return ["ok": .bool(false), "errorCode": .string("missing_key")]
             }
@@ -64,13 +71,14 @@ public final class SettingsTailnet: PageProvider {
             if let value = params["loginServer"]?.stringValue, !value.isEmpty, params["allowHttp"]?.boolValue == true {
                 arguments.append("--allow-http")
             }
-            // The setting is a template: {vm} names the Cloud machine being joined.
-            if let value = params["hostname"]?.stringValue, !value.isEmpty {
+            // The setting is a template: {vm} names the Cloud machine being joined. A connect's node
+            // outlives the VM, so only a name typed in its sheet is passed; the CLI's default is YOU-cmux.
+            if let value = params["hostname"]?.stringValue, !value.isEmpty, !connect || !value.contains("{vm}") {
                 arguments += ["--hostname", value.replacingOccurrences(of: "{vm}", with: vm)]
             }
             for tag in params["tags"]?.arrayValue?.compactMap(\.stringValue) ?? [] where !tag.isEmpty { arguments += ["--tag", tag] }
-            if params["ssh"]?.boolValue == true { arguments.append("--ssh") }
-            if params["ephemeral"]?.boolValue == true { arguments.append("--ephemeral") }
+            if !connect, params["ssh"]?.boolValue == true { arguments.append("--ssh") }
+            if !connect, params["ephemeral"]?.boolValue == true { arguments.append("--ephemeral") }
             for port in params["servePorts"]?.arrayValue?.compactMap(\.stringValue) ?? [] where !port.isEmpty { arguments += ["--serve", port] }
             if params["switch"]?.boolValue == true { arguments.append("--switch") }
         }
@@ -82,5 +90,22 @@ public final class SettingsTailnet: PageProvider {
         }
         let detail = String(decoding: result.errorOutput, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         return ["ok": .bool(false), "error": .string(detail.isEmpty ? "The tailnet command failed (exit \(result.status))." : detail)]
+    }
+
+    /// The policy lines the Connect sheet shows for the person to paste (`cmux vm tailnet acl`): the
+    /// text is the CLI's, so the sheet and `cmux vm tailnet acl` never differ.
+    private func runACL(params: JSONValue) async throws -> JSONValue {
+        guard let binary = await cli() else {
+            return ["ok": .bool(false), "errorCode": .string("cli_unavailable")]
+        }
+        var arguments = ["--json", "vm", "tailnet", "acl"]
+        if let tag = params["tag"]?.stringValue, !tag.isEmpty { arguments += ["--tag", tag] }
+        let request = ProcessRequest(binary, arguments, input: nil, errorOutput: .separate, timeout: .seconds(30))
+        let result = try await AsyncProcess().run(request)
+        let lines = String(decoding: result.output, as: UTF8.self).split(separator: "\n")
+        if let line = lines.last, let answer = try? JSONValue.parse(Data(line.utf8)) {
+            return answer
+        }
+        return ["ok": .bool(false), "errorCode": .string("acl_unavailable")]
     }
 }

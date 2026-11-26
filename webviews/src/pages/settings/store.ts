@@ -1233,6 +1233,18 @@ export class SettingsStore {
     return reply.ok ? reply.value : { ok: false, error: userMessage(reply.error, SETTINGS_SENTENCES) };
   }
 
+  /** Connects the person's one stable node through one Cloud machine (RFD 0169). The key is sent once. */
+  async connectTailnetVM(params: SettingsOps["cmux.settings.tailnet.connectVM"][0]): Promise<TailnetVMReply> {
+    const reply = await this.request("cmux.settings.tailnet.connectVM", params);
+    return reply.ok ? reply.value : { ok: false, error: userMessage(reply.error, SETTINGS_SENTENCES) };
+  }
+
+  /** The policy lines the Connect sheet shows; null when the CLI did not answer them. */
+  async tailnetACL(tag?: string): Promise<string | null> {
+    const reply = await this.request("cmux.settings.tailnet.acl", tag ? { tag } : {});
+    return reply.ok && reply.value.ok && reply.value.acl ? reply.value.acl : null;
+  }
+
   /** Removes one Cloud machine from the person's tailnet. */
   async leaveTailnetVM(vm: string): Promise<TailnetVMReply> {
     const reply = await this.request("cmux.settings.tailnet.leaveVM", { vm });
