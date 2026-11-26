@@ -289,10 +289,11 @@ class WebShapes(unittest.TestCase):
         tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)
         path = f"{WEB}/AutoResumeNotice.tsx"
         button = '<button type="button" onClick={onRetry}>{t("page.retry")}</button>'
-        child = "\nfunction RetryButton({ onSubmit }) {\n  return <button onClick={onSubmit}>Retry</button>;\n}\n"
+        # Avoid the *Button naming shortcut: this case must inspect the forwarded handler.
+        child = "\nfunction RetryControl({ onSubmit }) {\n  return <button onClick={onSubmit}>Retry</button>;\n}\n"
         for prop, expected in [("onSubmit", 0), ("onPreview", 1)]:
             with self.subTest(prop=prop):
-                notice = ACTION_NOTICE.replace(button, f"<RetryButton {prop}={{onRetry}} />")
+                notice = ACTION_NOTICE.replace(button, f"<RetryControl {prop}={{onRetry}} />")
                 tree.write(path, textwrap.dedent(notice) + child)
                 code, out = tree.check()
                 self.assertEqual(code, expected, out)
