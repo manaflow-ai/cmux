@@ -43,22 +43,21 @@ const readyWithPRs: AppUpdateState = {
   actions: [{ id: "install", title: "Restart to Update", prominent: true }],
   prs: {
     title: "What's in this build",
-    builds: ["3913596493802", "3913596493801"],
+    other: "Other",
+    internalCount: 2,
     groups: [
       {
-        area: "sidebar",
-        label: "Sidebar",
+        area: "Mac app",
         items: [
           pull(57301, "Pinned tabs keep their order after a restart", "lawrence", "3913596493802"),
           pull(57288, "Sidebar rows fade on hover", "austin", "3913596493801"),
         ],
       },
       {
-        area: "terminal",
-        label: "Terminal",
+        area: "Terminal and CLI",
         items: [pull(57295, "Find bar remembers its query", "leo", "3913596493802")],
       },
-      { area: "other", label: "Other", items: [pull(57270, "Faster cold start", "leo", "3913596493801")] },
+      { area: null, items: [pull(57270, "Faster cold start", "leo", "3913596493801")] },
     ],
   },
 };

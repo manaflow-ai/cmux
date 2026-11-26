@@ -53,42 +53,15 @@ export interface UpdateHighlights {
   /** Every change after `items` (the popover scrolls to the whole list); absent from an older host. */
   rest?: UpdateHighlightItem[] | null;
   changelog: { from: string; to: string };
+  /** "What's in this build": the pull requests merged after the installed build through this one,
+      by area (the host's BuildPullRequests). Absent from an older host and before they load. */
+  pullRequests?: BuildPullRequests | null;
   /** The Updated card's way back: the build Go back takes (the one this Mac came from, kept), its
       words ("nightly 4288034 from Nov 10") and the entry's title. Absent with none kept, and on
       the update-ready surfaces. */
   goBack?: UpdateGoBack | null;
   /** A go-back runs (the host's progress); absent once it ended without a relaunch. */
   goBackRunning?: boolean;
-  /** "What's in this build": the PRs merged since the installed build, every skipped nightly's
-      included, grouped by area (the host's UpdatePullRequests). Absent until the span's notes load,
-      and from an older host. */
-  prs?: UpdatePullRequests | null;
-}
-
-/** The PRs an update brings, grouped by area: the host groups, orders and words them; pages only draw. */
-export interface UpdatePullRequests {
-  /** Largest area first, Other last. */
-  groups: UpdatePullRequestGroup[];
-  /** The builds the list spans, newest first. */
-  builds: string[];
-}
-
-export interface UpdatePullRequestGroup {
-  /** The area's key (`sidebar`, `other`, ...). */
-  area: string;
-  /** Its heading, already localized. */
-  label: string;
-  items: UpdatePullRequest[];
-}
-
-export interface UpdatePullRequest {
-  pr?: number | null;
-  title: string;
-  author?: string | null;
-  /** The PR's page (the notes' url, else the manaflow-ai/cmux pull page). */
-  url?: string | null;
-  /** The build that brought it. */
-  build: string;
 }
 
 export interface UpdateGoBack {
@@ -134,4 +107,21 @@ export interface UpdateSurfaceActions {
   goBack?(build?: string): Promise<string | null>;
   /** The recent builds for "Other builds": `cmux.changelog.surface.builds`. */
   builds?(): Promise<RecentBuildRow[]>;
+}
+
+/** One pull request of a build span. */
+export interface BuildPullRequest {
+  pr: number;
+  title: string;
+  author?: string | null;
+  url: string;
+  /** The build whose notes list it. */
+  build: string;
+}
+
+/** A span's pull requests by area; `area` null is "Other", always last. */
+export interface BuildPullRequests {
+  groups: { area?: string | null; items: BuildPullRequest[] }[];
+  /** CI and tooling-only pull requests, counted and not listed. */
+  internalCount: number;
 }

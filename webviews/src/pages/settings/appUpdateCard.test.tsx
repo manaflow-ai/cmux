@@ -71,11 +71,11 @@ test("a staged update lists what's in it, grouped by area, each PR linked with i
     ...ready,
     prs: {
       title: "What's in this build",
-      builds: ["999", "998"],
+      other: "Other",
+      internalCount: 1,
       groups: [
         {
-          area: "sidebar",
-          label: "Sidebar",
+          area: "Mac app",
           items: [
             {
               pr: 12,
@@ -94,9 +94,10 @@ test("a staged update lists what's in it, grouped by area, each PR linked with i
           ],
         },
         {
-          area: "other",
-          label: "Other",
-          items: [{ pr: 10, title: "Faster cold start", author: null, url: null, build: "998" }],
+          area: null,
+          items: [
+            { pr: 10, title: "Faster cold start", author: null, url: "https://github.com/manaflow-ai/cmux/pull/10", build: "998" },
+          ],
         },
       ],
     },
@@ -104,12 +105,12 @@ test("a staged update lists what's in it, grouped by area, each PR linked with i
   const list = card(page.container)!.querySelector<HTMLDetailsElement>("[data-app-update-prs]")!;
   expect(list.querySelector("summary")!.textContent).toBe("What's in this build (3)");
   const areas = [...list.querySelectorAll<HTMLElement>("[data-app-update-prs-area]")];
-  expect(areas.map((area) => area.dataset.appUpdatePrsArea)).toEqual(["sidebar", "other"]);
-  expect(areas[0].querySelector("h4")!.textContent).toBe("Sidebar");
+  expect(areas.map((area) => area.dataset.appUpdatePrsArea)).toEqual(["Mac app", ""]);
+  expect(areas[0].querySelector("h4")!.textContent).toBe("Mac app");
   const link = areas[0].querySelector<HTMLAnchorElement>('[data-app-update-pr="12"]')!;
   expect(link.getAttribute("href")).toBe("https://github.com/manaflow-ai/cmux/pull/12");
   expect(link.parentElement!.textContent).toBe("Pinned tabs keep their order #12 · lawrence");
-  expect(areas[1].querySelector("a")).toBeNull();
+  expect(areas[1].querySelector("h4")!.textContent).toBe("Other");
   expect(areas[1].textContent).toContain("Faster cold start #10");
   page.unmount();
 });

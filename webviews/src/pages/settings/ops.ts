@@ -423,15 +423,17 @@ export type AppUpdateState = {
   /** Read-only lines under the status: Last Updated and Next Check, label and value the host's. */
   schedule?: { id: string; label: string; value: string }[];
   /** "What's in this build" while an update waits: the PRs since the installed build, every skipped
-      nightly's included, grouped by area. Every text is the host's; absent with none. */
+      nightly's included, by area (the host's BuildPullRequests, as the update popover reads it). A
+      group without an area is "Other", last; `title` and `other` are the host's words. Absent with none. */
   prs?: {
     title: string;
+    other: string;
     groups: {
-      area: string;
-      label: string;
-      items: { pr?: number | null; title: string; author?: string | null; url?: string | null; build: string }[];
+      area?: string | null;
+      items: { pr: number; title: string; author?: string | null; url: string; build: string }[];
     }[];
-    builds: string[];
+    /** CI and tooling-only PRs, counted and not listed. */
+    internalCount: number;
   } | null;
 };
 

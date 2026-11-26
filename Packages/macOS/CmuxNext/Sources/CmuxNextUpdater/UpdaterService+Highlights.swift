@@ -11,9 +11,9 @@ extension UpdaterService {
     public var stagedHighlights: UpdateHighlights? {
         guard let version = stagedVersion ?? stagedNotes?.shortVersion else { return nil }
         let build = stagedBuild() ?? stagedNotes?.build ?? version
-        var highlights = UpdateHighlights(version: version, build: build, fromVersion: identity.shortVersion, fromBuild: identity.build,
-                                          notes: stagedNotes, appcast: stagedChangelog)
-        highlights.prs = stagedPullRequests.flatMap { $0.isEmpty ? nil : $0 }
+        var highlights = UpdateHighlights(version: version, build: build, fromVersion: identity.shortVersion,
+                                          fromBuild: identity.build, notes: stagedNotes, appcast: stagedChangelog)
+        highlights.pullRequests = stagedPullRequests.flatMap { $0.isEmpty ? nil : $0 }
         return highlights
     }
 

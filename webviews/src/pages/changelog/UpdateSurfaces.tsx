@@ -48,10 +48,10 @@ import { changeItems, distinctSummary, mergedView, readableChanges, readableUpda
 import type { Strings } from "../shared/i18n";
 import type { ReleaseNotes } from "./types";
 import type {
+  BuildPullRequests,
   UpdateHighlightItem,
   UpdateHighlightMedia,
   UpdateHighlights,
-  UpdatePullRequests,
   UpdateSurfaceActions,
 } from "./updateHighlights";
 import { PREVIEW_CLOSE_MS, PreviewIntent, plainEntries, previewEntries, withoutGenericEntry } from "./updatedPreview";
@@ -709,6 +709,7 @@ export function UpdateReadyHighlights({
   actions,
   briefLayout = "stacked",
   layout = "two-line",
+  pullRequestsOpen = false,
 }: {
   data: UpdateHighlights;
   /** The notes of every build after the running version up to the staged one, newest first: the
@@ -718,8 +719,13 @@ export function UpdateReadyHighlights({
   actions: UpdateSurfaceActions;
   briefLayout?: BriefLayout;
   layout?: ReadyLayout;
+  /** "What's in this build" starts open (gallery stills); the popover starts with it closed. */
+  pullRequestsOpen?: boolean;
 }) {
   const titleId = useId();
+  const pullRequests = data.pullRequests ? (
+    <BuildPullRequestList list={data.pullRequests} strings={strings} open={pullRequestsOpen} />
+  ) : null;
   const scroller = useRef<HTMLElement | null>(null);
   // One callback for both scrollers: the brief popover's section and the list's div.
   const scrollerRef = (element: HTMLElement | null) => {
@@ -749,8 +755,7 @@ export function UpdateReadyHighlights({
   // No change list (Leo 2026-11-03: "MAN this looks ugly... stretched out wasted space"): the popover
   // is as wide as its lines (at most the menu width) and the link sits with them, with no rule and
   // no far edge to push it to. The host sizes the popover to the width this page reports.
-  const prs = data.prs?.groups.length ? data.prs : null;
-  if (items.length === 0 && (rest?.length ?? 0) === 0 && !prs) {
+  if (items.length === 0 && (rest?.length ?? 0) === 0) {
     const from = data.fromVersion && data.fromVersion !== data.version ? data.fromVersion : null;
     const link = (
       <button type="button" className="wn-pop-all" onClick={() => actions.openChangelog()}>
@@ -785,6 +790,7 @@ export function UpdateReadyHighlights({
         {data.moreCount > 0 && (
           <div className="wn-pop-more">{strings.format("updates.card.more", String(data.moreCount))}</div>
         )}
+        {pullRequests}
       </section>
     );
   }
@@ -833,7 +839,7 @@ export function UpdateReadyHighlights({
             )}
           </div>
         )}
-        {prs && <PopPullRequests prs={prs} strings={strings} />}
+        {pullRequests}
       </div>
       <div className="wn-pop-foot">
         {!rest && data.moreCount > 0 && (
@@ -849,33 +855,38 @@ export function UpdateReadyHighlights({
 }
 
 /** "What's in this build" (Leo 2026-11-26: "hm do we display which prs go into which nightly maybe
- * that'd be useful per thing?"): every PR since the installed build, grouped by area under the
- * host's headings, each its title and #N linked to the PR, then its author. Only draws: the host
- * groups and orders them (UpdatePullRequests.swift). */
-function PopPullRequests({ prs, strings }: { prs: UpdatePullRequests; strings: Strings }) {
+ * that'd be useful per thing?"): a closed disclosure under the changes; open, the span's pull
+ * requests by area, each its linked title and #number, then its author, and the internal count. */
+function BuildPullRequestList({ list, strings, open }: { list: BuildPullRequests; strings: Strings; open: boolean }) {
+  const count = list.groups.reduce((sum, group) => sum + group.items.length, 0);
+  if (count === 0) return null;
   return (
-    <div className="wn-pop-rest" data-prs="">
-      <section className="wn-pop-rest-group">
-        <h4>{strings.t("updates.prs.title")}</h4>
-      </section>
-      {prs.groups.map((group) => (
-        <section key={group.area} className="wn-pop-rest-group" aria-label={group.label} data-prs-area={group.area}>
-          <h4>{group.label}</h4>
+    <details className="wn-pop-prs" open={open || undefined}>
+      <summary>
+        {strings.t("updates.popover.prs.title")}
+        <span className="wn-pop-prs-count"> · {count}</span>
+      </summary>
+      {list.groups.map((group) => (
+        <section key={group.area ?? ""} className="wn-pop-rest-group" aria-label={group.area ?? undefined}>
+          <h4>{group.area || strings.t("updates.popover.prs.other")}</h4>
           <ul>
             {group.items.map((item) => (
-              <li key={`${item.pr ?? item.title}`} className="wn-pop-row">
+              <li key={item.pr} className="wn-pop-row">
                 <span className="wn-pop-text">
                   <span className="wn-pop-item">
-                    <ChangePullRequest pr={item.url ?? item.pr ?? ""} title={item.title} />
+                    <ChangePullRequest pr={item.url} title={item.title} />
                   </span>
-                  {item.author && <span className="wn-pop-line">{item.author}</span>}
+                  {item.author && <span className="wn-pop-line"> {item.author}</span>}
                 </span>
               </li>
             ))}
           </ul>
         </section>
       ))}
-    </div>
+      {list.internalCount > 0 && (
+        <div className="wn-pop-more">{strings.format("updates.popover.prs.internal", String(list.internalCount))}</div>
+      )}
+    </details>
   );
 }
 

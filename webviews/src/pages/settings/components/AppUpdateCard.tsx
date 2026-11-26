@@ -101,19 +101,15 @@ function AppUpdatePullRequests({ prs }: { prs: AppUpdatePRs }) {
     <details className="app-update-prs" data-app-update-prs="">
       <summary>{`${prs.title} (${count})`}</summary>
       {prs.groups.map((group) => (
-        <section key={group.area} data-app-update-prs-area={group.area}>
-          <h4 className="text-detail text-muted">{group.label}</h4>
+        <section key={group.area ?? ""} data-app-update-prs-area={group.area ?? ""}>
+          <h4 className="text-detail text-muted">{group.area || prs.other}</h4>
           <ul>
             {group.items.map((item) => (
-              <li key={`${item.pr ?? item.title}`}>
-                {item.url ? (
-                  <a href={item.url} className="channel-link" data-app-update-pr={item.pr ?? ""}>
-                    {item.title}
-                  </a>
-                ) : (
-                  <span>{item.title}</span>
-                )}
-                {item.pr != null && <span className="text-muted font-mono">{` #${item.pr}`}</span>}
+              <li key={item.pr}>
+                <a href={item.url} className="channel-link" data-app-update-pr={item.pr}>
+                  {item.title}
+                </a>
+                <span className="text-muted font-mono">{` #${item.pr}`}</span>
                 {item.author && <span className="text-muted">{` · ${item.author}`}</span>}
               </li>
             ))}
