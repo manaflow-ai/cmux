@@ -100,4 +100,4 @@ jobs:
             ${{ runner.temp }}/cas-replay-w1/rows.jsonl
             ${{ runner.temp }}/w1.json
           if-no-files-found: ignore
-          retention-days: 30
+          retention-days: 14
