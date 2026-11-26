@@ -247,7 +247,7 @@ jobs:
           --health-retries 30
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # HEAD^1 is the base the pull request merges onto.
           fetch-depth: 2
@@ -539,7 +539,7 @@ jobs:
       STOREKIT_PATH: ${{ needs.billing.outputs.storekit_path }}
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 

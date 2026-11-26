@@ -359,7 +359,7 @@ jobs:
       - name: Checkout caller or requested ref
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -376,7 +376,7 @@ jobs:
 
       - name: Retry checkout caller or requested ref after a stalled fetch
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -1396,7 +1396,7 @@ jobs:
       - name: Checkout caller or requested ref
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -1413,7 +1413,7 @@ jobs:
 
       - name: Retry checkout caller or requested ref after a stalled fetch
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -1531,7 +1531,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout caller or requested ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -1577,7 +1577,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout caller or requested ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -1672,7 +1672,7 @@ jobs:
       - name: Checkout caller or requested ref
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -1689,7 +1689,7 @@ jobs:
 
       - name: Retry checkout caller or requested ref after a stalled fetch
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -1759,7 +1759,7 @@ jobs:
       - name: Checkout caller or requested ref
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -1776,7 +1776,7 @@ jobs:
 
       - name: Retry checkout caller or requested ref after a stalled fetch
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -2063,7 +2063,7 @@ jobs:
       PYPI_VERSION: ${{ inputs.pypi_version != '' && inputs.pypi_version || inputs.version }}
     steps:
       - name: Checkout caller or requested ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -2132,7 +2132,7 @@ jobs:
       attestations: write
     steps:
       - name: Checkout caller or requested ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
