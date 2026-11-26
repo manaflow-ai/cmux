@@ -5787,7 +5787,7 @@
           "name": "retry",
           "type": "{ label: string; onRetry(): void; disabled?: boolean; hint?: string; }",
           "optional": true,
-          "doc": "An error's Retry: always the first button and the filled one."
+          "doc": "An error's Retry: always the first button and the filled one. retry-prompt-ok: only for a costly retry."
         },
         {
           "name": "state",
