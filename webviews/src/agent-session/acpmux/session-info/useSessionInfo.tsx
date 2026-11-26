@@ -882,6 +882,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onStopProcess,
   onOpenOutput,
   onOpenSourceFile,
+  onRemoveFolder,
   onOpenUrl,
   onOpenImage,
   readPromptImage,
@@ -954,6 +955,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onStopProcess?: (id: string) => Promise<unknown>;
   onOpenOutput?: (path: string) => void;
   onOpenSourceFile?: (path: string) => unknown;
+  onRemoveFolder?: (path: string) => Promise<unknown> | unknown;
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string, path?: string) => void;
   /// A pasted image's bytes by its id, for its Sources row (direct.ts `promptImage`).
