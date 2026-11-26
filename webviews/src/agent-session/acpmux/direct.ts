@@ -499,6 +499,7 @@ export async function inflateFrame(data: ArrayBuffer | ArrayBufferView | Blob): 
   const decoder = new TextDecoder();
   let text = "";
   let bytes = 0;
+  // ends: the decoder consumes one finite blob and returns at EOF or throws above MAX_INFLATED_BYTES
   for (;;) {
     const { done, value } = await reader.read();
     if (done) return text + decoder.decode();
@@ -645,6 +646,7 @@ function wholeTurnsAboveHole(page: readonly EventRecord[], target: number, tailS
 const holdsSeq = (events: readonly EventRecord[], seq: number) => {
   let low = 0;
   let high = events.length;
+  // ends: the binary search halves the remaining range until low meets high
   while (low < high) {
     const mid = (low + high) >>> 1;
     if (events[mid]!.seq < seq) low = mid + 1;
@@ -731,9 +733,11 @@ export function withPlaceholders(
   let next = 0;
   for (const row of rows) {
     const at = order(row);
+    // ends: each insertion advances next until the next placeholder belongs after this row or pending runs out
     while (next < pending.length && (pending[next]!.seq ?? Infinity) < at) out.push(pending[next++]!);
     out.push(row);
   }
+  // ends: each insertion consumes one of the remaining placeholders
   while (next < pending.length) out.push(pending[next++]!);
   return out;
 }
@@ -4605,8 +4609,6 @@ export class AcpmuxDirectClient {
     replayLiveState = true,
   ): Promise<void> {
     const key = ++this.gapReadKeys;
-    // ends: `cursor` moves to the page's newest seq each pass; it breaks on no more or an empty page, and
-    // throws on a page that says more but moved it nothing
     // The hole stays open from `afterSeq` until every read is in: one that fails part way leaves
     // none of it drawn, and the next read starts from the same place.
     this.gapReads.set(key, { sessionId, seq: afterSeq });
@@ -4614,6 +4616,7 @@ export class AcpmuxDirectClient {
     // newest turn were swapped for each read's stretch in turn, and the live state was replayed onto
     // each read's last record (a Thinking clock from hours before, the subsessions of then).
     const missed: EventRecord[] = [];
+    // ends: each continued page advances cursor; a final, empty or window-cut page stops the read, and a stall throws
     for (let cursor = afterSeq; ;) {
       const result = await this.typed("_acpmux/events", {
         sessionId,
@@ -11954,6 +11957,7 @@ export class AcpmuxDirectClient {
     // The running turn starts after the last ended one.
     const rows = this.rows.sorted();
     let start = rows.length;
+    // ends: start moves back to the last turn summary or the first row
     while (start > 0 && rows[start - 1]!.kind !== "turnSummary") start -= 1;
     const items = current?.items ?? new Map<string, number>();
     const changed: string[] = [];
