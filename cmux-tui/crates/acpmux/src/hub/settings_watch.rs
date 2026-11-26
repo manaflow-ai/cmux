@@ -128,9 +128,6 @@ impl Hub {
             Some(watch.clone());
         // The value the watchers' last answer was based on.
         let mut last = super::start_mode::setting_snapshot();
-        // The cmux router profile's start model (`agents.modelRouter.model`): a change rebuilds
-        // the catalog, so the next new chat on `cmux` starts on it.
-        let mut last_router = crate::config::cmux_router_model_setting();
         let (signal, mut wake) = super::harness_watch::wake_slot();
         let hub = Arc::downgrade(self);
         let task = handle.spawn(async move {
@@ -143,27 +140,11 @@ impl Hub {
                     hub.subsession_runs.wake();
                     hub.settings_changes.send_modify(|seq| *seq = seq.wrapping_add(1));
                 }
-                let Ok((now, router)) = tokio::task::spawn_blocking(|| {
-                    (
-                        super::start_mode::setting_snapshot(),
-                        crate::config::cmux_router_model_setting(),
-                    )
-                })
-                .await
+                let Ok(now) =
+                    tokio::task::spawn_blocking(super::start_mode::setting_snapshot).await
                 else {
                     break;
                 };
-                if router != last_router {
-                    last_router = router;
-                    if let Some(hub) = hub.upgrade()
-                        && let Err(e) = hub.reload_catalog().await
-                    {
-                        tracing::warn!(
-                            "model router setting: catalog reload failed: {}",
-                            e.message
-                        );
-                    }
-                }
                 if now == last {
                     continue;
                 }

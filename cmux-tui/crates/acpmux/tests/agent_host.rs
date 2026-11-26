@@ -65,7 +65,6 @@ fn spec(dir: &Path, session: &str) -> SpawnSpec {
         socket: agent_host::socket_path(&hosts, session),
         hosts_dir: hosts,
         buffer_cap: agent_host::DEFAULT_BUFFER_CAP,
-        router_owner_fifo: None,
         cwd_pin: None,
         orphan_exit: None,
         prompt_suggestions_managed: None,

@@ -32,9 +32,6 @@
   "cmux_cloud_environment::client_config": {
    "todo": true
   },
-  "cmux_coderouter": {
-   "todo": true
-  },
   "cmux_projection::peers": {
    "todo": true
   },

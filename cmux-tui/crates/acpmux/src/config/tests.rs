@@ -175,39 +175,6 @@ fn a_failing_sr_never_becomes_an_acp_adapter_under_the_claude_sr_name() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-#[test]
-fn a_coderouter_without_the_configured_route_is_unavailable() {
-    let dir = std::env::temp_dir().join(format!("acpmux-cr-launcher-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let old = dir.join("cr-old");
-    write_executable(&old, "#!/bin/sh\necho 'error: unknown command: team-route' >&2\nexit 2\n");
-    let good = dir.join("cr-good");
-    write_executable(&good, "#!/bin/sh\necho '2.1.275 (Claude Code)'\n");
-    let argv = |p: &std::path::Path| vec![p.to_string_lossy().into_owned(), "team-route".into()];
-    let mut cfg = Config::default();
-    cfg.harnesses.insert("claude".into(), prof(HarnessKind::ClaudeStdio, &["claude"]));
-    let mut cr = prof(HarnessKind::ClaudeStdio, &[]);
-    cr.argv = argv(&old);
-    cfg.harnesses.insert("claude-cr".into(), cr.clone());
-    cfg.harnesses.get_mut("claude").unwrap().fallback = Some("claude-cr".into());
-    cfg.defaults.insert(
-        "claude".into(),
-        SessionDefaults { prefer: vec!["claude-cr".into(), "claude".into()], ..Default::default() },
-    );
-    // A known subrouter server never takes over a CodeRouter route.
-    verify_launchers_with(&mut cfg, Some("http://router.example:31415".into()));
-    assert!(cfg.unavailable.get("claude-cr").unwrap().contains("unknown command"));
-    assert_eq!(cfg.harnesses["claude-cr"].argv, argv(&old));
-    assert_eq!(cfg.harnesses["claude"].fallback, None);
-    assert_eq!(cfg.resolve_harness("claude").unwrap(), "claude");
-    let mut cfg = Config::default();
-    cr.argv = argv(&good);
-    cfg.harnesses.insert("claude-cr".into(), cr);
-    verify_launchers_with(&mut cfg, None);
-    assert!(!cfg.unavailable.contains_key("claude-cr"));
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
 #[cfg(unix)]
 #[test]
 fn a_launcher_failure_does_not_repeat_its_full_argv() {
@@ -344,73 +311,21 @@ fn a_state_home_below_an_acl_writable_ancestor_is_refused() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// Discovery gives Claude no automatic fallback: the cmux model router (`cmux`) and CodeRouter
+/// (`claude-cr`) profiles are gone (Leo, 2026-11-25: "For cmux next, just rip it out for now
+/// then"), and a profile of that name found anyway is only a profile.
 #[test]
-fn claude_falls_back_to_the_cmux_router_on_deepseek_without_a_coderouter_route() {
+fn discovery_gives_claude_no_automatic_fallback() {
     let mut cfg = Config::default();
     cfg.harnesses.insert("claude".into(), prof(HarnessKind::ClaudeStdio, &["claude"]));
-    cfg.join_discovered(BTreeMap::from([(
-        "cmux".to_owned(),
-        prof(HarnessKind::ClaudeStdio, &["claude"]),
-    )]));
-    assert_eq!(cfg.harnesses["claude"].fallback.as_deref(), Some("cmux"));
-    assert_eq!(cfg.auto_fallback, Some(("claude".into(), "cmux".into())));
-}
-
-#[test]
-fn the_cmux_router_profile_defaults_to_deepseek_v4_1_flash_1017() {
-    let mut found = BTreeMap::new();
-    super::discover::add_cmux_router_with(&mut found, &|_| Some("/usr/bin/claude".into()), None);
-    assert_eq!(found["cmux"].model.as_deref(), Some("deepseek/deepseek-v4.1-flash-1017"));
-    // Claude Code's background calls run on the same model.
-    assert_eq!(
-        found["cmux"].env.get("ANTHROPIC_SMALL_FAST_MODEL").map(String::as_str),
-        Some("deepseek/deepseek-v4.1-flash-1017")
-    );
-}
-
-#[test]
-fn the_cmux_router_profile_starts_on_the_model_router_setting() {
-    let mut found = BTreeMap::new();
-    super::discover::add_cmux_router_with(
-        &mut found,
-        &|_| Some("/usr/bin/claude".into()),
-        Some("deepseek/deepseek-v4.1-flash"),
-    );
-    assert_eq!(found["cmux"].model.as_deref(), Some("deepseek/deepseek-v4.1-flash"));
-}
-
-#[test]
-fn the_cmux_router_profile_offers_gemini_4_neon_from_our_vertex() {
-    let mut found = BTreeMap::new();
-    super::discover::add_cmux_router_with(
-        &mut found,
-        &|_| Some("/usr/bin/claude".into()),
-        Some("google/gemini-4-neon"),
-    );
-    assert_eq!(found["cmux"].model.as_deref(), Some("google/gemini-4-neon"));
-    let neon = |m: &super::DeclaredModel| matches!(m, super::DeclaredModel::Full { id, .. } if id == "google/gemini-4-neon");
-    assert!(found["cmux"].models.iter().any(neon));
-}
-
-#[test]
-fn a_model_router_setting_the_router_does_not_serve_keeps_the_default() {
-    let mut found = BTreeMap::new();
-    super::discover::add_cmux_router_with(
-        &mut found,
-        &|_| Some("/usr/bin/claude".into()),
-        Some("anthropic/claude-opus-5-5"),
-    );
-    assert_eq!(found["cmux"].model.as_deref(), Some("deepseek/deepseek-v4.1-flash-1017"));
-}
-
-#[test]
-fn the_model_router_setting_is_read_from_the_settings_document() {
-    let doc = serde_json::json!({"agents": {"modelRouter": {"model": "deepseek/deepseek-v4-pro"}}});
-    assert_eq!(
-        super::discover::cmux_router_model_in(&doc).as_deref(),
-        Some("deepseek/deepseek-v4-pro")
-    );
-    assert_eq!(super::discover::cmux_router_model_in(&serde_json::json!({})), None);
+    cfg.join_discovered(BTreeMap::from([
+        ("cmux".to_owned(), prof(HarnessKind::ClaudeStdio, &["claude"])),
+        ("claude-cr".to_owned(), prof(HarnessKind::ClaudeStdio, &["cr", "main"])),
+    ]));
+    assert_eq!(cfg.harnesses["claude"].fallback, None);
+    assert_eq!(cfg.auto_fallback, None);
+    assert_eq!(cfg.auto_prefer, None);
+    assert!(cfg.defaults.get("claude").is_none_or(|d| d.prefer.is_empty()));
 }
 
 /// Every Claude Code profile reads Claude's store, whatever family it declares (`claude-sr2`),

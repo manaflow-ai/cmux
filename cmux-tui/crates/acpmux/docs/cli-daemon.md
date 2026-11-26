@@ -24,7 +24,6 @@ it is not running. Each `daemon` command's `--help` lists every flag and ends wi
 | The RPC schema as JSON | `cmux agent daemon schema` |
 | Open the web dashboard | `cmux agent web` |
 | Protocol capability ids this build serves (no daemon needed) | `cmux agent capabilities` |
-| Serve the local CodeRouter | `cmux agent router serve` |
 
 `config --set` checks the whole resulting config the way a daemon start does and refuses a
 value the daemon would refuse, leaving `config.json` as it was. For example,

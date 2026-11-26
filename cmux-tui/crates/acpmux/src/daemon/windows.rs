@@ -32,11 +32,11 @@ use windows_sys::Win32::Foundation::{
 };
 use windows_sys::Win32::System::Pipes::CreatePipe;
 use windows_sys::Win32::System::Threading::{
-    CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, CREATE_SUSPENDED,
+    CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW,
     CREATE_UNICODE_ENVIRONMENT, CreateProcessW, DeleteProcThreadAttributeList,
     EXTENDED_STARTUPINFO_PRESENT, InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST,
     PROC_THREAD_ATTRIBUTE_HANDLE_LIST, PROCESS_INFORMATION, STARTF_USESTDHANDLES, STARTUPINFOEXW,
-    TerminateProcess, UpdateProcThreadAttribute,
+    UpdateProcThreadAttribute,
 };
 
 /// The handle a `--ready-fd` / `--person-key-fd` value names: a standard
@@ -319,7 +319,7 @@ struct Inherit<'a> {
 /// only the handles in `inherit` reach it, in its own process group with a
 /// hidden console, out of this process's job when the job allows it, in
 /// `home` with this process's environment plus ACPMUX_HOME and `env`.
-/// `more_flags` adds creation flags (CREATE_SUSPENDED for the router).
+/// `more_flags` adds creation flags.
 /// Returns the child's process handle.
 fn spawn_this(
     home: &Path,
@@ -423,23 +423,4 @@ pub(super) fn spawn_detached(home: &Path, prefix: &[OsString]) -> Result<File> {
     // Close this process's copy so end of file means the daemon closed it.
     drop(writer);
     Ok(reader)
-}
-
-/// Starts `<exe> router serve` detached for this home, with
-/// `CMUX_ROUTER_BUILD`; its output goes nowhere, as on Unix. It starts
-/// suspended and resumes in a new kill-on-close job (`crate::job::Job`)
-/// this daemon holds: Windows ends the router when the daemon's last handle
-/// to the job closes, on any exit, a crash included (the owner FIFO's role
-/// on Unix).
-pub(super) fn spawn_router(home: &Path, build: &str) -> std::io::Result<crate::job::Job> {
-    let nul_in = std::fs::OpenOptions::new().read(true).open("NUL")?;
-    let nul_out = std::fs::OpenOptions::new().write(true).open("NUL")?;
-    let args = ["router", "serve"].map(OsStr::new);
-    let inherit = Inherit { stdin: &nul_in, stdout: &nul_out, stderr: &nul_out, extra: &[] };
-    let env = [("CMUX_ROUTER_BUILD", OsStr::new(build))];
-    let process = spawn_this(home, &args, &env, inherit, CREATE_SUSPENDED)?;
-    crate::job::Job::contain(process.as_raw_handle()).inspect_err(|_| {
-        // SAFETY: the process handle CreateProcessW returned, owned here.
-        unsafe { TerminateProcess(process.as_raw_handle(), 1) };
-    })
 }

@@ -41,10 +41,8 @@ impl Hub {
         // installed reloads nothing).
         let probe = self.config.read().await.clone();
         let found = tokio::task::spawn_blocking(move || {
-            let route =
-                crate::config::coderouter_claude_route(probe.coderouter_claude_route.as_deref());
             let mut probe = probe;
-            probe.join_discovered(crate::config::discover_harnesses(route.as_deref()));
+            probe.join_discovered(crate::config::discover_harnesses());
             probe
         })
         .await;

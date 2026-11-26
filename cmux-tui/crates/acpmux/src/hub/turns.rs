@@ -1848,15 +1848,7 @@ impl Hub {
             } else {
                 None
             };
-            // A chat on a Cloud machine, or one a remote connection started, never falls over
-            // onto the local CodeRouter, nor names it in its error: the machine is signed in from
-            // the Mac (Leo, 2026-10-31: "STOP USING CODEROUTER").
-            if let Some(to) = &target
-                && self.no_coderouter_fallback(session, to).await
-            {
-                target = None;
-            }
-            // Its route cannot start (a local router that is down): the chat stays where it is
+            // Its route cannot start (a route whose key is missing): the chat stays where it is
             // rather than moving onto a profile every later turn fails on (`fallback_start.rs`).
             if let Some(to) = &target
                 && let Some(why) = Box::pin(self.route_refusal(&session.meta(), to)).await
@@ -2733,16 +2725,6 @@ impl Hub {
         self.subsession_turn_ended(session, turn_result);
         // Opt-in team usage sharing (`usage_share.rs`): nothing while it is off.
         super::usage_share::turn_ended(session, turn_result);
-    }
-
-    /// Whether the failover onto profile `to` is skipped because it runs through the local
-    /// CodeRouter (the built-in `cmux` profile or route) and this chat is on a Cloud machine or
-    /// came over a remote connection (`fallback_start::coderouter_fallback_skipped`).
-    async fn no_coderouter_fallback(&self, session: &Session, to: &str) -> bool {
-        let cfg = self.config.read().await;
-        let Some(profile) = cfg.harnesses.get(to) else { return false };
-        let remote = session.meta().remote_origin;
-        super::fallback_start::coderouter_fallback_skipped(cfg.cloud_host, remote, to, profile)
     }
 
     /// The profile to fall over to, when the current one names one that exists.
