@@ -1,6 +1,6 @@
 import AppKit
-import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextWakeups
 import IOSurface
 import QuartzCore
 import os
@@ -18,8 +18,7 @@ import os
 private let offscreenLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef-offscreen")
 
 /// The shim's off-screen calls (`cmux_cef_shim.h`, "Off-screen pages"); nil in a shim without them.
-// crash-allow: immutable C function pointers resolved once on the library-load thread, only read after (as CEFShimLibrary)
-nonisolated struct CEFOffscreenShim: @unchecked Sendable {
+nonisolated struct CEFOffscreenShim {
     let enable: @convention(c) (Int32, Int32) -> Void
     let setHandlers: @convention(c) (UnsafeRawPointer?, UnsafeMutableRawPointer?) -> Void
     let create: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, UnsafePointer<CChar>?,
@@ -216,8 +215,10 @@ enum CEFOffscreenCallbacks {
 // MARK: The process's off-screen pages
 
 /// Every off-screen page of the process (the runtime's ``CEFRuntime/offscreenPages``): the shim's handlers, the page
-/// views by browser, the tabs whose browser is being made, and the resize wait (each resize step's frame at the new
-/// size, waited for before Core Animation commits the step).
+/// views by browser, the tabs whose browser is being made, and the resize wait: a page resized in a turn joins its
+/// window's resize fence for that turn (``CEFResizeFences``, the one in-tree and hosted pages join), and releases it
+/// once its frame at the new size is in its layer, so the render server shows the pane's new size and the page's
+/// pixels at it in one frame. Nothing on the main thread waits.
 final class CEFOffscreenPages {
     init() {}
 
@@ -228,12 +229,12 @@ final class CEFOffscreenPages {
     private var pages: [Int32: WeakOffscreenPage] = [:]
     /// Tabs whose off-screen browser is being made, by the request their AFTER_CREATED reports.
     private var pendingTabs: [Int32: WeakCEFTab] = [:]
-    private var resizeObserver: MainRunLoopObserver?
     /// External begin frames: one frame client on the first page's window scheduler, ticking while pages draw.
     private var frameClient: FrameClient?
 
-    /// How long a resize step waits, before Core Animation commits it, for each resized page's frame at the new size
-    /// (`CMUX_OSR_RESIZE_WAIT_MS`, 0 to 100; default 16). 0 shows the last frame, pinned top-left, until the new one.
+    /// How long the render server holds a resize step's commit for each resized page's frame at the new size
+    /// (`CMUX_OSR_RESIZE_WAIT_MS`, 0 to 100; default 16, plus one refresh of the app's own deadline). 0 joins no fence:
+    /// the step shows at once with the last frame, pinned top-left, until the new one.
     let resizeWaitMs: Double = {
         let value = ProcessInfo.processInfo.environment["CMUX_OSR_RESIZE_WAIT_MS"].flatMap(Double.init) ?? 16
         return min(100, max(0, value))
@@ -246,11 +247,11 @@ final class CEFOffscreenPages {
         var popupFramesShown = 0
         var letterboxedDropped = 0
         var resizes = 0
-        /// Resize steps whose frame at the new size came inside the wait (shown with the step's own commit).
-        var waitHits = 0
-        /// Steps whose frame did not come in the wait (the step committed with the last frame, pinned top-left).
-        var waitMisses = 0
-        var waitMsTotal = 0.0
+        /// Resize steps that joined their window's fence.
+        var fencesJoined = 0
+        /// Fence holds a frame at the awaited size released (the step and the frame shown together, unless the
+        /// fence's deadline came first: `tracker.resize_fences_expired`).
+        var fencesReleased = 0
         /// The latest resize-to-frame times, ms (each resize until its frame at the new size).
         var resizeToFrameMs: [Double] = []
         var beginFrames = 0
@@ -322,41 +323,24 @@ final class CEFOffscreenPages {
 
     // MARK: Resize wait
 
-    /// `page` resized in this turn: before Core Animation commits the turn, wait up to ``resizeWaitMs`` for its frame
-    /// at the new size, pumping Chromium's work, so the pane's new size and the page's pixels at it show in one commit.
+    /// `page` resized in this turn to `pixels`: it joins its window's fence for this turn, held until its frame at that
+    /// size is in its layer (``CEFOffscreenPageView/show(_:width:height:popup:)``) or the fence's deadline.
     func awaitFrame(_ page: CEFOffscreenPageView) {
         stats.resizes += 1
         if externalBeginFrames { beginFrame(page.browser) }
-        guard resizeObserver == nil else { return }
-        // Just before the frame probe (1,999,998), the frame presenter (1,999,999) and Core Animation's commit
-        // (2,000,000): after the turn's layout.
-        resizeObserver = MainRunLoopObserver(activities: .beforeWaiting, order: 1_999_997) { [weak self] _ in
-            self?.drainResizes()
+        guard resizeWaitMs > 0, let window = page.window, let layer = page.layer else { return }
+        let refreshMs = (NSScreen.screens.map(\.minimumRefreshInterval).min() ?? 1.0 / 60) * 1_000
+        let joined = CEFRuntime.shared.resizeFences.join(window: window, layer: layer, timeoutMs: Int32(resizeWaitMs.rounded()),
+                                                         refreshMs: refreshMs) { [weak page] _, done in
+            guard let page else { return false }
+            page.holdFence(done)
+            return true
         }
+        if joined { stats.fencesJoined += 1 }
     }
 
-    private func drainResizes() { // perf-hot: up to CMUX_OSR_RESIZE_WAIT_MS per resize step (the off-screen resize wait)
-        let waiting = pages.values.compactMap(\.page).filter(\.awaitsFrame)
-        guard !waiting.isEmpty else {
-            resizeObserver = nil
-            return
-        }
-        // A resize inside AppKit's layout pass (after this observer) waits in the next turn.
-        let started = CACurrentMediaTime()
-        let deadline = started + resizeWaitMs / 1_000
-        if resizeWaitMs > 0 {
-            // blocking-allow: the resize wait under measurement (approach 5): it holds this turn's Core Animation commit
-            // on the main thread until each resized page's frame at the new size is in its layer, as Chrome's own Mac
-            // pre-commit wait does (ui::CATransactionCoordinator); bounded by CMUX_OSR_RESIZE_WAIT_MS, 0 turns it off.
-            // Chromium's frame reaches this process as a UI-thread task, so the loop runs Chromium's work until then.
-            while waiting.contains(where: \.awaitsFrame), CACurrentMediaTime() < deadline {
-                CEFRuntime.shared.pump?.pumpNow()
-            }
-        }
-        stats.waitMsTotal += (CACurrentMediaTime() - started) * 1_000
-        for page in waiting {
-            if page.awaitsFrame { stats.waitMisses += 1 } else { stats.waitHits += 1 }
-        }
+    func fenceReleased() {
+        stats.fencesReleased += 1
     }
 
     func resizeReachedFrame(afterMs ms: Double) {
@@ -412,9 +396,8 @@ final class CEFOffscreenPages {
             "popup_frames_shown": Double(stats.popupFramesShown),
             "letterboxed_dropped": Double(stats.letterboxedDropped),
             "resizes": Double(stats.resizes),
-            "wait_hits": Double(stats.waitHits),
-            "wait_misses": Double(stats.waitMisses),
-            "wait_ms_total": stats.waitMsTotal,
+            "fences_joined": Double(stats.fencesJoined),
+            "fences_released": Double(stats.fencesReleased),
             "resize_to_frame_samples": Double(sorted.count),
             "begin_frames_sent": Double(stats.beginFrames),
             "shim_frames": Double(shim[0]), "shim_letterboxed": Double(shim[1]), "shim_blit_us_total": Double(shim[2]),
@@ -533,6 +516,13 @@ final class CEFOffscreenPageView: NSView, InTreePageContainer, NSTextInputClient
     /// The pixel size a resize waits for, and when it began (`CEFOffscreenPages.awaitFrame`).
     private var awaitedPixels: CGSize?
     private var resizeStarted: CFTimeInterval = 0
+    /// The window fences this page holds for its frame at ``awaitedPixels`` (one per resize turn).
+    private var fenceHolds: [@MainActor (Bool) -> Void] = []
+
+    /// Holds a window fence until the frame at the awaited size is in this layer.
+    func holdFence(_ done: @escaping @MainActor (Bool) -> Void) {
+        fenceHolds.append(done)
+    }
 
     var inTreeCensus: InTreePageCensus { InTreePageCensus(contentInWindow: window != nil, widgetDrawing: 0) }
 
@@ -569,10 +559,12 @@ final class CEFOffscreenPageView: NSView, InTreePageContainer, NSTextInputClient
         !closed && window != nil && !isHiddenOrHasHiddenAncestor
     }
 
-    var awaitsFrame: Bool { awaitedPixels != nil }
 
     func close() {
         closed = true
+        let holds = fenceHolds
+        fenceHolds.removeAll()
+        for done in holds { done(false) }
         CEFRuntime.shared.offscreenPages.unregister(self)
         removeFromSuperview()
     }
@@ -667,6 +659,20 @@ final class CEFOffscreenPageView: NSView, InTreePageContainer, NSTextInputClient
         if let awaited = awaitedPixels, awaited == shownPixels {
             awaitedPixels = nil
             CEFRuntime.shared.offscreenPages.resizeReachedFrame(afterMs: (CACurrentMediaTime() - resizeStarted) * 1_000)
+            releaseFences()
+        }
+    }
+
+    /// The frame at the awaited size is in this layer: its commit goes to the render server now, then the fences held
+    /// for it are released, so the render server shows the held resize step and this frame together.
+    private func releaseFences() {
+        guard !fenceHolds.isEmpty else { return }
+        CATransaction.flush()
+        let holds = fenceHolds
+        fenceHolds.removeAll()
+        for done in holds {
+            done(true)
+            CEFRuntime.shared.offscreenPages.fenceReleased()
         }
     }
 
