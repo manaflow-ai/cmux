@@ -12,6 +12,18 @@ use cmux_json::JsonSet as _;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+/// The speculative queue count while a prompt waits for the turn lock. If its
+/// admission deadline drops that wait, no queue entry exists to retire the count.
+struct TurnLockWait<'a>(Option<&'a std::sync::atomic::AtomicU64>);
+
+impl Drop for TurnLockWait<'_> {
+    fn drop(&mut self) {
+        if let Some(count) = self.0 {
+            count.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+}
+
 // A prompt dequeued for a turn that never started goes back at the head (`restore_queue`).
 #[path = "lost_start.rs"]
 mod lost_start;
@@ -312,27 +324,18 @@ impl Hub {
         p: Slot<'_>,
         accept: &mut impl FnMut(Value),
     ) -> Result<(String, bool, TurnGuard<'a>, Arc<PromptRun>), Answer> {
-        // Read by the answer's due time (prompt_admission.rs); past it, the queue's defaults.
         let cfg = match p.answer_due {
-            Some(due) => tokio::time::timeout_at(due, self.config.read()).await.ok(),
-            None => Some(self.config.read().await),
+            Some(due) => tokio::time::timeout_at(due, self.config.read())
+                .await
+                .map_err(|_| Err(super::auto_resume::retry_turn::busy()))?,
+            None => self.config.read().await,
         };
-        let (limits, capacity_route, release_interval, hold_ms) = match cfg {
-            Some(config) => (
-                QueueLimits::of(&config),
-                super::capacity::Route::of(&config, &session.meta()),
-                super::capacity::release_interval(config.capacity.release_per_min),
-                super::person_hold::hold_ms(&config, &session.meta().name),
-            ),
-            None => (
-                QueueLimits::defaults(),
-                None,
-                super::capacity::release_interval(
-                    crate::config::CapacityConfig::default().release_per_min,
-                ),
-                None,
-            ),
-        };
+        let (limits, capacity_route, release_interval, hold_ms) = (
+            QueueLimits::of(&cfg),
+            super::capacity::Route::of(&cfg, &session.meta()),
+            super::capacity::release_interval(cfg.capacity.release_per_min),
+            super::person_hold::hold_ms(&cfg, &session.meta().name),
+        );
         let capacity_route = capacity_route.as_ref();
         self.capacity_activate(capacity_route);
         // A cut-turn retry already has its own durable wait. Keep it there until it
@@ -464,6 +467,8 @@ impl Hub {
                     break waiting || gather || hold;
                 };
                 let withdraw = if waiting {
+                    // The admission loop released `admit`; enqueue reacquires it so a restore
+                    // cannot start between its final check and the durable queued record.
                     let (waits, position) = self
                         .enqueue_or_refuse(session, &p, &turn_id, limits)
                         .inspect_err(|_| {
@@ -534,6 +539,7 @@ impl Hub {
                             tokio::time::Instant::now() + super::prompt_admission::TURN_LOCK_WAIT,
                         )
                     });
+                    let mut pending = TurnLockWait(Some(&session.queued));
                     let guard = loop {
                         let done = session.restore_done.notified();
                         tokio::pin!(done);
@@ -560,6 +566,8 @@ impl Hub {
                             None => done.await,
                         }
                     };
+                    // The synchronous claim or enqueue below now owns this count.
+                    pending.0.take();
                     // `waiting` was read before the lock: a prompt the owner approved (or a
                     // resumed one) since then waits in the queue ahead of this one and keeps its
                     // place (`queue_approve.rs`). This one queues behind it, never claiming the
@@ -851,7 +859,7 @@ impl Hub {
         turn_id: &str,
         limits: QueueLimits,
     ) -> Result<(Waits, u64), Answer> {
-        self.enqueue(session, p, turn_id, limits, |_, waits| waits).map_err(Err)
+        self.enqueue(session, p, turn_id, limits, false, |_, waits| waits).map_err(Err)
     }
 
     /// Why the chat takes no new prompt now, if it takes none: [`Self::queue_slot`] and a
@@ -890,6 +898,24 @@ impl Hub {
         p: &Slot<'_>,
         turn_id: &str,
         limits: QueueLimits,
+        claimed_turn: bool,
+        register: impl FnOnce(&mut QueuedPrompt, Waits) -> T,
+    ) -> Result<(T, u64), RpcError> {
+        let _admit = session.admit.lock().unwrap_or_else(|e| e.into_inner());
+        self.enqueue_admitted(session, p, turn_id, limits, claimed_turn, register)
+    }
+
+    /// Inserts a prompt while the caller already holds `session.admit`.
+    ///
+    /// Keep this separate from [`Self::enqueue`] so admission can make its check and queue
+    /// insertion one atomic step without attempting to lock the non-reentrant mutex twice.
+    pub(super) fn enqueue_admitted<T>(
+        &self,
+        session: &Arc<Session>,
+        p: &Slot<'_>,
+        turn_id: &str,
+        limits: QueueLimits,
+        claimed_turn: bool,
         register: impl FnOnce(&mut QueuedPrompt, Waits) -> T,
     ) -> Result<(T, u64), RpcError> {
         // Measured before the lock: under it only sizes measured already are added up.
@@ -943,6 +969,15 @@ impl Hub {
         // Its provenance first: `mark_pasted` reads it to leave a daemon-made prompt unnoted.
         let mut queued = crate::prompt_provenance::marked(queued, p.provenance);
         super::session::mark_pasted(&mut queued, p.blocks);
+        // A restore may have started while the prompt waited for the turn lock.
+        // The caller holds admission through the queued record so its receipt always names a
+        // durable entry.
+        if session.restoring.load(Ordering::SeqCst)
+            || session.restore_token.load(Ordering::SeqCst) != 0
+        {
+            session.queued.fetch_sub(1, Ordering::SeqCst);
+            return Err(super::prompt_admission::restore_deadline());
+        }
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         // Check and insert under one lock: simultaneous prompts cannot all reserve the last
         // held slot. Rejection precedes superseding and logging, so it has no queue side effects.
@@ -983,6 +1018,7 @@ impl Hub {
         // (`cancel.rs` `hold_agent_messages`); a digest then waits held in its place.
         let stop_held = p.agent.is_some() && (session.stop_hold.load(Ordering::SeqCst) != 0);
         let at = match p.agent {
+            _ if claimed_turn && !stop_held => Some(0),
             Some(_) if super::digest::inbox_digest::is_digest(p.provenance) => {
                 Some(super::digest::inbox_digest::place(&queue))
             }
