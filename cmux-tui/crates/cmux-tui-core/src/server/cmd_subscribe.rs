@@ -131,6 +131,7 @@ pub(super) fn subscribe_command(
     let outbound_stream = writer.start_stream(&subscription_overflow_json())?;
     std::thread::Builder::new().name("mux-events-out".into()).spawn(move || {
         let _permit = permit;
+        eprintln!("DBG thread start client={client} screen={trusted_screen_client}");
         let mut transport_overflow = false;
         // Replay the current authenticated worker identity before consuming
         // live events. This closes the identify -> subscribe race and also
@@ -156,7 +157,9 @@ pub(super) fn subscribe_command(
                 "peer": challenge.peer,
                 "expires_in": challenge.expires_in,
             });
-            if let Err(error) = writer.send_stream_backpressured(&value, &outbound_stream) {
+            let sent = writer.send_stream_backpressured(&value, &outbound_stream);
+            eprintln!("DBG sent client={client} {value} -> {sent:?}");
+            if let Err(error) = sent {
                 transport_overflow = error.kind() == std::io::ErrorKind::WouldBlock;
                 break;
             }
@@ -172,6 +175,7 @@ pub(super) fn subscribe_command(
                 Some(event) => Ok(event),
                 None => events.recv_until_interrupted(&interrupt),
             };
+            eprintln!("DBG next client={client} ok={}", next.is_ok());
             let event = match next {
                 Ok(event) => event,
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
@@ -464,6 +468,11 @@ pub(super) fn subscribe_command(
                 break;
             }
         }
+        eprintln!(
+            "DBG exit client={client} w={} s={}",
+            writer.is_open(),
+            outbound_stream.is_open()
+        );
         if events.overflowed() || transport_overflow {
             let _ = writer.send_terminal(&subscription_overflow_json(), &outbound_stream);
         }
