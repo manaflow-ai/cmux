@@ -282,4 +282,23 @@ struct BrowserSingleSignOnNavigationGateTests {
         gate.resolve(third)
         #expect(journal.decisions == ["first:allow", "second:allow", "third:allow", "fourth:allow"])
     }
+
+    @Test func holdTakenAgainDuringAdmissionOutlivesTheOneThatReportsNoOutcome() {
+        let gate = makeGate()
+        let journal = Journal()
+        let first = WebView()
+        let second = WebView()
+
+        gate.admit(url: signInURL, owner: first) { admitted in
+            journal.decisions.append("first:\(admitted ? "allow" : "cancel")")
+            gate.resolve(first)
+            gate.admit(url: signInURL, owner: first, admission: journal.admission("first-again"))
+            return false
+        }
+        gate.admit(url: signInURL, owner: second, admission: journal.admission("second"))
+        #expect(journal.decisions == ["first:allow", "first-again:allow"])
+
+        gate.resolve(first)
+        #expect(journal.decisions == ["first:allow", "first-again:allow", "second:allow"])
+    }
 }
