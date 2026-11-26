@@ -32,14 +32,13 @@ import { TurnActionsContext } from "./turnActions";
 import { FailedSendsContext } from "./promptDeliveryModel";
 import { errorRecovery, signInRetry, type ErrorRecovery } from "./errorRecovery";
 import {
-  footerLabel,
   isEmptyFooter,
   isStopped,
   offersRetry,
+  turnTimeKey,
   workedCallsText,
   workedLabel,
   workedMessagesText,
-  turnTimeKey,
   formatDuration,
   FOLD_COUNTS_SWITCH,
   workedCountsText,
@@ -52,8 +51,7 @@ import { turnCopyText } from "./turnCopy";
 import { workedLine } from "./workedLine.experiment";
 import { workedCountParts, workedOutcome, workedOutcomeParts, workedSentence, type WorkedPart } from "./workedOutcome";
 import { TimedLabel } from "./TurnTokens";
-import { replyTimeDetail } from "./turnTokensModel";
-import { AlertCircle, Retry, Close } from "./icons";
+import { AlertCircle, Close, Retry } from "./icons";
 import { DisclosureChevron } from "./DisclosureChevron";
 import {
   ForkButton,
@@ -70,7 +68,7 @@ import { SteerChatContext } from "./pendingSteerModel";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { CloudSignIn } from "./CloudSignIn";
 import { offersGateway, type CloudSignIn as CloudSignInActions } from "../cloudAgentLogin";
-import { usePaneLanguage, useT, type Translate } from "../i18n";
+import { useT, type Translate } from "../i18n";
 import {
   failureCopy,
   failureKind,
@@ -80,13 +78,12 @@ import {
   isAccountLimit,
 } from "../failureCopy";
 import { experimentArm } from "../../../experiments/experiment";
+import { useExperimentArm } from "../../../experiments/useExperimentArm";
+import { forumCallLook } from "./forumCall.experiment";
 import { turnErrorCard } from "./turnErrorCard.experiment";
 import { capacityWaitLook } from "./capacityWait.experiment";
 import { CapacityWaitContext, waitsFor } from "../capacityWait";
 import { CapacityWaitCard } from "./CapacityWaitCard";
-import { codeRouterOffer } from "./codeRouterOffer.experiment";
-import { CodeRouterAction } from "./CodeRouterOffer";
-import { useCodeRouterChoice } from "./codeRouterOfferModel";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 import { PresentationContext } from "./presentationContextModel";
 import { useTurnWaterfall } from "./useTurnWaterfall";
@@ -327,7 +324,7 @@ function groupNode(
         />
       );
     case "forum":
-      return <ForumCallCard key={group.item.tool!.id || index} item={group.item} call={group.call} />;
+      return <ForumCallCard key={group.item.tool!.id || index} item={group.item} call={group.call} look={group.look} />;
     case "agentCall":
       return <AgentCallCard key={group.item.tool!.id || index} call={group.call} tool={group.item.tool!} />;
     case "item":
@@ -364,7 +361,10 @@ export function ToolRows({
   // Keep the original transcript for copy/export and reveal discovery calls when Find names them.
   const revealing = reveal && isRevealRow(row, reveal);
   const items = useMemo(() => visibleToolItems(row.items, Boolean(revealing)), [row.items, revealing]);
-  const groups = useMemo(() => toolGroups(items ?? []), [items]);
+  // An `agent-forum` shell call draws as a forum card only in the `forum-call-card` experiment; a
+  // Settings switch regroups at once.
+  const forumLook = useExperimentArm(forumCallLook);
+  const groups = useMemo(() => toolGroups(items ?? [], forumLook), [items, forumLook]);
   const foldRun = row.foldRun;
   const stretches = useMemo(() => runStretches({ foldRun }, groups), [foldRun, groups]);
   const thoughts = useMemo(() => thoughtIds(groups), [groups]);
@@ -438,8 +438,7 @@ export function ToolRows({
 
 /// The quiet row under an answer, as ChatGPT's: its buttons first, the first glyph's ink on the
 /// prose's left edge whatever the turn did (Copy, Fork from here when acpmux serves forks, Pin, Read
-/// aloud, More), then the answer's relative time, its full date on hover (Leo, 2026-11-24: "the
-/// timestamps on the agent messages idk why those were removed? from hover").
+/// aloud, More), then the answer's exact time, shown on hover.
 /// Leo, 2026-11-02: "this should not be placed in front of the copy/whatever buttons. those buttons
 /// should always just be there left aligned". A turn without a "Worked for" line (a Claude turn,
 /// #30176; history paged in mid-turn) keeps its time and tokens in the time's tooltip, never in the
@@ -447,7 +446,6 @@ export function ToolRows({
 /// retain their inline Retry and recovery controls; stopped replies resume from the empty composer.
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
-  const language = usePaneLanguage();
   const messages = useContext(PresentationContext) === "messages";
   const {
     fork,
@@ -488,12 +486,8 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // says so here only, never in the transcript's text (Leo, 2026-11-03: "idk if it should be showing
   // things like that").
   const forced = row.stopForced ? t("stop.forced") : undefined;
-  // The time after the buttons, shown on hover with its full date in the shared tooltip, as ChatGPT's
-  // (Leo, 2026-11-24: "the timestamps on the agent messages idk why those were removed? from hover";
-  // "yeah we prev had it for both my sent messages and the agent"). #42247 had taken it out to match
-  // the Codex app (Lawrence, 2026-11-11 standup: "when I hover, the time shows up on the right, which
-  // I don't think is good"); it sits right after the last button, never pushed to the row's far edge.
-  const detail = replyTimeDetail(t, language, [footerLabel(t, row), forced], row.tokens);
+  // No time at the row's end: the Codex app shows none (Lawrence, 2026-11-11 standup: "when I hover,
+  // the time shows up on the right, which I don't think is good").
   // A stopped turn says so in one muted word, whoever ended it (stoppedTurn.experiment.ts).
   const stoppedLook = isStopped(row) ? experimentArm(stoppedTurnLook) : "none";
   const stoppedWord = stoppedLook !== "none" && (
@@ -557,6 +551,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           setRetryNote(note);
           setRetryWent(note === undefined ? true : undefined);
         },
+        // retry-prompt-ok: the resend the person clicked did not go; another resend is a paid model request.
         () => setRetryNote("retry.failed"),
       )
       .finally(() => setRetrying(false));
@@ -575,6 +570,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             // A chat without acpmux's retry sends the prompt again; a send that did not go says so.
             if (retrying) return;
             const rowId = row.retryRowId!;
+            // retry-prompt-ok: sends the prompt again, a paid model request.
             runRetry(async () => ((await retry(rowId, prompt)) === false ? "retry.failed" : undefined), "retry");
           }
         : undefined;
@@ -585,6 +581,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
     offersRetry(row) &&
     !isEmptyFooter(row);
   const footerRetry = failedRetry;
+  // retry-prompt-ok: the turn's Retry sends the prompt again, a paid model request (and may change files again).
   const retryTitle = row.changedFiles ? t("turn.retryChangedFiles") : t("turn.retryLabel");
   const retryModels = failed && prompt && retry && retryWith && retryWith.models.length > 1 ? retryWith : undefined;
   // The card's lead (errorRecovery.ts): Continue when the turn had done work, Retry when nothing
@@ -659,6 +656,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
                   <button
                     type="button"
                     className="cv-iconbtn cv-iconbtn--compact"
+                    // retry-prompt-ok: sends the turn's prompt again, a paid model request.
                     aria-label={t("turn.retry")}
                     title={retryTitle}
                     disabled={retrying}
@@ -692,9 +690,12 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             {!messages && text && <RowReplyButton text={text} />}
             {!messages && ((text && row.answerId) || menuRetry) && <MessageMore rowId={row.answerId ?? row.id} />}
           </span>
-          {!messages && <ReplyTime at={row.at} detail={detail} />}
           {stoppedLook === "word" && stoppedWord}
           {stoppedLook === "trailing" && stoppedWord}
+          {/* The reply's age after its buttons ("4 minutes ago", the exact time on its tooltip), shown
+              with the row while the pointer is on the turn, as Claude's (Leo, 2026-11-22: "you hover
+              and you get the timing ... and we already have logic for the timing"). */}
+          {!messages && !failed && <ReplyTime at={row.at} />}
           {!messages && endMark}
         </MessageFooterRow>
       </div>
@@ -748,7 +749,7 @@ function TurnFailure({
   /// The failed prompt's row and text, which the Cloud sign-in sends again once signed in.
   retryRowId?: string;
   prompt?: string;
-  /// Sends the prompt again; CodeRouter's move runs it once the chat is on the new route.
+  /// Sends the prompt again.
   retry?: () => void;
   /// The way on (errorRecovery.ts): Continue or Retry, the card's lead and its Return.
   goOn?: () => void;
@@ -805,7 +806,7 @@ function TurnFailure({
   );
   // An expired login leads with Sign in again, and Continue or Retry follows it for once the login
   // is done. Where the chat has no login to run (a Cloud chat, a harness that names none), the card
-  // is as it was: Switch model or CodeRouter, and no Retry, which would fail the same way.
+  // is as it was: Switch model, and no Retry, which would fail the same way.
   const signInFirst = recovery === "sign-in" && reauthenticate !== undefined;
   // A Cloud chat's agent signs in on its own machine (Leo 2026-11-01, on the one-click sign-in:
   // "yes those are important"): Sign in to Claude or Codex leads the card, Use an API key beside it,
@@ -844,28 +845,6 @@ function TurnFailure({
     !signInFirst &&
     !cloudSignInLeads &&
     (recovery === "switch-model" || !offersRetry);
-  // cmux's own route for a key, sign-in or capacity failure (CodeRouterOffer.tsx), placed by the
-  // `coderouter-offer` arm. It takes the filled button only in the `primary` arm, or when it is the
-  // only way out; the card keeps exactly one.
-  const codeRouter = useCodeRouterChoice(kind, route, retry !== undefined);
-  const offerArm = experimentArm(codeRouterOffer);
-  // Never ahead of Sign in again: moving the chat (and retrying it there) before the person has signed
-  // in is not the way out the card leads with; in that case it follows the others, outlined.
-  const offerLeads = codeRouter !== undefined && offerArm === "primary" && !signInFirst && !cloudSignInLeads;
-  const offerTrails =
-    codeRouter !== undefined &&
-    (offerArm === "button" || (offerArm === "primary" && (signInFirst || cloudSignInLeads)));
-  // CodeRouter's button fills only when it is the card's only way out: not beside Switch model, Retry,
-  // Sign in again or Compact, which each lead.
-  const offerFilled =
-    offerLeads ||
-    (codeRouter !== undefined &&
-      offerArm === "button" &&
-      !offersSwitch &&
-      !offersRetry &&
-      !signInFirst &&
-      !cloudSignInLeads &&
-      !compactFirst);
   // The agent's account is out of usage or turned off (cmux#55066): Use another agent leads, and
   // Sign in with another account follows it, outlined: the agent's own login here, its sign-in on
   // the machine for a Cloud chat (only Use an API key on a team machine, which takes no personal login).
@@ -876,7 +855,7 @@ function TurnFailure({
   const switchButton = offersSwitch && (
     <button
       type="button"
-      className={`cv-turn-auth-action${switchFirst && !offerLeads && !accessLeads ? " cv-turn-error__primary" : ""}`}
+      className={`cv-turn-auth-action${switchFirst && !accessLeads ? " cv-turn-error__primary" : ""}`}
       onClick={switchModel}
     >
       {accountLimit ? t("turn.failure.useAnotherAgent") : t("turn.failure.switchModel")}
@@ -886,15 +865,7 @@ function TurnFailure({
     <div className={`cv-turn-note cv-turn-error cv-turn-error--${arm}`} data-failure-kind={kind}>
       <span className="cv-turn-error__cause">
         {arm !== "note" && <AlertCircle size={arm === "card" ? 16 : 14} className="cv-turn-error__icon" />}
-        <span className="text-fg">
-          {sentence}
-          {codeRouter && offerArm === "link" && (
-            <>
-              {" "}
-              <CodeRouterAction choice={codeRouter} retry={retry} className="cv-turn-error__offer-link" />
-            </>
-          )}
-        </span>
+        <span className="text-fg">{sentence}</span>
       </span>
       <span className="cv-turn-error__actions" ref={actionsRef}>
         {trustFix && (
@@ -906,9 +877,6 @@ function TurnFailure({
           <CloudSignIn signIn={teamAccountKey} rowId={retryRowId} prompt={prompt} keyOnly actionsRef={actionsRef} />
         )}
         {accessButtons}
-        {offerLeads && (
-          <CodeRouterAction choice={codeRouter} retry={retry} className="cv-turn-auth-action cv-turn-error__primary" />
-        )}
         {switchFirst && switchButton}
         {otherAccountHere && (
           <button type="button" className="cv-turn-auth-action" onClick={otherAccountHere}>
@@ -950,11 +918,8 @@ function TurnFailure({
           />
         )}
         {signInFirst && (
-          <button
-            type="button"
-            className={`cv-turn-auth-action${offerLeads ? "" : " cv-turn-error__primary"}`}
-            onClick={reauthenticate}
-          >
+          <button type="button" className="cv-turn-auth-action cv-turn-error__primary" onClick={reauthenticate}>
+            {/* retry-prompt-ok: a sign-in the person does. */}
             {t("turn.signInAgain")}
           </button>
         )}
@@ -964,23 +929,17 @@ function TurnFailure({
         {offersRetry && (
           <button
             type="button"
-            className={`cv-turn-auth-action${switchFirst || offerLeads || accessLeads || compactFirst || signInFirst ? "" : " cv-turn-error__primary"}`}
+            className={`cv-turn-auth-action${switchFirst || accessLeads || compactFirst || signInFirst ? "" : " cv-turn-error__primary"}`}
             // The card's first stop in the tab order, so Return on the focused card goes on.
             aria-keyshortcuts="Enter"
             disabled={retrying}
             onClick={goOn}
           >
+            {/* retry-prompt-ok: sends the failed turn again, a paid model request. */}
             {goOnLabel === "continue" ? t("turn.continue") : t("turn.retry")}
           </button>
         )}
         {!switchFirst && switchButton}
-        {offerTrails && (
-          <CodeRouterAction
-            choice={codeRouter}
-            retry={retry}
-            className={`cv-turn-auth-action${offerFilled ? " cv-turn-error__primary" : ""}`}
-          />
-        )}
         {retryNote ? (
           <output className="cv-turn-error__note text-detail text-dim">{t(retryNote)}</output>
         ) : retryProgress ? (

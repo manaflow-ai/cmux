@@ -102,13 +102,12 @@ test("an image-only prompt keeps slow delivery feedback without an empty bubble"
   const container = await render(row);
 
   expect(container.querySelector(".cv-user__bubble")).toBeNull();
-  // No "(clock) Sending" of its own in the footer (Leo, 2026-11-24: "this "sending" is bad"): the
-  // pending row (PendingSteer.tsx, drawn around the bubble by MessageRow) is its one look, and the
-  // footer keeps its hover time.
+  // Its one pending state sits in the footer's time slot, not on an empty line of its own.
   expect(container.querySelector(".cv-user__bubble-wrap.is-empty")).toBeNull();
-  expect(container.querySelector(".cv-user__pending-state")).toBeNull();
-  expect(container.textContent).not.toContain(translate("prompt.delivery.sending"));
-  expect(container.querySelector(".cv-user__time")).not.toBeNull();
+  expect(container.querySelectorAll(".cv-user__pending-state").length).toBe(1);
+  expect(container.querySelector(".cv-user__pending-state")?.getAttribute("aria-label")).toBe(
+    translate("prompt.delivery.sending"),
+  );
   expect(container.querySelector(".cv-user__actions")).not.toBeNull();
   expect(container.querySelector(`button[aria-label="${translate("turn.retry")}"]`)).toBeNull();
 });
@@ -229,7 +228,7 @@ test("an image-only prompt still hides retry while its send is pending", async (
   };
   const container = await render(row, { retry: () => {} });
 
-  expect(container.querySelector(".cv-user__pending-state")).toBeNull();
+  expect(container.querySelector(".cv-user__pending-state")).not.toBeNull();
   expect(container.querySelector(`button[aria-label="${translate("turn.retry")}"]`)).toBeNull();
 });
 

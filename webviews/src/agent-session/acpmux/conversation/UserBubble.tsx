@@ -31,7 +31,7 @@ import type { AcpmuxRow, PromptContentPart, PromptImage } from "../model";
 import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { liftInlineImages, withoutDataUris } from "../inlineImages";
-import { resendsItself } from "./PromptDelivery";
+import { PendingDelivery, resendsItself, usePendingShown } from "./PromptDelivery";
 import { ImageIcon, Pencil } from "./icons";
 import { VersionSwitcher } from "./VersionSwitcher";
 import { ImageViewerContext } from "./imageViewerContext";
@@ -50,7 +50,8 @@ import { FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
 
 import { SourceBadge } from "../composer/SourceBadge";
 import { useSourceLabel, withSourceLabel } from "../composer/sourceBadgeModel";
-import { ForkButton, MessageCopy, MessageFooterRow, MessageTime, PinButton, RewindButton } from "./MessageActions";
+import { ForkButton, MessageCopy, MessageTime, PinButton, RewindButton } from "./MessageActions";
+import { RowSlots } from "./RowSlots";
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { TurnActionsContext, type QueuedActions } from "./turnActions";
 import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SkillCatalog } from "../slashCommands";
@@ -95,6 +96,8 @@ export function UserBubble({
   const { edit, branches, fork, forkSeq, forkAny, promptTurns } = useContext(TurnActionsContext);
   const branch = branches?.of.get(row.id);
   const [editing, setEditing] = useState(false);
+  // A prompt still on its way says so in its footer's time slot, and only there (PromptDelivery.tsx).
+  const pendingShown = usePendingShown(row.delivery, Boolean(row.steer || row.delivery?.queued));
   const through = edit?.seqs.get(row.id);
   // Fork goes through the prompt's own turn, as its right-click Fork does, so the new chat keeps it.
   const own = promptTurns?.get(row.id);
@@ -292,7 +295,10 @@ export function UserBubble({
             moves once it goes (Leo, 2026-11-01: "then the stupid ass layout shift"). */}
         {(!row.failed || resendsItself(row.delivery)) && (text || hasAttachment || pending) && (
           <UserFooter
-            className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}
+            className={
+              (branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions") +
+              (pendingShown ? " cv-user__actions--pending" : "")
+            }
             pending={
               pending &&
               ((actions) =>
@@ -301,27 +307,40 @@ export function UserBubble({
                 }))
             }
           >
-            <MessageFooterRow>
-              {branch && branches && <VersionSwitcher branch={branch} branches={branches} slot="footer" />}
-              {/* A prompt on its way draws the queued row instead (PendingSteer.tsx), never a
-                  "Sending" in place of its time. */}
-              <MessageTime at={row.at} className="cv-user__time" />
-              <MessageCopy text={row.text ?? text} />
-              {through !== undefined && (
-                <button
-                  type="button"
-                  className="cv-iconbtn cv-iconbtn--compact"
-                  aria-label={t("message.edit")}
-                  title={t("message.edit")}
-                  onClick={() => setEditing(true)}
-                >
-                  <Pencil size={ROW_ICON} />
-                </button>
-              )}
-              {forkButton}
-              <RewindButton rowId={row.id} />
-              <PinButton rowId={row.id} bookmark />
-            </MessageFooterRow>
+            {/* The footer fills RowFrame's slots (RowSlots.tsx): the switcher leads, the age or the
+                delivery note is its meta, and the buttons sit in the end slot, so on a prompt still on
+                its way (its note under the bubble's text) Copy keeps the row's right edge at every
+                text length, as on a landed one (doc rule 10). */}
+            <RowSlots
+              className="cv-message-footer-row"
+              lead={branch && branches && <VersionSwitcher branch={branch} branches={branches} slot="footer" />}
+              meta={
+                pendingShown && row.delivery ? (
+                  <PendingDelivery delivery={row.delivery} />
+                ) : (
+                  <MessageTime at={row.at} className="cv-user__time" />
+                )
+              }
+              actions={
+                <>
+                  <MessageCopy text={row.text ?? text} />
+                  {through !== undefined && (
+                    <button
+                      type="button"
+                      className="cv-iconbtn cv-iconbtn--compact"
+                      aria-label={t("message.edit")}
+                      title={t("message.edit")}
+                      onClick={() => setEditing(true)}
+                    >
+                      <Pencil size={ROW_ICON} />
+                    </button>
+                  )}
+                  {forkButton}
+                  <RewindButton rowId={row.id} />
+                  <PinButton rowId={row.id} bookmark />
+                </>
+              }
+            />
           </UserFooter>
         )}
       </div>

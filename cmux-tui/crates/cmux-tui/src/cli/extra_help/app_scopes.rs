@@ -167,6 +167,8 @@ usage: cmux app ping | identify | capabilities
 
 const WINDOW_HELP: &str = "\
 usage: cmux window list
+       cmux window record [--target <id>] [--seconds <1-60>] [--fps <1-60>] [--out <file.mp4|folder>]
+                                        (a clip of the window, no Screen Recording permission)
        cmux window <verb...> [--target <id>]   (an app action)";
 
 const ACTION_LIST_USAGE: &str =

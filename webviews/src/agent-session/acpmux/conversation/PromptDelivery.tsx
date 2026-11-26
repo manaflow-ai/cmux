@@ -10,11 +10,11 @@
 // says why, in one short line under its prompts.
 import { useContext, useEffect, useState } from "react";
 import { PROMPT_PENDING_AFTER_MS, type AcpmuxRow, type PromptDelivery } from "../model";
-import { useT } from "../i18n";
+import { useT, type StringKey } from "../i18n";
 import { isTrustCause, sendCause, sendRetriesItself } from "../sendFailure";
 import { useTranscriptReadOnly } from "./readOnly";
 import { FailedSendsContext } from "./promptDeliveryModel";
-import { Close } from "./icons";
+import { Clock, Close } from "./icons";
 import { ROW_ICON } from "./messageActionsModel";
 const PENDING_AFTER_MS = PROMPT_PENDING_AFTER_MS;
 
@@ -43,6 +43,24 @@ export function usePendingShown(delivery: PromptDelivery | undefined, queued = f
   }, [again, late]);
   if (again) return true;
   return sending && late && !queued;
+}
+
+/// What a prompt still on its way says: the one sentence its footer shows.
+export function pendingLabel(delivery: PromptDelivery): StringKey {
+  return delivery.waitingForHost ? "prompt.delivery.whenReady" : "prompt.delivery.sending";
+}
+
+/// The footer's time slot while the prompt is on its way: a clock and its one sentence, in the
+/// slot the age takes once it lands, so the row moves nothing when it does.
+export function PendingDelivery({ delivery }: { delivery: PromptDelivery }) {
+  const t = useT();
+  const label = t(pendingLabel(delivery));
+  return (
+    <output className="cv-user__time cv-user__pending-state" data-delivery={delivery.state} aria-label={label}>
+      <Clock size={12} />
+      <span className="cv-user__pending-words">{label}</span>
+    </output>
+  );
 }
 
 /// Under the last prompt of a run acpmux refused for one cause that would refuse it again (too
