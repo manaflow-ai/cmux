@@ -54,6 +54,8 @@ ALLOWED: dict[str, str] = {
     "cmux-next-fast-gates.yml": "next-autoland lands a head only on its cmux-next/fast-gates status (and dispatches "
                                 "the workflow when the status is missing), about two minutes on Linux",
     "merge-freeze.yml": "a merge freeze holds every pull request, prose included; one job",
+    "ci-pr-superseded-cancel.yml": "a push to any pull request, prose included, cancels its runs on older heads; "
+                                   "one small job (scripts/ci/cancel_superseded_pr_runs.py)",
     "pr-router.yml": "the router: it reads the changed paths and starts only the workflows they reach (scripts/ci/pr_router.json); one small job",
     "language-boundaries.yml": "policy over every changed path; one job",
     "cmux-next-batch.yml": "batches every open pull request; one job, off unless CMUX_NEXT_BATCH_ENABLED",
