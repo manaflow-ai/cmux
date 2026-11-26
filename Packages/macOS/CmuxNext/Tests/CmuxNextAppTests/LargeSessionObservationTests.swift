@@ -144,7 +144,7 @@ struct LargeSessionObservationTests {
         let saved = DesignSettings.shared.sidebarSections
         DesignSettings.shared.sidebarSections.sessionTree = true
         defer { DesignSettings.shared.sidebarSections = saved }
-        let tree = SidebarSessionTree(defaults: UserDefaults(suiteName: "large-session-o2-\(UUID().uuidString)")!)
+        let tree = SidebarSessionTree(defaults: UserDefaults(suiteName: "large-session-o2-\(UUID().uuidString)")!, showsStarted: true)
         let feed = SidebarSessionTreeFeed(recordedParents: AgentSessionParents(defaults: nil))
         feed.start(workspaces: { [store = fixture.store] in store.workspaces }, localHost: LargeSessionFixture.host,
                    lanes: AgentLaneStore(), remote: RemoteAgentSessionLinks(), tree: tree)

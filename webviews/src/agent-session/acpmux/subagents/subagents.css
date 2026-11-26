@@ -432,11 +432,12 @@ button.cv-subagent > :last-child {
   --acpmux-tray-two-row-icon-top: 7px;
   --acpmux-tray-gap: var(--acpmux-composer-action-gap, 4px);
   --acpmux-tray-inset: var(--acpmux-composer-inset, calc(8px * var(--cmux-interface-scale, 1)));
-  /* Where the hat's leading column starts (trayColumn.experiment.ts; Lucas, and Leo 2026-11-24: "the
-     alignment becomes... maybe awkward? against the ... attachment + button"). `glyph` (the default)
-     starts its marks on the + glyph's ink, 6px in from the + chip's edge (a 16px glyph centred in the
-     28px chip), so the hat's marks, the + and the prompt share one column; `chip` keeps the composer's
-     inset. The trailing side keeps the inset, so the chevron stays over Send's column. */
+  /* Where the hat's leading column starts: the composer's own inset, so each row's lead box (below,
+     --acpmux-tray-lead-box, the composer's control) lies exactly over the + button and a mark centred
+     in it centres on +; the words after it start one lead gap on, where the prompt's do. Never add to
+     it: the marks centre themselves in the box, and a second offset moved them right of the + (6px at
+     Default, more at larger densities) and the words past the placeholder (cmux#56151).
+     test/hat-composer-icon-grid.test.ts and test/composer-stack-columns.test.ts measure both. */
   --acpmux-tray-inset-start: var(--acpmux-tray-inset);
   /* The one trailing column every chevron ends in: the header's and each line's. */
   --acpmux-tray-chevron-width: var(--acpmux-composer-control, 28px);
@@ -464,12 +465,6 @@ button.cv-subagent > :last-child {
 }
 .acpmux-running-tray__head {
   flex: none;
-}
-.acpmux-running-tray[data-column="glyph"] {
-  --acpmux-tray-inset-start: calc(
-    var(--acpmux-tray-inset) +
-      (var(--acpmux-composer-control, 28px) - var(--acpmux-composer-glyph, 16px)) / 2
-  );
 }
 /* The running turn's todo list, opened from the header (SubagentTray.tsx `plan`; Leo, 2026-11-03, on
    the composer hat): the plan's own marks in the lines' icon column, one line per step, no card of its
@@ -2906,6 +2901,10 @@ button.cv-subagent > :last-child {
   --acpmux-tray-glyph: calc(var(--acpmux-composer-glyph, 16px) * 14 / 16);
   /* The lead box's room on each side of a glyph of the header's size. */
   --acpmux-tray-lead-room: calc((var(--acpmux-tray-lead-box) - var(--acpmux-tray-glyph)) / 2);
+  /* The same room beside a harness mark (the stack's, a subagent kind's), which keeps its own size,
+     the faces' --acpmux-tray-face, at every density: centred by the glyph's room it sat off +'s centre
+     at every density but Default's (cmux#56151). */
+  --acpmux-tray-mark-room: calc((var(--acpmux-tray-lead-box) - var(--acpmux-tray-face)) / 2);
 }
 /* The header's glyphs, at the composer's size. */
 /* A harness mark (the stack's, a kind's) keeps its own size: its badge and mask cut are drawn for it. */
@@ -2923,26 +2922,36 @@ button.cv-subagent > :last-child {
   margin-inline-end: calc(var(--acpmux-tray-lead-gap) - var(--ds-space-2, 8px));
 }
 .acpmux-running-tray__head > .acpmux-running-tray__stack {
-  padding-inline-start: var(--acpmux-tray-lead-room);
+  padding-inline-start: var(--acpmux-tray-mark-room);
 }
 .acpmux-running-tray__head > .acpmux-running-tray__stack > .acpmux-running-tray__stack-mark:first-child {
-  margin-inline-end: calc(var(--acpmux-tray-lead-room) + var(--acpmux-tray-lead-gap) - var(--ds-space-1, 4px));
+  margin-inline-end: calc(var(--acpmux-tray-mark-room) + var(--acpmux-tray-lead-gap) - var(--ds-space-1, 4px));
 }
 .acpmux-running-tray__head > .acpmux-running-tray__stack:has(> .acpmux-running-tray__stack-mark:only-child) {
   margin-inline-end: calc(var(--acpmux-tray-lead-gap) - var(--ds-space-2, 8px));
 }
 .acpmux-running-tray__head > .acpmux-running-tray__stack:has(> .acpmux-running-tray__stack-mark:only-child) > .acpmux-running-tray__stack-mark {
-  margin-inline-end: var(--acpmux-tray-lead-room);
+  margin-inline-end: var(--acpmux-tray-mark-room);
 }
 /* The kinds' header: its first kind's mark in +'s box, the count one lead gap after it. With the
    subagents' faces first (HatFaces.tsx), the first face centres in +'s box. */
-.acpmux-running-tray__kinds > :first-child:not(.acpmux-running-tray__kind, .acpmux-running-tray__kind-unit:has(> .acpmux-running-tray__kind:first-child)) {
+.acpmux-running-tray__kinds > :first-child:not(.acpmux-running-tray__kind, .acpmux-running-tray__kind-unit:has(> .acpmux-running-tray__kind:first-child), .acpmux-running-tray__summary-line:has(> .acpmux-running-tray__kind-unit:first-child > .acpmux-running-tray__kind:first-child)) {
   margin-inline-start: calc((var(--acpmux-tray-lead-box) - var(--acpmux-tray-face)) / 2);
 }
-/* A kind stands alone or in its unit (with its separator, the `tally` arm's wrapping). */
+/* A kind stands alone or in its unit (with its separator, the `tally` arm's wrapping), or, in the
+   `summary` and `groups` headers (HeadSummary.tsx), first on the summary line when no plan leads it
+   (cmux#56151: its words started 7px short of the prompt's). */
 .acpmux-running-tray__kinds > .acpmux-running-tray__kind:first-child > :first-child,
-.acpmux-running-tray__kinds > .acpmux-running-tray__kind-unit:first-child > .acpmux-running-tray__kind:first-child > :first-child {
+.acpmux-running-tray__kinds > .acpmux-running-tray__kind-unit:first-child > .acpmux-running-tray__kind:first-child > :first-child,
+.acpmux-running-tray__kinds > .acpmux-running-tray__summary-line:first-child > .acpmux-running-tray__kind-unit:first-child > .acpmux-running-tray__kind:first-child > :first-child {
   margin-inline: var(--acpmux-tray-lead-room) calc(var(--acpmux-tray-lead-room) + var(--acpmux-tray-lead-gap) - var(--ds-space-1, 4px));
+}
+/* A harness mark centres in +'s box by its own room (--acpmux-tray-mark-room), not the scaled glyph's
+   (cmux#56151: at Spacious it sat 1.4px left of the + and its words 2.8px short of the prompt's). */
+.acpmux-running-tray__kinds > .acpmux-running-tray__kind:first-child > .acpmux-running-tray__stack-mark:first-child,
+.acpmux-running-tray__kinds > .acpmux-running-tray__kind-unit:first-child > .acpmux-running-tray__kind:first-child > .acpmux-running-tray__stack-mark:first-child,
+.acpmux-running-tray__kinds > .acpmux-running-tray__summary-line:first-child > .acpmux-running-tray__kind-unit:first-child > .acpmux-running-tray__kind:first-child > .acpmux-running-tray__stack-mark:first-child {
+  margin-inline: var(--acpmux-tray-mark-room) calc(var(--acpmux-tray-mark-room) + var(--acpmux-tray-lead-gap) - var(--ds-space-1, 4px));
 }
 /* The panel button is the composer's control box, centred on the header's row. */
 .acpmux-running-tray__open {

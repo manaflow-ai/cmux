@@ -24,6 +24,24 @@ public struct ComposerFieldHeight: Equatable, Sendable {
         self.maxLines = max(maxLines, 1)
     }
 
+    /// The fewest lines a field keeps when something above it in the card (the attachment
+    /// strip) takes part of its height.
+    public static let minSharedLines = 2
+
+    /// The lines a field may grow to when `reserved` points of the card above it are taken
+    /// (the attachment strip, ``ComposerCardMetrics/attachmentStripHeight``): the strip's height
+    /// comes out of the field's, so a card at its tallest stays that tall when a file is attached
+    /// and the draft scrolls instead (Leo, 2026-11-23: "adding attachments shouldn then expand
+    /// the fucking composer EVEN TALLER... this goes for the gui chat too... simply have it
+    /// within the top part of the composer. the inner area grows at the top. no shift,
+    /// nothing."). At least ``minSharedLines`` (or `maxLines`, if that is fewer).
+    public static func maxLines(_ maxLines: Int, sharing reserved: CGFloat, lineHeight: CGFloat) -> Int {
+        let maxLines = max(maxLines, 1)
+        guard reserved > 0, lineHeight > 0 else { return maxLines }
+        let taken = Int((reserved / lineHeight).rounded())
+        return max(min(maxLines, minSharedLines), maxLines - taken)
+    }
+
     /// One line: the empty field's height.
     public var minHeight: CGFloat { (lineHeight + verticalInset).rounded(.up) }
 

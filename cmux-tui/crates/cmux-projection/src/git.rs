@@ -739,7 +739,22 @@ struct CatFile {
 
 impl CatFile {
     fn spawn(git_dir: &Path) -> anyhow::Result<Self> {
-        let mut child = git(git_dir)
+        Self::spawn_from(git(git_dir))
+    }
+
+    /// A reader that answers only from the objects `git_dir` holds: a blob it lacks is never
+    /// fetched from its promisor remote. `GIT_NO_LAZY_FETCH` turns lazy fetches off (git 2.44 and
+    /// later); `GIT_ALLOW_PROTOCOL=none` makes one fail at once without the network on an older
+    /// git. Either way git ends the process on the first blob it lacks, so the caller spawns a
+    /// fresh one ([`ObjectReader`]).
+    fn spawn_local(git_dir: &Path) -> anyhow::Result<Self> {
+        let mut command = git(git_dir);
+        command.env("GIT_NO_LAZY_FETCH", "1").env("GIT_ALLOW_PROTOCOL", "none");
+        Self::spawn_from(command)
+    }
+
+    fn spawn_from(mut command: Command) -> anyhow::Result<Self> {
+        let mut child = command
             .args(["cat-file", "--batch"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -769,17 +784,33 @@ impl CatFile {
     }
 }
 
-/// Reads blobs of a git object store by id, for a seed ([`crate::peers::serve`]).
-pub struct ObjectReader(CatFile);
+/// Reads blobs of a git object store by id, for a seed ([`crate::peers::serve`]), from what the
+/// store holds and nothing else. A seed's mirror is a partial clone, so a plain `cat-file` fetched
+/// every blob it lacked from GitHub, one round trip per blob, inside the batch stream: a checkout
+/// that asked the seed for 54 blobs it lacked waited about 560 ms each (30 s), when the next
+/// source could have answered them in one request.
+pub struct ObjectReader {
+    git_dir: PathBuf,
+    cat: Option<CatFile>,
+}
 
 impl ObjectReader {
     pub fn spawn(git_dir: &Path) -> anyhow::Result<Self> {
-        Ok(Self(CatFile::spawn(git_dir)?))
+        Ok(Self { git_dir: git_dir.to_owned(), cat: Some(CatFile::spawn_local(git_dir)?) })
     }
 
-    /// The blob's bytes, or `None` when the store has no blob by that id.
+    /// The blob's bytes, or `None` when the store has no blob by that id. A miss may have ended
+    /// the `cat-file` (see [`CatFile::spawn_local`]), so the next read starts a fresh one.
     pub fn blob(&mut self, oid: &str) -> Option<Vec<u8>> {
-        self.0.blob(oid).ok()
+        let cat = match &mut self.cat {
+            Some(cat) => cat,
+            None => self.cat.insert(CatFile::spawn_local(&self.git_dir).ok()?),
+        };
+        let bytes = cat.blob(oid).ok();
+        if bytes.is_none() {
+            self.cat = None;
+        }
+        bytes
     }
 }
 

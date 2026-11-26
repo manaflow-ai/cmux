@@ -389,7 +389,7 @@ fn strip_value(error: &serde_json::Error) -> String {
 }
 
 /// `setup-OWNER-NAME`, as a profile (and so a library entry) name.
-fn profile_name(id: &str) -> String {
+pub(crate) fn profile_name(id: &str) -> String {
     let mut name: String = format!("setup-{id}")
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' })

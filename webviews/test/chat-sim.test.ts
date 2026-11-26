@@ -8,11 +8,11 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { createSimulation, runSimulation, type SimResult } from "../src/agent-session/acpmux/sim/run";
+import { runSimulation, type RowProbe, type SimResult, createSimulation } from "../src/agent-session/acpmux/sim/run";
 import { parseRecords, sanitizeRecords, scrubText } from "../src/agent-session/acpmux/sim/sanitize";
 import { replayScenario, SIM_SESSION } from "../src/agent-session/acpmux/sim/script";
 import { SCENARIOS, longRun } from "../src/agent-session/acpmux/sim/scenarios";
-import { ROW_GAP_LOOKS } from "../src/agent-session/acpmux/transcriptGrid";
+import { TRANSCRIPT_BLOCK_GAP, TRANSCRIPT_LIVE_STEP_GAP } from "../src/agent-session/acpmux/transcriptGrid";
 
 const FIXTURES = join(import.meta.dir, "fixtures", "chat-sim");
 const broken = (result: SimResult, prefix: string) =>
@@ -20,10 +20,8 @@ const broken = (result: SimResult, prefix: string) =>
     .filter((violation) => violation.rule.startsWith(prefix))
     .map((violation) => `${violation.label}: ${violation.detail}`);
 
-// Rule (a) holds in every scenario. Two of them reproduce Leo's screenshot: a turn that another agent's
-// notice or message opens drew "Working for" flush (0px) under it (transcriptGap's "two one-line rows sit
-// flush" rule). Now "Working for", the "Worked for" that replaces it and the live "Thinking" line all stand
-// the gap "Worked for" stands under any one-line row (ROW_GAP_LOOKS.shipped.workedAfterLine, 16, #48591).
+// Rules (a) and (b) hold in every scenario: a turn's first rows keep their gaps, and nothing folds
+// before its turn ends.
 // Rule i (one message is one whole bubble) runs under the same describe, so the a and b tests keep their names.
 describe("chat simulator: (a) a turn's first rows keep their gaps, (b) nothing folds before its turn ends", () => {
   for (const [name, make] of Object.entries(SCENARIOS)) {
@@ -35,21 +33,41 @@ describe("chat simulator: (a) a turn's first rows keep their gaps, (b) nothing f
   }
 });
 
-/** The gap over each head of turn 2 ("thinking", "working") in `name`, at the first step it is drawn. */
-const headGaps = (name: string) => {
-  const gaps: Record<string, number> = {};
-  for (const step of runSimulation(SCENARIOS[name]!()).traces)
-    for (const row of step.rows ?? []) if (row.head && row.turn === 2 && !(row.kind in gaps)) gaps[row.kind] = row.gap;
-  return gaps;
+// Rule (d) holds in every scenario: another agent's line among tool rows sits on their pitch. (d) here is
+// the received-gap rule; the burst rules d-blank, d-shift and the rest hold in the burst replay below.
+describe("chat simulator: (d) received lines on the tool rows' pitch", () => {
+  for (const [name, make] of Object.entries(SCENARIOS)) {
+    test(`${name}: rule d`, () => {
+      expect(broken(runSimulation(make()), "d-received")).toEqual([]);
+    });
+  }
+});
+
+/** Turn 2's rows at the first step its live line stands under the line that opened it (its calls fold into the live line). */
+const openedTurn = (name: string) => {
+  for (const step of runSimulation(SCENARIOS[name]!()).traces) {
+    const rows = step.rows ?? [];
+    const at = rows.findIndex((row) => row.turn === 2 && row.received && row.opens);
+    if (at > 0 && rows[at + 1]?.kind === "thinking") return { rows, at };
+  }
+  throw new Error(`${name}: no step with turn 2's live line under its received line`);
 };
 
+// Leo, 2026-11-22: "sometimes you get these way-too-big gaps. i think it's the message recieving not
+// properly getting treated like the tool call ish thing it should be and instead as if it were a
+// message?" The turn another agent's line opened is headed by its own line (#50242), a block gap under
+// the turn before; the received line sits flush under it, as the turn's first step on the tool rows'
+// pitch, and "Thinking" a step's gap under the last of them. It stood 16 under its header and 16 over
+// "Thinking", as a prompt's room. Rule (d) holds it in every scenario.
 for (const name of ["incoming-notice-turn", "incoming-message-turn"])
-  test(`chat simulator: ${name}: Thinking and Working for stand the head gap under another agent's line (Leo's screenshot)`, () => {
-    const gaps = headGaps(name);
-    expect(Object.keys(gaps)).toEqual(expect.arrayContaining(["thinking", "working"]));
-    const want = ROW_GAP_LOOKS.shipped.workedAfterLine;
-    expect(want).toBeGreaterThan(0);
-    expect({ thinking: gaps.thinking, working: gaps.working }).toEqual({ thinking: want, working: want });
+  test(`chat simulator: ${name}: another agent's line sits on the tool rows' pitch under its turn's line`, () => {
+    const { rows, at } = openedTurn(name);
+    const head = rows[at - 1]!;
+    expect(head.id).toBe(`worked-${rows[at]!.id}`);
+    expect(head.gap).toBe(TRANSCRIPT_BLOCK_GAP);
+    expect(rows[at]!.gap).toBe(0);
+    expect(rows[at + 1]!.gap).toBe(TRANSCRIPT_LIVE_STEP_GAP);
+    expect(broken(runSimulation(SCENARIOS[name]!()), "d-")).toEqual([]);
   });
 
 // ST-02, Leo, 2026-11-22 08:29Z (screenshot 1159): "this one seems to have an unnecessary gap due to being a recieved
@@ -76,8 +94,9 @@ test("chat simulator: received-sent-as-activity: received and sent rows stand a 
 
 test("chat simulator: a person's prompt keeps the block gap over Working for", () => {
   const result = runSimulation(SCENARIOS.basic!());
-  const trace = result.traces.find((step) => step.rows?.some((row) => row.kind === "working" && row.head));
-  const head = trace!.rows!.find((row) => row.kind === "working" && row.head)!;
+  const isHead = (row: RowProbe) => (row.kind === "working" || row.kind === "worked") && row.head;
+  const trace = result.traces.find((step) => step.rows?.some(isHead));
+  const head = trace!.rows!.find(isHead)!;
   expect(head.gap).toBeGreaterThanOrEqual(24);
 });
 

@@ -216,3 +216,26 @@ test("a kept row the swap draws across the person's message goes with the copies
     dom.window.close();
   }
 });
+
+// One motion token times the crossing fold: the shipped `quick` is the house settle read from the page
+// (its move, its curve) with the micro step's fade, so a faster or slower ui.animationSpeed moves every
+// arm with every other fold, and `snap` has no clock.
+test("the crossing fold's clocks are the page's settle token", async () => {
+  const { JSDOM } = await import("jsdom");
+  const { turnEndCrossTiming } = await import("./turnEndFold");
+  const { MOTION_MS, MOTION_SETTLE_MS } = await import("../../../motion/scale.generated");
+  const dom = new JSDOM("<!doctype html><main></main>", { pretendToBeVisual: true });
+  const thread = dom.window.document.querySelector<HTMLElement>("main")!;
+  expect(turnEndCrossTiming(thread)).toMatchObject({ fadeMs: MOTION_MS.micro, moveMs: MOTION_SETTLE_MS });
+  thread.style.setProperty("--cmux-motion-settle", `${MOTION_SETTLE_MS / 2}ms`);
+  thread.style.setProperty("--cmux-ease-settle", "linear");
+  expect(turnEndCrossTiming(thread)).toEqual({
+    fadeMs: MOTION_MS.micro / 2,
+    moveMs: MOTION_SETTLE_MS / 2,
+    easing: "linear",
+  });
+  thread.setAttribute("data-turn-end-cross", "even");
+  expect(turnEndCrossTiming(thread)).toMatchObject({ fadeMs: 70, moveMs: 100, easing: "linear" });
+  thread.setAttribute("data-turn-end-cross", "snap");
+  expect(turnEndCrossTiming(thread)).toBeUndefined();
+});

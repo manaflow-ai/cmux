@@ -68,6 +68,8 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
     import("./DensityCard").then(({ DensityCard }) => (focus) => <DensityCard focus={focus} />),
   textSize: () =>
     import("./TextSizeCard").then(({ TextSizeCard }) => () => <TextSizeCard />),
+  replayIntro: () =>
+    import("./ReplayIntroCard").then(({ ReplayIntroCard }) => () => <ReplayIntroCard />),
   importSuggestions: () =>
     import("./ImportSuggestionsCard").then(({ ImportSuggestionsCard }) => () => <ImportSuggestionsCard />),
   channels: () =>

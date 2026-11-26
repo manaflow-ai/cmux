@@ -13,6 +13,7 @@ fn ask(redirect: bool, person: bool, local: bool, peers: bool) -> Ask<'static> {
         auto: false,
         waiting: None,
         harness: None,
+        caller: None,
     }
 }
 

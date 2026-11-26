@@ -1168,12 +1168,12 @@ export function NewTabScreen(props: Props) {
   const commandAt = shell ? undefined : commandTrigger;
   const commandQuery = commandAt?.query;
   // The person's saved prompts (savedPrompts.ts) first, as in the chat composer; read again as the list opens.
-  const savedPrompts = useSavedPrompts();
+  const commandOpening = commandAt !== undefined;
+  const savedPrompts = useSavedPrompts(commandOpening);
   const menuCommands = useMemo(
     () => [...savedPromptCommands(savedPrompts), ...(snapshot.commands ?? [])],
     [savedPrompts, snapshot.commands],
   );
-  const commandOpening = commandAt !== undefined;
   useEffect(() => {
     if (commandOpening) void refreshSavedPrompts();
   }, [commandOpening]);

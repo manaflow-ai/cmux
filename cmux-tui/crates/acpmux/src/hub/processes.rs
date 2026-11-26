@@ -276,7 +276,19 @@ impl ProcessTable {
                 p.logged = false;
             }
         }
-        let named = named || owned;
+        // Claude's task_started may precede its Bash input. The first update with
+        // the actual command also tells whether the earlier description was its text.
+        let late_command = text("command").filter(|_| p.command.is_empty());
+        if let Some(command) = late_command {
+            p.command = command.to_owned();
+            if let Some(description) = text("description") {
+                p.description = Some(description.to_owned());
+            } else if p.description.as_deref() == Some(command.trim()) {
+                p.description = None;
+            }
+            p.logged = false;
+        }
+        let named = named || owned || late_command.is_some();
         if state == ProcessState::Running {
             return (found.is_none() || named).then_some(i);
         }

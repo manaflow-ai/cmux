@@ -599,7 +599,7 @@ final class NativeCodeCardView: UIView, UIScrollViewDelegate {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backgroundColor = .cmuxMobileCodeBackground
+        backgroundColor = CmuxMobileContentSurface.fill(.card)
         layer.cornerRadius = 16
         layer.cornerCurve = .continuous
         clipsToBounds = true

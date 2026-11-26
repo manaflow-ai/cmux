@@ -79,7 +79,8 @@ export function toolGroupKind(tool: Tool): ToolGroupKind | undefined {
   switch (toolKind(tool)) {
     case "execute":
       // A finished shell read of one file is a read (readPath.ts), as every harness's read is.
-      return tool.command ? (readPath(tool) ? "reads" : "commands") : undefined;
+      if (!tool.command) return undefined;
+      return !isRunning(tool) && tool.background?.state !== "running" && readPath(tool) ? "reads" : "commands";
     case "read":
       return "reads";
     case "edit":

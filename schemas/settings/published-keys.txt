@@ -615,6 +615,7 @@ sidebar.sections.hidden
 sidebar.sections.order
 sidebar.sessionTree
 sidebar.settleFinished
+sidebar.showAgentSessions
 sidebar.showAutomaticSessions
 sidebar.showChats
 sidebar.showColors

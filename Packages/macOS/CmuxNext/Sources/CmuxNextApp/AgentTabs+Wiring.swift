@@ -153,7 +153,7 @@ extension AgentTabStore {
                                                        chats: planId == nil ? [] : services.cloud.place.controlChats(services.placeChats()))
             }
             return services.cloud.place.placeJSON(session: session, onCloud: record.host.hasPrefix(MachineRegistry.registryHostPrefix), cloudName: record.hostName,
-                                                  control: control)
+                                                  control: control, starts: services.cloud.tuiState)
         }
         tabs.evacuateState = { [weak services] in services?.cloud.placeDriver?.evacuateJSON() }
         // Move to…: every Cloud machine of the account but the one the chat runs on, and this Mac for a

@@ -9,7 +9,11 @@
 //! 1. this machine's mirror (`<cache>/<tenant>/github.com/<owner>/<repo>.git`, a full,
 //!    non-partial bare clone, so a present commit has its whole closure);
 //! 2. a fleet peer's proxy (`--peer URL`, the same protocol, which checks the caller itself);
-//! 3. GitHub (or the platform edge), only for what nobody has.
+//! 3. GitHub (or the platform edge), only for what nobody has. A whole clone's pack is written
+//!    into the mirror as it streams to the caller (`Mirrors::keep`; clones that start meanwhile
+//!    wait for it and are served locally), and a miss starts one bounded, resumable background
+//!    fill of the whole mirror at the lowest CPU and I/O priority (`Mirrors::fill_later`), so
+//!    the first clone never waits on a full mirror download and the second is local.
 //!
 //! Tenant safety: the ref advertisement (`GET info/refs`) and `ls-refs` always go upstream
 //! under the caller's credentials. A cached object is served only after the upstream answered

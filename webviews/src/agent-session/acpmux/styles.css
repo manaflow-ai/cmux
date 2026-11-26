@@ -701,7 +701,7 @@
 .acpmux-diff-tool{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:0;border-radius:6px;background:none;color:var(--agent-muted);cursor:default}
 .acpmux-diff-tool:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 10%,transparent));color:var(--agent-text)}
 .acpmux-diff-tool[aria-pressed=true]{background:var(--ds-color-selection);color:var(--agent-text)}
-.acpmux-diff-back:focus-visible,.acpmux-diff-tool:focus-visible,.acpmux-fh-name:focus-visible,.acpmux-fh-btn:focus-visible,.acpmux-review-changes:focus-visible,.acpmux-edited-file:focus-visible,.acpmux-edited-more:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
+.acpmux-diff-back:focus-visible,.acpmux-diff-tool:focus-visible,.acpmux-fh-name:focus-visible,.acpmux-fh-btn:focus-visible,.acpmux-review-changes:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
 .acpmux-diff-tree{flex:0 0 250px;min-width:0;display:flex;flex-direction:column;border-left:1px solid var(--agent-border);overflow:hidden}
 .acpmux-diff-tree-host{display:block;flex:1;min-height:0}
 /* changes/ChangedFilesTree.tsx: the motion layer's element around the tree host; no box of its own. */
@@ -731,7 +731,7 @@
 @media (max-width:620px){.acpmux-diff-tree{display:none}.acpmux-fh-dir{display:none}}
 /* The panel can be half a pane (beside the transcript), so the tree also gives way to the diff by the panel's own width, not only the window's. */
 @container acpmux-diff-panel (max-width:620px){.acpmux-diff-tree{display:none}.acpmux-fh-dir{display:none}}
-/* The edited-files card as the Codex app draws it (Lucas, 2026-11-12): a 64px head with a 40px glyph tile, the title over its counts, 36px file rows in the chat's font and a tinted "Show N more" row. model.ts editedCardHeight measures these. */
+/* The edited-files card as the Codex app draws it (Lucas, 2026-11-12): a 64px head with a 40px glyph tile, the title over its counts; opened, every file's diff stacked under it (EditedFilesCard.css, Leo 2026-11-25). model.ts editedCardHeight measures these. */
 .acpmux-edited{position:relative;margin-bottom:6px;border-radius:var(--cv-card-radius,var(--grid-cards-radius));overflow:hidden;background:var(--ds-surface-card)}
 .acpmux-edited::after{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 0 0 1px var(--ds-surface-card-line);pointer-events:none}
 .acpmux-edited-head{display:flex;align-items:center;gap:var(--ds-space-3);min-height:calc(16 * var(--grid-base));box-sizing:border-box;padding:var(--ds-space-3)}
@@ -748,14 +748,9 @@
 .acpmux-edited-undo:hover:not(:disabled){background:var(--ds-surface-hover);color:var(--agent-text)}
 .acpmux-edited-undo:disabled{color:var(--agent-muted);cursor:default}
 .acpmux-edited-undo:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
-.acpmux-edited-file{display:flex;align-items:center;gap:var(--ds-space-3);width:100%;height:calc(9 * var(--grid-base));box-sizing:border-box;padding:0 var(--ds-space-3);border:0;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-detail);line-height:16px;text-align:left;letter-spacing:var(--text-detail--letter-spacing)}
-button.acpmux-edited-file{cursor:default}
-button.acpmux-edited-file:hover{background:var(--ds-surface-hover)}
 .acpmux-edited-path{flex:1;min-width:0;display:flex;white-space:nowrap;overflow:hidden}
 .acpmux-edited-dir{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--agent-muted)}
 .acpmux-edited-base{flex:none}
-.acpmux-edited-more{display:flex;align-items:center;gap:var(--ds-space-1);width:100%;height:calc(9 * var(--grid-base));box-sizing:border-box;padding:0 var(--ds-space-3);border:0;background:var(--ds-surface-card);color:var(--agent-text);font:inherit;font-size:var(--text-detail);cursor:default;letter-spacing:var(--text-detail--letter-spacing)}
-.acpmux-edited-more:hover{background-image:var(--ds-surface-hover-layer)}
 
 .acpmux-permission-panel{display:flex;flex-direction:column;gap:var(--acp-row-gap,8px);flex-shrink:0;min-height:0;max-height:45vh;overflow:auto;padding-bottom:0;font-size:var(--acp-font-size,13px);line-height:var(--acp-line-height,1.5)}
 .acpmux-asks-stack>.acpmux-permission-panel{padding-left:0;padding-right:0}

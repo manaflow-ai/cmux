@@ -52,6 +52,9 @@ type View = { id: string; holder: string; epoch: number; version: number; lastSe
 const MOVE_BUDGET_MS = 6 * 60_000;
 const TURN_BUDGET_MS = 4 * 60_000;
 const HARNESS = "auto-journey";
+/** cmux NEXT's config folder on this side: `cmux-next` on macOS (cmux-config NEXT_DIR, location.rs; #53567), where the
+ * daemon reads harness profiles. The Linux guest keeps `cmux`. */
+const NEXT_DIR = process.platform === "darwin" ? "cmux-next" : "cmux";
 const RAN_FILE = "auto-journey-ran.txt";
 
 const argValue = (name: string, argv = process.argv): string | undefined => {
@@ -347,13 +350,13 @@ async function main(): Promise<number> {
     for (const k of ["CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"]) delete env[k];
     const work = path.join(home, "work");
     await J.step("Mac daemon (cloud.autoCloud on, this run's HOME)", async () => {
-      mkdirSync(path.join(home, ".config", "cmux", "harnesses"), { recursive: true });
+      mkdirSync(path.join(home, ".config", NEXT_DIR, "harnesses"), { recursive: true });
       const settings = path.join(home, ".config", "cmux", "cmux-next.json");
       writeFileSync(settings, JSON.stringify({ cloud: { autoCloud: true } }, null, 2));
       const script = path.join(home, "auto-journey-agent.sh");
       writeFileSync(script, agentScript("mac"));
       chmodSync(script, 0o755);
-      writeFileSync(path.join(home, ".config", "cmux", "harnesses", `${HARNESS}.toml`), harnessProfile(cmuxTui, script));
+      writeFileSync(path.join(home, ".config", NEXT_DIR, "harnesses", `${HARNESS}.toml`), harnessProfile(cmuxTui, script));
       const state = path.join(out, "install-state.json");
       writeFileSync(state, JSON.stringify(installState), { mode: 0o600 });
       const stub = path.join(home, "bin", "cmux");
