@@ -170,6 +170,7 @@ mod journal_restore_tests;
 pub(crate) mod key_route;
 mod key_store;
 // The per-lane fan-out cap (`lane_fanout.rs`).
+mod cold_start;
 pub(crate) mod lane_fanout;
 mod lane_report_reads;
 mod lane_report_subagents;
