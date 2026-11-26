@@ -8,6 +8,7 @@ import { postNative } from "./native";
 import { takeEarlyOpen } from "./chatSnapshot/earlyOpen";
 import { nativeTimedOut } from "./nativeError";
 import { AcpmuxRpcError } from "./handoff/protocol";
+import { inputPending, listenForInput } from "./inputPending";
 import { deliverQuestionKeyRequest, isQuestionKeyRequest, type QuestionKeyRequest } from "./question/keyReply";
 
 /// One host push: frames in arrival order, then at most once the close.
@@ -19,29 +20,8 @@ export type TransportEvent = {
   seq?: number;
 };
 
-/// A key or pointer event within this long counts as input pending for the host's next push.
-export const INPUT_RECENT_MS = 50;
-let lastInputAt = Number.NEGATIVE_INFINITY;
-let inputListening = false;
-
-/// True while a key or pointer event waits (Chromium's `isInputPending`) or one ran under
-/// `INPUT_RECENT_MS` ago. The listeners are passive, capture-phase, one per page for its life.
-export function inputPending(now = performance.now()): boolean {
-  const scheduling = (navigator as { scheduling?: { isInputPending?: () => boolean } }).scheduling;
-  if (scheduling?.isInputPending?.()) return true;
-  return now - lastInputAt < INPUT_RECENT_MS;
-}
-
-function listenForInput(): void {
-  if (inputListening || typeof window === "undefined" || typeof window.addEventListener !== "function") return;
-  inputListening = true;
-  const note = () => {
-    lastInputAt = performance.now();
-  };
-  for (const type of ["keydown", "pointerdown", "compositionupdate", "beforeinput"]) {
-    window.addEventListener(type, note, { capture: true, passive: true });
-  }
-}
+/// The host's next push carries whether input waits (shared with the transcript: inputPending.ts).
+export { INPUT_RECENT_MS, inputPending } from "./inputPending";
 
 type Post = <T>(method: string, params?: Record<string, unknown>) => Promise<T>;
 

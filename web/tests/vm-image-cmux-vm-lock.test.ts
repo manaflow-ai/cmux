@@ -590,7 +590,7 @@ describe("cmux-rd (the cmux.rd/1 Linux host, role desktop; release cmux-rd-v<V> 
       const program = { ...cmuxRdReleaseShape("0.1.0"), sha256, size: bytes.length, url: `file://${archive}`, checksumsUrl: undefined, checksumsName: undefined };
       const store = path.join(dir, "store");
       const command = programInstallCommand(program).replaceAll("/opt/cmux/store", store).replaceAll("/tmp/cmux-dl", path.join(dir, "dl"));
-      const r = await runChild("bash", ["-c", command], { timeout: 60_000 });
+      const r = await runChild("bash", ["-c", command], { timeout: 60_000, env: { ...process.env, CMUX_PINNED_MIRROR: "" } });
       expect(r.stderr).toBe("");
       expect(r.status).toBe(0);
       const entry = path.join(store, sha256);
@@ -689,5 +689,16 @@ describe("the Antigravity CLI (agy) in the store", () => {
     expect(AGY_USER_ENV_PATH).toStartWith("/etc/environment.d/");
     expect(agyProfileScript()).toContain("\nexport AGY_CLI_DISABLE_AUTO_UPDATE=1\n");
     expect(agyUserEnvironment()).toContain("\nAGY_CLI_DISABLE_AUTO_UPDATE=1\n");
+  });
+
+  test("acpmux.service finds the store CLIs without its login shell read (roll 45862819601)", async () => {
+    const { acpmuxStorePathDropIn, ACPMUX_STORE_PATH_DROPIN } = await import("../scripts/cmux-vm-image/bake");
+    const { ACPMUX_UNIT_PATH } = await import("../services/vms/drivers/cmuxTuiDaemon");
+    expect(ACPMUX_STORE_PATH_DROPIN).toBe("/etc/systemd/user/acpmux.service.d/10-cmux-store-path.conf");
+    const lines = acpmuxStorePathDropIn().split("\n");
+    expect(lines).toContain("[Service]");
+    const pathLine = lines.find((l) => l.startsWith("Environment=PATH="));
+    // The store first, as a login shell orders it, then every entry of the unit's own PATH.
+    expect(pathLine).toBe(`Environment=PATH=/opt/cmux/github/bin:/opt/cmux/current/bin:${ACPMUX_UNIT_PATH}`);
   });
 });

@@ -209,7 +209,7 @@
   height: 28px;
   padding: 0 12px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   background: transparent;
   color: inherit;
   font: inherit;
@@ -311,7 +311,7 @@
 }
 
 .tasks-assignee.agent {
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   color: var(--tasks-ansi-5, var(--page-text-2));
   background: color-mix(in srgb, var(--tasks-ansi-5, var(--page-text-2)) 22%, transparent);
 }
@@ -400,7 +400,7 @@
   flex-direction: column;
   gap: 8px;
   padding: 12px;
-  border-radius: 8px;
+  border-radius: var(--ds-radius-lg);
   background: color-mix(in srgb, var(--page-hover) 50%, transparent);
 }
 
@@ -488,7 +488,7 @@
   flex-direction: column;
   min-height: 0;
   padding: 8px;
-  border-radius: 8px;
+  border-radius: var(--ds-radius-lg);
   background: color-mix(in srgb, var(--page-hover) 35%, transparent);
   transition: background-color var(--cmux-motion-micro) var(--cmux-ease-out);
 }
@@ -607,7 +607,7 @@
   align-items: center;
   gap: 8px;
   padding: 4px 8px;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   background: var(--page-hover);
   color: var(--page-text);
   user-select: text;
