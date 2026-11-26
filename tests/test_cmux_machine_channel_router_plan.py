@@ -32,7 +32,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ROUTER = ROOT / ".github/workflows/pr-router.yml"
 CHANNEL = ROOT / ".github/workflows/cmux-machine-channel.yml"
 PLAN = "scripts/ci/cmux-machine-channel-pr-plan.sh"
-READS = (PLAN, "scripts/ci/cmux_tui_tree_key.py", "scripts/ci/timeout.sh",
+READS = (PLAN, "scripts/ci/cmux_machine_channel_head_built.py", "scripts/ci/cmux_tui_tree_key.py", "scripts/ci/timeout.sh",
          "scripts/cmux-next/cmux-tui-build-profiles.json", "scripts/cmux-next/cmux-tui-tree-inputs.txt")
 INPUTS = ("build", "x86_64_target_set", "aarch64_target_set", "lto", "artifact_prefix")
 
@@ -112,11 +112,14 @@ class PlanOnAFixtureRepo(unittest.TestCase):
         git(self.repo, "add", "-A")
         git(self.repo, "commit", "-qm", "base")
 
-    def plan(self, head_repo: str = "manaflow-ai/cmux") -> dict[str, str]:
+    def plan(self, head_repo: str = "manaflow-ai/cmux", extra: dict[str, str] | None = None) -> dict[str, str]:
         out = self.tmp / "out"
         out.write_text("")
         env = {**os.environ, "GITHUB_OUTPUT": str(out), "GITHUB_REPOSITORY": "manaflow-ai/cmux",
                "HEAD_REPO": head_repo, "GITHUB_BASE_REF": "feat-cmux-next"}
+        for k in ("HEAD_SHA", "GH_TOKEN", "GITHUB_RUN_ID"):
+            env.pop(k, None)
+        env.update(extra or {})
         subprocess.run([str(self.repo / PLAN)], cwd=self.repo, env=env, check=True, capture_output=True)
         return dict(line.split("=", 1) for line in out.read_text().splitlines())
 
@@ -154,6 +157,23 @@ class PlanOnAFixtureRepo(unittest.TestCase):
         self.merge_ref("webviews/app.ts", "cmux-tui/src/main.rs")
         self.assertEqual(self.plan()["build"], "false")
 
+    def stub_head_built(self, answer: str) -> None:
+        stub = self.repo / "scripts/ci/cmux_machine_channel_head_built.py"
+        stub.write_text(f"import sys\nassert sys.argv[1:4] == ['{'a' * 40}', '--exclude-run', '7']\nprint('{answer}')\n")
+
+    def test_a_head_an_earlier_run_built_builds_nothing(self) -> None:
+        self.merge_ref("webviews/app.ts", "")
+        self.stub_head_built("45871056565")
+        got = self.plan(extra={"HEAD_SHA": "a" * 40, "GH_TOKEN": "t", "GITHUB_RUN_ID": "7"})
+        self.assertEqual(got["build"], "false")
+
+    def test_a_head_no_run_built_yet_builds(self) -> None:
+        self.merge_ref("webviews/app.ts", "")
+        self.stub_head_built("")
+        self.assertEqual(self.plan(extra={"HEAD_SHA": "a" * 40, "GH_TOKEN": "t", "GITHUB_RUN_ID": "7"})["build"], "true")
+        # No token (the callee's own plan job on a pull request): no lookup, the build runs.
+        self.assertEqual(self.plan(extra={"HEAD_SHA": "a" * 40})["build"], "true")
+
     def test_a_fork_head_builds_nothing(self) -> None:
         self.commit("webviews/app.ts")
         self.assertEqual(self.plan("someone/cmux")["build"], "false")
@@ -166,6 +186,48 @@ class PlanOnAFixtureRepo(unittest.TestCase):
         mod.ROOT = self.repo
         key = mod.tree_key(git(self.repo, "rev-parse", "HEAD"))
         self.assertRegex(key, r"^[0-9a-f]{40}$")
+
+
+class HeadBuilt(unittest.TestCase):
+    def load(self):
+        spec = importlib.util.spec_from_file_location("head_built", ROOT / "scripts/ci/cmux_machine_channel_head_built.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def api(self, artifacts: dict[int, list[dict]]):
+        calls: list[str] = []
+
+        def get(path: str) -> object:
+            calls.append(path)
+            if path.startswith("actions/workflows/"):
+                return {"workflow_runs": [{"id": i} for i in artifacts]}
+            run = int(path.split("/")[2])
+            return {"artifacts": artifacts[run]}
+
+        return get, calls
+
+    def both(self, expired: bool = False) -> list[dict]:
+        return [{"name": f"machine-channel-cmux-tui-{t}", "expired": expired}
+                for t in ("x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl")]
+
+    def test_an_earlier_run_with_both_artifacts_is_taken_and_this_run_is_left_out(self) -> None:
+        mod = self.load()
+        get, calls = self.api({10: self.both(), 11: [], 12: self.both()})
+        self.assertEqual(mod.built(get, "a" * 40, "machine-channel-", exclude=12), 10)
+        self.assertNotIn("actions/runs/12/artifacts?per_page=100", calls)
+
+    def test_one_leg_or_expired_artifacts_are_no_build(self) -> None:
+        mod = self.load()
+        get, _ = self.api({10: self.both()[:1], 11: self.both(expired=True)})
+        self.assertIsNone(mod.built(get, "a" * 40, "machine-channel-"))
+
+    def test_the_route_step_passes_the_head_and_the_token(self) -> None:
+        route = load(ROUTER)["jobs"]["route"]
+        step = next(s for s in route["steps"] if s.get("id") == "machine-channel")
+        self.assertEqual(step["env"]["HEAD_SHA"], "${{ github.event.pull_request.head.sha || '' }}")
+        self.assertEqual(step["env"]["GH_TOKEN"], "${{ github.token }}")
+        self.assertEqual(route["permissions"]["actions"], "read")
 
 
 if __name__ == "__main__":

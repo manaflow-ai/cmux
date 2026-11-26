@@ -590,6 +590,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             Ok(())
         }
         Command::Retry(args) => crate::cli::retry::run(args, json_out).await,
+        Command::Register { auto: true, name: Some(name), .. } => {
+            // cmux's hook's step: bounded, and never a failure the session sees.
+            let v = crate::cli::reply_address::auto(name).await;
+            if json_out {
+                print_json(&v);
+            }
+            Ok(())
+        }
         Command::Register { renew: true, .. } => {
             // A hook's step: bounded, silent, and never a failure the session sees.
             let v = crate::cli::reply_address::renew().await;
@@ -598,7 +606,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::Register { name, code, renew: false } => {
+        Command::Register { name, code, renew: false, .. } => {
             let name = name.unwrap_or_default();
             let client = connect(true).await?;
             let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
