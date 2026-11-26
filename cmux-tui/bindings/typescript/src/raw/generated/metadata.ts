@@ -4,7 +4,7 @@
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "74636c9142c41825938510a19c4b08bc4f4be8e7a463643240fe0f5617d174f7" as const;
+export const SDK_IR_SHA256 = "9cf642f2887a0fa3f8bf5a5bbb6bf4827158bc6d0a89429873419f19ac054db9" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -3412,6 +3412,10 @@ export const COMMAND_METADATA = {
     "since": 12,
     "capability": "workspace-metadata-v1",
     "fields": {
+      "keep_awake": {
+        "since": 12,
+        "capability": "workspace-keep-awake-v1"
+      },
       "marked_unread": {
         "since": 12,
         "capability": "notification-mark-unread-v1"
@@ -30329,6 +30333,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        },
+        "keep_awake": {
+          "capability": "workspace-keep-awake-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
           }
         },
         "key": {
