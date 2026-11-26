@@ -1,6 +1,6 @@
 {
  "about": "Every egress gate site and the seeded-secret test that covers it (tests/test_egress_seeded.py). todo_max only goes down.",
- "todo_max": 42,
+ "todo_max": 37,
  "sites": {
   "acpmux::happy_dial::http_client": {
    "todo": true
@@ -75,16 +75,16 @@
    "todo": true
   },
   "cmux_session_cloud::store": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-session-cloud/tests/seeded_secret.rs::a_chat_goes_out_sealed_and_the_credential_only_in_authorization"
   },
   "cmux_stack_auth::wire": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-stack-auth/tests/seeded_secret.rs::each_token_and_address_rides_only_where_its_call_needs_it"
   },
   "cmux_tailnet::localapi": {
-   "todo": true
+   "none": "the node's own LocalAPI, plain http to the 127.0.0.1 port tsnet serves in this process (the gate classes it Local, capture never redirects it): its password never leaves the machine"
   },
   "cmux_tui::carrier::adopt": {
-   "todo": true
+   "none": "a header-less GET of the signed machine channel file (CHANNEL_URL), no auth, no redirect: the request carries no person data"
   },
   "cmux_tui::carrier::answer": {
    "todo": true
