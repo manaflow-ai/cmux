@@ -1313,6 +1313,8 @@ export function paneSnapshotEffect({
             return;
           }
           // Only a thought grew: the row that draws it reads it (liveThought.ts).
+          if (streamingRowBlocked()) acpmuxPerf.render("guard:blocked"); // L13DIAG
+          if (pendingPaneDraw.pending) acpmuxPerf.render("guard:pending"); // L13DIAG
           const thought =
             drawn && received && !streamingRowBlocked() && !pendingPaneDraw.pending
               ? thoughtOnly(received, next)
