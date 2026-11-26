@@ -1,5 +1,84 @@
 {
   "protocol": "acpmux",
   "base": 1,
-  "revisions": []
+  "revisions": [
+    {
+      "rev": 2,
+      "note": "cmux#55935 removed the agent to-do list: session taskList and turn.planStep, and the _acpmux/task_list/get and set methods. Old peers get null for both members; the methods are gone (an old caller gets method not found).",
+      "changes": [
+        {
+          "message": "event:_acpmux/session_changed",
+          "op": "remove",
+          "path": "/session/taskList",
+          "default": null
+        },
+        {
+          "message": "event:_acpmux/session_changed",
+          "op": "remove",
+          "path": "/session/turn/planStep",
+          "default": null
+        },
+        {
+          "message": "response:_acpmux/attach",
+          "op": "remove",
+          "path": "/data/session/taskList",
+          "default": null
+        },
+        {
+          "message": "response:_acpmux/attach",
+          "op": "remove",
+          "path": "/data/session/turn/planStep",
+          "default": null
+        },
+        {
+          "message": "response:_acpmux/sessions",
+          "op": "remove",
+          "path": "/data/sessions/*/taskList",
+          "default": null
+        },
+        {
+          "message": "response:_acpmux/sessions",
+          "op": "remove",
+          "path": "/data/sessions/*/turn/planStep",
+          "default": null
+        },
+        {
+          "message": "response:_acpmux/watch",
+          "op": "remove",
+          "path": "/data/sessions/*/taskList",
+          "default": null
+        },
+        {
+          "message": "response:_acpmux/watch",
+          "op": "remove",
+          "path": "/data/sessions/*/turn/planStep",
+          "default": null
+        },
+        {
+          "message": "request:_acpmux/task_list/get",
+          "op": "remove",
+          "path": "/params",
+          "default": null
+        },
+        {
+          "message": "response:_acpmux/task_list/get",
+          "op": "remove",
+          "path": "/data",
+          "default": null
+        },
+        {
+          "message": "request:_acpmux/task_list/set",
+          "op": "remove",
+          "path": "/params",
+          "default": null
+        },
+        {
+          "message": "response:_acpmux/task_list/set",
+          "op": "remove",
+          "path": "/data",
+          "default": null
+        }
+      ]
+    }
+  ]
 }
