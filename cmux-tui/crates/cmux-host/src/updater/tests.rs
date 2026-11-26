@@ -2852,3 +2852,19 @@ fn a_pinned_build_replaces_only_cmux_tui() {
     let no_commit = Pinned { commit: "x".into(), ..pinned };
     assert!(decide_pinned(&paths, &State::default(), &no_commit).is_err());
 }
+
+/// A Windows or macOS host has no published build: the updater turns off there instead of fetching a
+/// Linux binary it cannot run (RFD 0157 D2: the updater had no Windows arm at all).
+#[test]
+fn target_for_names_only_published_linux_builds() {
+    assert_eq!(channel::target_for("linux", "x86_64"), Some("x86_64-unknown-linux-musl"));
+    assert_eq!(channel::target_for("linux", "aarch64"), Some("aarch64-unknown-linux-musl"));
+    assert_eq!(channel::target_for("windows", "x86_64"), None);
+    assert_eq!(channel::target_for("windows", "aarch64"), None);
+    assert_eq!(channel::target_for("macos", "aarch64"), None);
+    assert_eq!(channel::target_for("linux", "riscv64"), None);
+    assert_eq!(
+        channel::local_target(),
+        channel::target_for(std::env::consts::OS, std::env::consts::ARCH)
+    );
+}
