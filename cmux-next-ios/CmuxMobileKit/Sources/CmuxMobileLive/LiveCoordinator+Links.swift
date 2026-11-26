@@ -383,6 +383,21 @@ extension LiveCoordinator {
     }
 
     /// A Mac's own link, for its streamed browser tabs (never another Mac's).
+    /// An HTML file on a Mac (a browser tab's `file:///…/report.html`) for a tab this
+    /// iPhone shows itself: read over that Mac's link (`file-preview`; the Mac confines it
+    /// to its workspace roots), as Files and Links previews read files.
+    public func macHTMLPage(_ url: URL, macID: String?) async throws -> String {
+        let owner = macID.flatMap { sessions[$0] } ?? focused
+        let source = LinkFileArtifactSource(macName: owner.name, baseDirectory: nil) { [weak owner] in
+            await owner?.servedLink
+        }
+        let artifact = TerminalArtifact(reference: url.path(percentEncoded: false), kind: .html)
+        switch try await source.load(artifact) {
+        case .text(let html): return html
+        default: throw ArtifactUnavailable("\(url.lastPathComponent) is too large or isn't text.")
+        }
+    }
+
     public func browserLink(macID: String) async -> (any BrowserStreamOpening)? {
         openSurface(macID: macID)
         return sessions[macID]?.servedLink as? any BrowserStreamOpening
@@ -1073,6 +1088,10 @@ extension LiveCoordinator {
         // This phone's pending workspaces keep theirs.
         let liveTabs = sessions.values.reduce(into: Set<String>()) { tabs, other in tabs.formUnion(other.tree?.surfaces.keys ?? [:].keys) }
         StreamedBrowserDirectory.shared.retain(tabs: liveTabs.union(store.workspaces.flatMap { $0.tabs.map(\.id) }))
+        // New browser tabs of this Mac open on the phone or stream, as the person's rule says.
+        StreamedBrowserDirectory.shared.listed(macID: macID, browserTabs: tree.workspaces.flatMap { workspace in
+            workspace.tabs.filter { $0.kind == .browser }.map { (id: $0.id, url: $0.url) }
+        })
         ConnectTimeline.shared.mark("workspaces_live", detail: "\(tree.workspaces.count) workspaces")
         scheduleSnapshotSave()
         // History items name their workspace and tab once the tree places their session.
