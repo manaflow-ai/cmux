@@ -365,5 +365,29 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
     for target in package.targets where target.name == "CmuxMobileNotifications" || target.name == "CmuxMobileNotificationsTests" {
         target.dependencies.append(.product(name: "Crypto", package: "swift-crypto"))
     }
+    // RFD 0051 route 2: the Swift binding over the Linux build of the Rust FFI, opt-in so the ios-kit
+    // job above is unchanged. rust/scripts/build-linux-ffi.sh builds libcmux_mobile_link_ffi.a,
+    // generates the uniffi header into the system-library directory, and sets this. No Apple
+    // framework linker settings; the binary target stays the Apple platforms' module.
+    // The opt-in graph is only the binding and its test: once CmuxMobileLinkFFI is a Linux module,
+    // `#if canImport(CmuxMobileLinkFFI)` turns on in CmuxMobileTransport (FFIMacLink.swift), which
+    // does not depend on it there, so building the portable modules alongside would fail.
+    if ProcessInfo.processInfo.environment["CMUX_MOBILE_LINK_FFI_LINUX"] == "1" {
+        package.products.removeAll()
+        package.targets = [
+            .systemLibrary(name: "CmuxMobileLinkFFIFFI", path: "Sources/CmuxMobileLinkFFIFFILinux"),
+            .target(
+                name: "CmuxMobileLinkFFI",
+                dependencies: ["CmuxMobileLinkFFIFFI"],
+                path: "Sources/CmuxMobileLinkFFI",
+                swiftSettings: [.swiftLanguageMode(.v5)]
+            ),
+            .testTarget(
+                name: "CmuxMobileLinkFFILinuxTests",
+                dependencies: ["CmuxMobileLinkFFI", .product(name: "Crypto", package: "swift-crypto")],
+                path: "Tests/CmuxMobileLinkFFILinuxTests"
+            ),
+        ]
+    }
 }
 #endif
