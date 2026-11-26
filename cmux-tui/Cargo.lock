@@ -1991,6 +1991,7 @@ dependencies = [
 name = "cmux-design-core"
 version = "0.1.0"
 dependencies = [
+ "cmux-motion",
  "serde",
  "serde_json",
 ]
