@@ -238,5 +238,48 @@ class CLAGuardAppTokenTests(unittest.TestCase):
                 self.assertNotEqual(result, "ok")
 
 
+GATE_GUARD_NAME = "GitHub-hosted, Blacksmith or gate JIT runner"
+FREESTYLE_GUARD_NAME = "GitHub-hosted, Blacksmith, gate JIT or Freestyle runner"
+GATE_PREFIX_TERM = "!startsWith(runner.name, 'cmux-gha-runner-gt-')"
+
+
+def freestyle_guard(raw: str, prefix: str = "fsr-") -> str:
+    """The guard with its gate triple swapped for the Freestyle one."""
+    return raw.replace(GATE_GUARD_NAME, FREESTYLE_GUARD_NAME).replace(
+        GATE_PREFIX_TERM, f"{GATE_PREFIX_TERM} && !startsWith(runner.name, '{prefix}')")
+
+
+@unittest.skipUnless(shutil.which("ruby"), "ruby is required for the guard validator")
+class CLAGuardFreestyleRunnerTests(unittest.TestCase):
+    """Freestyle VMs (fsr-*) serve both labels the guard names; the persistent pool stays refused."""
+
+    validate = CLAGuardAppTokenTests.validate
+
+    def test_the_freestyle_triple_validates_on_the_gate_selector(self):
+        # Freestyle serves cmux-gcp-gate-jit-x64 and blacksmith-4vcpu-ubuntu-2404,
+        # so a guard job routed there failed the gate triple. The Freestyle
+        # triple is the follow-up guard-only pull request's bytes.
+        raw = GUARD.read_text()
+        self.assertEqual(raw.count(GATE_GUARD_NAME), 2)
+        self.assertEqual(raw.count(GATE_PREFIX_TERM), 1)
+        self.assertEqual(self.validate(freestyle_guard(raw))["results"], ["ok"])
+
+    def test_pool_prefixes_and_mixed_triples_are_rejected(self):
+        raw = GUARD.read_text()
+        candidate = freestyle_guard(raw)
+        variants = {
+            "oneshot prefix": freestyle_guard(raw, "cmux-oneshot-"),
+            "persistent pool prefix": freestyle_guard(raw, "cmux-runner-pool-"),
+            "shared fleet prefix": freestyle_guard(raw, "cmux-gha-runner-"),
+            "Freestyle name, gate condition": raw.replace(GATE_GUARD_NAME, FREESTYLE_GUARD_NAME),
+            "gate name, Freestyle condition": candidate.replace(FREESTYLE_GUARD_NAME, GATE_GUARD_NAME),
+            "no owned-host refusal": candidate.replace(" || contains(runner.name, 'glaeda')", ""),
+        }
+        results = self.validate(*variants.values())["results"]
+        for name, result in zip(variants, results):
+            with self.subTest(variant=name):
+                self.assertNotEqual(result, "ok")
+
+
 if __name__ == "__main__":
     unittest.main()
