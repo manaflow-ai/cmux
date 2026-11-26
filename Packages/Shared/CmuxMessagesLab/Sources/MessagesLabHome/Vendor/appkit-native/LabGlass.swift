@@ -44,9 +44,9 @@ enum LabGlass {
     }
 
     /// EXPERIMENT ONLY (not for landing): which compose-bar glass layout a bench run measures, from the launch
-    /// environment's CMUX_EXP_GLASS: "" as shipped, "fixed" (the containers keep one size across pane widths),
+    /// environment's CMUX_NEXT_EXP_GLASS: "" as shipped, "fixed" (the containers keep one size across pane widths),
     /// "nocontainer" (plain views instead of glass containers), "header" (a hidden header band is not laid out).
-    static let experiment = ProcessInfo.processInfo.environment["CMUX_EXP_GLASS"] ?? ""
+    static let experiment = ProcessInfo.processInfo.environment["CMUX_NEXT_EXP_GLASS"] ?? ""
 
     /// A glass container (NSGlassEffectContainerView on macOS 26 and newer).
     static func container() -> any LabGlassContainer {
