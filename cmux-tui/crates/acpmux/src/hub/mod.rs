@@ -1272,6 +1272,9 @@ pub struct Hub {
     /// by profile name: its `modes` and `configOptions`, as sent. A `_acpmux/harnesses` row's
     /// `reported` falls back to it until a chat of the harness reports (`start_mode.rs`).
     pub(super) probed_choices: StdMutex<HashMap<String, (Option<Value>, Option<Value>)>>,
+    /// Each agent's reasoning levels per model, from the level variants its model list names
+    /// (`model_catalog::variant_efforts`): the `efforts` of its rows in `_acpmux/models`.
+    pub(super) known_efforts: StdMutex<HashMap<String, HashMap<String, Vec<String>>>>,
     /// Model lists from Claude Code's and Codex's own CLIs, by profile name
     /// (`hub/live_models.rs`): richer than `known_models` (efforts, fast).
     pub(super) live_models: StdMutex<HashMap<String, Vec<crate::live_models::LiveModel>>>,
@@ -1835,6 +1838,7 @@ impl Hub {
             acp_cached: StdMutex::new(HashMap::new()),
             acp_from_disk: StdMutex::new(std::collections::HashSet::new()),
             probed_choices: StdMutex::new(HashMap::new()),
+            known_efforts: StdMutex::new(HashMap::new()),
             live_models: StdMutex::new(HashMap::new()),
             live_rechecks: StdMutex::new(HashMap::new()),
             live_ages: StdMutex::new(live_ages::LiveAges::default()),
