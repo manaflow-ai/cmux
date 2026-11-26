@@ -2807,6 +2807,7 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-braid-carrier",
  "cmux-braid-path",
  "cmux-braid-session",
  "cmux-build-identity",
