@@ -79,6 +79,10 @@ required-features = ["fake-backend"]
 
 [dev-dependencies]
 cmux-fault.workspace = true
+# The relay-cache catch-up rows (tests/catch_up_conditions.rs): the phone's reader.
+cmux-mobile-core.workspace = true
+p256 = { version = "0.13", features = ["ecdh", "ecdsa"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
 # Seeded-secret test (tests/seeded_secret.rs): gated clients send to a local capture server.
 cmux-egress = { workspace = true, features = ["capture"] }
 # Paused time for the silence-bound tests (src/mailbox_apply.rs).
