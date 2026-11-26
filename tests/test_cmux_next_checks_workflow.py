@@ -187,8 +187,11 @@ class ChecksJobStructure(unittest.TestCase):
         for step in checks:
             with self.subTest(step=step["name"]):
                 self.assertIn("${{ steps.%s.outcome }}|%s\n" % (step["id"], step["name"]), outcomes)
-        self.assertIn("GITHUB_STEP_SUMMARY", aggregate["run"])
-        self.assertIn("exit 1", aggregate["run"])
+        verdict_path = "scripts/ci/cmux_next_checks_verdict.sh"
+        self.assertEqual(aggregate["run"].strip(), f"bash {verdict_path}")
+        verdict = (ROOT / verdict_path).read_text(encoding="utf-8")
+        self.assertIn("GITHUB_STEP_SUMMARY", verdict)
+        self.assertIn("exit 1", verdict)
 
     def run_aggregate(self, outcomes: str) -> subprocess.CompletedProcess:
         _, _, aggregate = self.split()
@@ -3165,6 +3168,8 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
             "github.run_attempt": 1,
             "github.triggering_actor": "someone",
             "needs.push-head-preflight.outputs.current": "true",
+            # The cheap gate (note-cheap-gate): Linux cargo is not red.
+            "needs.fast-tier-cargo.result": "success",
             "needs.release-compile-fast.result": "skipped",
             "needs.release-compile-fast.outputs.verdict": "",
             # The build fleet compiled a same-repository PR's head (PullRequestCompileOnTheBuildFleet).

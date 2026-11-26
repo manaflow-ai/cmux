@@ -1112,6 +1112,45 @@ class Workflow(unittest.TestCase):
         end = re.search(r"\n  [a-z][a-z0-9-]*:\n", text[start + 1:])
         return text[start:start + 1 + end.start()] if end else text[start:]
 
+    def test_cache_only_history_stays_out_of_the_artifact_across_pushes(self):
+        import yaml
+        steps = {s["name"]: s for s in yaml.safe_load(WORKFLOW.read_text())["jobs"]["webviews-test-history"]["steps"]}
+        restore = steps["Restore the history"]["run"]
+        stage = steps["Stage the history for the cache"]
+        self.assertIn("steps.history-restore.outputs.fresh", stage["env"]["CACHE_ONLY"])
+        self.assertIn("steps.history-restore.outputs.fresh != 'true'", steps["Save the history"]["if"])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = root / "output"
+            history_file = root / "webviews-test-history/history.json"
+            cached = root / ".webviews-test-history-cache/history.json"
+            env = git_fixture_env.fixture_env({"RUNNER_TEMP": tmp, "GITHUB_OUTPUT": str(output),
+                                               "BRANCH": "base", "GITHUB_REPOSITORY": "o/r"})
+            # The fourth push restores the complete, unmarked cache saved after the artifact recovered.
+            pushes = [
+                ("cold cache", [], True),
+                ("cache after bootstrap", [0], True),
+                ("artifact recovered", ["canonical"], False),
+                ("complete cache", ["canonical", 2], False),
+            ]
+            for push, (source, expected_runs, cache_only) in enumerate(pushes):
+                with self.subTest(source=source):
+                    output.write_text("")
+                    fetch = "return 1"
+                    if source == "artifact recovered":
+                        fetch = """printf '%s' '{"runs":["canonical"]}' > "$3" """
+                    subprocess.run(["bash", "-eu", "-c", "python3() { " + fetch + "; }\n" + restore],
+                                   cwd=root, env=env, check=True)
+                    fresh = output.read_text().strip() == "fresh=true"
+                    self.assertEqual(fresh, cache_only)
+                    runs = json.loads(history_file.read_text())["runs"]
+                    self.assertEqual(runs, expected_runs)
+                    # The record command serializes the runs, dropping any cache metadata.
+                    history_file.write_text(json.dumps({"runs": runs + [push]}))
+                    subprocess.run(["bash", "-eu", "-c", stage["run"]], cwd=root,
+                                   env={**env, "CACHE_ONLY": str(fresh).lower()}, check=True)
+                    self.assertEqual(json.loads(cached.read_text()).get("cache_only", False), fresh)
+
     def test_pushes_save_the_history_and_pull_requests_only_read_it(self):
         upkeep = self.job("webviews-test-history")
         self.assertIn("github.event_name == 'push'", upkeep)
@@ -1125,22 +1164,30 @@ class Workflow(unittest.TestCase):
         # takes a key of its own and every restore takes the newest by prefix. The path is relative to the workspace
         # in both, since the cache version hashes the path as written and runner.temp differs between runners.
         scope = self.job("web-subarea-scope")
+        # The base check read the history over the API alone, and a 403 there replayed every red file (2026-11-21).
+        base_check = self.job("react-apps-base-check")
         for text, key in ((upkeep, "webviews-test-history-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}"),
-                          (scope, "webviews-test-history-${{ github.base_ref }}-${{ github.run_id }}")):
+                          (scope, "webviews-test-history-${{ github.base_ref }}-${{ github.run_id }}"),
+                          (base_check, "webviews-test-history-${{ github.base_ref }}-${{ github.run_id }}")):
             self.assertIn(f"key: {key}\n", text)
             paths = re.findall(r"path: ([^\n]+)\n\s+key: webviews-test-history-", text)
             self.assertTrue(paths)
-            self.assertEqual(set(paths), {".webviews-test-history-cache/history.json"})
+            # r2-cache.sh saves directories. Passing history.json itself quietly skips the upload.
+            self.assertEqual(set(paths), {".webviews-test-history-cache"})
+            self.assertIn("cached=.webviews-test-history-cache/history.json", text)
         self.assertIn("restore-keys: webviews-test-history-${{ github.ref_name }}-\n", upkeep)
         self.assertIn("restore-keys: webviews-test-history-${{ github.base_ref }}-\n", scope)
         self.assertIn("uses: ./.github/actions/cache-save\n", upkeep)
         self.assertNotIn("cache-save", scope)
+        self.assertIn("restore-keys: webviews-test-history-${{ github.base_ref }}-\n", base_check)
+        self.assertNotIn("cache-save", base_check)
+        self.assertIn("webview test history: the Actions cache's copy", base_check)
         # R2, not the GitHub cache: that store is over its 10 GB cap and evicted the base's history before pull
         # requests read it (2026-11-25), so base comparisons missed. Every save and restore of it names the backend.
-        for text in (upkeep, scope):
+        for text in (upkeep, scope, base_check):
             self.assertNotIn("actions/cache/", text.split("webviews-test-history-")[0][-400:])
-            self.assertEqual(len(re.findall(r"backend: r2\n\s+path: \.webviews-test-history-cache/", text)),
-                             len(re.findall(r"path: \.webviews-test-history-cache/history\.json\n\s+key:", text)))
+            self.assertEqual(len(re.findall(r"backend: r2\n\s+path: \.webviews-test-history-cache\n", text)),
+                             len(re.findall(r"path: \.webviews-test-history-cache\n\s+key:", text)))
         # Optional upkeep: every step keeps going, so a stalled download or save never reddens a push. Only the last
         # step, which names reds stuck on the base, may turn the job red, and it runs after the history is saved.
         steps = upkeep.split("\n      - name: ")[1:]
