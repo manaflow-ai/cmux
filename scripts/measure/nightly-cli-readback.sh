@@ -5,7 +5,7 @@
 # \x01 bytes, the gateway's launch-shape masks (#55700's `\u{1}session\u{1}`), to show the build carries it.
 # chief-mark=TEXT (repeatable) says whether the bundled optchat-chief holds TEXT, a string a Chief change added,
 # to show the NIGHTLY carries that Chief change (its `--version` also names the commit it was built from).
-#   cmux-ci run --label measure --script scripts/measure/nightly-cli-readback.sh --ref <sha> \
+#   cmux-ci run --class light --script scripts/measure/nightly-cli-readback.sh --ref <sha> \
 #     [--arg=build=VERSION | --arg=dmg=URL] [--arg=mark=WORD] [--arg=chief-mark=TEXT ...] [--arg=help=VERB...]
 #   build=VERSION  a NIGHTLY's build number (CFBundleVersion, e.g. 4557519416001)
 #   dmg=URL        any NIGHTLY DMG (default: the newest in the NEXT feed)
