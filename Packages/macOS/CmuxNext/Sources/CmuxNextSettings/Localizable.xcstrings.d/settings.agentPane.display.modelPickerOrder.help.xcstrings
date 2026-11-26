@@ -10,6 +10,126 @@
             "state" : "translated",
             "value" : "The order of the harnesses in the model picker. Drag a harness in the picker to move it."
           }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ترتيب الأدوات في منتقي النماذج. اسحب أداة في المنتقي لنقلها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Redoslijed alata u biraču modela. Prevucite alat u biraču da ga premjestite."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rækkefølgen af harnesses i modelvælgeren. Træk et harness i vælgeren for at flytte det."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Die Reihenfolge der Harnesses in der Modellauswahl. Ziehe ein Harness in der Auswahl, um es zu verschieben."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "El orden de los harnesses en el selector de modelos. Arrastra un harness en el selector para moverlo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "L’ordre des harnais dans le sélecteur de modèle. Faites glisser un harnais dans le sélecteur pour le déplacer."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "L’ordine degli harness nel selettore modelli. Trascina un harness nel selettore per spostarlo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "モデルピッカー内のハーネスの順序です。ピッカー内でハーネスをドラッグすると移動できます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "លំដាប់ harness ក្នុងកម្មវិធីជ្រើសម៉ូដែល។ អូស harness ក្នុងកម្មវិធីជ្រើស ដើម្បីផ្លាស់ទីវា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "모델 선택기에 표시되는 하네스 순서입니다. 선택기에서 하네스를 드래그하여 이동하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rekkefølgen på harnessene i modellvelgeren. Dra et harness i velgeren for å flytte det."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kolejność harnessów w wyborze modelu. Przeciągnij harness w wyborze, aby go przenieść."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A ordem dos harnesses no seletor de modelos. Arraste um harness no seletor para movê-lo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Порядок оболочек в выборе модели. Перетащите оболочку в списке, чтобы переместить её."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ลำดับของ harness ในตัวเลือกโมเดล ลาก harness ในตัวเลือกเพื่อย้าย"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Model seçicideki harness sırası. Taşımak için seçicide bir harness’i sürükleyin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Порядок оболонок у виборі моделі. Перетягніть оболонку у списку, щоб перемістити її."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Thứ tự các harness trong bộ chọn mô hình. Kéo một harness trong bộ chọn để di chuyển nó."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "模型选择器中各工具的顺序。在选择器中拖动工具即可移动。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "模型選擇器中各工具的順序。在選擇器中拖曳工具即可移動。"
+          }
         }
       }
     }
