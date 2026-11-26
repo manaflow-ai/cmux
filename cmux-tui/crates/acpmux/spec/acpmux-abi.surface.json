@@ -7022,6 +7022,12 @@
         "nullable": true
       }
     },
+    "request:_acpmux/autocloud_enroll": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/bg/list": {
       "/*untyped*": {
         "ty": "json",
@@ -32722,6 +32728,12 @@
       }
     },
     "response:_acpmux/auto_session/wake": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/autocloud_enroll": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
