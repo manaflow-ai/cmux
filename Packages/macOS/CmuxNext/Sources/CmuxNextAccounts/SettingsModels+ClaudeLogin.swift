@@ -459,13 +459,16 @@ extension SettingsModels {
             $0.machine == machineID && (target == .mac || cloudClaudeStateAccount == account) ? $0 : nil
         }
         if target == .cloud { cloudClaudeStateAccount = account }
-        let preparingMachine = phase == "preparing" && machineID != nil ? previous : nil
-        claudeLogins[target] = .init(phase: phase, error: error, apiKey: apiKey ?? previous?.apiKey ?? false,
-                                    signedIn: signedIn ?? previous?.signedIn, machine: machineID,
-                                    machineName: machine?.name ?? requestedName ?? preparingMachine?.machineName,
-                                    environment: machine?.environment ?? requestedEnvironment ?? preparingMachine?.environment,
-                                    recoverySession: recoverySession,
-                                    completion: completion ?? previous.flatMap { $0.recoverySession == recoverySession ? $0.completion : nil },
-                                    waitsForGuestUpdate: waitsForGuestUpdate)
+        let preparingMachine: ClaudeLoginState? = phase == "preparing" && machineID != nil ? previous : nil
+        let keepsApiKey: Bool = apiKey ?? previous?.apiKey ?? false
+        let keepsSignedIn: Bool? = signedIn ?? previous?.signedIn
+        let machineName: String? = machine?.name ?? requestedName ?? preparingMachine?.machineName
+        let environment: String? = machine?.environment ?? requestedEnvironment ?? preparingMachine?.environment
+        let sameRecovery: ClaudeLoginState? = previous?.recoverySession == recoverySession ? previous : nil
+        let keptCompletion: String? = completion ?? sameRecovery?.completion
+        claudeLogins[target] = ClaudeLoginState(phase: phase, error: error, apiKey: keepsApiKey, signedIn: keepsSignedIn,
+                                                machine: machineID, machineName: machineName, environment: environment,
+                                                recoverySession: recoverySession, completion: keptCompletion,
+                                                waitsForGuestUpdate: waitsForGuestUpdate)
     }
 }
