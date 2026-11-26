@@ -3050,9 +3050,13 @@ jobs:
       - name: Keep Swift package builds on this owned Mac
         if: ${{ !contains(fromJSON('["pass","superseded"]'), needs.swift-canary-fleet.outputs.verdict) && (contains(runner.name, '-glaeda')) }}
         continue-on-error: true
+        env:
+          # Why: 2026-11-26-mac-github-403.md
+          GH_TOKEN: ${{ github.token }}
         run: |
           python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
           python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
+          python3 scripts/ci/github_fetch_auth.py || true
 
       - name: Type-check changed CmuxNext targets
         if: ${{ !contains(fromJSON('["pass","superseded"]'), needs.swift-canary-fleet.outputs.verdict) }}
@@ -3681,6 +3685,8 @@ jobs:
         if: ${{ env.CMUX_FAST_TIER_FLEET != 'report' && ((contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true') }}
         continue-on-error: true
         env:
+          # Why: 2026-11-26-mac-github-403.md
+          GH_TOKEN: ${{ github.token }}
           # Why: note-409
           CMUX_FAST_TIER_OWNED_SEED: ${{ (vars.CI_FAST_TIER_OWNED_SEED || '1') != '0' && '1' || '' }}
           CMUX_SPM_SCRATCH_SEED_EVICT: ${{ vars.CI_SPM_SCRATCH_SEED_EVICT || '1' }}
@@ -3688,6 +3694,7 @@ jobs:
         run: |
           python3 scripts/ci/owned_spm_scratch.py lease "$GITHUB_WORKSPACE"
           python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
+          python3 scripts/ci/github_fetch_auth.py || true
 
       # Why: note-401
       - name: Compute fast-tier cache keys
@@ -4344,9 +4351,13 @@ jobs:
       - name: Keep Swift package builds on this owned Mac
         if: ${{ (contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
+        env:
+          # Why: 2026-11-26-mac-github-403.md
+          GH_TOKEN: ${{ github.token }}
         run: |
           python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
           python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
+          python3 scripts/ci/github_fetch_auth.py || true
 
       # Why: note-374
       - name: Compute the fast-tier seed keys
@@ -4917,9 +4928,13 @@ jobs:
       - name: Keep Swift package builds on this owned Mac
         if: ${{ (contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
+        env:
+          # Why: 2026-11-26-mac-github-403.md
+          GH_TOKEN: ${{ github.token }}
         run: |
           python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
           python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
+          python3 scripts/ci/github_fetch_auth.py || true
 
       # Why: note-378
       - name: Compute the fast-tier seed keys
@@ -5557,12 +5572,15 @@ jobs:
         if: ${{ (contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
         env:
+          # Why: 2026-11-26-mac-github-403.md
+          GH_TOKEN: ${{ github.token }}
           CMUX_FAST_TIER_OWNED_SEED: ${{ (vars.CI_FAST_TIER_OWNED_SEED || '1') != '0' && '1' || '' }}
           CMUX_SPM_SCRATCH_SEED_EVICT: ${{ vars.CI_SPM_SCRATCH_SEED_EVICT || '1' }}
           CMUX_FAST_TIER_SECOND_SEED_ROOT: ${{ vars.CI_FAST_TIER_SECOND_SEED_ROOT }}  # passed as is: `== '0'` coerces an unset var (null) to 0 and matches
         run: |
           python3 scripts/ci/owned_spm_scratch.py lease "$GITHUB_WORKSPACE"
           python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
+          python3 scripts/ci/github_fetch_auth.py || true
 
       # Why: note-379
       - name: Compute the fast-tier seed keys
@@ -6484,7 +6502,7 @@ jobs:
   # Why: note-scheme-fleet
   cmux-scheme-compile-fleet:
     needs: [path_route, push-head-preflight, dev-daily-tree-wait]
-    if: ${{ github.repository_owner == 'manaflow-ai' && inputs.dev_daily != true && vars.CI_SCHEME_COMPILE_FLEET != '0' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && ((github.event_name != 'pull_request' || contains(needs.path_route.outputs.labels, ',full-ci,') || github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && contains(needs.path_route.outputs.labels, ',dev-build,')) && (!cancelled() && ((inputs.same_tree_sha == '' && needs.path_route.outputs.scheme == 'true' && needs.push-head-preflight.outputs.current == 'true' && (needs.path_route.outputs.tree_state == 'ready' || needs.dev-daily-tree-wait.outputs.tree_state == 'ready')) || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready' && contains(inputs.same_tree_tiers, 'scheme'))))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ github.repository_owner == 'manaflow-ai' && inputs.dev_daily != true && (vars.CI_SCHEME_COMPILE_FLEET || '1') != '0' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && ((github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' && contains(needs.path_route.outputs.labels, ',full-ci,') || github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && contains(needs.path_route.outputs.labels, ',dev-build,')) && (!cancelled() && ((inputs.same_tree_sha == '' && needs.path_route.outputs.scheme == 'true' && needs.push-head-preflight.outputs.current == 'true' && (needs.path_route.outputs.tree_state == 'ready' || needs.dev-daily-tree-wait.outputs.tree_state == 'ready')) || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready' && contains(inputs.same_tree_tiers, 'scheme'))))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: cmux app scheme compile (build fleet)
     concurrency:
       group: ${{ github.event_name == 'push' && format('cmux-next-push-{0}-cmux-scheme-compile-fleet', github.ref) || format('cmux-next-run-{0}-cmux-scheme-compile-fleet', github.run_id) }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
@@ -6607,7 +6625,7 @@ jobs:
           FLEET_RESULT: ${{ needs.cmux-scheme-compile-fleet.result }}
           FLEET_VERDICT: ${{ needs.cmux-scheme-compile-fleet.outputs.verdict }}
           FLEET_JOB_NAME: "cmux app scheme compile (build fleet)"
-          FLEET_GATE_0: "CI_SCHEME_COMPILE_FLEET is not 0=${{ vars.CI_SCHEME_COMPILE_FLEET != '0' }}"
+          FLEET_GATE_0: "CI_SCHEME_COMPILE_FLEET is not 0=${{ (vars.CI_SCHEME_COMPILE_FLEET || '1') != '0' }}"
           FLEET_GATE_1: "manaflow-ai repository=${{ github.repository_owner == 'manaflow-ai' }}"
           FLEET_GATE_2: "same-repository pull request=${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}"
         run: >-

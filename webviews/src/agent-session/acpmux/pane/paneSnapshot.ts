@@ -239,6 +239,8 @@ const sameListInput = (a: ListInput | undefined, b: ListInput): boolean =>
 
 /** What AcpmuxPane's snapshot effect reads from the pane (App.tsx): its state, setters, refs and callbacks. */
 export type PaneSnapshotArgs = {
+  /// The pane view this chat is in a shared document (paneViewStore.ts); null or absent: its own page.
+  paneView?: string | null;
   scrollToBottomOnSendRef: React.RefObject<boolean>;
   sandbox: SandboxTab;
   setWorkflowLabsEnabled: React.Dispatch<React.SetStateAction<boolean>>;
@@ -426,6 +428,7 @@ export type PaneSnapshotArgs = {
 
 /** The body of AcpmuxPane's snapshot effect (RFD 0046 step 2), run by that effect in App.tsx; returns its cleanup. */
 export function paneSnapshotEffect({
+  paneView = null,
   scrollToBottomOnSendRef,
   sandbox,
   setWorkflowLabsEnabled,
@@ -849,7 +852,7 @@ export function paneSnapshotEffect({
   };
   // On the shared page host the host pushes arrive as events once the bridge exists.
   const pageHost = pageHostClient();
-  if (pageHost) void startHostEvents(pageHost).catch(() => undefined);
+  if (pageHost) void startHostEvents(pageHost, paneView).catch(() => undefined);
   window.cmuxAcpmuxDebug = createAcpmuxDebug({
     replaceRows(rows, fields) {
       rowsRef.current = rows;
