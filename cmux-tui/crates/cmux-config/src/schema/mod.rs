@@ -41,6 +41,10 @@ pub use url::{is_http_origin, new_tab_page_url_is_valid};
 
 use crate::value::canonical;
 
+/// File settings read directly by acpmux outside the editable Settings catalog.
+pub const DESKTOP_BRIDGE_ENABLED: &str = "agents.desktopBridge.enabled";
+pub const DESKTOP_BRIDGE_ENTRYPOINTS: &str = "agents.desktopBridge.entrypoints";
+
 /// Compiled in compressed (cmux-embed): 2.4 MB of JSON, about 85 KB packed. Inflated once
 /// into the one text whose bytes the embedded rows borrow (`EMBEDDED.get()`).
 static EMBEDDED: cmux_embed::PackedStr =
