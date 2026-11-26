@@ -16,6 +16,15 @@ import rivals
 
 
 class Restart(unittest.TestCase):
+    def test_initial_purge_probe_tolerates_unavailable_purge(self):
+        for error in (subprocess.CalledProcessError(1, "purge"),
+                      subprocess.TimeoutExpired("purge", 180), FileNotFoundError("sudo")):
+            with self.subTest(error=type(error).__name__), \
+                    patch.object(rivals.subprocess, "run", side_effect=error):
+                self.assertFalse(rivals.can_purge())
+        with patch.object(rivals.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)):
+            self.assertTrue(rivals.can_purge())
+
     def test_purge_outcome_controls_restart_but_preserves_warm_passes(self):
         for name in ("cmux", "zed", "chrome", "safari"):
             for outcome in ("success", "disabled", "failure", "timeout", "missing"):
