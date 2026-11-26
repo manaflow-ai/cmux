@@ -20,6 +20,8 @@
 //! the tab drag's rules (`tab_drag_rule_*`: the preview and outcome at the pointer;
 //! `tab_moves_*`: the small rules of a tab move's daemon commands; `drop_overlay_*`: the
 //! drop overlay's rects),
+//! `cmux-browser-rules`' browser pane rules (`browser_rules_*`: where a clicked or page-requested
+//! link opens, and the one decision for every window Chromium wants to open),
 //! Keep Mac Awake's command rule (`keep_awake_plan`: which terminal commands
 //! hold off idle sleep and when to look again),
 //! `cmux-bookmarks-core`'s optimistic bookmark tree (`bookmarks_apply`: the
@@ -81,6 +83,7 @@ use std::ffi::{CString, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 pub mod agent_cursor;
+mod browser_rules;
 pub mod close_focus;
 pub mod close_selection;
 pub mod closing_panes;
@@ -628,6 +631,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             }
             operation if tab_drag_rules::handles(operation) => {
                 tab_drag_rules::respond(operation, request)?
+            }
+            operation if browser_rules::handles(operation) => {
+                browser_rules::respond(operation, request)?
             }
             operation if window_rules::handles(operation) => {
                 window_rules::respond(operation, request)?
