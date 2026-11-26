@@ -29,7 +29,7 @@ pub struct Wish {
 /// 1280), `max_fps` the person's frame rate limit, which only lowers the rate and is not
 /// floored at 30.
 pub fn wish(quality: Quality, refresh: i64, pane_width: Option<i64>, max_fps: Option<i64>) -> Wish {
-    let refresh = refresh.min(120).max(30).min(max_fps.unwrap_or(i64::MAX)).max(1);
+    let refresh = refresh.clamp(30, 120).min(max_fps.unwrap_or(i64::MAX)).max(1);
     let refresh = u32::try_from(refresh).unwrap_or(u32::MAX);
     let width = |w: i64| u32::try_from(w).unwrap_or(u32::MAX);
     match quality {

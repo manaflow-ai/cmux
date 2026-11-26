@@ -95,12 +95,12 @@ impl MacScreen {
         match op {
             "mac_screen_session_open" => {
                 let Id { id } = parse(request)?;
-                let session = self.sessions.entry(id).or_insert_with(Session::new);
+                let session = self.sessions.entry(id).or_default();
                 encode(&*session)
             }
             "mac_screen_session_event" => {
                 let SessionEvent { id, event } = parse(request)?;
-                let session = self.sessions.entry(id).or_insert_with(Session::new);
+                let session = self.sessions.entry(id).or_default();
                 let effects = session.apply(event);
                 Ok(
                     json!({ "state": encode(&*session)?, "path_label": encode(session.path_label())?, "effects": encode(effects)? }),

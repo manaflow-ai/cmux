@@ -393,8 +393,10 @@ pub struct Session {
     pending_offer: Option<String>,
     offered: bool,
     awaiting_answer: bool,
-    /// The host's candidates before the link process had its answer (None once it has).
-    later_candidates: Option<Vec<String>>,
+    /// The link process has the host's answer: host candidates go to it at once.
+    answer_handed: bool,
+    /// The host's candidates that came before the link process had its answer.
+    held_candidates: Vec<String>,
     asked_keyframe: bool,
     frame_window_start_ms: Option<f64>,
     frame_window_frames: u32,
@@ -402,7 +404,7 @@ pub struct Session {
 
 impl Session {
     pub fn new() -> Self {
-        Session { later_candidates: Some(Vec::new()), ..Session::default() }
+        Session::default()
     }
 
     /// The path's label as the toolbar shows it (None: `-`).
@@ -417,7 +419,7 @@ impl Session {
         let mut fx = Vec::new();
         match event {
             Event::Connect { signaling, process_started } => {
-                self.connect(signaling, process_started, &mut fx)
+                self.connect(signaling, process_started, &mut fx);
             }
             Event::Disconnect => self.disconnect(&mut fx),
             Event::Hello => {
@@ -431,9 +433,10 @@ impl Session {
                 if sdp_mid.as_deref() == Some("cmux-rd") {
                     // A candidate the host trickled right behind its answer waits until the
                     // answer has gone to the process.
-                    match &mut self.later_candidates {
-                        Some(waiting) => waiting.push(candidate),
-                        None => fx.push(Effect::ProcessCandidate { candidate }),
+                    if self.answer_handed {
+                        fx.push(Effect::ProcessCandidate { candidate });
+                    } else {
+                        self.held_candidates.push(candidate);
                     }
                 }
             }
@@ -456,7 +459,8 @@ impl Session {
                 }
             }
             Event::AnswerHanded => {
-                for candidate in self.later_candidates.take().unwrap_or_default() {
+                self.answer_handed = true;
+                for candidate in std::mem::take(&mut self.held_candidates) {
                     fx.push(Effect::ProcessCandidate { candidate });
                 }
             }
@@ -544,7 +548,8 @@ impl Session {
         self.pending_offer = None;
         self.offered = false;
         self.awaiting_answer = false;
-        self.later_candidates = Some(Vec::new());
+        self.answer_handed = false;
+        self.held_candidates.clear();
         self.asked_keyframe = false;
     }
 
@@ -900,7 +905,7 @@ mod tests {
             rtt_ms: None,
             stream_size: size,
         });
-        assert_eq!(s.stream_size, size.unwrap());
+        assert_eq!(Some(s.stream_size), size);
     }
 
     /// An end after the picture is a plain end; before it, a failure; the host's failure is
