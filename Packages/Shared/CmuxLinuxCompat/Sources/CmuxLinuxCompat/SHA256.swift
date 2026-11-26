@@ -5,6 +5,7 @@ import Foundation
 /// needs a digest (content identifiers, lock names). It is FIPS 180-4 SHA-256;
 /// the digest is its 32 bytes, so `.prefix(_:)`, `.map` and iteration read
 /// it the way they read CryptoKit's `SHA256Digest`. Apple builds use CryptoKit.
+// lint:allow namespace-type: mirrors CryptoKit's `SHA256.hash(data:)` so call sites compile unchanged.
 public enum SHA256 {
     public static func hash<D: DataProtocol>(data: D) -> [UInt8] {
         var message = [UInt8](data)

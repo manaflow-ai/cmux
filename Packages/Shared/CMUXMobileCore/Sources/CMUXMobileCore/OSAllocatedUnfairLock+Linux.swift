@@ -6,7 +6,9 @@ import Foundation
 /// `init(uncheckedState:)`, `withLock`, `withLockUnchecked`) over an `NSLock`,
 /// so the module's sources compile unchanged on Linux. Apple builds never see
 /// this type: they keep the real unfair lock.
+// lint:allow lock: the Linux stand-in for os.OSAllocatedUnfairLock itself; Apple builds use the real lock.
 final class OSAllocatedUnfairLock<State>: @unchecked Sendable {
+    // lint:allow lock: corelibs has no unfair lock; NSLock is the Linux primitive.
     private let lock = NSLock()
     private var state: State
 
@@ -31,6 +33,7 @@ final class OSAllocatedUnfairLock<State>: @unchecked Sendable {
     }
 }
 
+// lint:allow lock: the Void-state initializer of the same Linux stand-in.
 extension OSAllocatedUnfairLock where State == Void {
     convenience init() {
         self.init(uncheckedState: ())

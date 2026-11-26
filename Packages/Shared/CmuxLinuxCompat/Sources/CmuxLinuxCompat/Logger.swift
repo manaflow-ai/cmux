@@ -82,6 +82,7 @@ public struct OSLogMessage: ExpressibleByStringInterpolation, Sendable {
 }
 
 /// Accepted and ignored: Linux renders every value with `String(describing:)`.
+// lint:allow namespace-type: mirrors os.OSLogFormat's static members (`.fixed`, `.hex`) that call sites pass.
 public struct OSLogFormat: Sendable {
     public static let `public` = OSLogFormat()
     public static func fixed(precision: Int) -> OSLogFormat { OSLogFormat() }

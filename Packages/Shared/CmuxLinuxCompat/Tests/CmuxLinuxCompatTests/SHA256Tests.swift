@@ -30,8 +30,10 @@ final class SHA256Tests: XCTestCase {
         XCTAssertEqual(buffer, Array("ok".utf8))
         XCTAssertEqual(Darwin.close(fds[0]), 0)
         XCTAssertEqual(Darwin.close(fds[1]), 0)
-        XCTAssertEqual(Darwin.close(fds[1]), -1)
-        XCTAssertEqual(Darwin.errno, EBADF)
+        let closeAgainResult = Darwin.close(fds[1])
+        let closeAgainErrno = Darwin.errno
+        XCTAssertEqual(closeAgainResult, -1)
+        XCTAssertEqual(closeAgainErrno, EBADF)
     }
 
     func testLocalizedFallsBackToDefaultValue() {

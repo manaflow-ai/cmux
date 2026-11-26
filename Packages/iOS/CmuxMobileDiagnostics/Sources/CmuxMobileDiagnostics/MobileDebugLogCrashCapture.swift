@@ -242,7 +242,8 @@ import Foundation
 
 /// Crash capture relies on Darwin signal and Objective-C exception APIs. Other
 /// platforms (the Linux package build) keep the sink's call sites and skip it.
-enum MobileDebugLogCrashCapture {
+// lint:allow namespace-enum: the same static surface as the Darwin class above, with no work to do.
+final class MobileDebugLogCrashCapture {
     static func install(logFileDescriptor: Int32) {}
     static func updateLogFileDescriptor(_ fileDescriptor: Int32) {}
 }

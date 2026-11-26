@@ -6,6 +6,7 @@ import Glibc
 /// with the same arguments. A file reaches this type by importing
 /// `CmuxLinuxCompat` under `#if canImport(CmuxLinuxCompat)`; Apple builds
 /// keep the real module.
+// lint:allow namespace-type: mirrors the Darwin module's qualified calls (`Darwin.close(fd)`) so call sites compile unchanged.
 public enum Darwin {
     public static var errno: Int32 {
         get { Glibc.errno }
