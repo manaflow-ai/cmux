@@ -844,13 +844,22 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<string>download</string>
+			<key>pfm_description</key>
+			<string>Install When Idle restarts cmux once you have been away, never while an agent works or a message is unsent. Terminals and agents keep running.</string>
 			<key>pfm_name</key>
-			<string>updates.checkAutomatically</string>
+			<string>updates.automatic</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>off</string>
+				<string>notify</string>
+				<string>download</string>
+				<string>idle</string>
+			</array>
 			<key>pfm_title</key>
-			<string>Check for Updates Automatically</string>
+			<string>Automatic Updates</string>
 			<key>pfm_type</key>
-			<string>boolean</string>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -865,18 +874,6 @@
 			<string>Check Every</string>
 			<key>pfm_type</key>
 			<string>real</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<true/>
-			<key>pfm_description</key>
-			<string>Off: cmux asks before downloading. It always asks before restarting.</string>
-			<key>pfm_name</key>
-			<string>updates.downloadAutomatically</string>
-			<key>pfm_title</key>
-			<string>Download Updates Automatically</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -976,18 +973,6 @@
 			<string>updates.installOnQuit</string>
 			<key>pfm_title</key>
 			<string>Install Updates When Quitting</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<false/>
-			<key>pfm_description</key>
-			<string>Installs a downloaded update and restarts while you are away: no input for the time below, or the screen locked. Never over an unsent message. Agents and their turns keep running.</string>
-			<key>pfm_name</key>
-			<string>updates.installWhenIdle</string>
-			<key>pfm_title</key>
-			<string>Update When Idle</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -1526,6 +1511,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>auto</string>
+			<key>pfm_description</key>
+			<string>The Cloud environment new Cloud chats start from. Auto picks one from the chat's repository. Any other environment gives each new chat its own machine.</string>
+			<key>pfm_name</key>
+			<string>cloud.defaultImage</string>
+			<key>pfm_title</key>
+			<string>Default Image</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
 			<string>Agents, `cmux cloud` in a terminal and scripts create Cloud machines, move chats to Cloud and start sessions there with no card asking you first. Your plan's limits still apply. Only you can change this.</string>
@@ -1750,7 +1747,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<integer>1</integer>
+			<integer>0</integer>
 			<key>pfm_description</key>
 			<string>After this many consecutive capacity errors, Opus or Fable switches to Sonnet until a turn succeeds. Set to 0 to stay on the original model.</string>
 			<key>pfm_name</key>
@@ -1806,7 +1803,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<integer>60000</integer>
+			<integer>20000</integer>
 			<key>pfm_description</key>
 			<string>Chats with at least this much context are compacted, whatever their window.</string>
 			<key>pfm_name</key>
@@ -3080,7 +3077,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_name</key>
 			<string>customize.doctorNotice</string>
 			<key>pfm_title</key>
@@ -4572,6 +4569,24 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>off</string>
+			<key>pfm_description</key>
+			<string>Lets the selected tab flow into the content like a liquid, with springy motion when tabs are selected, opened, closed or dragged. Subtle keeps it gentle; Full stretches and wobbles more.</string>
+			<key>pfm_name</key>
+			<string>appearance.gooeyTabs</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>off</string>
+				<string>subtle</string>
+				<string>full</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Gooey Tabs</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
 			<string>Splits, closes, moves, zooms and column scrolls slide into place.</string>
@@ -5957,6 +5972,18 @@
 			<string>agentPane.display.chatListStatusPills</string>
 			<key>pfm_title</key>
 			<string>Status Pills in All Chats</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>In a subagent's own pane, show which chat it belongs to beside its name in the header.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.subagentOf</string>
+			<key>pfm_title</key>
+			<string>Subagent Of in Header</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -7806,6 +7833,18 @@
 			<string>sidebar.settleFinished</string>
 			<key>pfm_title</key>
 			<string>Settle Finished Chats</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Sessions an agent starts list under the session that started them. Off, they stay in the parent chat's list; one that needs you still shows.</string>
+			<key>pfm_name</key>
+			<string>sidebar.showAgentSessions</string>
+			<key>pfm_title</key>
+			<string>Show Sessions Started by Agents</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -9848,6 +9887,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Fades the site info icon and the bookmark star until you point at or click into the address bar.</string>
+			<key>pfm_name</key>
+			<string>browser.omnibar.quietIcons</string>
+			<key>pfm_title</key>
+			<string>Quiet Address Bar Icons</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>off</string>
 			<key>pfm_name</key>
 			<string>browser.omnibar.glass</string>
@@ -11845,7 +11896,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<false/>
+			<true/>
 			<key>pfm_description</key>
 			<string>Cmd-F in a terminal searches its whole history, with case, whole-word and regex options.</string>
 			<key>pfm_name</key>
@@ -11864,6 +11915,18 @@
 			<string>experiments.chatWidgets</string>
 			<key>pfm_title</key>
 			<string>Extension Chat Widgets</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Make cmux Yours becomes four short screens: a whole look, how you work, trust and notifications, then density and background.</string>
+			<key>pfm_name</key>
+			<string>experiments.introWalk</string>
+			<key>pfm_title</key>
+			<string>Intro Walk</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
