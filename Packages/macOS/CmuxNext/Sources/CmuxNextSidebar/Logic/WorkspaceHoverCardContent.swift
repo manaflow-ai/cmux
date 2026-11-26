@@ -264,16 +264,6 @@ struct WorkspaceHoverCardContent: Equatable {
         }
         if let usage = usageFact(detail) { facts.append(usage) }
         if let task = detail.task { facts.append(Fact(icon: .textDescription, text: task, lines: 3, kind: "task")) }
-        // The agent's task list across its turns: how far, what runs now and what is next.
-        if let tasks = workspace.taskProgress {
-            facts.append(Fact(icon: .statusProgress, text: Strings.taskProgress(done: tasks.done, total: tasks.total), kind: "tasks"))
-            if let step = tasks.current {
-                facts.append(Fact(icon: .taskStatusStarted, text: Strings.taskNow(step), lines: 2, kind: "taskNow"))
-            }
-            if let step = tasks.next {
-                facts.append(Fact(icon: .taskStatusTodo, text: Strings.taskNext(step), lines: 2, kind: "taskNext"))
-            }
-        }
         // What its agents run below their turns now: how many subagents and commands, and which
         // (Leo 2026-11-01: "being able to see the # of associated subagents and whatnot").
         facts += WorkspaceHoverCardWork.facts(detail)
