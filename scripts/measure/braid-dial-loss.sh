@@ -9,6 +9,7 @@
 #
 #   scripts/measure/braid-dial-loss.sh [loss=0,2,5,10] [n=40] [delay_ms=25] [before_ref=SHA] [out=DIR]
 #   cmux-ci test --timeout 2400 -- bash scripts/measure/braid-dial-loss.sh loss=0,5,10 n=40 before_ref=SHA
+#   (cmux-ci needs a runner with sch_netem: from HQ, --setup netem; a lane VM with sudo runs it directly)
 #
 # Needs root or passwordless sudo, ip and tc: a Linux VM or CI runner, never a person's machine. It makes and
 # removes only its own namespaces and veth, named for this run's pid (bdl-PID-c, bdl-PID-s, bdlPIDc/s), and
@@ -37,6 +38,15 @@ if [[ $(id -u) == 0 ]]; then sudo=(); else sudo=(sudo -n); fi
 "${sudo[@]}" true 2>/dev/null || { echo "braid-dial-loss.sh: needs root or passwordless sudo (netns, tc); run it on a Linux CI runner" >&2; exit 2; }
 for tool in ip tc python3 cargo; do command -v "$tool" >/dev/null || { echo "braid-dial-loss.sh: $tool not found" >&2; exit 2; }; done
 
+# netem preflight before any build: a kernel without sch_netem (the Blacksmith image) stops here, in seconds
+# (handbook netem-route-without-host-module: from HQ, cmux-ci test --setup netem; or any Linux host with the module).
+"${sudo[@]}" modprobe sch_netem 2>/dev/null || true
+pf="bdlpf$$"
+pf_ok=1
+if "${sudo[@]}" ip link add "$pf" type dummy 2>/dev/null \
+  && "${sudo[@]}" tc qdisc add dev "$pf" root netem delay 1ms loss 1% 2>/dev/null; then pf_ok=0; fi
+"${sudo[@]}" ip link del "$pf" 2>/dev/null || true
+[[ $pf_ok == 0 ]] || { echo "braid-dial-loss.sh: no netem on kernel $(uname -r); next: run on a host with sch_netem (HQ: cmux-ci test --setup netem)" >&2; exit 2; }
 repo=$(git rev-parse --show-toplevel)
 mkdir -p "$out"; out=$(cd "$out" && pwd); rows="$out/rows.jsonl"; : >"$rows"
 command -v clang >/dev/null || { "${sudo[@]}" apt-get update -qq && "${sudo[@]}" apt-get install -y -qq clang libclang-dev pkg-config; }
