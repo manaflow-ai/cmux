@@ -2377,7 +2377,7 @@ jobs:
         # reset (at most an hour per job, each wait logged) when a call is refused for the rate
         # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
         if: inputs.nightly_next_unsigned_run == ''
-        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
+        run: bash .publish-tooling/scripts/ci/gh_budget_wait.sh --install
 
       - &x13
         name: Fetch the Chromium engine
@@ -6060,7 +6060,7 @@ jobs:
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
           APP_INPUT_DIGEST: ${{ needs.decide.outputs.app_input_digest }}
-          HEAD_SHA: ${{ steps.source.outputs.build_sha }}
+          HEAD_SHA: ${{ needs.decide.outputs.head_sha }}
           BUILD_SHA: ${{ steps.source.outputs.build_sha }}
           DMG: nightly-out/${{ env.CHANNEL_DMG_PREFIX }}-arm64-${{ env.NIGHTLY_BUILD }}.dmg
           RUN_ID: ${{ github.run_id }}
@@ -7138,11 +7138,11 @@ jobs:
     steps:
       - *hold-the-whole-mac
       - *clear-stale-git-locks-self-hos-2
-      # Install the budget wrapper before the warm checkout sends its fetch token.
-      - *x12
       - *x8
       - *x9
       - *checkout-publication-tooling-a
+      # Install the budget wrapper from this workflow's trusted tooling checkout before any gh call.
+      - *x12
       - *claim-publication-mac
       # Before the leave step's gh calls (tests/test_publish_app_token_workflow.py).
       # Latest wins at the slot too, with no wait on this Mac: it asks main's tick and leaves; bounded gh calls,
@@ -7662,6 +7662,8 @@ jobs:
           sparse-checkout: scripts
       - name: Claim the whole Mac for signing
         run: bash "$PUBLISH_TOOLING/ci/signing-runner-claim.sh"
+      - name: Point the deltas job at the keyless prebuild
+        run: echo "NIGHTLY_NEXT_PREBUILT=$HOME/.cmux-nightly-next-prebuilt" >> "$GITHUB_ENV"
       # nightly-next-one's own upload: the build's DMG as published.
       - name: Download the build's DMG
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
