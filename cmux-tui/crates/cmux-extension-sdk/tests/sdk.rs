@@ -361,3 +361,13 @@ fn the_builder_adds_composer_chips_cmux_accepts() {
         twice.validate()
     );
 }
+
+#[test]
+fn motion_contract_is_exported() {
+    use cmux_extension_sdk::motion;
+    use serde_json::json;
+    assert_eq!(motion::SCHEMA, "cmux.motion/1");
+    let parsed = motion::Motion::parse(&json!({"spring": {"response": 0.3}})).expect("a spring");
+    assert_eq!(parsed, motion::Motion::Spring { response: 0.3, damping_fraction: 1.0 });
+    assert!(motion::normalize_prop("transition", &json!("zoom")).expect("owned").is_err());
+}

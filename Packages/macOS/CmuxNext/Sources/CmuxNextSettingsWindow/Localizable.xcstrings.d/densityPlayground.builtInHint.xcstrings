@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "densityPlayground.builtInHint" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تبقى الكثافات المدمجة كما هي. أول تغيير يُنشئ نسخة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ugrađene gustoće ostaju kakve jesu. Prva promjena pravi kopiju."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Indbyggede tætheder forbliver uændrede. Din første ændring laver en kopi."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Integrierte Dichten bleiben, wie sie sind. Deine erste Änderung legt eine Kopie an."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Built-in densities stay as they are. Your first change makes a copy."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Las densidades integradas no cambian. Tu primer cambio crea una copia."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les densités intégrées ne changent pas. Votre première modification crée une copie."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le densità integrate restano invariate. La prima modifica crea una copia."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "内蔵の密度は変わりません。最初の変更でコピーが作られます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ដង់ស៊ីតេដែលមានស្រាប់នៅដដែល។ ការប្ដូរដំបូងបង្កើតច្បាប់ចម្លង។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "기본 밀도는 그대로 유지됩니다. 처음 변경하면 사본이 만들어집니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Innebygde tettheter forblir som de er. Den første endringen lager en kopi."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wbudowane gęstości pozostają bez zmian. Pierwsza zmiana tworzy kopię."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "As densidades integradas não mudam. Sua primeira alteração cria uma cópia."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Встроенные плотности не меняются. Первое изменение создаёт копию."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ความหนาแน่นในตัวจะไม่เปลี่ยน การแก้ไขครั้งแรกจะสร้างสำเนา"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Yerleşik yoğunluklar olduğu gibi kalır. İlk değişikliğiniz bir kopya oluşturur."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вбудовані щільності не змінюються. Перша зміна створює копію."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Các mật độ có sẵn được giữ nguyên. Thay đổi đầu tiên sẽ tạo bản sao."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "内置密度保持不变。你的第一次更改会创建副本。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "內建密度保持不變。你的第一次更改會建立副本。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

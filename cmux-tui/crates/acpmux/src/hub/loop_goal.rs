@@ -11,6 +11,8 @@ use super::*;
 
 impl Hub {
     pub(super) fn end_loop_goal(&self, session: &Session) {
+        // Its timers went with it (`agent_timer.rs`), whatever the goal says now.
+        *session.loop_timers.lock().unwrap_or_else(|e| e.into_inner()) = None;
         let sid = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             let looping = m

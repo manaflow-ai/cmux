@@ -459,3 +459,24 @@ test("a named stack is a region landmark, so a person can reach the toasts from 
   const plain = render(<NoticeStack queue={queue} dismissLabel="Dismiss" />).querySelector(".ui-notice-stack")!;
   expect(plain.hasAttribute("role")).toBe(false);
 });
+
+const glassOf = (doc: Document) => doc.querySelector(".ui-notice")?.getAttribute("data-host-glass-role") ?? null;
+const oneToast = () => {
+  const queue = createNoticeQueue();
+  queue.show({ id: "a", message: "Saved." });
+  return <NoticeStack queue={queue} dismissLabel="Dismiss" label="Notifications" />;
+};
+
+test("a stack toast draws on the page's glass by default (experiments.toastGlass off)", () => {
+  expect(glassOf(render(oneToast()))).toBeNull();
+});
+
+test("experiments.toastGlass (arm host) puts a stack toast on the App's toast glass", () => {
+  const savedArms = globalThis.cmuxExperiments;
+  globalThis.cmuxExperiments = { "toast-glass": "host" };
+  try {
+    expect(glassOf(render(oneToast()))).toBe("toast");
+  } finally {
+    globalThis.cmuxExperiments = savedArms;
+  }
+});

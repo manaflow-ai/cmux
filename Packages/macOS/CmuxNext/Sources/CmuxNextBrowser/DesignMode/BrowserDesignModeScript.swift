@@ -28,7 +28,9 @@ public nonisolated struct BrowserDesignModeScript: Sendable {
     /// turns design mode on; it returns the runtime's first snapshot. In Chromium it first gives the
     /// world the WebKit-shaped handler the runtime posts to, backed by the ``chromiumBinding`` binding.
     public func enableScript(chromium: Bool, words: BrowserDesignModeStrings = BrowserDesignModeStrings()) throws -> String {
-        let table = ["placeholder": words.commentPlaceholder, "add": words.commentAdd, "save": words.commentSave]
+        let table = ["placeholder": words.commentPlaceholder, "add": words.commentAdd, "save": words.commentSave,
+                     "send": words.commentSend, "sending": words.threadSending, "sent": words.threadSent,
+                     "answered": words.threadAnswered, "failed": words.threadFailed, "resolve": words.threadResolve]
         let configure = (try? JSONSerialization.data(withJSONObject: table, options: [.sortedKeys]))
             .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
         return (chromium ? Self.chromiumPrelude : "") + "\n" + (try runtime())

@@ -23,6 +23,7 @@ const OFF_CENTER: Record<string, string> = {
   "composer.steer": "drawn before this check",
   "message.delivered": "drawn before this check: the double check's tail",
   "status.progress": "drawn before this check: 0.504 left, at the rasteriser's rounding edge",
+  "action.retry": "#46801: the head is a separate chevron at the top, clear of the arc's tail",
 };
 
 const vendored = new Set(
