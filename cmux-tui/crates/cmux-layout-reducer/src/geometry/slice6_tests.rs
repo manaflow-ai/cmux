@@ -67,7 +67,7 @@ fn catchers_need_an_active_visible_window_and_an_overlapping_page() {
         MouseArea { id: "a".into(), rect: rect(100., 0., 8., 100.) },
         MouseArea { id: "b".into(), rect: rect(500., 0., 8., 100.) },
     ];
-    let pages = [rect(0., 0., 100., 100.)];
+    let pages = [rect(0., 0., 101., 100.)];
     let wanted = wanted_catchers(&areas, &pages, true, true);
     assert_eq!(wanted.iter().map(|area| area.id.as_str()).collect::<Vec<_>>(), ["a"]);
     assert!(wanted_catchers(&areas, &pages, false, true).is_empty());

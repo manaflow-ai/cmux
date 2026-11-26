@@ -658,6 +658,8 @@ pub struct MouseArea {
 
 /// `DividerMouseCatchers.update`: the areas that get a catcher panel, those a page window over
 /// the layout covers, none while the layout is inactive or its window hidden.
+/// A page that only touches an area's edge counts as covering it here (`Rect::intersection`); the
+/// vectors keep pairs apart or overlapping, so step B confirms `CGRect.intersects` on a touch.
 pub fn wanted_catchers<'a>(
     areas: &'a [MouseArea],
     pages: &[Rect],
