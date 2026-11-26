@@ -57,9 +57,9 @@ actor SharedSessionTokenStore: StackAuthTokenStoreProtocol, KeepsSharedSessions 
                 let log = log
                 importTask = Task {
                     if let mine = await own.getStoredRefreshToken(), !mine.isEmpty { return nil }
-                    guard let pair = await CloudAuth.consistentSession(
-                        refresh: { await shared.getStoredRefreshToken() },
-                        access: { await shared.getStoredAccessToken() }
+                    guard let pair = ImportedTokenPair(
+                        accessToken: await shared.getStoredAccessToken(),
+                        refreshToken: await shared.getStoredRefreshToken()
                     ) else { return nil }
                     await imported.setTokens(accessToken: pair.accessToken, refreshToken: pair.refreshToken)
                     log.log("shared.store: imported the shared session hasAccess=\(pair.accessToken != nil)")

@@ -327,7 +327,8 @@ public final class CloudAuth {
             }
         }
         return StackAuthClient(config: config, tokenStore: .custom(tokenStore),
-                               baseURL: configuration.stackBaseURL.absoluteString, noAutomaticPrefetch: true)
+                               baseURL: configuration.stackBaseURL.absoluteString, noAutomaticPrefetch: true,
+                               keepsServerSession: keepsServerSession)
     }
 
     /// Starts restoring the stored session (and dev auto sign-in).
