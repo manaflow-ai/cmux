@@ -221,11 +221,15 @@ Choose the API for the host that will render the view:
 
 - Instrument (this): React, for web code inside this repo's `webviews/` (pages, panes, the gallery).
   It is imported by relative path (`../kit`); it is not published as a package.
-- The scene globals (`VStack`, `Row`, `Panel`, `Button`, `EmptyState`, ...) that a customize view's
-  `~/.config/cmux/customize/main.js` uses:
+- The scene globals (`VStack`, `Row`, `Panel`, `Button`, `EmptyState`, ...) for
+  `customize/main.js` in the active cmux configuration folder:
   [`skills/cmux-customization/SKILL.md`](../../../skills/cmux-customization/SKILL.md), "Make a view".
 - `cmux-extension-sdk`, for extensions (`cmux ext new`): its scene DSL and widget helpers,
   [`cmux-tui/crates/cmux-extension-sdk/README.md`](../../../cmux-tui/crates/cmux-extension-sdk/README.md).
+
+From an extension folder, run `cmux ext dev --once --json`. The `scene` field shows what
+rendered. The `design` findings flag raw hex colors and spacing or type sizes outside the
+folder’s design scale. These warnings let the view render while you compare it with the gallery.
 
 For a local view, start with the [focus timer example](../../../skills/cmux-customization/references/local-app-views.md#template-a-focus-timer).
 Use the gallery above as a visual reference. A prompt for an agent:
