@@ -114,3 +114,43 @@ test("loading adds no storage listener; the first reader adds one, the last one 
   expect(transcriptViewOf("chat")).toBe("thinking");
   resetTranscriptViews();
 });
+
+test("a choice storage refused stays this page's, through another pane's change and a later save", async () => {
+  const { useTranscriptView, transcriptViewOf, setTranscriptView, resetTranscriptViews } =
+    await import("./conversation/transcriptView");
+  const { createRoot } = await import("react-dom/client");
+  resetTranscriptViews();
+  // Storage is full for one write: chat A's choice is kept in this page only.
+  const proto = Object.getPrototypeOf(localStorage) as Storage;
+  const setItem = proto.setItem;
+  proto.setItem = () => {
+    throw new Error("QuotaExceededError");
+  };
+  try {
+    setTranscriptView("a", "verbose");
+  } finally {
+    proto.setItem = setItem;
+  }
+  expect(transcriptViewOf("a")).toBe("verbose");
+
+  function Reader() {
+    return <p>{`${useTranscriptView("a")} ${useTranscriptView("b")}`}</p>;
+  }
+  root = createRoot(host);
+  await act(async () => root!.render(<Reader />));
+  expect(host.textContent).toBe("verbose normal");
+
+  // Drawn: another pane saves chat B. Chat A keeps this page's choice.
+  await act(async () => otherPageWrites(VIEW_KEY, { b: "thinking" }));
+  expect(host.textContent).toBe("verbose thinking");
+
+  // Storage works again: a choice for chat C saves, and chat A's choice is saved with it.
+  await act(async () => setTranscriptView("c", "thinking"));
+  expect(transcriptViewOf("a")).toBe("verbose");
+  expect(JSON.parse(localStorage.getItem(VIEW_KEY)!)).toEqual({ b: "thinking", a: "verbose", c: "thinking" });
+
+  await act(async () => root!.unmount());
+  root = undefined;
+  expect(transcriptViewOf("a")).toBe("verbose");
+  resetTranscriptViews();
+});

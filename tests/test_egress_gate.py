@@ -45,7 +45,8 @@ FORMS = {
         "reqwest-client": r"reqwest::(?:blocking::)?Client(?:Builder)?::(?:new|builder)\(",
         "reqwest-get": r"reqwest::(?:blocking::)?get\(",
         "client-builder": r"(?<![\w:])Client::builder\(\)",
-        "ws-connect": r"\bconnect_async(?:_with_config|_tls_with_config)?\(",
+        # cmux_egress::ws:: is the gate's own WebSocket connect.
+        "ws-connect": r"(?<!cmux_egress::ws::)\bconnect_async(?:_with_config|_tls_with_config)?\(",
         "ureq": r"\bureq::",
     },
     ".swift": {
@@ -150,7 +151,8 @@ class EgressGate(unittest.TestCase):
 class Matcher(unittest.TestCase):
     def test_forms_are_found(self):
         rs = ('let a = reqwest::Client::builder().build();\nlet b = reqwest::blocking::Client::new();\n'
-              'let c = Client::builder().build();\nlet d = reqwest::get(u);\nconnect_async(req);\n')
+              'let c = Client::builder().build();\nlet d = reqwest::get(u);\nconnect_async(req);\n'
+              'cmux_egress::ws::connect_async(req, "s");\ncmux_egress::client_builder("s");\n')
         self.assertEqual(sites_in(rs, "cmux-tui/crates/x/src/a.rs"),
                          {"reqwest-client": 2, "client-builder": 1, "reqwest-get": 1, "ws-connect": 1})
         sw = ('let s = URLSession(configuration: c)\nURLSession.shared.data(for: r)\nNWConnection(to: e, using: p)\n'

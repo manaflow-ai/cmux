@@ -351,7 +351,6 @@ UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/cmux-next-chromium-currency.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-next-crash-class.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-next-dev-kick.yml": _POOL_READ_WHY,
-    ".github/workflows/cmux-next-docs-shortcuts.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-next-fast-gates.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-next-notices.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-next-perf-budgets.yml": _POOL_READ_WHY,

@@ -1964,7 +1964,9 @@ impl Hub {
         // `kinds` is a name or a list of names (`EventKinds`): without `transcript`, the page
         // leaves the chat out. So does a page of one subagent's records (`subagent`).
         let transcript = |k: &Value| k.as_str() == Some("transcript");
-        let leaves_out = params.get("subagent").is_some_and(|v| !v.is_null())
+        // A recap starts at a reader-specific cursor, not at the start of the shared journal.
+        let leaves_out = params.get("sinceSeen") == Some(&Value::Bool(true))
+            || params.get("subagent").is_some_and(|v| !v.is_null())
             || match params.get("kinds") {
                 None | Some(Value::Null) => false,
                 Some(Value::Array(kinds)) => !kinds.iter().any(transcript),

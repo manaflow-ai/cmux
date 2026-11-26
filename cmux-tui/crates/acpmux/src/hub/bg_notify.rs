@@ -80,6 +80,13 @@ impl Hub {
         watcher().unwatch(std::ptr::from_ref(self) as usize, session_id);
     }
 
+    /// Stops every watch of this hub (it shut down): a hub shut down in this process may live
+    /// on (its loops hold it until the daemon stops), and its watch kept would take the end a
+    /// restarted hub's pass watches for (`Watcher::watch` keeps the first live watch of a lock).
+    pub(super) fn bg_unwatch_all(&self) {
+        watcher().unwatch_owner(std::ptr::from_ref(self) as usize);
+    }
+
     /// At a start: watches every task of every chat folder whose end is still owed (asked for,
     /// not marked sent). One that ended while no daemon ran is sent at once.
     ///
@@ -149,8 +156,7 @@ impl Hub {
         if bg_generation(dir, false).ok().as_deref() != Some(record.generation.as_str()) {
             return;
         }
-        let session =
-            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(session_id).cloned();
+        let session = self.session_get(session_id);
         let Some(session) = session else { return };
         if session.closing.load(Ordering::SeqCst)
             || session.purged.load(Ordering::SeqCst)
@@ -299,8 +305,7 @@ impl Hub {
         else {
             return;
         };
-        let session =
-            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(session_id).cloned();
+        let session = self.session_get(session_id);
         let Some(session) = session else { return };
         let dir = self.bg_dir(&session);
         let Some(record) = bg_run::read_record(&dir, id)
@@ -449,6 +454,12 @@ impl Watcher {
     fn unwatch(&self, owner: usize, session: &str) {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         state.watches.retain(|_, w| w.owner != owner || w.session != session);
+    }
+
+    /// Drops every watch of hub `owner`, firing none.
+    fn unwatch_owner(&self, owner: usize) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.watches.retain(|_, w| w.owner != owner);
     }
 
     /// The watcher thread: idle while nothing is watched, else a probe of every lock a tick.

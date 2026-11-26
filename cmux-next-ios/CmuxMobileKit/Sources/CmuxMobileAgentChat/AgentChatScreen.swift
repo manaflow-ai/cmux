@@ -714,12 +714,17 @@ struct AgentChatLoadingState: View {
     var body: some View {
         VStack(spacing: 12) {
             CmuxSpinner()
+            // The words keep their room while hidden, so they fade in later without moving the
+            // spinner (``AgentChatStore/loadingTextShows``).
             Text(Self.text(store))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+                .opacity(store.loadingTextShows ? 1 : 0)
+                .animation(.cmuxMobileSmooth.unlessReduceMotion, value: store.loadingTextShows)
         }
         .multilineTextAlignment(.center)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(Self.text(store)))
         .accessibilityIdentifier("agentChat.loadingHistory")
     }
 }
@@ -848,6 +853,10 @@ public struct AgentChatBottomStack: View {
                 // Pinned plan progress while a turn runs (ACP web UI parity).
                 if let progress = store.runningPlan, let entries = store.runningPlanEntries {
                     PlanProgressBar(progress: progress, entries: entries)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
+                if !store.outgoing.isEmpty {
+                    OutgoingMessagesView(store: store)
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
                 if !store.queue.isEmpty {

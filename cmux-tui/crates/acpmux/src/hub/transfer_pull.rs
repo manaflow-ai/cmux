@@ -44,6 +44,7 @@ pub const MAX_FRAME: usize = 4 << 20;
 /// How long the source waits for the target's answer to a `move`. The target's hook answers
 /// within its own wait, or the hub leases the message again and the ledger answers the repeat.
 const MOVE_WAIT: std::time::Duration = std::time::Duration::from_secs(600);
+
 /// How long one hub receipt read waits.
 const ANSWER_WAIT: std::time::Duration = std::time::Duration::from_secs(25);
 /// How long the source's watch waits for a `move_forget` answer.
@@ -51,6 +52,21 @@ const FORGET_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 
 pub(super) fn pull_error(what: &str, message: impl std::fmt::Display) -> RpcError {
     RpcError::new(-32000, format!("transfer.{what}: {message}"))
+}
+
+/// The hub's code for a message to a machine whose credential it revoked with no newer one
+/// since: the machine was deleted (or removed from the team) and will never answer as that
+/// machine again. Not `machine.revoked`, which is the hub refusing this daemon's own credential.
+pub const RECIPIENT_REVOKED: &str = "mesh.recipient_revoked";
+
+/// Whether `hub_control`'s error is the hub refusing the message because its target machine is
+/// gone for good, not merely offline (an offline or paused machine is `mesh.unknown_recipient`).
+pub(super) fn target_deleted(e: &RpcError) -> bool {
+    e.data
+        .as_ref()
+        .and_then(|d| d.get("code"))
+        .and_then(Value::as_str)
+        .is_some_and(|code| code == RECIPIENT_REVOKED)
 }
 
 /// One connection to a move's source: `read` and `renew` of `_acpmux/transfer_*`, answered.
@@ -142,8 +158,7 @@ impl Hub {
 
     /// The chat `session_id` when move `transfer_id` landed here already, as a pull answers it.
     fn pulled(&self, session_id: &str, transfer_id: &str) -> Option<Value> {
-        let session =
-            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(session_id).cloned()?;
+        let session = self.session_get(session_id)?;
         if self.moved_away(&session) {
             return None;
         }
@@ -373,7 +388,7 @@ impl Hub {
             pull_error("hub", e.message.clone()).with_data(json!({"code": e.code}))
         };
         let mut receipt = mesh.send(&message).await.map_err(hub_error)?;
-        let deadline = tokio::time::Instant::now() + wait;
+        let started = tokio::time::Instant::now();
         loop {
             match receipt.state.as_str() {
                 "delivered" => return Ok(Ok(receipt.result)),
@@ -383,7 +398,7 @@ impl Hub {
                 "expired" => break,
                 _ => {}
             }
-            let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+            let left = wait.saturating_sub(started.elapsed());
             if left.is_zero() {
                 break;
             }
@@ -395,27 +410,35 @@ impl Hub {
     }
 
     /// The source's watch asks the hub target `daemon` to give the move up: whether the chat
-    /// landed there; None when it cannot say.
+    /// landed there, or that the hub knows the machine is gone (its credential revoked, so it
+    /// can never answer); `Unknown` when it cannot say.
     pub(super) async fn ask_hub_forget(
         &self,
         daemon: &str,
         session_id: &str,
         transfer_id: &str,
-    ) -> Option<bool> {
+    ) -> super::transfer_watch::TargetSays {
+        use super::transfer_watch::TargetSays;
         let body = json!({"version": 1, "transferId": transfer_id, "sessionId": session_id});
         let key = format!("forget-{transfer_id}");
         let op = crate::mesh_relay_config::MOVE_FORGET_OP;
         match self.hub_control(daemon, op, body, key, FORGET_WAIT).await {
-            Ok(Ok(Some(result))) => {
-                serde_json::from_str::<Value>(&result).ok()?.get("landed")?.as_bool()
-            }
-            _ => None,
+            Ok(Ok(Some(result))) => serde_json::from_str::<Value>(&result)
+                .ok()
+                .and_then(|v| v.get("landed").and_then(Value::as_bool))
+                .map_or(TargetSays::Unknown, TargetSays::landed),
+            Err(e) if target_deleted(&e) => TargetSays::Deleted,
+            _ => TargetSays::Unknown,
         }
     }
 
     /// `_acpmux/transfer_hub` (the local socket only, as every `transfer_*`):
     /// - `{resolve: NAME}`: the person's other machine NAME (its host, or its hub `daemonId`) as
     ///   the hub book lists it: `{daemonId, host}`;
+    /// - `{moveOut: DAEMON, sessionId, to, afterTurn?, interrupt?, timeoutSecs?}`: asks the
+    ///   remote source daemon to run its own hub move, and waits for its move JSON row. `DAEMON`
+    ///   is the source's hub-stamped id, so this local request never trusts a host or session
+    ///   field as authority;
     /// - `{sessionId, transferId, epoch, manifest, folder, branch?, commit?}`: sends op `move` for
     ///   that move, begun with `to.hub`, to the daemon it names, and waits for its answer:
     ///   `{moved: {sessionId, cwd, ...}}`. A refusal is an error with `data.refused`; no answer in
@@ -427,6 +450,9 @@ impl Hub {
         }
         if params.get("stage").is_some() || params.get("prepare").is_some() {
             return self.transfer_hub_stage(params).await;
+        }
+        if params.get("moveOut").is_some() {
+            return self.transfer_hub_move_out(params).await;
         }
         let transfer_id = text("transferId");
         let session = self.resolve(text("sessionId"))?;
@@ -467,6 +493,38 @@ impl Hub {
                 Ok(json!({"moved": moved, "daemonId": daemon}))
             }
             Err(why) => Err(pull_error("refused", format!("the target refused the move: {why}"))
+                .with_data(json!({"refused": true, "detail": why}))),
+        }
+    }
+
+    async fn transfer_hub_move_out(&self, params: &Value) -> Result<Value, RpcError> {
+        let source = params
+            .get("moveOut")
+            .and_then(Value::as_str)
+            .filter(|id| plain_daemon(id))
+            .ok_or_else(|| RpcError::invalid_params("move_out needs the holder's daemon id"))?;
+        let args = crate::mesh_control::MoveOutParams::parse(params.clone(), "moveOut")
+            .map_err(RpcError::invalid_params)?;
+        let turn_wait = if args.after_turn { args.timeout_secs } else { 0 };
+        let mut body = json!(args);
+        body.set("version", json!(1));
+        if body.to_string().len() > 64 * 1024 {
+            return Err(pull_error("size", "the move_out control body is too large"));
+        }
+        let key = format!("move-out-{}", uuid::Uuid::now_v7());
+        // `timeoutSecs` covers the optional after-turn wait. Leave the normal transfer budget in
+        // addition to it, saturating so a malformed huge value cannot wrap.
+        let wait = MOVE_WAIT
+            .saturating_add(super::transfer_hub_precopy::STAGE_WAIT)
+            .saturating_add(std::time::Duration::from_secs(turn_wait));
+        match self
+            .hub_control(source, crate::mesh_relay_config::MOVE_OUT_OP, body, key, wait)
+            .await?
+        {
+            Ok(Some(result)) => serde_json::from_str(&result)
+                .map_err(|e| pull_error("answer", format!("move_out returned invalid JSON: {e}"))),
+            Ok(None) => Err(pull_error("unknown", "the source did not answer the move_out")),
+            Err(why) => Err(pull_error("refused", format!("the source refused move_out: {why}"))
                 .with_data(json!({"refused": true, "detail": why}))),
         }
     }

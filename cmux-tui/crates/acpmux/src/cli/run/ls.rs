@@ -114,6 +114,11 @@ const CURSOR_PAGE: &str = method::MUX_SESSIONS;
 /// optional relay/SSH recovery reads together.
 const LS_STEP_DEADLINE: Duration = Duration::from_secs(4);
 pub(crate) const LS_TOTAL_DEADLINE: Duration = Duration::from_secs(15);
+// RFD 0050 rule 5: the relay listing inside `ls` ends before `ls` does.
+const _: () = assert!(
+    crate::cli::send_relay::LS_DEADLINE.as_millis() < LS_TOTAL_DEADLINE.as_millis(),
+    "the relay listing's bound must nest inside the ls budget"
+);
 
 const LOCAL_ROUTE: &str = "local daemon";
 

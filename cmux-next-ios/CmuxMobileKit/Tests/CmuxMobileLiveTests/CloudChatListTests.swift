@@ -3,24 +3,33 @@ import Foundation
 import Testing
 @testable import CmuxMobileLive
 
-/// A Cloud machine's chat list draws the newest page of its chats, not every chat it ever ran.
+/// A Cloud machine's chat list draws the newest page of its chats, as acpmux orders and picks
+/// them: the phone neither sorts nor filters (acpmux's own test of the order the Mac and the
+/// phone share: `hub/session_pages.rs`, `the_mac_and_the_phone_read_one_order`).
 @Suite struct CloudChatListTests {
-    static func session(_ index: Int, peer: String? = nil) -> AcpmuxSession {
-        var object: [String: JSONValue] = ["sessionId": .string("s\(index)"), "updatedAt": .number(Double(1_000_000 + index) * 1000)]
-        if let peer { object["peer"] = .string(peer) }
-        return AcpmuxSession(.object(object))!
+    @Test func asksAcpmuxForThisMachinesNewestPage() {
+        let params = CloudChatList.params(shown: CloudChatList.pageSize * 2)
+        #expect(params["localOnly"] == .bool(true))
+        #expect(params["limit"]?.numberValue == Double(CloudChatList.pageSize * 2))
+        #expect(params["cursor"] == nil)
     }
 
-    @Test func drawsTheNewestPageAndGrowsByAPage() {
-        let sessions = (0..<250).map { Self.session($0) } + [Self.session(9999, peer: "other")]
-        let first = CloudChatList.newest(sessions, shown: CloudChatList.pageSize)
-        #expect(first.rows.count == CloudChatList.pageSize)
-        #expect(first.rows.first?.id == "s249")
-        #expect(first.hasOlder)
-        #expect(!first.rows.contains { $0.peer != nil })
-        let all = CloudChatList.newest(sessions, shown: CloudChatList.pageSize * 3)
-        #expect(all.rows.count == 250)
-        #expect(all.rows.last?.id == "s0")
-        #expect(!all.hasOlder)
+    /// The rows stay in the reply's order, even where the phone would have ordered them otherwise
+    /// (a tie, a row with no `updatedAt` and a later `lastTurn.endedAt`).
+    @Test func keepsTheOrderAcpmuxSent() {
+        let reply: JSONValue = .object([
+            "sessions": .array([
+                .object(["sessionId": .string("b"), "updatedAt": .number(7)]),
+                .object(["sessionId": .string("a"), "updatedAt": .number(9)]),
+                .object(["sessionId": .string("c"), "lastTurn": .object(["endedAt": .number(99)])]),
+            ]),
+            "nextCursor": .string("k1.c"),
+        ])
+        let listed = CloudChatList.listed(reply)
+        #expect(listed.ids == ["b", "a", "c"])
+        #expect(listed.hasOlder)
+        let last = CloudChatList.listed(.object(["sessions": .array([]), "nextCursor": .null]))
+        #expect(last.ids.isEmpty)
+        #expect(!last.hasOlder)
     }
 }

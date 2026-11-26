@@ -1,23 +1,12 @@
 name: cmux-rd Windows host
 
-# The selftest (`host`) runs on landings, dispatch and, as an advisory check, on pull requests into feat-cmux-next
-# that touch its paths (manaflow-ai/cmuxterm-hq#10846): no ruleset requires it and its name ends "(advisory)" on a
-# pull request, so a red there is a follow-up, never a merge block. The live proof stays on landings and dispatch:
-# it needs the ios-e2e environment, which pull request events do not reach.
+# The selftest (`host`) runs on landings and dispatch (manaflow-ai/cmuxterm-hq#10846). The live proof needs the
+# ios-e2e environment.
+# CI cut 2026-11-24 (goal ci-runner-min-per-day-50k): pull requests no longer run this advisory check; it gated
+# nothing (no ruleset requires it, land-judge skips "(advisory)" names). Landings on feat-cmux-next and dispatch
+# still run it, so a red shows up on base. The "(advisory)" name and pull_request conditions below stay inert.
 on:
   push:
-    branches: [feat-cmux-next]
-    paths:
-      - "cmux-tui/crates/cmux-rd-host/**"
-      - "cmux-tui/crates/cmux-encode/**"
-      - "cmux-tui/crates/cmux-rd-core/**"
-      - "cmux-tui/crates/cmux-rd-proto/**"
-      - ".github/workflows/cmux-rd-windows.yml"
-      # A README or notes file alone starts nothing here (tests/test_ci_docs_only_prs.py); no build reads them.
-      - "!**/README.md"
-      - "!**/COORDINATION.md"
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
     branches: [feat-cmux-next]
     paths:
       - "cmux-tui/crates/cmux-rd-host/**"

@@ -167,9 +167,26 @@ class StatusMapping(unittest.TestCase):
                 code, posts, reads = self.run_step(self.reply(state, status_poster="controller"), PR="28059")
                 self.assertEqual(code, 0)
                 self.assertEqual([p["state"] for p in posts], ["pending"])
-                self.assertEqual(reads, [f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&pr=28059&wait=1"])
+                self.assertEqual(reads, [f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&pr=28059&phase=tip",
+                                         f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&pr=28059&wait=1"])
                 self.assertIn("posts cmux-next/compile itself", self.stdout)
                 self.assertEqual(self.output.strip(), f"state={state}")
+
+    def test_an_awaiting_land_receipt_finishes_without_posting_pending(self):
+        receipt = self.reply("awaiting_land", status_poster="controller")
+        code, posts, reads = self.run_step(receipt, PR="28059")
+        self.assertEqual(code, 0)
+        self.assertEqual(posts, [])
+        self.assertEqual(reads, [f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&pr=28059&phase=tip"])
+        self.assertEqual(self.output.strip(), "state=awaiting_land")
+
+    def test_a_mismatched_tip_receipt_falls_back_to_the_existing_wait(self):
+        receipt = self.reply("awaiting_land", status_poster="controller", configuration="debug")
+        code, posts, reads = self.run_step(receipt, PR="28059", WAIT_SECONDS="5")
+        self.assertNotEqual(code, 0)
+        self.assertEqual(posts[0]["state"], "pending")
+        self.assertGreaterEqual(len(reads), 2)
+        self.assertTrue(reads[0].endswith("&phase=tip"), reads)
 
     def test_a_superseded_push_whose_branch_moved_ends_at_its_first_read(self):
         """note-554: the controller will never check a superseded push tip; once the branch head has moved on, the job
@@ -222,7 +239,8 @@ class StatusMapping(unittest.TestCase):
         self.assertTrue(reads and not reads[0].endswith("&wait=1"), reads)
         # An unmarked pull request receipt drops back to the long blocking read after the first look.
         _, _, reads = self.run_step(self.reply("running"), PR="28059", WAIT_SECONDS="8", READ_GAP="1")
-        self.assertTrue(len(reads) >= 2 and reads[0].endswith("&wait=1") and not reads[1].endswith("&wait=1"), reads)
+        self.assertTrue(len(reads) >= 3 and reads[0].endswith("&phase=tip") and reads[1].endswith("&wait=1")
+                        and not reads[2].endswith("&wait=1"), reads)
 
     def test_a_failure_links_the_compile_log(self):
         _, posts, _ = self.run_step(self.reply("fail"))
@@ -238,7 +256,8 @@ class StatusMapping(unittest.TestCase):
         # A pull request's read names it, so the controller can queue a head it never saw (cmuxterm-hq#5571). Its
         # first read takes the receipt as it is (wait=1): the controller may post this head's status itself.
         _, _, reads = self.run_step(self.reply("pass"), PR="28059")
-        self.assertEqual(reads, [f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&pr=28059&wait=1"])
+        self.assertEqual(reads, [f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&pr=28059&phase=tip",
+                                 f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&pr=28059&wait=1"])
         _, _, reads = self.run_step(self.reply("pass"), PR="1;x")
         self.assertEqual(reads, [f"https://results/v1/{SHA}?repo=manaflow-ai%2Fcmux&wait=270"])
         _, _, reads = self.run_step(self.reply("pass"), BAD_BOUND="3000")

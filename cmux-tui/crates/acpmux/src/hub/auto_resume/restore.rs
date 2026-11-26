@@ -302,8 +302,8 @@ impl Hub {
             } else {
                 delays.clone()
             };
-            // A capacity outage never uses its attempts up (`super::capacity_wait`).
-            let unbounded = reason == RetryReason::Capacity && !delays.is_empty();
+            // A capacity outage or a rate limit never uses its attempts up (`super::waits_it_out`).
+            let unbounded = super::waits_it_out(reason, &delays);
             let delay = if unbounded {
                 Some(super::capacity_wait(done, &delays, &session.id))
             } else {

@@ -1,7 +1,7 @@
 # cmux-next Chief: a manager whose memory is its whole context (isolated experiment)
 
 Status: isolated experiment, revision 2, 2026-10-02 (chief lane, session cmuxterm-hq-e0). Lives on
-branch `feat-cmux-next-chief` in `experiments/chief-optmem/` and is never merged into
+branch `feat-cmux-next-chief` in `experiments/chief-optmem/` (now kept in the private repo) and is never merged into
 `feat-cmux-next` without a new decision. Decisions (Lawrence via the coordinator, 2026-10-02): no
 spec changes; production Home objects (MuxDO, ConversationDO, OwnerDO), home-core and other
 feat-cmux-next code are not touched; the loop uses Cloudflare `agents` pi-on-DO (`PiHarness`), beta

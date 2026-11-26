@@ -46,6 +46,9 @@ struct Wire {
     /// With `head_first`: the folder below the repository's root the chat opens in.
     #[serde(default)]
     subpath: Option<String>,
+    /// `git-seed-carry-v1`: the uploaded pack of `base` at depth 1 ([`StartParams::carry`]).
+    #[serde(default)]
+    carry: Option<String>,
 }
 
 /// A checked start request. The paths are not yet placed in the sandbox
@@ -72,6 +75,12 @@ pub struct StartParams {
     /// The checkout opens at its head first: only for a whole seed (no `since`) without
     /// the Mac's sparse patterns, and only when the subpath can be written as a pattern.
     pub head_first: Option<HeadFirst>,
+    /// `git-seed-carry-v1`: the path (under the roots, like `bundle`) of a pack the sender made
+    /// from its own objects with `base`, its tree and every blob of it, and nothing older. A fresh
+    /// folder becomes a shallow repository at `base` from it instead of a clone (no GitHub, no
+    /// credential); a folder with a repository already, or a pack that does not index, clones as
+    /// before. Only for a whole seed (no `since`).
+    pub carry: Option<String>,
 }
 
 /// A seed that marks its head (`cmux_git::sync_barrier::Sync::head_ready`) before it fills
@@ -171,6 +180,9 @@ impl StartParams {
         {
             return Err(SeedRefusal::bad_request("invalid sparse patterns"));
         }
+        if wire.carry.is_some() && wire.since.is_some() {
+            return Err(SeedRefusal::bad_request("carry is for a whole seed, not a delta"));
+        }
         let head_first = (wire.head_first && wire.since.is_none() && wire.sparse.is_none())
             .then(|| HeadFirst::of(wire.subpath.as_deref()))
             .flatten();
@@ -189,6 +201,7 @@ impl StartParams {
             since: wire.since,
             clone_only: None,
             head_first,
+            carry: wire.carry,
         })
     }
 
@@ -198,6 +211,9 @@ impl StartParams {
         }
         if wire.sparse.is_some() {
             return Err(SeedRefusal::bad_request("sparse needs a seed bundle"));
+        }
+        if wire.carry.is_some() {
+            return Err(SeedRefusal::bad_request("carry needs a seed bundle"));
         }
         Ok(Self {
             folder: wire.folder,
@@ -214,6 +230,7 @@ impl StartParams {
             since: None,
             clone_only: Some(wire.git_ref),
             head_first: None,
+            carry: None,
         })
     }
 }

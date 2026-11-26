@@ -599,7 +599,7 @@ async fn stopping(stop: &mut watch::Receiver<bool>) {
 }
 
 async fn serve(options: Options, mut stop: watch::Receiver<bool>) -> i32 {
-    let http = match reqwest::Client::builder()
+    let http = match cmux_egress::client_builder("cmux_tui::cli::inference_gateway")
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(15))
         .user_agent(concat!("cmux-inference-gateway/", env!("CARGO_PKG_VERSION")))
@@ -738,7 +738,12 @@ async fn session(
     let config = WebSocketConfig::default()
         .max_message_size(Some(MAX_MESSAGE))
         .max_frame_size(Some(MAX_MESSAGE));
-    let connect = tokio_tungstenite::connect_async_with_config(request, Some(config), false);
+    let connect = cmux_egress::ws::connect_async_with_config(
+        request,
+        Some(config),
+        false,
+        "cmux_tui::cli::inference_gateway",
+    );
     let connect = tokio::select! {
         connect = tokio::time::timeout(HANDSHAKE_TIMEOUT, connect) => connect,
         () = stopping(&mut stop) => return Ended::Shutdown,

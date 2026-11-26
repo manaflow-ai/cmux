@@ -1412,6 +1412,10 @@ async fn the_policy_gate_round_trip_under_approve_all_is_measured() {
         let record: Value = serde_json::from_str(line).unwrap();
         assert_eq!(record["ran"], true, "approve-all runs it: {record}");
         let hooks = record["hookMs"].as_array().cloned().unwrap_or_default();
+        // Harness magic `dedupe` is a third callback while it is on (`claude_stdio/dedupe.rs`).
+        let (dedupe, hooks): (Vec<Value>, Vec<Value>) =
+            hooks.into_iter().partition(|h| h["callback"] == "acpmux-dedupe");
+        assert!(dedupe.len() <= 1, "{record}");
         assert_eq!(hooks.len(), 2, "the repository sync and the gate: {record}");
         for hook in hooks {
             let ms = hook["ms"].as_f64().unwrap_or_else(|| panic!("{record}"));
@@ -1431,6 +1435,52 @@ async fn the_policy_gate_round_trip_under_approve_all_is_measured() {
     );
     let _ = std::io::Write::write_all(&mut std::io::stderr(), line.as_bytes());
     assert!(g50 < 500.0, "p50 {g50} ms");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Harness magic `dedupe` through the hub (`claude_stdio/dedupe.rs`): in one turn a Claude Code
+/// that Reads one unchanged file twice and runs one read-only command twice gets a stub for the
+/// second of each (the gate still allows both), and the turn's `turn_result` counts them.
+#[tokio::test]
+async fn a_repeated_read_and_command_are_stubbed_and_counted_on_the_turn_result() {
+    if std::env::var("ACPMUX_HM_DEDUPE").is_ok_and(|v| v == "0") {
+        return;
+    }
+    let dir = home("hm-dedupe", json!({"defaultPermissionMode": "fullAccess"}));
+    let log = dir.join("auto.log");
+    let daemon = hub_with(&dir, |cfg| {
+        let mut profile = launcher_profile(&log);
+        profile.env.insert("FAKE_AUTO_RESULTS".into(), "1".into());
+        cfg.harnesses.insert("sr2".into(), profile);
+    });
+    let file = dir.join("work").join("notes.txt");
+    std::fs::write(&file, "a line of notes\n".repeat(200)).unwrap();
+    let mut app = Client::app(&daemon).await;
+    let (id, _) = app.chat_with_policy(&dir, "sr2", "approve-all").await;
+    let read = json!(["Read", {"file_path": file}]);
+    let wc = json!(["Bash", {"command": "wc -l notes.txt"}]);
+    let calls = json!([read, wc, read, wc]);
+    let r =
+        app.call("session/prompt", json!({"sessionId": id, "prompt": auto_tools(&calls)})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let records: Vec<Value> = std::fs::read_to_string(&log)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    let ran: Vec<bool> = records.iter().map(|r| r["ran"].as_bool().unwrap()).collect();
+    assert_eq!(ran, [true, true, false, false], "{records:?}");
+    for stubbed in &records[2..] {
+        assert!(stubbed["reason"].as_str().unwrap().starts_with("[dedupe] "), "{stubbed}");
+    }
+    let results = app.records(&id, "turn_result").await;
+    let counts =
+        &results.last().unwrap_or_else(|| panic!("{results:?}"))["msg"]["harnessMagic"]["dedupe"];
+    assert_eq!(counts["readsStubbed"], 1, "{results:?}");
+    assert_eq!(counts["callsStubbed"], 1, "{results:?}");
+    assert!(counts["estTokensSaved"].as_u64().unwrap() > 500, "{counts}");
+    let line = format!("hm dedupe: {counts}\n");
+    let _ = std::io::Write::write_all(&mut std::io::stderr(), line.as_bytes());
     let _ = std::fs::remove_dir_all(&dir);
 }
 

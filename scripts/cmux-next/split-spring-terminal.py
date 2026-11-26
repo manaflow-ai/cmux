@@ -54,6 +54,11 @@ if "--suite=launch-check" in sys.argv:
 # build in split-spring.sh has run by then). launch-check above reports it itself, in `check`'s own --json shape.
 if "--suite=pane-bench" not in sys.argv and "--suite=action-budget-bench" not in sys.argv:
     require_gui_session("split-spring")
+# `--suite=power-user`: fast seeded window resizes, workspace and tab switches, judged per frame (frame times,
+# blank and flashing panes, layout shift the input did not cause; scripts/perf-bench/power_user_native.py).
+if "--suite=power-user" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "perf-bench", "power_user_native.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=power-user"])
 # `--suite=memory-agents`: the app's idle memory, empty and with idle agent chats open, as perf-cron rows
 # (scripts/cmux-next/memory-agents-cron.py, bench_memory.py on the acpmux test agent).
 if "--suite=memory-agents" in sys.argv:

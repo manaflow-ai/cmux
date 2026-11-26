@@ -43,7 +43,6 @@ import Testing
         live.bannerHold.show(.reconnecting(to: "Aziz's MacBook Pro", identity: "m1"))
         #expect(live.banner == .reconnecting(to: "Aziz's MacBook Pro", identity: "m1"))
         live.phaseChanged(session)
-        #expect(live.banner != .connected, "a connected report posts no \"Connected\"")
         #expect(live.banner == nil, "back: no banner, got \(String(describing: live.banner))")
     }
 

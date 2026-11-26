@@ -26,7 +26,8 @@ public nonisolated struct StatusIndicatorConfig: Hashable, Sendable {
     public var pulsePeriod: Double?
     /// The terminal font the braille style draws in (`terminal.fontFamily`).
     public var terminalFontFamily: String?
-    /// The status icon set (Debug Settings `status.iconSet`, cx-kxa2).
+    /// The status icon set (`appearance.statusIndicator.iconSet`, or the Debug Settings
+    /// `status.iconSet` override, cx-kxa2).
     public var iconSet: StatusIconSet
     /// System Reduce Motion (or its test override).
     public var reduceMotion: Bool
@@ -85,7 +86,7 @@ public nonisolated struct StatusIndicatorConfig: Hashable, Sendable {
             spinnerPeriod: Motion.indicators.period(.spinner),
             pulsePeriod: Motion.indicators.period(.pulse),
             terminalFontFamily: DesignSettings.shared.terminalFontFamily,
-            iconSet: StatusIconSet.tunable.value,
+            iconSet: StatusIconSet.resolved(setting: DesignSettings.shared.statusIndicator.iconSet),
             reduceMotion: Motion.reduceMotion,
             staticShapes: StatusIndicatorPlan.staticShapes.value,
             workingLook: StatusWorkingLook.tunable.value)

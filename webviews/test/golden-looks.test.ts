@@ -4,7 +4,15 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { lookFromSetup, parseJsonc, readGoldenLooks, schemeFromThemeFile } from "../dev-server/goldenLooks";
+import {
+  discoverLooks,
+  drawnSchemes,
+  lookFromSetup,
+  parseJsonc,
+  previewPath,
+  readGoldenLooks,
+  schemeFromThemeFile,
+} from "../dev-server/goldenLooks";
 import { lookDisplay, lookTheme } from "../src/gallery/golden/look";
 
 test("theme files read with comments, a URL in a string and trailing commas", () => {
@@ -56,6 +64,13 @@ test("a setup folder is a look: its theme file for the scheme it draws, its styl
   expect(look.themeCSS).toContain("--cv-user-bubble-radius");
   expect(look.settings).toEqual({ "agentPane.display.font.size": 13, "sidebar.density": "compact" });
   expect(lookDisplay(look)).toEqual({ "agentPane.display.font.size": 13 });
+  // The folder it came from, so `golden:looks --preview` writes the look repo's own stills.
+  expect(look.setupDir).toBe(path.resolve(dir));
+});
+
+test("a look repo's preview stills go where the looks gallery reads them", () => {
+  expect(previewPath("/src/my-look", "light")).toBe("/src/my-look/preview/golden-light.png");
+  expect(previewPath("/src/my-look", "dark")).toBe("/src/my-look/preview/golden-dark.png");
 });
 
 test("a scheme's colors go over its terminal theme; an unknown theme name keeps the base", () => {
@@ -70,4 +85,33 @@ test("a scheme's colors go over its terminal theme; an unknown theme name keeps 
     foreground: "#ffffff",
     accent: "#3366ff",
   });
+});
+
+test("every look in a checkout is found: shipped theme files, examples/ setup folders and theme files", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "golden-every-"));
+  const theme = (bg: string, fg: string) => JSON.stringify({ colors: { background: bg, foreground: fg } });
+  mkdirSync(path.join(root, "Resources/theme-files"), { recursive: true });
+  writeFileSync(path.join(root, "Resources/theme-files/ink.json"), theme("#101010", "#eeeeee"));
+  mkdirSync(path.join(root, "examples/customize/me/day/themes"), { recursive: true });
+  writeFileSync(path.join(root, "examples/customize/me/day/themes/day.json"), theme("#ffffff", "#111111"));
+  const pack = path.join(root, "examples/looks/new-look");
+  mkdirSync(path.join(pack, "themes"), { recursive: true });
+  writeFileSync(
+    path.join(pack, "cmux-setup.json"),
+    JSON.stringify({
+      name: "New look",
+      settings: { "appearance.themeFile": "new", "agentPane.display.font.size": 13 },
+    }),
+  );
+  writeFileSync(path.join(pack, "themes/new.json"), theme("#202020", "#f0f0f0"));
+  const looks = discoverLooks(root);
+  // Outside the repo a source is its base name; the pack's own theme file is drawn with the pack.
+  expect(looks.map((look) => look.source)).toEqual(["ink.json", "new-look", "day.json"]);
+  const [ink, newLook, day] = looks;
+  // A theme file alone draws in the scheme it is for; a setup folder that brings settings, in both.
+  expect(drawnSchemes(ink!)).toEqual(["dark"]);
+  expect(drawnSchemes(day!)).toEqual(["light"]);
+  expect(newLook!.title).toBe("New look");
+  expect(drawnSchemes(newLook!)).toEqual(["light", "dark"]);
+  expect(drawnSchemes({ ...newLook!, settings: {} })).toEqual(["dark"]);
 });

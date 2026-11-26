@@ -127,8 +127,6 @@ ALLOWED = {
         "made by os.makedirs after the rmtree: mkdir fails on any entry another account left there",
     ("scripts/cmux-next/rust-live.py", 'path = f"/tmp/rust-live-{os.getuid()}"'):
         "control_dir refuses it unless it is a real 700 folder this user owns",
-    ("scripts/journeys/ext_marker.py", 'path = f"/tmp/jr-m-{j.nonce}-{os.urandom(4).hex()}"'):
-        "made with O_CREAT|O_EXCL, which fails on any entry already there",
     ("scripts/irx-soak.py", "/tmp/cmux-irx-journal-mac-{args.tag}.jsonl"):
         "read only: the journal of the tagged app the runner launched; nothing is written there",
     ("scripts/cmux-next/cloud-chaos.ts", "`/tmp/cmux-chaos-seq-${tag}.txt`"):

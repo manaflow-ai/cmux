@@ -43,7 +43,24 @@ export type RestartChat = {
 
 /// The chat Restart's rows send to, or undefined when the shown chat offers no Restart.
 export function restartOwner(chat: RestartChat): string | undefined {
-  return chat.connected && !chat.watching && !chat.readOnly && chat.canSend ? chat.sessionId : undefined;
+  return chat.connected && !chat.watching && !chat.readOnly && chat.canSend ? chat.sessionId || undefined : undefined;
+}
+
+/// Why a pane takes no answer to an agent's ask (conversation/NextStepCard.tsx draws it in the typed
+/// answer's row): the same tests as `restartOwner`, named. `guest` is a shared chat's reader
+/// (conversation/readOnly.ts), whose transcript has no RestartChat.
+export type AnswerBlock = "disconnected" | "subagent" | "watching" | "bridged" | "remote" | "origin" | "guest";
+
+/// The reason `chat` sends nothing, or undefined exactly when `restartOwner(chat)` names a chat.
+/// `note` is remoteEditing.ts `remoteComposer(...).note`, which says why a remote chat cannot send;
+/// `bridged`, a watched desktop or terminal session the composer replies into without taking over
+/// (watchBannerModel.ts `bridgedWatch`). A remote chat's limit outlasts a take over, so it comes first.
+export function answerBlock(chat: RestartChat & { note?: string; bridged?: boolean }): AnswerBlock | undefined {
+  if (!chat.connected || !chat.sessionId) return "disconnected";
+  if (chat.readOnly) return "subagent";
+  if (!chat.canSend) return chat.note === "composer.originUnknown" ? "origin" : "remote";
+  if (chat.watching) return chat.bridged ? "bridged" : "watching";
+  return undefined;
 }
 
 /// Whether a Restart from a row drawn for `owner` still reaches that chat: the pane still shows it

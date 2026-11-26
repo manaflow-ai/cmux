@@ -1,0 +1,25 @@
+{
+  "cases": [
+    {
+      "name": "tab-shape",
+      "pr": 46780,
+      "setup": [{"action": "newTab", "wait": 1}, {"action": "newTab", "wait": 1}, {"action": "newTab", "wait": 2}],
+      "theme": {"appearance.tabShape": "rounded"}
+    },
+    {
+      "name": "menu-tokens",
+      "pr": 46846,
+      "setup": [
+        {"action": "palette.newAgentChat", "focus": true, "wait": 10},
+        {"action": "agentPane.switchModel", "wait": 3}
+      ],
+      "agent_pane_css": {
+        "--menu-fill": "#ff00ff",
+        "--menu-hover-fill": "#ff00ff",
+        "--menu-border": "#ff00ff",
+        "--menu-radius": "0px"
+      },
+      "expect_color": {"rgb": "#ff00ff", "tolerance": 40, "min_pixels": 400, "wait": 15}
+    }
+  ]
+}

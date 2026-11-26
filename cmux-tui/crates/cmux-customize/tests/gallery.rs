@@ -99,7 +99,7 @@ fn every_entry_points_at_something_in_the_repo() {
         }
     }
     // Every look folder in the repo is listed, so the gallery cannot fall behind.
-    for group in ["looks", "gallery"] {
+    for group in ["looks", "gallery", "setups"] {
         for dir in fs::read_dir(examples().join(group)).unwrap() {
             let dir = dir.unwrap().path();
             if dir.join(setup::SETUP_FILE).is_file() {
@@ -211,7 +211,7 @@ fn round_trip(dir: &Path, rel: &str) {
     }
 }
 
-/// Every setup folder under examples/looks and examples/gallery, listed in the index or not
+/// Every setup folder under examples/looks, examples/gallery and examples/setups, listed in the index or not
 /// (`looks/APP/FEATURE` included), but one whose index entry `needs` an unmerged change.
 #[test]
 fn every_look_installs_on_a_fresh_machine_and_removes_to_nothing() {
@@ -221,7 +221,7 @@ fn every_look_installs_on_a_fresh_machine_and_removes_to_nothing() {
         .map(|entry| entry["path"].as_str().unwrap().to_owned())
         .collect();
     let mut folders = Vec::new();
-    for group in ["looks", "gallery"] {
+    for group in ["looks", "gallery", "setups"] {
         setup_folders(&examples().join(group), &mut folders);
     }
     folders.sort();

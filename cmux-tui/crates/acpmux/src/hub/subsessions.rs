@@ -581,6 +581,8 @@ impl Hub {
                 peers: req.local,
                 // A child's name is made unique before this (`unique_name`).
                 name: None,
+                // A family lives on one daemon: a child starts beside its parent.
+                redirect: false,
             })
             .await?;
         // Its worktree is made, and its harness spawns, only in the very folder checked.

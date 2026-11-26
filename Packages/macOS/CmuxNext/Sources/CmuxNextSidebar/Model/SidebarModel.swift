@@ -84,6 +84,8 @@ public final class SidebarModel {
     @ObservationIgnored public var holdsLaunchOrder = false {
         didSet { if oldValue != holdsLaunchOrder { holdsLaunchOrder ? startLaunchOrderHold() : endLaunchOrderHold() } }
     }
+    /// The structural set that ended the launch order hold, once it moved a row: it shows without motion.
+    @ObservationIgnored public internal(set) var releasedLaunchOrderRevision: UInt64?
     /// What the hold keeps (`SidebarModel+LaunchOrder`).
     @ObservationIgnored var launchOrder = LaunchOrderLists()
     /// Where each group sits in `sections` (section, node); prepared with the sections, before a header click.

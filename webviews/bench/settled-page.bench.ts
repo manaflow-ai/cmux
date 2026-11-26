@@ -291,6 +291,7 @@ function installFrameReader() {
     rows: { id: string; top: number }[];
     composer: { top: number; height: number } | null;
     scrollTop: number | null;
+    drawnBy?: number;
   };
   const w = window as unknown as {
     __settle?: {
@@ -383,6 +384,23 @@ function installFrameReader() {
       rows,
       composer: composer ? { top: composer.top, height: composer.height } : null,
       scrollTop: scroller && !rootHidden ? scroller.scrollTop : null,
+      // How far the thread is drawn from its place (the follow glide's translate): a row's place in the content is
+      // its box less this, as VirtualTranscript's own `drawnBy` reads it.
+      drawnBy: (() => {
+        const thread = scroller?.querySelector<HTMLElement>(".acpmux-thread");
+        const translate = thread ? getComputedStyle(thread).translate : "none";
+        return translate && translate !== "none" ? Number.parseFloat(translate.split(" ")[1] ?? "") || 0 : 0;
+      })(),
+      ...(scroller
+        ? {
+            geo: `sh=${scroller.scrollHeight} ch=${scroller.clientHeight} thread=${(() => {
+              const thread = scroller.querySelector<HTMLElement>(".acpmux-thread");
+              return thread
+                ? `${thread.style.cssText.replace(/\s+/g, "")}|h=${thread.getBoundingClientRect().height.toFixed(1)}`
+                : "-";
+            })()}`,
+          }
+        : {}),
     };
   };
   const tick = () => {
@@ -420,7 +438,13 @@ function installFrameReader() {
   };
 }
 
-type Read = { t0: number; frames: FrameRecord[]; lastChange: number; marks: { t: number; what: string }[] };
+type Read = {
+  t0: number;
+  frames: FrameRecord[];
+  lastChange: number;
+  marks: { t: number; what: string }[];
+  vt?: string[];
+};
 type Reader = { start(t0: number): void; peek(): { lastChange: number; now: number }; stop(): Read };
 /** Reads until the page painted `mark`, MIN_WATCH_MS passed and nothing changed for QUIET_MS (or MAX_WATCH_MS); returns
  * every frame read since the transition. */
@@ -441,9 +465,16 @@ async function framesOf(page: Page, mark: string): Promise<Read> {
   return page.evaluate(() => (window as unknown as { __settle: Reader }).__settle.stop());
 }
 
-/** The stream arm's view of a frame: rows in content coordinates, the streaming (bottom-most) row left out. */
+/** How far a frame's thread was drawn from its place (the follow glide), 0 when not read. */
+const drawnBy = (frame: FrameRecord) => (frame as { drawnBy?: number }).drawnBy ?? 0;
+
+/**
+ * The stream arm's view of a frame: rows in content coordinates, the streaming (bottom-most) row left out. A row's
+ * place in the content leaves out the follow glide's translate: the glide eases the view after the reply, so with it
+ * counted every row above crept ~1.6 px a frame in the content for 2.5 s (109 "shifts" in workspace_switch stream).
+ */
 function streamView(frame: FrameRecord): FrameRecord {
-  const offset = frame.scrollTop ?? 0;
+  const offset = (frame.scrollTop ?? 0) - drawnBy(frame);
   const rows = frame.rows.map((row) => ({ id: row.id, top: row.top + offset }));
   let bottom = -1;
   rows.forEach((row, at) => {
@@ -464,7 +495,7 @@ function judgeStream(frames: FrameRecord[], t0: number): Judged {
   const views = frames.map(streamView);
   const moved = (a: FrameRecord, b: FrameRecord): string | null => {
     const before = new Map(a.rows.map((row) => [row.id, row.top]));
-    const offset = (frame: FrameRecord) => frame.scrollTop ?? 0;
+    const offset = (frame: FrameRecord) => (frame.scrollTop ?? 0) - drawnBy(frame);
     for (const row of b.rows) {
       const top = before.get(row.id);
       if (top === undefined || Math.abs(top - row.top) <= MOVE_TOLERANCE_PX) continue;
@@ -754,6 +785,14 @@ try {
         for (const one of lines) console.log(`    +${(one.t - read.t0).toFixed(1)}ms ${one.what}`);
         // What held the settle back: the moves the judge saw, and each frame where the bottom-most row changed.
         for (const reason of judged.why) console.log(`    moved ${reason}`);
+        if (process.env.FRAMES === "1" && judged.shifts > 0)
+          for (const line of read.vt ?? [])
+            console.log(`    vt ${(Number(line.split(" ")[0]) - read.t0).toFixed(1)} ${line}`);
+        if (process.env.FRAMES === "1" && judged.shifts > 0)
+          for (const frame of read.frames.filter((one) => one.t >= read.t0))
+            console.log(
+              `    frame +${(frame.t - read.t0).toFixed(1)} st=${frame.scrollTop?.toFixed(1)} ${(frame as { geo?: string }).geo ?? ""} ${frame.rows.map((row) => `${row.id}@${row.top.toFixed(1)}`).join(" ")}`,
+            );
         let bottom: string | undefined;
         for (const frame of read.frames) {
           if (frame.t < read.t0) continue;

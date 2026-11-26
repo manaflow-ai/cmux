@@ -1,3 +1,6 @@
+import CmuxNextActions
+import Foundation
+
 extension AgentPaneModel {
     /// The app actions any agent tab may run: the location row's SSH…, New Cloud Machine and Open
     /// Cloud…, which opens the Cloud page at its storefront (`#/get`: the plan's sizes; the pane
@@ -47,6 +50,10 @@ extension AgentPaneModel {
     static let accessActions: Set<String> = ["palette.pro.upgrade"]
     /// The arguments an access action runs with; the page names none.
     static let accessArguments: [String: [String: String]] = ["palette.pro.upgrade": ["source": "inference"]]
+    /// Connect GitHub from a chat's card (webviews githubConnect.ts; Leo, 2026-11-10: "Just as few
+    /// hurdles to jump through as possible"): the app's `accounts.githubConnect`, with the failed
+    /// call's repository and the chat's link. It opens GitHub's page, so it needs the person's gesture.
+    static let githubActions: Set<String> = ["accounts.githubConnect"]
 
     /// `action.run` from the page. Any agent tab may open the New Tab
     /// page (a blank chat's New), the command palette's chats page ("Show all", decision K1), and the
@@ -58,11 +65,12 @@ extension AgentPaneModel {
     /// is an `unavailable` failure, so the page can say so, with the app's reason when it gave one
     /// (``AgentPaneActionRun/refused(_:)``); one that ran and then stopped reports itself in the app
     /// (its own toast).
-    func runAction(_ id: String, session: String? = nil, environment: String? = nil, handoff: String? = nil, app: String? = nil) -> [String: Any] {
+    func runAction(_ id: String, session: String? = nil, environment: String? = nil, handoff: String? = nil, app: String? = nil,
+                   repo: String? = nil, returnTo: String? = nil) -> [String: Any] {
         let screenShare = id == "session.screenShare"
         let gated = Self.connectActions.contains(id) || Self.accessActions.contains(id) || Self.cloudStartActions.contains(id)
             || Self.terminalSwitchActions.contains(id) || Self.folderActions.contains(id) || Self.setupActions.contains(id)
-            || screenShare
+            || screenShare || Self.githubActions.contains(id)
         guard id == "newTab.page" || Self.paletteActions.contains(id) || gated, let onRunAction else {
             return Self.unsupported("action.run")
         }
@@ -78,6 +86,15 @@ extension AgentPaneModel {
         if let environment { arguments["environment"] = environment }
         if let handoff { arguments["handoff"] = handoff }
         if let app, Self.editorActions.contains(id) { arguments["app"] = app }
+        if Self.githubActions.contains(id) {
+            if let repo { arguments["repo"] = repo }
+            // Only a link this build opens, carrying nothing it would ignore: GitHub's return comes
+            // back to this chat, nowhere else.
+            if let returnTo, let scheme = linkScheme, let url = URL(string: returnTo),
+               DeepLink.read(url, scheme: scheme)?.ignoredParameters.isEmpty == true {
+                arguments["returnTo"] = returnTo
+            }
+        }
         switch onRunAction(id, arguments) {
         case .ran: return AgentPaneReply.success()
         case .refused(let reason): return Self.refused(reason)

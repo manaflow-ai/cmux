@@ -1,4 +1,7 @@
 public import Foundation
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
 
 /// The production ``HomeWireHTTP`` and ``HomeWireSocketConnecting`` over one
 /// `URLSession`. The app makes one per server choice and passes it to

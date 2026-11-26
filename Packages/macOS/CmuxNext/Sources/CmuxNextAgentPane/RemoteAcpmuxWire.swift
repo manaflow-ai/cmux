@@ -237,7 +237,12 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             run(id) { client in try await client.typing(on); return Data("{}".utf8) }
         case "_acpmux/view":
             guard names(params["sessionId"]), let visible = params["visible"] as? Bool else { return refuse(id, method) }
-            run(id) { client in try await client.view(visible); return Data("{}".utf8) }
+            let attending = params["attending"] as? Bool
+            let seenSeq = (params["seenSeq"] as? NSNumber).flatMap { UInt64(exactly: $0) }
+            run(id) { client in
+                try await client.view(visible, attending: attending, seenSeq: seenSeq)
+                return Data("{}".utf8)
+            }
         case "_acpmux/watch" where state.withLock({ $0.client == nil }):
             // A new chat before its first send: no session on that machine yet.
             reply(id, ["sessions": [Any]()])

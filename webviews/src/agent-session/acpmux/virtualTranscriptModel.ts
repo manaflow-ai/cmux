@@ -92,6 +92,8 @@ export function sameRowFrame(previous: Record<string, unknown>, next: Record<str
   if (keys.length !== Object.keys(previous).length) return false;
   return keys.every((key) => {
     if (key === "children") return true;
+    // Read by the frame's first mount only (VirtualTranscript `RowFrame`, conversation/offscreenRows.ts).
+    if (key === "offscreen" || key === "placedHeight") return true;
     // Snapshot rebuilding can clone unchanged rows when a prompt is sent; comparing the object here
     // made every mounted frame repaint on that send even though its content had not changed.
     if (key === "row") return sameRowDraw(previous.row as AcpmuxRow, next.row as AcpmuxRow);

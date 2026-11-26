@@ -64,12 +64,18 @@ fn head_end(read: &[u8]) -> Option<usize> {
 pub(super) struct Replayed {
     read: Vec<u8>,
     at: usize,
+    /// Where the head ends in `read`: a read never crosses it while the head replays, so the
+    /// upgrade's parser sees the head alone, and what a client sent behind it (its first
+    /// frame, written with the upgrade request) is read as the connection's first bytes after
+    /// the 101 (tungstenite's server handshake refuses "junk after client request").
+    head: usize,
     stream: TcpStream,
 }
 
 impl Replayed {
     pub(super) fn new(read: Vec<u8>, stream: TcpStream) -> Self {
-        Self { read, at: 0, stream }
+        let head = head_end(&read).unwrap_or(read.len());
+        Self { read, at: 0, head, stream }
     }
 }
 
@@ -83,7 +89,10 @@ impl AsyncRead for Replayed {
         if let Some(rest) = this.read.get(this.at..)
             && !rest.is_empty()
         {
-            let n = rest.len().min(buf.remaining());
+            let mut n = rest.len().min(buf.remaining());
+            if this.at < this.head {
+                n = n.min(this.head - this.at);
+            }
             if let Some(part) = rest.get(..n) {
                 buf.put_slice(part);
             }

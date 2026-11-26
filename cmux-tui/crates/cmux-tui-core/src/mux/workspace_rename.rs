@@ -275,7 +275,7 @@ impl Mux {
                 .iter()
                 .position(|workspace| workspace.key == key)
                 .context("renamed workspace left state during its commit")?;
-            state.workspaces[index].name = name;
+            state.set_workspace_name(index, name);
             state.workspaces[index].name_source = name_source;
             state.workspaces[index].name_revision = name_revision;
             // A replayed receipt carries the original, possibly older,
@@ -355,8 +355,8 @@ impl Mux {
             result.clone(),
             deltas,
             move |state| {
+                state.set_workspace_name(index, name);
                 let workspace = &mut state.workspaces[index];
-                workspace.name = name;
                 workspace.name_source = name_source;
                 workspace.name_revision = name_revision;
             },

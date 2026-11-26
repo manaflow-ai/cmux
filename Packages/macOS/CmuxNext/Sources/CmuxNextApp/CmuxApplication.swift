@@ -71,7 +71,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
     /// (`SyntheticInput`, `debug.mouse`), classified once per event: the
     /// no-activate guard and the browser host's user-input path both read it.
     private(set) var currentEventIsSynthetic = false
-    private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
+    private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app"); private let wakeSignpost: Void = DisplaySleep.shared.onWake = { WakeFrameSignpost().begin(source: .display) } // switch.wake (idle ledger)
 
     /// Set once by `AppServices`: a nil-targeted action's target instead of
     /// the responder chain's (`found`), or nil to keep it. Paste commands

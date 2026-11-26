@@ -9,7 +9,7 @@
 // (`useStreamingRow`) and draws that one row. Any other change goes through the pane as before and
 // clears this store in the same turn, so the pane's own rows are the truth again. The store holds
 // one value; nothing else owns it.
-import { startTransition, useLayoutEffect, useState } from "react";
+import { startTransition, useLayoutEffect, useRef, useState } from "react";
 import type { AcpmuxRow } from "./model";
 import { keptPrefix } from "./conversation/prefixFlatMap";
 
@@ -71,14 +71,31 @@ export function drawsAsIs(row: AcpmuxRow): boolean {
 /// next frame overtakes renders the newer row; the transcript reads `live` only while its row
 /// still shows `drawnText`, so a draw that lands after the pane's own redraw shows nothing stale.
 export function useStreamingRow(active: boolean): StreamingRow | undefined {
+  return useStreamingRowCatchUp(active).live;
+}
+
+/// `useStreamingRow`, with `catchUp`: called inside a synchronous render the transcript runs anyway
+/// (a flushSync placing a row that grew), it takes the newest chunk into that render. The chunk's own
+/// transition then finds the value it would set already drawn and commits nothing. A reply's row
+/// grows a line while a chunk's transition still waits, about 70 times in 74 on a streamed reply
+/// (test/agent-pane-stream-renders.test.ts): each was a second whole transcript pass for one chunk.
+export function useStreamingRowCatchUp(active: boolean): { live: StreamingRow | undefined; catchUp: () => void } {
   const [live, setLive] = useState<StreamingRow | undefined>(() => (active ? current : undefined));
+  // Written in the effect, not the render (the React Compiler skips a hook that writes a ref while it
+  // renders). A catch-up in the render before this effect reads the last committed `active`, and the
+  // hook's own result is gated on this render's `active` either way.
+  const activeRef = useRef(active);
   useLayoutEffect(() => {
+    activeRef.current = active;
     if (!active) return;
     // A frame that landed between the render and this effect.
     setLive(current);
     return streamingRow.subscribe(() => startTransition(() => setLive(current)));
   }, [active]);
-  return active ? live : undefined;
+  const [catchUp] = useState(() => () => {
+    if (activeRef.current) setLive(current);
+  });
+  return { live: active ? live : undefined, catchUp };
 }
 
 /// Whether the pane may draw a streamed chunk through the row alone: false while a view that reads

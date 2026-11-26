@@ -732,4 +732,15 @@ impl ClientRegistry {
         self.attach_surface(client, surface, stream).expect("attach the test stream");
         client
     }
+
+    /// Tests outside `server`: a role-main hello came (the app's frontend connected once).
+    pub(crate) fn note_test_frontend(&self) {
+        self.note_frontend();
+    }
+
+    /// Tests outside `server`: `client`'s connection ends (a frontend quit),
+    /// which ends its attach streams.
+    pub(crate) fn detach_test_client(&self, client: u64) {
+        assert!(self.remove(client).is_some(), "the test client was not registered");
+    }
 }

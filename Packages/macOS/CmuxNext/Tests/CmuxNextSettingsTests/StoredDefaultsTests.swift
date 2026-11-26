@@ -13,11 +13,12 @@ import Testing
     let home = FileManager.default.temporaryDirectory.appending(path: "cn-stored-defaults-\(UUID().uuidString)")
     var url: URL { home.appending(path: "cmux-next.json") }
 
-    func controller(_ text: String, managed: ManagedPreferences = ManagedPreferences()) async throws -> SettingsController {
+    func controller(_ text: String, managed: ManagedPreferences = ManagedPreferences(), sidebarLooks: URL? = SidebarLookPreset.bundledFolder) async throws -> SettingsController {
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         try Data(text.utf8).write(to: url)
         let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(managed), managedWatchFiles: [])
+        settings.sidebarLooksFolder = sidebarLooks
         await settings.reload()
         return settings
     }
@@ -27,6 +28,47 @@ import Testing
         let defaults = try #require(UserDefaults(testSuiteName: suite))
         defaults.removePersistentDomain(forName: suite)
         return defaults
+    }
+
+    @Test(arguments: ["claude", "codex", "studio"])
+    func automaticFollowsTheSidebarLookUntilItIsAnOverride(_ look: String) async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let looks = home.appending(path: "sidebar-looks")
+        try FileManager.default.createDirectory(at: looks, withIntermediateDirectories: true)
+        try Data(#"{ "sidebar.groupHeader.background": "sections" }"#.utf8).write(to: looks.appending(path: "\(look).json"))
+        let settings = try await controller(#"{ "sidebar": { "groupHeader": { "background": "folder" } } }"#, sidebarLooks: looks)
+        let path = SidebarSectionsSetting.groupHeaderBackgroundPath
+        let row = try #require(SettingsSchema.descriptor(for: path))
+
+        try await settings.setSetting(row, to: .string("auto"), by: .user)
+        #expect(try await settings.file.value(at: path) == nil)
+        #expect(!settings.isCustomized(row))
+        try await settings.setSetting(at: SidebarLookPreset.configPath, to: .string(look), by: .user)
+        #expect(settings.snapshot.sidebarSections.groupHeaderBackground == .sections)
+
+        try await settings.setSetting(row, to: .string("auto"), by: .user)
+        #expect(settings.snapshot.sidebarSections.groupHeaderBackground == .auto)
+        #expect(try await settings.file.value(at: path) == .string("auto"))
+        #expect(settings.isCustomized(row))
+
+        let report = try #require(try await settings.forgetStoredDefaults(marker: try marker()))
+        #expect(report.kept[row.id] == .string("auto"))
+        #expect(try await settings.file.value(at: path) == .string("auto"))
+
+        try await settings.setSetting(row, to: nil, by: .user)
+        #expect(try await settings.file.value(at: path) == nil)
+        #expect(try await settings.file.value(at: SidebarLookPreset.configPath) == .string(look))
+        #expect(settings.snapshot.sidebarSections.groupHeaderBackground == .sections)
+        #expect(!settings.isCustomized(row))
+    }
+
+    @Test func launchKeepsAutomaticFromAnOlderSettingsFile() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller(#"{ "sidebar": { "groupHeader": { "background": "auto" } } }"#)
+        let path = SidebarSectionsSetting.groupHeaderBackgroundPath
+        let report = try #require(try await settings.forgetStoredDefaults(marker: try marker()))
+        #expect(report.kept[path.joined(separator: ".")] == .string("auto"))
+        #expect(try await settings.file.value(at: path) == .string("auto"))
     }
 
     @Test func writingTheDefaultStoresNothing() async throws {

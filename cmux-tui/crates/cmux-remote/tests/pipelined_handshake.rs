@@ -92,6 +92,8 @@ fn handshake(client: &StaticIdentity, daemon: &StaticIdentity) -> ClientHandshak
         generation: 0,
         connection_attempt: ConnectionAttemptId([3; 16]),
         resume: BTreeMap::new(),
+        daemon_takes_ik: false,
+        early: Vec::new(),
         handshake_timeout: Duration::from_secs(5),
     }
 }

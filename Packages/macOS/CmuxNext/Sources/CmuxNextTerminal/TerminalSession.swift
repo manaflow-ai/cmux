@@ -182,10 +182,19 @@ public final class TerminalSession {
     /// Predictive local echo, for an IO whose keys make a network round trip (``TerminalIO/predictsEcho``); nil
     /// otherwise, so a local terminal pays nothing per key or chunk.
     let echo: TerminalEchoPredictor?
+    /// `terminal.predictiveLocalEcho`: whether this terminal predicts, when its IO can (``TerminalIO/predictsEcho``).
+    /// Off keeps the engine, so turning it back on needs no new surface, but nothing is drawn and what was drawn goes.
+    public var predictsLocalEcho: Bool {
+        didSet { if predictsLocalEcho != oldValue { echo?.setEnabled(predictsLocalEcho) } }
+    }
 
+    /// - Parameter localEcho: The app's `terminal.predictiveLocalEcho`, which ``predictsLocalEcho`` starts from and
+    ///   follows; nil predicts.
     /// - Parameter blankClock: The clock of the blank-pane check after a reveal; tests pass a manual clock.
-    public init(io: any TerminalIO, ownsGeometry: Bool = true, blankClock: any Clock<Duration> = ContinuousClock()) {
+    public init(io: any TerminalIO, ownsGeometry: Bool = true, localEcho: TerminalLocalEchoPreference? = nil,
+                blankClock: any Clock<Duration> = ContinuousClock()) {
         self.io = io
+        predictsLocalEcho = localEcho?.predicts ?? true
         blankWatch = TerminalBlankWatch(clock: blankClock)
         self.ownsGeometry = ownsGeometry
         ioMode = io.answersTerminalQueries ? GHOSTTY_SURFACE_IO_MANUAL_MIRROR : GHOSTTY_SURFACE_IO_MANUAL
@@ -196,7 +205,7 @@ public final class TerminalSession {
 
         view = TerminalHostView()
         echo = io.predictsEcho
-            ? TerminalEchoPredictor(engine: TerminalEchoPrediction(enabled: true, remote: true)) : nil
+            ? TerminalEchoPredictor(engine: TerminalEchoPrediction(enabled: predictsLocalEcho, remote: true)) : nil
         surfaceView = TerminalSurfaceView(io: ioMode, input: input, session: nil, prediction: echo?.engine)
         surfaceView.bridge.takeUnretainedValue().installLinkFilter(nil)
         surfaceView.session = self
@@ -206,6 +215,7 @@ public final class TerminalSession {
         find.target = self
         echo?.colors = { [weak self] in self?.theme?.colors ?? GhosttyRuntime.shared.themeColors }
         echo?.attach(to: surfaceView)
+        localEcho?.adopt(self)
 
         writerTask = Task.detached(priority: .userInitiated) { [io, weak self] in
             for await item in outgoing {
@@ -316,6 +326,9 @@ public final class TerminalSession {
     public var linkPointerStateForTesting: (wrapped: String?, pointingHand: Bool) {
         (surfaceView.linkPointer.wrapped?.text, surfaceView.cursor == .pointingHand)
     }
+
+    /// The viewport rows a wrapped link's underlines are drawn on.
+    public var linkUnderlineRowsForTesting: [Int] { surfaceView.linkPointer.underlinedRowsForTesting }
     #endif
 
     /// Activates `text` as a Cmd-click on a link Ghostty detected does (its `open_url` action).

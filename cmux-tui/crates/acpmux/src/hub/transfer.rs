@@ -119,10 +119,14 @@ impl Hub {
         if let Some(after) = after {
             super::prompt_images::prefix_ids(&*self.store, &meta.id, after, &mut images)?;
         }
+        // Each surface's unsent draft and who sent the queued prompts (`composers.rs`), which
+        // live in memory, not the log; the images the drafts hold go with the prompts' images.
+        let composers = {
+            let c = session.composers.lock().unwrap_or_else(|e| e.into_inner());
+            images.extend(c.image_ids());
+            c.bundled()
+        };
         super::prompt_images::bundle_images(&images, &dir)?;
-        // Each surface's unsent text and who sent the queued prompts (`composers.rs`), which
-        // live in memory, not the log.
-        let composers = session.composers.lock().unwrap_or_else(|e| e.into_inner()).bundled();
         crate::home_fs::write(dir.join(super::composers::BUNDLE_FILE), composers.to_string())?;
         let native = crate::native::locate(&meta);
         let harness = self.export_harness_state(&meta, &dir)?;

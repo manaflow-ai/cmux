@@ -29,19 +29,43 @@ if '-W' in args:
         sys.exit(1)
     host, port = at.rsplit(':', 1)
     link = net.create_connection((host, int(port)))
-    def up():
+    link.setsockopt(net.IPPROTO_TCP, net.TCP_NODELAY, 1)
+    # FAKE_SSH_DELAY_MS (the daemon's env): each chunk is held that long in both directions, as
+    # a link of that one-way latency holds it (`view_latency.rs`).
+    delay = int(os.environ.get('FAKE_SSH_DELAY_MS') or 0) / 1000
+    def write_out(data):
+        while data:
+            data = data[os.write(1, data):]
+    def pump(read, write, close):
+        import queue, time
+        held = queue.Queue()
+        def deliver():
+            while True:
+                item = held.get()
+                if item is None:
+                    close()
+                    return
+                wait = item[0] - time.monotonic()
+                if wait > 0:
+                    time.sleep(wait)
+                write(item[1])
+        out = threading.Thread(target=deliver, daemon=True)
+        out.start()
         while True:
-            data = os.read(0, 65536)
+            try:
+                data = read()
+            except OSError:
+                data = b''
             if not data:
-                break
-            link.sendall(data)
-        link.shutdown(net.SHUT_WR)
-    threading.Thread(target=up, daemon=True).start()
-    while True:
-        data = link.recv(65536)
-        if not data:
-            break
-        os.write(1, data)
+                held.put(None)
+                out.join()
+                return
+            held.put((time.monotonic() + delay, data))
+    threading.Thread(
+        target=pump,
+        args=(lambda: os.read(0, 65536), link.sendall, lambda: link.shutdown(net.SHUT_WR)),
+        daemon=True).start()
+    pump(lambda: link.recv(65536), write_out, lambda: None)
     sys.exit(0)
 command = args[-1]
 if 'acpmux daemon status --json' in command:
@@ -190,7 +214,9 @@ async fn session_move_to_an_added_ssh_machine_preserves_history_queue_and_draft(
     assert_eq!(draft["draft"], "unsent words");
     let info = dst.call("_acpmux/info", json!({"sessionId": id})).await;
     assert_eq!(info["cwd"], destination.to_string_lossy().as_ref());
-    let left = src.call("_acpmux/info", json!({"sessionId": id})).await;
+    // The row the source keeps: a plain `{sessionId}` info follows the chat to its copy.
+    let kept = src.call("_acpmux/info", json!({"sessionIds": [id], "row": true})).await;
+    let left = &kept["rows"][0];
     assert_eq!(left["status"], "closed");
     assert_eq!(left["movedTo"]["host"], "target");
 }

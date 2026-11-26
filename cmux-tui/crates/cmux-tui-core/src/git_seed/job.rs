@@ -360,6 +360,8 @@ impl GitSeedService {
             Some(_) => None,
             None => Some(place::bundle(&self.roots, &params.bundle, &id)?),
         };
+        let carry =
+            params.carry.as_deref().map(|path| place::carry(&self.roots, path, &id)).transpose()?;
         let job = Arc::new(Job {
             id,
             folder: folder.clone(),
@@ -392,6 +394,7 @@ impl GitSeedService {
             params,
             folder,
             bundle,
+            carry,
             self.roots.clone(),
             self.config.git.clone(),
             credentials,

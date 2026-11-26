@@ -35,7 +35,26 @@ use std::os::fd::{AsRawFd, RawFd};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+
+/// Outer WireGuard media may not wait in the rd-link handoff longer than cmux-wg's media
+/// scheduler budget. Control and handshake records use the command queue and are never aged
+/// by this limit.
+const MEDIA_MAX_AGE: Duration = Duration::from_millis(50);
+
+struct QueuedMedia {
+    queued_at: Instant,
+    datagram: Vec<u8>,
+}
+
+impl QueuedMedia {
+    fn take_payload_if_fresh(self, now: Instant) -> Option<Vec<u8>> {
+        (!self.stale_at(now)).then_some(self.datagram)
+    }
+    fn stale_at(&self, now: Instant) -> bool {
+        now.saturating_duration_since(self.queued_at) > MEDIA_MAX_AGE
+    }
+}
 
 #[path = "media_queue.rs"]
 mod media_queue;
@@ -250,6 +269,7 @@ enum Command {
     TurnLater(Later<TurnServer>),
     Control(Vec<u8>),
     Datagram(Vec<u8>),
+    ControlBarrier(mpsc::Sender<()>),
     NetworkChange,
     PeerLost(Option<u64>),
     Close,
@@ -276,11 +296,46 @@ pub struct Net {
     departure_overflows: Arc<AtomicU64>,
     commands: mpsc::Sender<Command>,
     events: mpsc::Receiver<NetEvent>,
-    command_wake: Pipe,
+    command_wake: Arc<Pipe>,
     event_wake: Pipe,
     thread: Option<thread::JoinHandle<()>>,
     local_addr: SocketAddr,
     media_queue: Arc<Mutex<MediaQueue>>,
+    media: mpsc::SyncSender<QueuedMedia>,
+}
+
+/// A send-only handle for a running link. The owner remains the sole reader of
+/// `Net::events`; the owner must outlive every handle.
+#[derive(Clone)]
+pub struct NetSender {
+    commands: mpsc::Sender<Command>,
+    command_wake: Arc<Pipe>,
+    media: mpsc::SyncSender<QueuedMedia>,
+}
+
+impl NetSender {
+    pub fn send_datagram(&self, datagram: Vec<u8>) {
+        // Handshake/control traffic is not media: preserve it on the reliable
+        // command queue, where the media age budget cannot discard it.
+        self.command(Command::Datagram(datagram));
+    }
+    pub fn send_media(&self, datagram: Vec<u8>) {
+        // Best-effort media: keep the overlay from building an unbounded outer
+        // queue, and timestamp before the bounded handoff so a stalled driver
+        // cannot deliver stale frames after cmux-wg's 50 ms budget.
+        let queued = QueuedMedia { queued_at: Instant::now(), datagram };
+        if self.media.try_send(queued).is_ok() {
+            self.command_wake.wake();
+        }
+    }
+    pub fn send_control(&self, record: Vec<u8>) {
+        self.command(Command::Control(record));
+    }
+    fn command(&self, command: Command) {
+        if self.commands.send(command).is_ok() {
+            self.command_wake.wake();
+        }
+    }
 }
 
 /// A non-blocking pipe used as a wake-up: a byte means "look at the queue".
@@ -413,6 +468,12 @@ fn grow_udp_buffers(socket: &UdpSocket) {
 
 /// The keep-awake interval ([`crate::endpoint::KEEP_AWAKE_US`]);
 /// `CMUX_RD_KEEP_AWAKE_MS` overrides it for measurements, 0 turns it off.
+/// `CMUX_RD_BRAID_PATHS=0`: the path code before RFD 0164 B10
+/// ([`Endpoint::set_braid_paths`]), for one release.
+fn braid_paths() -> bool {
+    std::env::var("CMUX_RD_BRAID_PATHS").map_or(true, |v| v.trim() != "0")
+}
+
 fn keep_awake_us() -> Option<u64> {
     match std::env::var("CMUX_RD_KEEP_AWAKE_MS").ok().and_then(|v| v.trim().parse::<u64>().ok()) {
         Some(ms) => Some(ms.saturating_mul(1000)).filter(|us| *us > 0),
@@ -458,14 +519,18 @@ impl Net {
             Endpoint::new(config.role, &config.session, &config.local, config.expected_remote, 0)?;
         endpoint.set_local_networks(cmux_transport::local_networks());
         endpoint.set_keep_awake(keep_awake_us());
+        endpoint.set_braid_paths(braid_paths());
         let (command_tx, command_rx) = mpsc::channel();
         let (event_tx, event_rx) = mpsc::channel();
         let (departure_tx, departure_rx) = mpsc::sync_channel(MAX_DEPARTURE_RECEIPTS);
         let departure_overflows = Arc::new(AtomicU64::new(0));
         let media_queue = Arc::new(Mutex::new(MediaQueue::default()));
-        let command_wake = Pipe::new().map_err(|e| LinkError::Io(e.to_string()))?;
+        let (media_tx, media_rx) = mpsc::sync_channel(256);
+        let command_wake = Arc::new(Pipe::new().map_err(|e| LinkError::Io(e.to_string()))?);
         let event_wake = Pipe::new().map_err(|e| LinkError::Io(e.to_string()))?;
         let mut driver = Driver {
+            media: media_rx,
+            barriers: Vec::new(),
             departures: departure_tx,
             departure_overflows: Arc::clone(&departure_overflows),
             departure_wake: false,
@@ -536,6 +601,7 @@ impl Net {
             thread: Some(thread),
             local_addr,
             media_queue,
+            media: media_tx,
         })
     }
 
@@ -616,6 +682,22 @@ impl Net {
         self.command(Command::Control(record));
     }
 
+    pub fn sender(&self) -> NetSender {
+        NetSender {
+            commands: self.commands.clone(),
+            command_wake: Arc::clone(&self.command_wake),
+            media: self.media.clone(),
+        }
+    }
+
+    /// Completes once the peer has acknowledged all reliable controls queued
+    /// before this call. Closing/failure drops the receiver without success.
+    pub fn control_barrier(&self) -> mpsc::Receiver<()> {
+        let (tx, rx) = mpsc::channel();
+        self.command(Command::ControlBarrier(tx));
+        rx
+    }
+
     /// The machine's network changed (interface, address, wake from sleep).
     pub fn network_changed(&self) {
         self.command(Command::NetworkChange);
@@ -624,7 +706,7 @@ impl Net {
     /// Fails the link ([`NetEvent::Failed`]) once the established peer sent
     /// nothing for `after` ([`crate::PEER_LOST_US`] for a viewer): a host that
     /// died without a close. `None` (the default) waits forever.
-    pub fn set_peer_lost(&self, after: Option<std::time::Duration>) {
+    pub fn set_peer_lost(&self, after: Option<Duration>) {
         let us = after.map(|d| u64::try_from(d.as_micros()).unwrap_or(u64::MAX));
         self.command(Command::PeerLost(us));
     }
@@ -676,6 +758,8 @@ struct StunQuery {
 }
 
 struct Driver {
+    media: mpsc::Receiver<QueuedMedia>,
+    barriers: Vec<mpsc::Sender<()>>,
     departures: mpsc::SyncSender<DatagramDeparture>,
     departure_overflows: Arc<AtomicU64>,
     departure_wake: bool,
@@ -1105,6 +1189,11 @@ impl Driver {
             self.stun_tick(now);
             self.turn_tick(now);
             self.flush(now)?;
+            if self.endpoint.link().controls_acknowledged() {
+                for barrier in self.barriers.drain(..) {
+                    let _ = barrier.send(());
+                }
+            }
             let mut fds = [
                 libc::pollfd { fd: self.socket.as_raw_fd(), events: libc::POLLIN, revents: 0 },
                 libc::pollfd { fd: self.command_fd, events: libc::POLLIN, revents: 0 },
@@ -1127,6 +1216,7 @@ impl Driver {
                     }
                     Command::TurnLater(later) => self.turn_later = Some(later),
                     Command::Control(r) => self.endpoint.send_control(r, now)?,
+                    Command::ControlBarrier(reply) => self.barriers.push(reply),
                     Command::Datagram(datagram) => {
                         // Input, cursor and repair traffic never replaces queued video.
                         if self.endpoint.link().is_established() {
@@ -1201,6 +1291,14 @@ impl Driver {
                     Err(_) => break,
                 }
             }
+            for _ in 0..256 {
+                let Ok(queued) = self.media.try_recv() else { break };
+                if self.endpoint.link().is_established()
+                    && let Some(datagram) = queued.take_payload_if_fresh(Instant::now())
+                {
+                    self.send_media_datagram(&datagram, now)?;
+                }
+            }
             self.flush(now)?;
             self.drain_pending_datagrams(now)?;
             self.drain_media(now)?;
@@ -1216,4 +1314,18 @@ impl Driver {
 /// A Noise handshake message (msg1, msg2 or msg3).
 fn is_handshake(packet: &[u8]) -> bool {
     matches!(packet.first(), Some(&(crate::TAG_HANDSHAKE_1..=crate::TAG_HANDSHAKE_3)))
+}
+
+#[cfg(test)]
+mod media_handoff_tests {
+    use super::*;
+
+    #[test]
+    fn stalled_rd_media_handoff_expires_without_aging_control() {
+        let queued = QueuedMedia { queued_at: Instant::now(), datagram: vec![1] };
+        let at = queued.queued_at;
+        assert_eq!(queued.take_payload_if_fresh(at + Duration::from_millis(50)), Some(vec![1]));
+        let queued = QueuedMedia { queued_at: at, datagram: vec![2] };
+        assert!(queued.take_payload_if_fresh(at + Duration::from_millis(51)).is_none());
+    }
 }

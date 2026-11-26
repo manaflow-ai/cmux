@@ -101,6 +101,8 @@ public struct WorkspaceScreen: View {
                 Int(overviewColumns(width: Double(proxy.size.width)))
             } action: { columns in
                 overviewColumnCount = columns
+                // Agent cards draw their pictures at the grid's card size.
+                if source.overviewColumns != columns { source.overviewColumns = columns }
             }
             .overlay(alignment: .top) {
                 // Select Tabs puts its Close | More where Back is.
@@ -135,6 +137,7 @@ public struct WorkspaceScreen: View {
             // The grid's view stays "visible" in the background: its refresh stops here.
             // Inactive (Control Center, the app switcher's first moment) still shows it.
             .onChange(of: scenePhase) { _, phase in source.sceneActiveChanged(phase != .background) }
+            .onDisappear { source.screenDisappeared() }
             #if DEBUG
             .onChange(of: director.serial) { run(director.command) }
             #endif

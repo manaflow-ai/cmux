@@ -44,7 +44,7 @@ struct ToolRowView: View {
             } label: {
                 header
             }
-            .buttonStyle(.cmuxPressFill)
+            .buttonStyle(.cmuxPressLine)
             // Keep row actions on the tappable header. Expanded output owns text selection.
             .contextMenu {
                 if openFile.isAvailable {
@@ -207,7 +207,7 @@ struct ToolGroupView: View {
                 .frame(minHeight: 44)
                 .contentShape(.rect)
             }
-            .buttonStyle(.cmuxPressFill)
+            .buttonStyle(.cmuxPressLine)
             .padding(.vertical, -6)
             // The header's 44 pt target overlaps the first call's: the header
             // wins, so a tap on it always closes the group.
@@ -288,7 +288,7 @@ struct ThoughtRow: View {
                 .frame(minHeight: 44)
                 .contentShape(.rect)
             }
-            .buttonStyle(.cmuxPressFill)
+            .buttonStyle(.cmuxPressLine)
             .padding(.vertical, -6)
             if expanded {
                 // Opened by the person: all of it. Opened because it is live: its newest

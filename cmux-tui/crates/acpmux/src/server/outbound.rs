@@ -74,6 +74,7 @@ pub(crate) fn is_cheap_read(method: &str) -> bool {
             | method::MUX_STATUS
             | method::MUX_HARNESS_HEALTH
             | "_acpmux/host_health"
+            | "_acpmux/host_overload"
             // The agent pane's liveness probe (webviews `direct.ts` `probeDaemon`): the pane gives
             // its socket up when this goes unanswered for 15 s, so behind a huge chat's replay a
             // busy but alive daemon had every pane cut and reattach at once.

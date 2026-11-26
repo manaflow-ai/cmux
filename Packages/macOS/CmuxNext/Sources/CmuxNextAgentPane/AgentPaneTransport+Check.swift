@@ -114,7 +114,7 @@ extension AgentPaneTransport {
             return .status(pageID: pageID, relayID: relayID, path: path)
         }
         if !snapshot.isFirst, let method { snapshot.sessions.sent(method: method, id: pageID) }
-        let error = sendNow(box, relayID: relayID, socket: socket)
+        let error = sendNow(box, relayID: relayID, socket: socket, ids: ids)
         if error != nil { socket.pageFrameNotSent(method: method) }
         if error != nil, let relayID { ids.cancel(relayID) }
         if error == .outboundOverflow { socket.close(code: 1008, reason: "outbound overflow", error: error) }
@@ -212,9 +212,10 @@ extension AgentPaneTransport {
         }
     }
 
-    @concurrent nonisolated static func encodeAndSend(_ box: FrameBox, relayID: Int?, socket: AcpmuxPaneSocket) async
+    @concurrent nonisolated static func encodeAndSend(_ box: FrameBox, relayID: Int?, socket: AcpmuxPaneSocket,
+                                                      ids: AcpmuxRequestIds? = nil) async
         -> AgentPaneTransportError? {
-        let error = sendNow(box, relayID: relayID, socket: socket)
+        let error = sendNow(box, relayID: relayID, socket: socket, ids: ids)
         // A large frame is freed here, not on the main thread when its step ends.
         box.free()
         return error
@@ -222,9 +223,16 @@ extension AgentPaneTransport {
 
     /// The fresh serialization of the decided frame, with the relay id, to the socket; never the
     /// page's bytes.
-    nonisolated static func sendNow(_ box: FrameBox, relayID: Int?, socket: AcpmuxPaneSocket) -> AgentPaneTransportError? {
+    /// `ids` marks the request written once the socket took it, and a `_acpmux/request_state`
+    /// question notes, just before it goes, the requests written ahead of it
+    /// (``AcpmuxRequestIds/snapshotWritten(for:)``).
+    nonisolated static func sendNow(_ box: FrameBox, relayID: Int?, socket: AcpmuxPaneSocket,
+                                    ids: AcpmuxRequestIds? = nil) -> AgentPaneTransportError? {
         guard let text = box.encoded(id: relayID) else { return .invalidFrame }
-        return socket.send(text)
+        if let relayID { ids?.snapshotWritten(for: relayID) }
+        let error = socket.send(text)
+        if error == nil, let relayID { ids?.written(relayID) }
+        return error
     }
 
     /// A refused frame: answered when it is a request, the socket closed when it was the first.

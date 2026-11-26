@@ -1096,6 +1096,23 @@ pub(in crate::cli) mod acp {
         })
     }
 
+    /// Sets `session`'s tags `set` (`_acpmux/tag`), each living `ttl_seconds`.
+    pub(in crate::cli) fn set_tags(
+        session: &str,
+        set: &Value,
+        ttl_seconds: u64,
+        socket: Option<&Path>,
+    ) -> Result<Value, String> {
+        read_on(socket, async |client| {
+            client
+                .request(
+                    acpmux::rpc::method::MUX_TAG,
+                    json!({"sessionId": session, "set": set, "ttlSeconds": ttl_seconds}),
+                )
+                .await
+        })
+    }
+
     /// The acpmux's harness catalog (`_acpmux/harnesses`: `harnesses`, `families`,
     /// `defaultHarness`, `defaults`), the one a new chat there resolves its agent from; the dial
     /// and the answer together at most `timeout` (a daemon still reading its login shell answers

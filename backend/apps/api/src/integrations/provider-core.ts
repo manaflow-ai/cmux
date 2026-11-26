@@ -4,6 +4,7 @@
  */
 
 import type { Env } from "../env.ts"
+import type { GithubUserGrant } from "./github-user-tokens.ts"
 
 export type Http = (request: Request) => Promise<Response>
 
@@ -16,6 +17,20 @@ export interface Approved {
   readonly scopes_granted: ReadonlyArray<string>
   readonly credential: Credential
   readonly resources?: { readonly repos: ReadonlyArray<string> | null; readonly linked_by_github_id?: number }
+  /**
+   * GitHub: the linking person's user-to-server grant, when GitHub issued a refresh token (the App's
+   * "expire user authorization tokens"). The ConnectionDO seals only its refresh token (github-user-tokens.ts).
+   */
+  readonly user_grant?: GithubUserGrant
+}
+
+/**
+ * The calling person's own provider token, when they authorized one (GitHub: github-user-tokens.ts).
+ * `refused` drops a token the provider answered 401 for, so the next ask refreshes it.
+ */
+export interface ActAsUser {
+  readonly token: () => Promise<string | undefined>
+  readonly refused: (token: string) => void
 }
 
 /** The parts of the team integration policy a provider needs while linking. */
@@ -61,7 +76,7 @@ export interface ProviderImpl {
    * granular consent a user may grant fewer scopes than were asked for.
    */
   readonly scopesFor?: (op: string) => ReadonlyArray<string> | undefined
-  readonly call: (env: Env, http: Http, credential: Credential, op: string, params: Record<string, unknown>, beforeEffect?: () => Promise<void>) => Promise<CallResult>
+  readonly call: (env: Env, http: Http, credential: Credential, op: string, params: Record<string, unknown>, beforeEffect?: () => Promise<void>, asUser?: ActAsUser) => Promise<CallResult>
   /**
    * A fresh credential when this one is (about to be) expired, else undefined.
    * The ConnectionDO seals the result before any provider call uses it and runs

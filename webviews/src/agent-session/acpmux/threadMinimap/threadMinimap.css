@@ -66,6 +66,7 @@
    transcript at its ends. Its scrollbar is hidden in both engines, so the transcript's shared one is
    the only one on screen (SCROLLBARS-THIN; #23285 left this list a second visible scroller). */
 .acpmux-minimap__list {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -740,4 +741,33 @@
 }
 .acpmux-minimap__show:focus-visible {
   outline: 1px solid var(--agent-focus-ring, var(--acpmux-minimap-text));
+}
+
+/* The transcript's New line, in the gap between rail ticks or at its height on the full map.
+   It occupies no slot and leaves scrolling, focus and prompt hit targets alone. */
+.acpmux-minimap__cutover {
+  position: absolute;
+  inset-inline-start: 0;
+  z-index: var(--layer-raised);
+  width: min(100%, var(--ds-space-3));
+  height: var(--acpmux-minimap-bar-height);
+  border-radius: var(--ds-space-1);
+  background: var(--cmux-app-accent, var(--agent-text));
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.acpmux-minimap__cutover[data-look="band"] {
+  width: 100%;
+  height: var(--ds-space-1);
+  opacity: 0.45;
+}
+.acpmux-minimap__cutover[data-look="dot"] {
+  width: var(--ds-space-1);
+  height: var(--ds-space-1);
+}
+.acpmux-minimap__cutover[data-edge="start"] {
+  transform: none;
+}
+.acpmux-minimap__cutover[data-edge="end"] {
+  transform: translateY(-100%);
 }

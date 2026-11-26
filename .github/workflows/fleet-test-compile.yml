@@ -199,6 +199,10 @@ jobs:
             echo "::warning title=fleet test-compile::The plan named no package; no test-compile verdict."
             exit 0
           fi
+          # Advisory: the controller's `idle` request class (cmuxterm-hq#23557), when this runner's client has it.
+          if "$client" compile-check --help 2>/dev/null | grep -q -- '--priority {'; then
+            args+=(--priority idle)
+          fi
           status=0
           "$client" compile-check --ref "$REF" "${args[@]}" \
             --timeout 3600 --queue-timeout 1200 || status=$?

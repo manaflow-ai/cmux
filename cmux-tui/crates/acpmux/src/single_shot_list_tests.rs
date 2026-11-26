@@ -32,7 +32,7 @@ const ALLOWED: &[(&str, &str, usize, &str)] = &[
         "`watch_pages`: the link's watch, its cursor followed page by page",
     ),
     (
-        "cmux-tui/crates/acpmux/src/tui/run.rs",
+        "cmux-tui/crates/acpmux-tui/src/run.rs",
         "method::MUX_WATCH",
         1,
         "turns watching on, `limit: 1`",

@@ -344,7 +344,7 @@ impl Live {
             .enable_all()
             .build()
             .map_err(|e| format!("cannot start the HTTP runtime: {e}"))?;
-        let client = reqwest::Client::builder()
+        let client = cmux_egress::client_builder("cmux_tui::cli::key_broker")
             .timeout(Duration::from_secs(30))
             .user_agent(concat!("cmux-keys/", env!("CARGO_PKG_VERSION")))
             .build()

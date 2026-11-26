@@ -39,6 +39,13 @@ public final class UpdateController {
         return true
     }
 
+    /// When Sparkle last checked the feed (by itself or for the person); nil before the first check.
+    public var lastUpdateCheckDate: Date? { updater.lastUpdateCheckDate }
+    /// The scheduled check's interval in seconds, nil while automatic checks are off.
+    public var scheduledCheckInterval: TimeInterval? {
+        updater.automaticallyChecksForUpdates ? updater.updateCheckInterval : nil
+    }
+
     /// Host actions the updater delegates upward (retry, relaunch prep). Forwarded to the driver.
     public weak var actionDelegate: (any UpdateActionDelegate)? {
         didSet { driver.actionDelegate = actionDelegate }

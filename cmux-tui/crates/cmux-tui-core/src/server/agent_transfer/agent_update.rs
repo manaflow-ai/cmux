@@ -101,11 +101,9 @@ impl Drop for ApplySlot {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct PlanParams {}
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct ApplyParams {
     ids: Vec<String>,
     #[serde(default)]

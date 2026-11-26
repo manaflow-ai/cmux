@@ -807,6 +807,19 @@
       "expect": "1.4.1"
     },
     {
+      "name": "sccache",
+      "version": "0.20.0",
+      "url": "https://github.com/mozilla/sccache/releases/download/v0.20.0/sccache-v0.20.0-x86_64-unknown-linux-musl.tar.gz",
+      "sha256": "c3c5db9cd7e3be12b7bab350d8fe8ae7dcfb7269d5432b269e0dffa1a87c6ed2",
+      "size": 10547998,
+      "format": "tar.gz",
+      "bin": { "sccache": "sccache-v0.20.0-x86_64-unknown-linux-musl/sccache" },
+      "versionArgs": ["--version"],
+      "expect": "sccache 0.20.0",
+      "notices": ["sccache-v0.20.0-x86_64-unknown-linux-musl/LICENSE"],
+      "source": "mozilla/sccache release v0.20.0 (2026-11-23, Apache-2.0). The compiler cache a person's machines share through an object store (RFD 0068, what to build next item 6). Installed only: the image sets no RUSTC_WRAPPER; a machine gets the cache's environment from the platform, and only when the cache is configured. sha256 and size from the release's .sha256 file and asset digest; the archive holds LICENSE, README.md and the static musl binary."
+    },
+    {
       "name": "cmux-cua",
       "version": "0.8.12",
       "url": "https://github.com/manaflow-ai/cmux-cua/releases/download/cmux-cua-v0.8.12/cmux-cua-0.8.12-linux-x86_64.tar.gz",

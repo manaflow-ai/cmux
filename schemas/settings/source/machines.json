@@ -681,6 +681,28 @@
           ]
         },
         {
+          "key": "cloud.autoCloud",
+          "name": "autoCloud",
+          "note": "AutoCloud (Leo, 2026-11-24): the new-chat Where menu's Auto opens Auto, Cloud only and Machine…, and Auto may start a chat on a Cloud VM when this Mac has no room. Hidden until it ships; the plan gate still applies.",
+          "title": {
+            "key": "settings.cloud.autoCloud",
+            "text": "Auto Places Chats in Cloud"
+          },
+          "help": {
+            "key": "settings.cloud.autoCloud.help",
+            "text": "Auto runs a new chat on this Mac when it has room, else on a Cloud machine."
+          },
+          "kind": "toggle",
+          "default": false,
+          "page_hidden": "AutoCloud preview; cmux-next.json only until it ships",
+          "keywords": [
+            "cloud",
+            "auto",
+            "place",
+            "where"
+          ]
+        },
+        {
           "key": "cloud.agentMemory.follow",
           "name": "agentMemoryFollow",
           "title": {
@@ -1172,6 +1194,62 @@
           ],
           "swift_enum": {
             "name": "UltraConnectionMode"
+          }
+        },
+        {
+          "key": "transport.tailnetCarrier",
+          "name": "tailnetCarrier",
+          "note": "Read by direct route races. When direct-only, a cached Tailscale LocalAPI view may add a peer's direct tailnet address as a candidate. DERP and peer-relay paths are excluded until their cost is measured. Off is the default.",
+          "title": {
+            "key": "settings.transport.tailnetCarrier",
+            "text": "Tailscale Carrier"
+          },
+          "help": {
+            "key": "settings.transport.tailnetCarrier.help",
+            "text": "Race a peer's direct Tailscale address with the other transports when tailscaled reports one."
+          },
+          "summary": {
+            "key": "settings.transport.tailnetCarrier.summary",
+            "text": "Use direct Tailscale paths when available"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.transport.tailnetCarrier.off",
+                "text": "Off"
+              },
+              "note": "Do not add Tailscale candidates."
+            },
+            {
+              "value": "direct-only",
+              "title": {
+                "key": "settings.transport.tailnetCarrier.directOnly",
+                "text": "Direct Only"
+              },
+              "note": "Add only paths tailscaled reports as direct."
+            },
+            {
+              "value": "on",
+              "title": {
+                "key": "settings.transport.tailnetCarrier.on",
+                "text": "On"
+              },
+              "note": "Accept the carrier policy value. Relayed paths remain excluded until their cost is measured."
+            }
+          ],
+          "default": "off",
+          "keywords": [
+            "tailscale",
+            "tailnet",
+            "wireguard",
+            "transport",
+            "direct",
+            "relay"
+          ],
+          "swift_enum": {
+            "name": "TailnetCarrierMode"
           }
         },
         {

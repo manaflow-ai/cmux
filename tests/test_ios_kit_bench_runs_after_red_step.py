@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The kit job's Instant list bench still runs when an earlier step of the job is red.
+"""The kit job's Instant list bench still runs when an earlier step of the job is red, except on a pull request.
 
 The bench steps of .github/workflows/cmux-next-ios-kit.yml are advisory and run with
 `!cancelled()`, so a red test step never hides their numbers. The steps they build
@@ -64,6 +64,14 @@ class BenchRunsAfterARedStep(unittest.TestCase):
                 f"{name!r} is skipped when an earlier step (a lint) is red, so the bench "
                 "has nothing to build with and prints no INSTANTPERF line",
             )
+
+    def test_a_red_pull_request_does_not_wait_for_the_advisory_bench(self) -> None:
+        # On a pull request the red step is already the verdict; the advisory bench (3-10 min on a Mac) is skipped so
+        # the red check reports at once (goal ios-ci-under-5min). Base pushes and dispatches still bench after a red.
+        by_id = {step.get("id"): step for step in steps()}
+        for bench in BENCH_IDS:
+            condition = str(by_id[bench].get("if", ""))
+            self.assertIn("github.event_name != 'pull_request' || success()", condition, f"{bench}: {condition}")
 
     def test_a_red_lint_still_fails_the_job(self) -> None:
         # The lint keeps its teeth: it is not advisory, only no longer in the bench's way.

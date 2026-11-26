@@ -182,6 +182,8 @@ impl Hub {
         // daemon, alongside the sessions below.
         let ((), kept) =
             tokio::join!(self.stop_pool(), self.shutdown_sessions(preserve_auto_resume, true));
+        // Its tasks' ends are the next daemon's to send (`bg_notify_resume`).
+        self.bg_unwatch_all();
         self.seal();
         kept
     }
@@ -228,6 +230,7 @@ impl Hub {
                     tracing::warn!("store flush failed: {error}");
                 }
                 hub.outbox.compact();
+                flush_disk_writer();
                 hub.peer_snapshots.flush_now();
             })
         };
@@ -319,6 +322,8 @@ impl Hub {
         self.cold_wake.notify_one();
         // So does the cold segments' worker (`cold_segments.rs`).
         self.cold_sealed_wake.notify_one();
+        // So does the worker that packs chats' logs as they grow (`pack_as_it_grows.rs`).
+        self.pack_grown_wake.notify_one();
         let sessions = self.sessions();
         // A scheduled provider retry must not survive an explicit daemon shutdown: settle it
         // before teardown so restart restoration cannot replay it. A turn this shutdown cuts
@@ -513,11 +518,23 @@ impl Hub {
         // The outbox's journal folded into its snapshot (`hub/outbox.rs`): the next daemon to
         // start, an older one too, reads every delivery from `outbox.json` alone.
         self.outbox.compact();
+        flush_disk_writer();
         // What peers' sessions streamed in the last seconds (`peer_snapshot.rs`): the shutdown's
         // is its last step, after the teardown, and a shutdown past its budget calls it too.
         self.peer_snapshots.flush_now();
         // The approvals audit trail: every answer is written already; its last lines are synced.
         self.audit.close(AUDIT_DRAIN);
+    }
+}
+
+/// How long the shutdown waits for the disk writer (`disk_writer.rs`) to write what waits.
+const DISK_WRITER_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Writes what the disk writer holds (caches, views, the outbox's saves no caller waited on),
+/// within [`DISK_WRITER_DRAIN`]: a disk that stopped never holds the shutdown.
+fn flush_disk_writer() {
+    if !crate::disk_writer::flush(DISK_WRITER_DRAIN) {
+        tracing::warn!("disk writer: writes still waiting at shutdown after {DISK_WRITER_DRAIN:?}");
     }
 }
 

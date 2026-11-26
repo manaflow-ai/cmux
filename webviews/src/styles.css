@@ -1447,6 +1447,31 @@ body[data-status-only="true"] #status-text {
   white-space: nowrap;
   color: var(--cmux-diff-text-muted);
 }
+.comment-entry-thread {
+  align-items: stretch;
+  padding: var(--grid-base) var(--grid-gap);
+}
+.comment-entry-select {
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-half-step);
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: default;
+}
+.comment-entry-resolved,
+.comment-card-resolved {
+  opacity: 0.65;
+}
+.comment-entry-resolve {
+  align-self: flex-start;
+  margin-top: var(--grid-half-step);
+}
 .comment-composer,
 .comment-card {
   margin: 8px 12px;
@@ -1571,6 +1596,47 @@ body[data-status-only="true"] #status-text {
 .comment-card-message {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+.comment-card-resolved .comment-card-message {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.comment-card-resolved .comment-thread,
+.comment-entry-resolved .comment-thread {
+  display: none;
+}
+.comment-thread {
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-gap);
+  margin-top: 4px;
+  padding-left: var(--grid-gap);
+  border-left: 2px solid var(--cmux-diff-border);
+}
+.comment-thread-reply {
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-half-step);
+}
+.comment-thread-reply-header {
+  color: var(--cmux-diff-text-muted);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-emphasis);
+}
+.comment-thread-reply-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--cmux-diff-text-subtle);
+}
+.comment-thread-reply-button {
+  align-self: flex-start;
+  padding-left: 0;
+}
+.comment-entry-thread .comment-composer {
+  margin: var(--grid-half-step) 0 0;
+  padding: 8px;
+  box-shadow: none;
 }
 
 /* Find in diff (Cmd+F): the shared find pill (ui/findPill.css), at the top right where every

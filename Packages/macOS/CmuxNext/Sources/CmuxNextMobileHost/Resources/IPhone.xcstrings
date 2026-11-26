@@ -1442,7 +1442,7 @@
         }
       }
     },
-"iphone.phone.transport.next": {
+    "iphone.phone.transport.next": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -1573,7 +1573,7 @@
         }
       }
     },
-"iphone.phone.transport.ios": {
+    "iphone.phone.transport.ios": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -2355,6 +2355,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "中繼 (TURN/TLS)"
+          }
+        }
+      }
+    },
+    "iphone.path.httpsRelay": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relayed (cmux over HTTPS)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عبر مُرحِّل (cmux, HTTPS)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preko releja (cmux, HTTPS)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Videresendt (cmux, HTTPS)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Über Relay (cmux, HTTPS)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Retransmitida (cmux, HTTPS)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Relayée (cmux, HTTPS)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tramite relay (cmux, HTTPS)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "中継 (cmux, HTTPS)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តាមរយៈការបញ្ជូនត (cmux, HTTPS)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "중계(cmux, HTTPS)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Videresendt (cmux, HTTPS)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przez przekaźnik (cmux, HTTPS)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Retransmitida (cmux, HTTPS)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Через ретранслятор (cmux, HTTPS)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ผ่านรีเลย์ (cmux, HTTPS)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktarmalı (cmux, HTTPS)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Через ретранслятор (cmux, HTTPS)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Qua chuyển tiếp (cmux, HTTPS)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "中继 (cmux, HTTPS)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "中繼 (cmux, HTTPS)"
           }
         }
       }

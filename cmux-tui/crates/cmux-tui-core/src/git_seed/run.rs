@@ -251,6 +251,8 @@ pub struct Seed {
     folder: PathBuf,
     /// This daemon's copy of the Mac's bundle (`None`: clone only).
     bundle: Option<place::BundleCopy>,
+    /// This daemon's copy of the sender's `git-seed-carry-v1` pack, until it is used ([`carry`]).
+    carry: Option<place::BundleCopy>,
     roots: Roots,
     git: Git,
     credentials: Vec<Credential>,
@@ -268,12 +270,13 @@ impl Seed {
         params: StartParams,
         folder: PathBuf,
         bundle: Option<place::BundleCopy>,
+        carry: Option<place::BundleCopy>,
         roots: Roots,
         git: Git,
         credentials: Vec<Credential>,
     ) -> Self {
         let chosen = credentials.first().cloned().unwrap_or(Credential::Anonymous);
-        Self { job, params, folder, bundle, roots, git, credentials, chosen, reached: None }
+        Self { job, params, folder, bundle, carry, roots, git, credentials, chosen, reached: None }
     }
 
     /// `barrier`: the sync this seed holds; a head-first seed marks its head on it.
@@ -327,7 +330,10 @@ impl Seed {
             let fresh = std::fs::symlink_metadata(self.folder.join(".git")).is_err()
                 || fill_unfinished(&self.folder);
             let head_first = self.params.head_first.clone().filter(|_| fresh);
-            self.clone_or_fetch()?;
+            // The sender's pack of the base, when it sent one, instead of a clone ([`carry`]).
+            if !self.carry_in() {
+                self.clone_or_fetch()?;
+            }
             self.base()?;
             self.apply_bundle()?;
             match head_first {
@@ -1249,6 +1255,10 @@ fn clean_folder(folder: &Path, existed: bool) {
         }
     }
 }
+
+/// `git-seed-carry-v1`: the base from the sender's own objects.
+#[path = "carry.rs"]
+mod carry;
 
 /// A test's hold of a seed at its head ([`Seed::mark_head`]), so it can read the
 /// checkout and the barrier there.

@@ -265,7 +265,9 @@ public final class TabCardSnapshots {
             entry.asked = true
             Task.detached(priority: .userInitiated) { [weak self] in
                 let newest = store.newestPicture(key)
-                let image = newest.flatMap { UIImage(data: $0.data) }?.preparingForDisplay()
+                // A picture an earlier build saved with the cannot-draw mark in it is never shown
+                // (AgentCardRaster no longer saves one); the card draws afresh instead.
+                let image = newest.flatMap { UIImage(data: $0.data) }.flatMap { CannotDrawMark.isIn($0) ? nil : $0 }?.preparingForDisplay()
                 await self?.loaded(image, key, capturedAtMs: newest?.capturedAtMs ?? 0)
             }
         }

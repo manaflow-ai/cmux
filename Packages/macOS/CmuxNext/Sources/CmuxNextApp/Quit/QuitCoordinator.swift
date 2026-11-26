@@ -212,6 +212,7 @@ final class QuitCoordinator {
                     terminalFrames: {
                         await TerminalLaunchFrames.beside(services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
                             .save(services.cache.terminals.mapValues(\.session))
+                        await services.cache.savePageFramesForQuit() // and browser pages' (`BrowserPageFrames`)
                     },
                     browserRecords: { await services.cache.browserTabs.flushRecords() },
                     windows: {

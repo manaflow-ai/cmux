@@ -1,5 +1,6 @@
 import CmuxNextDesign
 import CoreGraphics
+import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
@@ -57,6 +58,21 @@ struct AgentPaneTabRowReloadTests {
         row.report(width: 0)
         #expect(row.sharedWidth(zoom: 1) == nil)
         #expect(row.sharedNeed(zoom: 1) == 180)
+    }
+
+    /// After a relaunch the chat is under the strip from its first layout: a row that waited for the page's first
+    /// report laid it below the strip and then under it, a 34 px drop of the composer after every launch.
+    @Test func aRelaunchedRowStartsWhereTheLastLaunchLeftIt() throws {
+        let suite = "AgentPaneTabRowKept-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        #expect(AgentPaneTabRow(defaults: defaults).sharedWidth(zoom: 1) == nil)
+        AgentPaneTabRow(defaults: defaults).report(width: 180)
+        let relaunched = AgentPaneTabRow(defaults: defaults)
+        #expect(relaunched.sharedWidth(zoom: 1) == 180)
+        #expect(relaunched.sharedNeed(zoom: 1) == 180)
+        relaunched.report(width: 0)
+        #expect(relaunched.sharedWidth(zoom: 1) == nil)
     }
 
     @Test func toolsThatLeaveGiveTheRowBack() {

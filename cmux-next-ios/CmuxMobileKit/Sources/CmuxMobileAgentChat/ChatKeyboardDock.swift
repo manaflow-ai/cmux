@@ -263,7 +263,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         scrollView.keyboardDismissMode = .interactive
         scrollView.alwaysBounceVertical = true
         scrollView.backgroundColor = .cmuxMobileBackground
-        scrollView.topEdgeEffect.style = .soft
+        // A hard edge: text scrolled under the header stops at it instead of showing through
+        // into the title (iOS release bar read-back, 2026-11-22, shot 08; tbd d-189cea06b1).
+        scrollView.topEdgeEffect.style = .hard
         list.scrollDelegate = self
         // Safari's bottom bar: a tap on the page while the field is being edited ends the
         // editing and lowers the keyboard (CMUX-34). The draft stays in the composer, and the
@@ -1211,11 +1213,35 @@ private final class NextFrame: NSObject {
 /// Takes touches only in its bottom `interactiveHeight` (the stack); the
 /// empty space above lets them through to the transcript. (SwiftUI handles
 /// its gestures in the hosting view itself, so the hit view cannot tell.)
+///
+/// While it rides the keyboard's slide, a touch resolves where the stack is
+/// drawn: UIKit hit-tests the model frame, already at the slide's end, so a
+/// tap on the field as drawn landed on whatever sat under the finger at the
+/// end (a button of the stack, or nothing) instead of the field.
 final class PassthroughView: UIView {
     var interactiveHeight: CGFloat = 0
 
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
         point.y >= bounds.height - interactiveHeight && super.point(inside: point, with: event)
+    }
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard let shift = drawnShift else { return super.hitTest(point, with: event) }
+        return super.hitTest(CGPoint(x: point.x + shift.x, y: point.y + shift.y), with: event)
+    }
+
+    /// From a point in the model's coordinates to the same screen point in
+    /// the drawn (presentation) ones; nil when no move is in flight.
+    var drawnShift: CGPoint? {
+        guard let keys = layer.animationKeys(),
+              keys.contains(where: { $0.hasPrefix("position") || $0.hasPrefix("bounds") }),
+              let drawn = layer.presentation() else { return nil }
+        func origin(_ l: CALayer) -> CGPoint {
+            CGPoint(x: l.position.x - l.anchorPoint.x * l.bounds.width - l.bounds.minX,
+                    y: l.position.y - l.anchorPoint.y * l.bounds.height - l.bounds.minY)
+        }
+        let model = origin(layer), now = origin(drawn)
+        return CGPoint(x: model.x - now.x, y: model.y - now.y)
     }
 }
 

@@ -173,6 +173,8 @@ export async function loadRun(
   void streaming.then(() => {
     streamFinished = performance.timeOrigin + performance.now();
     streamDone = true;
+    // A trace's mark for where the stream ended (test/chat-render-pipeline-budgets.test.ts splits stream from settle).
+    performance.mark("acpmux-load-stream-end");
   });
   const timestamps: number[] = [];
   const work: number[] = [];

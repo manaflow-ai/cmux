@@ -5,7 +5,7 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { HostError, HostUnavailableLine, HostWaitingLine } from "./HostError";
+import { HostError, HostUnavailableLine } from "./HostError";
 import { waitedText } from "./hostErrorModel";
 import { hostLineText } from "./hostLine";
 import { hostErrorShows } from "./hostRetry";
@@ -232,70 +232,8 @@ test("a failure asking again cannot clear keeps its message, its action and Deta
   expect(container.querySelector(".acpmux-host-line-detail")!.textContent).toBe("message.too_large");
 });
 
-// The app never restarts a slow acpmux on its own (#28083, rule R5): a pane that waits long shows
-// how long, and the person's Restart agent service is the one action.
-test("a long wait for acpmux says how long and offers Restart agent service", async () => {
-  const container = installDom();
-  const pressed: string[] = [];
-  await act(async () => {
-    root = createRoot(container);
-    root.render(<HostWaitingLine since={0} now={95_000} onRestart={() => pressed.push("restart")} />);
-  });
-  expect(container.textContent).toContain("Waiting for the agent service (1:35)");
-  expect(buttons(container)).toEqual(["Restart agent service"]);
-  // The restart is optional: quiet text, and nothing under the line.
-  expect(container.querySelector("button.acpmux-host-line-quiet")!.textContent).toBe("Restart agent service");
-  expect(container.querySelector(".acpmux-host-line-note")).toBeNull();
-  await act(async () => container.querySelector("button")!.click());
-  expect(pressed).toEqual(["restart"]);
-});
-
-test("a short wait for acpmux shows nothing", async () => {
-  const container = installDom();
-  await act(async () => {
-    root = createRoot(container);
-    root.render(<HostWaitingLine since={0} now={3_000} onRestart={() => undefined} />);
-  });
-  expect(container.textContent).toBe("");
-});
-
-test("a Restart agent service in flight holds its button", async () => {
-  const container = installDom();
-  await act(async () => {
-    root = createRoot(container);
-    root.render(<HostWaitingLine since={0} now={40_000} restarting onRestart={() => undefined} />);
-  });
-  expect(buttons(container)).toEqual(["Restarting agent service…"]);
-  expect([...container.querySelectorAll("button")].every((b) => b.disabled)).toBe(true);
-});
-
 test("the wait reads as minutes and seconds", () => {
   expect(waitedText(0)).toBe("0:00");
   expect(waitedText(25_400)).toBe("0:25");
   expect(waitedText(605_000)).toBe("10:05");
-});
-
-test("one host line at a time: a long wait replaces an earlier failure's line", async () => {
-  const container = installDom();
-  const earlier = <p data-earlier>acpmux did not answer in time.</p>;
-  await act(async () => {
-    root = createRoot(container);
-    root.render(<HostWaitingLine since={0} now={3_000} onRestart={() => undefined} otherwise={earlier} />);
-  });
-  expect(container.querySelector("[data-earlier]")).not.toBeNull();
-  await act(async () => {
-    root!.render(<HostWaitingLine since={0} now={30_000} onRestart={() => undefined} otherwise={earlier} />);
-  });
-  expect(container.querySelector("[data-earlier]")).toBeNull();
-  expect(buttons(container)).toEqual(["Restart agent service"]);
-});
-
-test("a wait the host cannot restart keeps its time and shows no button", async () => {
-  const container = installDom();
-  await act(async () => {
-    root = createRoot(container);
-    root.render(<HostWaitingLine since={0} now={40_000} />);
-  });
-  expect(container.textContent).toContain("Waiting for the agent service (0:40)");
-  expect(buttons(container)).toEqual([]);
 });

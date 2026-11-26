@@ -13,7 +13,9 @@
 //!   (`placement.rs`, as `new --host auto` and lane-place weigh hosts). A cap
 //!   only warns: no launch is refused for load or a cap (Leo's rulebook; at
 //!   huge-blue's 12 the stall reconciler's PONG to claude-sr2 was refused,
-//!   2026-10-26). The registry is `FLEET_REGISTRY` when set,
+//!   2026-10-26). A create whose client asks (`_meta.acpmux.placeRedirect`) starts on
+//!   that peer instead (`admission_redirect.rs`), and here, warned, when it cannot.
+//!   The registry is `FLEET_REGISTRY` when set,
 //!   else the first that exists of `~/.ssh/config.d/fleet-registry.json` (the
 //!   copy `reach --install` renders) and leo-workspace's own
 //!   `~/Projects/leo-workspace/machines/fleet-registry.json` (a fleet host
@@ -284,6 +286,12 @@ pub(crate) struct Admitted<'a> {
     /// "scalingUp"}` (`scalingUp`: the fleet is adding a machine, `admission_scale_up.rs`),
     /// which the create returns as `_meta.acpmux.admission` and the CLI prints.
     pub warning: Option<Value>,
+    /// The peer the placement engine put this create on, which it starts on
+    /// instead of here (`admission_redirect.rs`); None to start here.
+    pub placed: Option<super::admission_redirect::Placed>,
+    /// The filler session whose room this start takes, hibernated once the create goes ahead
+    /// here (`admission_redirect::free_filler`), with why there was no room.
+    pub freed: Option<(String, super::admission_redirect::Reason)>,
 }
 
 tokio::task_local! {
@@ -340,15 +348,19 @@ impl Hub {
         &self,
         open: &[Arc<Making>],
         hosted: &std::collections::HashSet<String>,
-    ) -> usize {
+    ) -> (usize, Vec<String>) {
         let sessions: Vec<Arc<Session>> =
             self.sessions.lock().unwrap_or_else(|e| e.into_inner()).values().cloned().collect();
-        let live: std::collections::HashSet<&str> = sessions
+        let live: Vec<&Arc<Session>> =
+            sessions.iter().filter(|s| is_live(s.status(), hosted.contains(&s.id))).collect();
+        // Filler work a real start may take the room of (`admission_redirect::is_filler`).
+        let fillers = live
             .iter()
-            .filter(|s| is_live(s.status(), hosted.contains(&s.id)))
-            .map(|s| s.id.as_str())
+            .filter(|s| super::admission_redirect::is_filler(s))
+            .map(|s| s.id.clone())
             .collect();
-        counted(&live, open)
+        let live: std::collections::HashSet<&str> = live.iter().map(|s| s.id.as_str()).collect();
+        (counted(&live, open), fillers)
     }
 
     /// Whether a new session may start here (module docs). Hold the returned
@@ -372,9 +384,9 @@ impl Hub {
         let (flag, registry, unreadable, source, machine, hosted, here) =
             read.await.map_err(|e| RpcError::internal(e.to_string()))?;
         // Count and reserve under one lock, then render warnings after releasing it.
-        let (verdict, mut admitted) = {
+        let (verdict, fillers, mut admitted) = {
             let mut admitting = self.admitting.0.lock().unwrap_or_else(|e| e.into_inner());
-            let live = self.live_sessions(&admitting, &hosted);
+            let (live, fillers) = self.live_sessions(&admitting, &hosted);
             let verdict = check(&Inputs {
                 flag: flag.as_deref(),
                 registry: registry.as_ref(),
@@ -385,11 +397,29 @@ impl Hub {
             });
             let made = Arc::new(Making::default());
             admitting.push(made.clone());
-            (verdict, Admitted { admitting: &self.admitting, made, warning: None })
+            (
+                verdict,
+                fillers,
+                Admitted {
+                    admitting: &self.admitting,
+                    made,
+                    warning: None,
+                    placed: None,
+                    freed: None,
+                },
+            )
         };
-        // Logged beside the admission it never changes (`shadow_admission.rs`).
-        crate::shadow_admission::record("admit", Some(&here.name), std::slice::from_ref(&here));
-        match verdict.uncapped {
+        // Logged beside the admission; a create that asks moves on its verdict
+        // (`admission_redirect.rs`), and nothing else does.
+        let shadow =
+            crate::shadow_admission::record("admit", Some(&here.name), std::slice::from_ref(&here));
+        // Busy: the host-budget formula reads it saturated, never only its readings unknown.
+        let busy = shadow.get("would_defer").and_then(Value::as_bool) == Some(true)
+            && shadow
+                .get("reason")
+                .and_then(Value::as_str)
+                .is_some_and(|r| r.starts_with("saturated"));
+        match &verdict.uncapped {
             Some(why) if why == NO_REGISTRY => {
                 tracing::debug!("session admitted with no lane cap: {why}")
             }
@@ -397,8 +427,45 @@ impl Hub {
             Some(why) => tracing::info!("session admitted with no lane cap: {why}"),
             None => {}
         }
-        admitted.warning =
-            verdict.over.map(|over| self.over_cap_warning(&over, registry.as_ref(), &ask));
+        let reason = super::admission_redirect::considered(
+            &ask,
+            verdict.uncapped.is_none(),
+            verdict.over.is_some(),
+            busy,
+        );
+        // The connected peers as the placement engine weighs them, once for the move
+        // and the warning.
+        let peers = (reason.is_some() || verdict.over.is_some())
+            .then(|| self.peer_verdict(registry.as_ref()));
+        if let (Some(reason), Some(filler)) = (reason, fillers.first()) {
+            // A filler's room is this start's: it starts here, never moved for it.
+            super::admission_redirect::log(
+                "local_filler_room",
+                reason,
+                None,
+                Some(filler.as_str()),
+            );
+            admitted.freed = Some((filler.clone(), reason));
+        } else if let (Some(reason), Some(peers)) = (reason, &peers) {
+            let live = verdict.over.as_ref().map_or(0, |o| o.live);
+            let max = verdict.over.as_ref().map(|o| o.max);
+            admitted.placed = super::admission_redirect::pick(peers, reason, live, max);
+            // A placed one is logged by its create once it started there, or failed.
+            if admitted.placed.is_none() {
+                super::admission_redirect::log("local_no_room", reason, None, None);
+            }
+        } else if verdict.over.is_some() && verdict.uncapped.is_none() {
+            // Past a lane host's cap, a create that may not move (an old client, a person,
+            // a peer's or a Web caller) starts here as before.
+            let reason = super::admission_redirect::Reason::OverCap;
+            super::admission_redirect::log("local_not_asked", reason, None, Some(ask.who));
+        }
+        admitted.warning = match (&verdict.over, &peers) {
+            (Some(over), Some(peers)) => {
+                Some(self.over_cap_warning(over, peers, registry.as_ref(), &ask))
+            }
+            _ => None,
+        };
         if let Some(floor) = verdict.under_floor {
             let text = floor.warning(ask.local);
             tracing::warn!(caller = ask.who, "session/new admitted below the disk floor: {text}");
@@ -423,14 +490,11 @@ impl Hub {
 }
 
 impl Hub {
-    /// The warning of a create started past the lane cap, logged, with where the
-    /// placement engine would put it instead from the connected peers' last
-    /// readings (`server/place.rs` `pick` weighs the same hosts, this one too).
-    /// A caller that may not learn host names (a Web client) or this host's peers (a peer
-    /// daemon's connection) gets no host.
-    fn over_cap_warning(&self, over: &OverCap, registry: Option<&Value>, ask: &Ask<'_>) -> Value {
+    /// Where the placement engine would put a create from the connected peers' last
+    /// readings (`server/place.rs` `pick` weighs the same hosts, this one too), with
+    /// the shadow verdict of its pick (`shadow_admission.rs`).
+    fn peer_verdict(&self, registry: Option<&Value>) -> Value {
         use crate::placement::{Candidate, Work};
-        // Weighed for every caller: whether a peer has room decides the scale-up too.
         let peers: Vec<Candidate> = self
             .peers()
             .into_iter()
@@ -440,8 +504,22 @@ impl Hub {
             .filter_map(|p| Candidate::peer(&p))
             .collect();
         let verdict = crate::placement::place(&peers, registry, Work::Agent);
-        let verdict = crate::shadow_admission::with_shadow("over-cap", verdict, &peers);
-        let placed = super::admission_scale_up::room_elsewhere(&verdict);
+        crate::shadow_admission::with_shadow("over-cap", verdict, &peers)
+    }
+
+    /// The warning of a create started past the lane cap, logged, with where the
+    /// placement engine would put it instead (`peer_verdict`).
+    /// A caller that may not learn host names (a Web client) or this host's peers (a peer
+    /// daemon's connection) gets no host.
+    fn over_cap_warning(
+        &self,
+        over: &OverCap,
+        verdict: &Value,
+        registry: Option<&Value>,
+        ask: &Ask<'_>,
+    ) -> Value {
+        // Weighed for every caller: whether a peer has room decides the scale-up too.
+        let placed = super::admission_scale_up::room_elsewhere(verdict);
         // No connected host has room: the fleet adds one (`admission_scale_up.rs`).
         let scaling =
             placed.is_none() && self.scale_up(over, registry).is_some_and(|t| t.scaling());
@@ -497,6 +575,9 @@ pub(crate) struct Ask<'a> {
     /// The warning may name this host's peers (`suggestedHost`): not a peer daemon's
     /// connection, which never learns them (`server/redact.rs` `hide_peers_from_peer`).
     pub peers: bool,
+    /// The create asked to start on a peer when this host has no room, and nothing ties
+    /// it here (`admission_redirect.rs` `movable`).
+    pub redirect: bool,
 }
 
 #[cfg(test)]
@@ -574,7 +655,13 @@ mod tests {
         let admitting = Admitting::default();
         let made = Arc::new(Making::default());
         admitting.0.lock().unwrap().push(made.clone());
-        let admitted = Admitted { admitting: &admitting, made: made.clone(), warning: None };
+        let admitted = Admitted {
+            admitting: &admitting,
+            made: made.clone(),
+            warning: None,
+            placed: None,
+            freed: None,
+        };
         claim("outside");
         assert_eq!(made.made.get(), None, "a session inserted outside the create is not its");
         admitted.run(async { claim("mine") }).await;

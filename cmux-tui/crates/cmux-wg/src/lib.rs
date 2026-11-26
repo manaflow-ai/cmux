@@ -32,6 +32,7 @@
 mod config;
 mod device;
 mod error;
+mod handshake_retry;
 mod mesh;
 mod mesh_driver;
 mod mesh_paths;

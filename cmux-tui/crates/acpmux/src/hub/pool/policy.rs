@@ -88,6 +88,9 @@ pub enum Role {
     /// The shape of this harness's newest session: one per harness across
     /// folders (`pool.spare`), kept for `pool.spareIdleMinutes`.
     Spare,
+    /// The folder a Cloud machine's first home chat will take (`reserved.rs`):
+    /// kept like a spare, but one per folder and never refilled.
+    Reserved,
 }
 
 enum Slot<T> {
@@ -101,6 +104,7 @@ struct Entry<T> {
     last_used: bool,
     hinted: bool,
     spare: bool,
+    reserved: bool,
     /// When the newest hint for this key came (the per-harness cap keeps the newest).
     hinted_at: Duration,
     slot: Slot<T>,
@@ -114,7 +118,7 @@ struct Entry<T> {
 
 impl<T> Entry<T> {
     fn wanted(&self) -> bool {
-        self.last_used || self.hinted || self.spare
+        self.last_used || self.hinted || self.spare || self.reserved
     }
 
     fn settle(&self) {
@@ -165,6 +169,7 @@ pub struct EntryView {
     pub last_used: bool,
     pub hinted: bool,
     pub spare: bool,
+    pub reserved: bool,
     pub state: &'static str,
     pub deadline: Duration,
 }
@@ -228,7 +233,7 @@ impl<T> Pool<T> {
                         e.hinted_at = now;
                     }
                 }
-                Role::Spare => {}
+                Role::Spare | Role::Reserved => {}
             }
         }
         // One spare per harness, whatever the folder: the newest session's shape.
@@ -253,7 +258,7 @@ impl<T> Pool<T> {
         let start = match self.entries.iter_mut().find(|e| e.key == key) {
             Some(e) => {
                 // A spare waits its own (longer) time, whichever role wanted it now.
-                e.deadline = now + if e.spare { spare_idle } else { idle };
+                e.deadline = now + if e.spare || e.reserved { spare_idle } else { idle };
                 if matches!(e.slot, Slot::Empty) {
                     let generation = self.next_generation;
                     self.next_generation += 1;
@@ -270,10 +275,16 @@ impl<T> Pool<T> {
                     last_used: role == Role::LastUsed,
                     hinted: role == Role::Hinted,
                     spare: role == Role::Spare,
+                    reserved: role == Role::Reserved,
                     hinted_at: now,
                     key,
                     slot: Slot::Warming(generation),
-                    deadline: now + if role == Role::Spare { spare_idle } else { idle },
+                    deadline: now
+                        + if matches!(role, Role::Spare | Role::Reserved) {
+                            spare_idle
+                        } else {
+                            idle
+                        },
                     ready_at: now,
                     settled: watch::channel(0).0,
                 });
@@ -536,6 +547,7 @@ impl<T> Pool<T> {
                 last_used: e.last_used,
                 hinted: e.hinted,
                 spare: e.spare,
+                reserved: e.reserved,
                 state: match e.slot {
                     Slot::Empty => "empty",
                     Slot::Warming(_) => "warming",

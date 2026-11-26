@@ -112,6 +112,20 @@ struct Source {
     continues: bool,
     /// The `interrupt` of each begin, in order.
     interrupts: Vec<Value>,
+    /// Serves `agent-transfer-begin-token-v1`: keeps a begin's `begin_token` with its move and
+    /// hands it back in a `transfer.moving` refusal (else an older daemon).
+    keeps_token: bool,
+    /// The token the move in `moving` was begun with.
+    moving_token: Option<String>,
+    /// Serves `agent-transfer-history-later-v1` and its acpmux can.
+    later: bool,
+    /// Tail first: the staged last turns, and the history that follows.
+    prefix: Vec<(String, Vec<u8>)>,
+    history: Vec<(String, Vec<u8>)>,
+    /// The begin took the staged prefix (its bundle lacks the prefix's events).
+    began_staged: bool,
+    /// Every `prepare_id` a begin named, in order.
+    begin_prepares: Vec<Value>,
 }
 
 impl Source {
@@ -135,48 +149,91 @@ impl Source {
             };
         }
         match cmd {
-            "identify" if self.continues => Reply::Data(json!({"capabilities":
-                ["agent-transfer-v1", "agent-transfer-continues-v1"]})),
-            "identify" => Reply::Data(json!({"capabilities": ["agent-transfer-v1"]})),
+            "identify" => {
+                let mut capabilities = vec!["agent-transfer-v1"];
+                if self.later {
+                    capabilities.push("agent-transfer-history-later-v1");
+                }
+                if self.continues {
+                    capabilities.push("agent-transfer-continues-v1");
+                }
+                if self.keeps_token {
+                    capabilities.push("agent-transfer-begin-token-v1");
+                }
+                Reply::Data(json!({"capabilities": capabilities}))
+            }
+            "agent-transfer-history-ready" => Reply::Data(json!({"history_later": self.later})),
+            "agent-transfer-prepare" => {
+                assert!(self.moving.is_none(), "a prepare runs before the freeze");
+                Reply::Data(json!({"prepare_id": "pre_1", "after_seq": 7, "history_later": true,
+                                   "manifest": prefix_manifest("pre_1", &self.prefix)}))
+            }
+            "agent-transfer-history-export" => {
+                assert_eq!(self.committed, transfer, "the history follows the commit");
+                assert_eq!(request["have"], json!(0));
+                Reply::Data(json!({"prepare_id": "pre_h", "through_seq": 7,
+                                   "manifest": prefix_manifest("pre_h", &self.history)}))
+            }
             "agent-transfer-source" => {
                 let session = self.rebound.clone().unwrap_or_else(|| SESSION.to_string());
                 Reply::Data(json!({"session": session}))
             }
             "agent-transfer-begin" => {
                 self.interrupts.push(request["interrupt"].clone());
+                self.begin_prepares.push(request["prepare_id"].clone());
+                self.began_staged = request["prepare_id"] == json!("pre_1");
                 if self.committed.is_some() {
                     return Reply::Error("agent_transfer.unknown_tab", "closed".into());
                 }
                 if let Some(moving) = &self.moving {
+                    let mut details = json!({"transfer_id": moving});
+                    if let Some(token) = &self.moving_token {
+                        details["begin_token"] = json!(token);
+                    }
                     return Reply::Detailed(
                         "agent_transfer.refused",
                         "acpmux refused the request: transfer.moving: this chat is already \
                          being moved"
                             .into(),
-                        json!({"transfer_id": moving}),
+                        details,
                     );
                 }
                 self.begun += 1;
                 let id = format!("xfer_{}", self.begun);
                 self.moving = Some(id.clone());
+                self.moving_token = if self.keeps_token {
+                    request["begin_token"].as_str().map(str::to_string)
+                } else {
+                    None
+                };
                 if std::mem::take(&mut self.lose_begin_answer) {
                     return Reply::Drop;
                 }
                 let files: Vec<Value> = self
-                    .files
+                    .bundle_files()
                     .iter()
                     .map(|(path, bytes)| json!({"path": path, "size": bytes.len()}))
                     .collect();
-                Reply::Data(json!({"transfer_id": id, "source_session": SESSION, "manifest": {
+                let mut answer = json!({"transfer_id": id, "source_session": SESSION, "manifest": {
                     "schema": "acpmux.transfer.v1", "transferId": id, "sessionId": SESSION,
-                    "files": files, "session": {"sessionId": SESSION, "harness": "claude"}}}))
+                    "files": files, "session": {"sessionId": SESSION, "harness": "claude"}}});
+                if self.began_staged {
+                    answer["staged"] = json!(true);
+                    answer["history_later"] = json!(true);
+                }
+                Reply::Data(answer)
             }
             "agent-transfer-read" => {
-                if transfer != self.moving {
-                    return Reply::Error("agent_transfer.unknown_transfer", "no move".into());
-                }
+                let files = match transfer.as_deref() {
+                    Some("pre_1") if self.later => self.prefix.clone(),
+                    Some("pre_h") if self.later => self.history.clone(),
+                    _ if transfer == self.moving => self.bundle_files(),
+                    _ => {
+                        return Reply::Error("agent_transfer.unknown_transfer", "no move".into());
+                    }
+                };
                 let path = request["path"].as_str().unwrap_or_default();
-                let Some((_, bytes)) = self.files.iter().find(|(p, _)| p == path) else {
+                let Some((_, bytes)) = files.iter().find(|(p, _)| p == path) else {
                     return Reply::Error("agent_transfer.bad_request", "not listed".into());
                 };
                 let offset = request["offset"].as_u64().unwrap() as usize;
@@ -188,10 +245,12 @@ impl Source {
                                    "eof": end == bytes.len()}))
             }
             "agent-transfer-commit" if transfer.is_some() && transfer == self.moving => {
+                self.moving_token = None;
                 self.committed = self.moving.take();
                 Reply::Data(json!({"committed": true}))
             }
             "agent-transfer-abort" if transfer.is_some() && transfer == self.moving => {
+                self.moving_token = None;
                 self.aborted.extend(self.moving.take());
                 Reply::Data(json!({"aborted": true}))
             }
@@ -201,6 +260,22 @@ impl Source {
             _ => Reply::Error("agent_transfer.bad_request", format!("unexpected {cmd}")),
         }
     }
+}
+
+impl Source {
+    /// The bundle a begin lists: without the staged prefix's events when it took it.
+    fn bundle_files(&self) -> Vec<(String, Vec<u8>)> {
+        let staged = |path: &str| self.began_staged && path.starts_with("events/");
+        self.files.iter().filter(|(path, _)| !staged(path)).cloned().collect()
+    }
+}
+
+/// A prepare's or export's manifest of `files`.
+fn prefix_manifest(prepare_id: &str, files: &[(String, Vec<u8>)]) -> Value {
+    let files: Vec<Value> =
+        files.iter().map(|(path, bytes)| json!({"path": path, "size": bytes.len()})).collect();
+    json!({"schema": "acpmux.transfer.prefix.v1", "prepareId": prepare_id,
+           "sessionId": SESSION, "files": files})
 }
 
 // MARK: The target daemon
@@ -249,6 +324,14 @@ struct Target {
     vm_kinds: Vec<Value>,
     /// Receive-aborts still answered "cannot say yet" before the running finish lands the chat.
     finishing_asks: u32,
+    /// Serves `agent-transfer-history-later-v1` and its acpmux can.
+    later: bool,
+    /// The stage each receive took, in order.
+    receive_stages: Vec<Value>,
+    /// The chat's log here: staged prefixes, then the history installed after.
+    log: Vec<u8>,
+    /// Stages finished, by id.
+    staged_done: HashSet<String>,
 }
 
 impl Target {
@@ -259,6 +342,70 @@ impl Target {
             self.vm_kinds.push(request["vm_kind"].clone());
         }
         match cmd {
+            "identify" if self.later => Reply::Data(json!({"capabilities":
+                ["agent-transfer-v1", "agent-transfer-history-later-v1"]})),
+            "agent-transfer-history-ready" => Reply::Data(json!({"history_later": self.later})),
+            "agent-transfer-stage" => {
+                self.made += 1;
+                let id = format!("stg_{}", self.made);
+                let manifest = &request["manifest"];
+                let sizes = manifest["files"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|f| {
+                        (
+                            f["path"].as_str().unwrap().to_string(),
+                            f["size"].as_u64().unwrap() as usize,
+                        )
+                    })
+                    .collect();
+                let stage = Receive {
+                    transfer_id: manifest["prepareId"].as_str().unwrap().to_string(),
+                    session_id: SESSION.into(),
+                    sizes,
+                    files: HashMap::new(),
+                    finished: false,
+                };
+                self.receives.insert(id.clone(), stage);
+                Reply::Data(json!({"stage_id": id}))
+            }
+            "agent-transfer-stage-finish" => {
+                let stage_id = request["stage_id"].as_str().unwrap().to_string();
+                let stage = self.receives.get_mut(&stage_id).unwrap();
+                assert!(
+                    stage.sizes.iter().all(|(p, n)| stage.files.get(p).map_or(0, Vec::len) == *n)
+                );
+                stage.finished = true;
+                if stage.transfer_id == "pre_1" {
+                    let mut paths: Vec<_> = stage.files.keys().cloned().collect();
+                    paths.sort();
+                    for path in paths {
+                        self.log.extend_from_slice(&stage.files[&path]);
+                    }
+                }
+                self.staged_done.insert(stage_id);
+                Reply::Data(json!({"after_seq": 7, "records": 2}))
+            }
+            "agent-transfer-history-have" => {
+                assert!(self.landed.contains_key(SESSION), "asked after the chat landed");
+                Reply::Data(json!({"have": 0}))
+            }
+            "agent-transfer-history" => {
+                let stage_id = request["stage_id"].as_str().unwrap();
+                assert!(self.staged_done.contains(stage_id), "installed after its stage-finish");
+                let stage = &self.receives[stage_id];
+                let mut history = Vec::new();
+                let mut paths: Vec<_> = stage.files.keys().cloned().collect();
+                paths.sort();
+                for path in paths {
+                    history.extend_from_slice(&stage.files[&path]);
+                }
+                // The history goes before the tail.
+                history.extend_from_slice(&self.log);
+                self.log = history;
+                Reply::Data(json!({"through_seq": 7, "records": 5}))
+            }
             "identify" if self.takes_vm_kind => Reply::Data(json!({"capabilities":
                 ["agent-transfer-v1", "agent-transfer-vm-kind-v1"]})),
             // An older daemon; it shows no sign of being a Cloud VM (a guest can hide any).
@@ -299,6 +446,7 @@ impl Target {
                 "agent chats cannot be moved onto a team VM".into(),
             );
         }
+        self.receive_stages.push(request["stage_id"].clone());
         let manifest = &request["manifest"];
         let transfer_id = manifest["transferId"].as_str().unwrap().to_string();
         let session_id = manifest["sessionId"].as_str().unwrap().to_string();
@@ -466,6 +614,8 @@ impl World {
             .args(["--cwd", &self.cwd, "--state-dir"])
             .arg(&self.state)
             .args(extra)
+            // Tail first only when a test asks for it.
+            .env_remove("ACPMUX_MOVE_HISTORY_LATER")
             .output()
             .unwrap();
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -750,6 +900,42 @@ mod agent_move {
         assert!(source.moving.is_none());
     }
 
+    /// The kill-mid-move drill (`move_kill_drill.rs`, `after-begin:off-src`): the source went
+    /// away right after it froze the chat, so the begin answer was lost. The rerun's begin is
+    /// refused as `transfer.moving` with the token this command began that move with: it is
+    /// this command's own and no target was ever asked to receive it, so the rerun gives it back
+    /// and moves the chat at once instead of leaving it frozen for the source's lease.
+    #[test]
+    fn a_rerun_after_a_lost_begin_answer_ends_its_own_move_and_moves_the_chat_at_once() {
+        let world = World::new(Target::default());
+        {
+            let mut source = world.source.lock().unwrap();
+            source.keeps_token = true;
+            source.lose_begin_answer = true;
+        }
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("move_unresolved"), "{answer}");
+        let token = world.source.lock().unwrap().moving_token.clone();
+        assert!(token.as_deref().is_some_and(|t| t.len() >= 32), "a random token: {token:?}");
+        assert_eq!(world.source.lock().unwrap().moving.as_deref(), Some("xfer_1"));
+
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 0, "{answer}");
+        assert_eq!(answer["transfer_id"], json!("xfer_2"));
+        let source = world.source.lock().unwrap();
+        assert_eq!(source.aborted, ["xfer_1"]);
+        assert_eq!(source.committed.as_deref(), Some("xfer_2"));
+        drop(source);
+        assert_eq!(world.count("target:agent-transfer-receive"), 1);
+        assert!(
+            world.first("source:agent-transfer-abort")
+                < world.first("target:agent-transfer-receive")
+        );
+    }
+
+    /// A source that keeps no begin token (an older daemon): nothing tells the lost move is
+    /// this command's, so it waits out the source's lease, as before.
     #[test]
     fn a_lost_begin_answer_waits_for_the_source_lease_then_moves_the_chat() {
         let world = World::new(Target::default());
@@ -779,22 +965,31 @@ mod agent_move {
 
     #[test]
     fn another_clients_move_after_a_lost_begin_answer_is_never_aborted() {
-        let world = World::new(Target::default());
-        world.source.lock().unwrap().lose_begin_answer = true;
-        let (code, _) = world.run_move();
-        assert_eq!(code, 1);
-        {
-            // The lease ended that move; another client moved the chat since.
-            let mut source = world.source.lock().unwrap();
-            source.moving = Some("xfer_theirs".into());
+        // An older source, a source that keeps tokens with another client's token on the move,
+        // and one whose move carries none.
+        for (keeps_token, theirs) in [(false, None), (true, Some("tok_theirs")), (true, None)] {
+            let world = World::new(Target::default());
+            {
+                let mut source = world.source.lock().unwrap();
+                source.keeps_token = keeps_token;
+                source.lose_begin_answer = true;
+            }
+            let (code, _) = world.run_move();
+            assert_eq!(code, 1);
+            {
+                // The lease ended that move; another client moved the chat since.
+                let mut source = world.source.lock().unwrap();
+                source.moving = Some("xfer_theirs".into());
+                source.moving_token = theirs.map(str::to_string);
+            }
+            let (code, answer) = world.run_move();
+            assert_eq!(code, 1);
+            assert_eq!(answer["error_code"], json!("move_unresolved"), "{answer}");
+            assert_eq!(answer["transfer_id"], json!("xfer_theirs"));
+            assert_eq!(world.count("source:agent-transfer-abort"), 0);
+            assert_eq!(world.count("source:agent-transfer-commit"), 0);
+            assert_eq!(world.source.lock().unwrap().moving.as_deref(), Some("xfer_theirs"));
         }
-        let (code, answer) = world.run_move();
-        assert_eq!(code, 1);
-        assert_eq!(answer["error_code"], json!("move_unresolved"), "{answer}");
-        assert_eq!(answer["transfer_id"], json!("xfer_theirs"));
-        assert_eq!(world.count("source:agent-transfer-abort"), 0);
-        assert_eq!(world.count("source:agent-transfer-commit"), 0);
-        assert_eq!(world.source.lock().unwrap().moving.as_deref(), Some("xfer_theirs"));
     }
 
     #[test]
@@ -824,5 +1019,125 @@ mod agent_move {
         assert_eq!(world.count("source:agent-transfer-abort"), 0);
         assert_eq!(world.count("target:agent-transfer-receive"), 0);
         assert_eq!(world.source.lock().unwrap().moving.as_deref(), Some("xfer_other"));
+    }
+
+    // MARK: Tail first, history after
+
+    /// A world whose two sides serve tail first (`later`), with a chat whose
+    /// history is `history_bytes` and whose last turns are `tail_bytes`.
+    fn later_world(source_later: bool, target_later: bool, history_bytes: usize) -> World {
+        let world = World::new(Target { later: target_later, ..Target::default() });
+        let history: Vec<u8> = (0..history_bytes).map(|i| (i * 31 % 251) as u8).collect();
+        let tail: Vec<u8> = (0..64 * 1024usize).map(|i| (i * 7 % 13) as u8).collect();
+        let mut source = world.source.lock().unwrap();
+        source.later = source_later;
+        source.files[0].1.clone_from(&history);
+        source.history = vec![("events/history.cspb".into(), history)];
+        source.prefix = vec![("events/000002.ndjson".into(), tail)];
+        drop(source);
+        world
+    }
+
+    /// The source's chat log: its history, then its last turns.
+    fn source_log(world: &World) -> Vec<u8> {
+        let source = world.source.lock().unwrap();
+        [source.history[0].1.clone(), source.prefix[0].1.clone()].concat()
+    }
+
+    /// The move calls, without the capability probes.
+    fn move_calls(world: &World) -> Vec<String> {
+        let probe = |call: &String| call.ends_with(":identify") || call.ends_with("history-ready");
+        world.calls().into_iter().filter(|call| !probe(call)).collect()
+    }
+
+    #[test]
+    fn tail_first_moves_only_the_tail_before_live_then_the_history_arrives() {
+        let world = later_world(true, true, (2 << 20) + 12345);
+        let (code, answer) = world.run_move_with(&["--history-later", "4"]);
+        assert_eq!(code, 0, "{answer}");
+        assert!(answer["live_ms"].is_u64(), "{answer}");
+        assert_eq!(answer["history_records"], json!(5), "{answer}");
+        assert_eq!(answer["history_through_seq"], json!(7));
+        let order = [
+            "source:agent-transfer-prepare",
+            "target:agent-transfer-stage",
+            "target:agent-transfer-stage-finish",
+            "source:agent-transfer-begin",
+            "target:agent-transfer-receive",
+            "target:agent-transfer-finish",
+            "source:agent-transfer-commit",
+            "target:agent-transfer-history-have",
+            "source:agent-transfer-history-export",
+            "target:agent-transfer-history",
+        ];
+        let at: Vec<usize> = order.iter().map(|call| world.first(call)).collect();
+        assert!(at.windows(2).all(|w| w[0] < w[1]), "{:?}", world.calls());
+        let source = world.source.lock().unwrap();
+        assert_eq!(source.begin_prepares, [json!("pre_1")]);
+        assert_eq!(source.committed.as_deref(), Some("xfer_1"));
+        let history_len = source.history[0].1.len();
+        drop(source);
+        let target = world.target.lock().unwrap();
+        assert_eq!(target.receive_stages, [json!("stg_1")]);
+        // Before live only the tail moved: the frozen bundle held no events.
+        let landed = target.landed_files();
+        assert!(landed.keys().all(|path| !path.starts_with("events/")), "{:?}", landed.keys());
+        let frozen_bytes = answer["bytes"].as_u64().unwrap();
+        assert!(frozen_bytes < history_len as u64, "{frozen_bytes} of {history_len}");
+        // Then the history arrived: the target's log is the source's.
+        assert!(target.log == source_log(&world), "the target log equals the source's");
+    }
+
+    #[test]
+    fn switched_off_or_a_side_without_it_makes_todays_calls() {
+        // Today's move: no flag, a source and target that could.
+        let today = later_world(true, true, 4096);
+        let (code, answer) = today.run_move();
+        assert_eq!(code, 0, "{answer}");
+        let calls = move_calls(&today);
+        assert!(answer.get("live_ms").is_none() && answer.get("history_ms").is_none());
+        assert_eq!(today.count("source:agent-transfer-history-ready"), 0, "off asks nothing");
+        assert_eq!(today.source.lock().unwrap().begin_prepares, [Value::Null]);
+        assert_eq!(today.target.lock().unwrap().receive_stages, [Value::Null]);
+        // The env is read like the flag; 0 is off.
+        for (source_later, target_later, flag) in
+            [(true, false, "4"), (false, true, "4"), (false, false, "4"), (true, true, "0")]
+        {
+            let world = later_world(source_later, target_later, 4096);
+            let (code, answer) = world.run_move_with(&["--history-later", flag]);
+            assert_eq!(code, 0, "{answer}");
+            assert_eq!(move_calls(&world), calls, "{source_later} {target_later} {flag}");
+            assert_eq!(world.source.lock().unwrap().begin_prepares, [Value::Null]);
+            assert!(answer.get("history_ms").is_none(), "{answer}");
+        }
+    }
+
+    /// `cargo test -p cmux-tui --test link_agent_move -- --ignored tail_first_bench --nocapture`:
+    /// a `CMUX_MOVE_BENCH_MB` (55) chat through the pump over loopback, off and on.
+    #[test]
+    #[ignore = "a bench: run it by name"]
+    fn tail_first_bench() {
+        let mb: usize =
+            std::env::var("CMUX_MOVE_BENCH_MB").ok().and_then(|v| v.parse().ok()).unwrap_or(55);
+        let off = later_world(true, true, mb << 20);
+        let started = std::time::Instant::now();
+        let (code, answer) = off.run_move();
+        let off_ms = started.elapsed().as_millis();
+        assert_eq!(code, 0, "{answer}");
+        let on = later_world(true, true, mb << 20);
+        let started = std::time::Instant::now();
+        let (code, answer_on) = on.run_move_with(&["--history-later", "4"]);
+        let on_ms = started.elapsed().as_millis();
+        assert_eq!(code, 0, "{answer_on}");
+        assert!(on.target.lock().unwrap().log == source_log(&on));
+        println!(
+            "tail_first_bench: {mb} MB off: live {off_ms} ms (total_ms {}, phases {}); on: live_ms {}, history_ms {}, history_bytes {}, total {on_ms} ms (phases {})",
+            answer["total_ms"],
+            answer["phases"],
+            answer_on["live_ms"],
+            answer_on["history_ms"],
+            answer_on["history_bytes"],
+            answer_on["phases"]
+        );
     }
 }

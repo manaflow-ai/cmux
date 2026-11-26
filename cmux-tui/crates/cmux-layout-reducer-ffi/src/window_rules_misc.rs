@@ -140,6 +140,14 @@ struct Keymap {
     changed: Vec<String>,
 }
 
+/// `window_launch_current_registry`: the home's `Library/Application Support` and the daemon session name.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CurrentRegistry {
+    app_support: String,
+    session: String,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RestoreOrder {
@@ -279,6 +287,16 @@ pub(crate) fn respond_misc(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, 
         b"window_launch_snapshot_verdict" => {
             let facts: launch::SnapshotFacts = read(request)?;
             json!({ "verdict": launch::verdict(&facts) })
+        }
+        // The registry id this home last saw live (`launch::current_registry_id`): one file read of at most
+        // 257 bytes, so the app asks off the main thread (the launch read's files lane).
+        b"window_launch_current_registry" => {
+            let request: CurrentRegistry = read(request)?;
+            let id = launch::current_registry_id(
+                std::path::Path::new(&request.app_support),
+                &request.session,
+            );
+            json!({ "registryId": id })
         }
         // Where the launch's front window lands: the last workspace and tab, or Home (Leo ask-b7aac8d3f9).
         b"window_launch_landing" => {

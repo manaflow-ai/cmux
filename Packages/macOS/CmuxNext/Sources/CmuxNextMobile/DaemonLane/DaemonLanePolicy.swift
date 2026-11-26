@@ -86,7 +86,7 @@ public struct DaemonLanePolicy: Sendable {
         // Agent chat tabs: cmux-mobile-host sets this Mac's own agent tab host on
         // them (cmux-next-ios/rust/crates/cmux-mobile-host/src/policy.rs); this lane has
         // no such host, so it refuses them below.
-        "new-conversation-tab",
+        "new-conversation-tab", "bind-conversation-tab-session",
         // Frontend projections: guarded per subject below.
         "get-frontend-projection", "put-frontend-projection",
     ]
@@ -207,7 +207,7 @@ public struct DaemonLanePolicy: Sendable {
         if command == "get-frontend-projection" || command == "put-frontend-projection" {
             return projectionVerdict(object, id: id, write: command == "put-frontend-projection")
         }
-        if command == "new-conversation-tab" {
+        if command == "new-conversation-tab" || command == "bind-conversation-tab-session" {
             return .refuse(Self.errorLine(id: id, code: "unavailable",
                                           message: "this Mac's cmux does not let a phone start agent chats"))
         }

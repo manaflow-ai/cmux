@@ -17,6 +17,7 @@ import {
   type ComposerAttachment,
 } from "../attachments";
 import { inlinePrompt, recordedPromptParts, stripFileDisplay } from "../inlinePrompt";
+import { knownImageSize } from "../conversation/imageEntries";
 import { shownPrompt } from "../pastedText";
 import { frameTextOf, imageNames } from "../composer/videoPrompt";
 import { incomingPrompt, type IncomingContext, type IncomingMessage } from "../conversation/incomingMessage";
@@ -183,20 +184,24 @@ export function recordImages(msg: any): QueuedPromptImage[] {
 /// The images of a prompt this pane sends, from the composer's attachments: its queue row shows
 /// them from the send on, before acpmux names them.
 export function attachedImages(attachments: readonly ComposerAttachment[]): QueuedPromptImage[] {
-  return attachments.flatMap((attachment) =>
-    attachment.kind === "image" && attachment.data
-      ? [
-          {
-            id: attachment.id,
-            mimeType: attachment.mimeType,
-            name: attachment.name,
-            src: `data:${attachment.mimeType};base64,${attachment.data}`,
-            local: true,
-            ...(attachment.source ? { source: attachment.source } : {}),
-          },
-        ]
-      : [],
-  );
+  return attachments.flatMap((attachment) => {
+    if (attachment.kind !== "image" || !attachment.data) return [];
+    const src = `data:${attachment.mimeType};base64,${attachment.data}`;
+    // Its size from its header, so the row is laid out at the thumbnail's shape from the send
+    // (inlinePrompt.ts does the same for a placed image).
+    const size = knownImageSize(src);
+    return [
+      {
+        id: attachment.id,
+        mimeType: attachment.mimeType,
+        name: attachment.name,
+        src,
+        ...(size ? { width: size.width, height: size.height } : {}),
+        local: true,
+        ...(attachment.source ? { source: attachment.source } : {}),
+      },
+    ];
+  });
 }
 
 /// `images` named by acpmux, each keeping the bytes the pane already had for it.

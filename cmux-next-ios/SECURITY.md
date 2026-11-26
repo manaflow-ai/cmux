@@ -1163,6 +1163,12 @@ person's devices that this Mac already paired can now answer it (`src/pair_reque
   waiting prompt with the same keys, only while the answering device is still on its paired list,
   through the same path as the person's Allow or Don't Allow (`IPhoneHostService.answerFromPairedDevice`).
   The answer is recorded in Activity.
+- **On the phone** (`MacPairRequests`, decisions in cmux-mobile-link-ffi `pair_requests.rs`): a
+  linked Mac whose hostd lists `pair-requests-v1` is listed on link open, on foreground, every 3 s
+  while an "Allow on this phone" card shows and every 10 s for 5 minutes after, then not until
+  the next foreground. The card shows the asking device's name and the 16-hex fingerprint in groups
+  of four; Allow and Don't Allow send `answer` with that fingerprint. The phone's channel args are
+  strings, so hostd takes `allow` as `true`/`false` or `"true"`/`"false"` and nothing else.
 - Not changed: the first device of an account still needs the Mac's Allow (or a pairing code),
   and nothing approves with account credentials alone.
 

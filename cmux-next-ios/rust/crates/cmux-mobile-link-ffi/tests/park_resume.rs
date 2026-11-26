@@ -89,6 +89,7 @@ async fn link_up(ice_servers: Vec<IceServer>, relay_only: bool) -> Linked {
         include_loopback: true,
         relay_only,
         block_udp: false,
+        force_relay: false,
         video_lane: false,
         webrtc_media: false,
         ultra: cmux_mobile_link::UltraSetting::Off,

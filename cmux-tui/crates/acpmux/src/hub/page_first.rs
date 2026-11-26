@@ -36,6 +36,8 @@ enum Source {
     Own(Arc<Session>),
     /// A peer's mirrored row (or a hub machine's, `mesh_book.rs`).
     Peer(Arc<RemoteSession>),
+    /// This daemon's chat that left memory (`evict.rs`): its kept row.
+    Evicted(Arc<super::evict::Evicted>),
 }
 
 impl Unbuilt {
@@ -46,9 +48,19 @@ impl Unbuilt {
 
     /// This daemon's session where the kept order placed it (`list_order.rs`), by the `updatedAt`
     /// it was placed by: a window of the order stays in its order.
-    fn placed(session: Arc<Session>, updated_at: u64) -> Self {
-        let status = session.read_meta(|m| m.status.as_str());
-        Self { source: Source::Own(session), updated_at, status: Some(status) }
+    fn placed(row: super::list_order::OrderRow, updated_at: u64) -> Self {
+        match row {
+            super::list_order::OrderRow::Own(session) => {
+                let status = session.read_meta(|m| m.status.as_str());
+                Self { source: Source::Own(session), updated_at, status: Some(status) }
+            }
+            super::list_order::OrderRow::Evicted(row) => Self::evicted(row),
+        }
+    }
+
+    fn evicted(row: Arc<super::evict::Evicted>) -> Self {
+        let (updated_at, status) = (row.updated_at(), row.status().as_str());
+        Self { source: Source::Evicted(row), updated_at, status: Some(status) }
     }
 
     fn mirrored(row: Arc<RemoteSession>) -> Self {
@@ -61,6 +73,7 @@ impl PageRow for Unbuilt {
     fn session_id(&self) -> &str {
         match &self.source {
             Source::Own(session) => &session.id,
+            Source::Evicted(row) => row.id(),
             Source::Peer(row) => row.summary.session_id().unwrap_or(""),
         }
     }
@@ -71,14 +84,14 @@ impl PageRow for Unbuilt {
 
     fn peer(&self) -> Option<&str> {
         match &self.source {
-            Source::Own(_) => None,
+            Source::Own(_) | Source::Evicted(_) => None,
             Source::Peer(row) => row.summary.peer(),
         }
     }
 
     fn status(&self) -> Option<&str> {
         match &self.source {
-            Source::Own(_) => self.status,
+            Source::Own(_) | Source::Evicted(_) => self.status,
             Source::Peer(row) => row.summary.status(),
         }
     }
@@ -101,6 +114,9 @@ impl ListRows {
     pub(crate) fn value(&self, hub: &Hub, row: &Unbuilt, with_tools: bool) -> Value {
         match &row.source {
             Source::Own(session) => hub.cached_closed_summary(session, with_tools),
+            Source::Evicted(row) => {
+                serde_json::from_str(&row.row_text(with_tools)).unwrap_or(Value::Null)
+            }
             // Parsed from the text the list writes (`peer_row.rs`), its tools left out unless
             // `with_tools`.
             Source::Peer(row) => {
@@ -118,6 +134,7 @@ impl ListRows {
     pub(crate) fn text(&self, hub: &Hub, row: &Unbuilt, with_tools: bool) -> Arc<str> {
         match &row.source {
             Source::Own(session) => hub.own_row_text(session, with_tools),
+            Source::Evicted(row) => row.row_text(with_tools),
             Source::Peer(row) => self.peer_text(row, with_tools).into(),
         }
     }
@@ -133,6 +150,14 @@ impl Hub {
         // This daemon's rows first, then the peers', then the hub machines': of two rows that
         // sort alike, the one a whole list puts first stays first (a stable sort).
         let mut rows: Vec<Unbuilt> = own.into_iter().map(Unbuilt::local).collect();
+        // The chats that left memory: listed from their kept rows (`evict.rs`).
+        rows.extend(
+            self.evicted
+                .rows()
+                .into_iter()
+                .filter(|row| !live_only || row.status() != SessionStatus::Closed)
+                .map(Unbuilt::evicted),
+        );
         if !own_only {
             let open = |r: &RemoteSession| !live_only || r.summary.status() != Some("closed");
             let remote = self.remote_sessions.snapshot();
@@ -187,8 +212,13 @@ impl Hub {
 
     /// The window `own` (the kept order's rows from `from`, all of them when `all`) and the peers'
     /// rows that sort among them, sorted: the start of the list from `from`.
-    fn window_rows(&self, own: Vec<(Arc<Session>, u64)>, all: bool, from: Option<u64>) -> ListRows {
-        let last = if all { None } else { own.last().map(|(s, at)| (*at, s.id.clone())) };
+    fn window_rows(
+        &self,
+        own: Vec<(super::list_order::OrderRow, u64)>,
+        all: bool,
+        from: Option<u64>,
+    ) -> ListRows {
+        let last = if all { None } else { own.last().map(|(s, at)| (*at, s.id().to_owned())) };
         let mut rows: Vec<Unbuilt> =
             own.into_iter().map(|(s, at)| Unbuilt::placed(s, at)).collect();
         // A peer's row sorts before the window's last own row when newer, or as new and a lower id.
@@ -277,7 +307,9 @@ impl Hub {
             .iter()
             .filter_map(|&at| list.rows().get(at))
             .map(|row| match &row.source {
-                Source::Own(_) => BuiltRow::Tree(list.value(self, row, with_tools)),
+                Source::Own(_) | Source::Evicted(_) => {
+                    BuiltRow::Tree(list.value(self, row, with_tools))
+                }
                 Source::Peer(peer) => {
                     BuiltRow::Peer(list.peer_text(peer, with_tools), peer.clone())
                 }

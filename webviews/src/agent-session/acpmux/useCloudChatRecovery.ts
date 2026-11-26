@@ -9,6 +9,8 @@ type Props = {
   session?: string;
   active: boolean;
   recheck(): Promise<void>;
+  /// Each read's deadline (RECOVERY_READ_MS); tests shorten it.
+  readMs?: number;
 };
 
 /// How long a resume runs before the card says it is taking longer than usual and Resume machine is
@@ -16,11 +18,44 @@ type Props = {
 /// reading until it answers (cmux#35206 removed the hard deadline on purpose).
 export const RESUME_SLOW_MS = 60_000;
 
+/// One read of the loop (the account's machine list, then the chat's recheck) shares this one
+/// deadline. A read that has not answered by then is let go and the next read starts a second
+/// later: the card never stops reading because one native call never came back (a starved Mac, a
+/// bridge that lost the answer). It is not a failure and ends nothing; the whole resume still has no
+/// deadline (cmux#35206), and a late answer of a read let go changes nothing.
+export const RECOVERY_READ_MS = 20_000;
+
+/// `work`'s answer, or `late` once `deadline` (a `performance.now()` time) passes. `work` is not
+/// cancelled: a native call has no cancel, and its late answer or refusal is dropped here. `signal`
+/// (the chat was left) ends the wait at once, so no deadline timer outlives the card.
+export async function beforeDeadline<T>(
+  work: Promise<T>,
+  deadline: number,
+  signal?: AbortSignal,
+): Promise<{ kind: "done"; value: T } | { kind: "late" }> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
+  const late = new Promise<{ kind: "late" }>((resolve) => {
+    timer = setTimeout(() => resolve({ kind: "late" }), Math.max(0, deadline - performance.now()));
+    onAbort = () => resolve({ kind: "late" });
+    if (signal?.aborted) onAbort();
+    else signal?.addEventListener("abort", onAbort, { once: true });
+  });
+  // A refusal that comes after the deadline belongs to no one.
+  work.catch(() => {});
+  try {
+    return await Promise.race([work.then((value) => ({ kind: "done" as const, value })), late]);
+  } finally {
+    clearTimeout(timer);
+    if (onAbort) signal?.removeEventListener("abort", onAbort);
+  }
+}
+
 // One read when the unavailable card appears. A resume reads the machine every second until the
 // chat opens, the machine is deleted, a read fails for good, or the chat/account changes or
-// unmounts; there is no deadline. Past RESUME_SLOW_MS it is `slow`, and Resume machine asks the
-// machine to wake again while the reads continue.
-export function useCloudChatRecovery({ cloud, session, active, recheck }: Props) {
+// unmounts; the resume has no deadline, each read has RECOVERY_READ_MS. Past RESUME_SLOW_MS it is
+// `slow`, and Resume machine asks the machine to wake again while the reads continue.
+export function useCloudChatRecovery({ cloud, session, active, recheck, readMs = RECOVERY_READ_MS }: Props) {
   const t = useT();
   const [state, setState] = useState<CloudChatState>();
   const [resuming, setResuming] = useState(false);
@@ -61,6 +96,7 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
   useEffect(() => {
     let disposed = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const left = new AbortController();
     if (!resuming) setState(undefined);
     const finishResume = (failed = false) => {
       // Late attach failures no longer own the card after recovery stops.
@@ -75,25 +111,33 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
       if (disposed || !resuming) return;
       timer = setTimeout(() => void read(), 1_000);
     };
-    // A live native bridge owns the request's lifetime. Cleanup only settles a request when this
-    // effect is disposed; a busy machine never turns a slow list into a terminal resume failure.
-    const beforeDeadline = async <T>(work: Promise<T>): Promise<{ kind: "done"; value: T }> => ({
-      kind: "done",
-      value: await work,
-    });
+    // One deadline per read, shared by its list and its recheck. A read past it is let go and the
+    // next one starts (`retry`): a slow machine is never a terminal resume failure, and a call that
+    // never answers no longer stops the reads for good. The card reads again only while resuming.
     const read = async () => {
       if (disposed || !identity || !active) return;
+      const deadline = performance.now() + readMs;
       try {
         const replyResult = await beforeDeadline(
           postNative(resuming ? "cloudMachine.list" : "cloudMachine.recoveryList"),
+          deadline,
+          left.signal,
         );
         if (disposed) return;
+        if (replyResult.kind === "late") {
+          retry();
+          return;
+        }
         const reply = replyResult.value;
         const next = cloudChatState(JSON.parse(identity) as CloudChatIdentity, reply);
         if (next !== undefined || !resuming) setState(next);
         if (resuming && next !== "deleted" && next !== undefined) {
-          await beforeDeadline(recheck());
+          const rechecked = await beforeDeadline(recheck(), deadline, left.signal);
           if (disposed) return;
+          if (rechecked.kind === "late") {
+            retry();
+            return;
+          }
         }
         if (disposed) return;
         if (next === "deleted") {
@@ -113,9 +157,10 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
     void read();
     return () => {
       disposed = true;
+      left.abort();
       if (timer !== undefined) clearTimeout(timer);
     };
-  }, [identity, session, active, resuming, recheck, readRevision]);
+  }, [identity, session, active, resuming, recheck, readRevision, readMs]);
 
   const resume = () => {
     // Past the slow bound a click wakes the machine again; the reads already running go on.

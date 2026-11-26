@@ -1,4 +1,10 @@
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#endif
 import Foundation
 import Testing
 @testable import CmuxMobileTunnel
@@ -12,7 +18,7 @@ import Testing
             let fd = try RawClient.connect(port: port)
             defer { close(fd) }
             RawClient.send(fd, Array("hello".utf8))
-            shutdown(fd, SHUT_WR)
+            shutdown(fd, Int32(SHUT_WR))
             return RawClient.receiveAll(fd)
         }.value
         #expect(echoed == Array("hello<eof>".utf8))

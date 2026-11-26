@@ -84,10 +84,6 @@ EDIT_READS: dict[tuple[str, str], tuple[frozenset[str], str]] = {
     ("pr-checks.yml", "pull_request"): (frozenset({"body"}), "its advisory job's PR size step reads the `Size:` "
         "line and UI review its section (the pick step runs only what the edit moved); none of its steps fails a "
         "pull request"),
-    ("risk-tier.yml", "pull_request_target"): (ALL, "reads the description's takes-back, receipt and author "
-        "lines; its job never takes a job-level if, since a skipped `risk evidence` reads as a pass (#38003)"),
-    ("thunderdome-label.yml", "pull_request_target"): (frozenset({"title", "base"}), "labels a pull request "
-        "whose title names the thunderdome; not a check"),
 }
 
 # A comment event whose jobs may start on any comment or review, and why.

@@ -221,6 +221,67 @@ class LiveOwedOps:
         return None
 
 
+TIMER_RE = re.compile(r"<CFRunLoopTimer [^>]*>\{valid = (\w+), firing = \w+, interval = ([0-9.e+-]+),[^}]*?"
+                      r"callout = ([^,}\n]+)")
+
+
+def wake_report(before: dict, after: dict) -> dict:
+    """The app's own wakeup sources over the measured windows, from two `debug.wakeups` answers: each ledger
+    (owner, reason) count's rate between them (one born between them counts from 0), busiest first, and the main
+    run loop's valid repeating timers at the end (each wakes the main thread 1/interval times a second, outside
+    the ledger)."""
+    if not isinstance(before, dict) or not isinstance(after, dict) or before.get("error") or after.get("error"):
+        return {"error": (after or {}).get("error") or (before or {}).get("error") or "no debug.wakeups answer"}
+    seconds = max(float(after.get("uptime_s") or 0) - float(before.get("uptime_s") or 0), 1e-3)
+    was = {(e.get("owner"), e.get("reason")): e.get("count") or 0 for e in before.get("ledger") or []}
+    ledger = []
+    for entry in after.get("ledger") or []:
+        key = (entry.get("owner"), entry.get("reason"))
+        delta = (entry.get("count") or 0) - was.get(key, 0)
+        if delta > 0:
+            ledger.append({"owner": key[0], "reason": key[1], "count": delta, "per_s": round(delta / seconds, 3)})
+    ledger.sort(key=lambda e: -e["count"])
+    timers = []
+    seen = set()
+    for valid, interval, callout in TIMER_RE.findall(after.get("main_run_loop") or ""):
+        if valid != "Yes" or float(interval) <= 0 or (callout.strip(), interval) in seen:
+            continue
+        seen.add((callout.strip(), interval))
+        timers.append({"callout": callout.strip()[:160], "interval_s": float(interval),
+                       "per_s": round(1 / float(interval), 3)})
+    timers.sort(key=lambda t: -t["per_s"])
+    return {"seconds": round(seconds, 1), "ledger": ledger,
+            "ledger_per_s": round(sum(e["per_s"] for e in ledger), 3), "timers": timers}
+
+
+def executable_name(bundle: str) -> str:
+    """The app's executable name (CFBundleExecutable): what a trace shows for a thread with no pthread name."""
+    import plistlib
+    try:
+        with open(Path(bundle) / "Contents" / "Info.plist", "rb") as handle:
+            return str(plistlib.load(handle).get("CFBundleExecutable") or "")
+    except (OSError, plistlib.InvalidFileException):
+        return ""
+
+
+def thread_wake_rows(traced: dict, sampled: dict | None = None, process_name: str = "") -> list[dict]:
+    """thread_wakes.record's threads, busiest first: wakeups and CPU ms per second, with the thread's name. A thread
+    with no pthread name (the trace shows the process name) is named by `sampled` (thread_wakes.sample_threads of a
+    `sample` of the same process): its dispatch queue, else its heaviest stack's first frames."""
+    import thread_wakes
+    seconds = max(float(traced.get("seconds") or 0), 1e-3)
+    rows = []
+    for tid, t in (traced.get("threads") or {}).items():
+        name = (t.get("name") or "").strip()
+        got = (sampled or {}).get(tid)
+        row = {"tid": tid, "name": thread_wakes.label("" if name == process_name else name, got) if got else (name or "?"),
+               "wakes_per_s": round(t.get("wakes", 0) / seconds, 2), "cpu_ms_per_s": round(t.get("running_ns", 0) / 1e6 / seconds, 3)}
+        if got and got.get("frames"):
+            row["frames"] = got["frames"][:6]
+        rows.append(row)
+    return sorted(rows, key=lambda r: -r["wakes_per_s"])
+
+
 def log(message: str) -> None:
     print(message, flush=True)
 
@@ -671,6 +732,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--restart-cycles", type=int, default=3,
                         help="with --peer-rows: batches before the owed one, so the old run's positions pass the "
                              "new run's")
+    parser.add_argument("--wake-trace", type=int, default=0,
+                        help="after the windows: the app's own wakeup ledger over them (debug.wakeups), its main run "
+                             "loop timers, and a System Trace of this many seconds (1-15; capped in size and "
+                             "refused below 30 GiB free, thread_wakes.record) naming each app thread's wakeups")
     parser.add_argument("--out")
     args = parser.parse_args(argv)
     args.parser = parser
@@ -679,6 +744,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def check_args(args: argparse.Namespace) -> None:
     parser = args.parser
+    if not 0 <= args.wake_trace <= 15:
+        parser.error("--wake-trace must be 0 (off) to 15 seconds")
     if (args.windows < 1 or args.window <= 0 or args.minutes < 0 or args.chats < 0 or args.history < 0
             or not math.isfinite(args.writers) or not math.isfinite(args.window) or not math.isfinite(args.minutes)
             or args.writers < 0 or args.history_prompt_kb < 0 or (args.writers > 0 and args.history <= 0)):
@@ -774,9 +841,20 @@ def main(argv: list[str] | None = None) -> int:
 
         threads: list = []
         renderer_threads: list = []
+        wake_call = lambda: client.call("debug.wakeups", {"run_loop": True}, timeout=30)  # noqa: E731
+        wakes_before = wake_call() if args.wake_trace else None
         rows = measure(process.pid, bundle, args.windows, args.window,
                        each if args.sample_each_window and not args.no_sample else None, threads, renderer_threads)
         result["processes"] = rows
+        if args.wake_trace:
+            import thread_wakes
+            result["wakeups"] = wake_report(wakes_before, wake_call())
+            log("IDLE-CPU-WAKE-LEDGER " + json.dumps(result["wakeups"], sort_keys=True)[:4000])
+            traced = thread_wakes.record(process.pid, args.wake_trace)
+            # A sample right after names the threads the trace cannot (no pthread name): same tids.
+            sampled = thread_wakes.sample_threads(sample(process.pid, "app-wake", out))
+            result["thread_wakes"] = traced.get("error") or thread_wake_rows(traced, sampled, executable_name(bundle))
+            log("IDLE-CPU-WAKE-THREADS " + json.dumps(result["thread_wakes"])[:4000])
         result["app_threads"] = threads
         result["renderer_threads"] = [{str(pid): groups for pid, groups in window.items()} for window in renderer_threads]
         result["pages"] = page_activity(lambda method, params=None: client.call(method, params, timeout=30))

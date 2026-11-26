@@ -102,18 +102,18 @@ export const turnEndFoldLook = defineExperiment({
 /// 2026-11-22: "that's the recap. you can decide on whatever you want, or r&d more animations." and "i think
 /// the fade in from the bottom is pretty awkward sometimes when you finish chats". Recommended: `place`, the card
 /// drawn whole where it lands (the fold matrix: full ink on its first frame, against the fade's 148 ms
-/// while the view follows it up, which read as a fade up from below). `hold` stays the default until Leo tries it.
+/// while the view follows it up, which read as a fade up from below). Shipped: `place`.
 export const turnEndRecapLook = defineExperiment({
   id: "turn-end-recap-entrance",
   title: "Finished turn recap entrance",
   description: "How the wrap-up recap card comes in under the answer as a finished turn folds.",
   arms: {
-    hold: { label: "Fade (shipped)", description: "Waits until nothing crosses it, then fades in." },
+    hold: { label: "Fade", description: "Waits until nothing crosses it, then fades in." },
     rise: { label: "Rise", description: "Fades in as it rises half a line into its place." },
     unfurl: { label: "Unfurl", description: "Opens down from its top edge as it fades in." },
     bead: { label: "Bead", description: "Fades in as it grows from 96% from its top edge." },
     place: {
-      label: "In place (recommended)",
+      label: "In place (shipped)",
       description: "Drawn at full ink in its place at once, with no entrance.",
     },
     open: {
@@ -121,7 +121,7 @@ export const turnEndRecapLook = defineExperiment({
       description: "Full ink, its room opening down from its top as the rows above rise into it at a line a frame.",
     },
   },
-  defaultArm: "hold",
+  defaultArm: "place",
 });
 
 /// How a subagent block gets to its place as a finished turn folds (turnEndFold.ts `TurnEndSubagent`).

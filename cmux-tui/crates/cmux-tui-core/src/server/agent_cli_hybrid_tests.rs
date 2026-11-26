@@ -560,6 +560,73 @@ fn any_program_reaches_a_lines_viewer_as_frames_and_falls_back_only_when_full_sc
     disconnect_client(&mux, viewer.client, false);
 }
 
+/// `terminal-full-screen-frames-v1`: a full-screen program (a pager that asked for the mouse
+/// and repaints its whole screen for each change) reaches the viewer as lean frames too; only
+/// its modes go as bytes, and a repaint that moves the page one line costs a few cells, not the
+/// screen. When it ends the frames go on.
+#[test]
+fn a_full_screen_program_reaches_a_full_screen_frames_viewer_as_frames() {
+    let (mux, surface) = shell_terminal("hybrid-full-screen-frames");
+    surface.inject_output_for_test(b"$ pager\r\n");
+    let viewer = declaring(&mux, &[SHELL_LINES, &["terminal-full-screen-frames-v1"][..]].concat());
+    viewer.attach(&mux, &surface, json!({}));
+    let mut phone = LinesPhone { decoder: LeanDecoder::new(), phone: None };
+    drain_until_same(&viewer, &mut phone, &surface);
+    let page = |top: usize| {
+        let mut out = String::from("\x1b[H");
+        for line in top..top + 8 {
+            out.push_str(&format!("{line:07} the quick brown fox, pager line\x1b[K\r\n"));
+        }
+        out.push_str(&format!("\x1b[7m PAGER {top} \x1b[0m\x1b[K"));
+        out.into_bytes()
+    };
+    // Events until the phone shows the screen: their names and the bytes of their payloads.
+    let until_same = |phone: &mut LinesPhone| {
+        let (mut names, mut bytes, mut skipped) = (Vec::new(), Vec::new(), Vec::new());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while phone.text() != screen_text(&surface) {
+            assert!(Instant::now() < deadline, "the phone never matched: {names:?}");
+            let event = next_drawn(&viewer, &mut skipped);
+            let payload = event["f"].as_str().or(event["data"].as_str()).unwrap_or("");
+            bytes.push(base64::engine::general_purpose::STANDARD.decode(payload).unwrap());
+            names.push(event["event"].as_str().unwrap_or("").to_owned());
+            phone.apply(&event);
+        }
+        (names, bytes)
+    };
+    surface.inject_output_for_test(
+        &[&b"\x1b[?1049h\x1b[?1000h\x1b[?1006h"[..], &page(0)[..]].concat(),
+    );
+    let (names, bytes) = until_same(&mut phone);
+    assert_eq!(names.last().map(String::as_str), Some("agent-cli-lean"), "{names:?}");
+    for (name, data) in names.iter().zip(&bytes) {
+        if name == "output" {
+            assert!(!data.windows(5).any(|w| w == b"quick"), "only modes as bytes: {data:?}");
+        }
+    }
+    let shown = phone.phone.as_ref().unwrap();
+    assert_eq!(shown.term.active_screen(), ghostty_vt::Screen::Alternate);
+    assert!(shown.term.mode(1000, false) && shown.term.mode(1006, false), "the mouse modes");
+
+    // A wheel step: the pager repaints its whole screen one line down.
+    let repaint = page(1);
+    surface.inject_output_for_test(&repaint);
+    let (names, bytes) = until_same(&mut phone);
+    assert!(names.iter().all(|name| name == "agent-cli-lean"), "frames: {names:?}");
+    let sent: usize = bytes.iter().map(Vec::len).sum();
+    assert!(sent * 2 < repaint.len(), "{sent} bytes for a {}-byte repaint", repaint.len());
+
+    // It ends: the primary screen, and frames go on.
+    surface.inject_output_for_test(b"\x1b[?1006l\x1b[?1000l\x1b[?1049l$ ");
+    until_same(&mut phone);
+    let shown = phone.phone.as_ref().unwrap();
+    assert_eq!(shown.term.active_screen(), ghostty_vt::Screen::Primary);
+    surface.inject_output_for_test(b"echo back\r\nback\r\n$ ");
+    let (names, _) = until_same(&mut phone);
+    assert!(names.iter().all(|name| name == "agent-cli-lean"), "frames again: {names:?}");
+    disconnect_client(&mux, viewer.client, false);
+}
+
 /// A viewer that did not declare the lines keeps the bytes, for a shell and for any program.
 #[test]
 fn viewers_without_the_lines_keep_the_byte_stream() {
@@ -628,3 +695,6 @@ fn a_lines_viewer_gets_the_input_modes_frames_do_not_carry() {
 
 #[path = "phone_link_bench_tests.rs"]
 mod phone_link_bench;
+
+#[path = "full_screen_frames_parity_tests.rs"]
+mod full_screen_frames_parity;

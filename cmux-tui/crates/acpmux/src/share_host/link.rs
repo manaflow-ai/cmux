@@ -378,7 +378,7 @@ fn decide(shared: &Shared, push: &Value, consent: impl FnOnce() -> Consent) -> D
         ),
         Route::End(reason) => Decided::End(
             reason,
-            format!("no app is attached to serve {}", printable(&ticket.peer_name)),
+            format!("{} is not served: {reason}", printable(&ticket.peer_name)),
         ),
     }
 }

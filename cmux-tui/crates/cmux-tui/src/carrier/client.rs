@@ -51,7 +51,8 @@ use zeroize::Zeroizing;
 
 use super::answer::{CarrierAnswer, CarrierSource, Prefetched, SourceError, TicketCache};
 use super::contract::{
-    Failure, FreshSessions, Phase, PhaseTimes, PhasesOf, Step, phases_line, route_line, routes_line,
+    Failure, FreshSessions, Phase, PhaseTimes, PhasesOf, Step, phases_line, route_line,
+    routes_line, routes_line_on,
 };
 use super::source::{
     CARRIER_AUTH, CARRIER_LANES, CachedGroup, CarrierRoutes, CurrentRoute, RouteSet, carrier_routes,
@@ -453,7 +454,7 @@ async fn attempt(
     );
     step.mark(|marks| marks.ssh = Some(ssh.as_ref().map_or_else(|absent| absent.code(), |_| "on")));
     let set = carrier_routes(&answer, provider, ssh.ok());
-    let mut route = RouteAttempt {
+    let route = RouteAttempt {
         plan,
         step,
         resume,
@@ -462,13 +463,13 @@ async fn attempt(
         grant,
         session,
         set: &set,
-        first: None,
+        first: std::sync::Mutex::new(None),
         handshake_wait: waits.handshake,
     };
     let selected =
-        select_initial_route(&set.routes, session, CARRIER_LANES, CARRIER_AUTH, false, &mut route)
+        select_initial_route(&set.routes, session, CARRIER_LANES, CARRIER_AUTH, false, &route)
             .await;
-    let first = route.first.take();
+    let first = route.first.into_inner().unwrap_or_else(|poisoned| poisoned.into_inner());
     selected.map_err(|selection| {
         // Every route failed: the first route's step names the attempt (the
         // relay's, which the route line's words describe), every route's
@@ -497,7 +498,7 @@ struct RouteAttempt<'a> {
     session: SessionId,
     set: &'a RouteSet,
     /// The first route's failure, when it failed.
-    first: Option<Failure>,
+    first: std::sync::Mutex<Option<Failure>>,
     /// How long the daemon may take to answer the handshake ([`handshake_wait`]).
     handshake_wait: Duration,
 }
@@ -554,7 +555,7 @@ pub(super) enum RouteKind {
 #[async_trait]
 impl InitialRouteAttempt<Dialed, Failure> for RouteAttempt<'_> {
     async fn bootstrap_ssh(
-        &mut self,
+        &self,
         _endpoint: &Url,
         _upgrade: bool,
     ) -> Result<(), InitialRouteAttemptError<Failure>> {
@@ -565,7 +566,7 @@ impl InitialRouteAttempt<Dialed, Failure> for RouteAttempt<'_> {
     }
 
     async fn connect(
-        &mut self,
+        &self,
         index: usize,
         request: ConnectRequest,
     ) -> Result<Dialed, InitialRouteAttemptError<Failure>> {
@@ -573,7 +574,8 @@ impl InitialRouteAttempt<Dialed, Failure> for RouteAttempt<'_> {
         if let Err(failure) = &result
             && index == 0
         {
-            self.first = Some(failure.clone());
+            *self.first.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) =
+                Some(failure.clone());
         }
         let dialer = self.set.dialers.get(index);
         let kind = match dialer {
@@ -652,13 +654,30 @@ impl RouteAttempt<'_> {
                 ..ReconnectPolicy::default()
             },
         };
-        let carrier_routes = Arc::new(CarrierRoutes::new(
-            RouteSet { routes: self.set.routes.clone(), dialers: self.set.dialers.clone() },
-            index,
-            cached,
-            self.session,
-            self.current.clone(),
-        ));
+        let carrier_routes = Arc::new(
+            CarrierRoutes::new(
+                RouteSet { routes: self.set.routes.clone(), dialers: self.set.dialers.clone() },
+                index,
+                cached,
+                self.session,
+                self.current.clone(),
+            )
+            .reporting_discovery({
+                let (machine, phases) = (self.plan.machine.clone(), self.plan.phases.clone());
+                Arc::new(move |error: &ProviderError| {
+                    let detail = error.to_string();
+                    let line = routes_line(
+                        &machine,
+                        Phase::Discover,
+                        None,
+                        None,
+                        Some(Step::Relay),
+                        Some(&detail),
+                    );
+                    phases(line);
+                })
+            }),
+        );
         let routes: Arc<dyn ReconnectGroupSource> = carrier_routes.clone();
         let connecting =
             ClientConnection::connect_with_reconnect_groups(tracked, config, Some(routes));
@@ -869,9 +888,20 @@ impl ResumeHooks for Resume {
         let outcome = result.err().map(resume_outcome);
         let detail = result.err().map(ToString::to_string);
         (self.log)(route_line(&self.machine, Phase::Resume, outcome, detail.as_deref(), elapsed));
-        let carrier = Some(self.current.get()).filter(|_| outcome.is_none());
-        let detail = detail.as_deref();
-        (self.phases)(routes_line(&self.machine, Phase::Resume, None, carrier, outcome, detail));
+        // The route the session last moved to is the one this resume ran on.
+        let on = self.current.get();
+        let carrier = Some(on).filter(|_| outcome.is_none());
+        let tried = Some(on).filter(|_| outcome.is_some());
+        let line = routes_line_on(
+            &self.machine,
+            Phase::Resume,
+            None,
+            carrier,
+            tried,
+            outcome,
+            detail.as_deref(),
+        );
+        (self.phases)(line);
     }
 }
 

@@ -45,6 +45,18 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
     @State private var notificationPermission: NotificationPermission?
     @Environment(\.scenePhase) private var scenePhase
 
+    /// Where a scrolled-to id lands. The ends pin to their edge; a section in
+    /// the middle is centered, since `.top` aligns its header with the top of
+    /// the scroll view, under the inline bar and the menu button (iOS release
+    /// bar read-back: "Settings: menu button clears section header").
+    static func anchor(_ target: String) -> UnitPoint {
+        switch target {
+        case "bottom": .bottom
+        case "top": .top
+        default: .center
+        }
+    }
+
     public init(auth: CmuxMobileAuthModel, store: AppStore, settings: SettingsStore, path: Binding<[SettingsRoute]>, scrollRequest: String? = nil, directory: (any SettingsDeviceDirectory)? = nil, sizing: (any TerminalSizingService)? = nil, callChief: (() -> Void)? = nil, screenSharing: ScreenSharingService? = nil, cloudPages: SettingsCloudPages? = nil, inviteToTeam: @escaping (Team) -> Void, saveAppearance: @escaping (TeamAppearance, Team) -> Void, @ToolbarContentBuilder leading: @escaping () -> Leading) {
         self.scrollRequest = scrollRequest
         self.callChief = callChief
@@ -129,6 +141,15 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                         SettingsLabel("Compact workspace list", symbol: "rectangle.grid.1x2")
                     }
                     .accessibilityIdentifier("settings.compactWorkspaceList")
+                    // The Mac's Needs You Look (`notifications.attention.mark`): a waiting workspace's
+                    // dot, or a gentle glow until it is opened. Badge by default (Leo, 2026-11-19).
+                    Picker(selection: $settings.attentionMark) {
+                        ForEach(AttentionMarkLook.allCases) { Text($0.title).tag($0) }
+                    } label: {
+                        SettingsLabel("Needs You look", symbol: "bell.badge")
+                    }
+                    .pickerStyle(.menu)
+                    .accessibilityIdentifier("settings.attentionMark")
                     NavigationLink(value: SettingsRoute.longPressMenus) {
                         SettingsLabel("Long-Press Menus", symbol: "contextualmenu.and.cursorarrow")
                     }
@@ -220,7 +241,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
             }
             .onChange(of: scrollRequest) { _, target in
                 guard let target else { return }
-                withAnimation(theme.motion.gentle.animation.unlessReduceMotion) { proxy.scrollTo(target, anchor: target == "bottom" ? .bottom : .top) }
+                withAnimation(theme.motion.gentle.animation.unlessReduceMotion) { proxy.scrollTo(target, anchor: Self.anchor(target)) }
             }
             .listStyle(.insetGrouped)
             .environment(\.defaultMinListRowHeight, theme.metrics.settingsRowHeight)

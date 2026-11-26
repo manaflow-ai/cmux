@@ -11,6 +11,12 @@ extension UpdaterService {
             log.append("automatic install skipped: preflight failed (\(failure)); the update waits for a click")
             return false
         }
+        if installWhenIdle != nil {
+            // The idle relaunch's record (the updater log, `~/Library/Logs/cmux-next/<bundle>-updater.log`, which the
+            // app's diagnostics carry): the time is the line's, the reading the gate acted on, the builds it moves between.
+            let from = UpdateCard.versionLabel(version: identity.shortVersion, build: identity.build)
+            log.append("update when idle: relaunching to install \(stagedVersion ?? "the staged update") (from \(from)); away: \(idleAwayReading ?? "not read")")
+        }
         recordForAutomaticInstall()
         keepRunningBuildForRollback()
         // A click while the update downloaded (`flow.installRequested`) owns this install: its
@@ -68,6 +74,12 @@ extension UpdaterService {
     /// goes (a later launch the user starts must not stay behind).
     func quitForInstallDeclined() {
         log.append("relaunching behind: the app did not quit; the update waits for a click")
+        if automaticInstallInFlight, installWhenIdle != nil {
+            // Update When Idle tries again once the person is still away, after a backoff (not every second).
+            idleDeclinedInstalls += 1
+            idleDeclinedAt = Date()
+            log.append("update when idle: install \(idleDeclinedInstalls) in a row declined; backing off before the next try")
+        }
         UpdateRelaunchFocus.write(nil, defaults: defaults)
         automaticInstallInFlight = false
         automaticInstallFrontmost = nil

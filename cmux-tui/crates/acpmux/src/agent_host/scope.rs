@@ -70,17 +70,15 @@ pub(crate) fn names_scope(cgroup: &str, unit: &str) -> bool {
     unified(cgroup).is_some_and(|path| path.ends_with(&format!("/{HOST_SLICE}/{unit}")))
 }
 
-/// The `busctl` arguments that create the scope `unit` holding `pid`, with
-/// `TasksMax=tasks_max` (`u64::MAX`: `infinity`, no cap; a scope without the
-/// property would get systemd's `DefaultTasksMax`). The cap is the session scope's
-/// (`session_scope::tasks_max`): a host's scope holds its session's harness
-/// too when that harness got no scope of its own (no `systemd-run`, a
-/// remote profile), so a fork storm stops there as it would in a session
-/// scope. The value is the daemon's (`session.tasksMax` in its config, else
-/// `ACPMUX_SESSION_TASKS_MAX` in its environment), not a profile's: a host is
-/// placed before its session's profile environment reaches it, so a profile
-/// override applies to the session scope only.
-pub(crate) fn busctl_args(unit: &str, pid: u32, tasks_max: u64) -> Vec<String> {
+/// The `busctl` arguments that create the scope `unit` holding `pid`, with the scope `limits`
+/// (`session_budget::Budget::bus_properties`: `(name, signature, value)`). Before
+/// `session_budget.rs` a host or task scope got `TasksMax` alone, so a background `cargo build`
+/// ran with no memory ceiling and full CPU weight. The values are the daemon's (its config, else
+/// its environment), not a profile's: a host is placed before its session's profile environment
+/// reaches it, so a profile override applies to the session scope only. A host's scope holds its
+/// session's harness too when that harness got no scope of its own (no `systemd-run`, a remote
+/// profile), so a runaway stops there as it would in a session scope.
+pub(crate) fn busctl_args(unit: &str, pid: u32, limits: &[[String; 3]]) -> Vec<String> {
     let mut args: Vec<String> = [
         "--user",
         "--quiet",
@@ -94,13 +92,21 @@ pub(crate) fn busctl_args(unit: &str, pid: u32, tasks_max: u64) -> Vec<String> {
     .into_iter()
     .map(str::to_owned)
     .collect();
-    args.extend([unit.to_owned(), "fail".into(), "4".into()]);
+    args.extend([unit.to_owned(), "fail".into(), (3 + limits.len()).to_string()]);
     args.extend(["PIDs".into(), "au".into(), "1".into(), pid.to_string()]);
     args.extend(["Slice".into(), "s".into(), HOST_SLICE.into()]);
     args.extend(["CollectMode".into(), "s".into(), "inactive-or-failed".into()]);
-    args.extend(["TasksMax".into(), "t".into(), tasks_max.to_string()]);
+    for property in limits {
+        args.extend(property.iter().cloned());
+    }
     args.push("0".into());
     args
+}
+
+/// `busctl_args`'s limits with only `TasksMax` (`u64::MAX`: no cap): the fallback when a user
+/// manager refuses the budget's properties (an older systemd without `OOMPolicy`).
+pub(crate) fn tasks_only(tasks_max: u64) -> Vec<[String; 3]> {
+    vec![["TasksMax".into(), "t".into(), tasks_max.to_string()]]
 }
 
 /// The whole environment `busctl` gets: the user bus's address and nothing
@@ -201,23 +207,37 @@ mod linux {
             std::env::var_os("DBUS_SESSION_BUS_ADDRESS"),
             uid,
         );
-        let call = tokio::process::Command::new(busctl)
-            .args(busctl_args(
-                unit,
-                host,
-                crate::session_scope::host_tasks_max().unwrap_or(u64::MAX),
-            ))
-            .env_clear()
-            .envs(env)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .output();
-        let output = tokio::time::timeout(PLACEMENT_WAIT, call)
+        let call = |limits: Vec<[String; 3]>| {
+            tokio::process::Command::new(busctl)
+                .args(busctl_args(unit, host, &limits))
+                .env_clear()
+                .envs(env.clone())
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .kill_on_drop(true)
+                .output()
+        };
+        let budget = crate::session_budget::task_budget().0.bus_properties();
+        let output = tokio::time::timeout(PLACEMENT_WAIT, call(budget))
             .await
             .map_err(|_| format!("busctl did not answer within {PLACEMENT_WAIT:?}"))?
             .map_err(|e| format!("busctl: {e}"))?;
+        // A user manager that refuses a budget property still gets the task cap it took before.
+        let output = if output.status.success() {
+            output
+        } else {
+            let tasks = tasks_only(crate::session_scope::host_tasks_max().unwrap_or(u64::MAX));
+            tracing::warn!(
+                "the budget's scope properties were refused ({}); placing agent host {host} \
+                 with its task cap only",
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+            tokio::time::timeout(PLACEMENT_WAIT, call(tasks))
+                .await
+                .map_err(|_| format!("busctl did not answer within {PLACEMENT_WAIT:?}"))?
+                .map_err(|e| format!("busctl: {e}"))?
+        };
         if !output.status.success() {
             return Err(format!(
                 "busctl {}: {}",
@@ -296,7 +316,7 @@ mod tests {
     #[test]
     fn the_scope_request_names_the_host_pid_and_the_host_slice_on_the_user_bus() {
         let unit = scope_unit(4242, "0a1b2c3d");
-        let joined = busctl_args(&unit, 4242, 4096).join(" ");
+        let joined = busctl_args(&unit, 4242, &tasks_only(4096)).join(" ");
         assert!(joined.starts_with("--user --quiet call org.freedesktop.systemd1 "), "{joined}");
         assert!(
             joined.contains(
@@ -308,8 +328,28 @@ mod tests {
         assert!(joined.contains("Slice s acpmuxhosts.slice"), "{joined}");
         assert!(joined.ends_with("CollectMode s inactive-or-failed TasksMax t 4096 0"), "{joined}");
         // No cap: `infinity` (uint64 max), never systemd's DefaultTasksMax.
-        let joined = busctl_args(&unit, 4242, u64::MAX).join(" ");
+        let joined = busctl_args(&unit, 4242, &tasks_only(u64::MAX)).join(" ");
         assert!(joined.ends_with("TasksMax t 18446744073709551615 0"), "{joined}");
+        // The budget: memory, CPU and IO limits, the property count follows them.
+        let budget = crate::session_budget::Budget {
+            memory_max: 1 << 30,
+            memory_high: 900 << 20,
+            tasks_max: Some(4096),
+            cpu_weight: 50,
+            cpu_quota: 1200,
+            io_weight: 50,
+            ..Default::default()
+        };
+        let joined = busctl_args(&unit, 4242, &budget.bus_properties()).join(" ");
+        assert!(joined.contains("acpmux-agent-host-4242-0a1b2c3d.scope fail 10 PIDs"), "{joined}");
+        assert!(
+            joined.ends_with(
+                "CollectMode s inactive-or-failed MemoryMax t 1073741824 MemoryHigh t 943718400 \
+                 TasksMax t 4096 CPUWeight t 50 CPUQuotaPerSecUSec t 12000000 IOWeight t 50 \
+                 OOMPolicy s continue 0"
+            ),
+            "{joined}"
+        );
     }
 
     #[test]

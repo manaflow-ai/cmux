@@ -122,9 +122,31 @@ impl Hub {
                         }
                     }
                 }
-                wake.notified().await;
+                // Size pressure (`store_pressure.rs`): measured at every wake and at least every
+                // CHECK_EVERY, whatever SPACING says.
+                {
+                    let Some(hub) = hub.upgrade() else { return };
+                    if hub.shutting_down() {
+                        return;
+                    }
+                    let store = hub.config.read().await.store.clone();
+                    let relieve = hub.clone();
+                    if let Err(e) =
+                        tokio::task::spawn_blocking(move || relieve.relieve_store_pressure(&store))
+                            .await
+                    {
+                        tracing::warn!("store pressure pass: {e}");
+                    }
+                }
+                let _ = tokio::time::timeout(store_pressure::CHECK_EVERY, wake.notified()).await;
             }
         })
+    }
+
+    /// Compacts every closed chat's log, whatever its age (`store_pressure.rs`). The caller holds
+    /// `retention_running`. Blocking.
+    pub(super) fn retain_logs_any_age(self: &Arc<Self>) -> Result<Value, RpcError> {
+        self.retain_logs(std::time::Duration::ZERO, &RetentionRequest::default(), None)
     }
 
     /// Runs one pass (`_acpmux/retention`).

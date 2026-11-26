@@ -1510,6 +1510,12 @@
    "denseStyle": "solid"
   },
   {
+   "name": "prompt.save",
+   "meaning": "Save a message as a prompt for the / menu",
+   "sf": "questionmark.square.dashed",
+   "family": "prompt"
+  },
+  {
    "name": "radio.off",
    "meaning": "Option not chosen, todo not done (an empty ring)",
    "sf": "circle",
@@ -1872,6 +1878,13 @@
   {
    "name": "status.progress",
    "meaning": "Busy with known progress: ring",
+   "sf": "questionmark.square.dashed",
+   "family": "status",
+   "denseStyle": "solid"
+  },
+  {
+   "name": "status.question",
+   "meaning": "An agent's question waits for your answer (Needs your input)",
    "sf": "questionmark.square.dashed",
    "family": "status",
    "denseStyle": "solid"

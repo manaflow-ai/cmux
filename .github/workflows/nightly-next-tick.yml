@@ -43,7 +43,8 @@ env:
 jobs:
   request:
     if: github.repository == 'manaflow-ai/cmux' && (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    # RFD 0021 route by need: attempt 1 takes the nightly's reserved label (no PR job may ask for it), a rerun cmux-linux.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # Ten minutes, and its gh calls wait at most four of them for a rate limit (env below).
     # 6,152 request jobs from 2026-11-11 to 2026-11-19 (controller timing records): p50 57 s,
     # p95 83 s, p99 125 s; 12 ran past 10 minutes, every one a hung checkout fetch (up to

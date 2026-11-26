@@ -33,6 +33,9 @@ export const KNOWN_PROGRAMS = [
   "workerd",
   "gh",
   "juicefs",
+  // The compiler cache shared across one person's machines (RFD 0068 item 6). The image only installs it: a
+  // machine's RUSTC_WRAPPER and cache settings come from the platform, and only when the cache is configured.
+  "sccache",
 ] as const;
 /**
  * Programs the lock may carry but does not require yet: their release does not

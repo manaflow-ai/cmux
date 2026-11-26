@@ -6,10 +6,6 @@ path = "tests/test_dev_app_linux.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_dev_fleet_warm_slot.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_dev_landing_place.py"
 lane = "linux-guard"
 

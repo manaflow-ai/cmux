@@ -125,7 +125,7 @@ fn next(state: &mut u64) -> u64 {
 
 /// A `DialOptions::impair_inbound` hook: the datagram's fate on the
 /// profile set by [`set_link_profile`] (`None`: lost or tail-dropped).
-pub fn shape_by_profile(_via_turn: bool, from: &SocketAddr, len: usize) -> Option<Duration> {
+pub fn shape_by_profile(via_turn: bool, from: &SocketAddr, len: usize) -> Option<Duration> {
     let mut air = AIR.lock().unwrap_or_else(PoisonError::into_inner);
     let Some(air) = air.as_mut() else { return Some(Duration::ZERO) };
     let now = Instant::now();
@@ -140,12 +140,14 @@ pub fn shape_by_profile(_via_turn: bool, from: &SocketAddr, len: usize) -> Optio
     let start = (*free).max(now);
     if start - now > air.profile.serialize(QUEUE_SEGMENTS * SEGMENT) {
         DROPPED.fetch_add(1, Ordering::Relaxed);
+        tracing::debug!(%from, len, via_turn, "shaper drops a datagram: queue full");
         return None;
     }
     let left = start + air.profile.serialize(len);
     *free = left;
     if lost {
         DROPPED.fetch_add(1, Ordering::Relaxed);
+        tracing::debug!(%from, len, via_turn, "shaper drops a datagram: loss");
         return None;
     }
     DELIVERED.fetch_add(1, Ordering::Relaxed);

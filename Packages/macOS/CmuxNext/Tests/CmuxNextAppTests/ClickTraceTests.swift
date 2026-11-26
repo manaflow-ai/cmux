@@ -42,6 +42,25 @@ import Testing
         #expect(entry.keyWindow == nil)
     }
 
+    /// Nightly 4518008579501 onward trapped in `press` (SIGTRAP, `Int(NaN)`) 3 s after the first window on every
+    /// onboarding walk, so a new person's app quit under them. A point that is no number records, never traps.
+    @Test func aPressAtAPointThatIsNoNumberRecordsInsteadOfTrapping() throws {
+        #expect(ClickTrace.point(.nan) == 0)
+        #expect(ClickTrace.point(.infinity) == 0)
+        #expect(ClickTrace.point(-.infinity) == 0)
+        #expect(ClickTrace.point(CGFloat(Double.greatestFiniteMagnitude)) == Int.max)
+        #expect(ClickTrace.point(-CGFloat(Double.greatestFiniteMagnitude)) == Int.min)
+        #expect(ClickTrace.point(41.6) == 42)
+        _ = NSApplication.shared
+        let trace = ClickTrace(clock: { 100 })
+        let event = try Self.press(at: NSPoint(x: CGFloat.nan, y: CGFloat.nan), timestamp: 9)
+        trace.press(event, window: nil)
+        let entries = trace.entries()
+        try #require(entries.count == 1, "\(entries)")
+        #expect(entries[0].x == 0)
+        #expect(entries[0].y == 0)
+    }
+
     @Test func aGrantLongAfterThePressIsNoClicks() throws {
         _ = NSApplication.shared
         let clock = Clock()
