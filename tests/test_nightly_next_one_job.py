@@ -195,6 +195,16 @@ class NightlyNextOneJobTests(unittest.TestCase):
                           if step.get("name") == "Finish building in-tree acpmux for the compilation cache")
         self.assertEqual(split_join.get("run"), steps[join].get("run"))
 
+    def test_budget_wrapper_uses_the_available_tooling_checkout(self) -> None:
+        split_steps = self.jobs["build-nightly-app"].get("steps") or []
+        split_budget = next(step for step in split_steps
+                            if step.get("name") == "Wait through GitHub API rate limits in this job's gh calls")
+        self.assertEqual(split_budget.get("run"),
+                         "if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi")
+        one_budget = next(step for step in self.job["steps"]
+                          if step.get("name") == "Wait through GitHub API rate limits in this job's gh calls")
+        self.assertEqual(one_budget.get("run"), "bash .publish-tooling/scripts/ci/gh_budget_wait.sh --install")
+
     def test_the_split_pipeline_skips_in_one_job_mode(self) -> None:
         for name in PIPELINE_ROOTS:
             condition = one_line(self.jobs[name].get("if"))
