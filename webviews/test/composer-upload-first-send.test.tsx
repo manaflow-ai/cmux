@@ -18,9 +18,7 @@ import { importWithDom } from "./support/importWithDom";
 const { useAttachmentIntake, useSendWhenAttached } = await importWithDom(
   () => import("../src/agent-session/acpmux/composer/attachmentIntakeModel"),
 );
-const { ChipRetries } = await importWithDom(
-  () => import("../src/agent-session/acpmux/composer/uploadRetry"),
-);
+const { ChipRetries } = await importWithDom(() => import("../src/agent-session/acpmux/composer/uploadRetry"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT", "Node", "Element"] as const;

@@ -8,9 +8,7 @@ import paneTable from "../src/pages/home-channels/generated/pane-strings.json";
 import { settleReact } from "./support/domTeardown";
 import { importWithDom } from "./support/importWithDom";
 
-const { DetailToggle, readDetail } = await importWithDom(
-  () => import("../src/pages/home-channels/presentation"),
-);
+const { DetailToggle, readDetail } = await importWithDom(() => import("../src/pages/home-channels/presentation"));
 const { runBlocks } = await importWithDom(() => import("../src/pages/home-channels/runBlocks"));
 const { HomeToolGroup } = await importWithDom(() => import("../src/pages/home-channels/HomeToolGroup"));
 const { RunTranscript } = await importWithDom(() => import("../src/pages/home-channels/RunTranscript"));
