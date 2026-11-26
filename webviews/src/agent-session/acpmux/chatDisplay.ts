@@ -19,9 +19,17 @@ import {
   type RailShow,
 } from "./threadMinimap/railShow";
 import { useSyncExternalStore } from "react";
+import {
+  defaultDetailOf,
+  presentationOfDetail,
+  transcriptViewOfDetail,
+  type ChatDetail,
+  type Presentation,
+  type TranscriptView,
+} from "./chatDetail";
 import { configureSenderIconLook } from "./subagents/senderIconLook";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, type HarnessPlacement } from "../../ui/harnessPlacement";
-import { isArm, experimentArm } from "../../experiments/experiment";
+import { experimentArm, isArm } from "../../experiments/experiment";
 import { readingLook, readingLookValues } from "./readingLook.experiment";
 import {
   HIGH_CONTRAST_CHAT_VARIABLES,
@@ -221,9 +229,19 @@ export const MODEL_CHIP_ICON_KEY = "agentPane.display.modelChipIcon";
 /// Settings > Agent Chat > Queue Prompts During a Turn (queueing.ts), on unless set false; a queued
 /// row's menu and the composer's button row write it. Not part of ChatDisplay.
 export const QUEUEING_KEY = "agentPane.display.queueing";
+/// The model picker's harness tab order (modelPickerOrder.ts): a drag on the picker's rail writes it.
+/// Not part of ChatDisplay.
+export const MODEL_PICKER_ORDER_KEY = "agentPane.display.modelPickerOrder";
+/// Settings > Agent Chat > Model Picker Style: what a click on the model chip opens (ModelPicker.tsx).
+/// "list", the default: on a New Tab or a chat that can switch harness, the harness rail and its
+/// model columns. "menu": the compact menu a started chat opens (QuickModelMenu.tsx), with the
+/// harness's models, an Effort submenu and Fast mode, after the Claude Code app's model menu. A look
+/// turns it on. Not part of ChatDisplay.
+export const MODEL_PICKER_STYLE_KEY = "agentPane.display.modelPickerStyle";
+export type ModelPickerStyle = "list" | "menu";
 /// The viewer's picks the page makes and the host keeps (`pane.setDisplay`): the modules that own
 /// them read them with `pickedDisplayValue` and follow `subscribeChatDisplay`.
-const PICKED_KEYS = [MODEL_CHIP_ICON_KEY, QUEUEING_KEY] as const;
+const PICKED_KEYS = [MODEL_CHIP_ICON_KEY, QUEUEING_KEY, MODEL_PICKER_ORDER_KEY] as const;
 
 /// A font pack's families (a community typography theme from the app store; Swift
 /// AgentPaneDisplaySetting sends them with the chat's keys): a CSS family or comma stack without
@@ -235,22 +253,22 @@ export const UI_FAMILY_KEY = "agentPane.display.font.uiFamily";
 export const PROSE_FAMILY_KEY = "agentPane.display.font.proseFamily";
 export { CHAT_FONT_FACES_KEY };
 
-/// Settings > Agent Chat > Transcript View (conversation/transcriptView.ts): how much of each turn a
-/// chat without a view of its own shows. Not part of ChatDisplay: a switch measures no row again by
-/// itself; the rows it opens measure as they draw.
-export const TRANSCRIPT_VIEW_KEY = "agentPane.display.transcriptView";
-/// Normal: the compact transcript. Thinking: thoughts open. Verbose: tool output open too.
-export type TranscriptView = "normal" | "thinking" | "verbose";
-export const TRANSCRIPT_VIEWS: readonly TranscriptView[] = ["normal", "thinking", "verbose"];
-export const isTranscriptView = (value: unknown): value is TranscriptView =>
-  value === "normal" || value === "thinking" || value === "verbose";
-
-/// Settings > Agent Chat > Presentation (conversation/presentation.ts): whether a chat shows the
-/// complete transcript or the Messages-style bubble view with tool rows hidden.
-export const PRESENTATION_KEY = "agentPane.display.presentation";
-export type Presentation = "transcript" | "messages";
-export const PRESENTATIONS: readonly Presentation[] = ["transcript", "messages"];
-export const isPresentation = (value: unknown): value is Presentation => value === "transcript" || value === "messages";
+/// Settings > Agent Chat > Chat Detail (chatDetail.ts, conversation/chatDetailChoice.ts): the detail
+/// ladder's level of a chat without one of its own. The old Presentation and Transcript View keys
+/// still read (defaultDetailOf). Not part of ChatDisplay: a switch measures no row again by itself;
+/// the rows it opens measure as they draw.
+export {
+  DETAIL_KEY,
+  TRANSCRIPT_VIEW_KEY,
+  TRANSCRIPT_VIEWS,
+  isTranscriptView,
+  PRESENTATION_KEY,
+  PRESENTATIONS,
+  isPresentation,
+  type TranscriptView,
+  type Presentation,
+  type ChatDetail,
+} from "./chatDetail";
 
 /// Settings > Agent Chat > Working Status Verbs. The mode is `thinking` by default; `rotate` opts
 /// into the per-turn -ing verbs and `custom` reads the comma-separated list in `STATUS_VERB_CUSTOM_KEY`.
@@ -497,12 +515,29 @@ export function chatMetrics(display: ChatDisplay, density: number = densityTextS
   };
 }
 
+/// The code block size and line the chat sets (`--cv-codeblock-size`, `--cv-codeblock-line-height`), or null where it
+/// sets none and code keeps the page's (`--cmux-diff-font-size`, `--cmux-diff-line-height`): at the default text size
+/// and code scale. The diff card's rows (conversation/editDiffBox.ts) are drawn and estimated with it.
+export function chatCodeBlock(
+  display: ChatDisplay = current,
+  density: number = densityTextScale,
+): { size: number; line: number } | null {
+  if (
+    drawnFontSize(display, density) === DEFAULT_CHAT_DISPLAY.fontSize &&
+    display.codeScale === DEFAULT_CHAT_DISPLAY.codeScale
+  )
+    return null;
+  const metrics = chatMetrics(display, density);
+  return { size: metrics.blockCodeSize, line: metrics.codeLineHeight };
+}
+
 /// The CSS variables for `display`; a null value removes the variable (the stylesheet's default).
 export function chatDisplayVariables(
   display: ChatDisplay,
   density: number = densityTextScale,
 ): Record<string, string | null> {
   const metrics = chatMetrics(display, density);
+  const code = chatCodeBlock(display, density);
   const fontSize = drawnFontSize(display, density);
   const isDefault = (key: keyof ChatDisplay) =>
     key === "fontSize" ? fontSize === DEFAULT_CHAT_DISPLAY.fontSize : display[key] === DEFAULT_CHAT_DISPLAY[key];
@@ -539,9 +574,8 @@ export function chatDisplayVariables(
         : `${round(display.fontSize * display.lineHeight)}px`,
     "--cv-line-height": isDefault("fontSize") && isDefault("lineHeight") ? null : `${metrics.lineHeight}px`,
     "--cv-code-size": isDefault("fontSize") && isDefault("codeScale") ? null : `${metrics.inlineCodeSize}px`,
-    "--cv-codeblock-size": isDefault("fontSize") && isDefault("codeScale") ? null : `${metrics.blockCodeSize}px`,
-    "--cv-codeblock-line-height":
-      isDefault("fontSize") && isDefault("codeScale") ? null : `${metrics.codeLineHeight}px`,
+    "--cv-codeblock-size": code ? `${code.size}px` : null,
+    "--cv-codeblock-line-height": code ? `${code.line}px` : null,
     "--cv-mono": codeFont,
     // The stylesheet's default is the default width's column, so only another width or Full Width
     // sets it; chatWidth.ts displayColumn mirrors both for the row estimator.
@@ -571,8 +605,7 @@ let railShow: RailShow = DEFAULT_RAIL_SHOW;
 let railControlOn = false;
 let unreadBanner: UnreadBannerMode = "off";
 let threadMinimapArm: ThreadMinimapArm | null = null;
-let transcriptView: TranscriptView = "normal";
-let presentation: Presentation = "transcript";
+let chatDetail: ChatDetail = "normal";
 let featureTipsOn = false;
 let autoCloudOn = false;
 let defaultImage = "auto";
@@ -580,6 +613,7 @@ let commandLabels = "null";
 let promptCoachOn = true;
 let environmentCardOn = false;
 let changesPillOn = false;
+let modelPickerStyle: ModelPickerStyle = "list";
 /// The PICKED_KEYS values as JSON, so a change to one of them alone reaches its listeners.
 let picked = "[]";
 /// Whether a `display` value came (the host's, or the page's own change): until then the picks are
@@ -662,10 +696,7 @@ export function setChatDisplay(value: unknown): void {
   const railControl = raw[RAIL_CONTROL_KEY] === true;
   const handle = raw[TRAY_HANDLE_KEY] === "left" || raw[TRAY_HANDLE_KEY] === "right" ? raw[TRAY_HANDLE_KEY] : "middle";
   const threadMinimap = resolveThreadMinimapArm(raw);
-  const stored = raw[TRANSCRIPT_VIEW_KEY];
-  const view = isTranscriptView(stored) ? stored : "normal";
-  const storedPresentation = raw[PRESENTATION_KEY];
-  const nextPresentation = isPresentation(storedPresentation) ? storedPresentation : "transcript";
+  const detail = defaultDetailOf(raw);
   const tips = raw[FEATURE_TIPS_KEY] === true;
   const autoCloud = raw[AUTO_CLOUD_KEY] === true;
   const storedImage = raw[DEFAULT_IMAGE_KEY];
@@ -676,6 +707,7 @@ export function setChatDisplay(value: unknown): void {
   const coach = raw[PROMPT_COACH_KEY] !== false;
   const environmentCard = raw[ENVIRONMENT_CARD_KEY] === true;
   const changesPill = raw[CHANGES_PILL_KEY] === true;
+  const pickerStyle: ModelPickerStyle = raw[MODEL_PICKER_STYLE_KEY] === "menu" ? "menu" : "list";
   const pickedNow = JSON.stringify(PICKED_KEYS.map((key) => raw[key] ?? null));
   const first = !received;
   received = true;
@@ -710,15 +742,15 @@ export function setChatDisplay(value: unknown): void {
     railControl === railControlOn &&
     banner === unreadBanner &&
     threadMinimap === threadMinimapArm &&
-    view === transcriptView &&
-    nextPresentation === presentation &&
+    detail === chatDetail &&
     tips === featureTipsOn &&
     autoCloud === autoCloudOn &&
     image === defaultImage &&
     labels === commandLabels &&
     coach === promptCoachOn &&
     environmentCard === environmentCardOn &&
-    changesPill === changesPillOn
+    changesPill === changesPillOn &&
+    pickerStyle === modelPickerStyle
   )
     return;
   picked = pickedNow;
@@ -726,6 +758,7 @@ export function setChatDisplay(value: unknown): void {
   promptCoachOn = coach;
   environmentCardOn = environmentCard;
   changesPillOn = changesPill;
+  modelPickerStyle = pickerStyle;
   minimapOn = minimap;
   statusPillsOn = statusPills;
   headerBreadcrumbOn = headerBreadcrumb;
@@ -736,8 +769,7 @@ export function setChatDisplay(value: unknown): void {
   railControlOn = railControl;
   unreadBanner = banner;
   threadMinimapArm = threadMinimap;
-  transcriptView = view;
-  presentation = nextPresentation;
+  chatDetail = detail;
   featureTipsOn = tips;
   autoCloudOn = autoCloud;
   defaultImage = image;
@@ -856,20 +888,26 @@ export function resetChatDisplayForTests(): void {
   unsent.clear();
   displayHost = undefined;
   raw = {};
+  chatDetail = "normal";
   picked = "[]";
   received = false;
 }
 const snapshot = () => current;
 const minimapSnapshot = () => minimapOn;
 const threadMinimapSnapshot = () => threadMinimapArm;
-const transcriptViewSnapshot = () => transcriptView;
-const presentationSnapshot = () => presentation;
-/// The Transcript View setting: the view of a chat without its own (conversation/transcriptView.ts).
-export const defaultTranscriptView = (): TranscriptView => transcriptView;
+const chatDetailSnapshot = () => chatDetail;
+const transcriptViewSnapshot = () => transcriptViewOfDetail(chatDetail);
+const presentationSnapshot = () => presentationOfDetail(chatDetail);
+/// The Chat Detail setting: the level of a chat without its own (conversation/chatDetailChoice.ts).
+export const defaultChatDetail = (): ChatDetail => chatDetail;
+export const useDefaultChatDetail = (): ChatDetail =>
+  useSyncExternalStore(subscribe, chatDetailSnapshot, chatDetailSnapshot);
+/// The default level as the old Transcript View the disclosure reads.
+export const defaultTranscriptView = (): TranscriptView => transcriptViewOfDetail(chatDetail);
 export const useDefaultTranscriptView = (): TranscriptView =>
   useSyncExternalStore(subscribe, transcriptViewSnapshot, transcriptViewSnapshot);
-/// The presentation setting for a chat without its own (conversation/presentation.ts).
-export const defaultPresentation = (): Presentation => presentation;
+/// The default level as the old presentation (Messages or Transcript).
+export const defaultPresentation = (): Presentation => presentationOfDetail(chatDetail);
 export const useDefaultPresentation = (): Presentation =>
   useSyncExternalStore(subscribe, presentationSnapshot, presentationSnapshot);
 const featureTipsSnapshot = () => featureTipsOn;
@@ -895,6 +933,10 @@ const changesPillSnapshot = () => changesPillOn;
 /// Whether the chat draws its changes pill over the composer (CHANGES_PILL_KEY).
 export const useChangesPillOn = (): boolean =>
   useSyncExternalStore(subscribe, changesPillSnapshot, changesPillSnapshot);
+const modelPickerStyleSnapshot = () => modelPickerStyle;
+/// What a click on the model chip opens (MODEL_PICKER_STYLE_KEY): the harness columns or the compact menu.
+export const useModelPickerStyle = (): ModelPickerStyle =>
+  useSyncExternalStore(subscribe, modelPickerStyleSnapshot, modelPickerStyleSnapshot);
 const trayTuckedSnapshot = () => trayTuckedOn;
 /// Whether a sent prompt pops in, read when a row enters (VirtualTranscript.tsx): the root's gate,
 /// which SEND_POP_KEY sets and a bench's arm may set by hand, as the CSS rule reads it.

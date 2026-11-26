@@ -43,7 +43,7 @@ struct TabTitleResolver {
         conversationTitle = { [weak services] tab in services?.home.tabTitle(for: tab) ?? Strings.untitledBrowser }
         page = { [weak services] tab in
             guard let services else { return nil }
-            if let app = tab.appTab, let provider = services.apps.pageProvider(appID: app.app, codeRouterAsPage: false),
+            if let app = tab.appTab, let provider = services.apps.pageProvider(appID: app.app),
                let page = services.pages.storeTabItem(tab, page: provider.page) { return page }
             return tab.page != nil ? services.pages.storeTabItem(tab) : nil
         }
