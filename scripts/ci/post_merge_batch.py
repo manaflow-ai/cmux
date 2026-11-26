@@ -202,11 +202,12 @@ def publish(args: argparse.Namespace, branch: str, start: str, refspec: str, fil
     push_branch(push_url(args.push_url, token), refspec)
 
 
-def start_branch(repo: str, branch: str, sha: str, api=gh_api, sleep=time.sleep, waits: tuple[int, ...] = (15, 45), token: str = "") -> None:
+def start_branch(repo: str, branch: str, sha: str, api=None, sleep=time.sleep, waits: tuple[int, ...] = (15, 45), token: str = "") -> None:
     """Creates branch at sha, a commit GitHub already has, through the REST API, with the push token. The revert
     then reaches it as an update. With the job token, a git push that creates the branch timed out every time
     (drill-5 run 44897813534, drill-6 run 44906887225, four tries each) and this call got HTTP 502 (drill-7 run
     44932473656). A branch left by an earlier try is reused; a GitHub 5xx is retried."""
+    api = api or gh_api  # looked up per call, so a test's patch of gh_api reaches it
     for wait in (*waits, None):
         try:
             api(f"repos/{repo}/git/refs", method="POST", fields={"ref": f"refs/heads/{branch}", "sha": sha}, tokens=[token or push_token()])
@@ -292,15 +293,17 @@ def is_batch(run: dict) -> bool:
     return (run.get("display_title") or run.get("name") or "").split(" ", 1)[0] == BATCH
 
 
-def list_runs(repo: str, branch: str, api=gh_api) -> list[dict]:
+def list_runs(repo: str, branch: str, api=None) -> list[dict]:
     """This workflow's runs on branch, newest first (one page)."""
+    api = api or gh_api  # looked up per call, so a test's patch of gh_api reaches it
     data = api(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?branch={branch}&per_page={RUNS_PAGE}")
     runs = list((data or {}).get("workflow_runs") or [])
     runs.sort(key=lambda r: (r.get("created_at") or "", r.get("id") or 0), reverse=True)
     return runs
 
 
-def run_jobs(repo: str, run_id: int, api=gh_api) -> list[dict]:
+def run_jobs(repo: str, run_id: int, api=None) -> list[dict]:
+    api = api or gh_api  # looked up per call, so a test's patch of gh_api reaches it
     jobs: list[dict] = []
     page = 1
     while True:
@@ -389,8 +392,9 @@ def every_merges(value: str | None) -> int:
     return max(count, 0)
 
 
-def ahead_by(repo: str, base: str, tip: str, api=gh_api) -> int | None:
+def ahead_by(repo: str, base: str, tip: str, api=None) -> int | None:
     """Commits tip has that base has not (one compare call, one commit listed); None when GitHub cannot say."""
+    api = api or gh_api  # looked up per call, so a test's patch of gh_api reaches it
     if not base or not SHA_RE.match(str(base)):
         return None
     try:
@@ -689,8 +693,9 @@ def probe_refusal(probe: Probe, branch: str, origin: dict | None, found: list[tu
     return ""
 
 
-def dispatch_probe(repo: str, branch: str, probe: Probe, api=gh_api) -> None:
+def dispatch_probe(repo: str, branch: str, probe: Probe, api=None) -> None:
     # DISPATCH_TOKEN: the revert job's GITHUB_TOKEN (actions: write), whose GH_TOKEN may be the App's, which has none.
+    api = api or gh_api  # looked up per call, so a test's patch of gh_api reaches it
     token = os.environ.get("DISPATCH_TOKEN") or os.environ.get("GH_TOKEN", "")
     api(f"repos/{repo}/actions/workflows/{WORKFLOW}/dispatches", method="POST", fields={"ref": branch, "inputs": probe.inputs()}, tokens=[token])
 
@@ -862,10 +867,11 @@ def revert_title(subject: str, job: str, branch: str) -> str:
     return f'Revert "{subject}" (post-merge batch: {job} red on {branch})'
 
 
-def merged_by_teammate(repo: str, pr: str, api=gh_api) -> str:
+def merged_by_teammate(repo: str, pr: str, api=None) -> str:
     """The culprit PR's author when a core teammate wrote it (their revert opens held), else "". An
     unreadable author counts as a teammate: a held revert costs a human glance, an agent landing a
     teammate's revert breaks the rule."""
+    api = api or gh_api  # looked up per call, so a test's patch of gh_api reaches it
     if not pr:
         return ""
     try:
@@ -878,8 +884,9 @@ def merged_by_teammate(repo: str, pr: str, api=gh_api) -> str:
 SWAPOUT_MARK = "<!-- post-merge piece swap-out {culprit} {job} -->"
 
 
-def swapouts_opened(repo: str, api=gh_api) -> list[datetime]:
+def swapouts_opened(repo: str, api=None) -> list[datetime]:
     """When each recent swap-out pull request opened (the breaker's count)."""
+    api = api or gh_api  # looked up per call, so a test's patch of gh_api reaches it
     pulls = api(f"repos/{repo}/pulls?state=all&sort=created&direction=desc&per_page=50") or []
     return [parse_time(p["created_at"]) for p in pulls if str((p.get("head") or {}).get("ref") or "").startswith("swapout/")]
 
