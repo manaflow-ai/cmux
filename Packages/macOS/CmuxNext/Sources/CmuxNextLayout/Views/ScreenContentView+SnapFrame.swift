@@ -184,6 +184,12 @@ extension ScreenContentView {
         hideSnapDeparted()
         guard frameInput.changeIsUnshown else { return }
         frameInput.changeIsUnshown = false
+        if frameInput.showsSplit {
+            frameInput.showsSplit = false
+            // The split's live panes show in this pass's commit: with a picture over them it goes after its slide; with
+            // none, this commit is the split's first frame.
+            if snapshotOpen != nil { snapshotOpenLiveShown() } else { context.frameTiming?.changed(in: window, path: "live") }
+        }
         reconcileDock()
         reconcileCanvasStacking()
         guard let chrome = frameInput.heldChrome else { return }

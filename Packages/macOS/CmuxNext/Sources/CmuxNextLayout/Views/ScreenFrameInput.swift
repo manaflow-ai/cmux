@@ -28,6 +28,8 @@ struct ScreenFrameInput {
     /// A layout change reconciled that no pass has begun to show. The pass that shows it brings along what follows the
     /// panes (``ScreenContentView/beginShowingChange()``): the docks' backdrops, the stacking order, the rings and dims.
     var changeIsUnshown = false
+    /// That change adds one pane (a split): the pass that shows it ends a right split's timing (`right_split_open`, live).
+    var showsSplit = false
     /// The rings and dims the model asked for while that change was not shown: applied in the pass that shows it.
     var heldChrome: (@MainActor () -> Void)?
     /// The producers a change resized (``PaneCommitSurface``) that have not all reported ready, by pane: whether each
