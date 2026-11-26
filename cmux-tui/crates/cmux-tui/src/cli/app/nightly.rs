@@ -1,4 +1,4 @@
-//! `cmux nightly list|install` (and its app spelling, `cmux app versions` and
+//! `cmux nightly list|install|whats-in|which` (and its app spelling, `cmux app versions` and
 //! `cmux app use previous|next|latest|<build>`): go back (or forward) to another
 //! recent nightly build of the app behind the socket.
 //!
@@ -17,6 +17,7 @@
 //! running one) and asks the app for `updates.switch_build`, the same path
 //! as Settings > Updates' Switch: download, signature and team check, one
 //! restart with every session, and the build left behind is no longer offered.
+//! `whats-in` and `which` read the signed notes feed itself, with no app (nightly/notes.rs).
 
 use std::time::Duration;
 
@@ -46,6 +47,24 @@ pub(crate) enum Command {
     Install {
         target: Target,
     },
+    /// `whats-in [BUILD]`: the PRs a NIGHTLY carried.
+    WhatsIn {
+        build: NotesBuild,
+    },
+    /// `which <PR>`: the first NIGHTLY that carried a PR.
+    Which {
+        pr: u64,
+    },
+}
+
+/// The build `whats-in` reads.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum NotesBuild {
+    /// The newest build in the feed.
+    Latest,
+    /// The build the app behind the socket runs.
+    Installed,
+    Build(String),
 }
 
 /// The build `install` goes to.
@@ -114,6 +133,33 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
             }
             Ok(Command::Install { target })
         }
+        Some("whats-in") => {
+            let build = match rest.get(1).map(String::as_str) {
+                None | Some("latest") => NotesBuild::Latest,
+                Some("installed") => NotesBuild::Installed,
+                Some(build)
+                    if !build.is_empty() && build.bytes().all(|byte| byte.is_ascii_digit()) =>
+                {
+                    NotesBuild::Build(build.to_owned())
+                }
+                _ => return Err(usage()),
+            };
+            if let Some(extra) = rest.get(2) {
+                return Err(UsageError::new(
+                    messages.unexpected_argument.replace("{value}", extra),
+                ));
+            }
+            Ok(Command::WhatsIn { build })
+        }
+        Some("which") => {
+            let pr = rest.get(1).and_then(|word| notes::pr_number(word)).ok_or_else(usage)?;
+            if let Some(extra) = rest.get(2) {
+                return Err(UsageError::new(
+                    messages.unexpected_argument.replace("{value}", extra),
+                ));
+            }
+            Ok(Command::Which { pr })
+        }
         _ => Err(usage()),
     }
 }
@@ -137,6 +183,11 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
         println!("{}", messages.usage);
         return 0;
     }
+    match command {
+        Command::WhatsIn { build } => return whats_in(global, build, messages),
+        Command::Which { pr } => return which(global, *pr, messages),
+        _ => {}
+    }
     let mut stream = match super::connect_command(global) {
         Ok(stream) => stream,
         Err(error) => return super::super::wire::print_local_error(&error, global.output, 3),
@@ -144,7 +195,10 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
     let limit = match command {
         Command::List { limit } => *limit,
         // `previous` and a named build are looked up among the most builds `updates.builds` lists.
-        Command::Help | Command::Install { .. } => 50,
+        Command::Help
+        | Command::Install { .. }
+        | Command::WhatsIn { .. }
+        | Command::Which { .. } => 50,
     };
     let listing = match super::exchange(
         &mut stream,
@@ -157,7 +211,7 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
         Err(message) => return failure("app.transport", &message, global.output),
     };
     match command {
-        Command::Help => 0,
+        Command::Help | Command::WhatsIn { .. } | Command::Which { .. } => 0,
         Command::List { .. } => match global.output {
             OutputMode::Human => {
                 print!("{}", human(&listing, messages));
@@ -246,6 +300,113 @@ pub(super) fn switched(response: &str) -> Switched {
     match super::parse_response(response) {
         Ok(answer) => Switched::Answer(answer),
         Err(message) => Switched::Failed(message),
+    }
+}
+
+/// The build the app behind the socket runs, from `updates.builds`.
+fn installed_build(global: &GlobalArgs) -> Result<String, i32> {
+    let messages = &crate::localization::catalog().app_control.nightly;
+    let mut stream = super::connect_command(global)
+        .map_err(|error| super::super::wire::print_local_error(&error, global.output, 3))?;
+    match super::exchange(&mut stream, "updates.builds", json!({ "limit": 1 }), LIST_TIMEOUT) {
+        Ok(Ok(value)) => value
+            .get_nonempty_str("installed")
+            .map(str::to_owned)
+            .ok_or_else(|| failure("nightly.no_installed", messages.no_installed, global.output)),
+        Ok(Err(error)) => Err(super::super::wire::print_operation_error(&error, global.output)),
+        Err(message) => Err(failure("app.transport", &message, global.output)),
+    }
+}
+
+fn block_on<F: std::future::Future>(future: F) -> Result<F::Output, String> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map(|runtime| runtime.block_on(future))
+        .map_err(|error| format!("runtime: {error}"))
+}
+
+fn feed_failure(error: &str, output: OutputMode, messages: &NightlyMessages) -> i32 {
+    failure("nightly.feed", &messages.feed_failed.replace("{error}", error), output)
+}
+
+/// `cmux nightly whats-in [BUILD]`: the PRs that NIGHTLY carried, by area.
+fn whats_in(global: &GlobalArgs, wanted: &NotesBuild, messages: &NightlyMessages) -> i32 {
+    let wanted = match wanted {
+        NotesBuild::Latest => None,
+        NotesBuild::Build(build) => Some(build.clone()),
+        NotesBuild::Installed => match installed_build(global) {
+            Ok(build) => Some(build),
+            Err(code) => return code,
+        },
+    };
+    let read = block_on(async {
+        let feed = notes::Feed::from_env()?;
+        let builds = feed.index().await?;
+        let Some(build) = notes::select(&builds, wanted.as_deref()).cloned() else {
+            return Ok(Err(builds.len()));
+        };
+        let notes = feed.notes(&build.build).await?;
+        let since = notes::previous(&builds, &build.build).cloned();
+        Ok::<_, String>(Ok((build, notes, since)))
+    })
+    .and_then(|read| read);
+    let (build, found, since) = match read {
+        Ok(Ok(read)) => read,
+        Ok(Err(_)) => {
+            let number = wanted.unwrap_or_default();
+            return failure(
+                "nightly.unknown_build",
+                &messages.unknown_build.replace("{build}", &number),
+                global.output,
+            );
+        }
+        Err(error) => return feed_failure(&error, global.output, messages),
+    };
+    let Some(found) = found else {
+        return failure(
+            "nightly.no_notes",
+            &messages.whats_in_no_notes.replace("{build}", &build.build),
+            global.output,
+        );
+    };
+    match global.output {
+        OutputMode::Human => {
+            print!("{}", notes::whats_in_human(&build, &found, since.as_ref(), messages));
+            0
+        }
+        _ => super::super::wire::print_local_success(
+            &notes::whats_in_json(&build, &found, since.as_ref()),
+            global.output,
+        ),
+    }
+}
+
+/// `cmux nightly which <PR>`: the oldest NIGHTLY whose notes carry the PR; 1 when none does.
+fn which(global: &GlobalArgs, pr: u64, messages: &NightlyMessages) -> i32 {
+    let read = block_on(async {
+        let feed = notes::Feed::from_env()?;
+        let builds = feed.index().await?;
+        let hit = notes::find(&feed, &builds, pr).await?;
+        Ok::<_, String>((builds, hit))
+    })
+    .and_then(|read| read);
+    let (builds, hit) = match read {
+        Ok(read) => read,
+        Err(error) => return feed_failure(&error, global.output, messages),
+    };
+    let hit = hit.as_ref().map(|(build, notes)| (build, notes));
+    let code = if hit.is_some() { 0 } else { 1 };
+    match global.output {
+        OutputMode::Human => {
+            println!("{}", notes::which_human(pr, hit, &builds, messages));
+            code
+        }
+        _ => {
+            let printed =
+                super::super::wire::print_local_success(&notes::which_json(pr, hit), global.output);
+            if printed == 0 { code } else { printed }
+        }
     }
 }
 

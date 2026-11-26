@@ -271,7 +271,7 @@ pub(crate) struct ShareMessages {
     pub opened: &'static str,
 }
 
-/// `cmux nightly list|install`: go back (or forward) to another recent nightly build.
+/// `cmux nightly list|install|whats-in|which`: go back (or forward) to another recent nightly build.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct NightlyMessages {
     pub usage: &'static str,
@@ -286,6 +286,16 @@ pub(crate) struct NightlyMessages {
     pub here: &'static str,
     pub kept: &'static str,
     pub pulled_tag: &'static str,
+    pub whats_in_header: &'static str,
+    pub whats_in_header_first: &'static str,
+    pub whats_in_other: &'static str,
+    pub whats_in_internal: &'static str,
+    pub whats_in_no_notes: &'static str,
+    pub which_found: &'static str,
+    pub which_found_at: &'static str,
+    pub which_missing: &'static str,
+    pub feed_failed: &'static str,
+    pub no_installed: &'static str,
 }
 
 /// The labels of `cmux version`'s text report; the JSON keys stay English.
@@ -384,7 +394,7 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         last_check: "Last check",
     },
     nightly: NightlyMessages {
-        usage: "usage: cmux app versions [--limit N] | use previous|next|latest|<build>\n       cmux nightly list [--limit N] | install previous|next|latest|<build>   (the same commands)\n  versions, list  the recent nightly builds, newest first (* marks the one this Mac runs)\n  use, install    installs that build, older or newer, the way Settings > Updates' Switch does: it downloads\n                  and checks it (a kept build swaps at once), restarts cmux into it with every session, and\n                  keeps the build it leaves, so `use next` comes forward again after `use previous`\n  previous  the newest build below this one;  next  the oldest build above it;  latest  the newest build",
+        usage: "usage: cmux app versions [--limit N] | use previous|next|latest|<build>\n       cmux nightly list [--limit N] | install previous|next|latest|<build>   (the same commands)\n  versions, list  the recent nightly builds, newest first (* marks the one this Mac runs)\n  use, install    installs that build, older or newer, the way Settings > Updates' Switch does: it downloads\n                  and checks it (a kept build swaps at once), restarts cmux into it with every session, and\n                  keeps the build it leaves, so `use next` comes forward again after `use previous`\n  previous  the newest build below this one;  next  the oldest build above it;  latest  the newest build\n       cmux nightly whats-in [latest|installed|<build>] | which <PR>\n  whats-in  the PRs that NIGHTLY carried, by area, each with its URL (default: the newest build)\n  which     the first NIGHTLY that carried a PR (57008, #57008 or its URL); exits 1 when none of the\n            listed builds did. Both read the signed notes feed, with no app (`installed` asks the app).",
         no_builds: "no nightly builds are listed (the feed could not be read)",
         cannot_switch: "this cmux follows no update feed, so it cannot install another build",
         unknown_build: "build {build} is not one of the recent nightly builds; `cmux nightly list` shows them",
@@ -396,6 +406,16 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         here: "this Mac",
         kept: "kept",
         pulled_tag: "pulled",
+        whats_in_header: "NIGHTLY {build} ({version}, {date}, {head}): {count} changes since NIGHTLY {since}",
+        whats_in_header_first: "NIGHTLY {build} ({version}, {date}, {head}): {count} changes",
+        whats_in_other: "Other",
+        whats_in_internal: "internal",
+        whats_in_no_notes: "NIGHTLY {build} published no notes",
+        which_found: "#{pr} shipped in NIGHTLY {build} ({date})",
+        which_found_at: "#{pr} shipped in NIGHTLY {build} ({date}, built {time})",
+        which_missing: "#{pr} is not in the last {count} NIGHTLY builds (back to {oldest}, {date}): not shipped yet, or shipped before that",
+        feed_failed: "cannot read the NIGHTLY notes feed: {error}",
+        no_installed: "the app did not say which build it runs",
     },
     app_try: TryMessages {
         usage: "usage: cmux app try . [--from APP] [--dry-run]    your working tree in a copy of your NIGHTLY (no dev build)\n       cmux app try . --extract                   keep the code that went in (a branch and a patch)\n       cmux app try . --stop                      quit the copy and delete it\n       cmux app try <PR|branch|sha> [--dry-run] [--app PATH] | channel [--dry-run] | undo [--dry-run] | status\n       cmux app try <share link> [--dry-run]       a build someone shared with `cmux app share`, beside your cmux\n  .       copy your nightly and swap your code in: a fresh clone of APP (default /Applications/cmux NIGHTLY.app)\n          runs beside your cmux, which is not touched, with this checkout's web UI (a dev server: saves show\n          live) and daemon Rust put in. `.` is the checkout around this folder; dir:PATH, ./PATH or /PATH name\n          another. It prints the copy's socket (`cmux --app-socket SOCKET ...` drives it). Swift needs a build,\n          and it says which; dev builds stay available. --dry-run prints the plan only\n  try     runs that commit's cmux in this app the cheapest way there is: live when CI published a live\n          build this app can take (bin/cmux and its companions swapped in, the daemon handed over in\n          seconds, every terminal kept), else the commit's nightly build (or the nearest one that contains\n          it) the way `cmux nightly install` installs it, else the Release app CI published for it (in place of
@@ -540,7 +560,7 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
     history_clear_range_usage: "usage: cmux history clear-range --range hour|today|week|month|all [--kind <kind,...>] [--profile <profile>]",
     history_text_bytes: "{what} must contain 1 to 1024 UTF-8 bytes",
     keybinding_usage: "usage: cmux keybinding list [--query TEXT] [--command ID] [--source default|app|user] | resolve KEYS [--window ID] | context [--window ID]",
-    root_scopes: "APP SCOPES (the cmux app)\n  app           ping, identify, capabilities, call (debug builds), and app actions (`cmux app new-window`)\n  window        List the app's windows\n  action        List, describe, and run registered actions\n  settings      Read, change, list and validate cmux-next.json settings (also `cmux config`)\n  events        Stream app events as JSON lines\n  history       List, search and edit history, also with the app closed (list, search <text>, remove, restore)\n  bookmark      List and search browser bookmarks (list, search <text>)\n  keybinding    Read key bindings (list, resolve <keys>, context)\n  nightly       Go back to an earlier nightly build (list, install previous|<build>)\n  live          Edit cmux's web UI while it runs, from a checkout (start, stop, status)\n  <noun> <verb> Any action by its CLI name (`cmux action list`)\n  --app-socket <path>  Connect to an exact app control socket\n",
+    root_scopes: "APP SCOPES (the cmux app)\n  app           ping, identify, capabilities, call (debug builds), and app actions (`cmux app new-window`)\n  window        List the app's windows\n  action        List, describe, and run registered actions\n  settings      Read, change, list and validate cmux-next.json settings (also `cmux config`)\n  events        Stream app events as JSON lines\n  history       List, search and edit history, also with the app closed (list, search <text>, remove, restore)\n  bookmark      List and search browser bookmarks (list, search <text>)\n  keybinding    Read key bindings (list, resolve <keys>, context)\n  nightly       Go back to an earlier nightly build (list, install previous|<build>), or see the PRs in one (whats-in, which <PR>)\n  live          Edit cmux's web UI while it runs, from a checkout (start, stop, status)\n  <noun> <verb> Any action by its CLI name (`cmux action list`)\n  --app-socket <path>  Connect to an exact app control socket\n",
 };
 
 pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
@@ -624,7 +644,7 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         last_check: "最終確認",
     },
     nightly: NightlyMessages {
-        usage: "使い方: cmux app versions [--limit N] | use previous|next|latest|<ビルド>\n       cmux nightly list [--limit N] | install previous|next|latest|<ビルド>   (同じコマンド)\n  versions, list  最近のナイトリービルドを新しい順に表示 (* はこの Mac で動作中のビルド)\n  use, install    そのビルド (古いものも新しいものも) を 設定 > アップデート の切り替えと同じ方法でインストールします。\n                  ダウンロードして検証し (保存済みのビルドはすぐに入れ替え)、すべてのセッションを保ったまま cmux を再起動し、\n                  元のビルドを保存するので `use previous` の後に `use next` で戻れます\n  previous  これより前の最新ビルド;  next  これより後の最も古いビルド;  latest  最新ビルド",
+        usage: "使い方: cmux app versions [--limit N] | use previous|next|latest|<ビルド>\n       cmux nightly list [--limit N] | install previous|next|latest|<ビルド>   (同じコマンド)\n  versions, list  最近のナイトリービルドを新しい順に表示 (* はこの Mac で動作中のビルド)\n  use, install    そのビルド (古いものも新しいものも) を 設定 > アップデート の切り替えと同じ方法でインストールします。\n                  ダウンロードして検証し (保存済みのビルドはすぐに入れ替え)、すべてのセッションを保ったまま cmux を再起動し、\n                  元のビルドを保存するので `use previous` の後に `use next` で戻れます\n  previous  これより前の最新ビルド;  next  これより後の最も古いビルド;  latest  最新ビルド\n       cmux nightly whats-in [latest|installed|<ビルド>] | which <PR>\n  whats-in  その NIGHTLY に入った PR を領域ごとに URL 付きで表示 (既定: 最新ビルド)\n  which     PR (57008、#57008 またはその URL) が最初に入った NIGHTLY を表示。一覧のどのビルドにも\n            入っていなければ終了コード 1。どちらも署名付きのリリースノートフィードを読み、アプリは不要 (`installed` はアプリに問い合わせ)",
         no_builds: "ナイトリービルドの一覧がありません (フィードを読み取れませんでした)",
         cannot_switch: "この cmux はアップデートフィードに従っていないため、他のビルドをインストールできません",
         unknown_build: "ビルド {build} は最近のナイトリービルドにありません。`cmux nightly list` で一覧を表示します",
@@ -636,6 +656,16 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         here: "この Mac",
         kept: "保存済み",
         pulled_tag: "取り下げ",
+        whats_in_header: "NIGHTLY {build} ({version}、{date}、{head}): NIGHTLY {since} 以降の変更 {count} 件",
+        whats_in_header_first: "NIGHTLY {build} ({version}、{date}、{head}): 変更 {count} 件",
+        whats_in_other: "その他",
+        whats_in_internal: "内部",
+        whats_in_no_notes: "NIGHTLY {build} はリリースノートを公開していません",
+        which_found: "#{pr} は NIGHTLY {build} ({date}) に入りました",
+        which_found_at: "#{pr} は NIGHTLY {build} ({date}、ビルド {time}) に入りました",
+        which_missing: "#{pr} は直近 {count} 件の NIGHTLY ビルド ({oldest}、{date} まで) にありません: まだ出荷されていないか、それより前に出荷されました",
+        feed_failed: "NIGHTLY のリリースノートフィードを読めません: {error}",
+        no_installed: "アプリが動作中のビルドを返しませんでした",
     },
     app_try: TryMessages {
         usage: "使い方: cmux app try . [--from APP] [--dry-run]    作業ツリーをナイトリーのコピーで動かします (DEV ビルド不要)\n       cmux app try . --extract                   入れたコードを残します (ブランチとパッチ)\n       cmux app try . --stop                      コピーを終了して削除します\n       cmux app try <PR|ブランチ|sha> [--dry-run] [--app パス] | undo [--dry-run] | status\n       cmux app try <共有リンク> [--dry-run]       `cmux app share` で共有されたビルドを cmux の横で開きます\n  .       ナイトリーをコピーしてコードを入れます: APP (既定 /Applications/cmux NIGHTLY.app) の新しいクローンを、\n          今の cmux には触れずに横で起動し、このチェックアウトの Web UI (開発サーバー: 保存するとすぐ反映) と\n          デーモンの Rust を入れます。`.` はこのフォルダを含むチェックアウトです。dir:パス、./パス、/パス で別のものを\n          指定できます。コピーのソケットを表示します (`cmux --app-socket ソケット ...` で操作)。Swift はビルドが必要で、\n          その理由を表示します。DEV ビルドは引き続き使えます。--dry-run は計画だけを表示します\n  try     そのコミットの cmux を、このアプリで最も手軽な方法で動かします。このアプリが受け取れるライブビルドを CI が\n          公開していればライブで (bin/cmux とその付属ファイルを入れ替え、数秒でデーモンを引き継ぎ、ターミナルはすべて残ります)、\n          なければそのコミットのナイトリービルド (なければそれを含む最も近いもの) を `cmux nightly install` と同じ方法でインストールし、\n          それもなければ CI が公開した Release アプリをこのアプリの ID のまま置き換えます (セッション・設定・アップデートは残り、undo で元に戻ります)。ここではビルドしません。\n          PR やブランチは GitHub の公開 API でその先頭のコミットに解決します。\n  undo    直前の try で置き換えたものを元に戻します\n  status  直前の try の記録: 何を、どの方法で行い、各段階に何秒かかったか\n  --dry-run  計画を表示するだけで、何も変更しません",
@@ -779,5 +809,5 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
     history_clear_range_usage: "使い方: cmux history clear-range --range hour|today|week|month|all [--kind <種類,...>] [--profile <プロファイル>]",
     history_text_bytes: "{what} は 1 から 1024 バイトの UTF-8 にしてください",
     keybinding_usage: "使い方: cmux keybinding list [--query テキスト] [--command ID] [--source default|app|user] | resolve キー [--window ID] | context [--window ID]",
-    root_scopes: "アプリのスコープ (cmux アプリ)\n  app           ping、identify、capabilities、call (デバッグビルド) とアプリのアクション (`cmux app new-window`)\n  window        アプリのウィンドウ一覧\n  action        登録済みアクションの一覧、説明、実行\n  settings      cmux-next.json の設定の読み取り、変更、一覧、検証 (`cmux config` も可)\n  events        アプリのイベントを JSON 行で表示\n  history       履歴の一覧、検索、編集。アプリを閉じていても使えます (list、search <テキスト>、remove、restore)\n  bookmark      ブラウザのブックマークの一覧と検索 (list、search <テキスト>)\n  keybinding    キーバインドの読み取り (list、resolve <キー>、context)\n  nightly       以前のナイトリービルドに戻す (list、install previous|<ビルド>)\n  live          動作中の cmux の Web UI をチェックアウトから編集 (start、stop、status)\n  <名詞> <動詞> CLI 名で任意のアクションを実行 (`cmux action list`)\n  --app-socket <パス>  指定したアプリ制御ソケットに接続\n",
+    root_scopes: "アプリのスコープ (cmux アプリ)\n  app           ping、identify、capabilities、call (デバッグビルド) とアプリのアクション (`cmux app new-window`)\n  window        アプリのウィンドウ一覧\n  action        登録済みアクションの一覧、説明、実行\n  settings      cmux-next.json の設定の読み取り、変更、一覧、検証 (`cmux config` も可)\n  events        アプリのイベントを JSON 行で表示\n  history       履歴の一覧、検索、編集。アプリを閉じていても使えます (list、search <テキスト>、remove、restore)\n  bookmark      ブラウザのブックマークの一覧と検索 (list、search <テキスト>)\n  keybinding    キーバインドの読み取り (list、resolve <キー>、context)\n  nightly       以前のナイトリービルドに戻す (list、install previous|<ビルド>)、または NIGHTLY に入った PR を表示 (whats-in、which <PR>)\n  live          動作中の cmux の Web UI をチェックアウトから編集 (start、stop、status)\n  <名詞> <動詞> CLI 名で任意のアクションを実行 (`cmux action list`)\n  --app-socket <パス>  指定したアプリ制御ソケットに接続\n",
 };
