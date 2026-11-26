@@ -1,0 +1,43 @@
+/// Workspace actions supported by the Mac that owns a workspace row.
+public struct MobileWorkspaceActionCapabilities: Equatable, Sendable {
+    /// Whether rename and pin/unpin workspace actions are supported.
+    public var supportsWorkspaceActions: Bool
+    /// Whether workspace description and color mutations are supported.
+    public var supportsWorkspaceMetadata: Bool
+    /// Whether mark read/unread workspace actions are supported.
+    public var supportsReadStateActions: Bool
+    /// Whether workspace close requests are supported.
+    public var supportsCloseActions: Bool
+    /// Whether workspace move/reorder requests are supported.
+    public var supportsMoveActions: Bool
+    /// Whether workspace group mutation requests are supported.
+    public var supportsGroupActions: Bool
+    /// Whether workspace group creation requests are supported.
+    public var supportsGroupCreate: Bool
+    /// Whether a new workspace can be created directly inside a group.
+    public var supportsWorkspaceCreateInGroup: Bool
+
+    /// No workspace actions are supported.
+    public static let none = MobileWorkspaceActionCapabilities()
+
+    /// Create a workspace action capability snapshot.
+    public init(
+        supportsWorkspaceActions: Bool = false,
+        supportsWorkspaceMetadata: Bool = false,
+        supportsReadStateActions: Bool = false,
+        supportsCloseActions: Bool = false,
+        supportsMoveActions: Bool = false,
+        supportsGroupActions: Bool = false,
+        supportsGroupCreate: Bool = false,
+        supportsWorkspaceCreateInGroup: Bool = false
+    ) {
+        self.supportsWorkspaceActions = supportsWorkspaceActions
+        self.supportsWorkspaceMetadata = supportsWorkspaceMetadata
+        self.supportsReadStateActions = supportsReadStateActions
+        self.supportsCloseActions = supportsCloseActions
+        self.supportsMoveActions = supportsMoveActions
+        self.supportsGroupActions = supportsGroupActions
+        self.supportsGroupCreate = supportsGroupCreate
+        self.supportsWorkspaceCreateInGroup = supportsWorkspaceCreateInGroup
+    }
+}

@@ -1,0 +1,44 @@
+// swift-tools-version: 6.0
+
+import PackageDescription
+
+let package = Package(
+    name: "CmuxMobileShellModel",
+    platforms: [
+        .iOS(.v17),
+        .macOS(.v14),
+    ],
+    products: [
+        .library(
+            name: "CmuxMobileShellModel",
+            targets: ["CmuxMobileShellModel"]
+        ),
+    ],
+    dependencies: [
+        .package(path: "../../Shared/CMUXMobileCore"),
+        .package(path: "../../Shared/CmuxTerminalSizing"),
+    ],
+    targets: [
+        .target(
+            name: "CmuxMobileShellModel",
+            dependencies: [
+                "CMUXMobileCore",
+                "CmuxTerminalSizing",
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("ExistentialAny"),
+                .enableUpcomingFeature("InternalImportsByDefault"),
+            ]
+        ),
+        .testTarget(
+            name: "CmuxMobileShellModelTests",
+            dependencies: ["CmuxMobileShellModel", "CmuxTerminalSizing"],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("ExistentialAny"),
+                .enableUpcomingFeature("InternalImportsByDefault"),
+            ]
+        ),
+    ]
+)
