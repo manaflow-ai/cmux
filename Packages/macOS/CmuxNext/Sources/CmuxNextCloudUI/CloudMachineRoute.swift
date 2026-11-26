@@ -374,34 +374,18 @@ public struct CloudMachineRoute: Sendable {
     public func warmHome(acpmuxHome: String? = nil) async -> Bool {
         let command = CloudStartCore().call("cloud_warm_home", WarmHomeRequest(acpmuxHome: acpmuxHome), as: WarmHomeReply.self)?
             .command ?? Self.warmHomeCommand
-        // What the machine answered, in the log: a warm that leaves no agent ready was only a false here, and every real
-        // start said "no home chat warmed ahead" with no reason (2026-11-25). Never a credential: the answer holds none.
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
         guard let stdout = try? await plain(command, Self.timeoutMs).stdout else {
             logger.info("cloud spare \(machineID ?? "", privacy: .public): home warm did not run (its command failed or the machine does not run)")
             return false
         }
-        let text = stdout.trimmingCharacters(in: .whitespacesAndNewlines), said: String
-        if let data = text.data(using: .utf8), let answer = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
-            let spares = (answer["spares"] as? [[String: Any]] ?? []).map { "\($0["harness"] as? String ?? "?") \($0["state"] as? String ?? "?")" }
-            let accepted = answer["accepted"] as? Bool == true, state = answer["state"] as? String ?? "none"
-            let parts: [String?] = [
-                "accepted \(accepted)", "state \(state)",
-                (answer["harness"] as? String).map { "agent \($0)" }, (answer["model"] as? String).map { "model \($0)" },
-                (answer["credential"] as? Bool).map { $0 ? "on the chat's connection" : "on the machine's route" },
-                spares.isEmpty ? nil : "spares \(spares.joined(separator: ", "))",
-                (answer["reason"] as? String).map { "reason: \(String($0.prefix(200)))" },
-            ]
-            said = parts.compactMap { $0 }.joined(separator: "; ")
-        } else {
-            said = text.isEmpty ? "no answer (its cmux-tui predates warm-home, or its agent service did not answer)" : "an answer that is not JSON"
-        }
-        logger.info("cloud spare \(machineID ?? "", privacy: .public): home warm answered \(said, privacy: .public)")
-        return Self.warmHomeReady(stdout)
+        let ready = await Self.warmHomeReady(stdout)
+        logger.info("cloud spare \(machineID ?? "", privacy: .public): home agent ready: \(ready, privacy: .public)")
+        return ready
     }
 
     /// Whether `stdout` is the warm-home answer of an agent that is ready.
-    nonisolated static func warmHomeReady(_ stdout: String) -> Bool {
+    @concurrent nonisolated static func warmHomeReady(_ stdout: String) async -> Bool {
         guard let data = stdout.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8),
               let answer = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
         return answer["accepted"] as? Bool == true && answer["state"] as? String == "ready"

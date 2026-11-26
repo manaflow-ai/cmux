@@ -9,6 +9,13 @@ import Testing
         CloudMachineRoute(exec: { _, _ in CloudExecResult(exitCode: 0, stdout: stdout, stderr: "") })
     }
 
+    @Test func aWarmCommandOnlyMarksAnAcceptedReadyAgentAsReady() async {
+        #expect(await Self.machine(printing: #"{"accepted":true,"state":"ready"}"#).warmHome())
+        for reply in [#"{"accepted":false,"state":"ready"}"#, #"{"accepted":true,"state":"warming"}"#, ""] {
+            #expect(await Self.machine(printing: reply).warmHome() == false)
+        }
+    }
+
     /// DEV 36050-cloud-multiplayer: a new machine whose image software has no model-route report (it prints
     /// nothing) and that the app's update does not change refused every Cloud start.
     @Test func aMachineWithNoReportStartsOnItsImagesSoftware() async {
