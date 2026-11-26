@@ -1256,6 +1256,13 @@ jobs:
           # none passed. A push keeps every retry: its verdicts are the base's history. Undo: the repository variable
           # CMUX_WEB_TEST_RETRY_BREAKER=0.
           CMUX_WEB_TEST_RETRY_BREAKER: ${{ github.event_name == 'pull_request' && (vars.CMUX_WEB_TEST_RETRY_BREAKER || '5') || '0' }}
+          # Pull requests only, the cost bound on the same retries: a red file whose first run took over 120 s gets no
+          # alone retry, and every alone retry starts within 300 s of the first (run-webviews-tests.sh). Job
+          # 137151085368 retried 15 files alone for 26 min; the slow ones (accent-glass-invariants 462-481 s,
+          # agent-pane-reveal-in-place 362 s) failed again, and the base check judged all 11 reds anyway. A push keeps
+          # every retry. Undo: the repository variables set to 0.
+          CMUX_WEB_TEST_RETRY_SLOW_SECONDS: ${{ github.event_name == 'pull_request' && (vars.CMUX_WEB_TEST_RETRY_SLOW_SECONDS || '120') || '0' }}
+          CMUX_WEB_TEST_ALONE_RETRY_BUDGET: ${{ github.event_name == 'pull_request' && (vars.CMUX_WEB_TEST_ALONE_RETRY_BUDGET || '300') || '' }}
           CMUX_WEB_TEST_DURATIONS_OUT: ${{ runner.temp }}/webviews-durations-out/shard${{ matrix.shard }}.json
           BASE_REF: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
           FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}

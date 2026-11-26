@@ -471,10 +471,10 @@ jobs:
       actions: write
       contents: read
     steps:
-      # The dispatch below went out on github.token alone and failed the job whenever that hour was spent ("HTTP 403:
-      # API rate limit exceeded for installation", runs 45817203883, 45818143253 and 45818600252 at 12:10-12:19Z on
-      # 2026-11-26, every web layer failure sampled after the check job moved to the pool in 7c4ab7f01). It goes out
-      # on a CI pool App first, then cmux-bot, then github.token, as the plan job's dispatch does.
+      # The dispatch below went red on "HTTP 403: API rate limit exceeded for installation" whenever github.token's
+      # hour was spent (job 139099457954 on 2026-11-25; runs 45817203883, 45818143253 and 45818600252 on 2026-11-26):
+      # every workflow's jobs share that hour. It goes out on a CI pool App first (each has its own hour), rotates
+      # through the others and github.token, and keeps the cmux-bot App's token as the script's last retry.
       - name: Drop a reused workspace's repository
         if: runner.environment == 'self-hosted'
         run: rm -rf "$GITHUB_WORKSPACE/.git"
@@ -520,7 +520,13 @@ jobs:
           PR: ${{ needs.target.outputs.pr }}
         run: |
           set -euo pipefail
-          gh workflow run cmux-next-web-bundle-publish.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next -f pr="$PR"
+          dispatch() { gh workflow run cmux-next-web-bundle-publish.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next -f pr="$PR" 2> "$RUNNER_TEMP/web.err"; }
+          if ! dispatch; then
+            cat "$RUNNER_TEMP/web.err" >&2
+            grep -qiE "rate limit|HTTP 429" "$RUNNER_TEMP/web.err" && [[ -n "${GH_TOKEN_SPARE:-}" ]] || exit 1
+            echo "every pool token is rate-limited: dispatching on the cmux-bot App's token" >&2
+            GH_TOKEN="$GH_TOKEN_SPARE" dispatch || { cat "$RUNNER_TEMP/web.err" >&2; exit 1; }
+          fi
           echo "web layer of #$PR: publishing (\`cmux customize use pr:$PR\` once files.cmux.com/cmux-next-web/pr/$PR/latest.json names the head)" >> "$GITHUB_STEP_SUMMARY"
 
   # The head's cmux-tui tree key. cmux-tui-artifacts.yml publishes the tree for a same-repository PR head, its
