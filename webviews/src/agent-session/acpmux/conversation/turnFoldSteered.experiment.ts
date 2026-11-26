@@ -12,6 +12,11 @@ import { defineExperiment } from "../../../experiments/experiment";
 /// work after the message up above it (Leo, 2026-11-11: "it sort of, like, steals commands that came
 /// in, perhaps, like, in between something, and it just shunts them to the top, like it rewrites the
 /// transcript in a way").
+/// Two more arms for Leo's steered-turn pick (hq#18554 section 4, 2026-11-22: "these cases are maybe
+/// taste calls, but potentially we can just stick the steered together. not sure tho."), compared in
+/// `agent-pane.steered-turn-layouts`: `stacked` draws the person's steers right under the prompt, then
+/// one Worked for over the whole turn; `inline` folds the whole turn, each steer inside it where it
+/// arrived.
 export const turnFoldSteered = defineExperiment({
   id: "turn-fold-steered",
   title: "One fold for a steered turn",
@@ -32,6 +37,14 @@ export const turnFoldSteered = defineExperiment({
     header: {
       label: "On the header",
       description: "Worked for's line names the work it holds; its run lines open with it.",
+    },
+    stacked: {
+      label: "Steers stacked",
+      description: "The person's steers stack under the prompt, live and finished; one Worked for holds the rest.",
+    },
+    inline: {
+      label: "Steer inside the fold",
+      description: "One Worked for holds the whole turn; each steer sits inside it where it arrived.",
     },
     split: {
       label: "Beside the fold",
