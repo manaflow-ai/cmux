@@ -44,9 +44,6 @@ public struct TabSwitchMorph {
 }
 
 extension PaneContentAreaView {
-    /// The ground this area paints now (`paintGround`: its waiting or resting ground), read off its layer.
-    var groundColor: CGColor? { layer?.backgroundColor }
-
     /// Runs `swap` (a tab switch), then eases this area's ground from the one it showed before to the one it shows now
     /// when `on` (``TabSwitchMorph``).
     public func easesGround(_ on: Bool, _ swap: () -> Void) {
