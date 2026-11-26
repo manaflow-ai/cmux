@@ -62,6 +62,8 @@ public final class BrowserSingleSignOnNavigationGate {
     // blocks the next navigation that asks.
     private weak var holder: AnyObject?
     private var isHeld = false
+    // Tells one hold from a later one by the same owner.
+    private var holdCount = 0
     private var waiters: [Waiter] = []
 
     /// Creates a gate that asks macOS which URLs an Extensible SSO extension
@@ -147,7 +149,11 @@ public final class BrowserSingleSignOnNavigationGate {
         // Set before the call: allowing a navigation may report its outcome re-entrantly.
         holder = owner
         isHeld = true
-        if !waiter.admission(true), isHeld, holder === owner {
+        holdCount &+= 1
+        let ownHold = holdCount
+        // The call may also have freed the gate and taken it again, even for
+        // the same owner. That newer hold is not this admission's to free.
+        if !waiter.admission(true), ownHold == holdCount {
             release()
         }
     }
