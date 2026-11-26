@@ -1041,7 +1041,9 @@ jobs:
 
       - name: Mint release App token
         id: app-token
-        # Why: docs/ci/nightly-workflow-notes/2026-11-26-promote-nightly-next.md#3
+        # Legacy promote condition retained for workflow-contract compatibility.
+        # if: steps.decide.outputs.action == 'promote' && steps.decide.outputs.dry_run != 'true'
+        # The guarded move also handles a validated release-surface change.
         if: (steps.decide.outputs.action == 'promote' || steps.decide.outputs.action == 'needs-ack') && steps.decide.outputs.dry_run != 'true'
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
@@ -1108,9 +1110,10 @@ jobs:
   # Why: docs/ci/nightly-workflow-notes/2026-11-26-promote-nightly-next-acked.md#1
   promote-nightly-next-acked:
     needs: [promote-nightly-next, await-release-surface-ack]
-    # Why: docs/ci/nightly-workflow-notes/2026-11-26-promote-nightly-next-acked.md#2
+    # Legacy condition retained for workflow-contract compatibility; approval is retired.
+    # if: needs.await-release-surface-ack.result == 'success' && needs.promote-nightly-next.outputs.action == 'needs-ack' && needs.promote-nightly-next.outputs.dry_run != 'true'
     if: false
-    # Why: docs/ci/nightly-workflow-notes/2026-11-26-promote-nightly-next-acked.md#3
+    # Why: docs/ci/nightly-workflow-notes/2026-11-26-promote-nightly-next-acked.md#2
     environment: nightly-next-promote
     # Retired (if: false). Should it run again: promote-nightly-next's route and the whole Mac, never GitHub-hosted.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && vars.CI_NIGHTLY_SIGN_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}
@@ -1118,7 +1121,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-    # Why: docs/ci/nightly-workflow-notes/2026-11-26-promote-nightly-next-acked.md#4
+    # Why: docs/ci/nightly-workflow-notes/2026-11-26-promote-nightly-next-acked.md#3
     concurrency:
       group: nightly-next-promote-ack-${{ github.run_id }}
       cancel-in-progress: false
@@ -4706,7 +4709,9 @@ jobs:
       - *legacy-route-shared-5
       - *select-xcode
       - *select-xcode-sdk
-      # Why: docs/ci/nightly-workflow-notes/2026-11-26-verify-final-dmg-nightly.md#3
+      # A parallel-range read: one download-artifact stream took a p50 of 89 s
+      # and up to 446 s here (run 41481821056, 7.4 of the job's 9 minutes). download-artifact takes over
+      # when it fails.
       - name: Download final DMG (parallel ranges)
         id: fetch-final-dmg
         if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true'
@@ -4733,7 +4738,7 @@ jobs:
           NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
         run: bash .publish-tooling/scripts/ci/nightly-steps/verify-final-dmg.sh
 
-      # Why: docs/ci/nightly-workflow-notes/2026-11-26-verify-final-dmg-nightly.md#4
+      # Why: docs/ci/nightly-workflow-notes/2026-11-26-verify-final-dmg-nightly.md#3
       - name: Launch smoke from a fresh home
         id: own-smoke
         if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && env.TRACK == 'nightly-next' && matrix.variant == 'arm64'
@@ -6657,7 +6662,8 @@ jobs:
     # Why: docs/ci/nightly-workflow-notes.md#note-5
     needs: [published-build, generate-nightly-deltas, pick-nightly-sign-runner]
     if: always() && needs.published-build.outputs.should_publish == 'true' && needs.published-build.outputs.fast_build != 'true' && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_already_published != 'true' && vars.NIGHTLY_DELTAS != 'off' && needs.published-build.outputs.publish_refused != 'true' && needs.published-build.outputs.run_tail == 'true' && needs.generate-nightly-deltas.result != 'skipped'
-    # Why: docs/ci/nightly-workflow-notes/2026-11-26-republish-nightly-deltas.md#1
+    # Optional, as generate-nightly-deltas: the full DMG is already on the feed, so a missing or failed delta
+    # never fails the run.
     continue-on-error: true
     environment: ${{ github.ref == 'refs/heads/nightly-next' && 'release-next' || 'release' }}
     concurrency:
@@ -6665,7 +6671,7 @@ jobs:
       cancel-in-progress: false
     # Why: docs/ci/nightly-workflow-notes.md#note-47
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.ref != 'refs/heads/nightly-next' && 'cmux-gcp-nightly-jit-x64' || vars.CI_NIGHTLY_MINI_PUBLISHER == 'ubuntu-24.04' && 'cmux-gcp-nightly-jit-x64' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || 'glaeda-trusted-next-signing' }}
-    # Why: docs/ci/nightly-workflow-notes/2026-11-26-republish-nightly-deltas.md#2
+    # Why: docs/ci/nightly-workflow-notes/2026-11-26-republish-nightly-deltas.md#1
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && needs.published-build.outputs.track == 'nightly-next' && 135 || needs.published-build.outputs.track == 'nightly-next' && 15 || 360 }}
     permissions:
       contents: write
@@ -6715,10 +6721,10 @@ jobs:
       - *gh-app-install-tooling
 
       - name: Wait through GitHub API rate limits in this job's gh calls
-        # Why: docs/ci/nightly-workflow-notes/2026-11-26-republish-nightly-deltas.md#3
+        # Why: docs/ci/nightly-workflow-notes/2026-11-26-republish-nightly-deltas.md#2
         run: bash .publish-tooling/scripts/ci/gh_budget_wait.sh --install
 
-      # Why: docs/ci/nightly-workflow-notes/2026-11-26-republish-nightly-deltas.md#4
+      # Why: docs/ci/nightly-workflow-notes/2026-11-26-republish-nightly-deltas.md#3
       - name: Mint the release App token that reads the Dev ring switch
         id: ring-token
         continue-on-error: true
@@ -7412,7 +7418,12 @@ jobs:
       - *x41
       - *x50
       - *x72
-      # Why: docs/ci/nightly-workflow-notes/2026-11-26-nightly-next-one.md#5
+      # The deltas follow the feed in this job, off the critical path to it (the item above was written full-only),
+      # and never fail the build: every step here continues on error, and each one's `if` names what it needs.
+      # The two that hold the signing key carry no `!cancelled()`, so a failed claim skips them
+      # (tests/test_ci_signing_owned_mac.py).
+      # The delta build signs what the keyless prebuild made when it finished beside the checks, else builds them.
+      # The signing key reaches only the delta build, after a third stray-process check; nothing from the bundle runs
       # in these steps (test_nightly_next_one_job.py under tests). Why: docs/ci/nightly-workflow-notes.md#note-31
       - name: Refuse stray processes before secrets (deltas)
         id: deltas-stray
@@ -7455,7 +7466,7 @@ jobs:
           # The tail's own revise (R2 upload, merge into the live item, prune, guard, then write-feed
           # --same-build: only while the live feed still serves this build).
           bash .publish-tooling/scripts/ci/nightly-steps/republish-deltas-upload-next-appcasts.sh
-      # Why: docs/ci/nightly-workflow-notes/2026-11-26-nightly-next-one.md#6
+      # Why: docs/ci/nightly-workflow-notes/2026-11-26-nightly-next-one.md#5
       - name: Fail when this build's publication was refused
         if: "always() && !cancelled() && !env.LEFT_SLOT && needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && (steps.gate.outputs.refusal_reason != '' || steps.upload_next_appcasts.outputs.publication_refused == 'true')"
         env:

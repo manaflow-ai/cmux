@@ -20,11 +20,3 @@ Above: `runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' 
 Ends on the nightly slot's label as a literal, never vars.CI_NIGHTLY_NEXT_BUILD_RUNNER: main's
 repository-variable check (scripts/ci/signing_runner_variables.py) holds a variable a signing job
 reads to blacksmith-*/ubuntu-*, and that variable names an owned Mac (#26450).
-
-## 3
-
-Above: `if: (steps.decide.outputs.action == 'promote' || steps.decide.outputs.action == 'needs-ack') && steps.decide.outputs.dry`
-
-Legacy promote condition retained for workflow-contract compatibility.
-if: steps.decide.outputs.action == 'promote' && steps.decide.outputs.dry_run != 'true'
-The guarded move also handles a validated release-surface change.

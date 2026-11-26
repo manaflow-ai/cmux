@@ -13,19 +13,12 @@ surface-changing commit of the range or who started this run.
 
 ## 2
 
-Above: `if: false`
-
-Legacy condition retained for workflow-contract compatibility; approval is retired.
-if: needs.await-release-surface-ack.result == 'success' && needs.promote-nightly-next.outputs.action == 'needs-ack' && needs.promote-nightly-next.outputs.dry_run != 'true'
-
-## 3
-
 Above: `environment: nightly-next-promote`
 
 Holds only the release App credentials (CMUX_RELEASE_APP_*). The approval
 was given to release-surface-ack on this run; guard.approvedBy() reads it.
 
-## 4
+## 3
 
 Above: `concurrency:`
 

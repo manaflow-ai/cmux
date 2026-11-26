@@ -23,14 +23,6 @@ ghostty-next/build.zig.zon.
 
 ## 3
 
-Above: `- name: Download final DMG (parallel ranges)`
-
-A parallel-range read: one download-artifact stream took a p50 of 89 s
-and up to 446 s here (run 41481821056, 7.4 of the job's 9 minutes). download-artifact takes over
-when it fails.
-
-## 4
-
 Above: `- name: Launch smoke from a fresh home`
 
 Leo, 2026-10-29: "Just don't have that be the downloading thing." The app launched from a fresh
