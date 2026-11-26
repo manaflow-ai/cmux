@@ -1,7 +1,7 @@
 import { type AcpmuxRow } from "./model";
 import { type ReferenceScope } from "./conversation/bareReferences";
 import { isEditRow } from "./turnChanges/sessionRows";
-import { ACTIVITY_LINE, LIVE_THINKING, THINKING, WORKING } from "./conversation/turns";
+import { LIVE_THINKING, THINKING, WORKING } from "./conversation/turns";
 import { PULSE_FIELDS } from "./conversation/liveLinePulse";
 import { workEnds } from "./conversation/waterfallSpans";
 
@@ -64,7 +64,6 @@ function sameRowDraw(before: AcpmuxRow, after: AcpmuxRow): boolean {
   if (
     after.kind === THINKING ||
     after.kind === WORKING ||
-    after.kind === ACTIVITY_LINE ||
     after.turnPhase === "running" ||
     before.turnPhase !== after.turnPhase
   )
