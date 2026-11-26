@@ -55,6 +55,17 @@ fn a_verb_the_phone_does_not_answer_is_a_usage_error_naming_the_ones_it_does() {
 }
 
 #[test]
+fn phone_screenshot_rejects_options_the_phone_cannot_honor() {
+    for option in ["--selector", "--full-page"] {
+        let mut words = vec!["browser", "tab_ab@phone", "screenshot", option];
+        if option == "--selector" {
+            words.push("h1");
+        }
+        assert!(parsed(&words).is_err(), "{option}");
+    }
+}
+
+#[test]
 fn the_link_hosts_refusal_keeps_its_code() {
     let answer = json!({"error": cmux_phone_page::NOT_LINKED, "message": "no iPhone is linked"});
     assert_eq!(

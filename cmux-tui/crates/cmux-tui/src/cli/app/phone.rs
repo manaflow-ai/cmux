@@ -16,6 +16,12 @@ use super::{AppCommand, GlobalArgs, UsageError, failure, page};
 pub(super) fn parse(target: &str, args: &[String]) -> Option<Result<AppCommand, UsageError>> {
     let address = cmux_phone_page::Address::parse(target)?;
     Some(page::parse_page(&address.tab, args).and_then(|command| {
+        if let AppCommand::Screenshot { params, .. } = &command
+            && (params.get("selector").is_some() || params.get("full_page").is_some())
+        {
+            let messages = &crate::localization::catalog().app_control;
+            return Err(UsageError::new(messages.browser_page_usage));
+        }
         let method = match &command {
             AppCommand::Call { method, .. } => *method,
             AppCommand::Screenshot { .. } => "browser.page.screenshot",

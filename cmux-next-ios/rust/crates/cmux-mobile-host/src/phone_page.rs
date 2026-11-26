@@ -147,11 +147,15 @@ impl Phones {
         let forget = || {
             pending.lock().unwrap_or_else(PoisonError::into_inner).remove(&id);
         };
-        if out.send(cmux_phone_page::request_line(id, method, &params)).await.is_err() {
-            forget();
-            return Err(gone().to_json());
-        }
-        match tokio::time::timeout(wait, answered).await {
+        let request = cmux_phone_page::request_line(id, method, &params);
+        // Queue admission is part of the call's deadline.  A phone that has
+        // stopped draining its 16-entry queue must not make the host wait
+        // forever before it even starts waiting for an answer.
+        let sent_and_answered = async {
+            out.send(request).await.map_err(|_| ())?;
+            answered.await.map_err(|_| ())
+        };
+        match tokio::time::timeout(wait, sent_and_answered).await {
             Ok(Ok(Ok(value))) => Ok((device_id, value)),
             Ok(Ok(Err(refusal))) => Err(json!({
                 "error": refusal.get("code").cloned().unwrap_or_else(|| json!("operation.failed")),
@@ -201,16 +205,22 @@ pub struct Lines {
 impl Lines {
     /// The complete lines in `bytes`, or `Err` when a line outgrows `max`.
     pub fn push(&mut self, bytes: &[u8], max: usize) -> Result<Vec<Vec<u8>>, ()> {
-        self.buffer.extend_from_slice(bytes);
         let mut lines = Vec::new();
-        while let Some(end) = self.buffer.iter().position(|b| *b == b'\n') {
-            let mut line: Vec<u8> = self.buffer.drain(..=end).collect();
-            line.pop();
-            if !line.is_empty() {
-                lines.push(line);
+        for &byte in bytes {
+            if byte == b'\n' {
+                if !self.buffer.is_empty() {
+                    lines.push(std::mem::take(&mut self.buffer));
+                }
+            } else {
+                // Check before appending so a newline-terminated line cannot
+                // bypass the limit after it is drained from the buffer.
+                if self.buffer.len() >= max {
+                    return Err(());
+                }
+                self.buffer.push(byte);
             }
         }
-        if self.buffer.len() > max { Err(()) } else { Ok(lines) }
+        Ok(lines)
     }
 }
 

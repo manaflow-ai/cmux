@@ -86,6 +86,30 @@ async fn a_silent_phone_times_out_and_a_closed_one_fails_gone() {
 }
 
 #[tokio::test]
+async fn a_full_request_queue_still_has_a_call_deadline() {
+    let phones = leak();
+    let _attached = phones.attach("dev-1", "");
+    let mut calls = Vec::new();
+    for _ in 0..(QUEUE + 1) {
+        calls.push(tokio::spawn(async move {
+            phones
+                .call_within(None, "browser.page.state", &json!({"tab": "tab_1"}), Duration::from_millis(30))
+                .await
+        }));
+    }
+    let joined = tokio::time::timeout(Duration::from_millis(500), async {
+        let mut answers = Vec::new();
+        for call in calls {
+            answers.push(call.await.expect("the call task ends"));
+        }
+        answers
+    })
+    .await
+    .expect("queue admission is bounded by the call deadline");
+    assert!(joined.iter().all(|answer| answer["error"] == cmux_phone_page::TIMEOUT));
+}
+
+#[tokio::test]
 async fn several_phones_need_a_device() {
     let phones = leak();
     fake_phone(phones, "dev-1", "iPhone", |r| Some(cmux_phone_page::answer_line(r.id, Ok(json!({"n": 1})))));
@@ -105,4 +129,17 @@ fn lines_split_across_frames_and_refuse_a_runaway() {
         vec![b"{\"a\":1}".to_vec(), b"{\"b\":2}".to_vec()]
     );
     assert!(lines.push(&[b'x'; 65], 64).is_err());
+    let mut complete = Lines::default();
+    assert!(complete.push(&[b'x'; 65], 64).is_err());
+}
+
+#[test]
+fn fragmented_large_line_is_linear_and_within_the_limit() {
+    let mut lines = Lines::default();
+    for _ in 0..128 {
+        assert!(lines.push(&[b'x'; 64 * 1024], cmux_phone_page::MAX_LINE).is_ok());
+    }
+    let result = lines.push(b"\n", cmux_phone_page::MAX_LINE).expect("the complete line");
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].len(), 8 * 1024 * 1024);
 }
