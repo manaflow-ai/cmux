@@ -183,7 +183,6 @@ import { offerPicks } from "../offer/offerChoice";
 import { offerWorktree } from "../offer/offerWorktree";
 import { setLinkPlaces, updateLinkPlaces } from "../chips/cmuxLinkPlaces";
 import { setExperimentSwitches } from "../../../experiments/switches";
-import { setSessionStatus } from "../sessionStatus";
 import { pageEditHold, pageReleaseHold } from "../../../pages/shared/webSwap";
 import type { SandboxTab } from "../sandboxRun";
 import { callNative } from "../callNative";
@@ -762,9 +761,6 @@ export function paneSnapshotEffect({
     },
     applySidebarPreviewVariant(variant) {
       configureNativeSidebarPreviewVariant(variant);
-    },
-    applySessionStatus(on) {
-      setSessionStatus(on === true);
     },
     applyExperiments(value) {
       setExperimentSwitches(value);
@@ -2210,6 +2206,7 @@ export function paneSnapshotEffect({
               // on (Try again); acpmux's reason (no Trust answer, an invalid file) goes to the log.
               if (refused?.code === "transport.harness_not_confirmed") return undefined;
               console.warn("agent pane: enabling the harness was refused", refused?.detail ?? error);
+              // retry-prompt-ok: enabling a harness changes the person's settings.
               notices.failed(translate("harnesses.enableUnavailable"));
               return undefined;
             },
@@ -2982,6 +2979,7 @@ export function paneSnapshotEffect({
             // this connection, not a reason to reconnect and repeat session/new forever.
             console.warn("agent pane: the new chat on the machine did not start", error);
             if (!cancelled && directClient.current === client)
+              // retry-prompt-ok: starting a chat again makes a new session.
               client.notice(knownRefusalText(error) ?? translate("chat.newFailed"));
           },
         );
@@ -3008,6 +3006,7 @@ export function paneSnapshotEffect({
         // A chat too large to open says so in plain words; the reply's byte count stays in the log.
         const tooLarge = hostRefusedTooLarge(error);
         // hostLine.ts words the line: only the pane's own text stands on it, the rest is Details.
+        // retry-prompt-ok: "Update cmux to open this chat, then Retry": the person updates first.
         setHostError(tooLarge ? translate("host.tooLarge") : errorMessage(error) || String(error));
         setHostFailure(error);
         const restoring = readHostRestoring((error as { details?: unknown } | null)?.details, Date.now());
