@@ -122,6 +122,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/stable_next.py
             scripts/ci/deadline_http.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Is this the night window
@@ -297,6 +298,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/stable_next.py
             scripts/ci/deadline_http.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Crash-class concurrency rules
         run: scripts/ci/crash-class-gate.sh
@@ -649,6 +651,7 @@ jobs:
             scripts/ci/frame-pacing/console-session.sh
             scripts/ci/lib/signing-runtime-guard.sh
             scripts/ci/stable-next-smoke.sh
+            .gitmodules
           sparse-checkout-cone-mode: false
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -699,6 +702,7 @@ jobs:
             scripts/ci/frame-pacing/console-session.sh
             scripts/ci/lib/signing-runtime-guard.sh
             scripts/ci/stable-next-smoke.sh
+            .gitmodules
           sparse-checkout-cone-mode: false
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -737,6 +741,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/stable_next.py
             scripts/ci/deadline_http.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       # Not "still on the feed": the feed keeps 2 builds, so newer nightlies drop the picked one long
       # before the gates finish (run 41419773317: build 4141347814401 refused for that alone).
@@ -883,6 +888,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/stable_next_slack.py
             scripts/ci/deadline_http.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Post the run's Slack message
         id: post
@@ -916,6 +922,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/stable_next_slack.py
             scripts/ci/deadline_http.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Answer in the run's Slack thread
         env:
@@ -1018,6 +1025,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/stable_next_slack.py
             scripts/ci/deadline_http.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       # Shipped or blocked, in the run's Slack message (a new one when plan failed before it was
       # posted). No GitHub issue: the team follows stable in Slack.

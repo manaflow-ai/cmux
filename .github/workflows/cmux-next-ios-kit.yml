@@ -132,6 +132,7 @@ jobs:
             scripts/ci/simple_pool_picker.py
             scripts/ci/warm_distance.py
             scripts/ci/same_tree_reuse.py
+            .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - name: Mint the owned-pool routing token

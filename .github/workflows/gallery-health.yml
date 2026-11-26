@@ -127,6 +127,7 @@ jobs:
             scripts/ci/toolchain-archives.sha256
             scripts/ci/r2-cache.sh
             scripts/ci/lan_cache_fetch.py
+            /.gitmodules
           persist-credentials: false
 
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
@@ -239,6 +240,7 @@ jobs:
             scripts/ci/toolchain-archives.sha256
             scripts/ci/r2-cache.sh
             scripts/ci/lan_cache_fetch.py
+            /.gitmodules
           persist-credentials: false
 
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
@@ -432,6 +434,7 @@ jobs:
             scripts/ci/toolchain-archives.sha256
             scripts/ci/r2-cache.sh
             scripts/ci/lan_cache_fetch.py
+            /.gitmodules
           persist-credentials: false
 
       - name: Resolve the head and the merge

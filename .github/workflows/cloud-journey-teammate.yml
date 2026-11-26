@@ -50,7 +50,8 @@ concurrency:
 jobs:
   walk:
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    # --idle-pause default waits out staging's 1800 s policy plus 300 s, so that walk gets room past the 40 min one.
+    timeout-minutes: ${{ inputs.idle_pause == 'default' && 75 || 40 }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
