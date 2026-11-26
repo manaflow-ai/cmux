@@ -42,7 +42,6 @@ ALLOWED = frozenset({
     "cmux_next_pair_e2e.py:_forget_tag_files:run",
     "cmux_next_pair_e2e.py:_security:run",
     "cmux_next_pair_e2e.py:forget_keychain:run",
-    "cmux_next_pair_e2e.py:main:run",
     "cmux_next_pair_e2e.py:no_answer_evidence:run",
     "cmux_next_pair_e2e.py:run_bounded:run",
     "cmux_next_pair_e2e.py:scanner:run",
