@@ -296,6 +296,14 @@ pub async fn connect_websocket(
     request: tokio_tungstenite::tungstenite::handshake::client::Request,
     egress: &Egress,
 ) -> Result<(WebSocket, Via), WebSocketError> {
+    if let Some(captured) = capture_stream(&request).await {
+        let (tcp, connector) = captured.map_err(WebSocketError::Egress)?;
+        let (socket, _) =
+            tokio_tungstenite::client_async_tls_with_config(request, tcp, None, Some(connector))
+                .await
+                .map_err(WebSocketError::Upgrade)?;
+        return Ok((socket, Via::Direct));
+    }
     let uri = request.uri().clone();
     let secure = uri.scheme_str() == Some("wss");
     let host = uri.host().ok_or_else(|| WebSocketError::BadUrl(uri.to_string()))?;
@@ -312,6 +320,24 @@ pub async fn connect_websocket(
         .map_err(WebSocketError::Upgrade)?;
     note(PathKind::of(&via, &host));
     Ok((socket, via))
+}
+
+/// With the seeded-secret capture on (`cmux_egress` feature `capture`, tests
+/// only), the stream and TLS a `wss://` upgrade of `request` takes instead of
+/// its own way out: the capture server, trusting its CA, as the gate's own
+/// WebSocket connects do. Every upgrade this crate dials itself after
+/// `cmux_egress::ws::checked` (the relay's, the signaling socket's) asks here
+/// first; `None` in every other build and for every other host.
+pub(crate) async fn capture_stream(
+    request: &tokio_tungstenite::tungstenite::handshake::client::Request,
+) -> Option<Result<(TcpStream, tokio_tungstenite::Connector), EgressError>> {
+    let (addr, tls) = cmux_egress::ws::capture_route(request)?;
+    Some(
+        TcpStream::connect(addr)
+            .await
+            .map(|tcp| (tcp, tokio_tungstenite::Connector::Rustls(tls)))
+            .map_err(|error| EgressError::Io(error.to_string())),
+    )
 }
 
 /// The HTTP client of the link's API calls: the OS trust store, and the
