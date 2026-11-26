@@ -7671,7 +7671,7 @@ jobs:
         run: ./scripts/select-ci-xcode.sh
       - *select-xcode-sdk
       - name: Claim the whole Mac for signing
-        run: bash "$PUBLISH_TOOLING/ci/signing-runner-claim.sh"
+        run: bash .nightly-next-deltas/.publish-tooling/scripts/ci/signing-runner-claim.sh
       - name: Point the deltas job at the keyless prebuild
         run: echo "NIGHTLY_NEXT_PREBUILT=$HOME/.cmux-nightly-next-prebuilt" >> "$GITHUB_ENV"
       # nightly-next-one's own upload: the build's DMG as published.
@@ -7718,7 +7718,7 @@ jobs:
       - name: Wipe this job's credentials and temp files
         if: always()
         working-directory: .nightly-next-deltas
-        run: bash scripts/ci/nightly-steps/one-job.sh wipe
+        run: bash "$PUBLISH_TOOLING/ci/nightly-steps/one-job.sh" wipe
       # Only this job's own directory: the kept build workspace beside it stays.
       - name: Remove this job's checkout, DMG and deltas
         if: always()

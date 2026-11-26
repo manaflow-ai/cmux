@@ -361,7 +361,7 @@ class NightlyNextOneJobTests(unittest.TestCase):
         remove = names.index("Remove this job's checkout, DMG and deltas")
         self.assertLess(wipe, remove)
         self.assertEqual(steps[wipe].get("working-directory"), ".nightly-next-deltas")
-        self.assertIn("one-job.sh wipe", steps[wipe].get("run", ""))
+        self.assertEqual(steps[wipe].get("run"), 'bash "$PUBLISH_TOOLING/ci/nightly-steps/one-job.sh" wipe')
         self.assertEqual(one_line(steps[wipe].get("if")), "always()")
         prebuilt = next(s for s in steps if s.get("name") == "Point the deltas job at the keyless prebuild")
         self.assertEqual(prebuilt.get("run"), 'echo "NIGHTLY_NEXT_PREBUILT=$HOME/.cmux-nightly-next-prebuilt" >> "$GITHUB_ENV"')
