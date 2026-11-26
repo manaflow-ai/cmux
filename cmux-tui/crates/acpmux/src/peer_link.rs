@@ -468,6 +468,9 @@ pub struct Heard {
     /// on `send` of silence since the last byte went out, not `send` after it started
     /// (`write_within`).
     wrote: cmux_deadline::Progress,
+    /// Bytes the transport read, counted as they arrive (also inside a frame not yet whole):
+    /// a read through the link waits on this, not on a fixed time (`server::peer_forward`).
+    read: cmux_deadline::Progress,
 }
 
 impl Default for Heard {
@@ -477,6 +480,7 @@ impl Default for Heard {
             at_ms: Default::default(),
             gap_ms: Default::default(),
             wrote: cmux_deadline::Progress::new(),
+            read: cmux_deadline::Progress::new(),
         }
     }
 }
@@ -503,6 +507,11 @@ impl Heard {
     /// The transport's write progress: each byte it took from a write.
     pub fn wrote(&self) -> &cmux_deadline::Progress {
         &self.wrote
+    }
+
+    /// The transport's read progress: each byte it read.
+    pub fn read(&self) -> &cmux_deadline::Progress {
+        &self.read
     }
 
     pub fn wrap<S>(&self, inner: S) -> HeardStream<S> {
@@ -666,6 +675,7 @@ impl<S: tokio::io::AsyncRead + Unpin> tokio::io::AsyncRead for HeardStream<S> {
         let polled = std::pin::Pin::new(&mut self.inner).poll_read(cx, buf);
         if matches!(polled, std::task::Poll::Ready(Ok(()))) && buf.filled().len() > before {
             self.heard.mark();
+            self.heard.read.bump_by((buf.filled().len() - before) as u64);
         }
         polled
     }

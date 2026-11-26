@@ -28,6 +28,7 @@ pub mod agent_displays;
 pub mod agent_guidance;
 pub mod agent_home;
 pub mod agent_host;
+pub mod agent_launch_choices;
 pub mod agent_link;
 pub mod agent_login;
 pub mod agent_text;
@@ -279,9 +280,12 @@ pub(crate) mod peer_row_patch;
 pub mod peer_states;
 pub mod person_proof;
 pub mod person_tokens;
+pub mod place_move;
 // A new chat's place mode (Auto, Cloud, one machine) and where it starts with it.
 pub mod fleet_elastic;
 pub mod place_mode;
+// A chat's stored pin and the one-time migration that pins every older chat to its machine.
+pub mod place_pin;
 pub mod placement;
 // `acpmux machine cells`: lane hosts against their caps and the registry (RFD 0181 B2).
 pub mod cell_report;
