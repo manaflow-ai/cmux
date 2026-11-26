@@ -7,16 +7,58 @@
 //!   app logs them).
 //! - `focus_ui_decided_keys`: `{decided?, op}` → `{decided, reply?}`; the app
 //!   matches an event by identity itself.
+//! - `focus_ui_creation_hold_log`: `{log?, op}` → `{log, last, lostKeys,
+//!   tabKeyCounts, pageExpired, reply?}`; `noteEnded` answers `{note?, lost}`
+//!   (the app logs the line `note` names).
 //!
-//! Each state (`tail`, `claims`, `decided`) is the value the last answer
+//! Each state (`tail`, `claims`, `decided`, `log`) is the value the last answer
 //! gave; absent, a new one.
 
 use crate::ERR_INVALID;
 use cmux_focus_core::ui::creation_claims::CreationKeyboardClaims;
+use cmux_focus_core::ui::creation_hold_log::{CreationHoldLog, HoldEnd};
 use cmux_focus_core::ui::decided_keys::{DecidedKeys, KeySignature};
 use cmux_focus_core::ui::type_ahead_tail::TypeAheadTail;
 use serde::Deserialize;
 use serde_json::{Value, json};
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HoldLogRequest {
+    #[serde(default)]
+    log: Option<CreationHoldLog>,
+    op: HoldLogOp,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+enum HoldLogOp {
+    #[serde(rename_all = "camelCase")]
+    TabKeysReduced { pairs: u64, lost: u64 },
+    #[serde(rename_all = "camelCase")]
+    PageArrived { tab: String },
+    #[serde(rename_all = "camelCase")]
+    CreationFailed { window: i64 },
+    #[serde(rename_all = "camelCase")]
+    WindowClosed { window: i64 },
+    #[serde(rename_all = "camelCase")]
+    WentWithTerminal { count: u64 },
+    #[serde(rename_all = "camelCase")]
+    NoteEnded {
+        end: HoldEnd,
+        window: i64,
+        #[serde(default)]
+        untyped: u64,
+    },
+    #[serde(rename_all = "camelCase")]
+    End {
+        window: i64,
+        #[serde(default)]
+        forced: Option<HoldEnd>,
+        #[serde(default)]
+        page_tab: Option<String>,
+    },
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -143,6 +185,7 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Option<Result<Vec<u8>
         b"focus_ui_type_ahead_tail" => type_ahead_tail(request),
         b"focus_ui_creation_claims" => creation_claims(request),
         b"focus_ui_decided_keys" => decided_keys(request),
+        b"focus_ui_creation_hold_log" => creation_hold_log(request),
         _ => return None,
     })
 }
@@ -222,5 +265,57 @@ fn decided_keys(request: &[u8]) -> Result<Vec<u8>, i32> {
         DecidedOp::Contains { key } => out["reply"] = json!(decided.contains(&key)),
     }
     out["decided"] = json!(decided);
+    reply(out)
+}
+
+fn creation_hold_log(request: &[u8]) -> Result<Vec<u8>, i32> {
+    let HoldLogRequest { log, op } = parse(request)?;
+    let mut log = log.unwrap_or_default();
+    let answer = match op {
+        HoldLogOp::TabKeysReduced { pairs, lost } => {
+            log.tab_keys_reduced(pairs, lost);
+            Value::Null
+        }
+        HoldLogOp::PageArrived { tab } => {
+            log.page_arrived(&tab);
+            Value::Null
+        }
+        HoldLogOp::CreationFailed { window } => {
+            log.creation_failed(window);
+            Value::Null
+        }
+        HoldLogOp::WindowClosed { window } => {
+            log.window_closed(window);
+            Value::Null
+        }
+        HoldLogOp::WentWithTerminal { count } => {
+            log.went_with_terminal(count);
+            Value::Null
+        }
+        HoldLogOp::NoteEnded { end, window, untyped } => {
+            let (note, lost) = log.note_ended(end, window, untyped);
+            let mut out = json!({ "lost": lost });
+            if let Some(note) = note {
+                out["note"] = json!(note);
+            }
+            out
+        }
+        HoldLogOp::End { window, forced, page_tab } => {
+            json!(log.end(window, forced, page_tab.as_deref()))
+        }
+    };
+    let mut out = json!({
+        "last": log.last,
+        "lostKeys": log.lost_keys,
+        "tabKeyCounts": {
+            "cancelled_pairs": log.cancelled_tab_key_pairs,
+            "lost_close_keys": log.lost_close_keys,
+        },
+        "pageExpired": log.page_expired,
+    });
+    out["log"] = json!(log);
+    if !answer.is_null() {
+        out["reply"] = answer;
+    }
     reply(out)
 }
