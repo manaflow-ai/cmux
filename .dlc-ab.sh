@@ -32,13 +32,13 @@ for v in "$@"; do
   git checkout -q -- "$F"
   unset RUSTC_WRAPPER
   t0=$(date +%s); timeout 1500 cargo build --profile dev -p cmux-tui --bin cmux-tui -q "${cfgs[@]}" 2>&1 | grep -E '^error' | head -5; echo "warm_s=$(( $(date +%s)-t0 ))"
-  for tok in a1 a2 a3; do
+  for tok in a1 a2 a3 a4; do
     edit "$name$tok"
-    if [ "$tok" = a3 ] && [ -n "${TIME_PASSES:-}" ]; then export RUSTC_WRAPPER=$TP; rm -f /tmp/tp-*.txt; fi
+    if [ -n "${TIME_PASSES:-}" ]; then export RUSTC_WRAPPER=$TP; rm -f /tmp/tp-*.txt; fi
     t0=$(date +%s.%N); timeout 600 cargo build --profile dev -p cmux-tui --bin cmux-tui --timings -q "${cfgs[@]}" 2>&1 | grep -E '^error' | head -5
     echo "RESULT $name $tok edit_s=$(echo "$(date +%s.%N)-$t0"|bc)"
     summ
   done
-  if [ -n "${TIME_PASSES:-}" ]; then for f in /tmp/tp-*.txt; do echo "--- $name $f"; grep -E "^time:" "$f" | sort -k2 -g -r | head -30; grep -iE "incremental|cgu|reus" "$f" | head -20; done; fi
+  if [ -n "${TIME_PASSES:-}" ]; then for f in /tmp/tp-*.txt; do echo "--- $name $f"; wc -c "$f"; grep -aE "time:" "$f" | sed -E 's/^.*time: *//' | sort -g -r | head -40; done; fi
 done
 git checkout -q -- "$F"
