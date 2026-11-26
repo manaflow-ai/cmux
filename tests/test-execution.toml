@@ -731,6 +731,10 @@ path = "tests/test_classic_nightly_build_runner.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_classic_release_compile_script.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_classic_nightly_one_mini.py"
 lane = "linux-guard"
 
@@ -2098,6 +2102,10 @@ path = "tests/test_nightly_release_notes.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_bare_urlopen.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_backend_migrations_plan.py"
 lane = "linux-guard"
 
@@ -2496,4 +2504,12 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_shed_rate_limit.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_tick_checkout_retry.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_tick_request_bound.py"
 lane = "linux-guard"
