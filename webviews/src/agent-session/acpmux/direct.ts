@@ -307,6 +307,10 @@ import {
   prependOlderEventRecords,
   sessionUpdate,
 } from "./direct/records";
+
+export type ReplaySchedule = { seq: number; at: number; time: number }[];
+export type RecordedEvents = EventRecord[] & { replaySchedule?: ReplaySchedule };
+
 import {
   OLDER_PAGE_RECORDS,
   HELD_KEPT,
@@ -2483,10 +2487,22 @@ export class AcpmuxDirectClient {
   }
 
   /// Every recorded transcript event of a session, oldest first, for session replay.
-  async recordedEvents(sessionId: string): Promise<EventRecord[]> {
+  async recordedEvents(sessionId: string): Promise<RecordedEvents> {
     // Keep journal reads aligned with the Rust replay adapter's bounded page. The daemon's
     // cursor may repeat a boundary record while a page cache catches up, so merge by seq before
     // handing the replay reducer its source of truth.
+    const replay = (await this.request("_acpmux/events", {
+      sessionId,
+      afterSeq: 0,
+      limit: 400,
+      kinds: ["transcript"],
+      match: "__cmux_replay_schedule__",
+    })) as { events?: EventRecord[]; replay?: { transitions?: ReplaySchedule } };
+    if (Array.isArray(replay.replay?.transitions)) {
+      const events = records(replay.events) as RecordedEvents;
+      events.replaySchedule = replay.replay.transitions;
+      return events;
+    }
     const events = new Map<number, EventRecord>();
     for (let after = 0; ;) {
       const page = await this.typed("_acpmux/events", {
@@ -2496,9 +2512,10 @@ export class AcpmuxDirectClient {
         kinds: ["transcript"],
       });
       const batch = records(page?.events);
-      for (const event of batch) if (event.seq > 0) events.set(event.seq, event);
-      const through = Math.max(page?.pageThrough ?? 0, batch.at(-1)?.seq ?? 0);
-      if (!page?.hasMore || through <= after) return [...events.values()].sort((a, b) => a.seq - b.seq);
+      for (const event of batch) if (event.seq > 0 && !events.has(event.seq)) events.set(event.seq, event);
+      const through = Math.max(page?.pageThrough ?? 0, ...batch.map((event) => event.seq), after);
+      if (!page?.hasMore) return [...events.values()].sort((a, b) => a.seq - b.seq) as RecordedEvents;
+      if (through <= after) throw new Error("journal_replay_cursor_stalled");
       after = through;
     }
   }

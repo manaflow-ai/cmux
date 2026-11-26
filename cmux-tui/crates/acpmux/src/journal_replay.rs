@@ -15,6 +15,9 @@ use crate::store::EventRecord;
 /// The maximum number of records requested from one journal page.
 pub const PAGE_SIZE: usize = 400;
 
+/// Internal `_acpmux/events` marker used by the session replay recorder.
+pub const REPLAY_MATCH: &str = "__cmux_replay_schedule__";
+
 /// A page returned by a cursor-based journal reader.
 #[derive(Debug, Clone, PartialEq)]
 pub struct JournalPage {

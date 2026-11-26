@@ -375,6 +375,8 @@ pub mod transfer_service;
 pub mod usage_limit;
 pub(crate) mod worker_lock;
 // The shadow admission verdict beside each placement and create (cmuxterm-hq#7342).
+/// Bounded journal reads reduced once into timestamped replay states.
+pub mod journal_replay;
 pub mod memory_inbox;
 pub mod prompt_coach;
 pub mod shadow_admission;
@@ -385,8 +387,6 @@ pub mod sidecar_census;
 pub mod sim_agent;
 pub(crate) mod slow_notice;
 // The scanner is `test_support`'s, a unix module; the scan reads the same sources anywhere.
-/// Bounded journal reads reduced once into timestamped replay states.
-pub mod journal_replay;
 pub mod perf_watch;
 pub mod scorecard;
 #[cfg(all(test, unix))]
