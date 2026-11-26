@@ -3709,6 +3709,38 @@ export const REUSE_RESET =
   `rm -f /home/cmux/.cmux/journey-model-stub.*; ` +
   `python3 - <<'PY'\nimport json, pathlib\np = pathlib.Path('/home/cmux/.claude/settings.json')\nif p.exists() and not p.is_symlink():\n    c = json.loads(p.read_text())\n    if c.get('env', {}).pop('ANTHROPIC_BASE_URL', None) is not None:\n        p.write_text(json.dumps(c)); print('dropped the stub endpoint')\nPY`;
 
+/**
+ * --model stub with --idle-pause: the model stub stands in for the model endpoint, which a real walk has off the
+ * machine, but on the guest it is a loopback listener, and a listener is workload that holds the idle clock
+ * (cmux-host cloud/workload.rs counts every LISTEN socket a non-system process owns). Run 45772305511 (RFD 0144) waited
+ * 900 s at a 120 s policy, kept by {"why":"workload","ports":[39735]}: python3, the journey's own stub. So the idle walk
+ * stops the stub (only the pid its launch recorded, while that pid still runs it) and prints its port.
+ */
+export function modelStubStop(dir = "/home/cmux/.cmux"): string {
+  const d = `${dir}/journey-model-stub`;
+  return (
+    `p=$(cat ${d}.pid 2>/dev/null); ` +
+    `port=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' ${d}.ready 2>/dev/null); ` +
+    `{ [ -n "$p" ] && [ -n "$port" ] && grep -qa journey-model-stub.py "/proc/$p/cmdline" 2>/dev/null; } || { echo "@@nostub"; exit 1; }; ` +
+    `kill "$p"; for i in $(seq 50); do [ -d "/proc/$p" ] || break; sleep 0.2; done; ` +
+    `[ -d "/proc/$p" ] && { echo "@@stuck $p"; exit 1; }; echo "@@stopped $port"`
+  );
+}
+
+/**
+ * The stub again, on the port the agent's settings still name, as the first part of the exec that carries the person's
+ * next message: that message wakes the paused machine, as before, and the stub is up before the agent asks the model.
+ * Its log is appended to, so the turns it logged before the pause still count.
+ */
+export function modelStubRestart(port: number, nonce: string, dir = "/home/cmux/.cmux"): string {
+  const d = `${dir}/journey-model-stub`;
+  return (
+    `rm -f ${d}.ready; (nohup python3 ${d}.py --port ${port} --script ${d}.json --nonce ${shq(nonce)} --log ${d}.log --ready-file ${d}.ready >>${d}.log.out 2>&1 & echo $! >${d}.pid); ` +
+    `for i in $(seq 50); do [ -s ${d}.ready ] && break; sleep 0.2; done; ` +
+    `[ -s ${d}.ready ] || { echo "@@stub-down"; tail -5 ${d}.log.out; exit 1; }; `
+  );
+}
+
 /** How long --keyed-start waits after the start before it reads the daemon again (over acpmux.service's RestartSec=3). */
 export const KEYED_SETTLE_MS = 8_000;
 
@@ -5686,8 +5718,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
       throw new Error(`no reply within ${chatBudget / 1000} s; last: ${last.slice(-300)}`);
     };
-    const send = async (text: string): Promise<number | null> => {
-      const r = await exec(guestTimed(`${GUEST}printf '%s' ${shq(text)} | "$c" acp send --no-wait ${shq(session)} - 2>&1; echo "@@exit $?"`), 60_000);
+    const send = async (text: string, pre = ""): Promise<number | null> => {
+      const r = await exec(guestTimed(`${pre}${GUEST}printf '%s' ${shq(text)} | "$c" acp send --no-wait ${shq(session)} - 2>&1; echo "@@exit $?"`), 60_000);
       if (!/@@exit 0/.test(r.stdout)) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));
       return guestMs(r.stdout);
     };
@@ -5716,10 +5748,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
       throw new Error(`the turn's prompt did not reach the session within ${chatBudget / 1000} s`);
     };
-    const laterTurn = async (text: string): Promise<{ value: null; detail: string }> => {
+    const laterTurn = async (text: string, pre = ""): Promise<{ value: null; detail: string }> => {
       const before = modelStub ? (await stubTurns()).length : 0;
       const marker = `[journey turn ${tag}-${++turns}]`;
-      await send(`${marker} ${text}`);
+      await send(`${marker} ${text}`, pre);
       await turnStarted(marker);
       const last = await awaitReply();
       if (!modelStub) return { value: null, detail: last.slice(0, 280) };
@@ -6336,7 +6368,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         if (freshAccount) throw new Error("a brand-new team's cloud.idlePause is off: new teams should start with it on (K8, cmux#51850)");
         throw new Error("team policy cloud.idlePause is off for this team (a team made before new teams started with it on): turn it on for this team or run --fresh-account");
       }).catch(() => false);
+      // The port of the model stub this walk stopped for the wait (modelStubStop), started again with the next message.
+      let stubPort = 0;
       if (teamIdle) await J.step("paused after idle", async () => {
+        if (modelStub && provider && !only.has("chat")) {
+          const s = await exec(modelStubStop());
+          stubPort = Number(/@@stopped (\d+)/.exec(s.stdout)?.[1] ?? 0);
+          if (!stubPort) throw new Error(`could not stop the model stub before the wait (its listener would hold the idle clock): ${s.stdout.slice(-200)}`);
+        }
         if (!idleDefault) await api.op("cloud.machine.idle_policy.set", { machine: created.id, idle_seconds: idlePauseS }, `${tag}-idle`);
         // The deadline covers the post-chat hold (staging CLOUD_POST_CHAT_WARM_SECONDS=600 keeps a machine up after a
         // chat turn whatever its idle policy) plus the alarm's re-check, so a pause the platform owes is never missed.
@@ -6354,16 +6393,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           throw new Error(`${(error as Error).message}; ${await idleHeldBy(api, created.id)}; listeners ${listeners || `none (exit ${ss.code})`}`);
         });
         const took = Math.round((Date.now() - idleSet) / 1000);
-        return { value: m, detail: idleDefault ? `paused ${took} s after the turn ended, at the deployment's default idle pause` : `paused ${took} s after a ${idlePauseS} s idle policy was set` };
+        const stubbed = stubPort ? `; the model stub (127.0.0.1:${stubPort}) was stopped for the wait` : "";
+        return { value: m, detail: (idleDefault ? `paused ${took} s after the turn ended, at the deployment's default idle pause` : `paused ${took} s after a ${idlePauseS} s idle policy was set`) + stubbed };
       });
       if (teamIdle) await J.step("resume by a message", async () => {
         const t0 = Date.now();
+        const pre = stubPort ? modelStubRestart(stubPort, nonce) : "";
         if (lifecycle) {
-          const turn = await laterTurn("Back after an idle pause: answer in one short sentence.");
+          const turn = await laterTurn("Back after an idle pause: answer in one short sentence.", pre);
           return { value: null, detail: `reply ${Math.round((Date.now() - t0) / 1000)} s after the message: ${turn.detail}` };
         }
-        const r = await exec("echo woke");
-        if (r.code !== 0 || !r.stdout.includes("woke")) throw new Error(`exit ${r.code} ${r.stderr.slice(-200)}`);
+        const r = await exec(`${pre}echo woke`);
+        if (r.code !== 0 || !r.stdout.includes("woke")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
         const m = await api.read("cloud.machine.get", { machine: created.id });
         return { value: null, detail: `exec answered ${Math.round((Date.now() - t0) / 1000)} s after it was sent; status ${m?.status}` };
       });
