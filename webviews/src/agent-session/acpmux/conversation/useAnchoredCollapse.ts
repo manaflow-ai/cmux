@@ -22,6 +22,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { foldMs, useFold } from "./fold";
 import { ANCHORED_COLLAPSE_EVENT, FOLD_SETTLE_MS } from "./foldAnchor";
+import { scrollListBy } from "./motionOwner";
 import { foldPlays } from "./transcriptView";
 
 export { ANCHORED_COLLAPSE_EVENT };
@@ -132,7 +133,7 @@ function keepHeader(header: HTMLElement): () => () => void {
       frame = undefined;
       if (!header.isConnected) return;
       const moved = header.getBoundingClientRect().top - top;
-      if (Math.abs(moved) >= 0.5) scroller.scrollTop += moved;
+      if (Math.abs(moved) >= 0.5) scrollListBy(scroller, moved);
       if (performance.now() < until) frame = view?.requestAnimationFrame(correct);
     };
     correct();
