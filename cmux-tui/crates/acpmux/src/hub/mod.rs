@@ -39,11 +39,10 @@ pub(crate) mod audit_log;
 mod auto_background;
 // Idle chats leave this machine on their own while it stays over budget (`autoEvacuate`).
 pub(crate) mod auto_evacuate;
-// What Auto mode asks of a chat (`auto_session/`): its work, its record, its freeze.
-mod auto_hold;
 // A holder gives a chat the person moved: its turn stopped as a move by hand stops one.
 mod auto_give;
-pub(crate) use auto_give::TurnStop;
+// What Auto mode asks of a chat (`auto_session/`): its work, its record, its freeze.
+mod auto_hold;
 pub(crate) mod auto_resume;
 mod away_recap;
 mod background_cause;
@@ -79,7 +78,9 @@ mod closed_tmp;
 pub mod cmux_tools_answer;
 mod cold_archive;
 mod cold_segments;
+mod live_rows;
 // A wake onto a cold, large chat: one batch on an interval, compacted first.
+pub(crate) mod cloud_offload;
 pub(crate) mod cold_wake;
 mod complete;
 pub mod composers;
@@ -152,6 +153,7 @@ mod host_level;
 #[cfg(test)]
 mod host_notice_tests;
 mod hosts;
+pub(crate) mod transcript_offload;
 // Row 3b's first PR: the source, driven by tests. Its second PR (the tee at v1's append and the
 // chat registry in the daemon's v2 handle) is its first caller in the daemon.
 pub(crate) mod hub_health;
@@ -256,6 +258,7 @@ mod peer_flap_soak;
 mod peer_grace;
 #[cfg(test)]
 mod peer_grace_tests;
+mod peer_idle;
 mod peer_lease;
 #[cfg(test)]
 mod peer_notice_cost_tests;
@@ -305,6 +308,7 @@ mod queue;
 mod queue_admission;
 mod queue_edit;
 pub(crate) mod queue_origin;
+mod queued_turn;
 pub mod races;
 pub(crate) mod rate_hold;
 mod rediscover;
@@ -397,8 +401,10 @@ mod subsession_send;
 pub mod subsessions;
 mod successors;
 mod surge_triage;
+mod urgent_steer;
 // Mask old tool output instead of summarizing it (harness magic).
 pub(crate) mod surgery;
+mod surgery_codex;
 pub mod synced;
 mod tags;
 mod tailnet_controller;
@@ -496,8 +502,10 @@ pub use crate::build_info::{build, install_build, version_line};
 pub(crate) use crate::turn_errors;
 pub use agent_pairs::PairGuard;
 pub use auto_background::AUTO_BACKGROUND_ENV;
+pub(crate) use auto_give::TurnStop;
 pub(crate) use auto_hold::{AUTO_AWAY, AUTO_CLIENT};
 pub use bg_tasks::{BgScope, bg_owner_words};
+pub use cloud_offload::HistoryOffloadRequest;
 pub(crate) use cold_archive::COLD_CHANGED;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 /// The windowed upload sender (`file_uploads/window.rs`), for the upload bench.
@@ -505,6 +513,7 @@ pub use file_uploads::window as file_put_window;
 pub use fork::Retarget;
 pub(crate) use fork::offers_fork;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
+pub use history_delete::HistoryDeleteRequest;
 pub(crate) use idle::SessionAtWork;
 pub(crate) use idle_census::LaunchServers;
 pub use idle_census::{Sidecar, StoredLaunch};
@@ -530,6 +539,7 @@ pub use retention::RetentionRequest;
 pub(crate) use route_switch::is_chief;
 pub use subagent_transcript::FEATURE as SUBAGENT_TRANSCRIPT_FEATURE;
 pub use tool_start::{ToolStart, tool_start};
+pub use transcript_offload::TranscriptOffloadRequest;
 /// Whether a prompt block is acpmux's lead mark of who wrote it (`prompt_attribution.rs`).
 pub fn prompt_attribution_lead(block: &Value) -> bool {
     prompt_attribution::is_lead(block)
@@ -1095,6 +1105,8 @@ pub struct Hub {
     /// row before the next list, so no list rebuilds closed-session projections, and a list
     /// page copies their bytes unparsed.
     pub(super) closed_summary_cache: StdMutex<closed_rows::ClosedRows>,
+    /// The live sessions' last rendered rows, reused while their inputs are equal (`live_rows.rs`).
+    pub(super) live_row_cache: StdMutex<live_rows::LiveRows>,
     /// The closed sessions' chat activity, built once for every chats reader (`chat_activity.rs`).
     pub(crate) chat_activity_cache: chat_activity::ActivityCache,
     /// v2's book tee (`book_tee.rs`), when the daemon writes books: with none, v1's append is
@@ -1108,6 +1120,9 @@ pub struct Hub {
     /// Closed rows parsed back from their cached bytes (tests).
     #[cfg(test)]
     pub(super) closed_summary_parses: AtomicU64,
+    /// Live rows rendered because their inputs moved or none were kept (tests).
+    #[cfg(test)]
+    pub(super) live_row_renders: AtomicU64,
     /// Session summaries built, live or closed, with tools or without (tests).
     #[cfg(test)]
     pub(crate) summaries_built: AtomicU64,
@@ -1173,6 +1188,7 @@ pub struct Hub {
     /// The peers' rows, published as a snapshot (`remote_table.rs`): a reader loads it with no
     /// lock and never holds up a writer; writers (peer notices, purges) take turns.
     pub(super) remote_sessions: remote_table::RemoteTable,
+    pending_peer_routes: StdMutex<peer_idle::PendingRoutes>,
     /// The same person's machines and sessions the mesh hub lists (`mesh_book.rs`).
     pub(super) mesh_book: StdMutex<mesh_book::MeshBook>,
     /// The health of the machines only the mesh hub reaches, read through it (`hub_health.rs`).
@@ -1267,6 +1283,9 @@ pub struct Hub {
     /// by profile name: its `modes` and `configOptions`, as sent. A `_acpmux/harnesses` row's
     /// `reported` falls back to it until a chat of the harness reports (`start_mode.rs`).
     pub(super) probed_choices: StdMutex<HashMap<String, (Option<Value>, Option<Value>)>>,
+    /// Each agent's reasoning levels per model, from the level variants its model list names
+    /// (`model_catalog::variant_efforts`): the `efforts` of its rows in `_acpmux/models`.
+    pub(super) known_efforts: StdMutex<HashMap<String, HashMap<String, Vec<String>>>>,
     /// Model lists from Claude Code's and Codex's own CLIs, by profile name
     /// (`hub/live_models.rs`): richer than `known_models` (efforts, fast).
     pub(super) live_models: StdMutex<HashMap<String, Vec<crate::live_models::LiveModel>>>,
@@ -1752,6 +1771,7 @@ impl Hub {
             spoken_handle_renames: StdMutex::new(()),
             live_session_ids: StdMutex::new(std::collections::HashSet::new()),
             closed_summary_cache: StdMutex::new(Default::default()),
+            live_row_cache: StdMutex::new(Default::default()),
             chat_activity_cache: Default::default(),
             book_tee: std::sync::OnceLock::new(),
             rows: Default::default(),
@@ -1759,6 +1779,8 @@ impl Hub {
             closed_summary_builds: AtomicU64::new(0),
             #[cfg(test)]
             closed_summary_parses: AtomicU64::new(0),
+            #[cfg(test)]
+            live_row_renders: AtomicU64::new(0),
             #[cfg(test)]
             summaries_built: AtomicU64::new(0),
             message_repairs: StdMutex::new(std::collections::HashSet::new()),
@@ -1786,6 +1808,7 @@ impl Hub {
             started_at: now_ms(),
             peers: Default::default(),
             remote_sessions: Default::default(),
+            pending_peer_routes: Default::default(),
             mesh_book: Default::default(),
             hub_health: Default::default(),
             mesh_read_parts: Default::default(),
@@ -1830,6 +1853,7 @@ impl Hub {
             acp_cached: StdMutex::new(HashMap::new()),
             acp_from_disk: StdMutex::new(std::collections::HashSet::new()),
             probed_choices: StdMutex::new(HashMap::new()),
+            known_efforts: StdMutex::new(HashMap::new()),
             live_models: StdMutex::new(HashMap::new()),
             live_rechecks: StdMutex::new(HashMap::new()),
             live_ages: StdMutex::new(live_ages::LiveAges::default()),
@@ -2610,6 +2634,7 @@ impl Hub {
             stalled_counted: StdMutex::new(None),
             stalled_gen: AtomicU64::new(0),
             sign_in_refused_turn: StdMutex::new(None),
+            queued_prompt: StdMutex::new(Default::default()),
             last_model_at: AtomicU64::new(0),
             silent_turn: StdMutex::new(None),
             turn_cap_timer: StdMutex::new(None),
