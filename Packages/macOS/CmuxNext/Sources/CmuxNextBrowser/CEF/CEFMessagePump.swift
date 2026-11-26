@@ -92,6 +92,20 @@ final class CEFMessagePump {
         fire()
     }
 
+    /// Lever 4e, `CMUX_NEXT_CEF_PUMP_AT_STEP=1` (a bench arm until measured; a `CMUX_NEXT_` launch knob, so the launch
+    /// strip keeps it): the pump runs at the start of each resize step (``ResizeStepTimes/stepWillLayOut``).
+    nonisolated static let runsAtStep = ProcessInfo.processInfo.environment["CMUX_NEXT_CEF_PUMP_AT_STEP"] == "1"
+
+    /// The start of a resize step, before its layout: one pass when work CEF already asked for is due (a request whose
+    /// deadline passed, or an immediate one still on its way from a Chromium thread). A live resize keeps the main
+    /// thread busy in cmux's steps, and the timer got about 10 passes a second (window corner drags: Chromium's acks of
+    /// each page's new size waited 55 ms p50, so the next size waited in Chromium's resize IPC throttle). Never
+    /// re-entrant: nothing runs inside a pass (a step begun from a CEF callback). Returns the step log's detail of the
+    /// pass that ran, nil when none did.
+    func runIfDueAtStep() -> String? {
+        nil
+    }
+
     private func timerFired() {
         guard isRunning else { return }
         #if DEBUG || CMUX_BENCH_HOOKS
