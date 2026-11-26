@@ -61,6 +61,15 @@ def git(repo: Path, *args: str) -> str:
     return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True).stdout
 
 
+def it_test_files(repo: Path, package: str) -> list[str]:
+    """The tests/*.rs files of PACKAGE when they are modules of its one `it` test binary (tests/it/main.rs,
+    #56677): a generated list reaches them, which cargo fmt cannot follow, so they are named to rustfmt."""
+    tests = repo / package / "tests"
+    if not (tests / "it" / "main.rs").is_file():
+        return []
+    return [str(path) for path in sorted(tests.glob("*.rs"))]
+
+
 def packages(repo: Path) -> set[str]:
     """Tracked package directories (a Cargo.toml with a [package] table) under cmux-tui/."""
     found = set()
@@ -125,7 +134,9 @@ def main(argv: list[str] | None = None) -> int:
         manifest = repo / package / "Cargo.toml"
         print(f"cargo fmt --check --manifest-path {package}/Cargo.toml", flush=True)
         # From cmux-tui/ so rustup uses its rust-toolchain.toml pin. Its diff is read for the files it names.
-        result = subprocess.run(["cargo", "fmt", "--check", "--manifest-path", str(manifest)], cwd=repo / ROOT,
+        extra = it_test_files(repo, package)
+        result = subprocess.run(["cargo", "fmt", "--check", "--manifest-path", str(manifest),
+                                 *(["--", *extra] if extra else [])], cwd=repo / ROOT,
                                 stdout=subprocess.PIPE, text=True)
         sys.stdout.write(result.stdout)
         sys.stdout.flush()

@@ -28,9 +28,238 @@ use tokio::sync::{Semaphore, broadcast, mpsc};
 #[cfg(windows)]
 pub use windows_socket::{UnixListener, bind_unix, router_admin, serve_unix};
 
+// One module per line, in alphabetical order (with its attributes above it), so two pull
+// requests that each add a module touch different lines and merge without a conflict.
+mod account_sign_in;
+mod accounts;
+#[cfg(test)]
+#[path = "ack_latency_bench.rs"]
+mod ack_latency_bench;
+#[cfg(test)]
+#[path = "acp_list_tests.rs"]
+mod acp_list_tests;
+mod agent_home;
+mod agent_login;
+mod agent_messages;
 mod app_assets;
+mod app_reply;
+#[cfg(test)]
+mod attach_latency_bench;
+mod auto_gate;
+mod bg_tasks;
 pub(crate) mod browser_workspaces;
+#[cfg(test)]
+#[path = "cancel_classes_tests.rs"]
+mod cancel_classes_tests;
+#[cfg(test)]
+#[path = "cancel_prompt_tests.rs"]
+mod cancel_prompt_tests;
+pub mod carrier;
+mod change_kind;
+/// Agent byte channels (design A1, RFD 0164 B9).
+pub(crate) mod channels;
+mod chat_place;
+#[cfg(test)]
+#[path = "chat_window_activity_tests.rs"]
+mod chat_window_activity_tests;
+mod chat_windows;
+#[cfg(test)]
+#[path = "chatgpt_import_tests.rs"]
+mod chatgpt_import_tests;
+mod chats;
+mod chunk_deltas;
+pub(crate) mod client_features;
+mod client_request;
+#[cfg(test)]
+#[path = "compressed_link_tests.rs"]
+mod compressed_link_tests;
+pub(crate) mod computer_use_relay;
+pub mod conn_auth;
+#[cfg(test)]
+#[path = "connection_token_tests.rs"]
+mod connection_token_tests;
+mod connections;
+pub(crate) mod controls;
 pub(crate) mod dual_requests;
+mod durable_gate;
+mod ephemeral;
+mod fanout;
+#[cfg(test)]
+#[path = "fanout_encode_tests.rs"]
+mod fanout_encode_tests;
+// Which connections a hub event wakes, and what that costs at 4, 16 and 64 connections.
+#[cfg(test)]
+#[path = "fanout_interest_tests.rs"]
+mod fanout_interest_tests;
+mod felt;
+mod fill;
+mod fix_from_link;
+mod follow;
+mod fork_through;
+mod forum;
+mod github_lane;
+mod github_prs;
+mod goal;
+mod harness_admin;
+mod harness_enable;
+mod held_rows;
+pub(crate) mod host_notice;
+pub(crate) mod host_power;
+mod in_flight;
+#[cfg(test)]
+#[path = "inbox_gate_tests.rs"]
+mod inbox_gate_tests;
+pub(crate) mod interest;
+mod inventory_watch;
+#[cfg(test)]
+mod key_route_tests;
+mod keys_relay;
+mod lane_parent;
+#[cfg(test)]
+#[path = "latency_gauges_tests.rs"]
+mod latency_gauges_tests;
+mod link_v2_serve;
+#[cfg(test)]
+#[path = "list_fit_tests.rs"]
+mod list_fit_tests;
+#[cfg(test)]
+#[path = "list_follow_link_tests.rs"]
+mod list_follow_link_tests;
+#[cfg(test)]
+#[path = "list_pending_tests.rs"]
+mod list_pending_tests;
+mod list_reply;
+#[cfg(test)]
+#[path = "list_web_page_tests.rs"]
+mod list_web_page_tests;
+pub mod local_app;
+pub(crate) mod machine_enroll;
+mod machine_files_relay;
+pub(crate) mod machine_health;
+mod machine_join_ssh;
+#[cfg(feature = "hub-carrier")]
+mod machine_routes;
+mod machine_tunnel;
+mod mcp_connect;
+mod media_forward;
+mod memory_inbox;
+mod mesh_control_send;
+pub mod mesh_relay;
+pub(super) mod mesh_send;
+#[cfg(test)]
+mod message_notice_tests;
+#[cfg(test)]
+#[path = "mirror_relay_tests.rs"]
+mod mirror_relay_tests;
+mod models_fanout;
+mod move_targets;
+mod new_worktree;
+#[cfg(test)]
+mod nodelay_tests;
+#[cfg(test)]
+#[path = "omit_time_breakdown_rows_tests.rs"]
+mod omit_time_breakdown_rows_tests;
+mod outbound;
+#[cfg(test)]
+mod outbound_queue_tests;
+pub(crate) mod outbox;
+mod pairing;
+mod paused_files;
+pub mod peer_auth;
+mod peer_forward;
+pub(crate) mod peer_status;
+pub mod peer_text;
+mod pending;
+#[cfg(test)]
+#[path = "person_prove_tests.rs"]
+mod person_prove_tests;
+mod place;
+mod place_set;
+mod plan_build;
+mod processes;
+mod project_new;
+mod prompt_cancel;
+mod prompt_coach;
+pub(crate) mod queue_gauge;
+mod races;
+#[cfg(all(test, target_os = "linux"))]
+#[path = "reader_bound_bench.rs"]
+mod reader_bound_bench;
+mod redact;
+pub(crate) mod remote_guard;
+#[cfg(test)]
+#[path = "reply_size_tests.rs"]
+mod reply_size_tests;
+#[cfg(test)]
+mod request_admission_tests;
+mod requests;
+mod review_queue;
+mod routes;
+mod run_elsewhere;
+mod secrets;
+mod send_check;
+mod session_auth;
+mod session_files;
+#[cfg(test)]
+#[path = "session_list_pages_tests.rs"]
+mod session_list_pages_tests;
+pub(crate) mod session_patch;
+#[cfg(test)]
+#[path = "session_patch_peer_tests.rs"]
+mod session_patch_peer_tests;
+mod share_host;
+pub(crate) mod shutdown_drain;
+#[cfg(test)]
+#[path = "shutdown_drain_tests.rs"]
+mod shutdown_drain_tests;
+mod sign_in_follow;
+#[cfg(test)]
+#[cfg(unix)]
+#[path = "socket_access_tests.rs"]
+mod socket_access_tests;
+pub(crate) mod ssh_carry;
+mod stream;
+mod stream_cursor;
+#[cfg(test)]
+#[path = "stream_cursor_tests.rs"]
+mod stream_cursor_tests;
+mod subsessions;
+mod surgery;
+/// The stable tailnet node's front on the embedded node (`tailnet.stableNode.enabled`).
+#[cfg(all(unix, feature = "tailnet"))]
+pub(crate) mod tailnet_front;
+/// Owner-only TLS ingress from the embedded tailnet node.
+#[cfg(all(unix, feature = "tailnet"))]
+pub mod tailnet_ingress;
+/// The embedded tailnet listener's lifecycle, a server module (it serves the hub through
+/// `tailnet_ingress`; it was `tailnet::embedded_service`). Its file stays where it was: the
+/// spawn-owner ratchet (`check-spawn-owner.py`) keeps its row by path and does not follow a move.
+#[cfg(all(unix, feature = "tailnet"))]
+#[path = "../tailnet/embedded_service.rs"]
+pub(crate) mod tailnet_service;
+mod team;
+mod trigger_authority;
+mod trigger_chat;
+pub(crate) mod trust_gate;
+// What one change costs the watchers at 100, 1,000 and 3,000 sessions (manual).
+#[cfg(test)]
+#[path = "update_cost_bench.rs"]
+mod update_cost_bench;
+pub mod upload_frames;
+mod vault;
+mod view;
+mod vm_host;
+pub(crate) mod wait;
+#[cfg(test)]
+#[cfg(unix)]
+#[path = "wake_held_tests.rs"]
+mod wake_held_tests;
+mod web_device;
+#[cfg(windows)]
+mod windows_socket;
+mod workflow_activity;
+mod workflow_runs;
+mod worktrees;
 mod ws_peek;
 mod ws_read_ahead;
 mod ws_shutdown;
@@ -3043,272 +3272,21 @@ fn mux_meta(params: &Value) -> Option<&Value> {
     params.get("_meta").and_then(|m| m.get("acpmux"))
 }
 
-mod agent_login;
-mod agent_messages;
-mod app_reply;
-mod auto_gate;
-#[cfg(test)]
-#[path = "cancel_classes_tests.rs"]
-mod cancel_classes_tests;
-#[cfg(test)]
-#[path = "cancel_prompt_tests.rs"]
-mod cancel_prompt_tests;
-/// Agent byte channels (design A1, RFD 0164 B9).
-pub(crate) mod channels;
-#[cfg(test)]
-#[path = "chatgpt_import_tests.rs"]
-mod chatgpt_import_tests;
-pub(crate) mod client_features;
-mod client_request;
-pub(crate) mod computer_use_relay;
-#[cfg(test)]
-#[path = "connection_token_tests.rs"]
-mod connection_token_tests;
-pub(crate) mod controls;
-mod held_rows;
-mod in_flight;
-mod keys_relay;
-#[cfg(test)]
-#[path = "latency_gauges_tests.rs"]
-mod latency_gauges_tests;
-#[cfg(test)]
-#[path = "person_prove_tests.rs"]
-mod person_prove_tests;
-pub(crate) mod shutdown_drain;
-#[cfg(test)]
-#[path = "shutdown_drain_tests.rs"]
-mod shutdown_drain_tests;
-#[cfg(test)]
-#[cfg(unix)]
-#[path = "socket_access_tests.rs"]
-mod socket_access_tests;
-#[cfg(test)]
-#[cfg(unix)]
-#[path = "wake_held_tests.rs"]
-mod wake_held_tests;
 pub(crate) use crate::clock_text::{civil_from_days, iso};
-pub(crate) use change_kind::session_change_kind;
-mod change_kind;
-mod chat_windows;
-mod chunk_deltas;
-mod felt;
-pub(crate) mod session_patch;
-pub use chat_windows::live_tasks as live_chat_window_tasks;
-pub mod carrier;
-mod chats;
-pub(crate) use chats::usage_upload_loop;
-pub mod conn_auth;
-mod durable_gate;
-mod ephemeral;
-mod fanout;
-mod fix_from_link;
-mod follow;
-mod forum;
-mod github_lane;
-mod link_v2_serve;
-mod media_forward;
-mod mesh_control_send;
-pub mod mesh_relay;
-pub(super) mod mesh_send;
-mod send_check;
-mod stream_cursor;
-#[cfg(test)]
-#[path = "stream_cursor_tests.rs"]
-mod stream_cursor_tests;
-mod team;
-mod trigger_authority;
-mod trigger_chat;
-pub use conn_auth::ConnAuth;
-mod fill;
-mod fork_through;
-mod harness_admin;
-mod harness_enable;
-pub(crate) mod host_notice;
-mod inventory_watch;
-mod lane_parent;
-mod list_reply;
-use lane_parent::lane_parent;
-mod agent_home;
-mod bg_tasks;
-mod github_prs;
-mod goal;
-pub mod local_app;
-pub(crate) mod machine_enroll;
-mod machine_files_relay;
-pub(crate) mod machine_health;
-mod machine_join_ssh;
-#[cfg(feature = "hub-carrier")]
-mod machine_routes;
-mod machine_tunnel;
-mod memory_inbox;
-mod models_fanout;
-mod new_worktree;
-mod outbound;
-pub(crate) use outbound::is_cheap_read;
-pub(crate) mod outbox;
-mod pairing;
-mod plan_build;
-mod project_new;
-mod prompt_coach;
-pub(crate) mod queue_gauge;
-mod review_queue;
-mod run_elsewhere;
-mod sign_in_follow;
-pub(crate) mod ssh_carry;
-mod surgery;
-mod task_list;
-pub use pairing::serve_connection_device;
-mod chat_place;
-pub(crate) mod host_power;
-pub(crate) mod interest;
-mod move_targets;
-pub mod peer_auth;
-mod peer_forward;
-pub(crate) mod peer_status;
-pub mod peer_text;
-mod pending;
-mod place;
-mod processes;
-mod prompt_cancel;
-mod workflow_activity;
-mod workflow_runs;
-mod worktrees;
 use crate::hub::is_permission_ask;
 pub use crate::ws_auth;
+pub(crate) use change_kind::session_change_kind;
+pub use chat_windows::live_tasks as live_chat_window_tasks;
+pub(crate) use chats::usage_upload_loop;
+pub use conn_auth::ConnAuth;
+use lane_parent::lane_parent;
+pub(crate) use outbound::is_cheap_read;
+pub use pairing::serve_connection_device;
+pub(crate) use peer_forward::strip_asks as strip_peer_asks;
 pub use pending::{event_value, into_event_value};
 use pending::{peer_permission_pending, permission_pending};
-pub(crate) use workflow_activity::owner_call as workflow_owner_call;
-mod redact;
-pub(crate) use peer_forward::strip_asks as strip_peer_asks;
 pub(crate) use redact::url_without_secrets;
-pub(crate) mod remote_guard;
-mod requests;
-pub use requests::{DURABLE_DISPATCH_FEATURE, SESSION_RESUME_FEATURE};
-mod account_sign_in;
-mod accounts;
-#[cfg(test)]
-mod attach_latency_bench;
-mod connections;
-mod mcp_connect;
-mod routes;
-mod secrets;
-mod share_host;
-mod vault;
-mod web_device;
-pub(crate) use vault::reply as vault_reply;
-mod races;
-mod session_auth;
-mod session_files;
-mod stream;
-mod subsessions;
-pub(crate) mod trust_gate;
-pub mod upload_frames;
-mod view;
-mod vm_host;
-pub(crate) mod wait;
-#[cfg(windows)]
-mod windows_socket;
 use requests::handle_notification;
-
-#[cfg(test)]
-#[path = "mirror_relay_tests.rs"]
-mod mirror_relay_tests;
-
-#[cfg(test)]
-#[path = "session_patch_peer_tests.rs"]
-mod session_patch_peer_tests;
-
-#[cfg(test)]
-mod request_admission_tests;
-
-#[cfg(test)]
-#[path = "acp_list_tests.rs"]
-mod acp_list_tests;
-
-#[cfg(test)]
-#[path = "list_fit_tests.rs"]
-mod list_fit_tests;
-
-#[cfg(test)]
-#[path = "list_pending_tests.rs"]
-mod list_pending_tests;
-
-#[cfg(test)]
-#[path = "list_web_page_tests.rs"]
-mod list_web_page_tests;
-
-#[cfg(test)]
-#[path = "inbox_gate_tests.rs"]
-mod inbox_gate_tests;
-
-#[cfg(test)]
-#[path = "ack_latency_bench.rs"]
-mod ack_latency_bench;
-
-#[cfg(all(test, target_os = "linux"))]
-#[path = "reader_bound_bench.rs"]
-mod reader_bound_bench;
-
-#[cfg(test)]
-#[path = "reply_size_tests.rs"]
-mod reply_size_tests;
-
-#[cfg(test)]
-#[path = "session_list_pages_tests.rs"]
-mod session_list_pages_tests;
-
-#[cfg(test)]
-#[path = "list_follow_link_tests.rs"]
-mod list_follow_link_tests;
-
-#[cfg(test)]
-#[path = "compressed_link_tests.rs"]
-mod compressed_link_tests;
-
-#[cfg(test)]
-mod key_route_tests;
-
-#[cfg(test)]
-mod nodelay_tests;
-
-#[cfg(test)]
-mod outbound_queue_tests;
-
-/// Owner-only TLS ingress from the embedded tailnet node.
-#[cfg(all(unix, feature = "tailnet"))]
-pub mod tailnet_ingress;
-
-/// The stable tailnet node's front on the embedded node (`tailnet.stableNode.enabled`).
-#[cfg(all(unix, feature = "tailnet"))]
-pub(crate) mod tailnet_front;
-
-/// The embedded tailnet listener's lifecycle, a server module (it serves the hub through
-/// `tailnet_ingress`; it was `tailnet::embedded_service`). Its file stays where it was: the
-/// spawn-owner ratchet (`check-spawn-owner.py`) keeps its row by path and does not follow a move.
-#[cfg(all(unix, feature = "tailnet"))]
-#[path = "../tailnet/embedded_service.rs"]
-pub(crate) mod tailnet_service;
-
-#[cfg(test)]
-mod message_notice_tests;
-
-#[cfg(test)]
-#[path = "fanout_encode_tests.rs"]
-mod fanout_encode_tests;
-
-// What one change costs the watchers at 100, 1,000 and 3,000 sessions (manual).
-#[cfg(test)]
-#[path = "update_cost_bench.rs"]
-mod update_cost_bench;
-
-#[cfg(test)]
-#[path = "chat_window_activity_tests.rs"]
-mod chat_window_activity_tests;
-
-// Which connections a hub event wakes, and what that costs at 4, 16 and 64 connections.
-#[cfg(test)]
-#[path = "fanout_interest_tests.rs"]
-mod fanout_interest_tests;
-#[cfg(test)]
-#[path = "omit_time_breakdown_rows_tests.rs"]
-mod omit_time_breakdown_rows_tests;
+pub use requests::{DURABLE_DISPATCH_FEATURE, SESSION_RESUME_FEATURE};
+pub(crate) use vault::reply as vault_reply;
+pub(crate) use workflow_activity::owner_call as workflow_owner_call;

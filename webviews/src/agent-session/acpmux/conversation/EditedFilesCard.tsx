@@ -1,25 +1,26 @@
-// The card that closes a turn which edited files: a small diff glyph, "Edited 2 files" with the
-// totals, then Undo; under it one row per file in the chat's font (the dimmed folder, the name, its
-// counts). A card for one file has no rows: its header opens that file's diff inside the card, and a
-// file row opens its own under it (EditDiff, as an opened edit call draws it). The changes pane is
-// the opened diff's Open in Changes icon. A Markdown file (.md, .markdown) also has Open at the end of
-// its row, or in the header of a card for one file: it shows the file in cmux's Markdown page beside the
-// chat (writtenArtifacts.tsx `OpenWrittenMarkdown`), once per file however often the turn wrote it. The data is turnChanges/model.ts; this file is only its view.
+// The card that closes a turn which edited files: one row, a small diff glyph, "Edited 2 files" with
+// the totals, Undo, and a chevron. A click anywhere on the row opens the whole card into every file's
+// diff, stacked as the diff viewer lists a turn (EditDiff, whole, each under its sticky repo-relative
+// name with its own counts, Open in Changes in its corner), in one box at most 60% of the view tall
+// that scrolls once. Opened, the card takes the transcript's width, past the message column where the
+// pane has room. A Markdown file (.md, .markdown) also has Open beside its name, or in the head of a
+// card for one file: it shows the file in cmux's Markdown page beside the chat (writtenArtifacts.tsx
+// `OpenWrittenMarkdown`), once per file however often the turn wrote it. The data is
+// turnChanges/model.ts; this file is only its view.
 //
 // Undo is a host revert (`turn.undo`): the host puts a file back only while it still holds the
 // turn's last bytes, and moves a file the turn created to the Trash. The Undo click asks the host
 // what it would do; nothing is written until the confirmation's Undo. Never the agent, never git.
 //
-// cmux.json `agentPane.editedFiles.*` (turnChanges/settings.ts): `show` always, collapsed (the
-// header only, a chevron shows the rows) or never (the plain tool rows); `maxRows` rows before
-// "Show N more"; `scope` turn, or session (one card, at the session's latest edit).
-import { useContext, useMemo, useState, type ReactNode } from "react";
+// cmux.json `agentPane.editedFiles.*` (turnChanges/settings.ts): `show` always or collapsed (the
+// card, its one row until the reader opens it) or never (the plain tool rows); `scope` turn, or
+// session (one card, at the session's latest edit).
+import { useContext, useMemo } from "react";
 import { commonDirectory, turnFiles, turnPathsOnly, type PathRef, type TurnFile } from "../diff";
 import { ChevronDown } from "../changeIcons";
 import { EditDiff } from "./EditDiff";
 import { cornerAction } from "./cornerActions";
-import { useAnchoredCollapse, type AnchoredCollapse } from "./useAnchoredCollapse";
-import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
+import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { Counts } from "../changes/Counts";
 import { TurnCountsContext } from "../changes/TurnCountsContext";
 import { namesCheckpointFile, outsideRepository, turnCounts } from "../changes/turnCheckpoint";
@@ -29,7 +30,7 @@ import { turnChanges, type EditedFile, type UndoStatus } from "../turnChanges/mo
 import { SessionCwdContext, SessionEditsContext } from "../turnChanges/sessionRows";
 import { useEditedFilesSettings } from "../turnChanges/settings";
 import { applyUndo, cancelUndo, checkUndo, useUndoState, type UndoState } from "../turnChanges/undoStore";
-import { setCardOpen, useCardOpen } from "../turnChanges/openStore";
+import { useDisclosure } from "./useDisclosure";
 import { TurnFramesStrip } from "../liveFrames/TurnFramesStrip";
 import { TurnShots } from "../turnChanges/TurnShotsPair";
 import { HEADER_TOGGLE_ATTRIBUTE, headerToggleClick } from "./headerToggle";
@@ -79,12 +80,9 @@ function Card({
   onOpenDiff?: (rowId: string, path?: string, opener?: HTMLElement) => void;
 }) {
   const t = useT();
-  const settings = useEditedFilesSettings();
-  const [showAll, setShowAll] = useState(false);
-  // Derived on every render: the host's setting can arrive after the card mounts.
-  const userOpened = useCardOpen(row.id);
-  const open = settings.show !== "collapsed" || userOpened;
-  const setOpen = (value: boolean) => setCardOpen(row.id, value);
+  // The store outlives the card leaving the virtualized transcript; one open-state store
+  // (useDisclosure.ts): a click is one transition of the transcript's owner.
+  const { open: userOpened, set: setOpen } = useDisclosure({ card: row.id });
   const edits = rows.flatMap((one) =>
     (one.items ?? []).filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange"),
   );
@@ -134,25 +132,12 @@ function Card({
             );
           }),
         ];
-  const entries: { key: string; file?: TurnFile; path?: string; canonical?: string; failed?: true }[] = [
-    ...files.map((file) => ({ key: file.path, file })),
-    ...plain.map((entry) => ({
-      key: `plain-${entry.key}`,
-      path: entry.path,
-      canonical: entry.canonical,
-      failed: entry.failed,
-    })),
-  ];
   // Undo leaves the paths listed without counts as they are: the page never had their old text.
   const kept = pathsOnly
     .filter((entry) => !toolFiles.some((file) => pathKey(file) === pathKey(entry)))
     .map((entry) => entry.path);
-  const total = entries.length;
+  const total = files.length + plain.length;
   const single = total === 1 && files.length === 1 ? files[0] : undefined;
-  const limit = settings.maxRows;
-  const shown = single || !open ? [] : showAll ? entries : entries.slice(0, limit);
-  const more = single ? 0 : total - shown.length;
-  const reviewable = onOpenDiff && files.length > 0;
   // Read only, Undo would write the owner's files.
   const readOnly = useTranscriptReadOnly();
   const undoable = !readOnly && row.ended === true && changes.files.some((file) => file.undo.kind !== "cannot");
@@ -168,36 +153,48 @@ function Card({
     : total === 1
       ? t("edited.one")
       : t("tools.edited.files", { n: total });
-  // One way to see a change, and it opens where the card is (Leo, 2026-11-22: "there's anther issue
-  // of you being able to click on it to view changes and also click on a view changes button.
-  // decide." then "it should be able to just open inline inside the fucking existing agent chat
-  // situation."): a card for one file opens that file's diff inside the card, from anywhere on its
-  // header or its chevron; a card for several folds its file list (collapsed setting) and each file
-  // row opens its own diff under it. The changes pane is one icon inside an opened diff.
-  const singleDiff = useInlineDiff(row.id, single);
-  const headToggle = single
-    ? singleDiff.toggle
-    : total > 0 && settings.show === "collapsed"
-      ? () => setOpen(!open)
-      : undefined;
-  const headClick = headToggle ? headerToggleClick(headToggle) : undefined;
+  // One row, and one click shows every change (Leo, 2026-11-25: "what do you think about just having
+  // one row that expands out to the widest situation?"): the head is the card's only line, and opening
+  // it stacks each file's whole diff under its own sticky name, as the diff viewer lists a turn's
+  // files, in one box capped at 60% of the view that scrolls once. No file rows that open one at a
+  // time, and no card inside the card. The reader's choice is the card's (turnChanges/openStore.ts),
+  // so it outlives the card scrolling out of the virtualized transcript; the fold keeps the clicked
+  // head where it is (useAnchoredCollapse).
+  const fold = useAnchoredCollapse({
+    open: total > 0 && userOpened,
+    onOpenChange: setOpen,
+  });
+  const headClick = total > 0 ? headerToggleClick(fold.toggle) : undefined;
   const fullPath = single ? fromRoot(single.path) : undefined;
   // The host answers for the path Undo sent (turnChanges/model.ts `undoPath`), which may be another
   // spelling of the row's.
   const status = (file: TurnFile) =>
     fileStatus(undoState, changes.files.find((edited) => edited.key === pathKey(file))?.path ?? file.path);
+  const openChanges = (file: TurnFile) =>
+    onOpenDiff && (
+      <button
+        type="button"
+        className={`${cornerAction()} acpmux-edited-open`}
+        aria-label={t("edited.openChanges")}
+        title={t("edited.openChanges")}
+        onClick={(event) => onOpenDiff(row.id, file.path, event.currentTarget)}
+      >
+        <Icon name="link.external" size={14} />
+      </button>
+    );
   return (
     <div
       className="acpmux-edited cv-fit"
       data-earlier={earlier ? "" : undefined}
+      data-open={fold.present ? "" : undefined}
       data-undo={undoState.phase === "idle" ? undefined : undoState.phase}
     >
       {/* Header padding shares its pointer action; child controls keep their own clicks. */}
       {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
       <div
         className="acpmux-edited-head"
-        ref={single ? singleDiff.headerRef : undefined}
-        {...(headToggle ? { [HEADER_TOGGLE_ATTRIBUTE]: "" } : {})}
+        ref={(node) => fold.headerRef(node)}
+        {...(headClick ? { [HEADER_TOGGLE_ATTRIBUTE]: "" } : {})}
         // A control of its own for the transcript's gap selection (#26704), as the title was.
         data-interactive={headClick ? "" : undefined}
         onClick={headClick}
@@ -230,39 +227,18 @@ function Card({
             </div>
           )}
         </div>
-        {single ? (
+        {total > 0 && (
           <button
             type="button"
             className="acpmux-edited-toggle acpmux-edited-chevron"
-            aria-expanded={singleDiff.open}
-            aria-label={t("edited.view")}
-            onClick={singleDiff.toggle}
+            aria-expanded={fold.open}
+            aria-label={fold.open ? t("edited.hideFiles") : single ? t("edited.view") : t("edited.showFiles")}
+            onClick={fold.toggle}
           >
-            <ChevronDown width={14} height={14} style={singleDiff.open ? { transform: "rotate(180deg)" } : undefined} />
+            <ChevronDown width={14} height={14} style={fold.open ? { transform: "rotate(180deg)" } : undefined} />
           </button>
-        ) : (
-          total > 0 &&
-          settings.show === "collapsed" && (
-            <button
-              type="button"
-              className="acpmux-edited-toggle acpmux-edited-chevron"
-              aria-expanded={open}
-              aria-label={open ? t("edited.hideFiles") : t("edited.showFiles")}
-              onClick={() => setOpen(!open)}
-            >
-              <ChevronDown width={14} height={14} style={open ? { transform: "rotate(180deg)" } : undefined} />
-            </button>
-          )
         )}
       </div>
-      {single && (
-        <InlineDiff
-          fold={singleDiff}
-          file={single}
-          onOpen={reviewable ? (opener) => onOpenDiff(row.id, single.path, opener) : undefined}
-          t={t}
-        />
-      )}
       {undoState.phase === "confirm" && (
         <UndoConfirm
           summary={undoState.summary}
@@ -272,182 +248,54 @@ function Card({
           t={t}
         />
       )}
-      {single && undoState.phase === "done" && (
+      {fold.present && (
+        <div {...fold.bodyProps}>
+          <div className="acpmux-edited-stack" data-files={total}>
+            {files.map((file) => {
+              const markdown = single ? undefined : markdownPath(file);
+              return (
+                <div className="acpmux-edited-section" key={file.path} data-path={file.path}>
+                  <EditDiff
+                    file={file}
+                    whole
+                    flat
+                    label={fromRoot(file.path)}
+                    actions={
+                      <>
+                        {markdown && <OpenWrittenMarkdown path={markdown} />}
+                        {openChanges(file)}
+                      </>
+                    }
+                  />
+                  {undoState.phase === "done" && (
+                    <FileStatus status={status(file)} path={file.path} rowId={row.id} onOpenDiff={onOpenDiff} t={t} />
+                  )}
+                </div>
+              );
+            })}
+            {plain.map((entry) => {
+              // An edit with no diff: its repo-relative path, or "Unknown file".
+              const display = entry.path ? fromRoot(entry.path) : "";
+              const markdown = !entry.failed && entry.path ? markdownPath({ ...entry, path: entry.path }) : undefined;
+              return (
+                <div className="acpmux-edited-plain" key={`plain-${entry.key}`}>
+                  <span className="acpmux-edited-path" data-path={entry.path} title={display || undefined}>
+                    {entry.path ? display : t("edited.unknownFile")}
+                  </span>
+                  {entry.failed && <span className="acpmux-edited-failed">{t("tools.failed")}</span>}
+                  {markdown && <OpenWrittenMarkdown path={markdown} />}
+                </div>
+              );
+            })}
+            {/* The turn's page pictures show with the card's contents: collapsed, they wait until it opens. */}
+            {row.ended === true && <TurnShots rowId={row.id} />}
+            {row.ended === true && <TurnFramesStrip rowId={row.id} />}
+          </div>
+        </div>
+      )}
+      {single && !fold.present && undoState.phase === "done" && (
         <FileStatus status={status(single)} path={single.path} rowId={row.id} onOpenDiff={onOpenDiff} t={t} />
       )}
-      {shown.map((entry) => {
-        if (!entry.file) {
-          // An edit with no diff: its path (dimmed folder, then the name), or "Unknown file".
-          const path = entry.path;
-          const display = path ? fromRoot(path) : "";
-          const cut = display.replace(/\/+$/, "").lastIndexOf("/");
-          return (
-            <div className="acpmux-edited-file" key={entry.key}>
-              {path ? (
-                <span className="acpmux-edited-path" data-path={path}>
-                  <DirPart dir={display.slice(0, cut + 1)} />
-                  <span className="acpmux-edited-base">{display.slice(cut + 1)}</span>
-                </span>
-              ) : (
-                <span className="acpmux-edited-path">{t("edited.unknownFile")}</span>
-              )}
-              {entry.failed && <span className="acpmux-edited-failed">{t("tools.failed")}</span>}
-              {!entry.failed && markdownPath(entry) && <OpenWrittenMarkdown path={markdownPath(entry)!} />}
-            </div>
-          );
-        }
-        const file = entry.file;
-        const displayPath = fromRoot(file.path);
-        const slash = displayPath.lastIndexOf("/");
-        const label = (
-          <>
-            <span className="acpmux-edited-path" data-path={file.path}>
-              <DirPart dir={displayPath.slice(0, slash + 1)} />
-              <span className="acpmux-edited-base">{displayPath.slice(slash + 1)}</span>
-            </span>
-            <Counts additions={file.additions} deletions={file.deletions} />
-          </>
-        );
-        const done = undoState.phase === "done" ? status(file) : undefined;
-        const markdown = markdownPath(file);
-        return (
-          <FileEntry
-            key={entry.key}
-            rowId={row.id}
-            file={file}
-            title={displayPath}
-            label={label}
-            status={done && <FileStatus status={done} path={file.path} rowId={row.id} onOpenDiff={onOpenDiff} t={t} />}
-            markdown={markdown}
-            onOpenDiff={onOpenDiff}
-            t={t}
-          />
-        );
-      })}
-      {/* The turn's page pictures show with the card's contents: collapsed, they wait until it opens. */}
-      {row.ended === true && open && <TurnShots rowId={row.id} />}
-      {row.ended === true && open && <TurnFramesStrip rowId={row.id} />}
-      {open && (more > 0 || showAll) && !single && total > limit && (
-        <button
-          type="button"
-          className="acpmux-edited-more"
-          aria-expanded={showAll}
-          onClick={() => setShowAll(!showAll)}
-        >
-          {showAll ? t("edited.fewer") : more === 1 ? t("edited.more.one") : t("edited.more.other", { n: more })}
-          <ChevronDown width={12} height={12} style={showAll ? { transform: "rotate(180deg)" } : undefined} />
-        </button>
-      )}
-    </div>
-  );
-}
-
-/// The open state of one file's diff inside card `rowId`: a transcript disclosure, so it outlives the
-/// card scrolling out of the virtualized transcript, and the shared fold (useAnchoredCollapse), so it
-/// opens only on the reader's click and the line they clicked stays where it is.
-function useInlineDiff(rowId: string, file: TurnFile | undefined): AnchoredCollapse {
-  const [open, setOpen] = useTranscriptDisclosure(`edited-diff:${rowId}:${file?.path ?? ""}`);
-  return useAnchoredCollapse({ open: Boolean(file) && open, onOpenChange: setOpen });
-}
-
-/// A file's diff, opened inside the card under the line that opened it, drawn flat on the card (one
-/// container, not a box in a box: https://github.com/manaflow-ai/cmux/issues/56442).
-function InlineDiff({
-  fold,
-  file,
-  onOpen,
-  t,
-}: {
-  fold: AnchoredCollapse;
-  file: TurnFile;
-  onOpen?: (opener: HTMLElement) => void;
-  t: Translate;
-}) {
-  if (!fold.present) return null;
-  return (
-    <div {...fold.bodyProps}>
-      <div className="acpmux-edited-diff">
-        <EditDiff
-          file={file}
-          flat
-          actions={
-            onOpen && (
-              <button
-                type="button"
-                className={`${cornerAction()} acpmux-edited-open`}
-                aria-label={t("edited.openChanges")}
-                title={t("edited.openChanges")}
-                onClick={(event) => onOpen(event.currentTarget)}
-              >
-                <Icon name="link.external" size={14} />
-              </button>
-            )
-          }
-        />
-      </div>
-    </div>
-  );
-}
-
-/// A file row of a card for several files: a click opens the file's diff under it.
-function FileEntry({
-  rowId,
-  file,
-  title,
-  label,
-  status,
-  markdown,
-  onOpenDiff,
-  t,
-}: {
-  rowId: string;
-  file: TurnFile;
-  title: string;
-  label: ReactNode;
-  status: ReactNode;
-  /// The file's path when it is Markdown: its Open sits at the end of the row.
-  markdown?: string;
-  onOpenDiff?: (rowId: string, path?: string, opener?: HTMLElement) => void;
-  t: Translate;
-}) {
-  const fold = useInlineDiff(rowId, file);
-  const { open, toggle, headerRef } = fold;
-  const row = (
-    <button
-      type="button"
-      className="acpmux-edited-file"
-      ref={headerRef}
-      aria-expanded={open}
-      // tooltip-allow: a long file path is cut to the row; its whole path is the tooltip
-      title={title}
-      onClick={toggle}
-    >
-      {label}
-      <ChevronDown
-        width={12}
-        height={12}
-        className="acpmux-edited-file-chevron"
-        style={open ? { transform: "rotate(180deg)" } : undefined}
-      />
-    </button>
-  );
-  return (
-    <div className="acpmux-edited-entry">
-      {markdown ? (
-        <div className="acpmux-edited-line">
-          {row}
-          <OpenWrittenMarkdown path={markdown} />
-        </div>
-      ) : (
-        row
-      )}
-      {status}
-      <InlineDiff
-        fold={fold}
-        file={file}
-        onOpen={onOpenDiff ? (opener) => onOpenDiff(rowId, file.path, opener) : undefined}
-        t={t}
-      />
     </div>
   );
 }
@@ -604,8 +452,6 @@ function FileStatus({
   );
 }
 
-/// The directory part of a row's path. Too long for the row, it drops its middle: the first segment
-/// stays, and the rest shows its end ("src/…/net/").
 /// `path` from the first of `roots` it lies inside, else as given.
 function shownPath(path: string, roots: readonly (string | undefined)[]): string {
   for (const root of roots) {
@@ -613,23 +459,4 @@ function shownPath(path: string, roots: readonly (string | undefined)[]): string
     if (base && path.startsWith(`${base}/`)) return path.slice(base.length + 1);
   }
   return path;
-}
-
-function DirPart({ dir }: { dir: string }) {
-  if (!dir) return null;
-  // The first folder stays whole and the rest ends in an ellipsis on its left; an absolute path's
-  // first folder is its first name (`/Users/`), not the bare root slash.
-  const cut = dir.indexOf("/", dir.startsWith("/") ? 1 : 0) + 1;
-  const head = dir.slice(0, cut);
-  const tail = dir.slice(cut);
-  return (
-    <span className="acpmux-edited-dir">
-      <span className="acpmux-edited-dir-head">{head}</span>
-      {tail && (
-        <span className="acpmux-edited-dir-tail">
-          <bdi>{tail}</bdi>
-        </span>
-      )}
-    </span>
-  );
 }

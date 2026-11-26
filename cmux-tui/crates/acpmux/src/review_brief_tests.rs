@@ -18,18 +18,15 @@ fn fold(log: &str) -> Fold {
 }
 
 #[test]
-fn a_chat_s_brief_has_its_goal_plan_dropped_approach_and_unsure_spots() {
+fn a_chat_s_brief_has_its_goal_plan_text_dropped_approach_and_unsure_spots() {
     let brief = fold(CLAUDE).brief(Some(ROOT));
     assert_eq!(
         brief["goal"],
         "Make the uploader retry failed chunks with backoff, and keep the progress bar honest."
     );
     assert_eq!(brief["planText"], "Retry each chunk; clamp progress.");
-    assert_eq!(brief["plan"].as_array().unwrap().len(), 3);
-    assert_eq!(
-        brief["plan"][1],
-        json!({"content": "Add retry with backoff", "status": "in_progress"})
-    );
+    // An old log's `plan` record is read past: cmux keeps no agent to-do list.
+    assert!(brief.get("plan").is_none());
     assert_eq!(
         brief["rejected"],
         json!([{
