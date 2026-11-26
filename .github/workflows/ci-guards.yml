@@ -198,7 +198,9 @@ jobs:
 
       - name: Validate the local and fast guard runner
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_run_guards.py
+        run: |
+          python3 tests/test_ci_run_guards.py
+          python3 tests/test_ci_tooling_steps.py
 
       - name: Validate push triggers name their branches
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -206,11 +208,18 @@ jobs:
 
       - name: Validate no new check first runs after the merge
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_post_merge_checks.py
+        run: |
+          python3 tests/test_ci_post_merge_checks.py
+          python3 tests/test_ci_post_merge_batch.py
+          python3 tests/test_ci_routed_jobs_check_needs.py
+          python3 tests/test_ci_oops_isolate.py
+          python3 tests/test_ci_piece_swap.py
 
       - name: Validate the step table
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_step_table.py
+        run: |
+          python3 tests/test_ci_step_table.py
+          python3 tests/test_indexnow_notification.py
 
       - name: Validate CDN readers name their client
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -385,12 +394,18 @@ jobs:
       - name: Validate the VM image qcow2 export
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: |
-          command -v qemu-img >/dev/null || timeout 120 sudo -n apt-get install -y -qq qemu-utils >/dev/null 2>&1 || true
+          command -v qemu-img >/dev/null || timeout 120 sudo -n apt-get -o DPkg::Lock::Timeout=100 install -y -qq qemu-utils >/dev/null 2>&1 || true
           python3 tests/test_ci_vm_image_qcow2.py
 
       - name: Validate macOS jobs select a pinned Xcode
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_macos_xcode_selection.py
+        run: |
+          python3 tests/test_ci_macos_xcode_selection.py
+          python3 tests/test_ci_mac_grants.py
+          python3 tests/test_mac_live_delivery.py
+          python3 tests/test_nightly_next_signer_pick.py
+          python3 tests/test_macos_cross_builds_have_go.py
+          python3 tests/test_nightly_job_sdkroot.py
 
       - name: Validate the CEF shim C++ tests run without a Mac
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -432,7 +447,9 @@ jobs:
 
       - name: Validate canonical compile cache build root
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_canonical_build_root.py
+        run: |
+          python3 tests/test_ci_canonical_build_root.py
+          python3 tests/test_ci_cache_restore_receipt.py
 
       - name: Validate seeded macOS checkout
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -903,6 +920,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_install_git_hooks.py
 
+      - name: Validate the Cargo.lock merge driver
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_merge_cargo_lock.py
+
       # cmux#55547: string catalogs change in place (the checker, the in-place editor and the pre-push gate's check).
       - name: Validate string catalogs are edited in place
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -974,6 +995,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_run_sources.py
 
+      - name: Validate the Team-signed tree's on-branch check spends no REST call
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_team_signed_on_branch_check.py
+
       - name: Validate every build-fleet client call checks the client is installed
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_cmux_ci_client_guarded.py
@@ -992,7 +1017,9 @@ jobs:
 
       - name: Validate the nightly builder
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_nightly_builder.py
+        run: |
+          python3 tests/test_nightly_builder.py
+          python3 tests/test_nightly_early_webviews.py
 
       - name: Validate shallow complexity comparison fetching
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1072,7 +1099,9 @@ jobs:
 
       - name: Validate pull request macOS pool choice
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_pr_runner_pool.py
+        run: |
+          python3 tests/test_ci_pr_runner_pool.py
+          python3 tests/test_cmux_next_pr_control_on_jit.py
 
       - name: Validate live runner reads leave the census publisher a reserve
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1284,6 +1313,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_guards_are_wired.py
 
+      - name: Validate every non-cone sparse checkout keeps .gitmodules
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_sparse_checkout_keeps_gitmodules.py
+
       - name: Validate required checks are bounded
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_required_checks_are_bounded.py
@@ -1306,7 +1339,10 @@ jobs:
 
       - name: Validate required checks have no paths filters
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_required_checks_have_no_path_filters.py
+        run: |
+          python3 tests/test_ci_required_checks_have_no_path_filters.py
+          python3 tests/test_ci_pr_trigger_paths.py
+          python3 tests/test_ci_pr_ran_line.py
 
       - name: Validate the CI quota hold gate stays on optional workflows only
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1352,6 +1388,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_permissions_are_job_scoped.py
 
+      - name: Validate every push- or PR-started workflow has a concurrency group
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_workflow_concurrency.py
+
       - name: Validate pull_request tailnet joins are opt-in and same-repo only
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_tailnet_oidc_pr_gate.py
@@ -1374,7 +1414,10 @@ jobs:
 
       - name: Validate cmux-tui macOS routes avoid the nightly label
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_tui_routes_avoid_nightly_label.py
+        run: |
+          python3 tests/test_ci_tui_routes_avoid_nightly_label.py
+          python3 tests/test_ci_tui_rerun_leg_rereads_pool.py
+          python3 tests/test_cmux_tui_fallback_lost_leg.py
 
       - name: Validate the cmux_next_ daemon-tests gate and its marker
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1445,6 +1488,10 @@ jobs:
       - name: Validate the submodule init cache
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: bash tests/test_ci_init_submodule.sh
+
+      - name: Validate ios-live person slots and supervision
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: bash tests/test_ios_live_person_slot.sh
 
       - name: Validate the R2 cache census
         if: ${{ !cancelled() && matrix.group == 'ci' }}

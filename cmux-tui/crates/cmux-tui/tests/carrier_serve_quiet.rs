@@ -6,7 +6,7 @@
 //! per recheck time.
 #![cfg(target_os = "linux")]
 
-mod carrier_support;
+use crate::carrier_support;
 
 use std::io::{BufReader, Read, Write};
 use std::os::unix::fs::PermissionsExt as _;

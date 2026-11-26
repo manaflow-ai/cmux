@@ -250,8 +250,8 @@ struct FeedArrival {
 }
 
 /// The pinned group at the top of the whole Feed: the asks still waiting on the person, which
-/// `FeedStore.pinningNeedsYou` puts before every other event. The list labels the group
-/// ("Needs you · 2") so the place where time order starts again is clear.
+/// `FeedStore.pinningNeedsYou` puts before every other event. An ask that leaves the group (or
+/// joins it again) moves its row, so the list follows it by eye.
 enum FeedPinnedGroup {
     /// How many rows of `items` (in list order) are the pinned group. Only the whole Feed has
     /// one: a filtered Feed is a single list in time order, and its chip already names it.
@@ -259,9 +259,6 @@ enum FeedPinnedGroup {
         guard filter == .all else { return 0 }
         return items.prefix(while: \.needsYou).count
     }
-
-    /// The group's label: the chip's name and how many asks wait.
-    static func title(_ count: Int) -> String { "\(FeedFilter.needsYou.rawValue) · \(count)" }
 }
 
 /// One row order turned into another by moving a few rows (`movers`: an ask that was answered
