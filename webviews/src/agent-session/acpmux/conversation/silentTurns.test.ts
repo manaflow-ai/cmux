@@ -57,7 +57,7 @@ describe("splitSilentTurns reuse", () => {
       same(rows, true);
     }
     // A thought, then a call appended, then the call's end replacing it.
-    rows = [...rows, activity([{ ...thought("hmm"), id: "th" }], 0.4, { id: "live-think" })];
+    rows = [...rows, activity([thought("hmm")], 0.4, { id: "live-think" })];
     same(rows, true);
     rows = [...rows, activity([check("ls")], 0.3, { id: "live-call" })];
     same(rows, true);
