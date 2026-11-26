@@ -1276,6 +1276,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/paused_files",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/events",
       "params": {
         "$ref": "#/types/EventsParams"
@@ -6531,6 +6537,9 @@
         },
         "answers": {
           "description": "A question's answers, by question."
+        },
+        "forkCheckpoint": {
+          "description": "The copy the app forked before allowing a risky step, `{machine, fork, forkMs}`\n(`fork_risky.rs`): the daemon records it as the step's checkpoint before it runs."
         },
         "optionId": {
           "description": "The option chosen; absent cancels the request.",
