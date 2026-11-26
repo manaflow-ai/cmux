@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45862819601",
+  "recorded_at": "2026-11-26T17:17:58Z",
+  "reason": "image inputs changed in ae5e6c06b04a2665898a06b5ee9c6490c43a4ade..42b61adaa5c2ea618306dea58cd23a07dd51dd33",
+  "dry_run": false,
+  "cmux_tui": "99de33e5513cd5ea3ae708115d2b919681d3f9cb",
+  "fixes": [
+    {
+      "sha": "42b61adaa5c2ea618306dea58cd23a07dd51dd33",
+      "mergedAt": "2026-11-26T16:52:52Z",
+      "subject": "cmux-vm: move cmux-platform's fallback image to cmux-tui 6fde033d (cmux#58954) (#59015)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-26T17:17:58Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
