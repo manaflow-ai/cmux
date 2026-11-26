@@ -5,7 +5,9 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { HostError, HostUnavailableLine } from "./HostError";
+import { HostError, HostRecoveringLine, HostUnavailableLine } from "./HostError";
+import { CONNECTION_QUIET_MS } from "../../ui/lasting";
+import { composerStatusHost } from "./composerStatusStore";
 import { waitedText } from "./hostErrorModel";
 import { hostLineText } from "./hostLine";
 import { hostErrorShows } from "./hostRetry";
@@ -237,4 +239,44 @@ test("the wait reads as minutes and seconds", () => {
   expect(waitedText(0)).toBe("0:00");
   expect(waitedText(25_400)).toBe("0:25");
   expect(waitedText(605_000)).toBe("10:05");
+});
+
+test("restoration waits the shared bound, preserves input, and clears on recovery", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  const draw = async (linkDown: boolean, now: number, waitedMs = 0, at = 1_000) => {
+    await act(async () =>
+      root!.render(
+        <>
+          <p>Cached transcript</p>
+          <input defaultValue="Unsent draft" />
+          <HostRecoveringLine linkDown={linkDown} restoring={{ waitedMs, at }} now={now} />
+        </>,
+      ),
+    );
+  };
+  await draw(true, 1_000);
+  const input = container.querySelector("input")!;
+  input.value = "Still editable";
+  for (const now of [3_000, 1_000 + CONNECTION_QUIET_MS - 1]) {
+    await draw(true, now);
+    expect(container.querySelector("[data-host-recovering]")).toBeNull();
+  }
+  await draw(true, 1_000 + CONNECTION_QUIET_MS);
+  expect(container.querySelectorAll("[data-host-recovering]")).toHaveLength(1);
+  expect(container.textContent).toContain("0:10");
+  expect(container.querySelector("input")).toBe(input);
+  expect(input.value).toBe("Still editable");
+  expect(input.disabled).toBe(false);
+  let release: () => void = () => {};
+  await act(async () => {
+    release = composerStatusHost.mountDot();
+  });
+  expect(container.querySelector("[data-host-recovering]")).toBeNull();
+  await act(async () => release());
+  expect(container.querySelectorAll("[data-host-recovering]")).toHaveLength(1);
+  await draw(false, 12_000);
+  expect(container.querySelector("[data-host-recovering]")).toBeNull();
+  await draw(true, 13_000, 0, 13_000);
+  expect(container.querySelector("[data-host-recovering]")).toBeNull();
 });
