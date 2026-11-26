@@ -93,86 +93,82 @@ public struct CloudAPIClient: Sendable {
 
     // MARK: Files and SCP
 
-    /// Mints a short-lived private SCP route: cmux-platform's `POST /v1/cloud/machines/{id}/ssh-endpoint` on a
-    /// Worker machines client (``workerMachines(baseURL:accessToken:teamID:session:appVersion:machineIO:)``). The
-    /// public key is the only key material sent; the caller owns the secret.
+    /// Mints a short-lived private SCP route: the daemon's `vm.scp_endpoint` (cmux-platform's
+    /// `POST /v1/cloud/machines/{id}/ssh-endpoint`) on a Worker machines client
+    /// (``workerMachines(baseURL:accessToken:teamID:session:appVersion:machineIO:)``). The public key is the only
+    /// key material sent; the caller owns the secret.
     public func prepareSCP(_ id: String, publicKey: String) async throws -> CloudSCPEndpoint {
-        // cmux-cloud-machine reads only a safe route (port 22, user cmux, an ed25519 host key, not
-        // expired); any other answer throws ``CloudAPIError/decoding(_:)``.
+        // Rust answers only a safe route (port 22, user cmux, an ed25519 host key, not expired) and
+        // cmux-cloud-machine reads it again; any other answer throws ``CloudAPIError/decoding(_:)``.
         try requireWorker()
-        return try await send("POST", "\(machinePath)/\(id)/ssh-endpoint", body: ["publicKey": publicKey],
-                       timeout: .seconds(100), as: CloudSCPEndpoint.self)
+        // The route's own deadline is 100 s in Rust; this one only bounds a child that hangs.
+        let body = try await cloudCall("vm.scp_endpoint", ["id": id, "publicKey": publicKey], timeout: .seconds(130))
+        return try CloudMachineRules().answer(body, as: CloudSCPEndpoint.self, context: "\(machinePath)/\(id)/ssh-endpoint")
     }
 
-    /// The team's Cloud network: cmux-platform's `GET /v1/host/network/target` on a Worker machines
-    /// client, sent as this Mac's install (`installToken`; the route refuses a Stack session), never
-    /// classic Cloud. A team has one network, named by its team id (what tunnel attach takes), with
-    /// its provider mesh as `meshId`; a team with no mesh yet (404) has none.
+    /// The team's Cloud network: the daemon's `vm.networks` (cmux-platform's `GET /v1/host/network/target`)
+    /// on a Worker machines client, sent as this Mac's install (`installToken`, auth `worker`; the route
+    /// refuses a Stack session), never classic Cloud. A team has one network, named by its team id (what
+    /// tunnel attach takes), with its provider mesh as `meshId`; a team with no mesh yet (404) has none.
     public func listNetworks() async throws -> [CloudNetwork] {
         guard !sendsStackSession, let installToken else { throw CloudAPIError.transport("the Cloud network list is a cmux API Worker route") }
-        struct Target: Decodable { var team: String; var mesh: String; var ipv4_cidr: String }
-        var install = self
+        try buildSpace.check()
+        var install = daemon
         install.tokens = { (try await installToken(), "") }
+        let body = try await install.daemon("vm.networks", [:], timeout: .seconds(50), auth: "worker")
         do {
-            let target = try await install.send("GET", "/v1/host/network/target", as: Target.self)
-            return [CloudNetwork(id: target.team, meshId: target.mesh, cidr: target.ipv4_cidr, cidrV6: nil, scope: "team")]
-        } catch CloudAPIError.http(status: 404, code: _, message: _, action: _, traceId: _) {
-            return []
+            return try JSONDecoder().decode([CloudNetwork].self, from: body)
+        } catch {
+            throw CloudAPIError.decoding("cloud.vm.networks: \(error)")
         }
     }
 
     // MARK: Domains and publications
 
-    // cmux-platform's previews (docs/cloud-previews.md) on a preview client (``previewClient(baseURL:)``): a
-    // publication is one machine port's preview, `vm_…:port`. The sign-in client answers 501 and sends nothing.
+    // cmux-platform's previews (docs/cloud-previews.md) on a preview client (``previewClient(baseURL:)``), sent by the
+    // daemon (cmux-cloud-api `previews.rs`): a publication is one machine port's preview, `vm_…:port`. The sign-in
+    // client answers 501 and sends nothing.
 
-    /// `GET /v1/cloud/domains`: the domains Cloud publications are served on (the platform's managed one).
+    /// The daemon's `cloud.vm.domains`: the domains Cloud publications are served on (the platform's managed one).
     public func listDomains() async throws -> [CloudDomain] {
-        struct List: Decodable { var domains: [CloudDomain] }
-        return try await sendPreviews("GET", "/v1/cloud/domains", as: List.self).domains
+        try await previewCall("vm.domains", [:], as: [CloudDomain].self)
     }
 
-    /// `GET /v1/cloud/previews`: the signed-in person's publications in the current team.
+    /// The daemon's `cloud.vm.publications`: the signed-in person's publications in the current team.
     public func listPublications() async throws -> [CloudPublication] {
-        struct List: Decodable { var previews: [CloudPublication] }
-        return try await sendPreviews("GET", "/v1/cloud/previews", as: List.self).previews
+        try await previewCall("vm.publications", [:], as: [CloudPublication].self)
     }
 
-    /// `POST /v1/cloud/machines/{id}/previews/{port}/api-keys`: publishes `port` of the machine behind
-    /// cmux sign-in (a refresh, when it has no preview yet) and mints an API key for it in one call.
-    /// Calling it again for the same port reuses the publication and mints another key.
+    /// The daemon's `cloud.vm.provision_api`: publishes `port` of the machine behind cmux sign-in (a refresh,
+    /// when it has no preview yet) and mints an API key for it in one call. Calling it again for the same
+    /// port reuses the publication and mints another key.
     public func provisionAPI(machineID: String, port: Int, keyName: String? = nil) async throws -> CloudProvisionedAPI {
-        let body: [String: any Sendable] = keyName.map { ["name": $0] } ?? [:]
-        return try await sendPreviews("POST", "\(machinePath)/\(queryComponent(machineID))/previews/\(port)/api-keys", body: body,
-                                      timeout: .seconds(120), as: CloudProvisionedAPI.self)
+        var args: [String: any Sendable] = ["machine": machineID, "port": port]
+        if let keyName { args["keyName"] = keyName }
+        return try await previewCall("vm.provision_api", args, timeout: .seconds(125), as: CloudProvisionedAPI.self)
     }
 
-    /// The live API keys of a publication, named by its id or hostname.
+    /// The daemon's `cloud.vm.publication_api_keys`: the live API keys of a publication, named by its id or
+    /// hostname (the daemon resolves it from the publication list, so two bounded requests).
     public func listPublicationAPIKeys(_ publication: String) async throws -> [CloudPublicationAPIKey] {
-        struct List: Decodable { var apiKeys: [CloudPublicationAPIKey] }
-        return try await sendPreviews("GET", "\(try await publicationPath(publication))/api-keys", as: List.self).apiKeys
+        try await previewCall("vm.publication_api_keys", ["publication": publication], timeout: .seconds(65),
+                              as: [CloudPublicationAPIKey].self)
     }
 
-    /// Revokes one key; its next request is refused at the edge.
+    /// The daemon's `cloud.vm.revoke_publication_api_key`: revokes one key; its next request is refused at the edge.
     public func revokePublicationAPIKey(_ publication: String, keyID: String) async throws -> CloudPublicationAPIKey {
-        struct Revoked: Decodable { var apiKey: CloudPublicationAPIKey }
-        let path = "\(try await publicationPath(publication))/api-keys/\(queryComponent(keyID))"
-        return try await sendPreviews("DELETE", path, as: Revoked.self).apiKey
+        try await previewCall("vm.revoke_publication_api_key", ["publication": publication, "keyId": keyID],
+                              timeout: .seconds(65), as: CloudPublicationAPIKey.self)
     }
 
-    /// `/v1/cloud/machines/{id}/previews/{port}` of the publication whose id or hostname is `publication`.
-    private func publicationPath(_ publication: String) async throws -> String {
-        guard let found = try await listPublications().first(where: { $0.id == publication || $0.hostname == publication }),
-              let machine = found.vmId, let port = found.port else {
-            throw CloudAPIError.http(status: 404, code: "cloud.preview.not_found", message: "no such publication: \(publication)")
-        }
-        return "\(machinePath)/\(queryComponent(machine))/previews/\(port)"
-    }
-
-    private func sendPreviews<T: Decodable>(_ method: String, _ path: String, body: [String: any Sendable]? = nil,
-                                            timeout: Duration = .seconds(20), as type: T.Type) async throws -> T {
+    /// One preview or publication call through the daemon, its body decoded as `type`. The daemon bounds
+    /// each request at 30 s (120 s for a key's create); `timeout` bounds the child a little past that.
+    func previewCall<T: Decodable>(_ call: String, _ args: [String: any Sendable], timeout: Duration = .seconds(35),
+                                   as type: T.Type) async throws -> T {
         try requireWorker(code: "machine.previews_unsupported")
-        return try await send(method, path, body: body, timeout: timeout, as: type)
+        try buildSpace.check()
+        let data = try await daemon.daemon(call, args, timeout: timeout)
+        return try CloudMachineRules().answer(data, as: T.self, context: "cloud.\(call)")
     }
 
     /// Machine, file, SCP and preview calls are cmux-platform's: the sign-in client refuses them with a
@@ -188,16 +184,12 @@ public struct CloudAPIClient: Sendable {
         return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
     }
 
-    private func queryComponent(_ value: String) -> String {
-        value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed.subtracting(.init(charactersIn: "/?&=#"))) ?? value
-    }
-
     // MARK: Transport
 
     struct Ignored: Decodable {}
 
     /// One request whose JSON body the caller reads itself.
-    func sendData(_ method: String, _ path: String, body: [String: any Sendable]? = nil, idempotencyKey: String? = nil,
+    public func sendData(_ method: String, _ path: String, body: [String: any Sendable]? = nil, idempotencyKey: String? = nil,
                   timeout: Duration = .seconds(20)) async throws -> Data {
         try await send(method, path, body: body, idempotencyKey: idempotencyKey, timeout: timeout, as: RawBody.self).data
     }
@@ -330,5 +322,14 @@ nonisolated final class SandboxDeadline<T: Sendable>: Sendable {
         guard let (continuation, cancels) = taken else { return }
         continuation.resume(with: result)
         for cancel in cancels { cancel() }
+    }
+}
+
+/// The machine routes' daemon calls: ``daemon``'s one transport (CloudMachineIO.swift), after the build space check
+/// ``send`` makes (a misconfigured dev build refuses before anything runs).
+extension CloudAPIClient {
+    func cloudCall(_ call: String, _ args: [String: any Sendable], timeout: Duration, auth: String = "owner") async throws -> Data {
+        try buildSpace.check()
+        return try await daemon.daemon(call, args, timeout: timeout, auth: auth)
     }
 }
