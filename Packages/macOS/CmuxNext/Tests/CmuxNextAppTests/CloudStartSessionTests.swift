@@ -124,7 +124,7 @@ struct CloudStartSessionTests {
         #expect(CloudMachineSession.confirmedCredentialHarnesses(identity: identity, subscription: true) == nil)
         identity.capabilities.append(AgentSessionAttachClient.startEndpointCredentialsCapability)
         #expect(CloudMachineSession.confirmedCredentialHarnesses(identity: identity, subscription: false) == nil)
-        identity.capabilities.append(DaemonCapability.agentSessionBoundCredentials.rawValue)
+        identity.capabilities.append(AgentSessionAttachClient.boundCredentialsCapability)
         #expect(CloudMachineSession.confirmedCredentialHarnesses(identity: identity, subscription: false) == ["gemini"])
         #expect(CloudMachineSession.confirmedCredentialHarnesses(identity: identity, subscription: true) == nil)
         identity.capabilities.append(AgentSessionAttachClient.startSubscriptionCredentialsCapability)

@@ -116,7 +116,7 @@ import Testing
     @Test(arguments: [false, true])
     func aSavedAPIKeyRequiresWithdrawalAndAReattachBinding(supported: Bool) async throws {
         let capabilities = [DaemonCapability.agentSessionStartVMKind.rawValue, AgentSessionAttachClient.startCredentialsCapability]
-            + (supported ? [DaemonCapability.agentSessionBoundCredentials.rawValue, "agent-session-credential-reattach-v1"] : [])
+            + (supported ? [AgentSessionAttachClient.boundCredentialsCapability, "agent-session-credential-reattach-v1"] : [])
         let daemon = try PresenceDaemon(capabilities: ["agent-session-attach-v1", "agent-session-start-v1"] + capabilities)
         defer { daemon.stop() }
         let key = ["ANTHROPIC_API_KEY": "fixture-key"]
@@ -143,7 +143,7 @@ import Testing
 
     @Test(arguments: ["GEMINI_API_KEY", "GOOGLE_API_KEY", "XAI_API_KEY"])
     func aSavedNativeKeyStartsOnGuestsWithoutEndpointSupport(variable: String) async throws {
-        let capability = DaemonCapability.agentSessionBoundCredentials.rawValue
+        let capability = AgentSessionAttachClient.boundCredentialsCapability
         let harness = variable == "XAI_API_KEY" ? "grok" : "gemini"
         let credentials = [variable: "fixture-key"]
         let binding = "native-key:" + String(repeating: "a", count: 64)
@@ -162,7 +162,7 @@ import Testing
         let daemon = try PresenceDaemon(capabilities: [
             "agent-session-attach-v1", "agent-session-start-v1", AgentSessionAttachClient.prewarmCapability,
             DaemonCapability.agentSessionStartVMKind.rawValue, AgentSessionAttachClient.startCredentialsCapability,
-            DaemonCapability.agentSessionBoundCredentials.rawValue, "agent-session-credential-reattach-v1",
+            AgentSessionAttachClient.boundCredentialsCapability, "agent-session-credential-reattach-v1",
         ])
         defer { daemon.stop() }
         let client = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: daemon.path) }
@@ -176,7 +176,7 @@ import Testing
     @Test(arguments: [false, true])
     func credentialWritesRequireTheDurableSessionCapability(supported: Bool) async throws {
         var capabilities = ["agent-session-attach-v1", AgentSessionAttachClient.startCredentialsCapability]
-        if supported { capabilities.append(DaemonCapability.agentSessionBoundCredentials.rawValue) }
+        if supported { capabilities.append(AgentSessionAttachClient.boundCredentialsCapability) }
         let daemon = try PresenceDaemon(capabilities: capabilities)
         defer { daemon.stop() }
         for env in [["ANTHROPIC_API_KEY": "fixture-key"], [:]] {
@@ -199,7 +199,7 @@ import Testing
         var capabilities = ["agent-session-attach-v1", "agent-session-start-v1",
                             DaemonCapability.agentSessionStartVMKind.rawValue,
                             AgentSessionAttachClient.startCredentialsCapability, AgentSessionAttachClient.startCodexCredentialsCapability]
-        if supportsBoundCredentials { capabilities.append(DaemonCapability.agentSessionBoundCredentials.rawValue) }
+        if supportsBoundCredentials { capabilities.append(AgentSessionAttachClient.boundCredentialsCapability) }
         let daemon = try PresenceDaemon(capabilities: capabilities)
         defer { daemon.stop() }
         let client = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: daemon.path) }
@@ -223,7 +223,7 @@ import Testing
         let daemon = try PresenceDaemon(capabilities: [
             "agent-session-attach-v1", "agent-session-start-v1", AgentSessionAttachClient.prewarmCapability,
             DaemonCapability.agentSessionStartVMKind.rawValue, AgentSessionAttachClient.startCredentialsCapability,
-            DaemonCapability.agentSessionBoundCredentials.rawValue, "agent-session-credential-reattach-v1",
+            AgentSessionAttachClient.boundCredentialsCapability, "agent-session-credential-reattach-v1",
         ])
         defer { daemon.stop() }
         let client = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: daemon.path) }

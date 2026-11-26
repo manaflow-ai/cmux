@@ -111,7 +111,7 @@ public actor AgentSessionAttachClient {
     /// ``startCodexCredentialsCapability``, every other one ``startCredentialsCapability``.
     public static func credentialsCapability(harness: String?, nativeKey: Bool = false, subscription: Bool = false) -> String {
         if subscription { return startSubscriptionCredentialsCapability }
-        if nativeKey { return DaemonCapability.agentSessionBoundCredentials.rawValue }
+        if nativeKey { return Self.boundCredentialsCapability }
         return harness == "codex" ? startCodexCredentialsCapability : startCredentialsCapability
     }
     /// A Cloud machine's running link id while its connect answer says the caller owns it, else nil
@@ -151,6 +151,10 @@ public actor AgentSessionAttachClient {
 
     /// An owner Cloud start can select the machine's Claude sign-in.
     public static let startClaudeMachineLoginCapability = "agent-session-start-claude-machine-login-v1"
+    /// Owner Cloud VM only (cmux-tui-core `serves_owner_cloud_start`): credential writes name the tab's durable session.
+    public static let boundCredentialsCapability = "agent-session-bound-credentials-v1"
+    /// Owner Cloud VM only: the owner's Mac withdraws credentials by scoped binding, also with no tab.
+    public static let credentialWithdrawalCapability = "agent-session-credential-withdrawal-v1"
     public static let startClaudeTeamRouteCapability = "agent-session-start-claude-team-route-v1"
 
     /// An explicit Claude credential source for a new owner Cloud chat.
@@ -1157,8 +1161,8 @@ public actor AgentSessionAttachClient {
                             endpointCredentials: identity.supports(Self.startEndpointCredentialsCapability),
                             subscriptionCredentials: identity.supports(Self.startSubscriptionCredentialsCapability),
                             credentialReattach: identity.supports(Self.credentialReattachCapability),
-                            boundCredentials: identity.supports(DaemonCapability.agentSessionBoundCredentials.rawValue),
-                            credentialWithdrawal: identity.supports(DaemonCapability.agentSessionCredentialWithdrawal.rawValue),
+                            boundCredentials: identity.supports(Self.boundCredentialsCapability),
+                            credentialWithdrawal: identity.supports(Self.credentialWithdrawalCapability),
                             claudeMachineLogin: identity.supports(Self.startClaudeMachineLoginCapability),
                             claudeTeamRoute: identity.supports(Self.startClaudeTeamRouteCapability),
                             trustVMKind: identity.supports(DaemonCapability.agentSessionTrustVMKind.rawValue),
