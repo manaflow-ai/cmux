@@ -11,6 +11,7 @@ import { GuestActionsBoundary } from "../conversation/GuestActionsBoundary";
 import { FindReveal, type ChatFind } from "../conversation/chatFind";
 import { ChatFindBar } from "../conversation/ChatFindBar";
 import { LiveLinePulseContext } from "../conversation/liveLinePulse";
+import { DisclosureMotion, type RunDisclosure } from "../conversation/transcriptDisclosureModel";
 import { type TranscriptNeedsYou } from "../needsYou/JumpPill";
 import { UnreadBanner } from "../conversation/SinceDivider";
 import { topZoneOffset } from "../overlayLayout";
@@ -40,6 +41,24 @@ const LIVE_STEP_VARS = transcriptLiveVars();
 /// the scroll from its scroller, not from a prop).
 const JumpToLatestMemo = React.memo(JumpToLatest);
 const ChatMinimapMemo = React.memo(ChatMinimap);
+
+/// What rows read about their motion: the live line's pulse and a disclosure's one transition
+/// (useDisclosure.ts). One wrapper, so a new row context never re-indents the shell's JSX.
+function RowMotionContexts({
+  livePulse,
+  runDisclosure,
+  children,
+}: {
+  livePulse: React.ContextType<typeof LiveLinePulseContext>;
+  runDisclosure: RunDisclosure;
+  children: React.ReactNode;
+}) {
+  return (
+    <LiveLinePulseContext.Provider value={livePulse}>
+      <DisclosureMotion.Provider value={runDisclosure}>{children}</DisclosureMotion.Provider>
+    </LiveLinePulseContext.Provider>
+  );
+}
 
 /// A read-only transcript draws inside the guest boundary (conversation/GuestActionsBoundary.tsx).
 function ReadOnlyBoundary({ readOnly, children }: { readOnly: boolean; children: React.ReactNode }) {
@@ -71,6 +90,8 @@ export type TranscriptShellDeps = {
   readOnly: boolean;
   retryTarget: React.ContextType<typeof RetryTargetContext>;
   livePulse: React.ContextType<typeof LiveLinePulseContext>;
+  /** A disclosure's change as one motion-owner transition (useDisclosure.ts). */
+  runDisclosure: RunDisclosure;
   ref: React.RefObject<HTMLDivElement | null>;
   slimFollow: boolean;
   /** The live line is among the mounted rows: the scroller's `data-live-line` (conversation.css). */
@@ -144,6 +165,7 @@ export function drawTranscriptShell({
   readOnly,
   retryTarget,
   livePulse,
+  runDisclosure,
   ref,
   slimFollow,
   liveLineMounted,
@@ -209,7 +231,7 @@ export function drawTranscriptShell({
   return (
     <ReadOnlyBoundary readOnly={readOnly}>
       <RetryTargetContext.Provider value={retryTarget}>
-        <LiveLinePulseContext.Provider value={livePulse}>
+        <RowMotionContexts livePulse={livePulse} runDisclosure={runDisclosure}>
           <div
             ref={ref}
             className="acpmux-scroll"
@@ -396,7 +418,7 @@ export function drawTranscriptShell({
               needsYou={needsYou}
             />
           )}
-        </LiveLinePulseContext.Provider>
+        </RowMotionContexts>
       </RetryTargetContext.Provider>
     </ReadOnlyBoundary>
   );

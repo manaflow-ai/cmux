@@ -6,5 +6,6 @@
   "author": "a1244 (claude opus, Chief subagent)",
   "owner": "a1244: lower the row if AppKit ever offers a titlebar-layout hook for the standard buttons",
   "receipt": "Review (claude opus, independent read-only run; codex was at its usage limit): SHIP at 822a662bed7be70e2171ffcb8824bc7c4b114f65",
-  "expiry": "2026-12-19"
+  "expiry": "2026-12-19",
+  "applied_sha": "542d7b9af81b685c4e8d1a8d9dd4e9dfa26dbc20"
 }
