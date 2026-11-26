@@ -233,7 +233,13 @@ class RcodesignSignBundleDevTest(unittest.TestCase):
         self.assertNotIn("--timestamp-url", argv)
         self.assertEqual(plistlib.loads(ents.pop("").encode()), plistlib.loads(APP_ENTITLEMENTS.read_bytes()))
         jit = {"com.apple.security.cs.allow-jit": True}
-        self.assertEqual({rel: text for rel, text in ents.items() if rel in HELPER}, dict.fromkeys(HELPER, HELPER_TEXT))
+        computer_use = "Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-computer-use"
+        generic_helpers = HELPER - {computer_use}
+        self.assertEqual({rel: text for rel, text in ents.items() if rel in generic_helpers},
+                         dict.fromkeys(generic_helpers, HELPER_TEXT))
+        computer_use_entitlements = plistlib.loads(ents[computer_use].encode())
+        self.assertIs(computer_use_entitlements.get("com.apple.security.automation.apple-events"), True)
+        self.assertNotIn("com.apple.security.automation.apple-events", plistlib.loads(HELPER_TEXT.encode()))
         self.assertEqual({rel: plistlib.loads(ents[rel].encode()) for rel in JIT}, dict.fromkeys(JIT, jit))
         self.assertEqual({rel: plistlib.loads(ents[rel].encode()) for rel in CLEARED}, dict.fromkeys(CLEARED, {}))
         self.assertEqual(set(ents), HELPER | JIT | CLEARED)

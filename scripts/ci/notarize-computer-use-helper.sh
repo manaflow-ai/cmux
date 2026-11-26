@@ -65,7 +65,7 @@ esac
 source "$ROOT_DIR/scripts/ci/lib/gatekeeper-assessment.sh"
 SIGN_BUNDLE_TOOL="${CMUX_SIGN_BUNDLE_TOOL:-$ROOT_DIR/scripts/sign-cmux-bundle.sh}"
 SIGNING_KEYCHAIN_TOOL="${CMUX_SIGNING_KEYCHAIN_TOOL:-$ROOT_DIR/scripts/ci/signing-keychain.sh}"
-HELPER_ENTITLEMENTS="${CMUX_HELPER_ENTITLEMENTS:-$ROOT_DIR/cmux-helper.entitlements}"
+HELPER_ENTITLEMENTS="${CMUX_COMPUTER_USE_ENTITLEMENTS:-$ROOT_DIR/cmux-computer-use.entitlements}"
 HELPER_PATH="$APP_PATH/Contents/Library/cmux Computer Use.app"
 
 if [ ! -d "$APP_PATH/Contents" ]; then

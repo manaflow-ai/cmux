@@ -12,6 +12,7 @@
 #
 # Optional env:
 #   CMUX_HELPER_ENTITLEMENTS  (default: cmux-helper.entitlements)
+#   CMUX_COMPUTER_USE_ENTITLEMENTS (default: cmux-computer-use.entitlements)
 #   CMUX_TUNNEL_ENTITLEMENTS  entitlements for the Cloud tunnel system extension
 #                              (default: TunnelExtension/cmuxTunnelExtension.<release|nightly|rc>.entitlements,
 #                              picked from the app entitlements file name)
@@ -63,8 +64,14 @@ APP_PATH="$1"
 APP_ENTITLEMENTS="$2"
 IDENTITY="$3"
 HELPER_ENTITLEMENTS="${CMUX_HELPER_ENTITLEMENTS:-cmux-helper.entitlements}"
+COMPUTER_USE_ENTITLEMENTS="${CMUX_COMPUTER_USE_ENTITLEMENTS:-$SCRIPT_DIR/../cmux-computer-use.entitlements}"
 SIGN_MODE="${CMUX_SIGN_MODE:-all}"
 SIGNING_KEYCHAIN_TOOL="${CMUX_SIGNING_KEYCHAIN_TOOL:-$SCRIPT_DIR/ci/signing-keychain.sh}"
+
+if [[ "$SIGN_MODE" == "all" && -d "$APP_PATH/Contents/Library/cmux Computer Use.app" && ! -f "$COMPUTER_USE_ENTITLEMENTS" ]]; then
+  echo "error: Computer Use entitlements not found: $COMPUTER_USE_ENTITLEMENTS" >&2
+  exit 1
+fi
 
 if [[ ! -d "$APP_PATH" ]]; then
   echo "error: app bundle not found at $APP_PATH" >&2
@@ -166,7 +173,7 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
     echo "==> signing nested helper $(basename "$COMPUTER_USE_HELPER")"
     /usr/bin/codesign \
       "${COMMON[@]}" \
-      --entitlements "$HELPER_ENTITLEMENTS" \
+      --entitlements "$COMPUTER_USE_ENTITLEMENTS" \
       "$COMPUTER_USE_HELPER"
   fi
 
