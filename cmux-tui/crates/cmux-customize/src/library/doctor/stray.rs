@@ -191,7 +191,6 @@ impl Customize {
                         )
                 })
                 || secret_name(&name)
-                || path == settings_target
                 || looks_like_theme(&path)
             {
                 continue;
