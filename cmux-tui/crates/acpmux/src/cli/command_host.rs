@@ -478,6 +478,12 @@ pub struct HypervisorOpts {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum HypervisorSourceKind {
+    Spool,
+    Hub,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
 pub enum HypervisorDriverKind {
     Libvirt,
     Pods,
@@ -507,6 +513,13 @@ pub enum HypervisorCmd {
         /// One pass, then exit.
         #[arg(long)]
         once: bool,
+        /// Where commands come from: the local spool `apply` writes, or the hub's command
+        /// lease for this joined machine (`acpmux machine join` first; its own credential).
+        #[arg(long, value_enum, default_value_t = HypervisorSourceKind::Spool)]
+        source: HypervisorSourceKind,
+        /// With --source hub: the most commands one lease takes (1 to 32).
+        #[arg(long, default_value_t = 8)]
+        lease_max: u32,
     },
     /// Queue one command for `serve`, as JSON on stdin: {"verb":"create","slot":"a1",
     /// "spec":{"vcpus":2,"memoryMib":4096},"lease":{"deleteAfterSecs":86400}}; verbs are
