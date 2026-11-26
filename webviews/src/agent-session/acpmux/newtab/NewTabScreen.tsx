@@ -2013,6 +2013,8 @@ export function NewTabScreen(props: Props) {
   const focusFromRow = (event: React.MouseEvent<HTMLElement>) => {
     const input = field.current;
     if (!input || event.button !== 0 || fieldElement()?.contains(event.target as Node)) return;
+    // A press in a menu a chip portals out (React bubbles it here) is the menu's, not the row's.
+    if (!event.currentTarget.contains(event.target as Node)) return;
     // The row's controls (+, the chips, the mic and Send) keep their own press; the gaps between them focus the field.
     if (
       event.target instanceof Element &&

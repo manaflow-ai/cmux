@@ -1482,7 +1482,6 @@
   --uc-soft: color-mix(in srgb, var(--uc-ink) 74%, var(--uc-base));
   --uc-muted: color-mix(in srgb, var(--uc-ink) 52%, var(--uc-base));
   --uc-dim: color-mix(in srgb, var(--uc-ink) 40%, var(--uc-base));
-  --uc-placeholder: color-mix(in srgb, var(--uc-ink) 34%, var(--uc-base));
   --uc-hover: color-mix(in srgb, var(--uc-ink) 6%, transparent);
   --uc-hover-strong: color-mix(in srgb, var(--uc-ink) 10%, transparent);
   /* No folder's and This Mac's ink: --agent-muted on the page (on glass that token is the glass secondary ink). */
@@ -1490,7 +1489,7 @@
   --uc-motion: var(--cmux-motion-quick) var(--cmux-ease-out);
   /* The lab's sizes, named: the chips (26 px tall, 7 px padding, 5 px gap, 12.5 px text; the controls' corner), the field (15 px
      over its line, 18 px in, 14.5 px text on a 21 px line, from the person's text size) and the model's 500 weight. */
-  --uc-chip-h: 26px;
+  --uc-chip-h: calc(var(--acpmux-composer-control) - var(--grid-half-step));
   --uc-chip-pad: 7px;
   --uc-chip-gap: 5px;
   --uc-chip-text: calc(var(--text-body) * 12.5 / 13);
@@ -1529,14 +1528,13 @@ html:root :is(.nt-composer > .nt-composer-surface, .nt-popover.nt-composer-surfa
   }
 }
 
-/* Increase Contrast: the lab's lighter inks give way to the full text ink, and the placeholder to the shared one. */
+/* Increase Contrast: the lab's lighter inks give way to the full text ink. */
 @media (prefers-contrast: more) {
   :root .nt-screen .nt-composer,
   :root .ui-popup.nt-popover {
     --uc-soft: var(--uc-ink);
     --uc-muted: var(--uc-ink);
     --uc-dim: var(--uc-ink);
-    --uc-placeholder: var(--acpmux-composer-placeholder);
   }
 }
 
@@ -1585,11 +1583,9 @@ html:root :is(.nt-composer > .nt-composer-surface, .nt-popover.nt-composer-surfa
   font-size: var(--uc-field-text);
   line-height: var(--uc-field-line);
   letter-spacing: -0.006em;
-  --acpmux-composer-placeholder: var(--uc-placeholder);
 }
 :root .nt-screen .nt-field.acpmux-md-field .acpmux-md-placeholder {
   top: calc(var(--uc-field-top) * var(--nt-density));
-  color: var(--uc-placeholder);
 }
 :root .nt-screen .nt-input[data-split] .acpmux-picker.nt-split-plus {
   grid-area: plus;
@@ -1767,7 +1763,7 @@ html:root .nt-screen .nt-composer .nt-input .acpmux-picker.nt-split-plus > .acpm
 }
 
 /* Suggestions: 8 px under the card (suggestionsAnchor.ts), the card's corner, 6 px padding; 30 px rows at 14 px radius,
-   10 px padding, 9 px gap, 13 px soft ink; the selected row on the 10 % wash in the text ink; 12 px dim detail. Only the
+   10 px padding, 9 px gap, 13 px soft ink; the selected row on the 10 % wash in the text ink; 12 px detail in the shared dim ink. Only the
    command rows show keycaps (their shortcut); no Return keycap. */
 /* Plain `.nt-popover`, so the single-row whole-pixel rule and the Console's corner still win; the corner is the card's
    (--nt-box-radius, 22 px at Default). */
@@ -1790,7 +1786,7 @@ html:root .nt-screen .nt-composer .nt-input .acpmux-picker.nt-split-plus > .acpm
 :root .ui-popup.nt-popover .nt-row-icon { color: var(--uc-muted); }
 :root .ui-popup.nt-popover .nt-row.is-selected .nt-row-icon { color: var(--uc-ink); }
 :root .ui-popup.nt-popover .nt-row-glyph { --nt-glyph-ink: 14px; }
-:root .ui-popup.nt-popover .nt-row-detail { color: var(--uc-dim); font-size: var(--text-detail); letter-spacing: normal; }
+:root .ui-popup.nt-popover .nt-row-detail { font-size: var(--text-detail); letter-spacing: normal; }
 :root .ui-popup.nt-popover .nt-row-return { display: none; }
 :root .ui-popup.nt-popover .nt-row-shortcut { gap: var(--uc-key-gap); }
 :root .ui-popup.nt-popover .nt-row-shortcut kbd {
@@ -1852,7 +1848,7 @@ html:root:has(.nt-screen) .ui-popup.acpmux-location-menu .acpmux-location-row > 
   margin: calc((var(--uc-slot) - var(--uc-glyph-h)) / 2) calc((var(--uc-slot) - var(--uc-glyph-w)) / 2);
   stroke-width: 1.2525;
 }
-html:root:has(.nt-screen) .ui-popup.acpmux-location-menu .acpmux-location-action-icon > svg {
+html:root:has(.nt-screen) .ui-popup.acpmux-location-menu .acpmux-location-action-icon > svg.acpmux-icon {
   --uc-glyph: 16.3px;
   width: var(--uc-glyph);
   height: var(--uc-glyph);
@@ -1875,7 +1871,7 @@ html:root .nt-screen .nt-composer .nt-pickers .acpmux-composer-actions { positio
 html:root .nt-screen .nt-composer .nt-pickers .acpmux-dictation-pill {
   position: absolute;
   top: 0;
-  right: calc(var(--acpmux-composer-control) + var(--acpmux-composer-action-gap));
+  right: 0;
   width: var(--acpmux-composer-control, 28px);
   height: var(--acpmux-composer-control, 28px);
   justify-content: center;
@@ -1884,6 +1880,9 @@ html:root .nt-screen .nt-composer .nt-pickers .acpmux-dictation-pill {
   background: none;
   color: var(--acpmux-dictation-accent);
   z-index: var(--layer-raised);
+}
+html:root .nt-screen .nt-composer .nt-pickers .acpmux-composer-actions:has(> .acpmux-send) .acpmux-dictation-pill {
+  right: calc(var(--acpmux-composer-control) + var(--acpmux-composer-action-gap));
 }
 html:root .nt-screen .nt-composer .nt-pickers .acpmux-dictation-wave > [data-dot],
 html:root .nt-screen .nt-composer .nt-pickers .acpmux-dictation-wave > [data-bar]:nth-last-child(n + 8) {
