@@ -21,15 +21,26 @@ final class CEFResizeFences {
     let pace = CEFFencePace()
     private let clock: any Clock<Duration>
     private let makePort: @MainActor (CALayer) -> mach_port_t?
+    /// Whether this app's send right goes at its deadline off the main thread (``deadlineOffMainKnob``).
+    let deadlineOffMain: Bool
+
+    /// `CMUX_NEXT_CEF_FENCE_DEADLINE=background` (a `CMUX_NEXT_` knob: the launch strip keeps it): each fence's
+    /// deadline drops this app's send right on the cooperative pool, not on the main actor.
+    nonisolated static let deadlineOffMainKnob =
+        ProcessInfo.processInfo.environment["CMUX_NEXT_CEF_FENCE_DEADLINE"] == "background"
 
     /// - Parameters:
     ///   - clock: runs this app's deadline of each fence.
     ///   - makePort: the fence of the window of a layer (`-[CAContext createFencePort]` by default; tests pass a port
     ///     of their own).
+    ///   - deadlineOffMain: drop the send right at the deadline off the main thread (``deadlineOffMainKnob`` by
+    ///     default).
     init(clock: any Clock<Duration> = ContinuousClock(),
-         makePort: @escaping @MainActor (CALayer) -> mach_port_t? = { CEFResizeFence.createFencePort(layer: $0) }) {
+         makePort: @escaping @MainActor (CALayer) -> mach_port_t? = { CEFResizeFence.createFencePort(layer: $0) },
+         deadlineOffMain: Bool = CEFResizeFences.deadlineOffMainKnob) {
         self.clock = clock
         self.makePort = makePort
+        self.deadlineOffMain = deadlineOffMain
     }
 
     /// Joins one page resized in this turn to `window`'s fence for this turn (made on first use).
