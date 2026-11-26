@@ -1502,7 +1502,12 @@
   --uc-key-gap: 3px;
   --uc-key-pad: 5px;
 }
-/* The card's solid in an opaque window is in composerStates.css, with its suggestions: one material (cmux#57406). */
+/* The card, not its popups: they read the shared transient material (glass-levels.test.ts). */
+:root:not([data-cmux-see-through]) .nt-composer > .nt-box.nt-composer-surface.ui-glass {
+  /* glass-opaque-allow: opaque windows paint the New Tab 4.5% theme surface solid, with no backdrop blur */
+  --glass-tint: var(--acpmux-composer-solid);
+  --glass-backdrop: none;
+}
 html:root :is(.nt-composer > .nt-composer-surface, .nt-popover.nt-composer-surface) {
   --acpmux-composer-rim: 0 0 transparent;
   --acpmux-composer-shadow: var(--cmux-composer-shadow, var(--glass-material-depth-composer, var(--elevation-1)));
