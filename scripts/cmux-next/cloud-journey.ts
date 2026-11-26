@@ -3658,10 +3658,13 @@ def call(f, s, i, method, p):
 class Retryable(RuntimeError):
     pass
 # acpmux answers a start cut by its own restart with data.retryable (daemon.restarting: "Send the request again in a
-# few seconds"), and while it restarts its socket refuses connections or is not there yet. Neither can have made a
-# session, so the start sends it again for up to RETRY_S, as the app does, and gives up on anything else.
+# few seconds"), and while it restarts its socket refuses connections or is not there yet. The start sends it again
+# for up to RETRY_S, as the app does, and gives up on anything else. A cut start may still have made the session
+# (run 45885585817): the resend's "name is taken" then names that session, which the start takes by name.
 RETRY_S = float(os.environ.get('CMUX_JOURNEY_START_RETRY_S') or 45)
 deadline = time.monotonic() + RETRY_S
+# Whether a session/new was cut after it was sent (a retryable answer or a closed link), so may have made it.
+cut = False
 while True:
     errors = []
     sid = None
@@ -3678,14 +3681,26 @@ while True:
                 raise Retryable('connect: ' + str(e))
             f = s.makefile('r')
             call(f, s, 1, 'initialize', {'protocolVersion': 1, 'clientCapabilities': {}, 'clientInfo': {'name': 'cloud-journey', 'version': '1'}})
-            r = call(f, s, 2, 'session/new', params)
-            sid = (r or {}).get('sessionId')
+            try:
+                r = call(f, s, 2, 'session/new', params)
+                sid = (r or {}).get('sessionId')
+            except RuntimeError as e:
+                # A start cut by acpmux's restart can have made the session before its answer was lost: the
+                # resend then finds its name taken. Only after such a cut is that name this start's own session.
+                if not cut or 'is taken' not in str(e) or isinstance(e, Retryable):
+                    raise
+                r = call(f, s, 3, '_acpmux/resolve', {'query': params['_meta']['acpmux']['name']})
+                sid = ((r or {}).get('session') or {}).get('sessionId')
+                if sid is None:
+                    raise
+                print('@@adopted ' + str(sid), flush=True)
             print('@@session ' + str(sid), flush=True)
             used = path
             break
         except Retryable as e:
             errors.append(path + ': ' + str(e))
             retry = True
+            cut = cut or str(e).startswith('session/new')
         except Exception as e:
             errors.append(path + ': ' + str(e))
     if not errors and sid is None:
