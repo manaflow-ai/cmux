@@ -2356,13 +2356,17 @@ function TranscriptView({
       // A fling's row (`flingMount`) is read by its observer too: a row just mounted reports its first
       // size there, one kept at the height placed reports when that changed. Read here only when the
       // placed entry is for another width or footer, which the observer's size alone does not change.
+      // A row with no height kept at all (every row of a chat's open, a row just arrived) is read by its
+      // observer too: its first size comes in the browser's own layout pass, before the frame paints,
+      // and places it then only when it differs from the estimate. On an open every drawn height was
+      // the estimate (cmuxterm-hq docs/research/2026-11-24-chat-perf-10x.md, "The pick"), and the read
+      // in the commit was the open's top cost after the attach (a forced layout, 21 ms of 306,
+      // cmuxterm-hq docs/research/2026-11-26-chat-perf-hn-databases.md).
       const fling = flingMount.current;
-      if (
-        (fling || (versionOnly && tokenRows.get(rowsRef.current) === true)) &&
-        typeof ResizeObserver !== "undefined"
-      ) {
+      const observed = typeof ResizeObserver !== "undefined";
+      if (observed && !drawnRef.current.get(id)) return noQueue;
+      if ((fling || (versionOnly && tokenRows.get(rowsRef.current) === true)) && observed) {
         const known = drawnRef.current.get(id);
-        if (fling && !known) return noQueue;
         if (
           known &&
           known.sessionId === sessionId &&
