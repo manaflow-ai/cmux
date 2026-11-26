@@ -40,14 +40,16 @@ extension ScreenRules {
 }
 
 /// The two symbols of cmux_rd_screen.h.
-private struct RulesLibrary: @unchecked Sendable {
+private struct RulesLibrary: Sendable {
     typealias Version = @convention(c) () -> UInt32
     typealias JSON = @convention(c) (UnsafePointer<UInt8>?, Int, UnsafePointer<CChar>?, UnsafeMutablePointer<UInt8>?, Int,
                                      UnsafeMutablePointer<Int>?) -> Int32
     static let ok: Int32 = 0
     static let errBuffer: Int32 = -3
 
-    let json: JSON
+    /// `cmux_rd_screen_json`'s address, kept as an integer so the struct is plainly Sendable (the
+    /// library never unloads, and the function is safe to call from any thread).
+    let address: UInt
 
     init?(path: String) {
         guard let handle = dlopen(path, RTLD_NOW | RTLD_LOCAL) else { return nil }
@@ -56,11 +58,12 @@ private struct RulesLibrary: @unchecked Sendable {
             dlclose(handle)
             return nil
         }
-        self.json = unsafeBitCast(json, to: JSON.self)
+        self.address = UInt(bitPattern: json)
     }
 
     /// One `cmux_rd_screen_json` call, retried once at the size it asks for.
     func call(_ operation: String, _ data: Data) -> Data? {
+        let json = unsafeBitCast(address, to: JSON.self)
         var capacity = 4096
         for _ in 0..<2 {
             var output = [UInt8](repeating: 0, count: capacity)
