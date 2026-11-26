@@ -4,7 +4,7 @@ import { copyFileSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFile
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { JOURNEY_STUB_SCRIPT, MODEL_STUB_PY } from "./cloud-journey.ts";
-import { GUEST_CMUX, stubRestart, stubStop, aggregate, gapLine, gapSchedule, guestLine, integrate, markdownTable, parseGuestUpdate, stalePauseAbMachines, type MachineResult } from "./pause-ab.ts";
+import { GUEST_CMUX, accountCensus, failureFacts, stubRestart, stubStop, aggregate, gapLine, gapSchedule, guestLine, integrate, markdownTable, parseGuestUpdate, stalePauseAbMachines, type MachineResult } from "./pause-ab.ts";
 
 describe("gapSchedule", () => {
   test("same seed, same gaps, only from the choices", () => {
@@ -43,7 +43,7 @@ describe("aggregate", () => {
 });
 
 describe("stalePauseAbMachines", () => {
-  test("only our name shape, old tag, idle", () => {
+  test("only our name shape and an old tag, active or not", () => {
     const now = Date.UTC(2026, 10, 24, 20);
     const old = (now - 4 * 3_600_000).toString(36);
     const fresh = (now - 60_000).toString(36);
@@ -53,7 +53,7 @@ describe("stalePauseAbMachines", () => {
       { id: "c", name: `my-machine`, status: "paused" },
       { id: "d", name: `pause-ab-${old}-aggressive-2`, status: "running", last_active_at: now - 60_000 },
     ];
-    expect(stalePauseAbMachines(rows, now).map((r) => r.id)).toEqual(["a"]);
+    expect(stalePauseAbMachines(rows, now).map((r) => r.id)).toEqual(["a", "d"]);
   });
 
   test("a tag past the workflow's 60-minute job is left behind; one inside it may still be running", () => {
@@ -76,11 +76,34 @@ describe("stalePauseAbMachines", () => {
       { id: "vm_other", name: "someone-else", status: "running" },
     ];
     const kept: string[] = [];
-    expect(stalePauseAbMachines(rows, now, undefined, kept)).toEqual([]);
-    expect(kept).toEqual([
-      `vm_busy pause-ab-${old}-aggressive-1 active 5 min ago`,
-      `vm_gone pause-ab-${old}-turn_end-1 status=deleting`,
-    ]);
+    // Run 45808104119 kept pause-ab-mwxbi2gl (2.5 h old) "active 0 min ago": its own leftover stub is the activity.
+    expect(stalePauseAbMachines(rows, now, undefined, kept)).toEqual([{ id: "vm_busy", name: `pause-ab-${old}-aggressive-1`, why: "started 163 min ago, active 5 min ago" }]);
+    expect(kept).toEqual([`vm_gone pause-ab-${old}-turn_end-1 status=deleting`]);
+  });
+});
+
+// Run 45808104119: create took 247 s on a 199-machine account, the machine went `failed` and the record that said why
+// was cut at 300 chars. The sweep now says what the account's machines are; a failed machine's own fields come whole.
+describe("drill account and failed machines", () => {
+  test("census counts by status, age and name shape", () => {
+    const now = Date.UTC(2026, 10, 26, 11, 30);
+    const rows = [
+      { name: "pause-ab-mwxgb9ud-turn_end-1", status: "running", created_at: now - 60_000 },
+      { name: "pause-ab-mwx9ibyh-aggressive-1", status: "running", created_at: new Date(now - 3 * 3_600_000).toISOString() },
+      { name: "journey-mwx1-chat", status: "failed", created_at: Math.floor((now - 9 * 86_400_000) / 1000) },
+      { status: "paused" },
+    ];
+    expect(accountCensus(rows, now)).toBe(
+      "status: running=2 failed=1 paused=1; age: <1d=1 <1h=1 >=7d=1 age?=1; names: (unnamed)=1 journey-*-chat=1 pause-ab-*-aggressive-*=1 pause-ab-*-turn_end-*=1",
+    );
+  });
+  test("a failed machine keeps its reason past 300 chars and drops who it is", () => {
+    const m = { id: "vm_x", team: "team_y", creator: "user_z", name: "pause-ab-a-aggressive-1", size: { cpu: 2 }, status: "failed",
+      image: { id: "cloud-native-auto-" + "x".repeat(300) }, status_reason: "provider: no capacity in zone" };
+    const f = failureFacts(m);
+    expect(f).toContain("no capacity in zone");
+    expect(f).not.toContain("team_y");
+    expect(f).not.toContain("user_z");
   });
 });
 

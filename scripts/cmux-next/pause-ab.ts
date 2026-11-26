@@ -39,15 +39,15 @@
  *
  * Output (--out DIR): pause-ab.json (every machine's timeline, turns, resumes) and summary.md (one table row per arm:
  * awake s, paused s, resumes, mean resume ms), plus journey.json (steps). Every machine this run created is deleted
- * at the end, pass or fail; machines named `pause-ab-<tag>-...` whose tag is more than 90 minutes old (PAUSE_AB_STALE_MS) and idle for an
- * hour (a killed run's) are swept before create. Any other name is never touched. Exit 0 only when no step failed.
+ * at the end, pass or fail; machines named `pause-ab-<tag>-...` whose tag is more than 90 minutes old (PAUSE_AB_STALE_MS, a killed run's,
+ * active or not: its stub keeps it active) are swept before create. Any other name is never touched. Exit 0 only when no step failed.
  */
 import { randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  Api, CHAT_START_SIZE, IDLE_JOURNEY_MS, JOURNEY_STUB_SCRIPT, Journey, MODEL_STUB_PY, STACK, directExec, http,
+  Api, CHAT_START_SIZE, JOURNEY_STUB_SCRIPT, Journey, MODEL_STUB_PY, STACK, directExec, http,
   idleHeldBy, launchCredentialStartProgram, listAllMachines, oidcSignIn, passwordSignIn, readEnvFile, resolveBackend, sharedCleanup,
   type Exec,
 } from "./cloud-journey.ts";
@@ -55,6 +55,30 @@ import {
 const GUEST = 'export HOME="${HOME:-/home/cmux}"; cd "$HOME" 2>/dev/null || cd /; c=cmux-tui; [ -x "$HOME/.cmux/bin/cmux-tui" ] && c="$HOME/.cmux/bin/cmux-tui"; ';
 const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 const short = (v: unknown) => JSON.stringify(v ?? null).slice(0, 300);
+
+/** What a machine on the drill account is, by status and by name shape (segments holding a digit become `*`), so a
+ * sweep line says whether the account's machines are live drills, failed leftovers or someone else's. */
+export function accountCensus(rows: any[], nowMs: number): string {
+  const by = (key: (r: any) => string) => {
+    const n = new Map<string, number>();
+    for (const r of rows) n.set(key(r), (n.get(key(r)) ?? 0) + 1);
+    return [...n].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).map(([k, c]) => `${k}=${c}`).join(" ");
+  };
+  const shape = (r: any) => (typeof r?.name === "string" && r.name ? r.name.split("-").map((x: string) => (/\d/.test(x) ? "*" : x)).join("-") : "(unnamed)");
+  const age = (r: any) => {
+    const t = typeof r?.created_at === "number" ? r.created_at : Date.parse(r?.created_at ?? "");
+    if (!Number.isFinite(t)) return "age?";
+    const h = (nowMs - (t < 1e12 ? t * 1000 : t)) / 3_600_000;
+    return h < 1 ? "<1h" : h < 24 ? "<1d" : h < 168 ? "<7d" : ">=7d";
+  };
+  return `status: ${by((r) => String(r?.status ?? "?"))}; age: ${by(age)}; names: ${by(shape)}`;
+}
+
+/** A failed machine's own fields minus who and what it is, whole, so the reason it failed is not cut at 300 chars. */
+export function failureFacts(m: any): string {
+  const { id: _i, team: _t, creator: _c, name: _n, size: _s, ...rest } = m ?? {};
+  return JSON.stringify(rest).slice(0, 2000);
+}
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const argValue = (flag: string, argv: string[]): string | undefined => {
   const i = argv.indexOf(flag);
@@ -176,8 +200,8 @@ export function markdownTable(rows: ArmRow[]): string {
 export const PAUSE_AB_STALE_MS = 90 * 60_000;
 
 /** Machines an earlier pause-ab run left behind: our name shape, tag older than maxAgeMs, idle for an hour. */
-export function stalePauseAbMachines(rows: any[], nowMs: number, maxAgeMs = PAUSE_AB_STALE_MS, kept?: string[]): { id: string; name: string }[] {
-  const out: { id: string; name: string }[] = [];
+export function stalePauseAbMachines(rows: any[], nowMs: number, maxAgeMs = PAUSE_AB_STALE_MS, kept?: string[]): { id: string; name: string; why: string }[] {
+  const out: { id: string; name: string; why: string }[] = [];
   for (const r of rows) {
     const m = /^pause-ab-([0-9a-z]+)-[a-z_]+-\d+$/.exec(typeof r?.name === "string" ? r.name : "");
     if (!m) continue;
@@ -187,11 +211,10 @@ export function stalePauseAbMachines(rows: any[], nowMs: number, maxAgeMs = PAUS
     const started = parseInt(m[1], 36);
     if (!Number.isFinite(started) || started < Date.UTC(2020, 0, 1) || started > nowMs) { keep("tag is not a start time"); continue; }
     if (nowMs - started <= maxAgeMs) { keep(`started ${Math.round((nowMs - started) / 60_000)} min ago`); continue; }
-    if (typeof r.last_active_at === "number" && nowMs - r.last_active_at <= IDLE_JOURNEY_MS) {
-      keep(`active ${Math.round((nowMs - r.last_active_at) / 60_000)} min ago`);
-      continue;
-    }
-    if (id) out.push({ id, name: r.name });
+    // No activity spare past the cutoff: a left-behind drill machine still runs the drill's own model stub, which
+    // keeps it active for good (pause-ab-mwxbi2gl, 08:55Z, kept "active 0 min ago" by every sweep until 11:10Z).
+    const active = typeof r.last_active_at === "number" ? `, active ${Math.round((nowMs - r.last_active_at) / 60_000)} min ago` : "";
+    if (id) out.push({ id, name: r.name, why: `started ${Math.round((nowMs - started) / 60_000)} min ago${active}` });
     else keep("no id");
   }
   return out;
@@ -512,28 +535,34 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     await J.step("user.ensure", async () => ({ value: await api.op("user.ensure", {}, `pab-${tag}-ensure`), detail: "ok" }));
     {
       const t0 = Date.now();
+      let census = "";
       try {
         const rows = await listAllMachines((p) => api.read("cloud.machine.list", p));
         const kept: string[] = [];
         const stale = stalePauseAbMachines(rows, Date.now(), PAUSE_AB_STALE_MS, kept);
         for (const k of kept) console.log(`sweep: kept ${k}`);
+        census = accountCensus(rows, Date.now());
+        console.log(`sweep: account ${rows.length} machines; ${census}`);
         for (const m of stale) {
-          console.log(`sweep: deleting leaked ${m.id} (${m.name})`);
+          console.log(`sweep: deleting leaked ${m.id} (${m.name}, ${m.why})`);
           await api.deleteMachine(m.id, `pab-${tag}-sweep-${m.id}`).catch((e: Error) => console.log(`sweep: delete ${m.id} failed: ${String(e?.message ?? e).slice(0, 200)}`));
         }
-        J.record({ step: "sweep leaked pause-ab machines", status: "pass", ms: Date.now() - t0, detail: `${stale.length} swept, ${kept.length} pause-ab kept, of ${rows.length}` });
+        J.record({ step: "sweep leaked pause-ab machines", status: "pass", ms: Date.now() - t0, detail: `${stale.length} swept, ${kept.length} pause-ab kept, of ${rows.length}; ${census}` });
       } catch (e) {
         J.record({ step: "sweep leaked pause-ab machines", status: "skip", ms: Date.now() - t0, detail: String((e as Error)?.message ?? e).slice(0, 300) });
       }
     }
     usageBefore = await api.read("cloud.plan.get", {}).then((p) => Number(p?.usage?.vm_hours_used_by_you ?? NaN)).then((n) => (Number.isFinite(n) ? n : null)).catch(() => null);
     await J.step(`create ${results.length} machines`, async () => {
+      const took: string[] = [];
       await Promise.all(results.map(async (r) => {
+        const c0 = Date.now();
         const v = await api.op("cloud.machine.create", { name: r.name, size: CHAT_START_SIZE }, `pab-${tag}-create-${r.name}`);
         r.id = String(v.machine?.id ?? v.machine ?? "") || null;
+        took.push(`${r.name} ${Math.round((Date.now() - c0) / 1000)} s`);
         if (!r.id) throw new Error(`create ${r.name} answered no machine: ${short(v)}`);
       }));
-      return { value: null, detail: results.map((r) => `${r.name}=${r.id}`).join(", ") };
+      return { value: null, detail: `${results.map((r) => `${r.name}=${r.id}`).join(", ")}; answered in ${took.join(", ")}` };
     });
     await J.step("running", async () => {
       await Promise.all(results.map(async (r) => {
@@ -541,7 +570,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         while (Date.now() - t0 < 300_000) {
           const m = await api.read("cloud.machine.get", { machine: r.id }).catch(() => null);
           if (m?.status === "running" && m?.host) return;
-          if (m?.status === "failed") throw new Error(`${r.name} failed: ${short(m)}`);
+          if (m?.status === "failed") throw new Error(`${r.name} ${r.id} failed ${Math.round((Date.now() - t0) / 1000)} s after create answered: ${failureFacts(m)}`);
           await sleep(1000);
         }
         throw new Error(`${r.name} not running within 300 s`);
