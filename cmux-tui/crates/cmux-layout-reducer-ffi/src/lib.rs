@@ -97,6 +97,7 @@ mod cloud_sequence;
 mod cloud_task;
 pub mod drag_handle;
 pub mod focus;
+mod handlers_placement;
 mod imessage;
 pub mod input;
 pub mod keychain;
@@ -639,6 +640,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             }
             operation if browser_rules::handles(operation) => {
                 browser_rules::respond(operation, request)?
+            }
+            operation if handlers_placement::handles(operation) => {
+                handlers_placement::respond(operation, request)?
             }
             operation if window_rules::handles(operation) => {
                 window_rules::respond(operation, request)?
