@@ -16,7 +16,7 @@ extension ChatController {
               let table = HomeTableRowProvider.payload(part)?.table,
               let gallery = HomePictureGallery(table: table, opening: source) else { return false }
         let grid = HomeTableGrid(table, available: width)
-        let thumbnail = grid.pictureRects(at: body).first { $0.source == source }
+        let thumbnail = grid.pictureRects(at: grid.cardOrigin(body)).first { $0.source == source }
         let image = grid.slots.lazy.flatMap { $0 }.flatMap { $0 }.first { $0.source == source }?.image
         let from = thumbnail.flatMap { t in image.map { (rect: t.rect, image: $0) } }
         presentPictures(gallery, from: from) { item in await Self.decode(item) }
