@@ -3761,6 +3761,11 @@ jobs:
         if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
         run: bash scripts/ci/tests/pool-warm-target.test.sh
 
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-210d
+      - name: Test the R2 workspace delta
+        if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
+        run: bash scripts/ci/tests/cargo-target-delta.test.sh
+
       # Why: 2026-11-24-fast-tier-cargo-4.md
       - name: Mount the warm cargo target (feat-cmux-next push, commits)
         id: warm-next
