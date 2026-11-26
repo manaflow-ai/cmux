@@ -96,14 +96,14 @@ jobs:
       # every branch (32,106 of them on 2026-11-22) hung or lost the runner in plan jobs 137288423007,
       # 137313024795, 137322557043 and judge job 137302455752. Each step is bounded and tried once more.
       - id: checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         continue-on-error: true
         timeout-minutes: 5
         with:
           persist-credentials: false
       - name: Check out again
         if: steps.checkout.outcome != 'success'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 5
         with:
           persist-credentials: false
@@ -362,14 +362,14 @@ jobs:
       # every branch (32,106 of them on 2026-11-22) hung or lost the runner in plan jobs 137288423007,
       # 137313024795, 137322557043 and judge job 137302455752. Each step is bounded and tried once more.
       - id: checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         continue-on-error: true
         timeout-minutes: 5
         with:
           persist-credentials: false
       - name: Check out again
         if: steps.checkout.outcome != 'success'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 5
         with:
           persist-credentials: false
@@ -467,7 +467,7 @@ jobs:
       # every branch (32,106 of them on 2026-11-22) hung or lost the runner in plan jobs 137288423007,
       # 137313024795, 137322557043 and judge job 137302455752. Each step is bounded and tried once more.
       - id: checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         continue-on-error: true
         timeout-minutes: 5
         with:
@@ -475,7 +475,7 @@ jobs:
           ref: ${{ github.ref }}
       - name: Check out again
         if: steps.checkout.outcome != 'success'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 5
         with:
           persist-credentials: false

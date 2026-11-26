@@ -276,7 +276,7 @@ jobs:
       # now comes from this job, and every leg that does run checks the
       # list against its image (.github/ios-review-gate-devices.json).
       - name: Checkout the device list
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ steps.plan.outputs.gate_sha }}
           path: gate
@@ -472,7 +472,7 @@ jobs:
       LANE: ${{ needs.plan.outputs.lane }}
     steps:
       - name: Checkout the gate
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # The gate's own commit (plan's gate_sha): a caller on another
           # branch (main's production pipeline) still runs the gate's scripts.
@@ -484,7 +484,7 @@ jobs:
             cmux-next-ios/AppStoreReview
             cmux-next-ios/UITests
       - name: Checkout the app source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.plan.outputs.sha }}
           path: app
@@ -562,7 +562,7 @@ jobs:
       use: ${{ steps.done.outputs.use }}
     steps:
       - name: Checkout the app's gate files
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.plan.outputs.sha }}
           path: app
@@ -572,7 +572,7 @@ jobs:
             cmux-next-ios/UITests/AppReviewGateUITests.swift
             cmux-next-ios/AppStoreReview/rejection-history.json
       - name: Checkout the gate's files
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.plan.outputs.gate_sha }}
           path: gate
@@ -661,12 +661,12 @@ jobs:
       # the gate beside it in .review-gate (outside cmux-next-ios, which is
       # all xcodegen reads).
       - name: Checkout the app source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false
       - name: Checkout the gate
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.plan.outputs.gate_sha }}
           path: .review-gate
@@ -992,7 +992,7 @@ jobs:
       # judged source is only read as data, and the version is read before
       # any secret is in the environment.
       - name: Checkout the gate
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.plan.outputs.gate_sha }}
           path: gate
@@ -1005,7 +1005,7 @@ jobs:
             .gitmodules
           sparse-checkout-cone-mode: false
       - name: Checkout the app source (data only)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.plan.outputs.sha }}
           path: app
@@ -1103,7 +1103,7 @@ jobs:
           else
             echo "::warning::the handed-off framework is incomplete; nothing saved"
           fi
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         if: steps.staged.outputs.key != ''
         with:
           persist-credentials: false
@@ -1142,7 +1142,7 @@ jobs:
     outputs:
       blocking: ${{ steps.report.outputs.blocking }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.plan.outputs.gate_sha }}
           persist-credentials: false
@@ -1154,7 +1154,7 @@ jobs:
       # it could edit to pin its own regression.
       - name: Checkout the base's known blockers
         if: github.event_name == 'pull_request'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           path: base
