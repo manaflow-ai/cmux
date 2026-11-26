@@ -52,9 +52,6 @@ public struct TerminalSizeParticipant: Identifiable, Hashable, Sendable {
         self.counts = counts
     }
 
-    /// A Mac, a cmux-tui frontend, or the desktop app on Linux or Windows.
-    public var isDesktop: Bool { ["mac", "tui", "linux", "windows"].contains(deviceKind) }
-
     static func decode(_ value: Any) -> TerminalSizeParticipant? {
         guard let object = value as? [String: Any], let id = object["id"] as? String else { return nil }
         return TerminalSizeParticipant(
@@ -147,35 +144,8 @@ public struct HostSizePolicy: Hashable, Sendable {
         self.order = order
     }
 
-    // Device tokens of the priority order (`mobile.terminalSizingOrder`).
-
-    /// This Mac's own views.
-    public static let macToken = "mac"
-
-    /// The viewer whose device id is `id`.
-    public static func deviceToken(_ id: String) -> String { "device:\(id)" }
-
-    /// Most tokens the Mac keeps in an order.
-    public static let maxOrder = 32
-
-    /// A token the Mac accepts: `mac`, or `device:<id>` with a 1 to 128
-    /// character id of `[A-Za-z0-9_.:-]` (the daemon refuses a whole order
-    /// with any other token).
-    public static func isValidToken(_ token: String) -> Bool {
-        if token == macToken { return true }
-        guard let id = deviceID(fromToken: token), id.utf8.count <= 128 else { return false }
-        return id.utf8.allSatisfy { byte in
-            (byte >= 0x30 && byte <= 0x39) || (byte >= 0x41 && byte <= 0x5A) || (byte >= 0x61 && byte <= 0x7A)
-                || byte == UInt8(ascii: "_") || byte == UInt8(ascii: ".") || byte == UInt8(ascii: ":") || byte == UInt8(ascii: "-")
-        }
-    }
-
-    /// The device id of a `device:<id>` token.
-    public static func deviceID(fromToken token: String) -> String? {
-        guard token.hasPrefix("device:") else { return nil }
-        let id = String(token.dropFirst("device:".count))
-        return id.isEmpty ? nil : id
-    }
+    // Device tokens of the priority order (`mobile.terminalSizingOrder`):
+    // Rust's terminal_sizing_view (host_size_token_valid, host_size_device_token).
 
     public static func decode(_ value: Any?) -> HostSizePolicy? {
         guard let object = value as? [String: Any] else { return nil }
@@ -244,7 +214,12 @@ public final class TerminalSizingLive {
     }
 }
 
-/// What the Connected Devices sheet and the Settings page draw.
+#if os(iOS)
+import CmuxMobileLinkFFI
+
+/// What the Connected Devices sheet and the Settings page draw. The rules
+/// (who each viewer is, why the grid has its size, the priority list) are
+/// Rust's terminal_sizing_view; this only hands it the state.
 public struct TerminalSizingPresentation: Equatable, Sendable {
     public struct Row: Identifiable, Equatable, Sendable {
         public var id: String
@@ -274,45 +249,34 @@ public struct TerminalSizingPresentation: Equatable, Sendable {
         self.thisDeviceID = thisDeviceID
     }
 
-    private func isThisMac(_ participant: TerminalSizeParticipant) -> Bool {
-        macParticipants.contains(participant.id)
+    private var input: SizingViewInput {
+        SizingViewInput(
+            hasState: state != nil,
+            reason: state?.reason ?? "",
+            owners: state?.owners ?? [],
+            participants: (state?.participants ?? []).map(Self.sizing),
+            selfParticipant: selfParticipant,
+            macParticipants: macParticipants.sorted(),
+            thisDeviceId: thisDeviceID
+        )
     }
 
-    private func isThisPhone(_ participant: TerminalSizeParticipant) -> Bool {
-        participant.id == selfParticipant || (thisDeviceID != nil && participant.deviceID == thisDeviceID && !participant.isDesktop)
+    private static func sizing(_ participant: TerminalSizeParticipant) -> SizingParticipant {
+        SizingParticipant(
+            id: participant.id, deviceKind: participant.deviceKind, deviceName: participant.deviceName,
+            displayName: participant.displayName, deviceId: participant.deviceID,
+            viewport: participant.viewport.map { SizingGrid(cols: UInt32(clamping: $0.cols), rows: UInt32(clamping: $0.rows)) }
+        )
     }
 
     public func title(of participant: TerminalSizeParticipant) -> String {
-        if isThisMac(participant) { return "This Mac" }
-        if isThisPhone(participant) { return "This iPhone" }
-        if let name = participant.deviceName ?? participant.displayName { return name }
-        switch participant.deviceKind {
-        case "mac": return "Another Mac"
-        case "iphone": return "An iPhone"
-        case "ipad": return "An iPad"
-        case "tui": return "A terminal"
-        default: return "Another device"
-        }
-    }
-
-    private static func symbol(kind: String) -> String {
-        switch kind {
-        case "mac", "linux", "windows": "laptopcomputer"
-        case "iphone": "iphone"
-        case "ipad": "ipad"
-        case "tui": "apple.terminal"
-        default: "display"
-        }
+        terminalSizingTitle(input: input, participant: Self.sizing(participant))
     }
 
     /// One row per connected viewer, in attach order.
     public var rows: [Row] {
-        guard let state else { return [] }
-        return state.participants.map { participant in
-            Row(id: participant.id, title: title(of: participant),
-                detail: participant.viewport?.label ?? "Not showing it",
-                setsSize: state.owners.contains(participant.id),
-                symbol: Self.symbol(kind: participant.deviceKind))
+        terminalSizingRows(input: input).map {
+            Row(id: $0.id, title: $0.title, detail: $0.detail, setsSize: $0.setsSize, symbol: $0.symbol)
         }
     }
 
@@ -321,90 +285,21 @@ public struct TerminalSizingPresentation: Equatable, Sendable {
         state.map { "\($0.grid.cols) × \($0.grid.rows)" }
     }
 
-    /// "A", "A and B", "A, B, and C": the system's list format (no ListFormatter off Apple platforms).
-    static func joinedList(_ items: [String]) -> String {
-        #if canImport(Darwin)
-        ListFormatter.localizedString(byJoining: items)
-        #else
-        switch items.count {
-        case 0, 1: items.joined()
-        case 2: "\(items[0]) and \(items[1])"
-        default: items.dropLast().joined(separator: ", ") + ", and " + items[items.count - 1]
-        }
-        #endif
-    }
-
     /// Why the grid has its size.
-    public var reasonText: String? {
-        guard let state else { return nil }
-        let owners = state.participants.filter { state.owners.contains($0.id) }.map(title(of:))
-        let named = owners.isEmpty ? nil : Self.joinedList(owners)
-        switch state.reason {
-        case "smallest": return "Fits the smallest viewer" + (named.map { ": \($0)" } ?? "")
-        case "largest": return "Fits the largest viewer" + (named.map { ": \($0)" } ?? "")
-        case "fixed": return "Fixed size"
-        case "held": return "Kept from the last viewer"
-        case "priority-fallback": return named.map { "Set by \($0), active last" } ?? "Set by the device active last"
-        case "priority": return named.map { "Set by \($0), first in order" } ?? "Set by the first device in order"
-        default: return named.map { "Set by \($0)" } ?? "Set by the device active last"
-        }
-    }
-
-    /// The token of a viewer in the priority order.
-    public func token(of participant: TerminalSizeParticipant) -> String? {
-        if isThisMac(participant) { return HostSizePolicy.macToken }
-        return participant.deviceID.map(HostSizePolicy.deviceToken)
-    }
+    public var reasonText: String? { terminalSizingReason(input: input) }
 
     /// The priority list to show: the stored order first, then every viewer
-    /// not in it (this Mac and this iPhone first), so a reorder ranks every
-    /// device in sight. Stored tokens of absent devices keep their slots.
+    /// not in it (this Mac and this iPhone first).
     public func orderRows(_ order: [String]) -> [OrderRow] {
-        var tokens: [String] = []
-        func add(_ token: String?) {
-            guard let token, tokens.count < HostSizePolicy.maxOrder, HostSizePolicy.isValidToken(token),
-                  !tokens.contains(token) else { return }
-            tokens.append(token)
+        terminalSizingOrderRows(input: input, order: order).map {
+            OrderRow(token: $0.token, title: $0.title, symbol: $0.symbol)
         }
-        // This Mac and this iPhone always have a place, ahead of devices
-        // the stored order does not rank.
-        let pinned = [HostSizePolicy.macToken, thisDeviceID.map(HostSizePolicy.deviceToken)].compactMap { $0 }
-        let stored = order.filter(HostSizePolicy.isValidToken)
-        let room = HostSizePolicy.maxOrder - pinned.filter { !stored.contains($0) }.count
-        for token in stored.prefix(max(0, room)) { add(token) }
-        add(HostSizePolicy.macToken)
-        add(thisDeviceID.map(HostSizePolicy.deviceToken))
-        for participant in state?.participants ?? [] { add(token(of: participant)) }
-        return tokens.map { token in
-            OrderRow(token: token, title: orderTitle(token), symbol: orderSymbol(token))
-        }
-    }
-
-    private func participant(for token: String) -> TerminalSizeParticipant? {
-        guard let id = HostSizePolicy.deviceID(fromToken: token) else { return nil }
-        return state?.participants.first { $0.deviceID == id && !macParticipants.contains($0.id) }
-    }
-
-    private func orderTitle(_ token: String) -> String {
-        if token == HostSizePolicy.macToken { return "This Mac" }
-        if let id = HostSizePolicy.deviceID(fromToken: token), id == thisDeviceID { return "This iPhone" }
-        if let participant = participant(for: token) { return title(of: participant) }
-        return "Another device"
-    }
-
-    private func orderSymbol(_ token: String) -> String {
-        if token == HostSizePolicy.macToken { return "laptopcomputer" }
-        if let id = HostSizePolicy.deviceID(fromToken: token), id == thisDeviceID { return "iphone" }
-        return participant(for: token).map { Self.symbol(kind: $0.deviceKind) } ?? "display"
     }
 
     /// The order after moving the shown rows (`onMove`).
     public static func reordered(_ rows: [OrderRow], from source: IndexSet, to destination: Int) -> [String] {
-        var tokens = rows.map(\.token)
-        let moving = source.sorted().map { tokens[$0] }
-        for index in source.sorted(by: >) { tokens.remove(at: index) }
-        let before = source.filter { $0 < destination }.count
-        tokens.insert(contentsOf: moving, at: destination - before)
-        return tokens
+        terminalSizingReordered(tokens: rows.map(\.token), from: source.map { UInt32(clamping: $0) },
+                                to: UInt32(clamping: destination))
     }
 }
+#endif

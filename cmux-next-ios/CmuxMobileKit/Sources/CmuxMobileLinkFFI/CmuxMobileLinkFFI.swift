@@ -11861,6 +11861,398 @@ public func FfiConverterTypeShareAsk_lower(_ value: ShareAsk) -> RustBuffer {
 
 
 /**
+ * A terminal grid in cells.
+ */
+public struct SizingGrid: Equatable, Hashable {
+    public var cols: UInt32
+    public var rows: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(cols: UInt32, rows: UInt32) {
+        self.cols = cols
+        self.rows = rows
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension SizingGrid: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSizingGrid: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SizingGrid {
+        return
+            try SizingGrid(
+                cols: FfiConverterUInt32.read(from: &buf), 
+                rows: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SizingGrid, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.cols, into: &buf)
+        FfiConverterUInt32.write(value.rows, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSizingGrid_lift(_ buf: RustBuffer) throws -> SizingGrid {
+    return try FfiConverterTypeSizingGrid.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSizingGrid_lower(_ value: SizingGrid) -> RustBuffer {
+    return FfiConverterTypeSizingGrid.lower(value)
+}
+
+
+/**
+ * One Priority Order row.
+ */
+public struct SizingOrderRow: Equatable, Hashable {
+    public var token: String
+    public var title: String
+    public var symbol: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(token: String, title: String, symbol: String) {
+        self.token = token
+        self.title = title
+        self.symbol = symbol
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension SizingOrderRow: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSizingOrderRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SizingOrderRow {
+        return
+            try SizingOrderRow(
+                token: FfiConverterString.read(from: &buf), 
+                title: FfiConverterString.read(from: &buf), 
+                symbol: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SizingOrderRow, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.token, into: &buf)
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterString.write(value.symbol, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSizingOrderRow_lift(_ buf: RustBuffer) throws -> SizingOrderRow {
+    return try FfiConverterTypeSizingOrderRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSizingOrderRow_lower(_ value: SizingOrderRow) -> RustBuffer {
+    return FfiConverterTypeSizingOrderRow.lower(value)
+}
+
+
+/**
+ * One attached view of a terminal, as the Mac's daemon publishes it.
+ */
+public struct SizingParticipant: Equatable, Hashable {
+    public var id: String
+    public var deviceKind: String
+    public var deviceName: String?
+    public var displayName: String?
+    public var deviceId: String?
+    /**
+     * The size this viewer asks for; none while its terminal is off screen.
+     */
+    public var viewport: SizingGrid?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, deviceKind: String, deviceName: String?, displayName: String?, deviceId: String?, 
+        /**
+         * The size this viewer asks for; none while its terminal is off screen.
+         */viewport: SizingGrid?) {
+        self.id = id
+        self.deviceKind = deviceKind
+        self.deviceName = deviceName
+        self.displayName = displayName
+        self.deviceId = deviceId
+        self.viewport = viewport
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension SizingParticipant: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSizingParticipant: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SizingParticipant {
+        return
+            try SizingParticipant(
+                id: FfiConverterString.read(from: &buf), 
+                deviceKind: FfiConverterString.read(from: &buf), 
+                deviceName: FfiConverterOptionString.read(from: &buf), 
+                displayName: FfiConverterOptionString.read(from: &buf), 
+                deviceId: FfiConverterOptionString.read(from: &buf), 
+                viewport: FfiConverterOptionTypeSizingGrid.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SizingParticipant, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.deviceKind, into: &buf)
+        FfiConverterOptionString.write(value.deviceName, into: &buf)
+        FfiConverterOptionString.write(value.displayName, into: &buf)
+        FfiConverterOptionString.write(value.deviceId, into: &buf)
+        FfiConverterOptionTypeSizingGrid.write(value.viewport, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSizingParticipant_lift(_ buf: RustBuffer) throws -> SizingParticipant {
+    return try FfiConverterTypeSizingParticipant.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSizingParticipant_lower(_ value: SizingParticipant) -> RustBuffer {
+    return FfiConverterTypeSizingParticipant.lower(value)
+}
+
+
+/**
+ * One Connected Devices row.
+ */
+public struct SizingRow: Equatable, Hashable {
+    public var id: String
+    public var title: String
+    /**
+     * `120×39`, or "Not showing it".
+     */
+    public var detail: String
+    public var setsSize: Bool
+    /**
+     * An SF Symbol name.
+     */
+    public var symbol: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, title: String, 
+        /**
+         * `120×39`, or "Not showing it".
+         */detail: String, setsSize: Bool, 
+        /**
+         * An SF Symbol name.
+         */symbol: String) {
+        self.id = id
+        self.title = title
+        self.detail = detail
+        self.setsSize = setsSize
+        self.symbol = symbol
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension SizingRow: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSizingRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SizingRow {
+        return
+            try SizingRow(
+                id: FfiConverterString.read(from: &buf), 
+                title: FfiConverterString.read(from: &buf), 
+                detail: FfiConverterString.read(from: &buf), 
+                setsSize: FfiConverterBool.read(from: &buf), 
+                symbol: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SizingRow, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterString.write(value.detail, into: &buf)
+        FfiConverterBool.write(value.setsSize, into: &buf)
+        FfiConverterString.write(value.symbol, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSizingRow_lift(_ buf: RustBuffer) throws -> SizingRow {
+    return try FfiConverterTypeSizingRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSizingRow_lower(_ value: SizingRow) -> RustBuffer {
+    return FfiConverterTypeSizingRow.lower(value)
+}
+
+
+/**
+ * What the view is drawn from: the daemon's size state (when there is one)
+ * and who this phone and this Mac are.
+ */
+public struct SizingViewInput: Equatable, Hashable {
+    /**
+     * False while the daemon has published no size state: no rows, no reason.
+     */
+    public var hasState: Bool
+    /**
+     * `latest`, `smallest`, `largest`, `priority`, `fixed`, `held`, `priority-fallback`.
+     */
+    public var reason: String
+    /**
+     * The participants that set a dimension.
+     */
+    public var owners: [String]
+    public var participants: [SizingParticipant]
+    /**
+     * This phone's participant id on the terminal.
+     */
+    public var selfParticipant: String?
+    /**
+     * The participant ids of the Mac the phone is connected to.
+     */
+    public var macParticipants: [String]
+    /**
+     * This phone's device id.
+     */
+    public var thisDeviceId: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * False while the daemon has published no size state: no rows, no reason.
+         */hasState: Bool, 
+        /**
+         * `latest`, `smallest`, `largest`, `priority`, `fixed`, `held`, `priority-fallback`.
+         */reason: String, 
+        /**
+         * The participants that set a dimension.
+         */owners: [String], participants: [SizingParticipant], 
+        /**
+         * This phone's participant id on the terminal.
+         */selfParticipant: String?, 
+        /**
+         * The participant ids of the Mac the phone is connected to.
+         */macParticipants: [String], 
+        /**
+         * This phone's device id.
+         */thisDeviceId: String?) {
+        self.hasState = hasState
+        self.reason = reason
+        self.owners = owners
+        self.participants = participants
+        self.selfParticipant = selfParticipant
+        self.macParticipants = macParticipants
+        self.thisDeviceId = thisDeviceId
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension SizingViewInput: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSizingViewInput: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SizingViewInput {
+        return
+            try SizingViewInput(
+                hasState: FfiConverterBool.read(from: &buf), 
+                reason: FfiConverterString.read(from: &buf), 
+                owners: FfiConverterSequenceString.read(from: &buf), 
+                participants: FfiConverterSequenceTypeSizingParticipant.read(from: &buf), 
+                selfParticipant: FfiConverterOptionString.read(from: &buf), 
+                macParticipants: FfiConverterSequenceString.read(from: &buf), 
+                thisDeviceId: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SizingViewInput, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.hasState, into: &buf)
+        FfiConverterString.write(value.reason, into: &buf)
+        FfiConverterSequenceString.write(value.owners, into: &buf)
+        FfiConverterSequenceTypeSizingParticipant.write(value.participants, into: &buf)
+        FfiConverterOptionString.write(value.selfParticipant, into: &buf)
+        FfiConverterSequenceString.write(value.macParticipants, into: &buf)
+        FfiConverterOptionString.write(value.thisDeviceId, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSizingViewInput_lift(_ buf: RustBuffer) throws -> SizingViewInput {
+    return try FfiConverterTypeSizingViewInput.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSizingViewInput_lower(_ value: SizingViewInput) -> RustBuffer {
+    return FfiConverterTypeSizingViewInput.lower(value)
+}
+
+
+/**
  * One card. Hashes are lowercase sha256 hex, the name a blob is saved under.
  */
 public struct TabsRow: Equatable, Hashable {
@@ -17158,6 +17550,30 @@ fileprivate struct FfiConverterOptionTypeProjectionLocation: FfiConverterRustBuf
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeSizingGrid: FfiConverterRustBuffer {
+    typealias SwiftType = SizingGrid?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeSizingGrid.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeSizingGrid.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeTranscriptPaint: FfiConverterRustBuffer {
     typealias SwiftType = TranscriptPaint?
 
@@ -17940,6 +18356,81 @@ fileprivate struct FfiConverterSequenceTypeRowLayoutKey: FfiConverterRustBuffer 
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeRowLayoutKey.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeSizingOrderRow: FfiConverterRustBuffer {
+    typealias SwiftType = [SizingOrderRow]
+
+    public static func write(_ value: [SizingOrderRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSizingOrderRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SizingOrderRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SizingOrderRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSizingOrderRow.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeSizingParticipant: FfiConverterRustBuffer {
+    typealias SwiftType = [SizingParticipant]
+
+    public static func write(_ value: [SizingParticipant], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSizingParticipant.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SizingParticipant] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SizingParticipant]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSizingParticipant.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeSizingRow: FfiConverterRustBuffer {
+    typealias SwiftType = [SizingRow]
+
+    public static func write(_ value: [SizingRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSizingRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SizingRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SizingRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSizingRow.read(from: &buf))
         }
         return seq
     }
@@ -19163,6 +19654,127 @@ public func terminalZoomToggle(grid: TerminalZoomGeometry, zoom: TerminalZoomSta
 })
 }
 /**
+ * The priority-order token of a device id.
+ */
+public func hostSizeDeviceToken(deviceId: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_host_size_device_token(
+        FfiConverterString.lower(deviceId),$0
+    )
+})
+}
+/**
+ * The most tokens a stored priority order keeps.
+ */
+public func hostSizeMaxOrder() -> UInt32  {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_host_size_max_order($0
+    )
+})
+}
+/**
+ * The device id a token names; none for the Mac token or a malformed one.
+ */
+public func hostSizeTokenDeviceId(token: String) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_host_size_token_device_id(
+        FfiConverterString.lower(token),$0
+    )
+})
+}
+/**
+ * A token the daemon accepts: `mac`, or `device:` and 1 to 128 bytes of
+ * `[A-Za-z0-9_.:-]`.
+ */
+public func hostSizeTokenValid(token: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_host_size_token_valid(
+        FfiConverterString.lower(token),$0
+    )
+})
+}
+/**
+ * `120×40`.
+ */
+public func terminalSizingGridLabel(grid: SizingGrid) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_sizing_grid_label(
+        FfiConverterTypeSizingGrid_lower(grid),$0
+    )
+})
+}
+/**
+ * A desktop viewer: a Mac, a cmux-tui frontend, or the desktop app on Linux
+ * or Windows.
+ */
+public func terminalSizingIsDesktop(deviceKind: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_sizing_is_desktop(
+        FfiConverterString.lower(deviceKind),$0
+    )
+})
+}
+/**
+ * The priority list to show: the stored order first, then every viewer not
+ * in it (this Mac and this iPhone first), so a reorder ranks every device in
+ * sight. Stored tokens of absent devices keep their slots; invalid and
+ * repeated tokens are dropped and the list never passes [`MAX_ORDER`].
+ */
+public func terminalSizingOrderRows(input: SizingViewInput, order: [String]) -> [SizingOrderRow]  {
+    return try!  FfiConverterSequenceTypeSizingOrderRow.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_sizing_order_rows(
+        FfiConverterTypeSizingViewInput_lower(input),
+        FfiConverterSequenceString.lower(order),$0
+    )
+})
+}
+/**
+ * Why the grid has its size; none without a size state.
+ */
+public func terminalSizingReason(input: SizingViewInput) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_sizing_reason(
+        FfiConverterTypeSizingViewInput_lower(input),$0
+    )
+})
+}
+/**
+ * The order after moving the rows at `from` to before `to` (SwiftUI's
+ * `onMove`). Out-of-range indices are ignored, never a crash.
+ */
+public func terminalSizingReordered(tokens: [String], from: [UInt32], to: UInt32) -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_sizing_reordered(
+        FfiConverterSequenceString.lower(tokens),
+        FfiConverterSequenceUInt32.lower(from),
+        FfiConverterUInt32.lower(to),$0
+    )
+})
+}
+/**
+ * The Connected Devices rows: every viewer, the size it asks for and
+ * whether it sets the grid. None without a size state.
+ */
+public func terminalSizingRows(input: SizingViewInput) -> [SizingRow]  {
+    return try!  FfiConverterSequenceTypeSizingRow.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_sizing_rows(
+        FfiConverterTypeSizingViewInput_lower(input),$0
+    )
+})
+}
+/**
+ * The name of a viewer as the phone shows it: "This Mac", "This iPhone",
+ * its device or display name, or what kind of device it is.
+ */
+public func terminalSizingTitle(input: SizingViewInput, participant: SizingParticipant) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_sizing_title(
+        FfiConverterTypeSizingViewInput_lower(input),
+        FfiConverterTypeSizingParticipant_lower(participant),$0
+    )
+})
+}
+/**
  * Columns of the tab overview in a page `width` points wide: as many
  * [`OVERVIEW_MIN_CARD`]-wide cards as fit, two to four.
  */
@@ -19417,6 +20029,39 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_zoom_toggle() != 6399) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_host_size_device_token() != 24714) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_host_size_max_order() != 63656) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_host_size_token_device_id() != 4104) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_host_size_token_valid() != 59424) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_sizing_grid_label() != 8414) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_sizing_is_desktop() != 63805) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_sizing_order_rows() != 36552) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_sizing_reason() != 40900) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_sizing_reordered() != 17482) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_sizing_rows() != 49057) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_sizing_title() != 35658) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_overview_columns() != 48015) {

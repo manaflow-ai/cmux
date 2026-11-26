@@ -111,7 +111,9 @@ public final class DaemonTerminalSession: TerminalSession {
         guard let row = others.lazy.compactMap({ owner in state.participants.first { $0.id == owner } }).first
         else { return nil }
         // Another view of this same phone (a second page on the terminal).
-        if let own = clientInfo["device_id"], row.deviceID == own, !row.isDesktop { return "this iPhone" }
+        #if canImport(CmuxMobileLinkFFI)
+        if let own = clientInfo["device_id"], row.deviceID == own, !terminalSizingIsDesktop(deviceKind: row.deviceKind) { return "this iPhone" }
+        #endif
         if let name = row.deviceName ?? row.displayName { return name }
         switch row.deviceKind {
         case "mac": return "a Mac"

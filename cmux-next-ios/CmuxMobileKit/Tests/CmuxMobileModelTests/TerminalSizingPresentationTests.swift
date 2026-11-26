@@ -5,7 +5,10 @@ import Testing
 /// The phone's view of a shared terminal's size (cmux-next-ios/PROTOCOL.md
 /// "Terminal sizing policy"): the Connected Devices rows say who is
 /// connected, the size each one asks for and who sets the grid; the
-/// Priority Order list ranks every device in sight by its token.
+/// Priority Order list ranks every device in sight by its token. The rules
+/// are Rust's terminal_sizing_view (its tests hold every case); these check
+/// the bridge, on the iOS simulator where the Rust library links.
+#if os(iOS)
 @MainActor @Suite struct TerminalSizingPresentationTests {
     /// This Mac's pane (c1), this phone (c2, device ios-1), another phone
     /// that left the screen (c3, device ios-2) and another Mac (c4).
@@ -95,3 +98,4 @@ import Testing
         #expect(live.selfIsOwner == false)
     }
 }
+#endif

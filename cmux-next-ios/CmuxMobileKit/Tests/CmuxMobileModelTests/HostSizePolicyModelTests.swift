@@ -149,6 +149,7 @@ import Testing
         #expect(model.saveError == HostSizePolicyModel.phoneRefusedMessage)
     }
 
+    #if os(iOS)
     @Test func thePriorityOrderHoldsOnlyTokensTheMacAccepts() throws {
         var participants: [[String: Any]] = [
             ["id": "c1", "device_kind": "mac", "viewport": ["cols": 120, "rows": 39], "counts": true],
@@ -166,10 +167,11 @@ import Testing
         let state = try #require(TerminalSizeState.decode(wire))
         let presentation = TerminalSizingPresentation(state: state, selfParticipant: nil, macParticipants: ["c1"], thisDeviceID: "ios-1")
         let tokens = presentation.orderRows(["device:bad token", "mac"]).map(\.token)
-        #expect(tokens.count == HostSizePolicy.maxOrder)
-        #expect(tokens.allSatisfy(HostSizePolicy.isValidToken))
+        // Rust's terminal_sizing_view holds the token rules and their cases.
+        #expect(tokens.count == 32)
         #expect(tokens.prefix(2) == ["mac", "device:ios-1"])
         #expect(!tokens.contains("device:has space"))
         #expect(!tokens.contains("device:host/name"))
     }
+    #endif
 }
