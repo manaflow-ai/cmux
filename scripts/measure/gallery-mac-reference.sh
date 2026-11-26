@@ -48,8 +48,22 @@ manifest_args=("$@")
 )
 mkdir -p artifacts "$out/render"
 cp "$out/manifest.json" "$out/render/manifest.json"
+# Package portable F1 stores with the render. A shared root can serve future captures on this profile.
+cache_root="${CMUX_DESKTOP_GOLDEN_ROOT:-$out/goldens}"
+if [[ -n "${CMUX_DESKTOP_GOLDEN_ROOT:-}" ]]; then
+  : "${CMUX_DESKTOP_GOLDEN_RUNTIME:?name the pinned Mac OS, display and fonts used on this worker}"
+fi
+runtime="${CMUX_DESKTOP_GOLDEN_RUNTIME:-macos-$(sw_vers -buildVersion)-$(uname -m)}"
+if [[ -z "${CMUX_SHOTDIFF:-}" ]]; then
+  (cd cmux-tui && cargo build --locked --release -p cmux-shotdiff --bin cmux-shotdiff --target-dir "$out/target")
+  export CMUX_SHOTDIFF="$out/target/release/cmux-shotdiff"
+fi
+mkdir -p "$cache_root"
 status=0
 python3 scripts/cmux-next/gallery-mac-reference.py --tag "$tag" --app "$app" --gallery "$out/gallery" \
-  --manifest "$out/manifest.json" --out "$out/render" || status=$?
-tar -czf artifacts/gallery-mac-reference.tgz -C "$out" render
+  --manifest "$out/manifest.json" --out "$out/render" --golden-root "$cache_root" \
+  --runtime "$runtime" --rev "$(git rev-parse HEAD)" || status=$?
+members=(render)
+[[ -d "$out/goldens" ]] && members+=(goldens)
+tar -czf artifacts/gallery-mac-reference.tgz -C "$out" "${members[@]}"
 exit "$status"
