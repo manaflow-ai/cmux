@@ -35,9 +35,9 @@ public struct HomeMessageRouting: Sendable {
     }
 
     /// The inbox as the routing rules read it (`compose.routing.*`): rows in inbox order.
-    func routing(text: String? = nil, source: String? = nil, members: [HomeContact]? = nil) -> HomeComposeRules.Routing {
+    func routing(source: String? = nil, members: [HomeContact]? = nil) -> HomeComposeRules.Routing {
         HomeComposeRules.Routing(rows: store.rows, me: store.me?.id, chief: chief(), chiefNames: chiefNames(),
-                                 text: text, source: source, members: members)
+                                 source: source, members: members)
     }
 
     /// The Chief's conversation: the app's choice, else the first Chief conversation listed.
@@ -55,10 +55,24 @@ public struct HomeMessageRouting: Sendable {
 
     /// The conversation `text` names: a conversation id; `chief` (any case) for the Chief's; a
     /// participant's id or name in a one-to-one conversation; a row title (any case). Nil when
-    /// nothing matches.
+    /// nothing matches. Stays in Swift: `caseInsensitiveCompare` has no exact Rust match yet.
     public func resolve(_ text: String) -> ConversationID? {
-        let id: String? = HomeComposeRules.call("routing.resolve", routing(text: text), fallback: nil)
-        return id.map(ConversationID.init)
+        let name = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return nil }
+        let rows = store.rows.orderedForInbox()
+        if let row = rows.first(where: { $0.id.rawValue == name }) { return row.id }
+        if name.caseInsensitiveCompare("chief") == .orderedSame { return chiefConversation }
+        let me = store.me?.id
+        let oneToOne = rows.filter { $0.kind != .group }
+        if let row = oneToOne.first(where: { $0.summary.participants.contains { $0.id != me && $0.id.rawValue == name } }) { return row.id }
+        if let row = oneToOne.first(where: { row in
+            row.summary.participants.contains { $0.id != me && !$0.visibleName.isEmpty && $0.visibleName.caseInsensitiveCompare(name) == .orderedSame }
+        }) { return row.id }
+        let names = chiefNames()
+        return rows.first { row in
+            let title = names[row.id] ?? row.title
+            return !title.isEmpty && title.caseInsensitiveCompare(name) == .orderedSame
+        }?.id
     }
 
     /// Puts `text` in `id`'s message box after what is already there (a new line between), so
