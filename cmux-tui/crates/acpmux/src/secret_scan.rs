@@ -567,19 +567,19 @@ pub fn mask(text: &str) -> String {
     out
 }
 
-/// Scans of texts holding a marker a test watches: `SCANS` counts every test's scans at once.
+/// Scans of texts starting with a marker a test watches: `SCANS` counts every test's scans at once.
 #[cfg(test)]
 pub(crate) mod watched {
     use std::sync::Mutex;
 
     static MARKERS: Mutex<Vec<(String, usize)>> = Mutex::new(Vec::new());
 
-    /// Counts the scans of texts holding `marker` from now on.
+    /// Counts the scans of texts starting with `marker` from now on.
     pub(crate) fn watch(marker: &str) {
         MARKERS.lock().unwrap_or_else(|e| e.into_inner()).push((marker.to_owned(), 0));
     }
 
-    /// The scans of texts holding `marker` since `watch(marker)`.
+    /// The scans of texts starting with `marker` since `watch(marker)`.
     pub(crate) fn scans_of(marker: &str) -> usize {
         let markers = MARKERS.lock().unwrap_or_else(|e| e.into_inner());
         markers.iter().filter(|(m, _)| m == marker).map(|(_, n)| n).sum()
@@ -588,7 +588,7 @@ pub(crate) mod watched {
     pub(super) fn count(text: &str) {
         let mut markers = MARKERS.lock().unwrap_or_else(|e| e.into_inner());
         for (marker, n) in markers.iter_mut() {
-            if text.contains(marker.as_str()) {
+            if text.starts_with(marker.as_str()) {
                 *n += 1;
             }
         }

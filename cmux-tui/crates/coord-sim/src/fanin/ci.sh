@@ -24,8 +24,13 @@ echo "runner: $(nproc) cpus, $(free -g | awk '/Mem:/{print $2}') GB, nofile $(ul
 # 2-hour timeout covers.
 export CARGO_TARGET_DIR=$ROOT/target-fanin
 if [ "$PROFILE" = perf ]; then export RUSTFLAGS="${RUSTFLAGS:-} -C force-frame-pointers=yes"; fi
-(cd cmux-tui && cargo build --release -p acpmux --bin acpmux) || { echo "FANIN: acpmux build failed"; exit 1; }
-BIN=${CARGO_TARGET_DIR:-$ROOT/cmux-tui/target}/release/acpmux
+# FANIN_ACPMUX_BIN: a daemon built already (abba.sh runs a base build and a head build in turn).
+if [ -n "${FANIN_ACPMUX_BIN:-}" ]; then
+  BIN=$FANIN_ACPMUX_BIN
+else
+  (cd cmux-tui && cargo build --release -p acpmux --bin acpmux) || { echo "FANIN: acpmux build failed"; exit 1; }
+  BIN=${CARGO_TARGET_DIR:-$ROOT/cmux-tui/target}/release/acpmux
+fi
 (cd cmux-tui/crates/coord-sim && env -u RUSTFLAGS cargo build --release && env -u RUSTFLAGS cargo test --release fanin) || { echo "FANIN: coord-sim build/test failed"; exit 1; }
 SIM=${CARGO_TARGET_DIR:-$ROOT/cmux-tui/crates/coord-sim/target}/release/coord-sim
 [ -x "$BIN" ] && [ -x "$SIM" ] || { echo "FANIN: binaries missing ($BIN, $SIM)"; exit 1; }
