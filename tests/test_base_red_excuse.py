@@ -16948,6 +16948,7 @@ SCANNERS = {
     "test_reds._demangle_test": lambda f: TR._demangle_test("$s" + "3Mod" * f.n + "C4testyyF"),
     "test_reds.crashed_tests": lambda f: TR.crashed_tests(f.lines, set()),
     "test_reds.signal_of": lambda f: TR.signal_of(f.log),
+    "test_reds.died_in_checkout": lambda f: TR.died_in_checkout(f.log),
     "test_reds.bun_diagnostic": lambda f: TR.bun_diagnostic(f.lines, "a.test.ts:1"),
     "test_reds.read_bun": lambda f: TR.read_bun(f.lines, TR.Result()),
     "test_reds._read_bun_step": lambda f: TR._read_bun_step(f.lines, 0, [], TR.Result()),
@@ -17653,17 +17654,24 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "cloud-chief-turn-proof.yml", "cloud-fork-placement.yml", "cloud-resume-matrix.yml",
             "cloud-wake-echo.yml", "executor-journey.yml", "helm-chart.yml", "migrate-journey-pr.yml",
             "repro-capsule-journey.yml", "rfd0135-gates.yml", "runnable-link.yml", "tailnet-stable-node-move.yml",
-            "vm-hassle.yml", "zero-to-going.yml"),
+            "vm-hassle.yml", "zero-to-going.yml",
+            # RFD 0166's cas/1 replay: cmux-cas's tests and the web bundle replay (reports, does not gate).
+            "cas-replay.yml"),
         "bots, labels, receipts, comments and policy reads of the pull request or GitHub, not of the tree": (
             "classic-frozen-guard.yml", "labels-sync.yml",
             "merge-freeze.yml", "pr-body-checks.yml", "cmux-next-pr-autofix-closed-cancel.yml", "cmux-next-pr-autofix.yml",
             "cmux-next-pr-closed-cancel.yml", "ci-pr-closed-cancel.yml", "language-boundaries.yml",
             "required-checks-drift.yml",
             "cmux-next-chromium-currency.yml",
+            # Private names (#57782): the ops repo's checker reads the pull request's title, body and diff via the
+            # API; nothing is checked out, so its red names the pull request's text, never base's tree.
+            "private-names.yml",
             # Dispatch-only secrets seal; on a pull request that edits it every job is skipped.
             "cmux-vm-secrets-seal.yml",
             # Closes the issues a feat-cmux-next merge fixes ("Fixes #N" closes only on main).
-            "cmux-next-closes-issues.yml"),
+            "cmux-next-closes-issues.yml",
+            # Cancels a pull request's runs on its older heads (scripts/ci/cancel_superseded_pr_runs.py).
+            "ci-pr-superseded-cancel.yml"),
         "guard checks of their own whose reds are judged as any job's: no guard test declares its reads yet": (
             "classic-api-guard.yml", "cmux-next-batch.yml", "cmux-next-car-guards.yml",
             "cmux-next-fast-gates.yml", "fleet-artifact-cdn.yml", "pr-checks.yml",
