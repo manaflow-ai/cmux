@@ -132,7 +132,22 @@ mkdir -p "$work"
 # ghostty-next submodule; a CI checkout leaves it empty.
 git submodule update --init --depth 1 ghostty-next >/dev/null
 fetch_url="${IOS_NETCOND_FETCH_URL:-$(git remote get-url origin 2>/dev/null || echo https://github.com/manaflow-ai/cmux.git)}"
-echo "NETCOND-MACHINE host=$(hostname) os=$(uname -sr) cores=$(getconf _NPROCESSORS_ONLN) rev=$(git rev-parse HEAD) before=${before:-none} after=${after:-this} mode=$mode load=\"$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null || sysctl -n vm.loadavg)\""
+machine="host=$(hostname) os=$(uname -sr) cores=$(getconf _NPROCESSORS_ONLN) rev=$(git rev-parse HEAD) before=${before:-none} after=${after:-this} mode=$mode load=\"$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null || sysctl -n vm.loadavg)\""
+echo "NETCOND-MACHINE $machine"
+# Timing canary (docs/handbook/timing-on-a-busy-host.md, fix 3): spin 20 ms of CPU and print the
+# wall time it took over the CPU time it got, median of 5. 1.00 = a free core; 2.00 = every CPU-bound
+# step took twice as long. Probed before and after the benches, never during them.
+canary() {
+  python3 -I -c 'import statistics, time
+def spin():
+    w, c = time.perf_counter(), time.process_time()
+    while time.process_time() - c < 0.02:
+        pass
+    return (time.perf_counter() - w) / (time.process_time() - c)
+print("%.2f" % statistics.median(spin() for _ in range(5)))' 2>/dev/null || echo "n/a"
+}
+canary_before=$(canary)
+echo "NETCOND-CANARY before_benches=$canary_before"
 
 # The harness files a before= tree gets when it predates them.
 harness_files=(
@@ -242,6 +257,13 @@ for surface in "${surface_list[@]}"; do bench after "$after_tree" "$surface" || 
 
 python3 "$root/scripts/measure/ios-network-conditions-report.py" "$work/lines.txt" \
   --json "$work/report.json" --markdown "$work/report.md" ${before:+--before "$before"} --after "${after:-$(git rev-parse HEAD)}"
+canary_after=$(canary)
+echo "NETCOND-CANARY after_benches=$canary_after"
+{
+  echo
+  echo "Machine: $machine"
+  echo "Canary (wall/cpu of a 20 ms spin, 1.00 = a free core): before the benches $canary_before, after $canary_after"
+} >>"$work/report.md"
 sed 's/^/NETCOND-TABLE /' "$work/report.md"
 # cmux-test (lane-gh ci --artifact): the report and the logs come back as the run's artifact.
 if [[ -n "${FAST_CHECKS_OUT:-}" ]]; then
