@@ -214,10 +214,10 @@ extension PaneBrowserTabOpener {
     private func openInSplit(_ split: BrowserTabSplitRequest, choice: BrowserEngineChoice, address: String, focusesAddressBar: Bool, // perf-hot: 10ms new-tab (the split shows in the click's turn)
                              profile: String?, notice: String?) {
         let controller = controller, cache = controller.services.cache, browserTabs = cache.browserTabs, model = controller.pane, machine = controller.daemon.machineID
-        let intent = split.keepsFocus ? nil : controller.workspace?.beginFocusIntent(), command = BrowserTabSplitCommand(pane: model.handle, direction: split.direction, url: address, insertion: split.insertion)
+        let intent = split.keepsFocus ? nil : controller.workspace?.beginFocusIntent(), command = BrowserTabSplitCommand(pane: model.handle, direction: split.direction, url: address, insertion: split.insertion, engine: controller.daemon.isLocal ? choice.engine.rawValue : nil, profile: browserTabs.resolveProfile(model, profile)) // with an engine its stand-in's page starts now, as openStandIn's
         let layout = controller.isPinnedDockPane ? nil : controller.workspace?.layoutModel // beside Home's dock it is a column: no even sizing
         let send = BenchSpans.measure("split.intend") { // an agent's split marks its new pane's pages agent-driven until the reply names its tab
-            command.intendNow(on: controller.daemon, layout: layout, shown: controller.layoutPaneID, minted: split.agentDriven ? { @MainActor in cache.markAgentDriven(pane: $0, machine: machine) } : nil,
+            command.intendNow(on: controller.daemon, layout: layout, shown: controller.layoutPaneID, handOver: { standIn, made in if !(made.flatMap { controller.daemon.store.tab(surface: $0) }.map { cache.moveBrowser(standIn, to: $0) || cache.existingBrowser($0.id) != nil } ?? false) { cache.release(standIn) } }, minted: split.agentDriven ? { @MainActor in cache.markAgentDriven(pane: $0, machine: machine) } : nil,
                               settled: split.agentDriven ? { @MainActor in cache.settleAgentDriven(pane: $0, machine: machine, surface: $1) } : nil)
         }
         BenchSpans.measure("split.layout") { controller.workspace?.applyCurrent() } // the split draws in the click's frame

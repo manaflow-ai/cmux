@@ -319,8 +319,6 @@ public final class SettingsModels {
         chatgptError = error
     }
 
-    func openSignIn(_ url: URL) { openURL(url) }
-
     /// A sign-in page in the app's own browser (``SettingsHarnesses/openSignInPage``), so the person
     /// never leaves cmux; the person's browser when there is none.
     func openInAppSignIn(_ url: URL) async {

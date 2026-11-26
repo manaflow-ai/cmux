@@ -284,6 +284,31 @@
         "required": true
       }
     },
+    "event:apps-cloud-machine": {
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"apps-cloud-machine\""
+        ]
+      },
+      "/kind": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "live",
+          "lost",
+          "record"
+        ]
+      },
+      "/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/record": {
+        "ty": "json"
+      }
+    },
     "event:bell": {
       "/event": {
         "ty": "literal",
@@ -9632,6 +9657,14 @@
       "/name": {
         "ty": "string",
         "nullable": true
+      },
+      "/name_source": {
+        "ty": "enum",
+        "nullable": true,
+        "values": [
+          "auto",
+          "user"
+        ]
       },
       "/origin": {
         "ty": "string",
