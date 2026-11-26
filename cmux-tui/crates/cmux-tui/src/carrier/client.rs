@@ -700,6 +700,13 @@ impl RouteAttempt<'_> {
         };
         step.mark(|marks| marks.connected = Some(Instant::now()));
         connection.set_resume_hooks(self.resume.clone());
+        // A paused machine is woken by any byte: an idle session sends none
+        // while it reads asleep (cmux-platform#1849).
+        connection.set_sleep_gate(Arc::new(super::sleep_gate::MachineSleep {
+            source: plan.source.clone(),
+            machine: plan.machine.clone(),
+            look: super::sleep_gate::look_time(),
+        }));
         let multiplexer = ServiceMultiplexer::new(connection.clone(), EndpointRole::Client);
         // A grant that does not admit mux control is refused here, before the
         // reply line says ok.

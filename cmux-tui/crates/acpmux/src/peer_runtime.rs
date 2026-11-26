@@ -135,6 +135,7 @@ impl Peer {
             states: StdMutex::new(None),
             timings: LinkTimings::from_env(),
             silence: StdMutex::new(None),
+            replacement: StdMutex::new(None),
             cache_saved_at: AtomicU64::new(0),
             cache_saved_outage: AtomicBool::new(false),
             cache_write_pending: AtomicBool::new(false),
@@ -155,6 +156,7 @@ impl Peer {
             list_cursor: StdMutex::new(None),
             cursor_tools: AtomicBool::new(false),
             received: ReceivedBytes::default(),
+            link_read: StdMutex::new(cmux_deadline::Progress::new()),
         })
     }
 
@@ -169,6 +171,12 @@ impl Peer {
     /// What the current (or last) link received (`ReceivedBytes`).
     pub fn received(&self) -> &ReceivedBytes {
         &self.received
+    }
+
+    /// The current (or last) link's transport read progress: every byte it read, also inside
+    /// a frame that has not fully arrived.
+    pub fn link_read(&self) -> cmux_deadline::Progress {
+        self.link_read.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
     pub fn link(&self) -> Link {

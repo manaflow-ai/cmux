@@ -70,9 +70,6 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     /// What VoiceOver reads for the row; nil reads `title`. For a row whose title only makes sense
     /// under the item before it (a remote machine's room row names its machine here).
     public var accessibilityTitle: String?
-    /// The item's agent chat's task progress (a Chief subagent's `taskList`): a row look draws its quiet "3/7" before
-    /// the trailing marks, as a chat row does (`WorkspaceRowContent.trailingStatus`); nil draws nothing.
-    public var taskProgress: SidebarTaskProgress?
 
     public init(title: String, symbol: String, icon: IconName? = nil, color: GroupColor? = nil, badge: Int? = nil, isActive: Bool = false,
                 isMissing: Bool = false, isHidden: Bool = false, caption: String? = nil, shortcut: String? = nil, tooltip: String? = nil, brand: String? = nil,
@@ -177,8 +174,11 @@ extension SidebarBuiltIn {
         }
     }
 
-    /// The built-in's cmux icon.
-    public var icon: IconName {
+    /// The built-in's cmux icon, or nil where its SF Symbol (``symbol``) draws.
+    ///
+    /// The Chief Activity item draws the sparkles symbol, not the cmux pack's `agent.chief` crown (Lawrence
+    /// 2026-11-23, msg 48175: "get rid of the crown"); the Chief's top row draws Home's house (#53281).
+    public var icon: IconName? {
         switch self {
         case .home: .home
         case .settings: .settings
@@ -192,7 +192,7 @@ extension SidebarBuiltIn {
         case .newAgentChat: .agentChatNew
         case .customize: .theme
         case .searchChats: .search
-        case .chief: .agentChief
+        case .chief: nil
         case .automations: .automation
         case .forum: .agentChatList
         }
