@@ -1,6 +1,13 @@
 {
   "family": "cloud",
   "ops": {
+    "cloud.allotment.get": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "a24f88a2f0799132"
+    },
     "cloud.auth.status": {
       "source": "app",
       "owner": "app:cmux/cloud",
@@ -411,7 +418,7 @@
       "owner": "app:cmux/cloud",
       "class": "mutation",
       "risk": "mutate-own",
-      "digest": "5c87af31e3f9543f"
+      "digest": "68cbc6bebc57a65f"
     },
     "cloud.port.list": {
       "source": "app",

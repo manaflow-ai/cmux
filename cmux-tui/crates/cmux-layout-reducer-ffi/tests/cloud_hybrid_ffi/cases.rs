@@ -232,3 +232,45 @@ fn the_balance_simulates_each_place_and_picks_one() {
     assert_eq!(call(c"cloud_hybrid_balance", &json!({})).1["best"], "local");
     assert_eq!(call(c"cloud_hybrid_balance", &json!({"folderBytes": "big"})).0, ERR_INVALID);
 }
+
+#[test]
+fn an_autosize_notice_becomes_a_chat_row_and_a_repeated_hold_folds() {
+    let hold = |at: u64| {
+        json!({
+            "v": 1, "machine": "vm_a", "record": "rec_1", "team": "t1", "creator": "u1",
+            "kind": "hold", "hold": "at_plan_limit", "reason": "memory",
+            "reason_text": "it ran out of memory",
+            "from": {"vcpu": 2, "mem_gib": 4, "disk_gib": 20, "hourly_usd": 0.148},
+            "hourly_usd": 0.148,
+            "upgrade": {"plan": "next_pro", "label": "Pro", "maxVcpu": 8, "maxMemGiB": 32, "maxDiskGiB": 128},
+            "line": "This machine needs more than your plan allows", "at": at
+        })
+    };
+    let (code, first) = call(c"cloud_autosize_rows", &json!({"event": hold(1)}));
+    assert_eq!(code, OK);
+    assert_eq!(first["added"], true);
+    assert_eq!(
+        first["rows"][0]["offer"],
+        json!({"do": "upgrade", "plan": "next_pro", "label": "Pro", "vcpu": 8.0, "mem_gib": 32.0})
+    );
+    let (_, again) = call(
+        c"cloud_autosize_rows",
+        &json!({"rows": first["rows"], "event": hold(2), "viewer": "u2"}),
+    );
+    assert_eq!(again["rows"].as_array().unwrap().len(), 1);
+    assert_eq!(again["rows"][0]["count"], 2);
+    assert_eq!(
+        again["rows"][0]["offer"],
+        Value::Null,
+        "a viewer who is not the creator is offered nothing"
+    );
+    let mut newer = hold(3);
+    newer["v"] = json!(2);
+    let (_, skipped) =
+        call(c"cloud_autosize_rows", &json!({"rows": again["rows"], "event": newer}));
+    assert_eq!(
+        (skipped["added"].clone(), skipped["rows"].as_array().unwrap().len()),
+        (json!(false), 1)
+    );
+    assert_eq!(call(c"cloud_autosize_rows", &json!({"rows": []})).0, ERR_INVALID);
+}

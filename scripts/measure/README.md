@@ -222,6 +222,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `codec-bench.sh` | Screen-share codec encode and decode ms per frame on Apple silicon. | - | 2026-11-14 | active |
 | `codec-study.sh` | Still-image codec study on cmux screens (size, speed, OCR error). | - | 2026-11-08 | active |
 | `codec-study` | Corpus and Swift helpers for codec-study.sh. | - | 2026-11-08 | active |
+| `braid-dial-loss.sh` | The hedged remote dial (cmux-remote `connect_tcp`, Braid race) under netem packet loss in this run's own namespaces: p50/p95 and failures per loss level, optional before_ref arm interleaved. | RFD 0127 cut 1 | 2026-11-26 | active |
 | `remote-agent-path.sh` | What an agent on another machine feels through cmux Remote. | - | 2026-11-15 | active |
 | `relay-path-probe.sh` | Every path the iPhone link can take to a Mac (WireGuard direct, TURN/UDP, TURN/TLS 443, WebRTC direct and relay): setup p50/p95, link RTT p50/p95/p99 and loss, hub colo, ICE and TURN allocation times, as JSON and a table (`cmux-mobile-path-probe`). | Leo ask-6242128727, relay-path-latency | 2026-11-21 | active |
 | `cloud-machine-directory.py` | Before and after CLI directory benchmark with a guest-program provider. | - | 2026-11-12 | active |
@@ -313,6 +314,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `browser-auth-webkit.sh` | Login flows in a NIGHTLY side instance's browser tab (`engine=webkit` or `chromium`): popup with opener and postMessage, window.close, cross-host redirect, SameSite and Secure cookies, third-party iframe cookie and storage (runs scripts/cmux-next/browser-auth-flows-live.py). | - | 2026-11-25 | active |
 | `rift-eval.sh` | APFS clone workspaces vs git worktree for an agent's first green build. | - | 2026-11-11 | active |
 | `cloud-partial-hydrate.sh` | A Cloud checkout's time to first read with the rest downloading in the background (hot files, wants, kill and resume) against the whole checkout. | - | 2026-11-24 | active |
+| `tick-precheck-reads.sh` | The nightly-next tick's compile-results reads and seconds over a walk of N commits (request-nightly-next.sh's precheck, one GH_TICK_CACHE), any copy of the script (`BENCH_SCRIPT=`) for before and after; no network. | goal nightly-30min | 2026-11-26 | active |
 | `nightly-cas-identity.sh` | Byte proof: a build with a reused compilation cache equals a clean build. | - | 2026-10-20 | active |
 | `import-set-xcode.sh` | Import-set check stub cost with Xcode incremental builds. | - | 2026-10-18 | active |
 

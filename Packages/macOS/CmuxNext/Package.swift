@@ -194,7 +194,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 43529feea4972a3f447413ba1e807a7a4e13b0002c3b7e9b6f1373caefdf1980
+// app-ffi-pin-checksum: e8540e6af152a709dc604d4bdfbdf33e5a4402340b5ed812b37ae43f446d3f3a
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -1446,6 +1446,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemonService",
                 "CmuxNextDesign",
                 "CmuxNextDiff",
+                "CmuxNextTerminal",
             ],
             resources: [
                 .process("Resources"),
@@ -2400,8 +2401,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .product(name: "CmuxEgress", package: "CmuxEgress"),
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
             ],
-            swiftSettings: uiSwiftSettings
+            swiftSettings: uiSwiftSettings,
+            // DesignScale.generated.swift, from schemas/design-scale/design-scale.json.
+            plugins: [.plugin(name: "DesignScalePlugin")]
         ),
+        // Runs scripts/cmux-next/gen-design-scale-swift.py --swift-out into its work directory.
+        .plugin(name: "DesignScalePlugin", capability: .buildTool()),
         .target(
             name: "CmuxNextDesign",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
