@@ -281,6 +281,18 @@ public struct CloudDaemon: Sendable {
     /// The team calls go to now.
     public func currentTeam() async -> String? { await teamID() }
 
+    /// The daemon as one owner credential with no Stack session (the feed's `cloud.owner.op`: the person's session
+    /// or this Mac's install token). `run` stands in for the `cmux cloud api` child (a test's); nil: `machineIO`'s.
+    public static func owner(baseURL: URL, credential: @escaping @Sendable () async throws -> String,
+                             teamID: @escaping TeamID, machineIO: CloudMachineIO?,
+                             run: (@Sendable (_ input: Data, _ timeout: Duration) async throws -> Data)? = nil) -> CloudDaemon {
+        var daemon = CloudDaemon(baseURL: baseURL, tokens: { (try await credential(), "") }, teamID: teamID,
+                                 appVersion: "cmux-next", sendsStackSession: false)
+        daemon.machineIO = machineIO
+        daemon.daemonCall = run
+        return daemon
+    }
+
     /// This daemon with its team fixed to `team`: every request of a create and its retries goes to the same team
     /// whatever the app switches to meanwhile. A Worker client keeps its cmux team: `team` is the app's (Stack) team id.
     public func pinningTeam(_ team: String?) -> CloudDaemon {
@@ -348,7 +360,7 @@ public struct CloudDaemon: Sendable {
     /// child (a child past it is killed: `timedOut`, since the call may have run).
     /// `auth` is the credential's kind as cmux-cloud-api reads it: `owner` (the Stack session) or `worker`
     /// (this Mac's install token). A misconfigured dev build refuses before anything runs.
-    func daemon(_ call: String, _ args: [String: any Sendable], timeout: Duration, auth: String = "owner") async throws -> Data {
+    public func daemon(_ call: String, _ args: [String: any Sendable], timeout: Duration, auth: String = "owner") async throws -> Data {
         try buildSpace.check()
         let run: @Sendable (Data, Duration) async throws -> Data
         if let daemonCall {
