@@ -270,3 +270,106 @@ fn pool_auth_grok_account_switch_changes_the_key_but_refresh_does_not() {
     std::fs::remove_file(files.0.join(at)).unwrap();
     assert_ne!(switched, files.fingerprint(&cache, "grok"), "a logout");
 }
+
+/// The cloud journey's stub chat (run 45768950539): a pooled Claude warmed before
+/// `settings.json` pointed it at the stub kept the endpoint it started with, so the chat never
+/// got the stub's reply. A new endpoint, credential helper or provider switch there must not match.
+#[test]
+fn pool_auth_claude_settings_endpoint_change_changes_the_key() {
+    let files = LoginFiles::new("claude-settings");
+    let cache = AuthCache::default();
+    let none = files.fingerprint(&cache, "claude");
+    files.write(
+        ".claude/settings.json",
+        json!({"env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:1"}}),
+    );
+    let stub = files.fingerprint(&cache, "claude");
+    assert_ne!(none, stub, "a session warmed before settings.json set an endpoint must not match");
+    files.write(
+        ".claude/settings.json",
+        json!({"env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:2"}}),
+    );
+    let moved = files.fingerprint(&cache, "claude");
+    assert_ne!(stub, moved, "a session warmed for the old endpoint must not match");
+    files.write(
+        ".claude/settings.json",
+        json!({"env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:2"}, "apiKeyHelper": "/bin/key"}),
+    );
+    assert_ne!(
+        moved,
+        files.fingerprint(&cache, "claude"),
+        "a new credential helper must not match"
+    );
+    files.write(
+        ".claude/settings.json",
+        json!({"env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:2"}, "apiKeyHelper": "/bin/key", "theme": "dark"}),
+    );
+    let themed = files.fingerprint(&cache, "claude");
+    files.write(
+        ".claude/settings.json",
+        json!({"env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:2"}, "apiKeyHelper": "/bin/key", "theme": "light"}),
+    );
+    assert_eq!(
+        themed,
+        files.fingerprint(&cache, "claude"),
+        "a setting that moves no endpoint or credential keeps the pooled session"
+    );
+}
+
+#[test]
+fn pool_auth_claude_settings_follow_claude_config_dir() {
+    let files = LoginFiles::new("claude-settings-dir");
+    let cache = AuthCache::default();
+    let dir = files.0.join("cfg").to_string_lossy().into_owned();
+    let env = move |k: &str| (k == "CLAUDE_CONFIG_DIR").then(|| dir.clone());
+    let before = cache.fingerprint_with("claude", &env, &files.0);
+    files.write("cfg/settings.json", json!({"env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:1"}}));
+    assert_ne!(before, cache.fingerprint_with("claude", &env, &files.0));
+}
+
+/// The own-or-team choice file (`CHOICE_DIR`) decides own or team at spawn (`hub/spawn.rs`): a session
+/// warmed under the other choice must not match, for every family that has a choice.
+#[test]
+fn pool_auth_own_or_team_choice_changes_the_key() {
+    for family in ["claude", "codex", "gemini", "grok"] {
+        let files = LoginFiles::new(&format!("choice-{family}"));
+        let cache = AuthCache::default();
+        let unchosen = files.fingerprint(&cache, family);
+        let choice = files.0.join(crate::codex_cloud_auth::CHOICE_DIR).join(family);
+        std::fs::create_dir_all(choice.parent().unwrap()).unwrap();
+        std::fs::write(&choice, "own\n").unwrap();
+        let own = files.fingerprint(&cache, family);
+        assert_ne!(unchosen, own, "{family}: choosing own must not keep a team-mode session");
+        std::fs::write(&choice, "team\n").unwrap();
+        let team = files.fingerprint(&cache, family);
+        assert_ne!(own, team, "{family}: choosing team must not keep an own-mode session");
+        std::fs::write(&choice, "team").unwrap();
+        assert_eq!(
+            team,
+            files.fingerprint(&cache, family),
+            "{family}: whitespace is no new choice"
+        );
+        assert_eq!(own.1, unchosen.1, "{family}: a choice names no account");
+    }
+}
+
+#[test]
+fn pool_auth_endpoint_env_and_pins_change_the_key() {
+    let home = LoginFiles::new("endpoint-env");
+    let cache = AuthCache::default();
+    for (family, name) in [
+        ("claude", "ANTHROPIC_BASE_URL"),
+        ("claude", "CMUX_CLAUDE_AUTH"),
+        ("codex", "OPENAI_BASE_URL"),
+        ("codex", "CMUX_CODEX_AUTH"),
+        ("gemini", "GOOGLE_GEMINI_BASE_URL"),
+        ("grok", "GROK_MODELS_BASE_URL"),
+    ] {
+        let set = move |k: &str| (k == name).then(|| "own".to_owned());
+        assert_ne!(
+            cache.fingerprint_with(family, &|_| None, &home.0),
+            cache.fingerprint_with(family, &set, &home.0),
+            "{family}: {name} must count"
+        );
+    }
+}
