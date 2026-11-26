@@ -44,10 +44,13 @@ jobs:
     # concurrency group keeps it from cancelling a grading run in flight. The unit tests live in
     # risk-tier-tests.yml for the same reason. A newer event cancels an older grading run;
     # gh-merge-green refuses a cancelled check, so the newest finished run is always a real verdict.
-    if: ${{ !((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'risk:human-ok' && github.event.label.name != 'risk:waived') }}
-    name: ${{ (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'risk:human-ok' && github.event.label.name != 'risk:waived' && 'risk evidence label (ignored)' || 'risk evidence' }}
+    # An `edited` event that changed only the title skips the same way (`risk evidence title edit
+    # (ignored)`): risk_tier.py reads the body and the base, never the title. freeze-ok grades too,
+    # because this job also posts the `merge freeze` result for the pull request (below).
+    if: ${{ !(((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'risk:human-ok' && github.event.label.name != 'risk:waived' && (github.event.label.name != 'freeze-ok' || vars.MERGE_FREEZE_OWN_RUNNER == '1')) || (github.event.action == 'edited' && !github.event.changes.body && !github.event.changes.base)) }}
+    name: ${{ ((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'risk:human-ok' && github.event.label.name != 'risk:waived' && (github.event.label.name != 'freeze-ok' || vars.MERGE_FREEZE_OWN_RUNNER == '1')) && 'risk evidence label (ignored)' || (github.event.action == 'edited' && !github.event.changes.body && !github.event.changes.base) && 'risk evidence title edit (ignored)' || 'risk evidence' }}
     concurrency:
-      group: risk-evidence-${{ github.event.pull_request.number }}${{ (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'risk:human-ok' && github.event.label.name != 'risk:waived' && format('-label-{0}', github.run_id) || '' }}
+      group: risk-evidence-${{ github.event.pull_request.number }}${{ (((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'risk:human-ok' && github.event.label.name != 'risk:waived' && (github.event.label.name != 'freeze-ok' || vars.MERGE_FREEZE_OWN_RUNNER == '1')) || (github.event.action == 'edited' && !github.event.changes.body && !github.event.changes.base)) && format('-ignored-{0}', github.run_id) || '' }}
       cancel-in-progress: true
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks the Blacksmith size
     timeout-minutes: 8
@@ -55,6 +58,8 @@ jobs:
       contents: read
       pull-requests: write
       issues: write
+      # The `merge freeze / merge freeze` commit status (the freeze check below).
+      statuses: write
     steps:
       # The tip of feat-cmux-next (the branch filter makes base.ref that branch), not base.sha: base.sha
       # is the base as of the pull request's last push, so a label or description event on an older pull
@@ -233,6 +238,60 @@ jobs:
         run: >-
           gh api rate_limit --jq
           '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'
+      # merge freeze for a pull request into feat-cmux-next rides this runner instead of starting its
+      # own (merge-freeze.yml skips feat-cmux-next): on 11-25..11-26 merge freeze started 8,270 runners
+      # a day, one per head, each about a minute for one GraphQL read, beside this job on the same head.
+      # The result is a commit status named like the old check run, `merge freeze / merge freeze`, so
+      # next-autoland's LIVE_CHECKED still treats it as advisory (the merge paths read the freezes again
+      # right before merging). Same checker (main's merge_freeze.py), same exit codes, same draft skip.
+      # A red here never turns risk evidence red. vars.MERGE_FREEZE_OWN_RUNNER=1 restores the own job.
+      - name: Checkout the merge freeze checker from main
+        if: ${{ !cancelled() && vars.MERGE_FREEZE_OWN_RUNNER != '1' && !github.event.pull_request.draft }}
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          path: .merge-freeze
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/merge_freeze.py
+          sparse-checkout-cone-mode: false
+      - name: Check the pull request against open freezes (merge freeze status)
+        if: ${{ !cancelled() && vars.MERGE_FREEZE_OWN_RUNNER != '1' && !github.event.pull_request.draft }}
+        continue-on-error: true
+        timeout-minutes: 4
+        env:
+          GH_TOKEN: ${{ (steps.glaeda-token-bot.outputs.token || steps.glaeda-token.outputs.token) || github.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
+          STATUS_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          BASE: ${{ github.event.pull_request.base.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        # Exit 0 clear, 1 frozen (red), 2 unreadable (red), 3 rate limited twice (a warning, green), as
+        # merge-freeze.yml's check reads them.
+        run: |
+          args=(check --repo "$REPO" --pr "$NUMBER" --base "$BASE" --rate-limit-retry 120)
+          if [ -n "$CHANGED_FILES" ]; then
+            args+=(--changed-files "$CHANGED_FILES")
+          fi
+          status=0
+          out=$(python3 .merge-freeze/scripts/ci/merge_freeze.py "${args[@]}") || status=$?
+          [ -z "$out" ] || printf '%s\n' "$out"
+          case "$status" in
+            0) state=success; desc="No active freeze covers this pull request" ;;
+            1) state=failure; desc=$(printf '%s\n' "$out" | head -n 1) ;;
+            3) state=success; desc="Not checked: GitHub rate limit; mergers read the freezes again"
+               echo "::warning title=merge freeze not checked::$desc" ;;
+            *) state=failure; desc="Could not read the merge freezes (exit $status)" ;;
+          esac
+          { printf '### merge freeze: %s\n\n%s\n' "$state" "$desc"; [ -z "$out" ] || printf '\n```\n%s\n```\n' "$out"; } >> "$GITHUB_STEP_SUMMARY"
+          GH_TOKEN="$STATUS_TOKEN" gh api -X POST "repos/$REPO/statuses/$HEAD_SHA" \
+            -f state="$state" -f context="merge freeze / merge freeze" \
+            -f description="${desc:0:140}" -f target_url="$RUN_URL" > /dev/null
+
       # Only an unowned takeback keeps this check red (any tier): a squash from a stale base that quietly
       # reverts a change merged in the last week breaks the base. Nothing else does. A BLOCK, or a
       # sign-off read GitHub refused, on a high head only warns: land-judge refuses a BLOCK at the head

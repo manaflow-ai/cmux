@@ -35,10 +35,13 @@ jobs:
     # fix-cause:*) starts no job: it takes another name and its own concurrency group, so it neither
     # reads as a passed "merge freeze" (#38003) nor cancels the real run
     # (tests/test_ci_fix_cause_labels_start_no_jobs.py).
-    if: github.event_name == 'pull_request_target' && !github.event.pull_request.draft && !((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'freeze-ok')
-    name: ${{ (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'freeze-ok' && 'merge freeze label (ignored)' || 'merge freeze' }}
+    # Into feat-cmux-next the check runs inside risk tier's `risk evidence` job, which already starts a
+    # runner for every head, and posts a `merge freeze / merge freeze` status (risk-tier.yml): this job
+    # then skips as `merge freeze (in risk evidence)`. vars.MERGE_FREEZE_OWN_RUNNER=1 runs it here again.
+    if: github.event_name == 'pull_request_target' && !github.event.pull_request.draft && !((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'freeze-ok') && !(github.event.pull_request.base.ref == 'feat-cmux-next' && vars.MERGE_FREEZE_OWN_RUNNER != '1')
+    name: ${{ (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'freeze-ok' && 'merge freeze label (ignored)' || (github.event.pull_request.base.ref == 'feat-cmux-next' && vars.MERGE_FREEZE_OWN_RUNNER != '1') && 'merge freeze (in risk evidence)' || 'merge freeze' }}
     concurrency:
-      group: merge-freeze-${{ github.event.pull_request.number }}${{ (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'freeze-ok' && format('-label-{0}', github.run_id) || '' }}
+      group: merge-freeze-${{ github.event.pull_request.number }}${{ ((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'freeze-ok' || (github.event.pull_request.base.ref == 'feat-cmux-next' && vars.MERGE_FREEZE_OWN_RUNNER != '1')) && format('-ignored-{0}', github.run_id) || '' }}
       cancel-in-progress: true
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: pull_request_target with a read token; CI_TRUSTED_RUNNER picks the Blacksmith size
     timeout-minutes: 20
