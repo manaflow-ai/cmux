@@ -8,6 +8,7 @@
 // beyond that. A step nobody answered shows acpmux's own state when it has one, or says it got no answer. Hidden where acpmux has no tailnet.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
+import { copyTextResult } from "../../../agent-session/acpmux/conversation/clipboard";
 import { Button } from "../../../ui/Button";
 import { Dialog, DialogDescription, DialogTitle } from "../../../ui/Dialog";
 import { useStore, useSettingsState, useRowState } from "../context";
@@ -222,6 +223,7 @@ function TailnetVMCard({ machines }: { machines: Array<{ id: string; title: stri
       (v): v is string => typeof v === "string",
     ) ?? [];
   const [open, setOpen] = useState(false);
+  const [connecting, setConnecting] = useState(false);
   const [selected, setSelected] = useState<TailnetVMReply | null>(null);
   const [vm, setVM] = useState("");
   const leave = async () => {
@@ -233,6 +235,19 @@ function TailnetVMCard({ machines }: { machines: Array<{ id: string; title: stri
     <section className="group" data-card="tailnet-cloud">
       <h3 className="group-title">{t("settingsPage.tailnet.cloudTitle")}</h3>
       <div className="rows">
+        {!selected && (
+          <div className="row" data-tailnet-vm-connect-row="">
+            <div className="row-label">
+              <div className="row-title">{t("settingsPage.tailnet.connect")}</div>
+              <div className="row-help">{t("settingsPage.tailnet.connectHelp")}</div>
+            </div>
+            <div className="accounts-buttons">
+              <Button className="button" data-tailnet-vm-connect="" onClick={() => setConnecting(true)}>
+                {t("settingsPage.tailnet.connect")}
+              </Button>
+            </div>
+          </div>
+        )}
         <div className="row">
           <div className="row-label">
             <div className="row-title">{selected?.node?.dnsName ?? t("settingsPage.tailnet.cloudTitle")}</div>
@@ -261,6 +276,19 @@ function TailnetVMCard({ machines }: { machines: Array<{ id: string; title: stri
           onJoined={(reply) => {
             setSelected(reply);
             setOpen(false);
+          }}
+        />
+      )}
+      {connecting && (
+        <TailnetConnectDialog
+          machines={machines}
+          vm={vm}
+          setVM={setVM}
+          options={{ loginServer, tags }}
+          onClose={() => setConnecting(false)}
+          onConnected={(reply) => {
+            setSelected(reply);
+            setConnecting(false);
           }}
         />
       )}
@@ -422,6 +450,172 @@ function TailnetJoinDialog({
           </Button>
           <Button type="submit" className="button" data-tailnet-join-submit="" disabled={busy || !ready}>
             {busy ? t("settingsPage.tailnet.joining") : t("settingsPage.tailnet.join")}
+          </Button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+/**
+ * RFD 0169's Connect Your Tailnet: one stable node for the person, Tailscale SSH on, kept in their vault
+ * (`cmux vm tailnet connect`). The policy lines come from `cmux vm tailnet acl`, so this sheet and the
+ * CLI show the same text; cmux never edits the person's policy, it only offers the lines to copy.
+ */
+function TailnetConnectDialog({
+  machines,
+  vm,
+  setVM,
+  options,
+  onClose,
+  onConnected,
+}: {
+  machines: Array<{ id: string; title: string }>;
+  vm: string;
+  setVM: (value: string) => void;
+  options: { loginServer: string; tags: string[] };
+  onClose: () => void;
+  onConnected: (reply: TailnetVMReply) => void;
+}) {
+  const store = useStore();
+  const [key, setKey] = useState("");
+  const [oauth, setOAuth] = useState(false);
+  const [name, setName] = useState("");
+  const [acl, setACL] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [allowHttp, setAllowHttp] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const tag = options.tags[0];
+  useEffect(() => {
+    let live = true;
+    void store.tailnetACL(tag).then((text) => live && setACL(text));
+    return () => {
+      live = false;
+    };
+  }, [store, tag]);
+  const loginServer = options.loginServer.trim();
+  const plainHttp = /^http:\/\//i.test(loginServer);
+  const ready = vm.trim() !== "" && key !== "" && (!plainHttp || allowHttp);
+  const copy = async () => {
+    if (acl && (await copyTextResult(acl))) setCopied(true);
+  };
+  const submit = async () => {
+    if (!ready || busy) return;
+    setBusy(true);
+    setError(null);
+    const reply = await store.connectTailnetVM({
+      vm: vm.trim(),
+      key,
+      oauth,
+      loginServer,
+      tags: options.tags,
+      hostname: name.trim() || undefined,
+      allowHttp: plainHttp && allowHttp,
+    });
+    setBusy(false);
+    if (reply.ok) {
+      setKey("");
+      onConnected(reply);
+    } else {
+      setError(
+        reply.errorCode === "missing_vm"
+          ? t("settingsPage.tailnet.missingMachine")
+          : reply.errorCode === "missing_key"
+            ? t("settingsPage.tailnet.missingCredential")
+            : (reply.error ?? t("settingsPage.tailnet.unknownError")),
+      );
+    }
+  };
+  return (
+    <Dialog
+      open
+      onOpenChange={(next) => !next && onClose()}
+      label={t("settingsPage.tailnet.connect")}
+      className="tailnet-join-sheet"
+    >
+      <form
+        className="tailnet-join-content"
+        data-tailnet-connect-sheet=""
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
+      >
+        <DialogTitle>{t("settingsPage.tailnet.connect")}</DialogTitle>
+        <DialogDescription>{t("settingsPage.tailnet.connectHelp")}</DialogDescription>
+        <label className="tailnet-join-field">
+          {t("settingsPage.tailnet.machine")}
+          <input
+            list="tailnet-connect-machines"
+            data-tailnet-connect-vm=""
+            value={vm}
+            onChange={(event) => setVM(event.target.value)}
+            autoComplete="off"
+          />
+          <datalist id="tailnet-connect-machines">
+            {machines.map((machine) => (
+              <option key={machine.id} value={machine.id}>
+                {machine.title}
+              </option>
+            ))}
+          </datalist>
+        </label>
+        <label className="tailnet-join-field">
+          {t("settingsPage.tailnet.credential")}
+          <input
+            type="password"
+            data-tailnet-connect-key=""
+            value={key}
+            onChange={(event) => setKey(event.target.value)}
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </label>
+        {plainHttp && (
+          <label className="tailnet-join-check">
+            <input type="checkbox" checked={allowHttp} onChange={(event) => setAllowHttp(event.target.checked)} />
+            <span>{t("settingsPage.tailnet.allowHttp", loginServer)}</span>
+          </label>
+        )}
+        <label className="tailnet-join-check">
+          <input type="checkbox" checked={oauth} onChange={(event) => setOAuth(event.target.checked)} />
+          <span>{t("settingsPage.tailnet.oauthMode")}</span>
+        </label>
+        <label className="tailnet-join-field">
+          {t("settingsPage.tailnet.connectName")}
+          <input
+            data-tailnet-connect-name=""
+            value={name}
+            placeholder={t("settingsPage.tailnet.connectNameHelp")}
+            onChange={(event) => setName(event.target.value)}
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </label>
+        {acl && (
+          <div className="tailnet-acl" data-tailnet-acl-block="">
+            <div className="tailnet-acl-head">
+              <strong>{t("settingsPage.tailnet.aclTitle")}</strong>
+              <Button type="button" className="button" data-tailnet-acl-copy="" onClick={() => void copy()}>
+                {copied ? t("settingsPage.tailnet.copied") : t("settingsPage.tailnet.copy")}
+              </Button>
+            </div>
+            <pre data-tailnet-acl="">{acl}</pre>
+            <p>{t("settingsPage.tailnet.aclHelp")}</p>
+          </div>
+        )}
+        {error && (
+          <p className="tailnet-join-error" role="alert">
+            {t("settingsPage.tailnet.connectError", error)}
+          </p>
+        )}
+        <div className="accounts-buttons">
+          <Button type="button" className="button" onClick={onClose}>
+            {t("settingsPage.cancel")}
+          </Button>
+          <Button type="submit" className="button" data-tailnet-connect-submit="" disabled={busy || !ready}>
+            {busy ? t("settingsPage.tailnet.connecting") : t("settingsPage.tailnet.connect")}
           </Button>
         </div>
       </form>
