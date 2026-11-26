@@ -686,6 +686,7 @@ final class CEFOffscreenPageView: NSView, InTreePageContainer, NSTextInputClient
         let hidden = !isDrawing
         guard hidden != reportedHidden else { return }
         reportedHidden = hidden
+        CEFRuntime.shared.focusTrace.note(browser, "was_hidden(\(hidden ? 1 : 0))", view: self)
         if hidden { giveUpFences() }
         calls.wasHidden(browser, hidden ? 1 : 0)
         guard !hidden else { return }
@@ -790,14 +791,14 @@ final class CEFOffscreenPageView: NSView, InTreePageContainer, NSTextInputClient
         let tab = CEFRuntime.shared.tabsByBrowser[browser]
         let wasGranting = tab?.isGrantingFocus ?? false
         tab?.isGrantingFocus = true
-        CEFRuntime.shared.shim?.setFocus(browser, 1)
+        CEFRuntime.shared.setPageFocus(browser, true, by: "becomeFirstResponder", view: self)
         tab?.isGrantingFocus = wasGranting
         return true
     }
 
     override func resignFirstResponder() -> Bool {
         if hasMarked { unmarkText() }
-        CEFRuntime.shared.shim?.setFocus(browser, 0)
+        CEFRuntime.shared.setPageFocus(browser, false, by: "resignFirstResponder", view: self)
         return true
     }
 
@@ -826,6 +827,7 @@ final class CEFOffscreenPageView: NSView, InTreePageContainer, NSTextInputClient
 
     /// A press in the page gives it the keyboard, through the focus route (the person's own press).
     private func takeKeyboardOnPress() {
+        CEFRuntime.shared.focusTrace.note(browser, "press", view: self)
         guard let window, window.firstResponder !== self else { return }
         _ = FocusRoute(.person, "a press in an off-screen page").moveKeyboard(in: window, to: self)
     }

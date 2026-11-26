@@ -86,6 +86,8 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case omniboxSuggestions(requestID: Int32, extensionID: String, json: String)
     /// Focus left the page past its last (`forward`) or first element.
     case takeFocus(browser: Int32, forward: Bool)
+    /// Chromium gave the page focus (`OnGotFocus`; `debug.cef` `focus_log` only).
+    case gotFocus(browser: Int32)
     /// A raw DevTools protocol message (`cmux_shim_devtools_send` replies,
     /// events of a watched browser): the JSON as Chromium sent it.
     case devToolsMessage(browser: Int32, json: String)
@@ -203,6 +205,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 52: self = .authPrompt(browser: browser, token: request, host: s1, realm: s2, isSecure: a != 0)
         case 53: self = .jsDialog(browser: browser, token: request, type: Int32(truncatingIfNeeded: a), origin: s1, textJSON: s2)
         case 54: self = .jsDialogDismissed(browser: browser)
+        case 55: self = .gotFocus(browser: browser)
         default: self = .unknown(kind: kind)
         }
     }

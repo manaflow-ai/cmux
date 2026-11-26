@@ -16,7 +16,7 @@ public final class OmnibarTabBinding {
     private var httpsFallback = HTTPSUpgradeFallback()
     private lazy var pageInfo: PageInfoController = {
         let controller = PageInfoController(tab: { [weak self] in self?.tab }, anchor: { [weak self] in self?.addressBar.pageInfoAnchor })
-        controller.onReturnFocus = { [weak self] in self?.tab.setFocused(true) }
+        controller.onReturnFocus = { [weak self] in BrowserFocusCaller.with("page info closed") { self?.tab.setFocused(true) } }
         return controller
     }()
 
@@ -74,7 +74,7 @@ public final class OmnibarTabBinding {
         case .didEndEditing(.commit(let url)):
             httpsFallback.committed(url)
             tab.load(url)
-            tab.setFocused(true)
+            BrowserFocusCaller.with("omnibar commit") { tab.setFocused(true) }
         case .didEndEditing(.open(let url, let disposition)):
             // Cmd-Return, Shift-Return, a modified row click: a new tab or
             // window, asked of the page's host as a link's new tab is (a
@@ -85,9 +85,9 @@ public final class OmnibarTabBinding {
         case .didEndEditing(.keyword(let extensionID, let text, let disposition)):
             // Enter in an extension keyword session: the text goes to the extension.
             (tab as? any BrowserOmniboxKeywordProviding)?.omniboxKeywordEntered(extensionID, text: text, disposition: disposition)
-            tab.setFocused(true)
+            BrowserFocusCaller.with("omnibar keyword") { tab.setFocused(true) }
         case .didEndEditing(.cancel):
-            tab.setFocused(true)
+            BrowserFocusCaller.with("omnibar cancel") { tab.setFocused(true) }
         case .didBeginEditing, .didEndEditing(.blur):
             break
         }

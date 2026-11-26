@@ -122,6 +122,15 @@ final class CEFRuntime {
     var fileInput: (any WebFileInputAnswering)?
     /// What happened to page file choosers that reached the app, for `debug.cef` `file_dialogs` (diagnostics only).
     var fileDialogTrace = CEFFileDialogTrace()
+    /// Every change to a page's focus, in order, for `debug.cef` `focus_log` (diagnostics only).
+    let focusTrace = CEFFocusTrace()
+
+    /// Chromium's focus for a page (`CefBrowserHost::SetFocus`), with who asked in `focus_log`. Every cmux call that
+    /// focuses or blurs a page comes here.
+    func setPageFocus(_ browser: Int32, _ focused: Bool, by caller: String, view: NSView? = nil) {
+        focusTrace.note(browser, "set_focus(\(focused ? 1 : 0))", by: caller, view: view)
+        shim?.setFocus(browser, focused ? 1 : 0)
+    }
     /// The pane host that last showed a tab: where tabs from windows cmux
     /// does not host go.
     weak var lastShownHost: CEFPaneHost?
@@ -190,7 +199,10 @@ final class CEFRuntime {
     /// `ChromiumWindowGuard`).
     private(set) lazy var windowGuard: ChromiumWindowGuard = {
         let guard_ = ChromiumWindowGuard(logger: logger) { [weak self] window in self?.isPlacedDevToolsWindow(window) ?? false }
-        guard_.onBecameKey = { [weak self] window in self?.keyReturn.windowBecameKey(window) }
+        guard_.onBecameKey = { [weak self] window in
+            self?.focusTrace.note(nil, "window_did_become_key win=#\(window.windowNumber)")
+            self?.keyReturn.windowBecameKey(window)
+        }
         guard_.onOcclusionChanged = { window in ChromiumPageWindowVisibility.parentOcclusionChanged(window) }
         return guard_
     }()
