@@ -1901,6 +1901,62 @@ class RouteLabels(unittest.TestCase):
         self.assertIn("issues/7/labels", gh_calls[0])
 
 
+class DevDailySuperseded(unittest.TestCase):
+    """A dev_daily dispatch whose feat-cmux-next tip moved before it started ends green with every tier off.
+
+    Run 45753471212 (2026-11-26) exited 1 at "Classify pull request paths" with "dev_daily asked for X but
+    feat-cmux-next moved to Y", so the feat-cmux-next run read as a base red and paged the incident desk though
+    nothing was broken. The dispatcher counts a run only at the SHA it asked for, so a green one stands in for no tip.
+    """
+
+    TIERS = ("native", "swift_canary", "cmuxnext_swift", "mac_release", "macos", "scheme", "generated", "swift",
+             "daemon", "full", "fast_tier")
+
+    def classify(self, dev_daily_sha: str, github_sha: str, same_tree_sha: str = ""):
+        import os
+        import subprocess
+        import tempfile
+        import yaml
+        workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8"))
+        step = next(s for s in workflow["jobs"]["path_route"]["steps"] if s.get("id") == "route")
+        with tempfile.TemporaryDirectory() as tmp:
+            out, summary = Path(tmp) / "out", Path(tmp) / "summary"
+            env = {**{name: "" for name in step.get("env", {})}, **os.environ, "EVENT_NAME": "workflow_dispatch",
+                   "DEV_DAILY": "true", "DEV_DAILY_SHA": dev_daily_sha, "GITHUB_SHA": github_sha,
+                   "SAME_TREE_SHA": same_tree_sha, "GITHUB_REF": "refs/heads/feat-cmux-next",
+                   "TIP_SWIFT_SUITE": "false", "TIP_DAEMON_SUITE": "false", "BASE_TIER": "false",
+                   "RUNNER_TEMP": tmp, "GITHUB_OUTPUT": str(out), "GITHUB_STEP_SUMMARY": str(summary)}
+            result = subprocess.run(["bash", "-e", str(ROOT / "scripts/ci/cmux-next-steps/classify-pull-request-paths.sh")],
+                                    cwd=ROOT, env=env, capture_output=True, text=True)
+            outputs = {}
+            for line in (out.read_text().splitlines() if out.exists() else []):
+                key, _, value = line.partition("=")
+                outputs[key] = value  # a later line of an output wins, as on a runner
+            return result, outputs, summary.read_text() if summary.exists() else ""
+
+    def test_a_moved_tip_ends_green_with_every_tier_off(self):
+        result, outputs, summary = self.classify("a" * 40, "b" * 40)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("::notice title=cmux-next dev_daily superseded::", result.stdout)
+        self.assertNotIn("error:", result.stderr)
+        self.assertEqual(outputs.get("superseded"), "true")
+        for tier in self.TIERS:
+            self.assertEqual(outputs.get(tier), "false", tier)
+        self.assertIn("superseded dev-daily dispatch", summary)
+
+    def test_the_asked_tip_still_builds_the_scheme(self):
+        result, outputs, _ = self.classify("a" * 40, "a" * 40)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("superseded", outputs)
+        self.assertEqual(outputs.get("scheme"), "true")
+        self.assertEqual(outputs.get("macos"), "true")
+
+    def test_a_same_tree_mismatch_still_fails(self):
+        result, _, _ = self.classify("a" * 40, "b" * 40, same_tree_sha="c" * 40)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("same-tree mode is", result.stderr)
+
+
 class FfiRepinRoute(unittest.TestCase):
     """A pure app FFI re-pin runs compile and handler coverage; any other diff keeps every tier (2026-11-10: re-pin
     #40576 sat 2 h 49 min behind the Mac queue every Package.swift change took, and base stayed red on
