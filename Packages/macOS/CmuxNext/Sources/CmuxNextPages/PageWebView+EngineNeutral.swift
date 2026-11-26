@@ -38,7 +38,8 @@ extension PageWebView {
     /// A picture of the page as it draws now with its clear areas kept clear, at the view's size in points; nil when
     /// there is none. In Chromium it is a fast-mode PNG of the whole viewport (no clip: a clip with a scale lays the page
     /// out again), which costs the main thread more than ``snapshot()``'s JPEG: it is for a cover of a page the pane shows
-    /// through (a New Tab page), taken at a quiet moment (a parked New Tab spare), once per size and content.
+    /// through (a New Tab page), taken at a quiet moment (a parked New Tab spare), once per size and content, and for the
+    /// cover of a shown page's reload (``PageGracefulReload``: Cmd-R in an agent chat, a web update), once per reload.
     public func clearAreaSnapshot() async -> NSImage? {
         guard let page = chromiumSession?.page else { return try? await webView.takeSnapshot(configuration: nil) }
         guard let json = try? await page.devTools("Page.captureScreenshot", params: Self.clearAreaSnapshotParams),

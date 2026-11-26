@@ -89,4 +89,18 @@ struct PageGracefulReloadTests {
         reloader.reload([])
         #expect(reloader.waitingCount == 0)
     }
+
+    /// The reload cover is the page's clear-area picture (a PNG of the web contents in Chromium, which lie one point under
+    /// the page window's top edge), laid where the web contents are: never stretched over the band, in either host flip.
+    /// A WebKit picture of the whole page lies on the page's frame.
+    @Test func theReloadCoverLiesOverTheWebContents() {
+        let page = NSRect(x: 10, y: 20, width: 800, height: 601)
+        let band = PageWebView.chromiumFrameBand
+        let chromium = NSSize(width: 800, height: 601 - band)
+        #expect(PageGracefulReload.coverFrame(page: page, picture: chromium, flipped: false) == NSRect(x: 10, y: 20, width: 800, height: 601 - band))
+        #expect(PageGracefulReload.coverFrame(page: page, picture: chromium, flipped: true) == NSRect(x: 10, y: 20 + band, width: 800, height: 601 - band))
+        #expect(PageGracefulReload.coverFrame(page: page, picture: page.size, flipped: true) == page)
+        // A picture smaller than the band allows (a resize mid-capture) never moves the cover more than the band.
+        #expect(PageGracefulReload.coverFrame(page: page, picture: NSSize(width: 800, height: 300), flipped: false).height == 601 - band)
+    }
 }

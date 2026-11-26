@@ -126,12 +126,16 @@ final class PageGracefulReload {
         let frame = page.frame
         // task-owner: one cover's life: its picture, the reload under it, and its fade once the page settled
         Task { [weak self] in
-            guard let picture = await page.snapshot(), let self,
+            // The picture keeps the page's clear areas clear (``PageWebView/clearAreaSnapshot()``). ``PageWebView/snapshot()``
+            // is a JPEG in Chromium: over a see-through window its clear areas came out black, and the new document draws
+            // clear over the cover, so Cmd-R in an agent chat showed the pane solid black for about 0.5 s
+            // (NIGHTLY 0a6830e on cmux16, 2026-11-26).
+            guard let picture = await page.clearAreaSnapshot(), let self,
                   page.superview === host, page.frame == frame, !page.isClosed else {
                 page.reload()
                 return
             }
-            let cover = NSImageView(frame: frame)
+            let cover = NSImageView(frame: Self.coverFrame(page: frame, picture: picture.size, flipped: host.isFlipped))
             cover.image = picture
             cover.imageScaling = .scaleAxesIndependently
             cover.autoresizingMask = page.autoresizingMask
@@ -146,6 +150,14 @@ final class PageGracefulReload {
             })
             if self.covers[id] === cover { self.covers[id] = nil }
         }
+    }
+
+    /// Where the picture of a page at `page` lies: the page's frame, less the band at its top that the picture leaves out
+    /// (a Chromium page window draws its web contents ``PageWebView/chromiumFrameBand`` under its top edge, and
+    /// ``PageWebView/clearAreaSnapshot()`` is of the web contents), so the picture is never stretched over the band.
+    static func coverFrame(page: NSRect, picture: NSSize, flipped: Bool) -> NSRect {
+        let band = min(max(0, page.height - picture.height), PageWebView.chromiumFrameBand)
+        return NSRect(x: page.minX, y: flipped ? page.minY + band : page.minY, width: page.width, height: page.height - band)
     }
 
     /// Returns once the new document settled (``WebBundleGracefulReload/settleScript``), or after the cover limit.
