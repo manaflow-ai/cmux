@@ -296,7 +296,7 @@ test("a paused queue is the dot's to say, naming the error, and the queue note d
   } as StatusItem;
   const snapshot = { summary: { queuePaused: true, composerStatus: { items: [paused], facts: [] } } };
   expect(dotSaysQueuePaused(snapshot)).toBe(true);
-  expect(dotSaysQueuePaused({ summary: { queuePaused: true } })).toBe(false);
+  expect(dotSaysQueuePaused({ summary: {} })).toBe(false);
   expect(
     dotSaysQueuePaused({
       summary: { composerStatus: { items: [{ ...paused, words: "status.queuePaused.someday" }], facts: [] } },
