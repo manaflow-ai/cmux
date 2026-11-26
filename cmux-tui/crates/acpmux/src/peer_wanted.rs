@@ -83,6 +83,9 @@ pub(super) struct Wanted {
     /// `"network"`): the next ready link logs the time since as `reconnect_ms`, the reconnect's
     /// duration that NOW's paths row reads (leo-workspace tools/now_paths_source.py).
     reconnect_at: StdMutex<Option<(Instant, &'static str)>>,
+    /// Whether the peer waits to be used before it dials, and when it was last used
+    /// (`peer_demand.rs`).
+    pub(super) demand: super::demand::Demand,
 }
 
 impl Peer {
