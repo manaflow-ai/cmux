@@ -39,6 +39,11 @@ path = "tests/test_ci_api_workerd_infra_shards.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_app_build_manifest.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_app_build_manifest.py"
+
+[[test]]
 path = "tests/test_ci_app_input_digest.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_app_input_digest.py"
