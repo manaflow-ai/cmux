@@ -2477,7 +2477,10 @@ name = "cmux-mobile-core"
 version = "0.1.0"
 dependencies = [
  "cmux-cloud-wire",
+ "cmux-relay-snapshot",
  "cmux-terminal-sizing",
+ "p256",
+ "rand_core 0.6.4",
  "serde_json",
 ]
 
@@ -2489,6 +2492,14 @@ dependencies = [
  "cmux-rd-screen",
  "serde_json",
  "uniffi",
+]
+
+[[package]]
+name = "cmux-mobile-host-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2741,6 +2752,14 @@ dependencies = [
  "base64",
  "p256",
  "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-rd-screen-ffi"
+version = "0.1.0"
+dependencies = [
+ "cmux-rd-screen",
  "serde_json",
 ]
 
@@ -3350,6 +3369,7 @@ dependencies = [
  "cmux-signed-bundle",
  "cmux-stack-auth",
  "cmux-sync",
+ "cmux-tag-cache",
  "cmux-tailnet-join",
  "cmux-terminal-client",
  "cmux-theme-pack",
