@@ -71,10 +71,10 @@ fn own_dir(dir: &Path, uid: u32) -> std::io::Result<()> {
 /// `Ok(false)` when `cwd` is not one or is there.
 #[cfg(unix)]
 pub(crate) fn revive_peer_scratch_in(cwd: &Path, temp: &Path, uid: u32) -> std::io::Result<bool> {
+    let Some(root) = cwd.parent() else { return Ok(false) };
     if std::fs::symlink_metadata(cwd).is_ok() || !is_peer_scratch_in(cwd, temp, uid) {
         return Ok(false);
     }
-    let root = cwd.parent().expect("is_peer_scratch_in read it");
     own_dir(root, uid)?;
     own_dir(cwd, uid)?;
     match std::fs::OpenOptions::new()
