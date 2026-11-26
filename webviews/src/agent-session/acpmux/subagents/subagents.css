@@ -1815,18 +1815,22 @@ button.cv-subagent > :last-child {
   position: relative;
   color: var(--agent-status-failure);
 }
-/* The agent's mark is its harness's own glyph, which takes no text color: the failure is a red dot
-   on its corner, so the line reads failed at a glance (cmux#54927: "the failed subagent shown as a
-   clear failed state"). */
-.cv-subagent-done-row:is([data-look="grid"], [data-look="quiet"]) > .cv-subagent-done[data-state="failed"] .cv-tool__icon::after {
-  content: "";
+/* The agent's mark is its harness's own glyph, which takes no text color: the failure is its own
+   glyph badged on the mark's corner, ringed in the page's color so it reads as a badge, not a stray
+   dot (Leo, 2026-11-25: "dot on left weird"; cmux#54927: "the failed subagent shown as a clear
+   failed state"). */
+.cv-subagent-done__failed-mark {
   position: absolute;
-  inset-inline-end: calc(-1 * var(--cmux-hairline));
-  inset-block-end: calc(-1 * var(--cmux-hairline));
-  width: calc(var(--ds-space-2) - var(--cmux-hairline));
-  height: calc(var(--ds-space-2) - var(--cmux-hairline));
+  inset-inline-end: calc(-1 * var(--ds-space-1));
+  inset-block-end: calc(-1 * var(--ds-space-1));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 50%;
-  background: var(--agent-status-failure);
+  background: var(--agent-page-bg);
+  box-shadow: 0 0 0 var(--cmux-hairline) var(--agent-page-bg);
+  color: var(--agent-status-failure);
+  line-height: 0;
 }
 .cv-subagent-done-row:is([data-look="grid"], [data-look="quiet"]) .cv-subagent-done__time {
   color: var(--cv-text-dim);

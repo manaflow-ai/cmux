@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.agentSignature.help" : {
+      "comment" : "Settings > Appearance: help for the agent dot glyph toggle",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Give each agent a small dot glyph made from its session, on sidebar rows and the running line."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يمنح كل وكيل رمزًا صغيرًا من النقاط مصنوعًا من جلسته، في صفوف الشريط الجانبي وسطر العمل الجاري."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daje svakom agentu mali znak od tačaka napravljen iz njegove sesije, u redovima bočne trake i u liniji rada."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Giver hver agent et lille prikmærke lavet ud fra dens session, på sidepanelets rækker og i arbejdslinjen."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gibt jedem Agenten ein kleines Punktzeichen aus seiner Sitzung, in den Seitenleistenzeilen und in der Arbeitszeile."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Da a cada agente un pequeño glifo de puntos hecho a partir de su sesión, en las filas de la barra lateral y en la línea de trabajo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Donne à chaque agent un petit glyphe de points tiré de sa session, dans les lignes de la barre latérale et la ligne de travail."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dà a ogni agente un piccolo glifo di punti ricavato dalla sua sessione, nelle righe della barra laterale e nella riga di lavoro."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "各エージェントに、そのセッションから作られた小さなドットのマークを、サイドバーの行と実行中の行に表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ផ្តល់ឱ្យភ្នាក់ងារនីមួយៗនូវសញ្ញាចំណុចតូចមួយ ដែលបង្កើតពីវគ្គរបស់វា នៅលើជួររបារចំហៀង និងបន្ទាត់កំពុងដំណើរការ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "각 에이전트에게 세션으로 만든 작은 점 글리프를 사이드바 행과 실행 줄에 표시합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gir hver agent et lite prikkmerke laget av økten, på sidefeltets rader og i arbeidslinjen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daje każdemu agentowi mały znak z kropek utworzony z jego sesji, w wierszach paska bocznego i w linii pracy."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dá a cada agente um pequeno glifo de pontos feito a partir da sessão, nas linhas da barra lateral e na linha de trabalho."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Даёт каждому агенту небольшой знак из точек, созданный по его сеансу, в строках боковой панели и в строке работы."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ให้เอเจนต์แต่ละตัวมีสัญลักษณ์จุดเล็ก ๆ ที่สร้างจากเซสชันของมัน บนแถวแถบด้านข้างและบรรทัดที่กำลังทำงาน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Her ajana oturumundan yapılmış küçük bir nokta işareti verir; kenar çubuğu satırlarında ve çalışma satırında."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Дає кожному агенту невеликий знак із крапок, створений за його сеансом, у рядках бічної панелі та в рядку роботи."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cho mỗi tác tử một biểu tượng chấm nhỏ tạo từ phiên của nó, trên các hàng thanh bên và dòng đang chạy."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "为每个代理显示一个由其会话生成的小圆点标记，出现在边栏行和运行行中。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "為每個代理顯示一個由其工作階段產生的小圓點標記，出現在側邊欄列與執行列中。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
