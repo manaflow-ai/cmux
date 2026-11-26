@@ -90,10 +90,10 @@ private struct PaletteRow: View {
             HStack(spacing: 14) {
                 Image(systemName: command.systemImage)
                     .frame(width: 24)
-                    .foregroundStyle(command.isDestructive ? Color.red : theme.colors.label2.color)
+                    .foregroundStyle(command.isDestructive ? theme.colors.dangerText.color : theme.colors.label2.color)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(command.title)
-                        .foregroundStyle(command.isDestructive ? Color.red : theme.colors.label.color)
+                        .foregroundStyle(command.isDestructive ? theme.colors.dangerText.color : theme.colors.label.color)
                         .lineLimit(1)
                     if let subtitle = command.subtitle, !subtitle.isEmpty {
                         Text(subtitle).font(.footnote).foregroundStyle(theme.colors.label2.color).lineLimit(1)
