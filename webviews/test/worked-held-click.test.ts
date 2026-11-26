@@ -67,7 +67,6 @@ function pane() {
         heldWorked,
         heldWorkedClosing: { current: false },
         snapshot: { isWorking, canLoadNewer: false, clockOffsetMs: 0, turnStartedAtMs: undefined, waitingSteers: [] },
-        sessionStatus: false,
         messageBreaks: [],
         supersededReplyIds: undefined,
         foldsSeen,
