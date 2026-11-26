@@ -388,6 +388,85 @@ class RunOnce(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
 
 
+class StopOnRefusal(unittest.TestCase):
+    """--stop-on-refusal: transport failures are tried again, a refusal is not (run 45740936781, job 139645489749)."""
+
+    SLOW = ("fatal: unable to access 'https://github.com/manaflow-ai/cmux/': Operation too slow. "
+            "Less than 1 bytes/sec transferred the last 60 seconds\n"
+            "fatal: could not fetch fc12c3390c0704596bc6ff32a5710552ff0985a0 from promisor remote\n")
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.repo = Path(self.temp.name)
+        self.sleeps: list[float] = []
+        self.logs: list[str] = []
+
+    def run_with(self, results: list[tuple[int, str]], tries: int = 3) -> tuple[int, int]:
+        calls = []
+        answers = iter(results)
+
+        def captured(command, timeout):
+            calls.append(command)
+            return next(answers)
+
+        def plain(command, timeout):
+            raise AssertionError("--stop-on-refusal must read stderr")
+
+        status = retry.run(["git", "checkout", "--force", "-B", "main", "abc"], tries=tries, timeout=60,
+                           repo=self.repo, runner=plain, captured_runner=captured, sleep=self.sleeps.append,
+                           log=self.logs.append, stop_on_refusal=True)
+        return status, len(calls)
+
+    def test_a_slow_promisor_fetch_is_tried_again(self) -> None:
+        self.assertEqual(self.run_with([(128, self.SLOW), (0, "")]), (0, 2))
+        self.assertEqual(self.sleeps, [retry.BACKOFF_SECONDS[0]])
+
+    def test_transport_failures_in_any_wording_retry_and_the_last_line_names_every_try(self) -> None:
+        results = [(128, "fatal: unable to access 'x': Connection reset by peer\n"),
+                   (retry.TIMEOUT_EXIT, ""),
+                   (128, "fatal: unable to access 'x': Could not resolve host: github.com\n")]
+        self.assertEqual(self.run_with(results), (128, 3))
+        self.assertIn("failed on all 3 tries", self.logs[-1])
+        self.assertIn("Could not resolve host", self.logs[-1])
+
+    def test_a_refusal_is_not_tried_again(self) -> None:
+        for stderr in ("fatal: couldn't find remote ref refs/heads/nope\n",
+                       "remote: Repository not found.\nfatal: repository 'https://github.com/o/r/' not found\n",
+                       "fatal: unable to access 'x': The requested URL returned error: 403\n",
+                       "fatal: invalid reference: abc\n"):
+            with self.subTest(stderr=stderr):
+                self.sleeps.clear()
+                self.assertEqual(self.run_with([(128, stderr), (0, "")]), (128, 1))
+                self.assertEqual(self.sleeps, [])
+                self.assertIn("refused on try 1 of 3", self.logs[-1])
+
+    def test_a_server_error_is_not_a_refusal(self) -> None:
+        stderr = "fatal: unable to access 'x': The requested URL returned error: 502\n"
+        self.assertEqual(self.run_with([(128, stderr), (0, "")]), (0, 2))
+
+    def test_a_usage_error_is_a_refusal(self) -> None:
+        self.assertEqual(self.run_with([(retry.USAGE_EXIT, "usage: git fetch\n")]), (retry.USAGE_EXIT, 1))
+
+    def test_the_captured_runner_prints_and_returns_stderr(self) -> None:
+        status, stderr = retry.run_once_captured(["sh", "-c", "echo out; echo boom >&2; exit 4"], timeout=10)
+        self.assertEqual((status, stderr), (4, "boom\n"))
+
+    def test_the_cli_stops_on_a_real_refusal_and_retries_a_real_connect_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            subprocess.run(["git", "init", "-q", temp], check=True)
+            cli = [sys.executable, str(ROOT / "scripts/ci/git_fetch_retry.py"), "--tries", "3", "--timeout", "30",
+                   "--backoff", "0", "--stop-on-refusal", "--repo", temp, "--"]
+            missing = subprocess.run(cli + ["git", "-C", temp, "fetch", str(Path(temp) / "no-such-repo"), "main"],
+                                     capture_output=True, text=True)
+            self.assertNotEqual(missing.returncode, 0)
+            self.assertIn("refused on try 1 of 3", missing.stdout)
+            refused = subprocess.run(cli + ["git", "-C", temp, "fetch", "http://127.0.0.1:9/r.git", "main"],
+                                     capture_output=True, text=True)
+            self.assertNotEqual(refused.returncode, 0)
+            self.assertIn("failed on all 3 tries", refused.stdout)
+
+
 class Workflow(unittest.TestCase):
     def test_the_warm_fetch_and_submodule_update_are_bounded(self) -> None:
         doc = yaml.safe_load(WORKFLOW.read_text())
@@ -441,6 +520,37 @@ class Workflow(unittest.TestCase):
                                     capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertNotIn("unavailable", result.stdout)
+
+
+class BackendDeploys(unittest.TestCase):
+    """Every git download in backend.yml's deploy jobs goes through the retry layer (run 45740936781)."""
+
+    JOBS = ("deploy-staging", "deploy-dashboard-staging", "deploy-development")
+
+    def setUp(self) -> None:
+        self.doc = yaml.safe_load((ROOT / ".github/workflows/backend.yml").read_text())
+
+    def test_a_failed_blobless_checkout_is_finished_through_the_helper(self) -> None:
+        for name in self.JOBS:
+            with self.subTest(job=name):
+                steps = self.doc["jobs"][name]["steps"]
+                checkout, finish = steps[0], steps[1]
+                self.assertTrue(checkout["uses"].startswith("actions/checkout@"))
+                self.assertEqual((checkout["id"], checkout["continue-on-error"]), ("checkout", True))
+                self.assertEqual(finish["if"], "steps.checkout.outcome == 'failure'")
+                self.assertIn('python3 "$helper" --stop-on-refusal --tries 3', finish["run"])
+                self.assertIn("git checkout --progress --force", finish["run"])
+                self.assertEqual(finish["run"], steps[1]["run"])
+        runs = {self.doc["jobs"][name]["steps"][1]["run"] for name in self.JOBS}
+        self.assertEqual(len(runs), 1, "the three deploy jobs finish a checkout the same way")
+
+    def test_no_deploy_step_fetches_without_the_helper(self) -> None:
+        for name in self.JOBS:
+            for step in self.doc["jobs"][name]["steps"]:
+                for line in step.get("run", "").splitlines():
+                    if "git fetch" in line:
+                        with self.subTest(job=name, line=line):
+                            self.assertTrue("retry_git fetch" in line or "-- git fetch" in line, line)
 
 
 if __name__ == "__main__":
