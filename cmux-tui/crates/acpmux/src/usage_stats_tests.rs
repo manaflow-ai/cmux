@@ -48,6 +48,7 @@ fn claude(home: &Path) -> (Source, PathBuf) {
         created_at: ms("2026-10-30T00:00:00Z"),
         argv: Some(vec!["/usr/local/bin/claude".into(), "--autocompact".into(), "200k".into()]),
         env,
+        claude_launch_cap: None,
     };
     (source, home.join("projects/-work-repo-x").join(format!("{SID}.jsonl")))
 }
@@ -192,6 +193,7 @@ fn a_codex_rollout_is_found_by_its_day_and_counts_each_token_report_once() {
             "model_auto_compact_token_limit=150000".into(),
         ]),
         env,
+        claude_launch_cap: None,
     };
     // Written on the next UTC day: still found next to its creation day.
     let path =
@@ -382,6 +384,7 @@ fn a_record_that_cannot_be_read_is_unknown_not_zero() {
         created_at: now,
         argv: Some(vec!["codex-acp".into()]),
         env,
+        claude_launch_cap: None,
     };
     let path = home.path().join(format!("sessions/2026/10/30/rollout-x-{SID}.jsonl"));
     let rate = json!({"timestamp": "2026-10-30T11:00:00Z", "type": "event_msg",
@@ -402,35 +405,61 @@ fn a_record_that_cannot_be_read_is_unknown_not_zero() {
     assert_eq!(Tracker::default().refresh(&source, now, &models()).unwrap().tokens24h, None);
 }
 
+fn claude_cap_at_spawn(source: &Source, window: Option<u64>) -> (Autocompact, Option<u64>) {
+    let mut cmd = tokio::process::Command::new("claude");
+    let Some(argv) = &source.argv else { return (Autocompact::Unknown, None) };
+    cmd.args(argv.iter().skip(1)).current_dir(&source.cwd);
+    let env = source.env.clone().into_iter().collect::<Vec<_>>();
+    ClaudeLaunchCap::at_spawn(crate::config::HarnessKind::ClaudeStdio, &cmd, &env)
+        .unwrap()
+        .measured(window)
+}
+
+#[test]
+fn a_malformed_launch_value_never_goes_into_the_session_record() {
+    let cmd = tokio::process::Command::new("claude");
+    let env = vec![("CLAUDE_CODE_AUTO_COMPACT_WINDOW".into(), "private launch data".into())];
+    let cap = ClaudeLaunchCap::at_spawn(crate::config::HarnessKind::ClaudeStdio, &cmd, &env);
+    assert_eq!(serde_json::to_string(&cap).unwrap(), r#""unknown""#);
+}
+
 #[test]
 fn the_autocompact_cap_comes_from_the_flag_then_the_env_then_the_settings() {
     use Autocompact::{Capped, Uncapped, Unknown};
     let home = tempfile::tempdir().unwrap();
     let (mut source, _) = claude(home.path());
     let argv = |a: &[&str]| Some(a.iter().map(|s| s.to_string()).collect::<Vec<_>>());
-    assert_eq!(autocompact(&source, None), (Capped, Some(200_000)));
+    assert_eq!(claude_cap_at_spawn(&source, None), (Capped, Some(200_000)));
     source.argv = argv(&["claude", "--autocompact=auto"]);
-    assert_eq!(autocompact(&source, None), (Uncapped, None), "auto is the harness's own default");
+    assert_eq!(
+        claude_cap_at_spawn(&source, None),
+        (Uncapped, None),
+        "auto is the harness's own default"
+    );
     source.argv = argv(&["claude", "--autocompact", "lots"]);
-    assert_eq!(autocompact(&source, None), (Unknown, None), "a value it cannot read");
+    assert_eq!(claude_cap_at_spawn(&source, None), (Unknown, None), "a value it cannot read");
     source.argv = argv(&["claude"]);
-    assert_eq!(autocompact(&source, None), (Uncapped, None), "nothing caps it: no settings file");
+    assert_eq!(
+        claude_cap_at_spawn(&source, None),
+        (Uncapped, None),
+        "nothing caps it: no settings file"
+    );
     std::fs::write(home.path().join("settings.json"), r#"{"theme": "dark"}"#).unwrap();
-    assert_eq!(autocompact(&source, None), (Uncapped, None), "nor its settings");
+    assert_eq!(claude_cap_at_spawn(&source, None), (Uncapped, None), "nor its settings");
     std::fs::write(home.path().join("settings.json"), "{not json").unwrap();
-    assert_eq!(autocompact(&source, None), (Unknown, None), "settings it cannot read");
+    assert_eq!(claude_cap_at_spawn(&source, None), (Unknown, None), "settings it cannot read");
     std::fs::write(home.path().join("settings.json"), r#"{"autoCompactWindow": 300000}"#).unwrap();
-    assert_eq!(autocompact(&source, None), (Capped, Some(300_000)));
+    assert_eq!(claude_cap_at_spawn(&source, None), (Capped, Some(300_000)));
     source.env.insert("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE".into(), "40".into());
-    assert_eq!(autocompact(&source, Some(1_000_000)), (Capped, Some(400_000)));
-    assert_eq!(autocompact(&source, None), (Capped, None), "capped, of a window not known");
+    assert_eq!(claude_cap_at_spawn(&source, Some(1_000_000)), (Capped, Some(400_000)));
+    assert_eq!(claude_cap_at_spawn(&source, None), (Capped, None), "capped, of a window not known");
     source.env.insert("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE".into(), "most".into());
-    assert_eq!(autocompact(&source, None), (Unknown, None));
+    assert_eq!(claude_cap_at_spawn(&source, None), (Unknown, None));
     source.env.insert("CLAUDE_CODE_AUTO_COMPACT_WINDOW".into(), "1M".into());
-    assert_eq!(autocompact(&source, None), (Capped, Some(1_000_000)));
+    assert_eq!(claude_cap_at_spawn(&source, None), (Capped, Some(1_000_000)));
     // Adopted, watched or revived: this daemon never started it, so its flags are not known.
     source.argv = None;
-    assert_eq!(autocompact(&source, None), (Unknown, None));
+    assert_eq!(claude_cap_at_spawn(&source, None), (Unknown, None));
 
     let mut codex =
         Source { family: "codex".into(), argv: argv(&["codex-acp"]), ..Source::default() };
@@ -480,7 +509,7 @@ fn acpmux_sets_the_claude_window_only_when_the_person_set_none() {
     source.env.remove("CLAUDE_CODE_AUTO_COMPACT_WINDOW");
     let (key, value) = crate::harness_limits::CLAUDE_AUTOCOMPACT_WINDOW;
     source.env.insert(key.into(), value.into());
-    assert_eq!(autocompact(&source, None), (Autocompact::Capped, Some(400_000)));
+    assert_eq!(claude_cap_at_spawn(&source, None), (Autocompact::Capped, Some(400_000)));
     source.argv = None;
     assert!(!claude_autocompact_unset(&source), "a chat this daemon did not start");
 }
@@ -574,6 +603,7 @@ fn usage_probe() {
         created_at: crate::store::now_ms(),
         argv: None,
         env: BTreeMap::new(),
+        claude_launch_cap: None,
     };
     let catalog: crate::catalog::Catalog =
         serde_json::from_str(include_str!("../catalog/models-v1.json")).unwrap();
@@ -809,6 +839,7 @@ fn the_tracker_applies_every_classification() {
             created_at: now,
             argv: Some(vec!["codex-acp".into()]),
             env,
+            claude_launch_cap: None,
         };
         (source, home.join(format!("sessions/2026/10/30/rollout-x-{SID}.jsonl")))
     };
@@ -917,6 +948,7 @@ fn an_untimed_repeat_of_a_counted_record_is_not_lost() {
         created_at: now,
         argv: Some(vec!["codex-acp".into()]),
         env,
+        claude_launch_cap: None,
     };
     let path = home.path().join(format!("sessions/2026/10/30/rollout-x-{SID}.jsonl"));
     let report = json!({"timestamp": "2026-10-30T11:00:00Z", "type": "event_msg", "payload": {

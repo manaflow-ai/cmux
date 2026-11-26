@@ -1560,7 +1560,7 @@ impl Hub {
         }
         // A direct start records the format its command was pinned to (a host's: hosts.rs).
         if let Some(format) = child.preview_format {
-            self.record_preview_format(session, format);
+            self.record_launch_settings(session, format, child.claude_launch_cap);
         }
         {
             // The shutdown marks itself started, then takes each session's

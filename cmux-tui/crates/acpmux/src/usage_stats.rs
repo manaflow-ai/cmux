@@ -114,6 +114,7 @@ pub struct Source {
     /// The argv this daemon last started its harness with; None when it never did (an
     /// adopted, watched or revived chat), so its launcher and autocompact are unknown.
     pub argv: Option<Vec<String>>,
+    pub claude_launch_cap: Option<ClaudeLaunchCap>,
     /// The env its harness starts with (profile, preset, chat store, the chat's own).
     pub env: BTreeMap<String, String>,
 }
@@ -885,47 +886,165 @@ pub fn launcher(argv: &[String]) -> Option<String> {
 /// `--autocompact` in its argv, no `CLAUDE_CODE_AUTO_COMPACT_WINDOW` or
 /// `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` in its env, and no settings file (its own settings.json, a
 /// project's `.claude/settings.json` or `settings.local.json` in its folder or above) that names
-/// `autoCompactWindow` or either key in its `env`. acpmux then starts it with its own
-/// window (`harness_limits::CLAUDE_AUTOCOMPACT_WINDOW`). False when its argv is not this
-/// daemon's, or settings.json cannot be read.
+/// `autoCompactWindow` or either key in its `env`. An opted-in policy may supply a cap only
+/// when this returns true. An unreadable setting leaves the harness in charge.
 pub fn claude_autocompact_unset(source: &Source) -> bool {
-    const KEYS: [&str; 2] = ["CLAUDE_CODE_AUTO_COMPACT_WINDOW", "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"];
     let Some(argv) = source.argv.as_deref() else { return false };
-    let env = |k: &str| source.env.get(k).cloned().or_else(|| std::env::var(k).ok());
-    if flag(argv, "--autocompact").is_some() || KEYS.iter().any(|k| env(k).is_some()) {
-        return false;
-    }
-    let Some(home) = source.home() else { return false };
-    // Its own settings, then a project's in the chat's folder or above it.
-    let project = source.cwd.ancestors().flat_map(|d| {
-        ["settings.json", "settings.local.json"].map(|name| d.join(".claude").join(name))
-    });
-    std::iter::once(home.join("settings.json")).chain(project).all(|path| {
-        let settings = match std::fs::read(path) {
-            Ok(bytes) => bytes,
-            Err(e) => return e.kind() == std::io::ErrorKind::NotFound,
-        };
-        let Ok(settings) = serde_json::from_slice::<Value>(&settings) else { return false };
-        field(&settings, "autoCompactWindow").is_null()
-            && KEYS.iter().all(|k| field(field(&settings, "env"), k).is_null())
+    ClaudeLaunchCap::selection(argv, &source.cwd, |key| {
+        source.env.get(key).cloned().or_else(|| std::env::var(key).ok())
     })
+    .is_none()
+}
+
+/// Only the compaction decision is kept on disk. A percent is resolved against the model
+/// actually used when its context window is known.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ClaudeLaunchCap {
+    Uncapped,
+    Tokens(u64),
+    Percent(f64),
+    Unknown,
+}
+
+impl ClaudeLaunchCap {
+    fn parse(text: &str) -> Self {
+        if text.trim().trim_matches('"').eq_ignore_ascii_case("auto") {
+            Self::Uncapped
+        } else {
+            tokens(text).map_or(Self::Unknown, Self::Tokens)
+        }
+    }
+
+    fn percent(text: &str) -> Self {
+        text.trim()
+            .parse::<f64>()
+            .ok()
+            .filter(|p| *p > 0.0 && *p < 100.0)
+            .map_or(Self::Unknown, Self::Percent)
+    }
+
+    // None means no flag, env or settings file selected a cap; explicit "auto" is a choice.
+    fn selection(
+        argv: &[String],
+        cwd: &Path,
+        env: impl Fn(&str) -> Option<String>,
+    ) -> Option<Self> {
+        const WINDOW: &str = "CLAUDE_CODE_AUTO_COMPACT_WINDOW";
+        const PERCENT: &str = "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE";
+        if let Some(v) = flag(argv, "--autocompact").or_else(|| env(WINDOW)) {
+            return Some(Self::parse(&v));
+        }
+        if let Some(v) = env(PERCENT) {
+            return Some(Self::percent(&v));
+        }
+        let home =
+            env("CLAUDE_CONFIG_DIR").filter(|d| !d.is_empty()).map(PathBuf::from).or_else(|| {
+                env("HOME")
+                    .filter(|d| !d.is_empty())
+                    .map(PathBuf::from)
+                    .or_else(dirs::home_dir)
+                    .map(|h| h.join(".claude"))
+            });
+        let Some(home) = home else { return Some(Self::Unknown) };
+        let project = cwd.ancestors().flat_map(|d| {
+            ["settings.local.json", "settings.json"].map(|name| d.join(".claude").join(name))
+        });
+        for path in project.chain(std::iter::once(cwd.join(home).join("settings.json"))) {
+            let settings = match Self::read_settings(&path) {
+                Ok(settings) => settings,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(_) => return Some(Self::Unknown),
+            };
+            let env = field(&settings, "env");
+            for (value, percent) in [
+                (field(env, WINDOW), false),
+                (field(env, PERCENT), true),
+                (field(&settings, "autoCompactWindow"), false),
+            ] {
+                match value {
+                    Value::Null => continue,
+                    Value::String(s) if percent => return Some(Self::percent(s)),
+                    Value::String(s) => return Some(Self::parse(s)),
+                    Value::Number(n) if !percent => {
+                        return Some(n.as_u64().map_or(Self::Unknown, Self::Tokens));
+                    }
+                    _ => return Some(Self::Unknown),
+                }
+            }
+        }
+        None
+    }
+
+    // Called on the launch path, including in a user's project. A pipe must not hold up a
+    // spawn and a file growing under the reader must not consume unbounded memory.
+    fn read_settings(path: &Path) -> std::io::Result<Value> {
+        const MAX_BYTES: u64 = 1 << 20;
+        let mut options = std::fs::OpenOptions::new();
+        options.read(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::custom_flags(&mut options, libc::O_NONBLOCK);
+        let file = options.open(path)?;
+        let meta = file.metadata()?;
+        if !meta.is_file() || meta.len() > MAX_BYTES {
+            return Err(std::io::Error::other("cannot measure this settings file"));
+        }
+        let mut bytes = Vec::new();
+        file.take(MAX_BYTES + 1).read_to_end(&mut bytes)?;
+        if bytes.len() as u64 > MAX_BYTES {
+            return Err(std::io::Error::other("settings file exceeds read limit"));
+        }
+        serde_json::from_slice(&bytes).map_err(std::io::Error::other)
+    }
+
+    pub(crate) fn at_spawn(
+        kind: crate::config::HarnessKind,
+        cmd: &tokio::process::Command,
+        env: &[(String, String)],
+    ) -> Option<Self> {
+        if kind != crate::config::HarnessKind::ClaudeStdio {
+            return None;
+        }
+        let cmd = cmd.as_std();
+        let argv = cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect::<Vec<_>>();
+        let cwd = cmd.get_current_dir().unwrap_or(Path::new("."));
+        Some(
+            Self::selection(&argv, cwd, |k| {
+                env.iter().find(|(name, _)| name == k).map(|(_, v)| v.clone())
+            })
+            .unwrap_or(Self::Uncapped),
+        )
+    }
+
+    fn measured(self, window: Option<u64>) -> (Autocompact, Option<u64>) {
+        match self {
+            Self::Uncapped => (Autocompact::Uncapped, None),
+            Self::Unknown => (Autocompact::Unknown, None),
+            Self::Tokens(n) => (Autocompact::Capped, Some(n)),
+            Self::Percent(p) => {
+                (Autocompact::Capped, window.map(|w| whole_tokens(w as f64 * p / 100.0)))
+            }
+        }
+    }
 }
 
 /// Whether the harness's autocompact is capped, and at how many tokens when that is known.
-/// Claude Code: `--autocompact N`, else `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, else
-/// `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` of the window, else `autoCompactWindow` in its
-/// settings.json. Codex: `-c model_auto_compact_token_limit=N`, else that key in its
-/// config.toml. Unknown when its argv is not this daemon's, or a value or file that would
-/// decide it cannot be read; `auto` and an absent setting are no cap.
+/// Claude Code uses its recorded launch decision or an explicit flag from an older launch.
+/// Codex uses `-c model_auto_compact_token_limit=N`, else that key in its config.toml.
 pub fn autocompact(source: &Source, window: Option<u64>) -> (Autocompact, Option<u64>) {
     let capped =
         |n: Option<u64>| n.map_or((Autocompact::Unknown, None), |n| (Autocompact::Capped, Some(n)));
-    let value = |text: &str| match text.trim().trim_matches('"') {
-        t if t.eq_ignore_ascii_case("auto") => (Autocompact::Uncapped, None),
-        t => capped(tokens(t)),
-    };
+    if source.family == "claude" {
+        // A pre-snapshot launch can still prove a cap from its recorded flag.
+        return source
+            .claude_launch_cap
+            .or_else(|| {
+                flag(source.argv.as_deref()?, "--autocompact").map(|v| ClaudeLaunchCap::parse(&v))
+            })
+            .unwrap_or(ClaudeLaunchCap::Unknown)
+            .measured(window);
+    }
     let Some(argv) = source.argv.as_deref() else { return (Autocompact::Unknown, None) };
-    let env = |k: &str| source.env.get(k).cloned().or_else(|| std::env::var(k).ok());
     // A file the harness reads at start: absent is no setting; unreadable is unknown.
     let read = |name: &str| match source.home().map(|h| std::fs::read(h.join(name))) {
         Some(Ok(bytes)) => Ok(Some(bytes)),
@@ -933,33 +1052,6 @@ pub fn autocompact(source: &Source, window: Option<u64>) -> (Autocompact, Option
         _ => Err(()),
     };
     match source.family.as_str() {
-        "claude" => {
-            if let Some(v) = flag(argv, "--autocompact") {
-                return value(&v);
-            }
-            if let Some(v) = env("CLAUDE_CODE_AUTO_COMPACT_WINDOW") {
-                return value(&v);
-            }
-            if let Some(pct) = env("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE") {
-                return match pct.trim().parse::<f64>().ok().filter(|p| *p > 0.0 && *p < 100.0) {
-                    Some(pct) => {
-                        (Autocompact::Capped, window.map(|w| whole_tokens(w as f64 * pct / 100.0)))
-                    }
-                    None => (Autocompact::Unknown, None),
-                };
-            }
-            let Ok(settings) = read("settings.json") else { return (Autocompact::Unknown, None) };
-            let Some(settings) = settings else { return (Autocompact::Uncapped, None) };
-            let Ok(settings) = serde_json::from_slice::<Value>(&settings) else {
-                return (Autocompact::Unknown, None);
-            };
-            match field(&settings, "autoCompactWindow") {
-                Value::Null => (Autocompact::Uncapped, None),
-                Value::Number(n) => capped(n.as_u64()),
-                Value::String(s) => value(s),
-                _ => (Autocompact::Unknown, None),
-            }
-        }
         "codex" => {
             const KEY: &str = "model_auto_compact_token_limit";
             let from_argv = argv.windows(2).rev().find_map(|w| {

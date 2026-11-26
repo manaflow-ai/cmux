@@ -94,13 +94,7 @@ pub fn terminal_claude_env(
         .filter(|(key, _)| getenv(key).is_none())
         .map(|(key, value)| (key, value.to_owned()))
         .collect();
-    let settings = match crate::user_settings::read() {
-        crate::user_settings::Settings::Parsed(doc) => Some(doc),
-        crate::user_settings::Settings::Missing => None,
-        crate::user_settings::Settings::Unreadable(_) => None,
-    };
-    if let Some(window) =
-        crate::compaction_policy::claude_autocompact_window_with(settings.as_ref(), &getenv)
+    if let Some(window) = crate::compaction_policy::claude_autocompact_window(&getenv)
         && claude_choice_unset(args, cwd, &getenv)
     {
         lifted.push((CLAUDE_AUTOCOMPACT_WINDOW.0, window));
@@ -174,7 +168,7 @@ pub fn lift_claude(
             env: have.into_iter().collect(),
             ..Default::default()
         };
-        if let Some(window) = crate::compaction_policy::claude_autocompact_window()
+        if let Some(window) = crate::compaction_policy::claude_autocompact_window(|var| std::env::var(var).ok())
             && crate::usage_stats::claude_autocompact_unset(&source)
         {
             let (key, _) = CLAUDE_AUTOCOMPACT_WINDOW;

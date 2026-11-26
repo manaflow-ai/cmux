@@ -671,6 +671,7 @@ impl Hub {
         meta.family = Some(crate::config::derive_family(name, &profile));
         // The source machine's launch and preset name nothing here.
         meta.spawn_argv = None;
+        meta.claude_launch_cap = None;
         meta.launch_digest = None;
         meta.preset = None;
         let path = bundle.join("session.json");

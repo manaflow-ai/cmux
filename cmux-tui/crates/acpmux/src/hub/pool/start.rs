@@ -114,6 +114,8 @@ impl Hub {
         } else {
             crate::agent::command_env(&cmd)
         };
+        let claude_launch_cap =
+            crate::usage_stats::ClaudeLaunchCap::at_spawn(profile.kind, &cmd, &env);
         // The class it runs at once a chat's start took it, from the harness's own env: its
         // profile's value as resolved (`cpu_class.rs`). Until then it stays at normal class.
         let run_class = crate::cpu_class::CpuClass::for_session(
@@ -182,7 +184,7 @@ impl Hub {
         let started = started.map(|p| {
             p.child.record_launch(servers);
             p.child.set_run_class(run_class);
-            Pooled { preview, ..p }
+            Pooled { preview, claude_launch_cap, ..p }
         });
         if started.is_err() {
             lock(&self.pool.starting).remove(&session_id);
@@ -306,6 +308,7 @@ impl Hub {
             parked: false,
             opencode_asks: spec.spawn.env.contains_key(crate::opencode_ask::MARKER),
             preview: Default::default(),
+            claude_launch_cap: None,
             reported_off,
             started: latch.clone(),
             claimed_under: None,

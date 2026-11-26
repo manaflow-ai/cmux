@@ -145,6 +145,22 @@ impl Hub {
         }
     }
 
+    pub(super) fn record_launch_settings(
+        &self,
+        session: &Session,
+        format: super::questions::PreviewFormat,
+        cap: Option<crate::usage_stats::ClaudeLaunchCap>,
+    ) {
+        let html = format == super::questions::PreviewFormat::Html;
+        let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        if meta.html_previews != html || meta.claude_launch_cap != cap {
+            meta.html_previews = html;
+            meta.claude_launch_cap = cap;
+            drop(meta);
+            self.save_meta(session);
+        }
+    }
+
     /// Claude Code's system/init (`_meta.claude` of its session_info_update):
     /// the rows it reports replace the last ones; cmux's own rows stay, on or
     /// off as Claude Code reports them. A server the chat turned off stays

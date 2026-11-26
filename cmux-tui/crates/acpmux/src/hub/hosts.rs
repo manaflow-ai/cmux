@@ -1676,7 +1676,7 @@ impl Hub {
         )
         .await
         .map_err(internal)?;
-        self.record_preview_format(session, crate::agent::pinned_preview_format(&cmd));
+        let preview = crate::agent::pinned_preview_format(&cmd);
         let std_cmd = cmd.as_std();
         let hosts = crate::agent_host::hosts_dir();
         let env = if meta.remote_origin {
@@ -1684,6 +1684,7 @@ impl Hub {
         } else {
             crate::agent::command_env(&cmd)
         };
+        let cap = crate::usage_stats::ClaudeLaunchCap::at_spawn(profile.kind, &cmd, &env);
         // The class it runs at once its start is over, from the harness's own env: its profile's
         // value as resolved (`cpu_class.rs`). It starts at normal class.
         let run_class = crate::cpu_class::CpuClass::for_session(
@@ -1725,6 +1726,7 @@ impl Hub {
                 .await;
         spec.orphan_exit = servers.orphan_exit(self.orphan_exit());
         let launched = |child: Arc<ChildAgent>| {
+            self.record_launch_settings(session, preview, cap);
             child.record_launch(servers.clone());
             child.set_run_class(run_class);
             child

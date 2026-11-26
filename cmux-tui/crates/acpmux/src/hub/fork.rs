@@ -778,6 +778,7 @@ impl Hub {
             harness: parent_meta.harness.clone(),
             harness_argv: parent_meta.harness_argv.clone(),
             spawn_argv: None,
+            claude_launch_cap: None,
             launch_digest: None,
             family: parent_meta.family.clone(),
             preset: parent_meta.preset.clone(),

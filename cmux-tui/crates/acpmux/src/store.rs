@@ -367,6 +367,9 @@ pub struct SessionMeta {
     /// it (`harness_argv` is the creation's). None before any start (#23322, review 36).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spawn_argv: Option<Vec<String>>,
+    /// The effective cap at the last Claude Code launch, absent from older records.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claude_launch_cap: Option<crate::usage_stats::ClaudeLaunchCap>,
     /// `HarnessProfile::launch_digest` of the profile its agent last started from: a profile
     /// reload that changes it respawns the agent at its turn end, on the same conversation
     /// (`hub/profile_respawn.rs`). Kept on disk, so an agent host the next daemon adopts is

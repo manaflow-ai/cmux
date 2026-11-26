@@ -405,6 +405,7 @@ impl Hub {
         meta.harness_roots.clear();
         meta.harness_argv.clear();
         meta.spawn_argv = None;
+        meta.claude_launch_cap = None;
         meta.launch_digest = None;
         meta.tags.clear();
         // The folders beside its own: each one under the move's roots, as its `cwd` is; any

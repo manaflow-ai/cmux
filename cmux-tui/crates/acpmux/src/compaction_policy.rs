@@ -23,7 +23,6 @@ pub const ENV_FLEET: &str = "ACPMUX_FLEET_COMPACTION";
 pub const SETTING_FLEET: &str = "agents.compaction.fleet";
 /// The explicit Claude Code autocompact window used by the personal fleet.
 pub const SETTING_CLAUDE_AUTOCOMPACT_WINDOW: &str = "agents.claudeAutocompactWindow";
-const DEFAULT_CLAUDE_AUTOCOMPACT_WINDOW: &str = "400000";
 
 /// An on/off value: `1|true|on|yes` or `0|false|off|no`; anything else says nothing.
 pub fn flag(value: Option<&str>) -> Option<bool> {
@@ -79,12 +78,11 @@ pub fn claude_autocompact_window_with(
     {
         return Some(value.to_string());
     }
-    fleet_with(doc, env).then(|| DEFAULT_CLAUDE_AUTOCOMPACT_WINDOW.to_owned())
+    fleet_with(doc, env).then(|| crate::harness_limits::CLAUDE_AUTOCOMPACT_WINDOW.1.to_owned())
 }
 
 /// The autocompact window for this process's settings and environment.
-pub fn claude_autocompact_window() -> Option<String> {
-    let env = |var: &str| std::env::var(var).ok();
+pub fn claude_autocompact_window(env: impl Fn(&str) -> Option<String>) -> Option<String> {
     match crate::user_settings::read() {
         crate::user_settings::Settings::Parsed(doc) => {
             claude_autocompact_window_with(Some(&doc), env)

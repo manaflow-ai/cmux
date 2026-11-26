@@ -882,6 +882,7 @@ pub struct ChildAgent {
     /// The question preview format its command was pinned to, for a direct
     /// start (a host's is recorded where the host starts, `hub/hosts.rs`).
     pub preview_format: Option<crate::questions::PreviewFormat>,
+    pub claude_launch_cap: Option<crate::usage_stats::ClaudeLaunchCap>,
     /// The CPU class its harness runs at once its session's start is over (`cpu_class.rs`), set
     /// by the start that spawned it; unset for a harness another daemon started.
     run_class: std::sync::OnceLock<crate::cpu_class::CpuClass>,
@@ -925,6 +926,7 @@ struct Spawned {
     stderr: Box<dyn tokio::io::AsyncRead + Unpin + Send>,
     launch: Option<crate::sidecar_census::LaunchServers>,
     preview_format: Option<crate::questions::PreviewFormat>,
+    claude_launch_cap: Option<crate::usage_stats::ClaudeLaunchCap>,
     run_class: std::sync::OnceLock<crate::cpu_class::CpuClass>,
     /// Its command line carries the repository hook (`codex_repo_gate::in_args`).
     repo_gated: bool,
@@ -965,6 +967,8 @@ impl Spawned {
         // Never at background class while it starts; its class, from the harness's own env (its
         // profile's value as resolved), is set once its session's start is over (`cpu_class.rs`).
         let env = command_env(&cmd);
+        let claude_launch_cap =
+            crate::usage_stats::ClaudeLaunchCap::at_spawn(profile.kind, &cmd, &env);
         let run_class = crate::cpu_class::CpuClass::for_session(
             profile.kind,
             &profile.argv,
@@ -1007,6 +1011,7 @@ impl Spawned {
             stderr: Box::new(stderr),
             launch: Some(launch),
             preview_format,
+            claude_launch_cap,
             run_class: std::sync::OnceLock::from(run_class),
             repo_gated,
             plugin_hook_home,
@@ -1029,6 +1034,7 @@ impl Spawned {
             stderr: pipes.stderr,
             launch: None,
             preview_format: None,
+            claude_launch_cap: None,
             run_class: std::sync::OnceLock::new(),
             repo_gated: false,
             plugin_hook_home: None,
@@ -1121,6 +1127,7 @@ impl ChildAgent {
             stderr,
             launch,
             preview_format,
+            claude_launch_cap,
             run_class,
             repo_gated,
             plugin_hook_home,
@@ -1159,6 +1166,7 @@ impl ChildAgent {
             ended_on_purpose: std::sync::atomic::AtomicBool::new(false),
             generation: NEXT_GENERATION.fetch_add(1, Ordering::Relaxed),
             preview_format,
+            claude_launch_cap,
             run_class,
             run_class_entered: std::sync::atomic::AtomicBool::new(false),
             demotion: Default::default(),
@@ -2682,6 +2690,7 @@ impl ChildAgent {
             ended_on_purpose: std::sync::atomic::AtomicBool::new(false),
             generation: NEXT_GENERATION.fetch_add(1, Ordering::Relaxed),
             preview_format: None,
+            claude_launch_cap: None,
             run_class: std::sync::OnceLock::new(),
             run_class_entered: std::sync::atomic::AtomicBool::new(false),
             demotion: Default::default(),

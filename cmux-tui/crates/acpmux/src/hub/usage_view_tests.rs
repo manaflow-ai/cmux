@@ -277,6 +277,38 @@ async fn a_claude_sr2_chat_is_read_as_claude_code() {
     assert_eq!(transcript_family("gemini"), None);
 }
 
+/// A profile edit affects the next launch. A daemon reading persisted metadata can still
+/// report the first harness's cap and recognize older records that lack that evidence.
+#[tokio::test]
+async fn usage_keeps_each_claude_launch_window() {
+    use crate::protocol::session::Autocompact;
+    use crate::usage_stats::{ClaudeLaunchCap, autocompact};
+    let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+    let now = crate::store::now_ms();
+    let home = tempfile::tempdir().unwrap();
+    let mut cmd = tokio::process::Command::new("claude");
+    cmd.current_dir(home.path());
+    for (id, value) in [("first", Some("157125")), ("second", Some("400000")), ("legacy", None)] {
+        let mut m = meta(id, "claude", Some(id), "idle", now);
+        m.spawn_argv = Some(vec!["claude".into()]);
+        if let Some(value) = value {
+            let env = vec![("CLAUDE_CODE_AUTO_COMPACT_WINDOW".into(), value.into())];
+            m.claude_launch_cap =
+                ClaudeLaunchCap::at_spawn(crate::config::HarnessKind::ClaudeStdio, &cmd, &env);
+        }
+        let stored = serde_json::to_vec(&m).unwrap();
+        hub.insert_test_session(serde_json::from_slice(&stored).unwrap());
+    }
+    let read = hub.usage_sources(&hub.sessions(), now).await;
+    let cap = |id: &str| {
+        let (_, source) = read.iter().find(|(name, _)| name == id).unwrap();
+        autocompact(source, None)
+    };
+    assert_eq!(cap("first"), (Autocompact::Capped, Some(157_125)));
+    assert_eq!(cap("second"), (Autocompact::Capped, Some(400_000)));
+    assert_eq!(cap("legacy"), (Autocompact::Unknown, None));
+}
+
 /// A reviewer on codex-review-box (`family = "codex-review-box"`) is read as Codex, from the
 /// home its profile keeps for that chat alone (`ACPMUX_CODEX_HOMES_PER_CHAT`): the box binds
 /// `<folder>/<chat id>/sessions` of the host's, so its rollout is there and nowhere else.

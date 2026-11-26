@@ -71,11 +71,27 @@ fn a_fleet_terminal_claude_gets_the_chats_autocompact_window() {
 }
 
 #[test]
+fn a_terminal_uses_the_configured_window_and_leaves_unreadable_settings_alone() {
+    let root = tempfile::tempdir().unwrap();
+    let settings = root.path().join("cmux-next.json");
+    let env = [
+        (acpmux::compaction_policy::ENV_FLEET, "1"),
+        ("CMUX_NEXT_CONFIG_FILE", settings.to_str().unwrap()),
+    ];
+    let (key, _) = acpmux::harness_limits::CLAUDE_AUTOCOMPACT_WINDOW;
+    fs::write(&settings, r#"{"agents":{"claudeAutocompactWindow":157125}}"#).unwrap();
+    assert_eq!(launched_env(root.path(), &env)[key], "157125");
+    fs::write(settings, "{").unwrap();
+    assert!(!launched_env(root.path(), &env).contains_key(key));
+}
+
+#[test]
 fn a_terminal_claude_keeps_the_persons_own_values() {
     let root = tempfile::tempdir().unwrap();
     let env = launched_env(
         root.path(),
         &[
+            (acpmux::compaction_policy::ENV_FLEET, "1"),
             ("CLAUDE_CODE_MAX_RETRIES", "5"),
             ("CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY", "4"),
             ("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", "80"),
@@ -96,7 +112,7 @@ fn a_terminal_claude_keeps_an_autocompact_its_settings_chose() {
     let settings = root.path().join("home/.claude");
     fs::create_dir_all(&settings).unwrap();
     fs::write(settings.join("settings.json"), r#"{"autoCompactWindow":200000}"#).unwrap();
-    let env = launched_env(root.path(), &[]);
+    let env = launched_env(root.path(), &[(acpmux::compaction_policy::ENV_FLEET, "1")]);
     assert!(!env.contains_key("CLAUDE_CODE_AUTO_COMPACT_WINDOW"), "{env:?}");
     assert_eq!(env["CLAUDE_CODE_RETRY_WATCHDOG"], "1");
 }

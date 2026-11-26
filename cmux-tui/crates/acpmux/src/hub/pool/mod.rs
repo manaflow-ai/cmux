@@ -177,6 +177,7 @@ pub(super) struct Pooled {
     /// The question preview format its command was pinned to at prewarm
     /// (`agent::pinned_preview_format`), which the taking session records.
     preview: crate::hub::questions::PreviewFormat,
+    claude_launch_cap: Option<crate::usage_stats::ClaudeLaunchCap>,
     /// Its harness reported full access while MDM forced it off (`pool_reported`). Kept with
     /// the entry, so a report no ready or claimed entry held (one a chat was claiming) still keeps
     /// it from a chat, though the off is unset by then (review 76 of #23322).
@@ -1130,7 +1131,7 @@ impl Hub {
             return Err(e);
         }
         self.forget_adopted_caller(&session.id, &p.record.incarnation);
-        self.record_preview_format(session, p.preview);
+        self.record_launch_settings(session, p.preview, p.claude_launch_cap);
         let tap = self.session_tap(session);
         let mut started = json!({
             "incarnation": p.record.incarnation.clone(),
