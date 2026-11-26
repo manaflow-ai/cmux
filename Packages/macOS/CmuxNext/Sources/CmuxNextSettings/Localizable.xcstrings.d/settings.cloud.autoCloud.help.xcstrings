@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.cloud.autoCloud.help" : {
+      "comment" : "Help for the AutoCloud toggle: where Auto runs a new chat.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto runs a new chat on this Mac when it has room, else on a Cloud machine."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يشغّل التلقائي محادثة جديدة على هذا الـ Mac عندما يتسع لها، وإلا فعلى جهاز سحابي."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Auto pokreće novi razgovor na ovom Macu kada ima mjesta, inače na Cloud mašini."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Auto kører en ny chat på denne Mac, når der er plads, ellers på en Cloud-maskine."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Auto startet einen neuen Chat auf diesem Mac, wenn Platz ist, sonst auf einer Cloud-Maschine."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Auto ejecuta un chat nuevo en este Mac cuando tiene espacio; si no, en una máquina en la nube."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Auto lance une nouvelle discussion sur ce Mac s'il a de la place, sinon sur une machine cloud."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Auto avvia una nuova chat su questo Mac quando ha spazio, altrimenti su una macchina cloud."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "自動は、この Mac に余裕があれば新しいチャットをここで実行し、なければクラウドマシンで実行します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ស្វ័យប្រវត្តិដំណើរការការជជែកថ្មីលើ Mac នេះ នៅពេលមានកន្លែង បើមិនដូច្នោះទេ លើម៉ាស៊ីន Cloud។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "자동은 이 Mac에 여유가 있으면 새 채팅을 여기서, 없으면 클라우드 머신에서 실행합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Auto kjører en ny chat på denne Macen når det er plass, ellers på en Cloud-maskin."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Auto uruchamia nowy czat na tym Macu, gdy jest miejsce, w przeciwnym razie na maszynie w chmurze."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Auto executa uma nova conversa neste Mac quando há espaço; caso contrário, em uma máquina na nuvem."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Авто запускает новый чат на этом Mac, если есть место, иначе на облачной машине."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "อัตโนมัติจะเรียกใช้แชตใหม่บน Mac นี้เมื่อมีที่ว่าง มิฉะนั้นจะใช้เครื่องบนคลาวด์"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Otomatik, yer olduğunda yeni sohbeti bu Mac'te, aksi halde bir Bulut makinesinde çalıştırır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Авто запускає новий чат на цьому Mac, коли є місце, інакше на хмарній машині."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tự động chạy cuộc trò chuyện mới trên máy Mac này khi còn chỗ, nếu không thì trên máy Đám mây."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "自动会在这台 Mac 有余量时在本机运行新聊天，否则在云端机器上运行。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "自動會在這台 Mac 有餘裕時於本機執行新聊天，否則在雲端機器上執行。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
