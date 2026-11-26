@@ -27,7 +27,7 @@ public nonisolated struct SidebarLookPreset {
     /// skipped (the Rust tests keep the shipped files clean). Empty when there is no file. File I/O.
     public static func entries(of name: String, folder: URL?) -> [(path: [String], value: JSONValue)] {
         guard let text = text(of: name, folder: folder) else { return [] }
-        let reply = SettingsRust.answer("sidebar_look.entries", ["name": .string(name), "text": .string(text)])
+        let reply = SettingsRust().answer("sidebar_look.entries", ["name": .string(name), "text": .string(text)])
         return (reply["entries"]?.arrayValue ?? []).compactMap { entry in
             guard let path = entry["path"]?.arrayValue?.compactMap(\.stringValue), let value = entry["value"] else { return nil }
             return (path, value)

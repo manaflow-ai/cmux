@@ -11,18 +11,18 @@ extension BackdropSelectionSetting {
     /// Whether a value is valid for `appearance.backgroundRecents`: an array of at most
     /// ``recentsCap`` different background values.
     static func acceptsRecents(_ value: JSONValue) -> Bool {
-        SettingsRust.answer("backdrop.accepts", ["kind": .string("recents"), "value": value])["valid"]?.boolValue ?? false
+        SettingsRust().answer("backdrop.accepts", ["kind": .string("recents"), "value": value])["valid"]?.boolValue ?? false
     }
 
     /// The valid recents in `root`, newest first.
     public static func recents(in root: JSONValue) -> [String] {
-        SettingsRust.answer("backdrop.recents", ["root": root])["recents"]?.arrayValue?.compactMap(\.stringValue) ?? []
+        SettingsRust().answer("backdrop.recents", ["root": root])["recents"]?.arrayValue?.compactMap(\.stringValue) ?? []
     }
 
     /// The background Switch to Previous Background goes to: the newest recent that is not the
     /// current one (cmux-config previous_background).
     public static func previous(in root: JSONValue) -> String? {
-        SettingsRust.answer("backdrop.previous", ["root": root])["value"]?.stringValue
+        SettingsRust().answer("backdrop.previous", ["root": root])["value"]?.stringValue
     }
 }
 

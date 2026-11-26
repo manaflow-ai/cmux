@@ -39,7 +39,7 @@ public nonisolated struct BrowserOmnibarSetting: Sendable, Hashable {
     /// same page whatever was typed, so it is refused when written and
     /// reported when loaded.
     public static func isSearchTemplate(_ text: String) -> Bool {
-        SettingsRust.answer("omnibar.search_template", ["text": .string(text)])["valid"]?.boolValue ?? false
+        SettingsRust().answer("omnibar.search_template", ["text": .string(text)])["valid"]?.boolValue ?? false
     }
 
     public var searchEngine = BrowserOmnibarSetting.searchEngineDefault
@@ -75,7 +75,7 @@ public nonisolated struct BrowserOmnibarSetting: Sendable, Hashable {
     /// so the parser and the Settings window agree on what is valid.
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> BrowserOmnibarSetting {
         var setting = fallback
-        let reply = SettingsRust.answer("omnibar.parse", ["root": root])
+        let reply = SettingsRust().answer("omnibar.parse", ["root": root])
         let invalid = Set(reply["invalid"]?.arrayValue?.compactMap(\.stringValue) ?? [])
         let clamped = reply["clamped"]?.objectValue ?? [:]
         for descriptor in BrowserSettingsSchema.addressBar {

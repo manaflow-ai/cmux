@@ -1062,7 +1062,8 @@ class PrAutofixTakesTheGeneratedFilesPack(unittest.TestCase):
         self.assertEqual(job["permissions"], {"contents": "read"})
         self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", job["if"])
         lookup = next(s for s in job["steps"] if s.get("id") == "lookup")
-        self.assertEqual(lookup["env"]["GH_TOKEN"], "${{ steps.read-token.outputs.token }}")
+        # The cmux-bot App's read token on even runs, the glaeda route's otherwise (two App budgets).
+        self.assertEqual(lookup["env"]["GH_TOKEN"], "${{ (steps.read-token-bot.outputs.token || steps.read-token.outputs.token) }}")
         self.assertIn("pr-lookup", lookup["run"])
         # One look, no wait: a 10-minute wait hit 1 of 224 lookups (2026-11-20 21:30Z to 11-21 19:40Z).
         self.assertIn("--wait 0 ", lookup["run"])

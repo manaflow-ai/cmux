@@ -416,7 +416,7 @@ class BaseAutofixFinishes(unittest.TestCase):
         self.assertIn("timeout-minutes", step)
         self.assertEqual(job["outputs"]["actions_made_at"], "${{ steps.actions.outputs.made_at }}")
         push = next(s for s in DOC["jobs"]["autofix"]["steps"] if "base-autofix-land.sh" in s.get("run", ""))
-        self.assertEqual(push["env"]["ACTIONS_MADE_AT"], "${{ needs.pushed-exports.outputs.hit == 'true' && needs.pushed-exports.outputs.made_at || needs.action-exports.outputs.actions_made_at }}")
+        self.assertEqual(push["env"]["ACTIONS_MADE_AT"], "${{ needs.pushed-exports.outputs.hit == 'true' && needs.pushed-exports.outputs.made_at || needs.action-exports-linux.outputs.actions_made_at || needs.action-exports.outputs.actions_made_at }}")
         self.assertIn('"$SETTINGS_MADE_AT" "$ACTIONS_MADE_AT"', push["run"])
         self.assertIn("scripts/cmux-next/base-autofix-action-exports.sh", DOC[True]["push"]["paths"])
         self.assertGreaterEqual(job["timeout-minutes"], step["timeout-minutes"] + 40)
@@ -439,7 +439,7 @@ class BaseAutofixFinishes(unittest.TestCase):
 
     def test_the_push_judges_the_settings_exports_from_where_they_were_made(self):
         step = next(step for step in DOC["jobs"]["autofix"]["steps"] if step.get("name") == "Push the repairs")
-        self.assertEqual(step["env"]["SETTINGS_MADE_AT"], "${{ needs.pushed-exports.outputs.hit == 'true' && needs.pushed-exports.outputs.made_at || needs.action-exports.outputs.settings_made_at }}")
+        self.assertEqual(step["env"]["SETTINGS_MADE_AT"], "${{ needs.pushed-exports.outputs.hit == 'true' && needs.pushed-exports.outputs.made_at || needs.settings-exports-linux.outputs.settings_made_at || needs.action-exports.outputs.settings_made_at }}")
         self.assertIn('"$HEAD_SHA" "$SETTINGS_MADE_AT"', step["run"])
 
     def test_the_push_script_knows_every_settings_export(self):
