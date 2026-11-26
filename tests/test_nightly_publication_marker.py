@@ -58,10 +58,13 @@ class NightlyPublicationMarkerTests(unittest.TestCase):
                 if published_sha:
                     body += f"<!-- cmux-published-sha: {published_sha} -->"
                 output = io.StringIO()
-                with patch("urllib.request.urlopen", return_value=io.StringIO(json.dumps({"body": body}))), \
+                answer = subprocess.CompletedProcess([], 0, json.dumps({"body": body}), "")
+                with patch("subprocess.run", return_value=answer) as gh, \
                         patch.object(sys, "argv", ["-", "test/repo", "nightly", self.SHA, "100"]), \
-                        patch.dict(os.environ, {"GH_TOKEN": "fixture"}), contextlib.redirect_stdout(output):
+                        contextlib.redirect_stdout(output):
                     exec(compile(lookup, str(WORKFLOW), "exec"), {})
+                # the read goes through gh (gh_app_token.sh: the release App, github.token as the fallback)
+                self.assertEqual(gh.call_args.args[0], ["gh", "api", "repos/test/repo/releases/tags/nightly"])
                 result = dict(line.split("=", 1) for line in output.getvalue().splitlines())
                 env = SimpleNamespace(
                     ALREADY_PUBLISHED=result.get("already_published", "false"),
@@ -69,6 +72,25 @@ class NightlyPublicationMarkerTests(unittest.TestCase):
                 )
                 self.assertEqual(env.ALREADY_PUBLISHED != "true", should_publish)
                 self.assertEqual(eval(closure, {"env": env}), should_close)
+
+    def test_the_release_read_goes_through_gh_and_a_missing_release_is_no_failure(self):
+        steps = {step["name"]: step for step in yaml.safe_load(WORKFLOW.read_text())["jobs"]["publish"]["steps"]}
+        lookup = steps["Reject stale continuation before publication"]["run"].split("\n", 2)[2].split("\nPY\n", 1)[0]
+        self.assertNotIn("urllib", lookup)  # run 45877517910: a bare github.token read was refused 403
+        for code, err, missing in ((1, "gh: Not Found (HTTP 404)", True), (1, "gh: Forbidden (HTTP 403)", False)):
+            output = io.StringIO()
+            with patch("subprocess.run", return_value=subprocess.CompletedProcess([], code, "", err)), \
+                    patch.object(sys, "argv", ["-", "test/repo", "nightly", self.SHA, "100"]), \
+                    contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
+                if missing:
+                    with self.assertRaises(SystemExit) as end:
+                        exec(compile(lookup, str(WORKFLOW), "exec"), {})
+                    self.assertIn(end.exception.code, (0, None))
+                    self.assertIn("release_missing=true", output.getvalue())
+                else:
+                    with self.assertRaises(SystemExit) as end:
+                        exec(compile(lookup, str(WORKFLOW), "exec"), {})
+                    self.assertIn("exited 1", str(end.exception.code))
 
     def _run_continuation_close(self, compare_status):
         steps = {step["name"]: step for step in yaml.safe_load(WORKFLOW.read_text())["jobs"]["publish"]["steps"]}
