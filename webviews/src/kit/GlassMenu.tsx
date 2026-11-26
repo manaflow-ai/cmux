@@ -14,7 +14,7 @@ export type GlassMenuItem =
       label: ReactNode;
       /** A cmux icon name (`Icon`). */
       icon?: string;
-      shortcut?: ReactNode;
+      shortcut?: string;
       /** A destructive action: the danger role for its text. */
       danger?: boolean;
       disabled?: boolean;
