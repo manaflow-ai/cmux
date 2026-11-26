@@ -19,6 +19,9 @@ Subcommands (each run by .github/workflows/cmux-next-post-merge.yml, except tick
           commit, no other batch run is in flight, and the tip is at least NEXT_POST_MERGE_EVERY_MERGES
           commits ahead of the newest batch run's commit (one compare call) or that run started at
           least a window ago. Nothing waits or loops; a skipped tick costs seconds.
+          Each tick also starts the hourly full tier (cmux-next-hourly-full-tier.yml, scripts/ci/hourly_full_tier.py)
+          when it is due (hourly_kick): no run in flight, the newest one at least HOURLY_MINUTES old and not at the
+          tip. Its failure never stops the batch tick.
   plan    which suites this run calls: on a batch run, every suite whose paths the commits since
           the last batch run touched (all of them when there is none); on a probe, the one suite.
   judge   after the suites: on a batch run, each red job that was green on the newest earlier
@@ -84,6 +87,26 @@ PIECES_DRILL = "lane/post-merge-drill-pieces-"
 TEAMMATES = frozenset({"austinywang", "azooz2003-bit", "lawrencecchen", "lucasr1b"})
 TEAMMATE_HOLD = ("HOLD: {login}'s merge. This revert is ready for {login} to land or close; no agent merges it "
                  "(a teammate's PR is never merged, labelled or closed by an agent).")
+
+
+# next-autoland's hand-off label (cmuxterm-hq tools/fleet-reconcilers/next_autoland.py LABEL): on it, the PR is
+# ready, is reviewed and lands like any agent PR once its checks pass, and it starts the full CI tier
+# (scripts/ci/head_tier.py LAND_LABEL). Goal base-batch-reverts-culprit: a confirmed culprit's revert lands
+# with no person. A teammate's held revert never gets it (TEAMMATE_HOLD): it waits for them.
+LAND_LABEL = "ready-to-land"
+
+
+def hand_off(repo: str, number: int, author: str, api=None) -> str:
+    """Labels the revert or swap-out pull request `number` LAND_LABEL unless `author` (a teammate) holds it. Returns
+    the line for the run summary. A refused label leaves the pull request open for normal landing: it is the record."""
+    if author:
+        return f"Held for {author}: not labelled {LAND_LABEL}."
+    try:
+        (api or gh_api)(f"repos/{repo}/issues/{number}/labels", method="POST", fields={"labels": [LAND_LABEL]})
+    except RuntimeError as err:
+        print(f"label {LAND_LABEL} on #{number}: {err}", file=sys.stderr)
+        return f"Could not label it {LAND_LABEL} ({str(err)[-160:]}); it waits for normal landing."
+    return f"Labelled {LAND_LABEL}: next-autoland lands it once it is reviewed and green."
 
 
 # ---------------------------------------------------------------------------- GitHub and git
@@ -406,6 +429,43 @@ def ahead_by(repo: str, base: str, tip: str, api=None) -> int | None:
     return count if isinstance(count, int) else None
 
 
+HOURLY_WORKFLOW = "cmux-next-hourly-full-tier.yml"
+HOURLY_MINUTES = 55  # the 30-minute schedule's ticks land at most an hour apart: :11 and :41
+
+
+def hourly_decision(tip: str, runs: list[dict], now: datetime, minutes: int = HOURLY_MINUTES) -> tuple[str, str]:
+    """Whether to start the hourly full tier at TIP. RUNS: its runs, newest first."""
+    if any(r.get("status") != "completed" for r in runs):
+        return "skip", "an hourly full tier run is in flight"
+    if not runs:
+        return "dispatch", "no hourly full tier run yet"
+    newest = runs[0]
+    if newest.get("head_sha") == tip:
+        return "skip", "the tip has not moved since the last hourly full tier run"
+    age = (now - parse_time(newest.get("created_at") or "")).total_seconds() / 60
+    if age < minutes:
+        return "skip", f"the last hourly full tier run is {age:.0f} min old"
+    return "dispatch", f"the tip moved since {str(newest.get('head_sha') or '')[:10]}, {age:.0f} min ago"
+
+
+def hourly_kick(args: argparse.Namespace, tip: str, now: datetime, api=None) -> str:
+    """Start cmux-next-hourly-full-tier.yml on the branch when hourly_decision says so; any API error is a warning."""
+    api = api or gh_api
+    try:
+        data = api(f"repos/{args.repo}/actions/workflows/{HOURLY_WORKFLOW}/runs?branch={args.branch}&per_page=5")
+        runs = sorted((data or {}).get("workflow_runs") or [],
+                      key=lambda r: (r.get("created_at") or "", r.get("id") or 0), reverse=True)
+        action, reason = hourly_decision(tip, runs, now)
+        print(f"hourly full tier: {action}: {reason}")
+        if action == "dispatch" and not args.dry_run:
+            api(f"repos/{args.repo}/actions/workflows/{HOURLY_WORKFLOW}/dispatches", method="POST",
+                fields={"ref": args.branch})
+        return action
+    except (RuntimeError, ValueError, KeyError, TypeError) as err:
+        print(f"::warning::hourly full tier kick skipped: {err}")
+        return "error"
+
+
 def cmd_tick(args: argparse.Namespace) -> int:
     # A tick that cannot read GitHub (a spent rate limit, a 5xx) skips: the next tick, 30 min on, asks again, and a
     # red scheduled run would only pile up while the quota is drained.
@@ -420,6 +480,7 @@ def tick(args: argparse.Namespace) -> int:
     # No web tick: the batch's `web` suite gives the base its web verdict, so cmux-next-web.yml's coalescing
     # tick (#49173) would run the same checks a second time.
     tip = gh_api(f"repos/{args.repo}/commits/{args.branch}")["sha"]
+    hourly_kick(args, tip, datetime.now(timezone.utc))
     runs = list_runs(args.repo, args.branch)
     def judged(run_id: int) -> bool:
         return any(j.get("name") == "judge" and j.get("conclusion") == "success" for j in run_jobs(args.repo, run_id))
@@ -479,7 +540,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
     if args.mode == PROBE:
         if args.suite not in suites or not SHA_RE.match(args.probe_sha or ""):
             raise SystemExit(f"probe needs a known suite and a commit sha (got {args.suite!r}, {args.probe_sha!r})")
-        write_outputs(args.github_output, {"suites": f" {args.suite} ", "sha": args.probe_sha, "only": args.only or "", "base": ""})
+        write_outputs(args.github_output, {"suites": f" {args.suite} ", "sha": args.probe_sha, "only": args.only or "", "base": args.good if SHA_RE.match(args.good or "") else ""})
         summary(args.summary, f"Probe: `{args.suite}` job `{args.only or '(all)'}` at `{args.probe_sha}`.")
         return 0
     def judged(run_id: int) -> bool:
@@ -693,11 +754,34 @@ def probe_refusal(probe: Probe, branch: str, origin: dict | None, found: list[tu
     return ""
 
 
-def dispatch_probe(repo: str, branch: str, probe: Probe, api=None) -> None:
+# GitHub answers a workflow dispatch with a 5xx now and then (HTTP 500 "Failed to run workflow dispatch", 502
+# "Server Error"); before this retry one such answer ended the judge and with it the bisect: nothing dispatched the
+# next probe, so the red stayed unbisected (cmux runs 45834479312 and 45839196986, 11-26).
+SERVER_ERROR = re.compile(r"HTTP 5\d\d|Server Error", re.I)
+DISPATCH_WAITS = (15, 45)
+
+
+def dispatch_probe(repo: str, branch: str, probe: Probe, api=None, sleep=time.sleep) -> None:
+    """Dispatch one probe. A 5xx may still have started the run, so before each retry this looks for a probe
+    run of the same title (the workflow's run-name) on the branch, and stops if one is there."""
     # DISPATCH_TOKEN: the revert job's GITHUB_TOKEN (actions: write), whose GH_TOKEN may be the App's, which has none.
     api = api or gh_api  # looked up per call, so a test's patch of gh_api reaches it
     token = os.environ.get("DISPATCH_TOKEN") or os.environ.get("GH_TOKEN", "")
-    api(f"repos/{repo}/actions/workflows/{WORKFLOW}/dispatches", method="POST", fields={"ref": branch, "inputs": probe.inputs()}, tokens=[token])
+    title = f"{PROBE} {probe.suite} {probe.only or 'all'} at {probe.sha}"
+    for attempt, wait in enumerate((*DISPATCH_WAITS, None)):
+        if attempt:
+            listed = api(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?branch={branch}&event=workflow_dispatch&per_page=20")
+            if any((r.get("display_title") or "") == title and r.get("status") != "completed" for r in (listed or {}).get("workflow_runs", [])):
+                print(f"dispatch of `{title}` answered 5xx but its run started", file=sys.stderr)
+                return
+        try:
+            api(f"repos/{repo}/actions/workflows/{WORKFLOW}/dispatches", method="POST", fields={"ref": branch, "inputs": probe.inputs()}, tokens=[token])
+            return
+        except RuntimeError as e:
+            if wait is None or not SERVER_ERROR.search(str(e)):
+                raise
+            print(f"dispatch of `{title}`: {e}; retrying in {wait}s", file=sys.stderr)
+            sleep(wait)
 
 
 def piece_probe_refusal(probe: Probe, state, branch: str, origin: dict | None, found, covered, tree=None) -> str:
@@ -987,7 +1071,7 @@ def open_swapout(args: argparse.Namespace, culprit: str, subject: str, pr: str, 
     publish(args, branch, git("rev-parse", "HEAD").strip(), f"+{sha}:refs/heads/{branch}", piece.files,
             f"python3 scripts/ci/piece_swap.py out {culprit} --piece {piece.id} --onto origin/{args.branch}")
     created = gh_api(f"repos/{args.repo}/pulls", method="POST", fields={"head": branch, "base": args.branch, "title": title, "body": body})
-    summary(args.summary, f"Swap-out pull request: {created['html_url']}")
+    summary(args.summary, f"Swap-out pull request: {created['html_url']}. {hand_off(args.repo, created['number'], author)}")
     write_outputs(args.github_output, {"url": created["html_url"]})
     if pr:
         mark = SWAPOUT_MARK.format(culprit=culprit, job=args.job)
@@ -1038,7 +1122,8 @@ def cmd_revert(args: argparse.Namespace) -> int:
     land = (
         f"This revert is {author}'s to land or close; no agent lands it."
         if author
-        else "The base-break rule restores the base first: land this through normal landing, then reland the change with its fix."
+        else f"The base-break rule restores the base first: this carries `{LAND_LABEL}`, so it lands with no person once reviewed "
+        "and green; then reland the change with its fix."
     )
     body = "\n\n".join(
         ([TEAMMATE_HOLD.format(login=author)] if author else [])
@@ -1046,7 +1131,7 @@ def cmd_revert(args: argparse.Namespace) -> int:
             f"Reverts {who} (`{culprit}`): the post-merge batch run {origin} found `{args.job}` red on {args.branch}; "
             f"it was green at `{args.good}`, and the bisect over the commits between (only that job) names {who} as the first red one ({this}).",
             f"{land} If the red is not this change's (a flake that repeated, an outside service), close this and say so.",
-            "Opened by cmux-next-post-merge.yml (scripts/ci/post_merge_batch.py revert); it never merges a revert.",
+            "Opened by cmux-next-post-merge.yml (scripts/ci/post_merge_batch.py revert); it never merges a revert itself.",
         ]
     )
     title = revert_title(subject, args.job, args.branch)
@@ -1058,7 +1143,7 @@ def cmd_revert(args: argparse.Namespace) -> int:
         method="POST",
         fields={"head": branch, "base": args.branch, "title": title, "body": body},
     )
-    summary(args.summary, f"Revert pull request: {created['html_url']}")
+    summary(args.summary, f"Revert pull request: {created['html_url']}. {hand_off(args.repo, created['number'], author)}")
     write_outputs(args.github_output, {"url": created["html_url"]})
     return 0
 

@@ -41,6 +41,8 @@ mod modes;
 mod moved;
 #[path = "auto_journey/native.rs"]
 mod native;
+#[path = "auto_journey/replica.rs"]
+mod replica;
 #[path = "auto_journey/steps.rs"]
 mod steps;
 #[path = "auto_journey/taking.rs"]

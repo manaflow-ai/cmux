@@ -1,5 +1,6 @@
 import CmuxMobileTransport
 import enum CmuxMobileModel.UserFacingError
+import struct CmuxMobileModel.BoundedWait
 import Foundation
 import Observation
 import os
@@ -198,6 +199,9 @@ public final class StreamedBrowserModel: BrowserTabState {
     /// The stream closed and only ``reopen()`` (or showing the page again)
     /// opens it: the Mac stopped the page, or another viewer took it.
     public private(set) var canReopen = false
+    /// The last open failed for a reason that can pass (not a refusal, not a Mac without
+    /// the host): the page opens it again on its own (``reconnectAnswered()``), never Retry.
+    public private(set) var openFailed = false
     @ObservationIgnored private var samples: [Meter.Sample] = []
     /// A shown page that stopped (no picture after a keyframe was asked for):
     /// asks again, restarts the decoder, then opens the stream again.
@@ -293,6 +297,7 @@ public final class StreamedBrowserModel: BrowserTabState {
         guard connection == nil, !connecting, screen != nil else { return }
         connecting = true
         canReopen = false
+        openFailed = false
         phase = reconnecting ? .waiting(Self.reconnectingText) : .connecting
         let sink = Sink(model: self)
         self.sink = sink
@@ -312,7 +317,7 @@ public final class StreamedBrowserModel: BrowserTabState {
                 if LinkErrorText.noBrowserHost(error) {
                     self?.unavailable()
                 } else {
-                    self?.failed(LinkErrorText.describe(error))
+                    self?.failed(LinkErrorText.describe(error), retries: LinkErrorText.retries(error))
                 }
             }
         }
@@ -411,12 +416,31 @@ public final class StreamedBrowserModel: BrowserTabState {
         phase = .unavailable
     }
 
-    private func failed(_ reason: String) {
+    private func failed(_ reason: String, retries: Bool) {
         connecting = false
         reconnecting = false
         sink = nil
+        openFailed = retries
         phase = .waiting(reason)
     }
+
+    #if os(iOS)
+    /// One open again after a failed one, answered: returns once it failed again, went
+    /// live, or settled where only a person (Reopen) or the Mac can move it, at most
+    /// `bound` later. ``AutoRetry`` waits on this.
+    public func reconnectAnswered(within bound: Duration = .seconds(20)) async {
+        reconnect()
+        // The bound: an open that never answers lets the stall watchdog and the next retry run.
+        await BoundedWait(bound).run { @MainActor [weak self] in
+            // No strong reference across the wait: a page closed meanwhile goes away.
+            await BoundedWait.observing { self?.openAnswered == false }
+        }
+    }
+
+    /// Whether the last open answered: failed, went live, or settled where only a person
+    /// (Reopen) or the Mac can move it.
+    private var openAnswered: Bool { openFailed || canReopen || phase == .live || phase == .unavailable }
+    #endif
 
     fileprivate func received(_ json: [String: Any], from sink: Sink) {
         guard sink === self.sink else { return }
@@ -1098,7 +1122,12 @@ enum LinkErrorText {
             }
             return UserFacingError.message(error)
         }
-        return UserFacingError.message(error, fallback: "The page couldn't load. Try again.")
+        return UserFacingError.message(error, fallback: "The page couldn't load.")
+    }
+
+    /// A failed open worth opening again on its own: not the Mac refusing the address.
+    static func retries(_ error: any Error) -> Bool {
+        (error as? LinkError)?.code != "forbidden"
     }
 }
 

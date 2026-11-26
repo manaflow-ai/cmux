@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from functools import lru_cache
+import hashlib
 import importlib.util
 import os
 from pathlib import Path
@@ -205,6 +206,9 @@ REACT_EXACT = {
     "scripts/ci/guards_new_reds.py",
     # and the base's flake history that keeps a test flipping there a warning.
     "scripts/ci/webviews_test_history.py",
+    # A feat-cmux-next pull request's run on the fleet (ci/steps.toml's react-apps-check) and the rule both sides ask.
+    "scripts/ci/react-apps-check-fleet.sh",
+    "scripts/ci/react_apps_fleet.py",
     # It also runs the test of the PR scoping of ui-rules and gallery coverage.
     "scripts/tests/test_pr_scoped_webviews_checks.py",
     "scripts/check-webviews-bun-version.sh",
@@ -213,6 +217,11 @@ REACT_EXACT = {
     # The generated agent pane page, its build and regenerate scripts, and
     # the merge driver that keeps it mergeable: react-apps-check verifies
     # the page and runs the driver's test.
+    # The relay's params rule and its Rust mirror: webviews/test/agent-pane-relay-params-contract.test.ts
+    # checks every key the page sends against both, so a relay-only PR runs it too (cmux#46563).
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods+Params.swift",
+    "cmux-tui/crates/cmux-agent-pane-policy/policy.json",
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html",
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/pane.js",
     "scripts/cmux-next/build-agent-pane-web.sh",
@@ -248,8 +257,21 @@ CHAT_FLOW_PREFIXES = (
 # A cmux-tui/ path routes the real-daemon lane through acpmux_build_input (below), not by prefix.
 AGENT_PANE_PREFIXES = (
     ".github/actions/setup-cmux-tui-rust/",
+    # Inputs of `cargo build -p acpmux --bin acpmux` outside cmux-tui/ (the same set as ci/steps.toml's
+    # agent-pane-real-acpmux inputs): the real-daemon lane only, the chat-flow lane builds no Rust.
+    ".cargo/",
+    "skills/",
+    "persisted-formats/",
+    "Resources/sidebar-looks/",
+    "Resources/theme-files/",
     *CHAT_FLOW_PREFIXES,
 )
+ACPMUX_BUILD_EXACT = {
+    "ghostty-next",
+    "workers/cmux-vm/cli/crates/cmux-vm-codegen/src/normalize.rs",
+    "plans/cmux-next/spec-proposals/visuals/design-tokens.json",
+    "docs/remote-agents-and-cloud.md",
+}
 
 # agent-pane-real-acpmux builds one Rust binary, `cargo build -p acpmux --bin acpmux`: of cmux-tui/crates/, only
 # the crates in its build (its [dependencies] and [build-dependencies] by path, transitively) and the crates their
@@ -361,6 +383,72 @@ def web_bundle_input_matcher(root: str):
         return key.pathspec_matcher(key.INPUTS)
 
 
+# The green-marker keys (ci500k, Leo: "de facto, im asking for 99% fewer minutes of ci time, period."). A pull
+# request whose merge tree and merge parent hold the same React inputs as a head that already passed
+# (a base merge, a label event, a push that touched no React input) has nothing new to prove: ci-web.yml looks the
+# key up in the Actions cache (reuse step) and skips the job, and the passing run saves it. Only the inputs
+# the router already names count, plus the scripts and actions the jobs run; a change to any of them is a new key.
+KEY_VERSION = "v1"
+KEY_COMMON_EXACT = {".github/workflows/ci-web.yml"}
+KEY_COMMON_PREFIXES = ("scripts/ci/", "scripts/cmux-next/", ".github/actions/")
+
+
+def _is_react_input(path: str, matcher) -> bool:
+    return path in REACT_EXACT or path.startswith(REACT_PREFIXES) or (matcher is not None and matcher(path))
+
+
+def _is_agent_pane_input(path: str, matcher, root: Path) -> bool:
+    # The same set routes() runs the lane on: a cmux-tui/ path counts only when acpmux's build reads it.
+    return (
+        path in AGENT_PANE_EXACT
+        or path.startswith(AGENT_PANE_PREFIXES)
+        or acpmux_build_input(path, root)
+        or _is_react_input(path, matcher)
+    )
+
+
+def tree_input_key(rev: str, root: Path, predicate) -> str | None:
+    """sha256 of the (path, blob) pairs of `rev`'s tree that `predicate` selects, or None when the tree is unreadable."""
+    listing = subprocess.run(["git", "ls-tree", "-r", "-z", rev], capture_output=True, cwd=root)
+    if listing.returncode != 0:
+        return None
+    digest = hashlib.sha256()
+    for entry in listing.stdout.split(b"\0"):
+        if not entry:
+            continue
+        meta, _, raw = entry.partition(b"\t")
+        path = os.fsdecode(raw)
+        if path in ALL_SUBAREA_INPUTS or path in KEY_COMMON_EXACT or path.startswith(KEY_COMMON_PREFIXES) or predicate(path):
+            digest.update(meta.split(b" ")[2] + b" " + raw + b"\n")
+    return digest.hexdigest()
+
+
+def green_key(kind: str, root: Path | None = None) -> str:
+    """`kind` is react or agent. The key of HEAD's inputs and its merge parent's, or "" (no reuse) when unreadable."""
+    root = Path.cwd() if root is None else root
+    matcher = web_bundle_input_matcher(str(root.resolve()))
+    if kind == "react":
+        predicate = lambda p: _is_react_input(p, matcher)  # noqa: E731
+    else:
+        predicate = lambda p: _is_agent_pane_input(p, matcher, root)  # noqa: E731
+    heads = [tree_input_key(rev, root, predicate) for rev in ("HEAD", "HEAD^1")]
+    if None in heads:
+        return ""
+    return hashlib.sha256(f"{KEY_VERSION} {kind} {heads[0]} {heads[1]}".encode()).hexdigest()[:40]
+
+
+def is_react_input(path: str, repo_root: Path) -> bool:
+    """True when a change to `path` runs react-apps-check: the one test classify_paths applies, so a content-addressed
+    key over these paths (react_shard_receipt.py) names exactly the files whose change the router already runs the
+    check for."""
+    if path in ALL_SUBAREA_INPUTS or path in REACT_EXACT or path.startswith(REACT_PREFIXES):
+        return True
+    matcher = web_bundle_input_matcher(str(repo_root.resolve()))
+    if matcher is None:
+        raise RuntimeError("web bundle inputs unavailable")
+    return bool(matcher(path))
+
+
 def classify_paths(paths: list[str], repo_root: Path | None = None) -> WebSubareas:
     root = Path.cwd() if repo_root is None else repo_root
     db = False
@@ -414,7 +502,7 @@ def classify_paths(paths: list[str], repo_root: Path | None = None) -> WebSubare
 
         if path in AGENT_PANE_EXACT or path.startswith(CHAT_FLOW_PREFIXES):
             agent_pane = chat_flow = True
-        if path.startswith(AGENT_PANE_PREFIXES) or acpmux_build_input(path, root):
+        if path in ACPMUX_BUILD_EXACT or path.startswith(AGENT_PANE_PREFIXES) or acpmux_build_input(path, root):
             agent_pane = True
 
         if path in UNIT_TESTS_EXACT or (
@@ -491,6 +579,10 @@ def route() -> int:
     ):
         areas = replace(areas, react_apps=True)
     areas.emit(output)
+    if os.environ.get("EVENT_NAME") == "pull_request" and not push_base:
+        with output.open("a", encoding="utf-8") as handle:
+            handle.write(f"react_key={green_key('react') if areas.react_apps else ''}\n")
+            handle.write(f"agent_key={green_key('agent') if areas.agent_pane else ''}\n")
     return 0
 
 
