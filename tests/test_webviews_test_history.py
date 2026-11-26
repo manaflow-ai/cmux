@@ -99,13 +99,24 @@ class ShardSize(unittest.TestCase):
         for name in WEBVIEW_JOBS:
             runs_on = self.jobs[name]["runs-on"]
             self.assertNotIn("linux_16", runs_on, name)
-            self.assertEqual(runs_on, one_linux_label.CANONICAL, name)
+            # #50078 (Leo, 2026-11-23): the React jobs read vars.CI_REACT_SHARD_RUNNER first, falling back to the one
+            # owned label; forks never read it.
+            react = one_linux_label.CANONICAL.replace(f"|| '{one_linux_label.LABEL}' }}}}",
+                                                      f"|| vars.CI_REACT_SHARD_RUNNER || '{one_linux_label.LABEL}' }}}}")
+            self.assertNotEqual(react, one_linux_label.CANONICAL)
+            self.assertEqual(runs_on, react, name)
             self.assertEqual(evaluate(runs_on, EVENTS["push"]), "cmux-linux", name)
             self.assertEqual(evaluate(runs_on, EVENTS["same-repository pull request"]), "cmux-linux", name)
             self.assertEqual(evaluate(runs_on, EVENTS["fork pull request"]), "ubuntu-24.04", name)
             self.assertEqual(evaluate(runs_on, EVENTS["fork repository"]), "ubuntu-24.04", name)
             forked = {**EVENTS["fork pull request"], "vars.CI_FORK_LINUX_RUNNER": "ubuntu-24.04-large"}
             self.assertEqual(evaluate(runs_on, forked), "ubuntu-24.04-large", name)
+            for label in ("push", "same-repository pull request"):
+                chosen = {**EVENTS[label], "vars.CI_REACT_SHARD_RUNNER": "freestyle-react"}
+                self.assertEqual(evaluate(runs_on, chosen), "freestyle-react", name)
+            for label in ("fork pull request", "fork repository"):
+                chosen = {**EVENTS[label], "vars.CI_REACT_SHARD_RUNNER": "freestyle-react"}
+                self.assertEqual(evaluate(runs_on, chosen), "ubuntu-24.04", name)
 
     def test_a_post_merge_batch_shard_reads_the_owned_runner(self):
         """Run 44990794651's batch shards read linux_4 (a workflow_dispatch is neither a push nor a pull request) and
