@@ -206,7 +206,7 @@ const PATHS: Partial<Record<SlotGlyph, readonly [string, string]>> = {
     "M8 3.5h3A1.5 1.5 0 0 1 12.5 5v6a1.5 1.5 0 0 1-1.5 1.5H8",
   ],
   return: RETURN_GLYPH_PATH.split(/(?=M)/).reverse() as unknown as readonly [string, string],
-  arrow: ["M3.9 7.5 8 3.4l4.1 4.1", "M8 12.9V3.4"],
+  arrow: ["M2.9 7 8 1.9 13.1 7", "M8 14.1V1.9"],
 };
 const SAMPLES = 24;
 const sampled = new Map<string, Array<[number, number]>>();
