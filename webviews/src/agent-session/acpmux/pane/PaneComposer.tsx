@@ -22,7 +22,7 @@ import { INSTALL_COMMANDS } from "../harnesses/harnessRows";
 import { heldPick } from "../newtab/draftFolder";
 import { startThenSend } from "./firstSend";
 import { cloudSendAgent, cloudStartModePick } from "../cloudModePick";
-import { rememberStartedProject } from "../newtab/startedProject";
+import { rememberCloudPick, rememberStartedProject } from "../newtab/startedProject";
 import { writePersistedDraft } from "../composerDraft";
 import { Composer, type ComposerHandle, type ComposerWake, type ComposerRelay } from "../Composer";
 import type { BrowseRequest } from "../browseProject";
@@ -38,8 +38,10 @@ import { pullTabCounts } from "../subagents/trayPullTabModel";
 import { isWaitingForWords, type Dictation } from "../dictation";
 import { SIDE_COMMAND } from "../composer/sendMenuModel";
 import { DictationNotice } from "../DictationNotice";
-import { ACTIVITY_LINE, DATE, THINKING, WORKING } from "../conversation/turns";
+import { DATE, THINKING, WORKING } from "../conversation/turns";
 import { switchForks } from "../conversation/messageMenu";
+import { DEFAULT_PICK_MODEL, lastPick } from "../lastPick";
+import { cloudAgentPick } from "../cloudAgentPick";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { HarnessStatusCard } from "../HarnessStatusCard";
 import { cloudStartFolder, cloudPickExtras } from "../cloudRun";
@@ -85,7 +87,7 @@ import { hatShows, type HatQuestion } from "../question/hatModel";
 import { keptInChat, removeQueued, sendWhenTaken, heldRefusal, heldGoesAfterTrust, type SentFrom } from "./sendHost";
 import { keptAttachments } from "./draftHost";
 import { withdrawForTypedReply } from "./hatHost";
-import type { AcpmuxSnapshot, AcpmuxPlanEntry, AcpmuxRow, AcpmuxPermission } from "../model";
+import type { AcpmuxSnapshot, AcpmuxRow, AcpmuxPermission } from "../model";
 import type { RunMode, SandboxRun, SandboxTab, AutoRow } from "../sandboxRun";
 import type { CloudEnvironmentPick } from "../cloudEnvironmentChoice";
 import type { CloudChatHintState } from "../cloudChatHintModel";
@@ -254,8 +256,6 @@ export type PaneComposerDeps = {
   trayNode: React.JSX.Element | null;
   trayList: TrayItem[];
   waitingAgents: Set<string>;
-  hatPlan: readonly AcpmuxPlanEntry[] | undefined;
-  hatKept: boolean;
   trayHandle: TrayHandleSide;
   /// Where the tucked hat's pill stands: trayHandle, or aside when the jump stack takes the center
   /// line (hatSide, hatPillPlace.experiment.ts).
@@ -517,8 +517,6 @@ export function drawPaneComposer({
   trayNode,
   trayList,
   waitingAgents,
-  hatPlan,
-  hatKept,
   trayHandle,
   hatHandle,
   hatPillArm,
@@ -978,7 +976,6 @@ export function drawPaneComposer({
             <TrayPullTab
               chat={shownSessionId}
               {...pullTabCounts(trayList, waitingAgents)}
-              working={hatPlan !== undefined && hatPlan.length > 0 && !hatKept}
               side={hatHandle}
               quiet={hatPillQuiet(hatPillArm) && (hatHandle !== trayHandle || hatPillInMiddle(hatPillArm))}
             />
@@ -1114,11 +1111,23 @@ export function drawPaneComposer({
                 const folder = once ?? cloudStartFolder(cloudSourcePick(projectDraft ?? composerSnapshot.summary?.cwd));
                 // Each send records its complete folder, so a Retry repeats this send's folder, never an older one's.
                 cloudRetryFolder.current = folder;
+                // The agent picked for the machine (cloudAgentPick.ts) goes first: the chips show it.
+                const machinePick = cloudAgentPick();
                 const held = heldPick(composerSnapshot);
                 const shownModel = composerSnapshot.summary?.model;
-                const cloudShownAgent = {
-                  harness: held.harness ?? composerSnapshot.summary?.harness ?? healthHarness,
-                  model: held.model ?? (shownModel && shownModel !== "default" ? shownModel : undefined),
+                // Before the picker has a harness (the catalog still listing), the person's last local pick
+                // goes, so a Cloud send never falls back to Claude over the agent they use here (cmux#51731).
+                const remembered = lastPick(composerSnapshot.summary?.cwd);
+                const shownHarness = held.harness || composerSnapshot.summary?.harness || healthHarness;
+                const cloudShownAgent = machinePick ?? {
+                  harness: shownHarness || remembered?.harness,
+                  model:
+                    held.model ??
+                    (shownModel && shownModel !== "default"
+                      ? shownModel
+                      : !shownHarness && remembered?.model !== DEFAULT_PICK_MODEL
+                        ? remembered?.model
+                        : undefined),
                 };
                 const started = sendToCloud(
                   text,
@@ -1145,6 +1154,11 @@ export function drawPaneComposer({
                   directClient.current?.notice(started);
                   return false;
                 }
+                // The folder the person picked (here or by an earlier Cloud start) is Cloud's next default, kept
+                // apart from This Mac's (newtab/startedProject.ts, cmux#53226); the tab folder's GitHub origin no
+                // one picked never is.
+                if (started === true && "cwd" in folder && folder.cwd === pickedProject.current)
+                  rememberCloudPick(folder.cwd, callNative);
                 return started;
               }
               if (sandboxPickedNotOffered) {
@@ -1193,7 +1207,7 @@ export function drawPaneComposer({
                     .join("\n\n");
                   const anchor = [...turnRowsShown]
                     .reverse()
-                    .find((row) => ![WORKING, THINKING, ACTIVITY_LINE, DATE].includes(row.kind));
+                    .find((row) => ![WORKING, THINKING, DATE].includes(row.kind));
                   const client = directClient.current;
                   btwNotes.ask(
                     snapshot.sessionId,
