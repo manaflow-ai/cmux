@@ -1,3 +1,4 @@
+import CmuxEgress
 public import Foundation
 
 /// Gets a remote suggest response. The App uses `URLSessionSuggestFetcher`;
@@ -13,7 +14,7 @@ public nonisolated protocol OmniboxSuggestFetching: Sendable {
 /// (search engine cookies, such as a Kagi login, apply), an ephemeral one
 /// for private profiles. Neither logs the request.
 public nonisolated struct URLSessionSuggestFetcher: OmniboxSuggestFetching {
-    private static let privateSession = URLSession(configuration: .ephemeral)
+    private static let privateSession = CmuxEgress.session(site: "CmuxNextBrowser.OmniboxRemoteFetch", configuration: .ephemeral)
 
     public init() {}
 
@@ -21,7 +22,8 @@ public nonisolated struct URLSessionSuggestFetcher: OmniboxSuggestFetching {
         var request = URLRequest(url: url)
         request.setValue("application/json, application/x-suggestions+json", forHTTPHeaderField: "Accept")
         request.cachePolicy = ephemeral ? .reloadIgnoringLocalCacheData : .useProtocolCachePolicy
-        let session = ephemeral ? Self.privateSession : URLSession.shared
+        CmuxEgress.allowNamed(url)   // the suggest endpoint of the person's chosen search engine
+        let session = ephemeral ? Self.privateSession : CmuxEgress.shared(site: "CmuxNextBrowser.OmniboxRemoteFetch")
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw URLError(.badServerResponse)

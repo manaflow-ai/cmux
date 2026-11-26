@@ -29,8 +29,10 @@ on:
   pull_request:
     branches: [feat-cmux-next]
     paths:
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings.d/**"
       - "schemas/settings/source/general.json"
+      - "schemas/type-scale/scene-type.json"
+      - "webviews/src/apps/scene/fixtures/design-check-scenes.json"
       - "web/public/tui/install-static.sh"
       - "cmux-tui/**"
       - "ghostty-next"
@@ -54,18 +56,8 @@ on:
       - "Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json"
       - "Resources/cmux-cli-path/fish/vendor_conf.d/cmux-cli-path.fish"
       - "Resources/cmux-cli-path/zsh/.zshenv"
-      - "Resources/theme-files/charcoal.json"
-      - "Resources/theme-files/classic-desktop.json"
-      - "Resources/theme-files/claude-desktop.json"
-      - "Resources/theme-files/harbor.json"
-      - "Resources/theme-files/lily-pond.json"
-      - "Resources/theme-files/meadow.json"
-      - "Resources/theme-files/moss.json"
-      - "Resources/theme-files/phosphor.json"
-      - "Resources/theme-files/teal.json"
-      - "Resources/sidebar-looks/claude.json"
-      - "Resources/sidebar-looks/codex.json"
-      - "Resources/sidebar-looks/studio.json"
+      - "Resources/theme-files/**"
+      - "Resources/sidebar-looks/**"
       - "backend/catalog/cloud-operations.json"
       - "backend/packages/home-core/conformance/conversation-import-cases.json"
       - "docs/cmux-next/customize-recipes.md"
@@ -74,6 +66,7 @@ on:
       - "plans/cmux-next/action-surfaces.json"
       - "plans/cmux-next/daemon-capabilities.json"
       - "plans/cmux-next/spec-proposals/visuals/design-tokens.json"
+      - "schemas/agent-pane/stylesheet-guard.json"
       - "schemas/agent-url-policy/vectors.json"
       - "schemas/automation-input/vectors.json"
       - "schemas/automation-lease/vectors.json"
@@ -86,16 +79,21 @@ on:
       - "schemas/settings/retired-keys.json"
       - "schemas/settings/settings-schema.json"
       - "schemas/settings/source/agent-cache.json"
+      - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/agent-retry.json"
+      - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/mcp-servers.json"
       - "schemas/settings/source/subsessions.json"
       - "schemas/settings/source/trust.json"
+      - "schemas/settings/source/updates.json"
       - "schemas/terminal-sizing/fixtures.json"
+      - "schemas/theme/slots.json"
+      - "schemas/transcript-look/transcript-look.json"
+      - "schemas/theme/slots.json"
       - "schemas/theme/theme-ink-vectors.json"
       - "scripts/cmux-next/cargo-locks.py"
       - "scripts/install-zig-ci.sh"
-      - "skills/cmux-acpmux/SKILL.md"
-      - "skills/cmux-browser/SKILL.md"
+      - "skills/*/SKILL.md"
       - "skills/cmux-browser/references/authentication.md"
       - "skills/cmux-browser/references/commands.md"
       - "skills/cmux-browser/references/proxy-support.md"
@@ -106,9 +104,6 @@ on:
       - "skills/cmux-browser/templates/authenticated-session.sh"
       - "skills/cmux-browser/templates/capture-workflow.sh"
       - "skills/cmux-browser/templates/form-automation.sh"
-      - "skills/cmux-computer-use/SKILL.md"
-      - "skills/cmux-cua/SKILL.md"
-      - "skills/cmux-customization/SKILL.md"
       - "skills/cmux-customization/references/examples.md"
       - "skills/cmux-customization/references/local-app-views.md"
       - "skills/cmux-customization/references/viewer-types.md"
@@ -116,8 +111,6 @@ on:
       - "skills/cmux-customization/templates/clock-weather/main.js"
       - "skills/cmux-customization/templates/my-prs/cmux-app.json"
       - "skills/cmux-customization/templates/my-prs/main.js"
-      - "skills/cmux-live/SKILL.md"
-      - "skills/cmux/SKILL.md"
       - "web/public/tui/install-static.sh"
       - "webviews/src/agent-session/acpmux/rows/parity/parity.changes.jsonl"
       - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-1.changes.jsonl"
@@ -133,11 +126,19 @@ on:
       # (scripts/ci/affected_jobs.py check names the ones a paths list misses).
       - "docs/cmux-next/customize-recipes.md"
       - "examples/looks/**"
+      - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/mcp-servers.json"
       - "skills/cmux-customization/templates/clock-weather/cmux-app.json"
       - "skills/cmux-customization/templates/clock-weather/main.js"
       - "skills/cmux-customization/templates/my-prs/cmux-app.json"
       - "skills/cmux-customization/templates/my-prs/main.js"
+      - "schemas/design-scale/design-scale.json"
+      - "schemas/instrument/instrument.json"
+      - "schemas/settings/file-keys.json"
+      - "schemas/layout-grid/layout-grid.json"
+      - "schemas/motion-scale/motion-scale.json"
+      - "schemas/type-scale/type-scale.json"
+      - "schemas/design-scale/scene-scale.json"
   workflow_dispatch:
 
 concurrency:
@@ -164,7 +165,7 @@ jobs:
     # Off pull requests (CI 10x, 2026-11-21: 1.33% of PR runner-minutes, 1.36% of heads it alone caught): it runs
     # after merge on feat-cmux-next pushes, and on a same-repository pull request only with the full-ci label.
     if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     outputs:
       windows_gnu_check: ${{ steps.graph.outputs.windows_gnu_check }}
@@ -202,7 +203,7 @@ jobs:
     # router never skips it.
     needs: route
     if: ${{ (inputs.only == '' || inputs.only == 'windows-gnu-check') && (!cancelled() && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'full-ci'))) && (needs.route.result != 'success' || needs.route.outputs.windows_gnu_check != 'false')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -231,8 +232,17 @@ jobs:
           sudo apt-get install -y clang libclang-dev pkg-config gcc-mingw-w64-x86-64
 
       - name: Cache Zig package downloads
-        if: ${{ steps.tree.outputs.hit != 'true' }}
+        if: ${{ (steps.tree.outputs.hit != 'true') && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/zig
+          key: cmux-tui-zig-${{ hashFiles('ghostty-next/build.zig.zon', 'ghostty-next/build.zig.zon.json') }}
+          restore-keys: |
+            cmux-tui-zig-
+
+      - name: Cache Zig package downloads (restore only off base branches)
+        if: ${{ (steps.tree.outputs.hit != 'true') && !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/zig
           key: cmux-tui-zig-${{ hashFiles('ghostty-next/build.zig.zon', 'ghostty-next/build.zig.zon.json') }}
@@ -261,9 +271,12 @@ jobs:
         if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-tui-windows-gnu-check
+          shared-key: cmux-tui-windows-gnu-check-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
 
       - name: cargo check cmux-tui-core, cmux-tui and acpmux for Windows
         if: ${{ steps.tree.outputs.hit != 'true' }}

@@ -237,3 +237,71 @@ fn target_admits_only_with_its_owners_signed_in_machines_consent() {
     assert!(!granted.covers(&Asker { device: ASKER, account: "user_other" }));
     assert!(!granted.covers(&Asker { device: ASKER, account: "" }));
 }
+
+/// The iPhone's tap (hq#18912 cut 1): the approval the phone builds with the shared asker half
+/// (`ShareApproval::asked`, cmux-mobile-link-ffi `share_approval`), signed by its device key and
+/// read back from the wire, is admitted by this Mac. Unsigned (no tap), it never is. The grant
+/// here is the one on base today; with #50721 (cut 3) it becomes `OwnerPairedDevice`, so no
+/// consent on this Mac is needed.
+#[test]
+fn target_admits_the_iphones_tapped_approval() {
+    let phone = DeviceKey::new();
+    let keys = Keys(vec![(ASKER, phone.public())]);
+    let consent = serde_json::json!({"consent": {"signedInMachines": "granted", "signedInMachinesUser": ACCOUNT}});
+    let owner = SignedInMachinesConsent::from_status(&consent, Some(ACCOUNT));
+    let asked = ShareApproval::asked(
+        Device { id: TARGET, name: "Studio" },
+        Device { id: ASKER, name: "iPhone" },
+        ACCOUNT,
+        NOW - 2,
+        "tap-nonce-1",
+    )
+    .unwrap();
+    let untapped: ShareApproval = serde_json::from_value(asked.wire()).unwrap();
+    assert_eq!(
+        admit(&untapped, &target(), &owner, &keys, &mut HashSet::new()).unwrap_err().code,
+        "share.bad_signature"
+    );
+    let tapped: ShareApproval = serde_json::from_value(phone.sign(asked).wire()).unwrap();
+    assert_eq!(admit(&tapped, &target(), &owner, &keys, &mut HashSet::new()), Ok(()));
+}
+
+/// Zero-touch sharing (hq#18912 cut 3): the owner's own tap on a device paired to this Mac's
+/// account is the yes, with no consent given on this Mac first.
+#[test]
+fn target_admits_its_owners_paired_device_without_consent_here() {
+    let key = DeviceKey::new();
+    let approval = key.sign(unsigned());
+    let keys = Keys(vec![(ASKER, key.public())]);
+    let owner = OwnerPairedDevice { account: ACCOUNT };
+    let mut seen = HashSet::new();
+    assert_eq!(admit(&approval, &target(), &owner, &keys, &mut seen), Ok(()));
+    assert_eq!(
+        admit(&approval, &target(), &owner, &keys, &mut seen).unwrap_err().code,
+        "share.replayed"
+    );
+}
+
+/// An agent never counts as the owner's yes: an agent request carries no device signature, a
+/// fleet or CLI token is not one of the account's devices, and another account or an unjoined
+/// Mac covers nobody.
+#[test]
+fn target_refuses_an_agent_request_under_the_owner_device_grant() {
+    let device = DeviceKey::new();
+    let agent = DeviceKey::new();
+    let keys = Keys(vec![(ASKER, device.public())]);
+    let owner = OwnerPairedDevice { account: ACCOUNT };
+    let code = |approval: &ShareApproval, grant: &OwnerPairedDevice<'_>, keys: &Keys| {
+        admit(approval, &target(), grant, keys, &mut HashSet::new()).unwrap_err().code
+    };
+    assert_eq!(code(&unsigned(), &owner, &keys), "share.bad_signature", "agent, no tap");
+    assert_eq!(code(&agent.sign(unsigned()), &owner, &keys), "share.bad_signature", "agent key");
+    let token = ShareApproval { asker: "fleet-token".into(), ..unsigned() };
+    assert_eq!(code(&agent.sign(token), &owner, &keys), "share.unknown_device", "fleet token");
+    let other = device.sign(ShareApproval { confirmed_by: "user_other".into(), ..unsigned() });
+    assert_eq!(code(&other, &owner, &keys), "share.other_account");
+    let unjoined = OwnerPairedDevice { account: "" };
+    assert_eq!(code(&device.sign(unsigned()), &unjoined, &keys), "share.not_granted");
+    assert!(!unjoined.covers(&Asker { device: ASKER, account: "" }));
+    assert!(!owner.covers(&Asker { device: ASKER, account: "user_other" }));
+}

@@ -250,7 +250,7 @@ fn a_backlog_of_small_frames_is_read_in_few_calls() {
         .iter()
         .map(|frame| match frame {
             HostFrame::Frame(frame) => frame,
-            HostFrame::End => panic!("End is not queued"),
+            HostFrame::End | HostFrame::Idle => panic!("End and Idle are not queued"),
         })
         .collect();
     assert_eq!(received.len(), frames.len());
@@ -496,4 +496,140 @@ fn unnegotiated_or_malformed_clipboard_read_requests_end_the_stream() {
         let state = queue.state.lock().unwrap();
         assert!(state.ended && state.frames.is_empty(), "the connection must end there");
     }
+}
+
+/// Threads of this process whose name is `name`.
+#[cfg(target_os = "linux")]
+fn threads_named(name: &str) -> usize {
+    std::fs::read_dir("/proc/self/task")
+        .unwrap()
+        .filter_map(|task| std::fs::read_to_string(task.ok()?.path().join("comm")).ok())
+        .filter(|comm| comm.trim() == name)
+        .count()
+}
+
+#[cfg(unix)]
+fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while !done() {
+        assert!(std::time::Instant::now() < deadline, "timed out waiting for {what}");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+#[cfg(unix)]
+fn parking_link(name: &str) -> (HostFrames, std::os::unix::net::UnixStream) {
+    let (client, host) = std::os::unix::net::UnixStream::pair().unwrap();
+    let frames = HostFrames::spawn_parking_after(
+        name.into(),
+        client,
+        Arc::new(ControlResponses::new_for_test()),
+        version(),
+        true,
+        Duration::from_millis(50),
+    )
+    .unwrap();
+    (frames, host)
+}
+
+#[cfg(unix)]
+fn output(sequence: u64, payload: &[u8]) -> Frame {
+    let mut frame = Frame::new(MessageKind::Output, payload.to_vec());
+    frame.sequence = sequence;
+    frame
+}
+
+/// A quiet link gives up its thread to the shared poller, and the surface's
+/// reader learns it may park; the next frame starts a thread again and
+/// arrives in order, and so does the end of the stream.
+#[cfg(unix)]
+#[test]
+fn a_quiet_link_parks_and_its_next_frame_wakes_it() {
+    let (frames, mut host) = parking_link("hf-park-wake");
+    wait_until("the link to park", || frames.queue.state.lock().unwrap().link_parked);
+    #[cfg(target_os = "linux")]
+    wait_until("the link thread to end", || threads_named("hf-park-wake") == 0);
+    assert!(matches!(frames.recv(), HostFrame::Idle), "a parked empty link reads as Idle");
+
+    for sequence in 1..=3 {
+        crate::terminal_host_protocol::write_frame(&mut host, &output(sequence, b"x")).unwrap();
+    }
+    for sequence in 1..=3 {
+        let mut next = frames.recv();
+        while matches!(next, HostFrame::Idle) {
+            std::thread::sleep(Duration::from_millis(1));
+            next = frames.recv();
+        }
+        let HostFrame::Frame(frame) = next else { panic!("the stream ended") };
+        assert_eq!(frame.sequence, sequence);
+    }
+    // It parks again, and its end still reaches the surface's reader.
+    wait_until("the link to park again", || frames.queue.state.lock().unwrap().link_parked);
+    drop(host);
+    wait_until("the end", || matches!(frames.recv(), HostFrame::End));
+}
+
+/// The surface's reader parks behind a parked link and is resumed, on a
+/// thread of its own, by the next frame.
+#[cfg(unix)]
+#[test]
+fn a_parked_consumer_resumes_with_the_next_frame() {
+    let (frames, mut host) = parking_link("hf-park-consumer");
+    wait_until("the link to park", || frames.queue.state.lock().unwrap().link_parked);
+    let (resumed_tx, resumed_rx) = std::sync::mpsc::channel();
+    frames
+        .consumer_slot()
+        .park(resumed_tx, |tx| {
+            let _ = tx.send(std::thread::current().name().map(str::to_owned));
+        })
+        .unwrap_or_else(|_| panic!("the consumer did not park"));
+    assert!(resumed_rx.try_recv().is_err(), "the consumer resumed with nothing to read");
+    crate::terminal_host_protocol::write_frame(&mut host, &output(1, b"wake")).unwrap();
+    resumed_rx
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the frame did not resume the consumer");
+    let HostFrame::Frame(frame) = frames.recv() else { panic!("the frame was not queued") };
+    assert_eq!(frame.payload, b"wake");
+}
+
+/// A consumer cannot park while a frame waits or the link reads.
+#[cfg(unix)]
+#[test]
+fn a_consumer_does_not_park_past_a_queued_frame() {
+    let (frames, mut host) = parking_link("hf-park-refuse");
+    crate::terminal_host_protocol::write_frame(&mut host, &output(1, b"queued")).unwrap();
+    wait_until("the frame to queue", || frames.queued_frames_for_test() == 1);
+    assert!(frames.consumer_slot().park((), |()| {}).is_err());
+}
+
+/// A link dropped while parked with a reply still owed is resumed by the
+/// shared poller at the drain deadline and ends, failing the waiter, as a
+/// reading link's read timeout ended it.
+#[cfg(unix)]
+#[test]
+fn a_parked_link_dropped_with_a_reply_owed_ends_at_the_deadline() {
+    let (client, _host) = std::os::unix::net::UnixStream::pair().unwrap();
+    let responses = Arc::new(ControlResponses::new_for_test());
+    let frames = HostFrames::spawn_parking_after(
+        "hf-park-drain".into(),
+        client,
+        responses.clone(),
+        version(),
+        true,
+        Duration::from_millis(50),
+    )
+    .unwrap();
+    let queue = frames.queue.clone();
+    wait_until("the link to park", || {
+        let state = queue.state.lock().unwrap();
+        state.link_parked && state.parked_link.is_some()
+    });
+    let owed = responses.wait_for_test(5, MessageKind::Capability);
+    let dropped = std::time::Instant::now();
+    drop(frames);
+    wait_until("the drained link to end", || {
+        !responses.has_waiter_where(|_| true) && !queue.state.lock().unwrap().link_parked
+    });
+    assert!(dropped.elapsed() < CONTROL_RESPONSE_TIMEOUT + Duration::from_secs(5));
+    drop(owed);
 }

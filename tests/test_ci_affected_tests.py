@@ -287,9 +287,19 @@ class AffectedTests(unittest.TestCase):
         self.assertIn("tests/test_cmux_next_route.py", picked)
         # A tests/ helper module the same way: `import blacksmith_linux_sizes`.
         helper = {p["path"] for p in focused_tests.plan(ROOT, ["tests/blacksmith_linux_sizes.py"])["python"]}
-        importer = "tests/test_ci_tui_routes_avoid_nightly_label.py"
+        importer = "tests/test_cmux_tui_artifacts_linux_runner_set.py"
         self.assertNotIn("blacksmith_linux_sizes.py", (ROOT / importer).read_text())
         self.assertIn(importer, helper)
+
+    def test_a_tour_file_selects_the_test_that_loads_every_tour(self):
+        # test_cmux_next_tour.py globs the tours folder and names no tour file. Without a route a
+        # tour edit ran no load test: #47325 merged `"optional": true` (not a reason), and every
+        # nightly media tour then failed its --check and recorded no clip (run 45180082844).
+        import focused_tests
+        tour = "scripts/cmux-next/media/tours/extension-toolbar-button.json"
+        self.assertTrue((ROOT / tour).is_file())
+        picked = {p["path"] for p in focused_tests.plan(ROOT, [tour])["python"]}
+        self.assertIn("tests/test_cmux_next_tour.py", picked)
 
     def test_python_imports_reads_every_import_form(self):
         import focused_tests

@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use acpmux_book::index::Summary;
 use acpmux_client::wire::ListView;
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
@@ -69,6 +69,10 @@ pub struct LsArgs {
     /// Only live sessions: any status but closed.
     #[arg(long)]
     live: bool,
+    /// Only closed sessions (`--status closed`); `--json` rows carry `close`: who closed each,
+    /// why, and its outcome (`done`, `dropped`, `unfinished`).
+    #[arg(long, conflicts_with_all = ["live", "status"])]
+    closed: bool,
     /// Only sessions on this machine: its name, or this machine's (`local` too). `--host` still
     /// works. Without it `ls` lists every machine's sessions, and says so on stderr: a script
     /// after its own sessions passes `--machine local`.
@@ -93,6 +97,10 @@ pub struct LsArgs {
     /// by whom; `--json` rows carry `archivedAt` and `archivedBy` (`ls_archived.rs`).
     #[arg(long, conflicts_with = "leads")]
     archived: bool,
+    /// Internal: read the send relay's listing once and keep it as the cache a listing that
+    /// misses the far budget serves (`cli/ls_far.rs` starts it detached).
+    #[arg(long, hide = true)]
+    refresh_relay_cache: bool,
 }
 
 /// The v1 list `ls` pages when its daemon has no list surface or rows by key (`list_read.rs`).
@@ -106,6 +114,13 @@ const CURSOR_PAGE: &str = method::MUX_SESSIONS;
 /// optional relay/SSH recovery reads together.
 const LS_STEP_DEADLINE: Duration = Duration::from_secs(4);
 pub(crate) const LS_TOTAL_DEADLINE: Duration = Duration::from_secs(15);
+// RFD 0050 rule 5: the relay listing inside `ls` ends before `ls` does.
+const _: () = assert!(
+    crate::cli::send_relay::LS_DEADLINE.as_millis() < LS_TOTAL_DEADLINE.as_millis(),
+    "the relay listing's bound must nest inside the ls budget"
+);
+
+const LOCAL_ROUTE: &str = "local daemon";
 
 #[derive(Clone)]
 struct ListBudget {
@@ -122,7 +137,7 @@ impl ListBudget {
         Self {
             deadline: tokio::time::Instant::now() + LS_TOTAL_DEADLINE,
             machine: machine.to_owned(),
-            route: if remote { "hub/carrier" } else { "local daemon" },
+            route: if remote { "hub/carrier" } else { LOCAL_ROUTE },
         }
     }
 }
@@ -158,14 +173,20 @@ async fn bounded_total<T>(
         .map_err(|_| timeout_error(budget, step, LS_TOTAL_DEADLINE))
 }
 
+/// A stalled step: a `timeout` (retryable) naming the machine, the route, the step and the
+/// budget, never a daemon that is gone (it answered the connect).
 fn timeout_error(budget: &ListBudget, step: &str, waited: Duration) -> anyhow::Error {
-    anyhow!(
-        "acpmux ls for machine {:?} via {}: {} step stalled after {:.0?}; retry after the machine reconnects",
-        budget.machine,
-        budget.route,
-        step,
-        waited
-    )
+    let next = if budget.route == LOCAL_ROUTE {
+        format!("the daemon is busy; retry, or `{} daemon status`", crate::cli::entry::program())
+    } else {
+        "retry after the machine reconnects".to_owned()
+    };
+    errors::AppError::timeout(format!(
+        "acpmux ls for machine {:?} via {}: {} step stalled after {:.0?} (ls budget {:.0?}); {next}",
+        budget.machine, budget.route, step, waited, LS_TOTAL_DEADLINE
+    ))
+    .retryable()
+    .into()
 }
 
 async fn request_bounded(
@@ -183,8 +204,15 @@ async fn request_bounded(
 pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
     // A listing never starts a daemon (hq#4897 failure 4: an empty one on a dead socket read as
     // a host with no sessions).
+    if args.refresh_relay_cache {
+        return crate::cli::ls_far::refresh_now().await;
+    }
     let budget = ListBudget::new(args.host.as_deref());
     let client = bounded_step(&budget, "connect", connect_running()).await??;
+    // The far reads (relay, down ssh peers) run beside the local read on a short budget of
+    // their own: they never make it fail or wait past that budget (`cli/ls_far.rs`).
+    let far = wants_far(&args)
+        .then(|| crate::cli::ls_far::start(client.clone(), crate::cli::ls_far::budget()));
     let via = Via::daemon();
     let (out, scope) = bounded_total(
         &budget,
@@ -196,6 +224,7 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
             via,
             crate::store::now_ms(),
             Some(&budget),
+            far,
         ),
     )
     .await??;
@@ -205,6 +234,41 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
         eprintln!("{line}");
     }
     print!("{out}");
+    Ok(())
+}
+
+/// `acpmux machine cells` (`cell_report.rs`): the live rows `acpmux ls --live --json` lists,
+/// within the same bounds, judged against fleet-registry.json.
+pub(super) async fn cells(json_out: bool) -> Result<()> {
+    #[derive(clap::Parser)]
+    struct Ls {
+        #[command(flatten)]
+        args: LsArgs,
+    }
+    let args = <Ls as clap::Parser>::try_parse_from(["ls", "--live"])?.args;
+    let budget = ListBudget::new(None);
+    let client = bounded_step(&budget, "connect", connect_running()).await??;
+    let far = wants_far(&args)
+        .then(|| crate::cli::ls_far::start(client.clone(), crate::cli::ls_far::budget()));
+    let now = crate::store::now_ms();
+    let (out, _) = bounded_total(
+        &budget,
+        "read",
+        scoped_output_with_budget(args, true, &client, Via::daemon(), now, Some(&budget), far),
+    )
+    .await??;
+    let rows: Value = serde_json::from_str(&out)?;
+    let rows = match &rows {
+        Value::Array(r) => r.as_slice(),
+        other => other.get("sessions").and_then(Value::as_array).map_or(&[][..], Vec::as_slice),
+    };
+    let registry = crate::placement::load_registry();
+    let report = crate::cell_report::report(registry.as_ref(), rows, now);
+    if json_out {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        crate::cell_report::lines(&report).iter().for_each(|l| println!("{l}"));
+    }
     Ok(())
 }
 
@@ -231,7 +295,30 @@ pub(crate) async fn scoped_output(
     via: Via,
     now: u64,
 ) -> Result<(String, Option<String>)> {
-    scoped_output_with_budget(args, json_out, client, via, now, None).await
+    scoped_output_with_budget(args, json_out, client, via, now, None, None).await
+}
+
+/// [`scoped_output`] with the far reads given (a stub relay in the tests).
+#[cfg(test)]
+pub(crate) async fn scoped_output_with_far(
+    args: LsArgs,
+    json_out: bool,
+    client: &Arc<Client>,
+    via: Via,
+    now: u64,
+    far: crate::cli::ls_far::FarRead,
+) -> Result<(String, Option<String>)> {
+    scoped_output_with_budget(args, json_out, client, via, now, None, Some(far)).await
+}
+
+/// Whether a listing reads other machines beyond this daemon: not one page (`--cursor`) or
+/// this machine alone (`--machine local`).
+fn wants_far(args: &LsArgs) -> bool {
+    let one_page = args.cursor.as_deref().is_some_and(|c| !c.is_empty());
+    let own = crate::pairing::machine_name();
+    let local_only =
+        RowFilter::new(false, args.host.as_deref(), own).is_ok_and(|rows| rows.local_only());
+    !one_page && !local_only
 }
 
 async fn scoped_output_with_budget(
@@ -241,6 +328,7 @@ async fn scoped_output_with_budget(
     via: Via,
     now: u64,
     budget: Option<&ListBudget>,
+    far: Option<crate::cli::ls_far::FarRead>,
 ) -> Result<(String, Option<String>)> {
     let LsArgs {
         mut patterns,
@@ -259,7 +347,11 @@ async fn scoped_output_with_budget(
         wide,
         leads,
         archived,
+        closed,
+        refresh_relay_cache: _,
     } = args;
+    // `--closed` is `--status closed` (clap refuses the two together).
+    let status = if closed { Some("closed".to_owned()) } else { status };
     // The leaders need every live row: the sessions that report are read with them.
     let live = live || leads;
     patterns.extend(name_patterns);
@@ -510,42 +602,30 @@ async fn scoped_output_with_budget(
     // send relay's `lsArgv` (`send_relay.rs`), so `HOST/NAME` is found before it is sent to. Not
     // for one page (`--cursor`) or this machine alone.
     let mut merged = 0;
+    let mut remote = None;
+    let mut far_line = None;
     if !one_page && !rows.local_only() {
-        let far: Vec<Value> = crate::cli::send_relay::relay_rows_with_deadline(
-            false,
-            budget.map(|budget| budget.deadline),
-        )
-        .await
-        .into_iter()
-        .filter(|s| {
+        let far = far.unwrap_or_else(|| {
+            crate::cli::ls_far::start(client.clone(), crate::cli::ls_far::budget())
+        });
+        let far = far.finish().await;
+        let wanted = |s: &Value| {
             keeps(s)
                 && cutoff
                     .is_none_or(|at| s.get("updatedAt").and_then(Value::as_u64).unwrap_or(0) >= at)
-        })
-        .collect();
-        merged = crate::cli::send_relay::merge_rows(&mut sessions, far);
-        // A down `ssh://` peer's rows are the ones its link left: read again over ssh, at most
-        // `ls_ssh::LS_DEADLINE`, and put in their place (`cli/ls_ssh.rs`).
-        // Each peer's url and link state (`_acpmux/peers`, the read `machine ls` makes).
-        let known = request_bounded(client, "_acpmux/peers", json!({}), budget).await.ok();
-        let peers = known
-            .as_ref()
-            .and_then(|s| s.get("peers"))
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        let (hosts, far) = crate::cli::ls_ssh::rows(&peers, false).await;
-        if !hosts.is_empty() {
-            let far: Vec<Value> = far
-                .into_iter()
-                .filter(|s| {
-                    keeps(s)
-                        && cutoff.is_none_or(|at| {
-                            s.get("updatedAt").and_then(Value::as_u64).unwrap_or(0) >= at
-                        })
-                })
-                .collect();
-            merged += crate::cli::ls_ssh::replace_rows(&mut sessions, &hosts, far).max(1);
+        };
+        if let Some(relay) = far.relay {
+            let now = crate::store::now_ms();
+            remote = Some(relay.json(now));
+            far_line = relay.line(now);
+            let rows: Vec<Value> = relay.rows.into_iter().filter(|s| wanted(s)).collect();
+            merged = crate::cli::send_relay::merge_rows(&mut sessions, rows);
+        }
+        // A down `ssh://` peer's rows are the ones its link left: read again over ssh and put
+        // in their place (`cli/ls_ssh.rs`).
+        if !far.ssh_hosts.is_empty() {
+            let rows: Vec<Value> = far.ssh_rows.into_iter().filter(|s| wanted(s)).collect();
+            merged += crate::cli::ls_ssh::replace_rows(&mut sessions, &far.ssh_hosts, rows).max(1);
         }
     }
     if leads {
@@ -573,8 +653,11 @@ async fn scoped_output_with_budget(
     {
         sessions.truncate(usize::try_from(limit).unwrap_or(usize::MAX));
     }
-    // Read before `--fields` drops `peer`.
-    let scope = scope_line(&sessions);
+    // Read before `--fields` drops `peer`. A far read that missed its budget says so first.
+    let scope = match (far_line, scope_line(&sessions)) {
+        (Some(far), Some(scope)) => Some(format!("{far}\n{scope}")),
+        (far, scope) => far.or(scope),
+    };
     if let Some(fields) = fields.as_deref() {
         sessions = sessions.into_iter().map(|s| project_fields(&s, fields)).collect();
     }
@@ -583,6 +666,10 @@ async fn scoped_output_with_budget(
     // list of a daemon too old for pages, which takes no cursor).
     if let Some(next) = read.next.filter(|_| paged) {
         v.set("nextCursor", next);
+    }
+    // Whether the relay's rows are fresh, served from its cache (`stale` rows), or missing.
+    if let Some(remote) = remote {
+        v.set("remote", remote);
     }
     let mut out = String::new();
     if json_out {
@@ -635,6 +722,14 @@ async fn scoped_output_with_budget(
         out.push('\n');
     }
     if let Some(line) = status.as_ref().and_then(outbox_line) {
+        out.push_str(&line);
+        out.push('\n');
+    }
+    if let Some(line) = status
+        .as_ref()
+        .and_then(|s| s.get("outboxStats"))
+        .and_then(crate::hub::outbox_stats::ls_line)
+    {
         out.push_str(&line);
         out.push('\n');
     }
@@ -730,6 +825,50 @@ mod timeout_tests {
         assert!(error.contains("joined-vm"));
         assert!(error.contains("hub/carrier"));
         assert!(error.contains("read step stalled after 15s"));
+    }
+
+    /// A send relay listing that never answers ends at the far budget, well before the total,
+    /// so `ls` prints this machine's rows (#50974's case: gcp-codex-swarm-02/03, 2026-11-22).
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_relay_listing_that_never_answers_gives_up_before_the_total() {
+        let budget = ListBudget {
+            deadline: tokio::time::Instant::now() + crate::cli::ls_far::FAR_BUDGET * 2,
+            machine: "local".to_owned(),
+            route: "local daemon",
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let far = crate::cli::ls_far::start_with(
+            Some(crate::cli::ls_far::tests::stalled_relay()),
+            dir.path().join(crate::cli::ls_far::CACHE_FILE),
+            None,
+            crate::cli::ls_far::FAR_BUDGET,
+        );
+        let read = bounded_total(&budget, "read", far.finish()).await;
+        let relay = read.expect("the relay listing outlived the listing's total").relay.unwrap();
+        assert!(relay.rows.is_empty() && relay.missed.is_some(), "a warning, not rows");
+    }
+
+    /// A stalled local read is a `timeout` to retry, naming the step and the budget, never
+    /// `daemon_unreachable` (the daemon answered the connect).
+    #[tokio::test(start_paused = true)]
+    async fn a_stalled_local_read_is_a_retryable_timeout() {
+        let budget = ListBudget::new(None);
+        let pending = tokio::spawn(async move {
+            bounded_total(&budget, "read", std::future::pending::<()>()).await
+        });
+        tokio::task::yield_now().await;
+        tokio::time::advance(LS_TOTAL_DEADLINE).await;
+        let error = pending.await.unwrap().unwrap_err();
+        let app = errors::classify(&error);
+        assert_eq!(app.detail, "timeout", "{app:?}");
+        assert!(app.retryable);
+        assert!(app.message.contains("\"local\" via local daemon: read step stalled after 15s"));
+        assert!(app.message.contains("ls budget 15s"), "{}", app.message);
+        assert!(app.message.contains("daemon status"), "{}", app.message);
+        // The same words from anywhere else are a timeout too.
+        let plain = anyhow::anyhow!("acpmux ls via local daemon: read step stalled after 4s");
+        assert_eq!(errors::classify(&plain).detail, "timeout");
     }
 }
 

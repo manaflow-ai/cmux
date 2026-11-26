@@ -1148,7 +1148,7 @@ code {
 }
 
 /* "cmux · Developer Tools · Free": a middle dot between the meta line's parts. */
-.apps-listing-meta > * + *::before {
+.apps-listing-meta > :not(:first-child)::before {
   content: "·";
   margin-inline-end: 8px;
   color: var(--page-text-3);
@@ -1437,7 +1437,6 @@ code {
   color: var(--page-text-2);
   font: inherit;
   font-size: var(--text-detail);
-  cursor: pointer;
 }
 
 .apps-customize-link:hover {
@@ -1482,7 +1481,6 @@ code {
   color: var(--page-text-2);
   font: inherit;
   font-size: var(--text-caption);
-  cursor: pointer;
 }
 
 .apps-customize-look:hover {
@@ -1499,4 +1497,19 @@ code {
   .apps-customize-feature-head {
     flex-wrap: wrap;
   }
+}
+
+/* Windowed: only the catalog rows near the viewport are mounted, each placed at its offset
+   (AppsPage.tsx CatalogList). A grid row is the same auto-fill grid, so its cards keep their width. */
+.apps-catalog-space {
+  position: relative;
+  width: 100%;
+}
+
+.apps-catalog-space > * {
+  position: absolute;
+  top: 0;
+  inset-inline-start: 0;
+  width: 100%;
+  box-sizing: border-box;
 }

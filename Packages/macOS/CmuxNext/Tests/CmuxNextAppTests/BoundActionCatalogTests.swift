@@ -21,6 +21,18 @@ struct BoundActionCatalogTests {
         // which adds these rows to the Rust catalog: until it lands and re-pins, they do nothing.
         "macScreen.viewOnly", "macScreen.fullControl", "macScreen.fullScreen", "macScreen.sendSwitchApp",
         "macScreen.sendSpotlight", "macScreen.reconnect", "macScreen.stopAllViewing",
+        // Make cmux Yours in the palette landed with its Rust row (catalog/home.rs); the pinned app FFI gains it on re-pin.
+        "home.makeItYours",
+        // Edit Chief…, Set Chief Model…, Set Chief Effort… and Make Agent a Chief… (ChiefRegistryPaletteTests) land with their
+        // Rust rows; the pinned app FFI gains them on re-pin.
+        "home.editChief", "home.setChiefModel", "home.setChiefEffort", "home.adoptChief",
+        // #46896 (the Priority view's Archived fold) adds this row to the Rust catalog
+        // (cmux-action-catalog sidebar_priority.rs) and binds it in the same pull request: until the
+        // re-pin carries it, Restore on an archived row does nothing.
+        "sidebar.priority.restore",
+        // Set My Picture…, Make This Agent a Chief and Show Last Line in Sidebar (step B) bind before
+        // the re-pin carries their step A rows (#50757): until then they do nothing.
+        "home.setMyAvatar", "agentPane.adoptAsChief", "terminal.pinTail",
     ]
 
     @Test func everyBoundActionIsInTheCatalog() {
@@ -58,6 +70,24 @@ struct BoundActionCatalogTests {
         #expect(registry.perform("home.showSetup", invocation: .init(origin: .user)))
         #expect(services.onboarding.setup.shows)
         #expect(routes == ["home", "chief"])
+    }
+
+    /// The palette's Make cmux Yours opens the tool window on its Make cmux Yours step at any time,
+    /// not only on a first run, and leaves the first-run flag alone.
+    @Test func makeCmuxYoursOpensTheWalkAgain() {
+        _ = NSApplication.shared
+        let defaults = UserDefaults.standard
+        let key = OnboardingWindowPresenter.makeItYoursShownKey
+        let saved = defaults.object(forKey: key)
+        defer { if let saved { defaults.set(saved, forKey: key) } else { defaults.removeObject(forKey: key) } }
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let registry = services.registry
+        registry.seed([ActionDescriptor(id: "home.makeItYours", title: "Make cmux Yours", category: .window)])
+        OnboardingHandlers.bind(into: registry, context: AppActionContext(services: services))
+        #expect(registry.perform("home.makeItYours", invocation: .init(origin: .user)))
+        #expect(services.onboarding.controller?.model.step == .makeItYours)
+        #expect(defaults.object(forKey: key) as? Bool == saved as? Bool, "a replay is not the first run")
+        services.onboarding.controller?.closeWithCloseButton()
     }
 
     /// The Team section's actions (#40159) are bound once the pin carries their rows

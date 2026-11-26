@@ -26,6 +26,14 @@ extension AgentPaneModel {
         String(localized: "agentPane.error.capture", defaultValue: "The screen capture failed.", bundle: .localizedModule)
     }
 
+    /// A folder the person picked for a chat that no longer exists (a reboot wiped a temporary
+    /// folder, a worktree was removed): which one, and the way out.
+    static func folderMissingMessage(_ path: String) -> String {
+        String(format: String(localized: "agentPane.error.folderMissing",
+                              defaultValue: "The folder %@ no longer exists. Pick another folder.", bundle: .localizedModule),
+               path)
+    }
+
     /// The host's acpmux socket refused a page frame or could not connect (AgentPaneTransport).
     static var transportFailedMessage: String {
         String(localized: "agentPane.error.transport", defaultValue: "The app refused the agent connection.", bundle: .localizedModule)
@@ -261,14 +269,6 @@ extension AgentPaneView {
                bundle: .localizedModule)
     }
 
-    /// Shown while the pane's connection did not prove the person to its acpmux: what the person
-    /// types would reach the agent as an unverified sender's until the identity reconnects.
-    static var personUnprovenMessage: String {
-        String(localized: "agentPane.personUnproven.message",
-               defaultValue: "Not verified as you. Reconnecting your identity to the agent service…",
-               bundle: .localizedModule)
-    }
-
     static var reloadTitle: String {
         String(localized: "agentPane.crashed.reload", defaultValue: "Reload", bundle: .localizedModule)
     }
@@ -375,6 +375,14 @@ extension AgentPaneModel {
         String(localized: "agentPane.github.linkExpired", defaultValue: "The link expired; connect again.", bundle: .localizedModule)
     }
 
+    /// The folder menu after the person asked an organization's owners to install the App (GitHub's `setup_action=request`).
+    static func gitHubRequestedMessage(owner: String?) -> String {
+        guard let owner else {
+            return String(localized: "agentPane.github.requested", defaultValue: "Asked the organization's owners to approve cmux. Its repositories appear here once they do.", bundle: .localizedModule)
+        }
+        return String(localized: "agentPane.github.requestedOwner", defaultValue: "Asked the owners of \(owner) to approve cmux. Its repositories appear here once they do.", bundle: .localizedModule)
+    }
+
     /// Connect GitHub with no cmux account signed in and no sign-in to start (`github.signed_out`).
     static var gitHubSignedOutMessage: String {
         String(localized: "agentPane.github.signedOut", defaultValue: "Sign in to cmux to connect GitHub.", bundle: .localizedModule)
@@ -383,6 +391,22 @@ extension AgentPaneModel {
     /// Connect GitHub where this Cloud service has no cmux GitHub App (`github.not_configured`).
     static var gitHubNotConfiguredMessage: String {
         String(localized: "agentPane.github.notConfigured", defaultValue: "GitHub isn't set up for this Cloud service yet.", bundle: .localizedModule)
+    }
+
+    static var repositoryURLInvalidMessage: String {
+        String(localized: "agentPane.repo.invalidURL", defaultValue: "Enter an HTTPS repository URL.", bundle: .localizedModule)
+    }
+
+    static var repositoryURLCredentialsMessage: String {
+        String(localized: "agentPane.repo.credentials", defaultValue: "Use a URL without credentials, query parameters, or a fragment.", bundle: .localizedModule)
+    }
+
+    static var repositoryDestinationTakenMessage: String {
+        String(localized: "agentPane.repo.destinationTaken", defaultValue: "Another folder already uses this clone location.", bundle: .localizedModule)
+    }
+
+    static var repositoryCloneFailedMessage: String {
+        String(localized: "agentPane.repo.cloneFailed", defaultValue: "Couldn’t clone the repository. Check the URL and your Git access, then try again.", bundle: .localizedModule)
     }
 
     /// `github.repos.checkout` could not clone `repo` on this Mac (`github.clone_failed`).

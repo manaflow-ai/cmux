@@ -22,7 +22,7 @@ enum DebugPaneChrome {
                 let cell = topLeft(ring.frameInWindow)
                 let border = topLeft(ring.contentInWindow)
                 let strip = topLeft(view.stripView.convert(view.stripView.bounds, to: nil))
-                let pill = view.stripView.firstTabPillFrame.map { topLeft(view.stripView.convert($0, to: nil)) }
+                let pill = view.stripView.firstTabPillFrame.map { topLeft(view.stripView.convert($0, to: nil)) }, stripEmpty = view.stripView.emptyStripSpace.map { topLeft(view.stripView.convert($0, to: nil)) }
                 var firstCell: CGPoint?
                 if case .terminal(let entry)? = pane.currentContent, entry.session.view.window === window {
                     let host = entry.session.view
@@ -33,7 +33,7 @@ enum DebugPaneChrome {
                 }
                 var fields: [String: JSONValue] = [
                     "pane": .string(ring.pane), "cell": rect(cell),
-                    "strip": rect(strip), "strip_under_page": .array(view.stripView.chromiumPageCover.map { rect(topLeft($0)) }),
+                    "strip": rect(strip), "strip_empty": stripEmpty.map(rect) ?? .null, "strip_under_page": .array(view.stripView.chromiumPageCover.map { rect(topLeft($0)) }),
                     "border": rect(border), "pill": pill.map(rect) ?? .null,
                     "first_cell": firstCell.map { .array([.number(Double($0.x)), .number(Double($0.y))]) } ?? .null,
                     // The tab bar (cx-soza): hidden now, the pane's own choice, the palette row's title.
@@ -51,19 +51,11 @@ enum DebugPaneChrome {
                     fields["gap_below"] = .number(Double(border.minY - pill.maxY))
                     fields["pill_left_minus_border_left"] = .number(Double(pill.minX - border.minX))
                 }
-                // The tab bar's trailing controls (`tabs.toolbarButtons` + "…"): frame, reveal, buttons and "…"'s rows.
+                // The tab bar's trailing controls (`tabs.toolbarButtons`, a zoomed pane's Exit Zoom): frame, reveal, buttons.
                 if let toolbar = view.toolbar?.view {
-                    func rows(_ menu: NSMenu?) -> [JSONValue] {
-                        (menu?.items ?? []).map { item in
-                            item.isSeparatorItem ? .string("-") : item.submenu.map { .object([item.title: .array(rows($0))]) }
-                                ?? .string((item.state == .on ? "✓ " : "") + item.title)
-                        }
-                    }
                     fields["toolbar"] = .object([
                         "frame": rect(topLeft(toolbar.convert(toolbar.bounds, to: nil))), "revealed": .bool(toolbar.reveal.isRevealed),
-                        "more_alpha": .number(Double(toolbar.moreButton.isHidden ? 0 : toolbar.moreButton.alphaValue)),
-                        "more_frame": rect(topLeft(toolbar.moreButton.convert(toolbar.moreButton.bounds, to: nil))),
-                        "buttons": .array(toolbar.buttons.map { .string($0.accessibilityLabel() ?? "") }), "more_menu": .array(rows(toolbar.moreMenu?())),
+                        "buttons": .array(toolbar.buttons.map { .string($0.accessibilityLabel() ?? "") }),
                     ])
                 }
                 if let firstCell {

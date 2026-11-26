@@ -48,6 +48,104 @@ Or ask: "make the window see-through glass"
 
 To put glass behind a piece of a view of your own, see [glass.md](glass.md).
 
+### Lamina
+
+A layered, translucent desktop look in four variants, each dark and light. Pick one; each turns on a theme file and a chat stylesheet of its own (`themes/NAME.json`, `agent-pane/theme.css`). Each variant is also a whole look, `examples/looks/lamina`, `lamina-mist`, `lamina-slate` and `lamina-tide` (`cmux setup install github.com/manaflow-ai/cmux/examples/looks/NAME@feat-cmux-next`); their READMEs list what each surface gets.
+
+#### Lamina
+
+Layered, translucent and compact: a frosted sidebar under squarer content cards, 4 point controls, 8 point panes and cards, one-point strokes, an accent mark on the selected row, and a toast that is an 8 point card instead of a pill.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/lamina.json
+```
+
+Or ask: "make cmux look like Lamina, compact and balanced"
+
+#### Lamina light
+
+Layered, translucent and compact: a frosted sidebar under squarer content cards, 4 point controls, 8 point panes and cards, one-point strokes, an accent mark on the selected row, and a toast that is an 8 point card instead of a pill. Light.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/lamina-light.json
+```
+
+Or ask: "make cmux look like Lamina, compact and balanced, light"
+
+#### Lamina Mist
+
+Lamina, cooler and more see-through: a blue-gray tint, clear glass behind the window, a card sidebar and a looser density.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/lamina-mist.json
+```
+
+Or ask: "make cmux look like Lamina Mist, cool and more translucent"
+
+#### Lamina Mist light
+
+Lamina, cooler and more see-through: a blue-gray tint, clear glass behind the window, a card sidebar and a looser density. Light.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/lamina-mist-light.json
+```
+
+Or ask: "make cmux look like Lamina Mist, cool and more translucent, light"
+
+#### Lamina Slate
+
+Lamina, neutral, flatter and denser: no glass, solid layers, tighter rows and a line between the panes.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/lamina-slate.json
+```
+
+Or ask: "make cmux look like Lamina Slate, neutral, flatter and denser"
+
+#### Lamina Slate light
+
+Lamina, neutral, flatter and denser: no glass, solid layers, tighter rows and a line between the panes. Light.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/lamina-slate-light.json
+```
+
+Or ask: "make cmux look like Lamina Slate, neutral, flatter and denser, light"
+
+#### Lamina Tide
+
+Lamina with the accent forward: teal marks, carded sidebar sections and a thicker status ring.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/lamina-tide.json
+```
+
+Or ask: "make cmux look like Lamina Tide, accent-forward teal"
+
+#### Lamina Tide light
+
+Lamina with the accent forward: teal marks, carded sidebar sections and a thicker status ring. Light.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/lamina-tide-light.json
+```
+
+Or ask: "make cmux look like Lamina Tide, accent-forward teal, light"
+
+### Plush: soft raised surfaces
+
+One tinted surface everywhere, panes and your prompt raised out of it by soft shadows, no borders,
+no glass, one saturated accent. Light by default; `plush-dark`, `plush-dusk`, `plush-dusk-dark`,
+`plush-clay` and `plush-clay-dark` are the other theme files it brings (`cmux settings set
+appearance.themeFile plush-dark`). The whole look, with its gallery, is
+[examples/looks/plush](../../examples/looks/plush/README.md).
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/plush.json
+```
+
+Or ask: "make it soft and plush, raised surfaces with no borders or glass"
+
 ### Hairline: flat and neutral
 
 Opaque gray surfaces on one-pixel lines, one corner radius for panes, tabs, cards and the
@@ -62,6 +160,179 @@ cmux customize use ~/.local/state/cmux/customize/recipes/hairline.json
 ```
 
 Or ask: "make cmux flat and neutral: gray surfaces, one-pixel lines, one corner radius, a focus ring and no glass"
+
+### Tonal: one seed, every color
+
+Every color from one sage-teal seed, in tonal steps: the sidebar and tab strip a few tones off
+the page, opaque surfaces with no glass or blur, the work in one rounded card, and the primary
+color for selection, focus and Send. It brings Tonal Dark too
+(`cmux settings set appearance.themeFile tonal-dark`).
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/tonal.json
+```
+
+Or ask: "make cmux one calm tonal theme from a single seed color, opaque, no glass"
+
+### Ukiyo-e: the Great Wave
+
+Hokusai's Great Wave behind frosted washi paper, Prussian-blue ink, a two-tone window and serif pages. It ships its theme file (`themes/ukiyo-e.json`).
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/ukiyo-e.json
+```
+
+Or ask: "make it look like a Japanese woodblock print"
+
+### Hiroshige at dusk
+
+Hiroshige's coast at Hota behind dark glass, warm paper ink and a vermilion accent, floating panes. It ships its theme file (`themes/hiroshige-dusk.json`).
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/hiroshige-dusk.json
+```
+
+Or ask: "make it look like a Hiroshige print at dusk"
+
+### Fuji in mist
+
+Hokusai's Umezawa Manor and Mount Fuji behind pale frosted glass, sea-green ink, a two-tone window. It ships its theme file (`themes/fuji-mist.json`).
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/fuji-mist.json
+```
+
+Or ask: "make it pale and misty like a Hokusai Fuji view"
+
+### Nio guardian
+
+Kano Hogai's Nio guardian behind dark glass, umber panes and a gold-leaf accent on cards. It ships its theme file (`themes/nio-guardian.json`).
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/nio-guardian.json
+```
+
+Or ask: "make it dark and warm like a Kano school painting"
+
+### Sumi ink
+
+Black ink on rice paper and one seal-red mark: no picture, a hairline sidebar, serif pages. It ships its theme file (`themes/sumi-ink.json`).
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/sumi-ink.json
+```
+
+Or ask: "make it black ink on rice paper"
+
+### Water lilies
+
+Monet's water lilies behind frosted glass, pond greens and blues, a two-tone window. It ships its theme file (`themes/water-lilies.json`).
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/water-lilies.json
+```
+
+Or ask: "make it look like Monet's water lilies"
+
+### Starry night
+
+Van Gogh's Starry Night behind dark glass, night blue and a star-yellow accent, floating panes. It ships its theme file (`themes/starry-night.json`).
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/starry-night.json
+```
+
+Or ask: "make it look like The Starry Night"
+
+### Gilded
+
+Klimt's The Kiss behind dark glass, gold-leaf accent on cards, serif pages. It ships its theme file (`themes/gilded.json`).
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/gilded.json
+```
+
+Or ask: "make it gold like a Klimt painting"
+
+### Moonrise
+
+Friedrich's Two Men Contemplating the Moon behind frosted glass, moss and moonlight, a flat window. It ships its theme file (`themes/moonrise.json`).
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/moonrise.json
+```
+
+Or ask: "make it quiet and moonlit like Friedrich"
+
+### Engraving
+
+A Dore engraving behind dark glass, pure grays, separate panes and serif pages. It ships its theme file (`themes/engraving.json`).
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/engraving.json
+```
+
+Or ask: "make it black and white like a Dore engraving"
+
+### Aurora
+
+The living Aurora wallpaper behind clear glass, polar night blue and a green-teal accent, floating panes. It ships its theme file (`themes/aurora-night.json`).
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/aurora-night.json
+```
+
+Or ask: "put a moving aurora behind the window"
+
+### Still water
+
+The living Ripples wallpaper behind glass, deep teal and a pale cyan accent on cards. It ships its theme file (`themes/still-water.json`).
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/still-water.json
+```
+
+Or ask: "put moving ripples behind the window"
+
+### Deep currents
+
+The living Currents wallpaper behind glass, ocean blue and a bright blue accent, floating panes. It ships its theme file (`themes/deep-currents.json`).
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/deep-currents.json
+```
+
+Or ask: "put moving ocean currents behind the window"
+
+### Dot grid
+
+The living Dot Field wallpaper behind frosted glass, black and white only, block panes and Geist type. It ships its theme file (`themes/dot-grid.json`).
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/dot-grid.json
+```
+
+Or ask: "put a moving dot grid behind a black and white window"
+
+### Grid
+
+A Swiss grid: zero corners, 1 px rules instead of shadows, one signal-yellow accent on black, no glass, heavy grotesk type. It ships its theme file (`themes/grid.json`).
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/grid.json
+```
+
+Or ask: "make it a strict grid: square corners, thin rules, one accent"
+
+### Aero sky
+
+The living Aero wallpaper behind light glass, sky blue and a bright blue accent, floating panes. It ships its theme file (`themes/aero-sky.json`).
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/aero-sky.json
+```
+
+Or ask: "put a glossy moving sky behind a light window"
 
 ## Layout
 
@@ -85,6 +356,43 @@ cmux customize use ~/.local/state/cmux/customize/recipes/vertical-tabs.json
 
 Or ask: "put my tabs in a vertical list"
 
+### A review desk
+
+The chat stays the main pane and every diff, file and link it opens lands in a column on its
+right; new terminals split instead of stacking as tabs; the edited-files card stays open; the tab
+bar gets Split Right, Split Down, Open Diff Viewer and Zoom. Shift-Command-D opens the diff, and in
+the diff `] F`, `[ F`, `N`, `Shift-N` and `G G` step files and hunks. Two palette actions show the
+branch against main and start Claude to review it. It brings its own `keybindings.json`, so while
+it previews it takes the place of yours.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/review-desk.json
+```
+
+Or ask: "set up a review layout with the chat, the diff and a terminal side by side"
+
+### Every bar at the bottom
+
+The tab bars, the browser and Markdown address bars, the sidebar's spaces, the Chief and docked
+columns all move to the bottom edge.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/bottom-deck.json
+```
+
+Or ask: "move the tab bar, the address bars and the docks to the bottom"
+
+### Workspaces like browser tabs
+
+Each workspace is one line, groups get a colored rail like a browser's tab groups, Command-1 to 9
+picks a workspace, and you drag a workspace onto a pane's edge to show it beside yours.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/workspace-tabs.json
+```
+
+Or ask: "make my workspaces work like browser tabs"
+
 ## Type
 
 ### A different font
@@ -106,6 +414,26 @@ cmux customize use ~/.local/state/cmux/customize/recipes/larger-text.json
 ```
 
 Or ask: "make the text bigger everywhere"
+
+### Editorial type
+
+IBM Plex for the interface, a serif for the chats and Markdown pages, roomier lines.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/editorial-type.json
+```
+
+Or ask: "use a serif for the chats and the pages"
+
+### Readable type
+
+Atkinson Hyperlegible for the interface and chats, a little larger with open lines.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/readable-type.json
+```
+
+Or ask: "use the most readable font everywhere"
 
 ## Widgets
 
@@ -147,16 +475,36 @@ cmux customize use ~/.local/state/cmux/customize/recipes/pane-keys.json
 
 Or ask: "let me move between panes with ctrl-cmd-h, j, k and l"
 
+### A keyboard mode on Command-J
+
+Press Command-J, let go, then one key: V or minus splits, Z zooms, E evens the splits, O floats
+the pane, C opens a terminal tab, A a chat beside you, D the diff, B hides the sidebar, X closes
+the tab, ] and [ step workspaces. Command-J W, R or M, then H, J, K or L, moves focus, resizes or
+moves the tab. Command-J is cmux's own leader, so no key a terminal or a chat types is taken. Like
+the pane keys, it takes the place of your own `keybindings.json` while it previews.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/leader.json
+```
+
+Or ask: "give me leader keys to split, zoom, resize and move panes"
+
 ## App looks
 
-Each of these changes the whole window at once: the colors, the sidebar, the chat and the
-composer. Each turns on a theme file of its own and a chat stylesheet, so to make one your own,
-edit `~/.config/cmux/themes/NAME.json` and `~/.config/cmux/agent-pane/theme.css` after you apply it.
+Each of these makes cmux look and work like an agent app: the colors, the sidebar, the chat and
+the composer, and also the app's keys, its panels and how a new chat starts. Each turns on a
+theme file of its own and a chat stylesheet, so to make one your own, edit
+`~/.config/cmux/themes/NAME.json` and `~/.config/cmux/agent-pane/theme.css` after you apply it.
+
+Only what a recipe names changes. Its keys go into your `keybindings.json` beside your own, and
+each key it takes from cmux stays in the Command Palette. Each table says how the recipe gives
+one of the app's features, and what cmux can't do yet.
 
 ### Like the Codex app
 
 A gray sidebar of your chats by project with how long ago each ran, a white page, your prompts
-in gray pills, and a large rounded composer.
+in gray pills, and a large rounded composer. Shift-Command-O starts a Codex chat, a button on
+the tab bar opens the diff, and a chat whose turn ended rings until you look at it.
 
 ```sh
 cmux customize use ~/.local/state/cmux/customize/recipes/codex-app.json
@@ -164,20 +512,56 @@ cmux customize use ~/.local/state/cmux/customize/recipes/codex-app.json
 
 Or ask: "make cmux look and work like the Codex app"
 
+| Feature | How the recipe does it | Gap |
+| --- | --- | --- |
+| Threads by project | `sidebar.groupBy` `folder`, `sidebar.showTimestamps` | No Pinned and Recents sections above the projects |
+| Threads home | Your chats are in the sidebar | New Tab no longer has a threads page |
+| New thread | Shift-Command-O: New Agent Chat with Codex (`palette.newAgentChat`, `harness: codex`) | It opens as a tab in this workspace, not as its own sidebar row. Shift-Command-O was Restore Previous App Launch |
+| Composer: Return sends, attachments | Return sends already; `agentPane.attachmentView` `strip` | |
+| Model and reasoning picker | Control-Shift-M: Switch Model; effort with Set Agent Chat Effort in the palette | No effort picker in the composer |
+| Approval modes | The mode menu (Set Agent Chat Mode) per chat | A recipe can't set `agents.defaultPermissionMode` (only you can), nor the Codex approval mode in its own config |
+| Local, worktree or cloud thread | Local by default; New Git Worktree and New Cloud Chat in the palette | No "new chat in its own worktree" choice |
+| Review pane | Control-Shift-G and a tab bar button open the diff (`tabs.toolbarButtons`), `diff.layout` `unified`; commit and push from the palette | No staged and unstaged scopes, no per-hunk stage or revert, no review comments sent to the agent |
+| Terminal | Control-backtick opens a terminal tab already | No terminal panel that one key shows and hides |
+| Files | Shift-Command-E shows the files beside the chat | |
+| Switch threads | Shift-Command-[ and ] step through the sidebar; Command-1 to 9 already | |
+| Done notice | `notifications.attention.agentChats` `ring` | |
+| Keyboard shortcuts list | Command-/ searches the shortcuts | |
+| Automations | Automations in the palette | A recipe can't carry automations or actions |
+| Skills | Your skills in `~/.config/cmux/skills` reach every chat already | No skills browser |
+
 ### Like the Claude desktop app
 
 The Claude desktop app's Code tab, dark, with colors measured from the real app: a #191919 page,
-a warm #282524 sidebar with a 1 pt line at its edge, sessions under their project with sub-sessions
-nested under the session that started them, title-only rows, a one-line #303030 composer with a
-1 pt edge and 12 pt corners, and your prompt in a #252525 pill. It ships its theme file
+a #151515 sidebar a step darker with a hairline at its edge, sessions under their project with
+sub-sessions nested under the session that started them, title-only rows, a one-line #303030
+composer with a 1 pt edge and 12 pt corners (the chat's and the New Tab's), and your prompt in a
+#252525 pill. It keeps your density. It ships its theme file
 (`themes/claude-code-app.json`) and chat stylesheet (`agent-pane/theme.css`), so you can copy and
-change either.
+change either. Command-N starts a Claude chat, Shift-Command-M opens the mode menu (plan mode is
+in it), and new panes open beside the chat.
 
 ```sh
 cmux customize use ~/.local/state/cmux/customize/recipes/claude-code-app.json
 ```
 
 Or ask: "make cmux look and work like the Claude desktop app's Code tab"
+
+| Feature | How the recipe does it | Gap |
+| --- | --- | --- |
+| Sessions by project | `sidebar.groupBy` `folder`, `sidebar.sessionTree` nests sub-sessions | Rows stay title-only, as in the app |
+| New session | Command-N: New Agent Chat with Claude (`harness: claude`) | It opens as a tab in this workspace. Command-N was New Workspace |
+| Permission modes, plan mode | Shift-Command-M: the mode menu, with plan mode (was Copy Mode) | A recipe can't set `agents.defaultPermissionMode` (only you can), nor the default mode in Claude Code's own settings. No Accept edits or Auto mode of cmux's own |
+| Model and effort | Shift-Command-I: Switch Model; Shift-Command-E: Set Effort | |
+| Type / for commands | The composer's / menu already | |
+| Return sends, Shift-Return a new line | Already | |
+| Preview | Shift-Command-B shows the preview beside the chat (was the bookmarks bar) | |
+| Terminal, tasks and changes panels | `layout.newPanePlacement` `split`; `agentPane.display.sessionInfo.placement` `push`; a tab bar button opens the diff; `agentPane.editedFiles.scope` `session` | No terminal panel that one key shows and hides |
+| Next and previous session | Shift-Command-[ and ] | |
+| Close a pane | Command-\ | |
+| Keyboard shortcuts | Command-/ opens them | |
+| Worktree per session | New Git Worktree in the palette | No "work in a worktree" switch under the composer |
+| Side chat, cycle the view | | No side chat action and no action that cycles `agentPane.display.transcriptView` |
 
 ### Claude Code notification levels
 
@@ -192,6 +576,46 @@ cmux customize use ~/.local/state/cmux/customize/recipes/claude-code-notificatio
 
 Or ask: "show permission banners and question badges, with task-complete alerts off"
 
+### Like the Codex app, dark
+
+A near-black page, a quiet sidebar of chats by project, white ink and grays with no color accent,
+and a rounded composer. It ships its theme file (`themes/codex-app-dark.json`) and chat stylesheet
+(`agent-pane/theme.css`); the colors are matched by eye, not measured. It brings the same keys and
+panels as Like the Codex app: Shift-Command-O starts a Codex chat, a button on the tab bar opens
+the diff, and a chat whose turn ended rings until you look at it.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/codex-app-dark.json
+```
+
+Or ask: "make cmux look like the Codex app, in dark"
+
+### A violet coding app
+
+A violet-black page, threads by project in a separate sidebar, lavender ink, a pink accent and card
+panes. It ships its theme file (`themes/violet-app.json`) and chat stylesheet
+(`agent-pane/theme.css`); the colors are matched by eye, not measured.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/violet-app.json
+```
+
+Or ask: "make cmux look like a violet desktop coding app"
+
+### A light web coding app
+
+Workspaces as one-line tabs, a quiet sidebar, a white page on a light-gray frame, a centered
+760-point chat column, your prompts in light-gray bubbles and a hairline rounded composer.
+Command-N starts a chat and Shift-Command-[ and ] walk the tabs. It ships its theme file
+(`themes/web-coding-app.json`) and chat stylesheet (`agent-pane/theme.css`); the colors are
+matched by eye, not measured.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/web-coding-app.json
+```
+
+Or ask: "make cmux look like a light web coding agent, with workspaces as tabs"
+
 ## For agents and scripts
 
 - `cmux customize recipes --json` lists every recipe: its name, title, group, wish, what it
@@ -201,3 +625,5 @@ Or ask: "show permission banners and question badges, with task-complete alerts 
 - Apply and discard are the person's call.
 - A recipe is a profile file, the format `cmux customize save NAME` writes. Save your own setup
   the same way to share it.
+- To share a whole customization as a git repo that others install from its URL, see
+  [setup repos](setup-repos.md); `cmux setup check DIR` checks one before you push it.
