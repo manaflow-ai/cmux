@@ -100,6 +100,7 @@ pub mod focus;
 mod imessage;
 pub mod input;
 pub mod keychain;
+mod notification_rings;
 mod pane_focus;
 mod pane_placement;
 mod screen;
@@ -302,6 +303,13 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: sidebar_row_layout::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&sidebar_row_layout::respond(&request))
+                    .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_drag_geometry" => {
+                use cmux_layout_reducer::sidebar_drag_geometry;
+                let request: sidebar_drag_geometry::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_drag_geometry::respond(&request))
                     .map_err(|_| ERR_INVALID)?
             }
             b"sidebar_nav" => {
@@ -643,6 +651,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if screen::handles(operation) => screen::respond(operation, request)?,
             operation if tab_discard::handles(operation) => {
                 tab_discard::respond(operation, request)?
+            }
+            operation if notification_rings::handles(operation) => {
+                notification_rings::respond(operation, request)?
             }
             operation if browser_rules::handles(operation) => {
                 browser_rules::respond(operation, request)?
