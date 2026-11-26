@@ -1375,9 +1375,11 @@ class RawLabelVars(unittest.TestCase):
     def test_every_variable_a_main_workflow_reads_ahead_of_a_linux_label_is_covered(self) -> None:
         # The detector for this class: `vars.X || ...` in an expression that falls back to a Blacksmith Linux label
         # or a Linux pool. A new such variable must join RAW_LABEL_VARS (or be the mirror or a routing record).
+        # CI_OVERFLOW_LINUX is the overflow switch (tests/test_ci_overflow_switch_routes.py): the watchdog sets it to
+        # an overflow label or deletes it, and runner_pools never moves it.
         pattern = re.compile(r"vars\.([A-Z0-9_]+) \|\|")
         linux = re.compile(r"blacksmith-\d+vcpu-ubuntu|RUNNER_POOLS\)\.(?:linux|promotion)")
-        exempt = {*runner_pools.MIRRORS, runner_pools.VARIABLE, runner_pools.OVERFLOW_RECORD}
+        exempt = {*runner_pools.MIRRORS, runner_pools.VARIABLE, runner_pools.OVERFLOW_RECORD, "CI_OVERFLOW_LINUX"}
         found = set()
         for path in sorted((ROOT / ".github").rglob("*.y*ml")):
             for line in path.read_text(encoding="utf-8").splitlines():
