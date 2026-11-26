@@ -16,6 +16,7 @@ import { healthHandlers } from "./handlers/health.ts";
 import { creationHandlers } from "./handlers/creations.ts";
 import { vmsHandlers } from "./handlers/vms.ts";
 import type { TenantLimits } from "./limits/service.ts";
+import type { ReplicaStore } from "./replica/store.ts";
 import type { TenantPolicy } from "./policy.ts";
 import type { VmImages } from "./proofs/vm-image.ts";
 import type { Entitlements } from "./proofs/tenant-may-create.ts";
@@ -53,6 +54,7 @@ export type Services =
   | SessionVerifier
   | TeamMembership
   | TenantLimits
+  | ReplicaStore
   | TenantPolicy
   | Entitlements
   | S3aServices
