@@ -201,6 +201,10 @@ export const MARK_LIVE_STEP = 12;
 /// 8 lower than the line and everything over it moved up 8 more than the reply's own line, the reply overlapping the
 /// line's words while the follow caught up (Leo, 2026-11-24: "the extra spacing after thinking added more layout
 /// shifts"; test/agent-pane-thinking-cls.test.ts). Its box and the room under it are MARK_LIVE_STEP's.
+/// Once the reply is drawn the same line ("Writing") sits TRANSCRIPT_FOOTER_GAP (8) under it, in the place the
+/// turn's footer takes when the turn ends (test/agent-pane-stream-jitter.test.ts "a turn that ends leaves its reply
+/// where it was"). So with "Working for" opened, where the follow lets go, the line comes down by the reply's first
+/// line plus that 8 when the reply starts. Standing it 16 there instead would move the same 8 to the turn's end.
 export const MARK_LIVE_THOUGHT = 13;
 /// Added to a row's mark (a reply or a tool run) when it opens a turn the agent ran on its own that
 /// draws as its own turn, with no line of its own over it (model.ts `opensBackgroundTurn`): a task
