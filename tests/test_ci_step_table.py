@@ -1134,7 +1134,7 @@ class PipelineTest(unittest.TestCase):
         self.assertIs(decide["continue-on-error"], True)
         self.assertEqual(decide["env"], {"GH_TOKEN": "${{ github.token }}"})
         for part in ("github.event_name == 'pull_request'", "format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0'",
-                     "!contains(github.event.pull_request.labels.*.name, 'full-ci')"):
+                     "!(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))"):
             self.assertIn(part, decide["if"])
         run = next(s for s in linux["steps"] if s.get("id") == "run")
         self.assertEqual(run["env"]["TOOLING_TESTS_BASE_RED"], "${{ steps.tooling-tests-base-red.outputs.base_red }}")

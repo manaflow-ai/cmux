@@ -2149,7 +2149,7 @@ class HotAwareWorkflows(unittest.TestCase):
         self.assertEqual(job["needs"], "coalesce")
         self.assertEqual(job["if"], "${{ (!cancelled() && needs.coalesce.outputs.run != 'false') && "
                                     "(github.event_name != 'pull_request' || github.event.pull_request.base.ref != "
-                                    "'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}")
+                                    "'feat-cmux-next' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))) }}")
         self.assertTrue(job["runs-on"].endswith("|| 'cmux-linux' }}"), job["runs-on"])
         self.assertNotIn("mini_runner", job["runs-on"])
         self.assertNotIn("macos", job["runs-on"])

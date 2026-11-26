@@ -501,7 +501,7 @@ def draft_tier_condition(event_name: str, keep_labeled: bool = False) -> str:
     parts = [
         f"github.event_name != '{event_name}'",
         "github.event.pull_request.draft != true",
-        "contains(github.event.pull_request.labels.*.name, 'full-ci')",
+        "(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))",
         "(vars.CI_DRAFT_CHEAP_TIER || '1') == '0'",
     ]
     if keep_labeled:
@@ -514,7 +514,7 @@ def land_tier_condition(event_name: str, keep_labeled: bool = False) -> str:
     (an idle base merge into a gated workflow runs it as a ready head does)."""
     parts = [
         f"github.event_name != '{event_name}'",
-        "contains(github.event.pull_request.labels.*.name, 'full-ci')",
+        "(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))",
         "(github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0')",
         "(github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land')"
         " || github.event.pull_request.base.ref != 'feat-cmux-next'"
