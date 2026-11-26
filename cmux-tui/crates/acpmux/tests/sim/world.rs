@@ -37,6 +37,13 @@ pub fn left_alive() -> (usize, usize) {
         let hubs = std::mem::take(&mut *h.borrow_mut());
         let strong: Vec<usize> = hubs.iter().map(|w| w.strong_count()).collect();
         if std::env::var_os("SIM_LEAK_TRACE").is_some() {
+            for w in &hubs {
+                if let Some(hub) = w.upgrade() {
+                    eprintln!("leak hub: {}", hub.sim_leak_probe());
+                }
+            }
+        }
+        if std::env::var_os("SIM_LEAK_TRACE").is_some() {
             eprintln!(
                 "leak strong {strong:?} daemon futures {} dropped {}; sentinels spawned {} dropped {}",
                 LOCAL_MADE.load(std::sync::atomic::Ordering::SeqCst),
