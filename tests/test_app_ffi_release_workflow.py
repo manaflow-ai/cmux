@@ -564,7 +564,8 @@ elif args[0] == "api":
         base = state.get("staged_on") and f"/commits/{state['staged_on']}/" in endpoint
         if state.get("base_checks_read" if base else "checks_read") == "fail":
             server_error()
-        runs = [{"name": f"check-{i}", "conclusion": c}
+        # A check given as [name, conclusion] keeps its name.
+        runs = [{"name": c[0], "conclusion": c[1]} if isinstance(c, list) else {"name": f"check-{i}", "conclusion": c}
                 for i, c in enumerate(state.get("base_checks" if base else "checks", []))]
         query = dict(part.split("=", 1) for part in endpoint.split("?", 1)[1].split("&") if "=" in part)
         size, number = int(query.get("per_page", 30)), int(query.get("page", 1))
@@ -618,7 +619,7 @@ class RePinPublication(unittest.TestCase):
                   workflow=WORKFLOW, pr_files=None, current_pin=None, diff_exit=None,
                   jobs_read="ok", base_result="newer", base_enabled="true", pin_age_min=None,
                   unpinned_age_min=None, staged_on=None, base_checks=(), base_checks_read="ok", checks_read="ok",
-                  rate_limits=(), wait_bound=None, pr_read="ok"):
+                  rate_limits=(), wait_bound=None, pr_read="ok", fleet_verdict=None):
         step = pin_step(yaml.safe_load(workflow.read_text())["jobs"]["repin"])
         with tempfile.TemporaryDirectory() as temp:
             work = Path(temp)
@@ -650,14 +651,29 @@ class RePinPublication(unittest.TestCase):
             executable(work / "scripts/ci/app_ffi_pin.py", PIN_READER_FAKE)
             # The bounded page reader the hold reads check runs with (tests/test_gh_pages.py tests it).
             executable(work / "scripts/ci/gh_pages.py", (ROOT / "scripts/ci/gh_pages.py").read_text())
+            # The build fleet's compile verdict for a head (scripts/ci/fleet_compile_result.py): None, no reader.
+            if fleet_verdict is not None:
+                executable(work / "scripts/ci/fleet_compile_result.py", "#!/usr/bin/env python3\n" + textwrap.dedent(f'''\
+                    import json, os, sys
+                    path = os.environ["STATE"]
+                    state = json.load(open(path))
+                    state.setdefault("fleet_reads", []).append(sys.argv[1:])
+                    json.dump(state, open(path, "w"))
+                    print({fleet_verdict!r})
+                    '''))
             # The newest published release (NewestPublishedRelease tests the real one).
             executable(scripts / "newest_app_ffi_release.py",
                        f"print('{'d' * 40} {'e' * 64}')\n")
             # The pin on the base (pin-app-ffi-on-base.test.sh tests the real one): None fails it, else it
-            # writes that result; it records the token and switch it was given.
+            # writes that result; it records the token and switch it was given. "proven" plays a release that does
+            # not only add: pinned when PROVEN_PIN names it, else pr.
+            result_line = ('if [ -n "$PROVEN_PIN" ] && [ "$PROVEN_PIN" = "$1" ]; then echo result=pinned; '
+                           'else echo result=pr; fi >> "$GITHUB_OUTPUT"\n' if base_result == "proven" else
+                           f'echo "result={base_result}" >> "$GITHUB_OUTPUT"\n')
             executable(scripts / "pin-app-ffi-on-base.sh", "#!/bin/sh\nexit 1\n" if base_result is None else
-                       f'#!/bin/sh\necho "result={base_result}" >> "$GITHUB_OUTPUT"\n'
-                       f'echo "$TOKEN $ENABLED $1 $2" > "$RUNNER_TEMP/base-call"\n')
+                       '#!/bin/sh\n' + result_line +
+                       'echo "$TOKEN $ENABLED $1 $2" > "$RUNNER_TEMP/base-call"\n'
+                       'echo "${PROVEN_PIN:-none} $1 $2" >> "$RUNNER_TEMP/base-proofs"\n')
             helper = ROOT / "scripts/cmux-next/publish-app-ffi-repin.sh"
             if helper.exists(): executable(scripts / helper.name, helper.read_text())
             state_path = work / "state.json"
@@ -684,6 +700,8 @@ class RePinPublication(unittest.TestCase):
             state = json.loads(state_path.read_text())
             base_call = Path(temp) / "base-call"
             state["base_call"] = base_call.read_text().split() if base_call.exists() else None
+            proofs = Path(temp) / "base-proofs"
+            state["base_proofs"] = [line.split() for line in proofs.read_text().splitlines()] if proofs.exists() else []
             sleeps = Path(temp) / "sleeps"
             state["sleeps"] = [int(word) for word in sleeps.read_text().split()] if sleeps.exists() else []
             return result, state
@@ -1157,9 +1175,10 @@ class RePinPublication(unittest.TestCase):
     def test_a_release_with_changed_inputs_is_re_pinned(self):
         result, state = self.run_repin()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(state["input_diffs"], [[self.PINNED, self.NEWEST]])
+        # The skip compares the pin with the release, then the hold compares the tip with it before any runs read.
+        self.assertEqual(state["input_diffs"], [[self.PINNED, self.NEWEST], ["a" * 40, self.NEWEST]])
         # The inputs compared are the ones the pin check lists (the fake check-app-ffi-pin.sh --list-inputs).
-        self.assertEqual(state["input_paths"], [["cmux-tui/crates/cmux-app-ffi/src"]])
+        self.assertEqual(state["input_paths"], [["cmux-tui/crates/cmux-app-ffi/src"]] * 2)
         self.assertEqual(state["published"], ["b" * 40])
 
     def test_the_json_pin_is_read_when_the_tree_has_it(self):
@@ -1345,11 +1364,76 @@ class RePinPublication(unittest.TestCase):
                                  [["app-ffi-repin.yml", "--ref", "feat-cmux-next"]])
 
     def test_final_pr_must_be_open_at_the_published_commit(self):
-        for options in ({"wrong_head": True}, {"close_on_edit": True}):
-            with self.subTest(**options):
-                result, _ = self.run_repin(**options)
-                self.assertNotEqual(result.returncode, 0)
-                self.assertNotIn("verified open", result.stdout)
+        result, _ = self.run_repin(close_on_edit=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("verified open", result.stdout)
+
+    # 2026-11-25: after the force-push to 38e0d0d2, GitHub's pull request still read head 4910b844 (its head sync lags a
+    # push), and the job failed "re-pin PR is not open at the published head" though the branch held the new pin. Its
+    # failure step then dispatched a re-pin on the same rate-limited quota. An open PR whose branch GitHub serves at the
+    # published commit is published: the run re-reads the PR a few times, then warns and succeeds.
+    def test_a_pr_head_that_lags_the_published_branch_is_not_a_failure(self):
+        result, state = self.run_repin(wrong_head=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(state["refs"]["app-ffi-repin"], "b" * 40)
+        self.assertIn("::warning", result.stdout + result.stderr)
+        self.assertIn("app-ffi-repin is at bbbbbbbbbbbb", result.stdout + result.stderr)
+        self.assertTrue(state["sleeps"], "the PR's head was not re-read after a wait")
+
+    # 2026-11-25: release b6be67e4 changed a declaration over the pin 7c787a1cd7ea (run 45645816280), so the pin on the
+    # base refused it and it went to re-pin PR #55633, whose whole rollup never went green on infra reds; base merges
+    # restarted its CI, and the pin sat about 11 hours behind. Its app compile had passed. A re-pin PR head whose app
+    # compile passed (the build fleet's verdict for that head, scripts/ci/fleet_compile_result.py) and whose fast tier
+    # (HandlerCoverageTests) succeeded proves its pin: the pin on the base takes it (PROVEN_PIN).
+    PROVEN_CHECKS = (["cmux-next fast tier", "success"], ["cmux-next app compile (build fleet)", "success"])
+
+    def test_a_pin_the_re_pin_pr_proved_lands_on_the_base(self):
+        for name, same in {"the picked release itself": [], "the same inputs": [[self.PR_PIN, self.NEWEST]]}.items():
+            pr_pin = self.NEWEST if not same else self.PR_PIN
+            with self.subTest(name):
+                result, state = self.run_repin(base_result="proven", same_inputs=same, pr_files=self.pr_head(pr_pin),
+                                               checks=self.PROVEN_CHECKS, fleet_verdict="pass")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("no re-pin pull request", result.stdout)
+                self.assertEqual(state["published"], [])
+                self.assertEqual(state["base_proofs"][-1], [pr_pin, pr_pin, "0" * 64])
+                # The verdict of the PR's head, read with no PR number (that would submit a compile).
+                self.assertEqual(len(state["fleet_reads"]), 1)
+                read = state["fleet_reads"][0]
+                self.assertEqual(read[read.index("--sha") + 1], "c" * 40)
+                self.assertNotIn("--pr", read)
+
+    def test_a_pin_the_re_pin_pr_has_not_proved_stays_on_the_pr(self):
+        cases = {
+            "the compile failed": {"fleet_verdict": "fail"},
+            "no compile verdict": {"fleet_verdict": "none"},
+            "no verdict reader": {},
+            "the fast tier failed": {"fleet_verdict": "pass",
+                                     "checks": (["cmux-next fast tier", "failure"],
+                                                ["cmux-next fast tier (build fleet)", "success"])},
+            "no fast tier yet": {"fleet_verdict": "pass", "checks": (["cmux-next app compile (build fleet)", "success"],)},
+            "a failed check-run read": {"fleet_verdict": "pass", "checks": self.PROVEN_CHECKS, "checks_read": "fail"},
+            "the head pins the current pin": {"fleet_verdict": "pass", "checks": self.PROVEN_CHECKS,
+                                              "pr_files": self.pr_head(self.PINNED)},
+        }
+        for name, options in cases.items():
+            with self.subTest(name):
+                options = {"pr_files": self.pr_head(self.NEWEST), "checks": self.PROVEN_CHECKS, **options}
+                result, state = self.run_repin(base_result="proven", **options)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn("no re-pin pull request", result.stdout)
+                self.assertTrue(all(proof[0] == "none" for proof in state["base_proofs"]), state["base_proofs"])
+
+    # 2026-11-25: the hold's read of the release runs (actions/workflows/app-ffi-release.yml/runs?per_page=100) got the
+    # installation rate limit's 403. When feat-cmux-next's tip already has the picked release's FFI inputs, no newer
+    # release can be building for it, so the hold reads no runs.
+    def test_the_hold_reads_no_runs_when_the_tip_has_the_releases_inputs(self):
+        newer = "7" * 40
+        result, state = self.run_repin(runs=[{"id": 9, "status": "queued", "head_sha": newer}],
+                                       ancestry=[(self.NEWEST, newer)], same_inputs=[["a" * 40, self.NEWEST]])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(state.get("run_reads", []), [])
+        self.assertEqual(state["refs"]["app-ffi-repin"], "b" * 40)
 
 
 class NewestPublishedRelease(unittest.TestCase):
@@ -1841,7 +1925,7 @@ class BuildRescueToBlacksmith(unittest.TestCase):
         self.assertEqual(verdict, m.RESCUE)
         self.assertEqual(posts, [
             ("POST", "repos/manaflow-ai/cmux/actions/workflows/app-ffi-release.yml/dispatches",
-             {"ref": "feat-cmux-next", "inputs": {"rescue": "blacksmith", "rescue_pool": ""}}),
+             {"ref": "feat-cmux-next", "inputs": {"rescue": "blacksmith", "rescue_pool": "", "rescue_tried": "blacksmith"}}),
             ("POST", "repos/manaflow-ai/cmux/actions/runs/7/cancel", None)])
 
     def test_a_build_that_got_a_runner_or_a_switch_off_with_no_other_owned_pool_rescues_nothing(self):
@@ -1926,17 +2010,19 @@ class BuildRescueNeverToAnOffOrDeadBlacksmith(unittest.TestCase):
             with self.subTest(switch=switch):
                 verdict, posts = self.watch(switch, self.FFI_POOL)
                 self.assertEqual(verdict, m.RESCUE)
-                self.assertEqual(posts[0][2], {"ref": "feat-cmux-next",
-                                               "inputs": {"rescue": "owned", "rescue_pool": "promote"}})
+                self.assertEqual(posts[0][2], {"ref": "feat-cmux-next", "inputs": {
+                    "rescue": "owned", "rescue_pool": "promote", "rescue_tried": "ffi-pool,promote"}})
                 self.assertEqual(posts[1], ("POST", "repos/manaflow-ai/cmux/actions/runs/7/cancel", None))
         # The pool the build sat on is never the rescue's pool.
-        self.assertEqual(self.watch("", self.PROMOTE)[1][0][2]["inputs"], {"rescue": "owned", "rescue_pool": "ffi-pool"})
+        self.assertEqual(self.watch("", self.PROMOTE)[1][0][2]["inputs"],
+                         {"rescue": "owned", "rescue_pool": "ffi-pool", "rescue_tried": "ffi-pool,promote"})
 
     def test_switch_on_names_the_owned_pool_its_rescued_run_falls_back_to(self):
         m = self.rescue_module
         verdict, posts = self.watch("pr-rescue", self.FFI_POOL)
         self.assertEqual(verdict, m.RESCUE)
-        self.assertEqual(posts[0][2]["inputs"], {"rescue": "blacksmith", "rescue_pool": "promote"})
+        self.assertEqual(posts[0][2]["inputs"], {"rescue": "blacksmith", "rescue_pool": "promote",
+                                                 "rescue_tried": "ffi-pool,promote"})
 
     def rescue_runs(self, switch: str, rescue: str = "") -> bool:
         job = self.workflow["jobs"]["rescue"]
@@ -1953,6 +2039,105 @@ class BuildRescueNeverToAnOffOrDeadBlacksmith(unittest.TestCase):
         env = next(step for step in rescue["steps"] if "app_ffi_rescue.py" in str(step.get("run")))["env"]
         for name in ("CI_FFI_RELEASE_POOL", "CI_NEXT_PROMOTE_POOL", "CI_SIDE_LANE_RUNNER"):
             self.assertEqual(env.get(name), f"${{{{ vars.{name} }}}}", name)
+
+
+
+class BuildRescueAgainToAnUntriedPool(unittest.TestCase):
+    """2026-11-20: rescued run 44734106982 (dispatched 12:14Z) sent its build to glaeda-side-std-xcode-26.6, the pool
+    its rescue picked; it sat there 110 min with no runner and was cancelled at 14:04Z, while a push run's build got
+    another owned Mac in 15 s. A rescued run never rescued again, so nothing moved it, and the app FFI pin passed its
+    120 min bound (goal fix-running-ffi-pin). A rescued run now rescues again, to an owned pool no build of its chain
+    has named (`rescue_tried`, pool keys), never Blacksmith again, and leaves the build queued once every owned
+    pool is tried: at most three dispatches in a chain."""
+
+    SIDE = "glaeda-side-std-xcode-26.6"
+    FFI_POOL = "glaeda-promote-trusted-light-xcode-26.6"
+    PROMOTE = "glaeda-promote-trusted-std-xcode-26.6"
+
+    def setUp(self):
+        self.workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        self.rescue_module = load_module("app_ffi_rescue", ROOT / "scripts/ci/app_ffi_rescue.py")
+
+    def watch(self, switch: str, stuck_on: str, tried: str) -> tuple[str, list]:
+        m = self.rescue_module
+        calls, clock = [], [0.0]
+
+        def api(method, path, token, body=None):
+            calls.append((method, path, body))
+            return {"jobs": [{"name": m.BUILD_JOB, "status": "queued", "labels": [stuck_on] if stuck_on else []}]} \
+                if method == "GET" else None
+
+        def sleep(seconds):
+            clock[0] += seconds
+
+        env = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_RUN_ID": "7", "GITHUB_RUN_ATTEMPT": "1",
+               "GH_TOKEN": "t", "GITHUB_REF_NAME": "feat-cmux-next", "CI_BLACKSMITH_MACOS": switch,
+               "CI_FFI_RELEASE_POOL": self.FFI_POOL, "CI_NEXT_PROMOTE_POOL": self.PROMOTE,
+               "CI_SIDE_LANE_RUNNER": self.SIDE, "RESCUE_TRIED": tried}
+        verdict = m.watch(env, api=api, clock=lambda: clock[0], sleep=sleep, out=lambda line: None)
+        return verdict, [c for c in calls if c[0] == "POST"]
+
+    def test_a_rescued_build_stuck_on_its_rescue_pool_moves_to_an_untried_pool(self):
+        m = self.rescue_module
+        # The 2026-11-20 chain: the first build sat on the FFI pool, its rescue sent the build to the side pool.
+        for switch in ("", "pr-rescue"):
+            with self.subTest(switch=switch):
+                verdict, posts = self.watch(switch, self.SIDE, "ffi-pool,side")
+                self.assertEqual(verdict, m.RESCUE)
+                # A rescued run's rescue is always an owned one: Blacksmith first would win over rescue_pool again.
+                self.assertEqual(posts[0][2], {"ref": "feat-cmux-next", "inputs": {
+                    "rescue": "owned", "rescue_pool": "promote", "rescue_tried": "ffi-pool,promote,side"}})
+                self.assertEqual(posts[1], ("POST", "repos/manaflow-ai/cmux/actions/runs/7/cancel", None))
+
+    def test_every_owned_pool_tried_leaves_the_build_queued(self):
+        m = self.rescue_module
+        # The side pool's build can ask for labels other than CI_SIDE_LANE_RUNNER (CI_SIDE_LANE_LABELS): the chain
+        # records the pool it sent the build to, not the labels, so that pool still counts as tried.
+        for switch in ("", "on", "pr-rescue"):
+            for stuck in (self.PROMOTE, "glaeda-side-xcode-26.6", "blacksmith-6vcpu-macos-26"):
+                with self.subTest(switch=switch, stuck=stuck):
+                    self.assertEqual(self.watch(switch, stuck, "ffi-pool,promote,side"), (m.WAIT, []))
+
+    def test_a_blacksmith_rescue_that_waits_again_moves_to_an_owned_pool_and_the_chain_ends(self):
+        m = self.rescue_module
+        # Rescue 1 (switch on): rescue=blacksmith, falling back to promote; the chain records both pools it named.
+        verdict, posts = self.watch("pr-rescue", self.FFI_POOL, "")
+        self.assertEqual(posts[0][2]["inputs"], {"rescue": "blacksmith", "rescue_pool": "promote",
+                                                 "rescue_tried": "ffi-pool,promote"})
+        # Rescue 2: its build waited on a Blacksmith label; never Blacksmith again, the last owned pool.
+        verdict, posts = self.watch("pr-rescue", "blacksmith-6vcpu-macos-26", "ffi-pool,promote")
+        self.assertEqual(posts[0][2]["inputs"], {"rescue": "owned", "rescue_pool": "side",
+                                                 "rescue_tried": "ffi-pool,promote,side"})
+        # Rescue 3: nothing left; at most three dispatches in a chain.
+        self.assertEqual(self.watch("pr-rescue", self.SIDE, "ffi-pool,promote,side"), (m.WAIT, []))
+
+    def test_a_first_rescue_starts_the_tried_list(self):
+        m = self.rescue_module
+        verdict, posts = self.watch("", self.FFI_POOL, "")
+        self.assertEqual(verdict, m.RESCUE)
+        self.assertEqual(posts[0][2]["inputs"], {"rescue": "owned", "rescue_pool": "promote",
+                                                 "rescue_tried": "ffi-pool,promote"})
+        # A first build whose job lists no labels still starts a chain the rescued run can continue.
+        verdict, posts = self.watch("", "", "")
+        self.assertEqual(posts[0][2]["inputs"]["rescue_tried"], "ffi-pool")
+
+    def rescue_runs(self, rescue: str, tried: str) -> bool:
+        job = self.workflow["jobs"]["rescue"]
+        return bool(evaluate(str(job["if"]).strip()[3:-2].replace("!cancelled()", "true"), {
+            "github": {"ref": "refs/heads/feat-cmux-next", "repository_owner": "manaflow-ai"},
+            "inputs": {"rescue": rescue, "rescue_tried": tried}, "vars": {"CI_BLACKSMITH_MACOS": ""}}))
+
+    def test_the_watch_runs_in_a_rescued_run_that_carries_its_tried_labels(self):
+        self.assertTrue(self.rescue_runs("", ""))
+        for rescue in ("blacksmith", "owned"):
+            self.assertTrue(self.rescue_runs(rescue, "ffi-pool"), rescue)
+            # A rescued run from before rescue_tried existed still never rescues.
+            self.assertFalse(self.rescue_runs(rescue, ""), rescue)
+        inputs = self.workflow[True]["workflow_dispatch"]["inputs"]
+        self.assertEqual(inputs["rescue_tried"]["type"], "string")
+        rescue = self.workflow["jobs"]["rescue"]
+        env = next(step for step in rescue["steps"] if "app_ffi_rescue.py" in str(step.get("run")))["env"]
+        self.assertEqual(env.get("RESCUE_TRIED"), "${{ inputs.rescue_tried }}")
 
 
 STATUS_CALL = re.compile(r"\b(success|failure|cancelled|always)\(\)")

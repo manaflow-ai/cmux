@@ -20,7 +20,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use super::cloud_client_session::secure_origin;
-use super::inference_gateway::{TokenSource, backend_token};
+use super::inference_gateway::{TokenSource, backend_credential};
 use cmux_cloud_api::machine_io::{Op, Request, RouteChoice, perform};
 use cmux_cloud_api::session::valid_machine;
 
@@ -44,7 +44,9 @@ pub(super) const ADMIN_HELP: &str = "\
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Common {
-    pub api: String,
+    /// The cmux API origin; `None` when nothing names one and the token is the app's: the API that issued the app's
+    /// token (`cmux auth token --json`'s `api_origin`), as the app runs `inference gateway status` with no `--api`.
+    pub api: Option<String>,
     pub team: Option<String>,
     pub token: TokenSource,
 }
@@ -107,13 +109,15 @@ pub(super) fn parse(
             _ => return Err(format!("unexpected argument {arg}")),
         }
     }
-    let api = api
-        .or_else(|| env("CMUX_CLOUD_API_URL"))
-        .ok_or("--api (or CMUX_CLOUD_API_URL) names the cmux API")?;
-    let api = secure_origin(&api)?;
     let token = token.unwrap_or_else(|| {
         if env("CMUX_CLOUD_ACCESS_TOKEN").is_some() { TokenSource::Env } else { TokenSource::App }
     });
+    // The app runs these with its own environment, which names no API (hq#15762): the app's token says which.
+    let api = match api.or_else(|| env("CMUX_CLOUD_API_URL")) {
+        Some(api) => Some(secure_origin(&api)?),
+        None if token == TokenSource::App => None,
+        None => return Err("--api (or CMUX_CLOUD_API_URL) names the cmux API".into()),
+    };
     let verb = match kind {
         "status" => Verb::Status { personal },
         "mode" => {
@@ -162,13 +166,29 @@ pub(super) fn route_path(personal: bool) -> &'static str {
     if personal { "/v1/cloud/inference-gateway/personal" } else { "/v1/cloud/inference-gateway" }
 }
 
+/// The API a verb asks: the one named (`--api`, `CMUX_CLOUD_API_URL`), else the one that issued the app's token.
+pub(super) fn api_origin(named: Option<&str>, issued_by: Option<&str>) -> Result<String, String> {
+    match (named, issued_by) {
+        (Some(api), _) => Ok(api.to_owned()),
+        (None, Some(issued)) => secure_origin(issued),
+        (None, None) => {
+            Err("--api (or CMUX_CLOUD_API_URL) names the cmux API; the app's token named none"
+                .into())
+        }
+    }
+}
+
 /// The verb's JSON answer and exit code (0 ok, 1 refused or failed).
 pub(super) async fn run(common: &Common, verb: &Verb) -> (Value, i32) {
-    let token = match backend_token(&common.token, common.team.as_deref()).await {
+    let (token, issued_by) = match backend_credential(&common.token, common.team.as_deref()).await {
         Ok(t) => t,
         Err(e) => return (error_json("auth.no_token", &e), 1),
     };
-    let http = match reqwest::Client::builder()
+    let api = match api_origin(common.api.as_deref(), issued_by.as_deref()) {
+        Ok(api) => api,
+        Err(e) => return (error_json("cli.invalid_args", &e), 2),
+    };
+    let http = match cmux_egress::client_builder("cmux_tui::cli::inference_gateway_admin")
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
         .timeout(Duration::from_secs(30))
@@ -179,7 +199,7 @@ pub(super) async fn run(common: &Common, verb: &Verb) -> (Value, i32) {
     };
     let answer = match verb {
         Verb::Status { personal } | Verb::Mode { personal, .. } => {
-            let url = format!("{}{}", common.api, route_path(*personal));
+            let url = format!("{}{}", api, route_path(*personal));
             let mut request = match verb {
                 Verb::Mode { mode, machine, .. } => {
                     let mut body = serde_json::Map::new();
@@ -208,7 +228,7 @@ pub(super) async fn run(common: &Common, verb: &Verb) -> (Value, i32) {
                 },
             }
         }
-        Verb::Route { machine, agent } => route(&http, common, &token, machine, agent).await,
+        Verb::Route { machine, agent } => route(&http, &api, common, &token, machine, agent).await,
     };
     let ok = answer.get("ok").and_then(Value::as_bool) == Some(true);
     (answer, if ok { 0 } else { 1 })
@@ -275,13 +295,14 @@ pub(super) fn probe_answer(machine: &str, agent: &str, stdout: &str) -> Value {
 
 async fn route(
     http: &reqwest::Client,
+    api: &str,
     common: &Common,
     token: &str,
     machine: &str,
     agent: &str,
 ) -> Value {
     let request = Request {
-        api: common.api.clone(),
+        api: api.to_owned(),
         credential: token.to_owned(),
         team: common.team.clone(),
         machine: machine.to_owned(),

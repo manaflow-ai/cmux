@@ -4,9 +4,10 @@ import Foundation
 
 /// The Mac's agent chats from a phone, with lines the phone already sends (no host or
 /// acpmux guard change):
-/// - the list: acpmux `_acpmux/sessions {limit, cursor}` (a read acpmux's remote guard
-///   serves a Web connection), keeping the chats this Mac's acpmux runs that a chat list
-///   shows: no peer's session (another machine's), no side chat, no subagent session;
+/// - the list: acpmux `_acpmux/sessions {localOnly, topLevelOnly, limit, cursor}` (a read
+///   acpmux's remote guard serves a Web connection): the chats this Mac's acpmux runs, never a
+///   peer's (another machine's), in acpmux's order, the one the Mac's lists read, and only what a
+///   chat list shows: acpmux leaves out side chats and subagent sessions before it pages;
 /// - Open in Tab: daemon `new-conversation-tab {pane, agent_session}` (the Mac's
 ///   `agent.openSessionTab`), or the tab that already shows the chat in that workspace;
 /// - Open in New Workspace: `create-workspace {name}`, then `new-conversation-tab
@@ -24,14 +25,26 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
     }
 
     public func agentChats(on macID: String, cursor: String?) async throws -> AgentChatPage {
-        let acpmux = try readyAcpmux(macID)
-        var params: [String: JSONValue] = ["limit": .number(Double(Self.chatPageSize))]
+        let acpmux: AcpmuxHub
+        do {
+            acpmux = try await readyAcpmux(macID)
+        } catch let error as WorkspaceCreationError where error.isForPerson {
+            // The channel is coming back: the list says it is reconnecting and asks again.
+            throw ConnectionInterrupted()
+        }
+        // acpmux drops a peer's chats (`localOnly`), side chats and sessions another chat's agent
+        // started (`topLevelOnly`) before it pages, so a page is this Mac's own top-level chats.
+        var params: [String: JSONValue] = [
+            "localOnly": .bool(true), "topLevelOnly": .bool(true), "limit": .number(Double(Self.chatPageSize)),
+        ]
         if let cursor { params["cursor"] = .string(cursor) }
         let reply: JSONValue
         do {
             reply = try await acpmux.request("_acpmux/sessions", .object(params), timeout: .seconds(20))
         } catch let error as AcpmuxConnection.RPCError {
             throw WorkspaceCreationError(error.message, isForPerson: true)
+        } catch where AcpmuxHub.isChannelFailure(error) {
+            throw ConnectionInterrupted()
         }
         return Self.chatPage(reply)
     }
@@ -42,28 +55,21 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
         return AgentChatPage(chats: chats, nextCursor: reply["nextCursor"]?.stringValue)
     }
 
-    /// One acpmux `SessionSummary` as a listed chat; nil for one a chat list leaves out: a
-    /// peer's session (it runs on another machine, which this Mac's tab cannot show), a side
-    /// chat (`side` tag) and a session another chat's agent started (`spawnedBy`, or a
-    /// sub-session's `startedBy`, which stays set after its parent closes: it lists under its parent).
+    /// One acpmux `SessionSummary` as a listed chat; nil for one with no id or harness. acpmux,
+    /// not the phone, leaves out side chats and sessions another chat's agent started
+    /// (`topLevelOnly`, acpmux `session_order::top_level_summary`).
     nonisolated static func listing(_ value: JSONValue) -> AgentChatListing? {
         // A chat with no harness names no agent a tab of it could run.
         guard let id = value["sessionId"]?.stringValue, !id.isEmpty,
               let harness = value["harness"]?.stringValue, !harness.isEmpty else { return nil }
-        if let peer = value["peer"]?.stringValue, !peer.isEmpty { return nil }
         let tags = value["tags"]
-        if tags?["side"] != nil { return nil }
-        for parent in ["spawnedBy", "startedBy"] where value[parent]?.stringValue?.isEmpty == false { return nil }
         let archived = tags?["archived"] != nil || value["archived"] == .bool(true)
         let title = value["title"]?.stringValue ?? value["lastPrompt"]?.stringValue
-        let rolling = value["rollingSummary"]
         return AgentChatListing(
             id: id, title: title.map { String($0.prefix(200)) }, harness: harness,
             cwd: value["cwd"]?.stringValue ?? "", status: value["status"]?.stringValue ?? "idle",
             updatedAt: value["updatedAt"]?.numberValue.map { Date(timeIntervalSince1970: $0 / 1000) },
-            archived: archived, lastPrompt: value["lastPrompt"]?.stringValue.map { String($0.prefix(500)) },
-            summary: rolling?["text"]?.stringValue.map { String($0.prefix(200)) },
-            nextAction: rolling?["next"]?.stringValue.map { String($0.prefix(120)) })
+            archived: archived, lastPrompt: value["lastPrompt"]?.stringValue.map { String($0.prefix(500)) })
     }
 
     public func openAgentChat(_ chat: AgentChatListing, in workspace: Workspace) async throws -> WorkspaceTab {
@@ -115,7 +121,7 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
     }
 
     public func setAgentChatArchived(_ chat: AgentChatListing, archived: Bool, on macID: String) async throws -> AgentChatListing {
-        let acpmux = try readyAcpmux(macID)
+        let acpmux = try await readyAcpmux(macID)
         let reply: JSONValue
         do {
             reply = try await acpmux.request("_acpmux/archive", .object(["sessionId": .string(chat.id), "archived": .bool(archived)]),
@@ -133,7 +139,7 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
     /// Stop: `session/cancel` as a request, so acpmux's refusal (a chat the Mac started,
     /// `remote.session_cancel_ownership`) comes back instead of being dropped.
     public func stopAgentChat(_ chat: AgentChatListing, on macID: String) async throws {
-        let acpmux = try readyAcpmux(macID)
+        let acpmux = try await readyAcpmux(macID)
         do {
             _ = try await acpmux.request("session/cancel", .object(["sessionId": .string(chat.id)]), timeout: .seconds(20))
         } catch let error as AcpmuxConnection.RPCError where error.reason == "remote.session_cancel_ownership" {
@@ -200,7 +206,7 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
     /// The chat's folder on this Mac: the watched session's, else `_acpmux/info`'s. A chat that
     /// runs on another machine (an acpmux peer's) has its folder there, never typed here.
     private func chatFolder(session: String, macID: String) async throws -> String {
-        let acpmux = try readyAcpmux(macID)
+        let acpmux = try await readyAcpmux(macID)
         // `_acpmux/watch` lists peers' sessions too: a cached one is checked as `_acpmux/info`'s.
         if let watched = acpmux.sessions[session] {
             if watched.peer != nil { throw Self.remoteChatFolder }
@@ -219,9 +225,14 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
         return cwd
     }
 
-    private func readyAcpmux(_ macID: String) throws -> AcpmuxHub {
+    /// This Mac's acpmux once it is ready: a channel coming back (a reconnect) is waited for,
+    /// bounded, rather than refused at once.
+    private func readyAcpmux(_ macID: String) async throws -> AcpmuxHub {
         guard canManage(on: macID) else { throw WorkspaceCreationError("Not connected") }
-        guard let acpmux, acpmux.isReady else {
+        guard let acpmux else {
+            throw WorkspaceCreationError("Agents on this Mac aren't connected. Try again in a moment.", isForPerson: true)
+        }
+        if !acpmux.isReady, !(await acpmux.waitUntilReady(timeout: acpmux.readyGrace, clock: ContinuousClock())) {
             throw WorkspaceCreationError("Agents on this Mac aren't connected. Try again in a moment.", isForPerson: true)
         }
         return acpmux
@@ -269,7 +280,7 @@ extension LiveWorkspaceCreationBackend: TerminalChatBackend {
 
     public func openTerminalChat(harness: String, session: String, terminalTabID: String,
                                  on macID: String) async throws -> TerminalChatOpen {
-        let acpmux = try readyAcpmux(macID)
+        let acpmux = try await readyAcpmux(macID)
         let reply: JSONValue
         do {
             reply = try await acpmux.request("session/new", Self.terminalChatParams(

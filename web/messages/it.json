@@ -3366,7 +3366,8 @@
       "darkArt": "Arte oscura",
       "museumIcons": "Icone dei musei",
       "calm": "Calma",
-      "dore": "Doré"
+      "dore": "Doré",
+      "eastAsian": "Pittura dell'Asia orientale"
     }
   },
   "testimonials": {
@@ -5533,5 +5534,15 @@
     "unavailableTitle": "Impossibile confermare l'accesso",
     "unavailableBody": "Il nostro servizio di accesso è occupato. Attendi qualche secondo, poi riapri l'invito. Non devi accedere di nuovo.",
     "retry": "Riprova"
+  },
+  "connected": {
+    "title": "Hai effettuato l'accesso a {app}",
+    "titleGeneric": "Hai effettuato l'accesso",
+    "errorTitle": "Impossibile accedere a {app}",
+    "errorTitleGeneric": "L'accesso non è stato completato",
+    "body": "Torna a cmux per continuare.",
+    "errorBody": "Torna a cmux e riprova.",
+    "button": "Torna a cmux",
+    "closeHint": "Puoi chiudere questa scheda."
   }
 }

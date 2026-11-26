@@ -45,7 +45,7 @@ import Testing
         // Three prompts, each a minute before its finish.
         #expect(card.stats?.contains("3") == true)
         #expect(card.stats?.contains("3m") == true, "stats: \(card.stats ?? "nil")")
-        #expect(card.facts.contains { $0.kind == "ports" && $0.text == ":3000" })
+        #expect(card.ports.map(\.text) == ["localhost:3000"])
         #expect(card.facts.contains { $0.kind == "branch" })
     }
 
@@ -58,6 +58,7 @@ import Testing
         }
         let card = WorkspaceHoverCardContent.make(Self.workspace(), machine: nil, now: Self.now, options: options, timeline: Self.history())
         #expect(!card.facts.contains { $0.kind == "branch" || $0.kind == "pullRequest" || $0.kind == "ports" })
+        #expect(card.ports.isEmpty)
         #expect(card.timeline.allSatisfy { $0.kind == .prompt })
         #expect(card.stats == nil)
         #expect(card.activitySince == nil)

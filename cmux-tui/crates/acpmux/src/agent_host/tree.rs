@@ -84,6 +84,11 @@ pub fn marked(name: &str, value: &str) -> Vec<Started> {
 }
 
 impl Started {
+    /// A row as `ps` would print it, for tests of what reads one.
+    #[cfg(test)]
+    pub(crate) fn for_test(pid: u32, ppid: u32, start: &str) -> Self {
+        Started { pid, ppid, start: start.to_owned() }
+    }
     /// Its parent's pid.
     pub fn ppid(&self) -> u32 {
         self.ppid

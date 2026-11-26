@@ -16,17 +16,26 @@
 //! Deadlines, task cancellation and joins stay with the caller; [`AuthPhase`]
 //! says which runner and [`PhaseBudget`] which deadline each call uses, and
 //! [`PhaseDamper`] is the timed-out-phase registry.
+//!
+//! The state is sum-typed (RFD 0026): each region (the published session,
+//! the restore run, the team list, the recovery loop, ...) is one enum whose
+//! variants carry the data only they have. [`Coordinator::step`] is the
+//! reducer with every no-op named as a [`Refusal`], and [`table`] is its
+//! transition table as data, committed as `schemas/auth-coordinator/table.json`.
 
 mod coordinator;
 mod event;
+mod machine;
 mod model;
 mod phase;
 
 pub use coordinator::Coordinator;
+pub use coordinator::table::{table, table_text};
 pub use event::{
     AfterTeams, AuthFailure, AutoLoginSource, Effect, Event, Persisted, RestoreTicket,
     RestoreTrigger, SignInFlow, SignInKind, TeamList, TeamRefreshTicket, TokenReadKind,
 };
+pub use machine::Refusal;
 pub use model::{
     AuthState, AuthTeam, AuthUser, AutoLoginCredentials, CachedTeamIdentity, LaunchOptions,
     PrimeInputs, SessionIdentity, TeamScope, is_dev_sign_in_shortcut, resolve_team_id,

@@ -474,3 +474,156 @@ fn names_cannot_escape() {
     assert!(check_removable(Path::new("/a/../b")).is_err());
     assert!(check_removable(Path::new("/a/b")).is_ok());
 }
+
+// ---- warm trees ----
+
+fn sh_git(dir: &Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args([
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "commit.gpgsign=false",
+        ])
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+fn mtime(p: &Path) -> i64 {
+    fsx::mtime_ns(&fs::metadata(p).unwrap())
+}
+
+/// A seat with commits c1 (a, b) and c2 (b changed); returns (seat, c1, c2).
+fn warm_seat(t: &Tmp) -> (PathBuf, String, String) {
+    let seat = t.join("seat");
+    fs::create_dir_all(&seat).unwrap();
+    sh_git(&seat, &["init", "-q"]);
+    fs::write(seat.join("a.txt"), "a1").unwrap();
+    fs::write(seat.join("b.txt"), "b1").unwrap();
+    fs::write(seat.join(".gitignore"), "target/\n").unwrap();
+    sh_git(&seat, &["add", "-A"]);
+    sh_git(&seat, &["commit", "-qm", "c1"]);
+    let c1 = sh_git(&seat, &["rev-parse", "HEAD"]);
+    fs::write(seat.join("b.txt"), "b2").unwrap();
+    sh_git(&seat, &["commit", "-qam", "c2"]);
+    let c2 = sh_git(&seat, &["rev-parse", "HEAD"]);
+    (seat, c1, c2)
+}
+
+#[test]
+fn warm_restores_nearest_and_rewrites_only_changed_files() {
+    let t = Tmp::new("warm");
+    let store = t.join("store");
+    let (seat, c1, c2) = warm_seat(&t);
+    // Built at c1: build state in target/, file times set to the past so a rewrite shows.
+    sh_git(&seat, &["checkout", "-q", "--detach", &c1]);
+    fs::create_dir_all(seat.join("target")).unwrap();
+    fs::write(seat.join("target/out-c1"), "built").unwrap();
+    let old = fs::metadata(seat.join("target/out-c1")).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    let saved = warm::save(&store, &seat, 4).unwrap();
+    assert_eq!(saved.str("commit"), Some(c1.as_str()));
+    let a_saved = mtime(&seat.join("a.txt"));
+
+    // The seat moves on to something else (another job), with its own state.
+    sh_git(&seat, &["checkout", "-q", "--detach", &c2]);
+    fs::remove_dir_all(seat.join("target")).unwrap();
+
+    // A job at c2 from a seat whose state was wiped: c1's tree is nearer than nothing.
+    sh_git(&seat, &["checkout", "-q", "--orphan", "other"]);
+    let r = warm::use_tree(&warm::Use {
+        store: &store,
+        seat: &seat,
+        rev: &c2,
+        git_dir: None,
+        always: true,
+        no_checkout: false,
+    })
+    .unwrap();
+    assert_eq!(r.bool("restored"), Some(true), "{r}");
+    assert_eq!(r.str("nearest"), Some(c1.as_str()));
+    assert_eq!(r.int("nearest_distance"), Some(1));
+    assert_eq!(r.int("changed_files"), Some(1), "{r}");
+    assert_eq!(sh_git(&seat, &["rev-parse", "HEAD"]), c2);
+    assert_eq!(fs::read_to_string(seat.join("b.txt")).unwrap(), "b2");
+    // Unchanged bytes keep their mtime; the build state came back with its own.
+    assert_eq!(mtime(&seat.join("a.txt")), a_saved);
+    assert_eq!(mtime(&seat.join("target/out-c1")), fsx::mtime_ns(&old));
+    assert_eq!(sh_git(&seat, &["status", "--porcelain"]), "");
+    // The saved tree is untouched by the job.
+    assert_eq!(
+        fs::read_to_string(store.join("trees").join(&c1).join("b.txt")).unwrap(),
+        "b1"
+    );
+}
+
+#[test]
+fn warm_keeps_a_seat_that_is_already_nearer() {
+    let t = Tmp::new("warm-keep");
+    let store = t.join("store");
+    let (seat, c1, c2) = warm_seat(&t);
+    sh_git(&seat, &["checkout", "-q", "--detach", &c1]);
+    warm::save(&store, &seat, 4).unwrap();
+    sh_git(&seat, &["checkout", "-q", "--detach", &c2]);
+    fs::write(seat.join("marker"), "seat state").unwrap();
+    let r = warm::use_tree(&warm::Use {
+        store: &store,
+        seat: &seat,
+        rev: &c2,
+        git_dir: None,
+        always: false,
+        no_checkout: false,
+    })
+    .unwrap();
+    assert_eq!(r.bool("restored"), Some(false), "{r}");
+    assert_eq!(r.int("seat_distance"), Some(0));
+    assert!(seat.join("marker").exists());
+}
+
+#[test]
+fn warm_save_evicts_beyond_keep_and_lists_newest_first() {
+    let t = Tmp::new("warm-evict");
+    let store = t.join("store");
+    let (seat, c1, c2) = warm_seat(&t);
+    sh_git(&seat, &["checkout", "-q", "--detach", &c1]);
+    warm::save(&store, &seat, 1).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    sh_git(&seat, &["checkout", "-q", "--detach", &c2]);
+    let s = warm::save(&store, &seat, 1).unwrap();
+    assert_eq!(s.arr("evicted").map(|e| e.len()), Some(1), "{s}");
+    let l = warm::list_saved(&store).unwrap();
+    assert_eq!(l.len(), 1);
+    assert_eq!(l[0].commit, c2);
+    assert!(!store.join("trees").join(&c1).exists());
+}
+
+#[test]
+fn warm_refuses_a_worktree_seat() {
+    let t = Tmp::new("warm-wt");
+    let (seat, _, c2) = warm_seat(&t);
+    let wt = t.join("wt");
+    sh_git(
+        &seat,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "--detach",
+            wt.to_str().unwrap(),
+            &c2,
+        ],
+    );
+    let e = warm::save(&t.join("store"), &wt, 2).err().unwrap();
+    assert!(e.contains("standalone"), "{e}");
+}

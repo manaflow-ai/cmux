@@ -15,11 +15,14 @@ name: cmux-next fast gates
 # check path (scripts/ci/check-paths.txt); otherwise it dispatches this workflow
 # with pr=N on feat-cmux-next, which merges the PR head into the current tip and
 # runs the gates again, plus the webviews checks (a check that landed after the
-# PR's CI runs before it merges). No paths filter: every pull request gets a
+# PR's CI runs before it merges). A pull request that changes webviews/ runs the
+# webviews checks here too (the type check among them): land-judge lands a clean
+# base merge on this status without waiting for ci-web's webview suite, where
+# they also run (cmux#49052, cmuxterm-hq#19108). No paths filter: every pull request gets a
 # status; a draft gets it when it is marked ready (a draft cannot merge, and a
 # merger that finds no status dispatches the gates). About two minutes on Linux.
-# A pull request that touches no gate input (fast-check-route) gets its success
-# status with no gates run.
+# A pull request that touches no gate input (resolve's route step) gets its
+# success status with no gates run.
 #
 # A dispatch also reruns the Rust panic ratchet (panic-ratchet) when the tip
 # lowered a rust-panic-baseline.json row of a crate the PR changes since its
@@ -29,124 +32,44 @@ name: cmux-next fast gates
 # on counts over the tip's row that the tip does not already reach.
 #
 # Pull request code never runs next to a write token: `resolve` names the head
-# and base without running any checked-out code (a dispatch refuses a fork head
+# and base and routes the change without running any code the pull request
+# changed (its route runs the router only when its blobs are the base's; a dispatch refuses a fork head
 # or another base before anything is fetched), `fast-gates` and `panic-ratchet`
 # run the PR's code with contents: read only, and `post` writes the status from
 # resolve's outputs and those jobs' results, never from anything they wrote.
 on:
   pull_request:
     branches: [feat-cmux-next]
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
   workflow_dispatch:
     inputs:
       pr:
         description: Pull request number into feat-cmux-next, merged with the current tip and gated
         required: true
         type: string
-      runner:
-        description: Fleet or bounded Blacksmith Linux label for a rerun after a stalled fleet start
-        required: false
-        default: ''
-        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: fast-gates-${{ github.event.pull_request.number || inputs.pr }}
+  group: fast-gates-${{ github.event.pull_request.number || inputs.pr }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('-label-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:
-  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
-  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
-  # Secretless placement bootstrap: it reads the fresh runner-state publication and
-  # fails open to the existing hosted/Blacksmith route when state is stale.
-  portable-placement:
-    name: portable light placement
-    if: ${{ vars.CI_PORTABLE_LIGHT_JOBS_OFF != '1' && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
-    timeout-minutes: 4
-    permissions:
-      contents: read
-      actions: read
-    outputs:
-      linux_runner: ${{ steps.place.outputs.linux_runner }}
-      linux_jobs: ${{ steps.place.outputs.linux_jobs }}
-      mini_runner: ${{ steps.place.outputs.mini_runner }}
-      mini_jobs: ${{ steps.place.outputs.mini_jobs }}
-      placed_attempt: ${{ github.run_attempt }}
-    steps:
-      - name: Check out the trusted placement script
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ github.event.pull_request.base.sha || github.sha }}
-          sparse-checkout: scripts/ci
-          persist-credentials: false
-      # The janitor's pool snapshot as a feat-cmux-next push job last read it (this ref's newest entry, else the
-      # base or default branch's): the placement step reuses a copy read under 5 minutes ago instead of two
-      # GITHUB_TOKEN artifact calls, from the hour the promote gates share (scripts/ci/pr_runner_pool.py
-      # kept_snapshot_path). The key below is never saved, so the newest `cmux-pool-snapshot-` entry restores.
-      # The Actions cache is not the REST API.
-      - name: Restore the shared pool snapshot
-        continue-on-error: true
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ${{ runner.temp }}/cmux-pool-snapshot
-          key: cmux-pool-snapshot-newest
-          restore-keys: |
-            cmux-pool-snapshot-
-      - name: Place the portable light jobs
-        id: place
-        continue-on-error: true
-        env:
-          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          JOBS: resolve receipt post
-          # Never a mini: an owned Mac's ephemeral runner spends 20-60 s setting up and tearing down
-          # ("Set up runner", "Complete runner") around these jobs' ~5 s of work. resolve placed on a mini
-          # ran 41 s at p50 and 67 s at p90 against 5 s and 7 s on hosted Ubuntu (2026-11-11 timing
-          # records, 27 and 224 jobs), on the fast gate's critical path. Fleet Linux, when free, still takes them.
-          LINUX_ONLY: resolve receipt post
-          # Only the owned-pool rescue bot's third attempt may re-place these
-          # light jobs. Other workflows and manual retries stay fail-closed.
-          PORTABLE_ATTEMPT3_RESCUE: '1'
-          FLEET_LINUX: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.LINUX_RUNNER }}
-          REQUIRE_LIVE_CAPACITY: '1'
-          SIDE_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_LIGHT_LANE_RUNNER || vars.CI_SIDE_LANE_RUNNER }}
-          SNAPSHOT_TOKEN: ${{ github.token }}
-        run: python3 scripts/ci/portable_job_placement.py
-      # Only a feat-cmux-next push job that read the API saves a new entry, keyed by when it read (pr_runner_pool
-      # writes the marker then); pull requests and lane branches restore the base branch's newest one.
-      - name: Check whether this job read the pool snapshot
-        id: pool-snapshot-fetched
-        if: ${{ !cancelled() }}
-        continue-on-error: true
-        run: if [ -f "$RUNNER_TEMP/cmux-pool-snapshot.fetched" ]; then echo "fetched=$(cat "$RUNNER_TEMP/cmux-pool-snapshot.fetched")" >> "$GITHUB_OUTPUT"; fi
-      - name: Save the shared pool snapshot
-        if: ${{ !cancelled() && steps.pool-snapshot-fetched.outputs.fetched != '' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
-        continue-on-error: true
-        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ${{ runner.temp }}/cmux-pool-snapshot
-          key: cmux-pool-snapshot-${{ steps.pool-snapshot-fetched.outputs.fetched }}
-
   resolve:
     name: resolve head and base
-    needs: portable-placement
     # A draft is gated when it is marked ready; a dispatch always runs.
-    if: ${{ always() && !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    if: ${{ (always() && !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     # Fork pull requests use the same ephemeral Blacksmith lane as other
     # Linux work; this job has read-only contents permission and no secrets.
-    # The reconciled pool admits fleet first, records a three-minute no-start
-    # before overflow, and emits move receipts for queued-only rescue. Never
-    # default directly to a fleet label that may have no registered workers.
     # An explicit rerun replaces the queued run in this PR-only concurrency group.
-    # A light job: the reconciled Linux pool on every attempt (it holds no secret), never GitHub-hosted
-    # Ubuntu (it left light jobs queued for hours, cmux#45735). On 2026-11-02 this queued on RUNNER_POOLS.linux's
-    # saturated blacksmith-4vcpu-ubuntu-2404 (hundreds of jobs deep) for a few seconds of work.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' resolve ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' resolve ') && needs.portable-placement.outputs.mini_runner || fromJSON(vars.RUNNER_POOLS).linux }}
+    # A light job: the persistent cmux-linux pool on every attempt, never GitHub-hosted Ubuntu (it left light
+    # jobs queued for hours, cmux#45735).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -157,21 +80,55 @@ jobs:
       post: ${{ steps.resolve.outputs.post }}
       head_tree: ${{ steps.resolve.outputs.head_tree }}
       merge_tree: ${{ steps.resolve.outputs.merge_tree }}
+      fast_gates: ${{ steps.route.outputs.fast_gates }}
     steps:
       # A pull request's merge commit and both parents; only git reads it here.
       - name: Checkout the merge ref
-        if: ${{ github.event_name == 'pull_request' }}
+        if: ${{ github.event_name == 'pull_request' && !startsWith(runner.name, 'cmux-runner-pool-') }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           fetch-depth: 2
-          # Only the commits matter here (git rev-parse HEAD^1 and HEAD^2): no blobs and one small file in the
-          # work tree. The full tree took 44 s of this job's 48 s p50 (2026-11-07..11 timing records), on the
-          # fast gate's critical path ahead of the gates themselves.
+          # Only the commits matter here (git rev-parse HEAD^1 and HEAD^2, and the route's diff of their trees): no
+          # blobs but the router's two files in the work tree. The full tree took 44 s of this job's 48 s p50
+          # (2026-11-07..11 timing records), on the fast gate's critical path ahead of the gates themselves.
           filter: blob:none
           sparse-checkout-cone-mode: false
-          sparse-checkout: |
+          sparse-checkout: &resolve-sparse |
+            /.gitmodules
             /.github/runners.json
+            /scripts/ci/fast_check_route.py
+            /scripts/ci/fast-check-inputs.json
+
+      - name: "Pool mirror: checkout the merge ref"
+        if: ${{ github.event_name == 'pull_request' && startsWith(runner.name, 'cmux-runner-pool-') }}
+        env:
+          SHA: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+          SPARSE: *resolve-sparse
+        # A cmux-runner-pool VM checks out from its local git mirror (/var/lib/cmux-git), not actions/checkout: that
+        # action adds --filter=blob:none to any sparse checkout, and a partial fetch borrowing the mirror makes git copy
+        # ~3 GB of promisor objects (60-75 s a checkout on 2026-11-25, while the pool ran a git shim that keeps the
+        # filter). Unfiltered, the fetch sends only what the mirror lacks. A fresh .git each time: an earlier job's
+        # partial checkout would keep its filter on every fetch. Every other runner has no mirror and uses the action.
+        run: &pool-checkout |
+          set -euo pipefail
+          mirror=/var/lib/cmux-git/cmux.git/objects
+          [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
+          cd "$GITHUB_WORKSPACE"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          git init -q .
+          echo "$mirror" > .git/objects/info/alternates
+          git config gc.auto 0
+          git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+          # --depth routes the fetch through the pool's git shim (the mirror path); only this command sees the token.
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            git fetch --no-tags --no-recurse-submodules --depth=2 origin "+$SHA:refs/remotes/origin/checkout"
+          git config core.sparseCheckout true
+          printf '%s\n' "$SPARSE" > .git/info/sparse-checkout
+          git checkout -q --detach "$SHA"
+          echo "checked out $(git rev-parse HEAD) from the pool mirror"
 
       # Runs no checked-out code: git rev-parse on the merge ref, or the GitHub API
       # on dispatch, which refuses a fork head, a closed pull request
@@ -274,37 +231,33 @@ jobs:
           { echo "head_sha=$head"; echo "base=$base"; echo "post=$post"; } >> "$GITHUB_OUTPUT"
           echo "head $head, base $base"
 
-  # Whether this pull request touches an input of any gate (scripts/ci/fast-check-inputs.json). One that touches none
-  # skips the gates job before it takes a 16 vCPU runner, and post writes success at its base: every gate judges only
-  # what the change adds in its inputs, so it would have passed. A dispatch (a merger's fresh gate) skips this job and
-  # runs every gate; the push-time jobs each gate copies (push_cover in the map) run on the feat-cmux-next push, so a
-  # miss is a fix-forward on base.
-  fast-check-route:
-    name: fast check route
-    if: ${{ github.event_name == 'pull_request' && !github.event.pull_request.draft }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    outputs:
-      fast_gates: ${{ steps.route.outputs.fast_gates }}
-    steps:
-      - name: Checkout the merge commit's router (trees only)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          fetch-depth: 2
-          filter: blob:none
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
-            /scripts/ci/
-      # A router failure leaves the output empty, and the gates run.
+      # Whether this pull request touches an input of any gate (scripts/ci/fast-check-inputs.json). One that touches
+      # none skips the gates job before it takes a 16 vCPU runner, and post writes success at its base: every gate
+      # judges only what the change adds in its inputs, so it would have passed. A dispatch (a merger's fresh gate)
+      # skips this step and runs every gate; the push-time jobs each gate copies (push_cover in the map) run on the
+      # feat-cmux-next push, so a miss is a fix-forward on base.
+      #
+      # A step here, not a job of its own: the fast-check-route job was a second runner and a second fetch of the
+      # merge ref for every pull request event, about 3,600 a day at a 64 s median (2026-11-24 12-16Z timing records),
+      # to write one line. Only the base's code runs: the router and its map run when their blobs are the base's
+      # (a change to either routes every gate anyway, the router's SELF rule, so this step then writes nothing and
+      # the gates run), and python3 -I keeps every other checked-out file off sys.path. A failure leaves the output
+      # empty, and the gates run.
       - name: Route the pull request (scripts/ci/fast_check_route.py)
         id: route
+        if: ${{ github.event_name == 'pull_request' }}
         continue-on-error: true
         env:
           LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
-        run: python3 scripts/ci/fast_check_route.py route --workflow .github/workflows/cmux-next-fast-gates.yml --labels "$LABELS"
+        run: |
+          set -euo pipefail
+          for file in scripts/ci/fast_check_route.py scripts/ci/fast-check-inputs.json; do
+            if [[ "$(git rev-parse "HEAD:$file")" != "$(git rev-parse "HEAD^1:$file")" ]]; then
+              echo "::notice title=fast check route::the change touches $file, so every gate runs"
+              exit 0
+            fi
+          done
+          python3 -I scripts/ci/fast_check_route.py route --workflow .github/workflows/cmux-next-fast-gates.yml --labels "$LABELS"
 
   # A local test receipt (scripts/ci/ci_receipt.py): a change tested locally counts as a CI pass, and the job is
   # skipped. Only for a same-repository pull request whose body names
@@ -316,9 +269,14 @@ jobs:
   # full, and a red there posts failure naming the receipt and its producer. A rejected receipt runs everything.
   receipt:
     name: local test receipt
-    needs: [resolve, portable-placement]
-    if: ${{ !cancelled() && needs.resolve.result == 'success' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.body, 'CI-Receipt:') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' receipt ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' receipt ') && needs.portable-placement.outputs.mini_runner || fromJSON(vars.RUNNER_POOLS).linux }}
+    needs: [resolve]
+    # The body line is optional: with none, the verifier finds the passing Fast checks run of one of this pull request's
+    # commits itself (ci_receipt.py discover), so a lane's green `cmux-ci test -- python3 scripts/ci/ci_receipt.py
+    # produce fast-gates` counts with no one writing a pointer. It runs only where the gates would run (the route) and
+    # on a `lane/` branch (the lanes are who run cmux-ci; a human's PR spends no runner on a search),
+    # and vars.CI_RECEIPT_DISCOVER=0 returns to the body line alone.
+    if: ${{ (!cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.fast_gates != 'false' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (contains(github.event.pull_request.body, 'CI-Receipt:') || (startsWith(github.event.pull_request.head.ref, 'lane/') && (vars.CI_RECEIPT_DISCOVER || '1') != '0'))) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -340,12 +298,15 @@ jobs:
             /scripts/ci/ci_receipt.py
             /scripts/ci/deadline_http.py
             /scripts/ci/cmux_next_fast_gates.py
+            /.gitmodules
 
       - name: Verify the local test receipt
         id: verify
         env:
           GH_TOKEN: ${{ github.token }}
           PR_BODY: ${{ github.event.pull_request.body }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          DISCOVER: ${{ vars.CI_RECEIPT_DISCOVER }}
           HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
           BASE: ${{ needs.resolve.outputs.base }}
           HEAD_TREE: ${{ needs.resolve.outputs.head_tree }}
@@ -358,9 +319,12 @@ jobs:
             echo "::notice title=CI receipt::the base has no receipt verifier yet; the gates run"
             exit 0
           fi
+          DISCOVER_ARGS=()
+          # The base's verifier decides: one from before discover existed has no --pr.
+          if [[ "${DISCOVER:-1}" != 0 ]] && grep -q -- '"--pr"' scripts/ci/ci_receipt.py; then DISCOVER_ARGS=(--pr "$PR_NUMBER"); fi
           python3 scripts/ci/ci_receipt.py verify fast-gates --repo "$GITHUB_REPOSITORY" --head "$HEAD_SHA" \
             --base "$BASE" --head-tree "$HEAD_TREE" --merge-tree "$MERGE_TREE" --audit-percent "$AUDIT_PERCENT" \
-            --output "$GITHUB_OUTPUT"
+            ${DISCOVER_ARGS[@]+"${DISCOVER_ARGS[@]}"} --output "$GITHUB_OUTPUT"
 
       - name: Post the cmux-next/fast-gates status from the receipt
         if: ${{ steps.verify.outputs.valid == 'true' && needs.resolve.outputs.post == 'true' }}
@@ -380,14 +344,14 @@ jobs:
 
   fast-gates:
     name: fast gates
-    needs: [resolve, fast-check-route, receipt]
-    # Skipped before it takes a runner when the change touches no gate input (fast-check-route), or when a valid
+    needs: [resolve, receipt]
+    # Skipped before it takes a runner when the change touches no gate input (resolve's route), or when a valid
     # local test receipt covers it and the receipt job posted its status (a receipt job that failed, the status
     # post included, runs everything), unless audited.
-    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.fast-check-route.outputs.fast_gates != 'false' && (needs.receipt.result != 'success' || needs.receipt.outputs.valid != 'true' || needs.receipt.outputs.audit == 'true') }}
+    if: ${{ (!cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.fast_gates != 'false' && (needs.receipt.result != 'success' || needs.receipt.outputs.valid != 'true' || needs.receipt.outputs.audit == 'true')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     outputs:
       ratchet: ${{ steps.prepare.outputs.ratchet }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || contains(fromJSON('["cmux-fleet-linux-x64","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # Dispatches took 2.5 to 7.1 min on 11-08 and 11-09; cmux#38640's web lint alone took 302 s and its webviews
     # checks ran past 10 min twice, each a stopped run with no verdict. The gates get --budget-seconds 1260 (21 min)
     # below, more than the 15 minutes the whole job had before, so a slow runner never turns a passing run red; the
@@ -397,16 +361,65 @@ jobs:
     permissions:
       contents: read
     steps:
+      # Only what the gates read: scripts/ci/fast-check-inputs.json's inputs for this job (the router skips the gates for
+      # a change outside them, and tests/test_cmux_next_fast_gates.py holds this list to that file), the top-level
+      # files, and scripts/ whole. Blobs come on demand (filter: blob:none) and only for these paths: the full tree
+      # was 930 MB, 6,708 runner minutes a day in this step.
+      #
+      # Every step before the gates has its own bound (2026-11-23: 255 of these jobs sat to the 25-minute limit, about
+      # 6.3k runner minutes, each in one setup step with none: a checkout fetch or a base deepen that stopped moving,
+      # the GitHub cache or a node download at Freestyle's ~0.9 MB/s). A step past its bound fails the job then and
+      # names itself, instead of the job idling to its limit with no verdict.
       - name: Checkout
+        if: ${{ !startsWith(runner.name, 'cmux-runner-pool-') }}
+        timeout-minutes: 8
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           # A pull request's merge commit and both parents. A dispatch fetches
           # the PR head and the tip itself and deepens until they meet.
           fetch-depth: 2
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: &gates-sparse |
+            /*
+            !/*/
+            /scripts/
+            /.github/
+            /Packages/
+            /cmux-tui/
+            /webviews/
+            # webviews/vite.config.ts loads the markdown host plugin, which resolves this folder: without it the
+            # webviews type check fails on ENOENT before it checks a file (14 files, 6.7 MB).
+            /Resources/markdown-viewer/
+            /web/
+            /config/vite-plus/
+            /cmux-next-ios/
+            /schemas/
+            /release-notes/next/
+            /first-party-apps/
+            /Native/OptChat/
+            /plans/cmux-next/
+            /cmux.xcodeproj/project.pbxproj
+            /tests/workflow_jobs.py
+            /docs/mdm/
+            /docs/ci/cmux-next-workflow-notes.md
+            /docs/ci/nightly-workflow-notes.md
+            /backend/apps/api/
+            *.xcstrings
+
+      - name: "Pool mirror: checkout"
+        if: ${{ startsWith(runner.name, 'cmux-runner-pool-') }}
+        timeout-minutes: 8
+        env:
+          SHA: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+          SPARSE: *gates-sparse
+        run: *pool-checkout
 
       - name: Merge with the base
         id: prepare
+        timeout-minutes: 8
         env:
           EVENT_NAME: ${{ github.event_name }}
           PR: ${{ inputs.pr }}
@@ -421,52 +434,100 @@ jobs:
           fi
 
       # Web lint installs node_modules only in the web folders the diff touches
-      # (scripts/web_lint_prepush.py), and the webviews checks gate (a dispatch
-      # only) installs webviews'; without either none of this runs.
+      # (scripts/web_lint_prepush.py), and the webviews checks gate (a dispatch,
+      # or a webviews/, catalog or spec change) installs webviews'; without either
+      # none of this runs.
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: ${{ steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true' }}
+        shell: bash
+        continue-on-error: true
+        timeout-minutes: 2
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         if: ${{ steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true' }}
+        timeout-minutes: 4
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
-      # A dispatch runs on feat-cmux-next's ref, so a cache it saved would sit in
-      # the base branch's scope after pull request code (bun install scripts)
-      # ran: a dispatch only restores.
-      - name: Cache Bun package cache
-        if: ${{ github.event_name == 'pull_request' && (steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true') }}
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      # Restore only, on pull requests and dispatches alike: cmux-next-web-lint.yml's web-lint job saves this key on
+      # each feat-cmux-next push. A pull request's own save was a copy of about 1.2 GB in that pull request's scope,
+      # which nothing else reads and which evicts the base's caches from the 10 GB store (2026-11-22: 10.56 GB, 6.66 GB
+      # of it pull request refs). A dispatch runs on feat-cmux-next's ref after pull request code (bun install
+      # scripts) ran, so it never saved.
+      #
+      # R2 is read first: Freestyle VMs pull from GitHub at about 0.9 MB/s (cmuxterm-hq#17571), so this 710 MB restore
+      # took 10 minutes there (job 137463137173, 2026-11-23: 1,145 s in all, the gates 2.5 min of it), while their
+      # other egress runs at about 20 MB/s; on pool hosts hx*/hd* the same restore took 192 to 639 s, or hung until the
+      # 25-minute limit (job 137476653902). 52 of the 70 fast gates jobs over 15 minutes from 03:30Z to 05:26Z that
+      # day ran on Freestyle. R2 reads need no credentials (and the minis read them through their LAN cache); the
+      # web-lint job saves the key there. An R2 miss falls through to the GitHub store, as before.
+      - name: Restore the Bun package cache from R2
+        id: bun-r2
+        if: ${{ steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true' }}
+        timeout-minutes: 4
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
         with:
+          backend: r2
           path: ~/.bun/install/cache
           key: bun-web-lint-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock', 'web/bun.lock', 'cmux-tui/frontends/web/bun.lock') }}
+          restore-keys: bun-web-lint-${{ runner.os }}-${{ runner.arch }}-
 
-      - name: Restore the Bun package cache (dispatch)
-        if: ${{ github.event_name == 'workflow_dispatch' && (steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true') }}
+      # The GitHub fallback is bounded at 2 minutes; past it the gates install cold. On 2026-11-23 04:15-06:15Z a pool
+      # VM restored this 710 MB cache in 22 s (median of 104; p90 30-39 s). A Freestyle VM (fsr-*) pulled it at about
+      # 1 MB/s, and at 600 s the download link expired ("Server failed to authenticate the request"), so the restore
+      # failed and the gates installed cold anyway: 605 s median over 84 jobs. An R2 miss on Freestyle still lands here.
+      - name: Restore the Bun package cache
+        id: bun-cache
+        if: ${{ (steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true') && steps.bun-r2.outputs.cache-matched-key == '' }}
+        timeout-minutes: 2
+        continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: bun-web-lint-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock', 'web/bun.lock', 'cmux-tui/frontends/web/bun.lock') }}
+
+      # A restore stopped at its bound can leave a half-extracted cache. Bun would trust it, so the install
+      # starts from an empty one instead.
+      - name: Drop a partly restored Bun package cache
+        if: ${{ steps.bun-cache.outcome == 'failure' || steps.bun-cache.outcome == 'cancelled' || steps.bun-r2.outcome == 'failure' || steps.bun-r2.outcome == 'cancelled' }}
+        timeout-minutes: 1
+        run: rm -rf ~/.bun/install/cache
 
       # `vp check` runs on Node and needs ^22.18 or ^24.11; bun still installs.
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        if: ${{ steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true' }}
+        shell: bash
+        continue-on-error: true
+        timeout-minutes: 2
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
+
+      # Node comes from the runner's tool cache, else nodejs.org (scripts/ci/ensure-setup-node.sh: sha256 checked, curl
+      # bounded), not actions/setup-node: on a Freestyle VM its download from GitHub's node-versions releases took
+      # 175 to 428 s, or ran into the job limit (job 137555099878, 2026-11-23), while nodejs.org is not GitHub egress.
       - name: Setup Node
         if: ${{ steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true' }}
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version: "24.22.1"
+        timeout-minutes: 3
+        run: scripts/ci/ensure-setup-node.sh 24.22.1
 
-      # prepush-gate.py downloads its pinned tools (sha256 checked) once per lock.
-      # A dispatch only restores them, as with the Bun cache above.
-      - name: Cache the pinned lint tools
-        if: ${{ github.event_name == 'pull_request' }}
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      # prepush-gate.py downloads its pinned tools (sha256 checked) when they are missing. Restore only, from R2
+      # (cmux-next-web-lint.yml's web-lint job saves this key on each feat-cmux-next push); never the GitHub store:
+      # on 2026-11-22 it held 14 pull request copies (65 MB each), and this 62 MB restore took 1.5 minutes there on
+      # Freestyle. A miss is the gate's own download.
+      - name: Restore the pinned lint tools from R2
+        id: lint-tools-r2
+        timeout-minutes: 2
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
         with:
-          path: ~/.cache/cmux-lint-tools
-          key: cmux-lint-tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/cmux-next/lint-tools.lock') }}
-
-      - name: Restore the pinned lint tools (dispatch)
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
+          backend: r2
           path: ~/.cache/cmux-lint-tools
           key: cmux-lint-tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/cmux-next/lint-tools.lock') }}
 
@@ -486,9 +547,24 @@ jobs:
           # this long is dropped and the request retried, as scripts/ci/bun-install.sh does for the other web jobs.
           BUN_CONFIG_HTTP_IDLE_TIMEOUT: "30"
           BUN_CONFIG_HTTP_RETRY_COUNT: "5"
+          # The webviews type check runs inside fixit-compile (fast_gate_webviews_checks.py): its patch names the PR
+          # head, not the merge commit or the dispatch's branch tip, so the hq fixit-compile reconciler pushes it there.
+          FIXIT_COMPILE_HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
         # --budget-seconds: a gate still running 21 min in is stopped and named as stalled, so the job ends with that
         # reason inside its 25-minute limit instead of being cancelled with none.
         run: python3 scripts/ci/cmux_next_fast_gates.py run --base "$BASE" --web "$WEB" --checks "$CHECKS" --budget-seconds 1260 --summary "$GITHUB_STEP_SUMMARY"
+
+      # A type check whose every error had one safe language-service fix, and passed with them: the patch, for the
+      # cmuxterm-hq fixit-compile reconciler to push onto a lane/* branch as a fixup commit (ci-oops 0a), as
+      # ci-web.yml uploads its own. Without it the patch fast_gate_webviews_checks.py wrote was thrown away.
+      - name: Upload the fixit-compile patch
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fixit-compile-${{ github.job }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/fixit-compile
+          if-no-files-found: ignore
+          retention-days: 3
 
   # Only on a dispatch whose prepare found a lowered panic-ratchet row the PR
   # changes (cmux_next_fast_gates.py ratchet_needed). The clippy setup is
@@ -496,8 +572,8 @@ jobs:
   panic-ratchet:
     name: panic ratchet (lowered baseline)
     needs: [resolve, fast-gates]
-    if: ${{ !cancelled() && needs.fast-gates.outputs.ratchet == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || contains(fromJSON('["cmux-fleet-linux-x64","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || fromJSON(vars.RUNNER_POOLS).linux }}
+    if: ${{ (!cancelled() && needs.fast-gates.outputs.ratchet == 'true') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 40
     permissions:
       contents: read
@@ -535,9 +611,11 @@ jobs:
       - name: Restore the cargo build cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-tui-pr-clippy
+          shared-key: cmux-tui-pr-clippy-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
           save-if: false
 
       - name: Rust panic ratchet on the merge, against the tip
@@ -550,13 +628,12 @@ jobs:
   # panic-ratchet (nothing to rejudge) does not fail it.
   post:
     name: post cmux-next/fast-gates
-    needs: [resolve, fast-check-route, receipt, fast-gates, panic-ratchet, portable-placement]
+    needs: [resolve, receipt, fast-gates, panic-ratchet]
     # A valid receipt posted the status itself; an audited one is judged here again by the gates.
-    if: ${{ always() && !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.post == 'true' && (needs.receipt.result != 'success' || needs.receipt.outputs.valid != 'true' || needs.receipt.outputs.audit == 'true') }}
-    # A light job: the reconciled Linux pool on every attempt (it holds no secret), never GitHub-hosted
-    # Ubuntu (it left light jobs queued for hours, cmux#45735). On 2026-11-02 this queued on RUNNER_POOLS.linux's
-    # saturated blacksmith-4vcpu-ubuntu-2404 (hundreds of jobs deep) for a few seconds of work.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' post ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' post ') && needs.portable-placement.outputs.mini_runner || fromJSON(vars.RUNNER_POOLS).linux }}
+    if: ${{ (always() && !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.post == 'true' && (needs.receipt.result != 'success' || needs.receipt.outputs.valid != 'true' || needs.receipt.outputs.audit == 'true')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    # A light job that holds a write token (statuses), so the ephemeral-only linux_4 pool on every attempt, never
+    # GitHub-hosted Ubuntu (it left light jobs queued for hours, cmux#45735).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       statuses: write
@@ -569,8 +646,8 @@ jobs:
           BASE: ${{ needs.resolve.outputs.base }}
           GATES: ${{ needs.fast-gates.result }}
           RATCHET: ${{ needs.panic-ratchet.result }}
-          # The route skipped the gates: the pull request touches none of their inputs.
-          ROUTED_OUT: ${{ needs.fast-check-route.outputs.fast_gates == 'false' }}
+          # The route (resolve) skipped the gates: the pull request touches none of their inputs.
+          ROUTED_OUT: ${{ needs.resolve.outputs.fast_gates == 'false' }}
           RECEIPT_AUDIT: ${{ needs.receipt.outputs.audit }}
           RECEIPT_RUN: ${{ needs.receipt.outputs.run_url }}
           RECEIPT_PRODUCER: ${{ needs.receipt.outputs.producer }}
@@ -580,7 +657,7 @@ jobs:
           [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ && "$BASE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::no head or base sha to report"; exit 1; }
           if [[ "$ROUTED_OUT" == true && "$GATES" == skipped ]]; then
             # A verdict at this base, as a passing run would give: each gate judges only what the change adds in its
-            # inputs, and the change touches none (fast-check-route's summary names them). Same description, so a
+            # inputs, and the change touches none (resolve's route step summary names them). Same description, so a
             # merger judges its freshness as it does any success.
             GATES=success
             RATCHET=skipped

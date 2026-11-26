@@ -52,3 +52,21 @@ test("writing an unchanged table that is already current leaves it untouched", (
   expect(writeStrings({ only: ["agentPane"], log: () => {} })).toBe(0);
   expect(fs.statSync(table).mtimeMs).toBe(before);
 });
+
+// The preload checks the agent pane's table by content (`ifUnchanged`), not time: a table edited or
+// restored from an old cache, newer than its inputs, is still rewritten, and a current one is left alone.
+test("ifUnchanged rewrites a changed table newer than its inputs and leaves a current one alone", () => {
+  expect(writeStrings({ only: ["agentPane"], log: () => {} })).toBe(0);
+  const table = path.join(repo, PAGES.agentPane.out);
+  const made = fs.readFileSync(table, "utf8");
+  // Still valid JSON for any test reading the table meanwhile.
+  fs.writeFileSync(table, `${made} `);
+  const later = new Date(Date.now() + 60_000);
+  fs.utimesSync(table, later, later);
+  expect(writeStrings({ only: ["agentPane"], ifUnchanged: true, log: () => {} })).toBe(0);
+  expect(fs.readFileSync(table, "utf8")).toBe(made);
+  const past = new Date(Date.now() - 60_000);
+  fs.utimesSync(table, past, past);
+  expect(writeStrings({ only: ["agentPane"], ifUnchanged: true, log: () => {} })).toBe(0);
+  expect(fs.statSync(table).mtimeMs).toBe(past.getTime());
+});

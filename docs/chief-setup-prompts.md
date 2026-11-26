@@ -57,7 +57,7 @@ What only you can do: signing in to cmux, and allowing the new machine on the ca
 ## Start a chat on cmux Cloud and send it a follow-up
 
 ```text
-Start me a chat on cmux Cloud and show me it works: run `cmux whoami`; if I am signed out, run `cmux login` and wait while I finish it in the browser. Then run `cmux chat --on vm --harness HARNESS --prompt 'Say hello in one sentence.' --wait --json` (HARNESS is claude or codex) and show me its reply, then `cmux chat send SESSION_ID 'Say it once more, shorter.' --wait` with the answer's session_id. If a start is refused for a model connection, open `cmux://settings/cloud/claude` (Settings > Cloud; `/cloud/chatgpt` or `/cloud/api-key` for those), not `cmux accounts`, which is CodeRouter. If it is refused for a Cloud plan or GitHub, tell me the one card or Settings page that fixes it. Run it again once I have. Tell me how long each step took, and that `cmux vm pause NAME` or `cmux vm rm NAME --yes` stops the machine.
+Start me a chat on cmux Cloud and show me it works: run `cmux whoami`; if I am signed out, run `cmux login` and wait while I finish it in the browser. Then run `cmux chat --on vm --harness HARNESS --prompt 'Say hello in one sentence.' --wait --json` (HARNESS is claude or codex) and show me its reply, then `cmux chat send SESSION_ID 'Say it once more, shorter.' --wait` with the answer's session_id. If a start is refused for a model connection, run `cmux cloud connections`: when none of them serves Cloud, open `cmux://settings/cloud/claude` (Settings > Cloud; `/cloud/chatgpt` or `/cloud/api-key` for those), or connect from here with `cmux cloud connect claude` (I open its link and paste the code back) or `cmux cloud connect chatgpt` (I open its link in a browser on this Mac); not `cmux accounts`, which is CodeRouter. Then start again. If it is refused for a Cloud plan or GitHub, tell me the one card or Settings page that fixes it and run it again once I have. Tell me how long each step took, and that `cmux vm pause NAME` or `cmux vm rm NAME --yes` stops the machine.
 ```
 
 What only you can do: signing in to cmux in the browser, picking a Cloud plan, and connecting a model in Settings > Cloud (Claude setup token, ChatGPT or an API key; `cmux://settings/cloud/claude`) when the team shares none.
@@ -81,10 +81,10 @@ What only you can do: installing Tailscale, signing in to it (`tailscale up`, a 
 ## Use cmux from an iPhone: pair the cmux iOS app with this Mac
 
 ```text
-Set up the cmux iPhone app with this Mac: run `cmux settings get mobile.allowIPhoneConnections` and `cmux cloud open-mobile-pairing`. If iPhone connections are off, tell me to turn them on there (only I can). Then tell me to install cmux on my iPhone, sign in there with the same cmux account, and allow the phone on this Mac when it asks.
+Set up the cmux iPhone app with this Mac and get me to a working agent on it: run `cmux settings get mobile.allowIPhoneConnections` and `cmux cloud open-mobile-pairing` (it opens Settings > Accounts > iPhone). iPhone connections are on by default; if they are off, tell me to turn them on there (only I can). Then tell me to install cmux on my iPhone and sign in there with the same cmux account: this Mac shows up on the phone by itself, and I allow the phone on this Mac when it asks. When I say the phone is paired, run `cmux chat --on vm --harness claude --prompt 'Say hello in one sentence.' --wait --json`, show me its reply, and tell me to open that chat on the phone and send it one message. Then read the chat and show me the agent's answer to what I sent.
 ```
 
-What only you can do: turning on iPhone connections on the Mobile Pairing page, installing the cmux iPhone app (TestFlight invite while it is in beta), signing in there with the same cmux account, and allowing the phone on this Mac when it asks.
+What only you can do: installing the cmux iPhone app, signing in there with the same cmux account, and allowing the phone on this Mac when it asks (or turning on Approve Phone Requests Automatically in Settings > Accounts > iPhone).
 
 ## Add another machine with one pasted line (a single-use pairing ticket)
 
@@ -100,7 +100,7 @@ What only you can do: pasting the line on the other machine.
 Tell me whether agents I start in cmux get cmux's MCP tools: run `cmux setup mcp`. If it names a setting, give me that one line to turn on; do not edit the file. If I want cmux's tools in agents started outside cmux, show me its manual lines to run myself; do not run them.
 ```
 
-What only you can do: turning on cmux Tools for agents in Settings > Agents (agents.cmuxMcp), and running the report's manual lines yourself to use cmux's tools in agents started elsewhere.
+What only you can do: turning cmux Tools for agents on or off in Settings > Agents (agents.cmuxMcp, on by default), and running the report's manual lines yourself to use cmux's tools in agents started elsewhere.
 
 ## Let agents use the Mac (cmux Computer Use)
 

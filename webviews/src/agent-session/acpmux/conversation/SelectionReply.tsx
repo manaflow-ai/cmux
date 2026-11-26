@@ -176,11 +176,12 @@ export function SelectionReplyChip({ doc = document }: { doc?: Document }) {
     <button
       ref={chip}
       type="button"
-      className="cv-selection-reply"
+      className="cv-selection-reply ui-glass"
       data-look={current}
       data-hidden={hidden ? "true" : undefined}
       aria-hidden={hidden ? true : undefined}
       aria-label={label}
+      // tooltip-allow: only the icon look has a tooltip; the chip look shows its words and has none.
       title={current === "icon" ? label : undefined}
       style={
         placed

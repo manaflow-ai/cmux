@@ -18,11 +18,28 @@ impl Peer {
         peer_token: Option<String>,
         notices: mpsc::Sender<(String, u64, PeerNotice)>,
     ) -> Arc<Self> {
+        Self::new_with_lease(name, url, token, peer_token, notices, false)
+    }
+
+    pub(crate) fn new_with_lease(
+        name: &str,
+        url: &str,
+        token: Option<String>,
+        peer_token: Option<String>,
+        notices: mpsc::Sender<(String, u64, PeerNotice)>,
+        leased: bool,
+    ) -> Arc<Self> {
         let (out, out_rx) = mpsc::channel(1024);
+        let scope = cmux_scope::Scope::new("acpmux peer");
+        let notices = crate::peer_notice_outbox::NoticeOutbox::new(
+            notices,
+            scope.child("acpmux peer notices"),
+        );
         Arc::new(Self {
-            scope: cmux_scope::Scope::new("acpmux peer"),
+            scope,
             name: name.to_owned(),
             generation: NEXT_GENERATION.fetch_add(1, Ordering::SeqCst),
+            leased,
             url: url.to_owned(),
             token,
             peer_token,
@@ -32,6 +49,7 @@ impl Peer {
             hub_carrier: std::sync::OnceLock::new(),
             link_host: std::sync::OnceLock::new(),
             explicit_route: AtomicBool::new(false),
+            tailnet: StdMutex::new(super::tailnet_path::State::from_env()),
             link_socket: std::sync::OnceLock::new(),
             paths: StdMutex::new(None),
             serving: StdMutex::new(None),
@@ -88,6 +106,7 @@ impl Peer {
             mirror: dialer::MirrorLink::default(),
             session_resume_link: AtomicU64::new(0),
             session_messages: AtomicBool::new(false),
+            agent_channels: AtomicBool::new(false),
             person_stop: AtomicBool::new(false),
             withheld: AtomicBool::new(false),
             presented: StdMutex::new(None),
@@ -116,6 +135,7 @@ impl Peer {
             states: StdMutex::new(None),
             timings: LinkTimings::from_env(),
             silence: StdMutex::new(None),
+            replacement: StdMutex::new(None),
             cache_saved_at: AtomicU64::new(0),
             cache_saved_outage: AtomicBool::new(false),
             cache_write_pending: AtomicBool::new(false),
@@ -129,11 +149,14 @@ impl Peer {
             health_asking: AtomicBool::new(false),
             watch_key: StdMutex::new(None),
             pipelined_key: StdMutex::new(None),
+            early_init: StdMutex::new(None),
+            early_refused: AtomicBool::new(false),
             pipelines: AtomicBool::new(false),
             list_follow: AtomicBool::new(false),
             list_cursor: StdMutex::new(None),
             cursor_tools: AtomicBool::new(false),
             received: ReceivedBytes::default(),
+            link_read: StdMutex::new(cmux_deadline::Progress::new()),
         })
     }
 
@@ -148,6 +171,12 @@ impl Peer {
     /// What the current (or last) link received (`ReceivedBytes`).
     pub fn received(&self) -> &ReceivedBytes {
         &self.received
+    }
+
+    /// The current (or last) link's transport read progress: every byte it read, also inside
+    /// a frame that has not fully arrived.
+    pub fn link_read(&self) -> cmux_deadline::Progress {
+        self.link_read.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
     pub fn link(&self) -> Link {
@@ -188,22 +217,6 @@ impl Peer {
         states.changed(&self.name, self.generation, self.observed(link));
     }
 
-    pub(super) fn observed(&self, link: &Link) -> crate::peer_states::Observed {
-        let error = self.last_error.lock_or_recover().clone();
-        let state = link.state();
-        let mut facts = self.facts.lock_or_recover();
-        let (whole, since) = facts.observe(state, crate::store::now_ms());
-        crate::peer_states::Observed {
-            link: whole,
-            carrier: facts.live_carrier(state),
-            cause: carrier::cause(whole, error.as_deref()),
-            since,
-            next_retry_at: link.retry_at.filter(|_| !link.is_ready()),
-            last_seen: link.last_seen,
-            error,
-        }
-    }
-
     /// The carrier this attempt runs over (`carrier` while its link is open).
     pub(super) fn carried_by(&self, by: crate::protocol::peer_state::Carrier) {
         let mut facts = self.facts.lock_or_recover();
@@ -236,6 +249,13 @@ impl Peer {
         if takes {
             features.push(crate::attach::FEATURE.to_owned());
         }
+    }
+
+    /// Whether its last handshake advertised the folder trust gate (`trustGate`), as every
+    /// current daemon's does: a test's peer that never ran.
+    #[cfg(test)]
+    pub(crate) fn seed_trust_gate(&self, advertised: bool) {
+        self.trust_gate.store(advertised, Ordering::SeqCst);
     }
 
     /// What its last handshake listed (`lists`): a test's peer that never ran.
@@ -750,11 +770,14 @@ impl Peer {
             "servedAs": self.served_as.lock().unwrap_or_else(|e| e.into_inner()).clone(),
             "peerTokenWithheld": self.withheld.load(Ordering::SeqCst),
             "canonicalEndpoint": canonical_endpoint(&self.url),
-            "outdated": self.remote_version.lock_or_recover().as_ref().map(|(_, b)| b != crate::hub::build()).unwrap_or(false),
+            "outdated": self.remote_version.lock_or_recover().as_ref().map(|(_, b)| crate::build_info::lags(b, crate::hub::build())).unwrap_or(false),
             "state": link.state().as_str(),
             "link": observed.link,
             "carrier": observed.carrier,
             "cause": observed.cause,
+            "reason": observed.reason,
+            "action": observed.reason.map(crate::protocol::peer_state::OfflineReason::action),
+            "downReason": observed.down_reason,
             "since": observed.since,
             "nextRetryAt": observed.next_retry_at,
             "lastSeen": link.last_seen,

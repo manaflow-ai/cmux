@@ -80,6 +80,10 @@ pub(crate) struct HostShared {
     pub(crate) exit_published: AtomicBool,
     pub(crate) exit_record_path: PathBuf,
     pub(crate) exit_publish_requests: Sender<()>,
+    /// The exit publisher before its thread starts: the host and the
+    /// requests' receiver, taken by the first request with an exit to
+    /// publish (`lifecycle.rs`).
+    pub(crate) exit_publisher: Mutex<Option<(Weak<HostShared>, Receiver<()>)>>,
     pub(crate) force_pty_drain: AtomicBool,
     pub(crate) pty_drain_waker: Mutex<HostStream>,
     pub(crate) termination_started: AtomicBool,
@@ -406,6 +410,7 @@ impl HostShared {
     }
 
     pub(crate) fn write_input(&self, payload: &[u8], request_id: u64, target: &HostTap) -> bool {
+        cmux_interactivity::note(cmux_interactivity::InteractionKind::Typing);
         let (delivered, wrote) = {
             // Receipted input certifies delivery, so none of it is dropped. The master is
             // held only to read the queue, never across a write that can block.

@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.agents.cli" : {
+      "comment" : "Settings > Agents (BRING-YOUR-OWN-HARNESS); keep commands, ACP, cmux.json and ~/.acpx exactly",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لا يستطيع cmux هذا تغيير الوكلاء من الإعدادات. شغّل هذا في طرفية:"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ovaj cmux ne može mijenjati agente iz Postavki. Pokreni ovo u terminalu:"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denne cmux kan ikke ændre agenter fra Indstillinger. Kør dette i en terminal:"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dieses cmux kann Agenten nicht in den Einstellungen ändern. Führe dies im Terminal aus:"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This cmux cannot change agents from Settings. Run this in a terminal:"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Este cmux no puede cambiar agentes desde Ajustes. Ejecuta esto en una terminal:"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cet cmux ne peut pas modifier les agents depuis les Réglages. Lancez ceci dans un terminal :"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Questo cmux non può modificare gli agenti dalle Impostazioni. Esegui questo in un terminale:"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このcmuxは設定からエージェントを変更できません。ターミナルで次を実行してください:"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux នេះមិនអាចប្ដូរភ្នាក់ងារពីការកំណត់បានទេ។ ដំណើរការវានៅក្នុងស្ថានីយ៖"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 cmux는 설정에서 에이전트를 변경할 수 없습니다. 터미널에서 다음을 실행하세요:"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denne cmux kan ikke endre agenter fra Innstillinger. Kjør dette i en terminal:"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ten cmux nie może zmieniać agentów w Ustawieniach. Uruchom to w terminalu:"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Este cmux não pode alterar agentes pelos Ajustes. Execute isto em um terminal:"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Этот cmux не может менять агентов в настройках. Выполните в терминале:"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux นี้เปลี่ยนเอเจนต์จากการตั้งค่าไม่ได้ เรียกใช้คำสั่งนี้ในเทอร์มินัล:"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu cmux aracıları Ayarlar'dan değiştiremez. Bunu bir terminalde çalıştırın:"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Цей cmux не може змінювати агентів у налаштуваннях. Виконайте в терміналі:"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux này không thể thay đổi tác tử từ Cài đặt. Chạy lệnh này trong terminal:"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此 cmux 无法在设置中更改智能体。请在终端中运行："
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此 cmux 無法在設定中變更代理。請在終端機中執行："
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

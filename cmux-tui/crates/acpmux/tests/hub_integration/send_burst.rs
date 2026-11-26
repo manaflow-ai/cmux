@@ -137,9 +137,17 @@ async fn burst(hub: &Arc<Hub>, receiver: &str, senders: &[String], inbox: bool, 
     let mut logged: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut turn_text: BTreeMap<String, String> = BTreeMap::new();
     let mut joined: BTreeMap<String, String> = BTreeMap::new();
+    // A notice logged as a steer that never went in (its turn ended first, `steer_end.rs`):
+    // its messages go in with the next notice.
+    let withdrawn: BTreeSet<&str> = events
+        .iter()
+        .filter(|e| e.kind == "steer_withdrawn")
+        .filter_map(|e| e.msg["promptId"].as_str())
+        .collect();
     for e in &events {
         let pid = e.msg["promptId"].as_str().unwrap_or("").to_owned();
         match e.kind.as_str() {
+            "user_message" if withdrawn.contains(pid.as_str()) => {}
             "user_message" if e.msg["_meta"]["provenance"]["kind"] == "inbox_notice" => {
                 for carried in carried(&e.msg) {
                     *delivered.entry(carried).or_default() += 1;
@@ -184,7 +192,39 @@ async fn burst(hub: &Arc<Hub>, receiver: &str, senders: &[String], inbox: bool, 
     {
         wrong.push(format!("{pid} was never sent"));
     }
-    assert!(wrong.is_empty(), "{wrong:#?}\nreceiver: {summary}");
+    assert!(wrong.is_empty(), "{wrong:#?}\n{}\nreceiver: {summary}", trail(&events, &delivered));
+}
+
+/// The log's lines that name a prompt delivered other than once, or the notice or turn that
+/// carried one: what a failure needs to tell a double delivery from a double record.
+fn trail(events: &[acpmux::store::EventRecord], delivered: &BTreeMap<String, usize>) -> String {
+    let odd: BTreeSet<&str> =
+        delivered.iter().filter(|(_, n)| **n != 1).map(|(p, _)| p.as_str()).collect();
+    let names = |e: &acpmux::store::EventRecord| {
+        let pid = e.msg["promptId"].as_str().unwrap_or("");
+        odd.contains(pid) || carried(&e.msg).iter().any(|c| odd.contains(c.as_str()))
+    };
+    let carriers: BTreeSet<String> = events
+        .iter()
+        .filter(|e| names(e))
+        .filter_map(|e| e.msg["promptId"].as_str().map(str::to_owned))
+        .collect();
+    let mut lines = Vec::new();
+    for e in events {
+        let pid = e.msg["promptId"].as_str().or(e.msg["noticePromptId"].as_str()).unwrap_or("");
+        if names(e) || carriers.contains(pid) {
+            let mut msg = e.msg.clone();
+            if let Some(m) = msg.as_object_mut() {
+                m.remove("text");
+                m.remove("prompt");
+                m.remove("content");
+            }
+            let msg = msg.to_string();
+            let cut = msg.char_indices().nth(400).map_or(msg.len(), |(i, _)| i);
+            lines.push(format!("{} {} {}", e.seq, e.kind, &msg[..cut]));
+        }
+    }
+    lines.join("\n")
 }
 
 /// An idle chat that already ran a turn: each burst goes to its inbox and wakes it.

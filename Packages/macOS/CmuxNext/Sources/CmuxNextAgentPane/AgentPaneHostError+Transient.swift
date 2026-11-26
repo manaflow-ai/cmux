@@ -8,11 +8,16 @@ nonisolated extension AgentPaneHostError {
     /// off by an update, still loading, losing the start's lock race, or stopped while the page
     /// keeps looking for it all end without the person. A refusal nothing retries away is said at
     /// once: acpmux missing, another build's daemon (holder or owner known), a daemon on another
-    /// home, and a daemon that refused to start from where it is.
+    /// home, a daemon that refused to start from where it is, and this app's daemon stopped
+    /// (`daemonStopped`): the page's own retries are reconnects, which never start a stopped
+    /// daemon (cx-6bgzj), so it said nothing and looked usable for as long as it stayed down
+    /// (cmux#48605); the line's Retry is the `ready` handshake that starts it. A handoff stopping
+    /// it is `daemonRestarting` instead.
     /// Credit: #27283 drew the restart causes from one Mac's daemon log after an update.
     var isTransient: Bool {
         switch self {
-        case .timedOut, .daemonRestarting, .daemonStopped, .chiefStarting, .chiefStopped: true
+        case .timedOut, .daemonRestarting, .chiefStarting, .chiefStopped: true
+        case .daemonStopped: false
         case .daemonFailed(_, let cause):
             switch cause {
             case .refused, .foreignHome: false
@@ -22,6 +27,18 @@ nonisolated extension AgentPaneHostError {
         case .daemonRefused(let holder, _, let reason, _, let owner):
             holder == nil && owner == nil && !reason.hasPrefix(Self.foreignHomeReason)
         case .acpmuxNotFound: false
+        }
+    }
+
+    /// Whether the host is carrying out a planned restart or start of acpmux (an update's handoff of a
+    /// replaced daemon, the build-home adoption, a chief that is starting), which ends when the
+    /// restarted daemon answers: the page's link is not down for it, so it shows nothing
+    /// (`details.handoff`; Leo, 2026-11-22: "surely we can think of better fixes than random timing
+    /// which can shift"). A daemon that stopped, exited or timed out is down for real.
+    var isPlannedRestart: Bool {
+        switch self {
+        case .daemonRestarting, .chiefStarting: true
+        default: false
         }
     }
 
