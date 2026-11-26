@@ -469,7 +469,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 DebugDownloads.register(on: control.service?.router, services: services)
                 DebugCEFDevToolsLayout.register(on: control.service?.router, services: services)
                 control.service?.router.attach(health: services.healthFeeds.health) // debug.health, debug.health.inject
-                #if DEBUG
+                // MEASUREMENT BRANCH ONLY (remote-cocoa-bench): the bench configuration opens remote Cocoa pages too.
+                #if DEBUG || CMUX_BENCH_HOOKS
                 // The Chromium host app prototype (browserHost.helperPrototype; cef-helper-app-DESIGN.md).
                 let chromiumHost = ChromiumHostPrototype { ChromiumHostPrototype.bundledConfiguration() }
                 control.service?.router.register([
