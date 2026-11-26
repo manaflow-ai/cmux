@@ -99,6 +99,7 @@ jobs:
           filter: blob:none
           sparse-checkout-cone-mode: false
           sparse-checkout: &resolve-sparse |
+            /.gitmodules
             /.github/runners.json
             /scripts/ci/fast_check_route.py
             /scripts/ci/fast-check-inputs.json
@@ -331,6 +332,7 @@ jobs:
             /scripts/ci/ci_receipt.py
             /scripts/ci/deadline_http.py
             /scripts/ci/cmux_next_fast_gates.py
+            /.gitmodules
 
       - name: Verify the local test receipt
         id: verify
