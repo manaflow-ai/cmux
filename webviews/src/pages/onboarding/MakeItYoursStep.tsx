@@ -33,10 +33,13 @@ import { SlidingIndicator } from "../../ui/motion/SlidingIndicator";
 import type { ChatsRunIn, MakeItYoursBackground, MakeItYoursMaterial, MakeItYoursState, WorkStyle } from "./ops";
 import { HostIcon, useOnboarding } from "./parts";
 import {
+  CHAT_FEELS,
   LOOK_BUNDLES,
   NOISES,
   PERMISSIONS,
   bundleWrites,
+  chatFeel,
+  chatFeelWrites,
   noise,
   noiseWrites,
   permission,
@@ -285,6 +288,42 @@ function TrustScreen({ opened, current }: { opened: WalkValues; current: WalkVal
         </div>
       </fieldset>
     </>
+  );
+}
+
+const CHAT_FEEL_KEYS = {
+  instant: "onboarding.makeItYours.chatFeel.instant",
+  pop: "onboarding.makeItYours.chatFeel.pop",
+} as const;
+
+/** Screen 2's chat feel row: how a sent prompt arrives (agentPane.display.sendPop; Instant, as cmux
+ * ships, unless already set). */
+function ChatFeelRow({ opened, current }: { opened: WalkValues; current: WalkValues }) {
+  const { strings } = useOnboarding();
+  const walk = useWalk();
+  const feel = chatFeel(current);
+  return (
+    <fieldset className="onb-make-group onb-make-work" data-row="chatFeel">
+      <legend className="onb-make-label">{strings.t("onboarding.makeItYours.chatFeel.label")}</legend>
+      <div className="onb-make-options">
+        {CHAT_FEELS.map((value) => (
+          <label key={value} className="onb-make-option" data-checked={feel === value || undefined}>
+            <input
+              type="radio"
+              name="chatFeel"
+              value={value}
+              aria-label={strings.t(CHAT_FEEL_KEYS[value])}
+              checked={feel === value}
+              onChange={() => walk(chatFeelWrites(value, opened, current))}
+            />
+            <span className="onb-make-option-text">
+              <span className="onb-make-option-title">{strings.t(CHAT_FEEL_KEYS[value])}</span>
+              <span className="onb-make-option-detail">{strings.t(`${CHAT_FEEL_KEYS[value]}.line`)}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+    </fieldset>
   );
 }
 
@@ -545,6 +584,7 @@ export function MakeItYoursStep({
     <div className="onb-make" data-look={look} data-screen={walkScreen}>
       {askWork && work}
       {askWork && runIn}
+      {walkScreen === "work" && <ChatFeelRow opened={opened ?? current} current={current} />}
       {askTune && density}
       {askTune && background}
     </div>

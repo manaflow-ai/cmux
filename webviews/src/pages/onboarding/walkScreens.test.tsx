@@ -101,6 +101,8 @@ describe("make cmux yours", () => {
     expect(await checked(makeItYoursState("fresh", WALK))).toEqual({
       look: "house",
       workStyle: "gui",
+      chatsRunIn: "local",
+      chatFeel: "instant",
       permission: "fullAccess",
       noise: "bannersSound",
       density: "cozy",
@@ -114,6 +116,8 @@ describe("make cmux yours", () => {
       permission: "fullAccess",
       noise: "bannersSound",
       workStyle: "gui",
+      chatsRunIn: "cloud",
+      chatFeel: "instant",
       density: "compact",
       background: "dahl-dresden-moonlight",
       material: "frosted",
@@ -124,9 +128,10 @@ describe("make cmux yours", () => {
   test("both looks draw every choice; only cards name the background tiles", () => {
     const cards = render(makeItYoursState("fresh", WALK), "cards");
     const rows = render(makeItYoursState("fresh", WALK), "rows");
-    // Five looks, two ways to work, three permissions, three noises, five densities, None and eleven
-    // backgrounds, four materials.
-    for (const html of [cards, rows]) expect(html.match(/type="radio"/g)?.length).toBe(5 + 2 + 3 + 3 + 5 + 12 + 4);
+    // Five looks, two ways to work, two places chats run, two chat feels, three permissions, three
+    // noises, five densities, None and eleven backgrounds, four materials.
+    for (const html of [cards, rows])
+      expect(html.match(/type="radio"/g)?.length).toBe(5 + 2 + 2 + 2 + 3 + 3 + 5 + 12 + 4);
     expect(cards).toContain("onb-make-tile-name");
     expect(rows).not.toContain("onb-make-tile-name");
   });
