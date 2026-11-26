@@ -42,6 +42,7 @@ GLOBAL_INPUTS = (
     "scripts/ci/swift-test-debug-info.sh",
     "scripts/ci/swiftpm-binary-module-guard.sh",
     "scripts/ci/github-egress-direct.sh",
+    "scripts/ci/github-egress-run.sh",
     "scripts/ci/swiftpm_prefetch_binary_artifacts.py",
     "scripts/ci/run_with_timeout.py",
     "scripts/ci/run_swift_test_bundle.py",

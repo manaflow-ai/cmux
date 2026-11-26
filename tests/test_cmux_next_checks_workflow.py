@@ -4862,5 +4862,29 @@ class FastTierCargoRoute(unittest.TestCase):
             self.assertTrue(self.route.reaches(["docs/x.md"], set(), Path(empty))[0])
 
 
+class SwiftPmFetchesStepAroundADeadProxy(unittest.TestCase):
+    """Every `swift build` or `swift test` a Mac step runs goes through scripts/ci/github-egress-run.sh, so a dead
+    github.com proxy tunnel on a mini goes direct instead of failing the package fetch (run 45866233902: daemon
+    tests, "Failed to connect to 127.0.0.1 port 18434" on every package; #58915 covered only xcodebuild)."""
+
+    def test_every_swiftpm_build_runs_through_the_egress_route(self):
+        jobs = load_yaml(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        direct = []
+        for job_id, job in jobs.items():
+            for step in job.get("steps") or []:
+                for line in step_run(step).splitlines():
+                    code = line.split("#", 1)[0]
+                    if re.search(r"(^|[\s;&|(])swift (build|test)\b", code) and "github-egress-run.sh" not in code:
+                        if "swiftpm_build_metrics.py" in code or re.match(r"\s*swift (build|test)\b", code):
+                            direct.append(f"{job_id}: {code.strip()[:120]}")
+        self.assertEqual([], direct)
+
+    def test_the_route_probes_and_retries_once_direct(self):
+        script = (ROOT / "scripts/ci/github-egress-run.sh").read_text()
+        self.assertIn("github-egress-direct.sh", script)
+        self.assertIn("github_egress_probe", script)
+        self.assertIn('github_egress_retry_direct "$log"', script)
+
+
 if __name__ == "__main__":
     unittest.main()
