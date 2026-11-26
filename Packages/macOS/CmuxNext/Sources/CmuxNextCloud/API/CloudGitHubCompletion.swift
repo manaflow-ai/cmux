@@ -44,6 +44,8 @@ import Observation
         switch answer {
         case .refused: refusal = Refusal(reason: reason); phase = .idle
         case .connected: refusal = nil; phase = .connected(account: account)
+        // An owner's approval pending is not a refusal: the person is told it is pending.
+        case .pendingApproval: refusal = nil; phase = .requested(owner: nil)
         case .noAnswer: refusal = nil; phase = .idle
         }
         count += 1
@@ -275,8 +277,10 @@ extension CloudGitHubCompletion {
 
 extension CloudGitHubCompletion {
     /// Finishes `url` when it is this build's completion link (``CloudGitHubCompletion/link(scheme:)``) with `auth`'s
-    /// own sign-in, then counts it in ``CloudGitHubChanges``; false for any other URL. A cancel on GitHub finishes nothing.
-    @MainActor public static func handle(_ url: URL, auth: CloudAuth) -> Bool {
+    /// own sign-in, counts it in ``CloudAuth/gitHubChanges`` and hands its answer to `answered` (the app shows the
+    /// person what happened); false for any other URL. A cancel on GitHub finishes nothing.
+    @MainActor public static func handle(_ url: URL, auth: CloudAuth,
+                                         answered: @escaping @MainActor (CloudOwnerAPIClient.GitHubCompletion) -> Void = { _ in }) -> Bool {
         guard let completion = CloudGitHubCompletion(url: url, scheme: auth.configuration.callbackScheme) else { return false }
         guard completion.error == nil else {
             auth.gitHubChanges.closedGitHub()
@@ -285,6 +289,7 @@ extension CloudGitHubCompletion {
         // An organization member's request: GitHub sent it to the owners, and the app says so (no API call to refuse it).
         if completion.isOwnerRequest {
             auth.gitHubChanges.recordRequested(owner: completion.repoOwner)
+            answered(.pendingApproval(message: nil))
             return true
         }
         auth.gitHubChanges.finishing()
@@ -297,6 +302,7 @@ extension CloudGitHubCompletion {
             let reply = await CloudOwnerAPIClient(baseURL: base, accessToken: access, teamID: { team }, buildSpace: auth.configuration.buildSpace)
                 .gitHubCompleteWithAccount(completion)
             auth.gitHubChanges.record(reply.answer, reason: reply.reason, account: reply.account)
+            answered(reply.answer)
         }
         return true
     }
@@ -306,8 +312,12 @@ extension CloudOwnerAPIClient {
     /// What one completion answered.
     public enum GitHubCompletion: Equatable, Sendable {
         case connected
-        /// The API refused it (a state for someone else, expired, or GitHub refused the code).
-        case refused
+        /// GitHub sent the install to the organization's owners (``CloudGitHubCompletion/isOwnerRequest``): not an
+        /// error, nothing linked until an owner approves; `message` is the API's words for the person, when it gave any.
+        case pendingApproval(message: String?)
+        /// The API refused it (a state for someone else, expired, or GitHub refused the code); `message` is the API's
+        /// words for the person, when it gave any.
+        case refused(message: String?)
         case noAnswer
     }
 
@@ -326,9 +336,12 @@ extension CloudOwnerAPIClient {
     public func gitHubCompleteWithAccount(_ completion: CloudGitHubCompletion) async -> (answer: GitHubCompletion, reason: String?, account: String?) {
         let body: [String: Any] = ["op": "integration.complete", "params": completion.params, "origin": "user", "idempotency_key": completion.idempotencyKey]
         guard let json = try? JSONSerialization.data(withJSONObject: body), let answer = await person("/v1/ops", post: json) else { return (.noAnswer, nil, nil) }
-        let result = Self.completion(status: answer.status, body: answer.body)
-        return (result, result == .refused ? Self.refusalReason(body: answer.body) : nil,
-                result == .connected ? Self.connectedAccount(body: answer.body) : nil)
+        let result = Self.completion(status: answer.status, body: answer.body, ownerRequest: completion.isOwnerRequest)
+        switch result {
+        case .refused: return (result, Self.refusalReason(body: answer.body), nil)
+        case .connected: return (result, nil, Self.connectedAccount(body: answer.body))
+        case .pendingApproval, .noAnswer: return (result, nil, nil)
+        }
     }
 
     /// The connected account's name from `integration.complete`'s reply (`{value: {account: {name}}}` or the result at
@@ -353,11 +366,16 @@ extension CloudOwnerAPIClient {
         return text.isEmpty ? nil : String(text.prefix(200))
     }
 
-    /// A 2xx answer that says `ok` (no error) is connected; a 408, 429 or 5xx may not have run; anything else refused.
-    static func completion(status: Int, body: Data) -> GitHubCompletion {
+    /// A 2xx answer that says `ok` (no error) is connected; a 408, 429 or 5xx may not have run; anything else refused,
+    /// with the API's `error.message`; a refused owner request (`ownerRequest`) is pending an owner's approval.
+    static func completion(status: Int, body: Data, ownerRequest: Bool = false) -> GitHubCompletion {
         guard status < 500, status != 408, status != 429 else { return .noAnswer }
-        guard (200..<300).contains(status), let reply = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any],
-              reply["ok"] as? Bool != false, reply["error"] == nil || reply["error"] is NSNull else { return .refused }
+        let reply = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any]
+        guard (200..<300).contains(status), let reply, reply["ok"] as? Bool != false, reply["error"] == nil || reply["error"] is NSNull else {
+            let said = ((reply?["error"] as? [String: Any])?["message"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let message = said?.isEmpty == false ? said : nil
+            return ownerRequest ? .pendingApproval(message: message) : .refused(message: message)
+        }
         return .connected
     }
 }
