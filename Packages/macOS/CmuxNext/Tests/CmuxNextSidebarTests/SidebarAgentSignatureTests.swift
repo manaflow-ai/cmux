@@ -117,7 +117,7 @@ struct SidebarAgentSignatureTests {
         #expect(off.signatureMark == nil)
         let strayMark = off.subviews.contains(where: { view in
             view is DecorativeImageView && view !== off.agentMark && view !== off.mutedMark
-                && view !== off.cloudMark && view !== off.usageWarningMark
+                && view !== off.pinMark
         })
         #expect(!strayMark)
         let titleX = off.title.frame.minX
