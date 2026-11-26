@@ -1406,7 +1406,7 @@ function shapedTurn(
     // no time yet. The sent prompt's row is stamped when it goes, so a time here would jump from
     // "Thinking 20s" back to 0s when the turn opens (cmux#30642).
     if (user.queued) Object.assign(line, { queued: user.queued, untimed: true });
-    shaped = [...date, ...drawnUser, ...sentHeader(user, line, sessionStatus, expanded), line];
+    shaped = [...date, ...drawnUser, ...sentHeader(user, line, expanded), line];
   } else {
     const unstacked = shapeTurn(
       user,
@@ -1455,7 +1455,7 @@ function shapedTurn(
     // The line is the first prompt's (`waiting` above), by id, so the turn that opens goes on with it.
     const sent = last && liveLine.length === 0 ? sentAfterTurn(held) : undefined;
     const sentRow = sent ? sentLine(sent) : undefined;
-    const line = sent && sentRow ? [...sentHeader(sent, sentRow, sessionStatus, expanded), sentRow] : liveLine;
+    const line = sent && sentRow ? [...sentHeader(sent, sentRow, expanded), sentRow] : liveLine;
     // Other agents' messages that started a finished turn are its "Worked for"'s first entries
     // (``isAgentPrompt``): out of sight while it is closed, right under its line while it is open,
     // in time order before the work. While the turn runs, or when it did nothing to fold (a reply
@@ -1713,8 +1713,8 @@ const LIVE_SLOT: Partial<AcpmuxRow> = { below: true };
 /// nothing (Leo, 2026-11-25: "when i send a message in gui, the space below should automatically start
 /// accomodating for the working and the thinking already"). Its line under it reads only "Thinking", as the
 /// headed live turn's does. None where the running turn would draw no header (`livesUnderHeader`).
-function sentHeader(sent: AcpmuxRow, line: AcpmuxRow, sessionStatus: boolean, expanded: Folds): AcpmuxRow[] {
-  if (experimentArm(liveTurnClock) !== "top" || sessionStatus || !sentByPerson(sent)) return [];
+function sentHeader(sent: AcpmuxRow, line: AcpmuxRow, expanded: Folds): AcpmuxRow[] {
+  if (experimentArm(liveTurnClock) !== "top" || !sentByPerson(sent)) return [];
   line.untimed = true;
   const header: AcpmuxRow = { id: turnHeaderId(sent.id), version: 1, at: sent.at, kind: WORKED, turnPhase: "running" };
   if (experimentArm(liveTurnWork) === "folded") header.foldOpen = expanded.has(turnHeaderId(sent.id));
