@@ -10,6 +10,7 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { teardownDom } from "./support/domTeardown";
+import { railFrame } from "./support/railFrame";
 // The compact rail; the full-height map reads the same side (ScrollMap.tsx).
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
@@ -124,6 +125,7 @@ test.each(["compact", "full"])(
           />,
         ),
       );
+      await railFrame();
       // Pinned to the pane's left edge at its spacing-token inset (useRailPlacement: the widest step, 16 px, here).
       expect(rail().dataset.side).toBe("left");
       expect(rail().style.left).toBe("16px");
@@ -187,6 +189,7 @@ test.each(["compact", "full"])("the %s rail's container carries the cmux.agent.t
         />,
       ),
     );
+    await railFrame();
     const named = document.querySelectorAll(`[id="${RAIL_ACCESSIBILITY_ID}"]`);
     expect(named).toHaveLength(1);
     expect(named[0]).toBe(rail());
@@ -220,6 +223,7 @@ for (const side of ["left", "right"] as const)
           />,
         ),
       );
+      await railFrame();
       expect(rail().dataset.side).toBe(side);
       expect(rail().hasAttribute("data-occluded")).toBe(true);
       const strip = document.querySelector<HTMLElement>(".acpmux-minimap__strip")!;
@@ -256,6 +260,7 @@ for (const side of ["left", "right"] as const)
           />,
         ),
       );
+      await railFrame();
       if (side === "right") {
         expect(rail().style.right).toBe("146px");
         expect(document.querySelector<HTMLElement>(".acpmux-minimap__strip")!.style.right).toBe("130px");
