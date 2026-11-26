@@ -295,6 +295,39 @@ def read_key(sock: str, key: str):
     return reply.get("value") if "error" not in reply else {"error": reply.get("error")}
 
 
+def edit_settings_file(config: Path, key: str, value) -> None:
+    """Sets (or, for None, removes) one dotted key in the copy's own cmux-next.json; the app's file watcher applies it."""
+    settings = config / "cmux-next.json"
+    root = json.loads(settings.read_text()) if settings.is_file() and settings.read_text().strip() else {}
+    *parents, leaf = key.split(".")
+    node = root
+    for part in parents:
+        node = node.setdefault(part, {})
+    if value is None:
+        node.pop(leaf, None)
+    else:
+        node[leaf] = value
+    settings.write_text(json.dumps(root, indent=2) + "\n")
+
+
+def set_setting(sock: str, config: Path, key: str, value):
+    """`settings.set`, retried while the settings writer (the copy's daemon) is not connected yet; past 30 s the key is
+    written into the copy's cmux-next.json instead, which the app reads the same as a write through the daemon."""
+    deadline = time.monotonic() + 30
+    while True:
+        reply = rpc(sock, "settings.set", {"path": key, "value": value}, timeout=30)
+        error = reply.get("error")
+        if not error:
+            return "ok"
+        if (error or {}).get("code") != "unavailable":
+            return error
+        if time.monotonic() >= deadline:
+            say(f"settings.set {key}: {error.get('message')}; writing it into the copy's cmux-next.json")
+            edit_settings_file(config, key, value)
+            return "file"
+        time.sleep(2)
+
+
 def run_case(sock: str, pid: int, config: Path, out: Path, case: dict) -> dict:
     name = case["name"]
     folder = out / name
@@ -322,9 +355,11 @@ def run_case(sock: str, pid: int, config: Path, out: Path, case: dict) -> dict:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text)
         written.append(str(path))
+    file_keys = []
     for key, value in settings.items():
-        reply = rpc(sock, "settings.set", {"path": key, "value": value}, timeout=30)
-        result["readback"][key]["set"] = reply.get("error") or "ok"
+        result["readback"][key]["set"] = set_setting(sock, config, key, value)
+        if result["readback"][key]["set"] == "file":
+            file_keys.append(key)
     result["written"] = written
     started = time.monotonic()
     for key, row in result["readback"].items():
@@ -367,7 +402,10 @@ def run_case(sock: str, pid: int, config: Path, out: Path, case: dict) -> dict:
             else:
                 Path(path).unlink(missing_ok=True)
         for key in settings:
-            rpc(sock, "settings.reset", {"path": key}, timeout=30)
+            if key in file_keys:
+                edit_settings_file(config, key, None)
+            else:
+                rpc(sock, "settings.reset", {"path": key}, timeout=30)
     say(f"case {name}: ok={result['ok']} readback={json.dumps(result['readback'])} "
         f"color={json.dumps(result.get('color'))}")
     return result
