@@ -4,6 +4,21 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Append one seq range (at most 100,000 seqs, 1 MiB) to a team journal stream; returns after the write is durable. A replay of the same range returns the stored acknowledgement. A writer whose reply was lost and whose epoch has since moved gets journal.stale_epoch even though its row is stored. Only the team VM's own install for the current epoch may call it (plans/cmux-next/team-vm-plan.md 3b).
+    TeamVmJournalAppendOp {
+        name: "team_vm.journal.append",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamVmDO",
+        risk: "mutate-own",
+        principals: [Install],
+        params: TeamVmJournalAppendParams,
+        result: TeamVmJournalAppendResult,
+        error: TeamVmJournalAppendError,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamVmJournalAppendParams {
     pub stream: TeamJournalStream,
@@ -885,20 +900,5 @@ wire_errors! {
     UsageSummaryError {
         AuthForbidden = "auth.forbidden",
         AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Create or refresh the caller's user record from the Stack session.
-    UserEnsureOp {
-        name: "user.ensure",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Session],
-        params: UserEnsureParams,
-        result: UserProfile,
-        error: UserEnsureError,
     }
 }

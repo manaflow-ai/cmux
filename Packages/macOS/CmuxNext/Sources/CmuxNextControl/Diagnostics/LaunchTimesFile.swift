@@ -270,7 +270,7 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
         "launch_snapshot_applied", "launch_snapshot_shown", "window.make_start", "window.sidebar_made", "window.root_made", "window.shell_made", "window.content_installed", "window.backdrop_applied",
         "window.init_done", "window.configured", "window.workspace_shown", "window.ordered_front",
         "dfl.windows", "did_finish_launching_end", "window.restore_wait_start", "window.restore_wait_end",
-        "frame.commit_start", "daemon_snapshot_loaded", "connecting_view_shown", "connecting_view_left", "workspace_content_shown",
+        "frame.commit_start", "window.display_done", "window.flush_done", "frame.loop_1", "frame.loop_2", "frame.loop_3", "frame.loop_4", "daemon_snapshot_loaded", "connecting_view_shown", "connecting_view_left", "workspace_content_shown",
         "sidebar_rows_shown", "first_window_flushed", "pages.deferred_until_frame", "agent_pane.launch_image_shown",
         "first_terminal_surface_created", "first_terminal_content", "first_terminal_content_applied", "first_terminal_frame",
         "cef.initialize_start", "chromium_page.make_start", "chromium_page.browser_created", "home.page_host_made",

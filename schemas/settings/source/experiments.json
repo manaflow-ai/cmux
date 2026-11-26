@@ -658,6 +658,52 @@
           ]
         },
         {
+          "key": "experiments.appsTier",
+          "note": "RFD 0003 (Apps tier, cmuxterm-hq docs/rfd/0003-apps-tier.md): publish a Cloud preview as a kept, versioned app with a stable URL, and list published apps in the sidebar (E-A Publish button on the browser pane, E-C Apps section). The cmux side is `cmux app publish|versions|rollback|ls` (cmux-tui crate cmux-apps); the platform side is cmux-platform /v1/cloud/apps. Off by default; off keeps today's browser pane and sidebar.",
+          "title": {
+            "key": "settings.experiments.appsTier",
+            "text": "Publish Previews as Apps"
+          },
+          "help": {
+            "key": "settings.experiments.appsTier.help",
+            "text": "A Cloud preview can be published as an app with its own versions and a stable address, listed under Apps in the sidebar."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "apps",
+            "publish",
+            "preview",
+            "cloud",
+            "version"
+          ]
+        },
+        {
+          "key": "experiments.chatInstantUnderLoad",
+          "note": "Perf experiment (docs/design/chat-instant-under-load.md, the idle lane): once the chat list shared with new tabs (webviews newtab/chatStore.ts) holds a list, a page writes a changed list from its idle lane (acpmux/schedule) instead of at once, so the write never shares a task with a key or a transcript frame; the newest list still wins and a page that hides still writes at once (webviews experimentSwitchOn(\"chatInstantUnderLoad\")). Off by default; off keeps today's timing.",
+          "title": {
+            "key": "settings.experiments.chatInstantUnderLoad",
+            "text": "Prioritize Chat Input"
+          },
+          "help": {
+            "key": "settings.experiments.chatInstantUnderLoad.help",
+            "text": "While you type or a reply streams, wait for a pause before saving the chat list new tabs show."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "chat",
+            "typing",
+            "streaming",
+            "performance"
+          ]
+        },
+        {
           "key": "experiments.threadMinimapRestReveal",
           "note": "The agent chat's prompt rail, where it would cover the text (narrow panes), reveals only for a pointer that rests 140 ms on the pane-edge strip with no button down, and takes no pointer while a press that began in the text is down, so a selection drag along the edge keeps selecting (webviews threadMinimap/railIntent.ts, reveal.experiment.ts, useExperimentSwitch(\"threadMinimapRestReveal\")). Off by default (Leo's UI merge hold, 2026-11-24); off keeps the earlier reveal on touch.",
           "title": {
