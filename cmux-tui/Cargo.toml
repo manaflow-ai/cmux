@@ -44,6 +44,7 @@ members = [
     "crates/cmux-cloud-environment",
     "crates/cmux-conversation",
     "crates/cmux-sync",
+    "crates/cmux-team-messaging",
     "crates/cmux-message-preview",
     "crates/cmux-share-approval",
     "crates/cmux-chief",
@@ -143,6 +144,7 @@ members = [
     "crates/cmux-bookmarks-ops",
     "crates/cmux-automations",
     "crates/cmux-feed-core",
+    "crates/cmux-presence",
     "crates/cmux-tasks",
     "crates/cmux-server-core",
     "crates/cmux-server",
@@ -161,6 +163,7 @@ members = [
     "crates/cmux-terminal-iface",
     "crates/cmux-rd-proto",
     "crates/cmux-rd-core",
+    "crates/cmux-rd-screen",
     "crates/cmux-rd-engine",
     "crates/cmux-rd-link",
     "crates/cmux-vnc",
@@ -310,6 +313,7 @@ default-members = [
     "crates/cmux-bookmarks-ops",
     "crates/cmux-automations",
     "crates/cmux-feed-core",
+    "crates/cmux-presence",
     "crates/cmux-tasks",
     "crates/cmux-server-core",
     "crates/cmux-server",
@@ -328,6 +332,7 @@ default-members = [
     "crates/cmux-terminal-iface",
     "crates/cmux-rd-proto",
     "crates/cmux-rd-core",
+    "crates/cmux-rd-screen",
     "crates/cmux-rd-engine",
     "crates/cmux-rd-link",
     "crates/cmux-vnc",
@@ -439,6 +444,7 @@ cmux-conductor-import = { path = "crates/cmux-conductor-import" }
 cmux-migrate = { path = "crates/cmux-migrate" }
 cmux-browser-import = { path = "crates/cmux-browser-import" }
 cmux-classic-import = { path = "crates/cmux-classic-import" }
+cmux-presence = { path = "crates/cmux-presence" }
 cmux-feed-core = { path = "crates/cmux-feed-core" }
 cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
 cmux-focus-core = { path = "crates/cmux-focus-core" }
@@ -584,6 +590,9 @@ libc = "0.2"
 # already links mio with these features.
 mio = { version = "1", features = ["os-poll", "os-ext"] }
 memchr = "2"
+# SIMD UTF-8 validation for ghostty-vt's neutral-run scan; already in the
+# graph via tokio-websockets and encoding_rs, so no new transitive code.
+simdutf8 = "0.1.5"
 tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
 # Debug-only daemon hot-patching (cmux-tui-core feature `hotpatch`); pinned to
 # the Dioxus CLI that sends the patches (dx 0.7.10).
