@@ -1,3 +1,4 @@
+public import AppKit
 public import CmuxNextAgentPane
 public import CmuxNextCloud
 import CmuxNextCompat
