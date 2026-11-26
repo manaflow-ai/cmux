@@ -5460,6 +5460,17 @@ jobs:
           pending="$RUNNER_TEMP/tree-notify-pending/pending.json"
           python3 scripts/ci/cmux_next_tree_notify.py --repo "$GITHUB_REPOSITORY" --sweep-pending --pending-file "$pending"
 
+      # An owner whose latest attempt ended in startup_failure ran no job, so its notify-unpublished-tree
+      # hand-off never re-ran the run that deferred its key to it (owner 45704131744, deferred run 45706112297,
+      # 2026-11-25). Run that hand-off for it here (scripts/ci/cmux_tui_stranded_owner_sweep.py).
+      - name: Hand on the keys of tree owners that ended in startup_failure
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN || steps.cmux-bot-token.outputs.token || github.token }}
+          GH_TOKEN_SPARE: ${{ env.CI_POOL_GH_TOKEN && (steps.cmux-bot-token.outputs.token || github.token) || steps.cmux-bot-token.outputs.token && github.token || '' }}
+          RUN_ID: ${{ github.run_id }}
+        run: python3 scripts/ci/cmux_tui_stranded_owner_sweep.py --repo "$GITHUB_REPOSITORY" --run-id "$RUN_ID"
+
       # The records this sweep claimed (deleted) and has not finished, written
       # before its first notify, so a sweep that dies keeps them. A name of its
       # own: this run may have uploaded cmux-next-tree-notify-pending from
