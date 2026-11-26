@@ -1132,6 +1132,12 @@ sent as an ACP `resource_link` to that path.
   `upload_completion_recovers_interrupted_publication_and_checks_bytes` covers
   crash recovery and changed bytes. `resumable_upload_reports_have_acks_and_path` checks replay at three
   offsets, ID reuse with another name, and replacement of the published inode.
+- Legacy development receipts without a content digest, and partial authoritative
+  receipts from the earlier writer, fail closed without changing the receipt or
+  published file. They are not migrated from the current file's bytes. A phone
+  encountering one must start a new upload ID; retrying that old ID remains an
+  error. `upload_completion_refuses_legacy_hashless_and_partial_receipts` checks
+  this policy with and without a supplied digest.
 - **Regression detectors:** `another_phone_cannot_resume_an_earlier_upload_part`,
   `resumable_upload_reopens_from_the_last_ack`,
   `resumable_upload_root_alias_does_not_clean_workspace_parent`, and the

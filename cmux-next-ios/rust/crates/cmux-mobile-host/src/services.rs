@@ -3070,6 +3070,31 @@ mod tests {
     }
 
     #[test]
+    fn upload_completion_refuses_legacy_hashless_and_partial_receipts() {
+        let folder = tempfile::tempdir().unwrap();
+        let parts = upload_parts_dir(folder.path(), "phone").unwrap();
+        let receipt = parts.join(".legacy.done");
+        let published = folder.path().join("a.txt");
+        std::fs::write(&published, b"new").unwrap();
+        let meta = std::fs::metadata(&published).unwrap();
+        let legacy = serde_json::json!({
+            "name": "a.txt", "size": 3, "file": "a.txt",
+            "device": meta.dev(), "inode": meta.ino()
+        });
+        let hash = format!("{:x}", Sha256::digest(b"new"));
+        // Development receipts without a recorded digest cannot establish the
+        // original content. Never silently upgrade them from current bytes.
+        for bytes in [serde_json::to_vec(&legacy).unwrap(), b"{broken".to_vec()] {
+            std::fs::write(&receipt, &bytes).unwrap();
+            for supplied in [None, Some(hash.as_str())] {
+                assert!(completed_upload(&receipt, folder.path(), "a.txt", 3, supplied).is_err());
+            }
+            assert_eq!(std::fs::read(&receipt).unwrap(), bytes);
+            assert_eq!(std::fs::read(&published).unwrap(), b"new");
+        }
+    }
+
+    #[test]
     fn upload_parts_stay_inside_authorized_folder_and_are_private() {
         use std::os::unix::fs::PermissionsExt;
         let workspace = tempfile::tempdir().unwrap();
