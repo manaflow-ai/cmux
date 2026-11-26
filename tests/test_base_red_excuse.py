@@ -8596,6 +8596,34 @@ class WsCheckPerTest(unittest.TestCase):
                 except excuse.Refused as error:
                     self.assertNotIn("does not match", str(error))
 
+    def test_the_long_discounted_status_form_is_read(self):
+        # 2026-11-26: leo-workspace#11671 (49929317b9) writes a discounted status too long for 139 characters as
+        # "N failed after discounting K on main SHA8: UNIT"; lw#10849 and lw#11409 were refused "names no failed steps"
+        # for it instead of having their own red named.
+        main8 = self.gh.TIP[:8]
+        for description in (f"1 failed after discounting 1 on main {main8}: test_b.py",
+                            f"1 failed after discounting 1 on main {main8}: test_"):
+            with self.subTest(description=description):
+                self.discounted_red(description)
+                with self.assertRaisesRegex(excuse.Refused, "test_b"):  # read, and test_b is the head's own red
+                    self.judge()
+                try:
+                    self.judge()
+                except excuse.Refused as error:
+                    self.assertNotIn("does not match", str(error))
+                    self.assertNotIn("names no failed steps", str(error))
+
+    def test_a_long_discounted_status_the_log_does_not_bear_out_is_refused(self):
+        main8 = self.gh.TIP[:8]
+        for description in (f"2 failed after discounting 1 on main {main8}: test_b.py",  # own count
+                            f"1 failed after discounting 2 on main {main8}: test_b.py",  # discounted count
+                            f"1 failed after discounting 1 on main {'0' * 8}: test_b.py",  # main
+                            f"1 failed after discounting 1 on main {main8}: test_c.py"):  # unit
+            with self.subTest(description=description):
+                self.discounted_red(description)
+                with self.assertRaisesRegex(excuse.Refused, "does not match run 1's WS_CHECK_RESULT"):
+                    self.judge()
+
     def test_a_discounted_status_that_the_log_does_not_bear_out_is_refused(self):
         own = f"{self.DEPLOY} [test_b.py]"
         main8 = self.gh.TIP[:8]

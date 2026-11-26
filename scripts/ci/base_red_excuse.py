@@ -7507,6 +7507,12 @@ WS_CHECK_TESTED_TIPS = 20  # base commits whose squash tree a run may have teste
 # while WS_CHECK_RESULT's `failed` still lists every failed step. ws_check_discount reads that count back from the log.
 WS_CHECK_DESCRIPTION = re.compile(r"(?:base red \(main [0-9a-f]{8} fails it too\) )?(\d+) of (\d+) steps failed"
                                   r"(?: \(\+(\d+) base red discounted, main ([0-9a-f]{8})\))?: (.*)", re.S)
+# Since leo-workspace#11671 (49929317b9, 2026-11-26) a discounted status too long for 139 characters reads
+# "N failed after discounting K on main SHA8: UNIT": N the run's own failed labels (not steps), K the discounted ones,
+# UNIT the first own label's unit ("STEP [UNIT]") or its step, and no step total. Unread, every lw head with one real
+# red among many discounted was refused "names no failed steps" (lw#10849, lw#11409 on 2026-11-26) instead of named.
+# leo-workspace tools/test_ws_check.py pins its format to these two patterns.
+WS_CHECK_DISCOUNTED_DESCRIPTION = re.compile(r"(\d+) failed after discounting (\d+) on main ([0-9a-f]{8}): (.*)", re.S)
 # ws_check_run.py's own base pass lines (leo-workspace tools/ws-check own_base_pass reads the same ones): one "whole" or
 # "cut" line naming the main the failed units ran again on, and a "FAILED on main too" line per unit that failed there.
 WS_CHECK_BASE_PASS = re.compile(r"^ws-check base pass (?:whole: main ([0-9a-f]{40}),|cut: main ([0-9a-f]{40}): "
@@ -7546,7 +7552,17 @@ def ws_check_discount(lines: list[str], at: int, failed: list[str]) -> tuple[lis
 
 def ws_check_described(named: re.Match, failed: list[str], steps, lines: list[str], at: int) -> bool:
     """Whether a ws-check status's description (NAMED, a WS_CHECK_DESCRIPTION match) is its run's WS_CHECK_RESULT: the
-    count and first step of FAILED, or the count and first unit tools/ws-check left after discounting main's reds."""
+    count and first step of FAILED, or the count and first unit tools/ws-check left after discounting main's reds. A
+    WS_CHECK_DISCOUNTED_DESCRIPTION match counts the own labels and names no step total."""
+    if named.re is WS_CHECK_DISCOUNTED_DESCRIPTION:
+        found = ws_check_discount(lines, at, failed)
+        if found is None or not found[0]:
+            return False
+        own, discounted, main = found
+        step, bracket, unit = own[0].partition(" [")
+        first = unit.removesuffix("]") if bracket else step
+        return ((int(named[1]), int(named[2]), named[3]) == (len(own), discounted, main[:8])
+                and first.startswith(named[4]) and bool(named[4]))
     count, total, described = int(named[1]), int(named[2]), named[5]
     if total != steps:
         return False
@@ -8063,10 +8079,10 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
     where = f"'{WS_CHECK}' on {sha}"
     if state != "failure":
         raise Refused(f"{where}: an unknown status state {state!r}")
-    named = WS_CHECK_DESCRIPTION.fullmatch(description)
+    named = WS_CHECK_DESCRIPTION.fullmatch(description) or WS_CHECK_DISCOUNTED_DESCRIPTION.fullmatch(description)
     if not named:
-        raise Refused(f"{where}: failure \"{description}\" names no failed steps; only 'N of M steps failed: ...' is "
-                      "read per test")
+        raise Refused(f"{where}: failure \"{description}\" names no failed steps; only 'N of M steps failed: ...' and "
+                      "'N failed after discounting K on main SHA8: ...' are read per test")
     host = WS_CHECK_REPOS[repo]
     link = re.fullmatch(r"https://github\.com/" + re.escape(host) + r"/actions/runs/(\d+)(?:/job/\d+)?/?"
                         + WS_CHECK_FLEET_JOB, found["url"])
