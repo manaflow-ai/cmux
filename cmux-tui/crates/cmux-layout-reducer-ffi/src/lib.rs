@@ -102,7 +102,6 @@ pub mod input;
 pub mod keychain;
 mod pane_focus;
 mod rd_hub;
-mod pane_focus;
 mod screen;
 pub mod scroll;
 pub mod shown_resize;
