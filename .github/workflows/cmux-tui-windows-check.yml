@@ -139,6 +139,7 @@ on:
       - "schemas/motion-scale/motion-scale.json"
       - "schemas/type-scale/type-scale.json"
       - "schemas/design-scale/scene-scale.json"
+      - "schemas/sidebar-drag-geometry/vectors.json"
   workflow_dispatch:
 
 concurrency:
@@ -202,7 +203,7 @@ jobs:
     # for this repository's own branches. It runs by the crate graph (the route job); a failed
     # router never skips it.
     needs: route
-    if: ${{ (inputs.only == '' || inputs.only == 'windows-gnu-check') && (!cancelled() && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'full-ci'))) && (needs.route.result != 'success' || needs.route.outputs.windows_gnu_check != 'false')) }}
+    if: ${{ ((inputs.only == '' || inputs.only == 'windows-gnu-check') && (!cancelled() && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'full-ci'))) && (needs.route.result != 'success' || needs.route.outputs.windows_gnu_check != 'false'))) && (github.event_name != 'pull_request' || needs.route.result == 'success' || needs.route.result == 'skipped') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 30
     steps:
@@ -228,8 +229,13 @@ jobs:
       - name: Install Linux and MinGW build dependencies
         if: ${{ steps.tree.outputs.hit != 'true' }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config gcc-mingw-w64-x86-64
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config gcc-mingw-w64-x86-64 >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config gcc-mingw-w64-x86-64: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config gcc-mingw-w64-x86-64
+          fi
 
       - name: Cache Zig package downloads
         if: ${{ (steps.tree.outputs.hit != 'true') && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
