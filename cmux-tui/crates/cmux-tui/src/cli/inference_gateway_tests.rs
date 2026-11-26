@@ -173,7 +173,7 @@ fn personal_selects_the_owner_gateway() {
     with.push("--personal");
     assert!(parse(&args(&with), &no_env).unwrap().personal);
     assert_eq!(PERSONAL_CONNECT_PATH, "/v1/cloud/inference-gateway/personal/connect");
-    assert!(help().contains("cmux inference gateway status [--personal] [--json]"));
+    assert!(help().contains("cmux inference gateway status [--personal] [--token-stdin] [--json]"));
 }
 
 #[test]

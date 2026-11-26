@@ -325,27 +325,19 @@ extension CloudStartChat {
         let auth = services.cloud.auth, cli = CloudMoveCLI(binary: binary)
         // The person's own team too (#51322): production makes a start's machine there while the install token names another; read at once, beside the token's bind wait (cmux#55519).
         let personal = auth.managedTeamID == nil ? auth.user.map { GitHubConnections.personalTeam(user: GitHubConnections.backendUser(project: auth.configuration.stackProjectID, stackUser: $0.id)) } : nil
-        let personalRead = personal.map { team in Task { (team, await cli.inferenceGatewayRead(team: team)) } } // task-owner: gatewayServes, awaited below
-        var installTeam: String?
+        let personalRead = personal.map { team in (team: team, read: Task { await cli.inferenceGatewayStatus(team: team) }) } // task-owner: GatewayRead.serves awaits or cancels it
+        var installTeam: String?, installToken: String?
         do {
             let token = try await services.cloud.installIdentity.installToken(awaitingBind: .seconds(8))
             installTeam = MacInstallIdentity.team(ofToken: token)
+            installToken = token
             if installTeam == nil { log.error("cloud start gate: the install token names no team") }
         } catch {
             log.error("cloud start gate: install token: \(String(describing: error), privacy: .public)")
         }
-        let installRead: (String, (serves: Set<String>?, why: String?))? = if let installTeam, installTeam != personal { (installTeam, await cli.inferenceGatewayRead(team: installTeam)) } else { nil }
-        var asked: Set<String> = [], serves: Set<String>?
-        for (team, read) in [installRead, await personalRead?.value].compactMap({ $0 }) where asked.insert(team).inserted {
-            if let answer = read.serves {
-                log.info("cloud start gate: team \(team, privacy: .public) gateway serves [\(answer.sorted().joined(separator: ","), privacy: .public)]")
-                serves = (serves ?? []).union(answer)
-            } else {
-                log.error("cloud start gate: team \(team, privacy: .public) gateway unread: \(read.why ?? "-", privacy: .public)")
-            }
-        }
-        if asked.isEmpty { log.error("cloud start gate: gateway unread: no team to ask") }
-        return serves
+        let read = await CloudSetup.GatewayRead.serves(cli: cli, install: installTeam.flatMap { team in installToken.map { (team, $0) } }, personal: personalRead, apiOrigin: services.cloud.configuration.ownerAPIBaseURL())
+        services.cloud.setup.gatewayRead = read.install
+        return read.serves
     }
 
     @MainActor static func wireSetup(_ services: AppServices) {
