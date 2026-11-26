@@ -149,7 +149,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// Gap between the stack and the keyboard (or the bottom safe area).
     static let dockGap: CGFloat = 8
     /// Space between the last turn and the stack.
-    static let contentGap: CGFloat = 8
+    nonisolated static let contentGap: CGFloat = 8
 
     /// Either the shared probe or this controller's detached-hide recovery is
     /// driving the notified keyboard frame. Geometry and drag handling must
@@ -1395,7 +1395,7 @@ struct ChatTranscriptRepresentable: UIViewControllerRepresentable {
         // Read here so SwiftUI calls update when the chat's Text and Width change.
         controller.applyDisplay(ChatDisplayPreferences.shared.settings(for: store.summary))
         // Read here so SwiftUI calls update when the Mac's chat look changes.
-        controller.applyChatLook(CmuxMobileMacTheme.shared.chatLook)
+        controller.applyChatLook(CmuxMobileChatLook.current)
     }
 }
 
