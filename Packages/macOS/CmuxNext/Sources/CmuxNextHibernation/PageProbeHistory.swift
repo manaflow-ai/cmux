@@ -1,3 +1,6 @@
+package import CmuxNextCompat
+import Foundation
+
 /// What the hidden pages' recent probes said: the benefit of the doubt a page keeps while it does
 /// not answer (plans/cmux-next/tab-lifecycle.md, section 3).
 ///
@@ -17,47 +20,53 @@ package struct PageProbeHistory {
         case discard
     }
 
-    /// Probes in a row a page may leave unanswered before it counts as idle.
+    /// Probes in a row a page may leave unanswered before it counts as idle (the crate's
+    /// `ProbeHistory::UNANSWERED_LIMIT`).
     package static let unansweredLimit = 3
-    /// Probes in a row each page did not answer.
-    private var unanswered: [String: Int] = [:]
-    /// Each page's last answer.
-    private var lastAnswer: [String: PageProbe] = [:]
+    /// The history lives in Rust, one per app: each instance keeps its pages apart by this prefix.
+    private let scope = UUID().uuidString + ":"
 
     package init() {}
 
     /// Records a probe of page `key` and returns whether the page still gets the benefit of the
-    /// doubt for `step` (always false for an answer).
+    /// doubt for `step` (always false for an answer; true when the rules do not answer).
     package mutating func record(_ probe: PageProbe, for key: String, step: Step = .discard) -> Bool {
-        guard !probe.answered else {
-            unanswered[key] = nil
-            lastAnswer[key] = probe
-            return false
-        }
-        if !saidBusy(key, for: step) { unanswered[key, default: 0] += 1 }
-        return doubted(key, for: step)
+        let reply = TabDiscardRules.call("tab_discard_record", ["key": scope + key, "probe": TabDiscardRules.wire(probe),
+                                                                "step": TabDiscardRules.wire(step)])
+        return reply?["doubted"] as? Bool ?? !probe.answered
+    }
+
+    /// Records the probe a freeze asked and returns whether the page stays awake: it does
+    /// something a freeze stops, or it still gets the benefit of the doubt (`tab_discard_freeze_probe`).
+    package mutating func freezeKeeps(_ probe: PageProbe, for key: String) -> Bool {
+        let reply = TabDiscardRules.call("tab_discard_freeze_probe", ["key": scope + key, "probe": TabDiscardRules.wire(probe)])
+        return reply?["keep"] as? Bool ?? true
+    }
+
+    /// Records the answer a discard asked (a miss is the freeze probe's to count) and returns why
+    /// the page stays loaded, or nil when it may go (`tab_discard_probe`; `.unsupported` when the
+    /// rules do not answer).
+    package mutating func discardKeeps(_ probe: PageProbe, for key: String, pressure: MemoryPressureLevel,
+                                       showsFormSubmission: Bool) -> HibernationPlanner.Exemption? {
+        guard let reply = TabDiscardRules.call("tab_discard_probe", [
+            "key": scope + key, "probe": TabDiscardRules.wire(probe), "pressure": pressure.rawValue,
+            "shows_form_submission": showsFormSubmission,
+        ]) else { return .unsupported }
+        return reply["exemption"] is NSNull ? nil : TabDiscardRules.exemption(reply["exemption"]) ?? .unsupported
     }
 
     /// True while page `key` still gets the benefit of the doubt for `step`, without counting a probe.
     package func doubted(_ key: String, for step: Step = .discard) -> Bool {
-        saidBusy(key, for: step) || unanswered[key, default: 0] < Self.unansweredLimit
+        let reply = TabDiscardRules.call("tab_discard_probe_doubted", ["key": scope + key, "step": TabDiscardRules.wire(step)])
+        return reply?["doubted"] as? Bool ?? true
     }
 
     /// The page was shown: its misses start again (what it last said still holds).
     package mutating func clearMisses(_ key: String) {
-        unanswered[key] = nil
+        _ = TabDiscardRules.call("tab_discard_shown", ["key": scope + key])
     }
 
     package mutating func forget(_ key: String) {
-        unanswered[key] = nil
-        lastAnswer[key] = nil
-    }
-
-    private func saidBusy(_ key: String, for step: Step) -> Bool {
-        guard let last = lastAnswer[key] else { return false }
-        switch step {
-        case .freeze: return last.stopsWhenFrozen
-        case .discard: return last.exemption != nil
-        }
+        _ = TabDiscardRules.call("tab_discard_forget", ["key": scope + key])
     }
 }

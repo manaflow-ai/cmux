@@ -39,7 +39,7 @@ import os
 /// show a live page. A hovered tab wakes too. Memory pressure and Low Power
 /// Mode turn this off (plans/cmux-next/neighbor-tabs-DESIGN.md).
 ///
-/// Which page goes first is a ranking (`HibernationPlanner.idleness`): how long it has been
+/// Which page goes first is a ranking (`HibernationPlanner.plan`, cmux-tab-discard in Rust): how long it has been
 /// hidden, how often the person showed it in the last hour, and under memory pressure how much
 /// memory it holds. A few pages go per pass (`HibernationPlanner.Pace`), never all at once.
 /// A page never hibernates while it shows, plays (an element or Web Audio), captures, has DevTools
@@ -574,8 +574,7 @@ final class BrowserHibernation {
             }
             // An agent called it, or it became a neighbor (or was hovered) while the probe ran.
             guard self.mayFreeze(key) else { return }
-            let doubted = self.probeHistory.record(probe, for: key, step: .freeze)
-            if probe.stopsWhenFrozen || doubted {
+            if self.probeHistory.freezeKeeps(probe, for: key) {
                 self.freezeKeptAt[key] = self.now()
                 self.replan()
                 return
@@ -710,9 +709,8 @@ final class BrowserHibernation {
                 let probe = await Self.probe(tab, within: limit)
                 // The freeze probe counts the misses (it runs beside this one and refreezes the
                 // page); this one records an answer only.
-                let doubted = probe.answered ? self?.probeHistory.record(probe, for: key) ?? false : self?.probeHistory.doubted(key) ?? true
-                exemption = probe.keepReason(pressure: self?.pressure ?? .normal, doubted: doubted,
-                                             showsFormSubmission: source.showsFormSubmission)
+                exemption = self?.probeHistory.discardKeeps(probe, for: key, pressure: self?.pressure ?? .normal,
+                                                             showsFormSubmission: source.showsFormSubmission) ?? .unsupported
                 mayAsk = probe.unloadHandler
             }
             // A page that stays needs no picture (each replan probes it again).

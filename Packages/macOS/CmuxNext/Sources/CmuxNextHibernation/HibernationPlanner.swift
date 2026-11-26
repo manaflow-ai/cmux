@@ -4,7 +4,7 @@ import Foundation
 
 /// Which hidden pages hibernate now, and when to look again
 /// (plans/cmux-next/tab-lifecycle.md). Pure: the App feeds it facts and a
-/// clock reading; `BrowserHibernation` performs the result.
+/// clock reading; `BrowserHibernation` performs the result. The rules are Rust's (`TabDiscardRules`).
 package struct HibernationPlanner {
     package init() {}
     /// One hidden page that could hibernate.
@@ -58,6 +58,7 @@ package struct HibernationPlanner {
 
     /// How many pages one pass hibernates and how soon the next pass runs while more are due,
     /// so pages never all close at once (a page that wakes meanwhile drops out of the queue).
+    /// The crate's `Pace` (cmux-tab-discard), which `plan` follows; the app's tests read it.
     package struct Pace: Equatable {
         package var perPass: Int
         package var interval: Double
@@ -130,125 +131,42 @@ package struct HibernationPlanner {
         package var exemptions: [String: Exemption] = [:]
     }
 
-    /// Seconds hidden before a page hibernates; nil means never.
+    /// Seconds hidden before a page hibernates; nil means never (also when the rules do not answer).
     package static func threshold(_ setting: BrowserHibernationSetting, pressure: MemoryPressureLevel) -> Double? {
-        guard let minutes = setting.hiddenMinutes else { return nil }
-        switch pressure {
-        case .normal: return minutes * 60
-        case .warning: return setting.mode == .aggressive ? 0 : min(minutes, 10) * 60
-        case .critical: return 0
-        }
+        let reply = TabDiscardRules.call("tab_discard_threshold", ["setting": TabDiscardRules.wire(setting), "pressure": pressure.rawValue])
+        return TabDiscardRules.seconds(reply?["seconds"])
     }
 
+    /// What keeps `candidate` from hibernating whatever the probe says; `.unsupported` when the
+    /// rules do not answer, so a failed call never discards a page.
     package static func exemption(_ candidate: Candidate, setting: BrowserHibernationSetting) -> Exemption? {
-        if !setting.isEnabled { return .disabled }
-        if !candidate.canRestore { return .unsupported }
-        if candidate.hasAgentLease { return .agentLease }
-        if candidate.isDownloading { return .downloading }
-        if candidate.showsFormSubmission { return .formSubmission }
-        if candidate.hasDevTools { return .devTools }
-        if candidate.isCapturing { return .capturing }
-        if candidate.isPinned, !setting.includesPinnedTabs { return .pinned }
-        if setting.excludes(host: candidate.host) { return .excluded }
-        return nil
+        guard let reply = TabDiscardRules.call("tab_discard_exemption", ["setting": TabDiscardRules.wire(setting),
+                                                                          "candidate": TabDiscardRules.wire(candidate)]) else {
+            return .unsupported
+        }
+        return reply["exemption"] is NSNull ? nil : TabDiscardRules.exemption(reply["exemption"]) ?? .unsupported
     }
 
     /// Which hidden pages freeze now, and when the next one will: after
     /// `freezeSeconds` hidden, whatever the hibernation mode, except pinned
-    /// tabs (unless they hibernate too), excluded hosts, open DevTools and capture.
+    /// tabs (unless they hibernate too), excluded hosts, open DevTools, capture and an agent lease.
     package static func freezePlan(_ setting: BrowserHibernationSetting, candidates: [Candidate]) -> Plan {
-        var plan = Plan()
-        guard let threshold = setting.freezeSeconds else { return plan }
-        for candidate in candidates {
-            if candidate.hasDevTools || candidate.isCapturing || candidate.hasAgentLease || setting.excludes(host: candidate.host)
-                || (candidate.isPinned && !setting.includesPinnedTabs) { continue }
-            let remaining = threshold - candidate.hiddenFor
-            if remaining <= 0 {
-                plan.due.append(candidate.key)
-            } else {
-                plan.nextCheck = min(plan.nextCheck ?? remaining, remaining)
-            }
-        }
-        return plan
-    }
-
-    /// The share of the timeout each doubling of recent focus buys: at the 30 minute default a
-    /// tab shown 15 times in the last hour (4 doublings) hibernates 20 minutes later than one
-    /// never shown. A share, not a fixed time, so a short timeout stays short.
-    package static let focusCreditPerDoubling: Double = 1.0 / 6
-    /// Seconds a page's memory counts as extra idleness under memory pressure: one minute per
-    /// 100 MB, at most 10. Without pressure memory is not scarce, so it does not count.
-    package static func memoryCredit(_ bytes: UInt64?) -> Double {
-        guard let bytes else { return 0 }
-        return min(Double(bytes) / Double(100 << 20), 10) * 60
-    }
-
-    /// How idle a page counts as: seconds hidden, plus its memory under pressure, less its
-    /// recent focus (a share of `timeout`, the seconds before a page is due). Larger is less valuable: it hibernates first and sooner.
-    package static func idleness(_ candidate: Candidate, pressure: MemoryPressureLevel, timeout: Double) -> Double {
-        let focus = log2(1 + Double(min(max(candidate.recentFocusCount, 0), 63))) * focusCreditPerDoubling * timeout
-        let memory = pressure == .normal ? 0 : memoryCredit(candidate.memoryBytes)
-        return candidate.hiddenFor + memory - focus
+        TabDiscardRules.plan("tab_discard_freeze_plan", ["setting": TabDiscardRules.wire(setting),
+                                                         "candidates": candidates.map(TabDiscardRules.wire)])
     }
 
     /// The pages to hibernate now, least valuable first, and when to look again.
     ///
-    /// A page is due once its idleness reaches the timeout (`browser.hibernation`; 10 minutes at
-    /// most under pressure). Under memory pressure, when no page is due, the least valuable page
-    /// hidden at least `Pace.minimumHidden` goes anyway, to relieve it. Each pass takes at most
-    /// `Pace.perPass` pages and looks again after `Pace.interval` while more are waiting.
+    /// A page is due once its idleness (seconds hidden, plus its memory under pressure, less its
+    /// recent focus) reaches the timeout (`browser.hibernation`; 10 minutes at most under pressure).
+    /// Under memory pressure, when no page is due, the least valuable page hidden at least
+    /// `Pace.minimumHidden` goes anyway, to relieve it. Each pass takes at most `Pace.perPass` pages
+    /// and looks again after `Pace.interval` while more are waiting.
     ///
     /// Without `discardsAutomatically` no page is due, at any memory pressure: a discarded page
-    /// reloads when it wakes, which the person did not ask for.
+    /// reloads when it wakes, which the person did not ask for. When the rules do not answer, none is.
     package static func plan(_ setting: BrowserHibernationSetting, pressure: MemoryPressureLevel, candidates: [Candidate]) -> Plan {
-        var plan = Plan()
-        if setting.isEnabled, !setting.discardsAutomatically {
-            for candidate in candidates { plan.exemptions[candidate.key] = exemption(candidate, setting: setting) ?? .keepsState }
-            return plan
-        }
-        guard let threshold = threshold(setting, pressure: pressure == .critical ? .warning : pressure) else {
-            for candidate in candidates { plan.exemptions[candidate.key] = .disabled }
-            return plan
-        }
-        let pace = Pace.at(pressure)
-        var ranked: [(key: String, idleness: Double, hiddenFor: Double, kept: Bool)] = []
-        for candidate in candidates {
-            if let exemption = exemption(candidate, setting: setting) {
-                plan.exemptions[candidate.key] = exemption
-                continue
-            }
-            // Only memory pressure takes a page that may show notifications (Chrome: urgent discards only).
-            if candidate.allowsNotifications, pressure == .normal {
-                plan.exemptions[candidate.key] = .notifications
-                continue
-            }
-            ranked.append((candidate.key, idleness(candidate, pressure: pressure, timeout: threshold), candidate.hiddenFor,
-                           pressure != .normal && candidate.recentlyKept))
-        }
-        ranked.sort {
-            if $0.kept != $1.kept { return !$0.kept }
-            return $0.idleness != $1.idleness ? $0.idleness > $1.idleness : $0.key < $1.key
-        }
-        // A page the person just left never goes, whatever its memory or the mode.
-        let oldEnough = ranked.filter { $0.hiddenFor >= pace.minimumHidden }
-        // Pages the probe just kept come last: only when no other page can go.
-        let fresh = oldEnough.filter { !$0.kept }
-        var due = fresh.filter { $0.idleness >= threshold }
-        if due.isEmpty, pressure != .normal { due = fresh }
-        if due.isEmpty { due = oldEnough.filter { $0.idleness >= threshold } }
-        if due.isEmpty, pressure != .normal { due = oldEnough }
-        plan.due = due.prefix(pace.perPass).map(\.key)
-        if due.count > plan.due.count || (pressure != .normal && !plan.due.isEmpty) {
-            plan.nextCheck = pace.interval
-        }
-        let dueKeys = Set(due.map(\.key))
-        for page in ranked where !dueKeys.contains(page.key) {
-            let young = pace.minimumHidden - page.hiddenFor
-            var wait = max(threshold - page.idleness, young)
-            // Under pressure any page old enough is relief: look again once this one is.
-            if pressure != .normal { wait = min(wait, max(young, pace.interval)) }
-            plan.nextCheck = min(plan.nextCheck ?? .infinity, max(wait, 0.001))
-        }
-        return plan
+        TabDiscardRules.plan("tab_discard_plan", ["setting": TabDiscardRules.wire(setting), "pressure": pressure.rawValue,
+                                                  "candidates": candidates.map(TabDiscardRules.wire)])
     }
 }

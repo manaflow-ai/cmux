@@ -1,5 +1,6 @@
 package import CmuxNextBrowserCore
 package import CmuxNextCompat
+import Foundation
 
 /// What the page says right before it freezes or hibernates.
 ///
@@ -81,21 +82,24 @@ package struct PageProbe: Hashable, Sendable {
         self.answered = answered
     }
 
-    /// Why the answer keeps the page loaded, or nil when nothing it said does.
+    /// Rust's reading of this answer (`tab_discard_probe_verdict`); nil when the rules do not answer.
+    private func verdict(pressure: MemoryPressureLevel = .normal, doubted: Bool = false,
+                         showsFormSubmission: Bool = false) -> [String: Any]? {
+        TabDiscardRules.call("tab_discard_probe_verdict", ["probe": TabDiscardRules.wire(self), "pressure": pressure.rawValue,
+                                                           "doubted": doubted, "shows_form_submission": showsFormSubmission])
+    }
+
+    /// Why the answer keeps the page loaded, or nil when nothing it said does (`.unsupported` when
+    /// the rules do not answer, so the page stays).
     package var exemption: HibernationPlanner.Exemption? {
-        if capturing { return .capturing }
-        if playingMedia { return .audio }
-        if editedForm { return .formInput }
-        if unreadableFrame { return .unreadableFrame }
-        if beforeUnload { return .beforeUnload }
-        if webRTC { return .webRTC }
-        if connectedDevice { return .connectedDevice }
-        return webAudio ? .webAudio : nil
+        guard let reply = verdict() else { return .unsupported }
+        return reply["exemption"] is NSNull ? nil : TabDiscardRules.exemption(reply["exemption"]) ?? .unsupported
     }
 
     /// The page does something a freeze stops (it keeps memory and state, so form input and a
     /// `beforeunload` do not count), or holds a media session the person resumes from outside it.
-    package var stopsWhenFrozen: Bool { playingMedia || mediaSession || capturing || webAudio || webRTC || connectedDevice }
+    /// True when the rules do not answer, so the page stays awake.
+    package var stopsWhenFrozen: Bool { verdict()?["stops_when_frozen"] as? Bool ?? true }
 
     /// Why the probed page stays loaded now, or nil when it may hibernate.
     ///
@@ -107,8 +111,9 @@ package struct PageProbe: Hashable, Sendable {
     ///   - doubted: The page still gets the benefit of the doubt (`PageProbeHistory.doubted`).
     ///   - showsFormSubmission: The shown document came from a POST.
     package func keepReason(pressure: MemoryPressureLevel, doubted: Bool, showsFormSubmission: Bool) -> HibernationPlanner.Exemption? {
-        if let exemption { return exemption }
-        if showsFormSubmission { return .formSubmission }
-        return !answered && (doubted || pressure == .normal) ? .unanswered : nil
+        guard let reply = verdict(pressure: pressure, doubted: doubted, showsFormSubmission: showsFormSubmission) else {
+            return .unsupported
+        }
+        return reply["keep_reason"] is NSNull ? nil : TabDiscardRules.exemption(reply["keep_reason"]) ?? .unsupported
     }
 }
