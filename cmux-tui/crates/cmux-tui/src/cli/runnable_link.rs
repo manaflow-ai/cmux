@@ -803,7 +803,11 @@ pub(crate) fn run(words: &[String], json_flag: bool) -> i32 {
             Ok(p) => p,
             Err(e) => return error_json("cli.invalid_args", &e),
         };
-        let client = match reqwest::Client::builder()
+        if common.platform.is_some() {
+            // --platform (or CMUX_PLATFORM_URL) names the origin; the deployment's own origins are listed.
+            cmux_egress::allow_named(&origin);
+        }
+        let client = match cmux_egress::client_builder("cmux_tui::cli::runnable_link")
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
             .timeout(Duration::from_secs(60))
