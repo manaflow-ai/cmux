@@ -861,9 +861,7 @@ function TurnFailure({
     <div className={`cv-turn-note cv-turn-error cv-turn-error--${arm}`} data-failure-kind={kind}>
       <span className="cv-turn-error__cause">
         {arm !== "note" && <AlertCircle size={arm === "card" ? 16 : 14} className="cv-turn-error__icon" />}
-        <span className="text-fg">
-          {sentence}
-        </span>
+        <span className="text-fg">{sentence}</span>
       </span>
       <span className="cv-turn-error__actions" ref={actionsRef}>
         {trustFix && (
@@ -916,11 +914,7 @@ function TurnFailure({
           />
         )}
         {signInFirst && (
-          <button
-            type="button"
-            className="cv-turn-auth-action cv-turn-error__primary"
-            onClick={reauthenticate}
-          >
+          <button type="button" className="cv-turn-auth-action cv-turn-error__primary" onClick={reauthenticate}>
             {t("turn.signInAgain")}
           </button>
         )}
