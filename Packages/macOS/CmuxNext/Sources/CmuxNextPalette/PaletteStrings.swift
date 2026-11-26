@@ -49,6 +49,28 @@ nonisolated enum PaletteStrings {
         String(localized: "palette.noMatch.runCommand", defaultValue: "Run “\(text)” in a New Workspace", bundle: .localizedModule)
     }
     static var actions: String { String(localized: "palette.footer.actions", defaultValue: "Actions", bundle: .localizedModule) }
+    // The preview pane's Information list (`experiments.palettePreview`): its heading and each fact's label.
+    static var previewInformation: String { String(localized: "palette.preview.information", defaultValue: "Information", bundle: .localizedModule) }
+    static var factName: String { String(localized: "palette.preview.fact.name", defaultValue: "Name", bundle: .localizedModule) }
+    static var factTitle: String { String(localized: "palette.preview.fact.title", defaultValue: "Title", bundle: .localizedModule) }
+    static var factKind: String { String(localized: "palette.preview.fact.kind", defaultValue: "Kind", bundle: .localizedModule) }
+    static var factDirectory: String { String(localized: "palette.preview.fact.directory", defaultValue: "Directory", bundle: .localizedModule) }
+    static var factAddress: String { String(localized: "palette.preview.fact.address", defaultValue: "Address", bundle: .localizedModule) }
+    static var factWorkspace: String { String(localized: "palette.preview.fact.workspace", defaultValue: "Workspace", bundle: .localizedModule) }
+    static var factGroup: String { String(localized: "palette.preview.fact.group", defaultValue: "Group", bundle: .localizedModule) }
+    static var factMachine: String { String(localized: "palette.preview.fact.machine", defaultValue: "Machine", bundle: .localizedModule) }
+    static var factTabs: String { String(localized: "palette.preview.fact.tabs", defaultValue: "Tabs", bundle: .localizedModule) }
+    static var factAgents: String { String(localized: "palette.preview.fact.agents", defaultValue: "Agents", bundle: .localizedModule) }
+    static var factAgent: String { String(localized: "palette.preview.fact.agent", defaultValue: "Agent", bundle: .localizedModule) }
+    static var factBranch: String { String(localized: "palette.preview.fact.branch", defaultValue: "Branch", bundle: .localizedModule) }
+    static var factStatus: String { String(localized: "palette.preview.fact.status", defaultValue: "Status", bundle: .localizedModule) }
+    static var factSession: String { String(localized: "palette.preview.fact.session", defaultValue: "Session", bundle: .localizedModule) }
+    static var factLastActive: String { String(localized: "palette.preview.fact.lastActive", defaultValue: "Last Active", bundle: .localizedModule) }
+    static var factCommand: String { String(localized: "palette.preview.fact.command", defaultValue: "Command", bundle: .localizedModule) }
+    static var factShortcut: String { String(localized: "palette.preview.fact.shortcut", defaultValue: "Shortcut", bundle: .localizedModule) }
+    static var factCategory: String { String(localized: "palette.preview.fact.category", defaultValue: "Category", bundle: .localizedModule) }
+    static var factDescription: String { String(localized: "palette.preview.fact.description", defaultValue: "Description", bundle: .localizedModule) }
+    static var factDetails: String { String(localized: "palette.preview.fact.details", defaultValue: "Details", bundle: .localizedModule) }
     /// Between a chord's two strokes on its keycaps: ⌘ J then S.
     static var keycapThen: String { String(localized: "palette.keycap.then", defaultValue: "then", bundle: .localizedModule) }
     static var hideFromPalette: String { String(localized: "palette.action.hideFromPalette", defaultValue: "Hide from Palette", bundle: .localizedModule) }
@@ -86,6 +108,10 @@ nonisolated enum PaletteStrings {
     static var paneKeyword: String { String(localized: "palette.keyword.pane", defaultValue: "pane", bundle: .localizedModule) }
     static var sectionGroups: String { String(localized: "palette.section.groups", defaultValue: "Groups", bundle: .localizedModule) }
     static var sectionPanes: String { String(localized: "palette.section.panes", defaultValue: "Panes", bundle: .localizedModule) }
+    /// The palette v2 look's group headers and rail (`PaletteV2Group`); Workspaces and Commands reuse their titles.
+    static var v2GroupSessions: String { String(localized: "palette.v2.group.sessions", defaultValue: "Sessions", bundle: .localizedModule) }
+    static var v2GroupAgents: String { String(localized: "palette.v2.group.agents", defaultValue: "Agents", bundle: .localizedModule) }
+    static var v2RailAll: String { String(localized: "palette.v2.rail.all", defaultValue: "All", bundle: .localizedModule) }
     /// The Search scope's title (the sidebar's Search button) and its field's placeholder.
     static var searchEverythingTitle: String { String(localized: "palette.scope.search", defaultValue: "Search", bundle: .localizedModule) }
     /// The Chats & agents scope: Search narrowed to agent chats and sessions.
@@ -208,4 +234,32 @@ extension PaletteStrings {
     static var goToAskHint: String { String(localized: "palette.goTo.askHint", defaultValue: "New agent chat; type your prompt", bundle: .localizedModule) }
     static var goToAskSendsHint: String { String(localized: "palette.goTo.askSendsHint", defaultValue: "New agent chat; sends this prompt", bundle: .localizedModule) }
     static var goToCopyURL: String { String(localized: "palette.goTo.copyURL", defaultValue: "Copy URL", bundle: .localizedModule) }
+}
+
+// The palette v2 look's Esc chip and scope bar (`PaletteV2Look`): segments, typed token suggestions and chips.
+// Nonisolated: the scope bar's segment and token values read them off the main actor too.
+nonisolated extension PaletteStrings {
+    static var escKey: String { String(localized: "palette.escChip.key", defaultValue: "Esc", bundle: .localizedModule) }
+    static var closePalette: String { String(localized: "palette.escChip.close", defaultValue: "Close Palette", bundle: .localizedModule) }
+    static var scopeAll: String { String(localized: "palette.scopeBar.all", defaultValue: "All", bundle: .localizedModule) }
+    static var scopeThisWorkspace: String { String(localized: "palette.scopeBar.thisWorkspace", defaultValue: "This Workspace", bundle: .localizedModule) }
+    static var scopeSessions: String { String(localized: "palette.scopeBar.sessions", defaultValue: "Sessions", bundle: .localizedModule) }
+    static var thisWorkspacePlaceholder: String {
+        String(localized: "palette.scopeBar.thisWorkspace.placeholder", defaultValue: "Search this workspace…", bundle: .localizedModule)
+    }
+    static var sessionsPlaceholder: String {
+        String(localized: "palette.scopeBar.sessions.placeholder", defaultValue: "Search sessions…", bundle: .localizedModule)
+    }
+    static var sectionSuggestions: String { String(localized: "palette.scopeToken.suggestions", defaultValue: "Suggestions", bundle: .localizedModule) }
+    static var sessionContains: String { String(localized: "palette.scopeToken.sessionContains", defaultValue: "Session contains:", bundle: .localizedModule) }
+    static var workspaceContains: String {
+        String(localized: "palette.scopeToken.workspaceContains", defaultValue: "Workspace contains:", bundle: .localizedModule)
+    }
+    static var addScopeToken: String { String(localized: "palette.scopeToken.add", defaultValue: "Filter", bundle: .localizedModule) }
+    static func sessionTokenChip(_ text: String) -> String {
+        String(localized: "palette.scopeToken.sessionChip", defaultValue: "Session: \(text)", bundle: .localizedModule)
+    }
+    static func workspaceTokenChip(_ text: String) -> String {
+        String(localized: "palette.scopeToken.workspaceChip", defaultValue: "Workspace: \(text)", bundle: .localizedModule)
+    }
 }

@@ -58,6 +58,10 @@ impl Hub {
                 .lock()
                 .unwrap()
                 .retain(|name, _| current.harnesses.get(name) == next.harnesses.get(name));
+            self.known_efforts
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .retain(|name, _| current.harnesses.get(name) == next.harnesses.get(name));
             // Every field of `Config` is named here, with no `..`: a field added to it does not
             // build until it is copied below or listed as kept until a restart, with why. A
             // field in neither is how `remoteDaemon` stayed at its start value, and
@@ -120,6 +124,7 @@ impl Hub {
                 // configures (`daemon.rs`), or is this run's own state.
                 acpmux_v2: _,      // the v2 surfaces are registered at start
                 artifacts_sync: _, // its sync task starts with the daemon
+                memory: _,         // its sync task starts with the daemon
                 write_journal: _,  // the replica and journal open at start
                 store: _,          // the open store
                 // The bound listener, its port and token stay; the hosts and origins it admits

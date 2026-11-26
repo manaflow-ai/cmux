@@ -9,7 +9,11 @@
 //!   and the `machine_takeover` continuation at the head of the queue.
 //! - A handback finds the chat here already: the Cloud's log replaces the local one under the
 //!   same chat id, and the snapshot is put into the chat's own folder, whose state before is
-//!   kept under a git ref ([`folder`]).
+//!   kept under a git ref ([`folder`]). A turn its log left open is settled too, and continued
+//!   as a moved chat's turn is.
+//! - A chat the person moved by hand arrives as one of the two. Its giver stopped the turn and
+//!   logged the continuation before the copy, so the copy's queue carries it and it runs here
+//!   once, with no open turn left to settle.
 //! - A create has no copy yet: a folder of the repository and branch, and a new chat of the
 //!   harness under the Cloud's chat id. Its first message is in the chat's inbox.
 //! - A deliver for a chat that is here brings nothing: its messages are in the inbox.
@@ -21,6 +25,9 @@ mod copy;
 mod folder;
 #[cfg(test)]
 mod folder_tests;
+mod mirror;
+#[cfg(test)]
+mod mirror_tests;
 mod reconcile;
 
 use std::collections::HashMap;
@@ -43,6 +50,18 @@ pub(crate) struct InFlight {
     pub args: String,
 }
 
+/// What cut off a turn the copy's log never settled.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CutBy {
+    /// The chat's last holder went away mid-turn, and this machine took the chat over.
+    Takeover,
+    /// The chat came home to its laptop with the turn open. A machine ends its turns before it
+    /// hands a chat back, and a holder that gives a moved chat stops its turn first and logs
+    /// the continuation itself (`hub/auto_give.rs`); what is left is a chat the store moved
+    /// home from a machine that could no longer give it.
+    Move,
+}
+
 /// What the hub needs besides the bundle to make the copy a session (`hub/auto_import.rs`).
 #[derive(Clone, Debug)]
 pub(crate) struct Arrival {
@@ -50,8 +69,13 @@ pub(crate) struct Arrival {
     pub id: String,
     /// The agent the chat runs.
     pub harness: String,
-    /// Settle the log's open turn and queue its continuation: the chat's last holder went away.
-    pub settle: bool,
+    /// The chat ran the copy's agent conversation on this machine before: the agent's files of
+    /// it that are here are this chat's own, and the copy's replace them (`bundle.rs`
+    /// `agent_side`). Otherwise a file that is here is left as it is.
+    pub own_agent: bool,
+    /// How the turn the copy's log left open, if it left one, was cut off. It is settled here,
+    /// once, and its continuation queued in these words.
+    pub cut: CutBy,
     pub in_flight: Option<InFlight>,
     /// The text left in the composer.
     pub draft: String,
@@ -143,9 +167,16 @@ impl<C: AutoCloud + 'static> Importer<C> {
             let profile = config.harnesses.get(&manifest.harness);
             profile.map(|profile| crate::config::derive_family(&manifest.harness, profile))
         };
-        let meta = bundle::meta(view, manifest, dir, base, family).map_err(local_error)?;
-        bundle::write(staged, &view.id, &meta, &copy.events, &snapshot.native)
-            .map_err(local_error)?;
+        let stored = base.as_ref().and_then(|meta| meta.agent_session_id.clone());
+        let taken = self.hub.auto_agent_session_taken(&view.id, &manifest.harness_session_id);
+        if taken {
+            let id = &view.id;
+            tracing::warn!(session = %id, "auto session: the copy names another chat's agent");
+        }
+        let agent = bundle::agent_side(stored, manifest, &snapshot.native, taken);
+        let meta =
+            bundle::meta(view, manifest, &agent.session, dir, base, family).map_err(local_error)?;
+        bundle::write(staged, &view.id, &meta, &copy.events, agent.files).map_err(local_error)?;
         let open = manifest.open_turn.as_ref();
         let in_flight = open.and_then(|turn| {
             let tool = turn.tool.as_ref()?;
@@ -155,9 +186,8 @@ impl<C: AutoCloud + 'static> Importer<C> {
         let arrival = Arrival {
             id: view.id.clone(),
             harness: manifest.harness.clone(),
-            // A handback's machine ended its turn before it gave the chat up; any other open
-            // turn is one its holder never finished.
-            settle: reason != ImportReason::Handback,
+            own_agent: agent.own,
+            cut: if reason == ImportReason::Handback { CutBy::Move } else { CutBy::Takeover },
             in_flight,
             draft: manifest.draft.clone(),
         };

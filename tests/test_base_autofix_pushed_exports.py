@@ -795,7 +795,8 @@ sys.exit(subprocess.run(["jq", "-r", query], input=json.dumps(body), text=True).
         self.assertLess(names.index("Check the settings exports"), names.index(pack["name"]))
         self.assertEqual(steps[names.index(pack["name"]) + 1]["name"], px.UPLOAD_STEP)
         self.assertEqual(NEXT["jobs"]["daemon-test"]["name"], px.DAEMON_JOB)
-        self.assertEqual(NEXT["jobs"]["generated-files"]["name"], px.GENERATED_JOB)
+        # The fleet Linux job holds the name; the Mac job is its logged fallback.
+        self.assertEqual(NEXT["jobs"]["generated-files-linux"]["name"], px.GENERATED_JOB)
 
     def test_both_workflows_start_on_changes_to_the_scripts(self):
         autofix_paths = AUTOFIX[True]["push"]["paths"]
@@ -1033,11 +1034,16 @@ class PrAutofixTakesTheGeneratedFilesPack(unittest.TestCase):
         condition = mac["if"].removeprefix("${{ ").removesuffix(" }}")
         # The draft-head term (tests/test_head_tier.py) is tested there; this test is about the pack.
         condition = condition.split(") && ", 1)[1]
+        # So is the label guard (tests/test_ci_label_events_skip_full_ci.py).
+        condition = condition.split(" && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref", 1)[0]
 
         def runs(hit: str, result: str = "success", actions: str = "true", coming: str = "false") -> bool:
             values = {"needs.generated-exports.outputs.hit": hit, "needs.generated-exports.outputs.coming": coming,
                       "needs.action-areas.result": result,
-                      "needs.action-areas.outputs.actions": actions, "needs.action-areas.outputs.settings": "false"}
+                      "needs.action-areas.outputs.actions": actions, "needs.action-areas.outputs.settings": "false",
+                      # action-exports-linux and settings-exports-linux did not verify: this Mac job is their fallback.
+                      "needs.action-exports-linux.outputs.verified": "false",
+                      "needs.settings-exports-linux.outputs.verified": "false"}
             expression = condition.replace("!cancelled()", "True")
             for key, value in values.items():
                 expression = expression.replace(key, repr(value))

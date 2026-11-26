@@ -699,3 +699,62 @@ fn flush_on_the_alternate_screen_paints_nothing() {
     let _ = host.feed(b"\x1b[?1049l$ ", false);
     assert!(!host.flush().is_empty(), "back on the primary: one paint");
 }
+
+/// Leo, 2026-11-25, of Claude Code on the phone: "the layout calculations
+/// too". Its prompt today is a bare rule the Mac pane's width, `❯ `, another
+/// rule, and a coloured status row, drawn inline with the cursor hidden. The
+/// projection (compact, its default) lays each rule out at the phone's width,
+/// one phone row each, with no resize of the Mac pane and the colours kept.
+#[test]
+fn claude_codes_bare_rules_are_one_phone_row_each_at_the_macs_width() {
+    let mut host = Projection::new(120, 40, 10_000);
+    let mut phone = Phone::new(54, 38);
+    phone.apply(host.set_viewport(54, 38));
+    let grey = "\x1b[38;2;136;136;136m";
+    let rule = format!("{grey}{}\x1b[0m", "─".repeat(120));
+    let mut out = String::from("~/src/cmux $ claude\r\n\x1b[?25l");
+    out += &format!("{rule}\r\n\x1b[1m❯\x1b[0m \r\n{rule}\r\n");
+    out += "  \x1b[38;2;215;119;87m⏵⏵ bypass permissions on\x1b[0m (shift+tab to cycle)";
+    feed(&mut host, &mut phone, out.as_bytes());
+    assert_eq!(host.host_grid(), (120, 40), "the Mac pane keeps its grid");
+    let rows = phone.term.primary_rows();
+    let texts: Vec<String> =
+        rows.iter().map(|r| row_text(&phone.term, r).trim_end().to_string()).collect();
+    let rules: Vec<usize> = (0..texts.len()).filter(|&i| texts[i].starts_with('─')).collect();
+    assert_eq!(rules.len(), 2, "two rules, one phone row each: {texts:#?}");
+    for &i in &rules {
+        assert_eq!(texts[i].chars().count(), 54, "a rule fills the phone's width: {:?}", texts[i]);
+        assert!(!rows[i].wrapped, "a rule never wraps: {:?}", texts[i]);
+        assert_ne!(rows[i].cells[0].style, 0, "the rule keeps its grey");
+    }
+    let status = texts.iter().position(|t| t.contains("bypass permissions")).expect("status row");
+    assert_ne!(rows[status].cells[2].style, 0, "the status keeps its orange");
+}
+
+/// The host's reset and replay (`TerminalProjectingSession` on iOS: `ESC c`
+/// fed unpainted, `request_reset`, the replay fed and painted) paint a window
+/// of the scrollback, not the whole of it: the replay's rows were never
+/// streamed to the phone (the iOS kit's `scrollingUpReachesLineOne`). Rows a
+/// backlog pushed after the replay still all paint.
+#[test]
+fn the_hosts_replay_paints_a_window_not_the_whole_scrollback() {
+    let mut host = exact(120, 24, 10_000);
+    let mut phone = Phone::new(54, 38);
+    phone.apply(host.set_viewport(54, 38));
+    let _ = host.feed(b"\x1bc", false);
+    host.request_reset();
+    let mut phone = Phone::new(54, 38);
+    phone.apply(host.feed(&numbered(3_000), true));
+    assert!(
+        host.older_rows() > 2_000,
+        "the replay painted a window ({} older rows)",
+        host.older_rows()
+    );
+    assert_same(&host, &phone, "replay window");
+    // A clear and a backlog streamed after the replay, painted once, hold every row.
+    let _ = host.feed(b"\x1b[H\x1b[2J\x1b[3J", false);
+    let _ = host.feed(&numbered(300), false);
+    phone.apply(host.flush());
+    assert_eq!(host.older_rows(), 0, "the backlog after the replay is all on the phone");
+    assert_same(&host, &phone, "a backlog after the replay");
+}

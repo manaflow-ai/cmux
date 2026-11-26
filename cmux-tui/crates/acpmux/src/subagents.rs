@@ -202,6 +202,47 @@ impl SubagentTree {
             || self.previews.values().any(|p| p.agent_id.as_deref() == Some(to))
     }
 
+    /// The name a `SendMessage` to `to` reads by: the subagent whose agent id (what Claude Code
+    /// names it by), session id or name `to` is, as its list names it (its name, else its task).
+    /// None when no subagent of this session is `to`, or nothing names it.
+    pub fn recipient(&self, to: &str) -> Option<String> {
+        let to = to.trim();
+        if to.is_empty() {
+            return None;
+        }
+        let child = if self.parents.contains_key(to) {
+            Some(to)
+        } else {
+            self.previews
+                .iter()
+                .find(|(_, p)| p.agent_id.as_deref() == Some(to))
+                .map(|(id, _)| id.as_str())
+        }?;
+        self.names
+            .get(child)
+            .cloned()
+            .or_else(|| {
+                self.previews.get(child).and_then(|p| p.task.as_deref()).map(truncate_label)
+            })
+            .filter(|name| !name.trim().is_empty() && name != to)
+    }
+
+    /// The recipient a Claude Code `SendMessage` call of the chat's own agent names, for its
+    /// `_meta.acpmux.recipient` (``recipient``). The row that draws it ("Sent to <name>") reads
+    /// this, and so names the subagent even when the chat's page holds no row of its Agent call:
+    /// a reload's window starts after it (Leo, 2026-11-22, on "Sent to a6c31b7e": "some bullshit
+    /// line about like... cmux... did something", paraphrased).
+    fn send_recipient(&self, update: &Value) -> Option<String> {
+        if !matches!(
+            update.get("sessionUpdate").and_then(Value::as_str),
+            Some("tool_call" | "tool_call_update")
+        ) || update.pointer("/_meta/claude/tool").and_then(Value::as_str) != Some("SendMessage")
+        {
+            return None;
+        }
+        self.recipient(update.pointer("/rawInput/to").and_then(Value::as_str)?)
+    }
+
     /// Whether `session_id` is one this session knows: one of its subagents, or a root thread.
     pub fn knows(&self, session_id: &str) -> bool {
         self.parents.contains_key(session_id) || self.is_root(session_id)
@@ -228,6 +269,14 @@ impl SubagentTree {
     /// the subagent the update belongs to, or `None` for the session's own.
     pub fn annotate(&mut self, params: &mut Value) -> Option<String> {
         self.annotate_live(params, true)
+    }
+
+    /// `annotate_live` of a logged record written at `at`, its time the one a start or end takes.
+    pub fn annotate_at(&mut self, params: &mut Value, live: bool, at: u64) -> Option<String> {
+        let was = self.logged_at.replace(at);
+        let owner = self.annotate_live(params, live);
+        self.logged_at = was;
+        owner
     }
 
     /// ``annotate``; a replayed update (`live` false: a `session/load` replays history) never
@@ -339,6 +388,9 @@ impl SubagentTree {
         self.note_listed(&events, live);
         if !events.is_empty() {
             fields.insert("subagents".into(), Value::Array(events));
+        }
+        if let Some(recipient) = params.get("update").and_then(|u| self.send_recipient(u)) {
+            fields.insert("recipient".into(), json!(recipient));
         }
         if !fields.is_empty() {
             merge_mux_meta(params, Value::Object(fields));
@@ -1129,6 +1181,51 @@ mod codex_tests {
                     "name": "Push relay"})
             ]
         );
+    }
+
+    /// A `SendMessage` to a subagent's agent id carries the name its list gives it, so the
+    /// "Sent to" row names it even when the chat's page holds no row of its Agent call (Leo,
+    /// 2026-11-22, on "Sent to a6c31b7e" after a reload). One to an id nothing names, or any other
+    /// tool, carries none.
+    #[test]
+    fn a_send_message_names_its_recipient() {
+        let mut tree = SubagentTree::default();
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "s1/t1",
+                   "name": "Watch the cmux-ci run"}),
+        );
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": "s1/t1",
+                   "state": "running", "agentId": "a6c31b7ee45d67550"}),
+        );
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "s1/t2",
+                   "task": "Find why the agent chat pane blanked out"}),
+        );
+        let recipient = |tree: &mut SubagentTree, update: Value| {
+            let mut params = json!({"sessionId": "s1", "update": update});
+            tree.annotate(&mut params);
+            params.pointer("/_meta/acpmux/recipient").cloned()
+        };
+        let send = |to: &str| {
+            json!({"sessionUpdate": "tool_call", "toolCallId": "c1", "title": "SendMessage",
+                   "_meta": {"claude": {"tool": "SendMessage"}}, "rawInput": {"to": to, "message": "Queued"}})
+        };
+        assert_eq!(
+            recipient(&mut tree, send("a6c31b7ee45d67550")),
+            Some(json!("Watch the cmux-ci run"))
+        );
+        assert_eq!(
+            recipient(&mut tree, send("s1/t2")),
+            Some(json!("Find why the agent chat pane blanked out"))
+        );
+        assert_eq!(recipient(&mut tree, send("a0000000000000000")), None);
+        let read = json!({"sessionUpdate": "tool_call", "toolCallId": "c2", "title": "Read",
+                          "_meta": {"claude": {"tool": "Read"}}, "rawInput": {"to": "a6c31b7ee45d67550"}});
+        assert_eq!(recipient(&mut tree, read), None);
     }
 
     /// A subagent's later progress and end repeat the name and task its spawn gave, so a reader

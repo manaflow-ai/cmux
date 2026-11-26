@@ -1,34 +1,27 @@
 import AppKit
-public import Foundation
+import Foundation
 public import CmuxNextDesign
 import CmuxNextWakeups
 
-/// Restart to Update (cx-ncc.45 S1): what the old windows do when Sparkle
-/// commits to a relaunch the person asked for (`updaterWillRelaunchApplication`,
-/// right before its installer finishes and quits the app), not at the click.
-/// An install nobody clicked leaves the windows as they are. A click
-/// whose install never reaches the installer (Sparkle gives up after 7 s:
-/// "An error occurred while starting the installer") kept every window
-/// transparent for those seconds, and the app looked frozen (slow quit,
-/// 2026-10-20).
-/// ``mode`` is the one switch (hq-a3 rule 2026-10-10: hide when the click
-/// to the relaunched window's first frame takes 300 ms or less, else keep
-/// the windows on screen, frozen, with the update card's Installing state
-/// as the mark, so the screen never looks like a crash).
+/// Restart to Update is a plain quit and relaunch (Leo, 2026-11-24: "we want to have the restrat to update
+/// working as people expect (not the wannabe smooth transition thing) and have it be fast and good"):
+/// Sparkle installs, the app quits, the relaunched app restores its windows, workspaces and sessions from
+/// the daemon the normal way. Nothing pictures the old windows or holds them on screen across the relaunch.
 ///
-/// Hidden windows are ordered out, never faded or made transparent (Leo,
-/// 2026-11-24: an alpha step read as "the opacity of the window changed"):
-/// with the afterimage up over them they leave behind its pictures, so the
-/// screen shows no step at all; the old app saves and exits, and the
-/// relaunched app opens the same windows from the daemon. Frozen windows stay as they are
-/// and take no clicks. Either way the windows stay alive (the quit still
-/// saves their frames and layout), and an install that fails brings them
-/// back. Pictures of their pages need them on screen (an ordered-out window
-/// reads as not shown, and its page draws nothing), so those are saved
-/// before the windows leave (``savesBeforeLeaving``): the quit after them
-/// used to find no chat on screen and drop every saved page, and the
-/// relaunched agent panes came up blank (Leo, 2026-11-24). With unsaved documents nothing changes: the quit asks about
-/// them on screen (decision D2).
+/// What this does is the quit's own look: when Sparkle commits to a relaunch the person asked for
+/// (`updaterWillRelaunchApplication`, right before its installer finishes and quits the app), not at the
+/// click, every visible window leaves the screen, as a quit's windows do, while the quit saves.
+/// An install nobody clicked leaves the windows as they are. A click whose install never reaches the
+/// installer (Sparkle gives up after 7 s: "An error occurred while starting the installer") brings them
+/// back (``restore()``).
+///
+/// Windows are ordered out, never faded or made transparent (Leo, 2026-11-24: an alpha step read as "the
+/// opacity of the window changed"). They stay alive, so the quit still saves their frames and layout.
+/// Pictures of their pages need them on screen (an ordered-out window reads as not shown, and its page
+/// draws nothing), so those are saved before the windows leave (``savesBeforeLeaving``): the quit after
+/// them used to find no chat on screen and drop every saved page, and the relaunched agent panes came up
+/// blank (Leo, 2026-11-24). With unsaved documents nothing changes: the quit asks about them on screen
+/// (decision D2).
 @MainActor
 public final class UpdateWindowHandoff {
     private struct Hidden {
@@ -37,55 +30,54 @@ public final class UpdateWindowHandoff {
         var animation: NSWindow.AnimationBehavior
     }
 
-    enum Mode {
-        case hide, freeze
-    }
-
-    /// The one switch between the two forms.
-    static let mode: Mode = .hide
-
     /// Front first (`NSApp.orderedWindows`), so ``restore()`` brings them back in the same order.
     private var hidden: [Hidden] = []
-    /// The windows were ordered out (``leaveScreen()``); a frozen handoff never orders them out.
+    /// The windows were ordered out (``leaveScreen()``).
     private var orderedOut = false
     private let unsaved: QuitUnsavedRegistry
-    /// The windows' pictures, when they stay on screen across the relaunch: the windows leave only once the
-    /// pictures are up over them, so no frame shows neither.
-    private let afterimage: RelaunchAfterimage?
     /// Saves the pictures of the pages on screen for the next launch (set by the App: the agent chats' and the
     /// browser pages'), as the windows leave for a relaunch and before they do. The quit awaits it rather than
     /// saving again (``UpdaterService/savedForRelaunch``).
     public var savesBeforeLeaving: (@MainActor () async -> Void)?
     /// The relaunch did not happen and the windows came back (``restore()``): what ``savesBeforeLeaving`` paused resumes.
     public var cameBack: (@MainActor () -> Void)?
-    /// The longest the windows wait on screen (under the afterimage, taking no clicks) for that save.
+    /// Pauses the running picture saver as the windows leave (an ordered-out window shows no chat); ``cameBack`` resumes it.
+    public var pausesPictures: (@MainActor () -> Void)?
+    /// ``savesBeforeLeaving`` run at the Restart to Update click (with no pause of the running picture saver: the app
+    /// may go on running), while the click's feed read and pre-warm wait run, and when it started. A relaunch within
+    /// ``clickSaveFreshness`` of it uses that save, so its windows leave at once (ask-ad4a68e740).
+    private var clickSave: (task: Task<Void, Never>, started: ContinuousClock.Instant)?
+    /// How old the click's save may be for the relaunch to use it; an older one is saved again before the windows leave.
+    static let clickSaveFreshness: Duration = .seconds(4)
+    /// The longest the windows wait on screen (taking no clicks) for that save.
     static let saveLimit: Duration = .milliseconds(700)
     private weak var updater: UpdaterService?
     private var saveLimitTimer: DemandTimer?
 
-    public init(unsaved: QuitUnsavedRegistry, stateDirectory: URL? = nil) {
+    public init(unsaved: QuitUnsavedRegistry) {
         self.unsaved = unsaved
-        afterimage = stateDirectory.map { RelaunchAfterimage(stateDirectory: $0) }
     }
 
     /// Installs the updater's hooks: the windows leave as Sparkle commits to the relaunch, not at the click; a failed
-    /// install brings them back. The quit waits for the pictures (``UpdaterService/afterimage``).
+    /// install brings them back.
     public func attach(to updater: UpdaterService) {
         // The updater keeps this handoff (it holds nothing of the updater's but this weak reference).
         self.updater = updater
         updater.hidesForRelaunch = { _ = self.hide() }
         updater.installAbandoned = { self.restore() }
-        updater.afterimage = afterimage
+        updater.picturesAtClick = { self.clicked() }
     }
 
-    /// A relaunch is decided (every path: ``UpdaterService/willRelaunch``): the windows are pictured for the afterimage,
-    /// unless the quit will ask about unsaved documents (that sheet stays in view).
-    public func relaunchDecided() {
-        guard unsaved.unsaved().isEmpty else { return }
-        afterimage?.begin(activates: NSApp.isActive, status: UpdaterStrings.revertRestarting) // "Restarting…", with a spinner
+    /// Restart to Update was clicked: the pages on screen are pictured now, so the windows need not wait on screen
+    /// for that when the relaunch comes (``saveBeforeLeaving()``).
+    public func clicked() {
+        guard hidden.isEmpty, unsaved.unsaved().isEmpty, let save = savesBeforeLeaving else { return }
+        // task-owner: one save of the pages on screen per click; a relaunch soon after awaits it (saveBeforeLeaving).
+        clickSave = (Task { await save() }, ContinuousClock.now)
     }
 
-    /// Hides every visible window; false when it did not (unsaved documents).
+    /// Takes every visible window off screen once the pages' pictures are saved; false when it did not
+    /// (unsaved documents).
     @discardableResult
     public func hide() -> Bool {
         guard hidden.isEmpty, unsaved.unsaved().isEmpty else { return false }
@@ -93,25 +85,24 @@ public final class UpdateWindowHandoff {
             Hidden(window: $0, ignoresMouse: $0.ignoresMouseEvents, animation: $0.animationBehavior)
         }
         for entry in hidden { entry.window?.ignoresMouseEvents = true }
-        if Self.mode == .hide {
-            // With pictures coming, the windows wait for them (about 100 to 250 ms, the quit's saves run meanwhile),
-            // and for the pictures of their pages, which an ordered-out window can no longer give.
-            let saved = saveBeforeLeaving()
-            let leave: @MainActor @Sendable () -> Void = { [weak self] in self?.leave(after: saved) }
-            if let afterimage, afterimage.isActive { afterimage.whenShown(leave) } else { leave() }
-        }
+        leave(after: saveBeforeLeaving())
         #if DEBUG || CMUX_BENCH_HOOKS
-        UpdateHarness.mark("windows_\(Self.mode == .hide ? "hidden" : "frozen").\(hidden.count)")
+        UpdateHarness.mark("windows_hidden.\(hidden.count)")
         #endif
         return true
     }
 
-    /// Orders every hidden window out in one transaction, with no close animation: the windows leave
-    /// whole in one frame (behind the afterimage when it is up), their alpha never changes. They stay
-    /// alive, so the quit still saves their frames and layout.
     /// Starts ``savesBeforeLeaving`` once per relaunch; the quit awaits the same task.
     private func saveBeforeLeaving() -> Task<Void, Never>? {
+        let early = clickSave
+        clickSave = nil
+        if let early, ContinuousClock.now - early.started <= Self.clickSaveFreshness {
+            pausesPictures?()
+            updater?.savedForRelaunch = early.task
+            return early.task
+        }
         guard let save = savesBeforeLeaving else { return nil }
+        pausesPictures?()
         // task-owner: one save of the pages on screen per relaunch; the quit awaits it (UpdaterService.savedForRelaunch).
         let task = Task { await save() }
         updater?.savedForRelaunch = task
@@ -132,6 +123,8 @@ public final class UpdateWindowHandoff {
         }
     }
 
+    /// Orders every hidden window out in one transaction, with no close animation: the windows leave whole in
+    /// one frame, their alpha never changes. They stay alive, so the quit still saves their frames and layout.
     private func leaveScreen() {
         guard !hidden.isEmpty, !orderedOut else { return }
         orderedOut = true
@@ -147,7 +140,7 @@ public final class UpdateWindowHandoff {
 
     /// Brings the hidden windows back as they were, in their old order (the front one last, so it is front).
     public func restore() {
-        afterimage?.cancel()
+        clickSave = nil
         saveLimitTimer?.cancel()
         saveLimitTimer = nil
         if updater?.savedForRelaunch != nil {

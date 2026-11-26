@@ -190,12 +190,26 @@ fn label_matches(pattern: &str, label: &str) -> bool {
     glob(pattern.as_bytes(), label.as_bytes())
 }
 
+/// A host that never reaches a third party by name: an IP literal, a dotless name (resolved by
+/// the person's own search domains), a reserved suffix, or a private-network suffix (tailnet,
+/// `.internal`, `.lan`).
 fn is_local(host: &str) -> bool {
     host.parse::<IpAddr>().is_ok()
         || host == "localhost"
-        || [".localhost", ".test", ".example", ".invalid", ".local", ".home.arpa"]
-            .iter()
-            .any(|suffix| host.ends_with(suffix))
+        || (!host.is_empty() && !host.contains('.'))
+        || [
+            ".localhost",
+            ".test",
+            ".example",
+            ".invalid",
+            ".local",
+            ".home.arpa",
+            ".ts.net",
+            ".internal",
+            ".lan",
+        ]
+        .iter()
+        .any(|suffix| host.ends_with(suffix))
         || host == "example.com"
         || host.ends_with(".example.com")
 }
@@ -304,6 +318,16 @@ impl Resolve for Gate {
     }
 }
 
+/// Whether the seeded-secret capture is on (feature `capture`): a caller that
+/// sets its own TLS configuration keeps the builder's capture CA instead.
+pub fn capturing() -> bool {
+    #[cfg(feature = "capture")]
+    if capture::root().is_some() {
+        return true;
+    }
+    false
+}
+
 /// A builder with the capture CA trusted when capture is on (feature `capture`).
 fn trusting_capture(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
     #[cfg(feature = "capture")]
@@ -398,7 +422,7 @@ pub mod ws {
         request: R,
         site: &'static str,
     ) -> Connected {
-        tokio_tungstenite::connect_async(checked(request, site)?).await
+        connect(checked(request, site)?, None, false, None).await
     }
 
     /// A gated `tokio_tungstenite::connect_async_with_config`.
@@ -408,8 +432,7 @@ pub mod ws {
         disable_nagle: bool,
         site: &'static str,
     ) -> Connected {
-        tokio_tungstenite::connect_async_with_config(checked(request, site)?, config, disable_nagle)
-            .await
+        connect(checked(request, site)?, config, disable_nagle, None).await
     }
 
     /// A gated `tokio_tungstenite::connect_async_tls_with_config`.
@@ -420,13 +443,34 @@ pub mod ws {
         connector: Option<Connector>,
         site: &'static str,
     ) -> Connected {
-        tokio_tungstenite::connect_async_tls_with_config(
-            checked(request, site)?,
-            config,
-            disable_nagle,
-            connector,
-        )
-        .await
+        connect(checked(request, site)?, config, disable_nagle, connector).await
+    }
+
+    /// The connect of a checked request. With capture on (feature `capture`), a
+    /// `wss://` upgrade to a listed or person-named host goes to the capture
+    /// server, which keeps the upgrade request (its target and headers) and
+    /// answers `200`, so the connect fails after the request was seen.
+    async fn connect(
+        request: Request,
+        config: Option<WebSocketConfig>,
+        disable_nagle: bool,
+        connector: Option<Connector>,
+    ) -> Connected {
+        #[cfg(feature = "capture")]
+        if request.uri().scheme_str() == Some("wss")
+            && let Some((addr, tls)) = request.uri().host().and_then(crate::capture::ws_redirect)
+        {
+            let stream = TcpStream::connect(addr).await.map_err(WsError::Io)?;
+            return tokio_tungstenite::client_async_tls_with_config(
+                request,
+                stream,
+                config,
+                Some(Connector::Rustls(tls)),
+            )
+            .await;
+        }
+        tokio_tungstenite::connect_async_tls_with_config(request, config, disable_nagle, connector)
+            .await
     }
 }
 
@@ -443,6 +487,7 @@ mod tests {
         assert_eq!(verdict("a.b.atlassian.net"), Verdict::Unlisted);
         assert_eq!(verdict("cmux-api-preview-42.debussy.workers.dev"), Verdict::Listed);
         assert_eq!(verdict("other-42.debussy.workers.dev"), Verdict::Unlisted);
+        assert_eq!(verdict("ts.net.evil-gate-test.org"), Verdict::Unlisted);
     }
 
     #[test]
@@ -454,6 +499,11 @@ mod tests {
             "app.localhost",
             "x.test",
             "example.com",
+            "mac-mini",
+            "http://devbox:3000/",
+            "mac.tail1234.ts.net",
+            "git.corp.internal",
+            "nas.lan",
         ] {
             assert_eq!(verdict(host), Verdict::Local, "{host}");
         }

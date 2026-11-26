@@ -115,6 +115,20 @@ pub fn run(opts: &Opts) -> Res<()> {
     Ok(())
 }
 
+/// `--pin-kbps N`: the congestion controller's target held at N kbps (its start, floor and
+/// ceiling), so a run measures the encoder and the path at one rate instead of the rate the
+/// controller backs off to. Measurement only: a build without the `bench` feature refuses it.
+pub(crate) fn pin_kbps(opts: &Opts) -> Res<Option<u32>> {
+    let Some(raw) = opts.get("pin-kbps") else { return Ok(None) };
+    if !cfg!(feature = "bench") {
+        return Err("--pin-kbps is measurement only: it needs a bench build".into());
+    }
+    match raw.parse::<u32>() {
+        Ok(kbps) if kbps > 0 => Ok(Some(kbps)),
+        _ => Err(format!("--pin-kbps {raw}: a positive kbps").into()),
+    }
+}
+
 /// `--window ID`: a window id, decimal or `0x` hex (as `xwininfo` prints an X window id).
 pub(crate) fn parse_window_id(text: &str) -> Result<u32, String> {
     let t = text.trim();
@@ -136,6 +150,7 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
         Some(_) => opts.num_or("max-fps", 60)?,
         None => crate::desktop::default_max_fps(&display),
     };
+    let pin = pin_kbps(opts)?;
     let encode_profile = opts.encode_profile()?;
     let explicit_max_kbps = opts.get("max-kbps").map(|_| opts.num_or("max-kbps", 0)).transpose()?;
     Ok(SessionCfg {
@@ -145,8 +160,11 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
         window: opts.get("window").map(parse_window_id).transpose()?,
         max_fps: encode_profile.stream_fps(max_fps),
         encode_profile,
-        start_kbps: opts.num_or("start-kbps", 8000)?,
-        max_kbps: cmux_rd_core::profile::max_kbps(encode_profile, explicit_max_kbps, 50_000),
+        start_kbps: pin.map_or_else(|| opts.num_or("start-kbps", 8000), Ok)?,
+        max_kbps: pin.unwrap_or_else(|| {
+            cmux_rd_core::profile::max_kbps(encode_profile, explicit_max_kbps, 50_000)
+        }),
+        pin_kbps: pin,
         preset: opts.str_or("preset", "ultrafast"),
         // High for hardware decoders (VideoToolbox); the Linux bench decoder needs baseline.
         profile: opts.str_or("profile", "high"),

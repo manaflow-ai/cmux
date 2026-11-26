@@ -182,6 +182,9 @@ pub(crate) fn builtin_login(family: &str) -> Option<&'static str> {
         // cards and `cmux harness login muse`.
         "muse" => "muse login",
         "opencode" => "opencode auth login",
+        // Cursor's CLI prints one cursor.com sign-in link (`agent_login`'s Cursor).
+        "cursor" => "cursor-agent login",
+        "antigravity" => "agy acp --login",
         // The bundled CLI's own sign-in: a clean Mac has no `unii` (first-run finding 2).
         "unii" => crate::uniichat_endpoint::LOGIN,
         "hermes" => "hermes model",
@@ -811,6 +814,12 @@ mod tests {
     #[test]
     fn muse_signs_in_with_the_official_cli() {
         assert_eq!(super::builtin_login("muse"), Some("muse login"));
+    }
+
+    /// Cursor found on PATH (no profile) still shows a Sign In: its CLI's own login.
+    #[test]
+    fn cursor_signs_in_with_its_cli() {
+        assert_eq!(super::builtin_login("cursor"), Some("cursor-agent login"));
     }
 
     /// UniiChat signs in through the CLI cmux bundles (first-run finding 2): a clean Mac has

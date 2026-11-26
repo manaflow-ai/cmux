@@ -57,6 +57,8 @@ pub(crate) use reaper::run_reaper;
 #[cfg(unix)]
 use reaper::signal_harness;
 pub use reaper::tree_rss_bytes;
+pub use reserved::parse_shapes as parse_home_shapes;
+pub use spare::person_spare_shapes;
 #[cfg(test)]
 pub(super) use start::held_reports_full_access;
 

@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "notifications.sound.choose.keepsCopy" : {
+      "comment" : "Open panel message when choosing a notification sound file",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose a sound for notifications. cmux keeps its own copy."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "اختر صوتًا للإشعارات. يحتفظ cmux بنسخة خاصة به."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Odaberite zvuk za obavještenja. cmux čuva vlastitu kopiju."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vælg en lyd til notifikationer. cmux gemmer sin egen kopi."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wähle einen Ton für Mitteilungen. cmux behält eine eigene Kopie."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Elige un sonido para las notificaciones. cmux guarda su propia copia."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Choisissez un son pour les notifications. cmux en garde sa propre copie."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Scegli un suono per le notifiche. cmux ne conserva una copia."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "通知のサウンドを選択してください。cmux は専用のコピーを保存します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ជ្រើសសំឡេងសម្រាប់ការជូនដំណឹង។ cmux រក្សាច្បាប់ចម្លងផ្ទាល់ខ្លួន។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "알림 사운드를 선택하세요. cmux가 자체 사본을 보관합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Velg en lyd for varsler. cmux beholder sin egen kopi."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wybierz dźwięk powiadomień. cmux zachowa własną kopię."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Escolha um som para as notificações. O cmux guarda uma cópia própria."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Выберите звук для уведомлений. cmux сохранит собственную копию."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เลือกเสียงสำหรับการแจ้งเตือน cmux จะเก็บสำเนาไว้เอง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bildirimler için bir ses seçin. cmux kendi kopyasını saklar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Виберіть звук для сповіщень. cmux зберігає власну копію."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chọn âm thanh cho thông báo. cmux giữ một bản sao riêng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "选择通知声音。cmux 会保留一份自己的副本。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "選擇通知聲音。cmux 會保留一份自己的副本。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

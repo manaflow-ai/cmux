@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agents.appControl.summary" : {
+      "comment" : "Settings > Agents > cmux Tools: whether agents in cmux's terminals and agent chats may change the app or only read it (agents.appControl)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Whether agents in cmux may drive and change the app"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ما إذا كان يمكن للوكلاء في cmux تشغيل التطبيق وتغييره"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Om agenter i cmux må styre og ændre appen"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ob Agenten in cmux die App steuern und ändern dürfen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Si los agentes en cmux pueden controlar y cambiar la app"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Si les agents dans cmux peuvent piloter et modifier l’app"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se gli agenti in cmux possono controllare e modificare l’app"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 内のエージェントがアプリを操作・変更できるかどうか"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ថាតើភ្នាក់ងារក្នុង cmux អាចបញ្ជា និងផ្លាស់ប្តូរកម្មវិធីបានឬអត់"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 안의 에이전트가 앱을 조작하고 변경할 수 있는지 여부"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Om agenter i cmux kan styre og endre appen"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Czy agenci w cmux mogą sterować aplikacją i ją zmieniać"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se os agentes no cmux podem controlar e alterar o app"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Могут ли агенты в cmux управлять приложением и изменять его"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เอเจนต์ใน cmux ควบคุมและเปลี่ยนแปลงแอปได้หรือไม่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux içindeki ajanların uygulamayı yönetip değiştirebilip değiştiremeyeceği"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Чи можуть агенти в cmux керувати застосунком і змінювати його"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tác nhân trong cmux có được điều khiển và thay đổi ứng dụng hay không"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 中的代理能否操作和更改应用"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 中的代理能否操作和變更 App"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

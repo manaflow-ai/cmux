@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "hybrid.blocked.no-plan.help" : {
+      "comment" : "Agent pane, the three-state cloud control: tooltip, what a click does when the person has no Cloud plan yet",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يفتح إعداد السحابة لبدء فترة تجريبية مجانية."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Otvara podešavanje Clouda za početak besplatne probe."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Åbner Cloud-opsætning for at starte en gratis prøveperiode."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Öffnet die Cloud-Einrichtung, um einen kostenlosen Test zu starten."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opens Cloud setup to start a free trial."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Abre la configuración de Cloud para iniciar una prueba gratuita."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ouvre la configuration de Cloud pour commencer un essai gratuit."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Apre la configurazione di Cloud per iniziare una prova gratuita."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cloudの設定を開き、無料トライアルを開始します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បើកការរៀបចំ Cloud ដើម្បីចាប់ផ្តើមការសាកល្បងឥតគិតថ្លៃ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cloud 설정을 열어 무료 체험을 시작합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Åpner Cloud-oppsett for å starte en gratis prøveperiode."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Otwiera konfigurację Cloud, aby rozpocząć bezpłatny okres próbny."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Abre a configuração do Cloud para iniciar um teste gratuito."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Открывает настройку Cloud, чтобы начать бесплатный пробный период."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เปิดการตั้งค่า Cloud เพื่อเริ่มทดลองใช้ฟรี"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ücretsiz deneme başlatmak için Cloud kurulumunu açar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Відкриває налаштування Cloud, щоб почати безкоштовний пробний період."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mở thiết lập Cloud để bắt đầu dùng thử miễn phí."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "打开 Cloud 设置以开始免费试用。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "開啟 Cloud 設定以開始免費試用。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

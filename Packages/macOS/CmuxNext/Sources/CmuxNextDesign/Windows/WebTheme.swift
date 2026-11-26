@@ -64,6 +64,12 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// The filled personality slots (``ThemeDecorations/payload``): `data-cmux-decoration-<slot>` on
     /// `<html>`, which the page draws. Empty sends no `decorations` key at all.
     public let decorations: [String: String]
+    /// The theme file's slot variants (``DesignSettings/themeSlots``, resolved by the daemon): the
+    /// page's `window.cmuxTheme.current.slots` (webviews/src/slots/registry.ts). Empty sends no `slots` key.
+    public let slots: [String: String]
+    /// Wallpaper lighting is on and has a light (``WallpaperLight``): `data-wallpaper-light` on `<html>`, under which
+    /// the glass reads the `--wl-*` variables this theme carries.
+    public let wallpaperLight: Bool
     /// The `experiments.*` switches that are on, by name (``DesignSettings/experiments``):
     /// `window.cmuxExperimentSettings`, which webviews/src/experiments/hostSettings.ts maps to
     /// experiment arms, and a `cmux-experiment-settings` event when it changes. Empty sends no
@@ -228,6 +234,12 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             .merging(SidebarRowTokens.current.rowCSSVariables(pageZoom: DesignSettings.shared.uiScale)) { own, _ in own }
             // Every button's corner, the tab's (Metrics.buttonCornerRadius): `--ds-radius-control` reads it.
             .merging(["--cmux-button-radius": SidebarCardMetrics.px(Metrics.buttonCornerRadius / max(DesignSettings.shared.uiScale, 0.01))]) { own, _ in own }
+            // The menu and popover look a theme file sets (`appearance.menu.*`, `appearance.popover.*`) as the
+            // pages' look tokens (`--menu-*`, webviews/src/ui/README.md "Menu tokens a look sets", and
+            // `--popover-*`): only the keys that are set, so an unset one leaves each page's own value.
+            .merging(DesignSettings.shared.menuLook.webVariables) { own, _ in own }
+            // Wallpaper lighting (glass.css WALLPAPER LIGHTING): the key window's light, empty while off.
+            .merging(BackdropImageStore.shared.light.cssVariables) { own, _ in own }
         colorScheme = tokens.isDark ? "dark" : "light"
         let colors = ColorTransition.current
         transition = ["duration": colors.cssDuration, "easing": colors.cssEasing, "space": colors.space.rawValue]
@@ -240,7 +252,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         self.glass = DesignSettings.shared.liquidGlass ? (glass ?? .current).rawValue : Self.glassOff
         glassLevels = DesignSettings.shared.previousGlass ? Self.glassLevelsPrevious : "current"
         decorations = ThemeDecorations.current.payload
+        slots = DesignSettings.shared.themeSlots
         fontSmoothing = Self.pageSmoothing(DesignSettings.shared.fontSmoothing, native: .chrome)
+        wallpaperLight = BackdropImageStore.shared.light.pageStyle != nil
         experiments = DesignSettings.shared.experiments
         appFont = Self.appFontStack(DesignSettings.shared.appFont)
     }
@@ -275,7 +289,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     }
 
     /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers, terminal, statusIndicators, workingLook, motion, glass, fontSmoothing}`,
-    /// and `decorations` while a personality slot is filled
+    /// `decorations` while a personality slot is filled, and `slots` while the theme file picks slot variants
     /// (`terminal.fontFamily` is null when the terminal has no named face).
     /// How the page's color variables move to new values (`appearance.colorTransition`, the same
     /// duration, curve and blend space as native): `{duration, easing, space}`.
@@ -287,6 +301,8 @@ public nonisolated struct WebTheme: Equatable, Sendable {
                                      "workingLook": workingLook, "motion": motion, "glass": glass, "glassLevels": glassLevels, "fontSmoothing": fontSmoothing,
                                      "appFont": appFont]
         if !decorations.isEmpty { object["decorations"] = decorations }
+        if !slots.isEmpty { object["slots"] = slots }
+        if wallpaperLight { object["wallpaperLight"] = true }
         if !experiments.isEmpty { object["experiments"] = experiments }
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return "{}" }
@@ -369,8 +385,13 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           ' / ' + (m[4] === undefined ? 1 : parseInt(m[4], 16) / 255) + ')';
         return value;
       }
+      // The look tokens a theme file sends (--menu-*, --popover-*: MenuLook.webVariables) stay plain:
+      // a registered <color> computes to its initial value once unset, so a page's fallback would never
+      // apply again (unset is today's look).
+      function isLookToken(name) { return name.indexOf('--menu-') === 0 || name.indexOf('--popover-') === 0; }
       function register(name, value) {
         if (registered[name] !== undefined) return registered[name];
+        if (isLookToken(name)) return (registered[name] = false);
         var ok = !!(window.CSS && CSS.registerProperty && CSS.supports && value.indexOf('var(') < 0 && CSS.supports('color', value));
         if (ok) {
           try { CSS.registerProperty({ name: name, syntax: '<color>', inherits: true, initialValue: 'transparent' }); } catch (e) { ok = false; }
@@ -435,6 +456,14 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             applied[name] = value;
             root.style.setProperty(name, value);
           }
+          // The look tokens are sent only while their key is set: one the last theme sent and this one
+          // does not goes back to the page's own value (a look's stylesheet, else today's).
+          for (var old in applied) {
+            if (isLookToken(old) && !(old in payload.variables)) {
+              delete applied[old];
+              root.style.removeProperty(old);
+            }
+          }
           if (first && names.length) getComputedStyle(root).getPropertyValue(names[0]);
           setTransition(payload.transition, names);
           root.style.colorScheme = payload.colorScheme;
@@ -451,6 +480,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           if (payload.glassLevels === 'previous') root.setAttribute('data-glass-levels', 'previous');
           else if (payload.glassLevels) root.removeAttribute('data-glass-levels');
           if (payload.fontSmoothing) root.setAttribute('data-cmux-font-smoothing', payload.fontSmoothing);
+          root.toggleAttribute('data-wallpaper-light', !!payload.wallpaperLight);
           // appearance.appFont: one :root rule over the page's own --font-ui (desktop.css), under its
           // inline styles (a chat Interface Font the person picked). Empty: the page's own.
           var appFont = typeof payload.appFont === 'string' ? payload.appFont : '';
@@ -529,14 +559,16 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// (`Palette.folderTabFill`'s test, in this scope's light or dark).
     @MainActor
     static func drawsFolderTabs(_ tokens: ThemeTokens) -> Bool {
-        CornerFlush.current.isOn && Metrics.mainPaneChromeShade(isDark: tokens.isDark) >= Metrics.folderTabMinimumShade
+        CornerFlush.current.isOn && Metrics.mainPaneChromeShade(isDark: tokens.isDark, tokens: tokens) >= Metrics.folderTabMinimumShade
     }
 
     @MainActor
     static func sidebarSurface(_ tokens: ThemeTokens, backgrounds: SurfaceBackgrounds, windowTint: Double) -> String {
         if let fill = backgrounds.fill(for: .sidebar, tokens: tokens, windowTint: windowTint) { return css(fill) }
-        let shade = Metrics.mainPaneChromeShade(isDark: tokens.isDark)
-        return shade > 0 ? css(ThemeRGB(red: 0, green: 0, blue: 0, alpha: Double(shade))) : "transparent"
+        let shade = Metrics.mainPaneChromeShade(isDark: tokens.isDark, tokens: tokens)
+        // Black, or Subtle Tone's ink (`Metrics.drawsInkFrame`), as the native shade draws it.
+        let ink = Metrics.drawsInkFrame ? tokens.textPrimary : ThemeRGB(red: 0, green: 0, blue: 0, alpha: 1)
+        return shade > 0 ? css(ink.withAlpha(Double(shade))) : "transparent"
     }
 
     /// `--cmux-chrome-divider`: `Palette.chromeDivider` for `tokens`, as CSS: the split divider's color
@@ -552,13 +584,13 @@ public nonisolated struct WebTheme: Equatable, Sendable {
 
     /// The inputs of the page theme that no theme change pushes: `appearance.borders`, `appearance.fontSmoothing`, `appearance.appFont`,
     /// `appearance.liquidGlass`, `appearance.previousGlass`, the divider
-    /// strength (`--cmux-chrome-divider`), the title area's tone and contrast and the chrome shade they
+    /// strength (`--cmux-chrome-divider`), the menu look (`appearance.menu.*`), the title area's tone and contrast and the chrome shade they
     /// make (`--cmux-sidebar-surface`, `--cmux-chrome-tone`, `--cmux-folder-fill`). The app repaints
     /// every page when one changes (`AppServices.observeBorders`).
     @MainActor
     public static var pushInputs: [String] {
         let design = DesignSettings.shared
-        return [Borders.current.mode.rawValue, design.fontSmoothing.rawValue, design.appFont ?? "", "\(design.liquidGlass)", "\(design.previousGlass)", "\(ChromeTunables.dividerStrength.value)", design.titleAreaTone.rawValue,
+        return [Borders.current.mode.rawValue, design.fontSmoothing.rawValue, design.appFont ?? "", "\(design.liquidGlass)", "\(design.previousGlass)", "\(design.menuLook)", "\(ChromeTunables.dividerStrength.value)", design.effectiveTitleAreaTone.rawValue,
                 "\(design.titleAreaContrast)", "\(Metrics.mainPaneChromeShade(isDark: false))", "\(Metrics.mainPaneChromeShade(isDark: true))"]
     }
 

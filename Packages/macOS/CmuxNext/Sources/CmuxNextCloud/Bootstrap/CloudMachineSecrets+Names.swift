@@ -11,7 +11,7 @@ extension CloudMachineSecrets {
     }
 
     /// This build's index, the one `cmux cloud secret set` writes for it (``BuildStatePaths/cloudSecretsIndex(environment:home:)``:
-    /// a dev build's own file, else `~/.config/cmux/cloud-secrets.json`).
+    /// a dev build's own file, else `~/.config/cmux-next/cloud-secrets.json`).
     public static func indexURL(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
         BuildStatePaths.cloudSecretsIndex(environment: ProcessInfo.processInfo.environment, home: home)
     }

@@ -26,6 +26,18 @@
 //! Of 20 post-idle wakes, 13 were at 60K or more and 7 at 100K or more. The test
 //! `the_default_trigger_fires_under_the_autocompact_cap_whatever_the_window` keeps it reachable.
 //!
+//! Why an expected-cost rule over a floor (2026-11-25; Leo: "Honestly why not just compact
+//! regardless of 30% or not"): the bars are now a floor (20K tokens, or the percent), and over it
+//! [`pays`] decides at the deadline from the chat's odds of waking again ([`p_wake`]: a turn
+//! coming, its lanes or sub-sessions at work, else its kind's measured share) and the model's own
+//! prices. With a certain wake it pays from about 24K tokens; for an idle lane (P 0.65) from
+//! about 32K; at 60K once P is over 0.32. Replayed over the fleet's 24 h of idle stretches
+//! (leo-workspace `tools/compact_rule_replay.py`), wake rewrites plus compactions priced alike:
+//! the 60K bar costs 43% of no compaction, compacting every chat of 20K or more 48%, this rule
+//! 43%, and it rewrites 43M tokens a day on a wake against the 60K bar's 65M (no compaction:
+//! 263M). A skipped deadline logs
+//! `cache compaction skipped: the expected saving does not pay for it`.
+//!
 //! It fires only when the chat is idle as the idle reaper judges it (no turn running or
 //! starting, nothing queued, no permission, question, secret or continuation waiting, no
 //! background subagent, sub-session or harness background process at work: `idle.rs`), the
@@ -55,6 +67,10 @@
 //! compacts now, into the live harness while its cache is warm, and sleeps on a later pass. The
 //! timer's entry goes as it is taken, so a compaction its gates refuse (a draft, a Web turn
 //! last) keeps the harness up for at most one more idle period, never for good.
+//!
+//! A deadline that comes while only a turn's lease (`turn_lock`) is still held, in the last steps
+//! of a turn already answered, waits for the lease, bounded by the cache's expiry, and checks
+//! again: refused there, the timer was spent and nothing armed it again.
 //!
 //! A turn of [`KIND`] that fails is not continued by `auto_resume.rs` (`turns.rs`): the next
 //! turn's usage arms the timer again, and a continuation would be a model call nobody asked for.
@@ -101,11 +117,11 @@ pub const SETTING_MIN_TOKENS: &str = "agents.cacheCompact.minContextTokens";
 pub const ENV_MIN_TOKENS: &str = "ACPMUX_CACHE_COMPACT_MIN_CONTEXT_TOKENS";
 const DEFAULT_MIN_CONTEXT: f64 = 30.0;
 const MIN_CONTEXT_RANGE: (f64, f64) = (10.0, 95.0);
-pub(crate) const DEFAULT_MIN_TOKENS: u64 = 60_000;
+pub(crate) const DEFAULT_MIN_TOKENS: u64 = 20_000;
 pub(crate) const MIN_TOKENS_RANGE: (u64, u64) = (10_000, 500_000);
 
-/// What arms the timer: a context of at least `tokens`, or at least `share` (0-1) of its window,
-/// whichever trips first.
+/// The floor under which a chat is never compacted: a context of at least `tokens`, or at least
+/// `share` (0-1) of its window, whichever trips first. Over it, [`pays`] decides.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Threshold {
     pub share: f64,
@@ -169,7 +185,9 @@ fn read_threshold() -> Option<Threshold> {
 /// timer (no expiry, under the threshold, or too close to the expiry to run in time).
 pub(crate) fn wait_ms(update: &Value, threshold: Threshold, now_ms: u64) -> Option<u64> {
     let expires = update.pointer("/_meta/acpmux/cacheExpiresAt").and_then(Value::as_u64)?;
-    if !over(context(update)?, threshold) {
+    let used = context(update)?;
+    // Armed only where the rule could pay at all (a certain wake): the fire decides with P(wake).
+    if !over(used, threshold) || !pays(used.0, 1.0, Prices::of(None, true)) {
         return None;
     }
     let fire = expires.checked_sub(lead_ms(expires.saturating_sub(now_ms)))?;
@@ -188,6 +206,96 @@ pub(crate) fn over((used, size): (u64, u64), threshold: Threshold) -> bool {
     used >= threshold.tokens || (size > 0 && used as f64 / size as f64 >= threshold.share)
 }
 
+/// The expected-cost rule (desktop-zoe, 2026-11-25, after Leo: "Honestly why not just compact
+/// regardless of 30% or not"). A compaction just before the cache expires reads the warm context
+/// once and writes a summary; it saves the cold rewrite of the whole context only if the chat is
+/// woken again. So it runs when
+///
+/// `P(wake) x (S - s) x write  >  read x S + output x summary`
+///
+/// with S the context now, s the context after a compaction ([`POST_TOKENS`]), summary its
+/// output ([`SUMMARY_TOKENS`]), and the model's prices as multiples of its input price
+/// ([`Prices::of`]). Measured 2026-11-25 over the fleet's last 24 h of transcripts
+/// (leo-workspace `tools/compact_rule_replay.py` over `cache_write_sources.py fleet`): see
+/// [`P_WAKE_COORDINATOR`] and [`P_WAKE_OTHER`].
+pub(crate) fn pays(used: u64, p_wake: f64, prices: Prices) -> bool {
+    let (s, out) = (POST_TOKENS as f64, SUMMARY_TOKENS as f64);
+    let used = used as f64;
+    p_wake * (used - s).max(0.0) * prices.write > prices.read * used + prices.output * out
+}
+
+/// What a compacted context holds: the summary and the turns Claude Code keeps after it. The
+/// fleet's 5,785 compactions in the 24 h to 2026-11-25 13Z (43 hosts): `postTokens` 8.1K mean
+/// (Claude Code's autocompact 9.3K, acpmux's `/compact` 6.0K).
+pub(crate) const POST_TOKENS: u64 = 8_000;
+/// What a compaction writes as output: its summary, most of the compacted context.
+pub(crate) const SUMMARY_TOKENS: u64 = 6_000;
+/// P(wake) for a coordinator whose next wake nothing names yet (no turn coming, no lane or
+/// sub-session at work): the share of acpmux coordinators' idle stretches (55 min or more) that
+/// ended in a turn, same 24 h: 0.73 (a stretch still open at the window's end counts as no wake,
+/// so every share here is a floor).
+pub(crate) const P_WAKE_COORDINATOR: f64 = 0.7;
+/// The same for any other chat: lanes 0.67, goals 0.88, reviews 0.72, dictators 0.12 (few).
+pub(crate) const P_WAKE_OTHER: f64 = 0.65;
+/// A chat whose lanes or sub-sessions are at work: their reports wake it.
+pub(crate) const P_WAKE_DELEGATING: f64 = 0.9;
+
+/// A model's prices as multiples of its input price: the cache write of the TTL the chat's cache
+/// uses, the cache read and the output (leo-workspace `machines/costs-watch.json` `token_rates`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Prices {
+    pub write: f64,
+    pub read: f64,
+    pub output: f64,
+}
+
+impl Prices {
+    /// `model` (None: the default, Opus 5.5) on a 1-hour cache (`long`) or a 5-minute one. Every
+    /// Claude model's output is 5x its input, a 1-hour write 2x and a 5-minute one 1.25x; a read
+    /// is 0.05x on the 5.5 models (Opus 5.5: $0.20 of $4 a Mtok) and 0.1x before them.
+    pub(crate) fn of(model: Option<&str>, long: bool) -> Self {
+        let m = model.unwrap_or("").to_ascii_lowercase();
+        let older = ["opus-5-1", "opus-5-0", "opus-4", "sonnet-4", "sonnet-5-0", "haiku"]
+            .iter()
+            .any(|old| m.contains(old))
+            || m.ends_with("opus-5")
+            || m.ends_with("sonnet-5");
+        Self {
+            write: if long { 2.0 } else { 1.25 },
+            read: if older { 0.1 } else { 0.05 },
+            output: 5.0,
+        }
+    }
+}
+
+/// Whether a chat named `name` is a coordinator, as leo-workspace's `cache_write_sources.py`
+/// and `claude-coord-cap` match one.
+pub(crate) fn coordinator_name(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    ["coord", "chief", "delegate", "interim", "deputy"].iter().any(|w| n.contains(w))
+}
+
+/// P(wake) of a chat from what acpmux knows of it: a turn already coming is a wake; lanes or
+/// sub-sessions at work wake it with their reports; else its kind's measured share.
+pub(crate) fn p_wake(coming: bool, delegating: bool, coordinator: bool) -> f64 {
+    if coming {
+        1.0
+    } else if delegating {
+        P_WAKE_DELEGATING
+    } else if coordinator {
+        P_WAKE_COORDINATOR
+    } else {
+        P_WAKE_OTHER
+    }
+}
+
+/// The context (tokens) under which a chat at `used` (tokens, window) no longer trips
+/// `threshold`: what surgery must reach to stand in for `/compact`.
+pub(crate) fn compact_line((_, size): (u64, u64), threshold: Threshold) -> u64 {
+    let share = (size > 0).then(|| (threshold.share * size as f64) as u64);
+    share.map_or(threshold.tokens, |share| share.min(threshold.tokens))
+}
+
 /// Whether a prompt's provenance is this timer's compaction.
 pub(crate) fn is_own(provenance: Option<&Value>) -> bool {
     provenance.and_then(|p| p.get("kind")).and_then(Value::as_str) == Some(KIND)
@@ -196,6 +304,15 @@ pub(crate) fn is_own(provenance: Option<&Value>) -> bool {
 fn completed_compaction(update: &Value) -> bool {
     update.get("sessionUpdate").and_then(Value::as_str) == Some("compaction")
         && update.get("state").and_then(Value::as_str) == Some("completed")
+}
+
+/// What [`Hub::cache_compact_ready`] found.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Ready {
+    Yes,
+    /// Ready but for a turn's lease (`turn_lock`) still held: the fire waits for it.
+    Leased,
+    No,
 }
 
 impl Hub {
@@ -241,10 +358,11 @@ impl Hub {
         };
         let Some((_, timer, expires, used)) = armed else { return false };
         timer.abort();
+        let long = expires.saturating_sub(now_ms()) > LONG_CACHE_MS;
         tracing::info!(session = %session.id, "cache compaction runs before the idle stop");
         let session = session.clone();
         self.scope.spawn_until_cancelled("cache-compact-before-reap", async move {
-            hub.cache_compact_fire(&session, expires, used).await;
+            hub.cache_compact_fire(&session, expires, used, long).await;
         });
         true
     }
@@ -262,6 +380,7 @@ impl Hub {
         else {
             return;
         };
+        let long = expires.saturating_sub(now_ms()) > LONG_CACHE_MS;
         let deadline = self.clock_now().saturating_add(wait.saturating_mul(1_000_000));
         let clock = self.clock.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let generation = GENERATION.fetch_add(1, Ordering::SeqCst);
@@ -282,15 +401,15 @@ impl Hub {
                 return;
             }
             let (Some(hub), Some(session)) = (hub.upgrade(), weak.upgrade()) else { return };
-            hub.cache_compact_fire(&session, expires, used).await;
+            hub.cache_compact_fire(&session, expires, used, long).await;
         });
         timers.insert(session.id.clone(), (generation, task.abort_handle(), expires, used));
     }
 
     /// Whether `session` may be compacted now: idle as the reaper judges it, nobody typing, no
-    /// draft, no Web turn last (module docs).
-    fn cache_compact_ready(&self, session: &Session) -> bool {
-        let idle = self.idle_eligible(session) && session.turn_lock.try_lock().is_ok();
+    /// draft, no Web turn last (module docs). [`Ready::Leased`]: all of that, but a turn's lease
+    /// (`turn_lock`) is still held.
+    fn cache_compact_ready(&self, session: &Session) -> Ready {
         let remote = session.floor.last_turn_web.load(Ordering::SeqCst)
             || session.floor.cloud_mobile_turn.load(Ordering::SeqCst);
         let presence = self.presence.snapshot(&session.id);
@@ -301,7 +420,23 @@ impl Hub {
         let draft = session
             .read_meta(|m| m.composer_draft.as_deref().is_some_and(|d| !d.trim().is_empty()))
             || session.composers.lock().unwrap_or_else(|e| e.into_inner()).any_draft();
-        idle && !remote && !typing && !draft
+        if !self.idle_eligible(session) || remote || typing || draft {
+            Ready::No
+        } else if session.turn_lock.try_lock().is_err() {
+            Ready::Leased
+        } else {
+            Ready::Yes
+        }
+    }
+
+    /// [`p_wake`] for `session` now: a turn coming (`work_coming`), its lanes or live sub-sessions
+    /// at work, else its kind.
+    fn cache_compact_p_wake(&self, session: &Session) -> f64 {
+        let coming = self.work_coming(&session.id);
+        let delegating = self.subsessions.live_count(&session.id) > 0
+            || !self.waking_children(&session.id).is_empty()
+            || self.lane_links(|links| links.values().any(|l| l.parent == session.id));
+        p_wake(coming, delegating, coordinator_name(&session.meta().name))
     }
 
     /// The timer's deadline: `/compact` for a chat at `used` of its window, if it still may be.
@@ -310,18 +445,60 @@ impl Hub {
         session: &Arc<Session>,
         expires_ms: u64,
         used: (u64, u64),
+        long: bool,
     ) {
         // Sent only while the chat still ends on the turn it ends on now (`after_turn`, checked
         // with no await before the turn is taken and again after). Read before the checks below:
         // a Web or phone turn that ends after this read refuses it at admission, and one that
         // started before the checks shows in them, so it never lifts that turn's remote floor.
-        let last = session.meta().last_turn.as_ref().and_then(|t| t.get("turnId").cloned());
-        let Some(last) = last.and_then(|t| t.as_str().map(str::to_owned)) else { return };
-        // Read again: the setting may have been turned off or its threshold raised since the
-        // timer was armed, and the cache must still be warm when the request goes.
-        if read_threshold().is_none_or(|threshold| !over(used, threshold))
-            || now_ms() >= expires_ms
-            || !self.cache_compact_ready(session)
+        // A turn's lease outlives its end: the prompt is answered and the chat reads idle while
+        // the turn's task still holds `turn_lock` for its last steps. A deadline that fell there
+        // was refused, its entry already taken, and nothing armed it again (the turn's usage came
+        // before): the chat's cache lapsed uncompacted. So the deadline waits for the lease, until
+        // the cache's expiry, and every check runs again; a turn that starts meanwhile shows in
+        // them or moves the last turn (this deadline then ends: that turn's usage arms its own
+        // timer), and `after_turn` refuses this one if it starts later still.
+        let last_turn = || {
+            let last = session.meta().last_turn.as_ref().and_then(|t| t.get("turnId").cloned());
+            last.and_then(|t| t.as_str().map(str::to_owned))
+        };
+        let Some(at_deadline) = last_turn() else { return };
+        let (last, threshold) = loop {
+            let Some(last) = last_turn().filter(|last| *last == at_deadline) else { return };
+            // Read again: the setting may have been turned off or its threshold raised since the
+            // timer was armed, and the cache must still be warm when the request goes.
+            let Some(threshold) = read_threshold().filter(|threshold| over(used, *threshold))
+            else {
+                return;
+            };
+            let Some(left) = expires_ms.checked_sub(now_ms()).filter(|left| *left > 0) else {
+                return;
+            };
+            let p = self.cache_compact_p_wake(session);
+            // `long`: a 1-hour cache (its write 2x input), else a 5-minute one (1.25x).
+            let model = session.applied.lock().unwrap_or_else(|e| e.into_inner()).model.clone();
+            if !pays(used.0, p, Prices::of(model.as_deref(), long)) {
+                tracing::info!(session = %session.id, used = used.0, p_wake = p,
+                    "cache compaction skipped: the expected saving does not pay for it");
+                return;
+            }
+            match self.cache_compact_ready(session) {
+                Ready::Yes => break (last, threshold),
+                Ready::No => return,
+                Ready::Leased => {
+                    let lease = session.turn_lock.lock();
+                    let left = std::time::Duration::from_millis(left);
+                    let Ok(guard) = tokio::time::timeout(left, lease).await else { return };
+                    drop(guard);
+                }
+            }
+        };
+        // Surgery first (`surgery.rs`, RFD 0149): it masks old tool output with no model call, so
+        // the chat lands under the threshold without a `/compact` turn; `/compact` when it says
+        // no or fails (counted in `harnessMagic.surgery.fallbacks`).
+        if self
+            .surgery_before_compact(session, compact_line(used, threshold), "cache_compact")
+            .await
         {
             return;
         }

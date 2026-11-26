@@ -792,7 +792,7 @@ class FeatGuardRoutingTests(unittest.TestCase):
             "release-notes/next/highlights/x.md", "release-notes/next/retired-feed-announcements.json",
             "cmux.nightly.entitlements", "cmux-helper.entitlements", "Resources/cmux.entitlements",
             "cmux-next-ios/App/CmuxMobileApp-Production.entitlements",
-            "Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateRing.swift",
+            "Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/UpdateRing.swift",
             "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/AppcastParser.swift",
             "Native/OptChat/optchat-chief/inspector/index.html", "ghostty", "ghostty-next",
             "cmux-tui/Cargo.toml",

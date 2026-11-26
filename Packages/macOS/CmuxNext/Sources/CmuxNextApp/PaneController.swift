@@ -539,7 +539,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// This pane is its workspace's focused pane.
     var isFocusedInWorkspace: Bool { workspace?.focus.state.pane == paneKey }
 
+    func defersPageUntilFrame(_ key: String) -> Bool { services.launchReveal.pages.defers("\(paneKey)/\(key)") { [weak self] in if let self, self.currentTabKey == key { self.showSelected() } } } // `key`'s new page view waits for the first window frame (`LaunchPageDeferral`); this pane shows it again then
     func content(for key: String) -> TabContent? {
+        if services.launchReveal.pages.holds, key.hasPrefix(LocalPageTab.prefix) || key.hasPrefix(LocalBrowserTab.prefix) || pane.tabs.first(where: { $0.id == key }).map({ $0.kind == .browser || ($0.kind == .conversation && $0.agentSession == nil && $0.page != nil) }) == true, existingContent(for: key) == nil, defersPageUntilFrame(key) { return nil } // no new page view (local page or browser tab, store browser or page tab) before the first frame; an agent tab's waits in AgentTabContent
         if key.hasPrefix(LocalPageTab.prefix) { return services.pages.view(for: key).map(TabContent.page) }
         if let mirrored = mirroredContent(for: key) { return mirrored }
         if key.hasPrefix(LocalBrowserTab.prefix) {

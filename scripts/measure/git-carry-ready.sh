@@ -15,11 +15,20 @@
 #          pack copied into a private file as the daemon copies an upload, `git init`,
 #          `index-pack --strict`, `.git/shallow`, the missing-object check, then the same
 #          bundle and checkout with every blob already local.
+#   borrow (MIRROR=a blobless bare mirror of URL, as `wt` keeps one; git_seed/borrow.rs):
+#          `git init`, the mirror's objects in `objects/info/alternates`, its shallow file,
+#          `origin` the one promisor (blob:none), the missing-object check, then the same
+#          bundle and checkout with every object read through the mirror.
+#   deepen: after a borrow, the first DEEPEN (default 20) commits of history on demand
+#          (`fetch --deepen`, the boundary kept), timed alone against `fetch --unshallow`
+#          when UNSHALLOW=1.
+# MODES picks them (default "clone carry"; "borrow deepen" needs MIRROR). DURESS=N runs N
+# seeds of each mode at once and prints the slowest (the machine under N concurrent seeds).
 # The carry time includes making the pack on the sender. It does NOT include the upload over
 # the Mac-to-machine link: the script prints the pack's bytes so the upload can be added for a
 # given link (bytes / rate).
 #
-# Usage: scripts/measure/git-carry-ready.sh SENDER [RUNS] [URL]
+# Usage: [MODES=..] [MIRROR=..] [DURESS=N] scripts/measure/git-carry-ready.sh SENDER [RUNS] [URL]
 #   SENDER  a full (not partial) clone of URL; untouched: the script works in a worktree of it.
 #   RUNS    runs per mode (default 3); prints each run and the median.
 #   URL     default https://github.com/manaflow-ai/cmux.git
@@ -44,8 +53,11 @@ if [ "$(g -C "$SENDER" config --get extensions.partialClone || true)" != "" ]; t
 fi
 
 # The sender's state: a worktree at the remote's default branch with local work on top.
-g -C "$SENDER" fetch -q origin
-BASE=$(g -C "$SENDER" rev-parse origin/HEAD 2>/dev/null || g -C "$SENDER" rev-parse origin/main)
+# BASE=SHA pins it (a SENDER without a reachable origin); else the remote's default branch.
+if [ -z "${BASE:-}" ]; then
+  g -C "$SENDER" fetch -q origin
+  BASE=$(g -C "$SENDER" rev-parse origin/HEAD 2>/dev/null || g -C "$SENDER" rev-parse origin/main)
+fi
 SRC=$WORK/sender-wt
 g -C "$SENDER" worktree add -q -B carry-measure "$SRC" "$BASE"
 trap 'g -C "$SENDER" worktree remove --force "$SRC" >/dev/null 2>&1 || true; g -C "$SENDER" branch -q -D carry-measure >/dev/null 2>&1 || true' EXIT
@@ -98,7 +110,7 @@ run_clone() {
 }
 
 run_carry() {
-  local d=$1 pack=$WORK/carry-upload.pack
+  local d=$1 pack=$1.upload.pack
   printf -- '--shallow %s\n%s\n' "$BASE" "$BASE" |
     g -C "$SRC" pack-objects --revs --stdout -q --delta-base-offset > "$pack"
   CARRY_BYTES=$(stat -c %s "$pack")
@@ -119,19 +131,70 @@ run_carry() {
   finish "$d"
 }
 
+run_borrow() {
+  local d=$1
+  [ -n "${MIRROR:-}" ] || { echo "borrow needs MIRROR" >&2; return 1; }
+  [ "$(g --git-dir="$MIRROR" config --get remote.origin.url | sed -E 's#^(git@github.com:|https://github.com/)##; s#\.git$##')" = \
+    "$(printf %s "$URL" | sed -E 's#^https://github.com/##; s#\.git$##')" ] || { echo "MIRROR is another repository" >&2; return 1; }
+  mkdir -p "$d"
+  g init -q -- "$d"
+  echo "$(cd "$MIRROR/objects" && pwd -P)" > "$d/.git/objects/info/alternates"
+  [ ! -f "$MIRROR/shallow" ] || cp "$MIRROR/shallow" "$d/.git/shallow"
+  g -C "$d" remote add origin "$URL"
+  g -C "$d" config remote.origin.promisor true
+  g -C "$d" config remote.origin.partialclonefilter blob:none
+  g -C "$d" config core.repositoryformatversion 1
+  g -C "$d" config extensions.partialClone origin
+  if g -C "$d" rev-list --objects --no-walk --missing=print "$BASE" | grep -q '^?'; then
+    echo "mirror lacks objects of the base" >&2; return 1
+  fi
+  finish "$d"
+}
+
+DEEPEN=${DEEPEN:-20}
+run_deepen() {
+  local d=$1
+  run_borrow "$d" || return 1
+  [ -f "$d/.git/shallow" ] || echo "$BASE" > "$d/.git/shallow"
+  local t0 t1
+  t0=$(now)
+  g -C "$d" fetch -q --no-tags --deepen="$DEEPEN" origin "$BASE"
+  t1=$(now)
+  DEEPEN_S=$(awk -v a="$t0" -v b="$t1" 'BEGIN {printf "%.2f", b - a}')
+  if [ "${UNSHALLOW:-0}" = 1 ]; then
+    t0=$(now); g -C "$d" fetch -q --no-tags --unshallow origin; t1=$(now)
+    DEEPEN_S="$DEEPEN_S unshallow_s=$(awk -v a="$t0" -v b="$t1" 'BEGIN {printf "%.2f", b - a}')"
+  fi
+}
+
 median() { sort -n | awk '{a[NR]=$1} END {print (NR%2 ? a[(NR+1)/2] : (a[NR/2]+a[NR/2+1])/2)}'; }
 
-for mode in clone carry; do
+DURESS=${DURESS:-0}
+for mode in ${MODES:-clone carry}; do
+  if [ "$DURESS" -gt 1 ]; then
+    t0=$(now); pids=()
+    for j in $(seq 1 "$DURESS"); do
+      ( set +e; CARRY_BYTES=0; "run_$mode" "$WORK/duress-$mode-$j" >/dev/null 2>&1; echo $? > "$WORK/duress-$mode-$j.rc" ) & pids+=($!)
+    done
+    wait ${pids[@]+"${pids[@]}"}; t1=$(now)
+    bad=0; for j in $(seq 1 "$DURESS"); do
+      { [ "$(cat "$WORK/duress-$mode-$j.rc")" = 0 ] && check "$WORK/duress-$mode-$j"; } || bad=$((bad + 1))
+      rm -rf "$WORK/duress-$mode-$j" "$WORK/duress-$mode-$j.rc"
+    done
+    [ $bad -eq 0 ] || ok=1
+    echo "$mode duress=$DURESS all_ready_s=$(awk -v a="$t0" -v b="$t1" 'BEGIN {printf "%.2f", b - a}') failed=$bad load=$(cut -d' ' -f1 /proc/loadavg)"
+    continue
+  fi
   times=()
   for i in $(seq 1 "$RUNS"); do
     d=$WORK/dest-$mode-$i
-    CARRY_BYTES=0
+    CARRY_BYTES=0 DEEPEN_S=
     t0=$(now)
     set +e; "run_$mode" "$d"; rc=$?; set -e
     t1=$(now)
     secs=$(awk -v a="$t0" -v b="$t1" 'BEGIN {printf "%.2f", b - a}')
     if [ $rc -eq 0 ] && check "$d"; then match=yes; else match=no; ok=1; fi
-    echo "$mode run=$i rc=$rc ready_s=$secs matches_sender=$match objects_bytes=$(pack_bytes "$d") carry_pack_bytes=$CARRY_BYTES shallow=$([ -f "$d/.git/shallow" ] && echo yes || echo no)"
+    echo "$mode run=$i rc=$rc ready_s=$secs matches_sender=$match objects_bytes=$(pack_bytes "$d") carry_pack_bytes=$CARRY_BYTES shallow=$([ -f "$d/.git/shallow" ] && echo yes || echo no)${DEEPEN_S:+ deepen_${DEEPEN}_s=$DEEPEN_S}"
     times+=("$secs")
     rm -rf "$d"
   done

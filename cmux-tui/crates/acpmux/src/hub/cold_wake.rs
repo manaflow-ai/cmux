@@ -264,6 +264,16 @@ pub(crate) fn is_own(provenance: Option<&Value>) -> bool {
     provenance.and_then(|p| p.get("kind")).and_then(Value::as_str) == Some(KIND)
 }
 
+/// Whether a cold batch's compaction (`provenance`) may go ahead of what waits in `session`'s
+/// queue: only the batch waits there (another agent's message or the inbox's notice, each of
+/// which `goes_in_by_itself`, or what waits aside), never a person's prompt. The batch's own
+/// gathered message always waits in the queue (`agent_gather.rs`), so the continuation's "nothing
+/// waits" check (`auto_resume.rs` `check_cut`) refused every cold compaction: 15 of 15 on one lane
+/// VM over 48 h logged `auto_resume.superseded` and none ran.
+pub(crate) fn goes_ahead_of_batch(session: &Session, provenance: Option<&Value>) -> bool {
+    is_own(provenance) && session.queue().iter().all(|q| q.aside() || q.goes_in_by_itself())
+}
+
 /// Whether the running turn is a cold batch's compaction: nothing steers into it.
 pub(crate) fn compaction_runs(session: &Session) -> bool {
     session.turn().is_some_and(|t| t.prompt_id.starts_with(COMPACT_ID_PREFIX))
@@ -370,15 +380,8 @@ impl Hub {
         tokens: u64,
         line: u64,
     ) -> bool {
-        let dry = self.surgery(session, None, true).await;
-        if !surgery_suffices(&dry, line) {
-            tracing::info!(session = %session.id, tokens, outcome = ?dry.as_ref().map_err(|e| &e.message), "cold wake surgery skipped");
-            return false;
-        }
-        let answer = self.surgery(session, None, false).await;
-        let applied = surgery_applied(&answer);
-        tracing::info!(session = %session.id, tokens, applied, outcome = ?answer.as_ref().map_err(|e| &e.message), "cold wake surgery");
-        applied
+        tracing::debug!(session = %session.id, tokens, "cold wake surgery");
+        self.surgery_before_compact(session, line, "cold_wake").await
     }
 
     /// `cache_compact.rs`'s check but for the queue: no turn holds the lock, no Web or phone turn
