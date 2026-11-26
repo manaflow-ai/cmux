@@ -11,6 +11,9 @@ private let log = Logger(subsystem: "dev.cmux.mobile", category: "tabs-feed")
 /// under (``MacTabsSink/save(_:hash:mime:macID:)``).
 public struct MacTabCard: Equatable, Sendable {
     public var tabID: String
+    /// The tab's durable id on the Mac: `tabID` names a tab only within one epoch, this one
+    /// stays the tab's across them. Empty when the Mac does not say.
+    public var tabKey: String
     public var title: String
     /// `browser`, `terminal`, `agent`, or a kind a newer Mac names.
     public var kind: String
@@ -29,6 +32,7 @@ public struct MacTabCard: Equatable, Sendable {
 
     init(_ row: TabsRow) {
         tabID = MacTabsFeed.tabID(wire: row.tabId)
+        tabKey = row.tabKey
         title = row.title
         kind = row.kind
         faviconHash = row.faviconHash
