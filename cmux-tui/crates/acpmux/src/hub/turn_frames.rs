@@ -7,7 +7,9 @@
 //! - `turn-start`: the turn began.
 //! - `edit`: a finished tool call named a UI file ([`ui_path`]); debounced [`DEBOUNCE`], so a burst
 //!   of edits is one frame.
-//! - `build`: a finished shell call (a build, a reload); debounced the same way.
+//! - `build`: a finished shell call (a build, a reload); debounced the same way. Also a swap a
+//!   `cmux live` loop landed in a tree the turn worked in (`live_builds.rs`, RFD 0152), [`SETTLE`]
+//!   after it, of the app's window when the turn has no agent-driven page.
 //! - `turn-end`: the turn's result was written.
 //! - `look`: the agent asked (the `look` MCP tool), the one trigger that costs it tokens.
 //!
@@ -35,6 +37,10 @@ pub(crate) const KEEP_TURNS: usize = 6;
 pub(crate) const KEEP_CHATS: usize = 32;
 /// A burst of edits or shell calls inside this is one frame.
 pub(crate) const DEBOUNCE: Duration = Duration::from_millis(1500);
+/// A `cmux live` swap's frame waits this long after the swap, for the swapped build to redraw.
+pub(crate) const SETTLE: Duration = Duration::from_millis(400);
+/// Paths a turn's tool calls named, kept to match a `cmux live` swap's tree.
+const MAX_TOUCHED: usize = 64;
 /// Hamming distance at or under which two frames are the same picture.
 pub(crate) const SAME: u32 = 4;
 pub(crate) const THUMB_WIDTH: u32 = 320;
@@ -86,6 +92,10 @@ struct Turn {
     /// The turn customizes the app itself ([`customizes_app`]): with no agent-driven page, frames
     /// are of the app's window (`cmux window screenshot`, masked by the app).
     chrome: bool,
+    /// The chat's folder.
+    cwd: String,
+    /// Paths this turn's finished, non-read tool calls named (at most [`MAX_TOUCHED`]).
+    touched: Vec<String>,
 }
 
 static TURNS: LazyLock<Mutex<HashMap<String, Turn>>> = LazyLock::new(Default::default);
@@ -314,8 +324,11 @@ pub(super) fn turn_began(session: &Session, turn: &str) {
             debounce: 0,
             kinds: HashMap::new(),
             chrome: false,
+            cwd: session.meta().cwd.to_string_lossy().into_owned(),
+            touched: Vec::new(),
         },
     );
+    super::live_builds::watch();
     ask(&session.id, "turn-start");
 }
 
@@ -341,15 +354,66 @@ pub(super) fn record(session: &str, kind: &str, msg: &Value) {
         if customizes_app(update) {
             turn.chrome = true;
         }
+        if tool != Some("read") && update.get("status").and_then(Value::as_str) == Some("completed")
+        {
+            for path in named_paths(update) {
+                if turn.touched.len() < MAX_TOUCHED && !turn.touched.contains(&path) {
+                    turn.touched.push(path);
+                }
+            }
+        }
         let Some(trigger) = trigger_of(tool, update) else { return };
         turn.debounce += 1;
         (turn.id.clone(), turn.debounce, trigger)
     };
+    let (turn_id, debounce, trigger) = generation;
+    after(session, turn_id, debounce, trigger, DEBOUNCE);
+}
+
+/// Whether any chat's turn is running (the `cmux live` beacon is looked at only then).
+pub(crate) fn any_live() -> bool {
+    turns().values().any(|t| t.live)
+}
+
+/// Whether a turn in `cwd` that named `touched` worked in `tree`: the chat's folder is in it, or a
+/// path one of its tool calls named is.
+pub(crate) fn worked_in(tree: &str, cwd: &str, touched: &[String]) -> bool {
+    let tree = Path::new(tree);
+    let inside = |p: &str| {
+        let p = Path::new(p);
+        p.is_absolute() && p.starts_with(tree)
+    };
+    inside(cwd) || touched.iter().any(|p| inside(p) || inside(&format!("{cwd}/{p}")))
+}
+
+/// A `cmux live` loop swapped in a build of `tree`: each running turn that worked in it, or ran a
+/// `cmux live` or customize call, asks a `build` frame [`SETTLE`] from now. The swapped build is the
+/// app's own, so with no agent-driven page the frame is of the app's window. The turns asked.
+pub(crate) fn built(tree: &str) -> usize {
+    let asked: Vec<(String, String, u64)> = {
+        let mut all = turns();
+        all.iter_mut()
+            .filter(|(_, t)| t.live && (t.chrome || worked_in(tree, &t.cwd, &t.touched)))
+            .map(|(session, t)| {
+                t.chrome = true;
+                t.debounce += 1;
+                (session.clone(), t.id.clone(), t.debounce)
+            })
+            .collect()
+    };
+    let count = asked.len();
+    for (session, turn_id, debounce) in asked {
+        after(&session, turn_id, debounce, "build", SETTLE);
+    }
+    count
+}
+
+/// Asks `trigger`'s frame `delay` from now unless the turn ended or a later call superseded it.
+fn after(session: &str, turn_id: String, debounce: u64, trigger: &'static str, delay: Duration) {
     let Ok(runtime) = tokio::runtime::Handle::try_current() else { return };
     let session = session.to_owned();
-    let (turn_id, debounce, trigger) = generation;
     runtime.spawn(async move {
-        tokio::time::sleep(DEBOUNCE).await;
+        tokio::time::sleep(delay).await;
         let settled = turns()
             .get(&session)
             .is_some_and(|t| t.id == turn_id && t.live && t.debounce == debounce);
