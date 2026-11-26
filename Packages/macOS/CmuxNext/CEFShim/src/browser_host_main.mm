@@ -646,6 +646,8 @@ int main(int argc, char* argv[]) {
   settings.no_sandbox = false;  // the helpers enter the sandbox themselves (helper_main.mm)
   settings.persist_session_cookies = false;
   CefString(&settings.framework_dir_path) = framework;
+  // The app: the host runs from its Contents/MacOS (embed-cef.sh), so the helpers' sandbox (BUNDLE_PATH, the browser
+  // process's main bundle) covers the framework and the helpers, as it does for the in-process engine.
   CefString(&settings.main_bundle_path) = [[[NSBundle mainBundle] bundlePath] UTF8String];
   CefString(&settings.browser_subprocess_path) = Arg(args, "subprocess");
   CefString(&settings.root_cache_path) = root;

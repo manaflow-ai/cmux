@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fleet entry for the Chromium host bench (hot path `cef-host-input`, scripts/cmux-next/perf-hot-benches.json;
-# plans/cmux-next/cef-helper-app-DESIGN.md): builds a tagged Debug cmux-next app at this checkout (the host app
-# `<App> Chromium Host.app` is embedded in Debug builds only), then runs scripts/cmux-next/chromium-host-bench.py:
+# plans/cmux-next/cef-helper-app-DESIGN.md): builds a tagged Debug cmux-next app at this checkout (the host
+# `Contents/MacOS/<App> Chromium Host` is embedded in Debug builds only), then runs scripts/cmux-next/chromium-host-bench.py:
 # in process against the host app, key and click to the page's next frame, frame pacing, the wire's round trip
 # (`ping_us`), the host's input hop (`hop_us`), the in-process pump share of cmux's main thread, and the kill check.
 # Runs alone on the worker because it launches an app:

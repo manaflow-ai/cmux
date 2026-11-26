@@ -57,7 +57,7 @@ rm -f "$phase_stamp"
 # would make the app claim CEF is unavailable while still shipping stale code.
 remove_embed() {
   rm -rf "$frameworks/$FW_NAME" "$frameworks/libcmux_cef_shim.dylib" "$app/Contents/Resources/ChromiumLocales"
-  for helper in "$frameworks"/*" Helper"*.app "$frameworks"/*" Chromium Host.app"; do
+  for helper in "$frameworks"/*" Helper"*.app "$frameworks"/*" Chromium Host.app" "$app/Contents/MacOS/"*" Chromium Host"; do
     if [[ -e "$helper" ]]; then rm -rf "$helper"; fi
   done
   return 0
@@ -322,41 +322,25 @@ for existing in "$frameworks"/*" Helper"*.app; do
   (( keep )) || rm -rf "$existing"
 done
 
-# 3b. The Chromium host app (prototype behind browserHost.helperPrototype,
-# plans/cmux-next/cef-helper-app-DESIGN.md): Chromium's browser process in an
-# app of its own, which uses the helpers above for its child processes. Debug
-# builds only, so Release, RC and NIGHTLY bundles do not change.
-host_app="$frameworks/$product Chromium Host.app"
+# 3b. The Chromium host (prototype behind browserHost.helperPrototype,
+# plans/cmux-next/cef-helper-app-DESIGN.md): Chromium's browser process as a
+# second executable of the app, Contents/MacOS/<Product> Chromium Host, which
+# uses the helpers above for its child processes. Its main bundle is the app,
+# as the in-process engine's is: Chromium's helper sandbox lets a helper read
+# only the browser process's main bundle (BUNDLE_PATH,
+# content/browser/sandbox_parameters_mac.mm). From a small host app of its own
+# in Frameworks, every helper was refused the framework ("file system sandbox
+# blocked open()"), the GPU process failed six times and the host ended with
+# "GPU process isn't usable" (the other Mac, 2026-11-26). The host sets its own
+# accessory activation policy before AppKit finishes launching (no Dock tile).
+# Debug builds only, so Release, RC and NIGHTLY bundles do not change.
+host_exe="$app/Contents/MacOS/$product Chromium Host"
+rm -rf "$frameworks/$product Chromium Host.app"  # the earlier layout
 if [[ "${CONFIGURATION:-}" == "Debug" ]]; then
-  host_name="$product Chromium Host"
-  mkdir -p "$host_app/Contents/MacOS"
-  copy_if_changed "$shim_out/cmux-chromium-host" "$host_app/Contents/MacOS/$host_name"
-  tmp_plist="$(mktemp)"
-  cat > "$tmp_plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>CFBundleDevelopmentRegion</key><string>en</string>
-  <key>CFBundleDisplayName</key><string>$host_name</string>
-  <key>CFBundleExecutable</key><string>$host_name</string>
-  <key>CFBundleIdentifier</key><string>$bundle_id.chromium-host</string>
-  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
-  <key>CFBundleName</key><string>$host_name</string>
-  <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>${MARKETING_VERSION:-1.0}</string>
-  <key>CFBundleVersion</key><string>${CURRENT_PROJECT_VERSION:-1}</string>
-  <key>LSEnvironment</key><dict><key>MallocNanoZone</key><string>0</string></dict>
-  <key>LSMinimumSystemVersion</key><string>$min_os</string>
-  <key>LSUIElement</key><string>1</string>
-  <key>NSPrincipalClass</key><string>ChromiumHostApplication</string>
-  <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
-</dict>
-</plist>
-PLIST
-  if ! cmp -s "$tmp_plist" "$host_app/Contents/Info.plist"; then mv "$tmp_plist" "$host_app/Contents/Info.plist"; else rm -f "$tmp_plist"; fi
+  mkdir -p "$app/Contents/MacOS"
+  copy_if_changed "$shim_out/cmux-chromium-host" "$host_exe"
 else
-  rm -rf "$host_app"
+  rm -f "$host_exe"
 fi
 
 printf '%s' "$shim_key $product" > "$binary_stamp"
