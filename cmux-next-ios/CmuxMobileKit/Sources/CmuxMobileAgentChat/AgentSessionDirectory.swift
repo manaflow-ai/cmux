@@ -111,12 +111,17 @@ public final class AgentSessionDirectory {
     }
 
     public func store(workspace: Workspace, tab: WorkspaceTab, macName: String) -> AgentChatStore {
-        store(for: AgentSessionSummary(
+        var summary = AgentSessionSummary(
             id: tab.id, name: tab.subtitle ?? tab.title, harness: tab.harness ?? "claude", agentName: tab.title,
             cwd: workspace.directory, workspaceTitle: workspace.title, macName: macName, branch: workspace.branch,
             status: tab.agentStatus.map { $0 == .waiting ? .waiting : .running } ?? .idle,
             macID: workspace.macID
-        ))
+        )
+        // The agent is named by its kind ("What should Claude do?", "Reply to Codex"), never by
+        // the tab's title (a chat's title, or a name the person gave the tab). A tab that names
+        // no agent ("agent") is named once its source knows the Mac's default (`.agent`).
+        if summary.harness != "agent" { summary.agentName = summary.harnessDisplayName }
+        return store(for: summary)
     }
 }
 

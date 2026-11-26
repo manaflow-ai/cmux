@@ -288,9 +288,10 @@ async fn session(path: &std::path::Path, published: &Published, generation: u64)
 /// The cache connection's hello: page records for surface checks, then the subscription.
 fn cache_hello() -> String {
     format!(
-        "{{\"cmd\":\"set-client-info\",\"id\":\"cache-hello\",\"name\":\"cmux-mobile-host\",\"kind\":\"cli\",\"capabilities\":[\"{}\",\"{}\"]}}\n{{\"cmd\":\"subscribe\",\"id\":\"cache-subscribe\",\"tree_events\":\"deltas\"}}\n",
+        "{{\"cmd\":\"set-client-info\",\"id\":\"cache-hello\",\"name\":\"cmux-mobile-host\",\"kind\":\"cli\",\"capabilities\":[\"{}\",\"{}\",\"{}\"]}}\n{{\"cmd\":\"subscribe\",\"id\":\"cache-subscribe\",\"tree_events\":\"deltas\"}}\n",
         cmux_mobile_link::names::CONVERSATION_TABS,
-        cmux_mobile_link::names::PAGE_TABS
+        cmux_mobile_link::names::PAGE_TABS,
+        cmux_mobile_link::names::AGENT_SESSION_TABS
     )
 }
 
@@ -306,7 +307,9 @@ async fn session_with_probe(
     let (read, mut write) = stream.into_split();
     let mut reader = BufReader::new(read);
     // Subscribe before snapshots so no change between the snapshot and
-    // subscription can go missing. Negotiate page records for surface checks.
+    // subscription can go missing. Negotiate page records for surface checks, and agent
+    // session tabs as they are (the daemon shows them as browser tabs otherwise), so a
+    // phone's bind is checked against the tab's own host and session.
     write.write_all(cache_hello().as_bytes()).await.map_err(|_| ())?;
     let mut state = Snapshots::default();
     let mut subscribed = false;
@@ -518,7 +521,7 @@ mod tests {
     fn cache_hello_is_unchanged() {
         assert_eq!(
             cache_hello(),
-            "{\"cmd\":\"set-client-info\",\"id\":\"cache-hello\",\"name\":\"cmux-mobile-host\",\"kind\":\"cli\",\"capabilities\":[\"conversation-tabs-v1\",\"page-tabs-v1\"]}\n{\"cmd\":\"subscribe\",\"id\":\"cache-subscribe\",\"tree_events\":\"deltas\"}\n"
+            "{\"cmd\":\"set-client-info\",\"id\":\"cache-hello\",\"name\":\"cmux-mobile-host\",\"kind\":\"cli\",\"capabilities\":[\"conversation-tabs-v1\",\"page-tabs-v1\",\"agent-session-tabs-v1\"]}\n{\"cmd\":\"subscribe\",\"id\":\"cache-subscribe\",\"tree_events\":\"deltas\"}\n"
         );
     }
 

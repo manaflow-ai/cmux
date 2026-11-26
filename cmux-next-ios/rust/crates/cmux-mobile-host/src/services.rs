@@ -757,6 +757,10 @@ async fn splice(
         LinePolicy::Daemon(daemon) => Some(daemon.device_id().to_owned()),
         LinePolicy::Chief(_) => None,
     };
+    let agent_tab_host = match &policy {
+        LinePolicy::Daemon(daemon) => daemon.agent_tab_host().map(str::to_owned),
+        LinePolicy::Chief(_) => None,
+    };
     let socket = UnixStream::connect(path)
         .await
         .map_err(|e| Refusal::new("unavailable", format!("cmux-tui session {label}: {e}")))?;
@@ -838,7 +842,7 @@ async fn splice(
     side_workers.spawn(async move {
         while let Some((line, verdict)) = side_rx.recv().await {
             let Some(cache) = &side_cache else { return };
-            let verdict = daemon_owned_verdict(cache, &line, verdict).await;
+            let verdict = daemon_owned_verdict(cache, &line, verdict, agent_tab_host.as_deref()).await;
             match verdict {
                 Verdict::Refuse(answer) => {
                     if ready_tx.send(Verdict::Refuse(answer)).await.is_err() {
@@ -1100,11 +1104,12 @@ async fn daemon_owned_verdict(
     cache: &crate::workspace_cache::WorkspaceCache,
     line: &[u8],
     verdict: Verdict,
+    agent_tab_host: Option<&str>,
 ) -> Verdict {
     if let Some((tree, personal, layout)) = side_requirements(line) {
         cache.wait_for(tree, personal, layout).await;
     }
-    owned_check(cache, line, verdict)
+    owned_check(cache, line, verdict, agent_tab_host)
 }
 
 /// One read-only request a `catch-up` sends the daemon, checked as the `daemon` channel
@@ -1122,7 +1127,7 @@ pub(crate) async fn checked_daemon_request(
     let (line, verdict) = daemon_line_verdict(&LinePolicy::Daemon(policy.clone()), line, exposure);
     let needs_cache = side_requirements(&line).is_some() || crate::policy::ownership(&line).is_some();
     let verdict = match (cache, needs_cache) {
-        (Some(cache), _) => daemon_owned_verdict(cache, &line, verdict).await,
+        (Some(cache), _) => daemon_owned_verdict(cache, &line, verdict, policy.agent_tab_host()).await,
         (None, false) => verdict,
         (None, true) => {
             let request = serde_json::from_slice::<Value>(&line).ok();
@@ -2202,6 +2207,7 @@ fn side_requirements(line: &[u8]) -> Option<(bool, bool, bool)> {
         Some(Ownership::PinnedWorkspaceTile { .. }) => Some((false, false, true)),
         Some(Ownership::OwnGroup { .. }) => Some((true, true, false)),
         Some(Ownership::PlaceWorkspace { group, .. }) => Some((true, group.is_some(), false)),
+        Some(Ownership::UnboundAgentTab { .. }) => Some((true, false, false)),
         None => serde_json::from_slice::<Value>(line)
             .ok()
             .filter(|v| {
@@ -2214,10 +2220,15 @@ fn side_requirements(line: &[u8]) -> Option<(bool, bool, bool)> {
 
 /// Confirm ownership against the live cache; a missing/invalid snapshot never
 /// grants access. Snapshot refresh runs separately from keystroke forwarding.
-fn owned_check(cache: &crate::workspace_cache::WorkspaceCache, line: &[u8], verdict: Verdict) -> Verdict {
+fn owned_check(
+    cache: &crate::workspace_cache::WorkspaceCache,
+    line: &[u8],
+    verdict: Verdict,
+    agent_tab_host: Option<&str>,
+) -> Verdict {
     use crate::policy::{
         Ownership, is_pinned_workspace_tile, lists_workspace, not_owned, ownership, owns_group,
-        owns_personal_workspace, registry_id,
+        owns_personal_workspace, registry_id, unbound_agent_tab,
     };
     let Some(what) = ownership(line) else { return verdict };
     let tree = cache.tree();
@@ -2244,6 +2255,8 @@ fn owned_check(cache: &crate::workspace_cache::WorkspaceCache, line: &[u8], verd
                     (Some(_), None) => false,
                 }
         }),
+        Ownership::UnboundAgentTab { surface } => agent_tab_host
+            .is_some_and(|host| tree.as_ref().is_some_and(|tree| unbound_agent_tab(tree, *surface, host))),
     };
     if owned { verdict } else { Verdict::Refuse(not_owned(line, &what)) }
 }

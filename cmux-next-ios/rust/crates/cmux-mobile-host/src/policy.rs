@@ -152,8 +152,11 @@ pub static ALLOWED_COMMANDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| 
         // Agent chat tabs: only an acpmux session tab of this Mac's own
         // acpmux, checked below (`agent_tab_verdict`).
         "new-conversation-tab",
-        // An agent tab with no chat yet takes the chat the phone started for it
-        // (its first send): from no session only (`unbound_bind_refusal`).
+        // The first message of a chat the Mac opened with no session yet (a
+        // New chat tab): the phone starts the session on its acpmux lane and
+        // binds it to that tab, from no session only (`unbound_bind_refusal`,
+        // then `bind_verdict` and `Ownership::UnboundAgentTab` against the
+        // Mac's tree).
         "bind-conversation-tab-session",
         // Browser tabs.
         "new-browser-tab",
@@ -334,6 +337,11 @@ impl DaemonPolicy {
         self.projection_subject.strip_prefix("ios-device:").unwrap_or(&self.projection_subject)
     }
 
+    /// The agent tab host this Mac records on its own agent tabs, when a phone may start chats.
+    pub fn agent_tab_host(&self) -> Option<&str> {
+        self.agent_tab_host.as_deref()
+    }
+
     /// Lets the phone create agent tabs recorded for `host`.
     pub fn with_agent_tab_host(mut self, host: Option<String>) -> Self {
         self.agent_tab_host = host.filter(|host| !host.is_empty());
@@ -417,6 +425,9 @@ impl DaemonPolicy {
             let id = id.cloned();
             return self.agent_tab_verdict(object, id);
         }
+        if command == "bind-conversation-tab-session" {
+            return self.bind_verdict(id);
+        }
         if command == "set-client-info" {
             return self.client_info_verdict(object);
         }
@@ -435,6 +446,23 @@ impl DaemonPolicy {
             Ok(line) => Verdict::Rewrite(line),
             Err(_) => Verdict::Refuse(error_line(None, "bad_request", "request is not a JSON object")),
         }
+    }
+
+    /// `bind-conversation-tab-session` from a phone: a session it started on this Mac's acpmux,
+    /// bound to a tab that has none (`expected_session: null`), so a phone never swaps the chat
+    /// a tab already shows. Which tab it may be (an agent tab of this Mac with no session) is
+    /// confirmed against the Mac's tree after this ([`Ownership::UnboundAgentTab`]).
+    fn bind_verdict(&self, id: Option<&Value>) -> Verdict {
+        // The fields were checked by `unbound_bind_refusal`; the tab itself is checked against
+        // the Mac's tree after this.
+        if self.agent_tab_host.is_none() {
+            return Verdict::Refuse(error_line(
+                id,
+                "unavailable",
+                "this Mac's cmux does not let a phone start agent chats",
+            ));
+        }
+        Verdict::Forward
     }
 
     /// `new-conversation-tab` from a phone: an acpmux session tab of this
@@ -761,11 +789,17 @@ pub enum Ownership {
     /// `workspace.place`: a live workspace of this session (its `resource_id`), and
     /// the group it joins, when it joins one, as for [`Ownership::OwnGroup`].
     PlaceWorkspace { workspace: String, group: Option<String> },
+    /// `bind-conversation-tab-session`: an agent tab recorded for this Mac's own agent tab
+    /// host with no session yet (`list-workspaces`).
+    UnboundAgentTab { surface: u64 },
 }
 
 /// The check a forwarded line needs, or None (any other line).
 pub fn ownership(line: &[u8]) -> Option<Ownership> {
     let Value::Object(object) = serde_json::from_slice::<Value>(line).ok()? else { return None };
+    if object.get("cmd").and_then(Value::as_str) == Some("bind-conversation-tab-session") {
+        return Some(Ownership::UnboundAgentTab { surface: object.get("surface")?.as_u64()? });
+    }
     if object.get("cmd").and_then(Value::as_str) == Some("set-personal-workspace") {
         let text = |key: &str| object.get(key).and_then(Value::as_str).map(str::to_string);
         return Some(Ownership::PersonalWorkspace {
@@ -819,6 +853,32 @@ pub fn owns_group(personal: &Value, registry: &str, group: &str) -> bool {
         })
 }
 
+/// Whether `list-workspaces` (`reply`) lists tab `surface` as an agent tab recorded for `host`
+/// (or for no host: this Mac's own, as `LiveWorkspaceCreationBackend.startsHere` reads it)
+/// with no session bound: a New chat the Mac opened that has had no first message.
+pub fn unbound_agent_tab(reply: &Value, surface: u64, host: &str) -> bool {
+    let data = reply.get("data").unwrap_or(reply);
+    let list =
+        |value: &Value, key: &str| value.get(key).and_then(Value::as_array).cloned().unwrap_or_default();
+    list(data, "workspaces").iter().any(|workspace| {
+        list(workspace, "screens").iter().any(|screen| {
+            list(screen, "panes").iter().any(|pane| {
+                list(pane, "tabs").iter().any(|tab| {
+                    tab.get("surface").and_then(Value::as_u64) == Some(surface)
+                        && tab.pointer("/conversation/agent_session").is_some_and(Value::is_object)
+                        && tab.pointer("/conversation/agent_session/host").is_none_or(|value| {
+                            value.is_null()
+                                || value
+                                    .as_str()
+                                    .is_some_and(|tab_host| tab_host.is_empty() || tab_host == host)
+                        })
+                        && tab.pointer("/conversation/agent_session/session").is_none_or(Value::is_null)
+                })
+            })
+        })
+    })
+}
+
 /// Whether `list-workspaces` (`reply`) lists workspace `key` of session `session`.
 pub fn owns_personal_workspace(reply: &Value, session: &str, key: &str) -> bool {
     let data = reply.get("data").unwrap_or(reply);
@@ -865,6 +925,11 @@ pub fn not_owned(line: &[u8], what: &Ownership) -> String {
         Ownership::PlaceWorkspace { .. } => resource_refusal(
             id.as_ref(),
             "a phone may only move a workspace of this Mac into a group of this Mac's workspaces",
+        ),
+        Ownership::UnboundAgentTab { .. } => error_line(
+            id.as_ref(),
+            "forbidden",
+            "a phone may only start a chat in a new chat tab of this Mac",
         ),
     }
 }
@@ -1155,23 +1220,48 @@ mod tests {
     #[test]
     fn a_phone_binds_only_an_unbound_agent_tab() {
         let line = br#"{"id":1,"cmd":"bind-conversation-tab-session","surface":7,"session":"0199-abc","expected_session":null}"#;
-        assert!(matches!(policy().evaluate(line), Verdict::Forward));
+        assert_eq!(agent_policy().evaluate(line), Verdict::Forward);
+        assert_eq!(ownership(line), Some(Ownership::UnboundAgentTab { surface: 7 }));
+        // No agent tab host: no chat starts from a phone at all.
+        assert!(matches!(policy().evaluate(line), Verdict::Refuse(answer) if answer.contains("unavailable")));
         for line in [
             // Never a rebind: a tab's chat is never taken from it by a phone.
             br#"{"id":1,"cmd":"bind-conversation-tab-session","surface":7,"session":"b","expected_session":"a"}"#.as_slice(),
             br#"{"id":1,"cmd":"bind-conversation-tab-session","surface":7,"session":"b"}"#,
             br#"{"id":1,"cmd":"bind-conversation-tab-session","session":"b","expected_session":null}"#,
+            br#"{"id":1,"cmd":"bind-conversation-tab-session","surface":"x","session":"b","expected_session":null}"#,
             br#"{"id":1,"cmd":"bind-conversation-tab-session","surface":7,"session":"a b","expected_session":null}"#,
+            br#"{"id":1,"cmd":"bind-conversation-tab-session","surface":7,"session":"b","expected_session":null,"command":"sh"}"#,
             // Never a harness: the daemon relabels a bound tab's agent when the session is its own.
             br#"{"id":1,"cmd":"bind-conversation-tab-session","surface":7,"session":"b","expected_session":null,"harness":"codex"}"#,
             br#"{"id":1,"cmd":"bind-conversation-tab-session","surface":7,"session":"b","expected_session":null,"host":"registry:x"}"#,
         ] {
-            let Verdict::Refuse(answer) = policy().evaluate(line) else {
+            let Verdict::Refuse(answer) = agent_policy().evaluate(line) else {
                 panic!("forwarded {}", String::from_utf8_lossy(line));
             };
             let answer: Value = serde_json::from_str(&answer).unwrap();
             assert_eq!(answer["error_code"], "forbidden", "{}", String::from_utf8_lossy(line));
         }
+    }
+
+    #[test]
+    fn the_bound_tab_is_an_unbound_agent_tab_of_this_mac() {
+        let tree = |host: &str, session: Value| {
+            json!({"workspaces": [{"screens": [{"panes": [{"tabs": [
+                {"surface": 7, "kind": "conversation", "conversation": {"agent_session": {"host": host, "harness": "claude", "session": session}}},
+            ]}]}]}]})
+        };
+        assert!(unbound_agent_tab(&tree("install:mac-1", Value::Null), 7, "install:mac-1"));
+        assert!(!unbound_agent_tab(&tree("install:mac-1", Value::Null), 8, "install:mac-1"));
+        assert!(!unbound_agent_tab(&tree("install:mac-1", json!("0199-old")), 7, "install:mac-1"));
+        assert!(!unbound_agent_tab(&tree("registry:other", Value::Null), 7, "install:mac-1"));
+        let terminal = json!({"workspaces": [{"screens": [{"panes": [{"tabs": [{"surface": 7, "kind": "terminal"}]}]}]}]});
+        assert!(!unbound_agent_tab(&terminal, 7, "install:mac-1"));
+        // A tab recorded with no host is this Mac's own, as the phone reads it.
+        let no_host = json!({"workspaces": [{"screens": [{"panes": [{"tabs": [
+            {"surface": 7, "kind": "conversation", "conversation": {"agent_session": {"harness": "claude", "session": null}}},
+        ]}]}]}]});
+        assert!(unbound_agent_tab(&no_host, 7, "install:mac-1"));
     }
 
     #[test]

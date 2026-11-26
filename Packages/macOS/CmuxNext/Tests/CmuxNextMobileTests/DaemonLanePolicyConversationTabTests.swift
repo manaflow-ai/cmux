@@ -28,8 +28,9 @@ struct DaemonLanePolicyConversationTabTests {
         }
     }
 
-    /// `bind-conversation-tab-session` (#47551) is mirrored from cmux-mobile-host's allowlist and
-    /// refused here for the same reason: no agent tab host on this lane.
+    /// `bind-conversation-tab-session` (#47551; a phone's first message in a Mac's New chat tab) is
+    /// mirrored from cmux-mobile-host's allowlist and refused here for the same reason: no agent
+    /// tab host on this lane (cmux-mobile-host checks the tab against this Mac's).
     @Test func bindingAChatToATabIsRefusedOnThisLane() {
         let line = #"{"id":1,"cmd":"bind-conversation-tab-session","surface":4,"session":"s1"}"#
         #expect(errorCode(line) == "unavailable")

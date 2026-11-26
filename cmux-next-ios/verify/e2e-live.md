@@ -115,9 +115,9 @@ folder.
    `agent-session-start`).
    - Since ask-76b8e41001 (Leo, 2026-11-18: "you should be able to just start
      the chat right there"), the phone starts it: the tab shows as a new chat,
-     and its first send starts the session over `acpmux` (`session/new`), binds
-     the tab with `bind-conversation-tab-session` from no session, and sends the
-     message as the bound chat's own Send. The "hasn't started in this tab"
+     and its first send starts the session over `acpmux` (`session/new`) and
+     binds the tab with `bind-conversation-tab-session` from no session; the
+     reply streams into the same screen. The "hasn't started in this tab"
      notice is gone. Policy: cmux-next-ios/SECURITY.md, agent tabs.
 10. **Offline Mac.** When the linked Mac went offline, the target fell back to
     the list's first Mac (offline for 15 h). `LinkMachine.target` now keeps

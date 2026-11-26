@@ -153,13 +153,18 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
         guard canManage(on: workspace.macID), let client = sync.daemon, let tree = sync.tree else {
             throw WorkspaceCreationError("Not connected")
         }
-        guard let session = tree.agentTabs[tab.id]?.session else {
-            throw WorkspaceCreationError("This chat hasn't started.", isForPerson: true)
-        }
         guard let place = tree.tabPlaces[tab.id] ?? tree.panes[workspace.id].map({ DaemonTree.TabPlace(pane: $0, index: 0) }) else {
             throw WorkspaceCreationError("The Mac doesn't list this tab")
         }
-        let folder = try await chatFolder(session: session, macID: workspace.macID)
+        // A chat that has not started runs nowhere yet: its tab's folder, as its first message would.
+        let folder: String
+        if let session = tree.agentTabs[tab.id]?.session {
+            folder = try await chatFolder(session: session, macID: workspace.macID)
+        } else if let own = tree.directories[tab.id] ?? workspace.tabs.lazy.compactMap({ tree.directories[$0.id] }).first {
+            folder = own
+        } else {
+            throw WorkspaceCreationError(String(localized: "This chat has no folder on the Mac yet."), isForPerson: true)
+        }
         guard let line = Self.changeDirectoryLine(folder) else {
             throw WorkspaceCreationError(Self.untypableFolder, isForPerson: true)
         }

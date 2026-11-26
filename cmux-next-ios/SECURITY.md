@@ -699,7 +699,15 @@ the Mac.
 | Mutates or destroys objects the session does not own? | Only a tab with no chat yet. `expected_session: null` is the daemon's compare-and-swap, so a tab that has a session (the Mac or another phone started one first) refuses with `conversation_tab.session_conflict`, and a phone never takes a chat away from a tab. The daemon also refuses a tab whose chat another machine starts (`machine:` host). |
 | Reads local state the remote should not see? | No new read. The tab then shows a session the phone can already attach to over `acpmux`, the same reach as `new-conversation-tab`'s `agent_session.session`. |
 
-  Tests: `a_phone_binds_only_an_unbound_agent_tab` (policy).
+  Then `DaemonPolicy::bind_verdict` refuses it with `unavailable` without
+  `CMUX_MOBILE_AGENT_TAB_HOST`, as `new-conversation-tab`; the Swift mirror lists it and refuses
+  it. `Ownership::UnboundAgentTab` then confirms against the Mac's `list-workspaces` that the
+  surface is an agent tab recorded for this Mac's own `install:<id>` (or for no host) with no
+  session; any other tab (a terminal, a `registry:` or another Mac's chat, a bound chat) is
+  refused. That tree comes from hostd's cache connection, which declares `agent-session-tabs-v1`
+  so the daemon lists agent tabs with their host and session (without it they read as browser
+  tabs and every bind is refused). Tests: `a_phone_binds_only_an_unbound_agent_tab`,
+  `the_bound_tab_is_an_unbound_agent_tab_of_this_mac` (policy).
 
 ## `daemon`: terminal agents in the Feed
 
@@ -941,7 +949,7 @@ were added to `policy.rs` or `DaemonLanePolicy.swift`:
 | --- | --- | --- |
 | New Agent Chat, New Agent Chat With… | acpmux `_acpmux/harnesses`, `_acpmux/models` (reads), `session/new` (harness, `policy: ask`, workspace folder), `session/set_model` on the phone's own new session; daemon `new-conversation-tab` (host set by hostd) | The catalog read is the one the handoff sheet already made. A model choice is a free config (`FREE_CONFIG_IDS`), never a mode. A Claude chat the Mac started takes the owner's own paired phone's prompts, stops, answers, model and mode, as the Mac's do (acpmux D13: a live `phone` credential; in a mode that does not ask, only while the phone's Full-access setting is on, the one the Mac app issues for a phone its host admits under the Mac owner's account; removing the phone revokes it). With the phone's Full-access setting off, the owner's phone still passes the D13 refusal, so the user's own Claude permission rules run in a turn it sends; every other Web rule (an asking mode, an asking policy, no lasting grant, the sandbox) still holds it, as Leo asked on 2026-11-14 ("chat writable in both directions"). Any other client is refused with `remote.local_claude_session` and `action: new_chat`. |
 | Rename Tab… | `rename-surface {surface, name}` | The person's own tab; the name is text the daemon shows. |
-| Duplicate Tab | `new-tab {pane}` (folder chosen by hostd, `with_pane_folder`), `new-browser-tab {url, pane}` (http/https only) | Same as New Terminal and New Browser Tab. Agent chats have no duplicate. |
+| Duplicate Tab | `new-tab {pane}` (folder chosen by hostd, `with_pane_folder`), `new-browser-tab {url, pane}` (http/https only) | Same as New Terminal and New Browser Tab. An agent chat's duplicate is `new-conversation-tab` with its harness (and session, if it has one), under the agent chat tabs rules. |
 | Drag to reorder tabs | `move-tab {surface, pane, index}` | Position only, within the person's workspaces. |
 | New Workspace in a recent folder | `new-workspace {name}`, then `send {surface, text: "cd '<folder>' && clear\n"}` into the new terminal | The same input the person can type into any phone terminal; no `cwd` reaches the daemon. The folder is single-quoted, and a folder with any control or format character (DEL, ^U, ESC, line separators), a backslash or `!` is never typed, since a shell's line editor acts on those inside quotes (`foldersThatCouldEditTheLineAreNeverTyped`). |
 

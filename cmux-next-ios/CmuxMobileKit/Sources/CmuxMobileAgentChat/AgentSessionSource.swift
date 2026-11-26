@@ -126,6 +126,9 @@ public enum AgentSessionEvent: Hashable, Sendable {
     /// `_meta.acpmux.fullAccess`, read on each connection; false after acpmux refuses it).
     case fullAccess(Bool)
     case status(AgentSessionSummary.Status)
+    /// The agent a chat that has not started will run, once the source knows it (a chat tab
+    /// that names no agent is the Mac's default agent's): the empty state and mark name it.
+    case agent(harness: String, name: String)
     /// A call the source made for the person failed (refused allow, trust gate, link down).
     case clientError(String)
     /// A prompt that never reached the agent (an attachment upload failed, the

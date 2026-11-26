@@ -777,13 +777,12 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             case .agent:
                 // The Mac's Duplicate Tab on a chat opens a second tab of the same chat
                 // (`PaneController.duplicateAgentTab`), never a copy of the conversation.
-                guard let binding = sync.tree?.agentTabs[tab.id], let session = binding.session else {
-                    throw WorkspaceCreationError("This chat hasn't started.", isForPerson: true)
-                }
-                reply = try await client.request("new-conversation-tab", params: [
-                    "pane": place.pane,
-                    "agent_session": ["harness": binding.harness ?? "claude", "session": session],
-                ])
+                // A chat that has not started duplicates as another new chat of the same agent.
+                let binding = sync.tree?.agentTabs[tab.id]
+                var agentSession: [String: Any] = [:]
+                if let harness = binding?.harness { agentSession["harness"] = harness }
+                if let session = binding?.session { agentSession["session"] = session }
+                reply = try await client.request("new-conversation-tab", params: ["pane": place.pane, "agent_session": agentSession])
             }
             guard let surface = (try WorkspaceSync.check(reply)["data"] as? [String: Any])?["surface"] as? Int else {
                 throw WorkspaceCreationError("The Mac didn't say which tab it opened")
@@ -1217,6 +1216,76 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         return group
     }
 
+    // MARK: A chat tab's first message from the phone
+
+    /// The Mac's default agent, as its last catalog read named it: an unstarted chat tab that
+    /// names no agent is that agent's ("What should Claude do?"), as the Mac's own New Tab is.
+    public private(set) var defaultAgent: AgentHarnessChoice?
+
+    /// Reads the Mac's agents (harnesses only) and keeps its default (``defaultAgent``).
+    @discardableResult
+    func readDefaultAgent() async -> AgentHarnessChoice? {
+        guard let catalog = try? await agentCatalog(on: sync.macID, models: false) else { return defaultAgent }
+        defaultAgent = catalog.resolve(AgentChatStart(), folder: nil)?.0 ?? defaultAgent
+        return defaultAgent
+    }
+
+    /// The first message of a chat tab the Mac opened with no session (a New Tab chat, a chat
+    /// whose first send has not happened), sent from the phone, starts the chat as the Mac's
+    /// own first send does: acpmux `session/new` in the tab's folder (else its workspace's), for
+    /// the agent the tab names (else the Mac's default), then `bind-conversation-tab-session
+    /// {expected_session: null}` (Leo, 2026-11-18: "you should be able to just start the chat right
+    /// there"). The bind is a compare-and-swap: a chat the Mac started
+    /// meanwhile wins, and its session is returned so the message goes there. `willBind` runs
+    /// with the new session before the bind is sent, so the tree that lists it rebuilds nothing.
+    func startTabChat(tabID: String, willBind: (String) -> Void) async throws -> String {
+        guard let acpmux else { throw WorkspaceCreationError("Agents on this Mac aren't connected. Try again in a moment.", isForPerson: true) }
+        if !acpmux.isReady { _ = await acpmux.waitUntilReady(timeout: .seconds(20), clock: ContinuousClock()) }
+        guard let client = sync.daemon, let tree = sync.tree else { throw WorkspaceCreationError("Not connected") }
+        if let bound = tree.agentTabs[tabID]?.session { return bound }
+        guard let surface = tree.surfaces[tabID] else { throw WorkspaceCreationError("The Mac doesn't list this tab") }
+        // Only a chat of this Mac: a tab whose chat another machine starts (`registry:`, `machine:`) starts there.
+        guard Self.startsHere(host: tree.agentTabs[tabID]?.host) else {
+            throw WorkspaceCreationError("This chat runs on another machine. Start it from cmux on that machine.", isForPerson: true)
+        }
+        let workspace = (tree.workspaces + tree.homeWorkspaces).first { $0.tabs.contains { $0.id == tabID } }
+        // The first project folder of the tab, its workspace's tabs, then the workspace: acpmux
+        // refuses a phone's chat in the home folder or above, so those are passed over.
+        let candidates = [tree.directories[tabID]] + (workspace?.tabs.map { tree.directories[$0.id] } ?? []) + [workspace?.directory]
+        guard let cwd = candidates.lazy.compactMap({ $0 }).first(where: { $0.hasPrefix("/") && !Self.isHomeOrAbove($0) }) else {
+            throw WorkspaceCreationError(String(localized: "Open this workspace in a project folder on the Mac, then send again."), isForPerson: true)
+        }
+        let (_, session) = try await startAgentSession(AgentChatStart(harness: tree.agentTabs[tabID]?.harness), cwd: cwd, macID: sync.macID)
+        willBind(session)
+        do {
+            // No harness: the tab keeps the agent the Mac recorded (the phone's lane refuses one;
+            // the daemon would relabel a bound tab's agent).
+            try WorkspaceSync.check(await client.request("bind-conversation-tab-session", params: [
+                "surface": surface, "session": session, "expected_session": NSNull(),
+            ]))
+            return session
+        } catch let error as DaemonReplyError {
+            // A refused bind: the tab is read again. The Mac started this chat first (the daemon's
+            // `session_conflict`, or hostd's `forbidden` once its tree shows the tab bound): the
+            // phone's own session is archived and the message goes to the Mac's. A bind whose
+            // reply was lost but that took shows the phone's own session: it stands.
+            let bound = try? await sync.listNow().agentTabs[tabID]?.session
+            if bound == session { return session }
+            Self.discard(session, acpmux: acpmux)
+            if let bound { return bound }
+            throw WorkspaceCreationError(error.message)
+        } catch {
+            Self.discard(session, acpmux: acpmux)
+            throw error
+        }
+    }
+
+    /// A session this phone made for a chat it could not bind: archived, so no empty chat stays
+    /// in the Mac's list.
+    private static func discard(_ session: String, acpmux: AcpmuxHub) {
+        Task { _ = try? await acpmux.request("_acpmux/archive", .object(["sessionId": .string(session), "archived": .bool(true)]), timeout: .seconds(20)) }
+    }
+
     // MARK: Agent chat menu (Fork, Archive)
 
     /// The chat menu's Fork: acpmux `session/fork` (the whole chat), then a tab of the copy in
@@ -1235,12 +1304,14 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
 
     private func forkChat(_ tab: WorkspaceTab, through seq: Int?, in workspace: Workspace) async throws -> WorkspaceTab {
         let (client, _) = try target(tab, in: workspace)
+        guard let binding = sync.tree?.agentTabs[tab.id], let place = sync.tree?.tabPlaces[tab.id] else {
+            throw WorkspaceCreationError("The Mac doesn't list this tab")
+        }
+        // A chat that has not started has nothing to copy: its fork is a new chat of the same
+        // agent beside it, as Duplicate makes (no agent connection needed).
+        guard let session = binding.session else { return try await duplicateTab(tab, in: workspace) }
         guard let acpmux, acpmux.isReady else {
             throw WorkspaceCreationError("Agents on this Mac aren't connected. Try again in a moment.", isForPerson: true)
-        }
-        guard let binding = sync.tree?.agentTabs[tab.id], let session = binding.session,
-              let place = sync.tree?.tabPlaces[tab.id] else {
-            throw WorkspaceCreationError("This chat hasn't started.", isForPerson: true)
         }
         let forked: String
         do {
@@ -1275,11 +1346,12 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     /// as the Mac's pane asks its app to close it.
     public func archiveAgentChat(_ tab: WorkspaceTab, in workspace: Workspace) async throws {
         let (client, surface) = try target(tab, in: workspace)
+        // A chat that has not started has nothing to archive: its tab closes (no agent connection needed).
+        guard let session = sync.tree?.agentTabs[tab.id]?.session else {
+            return try await run(client, "close-surface", ["surface": surface])
+        }
         guard let acpmux, acpmux.isReady else {
             throw WorkspaceCreationError("Agents on this Mac aren't connected. Try again in a moment.", isForPerson: true)
-        }
-        guard let session = sync.tree?.agentTabs[tab.id]?.session else {
-            throw WorkspaceCreationError("This chat hasn't started.", isForPerson: true)
         }
         do {
             _ = try await acpmux.request("_acpmux/archive", .object(["sessionId": .string(session), "archived": .bool(true)]),
