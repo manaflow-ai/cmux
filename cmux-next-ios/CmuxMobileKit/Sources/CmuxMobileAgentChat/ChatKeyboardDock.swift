@@ -243,17 +243,25 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// The Mac's chat look (``CmuxMobileChatLook``), or nil for the stock chat: the transcript is
     /// clear over the chat's backdrop (`CmuxMobileChatBackdrop`, which the host draws behind it),
     /// its rows take the theme's light or dark style and the top fade its ground.
+    /// The fill behind the transcript: the look's flat ground, the stock background without a
+    /// look, clear over a picture look (the host's backdrop draws the picture).
+    static func groundFill(for look: CmuxMobileChatLook?) -> UIColor {
+        guard let look else { return .cmuxMobileBackground }
+        return look.picture == nil ? look.groundColor : .clear
+    }
+
     func applyChatLook(_ look: CmuxMobileChatLook?) {
         loadViewIfNeeded()
         let background: UIColor = look == nil ? .cmuxMobileBackground : .clear
         if scrollView.backgroundColor != background { scrollView.backgroundColor = background }
         let style = look?.interfaceStyle ?? .unspecified
         if overrideUserInterfaceStyle != style { overrideUserInterfaceStyle = style }
-        let ground = look?.groundColor ?? .cmuxMobileBackground
-        // A Mac look can place a picture behind its tinted ground. Keep the
-        // safe-area shelf clear then, instead of flattening that picture.
-        let shelfColor = look?.picture == nil ? ground : .clear
-        if topShelf.backgroundColor != shelfColor { topShelf.backgroundColor = shelfColor }
+        // The flat ground sits behind the transcript, not in a shelf drawn over it: the rows
+        // scroll under the glass navigation bar and the native top edge effect, and no black
+        // safe-area shows above them. A picture look stays clear so its picture shows through.
+        let fill = Self.groundFill(for: look)
+        if view.backgroundColor != fill { view.backgroundColor = fill }
+        if topShelf.backgroundColor != .clear { topShelf.backgroundColor = .clear }
         topFade.ground = look?.groundColor
         bottomScrim.ground = look?.groundColor
     }
