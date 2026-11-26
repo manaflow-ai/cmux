@@ -100,4 +100,15 @@ struct AcpmuxPaneMethodContractsTests {
         ]]
         #expect(AcpmuxPaneMethods.breaksParamsRule(answer, modeFields: nil))
     }
+
+    /// Return on a working agent steers it in read now (https://github.com/manaflow-ai/cmux/issues/56544):
+    /// `_meta.acpmux.steerNow` rides the prompt through the relay. Stripped, acpmux never stopped
+    /// the agent's step and the steer's bubble offered Send now.
+    @Test func aSteerReadNowKeepsItsSteerNowThroughTheRelay() {
+        let prompt: [String: Any] = ["jsonrpc": "2.0", "id": 1, "method": "session/prompt", "params": [
+            "sessionId": "s", "prompt": [Any](), "_meta": ["acpmux": ["promptId": "p", "steer": true, "steerNow": true]],
+        ]]
+        #expect(AcpmuxPaneMethods.paramsRuleViolation(prompt, modeFields: nil) == nil)
+        #expect(AcpmuxPaneMethods.strippingUnknownParams(prompt, modeFields: nil) == nil)
+    }
 }
