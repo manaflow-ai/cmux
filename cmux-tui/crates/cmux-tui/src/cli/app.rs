@@ -263,8 +263,8 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         }));
     }
     if scope == "browser"
-        && let Some(target) = args.get(1)
-        && let Some(command) = phone::parse(target, &args[2..])
+        && let [_, target, phone_args @ ..] = args
+        && let Some(command) = phone::parse(target, phone_args)
     {
         return command.map(Some);
     }
