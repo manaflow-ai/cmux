@@ -166,6 +166,22 @@ class Routes(unittest.TestCase):
                 self.assertTrue(all(run.values()), result.lines())
                 self.assertTrue(result.everything)
 
+    def test_the_label_on_a_tooling_only_change_routes_by_inputs(self):
+        """ci-min-per-pr-140: full-ci on a change to CI and tooling files only (scripts/ci/tooling_only.py) runs just
+        the jobs whose inputs it touches; one path outside those folders, or an unlistable change, runs every job."""
+        run, result = route(["scripts/ci/x.py", "tests/test_x.py", ".github/workflows/other.yml", "docs/a.md",
+                             "README.md"], labels=["full-ci"])
+        self.assertFalse(any(run.values()), result.lines())
+        self.assertFalse(result.everything)
+        self.assertEqual(route(["scripts/run-app.sh", "tests/test_x.py"], labels=["full-ci"])[0],
+                         {"app-tests": True, "app-sim": False, "core-check": False})
+        self.assertTrue(all(route([".github/workflows/w.yml"], labels=["full-ci"])[0].values()))
+        self.assertTrue(all(route(["scripts/ci/affected_jobs.py"], labels=["full-ci"])[0].values()))
+        for changed in (["scripts/ci/x.py", "webviews/src/App.tsx"], [], None):
+            with self.subTest(changed=changed):
+                run, result = route(changed, labels=["full-ci"])
+                self.assertTrue(all(run.values()), result.lines())
+
     def test_a_markdown_file_no_crate_names_runs_nothing(self):
         self.assertFalse(any(route(["cmux-tui/README.md", "cmux-tui/docs/x.md"])[0].values()))
 
@@ -718,6 +734,11 @@ class TheRepository(unittest.TestCase):
             self.assertFalse(any(result.run.values()), result.lines())
         self.assertTrue(jobs.gate(ROOT, outside, workflow, event="push", map_text=map_text)[0])
         self.assertTrue(jobs.gate(ROOT, outside, workflow, labels=[jobs.FULL_LABEL], map_text=map_text)[0])
+        tooling = ["scripts/ci/x.py", "tests/test_x.py", ".github/workflows/other.yml", "docs/x.md"]
+        self.assertFalse(jobs.gate(ROOT, tooling, workflow, labels=[jobs.FULL_LABEL], map_text=map_text)[0])
+        self.assertTrue(jobs.gate(ROOT, tooling + [workflow], workflow, labels=[jobs.FULL_LABEL], map_text=map_text)[0])
+        self.assertTrue(jobs.gate(ROOT, tooling + ["webviews/x.ts"], workflow, labels=[jobs.FULL_LABEL],
+                                  map_text=map_text)[0])
         self.assertTrue(jobs.gate(ROOT, None, workflow, map_text=map_text)[0])
 
     def test_fix_writes_a_missing_path_in_the_entry_style(self):
