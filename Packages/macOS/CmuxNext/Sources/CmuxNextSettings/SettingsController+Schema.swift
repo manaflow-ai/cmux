@@ -194,7 +194,7 @@ extension SettingsController {
         for descriptor in descriptors where managed[descriptor.id] == nil {
             guard writer.mayWrite(descriptor) else { throw SettingUserOnly(key: descriptor.id, writer: writer) }
             edits.append(.reset(descriptor.path))
-            if let legacy = RenamedSettingKeys.legacyPath(for: descriptor.path) { edits.append(.reset(legacy)) }
+            for legacy in RenamedSettingKeys.legacyPaths(for: descriptor.path) { edits.append(.reset(legacy)) }
         }
         guard !edits.isEmpty else { return }
         try await file.edit(Array(edits.prefix(Self.editsPerWrite)))
