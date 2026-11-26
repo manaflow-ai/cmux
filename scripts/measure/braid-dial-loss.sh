@@ -13,12 +13,12 @@
 # Needs root or passwordless sudo, ip and tc: a Linux VM or CI runner, never a person's machine. It makes and
 # removes only its own namespaces and veth, named for this run's pid (bdl-PID-c, bdl-PID-s, bdlPIDc/s), and
 # /etc/netns/bdl-PID-c; it never touches another job's namespaces (the braid bench rigs' braid-c/braid-s).
-# Rows: OUT/rows.jsonl, one per arm and loss level: {arm, sha, loss_pct, delay_ms, n, failed, p50_ms, p95_ms,
-# max_ms, mean_ms}.
+# Rows: OUT/rows.jsonl (OUT is $FAST_CHECKS_OUT under cmux-ci, so --artifact brings them back), one per arm and
+# loss level: {arm, sha, loss_pct, delay_ms, n, failed, p50_ms, p95_ms, max_ms, mean_ms}.
 set -euo pipefail
 trap 'echo "braid-dial-loss.sh: line $LINENO exited $? ($BASH_COMMAND)" >&2' ERR
 
-loss="0,2,5,10" n=40 delay_ms=25 before_ref="" out="artifacts/braid-dial-loss"
+loss="0,2,5,10" n=40 delay_ms=25 before_ref="" out="${FAST_CHECKS_OUT:-artifacts/braid-dial-loss}"
 for kv in "$@"; do
   case "$kv" in
     loss=*) loss="${kv#*=}" ;;
@@ -41,17 +41,22 @@ repo=$(git rev-parse --show-toplevel)
 mkdir -p "$out"; out=$(cd "$out" && pwd); rows="$out/rows.jsonl"; : >"$rows"
 command -v clang >/dev/null || { "${sudo[@]}" apt-get update -qq && "${sudo[@]}" apt-get install -y -qq clang libclang-dev pkg-config; }
 
-# build TREE TARGET_DIR: the bench binary's path on stdout.
+# build TREE TARGET_DIR: the bench binary's path on stdout; the tree's ghostty-next pin is fetched (ghostty-vt-sys
+# is in the cmux-remote graph). Any failure stops the run: a build that fails must not read as 40 failed dials.
 build() {
-  (cd "$1/cmux-tui" && CARGO_TARGET_DIR="$2" cargo build -q --release -p cmux-remote --example braid_dial_bench >&2)
+  [[ -e "$1/ghostty-next/build.zig" ]] || git -C "$1" submodule update --init --depth 1 ghostty-next >&2 || return 1
+  (cd "$1/cmux-tui" && CARGO_TARGET_DIR="$2" cargo build -q --release -p cmux-remote --example braid_dial_bench >&2) || return 1
+  [[ -x "$2/release/examples/braid_dial_bench" ]] || return 1
   echo "$2/release/examples/braid_dial_bench"
 }
-arms=(after); bins=("$(build "$repo" "$repo/cmux-tui/target")"); shas=("$(git -C "$repo" rev-parse HEAD)")
+bin=$(build "$repo" "$repo/cmux-tui/target") || { echo "braid-dial-loss.sh: bench build failed at HEAD" >&2; exit 1; }
+arms=(after); bins=("$bin"); shas=("$(git -C "$repo" rev-parse HEAD)")
 work=$(mktemp -d)
 if [[ -n "$before_ref" ]]; then
   git -C "$repo" cat-file -e "$before_ref^{commit}" 2>/dev/null || git -C "$repo" fetch -q --depth=1 origin "$before_ref"
   git -C "$repo" worktree add -q --detach "$work/before" "$before_ref"
-  arms+=(before); bins+=("$(build "$work/before" "$repo/cmux-tui/target-before")"); shas+=("$(git -C "$work/before" rev-parse HEAD)")
+  bin=$(build "$work/before" "$repo/cmux-tui/target-before") || { echo "braid-dial-loss.sh: bench build failed at $before_ref" >&2; exit 1; }
+  arms+=(before); bins+=("$bin"); shas+=("$(git -C "$work/before" rev-parse HEAD)")
 fi
 
 id=$$; c="bdl-$id-c"; s="bdl-$id-s"; vc="bdl${id}c"; vs="bdl${id}s"
@@ -85,6 +90,12 @@ shape() { # PCT: netem delay and loss on both ends (replace, so levels change in
   "${sudo[@]}" ip netns exec "$c" tc qdisc replace dev "$vc" root netem delay "${delay_ms}ms" loss "$1%"
   "${sudo[@]}" ip netns exec "$s" tc qdisc replace dev "$vs" root netem delay "${delay_ms}ms" loss "$1%"
 }
+
+for i in "${!arms[@]}"; do # an unshaped smoke dial per arm: a rig that cannot dial at all stops here, not as rows
+  "${sudo[@]}" ip netns exec "$c" "${bins[$i]}" braid-peer 7443 1 2>&1 | grep -q '^dial 0:' \
+    || { echo "braid-dial-loss.sh: ${arms[$i]} arm cannot dial braid-peer unshaped:" >&2
+         "${sudo[@]}" ip netns exec "$c" "${bins[$i]}" braid-peer 7443 1 >&2 || true; exit 1; }
+done
 
 IFS=, read -ra levels <<<"$loss"
 for pct in "${levels[@]}"; do
