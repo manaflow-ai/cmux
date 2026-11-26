@@ -256,3 +256,12 @@ async fn post(trace_id: String, body: Value) {
 #[cfg(test)]
 #[path = "send_trace_tests.rs"]
 mod tests;
+
+/// Probe only (manaflow-ai/cmux#51494): a stamp at a named point of the send path.
+pub fn probe(label: &str) {
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    tracing::warn!("PROBE-STAGE {} ms={}", label, ms);
+}

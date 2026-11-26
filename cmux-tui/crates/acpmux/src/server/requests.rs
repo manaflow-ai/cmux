@@ -2098,7 +2098,9 @@ async fn dispatch_request_with_identity(
                 .with_data(json!({"reason": "stale_generation", "retryable": false})));
             }
             // Ordered by the chat's prompt admission from here (`hub/prompt_admission.rs`), bounded.
+            crate::send_trace::probe("requests:2101");
             let admission = crate::hub::prompt_admission::admit(&s, &hub.scope).await;
+            crate::send_trace::probe("requests:2102");
             attach(hub, conn, &s.id);
             if person_asks(conn) {
                 super::lane_parent::person_wrote(hub, &s);
@@ -2124,11 +2126,13 @@ async fn dispatch_request_with_identity(
                 == crate::hub::Control::Web;
             // The uploads this prompt names as its own (`attach::blocks_for` uploaded them for it
             // alone): a refusal before the session sees it deletes them, so none is left behind.
+            crate::send_trace::probe("requests:before-owned");
             let mut owned = crate::attach::OwnedUploads(if web {
                 Vec::new()
             } else {
                 crate::prompt_uploads::owned(&s.id, &blocks).await
             });
+            crate::send_trace::probe("requests:after-owned");
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
             // An `@computer-use` / `@browser-use` the person wrote gets acpmux's fixed note for the
             // agent, from any origin: its text is acpmux's, not the client's (`tool_mentions.rs`).
@@ -2573,6 +2577,7 @@ async fn dispatch_request_with_identity(
             opts.on_accepted = stop.watch(opts.on_accepted.take());
             let hub = hub.clone();
             let run = async move {
+                crate::send_trace::probe("requests:2576");
                 let answer = heap(|| hub.prompt_with(&s, blocks, &client, steer, opts)).await;
                 // The turn ended (its read was decided) before the answer came back.
                 drop(reply_reader);

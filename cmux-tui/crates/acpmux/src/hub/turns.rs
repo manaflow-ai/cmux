@@ -772,6 +772,7 @@ impl Hub {
         // still prevent the prompt from starting.
         let stops = session.stops.load(Ordering::SeqCst);
         admission.enter("uploads");
+        crate::send_trace::probe("turns:775");
         crate::prompt_uploads::resolve_off_runtime(&session.id, web, &mut blocks).await?;
         if let Some(guard) = opts.race_guard.as_ref() {
             guard()?;
@@ -800,6 +801,7 @@ impl Hub {
         }
         // A held chat keeps what is not the person's in its inbox, with no turn
         // (`session_hold.rs`); else the surge may hold it.
+        crate::send_trace::probe("turns:803");
         let held = match self.hold_for_session_hold(session, &prompt_id, client, &blocks, &opts)? {
             Some(receipt) => Some(receipt),
             None => self.hold_surge_message(session, &prompt_id, client, &blocks, &opts)?,
@@ -819,6 +821,7 @@ impl Hub {
         // turn its notice (`turn_cap.rs`): the timer may have looked at the queue just before.
         // An unclassified notice is informational by default, so use its effective class for
         // cap checks and routing before any path can treat it as a result.
+        crate::send_trace::probe("turns:822");
         let notice_class = super::inbox::is_notice(opts.provenance.as_ref())
             .then_some(crate::prompt_class::PromptClass::Fyi);
         let effective_class = opts.class.or(notice_class);
@@ -866,6 +869,7 @@ impl Hub {
         // this prompt's admission lease while a caller waits for acceptance. Unknown is treated
         // as live so the cold-chat refusal never drops a deliverable prompt.
         let live = if admission.queue_owned() {
+            crate::send_trace::probe("turns:869");
             let child = session.child.lock().await.clone();
             match child {
                 Some(child) => child.is_alive().await,
@@ -1024,6 +1028,7 @@ impl Hub {
         }
         if !live {
             admission.enter("cold_check");
+            crate::send_trace::probe("turns:1027");
             self.cold_prompt_check(session).await?;
         }
         if steer_now && session.moving().is_some() {
@@ -1075,6 +1080,7 @@ impl Hub {
         // from here to `queue_slot`'s choice, so it never joins the queue (`auto_resume.rs`).
         let after_turn = opts.after_turn.clone();
         let fired = opts.fired;
+        crate::send_trace::probe("turns:1078");
         super::auto_resume::check_cut(
             session,
             after_turn.as_deref(),
@@ -1179,6 +1185,7 @@ impl Hub {
             (run.blocks.clone(), run.control, run.trust_gate, run.cloud_mobile);
         // A queued prompt restored from the log may still name its uploads (`prompt_uploads.rs`).
         let web = control == Control::Web;
+        crate::send_trace::probe("turns:1182");
         let read = crate::prompt_uploads::resolve_off_runtime(&session.id, web, &mut blocks).await;
         if let Err(e) = read {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
@@ -1189,6 +1196,7 @@ impl Hub {
         let mut display_parts = run.display_parts.clone();
         // A pushed forum rule whose key moved on while it waited tells the current one.
         let mut provenance = run.provenance.clone();
+        crate::send_trace::probe("turns:1192");
         let pushed = self.forum_refresh_push(&prompt_id, &mut blocks, &mut provenance);
         if let Err(e) = self
             .check_dispatch(
@@ -1208,6 +1216,7 @@ impl Hub {
         }
         // A family prompt that waited is checked again: the receiver may ask
         // less than its sender now (`subsession_guard.rs`).
+        crate::send_trace::probe("turns:1211");
         let bound = self.mdm_snapshot();
         if let Err(e) = self.family_dispatch_check(session, run.provenance.as_ref(), bound).await {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
@@ -1235,6 +1244,7 @@ impl Hub {
         // A continuation Stop overtook since it fired is refused here (`auto_resume.rs`).
         // Another agent's message shows as its sender and words (`prompt_line.rs`).
         let trigger = crate::prompt_provenance::is_trigger(run.provenance.as_ref());
+        crate::send_trace::probe("turns:1238");
         let persons = super::inbox::persons_prompt(run.agent.as_deref(), run.provenance.as_ref())
             && self.config.read().await.agent_inbox();
         // Its line, masked once: the `turn_started` record below takes this masked line when
@@ -1312,6 +1322,7 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
+        crate::send_trace::probe("turns:1315");
         self.arm_turn_cap(session, &turn_id);
         // The inbox's notice this turn is lands (`inbox.rs`): noticed once its prompt is written
         // (below), and what is new steers in then.
@@ -1356,6 +1367,7 @@ impl Hub {
         // An agent message's turn takes the agent messages waiting behind it (`digest.rs`), once
         // the turn has started, so none leaves the queue for a turn that never runs. A forum push
         // is no agent's message: it never leads one.
+        crate::send_trace::probe("turns:1359");
         let parts = self.take_joined(session, &run, &prompt_id, &turn_id, joined);
         // The message that leads it goes back with them when the account's limit refuses the
         // turn before its model read it (`digest.rs` `requeue_unread`).
@@ -1389,6 +1401,7 @@ impl Hub {
         };
         let mut blocks = blocks;
         // Another agent's message leaves its sender and words, not its envelope (`prompt_line.rs`).
+        crate::send_trace::probe("turns:1392");
         let line = super::prompt_line::prompt_line(&text, client, provenance.as_ref());
         // A turn that took in the messages behind its own shows them all, as its last prompt does.
         if digested
@@ -1443,6 +1456,7 @@ impl Hub {
             blocks.push(json!({"type": "text", "text": note}));
         }
         // A turn on lane reports only reports nothing (`lane_reports.rs`).
+        crate::send_trace::probe("turns:1446");
         self.lane_turn_started(session, provenance.as_ref());
         // A family prompt (`subsessions.rs`) never clears the floor a Web
         // turn left: only a local turn the person or a client starts does.
@@ -1454,6 +1468,7 @@ impl Hub {
             .floor
             .cloud_mobile_turn
             .store(control == Control::Web && run.cloud_mobile, Ordering::SeqCst);
+        crate::send_trace::probe("turns:1457");
         self.reset_stream(session);
         // A forced Stop retires the logical turn even if Claude's compaction
         // finishes later. Do not let the stale compaction flag cancel the
@@ -1463,6 +1478,7 @@ impl Hub {
         // never started queues it again as it came (`unstarted_prompt.rs`).
         let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str(), "cloudMobile": run.cloud_mobile, "trustGate": run.trust_gate});
         let msg = crate::prompt_provenance::marked(msg, provenance.as_ref());
+        crate::send_trace::probe("turns:1466");
         self.append_prompt(session, msg, &blocks, display_parts.as_ref());
         if trigger {
             self.start_trigger_background(session, &turn_id);
@@ -1486,6 +1502,7 @@ impl Hub {
         // The prompt is recorded and acknowledged above before the agent is started again (it
         // died, or the daemon restarted), so a client hears prompt_accepted at once.
         // Logged on the `woke` line: who sent the prompt that woke the chat (`idle_governor.rs`).
+        crate::send_trace::probe("turns:1489");
         let person = super::prompt_sender::person_turn(&run, provenance.as_ref());
         self.wake_cause(
             session,
