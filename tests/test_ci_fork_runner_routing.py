@@ -175,8 +175,7 @@ TRUSTED_RUNNER_EXPRESSIONS = (TRUSTED_RUNNER_EXPRESSION, CLA_TRUSTED_RUNNER_EXPR
 # picker's one re-run route, never 16 or 32 vCPU), else Blacksmith 2 vCPU, never
 # GitHub-hosted. No input can select a persistent runner.
 FAST_CHECKS_ADMISSION_EXPRESSION = (
-    "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + SECRET_FIRST_OPERAND
-    + "contains(fromJSON('[\"blacksmith-8vcpu-ubuntu-2404\"]'), inputs.runner) && inputs.runner || 'blacksmith-2vcpu-ubuntu-2404' }}"
+    "${{ contains(fromJSON('[\"blacksmith-8vcpu-ubuntu-2404\"]'), inputs.runner) && inputs.runner || 'blacksmith-2vcpu-ubuntu-2404' }}"
 )
 TRUSTED_RUNNER_LINE = re.compile(
     r"^\s*runs-on:\s*(?:" + "|".join(map(re.escape, TRUSTED_RUNNER_EXPRESSIONS)) + r")\s*(?:#.*)?$"

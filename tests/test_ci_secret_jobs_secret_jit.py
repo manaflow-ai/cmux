@@ -13,7 +13,9 @@ after it.
 So after the fork branch (a fork can't read vars and keeps the literal 'ubuntu-24.04'), and after any fork-PR clause
 that yields 'ubuntu-24.04', the first operand of the runs-on chain must yield a cmux-gcp-*-jit-x64 label. The jobs
 moved here lead with `vars.CI_SECRET_SKIP_FLEET != '1' && 'cmux-gcp-secret-jit-x64' || `. Setting the switch to 1
-puts them back on the selector after it, as an overflow route. Jobs that already led with their own JIT label (repair,
+puts them back on the selector after it, as an overflow route. The signing and billing jobs that another rule keeps
+off repository variables (tests/test_ci_runner_pins_movable.py PINNED, tests/test_ci_billing_nightly.py) name the
+label literally instead: `<fork branch> || 'cmux-gcp-secret-jit-x64' }}`. Jobs that already led with their own JIT label (repair,
 PR control, gate, nightly, queue) keep it.
 
 EXCEPTIONS lists the jobs that stay where they are, each with its reason. The test also fails when an exception is no
@@ -43,6 +45,8 @@ EXCEPTIONS = {
     ("cla.yml", "CLAAssistant"): "pull_request_target CLA job; #48564 owns its runner",
     ("cla-policy-guard.yml", "validate"): "pull_request_target CLA job; #48564 owns its runner",
     ("sdk-bootstrap-npm.yml", "publish"): "npm provenance publishing needs a GitHub-hosted runner",
+    ("fast-checks.yml", "admit"): "PR fast-checks admission: the broker re-dispatches it after 180 s with no runner, "
+    "inside a JIT VM's boot; tests/test_ci_fork_runner_routing.py pins its exact expression",
     ("ci-queue-janitor.yml", "sweep"): "queue janitor's own CI_QUEUE_JANITOR_ON_FLEET route; defaults to repair JIT",
     ("ci-queue-janitor-watchdog.yml", "watch"): "queue janitor's own CI_QUEUE_JANITOR_ON_FLEET route",
     ("ci-main-full-suite.yml", "dispatch"): LEO_OVERFLOW,
@@ -103,8 +107,8 @@ def leads_with_jit(runs_on: str) -> bool:
     operands = top_level_operands(runs_on[len(FORK_BRANCH):].rstrip()[:-2])
     while operands and LABEL_LITERAL.findall(operands[0]) == ["ubuntu-24.04"] and operands[0] != "'ubuntu-24.04'":
         operands.pop(0)  # a fork-PR clause: `<conditions> && 'ubuntu-24.04'`
-    if len(operands) < 2:
-        return False
+    if len(operands) == 1:
+        return bool(JIT_LABEL.fullmatch(operands[0]))  # the literal form: no variable can move the job
     labels = LABEL_LITERAL.findall(operands[0])
     yielded = labels[-1] if labels else ""
     return bool(JIT_LABEL.fullmatch(f"'{yielded}'")) and operands[0].endswith(f"'{yielded}'")
@@ -129,6 +133,8 @@ class SecretJobsSecretJitTest(unittest.TestCase):
         self.assertTrue(leads_with_jit(FORK_BRANCH + fork_pr + operand + "'blacksmith-4vcpu-ubuntu-2404' }}"))
         self.assertTrue(leads_with_jit(
             FORK_BRANCH + "github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}"))
+        self.assertTrue(leads_with_jit(FORK_BRANCH + f"'{SECRET_JIT_LABEL}' }}}}"))
+        self.assertFalse(leads_with_jit(FORK_BRANCH + "'blacksmith-4vcpu-ubuntu-2404' }}"))
         self.assertFalse(leads_with_jit("blacksmith-4vcpu-ubuntu-2404"))
         self.assertFalse(leads_with_jit("ubuntu-24.04"))
         self.assertFalse(leads_with_jit(FORK_BRANCH + "'blacksmith-4vcpu-ubuntu-2404' }}"))
