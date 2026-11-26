@@ -3,7 +3,8 @@
 
 [[test]]
 path = "tests/test_web_coalesce.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_web_coalesce.py"
 
 [[test]]
 path = "tests/test_web_complexity_scope.py"
