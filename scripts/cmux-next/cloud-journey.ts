@@ -507,23 +507,46 @@ const stepNotes = new AsyncLocalStorage<string[]>();
  *  (151 s, 2026-11-25), so a 60 s cut made every journey and bench fail its create and leak the machine. */
 export const CREATE_OP_TIMEOUT_MS = 300_000;
 
+/** /v1/auth/token's expires_at is seconds or ms since the epoch; a missing one reads as never (no re-mint). */
+export function expiresAtMs(v: number): number {
+  if (!Number.isFinite(v) || v <= 0) return Infinity;
+  return v < 1e12 ? v * 1000 : v;
+}
+
 export class Api {
   bearer = "";
+  /** An install token lives ACCESS_TOKEN_TTL_SECONDS (600 s, backend/apps/api/src/auth.ts): a journey that holds one
+   *  past that (the clean-room walk alone takes ~150 s) got connect_info HTTP 401 on job 139905166641. `remint`
+   *  signs a fresh one; every call through this Api mints again when the token has under a minute left. */
+  remint?: () => Promise<{ token: string; expiresAt: number }>;
+  expiresAt = Infinity;
   constructor(readonly origin: string, readonly team?: string) {}
+  async fresh(): Promise<void> {
+    if (!this.remint || this.expiresAt - Date.now() > 60_000) return;
+    const t = await this.remint();
+    this.bearer = t.token;
+    this.expiresAt = t.expiresAt;
+  }
   private headers(): Record<string, string> {
     return { authorization: `Bearer ${this.bearer}`, ...(this.team ? { "x-cmux-team": this.team } : {}) };
   }
   /** `extra`: headers for this op only (a send's trace headers, cloud-start-trace.ts mintSendTrace).
    *  `timeoutMs` is one attempt's wait; a machine create gets CREATE_OP_TIMEOUT_MS by default. */
-  async op(op: string, params: unknown, key?: string, extra: Record<string, string> = {}, timeoutMs = op === "cloud.machine.create" ? CREATE_OP_TIMEOUT_MS : 60_000): Promise<any> {
+  /** `deadlineAt` (epoch ms): no attempt waits past it and none starts after it, so the op's whole wait has one
+   *  bound; without it each of OP_ATTEMPTS attempts gets the full `timeoutMs`. */
+  async op(op: string, params: unknown, key?: string, extra: Record<string, string> = {}, timeoutMs = op === "cloud.machine.create" ? CREATE_OP_TIMEOUT_MS : 60_000, deadlineAt?: number): Promise<any> {
     let ownerRetried = false;
+    await this.fresh();
     for (let attempt = 1; ; attempt++) {
       let r: Answer;
+      const left = deadlineAt === undefined ? timeoutMs : Math.min(timeoutMs, deadlineAt - Date.now());
+      if (left <= 0) throw new Error(`${op}: no answer within its bound (${attempt - 1} attempts)`);
       try {
-        r = await http("POST", `${this.origin}/v1/ops`, { op, params, ...(key ? { idempotency_key: key } : {}) }, { ...this.headers(), ...extra }, timeoutMs, !!key);
+        r = await http("POST", `${this.origin}/v1/ops`, { op, params, ...(key ? { idempotency_key: key } : {}) }, { ...(await this.headers()), ...extra }, left, !!key);
       } catch (error) {
         // A keyed op the client stopped waiting on: ask again under the same key, which cannot apply it twice.
-        if (key && attempt < OP_ATTEMPTS && requestTimedOut(error)) { await sleep(2000 * attempt); continue; }
+        if (key && attempt < OP_ATTEMPTS && requestTimedOut(error) && (deadlineAt === undefined || Date.now() + 2000 * attempt < deadlineAt)) { await sleep(2000 * attempt); continue; }
+        if (deadlineAt !== undefined && requestTimedOut(error)) throw new Error(`${op}: no answer within its bound (${attempt} attempts)`);
         throw error;
       }
       // A provider call cut off mid-way is safe to repeat under the same key; without it a cleanup delete leaks the VM.
@@ -546,25 +569,28 @@ export class Api {
    */
   async deleteMachine(machine: string, key: string, budgetMs = DELETE_BUDGET_MS): Promise<any> {
     const until = Date.now() + budgetMs;
+    await this.fresh();
     for (let attempt = 1; ; attempt++) {
-      const r = await http("POST", `${this.origin}/v1/ops`, { op: "cloud.machine.delete", params: { machine }, idempotency_key: key }, this.headers(), 60_000, true);
+      const r = await http("POST", `${this.origin}/v1/ops`, { op: "cloud.machine.delete", params: { machine }, idempotency_key: key }, await this.headers(), 60_000, true);
       if (opRetryable(r.body) && Date.now() < until) { await sleep(Math.min(2000 * attempt, 15_000)); continue; }
       if (r.status !== 200 || r.body.ok !== true) throw new Error(`cloud.machine.delete: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
       return r.body.value;
     }
   }
   async read(op: string, params: unknown, timeoutMs = 30_000): Promise<any> {
+    await this.fresh();
     let r = await http("POST", `${this.origin}/v1/read`, { op, params }, this.headers(), timeoutMs, true);
     // A read changes nothing, so an owner reset is read once more.
     if (ownerUnreachable(r.body)) {
       stepNotes.getStore()?.push(OWNER_RETRY_NOTE);
       await sleep(OWNER_RETRY_MS);
-      r = await http("POST", `${this.origin}/v1/read`, { op, params }, this.headers(), timeoutMs, true);
+      r = await http("POST", `${this.origin}/v1/read`, { op, params }, await this.headers(), timeoutMs, true);
     }
     if (r.status !== 200 || (r.body.ok === false)) throw new Error(`${op}: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
     return r.body.value;
   }
   async raw(method: string, route: string, body?: unknown, timeoutMs = 60_000, extra: Record<string, string> = {}): Promise<Answer> {
+    await this.fresh();
     return http(method, `${this.origin}${route}`, body, { ...this.headers(), ...extra }, timeoutMs);
   }
 }
@@ -2054,6 +2080,15 @@ export async function waitMachine(api: Api, machine: string, want: (m: any) => b
  * (cmux-platform NeverBoundProbe.ts); a delete before then leaves no cause in its log (prod journey 45767907054).
  */
 export const PLATFORM_VERDICT_GRACE_MS = 90_000;
+/**
+ * The cold create's one bound, from its request to running: the platform's own (a create not settled 300 s after its
+ * bind token is failed cloud.machine.create_overdue) plus the up to 30 s before that token is minted. Run 45874526877
+ * spent 847 s on this cell: two 300 s create attempts the client cut and sent again under the same key, the third
+ * answered with the platform's create_overdue, then a 180 s delete of the failed machine, all inside the step.
+ */
+export const COLD_CREATE_BOUND_MS = 330_000;
+/** After that bound, how long the cell waits for the platform's verdict on a machine it never saw running. */
+export const COLD_CREATE_VERDICT_GRACE_MS = 45_000;
 
 /** The platform's failure code for a machine stuck before running, waited at most graceMs; null if it never failed. */
 export async function platformVerdict(api: Api, machine: string, graceMs = PLATFORM_VERDICT_GRACE_MS, pollMs = 3000): Promise<string | null> {
@@ -4915,6 +4950,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     await saveSendTrace(api, sendTrace.id, firstTextEpoch(J.firstText, createSentAt), outDir, Date.now, settle)
       .catch((e) => console.log(`send trace ${sendTrace.id}: ${String((e as Error)?.message ?? e).slice(0, 200)}`));
   };
+  // The cold create cell's deletes, started in its step and awaited by cleanup.
+  const coldDeletes: Promise<void>[] = [];
+  const deleteByName = async (name: string, key: string): Promise<void> => {
+    const rows = await listAllMachines((params) => api.read("cloud.machine.list", params, 30_000)).catch(() => [] as any[]);
+    const id = rows.find((r) => r?.name === name && r.status !== "deleted")?.id;
+    if (!id) return;
+    await api.deleteMachine(id, key).then(() => undefined, (e) => console.log(`delete ${name} (${id}) failed: ${String((e as Error)?.message ?? e).slice(0, 200)}`));
+  };
   // This run's install (install token step), revoked at cleanup.
   let journeyInstall: string | null = null;
   // Delete what this run made, pass, fail or cancel. A create whose reply was lost leaves `machine`
@@ -4948,6 +4991,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: before };
       }).catch(() => undefined);
     }
+    // The cold create cell's machine, deleted off that step's clock (even with --keep, as the cell always did).
+    await Promise.all(coldDeletes.splice(0));
     if (keep || !api.bearer) return;
     // This run's own install, so it never adds to the account's live installs (a sweep takes a killed run's).
     if (journeyInstall) {
@@ -5078,7 +5123,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const tok = await http("POST", `${backend.api}/v1/auth/token`, { user: userId, install: inst.id, nonce: ch.body.nonce, signature: await sign(pair.privateKey, `${ch.body.message_prefix}${ch.body.nonce}`) }, {});
       if (tok.status !== 200 || typeof tok.body.access_token !== "string") throw new Error(`token HTTP ${tok.status} ${short(tok.body)}`);
       J.secrets.push(tok.body.access_token);
-      return { value: { id: inst.id as string, token: tok.body.access_token as string, team: typeof inst.team === "string" ? inst.team : undefined, key: pair.privateKey }, detail: `install ${inst.id}` };
+      return { value: { id: inst.id as string, token: tok.body.access_token as string, expiresAt: Number(tok.body.expires_at) || Infinity, user: userId, team: typeof inst.team === "string" ? inst.team : undefined, key: pair.privateKey }, detail: `install ${inst.id}` };
     });
     journeyInstall = install.id;
     // The NEXT app mints its install token for its active Stack team (a challenge that names the team), which
@@ -5114,6 +5159,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }).catch(() => undefined);
     const installApi = new Api(backend.api, team);
     installApi.bearer = install.token;
+    installApi.expiresAt = expiresAtMs(install.expiresAt);
+    installApi.remint = async () => {
+      const ch = await http("POST", `${backend.api}/v1/auth/challenge`, { user: install.user, install: install.id }, {});
+      if (ch.status !== 200) throw new Error(`install token re-mint: challenge HTTP ${ch.status} ${short(ch.body)}`);
+      const tok = await http("POST", `${backend.api}/v1/auth/token`, { user: install.user, install: install.id, nonce: ch.body.nonce, signature: await sign(install.key, `${ch.body.message_prefix}${ch.body.nonce}`) }, {});
+      if (tok.status !== 200 || typeof tok.body.access_token !== "string") throw new Error(`install token re-mint: token HTTP ${tok.status} ${short(tok.body)}`);
+      J.secrets.push(tok.body.access_token);
+      return { token: tok.body.access_token as string, expiresAt: expiresAtMs(Number(tok.body.expires_at)) };
+    };
 
     if (preclaim) {
       const userId = String(user?.id ?? user?.user?.id ?? "");
@@ -5418,11 +5472,20 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (only.has("cold") || reuse) J.skip(COLD_CREATE_STEP, reuse ? "--machine" : "--skip cold");
       else {
         await J.step(COLD_CREATE_STEP, async () => {
-          const v = await api.op("cloud.machine.create", { name: `${machineName} cold`, size: COLD_CREATE_SIZE }, `${tag}-cold-create`);
+          const coldName = `${machineName} cold`;
+          const deadline = Date.now() + COLD_CREATE_BOUND_MS;
+          let v: any;
+          try {
+            v = await api.op("cloud.machine.create", { name: coldName, size: COLD_CREATE_SIZE }, `${tag}-cold-create`, {}, CREATE_OP_TIMEOUT_MS, deadline);
+          } catch (error) {
+            // No answer, so no id: cleanup finds the machine by its name and deletes it off the step's clock.
+            coldDeletes.push(deleteByName(coldName, `${tag}-cold-delete`));
+            throw error;
+          }
           const id = v.machine.id as string;
           const spare = spareFields(v);
           try {
-            const m = await waitRunning(api, id, 300_000);
+            const m = await waitRunning(api, id, Math.max(5_000, deadline - Date.now()), COLD_CREATE_VERDICT_GRACE_MS);
             const r = await directExec(api, id, J)(SIZE_READ);
             if (r.code !== 0 || !r.stdout.includes("journey-ok")) throw new Error(`${id}: exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
             const reading = r.stdout.trim().split("\n").slice(2).join(" ");
@@ -5432,7 +5495,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             if (why) throw new Error(`${id} ${asked}: ${why}${listed}`);
             return { value: null, detail: `${id} ${asked}: ${reading}${listed}; spare fallback ${spare.spare_fallback ?? "none"}` };
           } finally {
-            await api.deleteMachine(id, `${tag}-cold-delete`).catch((e) => console.log(`cold create: delete ${id} failed: ${String((e as Error)?.message ?? e).slice(0, 200)}`));
+            // Off the step's clock: a failed machine's delete can retry an indeterminate answer for DELETE_BUDGET_MS
+            // (180 s in run 45874526877). Cleanup awaits it.
+            coldDeletes.push(api.deleteMachine(id, `${tag}-cold-delete`).then(() => undefined, (e) => console.log(`cold create: delete ${id} failed: ${String((e as Error)?.message ?? e).slice(0, 200)}`)));
           }
           // Recorded as failed, and the run fails on it, but the checks after it still run.
         }).catch(() => undefined);
@@ -5756,7 +5821,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       // plain exec_command turn never spawns the host, so the journey checks the file itself.
       await J.step("Codex has its code-mode host", async () => {
         const r = await exec(
-          `p=$(bash -lc 'command -v codex' 2>/dev/null </dev/null); [ -n "$p" ] || p=/opt/cmux/current/bin/codex; ` +
+          // type -P, not command -v: a login shell where codex is a function or alias prints the bare name "codex",
+          // which readlink -f resolved against the working directory to /home/cmux/codex (a false red, 2026-11-26).
+          `p=$(bash -lc 'type -P codex' 2>/dev/null </dev/null); case "$p" in /*) ;; *) p=/opt/cmux/current/bin/codex ;; esac; ` +
             `r=$(readlink -f "$p"); h="$(dirname "$r")/codex-code-mode-host"; ` +
             `if [ -x "$h" ]; then echo "@@host $h"; else echo "@@missing $r"; fi`,
         );
@@ -5920,10 +5987,23 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
       probeExtra.reserved_hit ??= false;
     };
+    // An owner machine's agents run on what their launch carries only once its kind record reads owner
+    // (OWNER_KIND_PROGRAM); both chat starts below wait for it before session_start.
+    const ownerKindStep = async () => {
+      if (!provider || team || gatewayAny) return;
+      await J.step("machine kind owner", async () => {
+        const k = await waitOwnerKind(exec);
+        return { value: null, detail: k.tries === 1 ? "/etc/cmux/vm-kind reads owner" : `/etc/cmux/vm-kind read ${k.first}, owner after ${Math.round(k.waitedMs / 1000)} s (${k.tries} tries)` };
+      });
+    };
     if (only.has("chat")) {
       J.skip("start agent", "--skip chat");
       await journeyOnly();
     } else if (homeChat === "reserved") {
+      // As the acp start below: until /etc/cmux/vm-kind reads owner, agent-auth.sh runs claude in team mode
+      // (shared-machine), over settings.json's stub endpoint (run 45791887919: the stub leg's turn answered
+      // "No cmux inference gateway is online"). Before session_start, so the send window does not carry it.
+      await ownerKindStep();
       J.firstText.mark("session_start");
       let reservedChat: ChatClient | null = null;
       let started = false;
@@ -6008,13 +6088,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }).catch(() => undefined);
       for (const step of ["send chat", "reply"]) J.skip(step, "--start-via app: the cell judges the app's start");
     } else {
-      // An owner machine's agents run on what their launch carries only once its kind record reads owner (OWNER_KIND_PROGRAM).
-      if (provider && !team && !gatewayAny) {
-        await J.step("machine kind owner", async () => {
-          const k = await waitOwnerKind(exec);
-          return { value: null, detail: k.tries === 1 ? "/etc/cmux/vm-kind reads owner" : `/etc/cmux/vm-kind read ${k.first}, owner after ${Math.round(k.waitedMs / 1000)} s (${k.tries} tries)` };
-        });
-      }
+      await ownerKindStep();
       J.firstText.mark("session_start");
       let promptedWithStart = false;
       await J.step(`start agent (${agent})`, async () => {
