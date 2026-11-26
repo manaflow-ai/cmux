@@ -42,7 +42,8 @@ extension TerminalController {
     func v2PrepareWorkspaceCreateExecution(
         params: [String: Any],
         preparation: WorkspaceCreatePreparation,
-        workingDirectory: String?
+        workingDirectory: String?,
+        inheritCallerGroup: Bool = true
     ) -> WorkspaceCreateExecutionPreparationOutcome {
         let requestedInitialCommand = v2RawString(params, "initial_command")
         let initialCommand = requestedInitialCommand.flatMap {
@@ -146,6 +147,7 @@ extension TerminalController {
             }
         }
 
+        var callerGroup: (id: UUID, workspaceID: UUID)?
         if let groupID {
             let validation = v2MainSync {
                 let groupExists = preparation.tabManager.workspaceGroups.contains { $0.id == groupID }
@@ -168,6 +170,31 @@ extension TerminalController {
                     data: ["group_reference_workspace_id": groupReferenceWorkspaceID?.uuidString ?? ""]
                 ))
             }
+        } else if inheritCallerGroup,
+                  !v2HasNonNullParam(params, "window_id"),
+                  v2HasNonNullParam(params, "workspace_id") {
+            guard let callerID = v2UUID(params, "workspace_id") else {
+                return .failure(.err(
+                    code: "invalid_params",
+                    message: controlWorkspaceStrings().invalidWorkspaceRef,
+                    data: nil
+                ))
+            }
+            // A window Dock can supply a workspace-shaped routing ID without a sidebar row.
+            let source = v2MainSync {
+                let caller = preparation.tabManager.tabs.first { $0.id == callerID }
+                return (exists: caller != nil || AppDelegate.isWindowDockRoutingId(callerID), groupID: caller?.groupId)
+            }
+            guard source.exists else {
+                return .failure(.err(
+                    code: "not_found",
+                    message: controlWorkspaceStrings().workspaceNotFound,
+                    data: ["workspace_id": callerID.uuidString]
+                ))
+            }
+            if let groupID = source.groupID {
+                callerGroup = (groupID, callerID)
+            }
         }
 
         return .ready(WorkspaceCreateExecutionPreparation(
@@ -180,9 +207,9 @@ extension TerminalController {
             initialEnvironment: initialEnvironment,
             workspaceEnvironment: workspaceEnvironment,
             workingDirectory: cwd,
-            groupID: groupID,
-            groupPlacement: groupPlacement,
-            groupReferenceWorkspaceID: groupReferenceWorkspaceID,
+            groupID: groupID ?? callerGroup?.id,
+            groupPlacement: callerGroup == nil ? groupPlacement : .afterCurrent,
+            groupReferenceWorkspaceID: groupReferenceWorkspaceID ?? callerGroup?.workspaceID,
             layoutNode: layoutNode,
             shouldFocus: v2FocusAllowed(requested: v2Bool(params, "focus") ?? false),
             shouldEagerLoadTerminal: v2Bool(params, "eager_load_terminal")

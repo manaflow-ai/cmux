@@ -59,6 +59,25 @@ struct WorkspaceGroupTests {
         #expect(looseChild.groupId == nil)
         let windowTarget = try create(["workspace_id": caller.id.uuidString, "window_id": UUID().uuidString])
         #expect(windowTarget.groupId == nil)
+        let dock = try create(["workspace_id": AppDelegate.windowDockAliasWorkspaceId.uuidString])
+        #expect(dock.groupId == nil)
+    }
+
+    @Test func mobileWorkspaceCreateRetainsDefaultGroupPlacement() async throws {
+        let manager = makeTabManager()
+        let caller = try #require(manager.tabs.first)
+        _ = try #require(manager.createWorkspaceGroup(name: "Caller", childWorkspaceIds: [caller.id]))
+        let before = Set(manager.tabs.map(\.id))
+        let result = await TerminalController.shared.v2MobileWorkspaceCreate(
+            params: ["workspace_id": caller.id.uuidString],
+            tabManager: manager
+        )
+        guard case .ok = result else {
+            Issue.record("Expected mobile creation to succeed")
+            return
+        }
+        let created = try #require(manager.tabs.first { !before.contains($0.id) })
+        #expect(created.groupId == nil)
     }
 
     @Test func socketWorkspaceCreateRejectsMissingCallerWithoutCreatingAWorkspace() throws {
