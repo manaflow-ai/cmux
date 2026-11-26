@@ -37,63 +37,26 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
 
     public init() {}
 
+    /// Runs `event` through the gate (Rust, cmux-app-ffi `update_flow.handle`): the gate sees the
+    /// phase's kind; the payload (a transfer, a version, a note) stays here.
     public mutating func handle(_ event: UpdateFlowEvent, preferences: UpdatePreferences) -> [UpdateFlowEffect] {
-        switch event {
-        case .sparkle(let next):
-            return sparkleMoved(to: next)
-        case .attemptRequested:
-            // Attempt Update with nothing found yet: a fresh check that downloads and installs at once.
-            downloadAsked = true
-            userAsked = true
-            askPending = phase != .checking
-            return []
-        case .checkRequested:
-            userAsked = true
-            // Joining a check that already runs needs no new start.
-            askPending = phase != .checking
-            return []
-        case .installRequested:
-            switch phase {
-            case .ready:
-                // The staged update card took the click: its own button says
-                // Installing…, so the notice card does not take its place.
-                installRequested = true
-                userAsked = false
-                return installIfStaged()
-            case .downloading, .checking:
-                // Installs once staged; the check or the download's progress shows meanwhile.
-                installRequested = true
-                userAsked = true
-                downloadAsked = true
-                return []
-            case .available:
-                // Downloads, shows its progress, installs once staged.
-                installRequested = true
-                userAsked = true
-                downloadAsked = true
-                return [.download]
-            case .hidden, .installing, .note:
-                return []
-            }
-        case .downloadRequested:
-            // The answer to the update-found step: download, show its progress, then ask again
-            // before the relaunch (the staged update card). A held install click keeps its install.
-            // With `updates.oneClickInstall` this click is the relaunch's ask too: it installs once
-            // staged (Leo 2026-11-04, after the Codex app's Update available button: "me clicking it
-            // enabling it to auto install and restart is... interesting").
-            guard case .available = phase else { return [] }
-            userAsked = true
-            downloadAsked = true
-            if preferences.oneClickInstall { installRequested = true }
-            return [.download]
-        case .quitRequested:
-            guard case .ready = phase, !preferences.installOnQuit else { return [.quit(.proceed)] }
-            return [.quit(.cancelPendingInstall)]
-        case .noteExpired:
-            if case .note = phase { phase = .hidden }
-            userAsked = false
+        let request = HandleRequest(
+            flow: gate,
+            event: GateEvent(event),
+            preferences: GatePreferences(installOnQuit: preferences.installOnQuit, oneClickInstall: preferences.oneClickInstall)
+        )
+        guard let reply = try? UpdaterRust.call("update_flow.handle", request, as: HandleReply.self) else {
+            // A request built here is well formed: a failure is a programming error, answered as
+            // no move.
+            assertionFailure("update_flow.handle refused its request")
             return []
         }
+        if case .sparkle(let next) = event { phase = next }
+        installRequested = reply.flow.installRequested
+        userAsked = reply.flow.userAsked
+        downloadAsked = reply.flow.downloadAsked
+        askPending = reply.flow.askPending
+        return reply.effects.map(\.effect)
     }
 
     /// The person's check while an update waits was answered without a new check (the staged
@@ -102,100 +65,149 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
         askPending = false
     }
 
-    private mutating func sparkleMoved(to next: UpdateIndicatorPhase) -> [UpdateFlowEffect] {
-        let previous = phase
-        phase = next
-        switch next {
-        case .checking:
-            // A check the person did not ask for (scheduled) shows nothing,
-            // even while an earlier result of theirs still waits for its x.
-            if askPending { askPending = false } else if previous != .checking { userAsked = false }
-        case .hidden:
-            // A check or download that ended with nothing ends the request:
-            // the next scheduled check stays silent. (A note that leaves
-            // through ``UpdateFlowEvent/noteExpired`` ends it there.)
-            if previous == .checking || previous.isDownloading { userAsked = false }
-        case .note, .available, .downloading, .ready, .installing:
-            askPending = false
-        }
-        switch next {
-        case .ready:
-            userAsked = false
-            downloadAsked = false
-            return installIfStaged()
-        case .installing:
-            // A person who watched the check and download on the notice card
-            // keeps watching it there until the relaunch (``card``).
-            installRequested = false
-            return []
-        case .hidden, .note:
-            // The flow ended, failed or was cancelled: a held click does not
-            // carry over to a later update.
-            installRequested = false
-            downloadAsked = false
-            return []
-        case .available:
-            // A click held while the check ran: download now, install once staged.
-            guard installRequested else { return [] }
-            userAsked = true
-            downloadAsked = true
-            return [.download]
-        case .checking, .downloading:
-            return []
-        }
-    }
-
-    /// Installs when the user asked and the update is staged.
-    private mutating func installIfStaged() -> [UpdateFlowEffect] {
-        guard installRequested, case .ready = phase else { return [] }
-        installRequested = false
-        return [.install]
-    }
-
-    /// The notice card's update status, or nil: what the user asked for (a
-    /// check, its download's progress, its result), and a found update that
-    /// waits for a click (`updates.downloadAutomatically` off), which needs no
-    /// check. A download the person asked for (Download, Update) shows its
-    /// progress here until it is staged (Leo 2026-11-04: "there's no more
-    /// updating downloading progress bar for some reason? after i download...");
-    /// Settings > Updates shows it too (``UpdaterService/settingsStatus``).
-    /// A scheduled check, its download and its result show nothing: a background
-    /// download stays quiet and the staged update's one-step card asks to restart
-    /// (Leo 2026-11-03, after ChatGPT: "it's already downloaded you click this
-    /// button to accept the button and restart").
-    /// A staged update is never this card (the staged update card,
-    /// ``footerPill(preferences:)``); an install shows here only when the
-    /// person followed it here (Attempt Update), so the loading card never
-    /// swaps for another card halfway.
+    /// The notice card's update status, or nil (Rust, cmux-app-ffi `update_flow.card`): what the
+    /// user asked for (a check, its download's progress, its result), and a found update that
+    /// waits for a click (`updates.downloadAutomatically` off), which needs no check. A scheduled
+    /// check, its download and its result show nothing; a staged update is never this card (the
+    /// staged update card, ``footerPill(preferences:)``). The rules and their sources (Leo
+    /// 2026-11-03, 2026-11-04; Lawrence 2026-10-20, 2026-11-07) are on the Rust side.
     ///
     /// - Parameter downloadsAutomatically: `updates.downloadAutomatically`.
-    ///   While on, a found update that is not downloaded yet (the download
-    ///   waits for Low Data Mode or a metered link to end) shows nothing until
-    ///   it is staged, unless the person asked; off, the found update shows,
-    ///   since nothing else would tell the person about it.
     public func card(downloadsAutomatically: Bool) -> UpdateCard? {
-        if case .available(let version) = phase, userAsked || !downloadsAutomatically { return .available(version: version) }
-        guard userAsked else { return nil }
-        switch phase {
-        case .checking: return .checking
-        case .downloading(let transfer): return downloadAsked ? .downloading(transfer) : nil
-        case .installing: return .installing
-        case .note(let note): return .note(note)
-        case .hidden, .available, .ready: return nil
+        let request = CardRequest(flow: gate, downloadsAutomatically: downloadsAutomatically)
+        guard let kind = try? UpdaterRust.call("update_flow.card", request, as: GateCard?.self) else { return nil }
+        switch (kind, phase) {
+        case (.checking, _): return .checking
+        case (.downloading, .downloading(let transfer)): return .downloading(transfer)
+        case (.available, .available(let version)): return .available(version: version)
+        case (.installing, _): return .installing
+        case (.note, .note(let note)): return .note(note)
+        // The gate names a kind only from the phase it was given.
+        case (.downloading, _), (.available, _), (.note, _): return nil
         }
     }
 
-    /// The footer's update pill: "Update Ready" while an update is staged
-    /// (not while it is checked for, found or downloading), disabled while
-    /// it installs; nil otherwise and, for a staged update, under
-    /// `updates.notify` silent.
+    /// The footer's update pill (Rust, cmux-app-ffi `update_flow.footer_pill`): "Update Ready"
+    /// while an update is staged, disabled while it installs; nil otherwise and, for a staged
+    /// update, under `updates.notify` silent.
     public func footerPill(preferences: UpdatePreferences) -> UpdateFooterPill? {
-        switch phase {
-        case .ready: preferences.notify == .silent ? nil : .ready
-        case .installing: .installing
-        case .hidden, .checking, .downloading, .available, .note: nil
+        let request = PillRequest(flow: gate, silent: preferences.notify == .silent)
+        guard let kind = try? UpdaterRust.call("update_flow.footer_pill", request, as: GatePill?.self) else { return nil }
+        switch kind {
+        case .ready: return .ready
+        case .installing: return .installing
+        case nil: return nil
         }
     }
+
+    /// The gate's state as Rust takes it: the phase's kind, no payload.
+    private var gate: GateFlow {
+        GateFlow(
+            phase: GatePhase(phase),
+            installRequested: installRequested,
+            userAsked: userAsked,
+            downloadAsked: downloadAsked,
+            askPending: askPending
+        )
+    }
+}
+
+// The wire of cmux-app-ffi's `update_flow.*` ops (updater/update_flow.rs, camelCase JSON).
+
+private nonisolated enum GatePhase: String, Codable {
+    case hidden, checking, downloading, available, ready, installing, note
+
+    init(_ phase: UpdateIndicatorPhase) {
+        switch phase {
+        case .hidden: self = .hidden
+        case .checking: self = .checking
+        case .downloading: self = .downloading
+        case .available: self = .available
+        case .ready: self = .ready
+        case .installing: self = .installing
+        case .note: self = .note
+        }
+    }
+}
+
+private nonisolated struct GateFlow: Codable {
+    var phase: GatePhase
+    var installRequested: Bool
+    var userAsked: Bool
+    var downloadAsked: Bool
+    var askPending: Bool
+}
+
+private nonisolated struct GateEvent: Encodable {
+    let kind: String
+    let next: GatePhase?
+
+    init(_ event: UpdateFlowEvent) {
+        switch event {
+        case .sparkle(let phase): (kind, next) = ("sparkle", GatePhase(phase))
+        case .checkRequested: (kind, next) = ("checkRequested", nil)
+        case .attemptRequested: (kind, next) = ("attemptRequested", nil)
+        case .installRequested: (kind, next) = ("installRequested", nil)
+        case .downloadRequested: (kind, next) = ("downloadRequested", nil)
+        case .quitRequested: (kind, next) = ("quitRequested", nil)
+        case .noteExpired: (kind, next) = ("noteExpired", nil)
+        }
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(kind, forKey: .kind)
+        try container.encodeIfPresent(next, forKey: .next)
+    }
+
+    private enum CodingKeys: String, CodingKey { case kind, next }
+}
+
+private nonisolated struct GatePreferences: Encodable {
+    let installOnQuit: Bool
+    let oneClickInstall: Bool
+}
+
+private nonisolated struct HandleRequest: Encodable {
+    let flow: GateFlow
+    let event: GateEvent
+    let preferences: GatePreferences
+}
+
+private nonisolated enum GateEffect: String, Decodable {
+    case install, download, quitProceed, quitCancelPendingInstall
+
+    var effect: UpdateFlowEffect {
+        switch self {
+        case .install: .install
+        case .download: .download
+        case .quitProceed: .quit(.proceed)
+        case .quitCancelPendingInstall: .quit(.cancelPendingInstall)
+        }
+    }
+}
+
+private nonisolated struct HandleReply: Decodable {
+    let flow: GateFlow
+    let effects: [GateEffect]
+}
+
+private nonisolated struct CardRequest: Encodable {
+    let flow: GateFlow
+    let downloadsAutomatically: Bool
+}
+
+private nonisolated enum GateCard: String, Decodable {
+    case checking, downloading, available, installing, note
+}
+
+private nonisolated struct PillRequest: Encodable {
+    let flow: GateFlow
+    let silent: Bool
+}
+
+private nonisolated enum GatePill: String, Decodable {
+    case ready, installing
 }
 
 extension UpdateIndicatorPhase {
