@@ -32,7 +32,8 @@
         },
         {
           "action": "agentPane.switchModel",
-          "wait": 3
+          "wait": 3,
+          "focus": true
         }
       ],
       "agent_pane_css": {
