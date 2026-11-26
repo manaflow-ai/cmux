@@ -20,19 +20,12 @@ extension AppStoreContentBuilder {
                                           model.loadCommunity(refresh: true)
                                       }], vertical: false, spacing: Metrics.space2))
             }
-            // A refresh says nothing (RFD 0143, Leo: "they dont need to know that it's updating before they KNOW
-            // it's updating"): the cached rows stay put and `apps-changed {transaction: "community"}` swaps them in
-            // place when the owner's fetch lands. Only an empty cache that is still filling shows Loading, so it
-            // never reads as "No matches".
-            if page.rows.isEmpty, page.elsewhere.isEmpty, page.updating, page.error == nil {
-                views.append(L.state(AppStoreStrings.loading, width: width))
-                return views
-            }
             if !page.elsewhere.isEmpty {
                 views.append(L.stack([L.label(AppStoreStrings.onOtherDevices, font: Typography.system(size: TypeScale.title, weight: TypeScale.emphasis)),
                                       grid(page.elsewhere.map { communityRow($0, elsewhere: true) })], spacing: Metrics.space2))
             }
-            views.append(page.rows.isEmpty ? L.state(AppStoreStrings.noMatches, width: width)
+            // A refresh says nothing over cached rows (RFD 0143); `apps-changed` swaps them when the fetch lands.
+            views.append(page.rows.isEmpty ? L.state(page.updating ? AppStoreStrings.loading : AppStoreStrings.noMatches, width: width)
                                            : grid(page.rows.map { communityRow($0, elsewhere: false) }))
         }
         return views
