@@ -1414,6 +1414,84 @@ async fn resumable_upload_with_a_known_sha256_answers_the_stored_copy_without_by
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn resumable_upload_dedup_index_alias_preserves_outside_entry() {
+    use std::os::unix::fs::symlink;
+
+    let fixture = fixture(FakeOptions::default()).await;
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let bytes = b"aliased-index";
+    let hash = format!("{:x}", Sha256::digest(bytes));
+    let first =
+        upload_with_hash(&connected.link, "99999999-9999-9999-9999-999999999999", "a.bin", bytes, &hash)
+            .await;
+    let stored = std::path::PathBuf::from(first["path"].as_str().unwrap());
+    let folder = stored.parent().unwrap();
+    let parts =
+        folder.join(format!(".parts-{:x}", Sha256::digest(fixture.phone_id.to_ascii_lowercase().as_bytes())));
+    let index = parts.join(format!(".sha256-{}", folder.file_name().unwrap().to_str().unwrap()));
+    let outside = fixture.outside.join("dedup-index-target");
+    std::fs::create_dir(&outside).unwrap();
+    let sentinel = outside.join(&hash);
+    std::fs::write(&sentinel, b"outside").unwrap();
+    std::fs::remove_dir(&index).unwrap();
+    symlink(&outside, &index).unwrap();
+
+    let second =
+        upload_with_hash(&connected.link, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "b.bin", bytes, &hash)
+            .await;
+    assert!(second.get("deduped").is_none(), "an aliased index must not answer a cache hit: {second}");
+    assert_ne!(second["path"], first["path"]);
+    assert_eq!(std::fs::read(&sentinel).unwrap(), b"outside", "the aliased index escaped its folder");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn resumable_upload_dedup_index_ignores_fifo_and_oversized_entries() {
+    use std::io::Write;
+    use std::os::unix::ffi::OsStrExt;
+
+    let fixture = fixture(FakeOptions::default()).await;
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let bytes = b"special-index-entry";
+    let hash = format!("{:x}", Sha256::digest(bytes));
+    let first =
+        upload_with_hash(&connected.link, "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", "a.bin", bytes, &hash)
+            .await;
+    let stored = std::path::PathBuf::from(first["path"].as_str().unwrap());
+    let folder = stored.parent().unwrap();
+    let parts =
+        folder.join(format!(".parts-{:x}", Sha256::digest(fixture.phone_id.to_ascii_lowercase().as_bytes())));
+    let index = parts.join(format!(".sha256-{}", folder.file_name().unwrap().to_str().unwrap()));
+    let entry = index.join(&hash);
+
+    std::fs::remove_file(&entry).unwrap();
+    let entry_name = std::ffi::CString::new(entry.as_os_str().as_bytes()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(entry_name.as_ptr(), 0o600) }, 0);
+    let fifo_entry = entry.clone();
+    let fifo_writer = std::thread::spawn(move || {
+        let Ok(mut fifo) = std::fs::OpenOptions::new().write(true).open(&fifo_entry) else { return };
+        let _ = fifo.write_all(b"not-a-published-file\n");
+    });
+    let fifo_result = tokio::time::timeout(
+        Duration::from_secs(3),
+        upload_with_hash(&connected.link, "cccccccc-cccc-cccc-cccc-cccccccccccc", "b.bin", bytes, &hash),
+    )
+    .await
+    .expect("FIFO index entry must not block lookup");
+    fifo_writer.join().unwrap();
+    assert!(fifo_result.get("deduped").is_none(), "a FIFO is not a cache entry: {fifo_result}");
+
+    std::fs::remove_file(&entry).unwrap();
+    std::fs::write(&entry, vec![b'x'; 8192]).unwrap();
+    let oversized = tokio::time::timeout(
+        Duration::from_secs(3),
+        upload_with_hash(&connected.link, "dddddddd-dddd-dddd-dddd-dddddddddddd", "c.bin", bytes, &hash),
+    )
+    .await
+    .expect("oversized index entry must be bounded");
+    assert!(oversized.get("deduped").is_none(), "an oversized entry is not a cache hit: {oversized}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn old_phone_upload_reply_has_legacy_framing() {
     let fixture = fixture(FakeOptions::default()).await;
     let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
