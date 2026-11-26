@@ -209,6 +209,15 @@ class LineBoxes {
   private resized = false;
   private observer: ResizeObserver | undefined;
   private boxes = new Map<Element, string>();
+  /// The words' box (`output.cv-thinking`) width as the observer last reported it: the width they
+  /// were last drawn at, kept when a new words box replaces it until that one's first report, read
+  /// with no forced layout (`useRollOutWidth`). Undefined until a first report.
+  wordsWidth: number | undefined;
+
+  /// Whether a ResizeObserver reports the boxes: then `wordsWidth` is theirs and nothing reads layout.
+  get observing(): boolean {
+    return this.observer !== undefined;
+  }
 
   /// One observer for the line's life; the returned cleanup disconnects it.
   connect(): () => void {
@@ -221,6 +230,8 @@ class LineBoxes {
           : `${entry.contentRect.width}x${entry.contentRect.height}`;
         const before = this.boxes.get(entry.target);
         this.boxes.set(entry.target, size);
+        if (entry.target.matches("output.cv-thinking"))
+          this.wordsWidth = box ? box.inlineSize : entry.contentRect.width;
         // A box's first report is its size when observed, already read in that commit.
         if (before !== undefined && before !== size) this.resized = true;
       }
@@ -230,6 +241,7 @@ class LineBoxes {
       observer.disconnect();
       if (this.observer === observer) this.observer = undefined;
       this.boxes = new Map();
+      this.wordsWidth = undefined;
       // A remount (Strict Mode's second pass) reads and observes again.
       this.drawn = undefined;
     };
@@ -290,25 +302,37 @@ function useLineMoved(line: RefObject<HTMLDivElement | null>, drawn: readonly un
 
 /// The old words roll out as they were drawn (review of cmux#41078): cut at the width the words had
 /// (ellipsis and all), their time and counts from where they sat, never the full words running their
-/// tail on past it. The width as last committed, one read of the line's own box a commit that moved
-/// it (`useLineMoved`), set on the roll's copies in the commit that makes them, before paint; refs
-/// only in the effect.
+/// tail on past it, set on the roll's copies in the commit that makes them, before paint; refs only
+/// in the effect. The width is the words' box as the line's ResizeObserver last reported it
+/// (`LineBoxes.wordsWidth`), so no commit forces a layout to read it (Leo, 2026-11-26: "Why should non
+/// visible thing even affect the renderer thread anyways?"): the read here took 340 ms of forced
+/// style and layout in a traced replay under load, once per commit that moved the line, each tick
+/// of its time among them. With no observer (a page without one) it reads the box once a commit
+/// that moved it (`useLineMoved`), as before.
 function useRollOutWidth(line: RefObject<HTMLDivElement | null>, turns: number, moved: LineBoxes) {
   const drawn = useRef<{ turns: number; width?: number }>({ turns });
   useLayoutEffect(() => {
     const node = line.current;
     if (!node) return;
     const last = drawn.current;
+    const observing = moved.observing;
     // Nothing drawn moved: the width read last still holds.
-    if (turns === last.turns && !moved.moved) return;
-    if (turns !== last.turns && last.width !== undefined) {
-      const px = `${last.width}px`;
-      const words = node.querySelector<HTMLElement>(":scope .cv-roll-out");
-      const tail = node.querySelector<HTMLElement>(":scope .cv-roll-out__tail");
-      if (words) words.style.width = px;
-      if (tail) tail.style.left = px;
+    if (turns === last.turns && (observing || !moved.moved)) return;
+    if (turns !== last.turns) {
+      // Observed, the words' last report is the width they were drawn at.
+      const seen = observing ? moved.wordsWidth : last.width;
+      const width = seen && seen > 0 ? seen : undefined;
+      if (width !== undefined) {
+        const px = `${width}px`;
+        const words = node.querySelector<HTMLElement>(":scope .cv-roll-out");
+        const tail = node.querySelector<HTMLElement>(":scope .cv-roll-out__tail");
+        if (words) words.style.width = px;
+        if (tail) tail.style.left = px;
+      }
     }
-    const width = node.querySelector<HTMLElement>("output.cv-thinking")?.getBoundingClientRect().width;
+    const width = observing
+      ? undefined
+      : node.querySelector<HTMLElement>("output.cv-thinking")?.getBoundingClientRect().width;
     drawn.current = { turns, width: width && width > 0 ? width : undefined };
   });
 }
