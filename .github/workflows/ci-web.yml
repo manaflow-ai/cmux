@@ -191,8 +191,8 @@ jobs:
       # 8, not 12 (Leo, 2026-11-22: "if it's really so big then you guys need to be hurrying up and thinking more
       # innovatively"): every shard pays about 3.5 min of checkout, install, bundle build and engines plus a cold Vite
       # warm-up before its first test, so a full matrix at 12 cost about 9% more runner-minutes than at 8
-      # (12 x 820 s against 8 x 1133 s) for about 5 min less wall time. A pull request's pick is shard 1 and one
-      # touched-test shard either way, so the count moves only full-matrix runs (push, batch, full-ci, build input).
+      # (12 x 820 s against 8 x 1133 s) for about 5 min less wall time. A pull request's pick is shard 1 (with its
+      # touched tests) either way, so the count moves only full-matrix runs (push, batch, full-ci, build input).
       # Push classes (Leo, 2026-11-22: "there must surely be some changes which can get the fast track
       # route. like a nexus card."): the summary names the push's class (fast, sampled, full), the rule that fired and
       # how to get a full run; `class` hands it to the shards (a fast push's shard 1 runs its checks and no test file).
@@ -255,7 +255,7 @@ jobs:
           shards="$(python3 -c 'import json,sys; m=json.loads(sys.argv[1]); print(",".join(str(e["shard"]) for e in m) if len(m) < int(sys.argv[2]) else "")' "$picked" "$REACT_APPS_SHARDS")" || shards=""
           if [ -n "$shards" ]; then
             timeout 150 python3 scripts/ci/webviews_pr_shards.py --base HEAD^1 --head HEAD --count "$REACT_APPS_SHARDS" --files-of "$shards" \
-              > "$RUNNER_TEMP/webviews-durations/pr-shard-files.tmp" &&
+              --direct-in "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json" > "$RUNNER_TEMP/webviews-durations/pr-shard-files.tmp" &&
               mv "$RUNNER_TEMP/webviews-durations/pr-shard-files.tmp" "$RUNNER_TEMP/webviews-durations/pr-shard-files" ||
               rm -f "$RUNNER_TEMP/webviews-durations/pr-shard-files.tmp"
           fi
@@ -659,7 +659,9 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 30
     steps:
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-stall-step-bounds (a stalled runner fails in minutes)
       - name: Checkout
+        timeout-minutes: 6
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.sha || '' }}
@@ -699,6 +701,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Set up pinned Rust
+        timeout-minutes: 8
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Cache cargo build
@@ -885,7 +888,7 @@ jobs:
     # after a push. The same split over run 43342256133's manifest gives 690 s a
     # shard at 12, for about 9% more runner minutes (12 x 820 s against 8 x 1133 s).
     # Back to 8 on 2026-11-22 (REACT_APPS_SHARDS): those 9% outweigh the 5 min, now that a pull request runs
-    # shard 1 and one touched-test shard and only full-matrix runs feel the count.
+    # shard 1 (with its touched tests) and only full-matrix runs feel the count.
     # The widths in Test webviews are declared for 16 vCPU (CMUX_WEB_TEST_SIZED_FOR_VCPU); a runner
     # with fewer cores runs its files at that share of them, so a shard on 4 vCPU runs 2 at a time,
     # about 4x the 690 s of tests plus a slower setup, and on 2 vCPU 1 at a time, about 8x. 40 min is
@@ -937,6 +940,25 @@ jobs:
         run: |
           git diff --name-only --no-renames HEAD^1 HEAD > "$RUNNER_TEMP/pr-changed-files"
           echo "CMUX_PR_CHANGED_FILES=$RUNNER_TEMP/pr-changed-files" >> "$GITHUB_ENV"
+
+      # Whether Test webviews runs no test file here: the rule it applies (a fast push, or shard 1's --direct-out entry
+      # an empty list) read up front, so this job skips the Playwright browsers, their apt packages and the engines,
+      # which only the test files use (about 30 s of shard 1's job 137332637156). Over 11-22 20Z to 11-23 02Z the
+      # median shard 1 job ran no test file. Any doubt (no file, no entry, an unreadable map) installs them as before.
+      - name: Does this shard run a test file
+        id: shard-tests
+        if: ${{ matrix.shard == 1 && github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+        env:
+          REACT_APPS_CLASS: ${{ needs.web-subarea-scope.outputs.react_class }}
+        run: |
+          none=false
+          if [ "$REACT_APPS_CLASS" = fast ] ||
+            python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("1", "-") == [] else 1)' \
+              "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json" 2> /dev/null; then
+            none=true
+          fi
+          echo "shard ${{ matrix.shard }} runs no test file: $none"
+          echo "none=$none" >> "$GITHUB_OUTPUT"
 
       # A Freestyle react-class runner (CI_REACT_SHARD_RUNNER) boots from a snapshot that already
       # holds Bun's package cache, the Playwright browsers and their apt packages, and names them
@@ -1025,7 +1047,7 @@ jobs:
           key: playwright-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
 
       - name: Cache Playwright browsers (restore only off feat-cmux-next)
-        if: ${{ (steps.receipt.outputs.hit != 'true') && steps.warm-react.outputs.warm != 'true' && github.ref != 'refs/heads/feat-cmux-next' }}
+        if: ${{ (steps.receipt.outputs.hit != 'true') && github.ref != 'refs/heads/feat-cmux-next' && steps.shard-tests.outputs.none != 'true' && steps.warm-react.outputs.warm != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/ms-playwright
@@ -1058,11 +1080,46 @@ jobs:
         continue-on-error: true
         run: ./scripts/build-webviews-app.sh --check --skip-typecheck
 
+      # The bundles cmux-next.yml's web-bundles job built for this exact source key (web-bundle-key.py --source:
+      # every input file and the Bun and Node pins, the same as here), cached as cmux-next-web-bundles-v1-KEY. A pull
+      # request that changes no bundle input has its merge parent's key, which the base push's job cached: 21 of 61
+      # React-routed merges over 11-22 18Z to 11-23 02Z changed nothing under webviews/. A hit installs that build
+      # (build-web-bundles.sh --from: completeness, the committed inspector page, the stamp) after the strings
+      # tables, in place of the 108 s rebuild (job 137332637156); a miss, or any failure on the way, rebuilds as before.
+      - name: Source key of the web bundles
+        id: web-bundle-key
+        if: ${{ steps.receipt.outputs.hit != 'true' }}
+        continue-on-error: true
+        run: echo "key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
+
+      - name: Look up the web bundles built for this source key
+        id: web-bundle-cache
+        if: ${{ steps.web-bundle-key.outputs.key != '' }}
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: web-bundles-out
+          key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+          enableCrossOsArchive: true
+
       - name: Build the web bundles
         id: bundles
         if: ${{ steps.receipt.outputs.hit != 'true' }}
         continue-on-error: true
-        run: ./scripts/cmux-next/build-web-bundles.sh --force
+        env:
+          RESTORED: ${{ steps.web-bundle-cache.outputs.cache-hit == 'true' && 'web-bundles-out' || '' }}
+        run: |
+          if [ -n "$RESTORED" ] && [ -d "$RESTORED" ]; then
+            if (cd webviews && bun scripts/pages/gen-strings.mjs) && ./scripts/cmux-next/build-web-bundles.sh --from "$RESTORED"; then
+              rm -rf "$RESTORED"
+              echo "web bundles installed from the build cached for this source key"
+              exit 0
+            fi
+            echo "::warning title=web bundles::the cached build for this source key did not install; building them"
+            rm -rf "$RESTORED"
+          fi
+          exec ./scripts/cmux-next/build-web-bundles.sh --force
 
       # ci-guards runs this on main; feat-cmux-next PRs skip ci-guards.
       # The checks from here to the engines do not depend on the shard, so
@@ -1165,7 +1222,7 @@ jobs:
       # without these engines; before, they skipped themselves and passed.
       - name: Cache Playwright's apt packages
         id: playwright-apt
-        if: ${{ steps.receipt.outputs.hit != 'true' && steps.warm-react.outputs.warm != 'true' }}
+        if: ${{ steps.receipt.outputs.hit != 'true' && steps.shard-tests.outputs.none != 'true' && steps.warm-react.outputs.warm != 'true' }}
         continue-on-error: true
         uses: ./.github/actions/playwright-apt-cache
         with:
@@ -1173,7 +1230,7 @@ jobs:
 
       - name: Install headless engines
         id: engines
-        if: ${{ steps.receipt.outputs.hit != 'true' }}
+        if: ${{ steps.receipt.outputs.hit != 'true' && steps.shard-tests.outputs.none != 'true' }}
         continue-on-error: true
         working-directory: webviews
         run: bash "$(git rev-parse --show-toplevel)/scripts/ci/apt-no-service-restarts.sh" && ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$(git rev-parse --show-toplevel)/scripts/ci/pin-browser-test-font.sh"
@@ -1359,9 +1416,9 @@ jobs:
           # a release-notes highlight (cmux#53546 35726b7d, run 45771042383); the post-merge batch runs every file.
           if [ -n "$BASE_REF" ] && { [ "$FULL_CI" != true ] || [ "$REACT_APPS_CLASS" = sampled ] || [ "$REACT_APPS_CLASS" = fast ]; }; then
             CMUX_WEB_TEST_FILES="$(python3 ../scripts/ci/webviews_affected.py --base "$BASE_REF" --head HEAD)" || CMUX_WEB_TEST_FILES=""
-            # Shard 1 and the one shard past 1 a pull request picks run only their touched tests
-            # (webviews_pr_shards.py --direct-out), as one unsplit list, not their share of the closure above: shard 1
-            # the touched tests in its own share (maybe none), the other every touched test outside shard 1. No entry
+            # Shard 1 runs only the touched tests (webviews_pr_shards.py --direct-out), as one unsplit list, not its
+            # share of the closure above: the touched tests in its own share and every touched test outside it that no
+            # sampled shard runs (maybe none). No entry
             # (an every-shard pick, a failed pick, no file) keeps the closure share; "-" below marks no entry.
             own="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print("\n".join(d[sys.argv[2]]) if sys.argv[2] in d else "-")' \
               "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json" "$CMUX_WEB_TEST_SHARD" 2>/dev/null)" || own="-"
@@ -1476,6 +1533,8 @@ jobs:
         env:
           SOURCE_BUILD: ${{ steps.source-build.outcome }}
           BUNDLES: ${{ steps.bundles.outcome }}
+          WEB_BUNDLE_KEY: ${{ steps.web-bundle-key.outcome }}
+          WEB_BUNDLE_CACHE: ${{ steps.web-bundle-cache.outcome }}
           PLAYWRIGHT_APT: ${{ steps.playwright-apt.outcome }}
           ENGINES: ${{ steps.engines.outcome }}
           MERGE_DRIVER: ${{ steps.merge-driver.outcome }}
@@ -1501,6 +1560,9 @@ jobs:
           fi
           if [ "$HISTORY_UPLOAD" = failure ]; then
             echo "::warning::This push's webview results did not upload; the base's flake history misses this run."
+          fi
+          if [ "$WEB_BUNDLE_KEY" = failure ] || [ "$WEB_BUNDLE_CACHE" = failure ]; then
+            echo "::warning::The web bundles' cached build was not looked up; Build the web bundles built them."
           fi
           if [ "$PASSED_BEFORE" = failure ] || [ "$PASSED_UPLOAD" = failure ]; then
             echo "::warning::The files that passed at the previous head were not read, or this head's were not kept: every file runs."
