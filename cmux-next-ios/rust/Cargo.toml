@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/cmux-mobile-link", "crates/cmux-mobile-host", "crates/cmux-mobile-link-ffi"]
+members = ["crates/cmux-mobile-link", "crates/cmux-mobile-host", "crates/cmux-mobile-link-ffi", "crates/cmux-mobile-auto", "crates/cmux-mobile-tailnet"]
 
 [workspace.package]
 edition = "2024"
@@ -18,24 +18,72 @@ redundant_clone = "warn"
 
 [workspace.dependencies]
 cmux-mobile-link = { path = "crates/cmux-mobile-link" }
+# Auto chats from the phone with no Mac (plans/cmux-next/auto-mode/DESIGN.md, slice E), and the
+# shared core they use: the Cloud store's wire types and the store as a trait.
+cmux-mobile-auto = { path = "crates/cmux-mobile-auto" }
+cmux-auto-session = { path = "../../cmux-tui/crates/cmux-auto-session" }
+# Phone read-first cache shared by mobile surfaces.
+cmux-mobile-core = { path = "../../cmux-tui/crates/cmux-mobile-core" }
+# Data bundles (RFD 0142 R7): attachments as sealed content-defined chunks (`bundle` service).
+cmux-bundle = { path = "../../cmux-tui/crates/cmux-bundle" }
+# The build space value and its fail-closed rule, shared with the Mac's other Rust cloud clients.
+# Braid's racer and last-good route (RFD 0164): the signaling dial (signal_dial.rs).
+cmux-braid-path = { path = "../../cmux-tui/crates/cmux-braid-path" }
+cmux-braid-class = { path = "../../cmux-tui/crates/cmux-braid-class" }
+cmux-build-space = { path = "../../cmux-tui/crates/cmux-build-space" }
+cmux-output-paint = { path = "../../cmux-tui/crates/cmux-output-paint" }
+# The per-stream seq/ack/replay core of the reliable link (pure; no runtime).
+cmux-remote-protocol = { path = "../../cmux-tui/crates/cmux-remote-protocol" }
 cmux-wg = { path = "../../cmux-tui/crates/cmux-wg" }
+# The relay's sealed snapshot and delta envelopes (RFD 0142 R2, R9): the phone opens, the Mac seals.
+cmux-relay-snapshot = { path = "../../cmux-tui/crates/cmux-relay-snapshot" }
+cmux-fault = { path = "../../cmux-tui/crates/cmux-fault" }
+# Deadlines counted from the last progress, not the start (cmux-mobile-host: cloud prompts, mailbox round trips).
+cmux-deadline = { path = "../../cmux-tui/crates/cmux-deadline", features = ["tokio"] }
+# The terminal composer's Send: one keyed request, kept across a reconnect.
+cmux-composer-send = { path = "../../cmux-tui/crates/cmux-composer-send" }
+# Where the person was (workspace, chat or terminal, scroll anchor, selection), opened again on launch.
+cmux-mobile-last-place = { path = "../../cmux-tui/crates/cmux-mobile-last-place" }
 cmux-transport = { path = "../../cmux-tui/crates/cmux-transport" }
+# Braid carriers (RFD 0164 B7): the kinds a dial ranks its rungs by, and the trait it opens them through.
+cmux-braid-carrier = { path = "../../cmux-tui/crates/cmux-braid-carrier" }
 # cmux.rd/1 + cmux.rb/1 (streamed browser tabs, verify/browser-stream.md).
 cmux-rd-proto = { path = "../../cmux-tui/crates/cmux-rd-proto", features = ["serde"] }
+cmux-tab-snapshots = { path = "../../cmux-tui/crates/cmux-tab-snapshots" }
 cmux-rd-core = { path = "../../cmux-tui/crates/cmux-rd-core" }
 cmux-rd-engine = { path = "../../cmux-tui/crates/cmux-rd-engine" }
 cmux-rd-ffi = { path = "../../cmux-tui/crates/cmux-rd-ffi" }
+# The cmux.rd/1 secure link (Noise over UDP, STUN, TURN): a joined Mac's screen through the hub share.
+cmux-rd-link = { path = "../../cmux-tui/crates/cmux-rd-link", features = ["net"] }
 # Predictive local echo, the engine the Mac app asks over cmux-app-ffi.
 cmux-terminal-prediction = { path = "../../cmux-tui/crates/cmux-terminal-prediction" }
+# The phone's own reflowed view of a Mac terminal it does not size.
+cmux-terminal-projection = { path = "../../cmux-tui/crates/cmux-terminal-projection" }
+# Follow mode of the screen-share viewer: the portrait crop that follows the Mac's focus.
+cmux-follow-cam = { path = "../../cmux-tui/crates/cmux-follow-cam" }
 # Toggle Terminal and Chat: the Mac's pair route (`tabs::terminal_chat_toggle`), which the phone asks too.
 cmux-window-rules = { path = "../../cmux-tui/crates/cmux-window-rules" }
+# A message's Markdown as one line of words, shared with the daemon's Home rows (the Chief's push body).
+cmux-message-preview = { path = "../../cmux-tui/crates/cmux-message-preview" }
+# Wake on intent (cmux-mobile-link-ffi cloud_wake.rs): the Mac's wake hint rules, one ledger per app process.
+cmux-cloud-handlers = { path = "../../cmux-tui/crates/cmux-cloud-handlers" }
+# Share a Mac from the phone: cmux.share-approval.v1, the approval the target Mac's acpmux admits.
+cmux-share-approval = { path = "../../cmux-tui/crates/cmux-share-approval" }
+# The egress gate (docs/privacy.md): every HTTP client and WebSocket connect the phone and the Mac bridge make.
+cmux-egress = { path = "../../cmux-tui/crates/cmux-egress" }
+# The phone's userspace tailnet node (crates/cmux-mobile-tailnet): the join checks it shares with the
+# Mac and VMs, and the embedded tsnet node behind its `tsnet` feature.
+cmux-tailnet-join = { path = "../../cmux-tui/crates/cmux-tailnet-join" }
+cmux-tailnet = { path = "../../cmux-tui/crates/cmux-tailnet" }
 anyhow = "1"
 base64 = "0.22"
 bytes = "1"
 flate2 = "1"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 getrandom = "0.3"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-webpki-roots"] }
+libc = "0.2"
+# Matches cmux-tui (cmux-egress builds its clients): ring through crate::install_crypto_provider, platform roots.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "json"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "logging", "tls12"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

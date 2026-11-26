@@ -127,14 +127,16 @@ case "${1:-}" in
     done
     ;;
   suite)
-    phase="$1"; suite_package="${2:-}"
+    phase="$1"; suite_package="${2:-}"; kit_package=cmux-next-ios/CmuxMobileKit
     if [ "$#" -lt 3 ]; then
       echo "usage: package-test-lane.sh suite PACKAGE_DIR FILTER[,FILTER...] [FILTER...]" >&2; exit 2
     fi
-    # A Packages/ path inside the checkout, and filters that are not options.
-    if ! [[ "$suite_package" =~ ^Packages/[A-Za-z0-9_][A-Za-z0-9_./-]*$ ]] || [[ "$suite_package" == *..* ]] \
-      || [ ! -f "$suite_package/Package.swift" ]; then
-      echo "package-test-lane.sh: suite needs a package directory under Packages/ (got '$suite_package')" >&2; exit 2
+    # A Packages/ path inside the checkout (or the iPhone app's kit, cmux-next-ios/CmuxMobileKit), and filters that
+    # are not options. The kit had no Mac route but the simulator class (one Mac, a queue of 200 on 2026-11-24) and
+    # its GitHub job's macOS runner label, so its PRs' new tests waited hours; its macOS suites run here.
+    if { ! [[ "$suite_package" =~ ^Packages/[A-Za-z0-9_][A-Za-z0-9_./-]*$ ]] && [ "$suite_package" != "$kit_package" ]; } \
+      || [[ "$suite_package" == *..* ]] || [ ! -f "$suite_package/Package.swift" ]; then
+      echo "package-test-lane.sh: suite needs a package directory under Packages/, or $kit_package (got '$suite_package')" >&2; exit 2
     fi
     shift 2
     suite_filters=()
@@ -290,28 +292,22 @@ PY
 
 # The packages this lane tests whole when a pull request changes one of their inputs. A Swift test
 # target no pull request check runs is listed with its reason in the swift-test-targets.json
-# registry, which the Swift test coverage check reads (hq#11644); the rows after CmuxPhonePush
-# passed `suite` on an owned Mac at ccc9958672bf before they joined.
+# registry, which the Swift test coverage check reads (hq#11644); the rows after CmuxUpdater
+# passed `suite` on an owned Mac at ccc9958672bf before they joined (CmuxChiefList at 777eb5a7d77f).
+# Mac-only: a package whose tests pass on Linux runs in swift-linux-packages.yml (the list or a whole-package
+# matrix group), never here as well. CmuxAuthRuntime and CmuxPhonePush run on Linux; the suites that
+# compile only on Apple platforms run in auth-refresh-tests.yml on a Mac.
 select_packages() {
   PACKAGES=(
-    CMUXAuthCore
-    CmuxAuthRuntime
     CmuxIrohTransport
     CmuxIrxTransport
     CmuxUpdater
-    CmuxPhonePush
-    CmuxConnectivityTelemetry
-    CmuxDeviceHub
-    CmuxHomeCore
     CmuxHomeRender
-    CmuxMobileBilling
-    CmuxMobileSupport
-    CmuxMobileTunnel
     CmuxRemote
     CmuxScreenKit
-    CmuxTabsKit
     CmuxVNCWebRTC
     GlassHost
+    CmuxLiveCode
   )
 
   changed="$work/changed-files.txt"
@@ -489,6 +485,7 @@ package_args() {
 record_built_ref() {
   [ -z "${CMUX_SWIFT_SANITIZE:-}" ] && [ -d "$1/.build" ] || return 0
   git rev-parse HEAD > "$1/.build/.cmux-ci-built-ref" 2>/dev/null || true
+  rm -f "$1/.build/.cmux-ci-unverified"
 }
 
 # One package's build. It exits non-zero when the package is not found or its
@@ -896,6 +893,31 @@ require_display_screen() {
   exit 1
 }
 
+# CmuxMobileKit's binary target, Frameworks/CmuxMobileLinkFFI.xcframework, is gitignored and built from
+# cmux-next-ios/rust; SwiftPM loads no part of the package without it (macOS links none of it: its
+# dependents name it for iOS only). The worker's source-keyed cache (scripts/ci/ios_ffi_cache.py, the
+# simulator steps fill it) gives it in seconds; a miss builds it, as cmux-next-ios-kit.yml does.
+ensure_mobile_link_ffi() {
+  local xcf=cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+  local work key rc=0
+  [ ! -f "$xcf/Info.plist" ] || { echo "CmuxMobileLinkFFI.xcframework: present"; return 0; }
+  export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin:$HOME/.cargo/bin"
+  work="$(mktemp -d "${TMPDIR:-/tmp}/kit-ffi.XXXXXX")"
+  key="$(python3 -I scripts/ci/ios_ffi_cache.py key "$PWD" "$work/inputs.json" 2>"$work/key.log")" || rc=$?
+  if [ "$rc" -eq 0 ] && [[ "$key" =~ ^[0-9a-f]{64}$ ]] \
+    && python3 -I scripts/ci/ios_ffi_cache.py restore "$PWD" "$key" >"$work/restore.log" 2>&1 && [ -f "$xcf/Info.plist" ]; then
+    echo "CmuxMobileLinkFFI.xcframework: cache hit ${key:0:12}"
+    return 0
+  fi
+  echo "::group::CmuxMobileLinkFFI.xcframework build (no cache entry)"
+  if ! JOBS="${JOBS:-8}" bash cmux-next-ios/rust/scripts/build-xcframework.sh; then
+    echo "::endgroup::"
+    echo "::error title=CmuxMobileLinkFFI build failed::package-test-lane.sh: build-xcframework.sh failed; no kit test ran" >&2
+    exit 1
+  fi
+  echo "::endgroup::"
+}
+
 run_suite() {
   if [ "$lane_os" = Linux ]; then
     linux_suite_setup
@@ -906,6 +928,9 @@ run_suite() {
   require_display_screen
   if grep -q 'GhosttyKit\.xcframework' "$suite_package/Package.swift"; then
     ensure_ghosttykit
+  fi
+  if [ "$suite_package" = cmux-next-ios/CmuxMobileKit ] && [ "$lane_os" != Linux ]; then
+    ensure_mobile_link_ffi
   fi
   # CMUX_SWIFT_SUITE_CONFIGURATION=release builds the suites optimized (measurements of what the
   # user runs); @testable imports then need -enable-testing. The default stays debug.
@@ -922,14 +947,37 @@ run_suite() {
     configuration+=(--sanitize="$CMUX_SWIFT_SANITIZE" --scratch-path "$suite_package/.build-sanitize-$CMUX_SWIFT_SANITIZE"
       "${sanitize_link_flags[@]}")
   fi
-  case "$suite_package" in
-    Packages/macOS/CmuxNext|Packages/macOS/CmuxNativeSidebarGallery)
-      ensure_web_bundles ;;
-  esac
-  if [ "$suite_package" = Packages/macOS/CmuxNext ]; then
-    ensure_cmux_tui_tree
+  # On Linux, CmuxNext builds only its Linux shape (CMUX_SWIFTPM_TARGET_LINUX: three targets that
+  # read neither the web bundles nor cmux-tui), and the swift container has no curl to fetch bun.
+  if [ "$lane_os" != Linux ]; then
+    case "$suite_package" in
+      Packages/macOS/CmuxNext|Packages/macOS/CmuxNativeSidebarGallery)
+        ensure_web_bundles ;;
+    esac
+    if [ "$suite_package" = Packages/macOS/CmuxNext ]; then
+      ensure_cmux_tui_tree
+    fi
   fi
   local scratch="$suite_package/.build${CMUX_SWIFT_SANITIZE:+-sanitize-$CMUX_SWIFT_SANITIZE}"
+  # CMUX_SWIFT_TEST_PRODUCTS=fleet: run on the test bundles a fleet job built for this commit
+  # (scripts/ci/fleet-test-products.py) instead of building them here. Debug, unsanitized suites of a
+  # whole package only. When the fleet has no products (no verdict, a red build, an unreachable
+  # controller), this Mac builds them as it always has, and the log says so.
+  local fleet_products=0
+  if [ "${CMUX_SWIFT_TEST_PRODUCTS:-build}" = fleet ] && [ "$lane_os" != Linux ] \
+    && [ "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}" = debug ] && [ -z "${CMUX_SWIFT_SANITIZE:-}" ] \
+    && [ -z "${CMUX_SWIFT_TEST_DEBUG_INFO:-}" ]; then
+    echo "::group::fleet test products $suite_package"
+    local products_started=$SECONDS
+    if python3 scripts/ci/fleet-test-products.py "$suite_package"; then
+      fleet_products=1
+      echo "fleet test products: in place after $((SECONDS - products_started))s; this Mac builds nothing"
+    else
+      echo "::warning title=Fleet test products::$suite_package: no fleet test products for this commit; building them on this Mac"
+    fi
+    echo "::endgroup::"
+  fi
+  if [ "$fleet_products" != 1 ]; then
   swiftpm_binary_module_guard "$suite_package" "$scratch" || exit $? # 75: fetch failed, no test ran
   echo "::group::swift build --build-tests ${configuration[*]} $suite_package"
   local build_log build_status=0
@@ -937,8 +985,15 @@ run_suite() {
   swift build --build-tests "${configuration[@]}" --package-path "$suite_package" < /dev/null 2>&1 \
     | tee "$build_log" || build_status=$?
   # Backstop for a stale module the guard did not see (a header outside a
-  # binary target): one build from clean outputs, as a cold slot would do.
-  if [ "$build_status" -ne 0 ] && swiftpm_stale_module_failure "$build_log"; then
+  # binary target), or for a failed build on a .build an unfinished step left
+  # (swiftpm_unverified_build): one build from clean outputs, as a cold slot would do.
+  if [ "$build_status" -ne 0 ] && swiftpm_unverified_build "$scratch"; then
+    echo "::warning title=Unfinished warm build::$suite_package: the build failed on the .build an unfinished step left; building again from clean outputs"
+    swiftpm_purge_build_outputs "$scratch"
+    swiftpm_binary_module_guard "$suite_package" "$scratch" || exit $? # 75: fetch failed, no test ran
+    build_status=0
+    swift build --build-tests "${configuration[@]}" --package-path "$suite_package" < /dev/null || build_status=$?
+  elif [ "$build_status" -ne 0 ] && swiftpm_stale_module_failure "$build_log"; then
     echo "::warning title=Stale precompiled module::$suite_package: the warm build read a stale explicit module; building again from clean outputs"
     swiftpm_purge_build_outputs "$scratch"
     swiftpm_binary_module_guard "$suite_package" "$scratch" || exit $? # 75: fetch failed, no test ran
@@ -949,6 +1004,7 @@ run_suite() {
   [ "$build_status" -eq 0 ] || exit "$build_status"
   record_built_ref "$suite_package"
   echo "::endgroup::"
+  fi
   # swift build copies String Catalogs into the resource bundles uncompiled; without the
   # compiled <lang>.lproj tables, localization suites fail (cmux-next.yml runs the same step).
   # (xcstringstool is Xcode's: on Linux the listed packages have no catalogs, and their CI job proves it.)
@@ -1088,14 +1144,15 @@ run_suite() {
 }
 
 # compile_one LOG SWIFT_BUILD_ARGS...: one `swift build` into LOG (and the step
-# log), built again from clean outputs when it read a stale explicit module
-# (the backstop run_suite has). Returns the build's status.
+# log), built again from clean outputs when it read a stale explicit module or
+# failed on an unfinished step's .build (the backstops run_suite has). Returns
+# the build's status.
 compile_one() {
   local log="$1" status=0
   shift
   swift build "$@" < /dev/null 2>&1 | tee "$log" || status=$?
-  if [ "$status" -ne 0 ] && swiftpm_stale_module_failure "$log"; then
-    echo "::warning title=Stale precompiled module::the warm build read a stale explicit module; building again from clean outputs"
+  if [ "$status" -ne 0 ] && { swiftpm_unverified_build "$compile_scratch" || swiftpm_stale_module_failure "$log"; }; then
+    echo "::warning title=Stale precompiled module::the warm build read a stale explicit module or an unfinished step's .build; building again from clean outputs"
     swiftpm_purge_build_outputs "$compile_scratch"
     swiftpm_binary_module_guard "$compile_pkgdir" "$compile_scratch" || exit $? # 75: fetch failed, nothing compiled
     status=0

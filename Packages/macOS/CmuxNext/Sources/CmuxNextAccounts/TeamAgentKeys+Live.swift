@@ -17,7 +17,7 @@ extension TeamAgentKeys {
     /// The active team's scope and its owner API call (`v1/read`, or `v1/ops` with a mutation key),
     /// shared by the team settings Settings changes as the person (agent keys, the models policy).
     public static func ownerAPICall(auth: CloudAuth, ownerAPI: URL, preview: Bool) -> (scope: @MainActor () -> Scope?, call: Call) {
-        let transport = InstallHTTPTransport(baseURL: ownerAPI)
+        let transport = InstallHTTPTransport(baseURL: ownerAPI, buildSpace: auth.configuration.buildSpace)
         let current: @MainActor () -> Scope? = {
             guard !preview, auth.isSignedIn, let user = auth.user?.id else { return nil }
             return GitHubConnections.signedInScope(project: auth.configuration.stackProjectID, user: user, team: auth.teamID, managedTeam: auth.managedTeamID)

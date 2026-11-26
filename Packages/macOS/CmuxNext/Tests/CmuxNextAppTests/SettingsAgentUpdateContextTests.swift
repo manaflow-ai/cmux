@@ -25,7 +25,7 @@ import Testing
         let recorder = Recorder()
         let environment = AcpmuxEnvironment(executable: directory.appending(path: "acpmux"), home: directory,
             socketPath: directory.appending(path: "a.sock").path, daemonArguments: [], childEnvironment: [:])
-        let health = Data(#"{"harnesses":[{"id":"codex","channel":"\#(channel)","outdated":true,"update":{"argv":["npm","install","-g","@openai/codex@latest"],"elevated":false}}]}"#.utf8)
+        let health = Data(#"{"harnesses":[{"id":"codex","channel":"\#(channel)","outdated":true,"path":"/opt/bin/codex","package":"@openai/codex","update":{"argv":["npm","install","-g","@openai/codex@latest"],"elevated":false}}]}"#.utf8)
         let harnesses = SettingsHarnesses(environment: { environment },
             fetch: { _ in [.init(id: "codex", kind: "acp", source: "path")] },
             fetchHealth: { _, _ in health }, openTerminal: { recorder.lines.append($0); return true },
@@ -114,5 +114,16 @@ import Testing
         defer { try? FileManager.default.removeItem(at: h.directory) }
         let row = try #require(h.harnesses.state["harnesses"]?.arrayValue?.first)
         #expect(row["ownerUpdate"] == .bool(["npm", "bun", "native"].contains(channel)))
+    }
+
+    /// The page gets which install a row is, so two profiles of one binary get one update card
+    /// (msg 42278: Claude Code and "Cmux" for one ~/.local/bin/claude).
+    @Test func eachRowSaysWhichInstallItIs() async throws {
+        let h = try await make()
+        defer { try? FileManager.default.removeItem(at: h.directory) }
+        _ = try await h.page.call("cmux.settings.harnesses.run", params: ["action": "refresh"], context: context("script"))
+        let row = try #require(h.harnesses.state["harnesses"]?.arrayValue?.first)
+        #expect(row["path"] == .string("/opt/bin/codex"))
+        #expect(row["package"] == .string("@openai/codex"))
     }
 }

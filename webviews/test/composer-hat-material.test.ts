@@ -117,7 +117,7 @@ await requireBrowserLane("composer-hat-material.test.ts", async () => {
       const page = await open(colorScheme, { "data-cmux-see-through": "", "data-glass": "plain" });
       const hat = await style(page, "hat");
       const hatted = await style(page, "hatted");
-      expect(hat.backdrop).toContain("saturate(1.8)");
+      expect(hat.backdrop).toContain("saturate(1.6)");
       expect(hat.backdrop).toBe(hatted.backdrop);
       await page.close();
     });

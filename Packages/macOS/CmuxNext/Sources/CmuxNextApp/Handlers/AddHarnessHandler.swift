@@ -32,6 +32,6 @@ enum AddHarnessStrings {
     static var needsFocus: String {
         String(localized: "handlers.agent.addHarness.needsFocus",
                defaultValue: "Add Harness… opens the Harnesses page from the palette or the menu. Automation runs cmux harness guide instead.",
-               table: "MiscHandlers", bundle: .module)
+               table: "MiscHandlers", bundle: .module.inAppLanguage)
     }
 }

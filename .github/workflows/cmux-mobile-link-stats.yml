@@ -1,0 +1,63 @@
+name: cmux mobile link stats
+
+# Which path does a phone's link to its Mac take, and how fast is it? Each phone reports its link (transport,
+# path, RTT, lost pings, setup time) on its signaling socket and its hub writes one `link_stat` line to the
+# mobile Worker's persisted Workers Logs (cmux-next-ios/PROTOCOL.md "Link stats"). This reads one UTC window
+# of them and prints RTT p50/p95/p99, loss, setup and path share per (transport, path, continent, hub colo).
+# The lines carry no user, device or address, and the output is aggregates only: per continent, never per
+# country, and a group fewer than 5 links came up in folds into "*" with no row of its own.
+# Dispatch only, from feat-cmux-next. Existing credentials only: the Cloudflare read token.
+on:
+  workflow_dispatch:
+    inputs:
+      env:
+        description: "prod or dev"
+        required: false
+        default: "prod"
+      start:
+        description: "UTC window start, e.g. 2026-11-21T00:00:00Z (empty: --minutes ago)"
+        required: false
+        default: ""
+      minutes:
+        description: "window length in minutes (1-10080)"
+        required: false
+        default: "1440"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-mobile-link-stats-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  stats:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    environment: cmux-next-production
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: |
+            scripts/cmux-next/link-stats.py
+            .gitmodules
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Query the window
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ENV_NAME: ${{ inputs.env }}
+          FROM: ${{ inputs.start }}
+          MINUTES: ${{ inputs.minutes }}
+        run: |
+          set -euo pipefail
+          case "${ENV_NAME:-prod}" in prod|dev) ;; *) echo "env must be prod or dev" >&2; exit 2 ;; esac
+          case "${MINUTES:-1440}" in ''|*[!0-9]*) echo "minutes must be a number" >&2; exit 2 ;; esac
+          args=(--env "${ENV_NAME:-prod}" --minutes "${MINUTES:-1440}")
+          if [ -n "${FROM:-}" ]; then
+            [[ "$FROM" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || { echo "start must be YYYY-MM-DDTHH:MM:SSZ" >&2; exit 2; }
+            args+=(--from "$FROM")
+          fi
+          printf '%s\n' "$CLOUDFLARE_API_TOKEN" | python3 -I scripts/cmux-next/link-stats.py "${args[@]}" | tee "$RUNNER_TEMP/link-stats.md"
+          { echo '```json'; head -1 "$RUNNER_TEMP/link-stats.md"; echo '```'; tail -n +2 "$RUNNER_TEMP/link-stats.md"; } >> "$GITHUB_STEP_SUMMARY"

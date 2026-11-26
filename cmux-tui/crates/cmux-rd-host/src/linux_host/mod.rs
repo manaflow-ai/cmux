@@ -32,6 +32,9 @@
 //!   deny SESSION
 //!   status [--json]                `--json`: the cmux.screen-share.status/1 document cmux
 //!                                  reads from every share host (status_json.rs)
+//!   remove-device DEVICE           removes one of the account's other devices from the hub
+//!                                  (`DELETE /v1/devices/DEVICE`): an identity this host left
+//!                                  behind when it joined again, still listed in every viewer
 //!
 //! Consent: the hub serves the account's own devices at once (a viewer with no saved permission
 //! reads `full`) and a viewer the person allowed; a request under a saved Ask waits for `approve` and is
@@ -69,7 +72,8 @@ const USAGE: &str = "usage: cmux-rd linux-host enable [--stack-token-file PATH|-
        cmux-rd linux-host grant [--control]
        cmux-rd linux-host share on [--stack-token-file PATH|-] | share off
        cmux-rd linux-host run [--display :0] [--xauthority PATH] [--capture x11|portal]
-       cmux-rd linux-host display | requests | approve SESSION [--always] [--scope view|full] | deny SESSION | status [--json]";
+       cmux-rd linux-host display | requests | approve SESSION [--always] [--scope view|full] | deny SESSION | status [--json]
+       cmux-rd linux-host remove-device DEVICE";
 
 /// The exit code when the host cannot go on until the person acts (the hub removed this
 /// desktop, its device key no longer matches, or its 30-day anchor ended). The user unit lists
@@ -239,6 +243,9 @@ pub fn run_cli(args: &[String]) -> i32 {
             .map_err(Into::into)
             .and_then(|()| approve(id, &parsed)),
         ["deny", id] => parsed.only(&[]).map_err(Into::into).and_then(|()| deny(id)),
+        ["remove-device", id] => {
+            parsed.only(&[]).map_err(Into::into).and_then(|()| remove_device(id))
+        }
         ["status"] => parsed.only(&["json"]).map_err(Into::into).and_then(|()| {
             if parsed.flag("json") {
                 print_status_json();
@@ -269,33 +276,33 @@ fn stack_token(args: &Args) -> Res<String> {
 /// The enabled host: its device, account and hub.
 /// A desktop never enabled and never joined signs in first; a joined machine signs itself in
 /// with its machine credential, so the host needs no step on it (machine.rs).
-fn load() -> Res<(std::path::PathBuf, Hub, Account)> {
-    let (dir, hub, account, _) = load_locked()?;
+fn load(old: serving::OldRecord) -> Res<(std::path::PathBuf, Hub, Account)> {
+    let (dir, hub, account, _) = load_locked(old)?;
     Ok((dir, hub, account))
 }
 
 /// [`load`], with the identity's [`serving::Lock`] still held for a caller that writes.
-fn load_locked() -> Res<(std::path::PathBuf, Hub, Account, serving::Lock)> {
+fn load_locked(old: serving::OldRecord) -> Res<(std::path::PathBuf, Hub, Account, serving::Lock)> {
     const NOT_ENABLED: &str = "not enabled: run `cmux-rd linux-host enable` first";
     let dir = identity::config_dir()?;
     let lock = serving::lock(&dir)?;
     let Some(account) = Account::load(&dir)? else {
         let (home, credential) = machine::current()?.ok_or(NOT_ENABLED)?;
+        let join = machine::Join::of(&home, credential)?;
         identity::private_dir(&dir)?;
         // Nothing is signed in, so no host serves yet: there is no unit to stop first.
-        let device =
-            serving::join(&dir, DEFAULT_HUB, &home, credential.clone(), &serving::ThisProcess)?;
+        let device = serving::join(&dir, &join, &serving::ThisProcess)?;
         let account = Account::load(&dir)?.ok_or(NOT_ENABLED)?;
-        let hub = Hub::with_renewal(&account.hub, device, None, machine_renewal(credential))?;
+        let hub = Hub::with_renewal(&join.hub, device, None, machine_renewal(join.credential))?;
         return Ok((dir, hub, account, lock));
     };
     if let Some(joined) = machine::Joined::load(&dir)? {
-        // Only the current join's host serves (serving.rs); a record from before joins were
-        // marked may sign in again, so the device and account are read after it.
-        let credential = serving::current_join(&dir, &account.hub, &joined)?;
+        // Only the current join's host serves, at its own hub (serving.rs); a record from
+        // before joins were marked may sign in again, so the device and account are read after.
+        let join = serving::current_join(&dir, &joined, machine::Join::read, old)?;
         let account = Account::load(&dir)?.ok_or(NOT_ENABLED)?;
         let device = Device::load(&dir)?.ok_or(NOT_ENABLED)?;
-        let hub = Hub::with_renewal(&account.hub, device, None, machine_renewal(credential))?;
+        let hub = Hub::with_renewal(&join.hub, device, None, machine_renewal(join.credential))?;
         return Ok((dir, hub, account, lock));
     }
     let device = Device::load(&dir)?.ok_or(NOT_ENABLED)?;
@@ -318,13 +325,13 @@ fn load_locked() -> Res<(std::path::PathBuf, Hub, Account, serving::Lock)> {
 /// only here, at the first sign-in, so a person's later "off" from any device stays off.
 fn sign_in_machine(
     dir: &std::path::Path,
-    hub_url: &str,
-    acpmux_home: &std::path::Path,
-    credential: machine::MachineCredential,
+    join: &machine::Join,
+    previous: Option<&machine::Joined>,
 ) -> Res<(Hub, Account)> {
+    let (hub_url, acpmux_home, credential) = (join.hub.as_str(), &join.home, &join.credential);
     // The join record first: records that a crash leaves half written are never read as a
     // person's (`load`).
-    machine::Joined::of(acpmux_home, &credential).save(dir)?;
+    machine::Joined::signed_in(previous, acpmux_home, credential).save(dir)?;
     let device = match Device::load(dir)? {
         Some(device) => device,
         None => {
@@ -403,17 +410,25 @@ fn set_up_for_join(args: &Args) -> Res<()> {
     let _lock = serving::lock(&dir)?;
     // The identity first, before any step that can fail: a person's host that was here is torn
     // down now, not left running when a later step fails.
-    let hub_url = args.get("hub").unwrap_or(DEFAULT_HUB);
     let joined = machine::current()?;
     let from_join = joined.is_some();
-    let Some(device) = join_device(&dir, hub_url, joined, &serving::HostUnit)? else {
+    // The join this machine was signed in for before this run signs it in again: a join from
+    // before consent-join.json existed keeps its consent through that ([`join_consent`]).
+    let before = machine::Joined::load(&dir).ok().flatten();
+    let mark = joined.as_ref().map(|(home, credential)| machine::Joined::of(home, credential));
+    // Before signing in: signing in rewrites joined.json, so a run stopped after it would
+    // otherwise make a join from before the marker read as this build's stopped first run.
+    mark_join_from_before_marker(&dir, before.as_ref(), mark.as_ref())?;
+    let Some(device) = join_device(&dir, args.get("hub"), joined, &serving::HostUnit)? else {
         println!("{NOT_INSTALLED}");
         return Ok(());
     };
-    let consent = enable_consent(args);
-    consent.save(&dir)?;
     let desktop = setup::detect_desktop();
-    grant_capture_now(consent.full, &desktop, Some(JOIN_GRANT_WAIT));
+    // The portal's grant is asked for only with consent this run wrote: a join's kept (or
+    // withdrawn) choice is never asked again on someone's screen.
+    let consent = join_consent(&dir, mark.as_ref(), args, &mut |control| {
+        grant_capture_now(control, &desktop, Some(JOIN_GRANT_WAIT))
+    })?;
     let virtual_display = desktop == setup::Desktop::None;
     if virtual_display {
         let display = setup::set_up_virtual_display()?;
@@ -429,17 +444,21 @@ fn set_up_for_join(args: &Args) -> Res<()> {
         "This desktop is shared as \"{}\" ({}), {}; the host runs as {}. {encoder}.",
         device.name,
         device.id,
-        shares_line(&Ok(consent), host_applies_input()),
+        shares_line(&consent, host_applies_input()),
         setup::HOST_UNIT
     );
     Ok(())
 }
 
 /// The device `enable --non-interactive` installs the host as, or None when nothing signed
-/// this machine in. A join always goes through [`serving::join`]: the host is the joiner's.
+/// this machine in. A join always goes through [`serving::join`]: the host is the joiner's, at
+/// the hub of the credential's own deployment ([`machine::Join`]). `expected_hub` is the hub the
+/// caller (the acpmux daemon's `--hub`) read for the join: when the credential read here is
+/// another deployment's (a leave and a join elsewhere came since), nothing is sent anywhere and
+/// the daemon sets the new join up at its next check, from its own read of it.
 fn join_device(
     dir: &std::path::Path,
-    hub_url: &str,
+    expected_hub: Option<&str>,
     joined: Option<(std::path::PathBuf, machine::MachineCredential)>,
     unit: &dyn serving::Unit,
 ) -> Res<Option<Device>> {
@@ -450,7 +469,16 @@ fn join_device(
             _ => None,
         });
     };
-    serving::join(dir, hub_url, &home, credential, unit).map(Some)
+    let join = machine::Join::of(&home, credential)?;
+    if let Some(expected) = expected_hub.filter(|hub| hub.trim_end_matches('/') != join.hub) {
+        return Err(format!(
+            "this machine's join is now at {}, not {}: it was joined again since the caller read it, so nothing was signed in",
+            join.hub,
+            printable(expected)
+        )
+        .into());
+    }
+    serving::join(dir, &join, unit).map(Some)
 }
 
 /// The seam the identity tests stop the unit through.
@@ -522,28 +550,63 @@ fn openh264_line_in(dir: Option<std::path::PathBuf>) -> String {
     }
 }
 
-/// `grant [--control]`: the Wayland portal's grant, made now so no share asks.
+/// `grant [--control]`: the Wayland portal's grant, made now so no share asks. A GNOME
+/// desktop (mutter on the session bus) needs none and is asked nothing.
 fn grant(control: bool) -> Res<()> {
     if CaptureBackend::from_env(None)? != CaptureBackend::Portal {
         println!("This is not a Wayland session: sharing it needs no portal grant.");
         return Ok(());
     }
-    println!("{}", portal_grant(control, None)?);
+    let line = portal_grant(control, None)?;
+    println!("{line}");
+    if line.starts_with(MUTTER_LINE_START) {
+        return Ok(());
+    }
     if identity::runtime_dir().is_ok_and(|dir| dir.join("capture").exists()) {
         println!("Restart the host to use it: systemctl --user restart cmux-screen-host.service");
     }
     Ok(())
 }
 
+/// How [`mutter_line`] starts (`grant` tells it from a portal grant by it).
+const MUTTER_LINE_START: &str = "Screen sharing on this GNOME desktop needs no approval";
+
+/// What a join says on a GNOME desktop, where shares go through mutter's own screen cast
+/// (mutter.rs) and nothing is asked: `None` when the portal is the path. `remote_desktop`:
+/// mutter offers keyboard and pointer.
+fn mutter_line(
+    capture: crate::capture_backend::WaylandCapture,
+    remote_desktop: bool,
+    control: bool,
+) -> Option<String> {
+    if capture.needs_grant() {
+        return None;
+    }
+    let what = if !control {
+        ""
+    } else if remote_desktop {
+        " (view and control)"
+    } else {
+        " (view only: this desktop offers no keyboard and pointer control)"
+    };
+    Some(format!("{MUTTER_LINE_START}{what}: no dialog appears on this screen."))
+}
+
 /// Asks the portal once for the screen (and, with `control`, keyboard and pointer) and saves
 /// its restore token (portal.rs); what it granted. Prints the join's notes on what this portal
 /// cannot keep (setup.rs). `within` bounds the wait on the dialog: past it nothing is saved and
 /// the first share asks. A build that cannot capture through the portal asks nothing: a grant
-/// would show a dialog for shares it cannot serve.
+/// would show a dialog for shares it cannot serve. On GNOME (mutter on the session bus) it asks
+/// nothing either: mutter casts with no grant, and it says so ([`mutter_line`]).
 #[cfg(feature = "portal-dbus")]
 fn portal_grant(control: bool, within: Option<Duration>) -> Res<String> {
+    use crate::capture_backend::WaylandCapture;
     use crate::portal::{PortalState, SessionKind};
     CaptureBackend::Portal.available()?;
+    let (screen_cast, remote_desktop) = crate::capture_backend::mutter_on_bus();
+    if let Some(line) = mutter_line(WaylandCapture::choose(screen_cast), remote_desktop, control) {
+        return Ok(line);
+    }
     let (done, result) = std::sync::mpsc::channel();
     // On its own thread, so a dialog nobody answers cannot hold the join past `within`. Not
     // joined: past `within` it is left to the process, which ends with `enable`.
@@ -595,10 +658,89 @@ fn enable_consent(args: &Args) -> LocalConsent {
     LocalConsent { view: true, full: !args.flag("view-only") }
 }
 
+/// Beside `consent.json`: the join whose consent it is, written only after the consent itself
+/// (review F1 of #45480). A rerun for that join keeps the consent as its person left it; a run
+/// that stopped before this file was written writes the consent again on its next run, so a
+/// joined machine is never left unshared by a crash.
+const CONSENT_JOIN_FILE: &str = "consent-join.json";
+
+fn write_consent_join(dir: &std::path::Path, mark: &machine::Joined) -> Res<()> {
+    identity::write_private(&dir.join(CONSENT_JOIN_FILE), &serde_json::to_vec_pretty(mark)?)
+}
+
+/// The join `consent.json` was written for, if a run finished writing it.
+fn consent_join(dir: &std::path::Path) -> Res<Option<machine::Joined>> {
+    match identity::read_private(&dir.join(CONSENT_JOIN_FILE))? {
+        Some(bytes) => Ok(serde_json::from_slice(&bytes).ok()),
+        None => Ok(None),
+    }
+}
+
+/// Writes the marker for the join `mark` when `before` (joined.json as this run found it, before
+/// signing in) is that join from a build before the marker: from this home, naming this machine
+/// or no machine at all (a record from before joins were marked), without
+/// [`machine::Joined::consent_tracked`]. Its consent is then kept exactly as found: present,
+/// missing (withdrawn) or unreadable. A record with the flag is this build's, so no marker
+/// means its first run stopped before the consent, and [`join_consent`] writes it.
+fn mark_join_from_before_marker(
+    dir: &std::path::Path,
+    before: Option<&machine::Joined>,
+    mark: Option<&machine::Joined>,
+) -> Res<()> {
+    let (Some(before), Some(mark)) = (before, mark) else { return Ok(()) };
+    let from_before = !before.consent_tracked
+        && (before.same_machine(mark) || before.unmarked_from(&mark.acpmux_home));
+    if from_before && consent_join(dir)?.is_none() {
+        write_consent_join(dir, mark)?;
+    }
+    Ok(())
+}
+
+/// The consent `enable --non-interactive` leaves in `dir` for the join `mark` (None: not a
+/// join), asking `grant` for the portal's grant (with control or not) only when it wrote it.
+/// One join is one machine from one acpmux home: a credential generation the hub raises for
+/// it (recovery) is no choice made at this screen.
+fn join_consent(
+    dir: &std::path::Path,
+    mark: Option<&machine::Joined>,
+    args: &Args,
+    grant: &mut dyn FnMut(bool),
+) -> Res<Res<LocalConsent>> {
+    let same_join = match (mark, consent_join(dir)?) {
+        (Some(mark), Some(written)) => mark.same_machine(&written),
+        _ => false,
+    };
+    if same_join {
+        // The person's choice stays, including a withdrawn one (no file). Only a narrower one
+        // is taken: `--view-only` turns control off, never on.
+        return match LocalConsent::load(dir) {
+            Ok(kept) if kept.full && args.flag("view-only") => {
+                let narrowed = LocalConsent { full: false, ..kept };
+                narrowed.save(dir)?;
+                Ok(Ok(narrowed))
+            }
+            kept => Ok(kept),
+        };
+    }
+    let consent = enable_consent(args);
+    consent.save(dir)?;
+    // The consent first, then whose it is: a run cut off between the two writes it again.
+    match mark {
+        Some(mark) => write_consent_join(dir, mark)?,
+        None => match std::fs::remove_file(dir.join(CONSENT_JOIN_FILE)) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
+            _ => {}
+        },
+    }
+    grant(consent.full);
+    Ok(Ok(consent))
+}
+
 /// On a Wayland desktop, asks the portal for its grant now, while the person who ran `enable` is
 /// at the screen (with `control`, the RemoteDesktop grant: keyboard and pointer too), and keeps
 /// the restore token it returns: later sessions start from that token with no dialog, so no
-/// viewer's session waits on an Allow here. An X11 desktop or a virtual display needs no grant.
+/// viewer's session waits on an Allow here. An X11 desktop or a virtual display needs no grant,
+/// and neither does GNOME, which is cast through mutter directly: it asks nothing.
 /// A refusal, a missing portal or no answer `within` only says so: the host still serves, and
 /// its first session asks.
 fn grant_capture_now(control: bool, desktop: &setup::Desktop, within: Option<Duration>) {
@@ -643,7 +785,7 @@ pub(crate) fn with_fresh_identity<T>(
 }
 
 fn share_on(args: &Args) -> Res<()> {
-    let (dir, hub, mut account, _lock) = load_locked()?;
+    let (dir, hub, mut account, _lock) = load_locked(serving::OldRecord::Keep)?;
     if machine::Joined::load(&dir)?.is_some() {
         // A joined machine's session may turn its own sharing on (PROTOCOL.md, Machine sign-in).
         hub.set_shared(true)?;
@@ -668,7 +810,7 @@ fn share_on(args: &Args) -> Res<()> {
 }
 
 fn share_off() -> Res<()> {
-    let (_, hub, _) = load()?;
+    let (_, hub, _) = load(serving::OldRecord::Keep)?;
     hub.set_shared(false)?;
     println!("Sharing is off; the hub ended any session.");
     Ok(())
@@ -707,7 +849,7 @@ fn requests() -> Res<()> {
 }
 
 fn approve(id: &str, args: &Args) -> Res<()> {
-    let (dir, hub, _) = load()?;
+    let (dir, hub, _) = load(serving::OldRecord::Keep)?;
     let runtime = identity::runtime_dir()?;
     let pending = Pending::new(&runtime);
     let now = now_ms();
@@ -738,7 +880,7 @@ fn approve(id: &str, args: &Args) -> Res<()> {
 }
 
 fn deny(id: &str) -> Res<()> {
-    let (_, hub, _) = load()?;
+    let (_, hub, _) = load(serving::OldRecord::Keep)?;
     let runtime = identity::runtime_dir()?;
     let pending = Pending::new(&runtime);
     let now = now_ms();
@@ -751,6 +893,32 @@ fn deny(id: &str) -> Res<()> {
     pending.remove(id, now)?;
     println!("Denied.");
     Ok(())
+}
+
+/// `remove-device DEVICE`: the hub forgets one of the account's devices, signed by this host.
+fn remove_device(id: &str) -> Res<()> {
+    let (_, hub, _) = load(serving::OldRecord::Keep)?;
+    remove_device_on(&hub, id)?;
+    println!("Removed device {id} from the hub.");
+    Ok(())
+}
+
+/// Asks `hub` to remove device `id`: a hub device id (letters, digits and dashes), never this
+/// host's own, which would end its serving (`share off` stops sharing instead).
+fn remove_device_on(hub: &Hub, id: &str) -> Res<()> {
+    if id.is_empty() || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+        return Err(format!(
+            "{id:?} is not a device id (the hub's ids are like 281f0b45-b1b9-...)"
+        )
+        .into());
+    }
+    if id.eq_ignore_ascii_case(&hub.device.id) {
+        return Err(format!(
+            "{id} is this host's own device; run `cmux-rd linux-host share off` to stop sharing"
+        )
+        .into());
+    }
+    hub.call("DELETE", &format!("/v1/devices/{id}"), None).map(|_| ())
 }
 
 fn status() -> Res<()> {
@@ -870,7 +1038,7 @@ fn withdraw_unconsented(
 }
 
 fn run(args: &Args) -> Res<()> {
-    let (dir, hub, account) = load()?;
+    let (dir, hub, account) = load(serving::OldRecord::Heal)?;
     // What this process serves as, read now; it exits once the records say otherwise.
     let serving_as = serving::Serving::now(&dir)?;
     // Held while this process lives: a teardown that takes it knows no host serves.
@@ -1080,11 +1248,24 @@ enum OnTicket {
     Drop(String),
 }
 
-/// The answer to a host ticket `push`; `admit` maps its scope to `Some(view_only)` or None
+/// The hub says both devices are signed in to one account (`ownerKind: "user"`, which the hub
+/// writes from its own authenticated record, never from the viewer): the person reaching their
+/// own desktop. A missing field (an older hub) or any other owner is not shown to be own.
+fn own_account(push: &Value) -> bool {
+    push.get("ownerKind").and_then(Value::as_str) == Some("user")
+}
+
+/// The answer to a host ticket `push`; `admit` maps a scope to `Some(view_only)` or None
 /// when this desktop does not allow it. A ticket that does not parse is ended too, as the
 /// Mac host does: the hub approved the session, and only `/end` closes it.
-fn on_ticket(push: &Value, admit: impl FnOnce(&str) -> Option<bool>) -> OnTicket {
-    let ticket = match Ticket::from_push(push) {
+///
+/// The person's own device (``own_account``) is never refused a screen this desktop shares
+/// (Leo, 2026-11-17, ask-834a26b463: "if i've connected, i need to share the screen"): a
+/// control ticket on a desktop enabled `--view-only` is served view only, as a `view` session,
+/// instead of ended. This desktop's `--view-only` still keeps control off. A refusal ends the
+/// session `consent_required`, as the Mac hosts do, so the viewer reads why.
+fn on_ticket(push: &Value, admit: impl Fn(&str) -> Option<bool>) -> OnTicket {
+    let mut ticket = match Ticket::from_push(push) {
         Ok(t) => t,
         Err(e) => {
             return match push["sessionId"].as_str().filter(|id| !id.is_empty()) {
@@ -1093,14 +1274,19 @@ fn on_ticket(push: &Value, admit: impl FnOnce(&str) -> Option<bool>) -> OnTicket
             }
         }
     };
-    match admit(&ticket.scope) {
-        Some(view_only) => OnTicket::Serve(ticket, view_only),
-        None => OnTicket::End(
-            ticket.session_id,
-            "failed",
-            format!("a {} session is not allowed on this desktop", printable(&ticket.scope)),
-        ),
+    if let Some(view_only) = admit(&ticket.scope) {
+        return OnTicket::Serve(ticket, view_only);
     }
+    if own_account(push) && ticket.scope == "full" && admit("view").is_some() {
+        // Served and watched as the view session it is (`withdraw_unconsented` reads this scope).
+        ticket.scope = "view".to_owned();
+        return OnTicket::Serve(ticket, true);
+    }
+    OnTicket::End(
+        ticket.session_id,
+        "consent_required",
+        format!("a {} session is not allowed on this desktop", printable(&ticket.scope)),
+    )
 }
 
 fn handle_push(
@@ -1194,7 +1380,7 @@ fn start_session(
         }
         let ended = session::serve(&hub, &ticket, view_only, &args, &stop);
         eprintln!("linux-host: session ended: {}", ended.reason);
-        if let Some(reason) = ended.tell_hub {
+        if let Some(reason) = ended.tell_hub.as_deref() {
             if let Err(e) = hub.end(&ticket.session_id, reason) {
                 eprintln!("linux-host: end not sent: {e}");
             }
@@ -1221,545 +1407,7 @@ fn end_later(hub: &Arc<Hub>, id: &str, reason: &'static str) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use cmux_hub_host::b64;
+mod tests;
 
-    #[test]
-    fn args_take_positionals_flags_and_values() {
-        let a = Args::parse(&[
-            "approve".into(),
-            "s1".into(),
-            "--always".into(),
-            "--scope".into(),
-            "view".into(),
-        ])
-        .unwrap();
-        assert_eq!(a.positional, vec!["approve", "s1"]);
-        assert!(a.flag("always"));
-        assert_eq!(a.get("scope"), Some("view"));
-        assert!(a.only(&["always", "scope"]).is_ok());
-        assert!(a.only(&["always"]).is_err());
-        assert!(Args::parse(&["--scope".into()]).is_err());
-    }
-
-    #[test]
-    fn enable_consents_to_control_unless_view_only() {
-        // A desktop joined to the person's own account: their devices control it with no prompt here.
-        let enable = |extra: &[&str]| {
-            let words: Vec<String> =
-                std::iter::once("enable").chain(extra.iter().copied()).map(String::from).collect();
-            let args = Args::parse(&words).unwrap();
-            assert!(args
-                .only(&[
-                    "stack-token-file",
-                    "hub",
-                    "name",
-                    "allow-control",
-                    "view-only",
-                    "non-interactive"
-                ])
-                .is_ok());
-            enable_consent(&args)
-        };
-        assert_eq!(enable(&[]), LocalConsent { view: true, full: true });
-        assert_eq!(enable(&["--allow-control"]), LocalConsent { view: true, full: true });
-        assert_eq!(enable(&["--view-only"]), LocalConsent { view: true, full: false });
-    }
-
-    /// A person's own `enable` on a joined machine would make the host theirs until the next
-    /// daemon start signs them out again: refused before any token is read, the join kept.
-    #[test]
-    fn a_person_cannot_sign_in_over_a_join() {
-        let dir = consent_dir("person-over-join");
-        let home = dir.join("acpmux-home");
-        identity::private_dir(&home).unwrap();
-        identity::write_private(
-            &home.join(machine::CREDENTIAL_FILE),
-            br#"{"credential":"cmm_b","name":"lane-vm"}"#,
-        )
-        .unwrap();
-        Device::generate("lane-vm").unwrap().save(&dir).unwrap();
-        Account { hub: DEFAULT_HUB.into(), user_id: "p:b".into(), anchored_until: 0 }
-            .save(&dir)
-            .unwrap();
-        machine::Joined { acpmux_home: home.clone(), ..Default::default() }.save(&dir).unwrap();
-        let token = dir.join("token");
-        identity::write_private(&token, b"person-token").unwrap();
-        let args = Args::parse(&[
-            "enable".into(),
-            "--stack-token-file".into(),
-            token.display().to_string(),
-        ])
-        .unwrap();
-        let Err(e) = sign_in_and_register(&args, &dir) else { panic!("signed in over the join") };
-        assert_eq!(
-            e.to_string(),
-            "this machine is joined to p:b; run `acpmux machine leave` first"
-        );
-        assert_eq!(
-            machine::Joined::load(&dir).unwrap(),
-            Some(machine::Joined { acpmux_home: home.clone(), ..Default::default() })
-        );
-        assert_eq!(Account::load(&dir).unwrap().unwrap().user_id, "p:b");
-        // After `acpmux machine leave` (the credential gone) a person may enable it again.
-        std::fs::remove_file(home.join(machine::CREDENTIAL_FILE)).unwrap();
-        assert_eq!(serving::join_owner(&dir).unwrap(), None);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn the_join_takes_no_account_token() {
-        // No person's credential lands on a joined machine: a token on any flag is refused before
-        // anything is read or written, and the join's command is otherwise never a failure.
-        for path in ["-", "/tmp/token"] {
-            let args = Args::parse(&[
-                "enable".into(),
-                "--non-interactive".into(),
-                "--stack-token-file".into(),
-                path.into(),
-            ])
-            .unwrap();
-            let Err(e) = enable_for_join(&args) else { panic!("took a token") };
-            assert!(e.to_string().contains("no account token"), "{e}");
-        }
-        assert!(NOT_INSTALLED.starts_with("not_installed: "));
-    }
-
-    #[test]
-    fn status_takes_json_and_never_fails() {
-        // Whatever this machine has set up, `status --json` maps it to a state.
-        assert_eq!(run_cli(&["status".into(), "--json".into()]), 0);
-        assert_eq!(run_cli(&["status".into(), "--always".into()]), 1);
-    }
-
-    #[test]
-    fn unknown_commands_are_usage_errors() {
-        assert_eq!(run_cli(&["frobnicate".into()]), 2);
-        assert_eq!(run_cli(&[]), 2);
-    }
-
-    const UNIT: &str = include_str!("../../systemd/cmux-screen-host.service");
-
-    /// `[Service]` lines of the unit as (key, value), comments and blanks skipped.
-    fn unit_directives() -> Vec<(String, String)> {
-        UNIT.lines()
-            .map(str::trim)
-            .filter(|l| !l.is_empty() && !l.starts_with('#') && !l.starts_with(';'))
-            .filter_map(|l| l.split_once('='))
-            .map(|(k, v)| (k.trim().to_owned(), v.trim().to_owned()))
-            .collect()
-    }
-
-    #[test]
-    fn user_unit_needs_no_user_namespace() {
-        // In a user unit each of these makes systemd set up a user namespace (PrivateUsers),
-        // which Ubuntu 24.04+ forbids unprivileged processes through AppArmor: the unit would
-        // not start. PrivateTmp also hides an XAUTHORITY or X socket kept in /tmp.
-        const NEEDS_USERNS: &[&str] = &[
-            "PrivateUsers",
-            "PrivateTmp",
-            "PrivateDevices",
-            "PrivateNetwork",
-            "PrivateIPC",
-            "PrivateMounts",
-            "PrivatePIDs",
-            "ProtectSystem",
-            "ProtectHome",
-            "ProtectKernelTunables",
-            "ProtectKernelModules",
-            "ProtectKernelLogs",
-            "ProtectControlGroups",
-            "ProtectClock",
-            "ProtectHostname",
-            "ProtectProc",
-            "ProcSubset",
-            "ReadOnlyPaths",
-            "ReadWritePaths",
-            "InaccessiblePaths",
-            "ExecPaths",
-            "NoExecPaths",
-            "TemporaryFileSystem",
-            "BindPaths",
-            "BindReadOnlyPaths",
-            "MountAPIVFS",
-            "RootDirectory",
-            "RootImage",
-            "NetworkNamespacePath",
-            "IPCNamespacePath",
-        ];
-        let directives = unit_directives();
-        assert!(directives.iter().any(|(k, _)| k == "ExecStart"), "unit not parsed");
-        for (key, value) in &directives {
-            assert!(
-                !NEEDS_USERNS.contains(&key.as_str()),
-                "{key}={value} needs a user namespace in a user unit"
-            );
-        }
-    }
-
-    #[test]
-    fn fatal_hub_errors_stop_the_unit_with_a_next_step() {
-        for (code, next) in [
-            ("device_removed", "cmux-rd linux-host enable"),
-            ("device_key_mismatch", "cmux-rd linux-host enable"),
-            ("not_anchored", "cmux-rd linux-host share on"),
-        ] {
-            let e: Box<dyn std::error::Error + Send + Sync> =
-                HubError { status: 403, code: code.into(), message: "m".into() }.into();
-            let fatal = Fatal::from_hub(&*e).unwrap_or_else(|| panic!("{code} is not fatal"));
-            assert!(fatal.to_string().contains(next), "{code}: {fatal}");
-            let boxed: Box<dyn std::error::Error + Send + Sync> = fatal.into();
-            assert_eq!(exit_code(&*boxed), EXIT_NEEDS_SETUP);
-        }
-        let transient: Box<dyn std::error::Error + Send + Sync> =
-            HubError { status: 503, code: "unavailable".into(), message: "m".into() }.into();
-        assert!(Fatal::from_hub(&*transient).is_none());
-        assert_eq!(exit_code(&*transient), 1);
-        assert_ne!(EXIT_NEEDS_SETUP, 1);
-        assert_ne!(EXIT_NEEDS_SETUP, 2);
-        // systemd must not restart it: the code is in RestartPreventExitStatus=.
-        let prevented: Vec<String> = unit_directives()
-            .into_iter()
-            .filter(|(k, _)| k == "RestartPreventExitStatus")
-            .flat_map(|(_, v)| v.split_whitespace().map(str::to_owned).collect::<Vec<_>>())
-            .collect();
-        assert!(
-            prevented.contains(&EXIT_NEEDS_SETUP.to_string()),
-            "RestartPreventExitStatus= lacks {EXIT_NEEDS_SETUP}: {prevented:?}"
-        );
-    }
-
-    fn request(name: &str, fingerprint: Option<&str>) -> consent::Request {
-        consent::Request {
-            id: "s1".into(),
-            viewer_id: "v1".into(),
-            viewer_name: name.into(),
-            viewer_key_fingerprint: fingerprint.map(str::to_owned),
-            scope: "view".into(),
-            received_ms: 0,
-        }
-    }
-
-    #[test]
-    fn request_lines_are_printed_without_control_characters() {
-        use cmux_hub_host::text::is_bidi_control;
-        let hostile = "\u{1b}[2J\u{202e}Mallory\nlinux-host: approved";
-        for line in [request_line(&request(hostile, None)), ask_line(&request(hostile, None))] {
-            assert!(!line.chars().any(|c| c.is_control() || is_bidi_control(c)), "{line:?}");
-            assert!(line.contains("Mallorylinux-host: approved"), "{line:?}");
-        }
-    }
-
-    /// A `Current` serving session `s1` with `scope`, and its stop flag.
-    fn serving(scope: &str) -> (Current, Arc<AtomicBool>) {
-        let stop = Arc::new(AtomicBool::new(false));
-        let served = Served { id: "s1".into(), scope: scope.into(), stop: stop.clone() };
-        (Arc::new(Mutex::new(Some(served))), stop)
-    }
-
-    fn is_empty(current: &Current) -> bool {
-        current.lock().unwrap().is_none()
-    }
-
-    #[test]
-    fn a_dropped_hub_link_stops_the_session_it_served() {
-        // Revocations sent while the link is down are never replayed: fail closed.
-        let (current, stop) = serving("full");
-        let held = stop.clone();
-        let (result, stopped) = hold_link(&current, || {
-            assert!(!held.load(Ordering::SeqCst), "stopped while the link was up");
-            Err("socket closed (1006 connection closed)".into())
-        });
-        assert!(result.is_err());
-        assert_eq!(stopped.as_deref(), Some("s1"));
-        assert!(stop.load(Ordering::SeqCst));
-        assert!(is_empty(&current));
-        // A link the hub closed cleanly too.
-        let (current, stop) = serving("view");
-        let (result, stopped) = hold_link(&current, || Ok(()));
-        assert!(result.is_ok());
-        assert_eq!(stopped.as_deref(), Some("s1"));
-        assert!(stop.load(Ordering::SeqCst));
-        // Nothing served, nothing stopped.
-        let current: Current = Arc::new(Mutex::new(None));
-        assert_eq!(hold_link(&current, || Ok(())).1, None);
-    }
-
-    fn consent_dir(tag: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir()
-            .join(format!("cmux-screen-host-consent-{tag}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        dir
-    }
-
-    /// `enable` finds the encoder a session needs: an installed copy is used as it is, with no
-    /// download. The directory is passed in, not set as `XDG_DATA_HOME`: `set_var` would race
-    /// the other tests' reads of the environment.
-    #[cfg(feature = "openh264")]
-    #[test]
-    fn enable_finds_an_installed_openh264() {
-        let platform = cmux_encode::openh264::Platform::current().unwrap();
-        let data = consent_dir("openh264");
-        let dir = cmux_encode::cisco::dir_from("linux", |key| {
-            (key == "XDG_DATA_HOME").then(|| data.clone().into_os_string())
-        })
-        .unwrap();
-        std::fs::create_dir_all(&dir).unwrap();
-        let lib = cmux_encode::cisco::library_path(&dir, platform);
-        std::fs::write(&lib, b"stand-in").unwrap();
-        assert_eq!(openh264_line_in(Some(dir)), format!("OpenH264 is at {}", lib.display()));
-        std::fs::remove_dir_all(&data).unwrap();
-    }
-
-    #[test]
-    fn consent_is_read_again_for_each_ticket() {
-        let dir = consent_dir("admit");
-        LocalConsent { view: true, full: true }.save(&dir).unwrap();
-        assert_eq!(admit(&dir, "full", true), Some(false));
-        // `enable --view-only`, the host still running.
-        LocalConsent { view: true, full: false }.save(&dir).unwrap();
-        assert_eq!(admit(&dir, "full", true), None);
-        assert_eq!(admit(&dir, "view", true), Some(true));
-        // A consent file it cannot trust admits nothing.
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(dir.join("consent.json"), std::fs::Permissions::from_mode(0o644))
-            .unwrap();
-        assert_eq!(admit(&dir, "view", true), None);
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn withdrawn_consent_stops_the_session_it_no_longer_allows() {
-        let both = LocalConsent { view: true, full: true };
-        let view_only = LocalConsent { view: true, full: false };
-        let (current, stop) = serving("full");
-        assert_eq!(withdraw_unconsented(&current, Ok(both), true), None);
-        assert!(!stop.load(Ordering::SeqCst));
-        assert_eq!(withdraw_unconsented(&current, Ok(view_only), true).as_deref(), Some("s1"));
-        assert!(stop.load(Ordering::SeqCst));
-        assert!(is_empty(&current));
-        // A view session goes on under view-only consent.
-        let (current, stop) = serving("view");
-        assert_eq!(withdraw_unconsented(&current, Ok(view_only), true), None);
-        assert!(!stop.load(Ordering::SeqCst));
-        // An unreadable consent file stops it.
-        assert_eq!(
-            withdraw_unconsented(&current, Err("consent.json: bad mode".into()), true).as_deref(),
-            Some("s1")
-        );
-        assert!(stop.load(Ordering::SeqCst));
-        let current: Current = Arc::new(Mutex::new(None));
-        assert_eq!(withdraw_unconsented(&current, Ok(view_only), true), None);
-    }
-
-    #[test]
-    fn fingerprints_are_cut_on_a_character_boundary() {
-        // 15 ASCII bytes then a 3-byte character across the 16-byte mark.
-        let fp = "0123456789abcde\u{20ac}\u{20ac}tail";
-        let line = request_line(&request("Ann", Some(fp)));
-        assert!(line.contains("(key 0123456789abcde\u{20ac})"), "{line}");
-        let line = request_line(&request("Ann", Some("\u{1b}[31m\u{e9}")));
-        assert!(line.contains("(key \u{e9})"), "{line}");
-        assert!(request_line(&request("Ann", None)).contains("(key -)"));
-    }
-
-    #[test]
-    fn a_deleted_consent_file_admits_nothing_and_stops_the_view_session() {
-        let dir = consent_dir("deleted");
-        LocalConsent { view: true, full: false }.save(&dir).unwrap();
-        let (current, stop) = serving("view");
-        assert_eq!(withdraw_unconsented(&current, LocalConsent::load(&dir), true), None);
-        std::fs::remove_file(dir.join("consent.json")).unwrap();
-        assert_eq!(admit(&dir, "view", true), None);
-        assert_eq!(
-            withdraw_unconsented(&current, LocalConsent::load(&dir), true).as_deref(),
-            Some("s1")
-        );
-        assert!(stop.load(Ordering::SeqCst));
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn a_portal_host_serves_view_only_and_says_so() {
-        let dir = consent_dir("portal");
-        LocalConsent { view: true, full: true }.save(&dir).unwrap();
-        // The portal capture applies no input: a control ticket is served view only.
-        assert_eq!(admit(&dir, "full", false), Some(true));
-        assert_eq!(admit(&dir, "full", true), Some(false));
-        let all = LocalConsent::load(&dir);
-        assert_eq!(shares_line(&all, true), "view and control");
-        let line = shares_line(&all, false);
-        assert!(line.starts_with("view only") && line.contains("portal"), "{line}");
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    fn hub_refusal(code: &str) -> Box<dyn std::error::Error + Send + Sync> {
-        HubError { status: 403, code: code.into(), message: "m".into() }.into()
-    }
-
-    #[test]
-    fn enable_mints_a_new_identity_when_the_hub_refuses_this_one() {
-        // The hub never registers a removed id again: `enable` must not reuse it.
-        for code in ["device_removed", "device_key_mismatch"] {
-            let old = Device::generate("desk").unwrap();
-            let old_id = old.id.clone();
-            let mut tried = Vec::new();
-            let (device, ()) = with_fresh_identity(old, |d| {
-                tried.push(d.id.clone());
-                if d.id == old_id {
-                    Err(hub_refusal(code))
-                } else {
-                    Ok(())
-                }
-            })
-            .unwrap_or_else(|e| panic!("{code}: {e}"));
-            assert_ne!(device.id, old_id, "{code}");
-            assert_eq!(device.name, "desk");
-            assert_eq!(tried, vec![old_id, device.id.clone()], "{code}");
-        }
-        // Any other error is returned as it is, with no new identity.
-        let mut tries = 0;
-        let result = with_fresh_identity(Device::generate("desk").unwrap(), |_| -> Res<()> {
-            tries += 1;
-            Err(hub_refusal("unavailable"))
-        });
-        assert!(result.is_err());
-        assert_eq!(tries, 1);
-        // A new identity refused too is not replaced again.
-        let mut tries = 0;
-        let result = with_fresh_identity(Device::generate("desk").unwrap(), |_| -> Res<()> {
-            tries += 1;
-            Err(hub_refusal("device_removed"))
-        });
-        assert!(result.is_err());
-        assert_eq!(tries, 2);
-    }
-
-    #[test]
-    fn a_joined_machine_signs_itself_in_registers_and_turns_sharing_on() {
-        use super::stack_login::tests::stub;
-        let (origin, seen) = stub(|_, request| match request.path.as_str() {
-            "/v1/auth/machine" => (
-                200,
-                serde_json::json!({ "session": "s", "userId": "p:u", "expiresAt": now_ms() + 3_600_000 }),
-            ),
-            _ => (200, serde_json::json!({ "ok": true })),
-        });
-        let dir = consent_dir("machine-sign-in");
-        identity::private_dir(&dir).unwrap();
-        let credential: machine::MachineCredential =
-            serde_json::from_str(r#"{"credential":"cmm_x","name":"lane-vm"}"#).unwrap();
-        let (hub, account) =
-            sign_in_machine(&dir, &origin, std::path::Path::new("/acpmux-home"), credential)
-                .unwrap();
-        assert_eq!(hub.device.name, "lane-vm", "named as the join named the machine");
-        assert_eq!(
-            account,
-            Account { hub: origin.clone(), user_id: "p:u".into(), anchored_until: 0 }
-        );
-        assert_eq!(Account::load(&dir).unwrap(), Some(account));
-        assert_eq!(
-            machine::Joined::load(&dir).unwrap(),
-            Some(machine::Joined { acpmux_home: "/acpmux-home".into(), ..Default::default() })
-        );
-        machine::Joined::clear(&dir).unwrap();
-        assert_eq!(machine::Joined::load(&dir).unwrap(), None);
-        machine::Joined::clear(&dir).unwrap();
-        assert_eq!(Device::load(&dir).unwrap().unwrap().id, hub.device.id);
-        let seen = seen.lock().unwrap().clone();
-        let calls: Vec<(String, String)> =
-            seen.iter().map(|s| (s.method.clone(), s.path.clone())).collect();
-        let screen = format!("/v1/devices/{}/mac-screen", hub.device.id);
-        assert_eq!(
-            calls,
-            [
-                ("POST".to_owned(), "/v1/auth/machine".to_owned()),
-                ("POST".to_owned(), "/v1/devices".to_owned()),
-                ("PUT".to_owned(), screen),
-            ]
-        );
-        // Registered as a Linux desktop, and joining is the consent: sharing on.
-        assert_eq!(serde_json::from_str::<Value>(&seen[1].body).unwrap()["platform"], "linux");
-        assert_eq!(serde_json::from_str::<Value>(&seen[2].body).unwrap()["shared"], true);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// With no join, a person's anchored sign-in is the host's, and nothing is not signed in.
-    #[test]
-    fn without_a_join_an_anchored_account_stays() {
-        let dir = consent_dir("no-join");
-        identity::private_dir(&dir).unwrap();
-        assert!(join_device(&dir, "http://127.0.0.1:1", None, &NoUnit).unwrap().is_none());
-        let old = Device::generate("desk").unwrap();
-        old.save(&dir).unwrap();
-        let hub = "http://127.0.0.1:1".to_owned();
-        Account { hub, user_id: "p:a".into(), anchored_until: now_ms() + 60_000 }
-            .save(&dir)
-            .unwrap();
-        let kept = join_device(&dir, "http://127.0.0.1:1", None, &NoUnit).unwrap().unwrap();
-        assert_eq!(kept.id, old.id);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn the_virtual_display_stops_only_after_ten_idle_minutes() {
-        let start = Instant::now();
-        let mut last_busy = start;
-        assert!(!display_idle(false, &mut last_busy, start + Duration::from_secs(9 * 60)));
-        // A share or an app on it keeps it up, and the idle time starts again.
-        assert!(!display_idle(true, &mut last_busy, start + Duration::from_secs(9 * 60)));
-        assert!(!display_idle(false, &mut last_busy, start + Duration::from_secs(18 * 60)));
-        assert!(display_idle(false, &mut last_busy, start + Duration::from_secs(19 * 60)));
-    }
-
-    fn ticket_push(sid_in_jws: &str) -> Value {
-        let claims = serde_json::json!({"sid": sid_in_jws, "role": "host", "peerKey": "KEY"});
-        let payload = b64::encode(claims.to_string().as_bytes())
-            .trim_end_matches('=')
-            .replace('+', "-")
-            .replace('/', "_");
-        serde_json::json!({
-            "type": "session.ticket", "sessionId": "s1", "role": "host", "scope": "full",
-            "ticket": format!("eyJhbGciOiJFUzI1NiJ9.{payload}.c2ln"),
-            "signalURL": "wss://hub.example/v1/sessions/s1/ws", "ice": [],
-            "peer": {"id": "v1", "name": "Mac", "signingKey": "KEY"}
-        })
-    }
-
-    #[test]
-    fn a_refused_host_ticket_ends_its_session() {
-        assert!(matches!(on_ticket(&ticket_push("s1"), |_| Some(true)), OnTicket::Serve(_, true)));
-        assert!(matches!(
-            on_ticket(&ticket_push("s1"), |_| None),
-            OnTicket::End(id, "failed", _) if id == "s1"
-        ));
-        // A ticket that does not agree with its JWS is ended too, as the Mac host does: the
-        // approved session would otherwise stay open on the hub.
-        let mut malformed = ticket_push("s2");
-        assert!(matches!(
-            on_ticket(&malformed, |_| Some(true)),
-            OnTicket::End(id, "failed", _) if id == "s1"
-        ));
-        malformed["ticket"] = "not a jws".into();
-        assert!(matches!(
-            on_ticket(&malformed, |_| Some(true)),
-            OnTicket::End(id, "failed", _) if id == "s1"
-        ));
-        // With no session id there is nothing to end.
-        malformed["sessionId"] = Value::Null;
-        assert!(matches!(on_ticket(&malformed, |_| Some(true)), OnTicket::Drop(_)));
-    }
-
-    #[test]
-    fn approve_and_status_read_the_capture_the_host_recorded() {
-        let dir = consent_dir("capture");
-        identity::write_private(&dir.join("capture"), CaptureBackend::Portal.name().as_bytes())
-            .unwrap();
-        assert_eq!(host_capture(Some(&dir)), CaptureBackend::Portal);
-        assert!(!host_capture(Some(&dir)).applies_input_with(false));
-        identity::write_private(&dir.join("capture"), b"x11").unwrap();
-        assert_eq!(host_capture(Some(&dir)), CaptureBackend::X11);
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-}
+#[cfg(test)]
+mod join_consent_tests;

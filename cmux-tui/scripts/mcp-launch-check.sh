@@ -28,7 +28,7 @@
 #      real one then runs it): one cmux server, this build's, with no entry,
 #      over another cmux's user entry, over a project entry; an HTTP cmux
 #      entry gets no server and Codex still starts;
-#   6. agents.cmuxMcp off or unanswered: neither shim passes a server;
+#   6. agents.cmuxMcp off: neither shim passes a server (no value or `ask` is on);
 #   7. cmux setup mcp with the real claude and codex installed writes nothing
 #      to their configs, names the manual lines, and refuses --remove;
 #   8. agents.cmuxMcp off with "mcp": {"enabled": true} and the person's own
@@ -262,10 +262,10 @@ if [ -n "$CMUX" ]; then
   check "codex shim [HTTP cmux entry]: no server goes in, the hooks do, Codex starts ($result), nothing said" $?
   : > "$CODEX_HOME/config.toml"
 
-  # 6. Off and unanswered: neither shim passes a server.
+  # 6. Off: neither shim passes a server.
   printf '#!/bin/sh\nfor a in "$@"; do printf "%%s\\n" "$a"; done > %s\n' "$(sq "$D/claude-args")" > "$D/bin/claude"
   chmod +x "$D/bin/claude"
-  for value in off ask; do
+  for value in off; do
     answer "$value"
     record "$P/sub" exec "say hi"
     rm -f "$D/claude-args"
@@ -439,8 +439,11 @@ PY
     tm send-keys -t trust C-c; tm send-keys -t trust C-c
     for _ in $(seq 1 20); do [ "$(tm display -p -t trust '#{pane_dead}')" = 1 ] && break; perl -e 'select(undef,undef,undef,0.5)'; done
     screen > "$D/trust.after"
+    # The pane's process group is Codex and the package processes it started: end that group, which this check
+    # started, rather than every process whose command line names a path.
+    trust_pg=$(tm display -p -t trust '#{pane_pid}')
     tm kill-server
-    pkill -f "$CODEX_HOME/packages/" 2>/dev/null
+    [ -n "$trust_pg" ] && kill -- -"$trust_pg" 2>/dev/null
     refused=$(grep -cE "not supported for stdio|Error loading" "$D/trust.screen")
     trusted=$(grep -c "\"$N\"" "$CODEX_HOME/config.toml" 2>/dev/null)
     entry=$(sed -n 's/.*cmux-tui: codex mcp get cmux: [0-9]* ms (\([A-Za-z]*\).*/\1/p' "$D/trust.after" | head -1)

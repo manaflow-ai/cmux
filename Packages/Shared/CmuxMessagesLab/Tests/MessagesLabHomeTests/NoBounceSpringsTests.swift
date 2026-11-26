@@ -7,8 +7,9 @@ import Testing
 /// passes its target: every springs.json element through the model code the app animates with
 /// (`SpringElement.value`, and `TravelLaw.apply` at the ends and the middle of its range), the tapback
 /// pop springs through `Spring.progress` (the code their keyframes are sampled with), and the raw
-/// `CASpringAnimation`s of the send button and the swipe reply through their own mass, stiffness,
-/// damping and initial velocity, solved in closed form here. Each timing curve is also sampled with
+/// `CASpringAnimation` of the send button through its own mass, stiffness,
+/// damping and initial velocity, solved in closed form here (the swipe reply's return is fitted keyframes, checked
+/// key frame by key frame). Each timing curve is also sampled with
 /// its raw control points, as Core Animation gets them. Each spring is sampled every millisecond for
 /// 4 s (4001 samples; the longest spring here settles in under 1 s) and fails when a sample passes
 /// the end of the travel, or goes back past its start, by more than 1e-6 of the travel. A pulse
@@ -172,10 +173,20 @@ import Testing
                 "ComposeSendButton.showSpring (stiffness \(a.stiffness), damping \(a.damping), damping ratio \(Self.dampingRatio(a))) passes its target by \(Self.percent(w.share)) % at \(w.time) s")
     }
 
-    @Test func theSwipeReplyReturnSpringStaysInsideItsTravel() {
-        let a = SwipeReply.returnSpring()
-        let w = Self.worst(a)
-        #expect(w.share <= Self.tolerance,
-                "SwipeReply.returnSpring (stiffness \(a.stiffness), damping \(a.damping), damping ratio \(Self.dampingRatio(a))) passes its target by \(Self.percent(w.share)) % at \(w.time) s")
+    /// The swipe's way back is Messages' fitted keyframes (swipe-partial, 120 Hz), not a spring: every
+    /// key frame and every point between them (linear) stays between the release offset and rest,
+    /// moves only toward rest, and ends at rest within the 300 ms a gesture's settle may take.
+    @Test func theSwipeReplyReturnStaysInsideItsTravel() throws {
+        let x0: CGFloat = 54
+        let a = SwipeReply.returnAnimation(from: x0)
+        let xs = try (a.values ?? []).map { v -> CGFloat in
+            let t = try #require(v as? NSValue).caTransform3DValue
+            return t.m41
+        }
+        #expect(xs.first == x0, "the return starts at \(xs.first ?? -1), not at the release offset \(x0)")
+        #expect(xs.last == 0, "the return ends at \(xs.last ?? -1), not at rest")
+        #expect(xs.allSatisfy { $0 >= 0 && $0 <= x0 }, "a key frame passes rest or the release offset: \(xs)")
+        #expect(zip(xs, xs.dropFirst()).allSatisfy { $0 >= $1 }, "the return moves away from rest: \(xs)")
+        #expect(a.calculationMode == .linear && a.duration <= 0.3, "mode \(a.calculationMode), duration \(a.duration) s")
     }
 }

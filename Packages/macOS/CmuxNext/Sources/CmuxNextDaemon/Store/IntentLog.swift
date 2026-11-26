@@ -38,7 +38,7 @@ enum IntentUndo: Equatable {
     indirect case guessedTab(hidden: HiddenTab, provisional: IntentUndo?)
     /// The provisional screen shown in workspace `key`, and whether the workspace itself was the
     /// provisional one (inserted) rather than the daemon's.
-    case createdWorkspace(key: WorkspaceKey, inserted: Bool)
+    case createdWorkspace(key: WorkspaceKey, inserted: Bool, hidden: HiddenScreens)
     /// What a dock's overlay changed (``ProvisionalDock``).
     case dockTab(ProvisionalDock.Undo)
     /// A creation whose stand-in tab the person closed while the creation goes on (a dock's fresh tab,
@@ -244,6 +244,7 @@ struct IntentLog {
     private static let replacedStandInLimit = 64
 
     func replacement(ofStandIn id: String) -> SurfaceID? { replacedStandIns.last { $0.standIn == id }?.surface }
+    func standIn(replacedBy surface: SurfaceID) -> String? { replacedStandIns.last { $0.surface == surface }?.standIn }
 
     /// The daemon tabs the person closed lately (bounded, newest last), still known after their close settled: a new
     /// tab's move that waits for its tab to be listed stops waiting for one already closed (``DaemonStore/closedLately(_:)``).

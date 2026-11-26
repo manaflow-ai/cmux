@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useSyncExternalStore } from "react";
 import { type TranscriptView } from "./transcriptView";
 import { forgetThoughtChoices } from "./thoughtChoices";
+import { notifyDisclosure, subscribeDisclosure } from "./disclosureStore";
 
 /**
  * Disclosure state for transcript details. Rows are virtualized, so the state cannot live in a
@@ -18,7 +19,6 @@ type SessionChoices = Map<string, boolean>;
 type Choices = Map<string, SessionChoices>;
 
 let choices: Choices | undefined;
-const listeners = new Set<() => void>();
 
 function parseChoices(value: unknown): Choices {
   const result: Choices = new Map();
@@ -49,11 +49,48 @@ function storageValue(): Record<string, Record<string, boolean>> {
   return Object.fromEntries([...load()].map(([sessionId, session]) => [sessionId, Object.fromEntries(session)]));
 }
 
-function notify(): void {
-  for (const listener of listeners) listener();
+/// The one open-state store's notification (disclosureStore.ts): `rows` are the rows of chat
+/// `sessionId` the change shows in, which the list's state signature for each reads.
+function notify(sessionId?: string, rows?: Iterable<string>): void {
+  named.clear();
+  notifyDisclosure(sessionId, rows);
 }
 
-function save(sessionId: string, key: string, value: boolean): void {
+/// Per chat (with its views), each id a stored key names (every stretch between colons) to the
+/// choices that name it, built once per change (`notify` clears it) for a chat a row asks about.
+const named = new Map<string, Map<string, string>>();
+
+/// The reader's choices on the lines of chat `sessionId` (all its views) whose keys name one of `ids`
+/// (a row's id, its calls' ids), as one string: "" when there are none. A row's placed height and
+/// remembered estimate hold only for the string they were taken with (rowOpenState.ts). O(ids) after
+/// one O(choices) index per change.
+export function choicesNaming(sessionId: string | undefined, ids: Iterable<string>): string {
+  const chat = sessionId || DEFAULT_SESSION;
+  let index = named.get(chat);
+  if (!index) {
+    index = new Map();
+    for (const [id, session] of load()) {
+      if (id !== chat && !id.startsWith(`${chat}#`)) continue;
+      const view = id.slice(chat.length);
+      for (const [key, value] of session)
+        for (const part of new Set(key.split(":"))) {
+          if (part === "") continue;
+          const entry = `${view}${key}=${value ? 1 : 0}`;
+          const before = index.get(part);
+          index.set(part, before === undefined ? entry : `${before},${entry}`);
+        }
+    }
+    named.set(chat, index);
+  }
+  let out = "";
+  for (const id of ids) {
+    const found = index.get(id);
+    if (found !== undefined) out += out === "" ? found : `;${found}`;
+  }
+  return out;
+}
+
+function save(sessionId: string, key: string, value: boolean, rows?: Iterable<string>): void {
   const all = load();
   let session = all.get(sessionId);
   if (!session) all.set(sessionId, (session = new Map()));
@@ -66,7 +103,7 @@ function save(sessionId: string, key: string, value: boolean): void {
   } catch {
     // The in-memory choice still lasts for this page when storage is unavailable.
   }
-  notify();
+  notify(sessionId, rows);
 }
 
 /// Whether disclosure key `key` names one of `ids`: a call's (`row:<id>`), a group's or run's line
@@ -123,7 +160,8 @@ function forgetInside(
   } catch {
     // The in-memory change still lasts for this page when storage is unavailable.
   }
-  notify();
+  // The rows the fold holds are the ones whose lines changed (`ids` names them, and its calls).
+  notify(sessionId, ids);
 }
 
 /// A turn's "Worked for" closed (App.tsx): every line inside it closes, in every view of the chat,
@@ -144,12 +182,18 @@ function read(sessionId: string, key: string): boolean | undefined {
   return load().get(sessionId)?.get(key);
 }
 
-const subscribe = (listener: () => void) => {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
-};
+const subscribe = subscribeDisclosure;
 
 export const DisclosureSession = createContext<string>(DEFAULT_SESSION);
+/// The transcript row a disclosure is drawn in (VirtualTranscript.tsx's row frame): a change to it is
+/// credited to that row in the store (disclosureStore.ts `rowRevision`), which the list's state
+/// signature reads. Undefined outside the transcript (a gallery, a card elsewhere).
+export const DisclosureRow = createContext<string | undefined>(undefined);
+/// What the transcript gives its rows to run a disclosure's change as one transition of its motion
+/// owner (VirtualTranscript.tsx; motionOwner.ts `transition({ cause: "disclosure", anchorRow, apply })`).
+/// Every setter here runs through it, so each toggle is one transition and one `layoutWatch.expect`.
+export type RunDisclosure = (anchorRow: string, apply: () => void) => void;
+export const DisclosureMotion = createContext<RunDisclosure | undefined>(undefined);
 /** The chat's transcript view (transcriptView.ts), read once here for every row under it. */
 export const ViewContext = createContext<TranscriptView>("normal");
 
@@ -266,6 +310,44 @@ function readOpen(session: string, key: string, opens: boolean, from: string, he
   );
 }
 
+/// The reader set line `key` of `sessionId` to `next` (`useTranscriptDisclosure`'s setter): `down`,
+/// `held`, `by` and `thoughts` are its links joined with "\n"; `rowId` the row it is drawn in, which
+/// the change is credited to (disclosureStore.ts `rowRevision`).
+function applyChoice(
+  sessionId: string,
+  key: string,
+  next: boolean,
+  rowId: string | undefined,
+  down: string,
+  held: string,
+  by: string,
+  thoughts: string,
+): void {
+  // Closed, the fold forgets what the reader opened inside it: its calls and the lines among them
+  // (an edits group in a run), never itself, the run around it or the lines that take its place.
+  if (!next && thoughts !== "") {
+    const inside = new Set(thoughts.split("\n"));
+    forgetThoughtChoices((id) => inside.has(id));
+  }
+  if (!next && held !== "")
+    forgetInside(
+      sessionId,
+      new Set(held.split("\n").map((member) => member.slice(CALL_PREFIX.length))),
+      level(key),
+      // The group lines this one splits back into are its other form, never its children; an
+      // edits group drawn inside a run is a child (it is not in `passesDown`), so it is forgotten.
+      new Set([key, ...(down ? down.split("\n") : []), ...(by ? by.split("\n") : [])]),
+    );
+  // A run's line the reader set takes the place of the group lines it hands down to: one they had
+  // set takes the same choice, so a run line they closed never reopens as its group's line when the
+  // run splits back into groups. A line they never set keeps its own default, and a group's line
+  // passes nothing up, so closing one group never closes its sibling through the run's key.
+  const rows = rowId === undefined ? undefined : [rowId];
+  if (down !== "")
+    for (const other of down.split("\n")) if (read(sessionId, other) !== undefined) save(sessionId, other, next, rows);
+  save(sessionId, key, next, rows);
+}
+
 /**
  * Returns a persisted disclosure value and a React-compatible setter. `verboseOpen` opens it by
  * default in the Verbose view (a tool's output). The reader's toggles are kept per view, so each
@@ -282,6 +364,8 @@ export function useTranscriptDisclosure(
 ): [boolean, DisclosureSetter] {
   const view = useContext(ViewContext);
   const sessionId = useDisclosureSessionId();
+  const rowId = useContext(DisclosureRow);
+  const motion = useContext(DisclosureMotion);
   const opens = defaultOpen || (verboseOpen && view === "verbose");
   const from = (links.inherits ?? NONE).join("\n");
   const down = (links.passesDown ?? NONE).join("\n");
@@ -296,30 +380,12 @@ export function useTranscriptDisclosure(
   const setOpen = useCallback<DisclosureSetter>(
     (value) => {
       const next = typeof value === "function" ? value(current()) : value;
-      // Closed, the fold forgets what the reader opened inside it: its calls and the lines among them
-      // (an edits group in a run), never itself, the run around it or the lines that take its place.
-      if (!next && thoughts !== "") {
-        const inside = new Set(thoughts.split("\n"));
-        forgetThoughtChoices((id) => inside.has(id));
-      }
-      if (!next && held !== "")
-        forgetInside(
-          sessionId,
-          new Set(held.split("\n").map((member) => member.slice(CALL_PREFIX.length))),
-          level(key),
-          // The group lines this one splits back into are its other form, never its children; an
-          // edits group drawn inside a run is a child (it is not in `passesDown`), so it is forgotten.
-          new Set([key, ...(down ? down.split("\n") : []), ...(by ? by.split("\n") : [])]),
-        );
-      // A run's line the reader set takes the place of the group lines it hands down to: one they had
-      // set takes the same choice, so a run line they closed never reopens as its group's line when the
-      // run splits back into groups. A line they never set keeps its own default, and a group's line
-      // passes nothing up, so closing one group never closes its sibling through the run's key.
-      if (down !== "")
-        for (const other of down.split("\n")) if (read(sessionId, other) !== undefined) save(sessionId, other, next);
-      save(sessionId, key, next);
+      const apply = () => applyChoice(sessionId, key, next, rowId, down, held, by, thoughts);
+      // One transition of the transcript's motion owner, anchored on the row this line is drawn in.
+      if (motion && rowId !== undefined) motion(rowId, apply);
+      else apply();
     },
-    [sessionId, key, current, down, held, by, thoughts],
+    [motion, rowId, current, sessionId, key, down, held, by, thoughts],
   );
   return [open, setOpen];
 }
@@ -334,6 +400,10 @@ function useDisclosureSessionId(): string {
 /// The key of a tool call's own line (a lone call, a command, an MCP call), the same wherever the call
 /// draws: on its own, in a group, in a run (TurnRows.tsx). A fold that holds the call opens for it.
 export const callDisclosureKey = (id: string) => `${CALL_PREFIX}${id}`;
+
+/// The key of an `acpmux send`'s message row (SentMessageLine.tsx `AcpmuxSendLine`): the call's id,
+/// and the message's place in a batch (sentMessageLineModel.ts `sendKey`).
+export const sendDisclosureKey = (id: string, index?: number) => `send:${index === undefined ? id : `${id}#${index}`}`;
 
 /// The keys of the calls among `items` (`callDisclosureKey`), for the fold that holds them (`members`).
 export function callDisclosureKeys(items: readonly { tool?: { id: string } }[]): string[] {
@@ -353,11 +423,13 @@ export const FoldPin = createContext<() => void>(() => {});
 /// it, unless the reader already set it), then the folds around it. Keyed reads only.
 export function useFoldPin(key: string): () => void {
   const sessionId = useDisclosureSessionId();
+  const rowId = useContext(DisclosureRow);
   const outer = useContext(FoldPin);
   return useCallback(() => {
     outer();
-    if (key !== "" && read(sessionId, key) === undefined) save(sessionId, key, true);
-  }, [outer, sessionId, key]);
+    if (key !== "" && read(sessionId, key) === undefined)
+      save(sessionId, key, true, rowId === undefined ? undefined : [rowId]);
+  }, [outer, sessionId, key, rowId]);
 }
 
 /**

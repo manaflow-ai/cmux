@@ -17,7 +17,8 @@
 #   1. the local cache
 #   2. the fleet controller's artifact store: the controller signs a short-lived
 #      GET of sha256:<manifest sha256> for a caller on its tailnet (no token or
-#      credential on this host); unreachable off the tailnet, then skipped
+#      credential on this host); skipped with no address configured or when
+#      unreachable
 #   3. the private R2 bucket (manifest r2_bucket/r2_key) through the S3 API,
 #      when read credentials are set (environment or an env file, below)
 #   4. the private GitHub release on manaflow-ai/cef (gh login or a token)
@@ -34,9 +35,10 @@
 #                          ~/.secrets/cmux-cef.env) if that file exists.
 #   CMUX_CEF_R2_ENDPOINT   S3 endpoint override (default
 #                          https://<account>.r2.cloudflarestorage.com)
-#   CMUX_CEF_STORE_URL     fleet controller (default http://100.89.225.106:18765,
-#                          its tailnet address; MagicDNS does not resolve on
-#                          every fleet host)
+#   CMUX_CEF_STORE_URL     fleet controller URL. No default: else
+#                          CMUX_CI_CONTROLLER, the fleet client config, or a
+#                          CMUX_CEF_STORE_URL line in the R2 env file (store_url
+#                          below); with none the store is skipped
 #   CMUX_CEF_NO_STORE=1    skip the controller artifact store
 #   CMUX_CEF_NO_R2=1       skip R2 (test the GitHub fallback)
 #   CMUX_CEF_NO_GITHUB=1   skip the GitHub release (check-pinned-assets.sh: prove
@@ -192,9 +194,29 @@ fetch_store() {
   return "$status"
 }
 
+# The controller artifact store's address. No address is built in: CMUX_CEF_STORE_URL, else the
+# fleet's CMUX_CI_CONTROLLER, else the fleet client's configured controller
+# (CMUX_FLEET_CLIENT_CONFIG, default ~/.local/share/cmux-fleet-client/client.json), else a
+# CMUX_CEF_STORE_URL line in CMUX_CEF_R2_ENV_FILE (default ~/.secrets/cmux-cef.env). With none the
+# store is skipped, as on any machine off the tailnet.
+store_url() {
+  local url="${CMUX_CEF_STORE_URL:-${CMUX_CI_CONTROLLER:-}}" file
+  if [[ -z "$url" ]]; then
+    file="${CMUX_FLEET_CLIENT_CONFIG:-$HOME/.local/share/cmux-fleet-client/client.json}"
+    [[ -r "$file" ]] && url="$(/usr/bin/python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1])).get("controller") or "")' "$file" 2>/dev/null || true)"
+  fi
+  if [[ -z "$url" ]]; then
+    file="${CMUX_CEF_R2_ENV_FILE:-$HOME/.secrets/cmux-cef.env}"
+    [[ -r "$file" ]] && url="$(sed -n -E "s/^(export )?CMUX_CEF_STORE_URL=[\"']?([^\"' ]*).*/\2/p" "$file" 2>/dev/null | tail -n 1)"
+  fi
+  printf '%s' "$url"
+}
+
 # Untraced (fetch_store): ask the controller for a signed GET of the digest and download it.
 store_download() {
-  local controller="${CMUX_CEF_STORE_URL:-http://100.89.225.106:18765}" signed
+  local controller signed
+  controller="$(store_url)"
+  [[ -n "$controller" ]] || return 1
   # The artifact edge refuses some default user agents; send ours.
   signed="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 30 \
       -A cmux-ensure-cef "${controller%/}/v1/artifacts/sha256:$sha/url" 2>/dev/null |
@@ -248,15 +270,15 @@ fetch_github() {
   fi
   local token="${GH_TOKEN:-${GITHUB_TOKEN:-}}" asset_api
   if [[ -n "$token" ]]; then
-    asset_api="$(curl -fsSL --retry 3 --retry-all-errors --connect-timeout 15 --max-time 60 -H "Authorization: Bearer $token" "https://api.github.com/repos/$repo/releases/tags/$tag" |
+    asset_api="$(curl -fsSL --retry 3 --retry-delay 5 --retry-all-errors --connect-timeout 15 --max-time 60 -H "Authorization: Bearer $token" "https://api.github.com/repos/$repo/releases/tags/$tag" |
       /usr/bin/python3 -c 'import json,sys; a=sys.argv[1]; print(next(x["url"] for x in json.load(sys.stdin)["assets"] if x["name"]==a))' "$asset" || true)"
     if [[ -n "$asset_api" ]]; then
-      curl -fL --retry 5 --retry-all-errors --connect-timeout 15 --max-time 1800 --speed-limit 1000 --speed-time 60 \
+      curl -fL --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 15 --max-time 1800 --speed-limit 1000 --speed-time 60 \
         -H "Authorization: Bearer $token" -H "Accept: application/octet-stream" \
         -o "$archive" "$asset_api" >&2 && verified "$archive" "GitHub API" && return 0
     fi
   fi
-  curl -fL --retry 5 --retry-all-errors --connect-timeout 15 --max-time 1800 --speed-limit 1000 --speed-time 60 -o "$archive" "$url" >&2 2>/dev/null && verified "$archive" "$url" && return 0
+  curl -fL --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 15 --max-time 1800 --speed-limit 1000 --speed-time 60 -o "$archive" "$url" >&2 2>/dev/null && verified "$archive" "$url" && return 0
   return 1
 }
 

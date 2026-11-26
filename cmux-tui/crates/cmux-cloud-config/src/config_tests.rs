@@ -183,24 +183,29 @@ fn the_callback_scheme_follows_the_build() {
     );
 }
 
+/// No build takes a running NIGHTLY's session: signed NEXT DEV (`com.cmuxterm.app.debug.next`) is a DEV build
+/// with a build space of its own and signs in on its own (its file store, seeded by
+/// `scripts/cmux-next/dev-signin-token.py`), on staging and on production alike.
 #[test]
-fn only_signed_dev_on_production_adopts_nightlys_session() {
-    assert!(
-        configure(selection("prod", NEXT_DEV_BUNDLE_ID, "n", true, None), &[], false)
-            .adopts_nightly_session
-    );
-    assert!(
-        !configure(selection("dev", NEXT_DEV_BUNDLE_ID, "n", true, None), &[], false)
-            .adopts_nightly_session
-    );
-    assert!(
-        !configure(selection("prod", NEXT_DEV_BUNDLE_ID, "n", true, None), &[], true)
-            .adopts_nightly_session
-    );
-    assert!(
-        !configure(selection("prod", NIGHTLY_BUNDLE_ID, "n", true, None), &[], false)
-            .adopts_nightly_session
-    );
+fn no_build_adopts_nightlys_session() {
+    for (name, bundle_id, debug) in [
+        ("prod", NEXT_DEV_BUNDLE_ID, false),
+        ("dev", NEXT_DEV_BUNDLE_ID, false),
+        ("prod", NEXT_DEV_BUNDLE_ID, true),
+        ("prod", NIGHTLY_BUNDLE_ID, false),
+    ] {
+        let made = serde_json::to_value(configure(
+            selection(name, bundle_id, "n", true, None),
+            &[],
+            debug,
+        ))
+        .expect("a configuration serializes");
+        assert_ne!(
+            made.get("adoptsNightlySession"),
+            Some(&serde_json::Value::Bool(true)),
+            "{bundle_id} on {name} (debug {debug}) adopts NIGHTLY's session"
+        );
+    }
 }
 
 #[test]
@@ -269,4 +274,17 @@ fn a_configuration_names_its_backend() {
         (label.kind.as_str(), label.detail.as_deref()),
         ("development", Some("backend.standin.invalid"))
     );
+}
+
+/// The app pinned before cmux#43648 decodes `adoptsNightlySession` as a required `Bool`, so the key stays (false)
+/// until no pinned app reads it (docs/ci/app-ffi-release.md, step A).
+#[test]
+fn the_configuration_still_carries_adopts_nightly_session_for_the_pinned_app() {
+    let made = serde_json::to_value(configure(
+        selection("prod", NEXT_DEV_BUNDLE_ID, "n", true, None),
+        &[],
+        false,
+    ))
+    .expect("a configuration serializes");
+    assert_eq!(made.get("adoptsNightlySession"), Some(&serde_json::Value::Bool(false)));
 }
