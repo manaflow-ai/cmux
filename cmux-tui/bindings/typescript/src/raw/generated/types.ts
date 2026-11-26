@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 74636c9142c41825938510a19c4b08bc4f4be8e7a463643240fe0f5617d174f7. */
+/* cmux-tui mux protocol 12; the IR SHA-256 is SDK_IR_SHA256 in metadata.ts. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
