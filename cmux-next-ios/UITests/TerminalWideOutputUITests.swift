@@ -150,7 +150,21 @@ final class TerminalWideOutputUITests: XCTestCase {
         XCTAssertTrue(field.waitForExistence(timeout: 10), "the terminal's composer\n\(app.debugDescription)", file: file, line: line)
         field.tap()
         let wideKey = app.buttons["terminal.key.wide"]
-        XCTAssertTrue(wideKey.waitForExistence(timeout: 10), "the key row (over the keyboard) has a Wide key\n\(app.debugDescription)",
+        // A tap during a turn's layout can focus the field before the keyboard's
+        // frame settles (LandscapeUITests testD, step 836d3f58, a stock simulator:
+        // no key row): once more, from the keyboard down.
+        if !wideKey.waitForExistence(timeout: 6) {
+            let keyboardUp = app.keyboards.firstMatch.exists
+            print("WIDE key row missing after the first tap: keyboard=\(keyboardUp) field=\(field.exists) " +
+                  "escape=\(app.buttons["terminal.key.escape"].exists) window=\(app.windows.firstMatch.frame.size)")
+            if keyboardUp { app.swipeDown() } // the dock follows an interactive dismissal
+            _ = app.keyboards.firstMatch.waitForNonExistence(timeout: 3)
+            field.tap()
+        }
+        // The first line is what a step's summary shows: the keyboard's and the row's state first.
+        XCTAssertTrue(wideKey.waitForExistence(timeout: 10),
+                      "the key row (over the keyboard) has a Wide key: keyboard=\(app.keyboards.firstMatch.exists) " +
+                      "escape=\(app.buttons["terminal.key.escape"].exists) window=\(app.windows.firstMatch.frame.size)\n\(app.debugDescription)",
                       file: file, line: line)
         let keyRow = app.buttons["terminal.key.escape"]
         var swipes = 0

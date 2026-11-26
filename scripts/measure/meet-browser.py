@@ -70,11 +70,19 @@ function media(key, call) {
 }
 const pipVideo = document.getElementById('v');
 try { pipVideo.srcObject = canvasStream(640, 360, 30); pipVideo.play().catch(() => {}); } catch (e) {}
+// The WebGL renderer string says whether the page has a hardware GPU (Apple M…) or a software
+// fallback (SwiftShader), the first thing to rule out when one browser's renderer burns more CPU.
+function glRenderer() {
+  try { const g = document.createElement('canvas').getContext('webgl');
+    const x = g && g.getExtension('WEBGL_debug_renderer_info');
+    return g ? (x ? g.getParameter(x.UNMASKED_RENDERER_WEBGL) : g.getParameter(g.RENDERER)) : 'no webgl'; }
+  catch (e) { return 'error ' + e.name; }
+}
 const steps = {
   info() { put('info', {ua: navigator.userAgent, secure: isSecureContext, mediaDevices: !!navigator.mediaDevices,
     gdm: !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia), pipEnabled: !!document.pictureInPictureEnabled,
     pipFn: typeof pipVideo.requestPictureInPicture, notification: 'Notification' in window ? Notification.permission : 'absent',
-    rtc: typeof RTCPeerConnection}); },
+    rtc: typeof RTCPeerConnection, gl: glRenderer()}); },
   gum() { if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return put('gum', {ok: false, state: 'absent'});
     media('gum', () => navigator.mediaDevices.getUserMedia({video: true, audio: true})); },
   devices() { if (!navigator.mediaDevices) return put('devices', {ok: false});
@@ -156,6 +164,7 @@ const steps = {
           rtcpRtt, iceRtt: pair?.currentRoundTripTime,
           w: inbound?.frameWidth || video.videoWidth, h: inbound?.frameHeight || video.videoHeight,
           ew: outbound?.frameWidth, limit: outbound?.qualityLimitationReason, encoder: outbound?.encoderImplementation,
+          codec: sent.get(outbound?.codecId)?.mimeType,
           decoder: inbound?.decoderImplementation, dropped: inbound?.framesDropped, ice: sender.iceConnectionState});
       } while (t() - t0 < secs * 1000);
 
@@ -171,7 +180,7 @@ const steps = {
         rttSource: rtcpRtt !== null ? 'RTCP' : rtt !== null ? 'ICE' : null,
         rttMsMedian: rtt === null ? null : Math.round(rtt * 10000) / 10,
         size: last.w && last.h ? last.w + 'x' + last.h : null, sentWidth: last.ew,
-        limit: last.limit, encoder: last.encoder, decoder: last.decoder, dropped: last.dropped, samples});
+        limit: last.limit, codec: last.codec, encoder: last.encoder, decoder: last.decoder, dropped: last.dropped, samples});
     } finally {
       sender.close(); receiver.close();
       stream.getTracks().forEach(track => track.stop());
@@ -815,6 +824,11 @@ def cell_media(v):
     return f"fail {state}"
 
 
+def top_pct(cpu: dict) -> float | None:
+    top = cpu.get("top") or []
+    return top[0]["pct"] if top else None
+
+
 def cell(run: dict, key: str) -> str:
     if run.get("error") and key not in run:
         return "error: " + run["error"][:60]
@@ -840,7 +854,10 @@ def cell(run: dict, key: str) -> str:
         if v.get("fpsMedian") is None or v.get("rttMsMedian") is None:
             return f"fail: {v.get('message') or v.get('ice') or v.get('state')} (no complete FPS/RTT sample)"
         return (f"{'pass' if v.get('ok') else 'fail'} {v.get('fpsMedian'):.1f} fps, rtt {v.get('rttMsMedian')} ms ({v.get('rttSource')}), "
-                f"{v.get('size')}, CPU {v['cpuCall']['pct']}% (idle {v['cpuIdle']['pct']}%)")
+                f"{v.get('size')}, {v.get('codec') or 'codec ?'}, CPU {v['cpuCall']['pct']}% (idle {v['cpuIdle']['pct']}%, "
+                f"busiest process {top_pct(v['cpuCall'])}%)")
+    if key == "gl":
+        return str((run.get("info") or {}).get("gl") or "not run")
     if key == "hidden":
         if not v:
             return "not run"
@@ -859,7 +876,7 @@ def cell(run: dict, key: str) -> str:
 
 
 ROWS = [("getUserMedia (camera+mic)", "gum"), ("getDisplayMedia", "gdm"), ("Picture-in-Picture", "pip"),
-        ("Notification.requestPermission", "notif"), ("loopback call 720p", "loop"),
+        ("Notification.requestPermission", "notif"), ("loopback call 720p", "loop"), ("WebGL renderer", "gl"),
         ("hidden-tab 100 ms timer", "hidden"), ("Signed-out Meet navigation, cold", "meet_cold"),
         ("Signed-out Meet navigation, warm", "meet_warm")]
 
