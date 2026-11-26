@@ -377,6 +377,12 @@ fn a_read_ahead_gives_way_to_a_store_behind_and_costs_the_peer_no_copy() {
 }
 
 /// Process CPU time (user and system) so far.
+#[cfg(not(unix))]
+fn cpu_time() -> Duration {
+    unimplemented!("CPU time is read through libc on unix only")
+}
+
+#[cfg(unix)]
 fn cpu_time() -> Duration {
     // SAFETY: an all-zero rusage is valid, and getrusage only fills the struct it is given.
     let usage = unsafe {

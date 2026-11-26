@@ -1075,3 +1075,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_xcodebuild_noninteractive_helper.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_unix_only_on_windows.py"
+lane = "linux-guard"

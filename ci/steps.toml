@@ -443,6 +443,29 @@ python3 -I scripts/ci/check-swift-acpmux-protocol.py || rc=1
 exit "$rc"
 '''
 
+# cmux-tui-windows-check (cargo check --target x86_64-pc-windows-gnu) runs only in the post-merge
+# batch, so a unix-only use in acpmux reached feat-cmux-next three times (batches 45693869119,
+# 45720080410, 45726394764; fixed forward by #54573). This names the same uses on the PR in seconds.
+[step.unix-only-on-windows]
+job = "linux"
+timeout = 120
+title = "acpmux builds on Windows (unix-only uses)"
+about = "no std::os::unix, std::os::fd, net::Unix*, Windows-missing libc item, unix-only crate or main-less target in acpmux (or its dev-dependency cmux-fault) outside a cfg(unix) item or module"
+inputs = [
+  "cmux-tui/Cargo.toml",
+  "cmux-tui/crates/acpmux/**",
+  "cmux-tui/crates/cmux-fault/**",
+  "scripts/ci/unix_only_on_windows.py",
+  "scripts/ci/libc_windows_gnu.txt",
+  "tests/test_ci_unix_only_on_windows.py",
+]
+run = '''
+rc=0
+python3 -I tests/test_ci_unix_only_on_windows.py || rc=1
+python3 -I scripts/ci/unix_only_on_windows.py --github || rc=1
+exit "$rc"
+'''
+
 # Checks that run bun or node, each of which had a workflow, a runner and a checkout of its own (app-platform.yml,
 # ci-artifact-transport.yml, cloud-vm-image-lock.yml, mux.yml, automation-bench.yml). Those workflows keep their
 # push and dispatch runs; a pull request runs them here. `inputs` is each one's former pull_request path filter.

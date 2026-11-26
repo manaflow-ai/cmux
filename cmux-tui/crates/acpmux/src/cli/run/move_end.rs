@@ -380,6 +380,7 @@ fn gone_already(e: &anyhow::Error) -> bool {
         || text.contains("no move")
 }
 
-#[cfg(test)]
+// The fork and move tests use exec bits and Unix sockets; Windows builds none of them.
+#[cfg(all(test, unix))]
 #[path = "move_end_tests.rs"]
 mod tests;

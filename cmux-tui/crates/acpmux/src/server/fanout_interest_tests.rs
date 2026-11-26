@@ -225,6 +225,12 @@ async fn a_watch_turned_off_stops_waking_for_other_chats_changes() {
     assert_eq!(changed_of(&resumed, &s, "renamed"), 1, "a resumed watch hears the next change");
 }
 
+#[cfg(not(unix))]
+fn cpu_now() -> Duration {
+    unimplemented!("CPU time is read through libc on unix only")
+}
+
+#[cfg(unix)]
 fn cpu_now() -> Duration {
     // SAFETY: getrusage writes the struct it is given and reads nothing else.
     let mut usage: libc::rusage = unsafe { std::mem::zeroed() };

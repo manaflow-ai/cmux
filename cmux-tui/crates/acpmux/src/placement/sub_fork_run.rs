@@ -494,6 +494,7 @@ impl<R: AsyncBufRead + Unpin> AsyncBufRead for Owned<R> {
     }
 }
 
-#[cfg(test)]
+// The fork and move tests use exec bits and Unix sockets; Windows builds none of them.
+#[cfg(all(test, unix))]
 #[path = "sub_fork_run_tests.rs"]
 mod tests;

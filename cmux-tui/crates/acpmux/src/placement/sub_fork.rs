@@ -694,6 +694,7 @@ fn scope() -> &'static cmux_scope::Scope {
     SCOPE.get_or_init(|| cmux_scope::Scope::new("sub_fork runner"))
 }
 
-#[cfg(test)]
+// The fork and move tests use exec bits and Unix sockets; Windows builds none of them.
+#[cfg(all(test, unix))]
 #[path = "sub_fork_tests.rs"]
 pub(crate) mod tests;

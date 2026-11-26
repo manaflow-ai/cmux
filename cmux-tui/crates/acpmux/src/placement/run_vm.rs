@@ -505,6 +505,7 @@ async fn run_here(command: &str) -> anyhow::Result<i32> {
     Ok(exit_code(status))
 }
 
-#[cfg(test)]
+// The fork and move tests use exec bits and Unix sockets; Windows builds none of them.
+#[cfg(all(test, unix))]
 #[path = "run_vm_tests.rs"]
 mod tests;

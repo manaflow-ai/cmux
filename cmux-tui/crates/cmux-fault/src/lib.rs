@@ -23,6 +23,8 @@ pub mod clock;
 pub mod disk;
 pub mod invariants;
 pub mod mint;
+// Signals by pid (SIGKILL, SIGSTOP, SIGCONT): unix-only, as are the scenarios that use it.
+#[cfg(unix)]
 pub mod process;
 pub mod proxy;
 pub mod rng;

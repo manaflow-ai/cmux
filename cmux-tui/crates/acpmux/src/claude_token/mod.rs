@@ -14,7 +14,8 @@
 
 pub mod pty;
 pub mod store;
-#[cfg(test)]
+// The token flow runs `claude` in a pty: unix-only, as are its tests.
+#[cfg(all(test, unix))]
 mod tests;
 
 use std::collections::HashMap;
