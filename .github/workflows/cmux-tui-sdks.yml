@@ -197,6 +197,9 @@ on:
       - "schemas/layout-grid/layout-grid.json"
       - "schemas/motion-scale/motion-scale.json"
       - "schemas/type-scale/type-scale.json"
+      - "schemas/sidebar-drag-geometry/vectors.json"
+      - "schemas/sidebar-region-layout/vectors.json"
+      - "schemas/sidebar-row-rules/vectors.json"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
@@ -379,6 +382,9 @@ on:
       - "schemas/layout-grid/layout-grid.json"
       - "schemas/motion-scale/motion-scale.json"
       - "schemas/type-scale/type-scale.json"
+      - "schemas/sidebar-drag-geometry/vectors.json"
+      - "schemas/sidebar-region-layout/vectors.json"
+      - "schemas/sidebar-row-rules/vectors.json"
   workflow_dispatch:
 
 concurrency:
