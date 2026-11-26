@@ -373,7 +373,7 @@ pub const CAPABILITIES: &[Capability] = &[
     // `presence` comes with it.
     Capability {
         id: CHAT_PRESENCE,
-        wire: &[method::MUX_TYPING, method::MUX_PRESENCE, method::MUX_ROOMS, method::MUX_ROOM],
+        wire: &[method::MUX_TYPING, method::MUX_PRESENCE, method::MUX_ROOMS, method::MUX_ROOM, method::MUX_FOLLOW],
     },
     // Who is on this machine now, people across devices and agents in a turn (`hub/here.rs`).
     Capability { id: "here-v1", wire: &[method::MUX_HERE_BEAT, method::MUX_HERE] },

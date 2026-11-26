@@ -3911,6 +3911,7 @@ async fn dispatch_request_with_identity(
             Ok(done)
         }
         method::MUX_ROOMS => view::rooms(hub, conn, &params),
+        method::MUX_FOLLOW => view::follow(hub, conn, &params),
         method::MUX_TYPING => {
             let done = view::typing(hub, conn, &params)?;
             // A person typing into a hibernated chat wakes its agent now (`hub/idle.rs`).

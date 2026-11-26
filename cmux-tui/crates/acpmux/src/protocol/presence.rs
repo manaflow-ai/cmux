@@ -78,6 +78,26 @@ pub struct RoomsResult {
     pub rooms: u64,
 }
 
+/// `_acpmux/follow` (RFD 0141 phase 3): follow the person `target` (an id live in a chat on this
+/// daemon, never the caller's own), or nobody (`null`). The caller's rooms hear it as the
+/// record's `following`. Refusals: `presence.follow_not_live`, `presence.follow_self`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(deny_unknown_fields)]
+pub struct FollowParams {
+    #[serde(default)]
+    pub target: Option<String>,
+    #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
+    pub meta: Option<AuthorMeta>,
+}
+
+/// `_acpmux/follow`'s answer: whom the caller follows now.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct FollowResult {
+    pub following: Option<String>,
+}
+
 /// `_acpmux/room`: one watched room's snapshot (`snapshot: true`, `presence` every record) or
 /// one change of it (`presence` the records that joined, `deltas` one `cmux-presence` delta per
 /// record that stayed, `left` the ids that went).
