@@ -474,7 +474,7 @@ backoff below. Any other connection error stops after the configured attempts
 (`auto_resume_exhausted`). A turn a full disk cut ("No space left on device")
 waits past its delay until the chat's folder has `autoResumeDiskFreeBytes` free (default 16 MiB,
 re-checked every 15 s), then goes on the same way. From the `capacityFallbackAfter`th capacity attempt of one prompt
-on (default 1, `0` never; Settings' `agents.autoRetry.capacityFallbackAfter` when config.json has
+on (default `0`, never: a chat keeps its model unless its person turns this on; Settings' `agents.autoRetry.capacityFallbackAfter` when config.json has
 none), a chat on Opus or Fable continues on the catalog's newest Sonnet, with one
 `capacity_failover {from, to, attempt, promptId, text}` notice row and log line; the first turn
 that ends well there puts its own model back (`capacity_restored`), and the chat's meta keeps
@@ -1559,7 +1559,7 @@ opens, so a change applies without a restart (the variable needs the daemon rest
 |---|---|---|---|---|
 | Compact before the cache expires | `agents.cacheCompact.enabled` | `ACPMUX_CACHE_COMPACT=0\|1` | on | on, off |
 | Only above context used (%) | `agents.cacheCompact.minContextPercent` | `ACPMUX_CACHE_COMPACT_MIN_CONTEXT_PERCENT=N` | 30 | 10-95 |
-| Or above context used (tokens) | `agents.cacheCompact.minContextTokens` | `ACPMUX_CACHE_COMPACT_MIN_CONTEXT_TOKENS=N` | 60000 | 10000-500000 |
+| Or above context used (tokens) | `agents.cacheCompact.minContextTokens` | `ACPMUX_CACHE_COMPACT_MIN_CONTEXT_TOKENS=N` | 20000 | 10000-500000 |
 | Batch wakes of cold chats | `agents.coldWake.enabled` | `ACPMUX_COLD_WAKE=0\|1` | on | on, off |
 | Compact cold chats before waking (needs batching on) | `agents.coldWake.compact` | `ACPMUX_COLD_WAKE_COMPACT=0\|1` | on | on, off |
 | Compact cold chats above (tokens) | `agents.coldWake.compactAboveTokens` | `ACPMUX_COLD_COMPACT_ABOVE_TOKENS=N` | 100000 | 10000-500000 |
