@@ -7806,7 +7806,7 @@ jobs:
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           CMUX_STAPLE_APP_IN_DMG: "true"
           CMUX_NOTARY_PENDING_ON_TIMEOUT: "false"
-          CMUX_CHANNEL: next
+          CMUX_CHANNEL: ${{ needs.decide.outputs.sign_channel }}
           CMUX_DEFER_LAUNCH_SMOKES: "true"
         run: ./scripts/ci/notarize-nightly-dmg.sh "$VARIANT_APP" "$LIVE_CODE_DMG_RELEASE" "$LIVE_CODE_DMG_IMMUTABLE"
       - name: Delete the signing keychain
