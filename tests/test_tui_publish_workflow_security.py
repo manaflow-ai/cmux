@@ -1239,6 +1239,12 @@ def test_package_workflow_uses_no_shared_build_cache() -> None:
 
     # The reviewed MinGW sysroot is shared only through the secret-backed R2
     # store. PRs may read it anonymously; only successful branch pushes may save.
+    windows = jobs["cross-build-windows"]
+    assert windows["env"]["CI_CACHE_R2_BUCKET"] == "cmux-ci-cache-next"
+    assert windows["environment"] == (
+        "${{ github.ref == 'refs/heads/feat-cmux-next' && github.event_name == 'push' "
+        "&& 'next-cache-writer' || '' }}"
+    )
     sysroot_steps = [
         step for step in jobs["cross-build-windows"]["steps"]
         if step.get("with", {}).get("path") == "${{ runner.temp }}/cmux-windows-gnu-sysroot"

@@ -1372,11 +1372,14 @@ jobs:
   cross-build-windows:
     name: cross-build x86_64-pc-windows-gnu (Linux)
     if: inputs.include_windows
+    # Only trusted NEXT pushes receive this bucket's write credentials.
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && github.event_name == 'push' && 'next-cache-writer' || '' }}
     continue-on-error: ${{ inputs.windows_optional }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 60
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
+      CI_CACHE_R2_BUCKET: cmux-ci-cache-next
       # The cmux server's release public keys (decision SV-R1), compiled into
       # the `cmux` binary with option_env!; the binary never reads them at run
       # time. Public keys, so a repository variable, not a secret. Unset means
