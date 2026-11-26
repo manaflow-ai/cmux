@@ -25,11 +25,26 @@
 //! author, chat) holds at most one expiry task; it is aborted by an `off`, by a newer `on` (which
 //! starts the next one), and by the entry's removal (detach, connection close), and otherwise
 //! ends when it fires.
+//!
+//! Rooms (RFD 0141 phase 2, "Transport"): `_acpmux/rooms {chats, workspaces}` names every room a
+//! client shows now (the open chat, the visible workspace rows, the Live menu's) and replaces the
+//! set it named before; an empty set unsubscribes. A newly watched room answers one
+//! `_acpmux/room {room, snapshot: true, presence}` with its `cmux-presence` records, then one
+//! `_acpmux/room {room, presence, deltas, left}` per change: `presence` the records that joined,
+//! `deltas` a [`Delta`] for each record that stayed (an empty one renews its lease at the new
+//! epoch, so a subscriber's watermark never skips one), `left` the ids that went. A change is
+//! one write and one fan-out to that room's subscribers ([`Sink`]s), whatever the number of
+//! rooms or presences elsewhere. A chat room needs the connection attached to the chat (its
+//! `_acpmux/presence` goes to the same connections) and goes when it detaches; a peer link
+//! watches none (`presence.peer_unsupported`). At most [`MAX_ROOMS`] rooms a connection
+//! (`presence.rooms_full`).
 
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
+use cmux_presence::{Delta, Doing, Kind, Presence as Record, PresenceId};
+use serde::Serialize;
 use serde_json::{Value, json};
 use tokio::sync::broadcast;
 use tokio::task::AbortHandle;
@@ -41,7 +56,7 @@ use crate::rpc::RpcError;
 use crate::author::Author;
 
 /// How long a typing `on` holds without another.
-pub const TYPING_EXPIRY: Duration = Duration::from_secs(8);
+pub const TYPING_EXPIRY: Duration = Duration::from_millis(cmux_presence::TYPING_LEASE_MS as u64);
 /// `_acpmux/typing` calls one connection may make in any one second.
 pub const TYPING_PER_SECOND: usize = 2;
 /// People besides the owner in one chat's presence.
@@ -56,6 +71,34 @@ pub const RATE_LIMITED: &str = "typing.rate_limited";
 pub const FULL: &str = "presence.full";
 /// `data.reason` of a presence change over a peer daemon's link.
 pub const PEER_UNSUPPORTED: &str = "presence.peer_unsupported";
+
+/// Rooms one connection watches at once: an open chat, a sidebar's visible workspace rows and
+/// the Live menu's fit well under it.
+pub const MAX_ROOMS: usize = 512;
+/// `data.reason` of an `_acpmux/rooms` past [`MAX_ROOMS`].
+pub const ROOMS_FULL: &str = "presence.rooms_full";
+
+/// A room a client shows (RFD 0141 "Transport"): a chat, or a workspace row.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Room {
+    Chat(String),
+    Workspace(String),
+}
+
+impl Room {
+    /// `{chat: id}` or `{workspace: id}`, as `_acpmux/room` names it.
+    pub fn wire(&self) -> Value {
+        match self {
+            Room::Chat(id) => json!({"chat": id}),
+            Room::Workspace(id) => json!({"workspace": id}),
+        }
+    }
+}
+
+/// Where one subscriber's `_acpmux/room` params go: its connection's outbound queue
+/// (`server/view.rs`). Called under the presence lock, so subscribers hear the changes in the
+/// order they happened; it only enqueues.
+pub type Sink = Arc<dyn Fn(Value) + Send + Sync>;
 
 /// The refusal for a presence change over a peer daemon's link.
 pub fn peer_unsupported() -> RpcError {
@@ -138,6 +181,58 @@ struct State {
     typing_calls: HashMap<String, VecDeque<Instant>>,
     next_on: u64,
     next_cutover: u64,
+    // A room snapshot uses one owner revision. Removing the final participant releases the room.
+    next_revision: u64,
+    revisions: HashMap<String, u64>,
+    /// Each room's subscribers, by connection: what one change fans out to.
+    rooms: HashMap<Room, HashMap<String, Sink>>,
+    /// The rooms each connection watches, so a new set or a close drops only its own.
+    watching: HashMap<String, HashSet<Room>>,
+    /// Subscribers one change visited, all rooms together (the cost test reads it).
+    #[cfg(test)]
+    fanned: u64,
+}
+
+impl State {
+    /// `conn` stops watching `room`; a room with no subscriber left goes.
+    fn unwatch(&mut self, room: &Room, conn: &str) {
+        if let Some(subs) = self.rooms.get_mut(room) {
+            subs.remove(conn);
+            if subs.is_empty() {
+                self.rooms.remove(room);
+            }
+        }
+    }
+
+    /// The room as it is now, as `_acpmux/room` params.
+    fn room_snapshot(&self, room: &Room) -> Value {
+        let presence = match room {
+            Room::Chat(chat) => self.chat_records(chat),
+            // No source places presence in a workspace on this daemon yet: the room is empty
+            // until one does (RFD 0141 phase 2's next step).
+            Room::Workspace(_) => Vec::new(),
+        };
+        json!({"room": room.wire(), "snapshot": true, "presence": presence})
+    }
+
+    fn chat_records(&self, chat: &str) -> Vec<Record> {
+        let Some(&epoch) = self.revisions.get(chat) else { return Vec::new() };
+        participants(self.chats.get(chat)).iter().map(|p| p.record(chat, epoch)).collect()
+    }
+
+    /// Sends `note()` to `room`'s subscribers only: one lookup when nobody watches it, then one
+    /// send each. Nothing here reads another room.
+    fn fan_out(&mut self, room: &Room, note: impl FnOnce() -> Value) {
+        let Some(subs) = self.rooms.get(room) else { return };
+        let note = note();
+        for sink in subs.values() {
+            sink(note.clone());
+        }
+        #[cfg(test)]
+        {
+            self.fanned += subs.len() as u64;
+        }
+    }
 }
 
 struct Inner {
@@ -171,6 +266,47 @@ impl Presence {
     pub fn snapshot(&self, chat: &str) -> Value {
         let state = self.inner.state.lock_or_recover();
         note(chat, state.chats.get(chat))
+    }
+
+    /// Local projection for a subscriber to this chat. The owner id is daemon-local.
+    /// Multiple connections for one author produce one record, as in the attach response.
+    pub fn records(&self, chat: &str) -> Vec<Record> {
+        self.inner.state.lock_or_recover().chat_records(chat)
+    }
+
+    /// `_acpmux/rooms`: `conn` shows exactly `rooms` now (none: it unsubscribes). Each room it
+    /// did not watch before hears its snapshot through `sink` at once, under the same lock as
+    /// every later change, so no delta reaches it ahead of its base. Answers how many rooms it
+    /// watches. The caller checks a chat room's attachment (`server/view.rs`).
+    pub fn rooms(&self, conn: &str, sink: Sink, rooms: Vec<Room>) -> Result<usize, RpcError> {
+        let wanted: HashSet<Room> = rooms.into_iter().collect();
+        if wanted.len() > MAX_ROOMS {
+            return Err(RpcError::new(-32000, "a connection watches at most 512 rooms")
+                .with_data(json!({"reason": ROOMS_FULL, "max": MAX_ROOMS})));
+        }
+        let mut state = self.inner.state.lock_or_recover();
+        let before = state.watching.remove(conn).unwrap_or_default();
+        for room in before.difference(&wanted) {
+            state.unwatch(room, conn);
+        }
+        for room in &wanted {
+            let subs = state.rooms.entry(room.clone()).or_default();
+            // A new sink replaces the old one; only a room new to this connection snapshots.
+            if subs.insert(conn.to_owned(), sink.clone()).is_none() {
+                sink(state.room_snapshot(room));
+            }
+        }
+        let watched = wanted.len();
+        if watched > 0 {
+            state.watching.insert(conn.to_owned(), wanted);
+        }
+        Ok(watched)
+    }
+
+    /// Whether `conn` watches `room` (tests and the server's checks).
+    pub fn watches(&self, conn: &str, room: &Room) -> bool {
+        let state = self.inner.state.lock_or_recover();
+        state.watching.get(conn).is_some_and(|rooms| rooms.contains(room))
     }
 
     /// `_acpmux/view` (and a visible attach): `who` on `conn` shows the chat or stops.
@@ -278,6 +414,14 @@ impl Presence {
             if let Some(entries) = state.chats.get_mut(chat) {
                 entries.retain(|(c, _), _| c != conn);
             }
+            // Its chat room goes with the attachment: before this change fans out.
+            let room = Room::Chat(chat.to_owned());
+            if state.watching.get_mut(conn).is_some_and(|rooms| rooms.remove(&room)) {
+                state.unwatch(&room, conn);
+                if state.watching.get(conn).is_some_and(HashSet::is_empty) {
+                    state.watching.remove(conn);
+                }
+            }
             Ok(())
         });
     }
@@ -287,6 +431,9 @@ impl Presence {
         let chats: Vec<String> = {
             let mut state = self.inner.state.lock_or_recover();
             state.typing_calls.remove(conn);
+            for room in state.watching.remove(conn).unwrap_or_default() {
+                state.unwatch(&room, conn);
+            }
             state
                 .chats
                 .iter()
@@ -315,6 +462,17 @@ impl Inner {
         }
         let after = participants(state.chats.get(chat));
         if before != after {
+            let base = state.revisions.get(chat).copied();
+            state.next_revision += 1;
+            let revision = state.next_revision;
+            state.fan_out(&Room::Chat(chat.to_owned()), || {
+                room_change(chat, base, revision, &before, &after)
+            });
+            if after.is_empty() {
+                state.revisions.remove(chat);
+            } else {
+                state.revisions.insert(chat.to_owned(), revision);
+            }
             // Under the lock, so every connection hears the changes in the order they happened.
             let _ = self.changes.send(Arc::new(json!({"sessionId": chat, "participants": after})));
         }
@@ -361,8 +519,34 @@ fn admit(entries: &BTreeMap<Key, Entry>, key: &Key) -> Result<(), RpcError> {
     Ok(())
 }
 
+#[derive(Serialize, PartialEq, Eq)]
+struct Participant {
+    id: String,
+    name: String,
+    devices: u64,
+    viewing: bool,
+    typing: bool,
+}
+
+impl Participant {
+    fn record(&self, chat: &str, epoch: u64) -> Record {
+        let mut record = Record::new(
+            PresenceId(self.id.as_str().into()),
+            Kind::Person,
+            self.name.as_str(),
+            epoch,
+        );
+        record.location.chat = Some(chat.into());
+        if self.typing {
+            record.doing = Doing::Typing;
+            record.lease_ms = cmux_presence::TYPING_LEASE_MS;
+        }
+        record
+    }
+}
+
 /// One participant per person, by id.
-fn participants(entries: Option<&BTreeMap<Key, Entry>>) -> Vec<Value> {
+fn participants(entries: Option<&BTreeMap<Key, Entry>>) -> Vec<Participant> {
     let mut people: BTreeMap<&str, (&str, u64, bool, bool)> = BTreeMap::new();
     for ((_, id), entry) in entries.into_iter().flatten() {
         let person = people.entry(id).or_insert((&entry.name, 0, false, false));
@@ -372,10 +556,47 @@ fn participants(entries: Option<&BTreeMap<Key, Entry>>) -> Vec<Value> {
     }
     people
         .into_iter()
-        .map(|(id, (name, devices, viewing, typing))| {
-            json!({"id": id, "name": name, "devices": devices, "viewing": viewing, "typing": typing})
+        .map(|(id, (name, devices, viewing, typing))| Participant {
+            id: id.to_owned(),
+            name: name.to_owned(),
+            devices,
+            viewing,
+            typing,
         })
         .collect()
+}
+
+/// One change of a chat room, as `_acpmux/room` params: the records that joined at `epoch`, a
+/// delta from `base` for each that stayed, and the ids that left. `base` None: the room was
+/// empty, so everyone joined.
+fn room_change(
+    chat: &str,
+    base: Option<u64>,
+    epoch: u64,
+    before: &[Participant],
+    after: &[Participant],
+) -> Value {
+    let old: HashMap<&str, &Participant> = before.iter().map(|p| (p.id.as_str(), p)).collect();
+    let mut joined = Vec::new();
+    let mut deltas = Vec::new();
+    for person in after {
+        let record = person.record(chat, epoch);
+        match (old.get(person.id.as_str()), base) {
+            (Some(was), Some(base)) => {
+                deltas.extend(Delta::between(&was.record(chat, base), &record));
+            }
+            _ => joined.push(record),
+        }
+    }
+    let now: HashSet<&str> = after.iter().map(|p| p.id.as_str()).collect();
+    let left: Vec<&str> =
+        before.iter().map(|p| p.id.as_str()).filter(|id| !now.contains(id)).collect();
+    json!({
+        "room": Room::Chat(chat.to_owned()).wire(),
+        "presence": joined,
+        "deltas": deltas,
+        "left": left,
+    })
 }
 
 fn note(chat: &str, entries: Option<&BTreeMap<Key, Entry>>) -> Value {
@@ -416,6 +637,36 @@ mod tests {
         assert_eq!(presence.snapshot("c")["participants"], json!([]));
     }
 
+    #[tokio::test(start_paused = true)]
+    async fn records_follow_the_aggregated_chat_and_its_owner_revision() {
+        let hub = Presence::default();
+        let who = ana();
+        hub.view("chat", "a", &who, true).unwrap();
+        let first = hub.records("chat").pop().unwrap();
+        assert_eq!(first.id.0.as_ref(), who.id);
+        assert_eq!(first.location.chat.as_deref(), Some("chat"));
+        hub.typing("chat", "b", &who, true).unwrap();
+        let typing = hub.records("chat");
+        assert_eq!(typing.len(), 1);
+        assert!(typing[0].epoch > first.epoch);
+        assert_eq!(typing[0].doing, Doing::Typing);
+        assert_eq!(typing[0].lease_ms, cmux_presence::TYPING_LEASE_MS);
+        assert_eq!(
+            hub.snapshot("chat")["participants"],
+            json!([
+                {"id":who.id, "name":who.name, "devices":2, "viewing":true, "typing":true}
+            ])
+        );
+        hub.close("b");
+        let idle = hub.records("chat").pop().unwrap();
+        assert_eq!(idle.doing, Doing::Idle);
+        assert!(idle.epoch > typing[0].epoch);
+        hub.close("a");
+        assert!(hub.records("chat").is_empty());
+        hub.view("chat", "a", &who, true).unwrap();
+        assert!(hub.records("chat")[0].epoch > idle.epoch);
+    }
+
     #[test]
     fn a_cutover_is_transient_per_reader_and_connection() {
         let presence = Presence::default();
@@ -430,5 +681,124 @@ mod tests {
         assert_eq!(presence.active_cutover("c", "tailnet:bob"), Some(3));
         presence.leave("c", "conn-b");
         assert_eq!(presence.active_cutover("c", "tailnet:bob"), None);
+    }
+
+    /// A sink that keeps what it heard.
+    fn heard() -> (Sink, Arc<Mutex<Vec<Value>>>) {
+        let notes = Arc::new(Mutex::new(Vec::new()));
+        let keep = notes.clone();
+        (Arc::new(move |note| keep.lock_or_recover().push(note)), notes)
+    }
+
+    fn chat(id: &str) -> Room {
+        Room::Chat(id.to_owned())
+    }
+
+    /// A change reaches the room's subscribers only, as one delta from the snapshot's epoch; a
+    /// subscriber to another room, or to none, hears nothing of it.
+    #[test]
+    fn a_change_fans_out_to_that_rooms_subscribers_only() {
+        let presence = Presence::default();
+        let bob = Who { id: "tailnet:bob".into(), name: "Bob".into() };
+        presence.view("c", "conn-a", &ana(), true).unwrap();
+        let (watcher, watched) = heard();
+        let (other, elsewhere) = heard();
+        assert_eq!(presence.rooms("w", watcher, vec![chat("c")]).unwrap(), 1);
+        assert_eq!(
+            presence.rooms("o", other, vec![chat("d"), Room::Workspace("ws".into())]).unwrap(),
+            2
+        );
+
+        let snapshot = watched.lock_or_recover()[0].clone();
+        assert_eq!(snapshot["room"], json!({"chat": "c"}));
+        assert_eq!(snapshot["snapshot"], true);
+        let base = snapshot["presence"][0]["epoch"].as_u64().unwrap();
+        assert_eq!(snapshot["presence"][0]["id"], "tailnet:ana");
+
+        presence.view("c", "conn-b", &bob, true).unwrap();
+        presence.view("c", "conn-a", &ana(), false).unwrap();
+        let notes = watched.lock_or_recover().clone();
+        assert_eq!(notes.len(), 3, "one note a change: {notes:?}");
+        assert_eq!(notes[1]["presence"][0]["id"], "tailnet:bob", "bob joined: {}", notes[1]);
+        assert_eq!(notes[1]["deltas"][0]["id"], "tailnet:ana");
+        assert_eq!(notes[1]["deltas"][0]["base"], base, "the delta builds on the snapshot");
+        assert_eq!(notes[2]["left"], json!(["tailnet:ana"]));
+        assert_eq!(notes[2]["deltas"][0]["base"], notes[1]["deltas"][0]["epoch"]);
+
+        let others = elsewhere.lock_or_recover().clone();
+        assert_eq!(others.len(), 2, "only its own rooms' snapshots: {others:?}");
+        assert!(others.iter().all(|n| n["snapshot"] == true));
+    }
+
+    /// An empty set unsubscribes, a smaller one drops only the rooms it left out, a detach drops
+    /// that chat's room, and a close drops the rest.
+    #[test]
+    fn unsubscribe_stops_the_deltas() {
+        let presence = Presence::default();
+        let (sink, notes) = heard();
+        presence.rooms("w", sink.clone(), vec![chat("c"), chat("d")]).unwrap();
+        assert_eq!(notes.lock_or_recover().len(), 2);
+        presence.rooms("w", sink.clone(), vec![chat("d")]).unwrap();
+        assert_eq!(notes.lock_or_recover().len(), 2, "a room it already watched snapshots once");
+        assert!(!presence.watches("w", &chat("c")));
+        presence.view("c", "conn", &ana(), true).unwrap();
+        assert_eq!(notes.lock_or_recover().len(), 2, "c is no longer watched");
+        presence.view("d", "conn", &ana(), true).unwrap();
+        assert_eq!(notes.lock_or_recover().len(), 3);
+
+        assert_eq!(presence.rooms("w", sink.clone(), Vec::new()).unwrap(), 0);
+        presence.view("d", "conn", &ana(), false).unwrap();
+        assert_eq!(notes.lock_or_recover().len(), 3, "an empty set unsubscribes");
+        assert!(presence.inner.state.lock_or_recover().rooms.is_empty(), "no empty room is kept");
+
+        presence.rooms("w", sink.clone(), vec![chat("c"), chat("d")]).unwrap();
+        presence.leave("c", "w");
+        assert!(!presence.watches("w", &chat("c")), "a detach drops its chat room");
+        assert!(presence.watches("w", &chat("d")));
+        presence.close("w");
+        assert!(!presence.watches("w", &chat("d")));
+        let state = presence.inner.state.lock_or_recover();
+        assert!(state.rooms.is_empty() && state.watching.is_empty());
+    }
+
+    #[test]
+    fn a_set_past_the_bound_is_refused_and_keeps_the_old_one() {
+        let presence = Presence::default();
+        let (sink, _) = heard();
+        presence.rooms("w", sink.clone(), vec![chat("c")]).unwrap();
+        let many = (0..=MAX_ROOMS).map(|i| Room::Workspace(format!("ws{i}"))).collect();
+        let refused = presence.rooms("w", sink, many).unwrap_err();
+        assert_eq!(refused.data.as_ref().unwrap()["reason"], ROOMS_FULL);
+        assert!(presence.watches("w", &chat("c")));
+    }
+
+    /// The cost of one update is the room's subscribers, never the number of other rooms: the
+    /// same change visits one subscriber beside 10 unrelated rooms and beside 10,000.
+    #[test]
+    fn cost_per_update_does_not_grow_with_unrelated_rooms() {
+        let mut visited = Vec::new();
+        for unrelated in [10, 10_000] {
+            let presence = Presence::default();
+            for i in 0..unrelated {
+                let (sink, _) = heard();
+                let conn = format!("u{i}");
+                presence.view(&format!("other{i}"), &conn, &ana(), true).unwrap();
+                presence
+                    .rooms(
+                        &conn,
+                        sink,
+                        vec![chat(&format!("other{i}")), Room::Workspace(format!("ws{i}"))],
+                    )
+                    .unwrap();
+            }
+            let (sink, notes) = heard();
+            presence.rooms("w", sink, vec![chat("c")]).unwrap();
+            let before = presence.inner.state.lock_or_recover().fanned;
+            presence.view("c", "conn", &ana(), true).unwrap();
+            presence.view("c", "conn", &ana(), false).unwrap();
+            visited.push(presence.inner.state.lock_or_recover().fanned - before);
+            assert_eq!(notes.lock_or_recover().len(), 3, "snapshot and two changes");
+        }
+        assert_eq!(visited, vec![2, 2], "subscribers visited for two changes");
     }
 }
