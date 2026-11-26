@@ -53,12 +53,21 @@ FORK_PR_CLAUSE = re.compile(r"(?:github\.event_name == 'pull_request' && )?githu
                             r"(?:full_name != github\.repository|fork) && '[a-z0-9.-]+'")
 
 LEO_OVERFLOW = "Leo's #49325: these jobs ask for cmux-linux behind the CI_OVERFLOW_LINUX switch"
-PR_GATE = ("gates every same-repo PR's CI; its only secret is the GLAEDA_ROUTE_APP_KEY routing-token mint, which is "
-           "continue-on-error, so it stays on its warm selector rather than wait 1-2 min for a one-job JIT VM")
+PR_GATE = ("gates every same-repo PR's CI; its only secrets are continue-on-error routing and read-token mints, so it "
+           "stays on its warm selector rather than wait 1-2 min for a one-job JIT VM")
+# Jobs every same-repo PR waits on before its CI starts. They keep their warm selector (#58325 review, F1).
+PR_GATE_JOBS = (
+    ("ci.yml", "changes"),
+    ("ci-macos.yml", "admission-placement"),
+    ("ci-macos.yml", "late-placement"),
+    ("cmux-next.yml", "macos-placement"),
+    ("cmux-next.yml", "app-compile-placement"),
+    ("cmux-next.yml", "fast-tier-rerun-placement"),
+    ("cmux-next.yml", "fast-tier-handback-placement"),
+    ("pr-router.yml", "route"),
+)
 EXCEPTIONS = {
-    ("ci.yml", "changes"): PR_GATE,
-    ("ci-macos.yml", "admission-placement"): PR_GATE,
-    ("ci-macos.yml", "late-placement"): PR_GATE,
+    **{job: PR_GATE for job in PR_GATE_JOBS},
     ("ci-queue-janitor.yml", "sweep"): "queue janitor's own route, which must keep running while JIT capacity is short",
     ("pr-pipeline.yml", "ios-runner"): LEO_OVERFLOW,
 }
@@ -171,6 +180,19 @@ class SecretJobsSecretJitTest(unittest.TestCase):
             "${{ " + operand + "'blacksmith-4vcpu-ubuntu-2404' }}"))  # no fork branch
         self.assertFalse(leads_with_jit(
             FORK_BRANCH + "vars.X != '1' && 'cmux-fleet-linux-x64' || 'cmux-gcp-repair-jit-x64' }}"))
+
+    def test_pr_gate_jobs_stay_warm(self) -> None:
+        """A PR-gate job must not wait for a JIT VM's boot, and its secret steps must stay optional."""
+        jobs = {(name, job): runs_on for name, job, runs_on in secret_linux_jobs()}
+        for key in PR_GATE_JOBS:
+            self.assertIn(key, jobs, f"{key} is no longer a secret-bearing Linux job; drop it from PR_GATE_JOBS")
+            self.assertFalse(leads_with_jit(jobs[key]), f"{key} gates every PR: keep it on its warm selector")
+            self.assertNotIn(SECRET_JIT_LABEL, jobs[key], f"{key} gates every PR: keep it off {SECRET_JIT_LABEL}")
+            document = yaml.safe_load((WORKFLOWS / key[0]).read_text())
+            for step in document["jobs"][key[1]].get("steps") or []:
+                if SECRET.search(yaml.safe_dump(step)) or SIGN.search(yaml.safe_dump(step)):
+                    self.assertIs(step.get("continue-on-error"), True,
+                                  f"{key} step {step.get('name')!r} holds a secret the gate needs; move the job to JIT")
 
     def test_linux_matches_a_runner_label(self) -> None:
         self.assertTrue(is_linux("blacksmith-4vcpu-ubuntu-2404"))
