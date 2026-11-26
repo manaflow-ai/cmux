@@ -585,6 +585,18 @@ jobs:
       - name: Install Rust
         run: ./scripts/install-rust-ci.sh
 
+      # The app's build phase clones the pinned cmux-cua source into this
+      # Mac's cache when the pin is missing, with no token: build settings
+      # carry no secrets (compile-app-host-test-product.sh). GitHub answers
+      # anonymous fetches from the owned Macs' shared address with 403 and
+      # 429 under load, and main's run 45760337662 failed compile admission
+      # on that clone. Fetch it here with the run's token; a warm cache makes
+      # no network call.
+      - name: Fetch the pinned cmux-cua source
+        env:
+          CMUX_CUA_GIT_TOKEN: ${{ github.token }}
+        run: ./scripts/build-cmux-cua.sh --source-only
+
       - name: Identify reusable compiled products
         id: product-key
         run: python3 scripts/ci/reuse_app_host_products.py key "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
@@ -4459,6 +4471,18 @@ jobs:
       # by current-run validation.
       - name: Install Rust
         run: ./scripts/install-rust-ci.sh
+
+      # The app's build phase clones the pinned cmux-cua source into this
+      # Mac's cache when the pin is missing, with no token: build settings
+      # carry no secrets (compile-app-host-test-product.sh). GitHub answers
+      # anonymous fetches from the owned Macs' shared address with 403 and
+      # 429 under load, and main's run 45760337662 failed compile admission
+      # on that clone. Fetch it here with the run's token; a warm cache makes
+      # no network call.
+      - name: Fetch the pinned cmux-cua source
+        env:
+          CMUX_CUA_GIT_TOKEN: ${{ github.token }}
+        run: ./scripts/build-cmux-cua.sh --source-only
 
       - name: Set up Go for the Cloud tunnel extension
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
