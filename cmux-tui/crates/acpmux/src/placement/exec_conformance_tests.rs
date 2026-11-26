@@ -31,10 +31,13 @@ impl Machines for CopyMachines {
 }
 
 /// Runs the command job with the real [`ShellHarness`] and [`run_job`] on the fork's disk, over
-/// a pipe, as the ssh link does; the parent's paths mapped onto the fork's disk.
+/// a pipe, as the ssh link does; the parent's paths mapped onto the fork's disk. A run VM's disk
+/// has the checkout at the parent's own path, so `remapped` keeps (the fork's cwd, the parent's)
+/// for the runner to map back what only this fake moved: the command's `$PWD`.
 struct ShellLink {
     disks: Arc<Mutex<HashMap<String, tempfile::TempDir>>>,
     parent: PathBuf,
+    remapped: Mutex<Vec<(PathBuf, PathBuf)>>,
 }
 
 impl ForkLink for ShellLink {
@@ -45,8 +48,11 @@ impl ForkLink for ShellLink {
         let disk = self.disks.lock().unwrap().get(fork).map(|d| d.path().to_owned());
         let disk = disk.ok_or("no such fork")?;
         let mut job = job.clone();
-        let rel = job.cwd.as_deref().and_then(|c| c.strip_prefix(&self.parent).ok());
-        job.cwd = Some(disk.join(rel.unwrap_or(Path::new(""))));
+        let asked = job.cwd.clone().unwrap_or_else(|| self.parent.clone());
+        let rel = asked.strip_prefix(&self.parent).unwrap_or(Path::new(""));
+        let cwd = disk.join(rel);
+        self.remapped.lock().unwrap().push((cwd.clone(), asked));
+        job.cwd = Some(cwd);
         job.checkout = disk;
         let (ours, mut theirs) = tokio::io::duplex(64);
         tokio::spawn(async move {
@@ -85,7 +91,11 @@ impl Runner for FakeRunner {
         }
         let machines = Arc::new(CopyMachines::default());
         *machines.parent.lock().unwrap() = dir.to_owned();
-        let link = ShellLink { disks: machines.disks.clone(), parent: dir.to_owned() };
+        let link = ShellLink {
+            disks: machines.disks.clone(),
+            parent: dir.to_owned(),
+            remapped: Mutex::default(),
+        };
         let before = (self.fault == Fault::LoseFiles).then(|| fork_of(dir));
         let merged = case.streams == Streams::Merged;
         let mut env: Vec<(OsString, OsString)> = std::env::vars_os().collect();
@@ -106,8 +116,31 @@ impl Runner for FakeRunner {
             restore(before.path(), dir);
         }
         let exit = if self.fault == Fault::ZeroExit { 0 } else { exit };
+        for (fork_cwd, asked) in link.remapped.lock().unwrap().iter() {
+            let (from, to) = (pwd_entry(fork_cwd), pwd_entry(asked));
+            stdout = replace_all(&stdout, &from, &to);
+            stderr = replace_all(&stderr, &from, &to);
+        }
         Ok(Outcome { exit, stdout, stderr, ran, cause })
     }
+}
+
+/// `PWD=<dir>` and its NUL, as `env -0` prints it.
+fn pwd_entry(dir: &Path) -> Vec<u8> {
+    use std::os::unix::ffi::OsStrExt as _;
+    [b"PWD=".as_slice(), dir.as_os_str().as_bytes(), b"\0"].concat()
+}
+
+fn replace_all(bytes: &[u8], from: &[u8], to: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut rest = bytes;
+    while let Some(at) = rest.windows(from.len()).position(|w| w == from) {
+        out.extend_from_slice(&rest[..at]);
+        out.extend_from_slice(to);
+        rest = &rest[at + from.len()..];
+    }
+    out.extend_from_slice(rest);
+    out
 }
 
 /// Make `dir` a copy of `before` again, `.git` too (both test scratch trees): `cp -a` cannot
