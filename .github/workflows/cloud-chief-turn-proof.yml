@@ -26,7 +26,9 @@ permissions:
 
 concurrency:
   group: cloud-chief-turn-proof-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: false
+  # A new head supersedes the running proof: the script deletes its machine on SIGINT/SIGTERM and sweeps an
+  # earlier run's machine over an hour old, so a cancel leaks nothing.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
