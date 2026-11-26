@@ -41,7 +41,10 @@ impl NewLine {
         if end <= seen {
             return None;
         }
-        let messages = t.items[seen..end]
+        let messages = t
+            .items
+            .get(seen..end)
+            .unwrap_or_default()
             .iter()
             .filter(|i| matches!(i, Item::User { .. } | Item::Assistant { .. }))
             .count();
@@ -71,7 +74,9 @@ pub fn row(rows: &[(usize, &str)], from: usize) -> Option<usize> {
     if first == 0 {
         return None;
     }
-    [first, first - 1].into_iter().find(|&r| rows[r].1.trim().is_empty())
+    [first, first - 1]
+        .into_iter()
+        .find(|&r| rows.get(r).is_some_and(|(_, text)| text.trim().is_empty()))
 }
 
 /// The offset a return lands at: the line's row at the top when what follows it runs past one
