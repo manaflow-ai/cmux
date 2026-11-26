@@ -13,6 +13,11 @@ export function githubSource(state: GitHubPickerState): {
 } {
   if (state.connecting || state.status?.connecting)
     return { status: "source.github.opening", message: "source.github.opening" };
+  // The app's own GitHub panel is open, or the app is finishing what GitHub handed back: say so, no click needed.
+  if (state.status?.progress === "on_github" && state.status.state !== "ready")
+    return { status: "source.github.onGitHub", message: "source.github.onGitHubDetail" };
+  if (state.status?.progress === "finishing" && state.status.state !== "ready")
+    return { status: "source.github.finishing", message: "source.github.finishing" };
   if (!state.status) return { status: "harnesses.checking", message: "harnesses.checking" };
   if (state.status.state === "unavailable") {
     switch (state.status.reason) {
