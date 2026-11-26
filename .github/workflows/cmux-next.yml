@@ -5289,8 +5289,10 @@ jobs:
       - name: Install checkout tools
         run: apt-get update -qq && apt-get install -y -qq --no-install-recommends git python3 curl ca-certificates
       - name: Checkout
+        id: checkout
+        continue-on-error: true
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
+        with: &generated-files-linux-checkout
           persist-credentials: false
           submodules: false
           fetch-depth: 2
@@ -5307,6 +5309,14 @@ jobs:
             /.github/actions/setup-cmux-tui-rust/
             /.github/actions/runner-cargo-home/
             /.gitmodules
+      # Why: 2026-11-26-checkout-blob-retry.md
+      - name: Discard the workspace repository after a failed checkout
+        if: steps.checkout.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+      - name: Retry checkout after transient network failure
+        if: steps.checkout.outcome == 'failure'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with: *generated-files-linux-checkout
       - name: Trust workspace
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Set up pinned cmux-tui Rust
