@@ -1189,7 +1189,7 @@ jobs:
     # Keep the authoritative fast guard in this DAG. It starts beside routing
     # and static checks, so macOS admission can depend on its real result
     # without a second runner polling another workflow.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # On the shared cmux-linux pool its 187 steps take 4.5 to 5 min (main, 2026-11-21: 4:30, 4:33, 5:00); 5 min
     # cancelled it mid-run (cmux job 136948316380). 10 min leaves room without hiding a real hang for long.
     timeout-minutes: 10
@@ -1242,7 +1242,7 @@ jobs:
     name: Reverse test impact (report only)
     needs: [changes]
     if: ${{ github.event_name == 'pull_request' && needs.changes.result == 'success' && needs.changes.outputs.reverse_test_impact == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     continue-on-error: true
     permissions:
@@ -1313,7 +1313,7 @@ jobs:
     # No package installs, submodules or app build: reject malformed inputs
     # before starting macOS and the other Linux stages. Guards and web run
     # beside it, because the macOS gate waits for them.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -1359,7 +1359,7 @@ jobs:
     permissions:
       contents: read
     # Check the pinned framework before using a Mac, and on provenance changes.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 20
     steps:
       - name: Checkout repository
@@ -1502,7 +1502,7 @@ jobs:
       - guards
       - web
     if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.changes.outputs.macos != 'false' || needs.changes.outputs.cli == 'true') && (needs.changes.outputs.full_suite == 'true' || needs.changes.outputs.cli == 'true' || needs.changes.outputs.compile_admitted != 'true') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     permissions: {}
     steps:
@@ -1590,7 +1590,7 @@ jobs:
     # router explicitly says macOS is irrelevant, skip the runner allocation.
     # Missing/invalid route output fails open by running the preflight.
     if: ${{ !cancelled() && needs.changes.outputs.macos != 'false' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
       - name: Check routed Linux results
@@ -1700,7 +1700,7 @@ jobs:
     needs:
       - changes
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.coverage_gap == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     steps:
       - name: Require the suite that judges this diff
         run: |
@@ -1752,7 +1752,7 @@ jobs:
     # repaired. Re-enable with the repository variable CI_UI_TESTS_ENABLED=1;
     # selectors still keep dispatches limited to UI-touching diffs.
     if: ${{ vars.CI_UI_TESTS_ENABLED == '1' && !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.macos-admission-gate.result == 'success' || needs.macos-admission-gate.result == 'skipped' && needs.changes.outputs.compile_admitted == 'true') && needs.changes.outputs.ui_selectors != '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # A compile wait of up to 50 minutes, then the tests.
     timeout-minutes: 150
     permissions:
@@ -1891,7 +1891,7 @@ jobs:
     # A cancelled run already has its terminal outcome; the required status
     # remains cancelled and does not need a post-cancel rollup.
     if: ${{ !cancelled() }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # These verdict steps read `needs` and decide. Their siblings are bounded
     # at 5 to 20 minutes; this job was inheriting the six-hour default, as the
     # required check every pull request waits on.
@@ -2066,7 +2066,7 @@ jobs:
       - macos-admission-gate
       - macos
     if: ${{ !cancelled() }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     continue-on-error: true
     permissions:

@@ -31,11 +31,14 @@ jobs:
   check:
     # A draft cannot merge; it is checked when marked ready (ready_for_review
     # above). Mergers read the freezes again at merge time either way.
-    # A fix-cause:* label on a closed pull request starts no job (tests/test_ci_fix_cause_labels_start_no_jobs.py).
-    if: github.event_name == 'pull_request_target' && !github.event.pull_request.draft && !(github.event.pull_request.state == 'closed' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && startsWith(github.event.label.name, 'fix-cause:'))
-    name: merge freeze
+    # Only freeze-ok changes the verdict, so any other label event (risk:* set by risk tier, area:*,
+    # fix-cause:*) starts no job: it takes another name and its own concurrency group, so it neither
+    # reads as a passed "merge freeze" (#38003) nor cancels the real run
+    # (tests/test_ci_fix_cause_labels_start_no_jobs.py).
+    if: github.event_name == 'pull_request_target' && !github.event.pull_request.draft && !((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'freeze-ok')
+    name: ${{ (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'freeze-ok' && 'merge freeze label (ignored)' || 'merge freeze' }}
     concurrency:
-      group: merge-freeze-${{ github.event.pull_request.number }}
+      group: merge-freeze-${{ github.event.pull_request.number }}${{ (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'freeze-ok' && format('-label-{0}', github.run_id) || '' }}
       cancel-in-progress: true
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: pull_request_target with a read token; CI_TRUSTED_RUNNER picks the Blacksmith size
     timeout-minutes: 20
