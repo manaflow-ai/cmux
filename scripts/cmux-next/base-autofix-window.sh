@@ -43,10 +43,13 @@ since="$(date -u -d "@$((now - window * 60))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" 
   exit 0
 }
 
+errf="$(mktemp 2>/dev/null || echo /dev/null)"
+trap '[[ "$errf" == /dev/null ]] || rm -f -- "$errf"' EXIT
 # One read: this workflow's push runs on BRANCH created within the window, newest first.
 rows="$(gh api "repos/$repo/actions/workflows/cmux-next-base-autofix.yml/runs?branch=$branch&event=push&created=%3E%3D$since&per_page=100" \
-  --jq '.workflow_runs[] | [.id, .status, (.conclusion // ""), .display_title] | map(tostring) | join("\u001f")' 2>/dev/null)" || {
-  say true "runs unreadable (fail open)"
+  --jq '.workflow_runs[] | [.id, .status, (.conclusion // ""), .display_title] | map(tostring) | join("\u001f")' 2>"$errf")" || {
+  err="$(head -c 160 "$errf" 2>/dev/null | tr '\n' ' ')"
+  say true "runs unreadable (fail open): ${err:-no error text}"
   exit 0
 }
 

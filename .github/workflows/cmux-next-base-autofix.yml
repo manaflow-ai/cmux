@@ -182,10 +182,25 @@ jobs:
             /.gitmodules
           sparse-checkout-cone-mode: false
 
+      # The window's one read of this workflow's runs used github.token, the repository's shared GITHUB_TOKEN pool;
+      # with that pool spent every read failed and failed open (why=runs unreadable), so every push run repaired:
+      # 31 autofix runs of ~30 min each from 21:49Z to 23:11Z on 2026-11-26, where the window allows one in 120 min.
+      # The app's own read token has its own quota; github.token stays the fallback.
+      - name: Mint the read token
+        id: read-token
+        if: vars.GLAEDA_ROUTE_APP_ID != '' && github.ref == 'refs/heads/feat-cmux-next'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-actions: read
+
       - name: Repair now, or hold for the window
         id: window
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
           NEXT_BASE_AUTOFIX_WINDOW_MINUTES: ${{ vars.NEXT_BASE_AUTOFIX_WINDOW_MINUTES }}
         run: bash scripts/cmux-next/base-autofix-window.sh "$GITHUB_RUN_ID" "$GITHUB_REF_NAME" | tee -a "$GITHUB_OUTPUT" "$GITHUB_STEP_SUMMARY"
 
