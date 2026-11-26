@@ -122,7 +122,13 @@ class MacRowTests(unittest.TestCase):
         self.assertEqual(text, "page state: none; Mac rows: 2 [ba7816bf (rig name) Not shared; cb8379ac Offline]; "
                                "wanted ba7816bf")
         self.assertNotIn("Old Mac", text)
-        self.assertEqual(screen_sharing_page_state([]), "page state: none; Mac rows: 0")
+        self.assertEqual(screen_sharing_page_state([]), "page state: none; Mac rows: 0; no Screen Sharing page (0 nodes)")
+
+    def test_a_list_without_the_e2e_identifiers_says_so(self):
+        nodes = [{"AXIdentifier": "screenSharing.page"}, {"AXIdentifier": "screenSharing.mac.0 e2e rig Mac", "AXLabel": "0 e2e rig Mac"}]
+        text = screen_sharing_page_state(nodes, "0 e2e rig Mac", "abc")
+        self.assertEqual(text, "page state: none; Mac rows: 0; rows keyed by name: 1; wanted ba7816bf")
+        self.assertNotIn("rig Mac", text)
 
     def test_an_upper_case_row_id_matches_a_lower_case_device_id(self):
         row = {"AXIdentifier": "screenSharing.device.ABC-1", "AXLabel": "rig"}

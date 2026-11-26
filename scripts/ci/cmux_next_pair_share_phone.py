@@ -126,8 +126,8 @@ def _digest(text):
 
 def screen_sharing_page_state(nodes, name=None, device_id=None):
     """What the Screen Sharing list showed: its state row (finding, failed, empty) and each Mac
-    row as a short id digest, whether its name is the rig Mac's, and its status line. No ids or
-    other Macs' names are printed."""
+    row as a short id digest, whether its name is the rig Mac's, and its status line; the count of
+    name-keyed rows and a missing page. No ids or other Macs' names are printed."""
     identifiers = {str(node.get(key, "")) for node in nodes for key in ("AXIdentifier", "AXUniqueId")}
     states = [state for state in ("finding", "failed", "empty") if f"screenSharing.{state}" in identifiers]
     prefix = "screenSharing.device."
@@ -143,6 +143,14 @@ def screen_sharing_page_state(nodes, name=None, device_id=None):
     text = f"page state: {', '.join(states) or 'none'}; Mac rows: {len(rows)}"
     if rows:
         text += " [" + "; ".join(rows) + "]"
+    # Rows keyed by name mean the app never saw CMUX_PAIR_E2E_SHARE_RECEIPT (or is not DEBUG);
+    # no page node means the phone is on another screen. Counts and fixed words only.
+    by_name = sum(1 for node in nodes
+                  if str(node.get("AXIdentifier") or node.get("AXUniqueId") or "").startswith("screenSharing.mac."))
+    if by_name:
+        text += f"; rows keyed by name: {by_name}"
+    if not states and not rows and "screenSharing.page" not in identifiers:
+        text += f"; no Screen Sharing page ({len(nodes)} nodes)"
     if device_id:
         text += f"; wanted {_digest(device_id)}"
     return text
