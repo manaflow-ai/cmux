@@ -10203,6 +10203,7 @@ export class AcpmuxDirectClient {
         // turn it was forked at.
         const parent =
           typeof msg.parentId === "string" ? this.sessions.find((s) => s.sessionId === msg.parentId) : undefined;
+        const chat = parent ? sessionTitle(parent) : "";
         // A fork of a subagent (Fork with <model>… on its chips) names the subagent and its chat.
         const subagent = forkedSubagentName(msg);
         this.rows.set(`forked-from-${event.seq}`, {
@@ -10212,11 +10213,13 @@ export class AcpmuxDirectClient {
           kind: "notice",
           text: subagent
             ? parent
-              ? translate("notice.forkedFromSubagent", { subagent, chat: sessionTitle(parent) })
+              ? translate("notice.forkedFromSubagent", { subagent, chat })
               : translate("notice.forkedFromSubagentGone", { subagent })
             : parent
-              ? translate("notice.forkedFrom", { chat: sessionTitle(parent) })
+              ? translate("notice.forkedFrom", { chat })
               : translate("notice.forkedFromGone"),
+          // The chat's name links back to it (conversation/ForkedFromLine.tsx, #50086).
+          ...(parent ? { forkedFrom: { parentId: parent.sessionId, chat } } : {}),
         });
         // An agent that could not fork the working chat: the fork's agent reads the chat's
         // transcript instead, and the fork says so in one line (acpmux `hub/fork.rs`).
