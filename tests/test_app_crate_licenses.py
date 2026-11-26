@@ -130,6 +130,8 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-launch-image",
                     # When a hover card's live pane thumbnail is captured again (cmux-pane-pictures).
                     "cmux-pane-pictures",
+                    # The agent chat transcript's markdown parser (cmux-chat-markdown).
+                    "cmux-chat-markdown",
                     # The remote chat wire (cmux-acpmux-remote-wire).
                     "cmux-acpmux-remote-wire",
                     "cmux-local-auth",

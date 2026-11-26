@@ -227,6 +227,7 @@ dependencies = [
  "cmux-agent-pane-policy",
  "cmux-auth-coordinator",
  "cmux-background-ready",
+ "cmux-chat-markdown",
  "cmux-config",
  "cmux-cookie-sync",
  "cmux-daemon-conn-core",
@@ -300,6 +301,15 @@ version = "0.1.0"
 dependencies = [
  "cmux-agent-pane-policy",
  "http",
+]
+
+[[package]]
+name = "cmux-chat-markdown"
+version = "0.1.0"
+dependencies = [
+ "unicode-general-category",
+ "unicode-normalization",
+ "unicode-segmentation",
 ]
 
 [[package]]

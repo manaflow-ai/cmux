@@ -320,6 +320,27 @@ class DecideTests(unittest.TestCase):
         self.assertEqual(cron.part_order(state, ["build", "coord-sim", "web-ui-flat", "fresh", "web-ui-god"], t),
                          ["build", "fresh", "web-ui-god", "coord-sim", "web-ui-flat"])
 
+    def test_a_goal_part_whose_store_lacked_its_goal_rows_stays_due(self):
+        # 2026-11-26: web-ui-god stored 58 rows at 17:22Z but no webui.god_ratio.transcript_replay.long row
+        # (transcript-replay-god timed out after 420 s); it read fresh and sat sixth of the next tip's Linux parts.
+        state = cron.empty_state(T0)
+        t = at(2)
+        stored_at = cron.iso(at(1))
+        state["part_stored"] = {"web-ui-god": {"at": stored_at, "incomplete": "transcript-replay-god: timed out"},
+                                "web-ui": {"at": stored_at}, "diff-viewer": {"at": stored_at}}
+        state["part_rows"] = {"webui.god_ratio.chat_open.compact.latest@h": {"p95": 1, "at": stored_at},
+                              "webui.god_ratio.transcript_replay.long.token_ms@h": {"p95": 1.5, "at": cron.iso(T0)}}
+        todo = ["diff-viewer", "web-ui", "web-ui-god"]
+        self.assertEqual(cron.part_order(state, todo, t), ["web-ui-god", "diff-viewer", "web-ui"])
+        # Once a run stores the goal's rows the part is fresh again and keeps its place.
+        state["part_rows"]["webui.god_ratio.transcript_replay.long.token_ms@h"]["at"] = stored_at
+        self.assertEqual(cron.part_order(state, todo, t), todo)
+
+    def test_a_part_without_goal_rows_is_never_due_for_them(self):
+        state = cron.empty_state(T0)
+        self.assertFalse(cron.goal_rows_missing(state, "web-ui", {"at": cron.iso(T0)}))
+        self.assertFalse(cron.goal_rows_missing(state, "chat-anim", {"at": cron.iso(T0)}))
+
     def test_the_sim_parts_that_failed_last_time_still_go_first_for_their_goal(self):
         # Tip c2b1760e0a63 (2026-11-26): both sim parts failed at b4a3f5019f7f and stored no row, so they sat behind the
         # stale Linux parts while NOW's sim_ladder_marginal_ratio_max and sim_fidelity_divergence_max kept one value.
@@ -4922,6 +4943,8 @@ class StalePartFirstTests(unittest.TestCase):
         state["part_stored"] = {
             name: {"sha": "0" * 40, "at": cron.iso(now - datetime.timedelta(hours=stored_hours_ago.get(name, 2))), "rows": 1}
             for name in ALL if name != "build"}
+        # Each stored part carried its goal's rows (goal_rows_missing), so only the stored date makes one due.
+        state["part_rows"] = {"webui.god_ratio.transcript_replay.long.token_ms@h": dict(state["part_stored"]["web-ui-god"])}
         return state, now
 
     def test_a_part_past_the_bound_runs_before_a_yielding_one(self):

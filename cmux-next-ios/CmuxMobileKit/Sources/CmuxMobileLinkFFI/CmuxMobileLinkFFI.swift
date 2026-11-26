@@ -21802,6 +21802,16 @@ public func setKeepaliveAlignment(on: Bool)  {try! rustCall() {
 }
 }
 /**
+ * The device's network now, `wifi`, `lte` (any cellular), `wired` or
+ * `other` (iOS `NWPathMonitor`, every path update): the key-to-paint tag.
+ */
+public func setNetworkKind(kind: String)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_set_network_kind(
+        FfiConverterString.lower(kind),$0
+    )
+}
+}
+/**
  * Keep the IP literals every dialed host (TURN, STUN, signaling, API) last resolved to in the
  * file at `path` (an Application Support file of this build's own), so a dial after a relaunch
  * with DNS down still reaches them (`cmux_mobile_link::route_literals`). Without a call they
@@ -21813,16 +21823,6 @@ public func setRouteLiteralsPath(path: String) -> UInt32  {
         FfiConverterString.lower(path),$0
     )
 })
-}
-/**
- * The device's network now, `wifi`, `lte` (any cellular), `wired` or
- * `other` (iOS `NWPathMonitor`, every path update): the key-to-paint tag.
- */
-public func setNetworkKind(kind: String)  {try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_func_set_network_kind(
-        FfiConverterString.lower(kind),$0
-    )
-}
 }
 /**
  * What the phone's terminal declares in `set-client-info` for the lean stream
@@ -22846,10 +22846,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_set_keepalive_alignment() != 23404) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_route_literals_path() != 31443) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_network_kind() != 35548) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_network_kind() != 35548) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_route_literals_path() != 31443) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_lean_stream_capabilities() != 31447) {
