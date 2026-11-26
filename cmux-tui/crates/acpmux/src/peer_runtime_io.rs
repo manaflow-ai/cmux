@@ -2,6 +2,14 @@
 
 use super::*;
 
+tokio::task_local! {
+    /// Set while a link that heard nothing for this long dials its replacement
+    /// (`dial_replacement!`): the hub dial then skips a kept circuit just as silent
+    /// (`HubCarrier::dial_past_silent`, `peer_hub.rs`). `open_first` races its paths in this
+    /// task, so the hub dial sees it.
+    pub(super) static REPLACING_SILENT: Duration;
+}
+
 impl Peer {
     /// [`Self::send_request`]; `retry`: sent again on the next link if this one switches paths
     /// before it answers (`peer_carried.rs`).
@@ -1057,24 +1065,54 @@ impl Peer {
                 >,
             >,
         > = None;
+        // Dial a replacement for a link silent `$silent` while it still reads. The hub dial in it
+        // skips a kept circuit as silent (`REPLACING_SILENT`): that circuit is the stalled one.
+        macro_rules! dial_replacement {
+            ($silent:expr, $why:expr) => {{
+                let silent: Duration = $silent;
+                tracing::info!(peer = %self.name, "silent {}ms, {}; dialing a replacement while this link still reads", silent.as_millis(), $why);
+                let gate = crate::peer_dial_gate::global();
+                replacing = Some(Box::pin(gate.pass(self.is_wanted(), crate::peer_link::jitter(), REPLACING_SILENT.scope(silent, self.open_first()))));
+                replacing_since = Some(std::time::Instant::now());
+                heard_while_replacing = false;
+            }};
+        }
+        // `replace_after` (off by default) passed, the budget not yet: dial the replacement now;
+        // the budget still decides the drop.
+        macro_rules! replace_early {
+            ($silent:expr, $silence:expr, $now:expr) => {{
+                let (silent, silence, now): (Duration, Duration, tokio::time::Instant) =
+                    ($silent, $silence, $now);
+                if replacing.is_none() && self.may_replace() {
+                    dial_replacement!(
+                        silent,
+                        format!(
+                            "past its {}ms replace setting",
+                            timings.replace_at(silence).as_millis()
+                        )
+                    );
+                }
+                silence_due = Some(now + silence.saturating_sub(silent));
+            }};
+        }
         // The budget ran out (`$silent`, measured as the drop rule measures it): drop the link, or
         // keep it while a replacement dials.
         macro_rules! out_of_silence {
             ($silent:expr, $silence:expr, $now:expr) => {{
-                let (silent, silence, now): (Duration, Duration, tokio::time::Instant) = ($silent, $silence, $now);
+                let (silent, silence, now): (Duration, Duration, tokio::time::Instant) =
+                    ($silent, $silence, $now);
                 let cap = silence.saturating_mul(2);
                 if replacing.is_none() && silent < cap && self.may_replace() {
-                    tracing::info!(peer = %self.name, "silent {}ms, past its {}s budget; dialing a replacement while this link still reads", silent.as_millis(), silence.as_secs());
-                    let gate = crate::peer_dial_gate::global();
-                    replacing = Some(Box::pin(gate.pass(self.is_wanted(), crate::peer_link::jitter(), self.open_first())));
-                    replacing_since = Some(std::time::Instant::now());
-                    heard_while_replacing = false;
+                    dial_replacement!(silent, format!("past its {}s budget", silence.as_secs()));
                 }
                 if replacing.is_some() && silent < cap {
                     silence_due = Some(now + (cap - silent));
                 } else {
                     self.with_silence(|b| b.dropped(now));
-                    break Err(self.deadline_passed(format!("peer stopped answering ({}s without a frame)", silent.as_secs())));
+                    break Err(self.deadline_passed(format!(
+                        "peer stopped answering ({}s without a frame)",
+                        silent.as_secs()
+                    )));
                 }
             }};
         }
@@ -1372,6 +1410,8 @@ impl Peer {
                     let silent = heard.as_ref().map_or(last_frame.elapsed(), |h| h.silent().min(last_frame.elapsed())).min(reader.reading());
                     if silent.saturating_sub(late) >= silence {
                         out_of_silence!(silent, silence, now);
+                    } else if silent.saturating_sub(late) >= timings.replace_at(silence) {
+                        replace_early!(silent, silence, now);
                     }
                 }
                 // The replacement dialed for a silent link (`replacing`) opened first.
@@ -1423,8 +1463,13 @@ impl Peer {
                     let late = now.saturating_duration_since(due);
                     if silent.saturating_sub(late) >= silence {
                         out_of_silence!(silent, silence, now);
+                    } else if replacing.is_none() && silent.saturating_sub(late) >= timings.replace_at(silence) {
+                        replace_early!(silent, silence, now);
                     } else {
-                        let left = silence.saturating_sub(silent.saturating_sub(late));
+                        // The next deadline: the replace setting's while no replacement dials,
+                        // else the budget's.
+                        let due_at = if replacing.is_none() { timings.replace_at(silence) } else { silence };
+                        let left = due_at.saturating_sub(silent.saturating_sub(late));
                         silence_due = (left < timings.ping_every).then(|| now + left);
                     }
                     if silent >= timings.ping_every {

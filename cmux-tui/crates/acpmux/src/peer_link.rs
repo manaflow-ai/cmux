@@ -12,7 +12,8 @@ use std::time::Duration;
 /// deadline (the handshake gets three times it), `ACPMUX_PEER_PING_SECS`
 /// the keepalive interval, for a host that is slow even when well, and
 /// `ACPMUX_PEER_REQUEST_SECS` how long one request waits for its answer, and
-/// `ACPMUX_PEER_START_SECS` how long a forwarded `session/new` waits.
+/// `ACPMUX_PEER_START_SECS` how long a forwarded `session/new` waits;
+/// `ACPMUX_PEER_REPLACE_SECS` (off by default) dials a silent link's replacement sooner.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LinkTimings {
     /// ssh, the tunnel and the WebSocket upgrade; also the remote config read.
@@ -30,6 +31,11 @@ pub struct LinkTimings {
     pub ping_misses: u32,
     /// `ACPMUX_PEER_PING_SECS` was set: the silence budget stays `silence_budget()`.
     pub fixed_silence: bool,
+    /// `ACPMUX_PEER_REPLACE_SECS`: a silent link dials its replacement (while it still reads)
+    /// after this much silence, when that is under the silence budget. Off (`None`) by
+    /// default: the replacement dials when the budget runs out. The link is still dropped at
+    /// twice the budget, as without it.
+    pub replace_after: Option<Duration>,
     /// The link is dropped when one send cannot go out for this long (a peer that stops
     /// reading). Longer than the silence budget: a large frame on a slow uplink takes a while.
     // timeout: a peer that never reads would hold every queued write; a dead transport is
@@ -64,6 +70,7 @@ impl Default for LinkTimings {
             ping_every: Duration::from_secs(2),
             ping_misses: 3,
             fixed_silence: false,
+            replace_after: None,
             send: Duration::from_secs(80),
             stable_after: Duration::from_secs(60),
             request: Duration::from_secs(600),
@@ -86,6 +93,13 @@ impl LinkTimings {
             t.ping_every = Duration::from_secs(n);
             t.fixed_silence = true;
         }
+        if let Some(n) = std::env::var("ACPMUX_PEER_REPLACE_SECS")
+            .ok()
+            .and_then(|v| v.trim().parse::<f64>().ok())
+            .filter(|n| n.is_finite() && *n > 0.0)
+        {
+            t.replace_after = Some(Duration::from_secs_f64(n));
+        }
         if let Some(n) = secs("ACPMUX_PEER_REQUEST_SECS") {
             t.request = Duration::from_secs(n);
         }
@@ -99,6 +113,12 @@ impl LinkTimings {
     /// (`SilenceBudget`).
     pub fn silence_budget(&self) -> Duration {
         self.ping_every * self.ping_misses
+    }
+
+    /// How long a link may stay silent before it dials a replacement, under the current
+    /// `silence` budget: `replace_after` when set and shorter, else the budget itself.
+    pub fn replace_at(&self, silence: Duration) -> Duration {
+        self.replace_after.map_or(silence, |after| after.min(silence))
     }
 }
 
@@ -1417,6 +1437,16 @@ mod tests {
             budget.may_probe() && budget.current() == secs(6),
             "a probe drop whose redial failed was a network loss"
         );
+    }
+
+    #[test]
+    fn the_replace_setting_is_off_by_default_and_never_past_the_budget() {
+        let t = LinkTimings::default();
+        assert_eq!(t.replace_after, None);
+        assert_eq!(t.replace_at(Duration::from_secs(6)), Duration::from_secs(6));
+        let early = LinkTimings { replace_after: Some(Duration::from_secs(5)), ..t };
+        assert_eq!(early.replace_at(Duration::from_secs(6)), Duration::from_secs(5));
+        assert_eq!(early.replace_at(Duration::from_secs(4)), Duration::from_secs(4));
     }
 
     #[test]

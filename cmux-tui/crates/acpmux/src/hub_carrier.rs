@@ -1450,6 +1450,36 @@ impl HubCarrier {
         dead.len()
     }
 
+    /// [`Self::dial`] for a replacement of a link that heard nothing for `silent`: a plain
+    /// circuit of its own when a kept circuit to `daemon` heard nothing in that window either.
+    /// That circuit's transport is the stalled one the silent link rides; a new stream on it
+    /// would queue its OPEN, answer and replay behind the old stream's unread bytes (up to its
+    /// window) and the transport's retransmits. The kept circuit stays open: the old link still
+    /// reads on it until the replacement opens. Under [`mux::ANSWER_SUSPECT`] of silence this is
+    /// [`Self::dial`].
+    pub async fn dial_past_silent(
+        &self,
+        daemon: &str,
+        silent: Duration,
+    ) -> Result<HubStream, String> {
+        let stalled = silent >= mux::ANSWER_SUSPECT
+            && [&self.kept, &self.direct.kept]
+                .into_iter()
+                .any(|kept| !kept.silent_for(daemon, silent).is_empty());
+        if !stalled {
+            return self.dial(daemon).await;
+        }
+        tracing::info!(
+            "hub carrier: a replacement for a link silent {}ms; its kept circuit heard nothing either, so the replacement opens a circuit of its own",
+            silent.as_millis()
+        );
+        crate::gauges::bump(&crate::gauges::links().hub_plain_dials);
+        let (secure, stages) = self.open_circuit(daemon).await?;
+        stages.log(daemon, "plain past a silent kept circuit");
+        record_call(CircuitLane::of(CircuitService::Acpmux), false);
+        Ok(self.carry_plain(secure))
+    }
+
     /// One relay circuit to `daemon` with the Noise handshake done, its key pinned to the
     /// platform's `peer_key`, and how long each step took.
     pub(crate) async fn open_circuit(
