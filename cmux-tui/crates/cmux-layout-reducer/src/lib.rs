@@ -60,6 +60,7 @@ pub mod sidebar_chat_history;
 pub mod sidebar_doc_listing;
 pub mod sidebar_item_order;
 pub mod sidebar_nav;
+pub mod sidebar_row_index;
 pub mod sidebar_section_customization;
 mod tab_moves;
 pub use rows::{ROW_HEIGHT_PERMILLE, Row, RowId, row_layout_is_valid};

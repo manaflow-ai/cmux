@@ -16,6 +16,8 @@
 //! Cmd-Ctrl-[ / ] select (`sidebar_item_order`), where the document puts
 //! the list's rows: band groups a window leaves out, list sections, machine
 //! order with links, group members, marks and sorts (`sidebar_doc_listing`),
+//! the row index's rules: which header stays, a row's machine label parts,
+//! changed looks and each workspace's places (`sidebar_row_index`),
 //! the app sidebar
 //! bridge's decision rules (`sidebar_bridge`), the store's
 //! optimistic overlay rules (`optimistic`: where a pending split, column,
@@ -345,6 +347,12 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&sidebar_doc_listing::respond(request))
                     .map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_row_index" => {
+                use cmux_layout_reducer::sidebar_row_index;
+                let request: sidebar_row_index::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&sidebar_row_index::respond(request)).map_err(|_| ERR_INVALID)?
             }
             b"sidebar_chat_history" => {
                 use cmux_layout_reducer::sidebar_chat_history;
