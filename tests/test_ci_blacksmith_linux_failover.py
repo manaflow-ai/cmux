@@ -44,6 +44,7 @@ EXCLUDED_FILES = {
 LABEL = re.compile(r"blacksmith-\d+vcpu-ubuntu-2404(?![-\w])")
 # Each x64 Blacksmith Linux size and the sizes it may fail over to, the first preferred.
 FAILOVER_SIZES = {2: (4, 8), 4: (8, 16), 8: (4, 16), 16: (8, 32), 32: (16,)}
+ALLOWLIST = re.compile(r"contains\(fromJSON\('\[[^']*\]'\), vars\.LINUX_RUNNER\)")
 FAILOVER_PREFIX = "vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-"
 
 
@@ -115,6 +116,9 @@ def offenders() -> list[str]:
             continue
         for number, line in enumerate(path.read_text().splitlines(), 1):
             code = line.split(" #", 1)[0] if not line.lstrip().startswith("#") else ""
+            # An allowlist of labels vars.LINUX_RUNNER may name is double-quoted JSON, not a
+            # runner literal: the switch points that variable at another Blacksmith size.
+            code = ALLOWLIST.sub("", code)
             if not LABEL.search(code) or "runner.name" in code:
                 continue
             if not covered(code):
