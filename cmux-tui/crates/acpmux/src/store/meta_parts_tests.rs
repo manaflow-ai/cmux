@@ -358,7 +358,9 @@ fn a_save_hashes_the_parts_only_when_they_changed() {
     let storage = cmux_journal::SimStorage::new(72);
     let local_store = local(dir.path());
     let journal_store = journal(home.path(), &storage);
-    for (path, store) in [("session.json", &local_store as &dyn Store), ("journal", journal_store.as_ref())] {
+    for (path, store) in
+        [("session.json", &local_store as &dyn Store), ("journal", journal_store.as_ref())]
+    {
         let mut m = god(CHAT);
         HASHED.with(|h| h.set(0));
         store.save(&m.clone()).unwrap_or_else(|e| panic!("{path}: first save: {e:#}"));
