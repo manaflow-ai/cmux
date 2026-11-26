@@ -658,6 +658,49 @@ async fn rename_reaches_a_session_only_the_hub_reaches_and_no_verb_answers_no_se
         read(&read_only, "machine-b", &session, method::MUX_RETRY, &json!({})).await.unwrap_err();
     assert!(refused.message.contains("mesh.control_not_allowed"), "{refused:?}");
 
+    // A tag goes through too (`acpmux session tag machine-b/renamed-e2e escalate=off`), as the CLI
+    // sends it (`set`, `remove`, `ttlSeconds`): 2026-11-25, an ended lane only the hub reached
+    // could not be tagged out of paging from another host ("does not carry _acpmux/tag").
+    let tagged = call(
+        &a,
+        method::MUX_TAG,
+        json!({
+            "sessionId": "machine-b/renamed-e2e",
+            "set": {"escalate": "off", "area": "base-reds"},
+            "remove": [],
+            "ttlSeconds": null,
+        }),
+    )
+    .await;
+    assert_eq!(tagged["tags"]["escalate"], "off", "{tagged}");
+    assert_eq!((tagged["peer"].as_str(), tagged["via"].as_str()), (Some("machine-b"), Some("hub")));
+    assert_eq!(on_b(&session).await["tags"]["escalate"], "off");
+    let removed = call(&a, method::MUX_TAG, json!({"sessionId": by_id, "remove": ["area"]})).await;
+    assert!(removed["tags"].get("area").is_none(), "{removed}");
+    assert!(on_b(&session).await["tags"].get("area").is_none());
+    // The tag `acpmux register` alone sets stays refused there, as over ssh: B's own handler runs.
+    let reserved = call_error(
+        &a,
+        method::MUX_TAG,
+        json!({"sessionId": by_id, "set": {(crate::hub::register::REGISTERED_TAG): "x"}}),
+    )
+    .await;
+    let said = reserved["message"].as_str().unwrap_or_default();
+    assert!(said.contains("acpmux register") && !said.contains("does not carry"), "{reserved}");
+    assert!(on_b(&session).await["tags"].get(crate::hub::register::REGISTERED_TAG).is_none());
+    // A sender B trusts only to read tags nothing.
+    let refused = read(
+        &read_only,
+        "machine-b",
+        &session,
+        method::MUX_TAG,
+        &json!({"set": {"escalate": "on"}}),
+    )
+    .await
+    .unwrap_err();
+    assert!(refused.message.contains("mesh.control_not_allowed"), "{refused:?}");
+    assert_eq!(on_b(&session).await["tags"]["escalate"], "off");
+
     // Every other session verb the hub does not carry says so, by name or by id.
     for (m, key) in [
         (method::MUX_PAUSE, "machine-b/renamed-e2e"),

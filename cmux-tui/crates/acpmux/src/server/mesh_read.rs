@@ -66,8 +66,13 @@ const NOT_CARRIED: &[&str] = &[method::MUX_ATTACHMENT, method::MUX_QUEUE_TEXT, m
 /// finds the first's turn under way (`retry.busy`) or the turn no longer failed
 /// (`retry.nothing_failed`), so it sends nothing twice. 2026-11-24: `acpmux retry HOST/NAME` of
 /// a lane only the hub reaches, cut by the SR2 pool's 503, answered "the mesh hub does not carry
-/// _acpmux/retry", so nothing could resume it from here.
-const WRITE_METHODS: &[&str] = &[method::MUX_RENAME, method::MUX_RETRY];
+/// _acpmux/retry", so nothing could resume it from here. A tag write too (`_acpmux/tag`): its
+/// `set` and `remove` leave the chat as once when run twice, and the receiver runs it through
+/// its own handler and gates, as for an ssh peer (the `registered` tag stays refused). 2026-11-25:
+/// `acpmux session tag HOST/NAME escalate=off`, for a lane that ended at
+/// 15:52Z and was still paged as the base-reds owner, answered "the mesh hub does not carry
+/// _acpmux/tag", so no other host could take it out of paging.
+const WRITE_METHODS: &[&str] = &[method::MUX_RENAME, method::MUX_RETRY, method::MUX_TAG];
 
 /// Whether `m` reads a page of events, so its params cross and its budget halves.
 fn pages(m: &str) -> bool {
@@ -87,6 +92,7 @@ fn crossing(m: &str) -> &'static [&'static str] {
         method::MUX_SESSION_SEARCH => &["query", "role", "sinceMs", "limit", "withTurnTime"],
         method::MUX_RENAME => &["newName", "to", "newHandle"],
         method::MUX_RETRY => &["subagentId"],
+        method::MUX_TAG => &["set", "remove", "ttlSeconds"],
         _ => &[],
     }
 }
