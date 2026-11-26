@@ -1179,6 +1179,11 @@ try {
           const size = (n: Node) => (n instanceof Element ? 1 + n.getElementsByTagName("*").length : 0);
           st.obs = new MutationObserver((ms) => {
             for (const m of ms) {
+              if (m.type === "attributes") {
+                const key = `attr ${(m.target as Element).className?.toString().slice(0, 30)} ${m.attributeName}`;
+                st.kinds[key] = (st.kinds[key] ?? 0) + 1;
+                continue;
+              }
               m.removedNodes.forEach((n) => {
                 st.removed += size(n);
                 if (n instanceof Element) {
@@ -1189,7 +1194,12 @@ try {
               m.addedNodes.forEach((n) => (st.added += size(n)));
             }
           });
-          st.obs.observe(document.body, { childList: true, subtree: true });
+          st.obs.observe(document.body, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ["style", "class"],
+          });
           w.__rm = st;
         });
         if (profile && round === 0) {
