@@ -7,6 +7,7 @@ import { nextStepCardHeight, permissionCardHeight } from "./permissions/cardHeig
 import { freshMeasureContext } from "./measureContext";
 import type { SentFrom } from "./conversation/sentFromHarness";
 import type { PeerLinkDetail } from "./linkState";
+import type { ComposerStatus } from "./composerStatusModel";
 import { BUBBLE } from "./transcriptSpacing";
 import {
   footerAfter,
@@ -96,17 +97,11 @@ import {
   recordedBody,
 } from "./conversation/promptCollapse";
 import { sentPasteJoin } from "./conversation/sentPasteJoin.experiment";
-import { attachmentOnlyPrompt, bubbleLayout } from "./conversation/bubbleParts";
+import { attachmentOnlyPrompt, bubbleLayout, stripAttachments } from "./conversation/bubbleParts";
 import { composerSettingsSnapshot } from "./composerSettings";
 import { isPromptMarkdown } from "./conversation/promptMarkdown";
 import { sentUIPick, sentUIPickSegments, type SentPromptSegment } from "./conversation/sentUIPickModel";
-import {
-  linkedImagePath,
-  SENT_IMAGE_HEIGHT,
-  SENT_IMAGE_MAX_WIDTH,
-  sentImageSize,
-  sentImageWidth,
-} from "./conversation/userBubbleModel";
+import { linkedImagePath, sentImageSize, sentVideoSize } from "./conversation/userBubbleModel";
 import { sentVideoOf, sentVideosOf } from "./conversation/sentVideos";
 import { fileSizeLabel, shownFileSize } from "./fileAttachmentModel";
 import { mcpCall } from "./conversation/mcpCalls";
@@ -399,6 +394,11 @@ export type QueuedPrompt = {
   /// acpmux's ask to resume a failed subagent (subagents/retryState.ts `subagentRetryNotice`): its
   /// row names the subagent instead of drawing the prompt's text.
   retry?: SubagentRetryNotice;
+  /// acpmux's own prompt to the chat's agent, by its provenance kind (`surge_digest`,
+  /// `subagent_retry`, `auto_resume`, ...; acpmux `QueuedPromptSummary.origin` `acpmux`,
+  /// hub/queue_origin.rs). Not the person's: it draws apart from their steer rows, with none of
+  /// their actions (ComposerQueue.tsx `SystemNotes`; Leo, 2026-11-24).
+  system?: string;
   /// Another agent's message the person's Stop holds (acpmux `queue_paused` with `reason: "stop"`,
   /// hub/cancel.rs): it waits until the person's next turn completes or the queue is resumed, not
   /// for the turn to end, and its card says so (conversation/QueuedMessageCard.tsx).
@@ -456,6 +456,10 @@ export type PromptContentPart =
       pageCount?: number;
       uri?: string;
       video?: VideoInfo;
+      /// A video's picture size, which acpmux keeps with its part (hub/prompt_images.rs), so its
+      /// sent tile has its box from the first frame after a reload (conversation/sentVideos.ts).
+      width?: number;
+      height?: number;
       source?: AttachmentSource;
     };
 /// A queued prompt's image: `src` is its data URL when the pane has its bytes (it sent them, or
@@ -1375,8 +1379,8 @@ export type AcpmuxSnapshot = {
   peerResources?: Record<string, MachineResources>;
   /// The open chat is a fork: the seq of its `forked` event, where the copied history ends (cx-ncc.61).
   forkedAtSeq?: number;
-  /// The chat's held surge, its newest snapshot (conversation/surgeHold.ts): the composer hat's one
-  /// row for it (SurgeHoldRow.tsx).
+  /// The chat's held surge, its newest snapshot (conversation/surgeHold.ts): Session Info's Background
+  /// tasks row (session-info/agentSide.ts).
   surge?: SurgeHold;
   summary?: {
     sessionId: string;
@@ -1410,6 +1414,10 @@ export type AcpmuxSnapshot = {
     machine?: string;
     peer?: string;
     hostKind?: "local" | "cloud";
+    /// The composer footer's status dot items and quiet facts, as acpmux decided them
+    /// (`composerStatus`, acpmux `protocol/composer_status.rs`); absent from an older acpmux. Read
+    /// through composerStatusModel.ts `readComposerStatus`, which takes a null field as absent.
+    composerStatus?: ComposerStatus;
     /// Where an Auto chat stands (acpmux `autoSession`, autoSession/autoSession.ts): unset from an
     /// acpmux without Auto, and the pane then offers and draws nothing of it.
     autoSession?: AutoSession;
@@ -2830,33 +2838,61 @@ function fallbackRowHeight(
     (!row.text?.trim() || attachmentOnlyPrompt(row)) &&
     (row.images?.length || row.retryAttachments?.length || row.inlineParts?.some((part) => part.kind !== "text"))
   ) {
-    // Sent thumbnails wrap at the 70% user column. Use the widest thumbnail (userBubbleModel.ts
-    // SENT_IMAGE_MAX_WIDTH, plus its 8px gap) when estimating columns so a wide image never lets a
-    // second attachment row overlap the next row.
+    // A prompt whose recorded parts are its attachments alone draws them in the strip
+    // (UserBubble.tsx `inlineAttachmentOnly`), each at its own sent size: measured as that strip,
+    // so a short wide video or screenshot is not reserved a 160px row.
+    // One whose `images` hold more than its parts (UserBubble.tsx `looseImages`) keeps the rows below.
+    const recorded = attachmentOnlyPrompt(row) ? stripAttachments(row) : undefined;
+    const recordedImages = recorded?.filter((part) => part.kind === "image").length ?? 0;
+    if (recorded?.length && (row.images?.length ?? 0) <= recordedImages) {
+      const bandWidth = USER_BUBBLE_SHARE * width + 2 * INLINE_ATTACHMENT_MARGIN.x;
+      const band =
+        attachmentBandHeight(row, recorded, bandWidth, new Map(), new Set()) +
+        ATTACHMENT_BAND_BELOW -
+        INLINE_ATTACHMENT_MARGIN.y;
+      return finish(band + messageBelow(beforeFooter) + chromeHeight(row, actions));
+    }
+    // The thumbnail band (conversation.css .cv-user__images: flex-wrap in the 70% user column, an
+    // 8px gap): the video tiles lead, then the images, each at its own sent size (UserBubble.tsx
+    // sentVideoSize, sentImageSize; a 160px square when no size is known), so a short wide video or
+    // screenshot reserves its own height, not a 160px row.
     const inlineParts = row.inlineParts ?? [];
-    // A video sent with its frames draws as a SENT_IMAGE_HEIGHT tile in the thumbnail row (UserBubble.tsx
-    // SentVideoTiles), not as a file chip.
-    const videoCount = sentVideosOf(row).length;
-    const imageCount =
-      Math.max(
-        row.images?.length ?? 0,
-        inlineParts.filter((part) => part.kind === "image").length,
-        row.retryAttachments?.filter((part) => part.kind === "image").length ?? 0,
-      ) + videoCount;
-    const columns = Math.max(1, Math.floor((width * USER_BUBBLE_SHARE + 8) / (SENT_IMAGE_MAX_WIDTH + 8)));
-    const imageRows = imageCount ? Math.ceil(imageCount / columns) : 0;
+    const videos = sentVideosOf(row);
+    const imageSources = [
+      row.images ?? [],
+      inlineParts.filter((part) => part.kind === "image"),
+      row.retryAttachments?.filter((part) => part.kind === "image") ?? [],
+    ];
+    const images = imageSources.reduce((most, one) => (one.length > most.length ? one : most), imageSources[0]!);
+    const boxes = [
+      ...videos.map((video) => sentVideoSize(video)),
+      ...images.map((image) => sentImageSize(image as { width?: number; height?: number })),
+    ];
+    const column = width * USER_BUBBLE_SHARE;
+    let bandHeight = 0;
+    let rowWidth = 0;
+    let rowHeight = 0;
+    for (const box of boxes) {
+      const shown = Math.min(box.width, column);
+      const tall = (box.height * shown) / box.width;
+      if (rowWidth > 0 && rowWidth + 8 + shown > column) {
+        bandHeight += rowHeight + 8;
+        rowWidth = 0;
+        rowHeight = 0;
+      }
+      rowWidth += (rowWidth > 0 ? 8 : 0) + shown;
+      rowHeight = Math.max(rowHeight, tall);
+    }
+    bandHeight += rowHeight;
     const otherAttachments = Math.max(
       0,
       Math.max(
         row.retryAttachments?.filter((part) => part.kind !== "image").length ?? 0,
         inlineParts.filter((part) => part.kind !== "text" && part.kind !== "image").length,
-      ) - videoCount,
+      ) - videos.length,
     );
-    // Each thumbnail row and the gap under it (conversation.css .cv-user__images, its 8px row gap
-    // and its ATTACHMENT_BAND_BELOW margin under the last row).
-    const attachmentHeight = imageRows
-      ? imageRows * SENT_IMAGE_HEIGHT + (imageRows - 1) * 8 + ATTACHMENT_BAND_BELOW + otherAttachments * 36
-      : otherAttachments * 36;
+    // The band and the gap under it (its ATTACHMENT_BAND_BELOW margin), then each file chip.
+    const attachmentHeight = (boxes.length ? bandHeight + ATTACHMENT_BAND_BELOW : 0) + otherAttachments * 36;
     // Its pending state is its footer's time slot (PromptDelivery.tsx), taking no line of its own,
     // so the row keeps its height when the send lands.
     return finish(attachmentHeight + messageBelow(beforeFooter) + chromeHeight(row, actions));
@@ -3716,11 +3752,8 @@ function attachmentBox(
   };
   if (part.kind === "image") return thumbnail(sentImageSize(part));
   const video = part.kind === "file" ? sentVideoOf(part, videos) : undefined;
-  if (video)
-    return thumbnail({
-      width: sentImageWidth(video),
-      height: SENT_IMAGE_HEIGHT,
-    });
+  // A video's tile: its own shape under the same rule (UserBubble.tsx `sentVideoSize`).
+  if (video) return thumbnail(sentVideoSize(video));
   // An image sent as its file's link draws as a sent image of unknown size (UserBubble.tsx
   // `SentLinkedImage`) until it is read.
   if (linkedImagePath(part)) return thumbnail(sentImageSize({}));

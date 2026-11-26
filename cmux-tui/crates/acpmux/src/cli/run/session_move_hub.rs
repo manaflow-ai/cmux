@@ -397,7 +397,8 @@ impl Moving<'_> {
             .map_err(|e| anyhow!(e))?;
             let mut sent = json!({"sessionId": id, "transferId": begun.transfer_id,
                                   "epoch": begun.epoch, "manifest": begun.begin,
-                                  "folder": folder_value(&folder, home, args.cwd.is_some())?});
+                                  "folder": folder_value(&folder, home, args.cwd.is_some())?,
+                                  "host": host});
             if let Some(stage_id) = &begun.stage_id {
                 sent.set("stageId", json!(stage_id));
             }

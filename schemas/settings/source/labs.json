@@ -301,6 +301,32 @@
           ]
         },
         {
+          "key": "labs.previousBuild",
+          "name": "previousBuild",
+          "note": "Opt-in \"Go back to previous build\" row on Settings > Updates (UpdaterService+PreviousBuild, `cmux app use previous`): shows the build this Mac kept before the last update and offers to reinstall it. Off by default; off hides the row. Leo 2026-11-21: \"agents being able to just say \\\"actually let's go back to this other version :)\\\" and/or the user should be able to easily access it too\".",
+          "title": {
+            "key": "settings.labs.previousBuild",
+            "text": "Go Back to Previous Build"
+          },
+          "help": {
+            "key": "settings.labs.previousBuild.help",
+            "text": "Show the build cmux kept before the last update on the Updates card, with a button to go back to it."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "update",
+            "updates",
+            "rollback",
+            "previous",
+            "build",
+            "version",
+            "go back",
+            "downgrade"
+          ]
+        },
+        {
           "key": "labs.hostsSidebar",
           "note": "Rex-style Hosts section in the sidebar. It projects the Machines page catalog, including Add Host and per-machine terminal actions. Off by default until the sidebar surface is ready.",
           "title": {

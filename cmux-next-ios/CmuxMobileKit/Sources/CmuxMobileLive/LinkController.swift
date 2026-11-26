@@ -623,6 +623,16 @@ public final class LinkController {
         link?.setForegroundProbe(onScreen && !machine.isBackgrounded)
     }
 
+    /// The keyboard is coming up over this link's terminal or chat: the
+    /// first key follows in a few hundred ms. Waking the radio now moves
+    /// the idle-to-connected promotion off that key (RFD 0142 T2). The
+    /// coordinator calls it for the focused Mac only; the Rust link
+    /// decides whether a datagram goes out.
+    public func prewake() {
+        guard onScreen, !machine.isBackgrounded else { return }
+        link?.prewake()
+    }
+
     private func adopt(_ link: any MacLink, generation: Int) {
         ConnectTimeline.shared.mark("link_adopted")
         self.link = link

@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers"
 import type { Env } from "./env.ts"
 import { FIRST_GRANT, MIB, RELAY_CLOSE } from "./relay-access.ts"
 import { checkFrame, RELAY_FRAME_MAX, withPeer } from "./relay-frame.ts"
+import { CACHE_PATH_PREFIX, cacheFetch, RelayCache } from "./relay-cache.ts"
 import { HoldQueue, parseHoldFrame } from "./relay-hold.ts"
 import { APP_PING, APP_PONG, userHubName, uuidToBytes } from "./team-hub.ts"
 
@@ -34,6 +35,21 @@ const HUB_ERROR_HOLD_MS = 1000
 /** A notice (`peer` offline, `error`) goes to one socket at most this often per kind. */
 export const RELAY_NOTICE_INTERVAL_MS = 5000
 
+/** How far back a rejoin's replay reaches: about one end-to-end retransmit timer of in-flight datagrams. */
+export const RELAY_TAIL_MS = 1000
+/** The most one session's tail holds (both directions); past it the oldest frames go first. */
+export const RELAY_TAIL_BYTES = 256 * 1024
+
+/** One frame of the tail, as it went (or would have gone) to `target`, peer id already stamped. */
+interface TailFrame {
+  readonly at: number
+  readonly target: string
+  readonly bytes: Uint8Array
+  /** Whether its bytes came out of the owner's budget yet (a frame held with no socket to go to has not). */
+  spent: boolean
+  readonly from: RelayAttachment
+}
+
 /** The tag of a netcheck socket (never a device id: those are UUIDs). */
 const NETCHECK_TAG = "netcheck"
 
@@ -63,7 +79,18 @@ type Bucket = { t: number; at: number }
  * end to end between the phone and the Mac. Hibernating WebSockets, tagged by device id, so a quiet session (a
  * link that settled on a direct path) costs nothing; the application ping is answered without waking it. It keeps
  * no storage, except the relay-held send queue's sealed items when `LINK_RELAY_HOLD=on` (RFD 0142 R8,
- * `relay-hold.ts`): bounded, expiring in 10 minutes, and never readable here.
+ * `relay-hold.ts`): bounded, expiring in 10 minutes, and never readable here. A source device's cache room (named by
+ * `relayCacheRoomName`, never a session) keeps sealed snapshots and deltas when `LINK_RELAY_CACHE=on` (RFD 0142 R2
+ * and R9, `relay-cache.ts`): bounded, expiring, and never readable here either.
+ *
+ * Tail replay (RFD 0142 R3, make-before-break): it keeps the last [`RELAY_TAIL_MS`] of frames it relayed or held
+ * toward each device, in memory and at most [`RELAY_TAIL_BYTES`] a session. A frame sent into a socket that is
+ * still open but whose network just went away (the phone moved from Wi-Fi to cell) is lost there, as is one sent
+ * while the device has no socket. When that device joins again (a newer socket replacing the old, or a redial),
+ * the tail goes out on the new socket at once, so the receiver has what was in flight one relay leg after it is
+ * back instead of after the sender's retransmit timer. The replayed datagrams are the same WireGuard ciphertext;
+ * the ones that did arrive die in WireGuard's replay window. The relay sees nothing it did not already see, and
+ * nothing is ever written to storage.
  *
  * Prewarmed (RFD 0142 C4, PROTOCOL.md "Relay placement"): the hub creates and places this object when it forwards
  * the session's first `wg-init` (`/prewarm`, no socket), so a later join finds it made and placed instead of
@@ -84,11 +111,16 @@ export class LinkRelay extends DurableObject<Env> {
   private deniedUntil = 0
   private asking: Promise<void> | undefined
   private waiting = 0
+  /** The tail ([`RELAY_TAIL_MS`], [`RELAY_TAIL_BYTES`]): memory only, oldest first. */
+  private tail: TailFrame[] = []
+  private tailBytes = 0
   private readonly holds: HoldQueue
+  private readonly cache: RelayCache
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
     this.holds = new HoldQueue(ctx.storage)
+    this.cache = new RelayCache(ctx.storage)
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(APP_PING, APP_PONG))
   }
 
@@ -102,6 +134,9 @@ export class LinkRelay extends DurableObject<Env> {
       this.prewarmedAt = Date.now()
       return new Response(null, { status: 204 })
     }
+    // The sealed snapshot cache and delta log (RFD 0142 R2, R9; relay-cache.ts): plain HTTP from the Worker, which
+    // checked the devices. Only a source's cache room (`relayCacheRoomName`) is ever sent these.
+    if (path.startsWith(CACHE_PATH_PREFIX)) return cacheFetch(this.cache, req, path)
     if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") return new Response("expected a WebSocket upgrade", { status: 426 })
     if (path === "/netcheck") return this.netcheck(req)
     const device = req.headers.get("x-cmux-relay-device") ?? ""
@@ -124,6 +159,7 @@ export class LinkRelay extends DurableObject<Env> {
     const other = this.socketOf(peer)
     server.send(JSON.stringify({ type: "joined", peer: other !== undefined }))
     if (other) other.send(JSON.stringify({ type: "peer", online: true }))
+    await this.replayTail(server, device)
     if (this.holdOn()) await this.drainHeld(server, device)
     const headers = new Headers()
     if (req.headers.get("x-cmux-relay-subprotocol")) headers.set("sec-websocket-protocol", RELAY_SUBPROTOCOL)
@@ -173,17 +209,68 @@ export class LinkRelay extends DurableObject<Env> {
     const att = this.attachment(ws)
     if (!att) return
     const target = this.socketOf(att.peer)
-    if (!target) return this.notice(ws, "peer", { type: "peer", online: false })
+    const stamped = withPeer(bytes, uuidToBytes(att.device))
+    if (!target) {
+      // Held for the peer's rejoin (it may be between two sockets), unspent until it goes.
+      this.keep(att.peer, stamped, false, att)
+      return this.notice(ws, "peer", { type: "peer", online: false })
+    }
     if (!(await this.spend(att, bytes.length))) return this.notice(ws, "rate_limited", { type: "error", code: "rate_limited" })
+    this.keep(att.peer, stamped, true, att)
     try {
-      target.send(withPeer(bytes, uuidToBytes(att.device)))
+      target.send(stamped)
     } catch {
       this.notice(ws, "peer", { type: "peer", online: false })
     }
   }
 
+  /** Add a frame to the tail, dropping what is older than [`RELAY_TAIL_MS`] or past [`RELAY_TAIL_BYTES`]. */
+  private keep(target: string, bytes: Uint8Array, spent: boolean, from: RelayAttachment) {
+    if (this.env.LINK_RELAY_TAIL === "off") return
+    const now = Date.now()
+    this.prune(now)
+    if (bytes.length > RELAY_TAIL_BYTES) return
+    this.tail.push({ at: now, target, bytes, spent, from })
+    this.tailBytes += bytes.length
+    while (this.tailBytes > RELAY_TAIL_BYTES) this.tailBytes -= this.tail.shift()!.bytes.length
+  }
+
+  private prune(now: number) {
+    let drop = 0
+    while (drop < this.tail.length && now - this.tail[drop]!.at > RELAY_TAIL_MS) this.tailBytes -= this.tail[drop++]!.bytes.length
+    if (drop) this.tail.splice(0, drop)
+  }
+
+  /**
+   * `device` just joined on `ws`: send it, oldest first, every frame of the last [`RELAY_TAIL_MS`] that went (or
+   * would have gone) to it, and take them out of the tail. A held frame spends its budget now; one the budget
+   * refuses is dropped, as it would have been live.
+   */
+  private async replayTail(ws: WebSocket, device: string) {
+    this.prune(Date.now())
+    const mine = this.tail.filter((f) => f.target === device)
+    if (mine.length === 0) return
+    this.tail = this.tail.filter((f) => f.target !== device)
+    for (const f of mine) this.tailBytes -= f.bytes.length
+    for (const f of mine) {
+      if (!f.spent && !(await this.spend(f.from, f.bytes.length))) continue
+      try {
+        ws.send(f.bytes)
+      } catch {
+        return
+      }
+    }
+  }
+
   override async alarm(): Promise<void> {
-    await this.holds.onAlarm(Date.now())
+    const now = Date.now()
+    await this.holds.onAlarm(now)
+    // A cache room's expiry shares the one alarm: re-arm for the earlier of the two.
+    const next = await this.cache.purge(now)
+    if (next !== undefined) {
+      const current = await this.ctx.storage.getAlarm()
+      if (current === null || current > next) await this.ctx.storage.setAlarm(next)
+    }
   }
 
   private holdOn(): boolean {

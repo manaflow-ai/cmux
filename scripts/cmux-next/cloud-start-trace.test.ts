@@ -48,6 +48,14 @@ describe("snappy-bench/v1 cloud leg", () => {
     expect(p50([3, 1, 2, 4])).toBe(3);
   });
 
+  test("guest-timed parts and the probe route's share sit beside the parts", () => {
+    const runs = [5000, 7000, 6000].map((g, i) => snappyRun({ steps: [{ step: "reply", fields: { create_marks_ms: marks, guest_ms: { first_token: g, harness_spawn: 400 + i } } }] })!);
+    const r = snappyReport(runs, null, { at: new Date(0) });
+    expect(r.rows.guest_parts).toEqual({ first_token: 6000, harness_spawn: 401 });
+    expect(r.rows.exec_route_ms?.first_token).toBe(runs[0].parts.first_token - 6000);
+    expect(snappyReport([snappyRun({ create_marks_ms: marks })!], null).rows).not.toHaveProperty("guest_parts");
+  });
+
   test("the floor picks its route from the environment and never puts a token in its answer", async () => {
     expect(floorRoute({})).toBeNull();
     expect(floorRoute({ ANTHROPIC_API_KEY: "k" })?.via).toBe("api-key");

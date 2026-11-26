@@ -87,6 +87,7 @@ blob Resources/theme-files/claude-desktop.json
 blob Resources/theme-files/harbor.json
 blob Resources/theme-files/lily-pond.json
 blob Resources/theme-files/meadow.json
+blob Resources/theme-files/miku.json
 blob Resources/theme-files/minimal-sessions.json
 blob Resources/theme-files/moss.json
 blob Resources/theme-files/phosphor.json

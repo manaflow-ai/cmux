@@ -127,6 +127,87 @@
 .ui-reveal:focus-visible {
   --ui-reveal-ms: 0s;
 }
+/* The text of a row whose trailing controls show only on hover (.ui-reveal, or a host's own reveal
+   rule) takes the row's whole width at rest; the controls lie over its end, never in a column of
+   their own (Leo, 2026-11-24: "if the buttons show on hover, then we should show the whole line
+   before ellipsis-ing ... some amount of good fading that makes it all feel like one motion"; "you're
+   early ellipsis-ing because of a button that doesnt even always show"). Its end fades out instead of
+   an ellipsis, and while the controls show the fade moves left past them (--ui-reveal-cover, the
+   controls' measured width from ui/revealCover.ts) on the reveal's own duration and curve, so the
+   text giving way and the controls coming in are one motion. A control that shows in some states
+   only (a failed run's Retry) is laid out in those states, not reserved in the others. Pattern:
+   cmuxterm-hq docs/handbook/patterns/hover-controls-reserve-width.md. */
+@property --ui-reveal-cover {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+.ui-reveal-text {
+  --ui-reveal-ms: var(--cmux-hover-reveal-out, 180ms);
+  --ui-reveal-ease: var(--cmux-hover-reveal-out-ease, ease-in);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: clip;
+  -webkit-mask-image: linear-gradient(
+    to left,
+    transparent var(--ui-reveal-cover),
+    #000 calc(var(--ui-reveal-cover) + var(--ui-reveal-fade, 20px))
+  );
+  mask-image: linear-gradient(
+    to left,
+    transparent var(--ui-reveal-cover),
+    #000 calc(var(--ui-reveal-cover) + var(--ui-reveal-fade, 20px))
+  );
+  transition: --ui-reveal-cover var(--ui-reveal-ms) var(--ui-reveal-ease);
+}
+.ui-reveal-host:hover .ui-reveal-text,
+.ui-reveal-host:focus-within .ui-reveal-text,
+.ui-reveal-host:has([data-popup-open]) .ui-reveal-text,
+.ui-reveal-text[data-revealed] {
+  --ui-reveal-ms: var(--cmux-hover-reveal-in, 400ms); /* motion-allow: the dwell ramp's fallback (desktop.css --cmux-hover-reveal-in) */
+  --ui-reveal-ease: var(--cmux-hover-reveal-in-ease, ease-out);
+  --ui-reveal-cover: var(--ui-reveal-controls-w, 0px);
+}
+.ui-reveal-host:has(:focus-visible) .ui-reveal-text {
+  --ui-reveal-ms: 0s;
+}
+@media (hover: none) {
+  .ui-reveal-text {
+    --ui-reveal-cover: var(--ui-reveal-controls-w, 0px);
+  }
+}
+/* A host whose words do not always reach its controls (ui/revealCover.ts `data-reveal-overlap`: a
+   line whose chevron follows its words, its controls before its time) fades its words' end only where
+   something is cut: at rest while they overflow, under the pointer while the controls lie over them;
+   a short line keeps its last letters whole. A mark that follows the words (.ui-reveal-under) gives
+   way while the controls lie over it. */
+@property --ui-reveal-fade {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 20px;
+}
+.ui-reveal-host[data-reveal-overlap] .ui-reveal-text {
+  transition:
+    --ui-reveal-cover var(--ui-reveal-ms) var(--ui-reveal-ease),
+    --ui-reveal-fade var(--ui-reveal-ms) var(--ui-reveal-ease);
+}
+.ui-reveal-host[data-reveal-overlap]:not([data-reveal-cut]) .ui-reveal-text {
+  --ui-reveal-fade: 0px;
+}
+.ui-reveal-host[data-reveal-overlap][data-reveal-covers]:is(:hover, :focus-within, :has([data-popup-open])) .ui-reveal-text {
+  --ui-reveal-fade: 20px;
+}
+.ui-reveal-under {
+  --ui-reveal-ms: var(--cmux-hover-reveal-out, 180ms);
+  --ui-reveal-ease: var(--cmux-hover-reveal-out-ease, ease-in);
+  transition: opacity var(--ui-reveal-ms) var(--ui-reveal-ease);
+}
+.ui-reveal-host[data-reveal-crowded]:is(:hover, :focus-within, :has([data-popup-open])) .ui-reveal-under {
+  --ui-reveal-ms: var(--cmux-hover-reveal-in, 400ms); /* motion-allow: the dwell ramp's fallback (desktop.css --cmux-hover-reveal-in) */
+  --ui-reveal-ease: var(--cmux-hover-reveal-in-ease, ease-out);
+  opacity: 0;
+}
 /* Both: the reveal's own in and out, and the fill's 80 ms fade beside them. */
 .ui-reveal.ui-hover-fill {
   transition:

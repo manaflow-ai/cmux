@@ -74,6 +74,10 @@ path = "tests/test_ci_cargo_affected.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_cdn_user_agent.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_change_areas.py"
 lane = "linux-guard"
 

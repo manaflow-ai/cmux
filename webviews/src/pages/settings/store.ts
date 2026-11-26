@@ -49,11 +49,11 @@ import {
   newIdempotencyKey,
   wireError,
   type AccountsRun,
-  type AccountsRunReply,
   type AccountsState,
   type AgentsRun,
   type AgentsState,
   type AppUpdateAction,
+  type PreviousBuild,
   type ChannelsState,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
@@ -102,20 +102,21 @@ import {
   type AgentConfigRun,
   type AllotmentSet,
   type AllotmentView,
-  type ArchivedRun,
-  type ArchivedState,
-  type DoctorReport,
-  type DoctorRun,
   type HubRun,
   type HubState,
+  type AccountsRunReply,
+  type DoctorReport,
+  type DoctorRun,
   type ConnectionsRun,
   type ConnectionsState,
+  type Checklist,
+  type ChecklistFact,
   type TailnetVMReply,
   type AutocloudAction,
   type AutocloudAnswer,
   type AutocloudState,
-  type Checklist,
-  type ChecklistFact,
+  type ArchivedRun,
+  type ArchivedState,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -748,6 +749,18 @@ export class SettingsStore {
     const reply = await this.request("cmux.settings.app_update.run", { action });
     await this.refreshHost();
     return reply.ok;
+  }
+
+  /** Updates > App Update's Go Back to Previous Build row; null when nothing is kept or the host has no updater. */
+  async previousBuild(): Promise<PreviousBuild | null> {
+    const reply = await this.request("cmux.settings.app_update.previous", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** That row's Go Back: the app restarts into the kept build; else the host's reason. */
+  async goBackToPreviousBuild(build: string): Promise<string | null> {
+    const reply = await this.request("cmux.settings.app_update.rollback", { build });
+    return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
   }
 
   /** Updates > Web UI: Check Now or Roll Back, then re-read the host lists; false when the host refused. */

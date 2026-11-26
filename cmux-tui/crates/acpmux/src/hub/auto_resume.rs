@@ -131,6 +131,11 @@ mod model_reroute;
 /// A sustained overload goes on on a smaller model, and back once a turn there ends well.
 mod capacity_failover;
 
+/// A host's background capacity waiters go back one probe at a time during an outage, then in
+/// a doubling stream once the model answers (`capacity_gate.rs`).
+mod capacity_gate;
+pub(crate) use capacity_gate::CapacityGate;
+
 /// The loop as Settings > Agents > Retry After Errors sets it (`agents.autoRetry.*`).
 mod settings;
 pub(in crate::hub) use settings::effective_delays;
@@ -835,6 +840,8 @@ impl Hub {
             Mark::Waiting { turn: turn_id.to_owned(), retry: None, _wake: Wake(wake.clone()) };
         pending.replace(mark);
         drop(pending);
+        // A background chat cut on capacity tells the host's gate the pool is out.
+        self.capacity_gate_cut(session, Some(reason));
         let (root, done) = split_attempt(cut.prompt_id);
         let (root, turn_id, error) =
             (root.to_owned(), cut.turn_id.to_owned(), cut.error.to_owned());
@@ -946,6 +953,21 @@ impl Hub {
                 // takes the new deadline.
                 hub.idle_wake.notify_one();
                 hub.wait_retry(&session, &turn_id, reason, next_at, &wake).await;
+                // Its wait over, a background capacity continuation waits its turn at the
+                // host's gate; the permit lives as long as its attempt.
+                let _permit = hub.capacity_gate_admit(&session, &turn_id, reason, &wake).await;
+                let cut = CutTurn {
+                    from: from.as_deref(),
+                    prompt_id: &root,
+                    turn_id: &turn_id,
+                    control,
+                    trust_gate,
+                    error: &error,
+                    not_before: None,
+                    slash: slash.as_deref(),
+                };
+                hub.resume_or_compact(&session, cut, attempt).await;
+                return;
             }
             let cut = CutTurn {
                 from: from.as_deref(),

@@ -357,6 +357,7 @@ pub(super) fn shq(text: &str) -> String {
 /// `acpmux.service` listens (cmux-host `cloud/role.rs` `acpmux_home`). Without the last the start
 /// answered "no acpmux socket" on staging machines the TypeScript journey started agents on
 /// (backend runs 45306859441, 45310842160, 45312889044).
+#[cfg(test)]
 pub(super) fn launch_credential_program(
     session: &str,
     harness: &str,

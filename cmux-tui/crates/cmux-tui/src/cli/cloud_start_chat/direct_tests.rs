@@ -22,6 +22,9 @@ fn row(id: &str, name: &str, status: &str, host: Option<&str>) -> Row {
         name: Some(name.into()),
         status: status.into(),
         host: host.map(Into::into),
+        created_at: None,
+        running_since: None,
+        size: None,
     }
 }
 
@@ -46,10 +49,28 @@ impl Cloud for FakeCloud {
     }
     fn start(&mut self, machine: &str, key: &str) -> Result<Row, Value> {
         self.asked.push(format!("start {machine} {key}"));
-        let r = self.rows.iter_mut().find(|r| r.id == machine).unwrap();
+        let r = self.rows.iter_mut().find(|r| r.id == machine).ok_or_else(gone)?;
+        if r.status != "paused" {
+            return Err(json!({"code": "cloud.machine.not_paused", "message": "not paused"}));
+        }
         r.status = "running".into();
         r.host = Some("h-1".into());
         Ok(r.clone())
+    }
+    fn pause(&mut self, machine: &str, key: &str) -> Result<Row, Value> {
+        self.asked.push(format!("pause {machine} {key}"));
+        let r = self.rows.iter_mut().find(|r| r.id == machine).ok_or_else(gone)?;
+        if r.status != "running" {
+            return Err(json!({"code": "cloud.machine.not_running", "message": "not running"}));
+        }
+        r.status = "paused".into();
+        r.host = None;
+        Ok(r.clone())
+    }
+    fn delete(&mut self, machine: &str, key: &str) -> Result<(), Value> {
+        self.asked.push(format!("delete {machine} {key}"));
+        self.rows.retain(|r| r.id != machine);
+        Ok(())
     }
     fn exec(&mut self, machine: &str, command: &str, _timeout_ms: u64) -> Result<Value, Value> {
         self.asked.push(format!("exec {machine}"));
@@ -62,6 +83,22 @@ impl Cloud for FakeCloud {
     fn new_key(&mut self) -> String {
         "key-0123456789abcdef".into()
     }
+}
+
+fn gone() -> Value {
+    json!({"code": "cloud.machine.not_found", "message": "gone"})
+}
+
+fn fake(rows: Vec<Row>) -> FakeCloud {
+    FakeCloud { rows, asked: Vec::new(), execs: VecDeque::new(), commands: Vec::new() }
+}
+
+/// One app verb on the direct route: its answer (`result`) or its error.
+fn verb(cloud: &mut FakeCloud, words: &[&str]) -> (Result<Value, Value>, Vec<Vec<String>>) {
+    let mut inner = Fake::new(vec![]);
+    let args: Vec<String> = words.iter().map(|w| (*w).to_owned()).collect();
+    let ran = DirectRunner { inner: &mut inner, cloud }.cmux(&args);
+    (super::super::step_result(&ran), inner.ran)
 }
 
 fn out(stdout: &str) -> Result<Value, Value> {
@@ -128,6 +165,63 @@ fn a_name_no_machine_has_is_made_once_and_waited_on() {
     // A session that answered no id is the name it was started with.
     assert!(answer["session_id"].as_str().unwrap().starts_with("chat-"), "{answer}");
     assert_eq!(cloud.asked.iter().filter(|a| a.starts_with("create lane-x")).count(), 1);
+    // The fake says nothing of a claim: the answer says so rather than guessing.
+    assert_eq!(answer["machine_origin"], json!({"from": "unknown"}), "{answer}");
+}
+
+#[test]
+fn an_existing_machine_answers_that_it_existed() {
+    let asked = request(&["--name", "dev"]);
+    let mut inner = Fake::new(vec![]);
+    let mut cloud = FakeCloud {
+        rows: vec![row("vm-1", "dev", "running", Some("h-1"))],
+        asked: Vec::new(),
+        execs: VecDeque::from([out("@@session s\n"), out("@@cwd\n")]),
+        commands: Vec::new(),
+    };
+    let done = run(&mut DirectRunner { inner: &mut inner, cloud: &mut cloud }, &asked);
+    let Outcome::Done(answer) = done else { panic!("{done:?}") };
+    assert_eq!(
+        answer["machine_origin"],
+        json!({"from": "existing", "status_before": "running"}),
+        "{answer}"
+    );
+}
+
+#[test]
+fn a_reused_machine_records_its_uptime_age_and_size() {
+    let now = 1_800_000_000_000;
+    let mut vm = row("vm-1", "dev", "running", Some("h-1"));
+    vm.created_at = Some(now - 7_200_000);
+    vm.running_since = Some(now - 600_000);
+    vm.size = Some(json!({"cpu": 2, "memory_mb": 4096, "disk_mb": 20480}));
+    assert_eq!(
+        vm.reused(now),
+        json!({"from": "existing", "status_before": "running", "uptime_s": 600, "age_s": 7200,
+            "size": {"cpu": 2, "memory_mb": 4096, "disk_mb": 20480}})
+    );
+    // A paused machine has no uptime (it is resumed for the start); a clock behind the
+    // platform's records no negative age.
+    vm.status = "paused".into();
+    assert_eq!(vm.reused(now)["uptime_s"], Value::Null);
+    assert_eq!(vm.reused(now - 10_000_000)["age_s"], Value::Null);
+}
+
+#[test]
+fn spare_origin_reads_the_create_answer_claim() {
+    use super::super::direct::spare_origin;
+    let spare = json!({"machine": {}, "spare_path": "running", "spare_fallback": null,
+        "claim": {"path": "running", "fallback": null, "ms": 412}});
+    assert_eq!(spare_origin(&spare), json!({"from": "spare", "path": "running", "claim_ms": 412}));
+    let resumed = json!({"claim": {"path": "resumed", "fallback": null, "ms": 1900}});
+    assert_eq!(spare_origin(&resumed)["from"], "spare");
+    let fresh = json!({"spare_fallback": "no_spare", "claim": {"path": "created", "fallback": "no_spare", "ms": 30}});
+    assert_eq!(
+        spare_origin(&fresh),
+        json!({"from": "fresh", "path": "created", "fallback": "no_spare", "claim_ms": 30})
+    );
+    // An answer with no claim (a replay, a caller the platform hands no spare).
+    assert_eq!(spare_origin(&json!({"machine": {}})), json!({"from": "unknown"}));
 }
 
 #[test]
@@ -166,4 +260,90 @@ fn a_launch_credential_goes_to_session_new_never_to_argv_words() {
     assert!(with.contains("session/new") && with.contains("python3 -I -"), "{with}");
     let plain = start_program("s1", "codex", Some("gpt-5.5"), Some("/a b"), None);
     assert!(plain.contains("-m codex/gpt-5.5") && plain.contains("--cwd '/a b'"), "{plain}");
+}
+
+#[test]
+fn pause_resume_and_kill_answer_from_the_cmux_api_with_no_app() {
+    let mut cloud = fake(vec![row("vm-1", "dev", "running", Some("h-1"))]);
+    let (paused, app) = verb(&mut cloud, &["cloud", "pause-machine", "--target", "machine:vm-1"]);
+    let paused = paused.unwrap();
+    assert_eq!(paused["machine_id"], "vm-1");
+    assert_eq!(paused["machine_name"], "dev");
+    assert_eq!(paused["status"], "paused");
+    assert_eq!(paused["route"], "direct");
+    assert!(app.is_empty(), "no app verb: {app:?}");
+
+    // `vm:ID`, the spelling cloud_help prints, names the same machine.
+    let (resumed, app) = verb(&mut cloud, &["cloud", "resume-machine", "--target", "vm:vm-1"]);
+    assert_eq!(resumed.unwrap()["status"], "running");
+    assert!(app.is_empty(), "no app verb: {app:?}");
+
+    let (killed, app) =
+        verb(&mut cloud, &["cloud", "kill-machine", "--target", "vm-1", "--yes", "--json"]);
+    let killed = killed.unwrap();
+    assert_eq!(killed["machine_id"], "vm-1");
+    assert_eq!(killed["deleted"], true);
+    assert!(app.is_empty(), "no app verb: {app:?}");
+    assert!(cloud.rows.is_empty());
+    assert_eq!(
+        cloud.asked,
+        [
+            "pause vm-1 key-0123456789abcdef",
+            "start vm-1 key-0123456789abcdef",
+            "delete vm-1 key-0123456789abcdef"
+        ]
+    );
+}
+
+#[test]
+fn pausing_a_paused_machine_or_resuming_a_running_one_answers_its_state() {
+    let mut cloud = fake(vec![row("vm-1", "dev", "paused", None)]);
+    let (paused, _) = verb(&mut cloud, &["cloud", "pause-machine", "--target", "machine:vm-1"]);
+    assert_eq!(paused.unwrap()["status"], "paused");
+    let mut cloud = fake(vec![row("vm-2", "b", "running", Some("h"))]);
+    let (resumed, _) = verb(&mut cloud, &["cloud", "resume-machine", "--target", "machine:vm-2"]);
+    assert_eq!(resumed.unwrap()["status"], "running");
+}
+
+#[test]
+fn kill_needs_yes_and_every_verb_needs_a_target() {
+    let mut cloud = fake(vec![row("vm-1", "dev", "running", Some("h-1"))]);
+    let (refused, _) = verb(&mut cloud, &["cloud", "kill-machine", "--target", "machine:vm-1"]);
+    let refused = refused.unwrap_err();
+    assert_eq!(refused["code"], "usage.invalid");
+    assert!(refused["message"].as_str().unwrap().contains("--yes"), "{refused}");
+    assert_eq!(cloud.rows.len(), 1, "nothing deleted without --yes");
+    for name in ["pause-machine", "resume-machine", "kill-machine"] {
+        let (refused, _) = verb(&mut cloud, &["cloud", name, "--yes"]);
+        assert_eq!(refused.unwrap_err()["code"], "usage.invalid", "{name}");
+        let (refused, _) = verb(&mut cloud, &["cloud", name, "--target", "workspace:3", "--yes"]);
+        assert_eq!(refused.unwrap_err()["code"], "usage.invalid", "{name}");
+    }
+    assert!(cloud.asked.is_empty(), "{:?}", cloud.asked);
+}
+
+#[test]
+fn a_missing_machine_is_refused_with_the_apis_code() {
+    let mut cloud = fake(vec![]);
+    let (refused, _) = verb(&mut cloud, &["cloud", "pause-machine", "--target", "machine:vm-9"]);
+    assert_eq!(refused.unwrap_err()["code"], "cloud.machine.not_found");
+}
+
+/// A message to a chat already on a machine (`cmux chat send SESSION`) execs through the cmux API.
+#[test]
+fn a_message_to_an_existing_chat_runs_with_no_app() {
+    let asked = request(&["--prompt", "next step", "--target", "machine:vm-1"]);
+    let mut inner = Fake::new(vec![]);
+    let mut cloud = fake(vec![row("vm-1", "dev", "running", Some("h-1"))]);
+    cloud.execs = VecDeque::from([out(SEND)]);
+    let sent = send_to(
+        &mut DirectRunner { inner: &mut inner, cloud: &mut cloud },
+        &asked,
+        "vm-1",
+        "sess-1",
+    );
+    let Outcome::Done(answer) = sent else { panic!("{sent:?} {:?}", cloud.asked) };
+    assert_eq!(answer["sent"], true, "{answer}");
+    assert!(inner.ran.is_empty(), "no app verb reached the app: {:?}", inner.ran);
+    assert!(cloud.commands[0].contains("sess-1"), "{}", cloud.commands[0]);
 }

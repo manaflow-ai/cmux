@@ -292,6 +292,7 @@ fn dispatch_command(
             projection,
             mutation,
         ),
+        Command::FlushLaunchSnapshot => launch_snapshot::flush_command(mux),
         Command::JournalFrontendEvent { event } => {
             cmd_frontend::journal_frontend_event(mux, client, event)
         }

@@ -82,6 +82,53 @@ class CefTraceTasks(unittest.TestCase):
                          [("CrBrowserMain", "Receive blink.mojom.LocalFrameHost::UpdateState", 1.0),
                           ("Chrome_IOThread", "Send cef.mojom.RenderFrame::SendMessage", 0.25)])
 
+    def test_mojo_events_name_their_interface_and_requests_their_url(self):
+        # 8571eee5 (cmux20-bench, 2026-11-25): the browser's I/O thread ran "SimpleWatcher::OnHandleReady" 10.6/s and
+        # "Receive mojo message" 6.2/s at idle, and RunReadCallback (stream_reader_url_loader.cc) 2.7/s, but no row
+        # said which interface or which URL. Their typed arguments do: the summary keeps them per event.
+        def ev(ts_s, name, tid, args, pid=10):
+            return {"ph": "X", "name": name, "ts": ts_s * S, "dur": 3, "pid": pid, "tid": tid, "args": args}
+        watch = {"chrome_mojo_event_info": {"watcher_notify_interface_tag": "network.mojom.URLLoaderClient"}}
+        other = {"chrome_mojo_event_info": {"watcher_notify_interface_tag": "blink.mojom.WidgetHost"}}
+        events = META + [{"ph": "M", "name": "process_name", "pid": 11, "args": {"name": "Renderer"}},
+                         {"ph": "M", "name": "thread_name", "pid": 11, "tid": 5, "args": {"name": "CrRendererMain"}}] \
+            + [task(0, "Startup")] \
+            + [ev(t, "SimpleWatcher::OnHandleReady", 2, watch) for t in range(30, 130)] \
+            + [ev(t, "SimpleWatcher::OnHandleReady", 2, other) for t in range(30, 130, 4)] \
+            + [ev(t, "ResourceSendRequest", 5, {"data": {"url": "cmux-page://cmux.agent/api/poll?x=1"}}, pid=11)
+               for t in range(30, 130, 2)] \
+            + [task(130, "End")]
+        got = idle_cpu.cef_trace_tasks({"traceEvents": events}, skip_s=30)
+        row = got["events"][0]
+        self.assertEqual((row["name"], row["per_s"]), ("SimpleWatcher::OnHandleReady", 1.25))
+        self.assertEqual(row["args"][0], {"arg": "chrome_mojo_event_info.watcher_notify_interface_tag=network.mojom.URLLoaderClient",
+                                          "per_s": 1.0})
+        self.assertEqual(row["args"][1]["arg"], "chrome_mojo_event_info.watcher_notify_interface_tag=blink.mojom.WidgetHost")
+        self.assertEqual(got["urls"], [{"process": "Renderer", "url": "cmux-page://cmux.agent/api/poll", "count": 50,
+                                        "per_s": 0.5}])
+
+    def test_the_trace_records_url_loading(self):
+        cats = idle_cpu.CEF_TRACE_CATEGORIES.split(",")
+        for want in ("ipc", "mojom", "loading", "blink.resource"):
+            self.assertIn(want, cats)
+
+    def test_only_the_measured_windows_count(self):
+        # 557acd48 (cmux20-bench, 2026-11-25): a 150 s trace from the launch covered only the settle before the
+        # windows (the bench idles --minutes first), where the hidden agent pages still loaded their chunks. Events
+        # count only between the windows' start and end (monotonic seconds, the clock Chromium stamps with).
+        events = META + [task(t, "Settle") for t in range(0, 200)] + [task(t, "Idle") for t in range(200, 260, 2)] + [task(300, "After")]
+        got = idle_cpu.cef_trace_tasks({"traceEvents": events}, skip_s=30, window=(200.0, 260.0))
+        self.assertEqual([(r["posted_from"], r["per_s"]) for r in got["tasks"]], [("Idle (a/b.cc)", 0.5)])
+        self.assertEqual((got["seconds"], got["window"]), (60.0, "measured"))
+        # A window the trace does not reach (another clock): the old skip, said so.
+        got = idle_cpu.cef_trace_tasks({"traceEvents": events}, skip_s=30, window=(9000.0, 9060.0))
+        self.assertEqual(got["window"], "unmatched")
+        self.assertIn("Settle (a/b.cc)", [r["posted_from"] for r in got["tasks"]])
+
+    def test_the_trace_lasts_through_the_windows(self):
+        self.assertEqual(idle_cpu.cef_trace_seconds(minutes=3, windows=3, window=60), 390)
+        self.assertEqual(idle_cpu.cef_trace_seconds(minutes=10, windows=3, window=60), 600)
+
     def test_a_bare_event_list_and_no_tasks(self):
         self.assertEqual(idle_cpu.cef_trace_tasks(META, skip_s=30)["tasks"], [])
 

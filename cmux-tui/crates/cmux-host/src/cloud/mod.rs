@@ -90,6 +90,9 @@ pub mod page_in;
 mod page_in_tests;
 #[cfg(target_os = "linux")]
 mod poster_http;
+pub mod pressure;
+#[cfg(test)]
+mod pressure_tests;
 #[cfg(target_os = "linux")]
 pub mod role;
 pub mod sender;

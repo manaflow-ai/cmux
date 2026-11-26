@@ -397,6 +397,24 @@ export type AppUpdateState = {
   schedule?: { id: string; label: string; value: string }[];
 };
 
+/**
+ * Updates > App Update's Go Back to Previous Build (`cmux.settings.app_update.previous`, read when
+ * the card shows): the newest build this Mac kept, named by number, day and commit, and why the one
+ * rollback path refuses it (null: it would run). Every text is the host's; null when nothing is kept.
+ */
+export type PreviousBuild = {
+  build: string;
+  version: string;
+  date: string | null;
+  commit: string | null;
+  commit_url: string | null;
+  title: string;
+  action: string;
+  detail: string;
+  build_label: string;
+  refusal: string | null;
+};
+
 /** A button of the App Update card (Swift `SettingsUpdateAction`). */
 export type AppUpdateAction = "check" | "update" | "cancel_download" | "retry" | "install";
 
@@ -1122,6 +1140,30 @@ export type LibraryEntry = {
   added_ms: number | null;
   /** Keys and files a higher entry that is on sets too, so this one's value is not in use. */
   overridden: string[];
+  /** The unmerged pull request a `pr-N` entry is (`cmux customize use pr:N`; cmux-customize
+   * `library/code.rs` `CodeLayer`). Absent on every other entry. */
+  code?: LibraryCode;
+};
+
+/** A pull request's code as a library entry: its web part is served on this app while it is on and
+ * the highest such entry; what it cannot carry needs a build. */
+export type LibraryCode = {
+  /** `owner/name`. */
+  repo: string;
+  pr: number;
+  title: string;
+  /** The PR head the layer was built from. */
+  head: string;
+  /** The commit CI merged the head onto. */
+  base: string;
+  /** The published web bundle key; absent when the PR changes no web bundle (nothing applies to a
+   * running app, so the CLI refuses to turn it on). */
+  web?: string;
+  abi?: number;
+  /** What the layer cannot carry, one line each: "needs a build: ...". */
+  needs_build?: string[];
+  /** The last refresh's word on it: `in your build`, `no longer applies: ...`, `newer head ...`. */
+  note?: string;
 };
 
 /** Two or more entries that are on set the same key or file; the highest one's value is in use. */
@@ -2324,6 +2366,10 @@ export type SettingsOps = {
   "cmux.settings.mobile.answer_pair": [{ id: string; allow: boolean }, Record<string, never>];
   /** Native: Updates > App Update's buttons (Restart to Update only on the person's own click); the host lists follow. */
   "cmux.settings.app_update.run": [{ action: AppUpdateAction }, Record<string, never>];
+  /** Native: Updates > App Update's Go Back to Previous Build row, read on demand (null: nothing kept). */
+  "cmux.settings.app_update.previous": [Record<string, never>, PreviousBuild | null];
+  /** Native: that row's Go Back: restarts once into the kept build through the one rollback path (the person's gesture only). */
+  "cmux.settings.app_update.rollback": [{ build: string }, Record<string, never>];
   /** Native: Updates > Web UI's Check Now (updates.web.check); the host lists follow the check. */
   "cmux.settings.web_updates.check": [Record<string, never>, Record<string, never>];
   /** Native: Updates > Web UI's Roll Back (updates.web.rollback), from the next safe point. */

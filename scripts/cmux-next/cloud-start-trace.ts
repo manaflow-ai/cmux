@@ -205,7 +205,16 @@ export function stepParts(stages: any): Record<string, number> {
 }
 
 /** One run's numbers from a journey probe.json / journey.json or an hq probe row: null when it has no times. */
-export function snappyRun(row: any): { send_first_token_ms: number | null; parts: Record<string, number>; sign_in_ms?: number; run?: string } | null {
+/** The parts the guest timed on its own clock (journey `guest_ms`): what each part costs on the machine, without the
+ * probe's exec round trips, which the app (on the carrier) never pays. */
+export function guestParts(row: any): Record<string, number> {
+  const g = row?.guest_ms ?? [...(Array.isArray(row?.steps) ? row.steps : [])].reverse().find((s: any) => s?.fields?.guest_ms)?.fields?.guest_ms;
+  const out: Record<string, number> = {};
+  if (g && typeof g === "object") for (const [k, v] of Object.entries(g)) if (typeof v === "number" && Number.isFinite(v) && v >= 0) out[k] = v;
+  return out;
+}
+
+export function snappyRun(row: any): { send_first_token_ms: number | null; parts: Record<string, number>; guest_parts?: Record<string, number>; sign_in_ms?: number; run?: string } | null {
   const marks: Record<string, number> | undefined = row?.create_marks_ms
     ?? [...(Array.isArray(row?.steps) ? row.steps : [])].reverse().find((s: any) => s?.fields?.create_marks_ms)?.fields?.create_marks_ms;
   const fromSteps = stepParts(row?.stages_ms);
@@ -217,9 +226,11 @@ export function snappyRun(row: any): { send_first_token_ms: number | null; parts
   if (!marks) return { send_first_token_ms: first, parts, ...(typeof row?.launch_to_signed_in_ms === "number" ? { sign_in_ms: row.launch_to_signed_in_ms } : {}), ...(typeof row?.run === "string" && /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/actions\/runs\/\d+$/.test(row.run) ? { run: row.run } : {}) };
   // An hq row's reply time when its marks stop at `sent` (the app reads the reply, not a first-text mark).
   if (parts.first_token === undefined && first !== null && marks?.sent !== undefined && first >= marks.sent) parts.first_token = first - marks.sent;
+  const guest = guestParts(row);
   return {
     send_first_token_ms: first,
     parts,
+    ...(Object.keys(guest).length ? { guest_parts: guest } : {}),
     ...(typeof row?.launch_to_signed_in_ms === "number" ? { sign_in_ms: row.launch_to_signed_in_ms } : {}),
     ...(typeof row?.run === "string" && /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/actions\/runs\/\d+$/.test(row.run) ? { run: row.run } : {}),
   };
@@ -292,7 +303,7 @@ export async function modelFloor(env: Record<string, string | undefined>, model:
 
 export type SnappyReport = {
   schema: "snappy-bench/v1"; at: string; sha: string | null; host: string; platform: string; surface: "cloud"; mode: "active"; duress: string;
-  rows: { send_first_token_ms: (number | null)[]; send_first_token_p50_ms: number | null; model_floor_ttft_ms: number | null; parts: Record<string, number>; runs?: unknown[]; model?: string; floor?: unknown; slowest_part?: string | null };
+  rows: { send_first_token_ms: (number | null)[]; send_first_token_p50_ms: number | null; model_floor_ttft_ms: number | null; parts: Record<string, number>; guest_parts?: Record<string, number>; exec_route_ms?: Record<string, number>; runs?: unknown[]; model?: string; floor?: unknown; slowest_part?: string | null };
   run_url: string | null;
 };
 
@@ -302,6 +313,15 @@ export function snappyReport(runs: NonNullable<ReturnType<typeof snappyRun>>[], 
   for (const [name] of SNAPPY_PARTS) {
     const v = p50(runs.map((r) => r.parts[name]).filter((n): n is number => typeof n === "number"));
     if (v !== null) parts[name] = v;
+  }
+  // Guest-timed parts and, per part, what the probe's own route added (part minus the guest's time for it).
+  const guest: Record<string, number> = {};
+  const route: Record<string, number> = {};
+  for (const name of new Set(runs.flatMap((r) => Object.keys(r.guest_parts ?? {})))) {
+    const v = p50(runs.map((r) => r.guest_parts?.[name]).filter((n): n is number => typeof n === "number"));
+    if (v !== null) guest[name] = v;
+    const d = p50(runs.map((r) => (r.guest_parts?.[name] !== undefined && r.parts[name] !== undefined ? r.parts[name] - r.guest_parts[name] : undefined)).filter((n): n is number => typeof n === "number"));
+    if (d !== null) route[name] = d;
   }
   const signIn = p50(runs.map((r) => r.sign_in_ms).filter((n): n is number => typeof n === "number"));
   if (signIn !== null) parts.sign_in = signIn; // before the send (app launch to signed in), not inside send_first_token_ms
@@ -321,10 +341,11 @@ export function snappyReport(runs: NonNullable<ReturnType<typeof snappyRun>>[], 
       send_first_token_p50_ms: p50(send.filter((n): n is number => n !== null)),
       model_floor_ttft_ms: floor?.ms ?? null,
       parts,
+      ...(Object.keys(guest).length ? { guest_parts: guest, exec_route_ms: route } : {}),
       slowest_part: slowest,
       ...(o.model ? { model: o.model } : {}),
       ...(floor ? { floor: { runs: floor.runs ?? [], via: floor.via ?? null, ...(floor.missing ? { missing: floor.missing } : {}) } } : {}),
-      runs: runs.map((r) => ({ send_first_token_ms: r.send_first_token_ms, parts: r.parts, ...(r.run ? { run: r.run } : {}) })),
+      runs: runs.map((r) => ({ send_first_token_ms: r.send_first_token_ms, parts: r.parts, ...(r.guest_parts ? { guest_parts: r.guest_parts } : {}), ...(r.run ? { run: r.run } : {}) })),
     },
     run_url: o.runUrl ?? runs.find((r) => r.run)?.run ?? null,
   };

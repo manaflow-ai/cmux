@@ -204,6 +204,8 @@ struct TabOverview<Source: TabsDataSource>: View {
     /// The grid is at rest (no zoom running): cards off screen are built
     /// ahead only then, so the zoom's frames build nothing but what it shows.
     var isSettled = true
+    /// The settle animation's scale and blur (`TabTransitionVariant`).
+    var transition: TabTransitionVariant = .safari
 
     var body: some View {
         let tabs = source.tabs
@@ -280,8 +282,8 @@ struct TabOverview<Source: TabsDataSource>: View {
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
             }
-            .scaleEffect(1.06 - 0.06 * shown)
-            .blur(radius: 10 * (1 - shown))
+            .scaleEffect(transition.gridScale(shown: shown))
+            .blur(radius: transition.gridBlur(shown: shown))
             .allowsHitTesting(gridInteractive || swipeInteractive)
 
             // Glass ignores inherited opacity, so the hidden controls are

@@ -305,4 +305,29 @@ import Testing
         let object = try #require(place.evacuateJSON(canBringBack: 3).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })
         #expect(Set(object.keys) == ["canBringBack"])
     }
+
+    /// The header's `place` carries Rust's `blocked` and `holders` for the control's facts, and sends the chat's own session.
+    nonisolated final class SentControl: @unchecked Sendable { var request: [String: Any]? }
+
+    @Test func placeCarriesTheControlsBlockedAndHoldersFromRust() throws {
+        let sent = SentControl()
+        let place = CloudPlaceFlows(defaults: UserDefaults(suiteName: "CloudPlaceFlowsTests.\(UUID().uuidString)")!, core: { operation, request in
+            guard operation == "cloud_move_place_control" else { return nil }
+            sent.request = try? JSONSerialization.jsonObject(with: request) as? [String: Any]
+            return Data(#"{"blocked":{"why":"signed-out"},"holders":[{"session":"h","title":"Held"}]}"#.utf8)
+        }, clock: { 1 })
+        let chats = place.controlChats([CloudPlaceChat(id: "t", session: "h", title: "Held", onCloud: true, turnRunning: true, turnStartedAtMs: 5, moving: false)])
+        let facts = CloudPlaceFlows.ControlFacts(signedIn: false, restoring: false, planKnown: true, planId: "next_plus", chats: chats)
+        let object = try #require(place.placeJSON(session: "s", onCloud: false, cloudName: nil, control: facts)
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })
+        #expect((object["blocked"] as? [String: Any])?["why"] as? String == "signed-out")
+        #expect(((object["holders"] as? [[String: Any]])?.first)?["session"] as? String == "h")
+        #expect(sent.request?["session"] as? String == "s")
+        #expect(sent.request?["planId"] as? String == "next_plus")
+        let chat = try #require((sent.request?["chats"] as? [[String: Any]])?.first)
+        #expect(chat["pin"] as? String == "cloud" && chat["at"] as? String == "cloud" && chat["hasWork"] as? Bool == true)
+        // No control facts, or an FFI with no op: the place is as before.
+        let plain = try #require(place.placeJSON(session: "s", onCloud: false, cloudName: nil).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })
+        #expect(plain["blocked"] == nil && plain["holders"] == nil)
+    }
 }

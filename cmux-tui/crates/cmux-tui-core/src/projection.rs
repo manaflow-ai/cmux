@@ -44,6 +44,13 @@
 //! - `{"id", "cmd": "projection.unpin", "name", "path"}`: its bytes go back to the cache, which
 //!   may evict them: `{"path", "unpinned": true, "pinned_bytes", "pins"}`;
 //! - `{"id", "cmd": "projection.pins", "name"}`: `{"pinned_bytes", "pins"}`.
+//! - `{"id", "cmd": "projection.warm", "name", "paths"}`: the files at or under `paths` (in order,
+//!   at most [`WARM_MAX_FILES`] files and [`WARM_MAX_BYTES`] bytes) fetched into the cache like a
+//!   read's, before the answer: nothing pinned, recorded or shown in `pins`. The Mac sends its
+//!   predicted hot set (instruction files, its changed and newest files) once the folder is
+//!   mounted, so the agent's first reads find their bytes here. `{"files", "bytes",
+//!   "fetched_bytes", "failed", "first_error", "away"}`. A daemon older than this answers it
+//!   unknown, and the Mac lets it go.
 //!
 //! `pins` is one `{"path", "files", "bytes", "local_bytes", "present", "complete"}` per pin, and
 //! `pinned_bytes` the bytes kept on disk for them; a mount's answer carries both too.
@@ -120,6 +127,12 @@ pub const RELEASE: &str = "projection.release";
 pub const PIN: &str = "projection.pin";
 pub const UNPIN: &str = "projection.unpin";
 pub const PINS: &str = "projection.pins";
+/// The Mac's predicted hot set, fetched into the cache (module docs).
+pub const WARM: &str = "projection.warm";
+/// The most files one [`WARM`] fetches.
+pub const WARM_MAX_FILES: usize = 256;
+/// The most bytes one [`WARM`] fetches.
+pub const WARM_MAX_BYTES: u64 = 32 * 1024 * 1024;
 /// How long after the daemon starts the first reaper pass runs (acpmux starts beside it).
 const REAP_FIRST_AFTER: std::time::Duration = std::time::Duration::from_secs(60);
 /// How often the reaper runs.
@@ -351,7 +364,7 @@ pub fn frame_command(line: &str) -> Option<&'static str> {
         return None;
     }
     let cmd = object.get("cmd")?.as_str()?;
-    [SERVE, LAYER, FILES, DROP, BROUGHT_BACK, RELEASE, PIN, UNPIN, PINS]
+    [SERVE, LAYER, FILES, DROP, BROUGHT_BACK, RELEASE, PIN, UNPIN, PINS, WARM]
         .into_iter()
         .find(|known| *known == cmd)
 }
@@ -592,6 +605,9 @@ struct WayBackLine {
     /// [`PIN`]'s and [`UNPIN`]'s path, relative to the projected folder.
     #[serde(default)]
     path: Option<String>,
+    /// [`WARM`]'s paths, relative to the projected folder.
+    #[serde(default)]
+    paths: Vec<String>,
 }
 
 /// A projection name: 1-64 letters, digits, `-` or `_`.
@@ -697,7 +713,7 @@ fn way_back_answer(
             Ok((json!({}), WayBackBody::Files(state, paths)))
         }
         BROUGHT_BACK | RELEASE => Ok((free(cmd, &line, &state)?, WayBackBody::None)),
-        PIN | UNPIN | PINS => Ok((pin_answer(cmd, &line)?, WayBackBody::None)),
+        PIN | UNPIN | PINS | WARM => Ok((pin_answer(cmd, &line)?, WayBackBody::None)),
         _ => {
             end(
                 &mut projections().lock().unwrap_or_else(PoisonError::into_inner),
@@ -713,7 +729,7 @@ fn way_back_answer(
     }
 }
 
-/// [`PIN`], [`UNPIN`] or [`PINS`] of projection `line.name`, mounted here (module docs).
+/// [`PIN`], [`UNPIN`], [`PINS`] or [`WARM`] of projection `line.name`, mounted here (module docs).
 fn pin_answer(cmd: &str, line: &WayBackLine) -> Result<Value, Refusal> {
     let projected =
         projections().lock().unwrap_or_else(PoisonError::into_inner).get(&line.name).cloned();
@@ -744,6 +760,14 @@ fn pin_answer(cmd: &str, line: &WayBackLine) -> Result<Value, Refusal> {
             let path = path()?;
             pins.unpin(path).map_err(|errno| pin_refusal(errno, path, "not pinned"))?;
             json!({"path": path, "unpinned": true})
+        }
+        WARM => {
+            // A cache fill, not a pin: no pin status in its answer.
+            let report = pins.warm(&line.paths, WARM_MAX_FILES, WARM_MAX_BYTES);
+            let away = report.first_error == Some(cmux_projection::FetchError::Away.errno());
+            return Ok(json!({"files": report.files, "bytes": report.bytes,
+                             "fetched_bytes": report.fetched_bytes, "failed": report.failed,
+                             "first_error": report.first_error, "away": away}));
         }
         _ => json!({}),
     };

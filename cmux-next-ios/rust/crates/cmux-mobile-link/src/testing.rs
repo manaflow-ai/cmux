@@ -26,6 +26,7 @@ use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
 mod hub;
+mod relay_cache;
 mod shaped;
 pub use hub::{FakeHub, FakeHubMode, FakeHubStats};
 pub use shaped::{
@@ -55,6 +56,31 @@ pub struct FakeOptions {
     /// A relay join's upgrade is answered this much later (a slow network or
     /// a far Worker), so a join can race a path that starts working.
     pub relay_join_delay: std::time::Duration,
+    /// Answer `/v1/relay-cache/...` (the Worker's `LINK_RELAY_CACHE=on`, RFD 0142 R2 and R9;
+    /// `testing/relay_cache.rs`). Off: every cache route answers `503 relay_cache_off`, as the
+    /// Worker does by default.
+    pub relay_cache: bool,
+    /// The relay-held send queue (RFD 0142 R8; the Worker's `LINK_RELAY_HOLD=on`): `hold` frames are kept,
+    /// in memory, per session, as link-relay.ts keeps them. Off: answered `hold_refused` `off`.
+    pub relay_hold: bool,
+}
+
+/// One relay-held item (link-relay.ts / relay-hold.ts `HeldItem`).
+#[derive(Debug, Clone)]
+struct FakeHeld {
+    id: String,
+    from: String,
+    to: String,
+    sealed: String,
+    at: u64,
+    expires_at: u64,
+}
+
+fn unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 /// How often the backend answers an older peer's relay frames for one
@@ -86,12 +112,29 @@ struct State {
     /// Each device's relay joins, in order: device → when.
     relay_joined: Vec<(String, std::time::Instant)>,
     relay_frames: u64,
+    relay_cache: relay_cache::FakeRelayCache,
+    /// The relay-held queue: sessionId → items, oldest first.
+    held: HashMap<String, Vec<FakeHeld>>,
+    /// Acked ids: sessionId → id → until when a repeat answers `delivered`.
+    held_done: HashMap<String, HashMap<String, u64>>,
+    /// `hold` frames answered `held` (new ones only).
+    holds_taken: u64,
+    /// `held_ack` frames that deleted an item.
+    holds_acked: u64,
+    /// Devices whose relay joins hang until they wake ([`FakeSignaling::set_asleep`]).
+    asleep: std::collections::HashSet<String>,
 }
 
 pub struct FakeSignaling {
     pub base_url: String,
     state: Arc<Mutex<State>>,
     task: tokio::task::JoinHandle<()>,
+}
+
+/// Wakes relay joins parked by [`FakeSignaling::set_asleep`].
+fn wakes() -> &'static tokio::sync::Notify {
+    static WAKES: std::sync::OnceLock<tokio::sync::Notify> = std::sync::OnceLock::new();
+    WAKES.get_or_init(tokio::sync::Notify::new)
 }
 
 impl Drop for FakeSignaling {
@@ -119,6 +162,13 @@ impl FakeSignaling {
             }
         });
         Self { base_url, state, task }
+    }
+
+    /// How many `route` requests (`snapshot GET`, `snapshot PUT`, `delta POST`, `catch-up`,
+    /// `ack`) the relay cache answered.
+    pub fn relay_cache_hits(&self, route: &str) -> u64 {
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.relay_cache.hits.get(route).copied().unwrap_or(0)
     }
 
     /// When the server forwarded the first `kind` signal (`wg-init`,
@@ -158,6 +208,35 @@ impl FakeSignaling {
                 let _ = out.send(Message::Close(None));
             }
         }
+    }
+
+    /// `device` sleeps (a Mac with its lid shut): its relay sockets close now, and a join it makes hangs
+    /// (a frozen process's connect) until it wakes, then goes through. Its signaling socket is left alone.
+    pub fn set_asleep(&self, device: &str, asleep: bool) {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if asleep {
+            state.asleep.insert(device.to_owned());
+            for sockets in state.relays.values() {
+                if let Some(out) = sockets.get(device) {
+                    let _ = out.send(Message::Close(None));
+                }
+            }
+        } else {
+            state.asleep.remove(device);
+            wakes().notify_waiters();
+        }
+    }
+
+    /// Relay-held items new to the queue so far, and acked so far.
+    pub fn relay_holds(&self) -> (u64, u64) {
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        (state.holds_taken, state.holds_acked)
+    }
+
+    /// Relay-held items waiting in `session` now.
+    pub fn relay_held_waiting(&self, session: &str) -> usize {
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.held.get(session).map_or(0, Vec::len)
     }
 
     /// Binary frames (an older peer's relay frames) refused so far.
@@ -443,6 +522,14 @@ async fn serve_relay(
         None
     };
     tokio::time::sleep(options.relay_join_delay).await;
+    loop {
+        let mut woken = std::pin::pin!(wakes().notified());
+        woken.as_mut().enable();
+        if !state.lock().unwrap_or_else(PoisonError::into_inner).asleep.contains(&device) {
+            break;
+        }
+        woken.await;
+    }
     let callback = |_: &Request, mut response: Response| -> Result<Response, ErrorResponse> {
         if let Some((status, code)) = refusal {
             let body = json!({"error": {"code": code, "message": code}}).to_string();
@@ -478,6 +565,24 @@ async fn serve_relay(
         out_tx.send(Message::Text(json!({"type":"joined","peer": peer_out.is_some()}).to_string().into()));
     if let Some(peer_out) = &peer_out {
         let _ = peer_out.send(Message::Text(json!({"type":"peer","online": true}).to_string().into()));
+    }
+    if options.relay_hold {
+        // Everything held for this device, oldest first, again on every join (at least once).
+        let items: Vec<FakeHeld> = {
+            let state = state.lock().unwrap_or_else(PoisonError::into_inner);
+            let now = unix_ms();
+            state
+                .held
+                .get(&session)
+                .into_iter()
+                .flatten()
+                .filter(|i| i.to == device && i.expires_at > now)
+                .cloned()
+                .collect()
+        };
+        for item in items {
+            let _ = out_tx.send(held_item_message(&item));
+        }
     }
     let (mut sink, mut source) = socket.split();
     tokio::spawn(async move {
@@ -519,6 +624,9 @@ async fn serve_relay(
             Message::Text(text) if text.as_str() == "ping" => {
                 let _ = out_tx.send(Message::Text("pong".into()));
             }
+            Message::Text(text) => {
+                fake_hold_text(&state, &session, &device, &peer, &out_tx, options.relay_hold, text.as_str());
+            }
             Message::Close(_) => break,
             _ => {}
         }
@@ -530,6 +638,93 @@ async fn serve_relay(
         sockets.remove(&device);
         if let Some(peer_out) = sockets.get(&peer) {
             let _ = peer_out.send(Message::Text(json!({"type":"peer","online": false}).to_string().into()));
+        }
+    }
+}
+
+fn held_item_message(item: &FakeHeld) -> Message {
+    Message::Text(
+        json!({"type":"held_item","id":item.id,"from":item.from,"sealed":item.sealed,"at":item.at,"expiresAt":item.expires_at})
+            .to_string()
+            .into(),
+    )
+}
+
+/// A `hold` or `held_ack` text frame on the fake relay (link-relay.ts `holdText`, relay-hold.ts `HoldQueue`).
+fn fake_hold_text(
+    state: &Mutex<State>,
+    session: &str,
+    device: &str,
+    peer: &str,
+    out: &mpsc::UnboundedSender<Message>,
+    on: bool,
+    text: &str,
+) {
+    use crate::relay_hold::Outgoing;
+    let Ok(frame) = serde_json::from_str::<Outgoing>(text) else { return };
+    let reply = |value: Value| {
+        let _ = out.send(Message::Text(value.to_string().into()));
+    };
+    let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
+    let now = unix_ms();
+    match frame {
+        Outgoing::Hold { id, .. } if !on => reply(json!({"type":"hold_refused","id":id,"code":"off"})),
+        Outgoing::HeldAck { .. } if !on => {}
+        Outgoing::HeldAck { id } => {
+            let items = state.held.entry(session.to_owned()).or_default();
+            let Some(index) = items.iter().position(|i| i.id == id && i.to == device) else { return };
+            let item = items.remove(index);
+            state
+                .held_done
+                .entry(session.to_owned())
+                .or_default()
+                .insert(id.clone(), item.expires_at.max(now));
+            state.holds_acked += 1;
+            if let Some(sender) = state.relays.get(session).and_then(|s| s.get(&item.from)) {
+                let _ = sender.send(Message::Text(json!({"type":"delivered","id":id}).to_string().into()));
+            }
+        }
+        Outgoing::Hold { id, sealed } => {
+            if uuid::Uuid::parse_str(&id).is_err() || sealed.is_empty() || sealed.len() > 16_384 {
+                return reply(json!({"type":"hold_refused","id":id,"code":"bad"}));
+            }
+            for items in state.held.values_mut() {
+                items.retain(|i| i.expires_at > now);
+            }
+            let depth_to = |state: &State| {
+                state.held.get(session).map_or(0, |v| v.iter().filter(|i| i.to == peer).count())
+            };
+            if let Some(until) = state.held_done.get(session).and_then(|d| d.get(&id)).copied() {
+                let depth = depth_to(&state);
+                return reply(
+                    json!({"type":"held","id":id,"depth":depth,"expiresAt":until,"delivered":true}),
+                );
+            }
+            if let Some(item) = state.held.get(session).and_then(|v| v.iter().find(|i| i.id == id)) {
+                let expires = item.expires_at;
+                let depth = depth_to(&state);
+                return reply(json!({"type":"held","id":id,"depth":depth,"expiresAt":expires}));
+            }
+            let all: Vec<&FakeHeld> = state.held.values().flatten().collect();
+            let chars: usize = all.iter().map(|i| i.sealed.len()).sum();
+            if all.len() >= 64 || chars + sealed.len() > 524_288 {
+                return reply(json!({"type":"hold_refused","id":id,"code":"full"}));
+            }
+            let item = FakeHeld {
+                id: id.clone(),
+                from: device.to_owned(),
+                to: peer.to_owned(),
+                sealed,
+                at: now,
+                expires_at: now + crate::relay_hold::HOLD_TTL_MS,
+            };
+            state.held.entry(session.to_owned()).or_default().push(item.clone());
+            state.holds_taken += 1;
+            let depth = depth_to(&state);
+            reply(json!({"type":"held","id":id,"depth":depth,"expiresAt":item.expires_at}));
+            if let Some(target) = state.relays.get(session).and_then(|s| s.get(peer)) {
+                let _ = target.send(held_item_message(&item));
+            }
         }
     }
 }
@@ -590,6 +785,41 @@ async fn answer_http(
             .map(str::to_owned)
     });
     let authorized = user.is_some();
+    if let Some(target) = line.split_whitespace().nth(1).filter(|t| t.starts_with("/v1/relay-cache/")) {
+        let method = line.split_whitespace().next().unwrap_or_default();
+        let answer = if authorized {
+            let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
+            state.relay_cache.answer(method, target, &request[head.len()..], options.relay_cache)
+        } else {
+            relay_cache::Answer {
+                status: "401 Unauthorized",
+                content_type: "application/json",
+                body: br#"{"error":"unauthorized"}"#.to_vec(),
+                headers: Vec::new(),
+            }
+        };
+        let mut response = format!(
+            "HTTP/1.1 {}\r\ncontent-type: {}\r\ncontent-length: {}\r\nconnection: close\r\n",
+            answer.status,
+            answer.content_type,
+            answer.body.len()
+        );
+        for (name, value) in &answer.headers {
+            response.push_str(&format!("{name}: {value}\r\n"));
+        }
+        response.push_str("\r\n");
+        let mut bytes = response.into_bytes();
+        bytes.extend_from_slice(&answer.body);
+        let _ = stream.write_all(&bytes).await;
+        // Hold the socket until the client closes it (a real server's FIN comes after its reply
+        // is acked); a proxy in front (cmux-fault's shaper) ends a pair when either side ends.
+        let mut sink = [0u8; 512];
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            while matches!(stream.read(&mut sink).await, Ok(n) if n > 0) {}
+        })
+        .await;
+        return;
+    }
     let (status, reply) = if line.starts_with("GET /v1/health") {
         ("200 OK", json!({"ok": true, "version": "fake"}))
     } else if !authorized {

@@ -1160,6 +1160,12 @@ impl Brain {
             self.save();
             self.flush_outbox();
         }
+        if self.state.sub(&id).is_some_and(|(_, sub)| sub.cancelled) {
+            if !busy(session.status) {
+                self.cancelled_settled(&id);
+            }
+            return true;
+        }
         if busy(session.status) {
             // Running again: a tell, or the user writing in its chat.
             if matches!(status, SubStatus::Done | SubStatus::Reported) {
@@ -1278,6 +1284,10 @@ impl Brain {
     /// words count as replies, and while its goal goes on it is held for the
     /// tick (`goal_held`) instead of reported.
     pub(super) fn finish_sub(&mut self, id: &str, session_id: &str) {
+        if self.state.sub(id).is_some_and(|(_, sub)| sub.cancelled) {
+            self.cancelled_settled(id);
+            return;
+        }
         let floor = self.state.sub(id).map_or(0, |(_, s)| s.floor);
         let events = match self.agents.events(session_id, floor) {
             Ok(events) => events,
@@ -1384,6 +1394,27 @@ impl Brain {
             }
         }
         self.save();
+    }
+
+    /// A cancel is already the user-visible outcome. Late idle/close events
+    /// from the harness must not manufacture a second report or an untold
+    /// outcome.
+    fn cancelled_settled(&mut self, id: &str) {
+        let now = self.now();
+        if let Some(sub) = self.state.sub_mut(id) {
+            sub.status = SubStatus::Reported;
+            sub.report = None;
+            sub.stopped = true;
+            sub.waiting_ms = 0;
+            sub.waiting_checked_ms = 0;
+            sub.reported_ms = now;
+            sub.told_ms = now;
+            sub.resume_attempts = 0;
+            sub.reopened = false;
+        }
+        self.save();
+        self.mark_workspace(id, true);
+        self.start_queued();
     }
 
     pub(super) fn sub_done(
@@ -1662,6 +1693,32 @@ impl Brain {
                 sub.moving = None;
             }
             return None;
+        }
+        let claude_session = self
+            .state
+            .sub(id)
+            .and_then(|(_, sub)| sub.session_id.as_deref())
+            .and_then(|session| self.session_summary(session))
+            .is_some_and(|session| session.harness.starts_with("claude"));
+        if claude_session
+            && crate::gateway::is_refusal(report)
+            && let Some(gateway) = &self.gateway
+        {
+            let event = gateway.record_refusal(id, report);
+            if matches!(event, crate::gateway::GatewayEvent::EnteredFallback { .. })
+                && let Some(text) = gateway.take_notice()
+            {
+                self.notice("gateway-wide".into(), text);
+            }
+        }
+        if self.gateway.as_ref().is_some_and(|gateway| {
+            gateway.refresh();
+            matches!(
+                gateway.route_for_subagent(self.settings.families.contains_key("codex")),
+                crate::gateway::GatewayRoute::Harness(_)
+            )
+        }) {
+            return Some(self.plan_move(id, "the Claude gateway is unavailable"));
         }
         // A network stop always waits on the probe (off this thread); it
         // returns at once when the endpoint answers.
@@ -2136,7 +2193,12 @@ impl Brain {
         for (id, text, floor, requires_approval, quiet) in done {
             // A stopped run (the person's own stop) owes no outcome.
             if !quiet {
-                self.note_finished(&id);
+                let (report, policy) = self
+                    .state
+                    .sub(&id)
+                    .map(|(_, sub)| (sub.report.clone().unwrap_or_default(), sub.policy.clone()))
+                    .unwrap_or_default();
+                self.note_finished(&id, &report, policy.as_deref());
             }
             let source = Source::Spawn(SpawnRef {
                 spawn: spawn.to_owned(),
@@ -3478,6 +3540,7 @@ impl Brain {
                 );
                 if *status == SubStatus::Queued {
                     s.cancelled = true;
+                    s.told_ms = now_ms();
                 }
             }
         }
@@ -3520,6 +3583,7 @@ impl Brain {
                     // session never ends the turn (#7).
                     if let Some(s) = self.state.sub_mut(&id) {
                         s.cancelled = true;
+                        s.told_ms = now_ms();
                     }
                 }
                 // Its session is not made yet: cancelled now, so its turn
@@ -3527,6 +3591,7 @@ impl Brain {
                 (_, None) => {
                     if let Some(s) = self.state.sub_mut(&id) {
                         s.cancelled = true;
+                        s.told_ms = now_ms();
                     }
                     starting.push(id.clone());
                 }

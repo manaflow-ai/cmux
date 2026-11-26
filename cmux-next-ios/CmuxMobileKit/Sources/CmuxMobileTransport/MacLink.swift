@@ -102,6 +102,11 @@ public protocol MacLink: AnyObject, Sendable {
     /// not. The Rust link probes more often while it is (every 3 s on its
     /// datagram lane); a link without one ignores it.
     func setForegroundProbe(_ on: Bool)
+    /// The person is about to type (the keyboard is coming up): wake the
+    /// phone's radio with one tiny datagram so the first key does not pay
+    /// the LTE/5G idle-to-connected promotion (RFD 0142 hypothesis 2). The
+    /// Rust link sends at most one per second, and only on a quiet link.
+    func prewake()
     func close() async
     /// The path of a link that is already up when the dial returns (nil:
     /// unknown until its first `states` element). The controller then adopts
@@ -158,6 +163,7 @@ extension MacLink {
     public var tunnelKeys: TunnelKeys? { nil }
     public func probeTimeout(floor: Duration) -> Duration { floor }
     public func setForegroundProbe(_ on: Bool) {}
+    public func prewake() {}
 
     /// A link that only pings: the pong or nothing.
     public func probe(timeout: Duration) async throws -> UInt32? {

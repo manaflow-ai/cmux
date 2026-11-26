@@ -29,6 +29,9 @@ pub(super) async fn dispatch(
             | method::MUX_SECRET_SUBMIT
             | method::MUX_SECRET_RUN
             | method::MUX_ELEVATION_REQUEST
+            | method::MUX_CHAT_SECRETS_SET
+            | method::MUX_CHAT_SECRETS_CLEAR
+            | method::MUX_CHAT_SECRETS_LIST
     ) {
         return None;
     }
@@ -55,12 +58,65 @@ async fn handle(
                         peer.name
                     ))
                 }
+                Some((peer, _, _)) if is_chat_secrets(m) => RpcError::invalid_params(format!(
+                    "this chat runs on {}: a chat secret is never forwarded, so set it on the \
+                     acpmux of the machine that runs the chat",
+                    peer.name
+                )),
                 Some((peer, _, _)) => on_peer(&peer.name),
                 None => e,
             });
         }
     };
     match m {
+        method::MUX_CHAT_SECRETS_SET => {
+            // The person's own connection only: an agent on this daemon never plants a value
+            // in a chat, its own or another's.
+            if !conn.is_person() {
+                return Err(crate::hub::person::person_required("setting a chat secret"));
+            }
+            let secrets = params
+                .get("secrets")
+                .and_then(Value::as_object)
+                .filter(|o| !o.is_empty())
+                .ok_or_else(|| {
+                    RpcError::invalid_params("secrets is required: {NAME: value}, at least one")
+                })?;
+            let mut pairs = Vec::with_capacity(secrets.len());
+            for (name, value) in secrets {
+                let value = value.as_str().ok_or_else(|| {
+                    RpcError::invalid_params(format!("{name}'s value must be a string"))
+                })?;
+                pairs.push((name.clone(), Zeroizing::new(value.to_owned())));
+            }
+            let ttl = match params.get("ttlSeconds").filter(|v| !v.is_null()) {
+                None => None,
+                Some(v) => Some(std::time::Duration::from_secs(v.as_u64().ok_or_else(|| {
+                    RpcError::invalid_params("ttlSeconds must be a whole number of seconds")
+                })?)),
+            };
+            let names = crate::chat_secrets::set(&session.id, pairs, ttl)
+                .map_err(|e| RpcError::invalid_params(e.to_string()))?;
+            let applied = hub.restart_on_change(&session).await?;
+            Ok(json!({"sessionId": session.id, "names": names, "applied": applied}))
+        }
+        method::MUX_CHAT_SECRETS_CLEAR => {
+            if !conn.is_person() {
+                return Err(crate::hub::person::person_required("clearing a chat secret"));
+            }
+            let cleared = crate::chat_secrets::clear(&session.id);
+            let applied =
+                if cleared == 0 { "unchanged" } else { hub.restart_on_change(&session).await? };
+            Ok(json!({"sessionId": session.id, "cleared": cleared, "applied": applied}))
+        }
+        // Names and seconds left, never a value: anyone who may name the chat.
+        method::MUX_CHAT_SECRETS_LIST => {
+            let secrets: Vec<Value> = crate::chat_secrets::list(&session.id)
+                .into_iter()
+                .map(|(name, left)| json!({"name": name, "expiresInSeconds": left}))
+                .collect();
+            Ok(json!({"sessionId": session.id, "secrets": secrets}))
+        }
         method::MUX_SECRET_REQUEST => {
             refuse_unless_unix(conn, "asking for a secret")?;
             let name = str_param(params, "name").unwrap_or_default();
@@ -119,6 +175,15 @@ async fn handle(
             hub.run_with_secret(&session, secret_ref, env, &argv).await
         }
     }
+}
+
+fn is_chat_secrets(m: &str) -> bool {
+    matches!(
+        m,
+        method::MUX_CHAT_SECRETS_SET
+            | method::MUX_CHAT_SECRETS_CLEAR
+            | method::MUX_CHAT_SECRETS_LIST
+    )
 }
 
 /// A secret method for a chat on peer `peer` (this daemon's name for it): never forwarded.

@@ -265,7 +265,11 @@ pub(super) fn send_existing(
         no_focus: false,
     };
     let mut runner = SelfRunner::new(global);
-    report(&send_to(&mut runner, &request, machine_id, session), global.output)
+    // With CMUX_CLOUD_ACCESS_TOKEN and no app named, the exec goes through the cmux API (direct.rs).
+    let outcome = direct::on_route(global, &mut runner, |runner| {
+        send_to(runner, &request, machine_id, session)
+    });
+    report(&outcome, global.output)
 }
 
 /// The newest records `cmux chat read` reads of a chat on a Cloud VM, in one exec.
@@ -281,7 +285,10 @@ pub(super) fn read_existing(
     limit: usize,
 ) -> i32 {
     let mut runner = SelfRunner::new(global);
-    match read_on(&mut runner, machine_id, session, after, limit) {
+    let outcome = direct::on_route(global, &mut runner, |runner| {
+        read_on(runner, machine_id, session, after, limit)
+    });
+    match outcome {
         Outcome::Done(page) => super::wire::print_local_success(&page, global.output),
         Outcome::Failed { error, exit } => {
             super::wire::print_local_error(&error, global.output, exit)
@@ -340,7 +347,10 @@ pub(super) fn wait_existing(
     timeout: Duration,
 ) -> i32 {
     let mut runner = SelfRunner::new(global);
-    report(&wait_on(&mut runner, machine_id, session, timeout), global.output)
+    let outcome = direct::on_route(global, &mut runner, |runner| {
+        wait_on(runner, machine_id, session, timeout)
+    });
+    report(&outcome, global.output)
 }
 
 /// [`wait_existing`]'s wait: the newest turn (any seq after 0), within `timeout`.
@@ -1844,6 +1854,11 @@ fn steps(
     }
     if let Some(estimate) = estimate {
         answer.set("estimate", estimate);
+    }
+    // How the machine came (a warm spare, made fresh, or one that already existed), when the start said:
+    // a lane's readback proves a spare claim from it (direct.rs `spare_origin`).
+    if let Some(origin) = started.get("machine_origin").filter(|v| v.is_object()) {
+        answer.set("machine_origin", origin.clone());
     }
     progress.machine = Some(Machine::Target(machine_id.to_owned()));
     progress.chat = Some((machine_id.to_owned(), session.to_owned(), answer.clone()));
@@ -3499,7 +3514,7 @@ fn report(outcome: &Outcome, output: OutputMode) -> i32 {
 
 mod cap;
 mod clone_wait;
-mod direct;
+pub(in crate::cli) mod direct;
 mod fault;
 mod folder;
 mod fresh;

@@ -77,8 +77,8 @@ pub const CLAUDE_RETRY_CHOICES: &[&str] = &[
 /// The environment a terminal's `claude` starts with beyond its own (the cmux-tui Claude
 /// wrapper): every [`CLAUDE_ENV`] and [`CLAUDE_TERMINAL_ENV`] knob `getenv` leaves unset, and
 /// the chats' autocompact window ([`CLAUDE_AUTOCOMPACT_WINDOW`]) when neither the launch
-/// (`args`), its env nor Claude's settings choose one, exactly as [`lift_claude`] does for an
-/// agent chat.
+/// (`args`, after `terminal_autocompact` gave it the chat profile's `--autocompact`), its env nor
+/// Claude's settings choose one, exactly as [`lift_claude`] does for an agent chat.
 pub fn terminal_claude_env(
     args: &[String],
     cwd: &std::path::Path,
@@ -92,7 +92,20 @@ pub fn terminal_claude_env(
         .copied()
         .filter(|(key, _)| getenv(key).is_none())
         .collect();
-    let (key, value) = CLAUDE_AUTOCOMPACT_WINDOW;
+    if claude_choice_unset(args, cwd, &getenv) {
+        lifted.push(CLAUDE_AUTOCOMPACT_WINDOW);
+    }
+    lifted
+}
+
+/// Whether a terminal `claude` started with `args` in `cwd` leaves its autocompact unchosen: no
+/// `--autocompact` in `args`, none of Claude Code's autocompact env and nothing in its settings
+/// (`usage_stats::claude_autocompact_unset`).
+pub fn claude_choice_unset(
+    args: &[String],
+    cwd: &std::path::Path,
+    getenv: impl Fn(&str) -> Option<String>,
+) -> bool {
     let env =
         ["CLAUDE_CONFIG_DIR", "CLAUDE_CODE_AUTO_COMPACT_WINDOW", "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"]
             .into_iter()
@@ -105,10 +118,7 @@ pub fn terminal_claude_env(
         env,
         ..Default::default()
     };
-    if crate::usage_stats::claude_autocompact_unset(&source) {
-        lifted.push((key, value));
-    }
-    lifted
+    crate::usage_stats::claude_autocompact_unset(&source)
 }
 
 /// Codex's config keys (`-c key=value`) and their values (defaults are

@@ -39,7 +39,7 @@
      (style-tokens.json). initial leaves it unset, so --cv-code-edge-mask is invalid and the card's
      mask (highlightedCodeModel.ts) computes to none: no look, a hard edge as before. */
   --cv-code-edge-fade: initial;
-  --cv-code-edge-mask: linear-gradient(to left, transparent, #000 var(--cv-code-edge-fade));
+  --cv-code-edge-mask: linear-gradient(to left, transparent, #000 var(--cv-code-edge-fade)); /* colour-allow: a mask stop's alpha only, never painted */
   --cv-strong-rule: color-mix(in srgb, var(--cv-fg) 16%, transparent); /* #484943: quote bar, table head */
   --cv-faint-rule: color-mix(in srgb, var(--cv-fg) 4.5%, transparent); /* #30312b: table rows */
   --cv-check-fill: var(--ds-surface-inset); /* #3a3b34 */
@@ -299,7 +299,8 @@
   font-size: var(--cv-font-size);
   line-height: var(--cv-line-height);
   letter-spacing: var(--cv-tracking, var(--instrument-type-chat-tracking, 0px));
-  color: var(--cv-text);
+  /* --cv-user-bubble-text: a look's ink on its own fill (style-tokens.json), e.g. white on a blue pill. */
+  color: var(--cv-user-bubble-text, var(--cv-text));
   white-space: pre-wrap;
   overflow-wrap: break-word;
   -webkit-font-smoothing: antialiased;
@@ -328,7 +329,35 @@
 .acpmux-shell .cv-user__bubble {
   --glass-tint: var(--cv-user-bubble-tint, color-mix(in srgb, var(--agent-text) var(--cv-user-bubble-fill, 14%), transparent));
   /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
-  --glass-opaque: color-mix(in srgb, var(--agent-text) var(--cv-user-bubble-fill, 14%), var(--glass-surface));
+  --glass-opaque: var(--cv-bubble-plate, color-mix(in srgb, var(--agent-text) var(--cv-user-bubble-fill, 14%), var(--glass-surface)));
+}
+/* A look's bubble ink (--cv-user-bubble-text) carries the bubble's inner text with it: the quiet
+   lines (a quote, Show more, a paste's "Pasted from") at 88% of it, a skill's /name in it, inline
+   code on a wash of it. Each private variable below reads the token with no fallback, so with the
+   token unset it is invalid and every rule falls back to what the bubble draws today. A look that
+   sets both ink and tint keeps its tint as the Reduce Transparency fill too (--cv-bubble-plate is
+   the tint, valid only when the ink is set), so its ink never lands on the grey plate. */
+.cv-user__bubble {
+  --cv-bubble-ink-soft: color-mix(in srgb, var(--cv-user-bubble-text) 88%, transparent);
+  --cv-bubble-ink-wash: color-mix(in srgb, var(--cv-user-bubble-text) 10%, transparent);
+  --cv-bubble-plate: color-mix(in srgb, var(--cv-user-bubble-tint) 100%, var(--cv-user-bubble-text) 0%);
+}
+/* A prompt drawn as Markdown (PromptText.tsx .cv-user__markdown, a .cv-md) and its headings set
+   their own --cv-text color; in the bubble they take the ink. */
+.cv-user__bubble :is(.cv-md, .cv-h) {
+  color: var(--cv-user-bubble-text, var(--cv-text));
+}
+.cv-user__bubble :is(.cv-quote, .cv-user__pasted-from, .cv-expand-row.cv-user__more) {
+  color: var(--cv-bubble-ink-soft, var(--cv-text-muted));
+}
+.cv-user__bubble .cv-expand-row.cv-user__more:hover {
+  color: var(--cv-user-bubble-text, var(--cv-text));
+}
+.cv-user__bubble .cv-skill-word {
+  color: var(--cv-user-bubble-text, var(--agent-link, var(--agent-accent)));
+}
+.cv-user__bubble .cv-code {
+  background: var(--cv-bubble-ink-wash, var(--cv-code-bg));
 }
 /* The transcript look's plain prompt (userMessage.style plain, conversation/transcriptLook.ts): no
    glass, no corner, a 2px rule in the card ring at its leading edge, drawn inset so it takes no room;
@@ -407,9 +436,10 @@
   max-width: 70%;
   margin-bottom: var(--cv-user-attachment-gap);
 }
-/* A prompt whose attachments were placed in its text draws them in the same block above its bubble
-   (UserBubble.tsx): the bubble's column, its tiles' 4px side margins outside it so their edges are
-   the bubble's, the same gap under it (each tile's 2px bottom margin and this). */
+/* The strip view's band, and an attachment-only prompt's, above the bubble (UserBubble.tsx): the
+   bubble's column, its tiles' 4px side margins outside it so their edges are the bubble's, the same
+   gap under it (each tile's 2px bottom margin and this). A placed prompt's attachments draw in its
+   text, where they were put (.cv-user__inline-image). */
 /* A prompt's file chips (UserBubble.tsx legacy band) keep the same column and gap. */
 .cv-user__files:not(.cv-user__inline-strip, .cv-message__files) {
   max-width: 70%;
@@ -462,6 +492,8 @@
 .cv-user__video {
   position: relative;
   display: block;
+  /* Its width is its own (SentVideoTile.tsx), so the glyph can size by the tile's drawn height. */
+  container-type: inline-size;
 }
 /* The arrow, as every cmux control has (no pointing hand), not the image's zoom-in. */
 .cv-user__images .cv-user__video,
@@ -474,8 +506,12 @@
   left: 50%;
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  /* 32px, or 40% of a short wide tile's drawn height (its width over --sent-video-ratio), at least
+     20px: a 1406x434 recording's 480x148 tile keeps 32px; a narrow chat's 300x92 one too; a sliver
+     scales down rather than covering its picture. */
+  --cv-video-play: clamp(20px, calc(40cqw / var(--sent-video-ratio, 1)), 32px);
+  width: var(--cv-video-play);
+  height: var(--cv-video-play);
   border-radius: 50%;
   color: var(--cv-text);
   transform: translate(-50%, -50%);
@@ -3168,6 +3204,14 @@ body {
     mask-image: linear-gradient(90deg, transparent 0%, #000 20% 30%, transparent 50% 100%);
     transform: translateX(-50%);
   }
+  /* A running call's own clock (RunningTime.tsx) sits after the words in the row, with no lit copy of
+     its time: the band would span the row, so its lit words ran on under the clock and the clock drew
+     over their cut end while the glimmer crossed (Leo, 2026-11-25: "when the glimmer happens ... there's
+     a timer number that appears at the end and overlaps?"). The band takes the words' box instead, so
+     the words cut with their ellipsis before the clock and the clock keeps its own slot. */
+  :root:not([data-status-indicators="static"]) .cv-shimmer__row:has(> .cv-command__elapsed) > .cv-thinking.is-shimmer {
+    position: relative;
+  }
   :root:not([data-status-indicators="static"]) .cv-shimmer__lit {
     display: flex;
     min-width: 0;
@@ -3487,7 +3531,7 @@ body {
   min-width: 0;
   overflow: hidden;
   color: var(--cv-text-muted);
-  font-family: var(--cv-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-family: var(--cv-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   text-overflow: ellipsis;
   white-space: nowrap;
   line-height: inherit;
@@ -5058,7 +5102,7 @@ button.cv-video-frames__frame:focus-visible {
 .cv-bgtask__raw-command {
   min-width: 0;
   overflow: hidden;
-  font-family: var(--cv-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-family: var(--cv-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   text-overflow: ellipsis;
   white-space: nowrap;
   line-height: inherit;
@@ -6664,6 +6708,45 @@ a.cv-sha:focus-visible {
   block-size: 100%;
   background: color-mix(in srgb, currentColor 45%, transparent);
   transition: inline-size var(--cmux-motion-micro) linear;
+}
+/* An agent's ask for one setting or connection (settings_ask; the settings-ask-card experiment's
+   `needs` arm): the Needs you card's look (pages/feed/styles.css .feed-needs), an elevated card with a
+   Needs you header and one row, the control at its end. */
+.cv-settings-ask {
+  display: flex;
+  flex-direction: column;
+  max-inline-size: 560px;
+  padding: 4px;
+  border-radius: var(--ds-radius-xl, 12px);
+  background: var(--ds-color-elevated);
+  box-shadow: var(--elevation-1);
+}
+:root:not([data-borders="none"]) .cv-settings-ask {
+  outline: 1px solid var(--ds-color-separator);
+  outline-offset: -1px;
+}
+.cv-settings-ask__header {
+  display: flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 8px;
+  font-size: var(--text-caption);
+  font-weight: var(--weight-emphasis, 600);
+  color: var(--ds-color-muted);
+}
+.cv-settings-ask__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 4px 8px;
+}
+.cv-settings-ask__icon {
+  flex: none;
+  color: var(--agent-text);
+}
+.cv-settings-ask__line {
+  flex: 1;
+  min-width: 0;
 }
 /* The Connect GitHub card (GitHubConnectCard.tsx) is a next step, not a failure: GitHub's mark in
    the prose's ink, never the failure red. */
@@ -8856,6 +8939,12 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 }
 .cv-user__inline-image img {
   vertical-align: middle;
+}
+/* The thumbnail's button is a block, as its placeholder is: an inline-block button sits on a text
+   line and adds the font's descent under the image (6.75px), so the line grew when the read landed
+   and moved every row below (Leo, 2026-11-22: "there were various resizing things going on"). */
+.cv-user__inline-image > button {
+  display: block;
 }
 /* A sent file in a prompt's order: the shared file chip (FileAttachment.tsx), on the same surface
    as a legacy prompt's file band (composerAttachments.css .cv-user__files). */

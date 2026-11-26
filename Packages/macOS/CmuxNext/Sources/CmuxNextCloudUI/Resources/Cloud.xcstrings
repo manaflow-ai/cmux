@@ -11596,6 +11596,29 @@
         }
       }
     },
+    "cloud.move.loginFailed": {"extractionState": "manual", "localizations": {
+      "en": {"stringUnit": {"state": "translated","value": "The chat stays here: your agent login for %1$@ couldn't be read: %2$@"}},
+      "ar": {"stringUnit": {"state": "translated","value": "تبقى المحادثة هنا: تعذّرت قراءة تسجيل دخول الوكيل الخاص بك لـ %1$@: %2$@"}},
+      "bs": {"stringUnit": {"state": "translated","value": "Chat ostaje ovdje: prijava vašeg agenta za %1$@ nije se mogla pročitati: %2$@"}},
+      "da": {"stringUnit": {"state": "translated","value": "Chatten bliver her: dit agentlogin til %1$@ kunne ikke læses: %2$@"}},
+      "de": {"stringUnit": {"state": "translated","value": "Der Chat bleibt hier: Dein Agent-Login für %1$@ konnte nicht gelesen werden: %2$@"}},
+      "es": {"stringUnit": {"state": "translated","value": "El chat se queda aquí: no se pudo leer tu inicio de sesión del agente para %1$@: %2$@"}},
+      "fr": {"stringUnit": {"state": "translated","value": "La discussion reste ici : impossible de lire la connexion de votre agent pour %1$@ : %2$@"}},
+      "it": {"stringUnit": {"state": "translated","value": "La chat resta qui: impossibile leggere l'accesso del tuo agente per %1$@: %2$@"}},
+      "ja": {"stringUnit": {"state": "translated","value": "チャットはここに残ります: %1$@ のエージェントのログインを読み取れませんでした: %2$@"}},
+      "km": {"stringUnit": {"state": "translated","value": "ការជជែកនៅទីនេះ៖ មិនអាចអានការចូលភ្នាក់ងាររបស់អ្នកសម្រាប់ %1$@ បានទេ៖ %2$@"}},
+      "ko": {"stringUnit": {"state": "translated","value": "채팅은 여기에 남습니다: %1$@의 에이전트 로그인을 읽을 수 없습니다: %2$@"}},
+      "nb": {"stringUnit": {"state": "translated","value": "Chatten blir her: agentinnloggingen din for %1$@ kunne ikke leses: %2$@"}},
+      "pl": {"stringUnit": {"state": "translated","value": "Czat zostaje tutaj: nie udało się odczytać logowania agenta dla %1$@: %2$@"}},
+      "pt-BR": {"stringUnit": {"state": "translated","value": "O chat fica aqui: não foi possível ler o login do seu agente para %1$@: %2$@"}},
+      "ru": {"stringUnit": {"state": "translated","value": "Чат остаётся здесь: не удалось прочитать вход агента для %1$@: %2$@"}},
+      "th": {"stringUnit": {"state": "translated","value": "แชทอยู่ที่นี่: อ่านการเข้าสู่ระบบเอเจนต์ของคุณสำหรับ %1$@ ไม่ได้: %2$@"}},
+      "tr": {"stringUnit": {"state": "translated","value": "Sohbet burada kalıyor: %1$@ için ajan girişiniz okunamadı: %2$@"}},
+      "uk": {"stringUnit": {"state": "translated","value": "Чат залишається тут: не вдалося прочитати вхід агента для %1$@: %2$@"}},
+      "vi": {"stringUnit": {"state": "translated","value": "Cuộc trò chuyện ở lại đây: không đọc được thông tin đăng nhập agent của bạn cho %1$@: %2$@"}},
+      "zh-Hans": {"stringUnit": {"state": "translated","value": "聊天留在这里：无法读取你在 %1$@ 上的代理登录信息：%2$@"}},
+      "zh-Hant": {"stringUnit": {"state": "translated","value": "聊天留在這裡：無法讀取你在 %1$@ 上的代理登入資訊：%2$@"}}
+    }},
     "cloud.move.tabFailed": {
       "extractionState": "manual",
       "localizations": {

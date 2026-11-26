@@ -653,6 +653,9 @@ struct ChatComposer: View {
             }
             return
         }
+        #if DEBUG
+        LoadFrameProbe.shared?.event("send")
+        #endif
         store.send(prompt: text, attachments: attachments, steer: steer, denyingPermission: denyingPermission)
         // A multi-line draft shrinks to one line on the line motion, with the transcript.
         withAnimation(ComposerLineMotion.animation.unlessReduceMotion) { text = "" }

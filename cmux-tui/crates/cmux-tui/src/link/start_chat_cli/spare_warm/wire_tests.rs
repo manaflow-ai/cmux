@@ -36,3 +36,14 @@ fn the_answer_reads_the_install_token_from_stdin() {
         serde_json::json!([ACTIVE, PERSONAL])
     );
 }
+
+#[test]
+fn the_install_team_is_on_by_default_and_has_a_kill_switch() {
+    use super::wire::install_team_on;
+    assert!(install_team_on(None));
+    assert!(install_team_on(Some("1")));
+    assert!(install_team_on(Some("")));
+    for off in ["0", "off", "FALSE", " no "] {
+        assert!(!install_team_on(Some(off)), "{off}");
+    }
+}

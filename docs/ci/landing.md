@@ -118,6 +118,12 @@ Leo and every agent:
   a BLOCK at the head and merge freezes hold it. Follow
   [dogfood, re-dogfood and merge receipts](../../skills/cmux-review/SKILL.md#dogfood-and-merge).
   Notify with `cmux notify` when a socket is available.
+- To skip `update_branch` re-tests, add the `merge-train` label to a ready `feat-cmux-next` PR. next-autoland
+  stacks up to 12 labelled PRs onto the base and pushes the combined tip to `lane/merge-train`. That branch's
+  standing PR ("merge-train: combined tip (never merged)") runs CI once for all of them. On green, each member
+  lands pinned to its head. On red, the train bisects, the culprit gets a `merge-train` failure status and the
+  rest land. A PR that changes `.github/workflows/` can't board.
+  Source: `tools/fleet-reconcilers/merge_train.py` in cmuxterm-hq. `MERGE_TRAIN=0` turns it off.
 - A red base (it doesn't compile, or CI is red on every PR) is priority zero: fix it directly in
   its own PR, which lands at once; don't note it and leave it for an owner. Two fixes that are
   each red on the other's red get combined into one PR. A base lint red also skips the tests

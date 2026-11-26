@@ -3,7 +3,7 @@
 //! defaults and the disk, observes its main-actor state, and asks here what each means.
 
 use cmux_cloud_start_core::moves::{
-    autosize, cli, folder, ledger, pin, place, progress, seed, targets, wait,
+    autosize, cli, folder, ledger, pin, place, priority, progress, seed, targets, wait,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -549,6 +549,12 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                 request.selected.as_deref(),
                 request.direction.unwrap_or(place::Direction::ToCloud),
             ))?
+        }
+        // One chat's cloud control: blocked (signed out, no plan) or every slot held
+        // (`moves/priority.rs` `control`, from `Admit`). The app sends facts; the state is Rust's.
+        b"cloud_move_place_control" => {
+            let facts: priority::ControlFacts = read(request)?;
+            to_value(priority::control(&facts))?
         }
         b"cloud_move_place_vm_failure" => {
             let error: place::VmError = read(request)?;

@@ -89,6 +89,7 @@ pub(super) const NUMBER_OPS: &[&str] = &["gt", "gte", "lt", "lte"];
 
 pub(super) const HARNESSES: &[(&str, &str)] = &[("claude", "Claude Code"), ("codex", "Codex")];
 
+#[cfg(test)]
 pub(super) const STATUSES: &[&str] =
     &["skipped", "queued", "running", "succeeded", "failed", "capped"];
 
@@ -543,7 +544,7 @@ pub(super) fn holds(condition: &Value, event: &Value) -> (bool, Option<String>) 
     };
     let ok = match op {
         "exists" => found.is_some_and(|v| !v.is_null()),
-        "missing" => !found.is_some_and(|v| !v.is_null()),
+        "missing" => found.is_none_or(|v| v.is_null()),
         "equals" => actual.as_deref() == Some(want_text.as_str()),
         "not_equals" => actual.as_deref() != Some(want_text.as_str()),
         "contains" => match found {

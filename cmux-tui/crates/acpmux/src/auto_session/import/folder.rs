@@ -224,11 +224,10 @@ impl Git<'_> {
             git(dir, &["remote", "add", "origin", self.remote])?;
             // The base's objects from the warm mirror, borrowed (`mirror.rs`); the fetch below
             // then finds the base here and asks the remote for nothing.
-            if mirror::enabled() {
-                if let Err(why) = mirror::attach(dir, self.remote, mirror::Want::Commit(self.base))
-                {
-                    tracing::info!(%why, "the warm mirror did not lend the base; fetching it");
-                }
+            if mirror::enabled()
+                && let Err(why) = mirror::attach(dir, self.remote, mirror::Want::Commit(self.base))
+            {
+                tracing::info!(%why, "the warm mirror did not lend the base; fetching it");
             }
             (dir.to_owned(), None)
         } else {

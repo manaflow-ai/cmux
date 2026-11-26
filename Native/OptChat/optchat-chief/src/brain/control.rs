@@ -910,6 +910,7 @@ impl Brain {
             s.cancelled = true;
             s.inbox.clear();
             s.after_stop = None;
+            s.told_ms = now_ms();
         }
         self.sign_ins.abandoned(id);
         self.save();

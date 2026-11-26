@@ -152,17 +152,20 @@
 /* The summary card's Background tasks (SummaryTasks.tsx): every command is a compact card so its
    description and state stay visible; long lists use the View all row instead of hiding completed
    work behind an aggregate count. */
-.acpmux-summary-task{display:flex;align-items:center;gap:2px;margin:2px 0;border:var(--cmux-hairline,.5px) solid var(--agent-border);border-radius:var(--ds-radius-popup);background:var(--ds-surface-card)}
+.acpmux-summary-task{position:relative;display:flex;align-items:center;gap:2px;margin:2px 0;border:var(--cmux-hairline,.5px) solid var(--agent-border);border-radius:var(--ds-radius-popup);background:var(--ds-surface-card)}
 .acpmux-summary-task>.acpmux-summary-row{flex:1 1 auto;min-width:0;height:auto;min-height:32px;padding-block:var(--ds-space-2)}
-.acpmux-summary-task>.acpmux-session-info-stop{margin-right:var(--ds-space-1)}
+/* A running task's Stop takes its time's place at the row's end, as Session Info's does (sessionInfo.css .acpmux-session-info-task--command), and takes no room of its own: at rest the time, under the pointer or keyboard focus Stop over it, its glyph on the time's right edge (Leo, 2026-11-24: "you're early ellipsis-ing because of a button that doesnt even always show"). The time keeps the glyph's width, so Stop never lies over the words. */
+.acpmux-summary-task>.acpmux-session-info-stop{position:absolute;top:50%;right:calc(var(--ds-space-2) - 4px);translate:0 -50%}
+.acpmux-summary-task:has(>.acpmux-session-info-stop)>.acpmux-summary-row>.acpmux-summary-meta{min-width:16px;text-align:right;transition:opacity var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 /* One Stop per row reads as a column of repeated controls; it shows for the task under the pointer or keyboard focus, and stays while a stop is in flight or failed. */
 .acpmux-summary-task>.acpmux-session-info-stop[data-state=idle]{opacity:0}
 .acpmux-summary-task:hover>.acpmux-session-info-stop,:root:not([data-page-inactive]) .acpmux-summary-task:has(:focus-visible)>.acpmux-session-info-stop{opacity:1}
+.acpmux-summary-task:hover:has(>.acpmux-session-info-stop)>.acpmux-summary-row>.acpmux-summary-meta,:root:not([data-page-inactive]) .acpmux-summary-task:has(:focus-visible):has(>.acpmux-session-info-stop)>.acpmux-summary-row>.acpmux-summary-meta,.acpmux-summary-task:has(>.acpmux-session-info-stop:not([data-state=idle]))>.acpmux-summary-row>.acpmux-summary-meta{opacity:0}
 .acpmux-summary-task[data-state=failed]>.acpmux-summary-row>svg{color:var(--agent-status-failure)}
 .acpmux-summary-task[data-state=stopped]>.acpmux-summary-row>svg,.acpmux-summary-task[data-state=lost]>.acpmux-summary-row>svg{color:var(--agent-muted)}
 .acpmux-summary-task__body{display:flex;min-width:0;flex-direction:column;align-items:flex-start;line-height:16px}
 .acpmux-summary-task__description,.acpmux-summary-task__command{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.acpmux-summary-task__command{color:var(--agent-muted);font-family:var(--cv-font-mono,ui-monospace,monospace);font-size:var(--text-detail)}
+.acpmux-summary-task__command{color:var(--agent-muted);font-family:var(--cv-mono,ui-monospace,monospace);font-size:var(--text-detail)}
 .acpmux-summary-finished{display:flex;align-items:center;gap:var(--ds-space-2)}
 /* Experimental workflow summary (WorkflowSummary.tsx): Labs-only and absent until acpmux sends a
    typed workflow record. The detail keeps phases and the selected agents in two quiet columns. */

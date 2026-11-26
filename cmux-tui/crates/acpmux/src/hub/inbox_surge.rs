@@ -319,6 +319,7 @@ impl Hub {
             // A surge hold is the inbox's own pacing: it stands whether or not the message waited.
             waited: false,
             at: now,
+            within: None,
             text,
             details: provenance.and_then(|p| p.get("details")).cloned(),
             fire: fire_notice(notice.as_ref()),

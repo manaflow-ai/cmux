@@ -17,7 +17,7 @@
 // without the in-place sign-in, or a host without it, keeps `connectClaude` (its terminal sign-in).
 import { useEffect, useId, useRef, useState, type DragEvent } from "react";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
-import { isClaudeToken } from "../../../agent-session/shared/claudeSetupToken";
+import { isClaudeToken, normalizeClaudeToken } from "../../../agent-session/shared/claudeSetupToken";
 import { Button } from "../../../ui/Button";
 import { Dialog } from "../../../ui/Dialog";
 import { Input } from "../../../ui/Input";
@@ -1041,7 +1041,7 @@ function ClaudeTokenForm({ busy, run, onDone }: { busy: boolean; run: Run; onDon
   const labelId = useId();
   const [token, setToken] = useState("");
   const [label, setLabel] = useState("");
-  const pasted = token.trim();
+  const pasted = normalizeClaudeToken(token);
   const valid = isClaudeToken(pasted);
   const send = () => {
     if (!valid || busy) return;
@@ -1086,7 +1086,7 @@ function ClaudeTokenForm({ busy, run, onDone }: { busy: boolean; run: Run; onDon
         maxLength={4096}
         value={token}
         disabled={busy}
-        onChange={(event) => setToken(event.target.value)}
+        onChange={(event) => setToken(normalizeClaudeToken(event.target.value))}
       />
       {pasted !== "" && !valid && (
         <p className="row-error" role="alert" data-claude-token-invalid="">

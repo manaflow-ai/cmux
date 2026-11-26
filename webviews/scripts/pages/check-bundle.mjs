@@ -71,10 +71,10 @@ const hostStates = {
   "site-data": siteData,
   certificate: certificateChain,
   "cookie-import": {
-    title: "Import Cookies",
+    title: "Import sign-ins from Google Chrome",
     importTitle: "Import…",
-    notNowTitle: "Not Now",
-    neverTitle: "Don't Show Again",
+    notNowTitle: "Not now",
+    neverTitle: "Never for Chrome",
   },
 };
 try {

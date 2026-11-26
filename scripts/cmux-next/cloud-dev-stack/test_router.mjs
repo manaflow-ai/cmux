@@ -22,6 +22,11 @@ function fakeStack() {
     req.on("end", () => res.end(JSON.stringify({ host: req.headers.host, path: req.url, method: req.method, body })))
   })
   server.on("upgrade", (req, socket) => {
+    if (req.url.startsWith("/v1/refuse204")) {
+      socket.write("HTTP/1.1 204 No Content\r\nx-why: nothing here\r\n\r\n")
+      socket.on("error", () => {})
+      return
+    }
     if (req.url.startsWith("/v1/refuse")) {
       // As workerd answers an upgrade it refuses: a plain response, and the connection kept open.
       const body = JSON.stringify({ refused: req.headers.host })
@@ -198,6 +203,30 @@ test("an upgrade the stack refuses is answered whole and its connection closed, 
   assert.doesNotMatch(got, /refuser"\}/, "the next request never reaches the refusing stack")
   assert.doesNotMatch(got, /<<still open>>/, "the router ends the connection after a refused upgrade")
   done(router, refuser, other)
+})
+
+test("a refused upgrade with no body names no length and still closes", async () => {
+  const stack = fakeStack()
+  const sport = await listen(stack)
+  const dir = base([{ tag: "nc", state: "running", port: sport, authorities: ["vm.tail.ts.net:4792"] }])
+  const router = createRouter({ base: dir, wakeRun: async () => {} })
+  const rport = await listen(router)
+  const got = await new Promise((resolve) => {
+    let buf = ""
+    const s = net.connect(rport, "127.0.0.1", () => {
+      s.write("GET /v1/refuse204 HTTP/1.1\r\nHost: vm.tail.ts.net:4792\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n")
+    })
+    s.on("data", (d) => (buf += d))
+    s.on("error", () => {})
+    s.on("close", () => resolve(buf))
+    setTimeout(() => { s.destroy(); resolve(buf + "<<still open>>") }, 2000)
+  })
+  assert.match(got, /^HTTP\/1\.1 204/)
+  assert.match(got, /x-why: nothing here/)
+  assert.doesNotMatch(got, /content-length/i, "a 204 names no length")
+  assert.match(got, /connection: close/i)
+  assert.doesNotMatch(got, /<<still open>>/)
+  done(router, stack)
 })
 
 test("a public host refuses another tag's build space and serves the stack's public keys", async () => {

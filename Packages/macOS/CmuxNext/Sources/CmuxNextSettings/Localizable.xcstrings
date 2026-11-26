@@ -1,6 +1,60 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.labs.previousBuild": {
+      "comment": "Settings > Advanced > Labs: toggle that shows the Go Back to Previous Build row on the Updates card",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Go Back to Previous Build"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "العودة إلى الإصدار السابق"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Vrati se na prethodnu verziju"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Gå tilbage til forrige build"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Zum vorherigen Build zurückkehren"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Volver a la compilación anterior"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Revenir à la version précédente"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Torna alla build precedente"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "以前のビルドに戻す"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ត្រឡប់ទៅកំណែមុន"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "이전 빌드로 되돌리기"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Gå tilbake til forrige versjon"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Wróć do poprzedniej wersji"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Voltar para a versão anterior"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Вернуться к предыдущей сборке"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ย้อนกลับไปยังบิลด์ก่อนหน้า"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Önceki sürüme geri dön"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Повернутися до попередньої збірки"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Quay lại bản dựng trước"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "返回上一个版本"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "返回上一個版本"}}
+      }
+    },
+    "settings.labs.previousBuild.help": {
+      "comment": "Settings > Advanced > Labs > Go Back to Previous Build: what the toggle does. Updates is the name of the Settings card.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Show the build cmux kept before the last update on the Updates card, with a button to go back to it."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "اعرض الإصدار الذي احتفظ به cmux قبل آخر تحديث في بطاقة التحديثات، مع زر للعودة إليه."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Prikaži verziju koju je cmux zadržao prije posljednjeg ažuriranja na kartici Ažuriranja, s dugmetom za povratak na nju."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Vis det build, cmux gemte før den seneste opdatering, på kortet Opdateringer med en knap til at gå tilbage til det."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Zeigt auf der Karte „Updates“ den Build, den cmux vor dem letzten Update behalten hat, mit einer Taste zum Zurückkehren."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Muestra en la tarjeta Actualizaciones la compilación que cmux guardó antes de la última actualización, con un botón para volver a ella."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Affiche sur la carte Mises à jour la version que cmux a conservée avant la dernière mise à jour, avec un bouton pour y revenir."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Mostra nella scheda Aggiornamenti la build che cmux ha conservato prima dell’ultimo aggiornamento, con un pulsante per tornarci."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "前回のアップデート前に cmux が保持したビルドを「アップデート」カードに表示し、そのビルドに戻すボタンを付けます。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បង្ហាញកំណែដែល cmux បានរក្សាទុកមុនការធ្វើបច្ចុប្បន្នភាពចុងក្រោយ នៅលើកាតបច្ចុប្បន្នភាព ជាមួយប៊ូតុងដើម្បីត្រឡប់ទៅវាវិញ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "마지막 업데이트 전에 cmux가 보관한 빌드를 업데이트 카드에 표시하고, 그 빌드로 되돌리는 버튼을 제공합니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Vis versjonen cmux beholdt før siste oppdatering på Oppdateringer-kortet, med en knapp for å gå tilbake til den."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Pokazuje na karcie Aktualizacje wersję zachowaną przez cmux przed ostatnią aktualizacją, z przyciskiem powrotu do niej."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Mostra no cartão Atualizações a versão que o cmux guardou antes da última atualização, com um botão para voltar a ela."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Показывает на карточке «Обновления» сборку, сохранённую cmux перед последним обновлением, с кнопкой возврата к ней."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "แสดงบิลด์ที่ cmux เก็บไว้ก่อนการอัปเดตครั้งล่าสุดบนการ์ดอัปเดต พร้อมปุ่มสำหรับย้อนกลับไปใช้"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "cmux’un son güncellemeden önce sakladığı sürümü Güncellemeler kartında, ona geri dönmek için bir düğmeyle gösterir."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Показує на картці «Оновлення» збірку, яку cmux зберіг перед останнім оновленням, із кнопкою повернення до неї."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Hiển thị bản dựng cmux đã giữ lại trước lần cập nhật gần nhất trên thẻ Cập nhật, kèm nút để quay lại bản đó."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "在“更新”卡片上显示 cmux 在上次更新前保留的版本，并提供返回该版本的按钮。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "在「更新」卡片上顯示 cmux 在上次更新前保留的版本，並提供返回該版本的按鈕。"}}
+      }
+    },
     "settings.sidebar.showLiveToggle": {
       "comment": "Settings > Appearance > Sidebar: title of the toggle that shows the footer Live button.",
       "extractionState": "manual",
@@ -252857,6 +252911,60 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "帶載入指示的提示條會在原處變成結果；關閉分頁或工作區、封存聊天後會出現「還原」。"}}
       }
     },
+    "settings.experiments.toastGlass": {
+      "comment": "Settings > Experimental row title: toasts (small notices that appear and go away) in chats drawn on the app's own glass.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "زجاج الإشعارات المنبثقة"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Staklo obavijesti"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Glas til meddelelser"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Glas für Hinweise"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Toast Glass"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Cristal de avisos"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Verre des notifications"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Vetro degli avvisi"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "トーストのガラス"}},
+        "km": {"stringUnit": {"state": "translated", "value": "កញ្ចក់ការជូនដំណឹងខ្លី"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "토스트 유리"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Glass for varsler"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Szkło powiadomień"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Vidro dos avisos"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Стекло всплывающих уведомлений"}},
+        "th": {"stringUnit": {"state": "translated", "value": "กระจกของการแจ้งเตือนแบบป๊อปอัป"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bildirim camı"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Скло спливних сповіщень"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Kính của thông báo nhanh"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "提示条玻璃"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "提示條玻璃"}}
+      }
+    },
+    "settings.experiments.toastGlass.help": {
+      "comment": "Settings > Experimental > Toast Glass help: toasts in chats use the same glass material as the app's native toasts.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "تظهر الإشعارات المنبثقة في المحادثات على الزجاج نفسه الذي تستخدمه إشعارات التطبيق."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Obavijesti u chatovima stoje na istom staklu kao i obavijesti same aplikacije."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Meddelelser i chats ligger på det samme glas som appens egne meddelelser."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Hinweise in Chats liegen auf demselben Glas wie die eigenen Hinweise der App."}},
+        "en": {"stringUnit": {"state": "translated", "value": "Toasts in chats sit on the same glass as the app's own toasts."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Los avisos de los chats usan el mismo cristal que los avisos propios de la app."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Les notifications des discussions utilisent le même verre que les notifications de l’app."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Gli avvisi nelle chat usano lo stesso vetro degli avvisi dell’app."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "チャット内のトーストが、アプリ自体のトーストと同じガラスに表示されます。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ការជូនដំណឹងខ្លីក្នុងការជជែក ប្រើកញ្ចក់ដូចគ្នានឹងការជូនដំណឹងរបស់កម្មវិធីផ្ទាល់។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "채팅의 토스트가 앱 자체 토스트와 같은 유리 위에 표시됩니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Varsler i chatter ligger på det samme glasset som appens egne varsler."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Powiadomienia w czatach leżą na tym samym szkle co powiadomienia samej aplikacji."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Os avisos nos chats usam o mesmo vidro que os avisos do próprio app."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Всплывающие уведомления в чатах лежат на том же стекле, что и уведомления самого приложения."}},
+        "th": {"stringUnit": {"state": "translated", "value": "การแจ้งเตือนแบบป๊อปอัปในแชทจะอยู่บนกระจกเดียวกับการแจ้งเตือนของแอปเอง"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Sohbetlerdeki bildirimler, uygulamanın kendi bildirimleriyle aynı camın üzerinde durur."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Спливні сповіщення в чатах лежать на тому самому склі, що й сповіщення самого застосунку."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Thông báo nhanh trong cuộc trò chuyện nằm trên cùng lớp kính với thông báo của chính ứng dụng."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "聊天中的提示条使用与应用自身提示条相同的玻璃。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "聊天中的提示條使用與 App 本身提示條相同的玻璃。"}}
+      }
+    },
     "settings.experiments.quietConnect": {
       "comment": "Settings > Experimental row title: connection notices (Resuming…, Connecting…) stay quiet while a connection comes up quickly.",
       "extractionState": "manual",
@@ -256901,6 +257009,270 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "覆寫對話記錄外觀的權杖值。"
+          }
+        }
+      }
+    },
+    "settings.experiments.browserProfileCard": {
+      "comment": "Settings > Advanced > Experiments: the title of the switch that opens the browser toolbar profile menu with a profile card (large avatar, name) and a Signed in as line",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser Profile Card"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بطاقة ملف المتصفح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kartica profila preglednika"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browserprofilkort"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browserprofil-Karte"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarjeta de perfil del navegador"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carte du profil de navigateur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scheda profilo del browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザプロファイルカード"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កាតប្រវត្តិរូបកម្មវិធីរុករក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 프로필 카드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nettleserprofilkort"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karta profilu przeglądarki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cartão do perfil do navegador"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Карточка профиля браузера"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การ์ดโปรไฟล์เบราว์เซอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarayıcı Profili Kartı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Картка профілю браузера"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thẻ hồ sơ trình duyệt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览器配置文件卡片"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "瀏覽器設定檔卡片"
+          }
+        }
+      }
+    },
+    "settings.experiments.browserProfileCard.help": {
+      "comment": "Settings > Advanced > Experiments: the help line under the Browser Profile Card switch",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The browser's profile menu opens with a profile card."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُفتح قائمة ملف المتصفح ببطاقة الملف."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meni profila preglednika otvara se karticom profila."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browserens profilmenu åbner med et profilkort."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Profilmenü des Browsers öffnet sich mit einer Profilkarte."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El menú de perfil del navegador se abre con una tarjeta de perfil."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le menu de profil du navigateur s'ouvre sur une carte de profil."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il menu del profilo del browser si apre con una scheda del profilo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザのプロファイルメニューがプロファイルカードから始まります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ឺនុយប្រវត្តិរូបរបស់កម្មវិធីរុករកបើកជាមួយកាតប្រវត្តិរូប។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 프로필 메뉴가 프로필 카드와 함께 열립니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nettleserens profilmeny åpnes med et profilkort."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menu profilu przeglądarki otwiera się kartą profilu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O menu de perfil do navegador abre com um cartão do perfil."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Меню профиля браузера открывается с карточкой профиля."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมนูโปรไฟล์ของเบราว์เซอร์จะเปิดพร้อมการ์ดโปรไฟล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarayıcının profil menüsü bir profil kartıyla açılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Меню профілю браузера відкривається з карткою профілю."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menu hồ sơ của trình duyệt mở ra với thẻ hồ sơ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览器的配置文件菜单以配置文件卡片开头。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "瀏覽器的設定檔選單以設定檔卡片開頭。"
           }
         }
       }

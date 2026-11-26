@@ -20,6 +20,7 @@ import { postNative } from "../native";
 import { knownRefusalText } from "../transportErrors";
 import { INSTALL_COMMANDS } from "../harnesses/harnessRows";
 import { heldPick } from "../newtab/draftFolder";
+import { startThenSend } from "./firstSend";
 import { cloudSendAgent, cloudStartModePick } from "../cloudModePick";
 import { rememberStartedProject } from "../newtab/startedProject";
 import { writePersistedDraft } from "../composerDraft";
@@ -48,8 +49,7 @@ import { rememberNewChatPlace } from "../lastNewChatPlace";
 import { HarnessHealthNotice } from "../HarnessHealthNotice";
 import { Notice } from "../NoticeSlot";
 import { AutoResumeNotice } from "../AutoResumeNotice";
-import { MoveDock, PlaceChip } from "../place/PlaceMounts";
-import { HybridChip } from "../hybrid/HybridMounts";
+import { MoveDock } from "../place/PlaceMounts";
 import { OverloadNotice } from "../OverloadNotice";
 import type { HostOverload } from "../overloadNoticeModel";
 import { liveAutoResume, type TurnPhase } from "../turnPhase";
@@ -212,6 +212,9 @@ export type PaneComposerDeps = {
   shareNudge: ShareNudgeState;
   setShareOpen: React.Dispatch<React.SetStateAction<boolean>>;
   notices: PaneToasts;
+  /// A started chat's Local, Cloud, Auto chips (undefined in the floating chat or before a session): one element per
+  /// chat and toast sink, so a pane render that changes neither hands the composer the same one.
+  placeControl: React.ReactNode | undefined;
   worktreeCreatingHere: boolean;
   worktreeSetupHere: boolean;
   worktreeSetupFolder: string | undefined;
@@ -262,6 +265,8 @@ export type PaneComposerDeps = {
   setStatusCardOpen: React.Dispatch<React.SetStateAction<boolean>>;
   openImage: (src: string, alt: string, path?: string) => void;
   cloudStarting: boolean;
+  /// Return during a Cloud start queues the message for the started chat ("just go"); false: it waits.
+  onCloudStartQueue?: (text: string) => boolean;
   composerDrawn: AcpmuxSnapshot;
   guestsHere: boolean;
   composerSnapshot: AcpmuxSnapshot;
@@ -272,6 +277,8 @@ export type PaneComposerDeps = {
   ComposerChips: React.ComponentType<{ snapshot: AcpmuxSnapshot }> | typeof DefaultComposerChips;
   reconnectPeer: (peer: string) => Promise<unknown>;
   sessionInfo: ReturnType<typeof useSessionInfo>;
+  /// The agent's /compact for this chat (App.tsx `compactChat`): the context card's Compact conversation row.
+  compactChat: (() => void) | undefined;
   draft: string | undefined;
   setDraftSettled: React.Dispatch<React.SetStateAction<string | undefined>>;
   onNewChatDraft: (text: string) => Promise<unknown>;
@@ -449,6 +456,7 @@ export function drawPaneComposer({
   chatSignIns,
   switchLoginCommand,
   composerHandle,
+  placeControl,
   healthStale,
   connectMachine,
   chooseWorkspaceFolder,
@@ -516,6 +524,7 @@ export function drawPaneComposer({
   changesPillNode,
   openImage,
   cloudStarting,
+  onCloudStartQueue,
   composerDrawn,
   guestsHere,
   composerSnapshot,
@@ -526,6 +535,7 @@ export function drawPaneComposer({
   ComposerChips,
   reconnectPeer,
   sessionInfo,
+  compactChat,
   draft,
   setDraftSettled,
   onNewChatDraft,
@@ -986,6 +996,7 @@ export function drawPaneComposer({
             relay={subagentRelay}
             onFocusEdge={markDockEdge}
             cloudStarting={cloudStarting}
+            {...(onCloudStartQueue ? { onCloudStartQueue } : {})}
             snapshot={composerDrawn}
             guestHarnesses={guestsHere ? composerSnapshot.catalog : undefined}
             headerCwd={snapshot.summary?.cwd ?? ""}
@@ -1009,6 +1020,8 @@ export function drawPaneComposer({
             onReconnectMachine={(link) => reconnectPeer(link.machine)}
             // The context card's Details opens Session Info on Context, unfolded and lit (main's).
             onOpenContext={sessionInfo.reveal ? () => sessionInfo.reveal?.("context") : undefined}
+            // The card's Compact conversation row sends the agent's /compact, as Session Info's Compact does.
+            onCompact={compactChat}
             draft={draft}
             onDraftSettled={setDraftSettled}
             onUnsentDraft={quick ? undefined : onNewChatDraft}
@@ -1324,14 +1337,16 @@ export function drawPaneComposer({
                 ) {
                   throw new Error("watch.notTakenOver");
                 }
-                if (projectDraft && !snapshot.sessionId)
-                  // The chat's start is part of this send: a trust refusal there asks the folder's
-                  // question, keeps this prompt (with its send's gesture) and sends it after Trust
-                  // (cx-nn3e P0b; the prompt was lost when only the start ran again).
-                  await callNative("chat.new", {
+                const pick = heldPick(snapshot);
+                // The chat's start is part of this send: a trust refusal there asks the folder's
+                // question, keeps this prompt (with its send's gesture) and sends it after Trust
+                // (cx-nn3e P0b; the prompt was lost when only the start ran again). A held pick's
+                // start waits for this prompt, so the prompt goes with it (firstSend.ts).
+                const start = () =>
+                  callNative("chat.new", {
                     cwd: projectDraft,
                     peer: directClient.current?.newChatPeer(),
-                    ...heldPick(snapshot),
+                    ...pick,
                   }).then(
                     (started) => {
                       if (started) rememberStart();
@@ -1363,6 +1378,8 @@ export function drawPaneComposer({
                         ...(gesture ? { gesture } : {}),
                       }),
                   );
+                // A new chat has no bridged session to take over: its start, then (or with) the prompt.
+                if (projectDraft && !snapshot.sessionId) return startThenSend(start, deliver, Boolean(pick.harness));
                 if (!snapshot.summary?.bridged) return deliver();
                 // The app that ran the bridged session is gone: the chat is taken over and the message
                 // stays in the composer. It is not sent again here, since its send gesture is spent;
@@ -1553,30 +1570,9 @@ export function drawPaneComposer({
               : {})}
             onConnect={connectMachine}
             // A started chat's Local, Cloud, Auto (beside the picker's own move row); the floating chat has none.
-            {...(quick || !snapshot.sessionId
-              ? {}
-              : {
-                  placeControl: (
-                    <>
-                      <PlaceChip
-                        session={snapshot.sessionId}
-                        say={notices.transient}
-                        claims={() => ({
-                          queued: snapshot.queue.length,
-                          hasDraft: (composerHandle.current?.draftText() ?? "").trim() !== "",
-                        })}
-                      />
-                      <HybridChip
-                        session={snapshot.sessionId}
-                        say={notices.transient}
-                        claims={() => ({
-                          queued: snapshot.queue.length,
-                          hasDraft: (composerHandle.current?.draftText() ?? "").trim() !== "",
-                        })}
-                      />
-                    </>
-                  ),
-                })}
+            // Built once per chat by the pane (App.tsx `placeControl`): an inline element here was a new prop on
+            // every pane render, so each streamed chunk drew the composer and its box again while keys waited.
+            {...(placeControl ? { placeControl } : {})}
             // The floating chat has no tab to move.
             {...(quick
               ? {}

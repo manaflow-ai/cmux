@@ -137,6 +137,11 @@ public struct CloudMoveStrings {
     public static func moveFailed(_ detail: String) -> String {
         String(format: String(localized: "cloud.move.failedPlain", defaultValue: "Couldn't move the chat. %@", table: "Cloud", bundle: .localizedModule), detail)
     }
+    /// A move to the person's own machine whose chosen agent login could not be read: it stays here.
+    public static func loginFailed(_ machine: String, _ detail: String) -> String {
+        String(format: String(localized: "cloud.move.loginFailed", defaultValue: "The chat stays here: your agent login for %1$@ couldn't be read: %2$@",
+                              table: "Cloud", bundle: .localizedModule), machine, detail)
+    }
     public static func tabFailed(_ machine: String, _ detail: String) -> String {
         String(format: String(localized: "cloud.move.tabFailed", defaultValue: "The chat moved to %1$@, but its tab didn't open: %2$@",
                               table: "Cloud", bundle: .localizedModule), machine, detail)

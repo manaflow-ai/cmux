@@ -480,6 +480,7 @@ impl Mux {
             ),
             terminal_reaper: Mutex::default(),
             launch_snapshot_path: Mutex::new(None),
+            launch_snapshot_flush: Mutex::new(None),
             settings: settings::SettingsSlot::default(),
             keybindings: keybindings::KeybindingsSlot::default(),
             terminal_work: terminal_work::TerminalWorkPool::default(),

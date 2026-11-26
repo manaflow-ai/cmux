@@ -54,6 +54,7 @@ pub mod policy;
 pub mod portmap;
 pub mod presence;
 pub mod push_keys;
+pub mod relay_publish;
 pub mod seal;
 pub mod sealed_notify;
 pub mod services;

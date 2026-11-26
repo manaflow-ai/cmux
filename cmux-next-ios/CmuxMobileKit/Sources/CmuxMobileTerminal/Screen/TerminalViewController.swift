@@ -1597,27 +1597,40 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // The frame kept for a cold launch has no cursor: it is not where
         // typing goes until the live screen is back (R3-4). The glyph under
         // it stays (V8 claim 8).
-        let cursor = hidingCursor ? surface.visibleCursorCell.map { surface.convert($0, to: view) } : nil
         let host: UIView = model.isTUI ? tuiClip : scrollView
-        let rows = TerminalStillPlan.rowsClip(bounds: view.bounds, topInset: model.isTUI ? tuiClip.frame.minY : scrollView.contentInset.top,
-                                              composerTop: bottomStack.frame.minY)
-            .intersection(host.convert(host.bounds, to: view))
+        // Composed as at rest (keyboard down, composer at one line): rows that
+        // ride the keyboard up are drawn back down to the resting stack top,
+        // so a kept frame never carries the keyboard's gap (`TerminalStillPlan.placement`).
+        let place = TerminalStillPlan.placement(bounds: view.bounds, topInset: model.isTUI ? tuiClip.frame.minY : scrollView.contentInset.top,
+                                                composerTop: bottomStack.frame.minY, restingComposerTop: restingStackTop)
+        // The rows above the host's top that the shift brings into the still
+        // are read from the surface too (a TUI's top rows clipped while the
+        // keyboard is up); the host still bounds the sides and the bottom.
+        let hostFrame = host.convert(host.bounds, to: view)
+        let readable = CGRect(x: hostFrame.minX, y: view.bounds.minY - place.shift, width: hostFrame.width,
+                              height: max(0, hostFrame.maxY - view.bounds.minY + place.shift))
+        let source = place.source.intersection(readable)
+        let rows = source.isNull ? source : source.offsetBy(dx: 0, dy: place.shift)
+        // The frame kept for a cold launch has no cursor: it is not where
+        // typing goes until the live screen is back (R3-4). The glyph under
+        // it stays (V8 claim 8).
+        let cursor = hidingCursor ? surface.visibleCursorCell.map { surface.convert($0, to: view).offsetBy(dx: 0, dy: place.shift) } : nil
         var capture = TerminalPageCapture(bounds: view.bounds, scale: Self.snapshotScale, surface: nil, fallback: nil,
                                           surfaceClip: rows.isNull ? .zero : rows, surfaceFrame: .null, cursor: cursor,
                                           background: terminalBackground)
         guard !rows.isNull, !rows.isEmpty, surface.isDescendant(of: host) else { return capture }
-        let clip = view.convert(rows, to: surface)
+        let clip = view.convert(source, to: surface)
         if let copy = surface.presentedCopy(clip: clip) {
             // The surface drawn from the frame Ghostty presented: the render
             // server's copy of a live Metal surface came out black on the rig (V5-6).
             capture.surface = copy
-            capture.surfaceFrame = surface.convert(copy.frame, to: view)
+            capture.surfaceFrame = surface.convert(copy.frame, to: view).offsetBy(dx: 0, dy: place.shift)
         } else if let presented = surface.presentedImage(clip: clip) {
             // The copy failed (an unexpected surface format): the frame
             // rendered here, on the main thread, as before the copy.
             sizingLog.notice("still: presented copy failed, rendered on the main thread")
             capture.fallback = presented.image
-            capture.surfaceFrame = surface.convert(presented.frame, to: view)
+            capture.surfaceFrame = surface.convert(presented.frame, to: view).offsetBy(dx: 0, dy: place.shift)
         } else {
             sizingLog.notice("still: no presented frame; background only")
         }

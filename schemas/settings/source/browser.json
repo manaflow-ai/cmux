@@ -83,7 +83,8 @@
           "default": [
             "media",
             "zoom",
-            "downloads"
+            "downloads",
+            "profile"
           ],
           "keywords": [
             "toolbar",

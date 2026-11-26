@@ -29,6 +29,8 @@ cmux-rd-proto.workspace = true
 # The phone's viewport sync receiver (src/viewport.rs) renders its screens as VT bytes.
 cmux-terminal-projection.workspace = true
 cmux-remote-protocol.workspace = true
+# The relay cache client (src/relay_cache.rs): opens sealed snapshots and deltas under a floor.
+cmux-relay-snapshot.workspace = true
 cmux-transport.workspace = true
 cmux-wg.workspace = true
 flate2.workspace = true

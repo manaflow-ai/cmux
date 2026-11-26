@@ -1022,6 +1022,38 @@ class WebUiTests(unittest.TestCase):
         failed = {"sessions": {"light": {"exit": 1, "error": "RuntimeError: launch"}}}
         self.assertIn("launch", ib.cron_report(failed, budget)["incomplete"][0])
 
+    def test_the_power_user_native_part_runs_the_native_bursts_and_judges_their_rows(self):
+        """Leo, 2026-11-22: "you guys also need to be testing flicks of extremely fast input for scrolling and
+        resizing/mouse movement and typing/pasting/switching workspaces around. we need to test like power users more
+        often." The native half of the harness runs on the measure host every measured tip; its rows (frame p95/p99,
+        blank frames, flashes, lost switches, bursts a hang left unmeasured) are this part's and judged on budgets."""
+        self.assertIn("power-user-native", FLEET, "a Mac part on the measure host")
+        part = cron.PART_BY_NAME["power-user-native"]
+        self.assertIn("--suite=power-user", part["args"])
+        self.assertIn("--report-only", part["args"], "a breach still stores its rows")
+        self.assertEqual(part["kind"], "budgets")
+        for name in ("power_user.native.workspace.p95", "power_user.native.resize.lost",
+                     "power_user.native.mixed.not_measured"):
+            self.assertEqual(cron.part_for_row(name + "@cmux20-bench"), "power-user-native")
+        self.assertEqual(cron.part_for_row("power.idle.tab1.total_mw@cmux20-bench"), "power")
+        spec2 = importlib.util.spec_from_file_location(
+            "power_user_native", os.path.join(HERE, "..", "..", "perf-bench", "power_user_native.py"))
+        native = importlib.util.module_from_spec(spec2)
+        spec2.loader.exec_module(native)
+        report = {"budgets": native.BUDGETS, "bursts": [
+            {"class": "workspace", "index": 0, "refresh_ms": 8.333, "p95_ms": 9.0, "p99_ms": 30.0, "long": 0,
+             "blank_frames": 2, "flashes": 1, "shift_frames": 0, "lost": 0, "lag_run": 0, "missed": 1},
+            {"class": "workspace", "index": 1, "error": "app stopped answering"}]}
+        report["rows"] = native.cron_rows(report)
+        rows = cron.rows_of_part(part, report, budgets_mod, {})
+        self.assertEqual(rows["power_user.native.workspace.p95"]["budget"], 12.5)
+        self.assertEqual(rows["power_user.native.workspace.p99"]["p95"], 30.0)
+        self.assertEqual((rows["power_user.native.workspace.blank_frames"]["p95"],
+                          rows["power_user.native.workspace.blank_frames"]["budget"]), (2, 0))
+        self.assertEqual(rows["power_user.native.workspace.not_measured"]["p95"], 1, "a hang is a row")
+        self.assertTrue(native.incomplete(report), "a cut run is not a new last good")
+        self.assertTrue(cron.report_is_incomplete(part, {**report, "incomplete": native.incomplete(report)}))
+
     def test_the_power_part_owns_its_rows_and_judges_them_against_their_budgets(self):
         """Leo, 2026-11-19: "having those measurements in so that we're aware of things". power-cron.py stores the
         app's mW idle with a terminal (budget: standalone Ghostty idle in the same run), with one page and scrolling

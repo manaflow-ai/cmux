@@ -276,6 +276,93 @@ describe("link relay: what it carries", () => {
   })
 })
 
+describe("link relay: tail replay on a rejoin (RFD 0142 R3)", () => {
+  const dg = (n: number) => new Uint8Array([4, 0, 0, 0, n])
+  /** The datagram bytes of a relayed frame (after its 18-byte header), as hex. */
+  const body = (b: Uint8Array) => toHex(b.subarray(18))
+
+  it("what went to the phone's old socket in the last second goes out again on its new one, oldest first, then live frames", async () => {
+    const { tok, phone, mac, sessionId } = await session()
+    const m = await joined(tok, sessionId, mac)
+    const old = await joined(tok, sessionId, phone)
+    // The Mac sends while the phone's old network is going away: the old socket is still open, so they are
+    // "delivered" into it and lost there.
+    m.ws.send(frame([dg(1)]))
+    m.ws.send(frame([dg(2)]))
+    await old.until((x) => x.binary.length === 2)
+    // The phone is back on a new network: its new socket replaces the old.
+    const fresh = await joined(tok, sessionId, phone)
+    await fresh.until((x) => x.binary.length === 2)
+    expect(fresh.binary.map(body)).toEqual([body(frame([dg(1)])), body(frame([dg(2)]))])
+    // Stamped with the sender, as live frames are.
+    expect(toHex(fresh.binary[0]!.subarray(2, 18))).toBe(toHex(uuidToBytes(mac)))
+    m.ws.send(frame([dg(3)]))
+    await fresh.until((x) => x.binary.length === 3)
+    expect(body(fresh.binary[2]!)).toBe(body(frame([dg(3)])))
+    // A second rejoin replays nothing already replayed (only what was sent since).
+    const third = await joined(tok, sessionId, phone)
+    await third.until((x) => x.binary.length === 1)
+    await new Promise((r) => setTimeout(r, 100))
+    expect(third.binary.map(body)).toEqual([body(frame([dg(3)]))])
+    third.ws.close()
+    m.ws.close()
+  })
+
+  it("what the Mac sent while the phone had no socket reaches the phone when it joins", async () => {
+    const { tok, phone, mac, sessionId } = await session()
+    const m = await joined(tok, sessionId, mac)
+    const p = await joined(tok, sessionId, phone)
+    p.ws.close(1000, "network gone")
+    await m.until((x) => x.frames.some((f) => f.type === "peer" && f.online === false))
+    m.ws.send(frame([dg(7)]))
+    await m.until((x) => x.frames.filter((f) => f.type === "peer" && f.online === false).length >= 1)
+    const back = await joined(tok, sessionId, phone)
+    await back.until((x) => x.binary.length === 1)
+    expect(body(back.binary[0]!)).toBe(body(frame([dg(7)])))
+    back.ws.close()
+    m.ws.close()
+  })
+
+  it("replays only the last second, and only toward the device that rejoined", async () => {
+    const { tok, phone, mac, sessionId } = await session()
+    const m = await joined(tok, sessionId, mac)
+    const p = await joined(tok, sessionId, phone)
+    m.ws.send(frame([dg(1)]))
+    p.ws.send(frame([dg(9)]))
+    await p.until((x) => x.binary.length === 1)
+    await m.until((x) => x.binary.length === 1)
+    await new Promise((r) => setTimeout(r, 1100))
+    m.ws.send(frame([dg(2)]))
+    await p.until((x) => x.binary.length === 2)
+    const back = await joined(tok, sessionId, phone)
+    await back.until((x) => x.binary.length === 1)
+    await new Promise((r) => setTimeout(r, 100))
+    // dg(1) is older than a second; dg(9) went the other way.
+    expect(back.binary.map(body)).toEqual([body(frame([dg(2)]))])
+    back.ws.close()
+    m.ws.close()
+  })
+
+  it("LINK_RELAY_TAIL=off keeps nothing and replays nothing", async () => {
+    const { tok, phone, mac, sessionId } = await session()
+    const vars = env as unknown as { LINK_RELAY_TAIL?: string }
+    vars.LINK_RELAY_TAIL = "off"
+    try {
+      const m = await joined(tok, sessionId, mac)
+      const p = await joined(tok, sessionId, phone)
+      m.ws.send(frame([dg(1)]))
+      await p.until((x) => x.binary.length === 1)
+      const back = await joined(tok, sessionId, phone)
+      await new Promise((r) => setTimeout(r, 200))
+      expect(back.binary.length).toBe(0)
+      back.ws.close()
+      m.ws.close()
+    } finally {
+      delete vars.LINK_RELAY_TAIL
+    }
+  })
+})
+
 describe("link relay: live sockets end with their session", () => {
   const closedWith = async (s: Sock, code: number) => {
     await s.until((x) => x.closed)

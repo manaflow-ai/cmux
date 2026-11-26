@@ -19,13 +19,23 @@ export type ChecklistStep = {
   link?: { href: string; label: string };
 };
 
+/// A Cloud start step's clock: whole seconds under a minute ("42s"), then minutes and seconds
+/// ("1:05"), then hours ("1:02:03"). Rounded down, so it never reads more than has passed
+/// (Austin, 2026-11-24: "show the seconds", in place of how long a step usually takes).
+export function stageClock(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  if (total < 60) return `${total}s`;
+  const s = String(total % 60).padStart(2, "0");
+  const minutes = Math.floor(total / 60);
+  if (minutes < 60) return `${minutes}:${s}`;
+  return `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, "0")}:${s}`;
+}
+
 function elapsed(startedAt: number | undefined, finishedAt: number | undefined, now = Date.now()): string | undefined {
   if (startedAt === undefined) return undefined;
   const ms = Math.max(0, (finishedAt ?? now) - startedAt);
-  if (ms < 1000) return "<1s";
-  if (ms < 60_000) return `${Math.round(ms / 100) / 10}s`;
-  const seconds = Math.round(ms / 1000);
-  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  // A finished step that took under a second reads "<1s", not a floored "0s".
+  return finishedAt !== undefined && ms < 1000 ? "<1s" : stageClock(ms);
 }
 
 function operationStatus(operation: CloudStartupOperation | undefined): ChecklistStatus | undefined {
@@ -160,9 +170,6 @@ const DEFAULT_STARTUP_STRINGS: Record<string, string> = {
   "cloudStart.stage.machine": "Starting your Cloud machine",
   "cloudStart.stage.clone": "Copying your project",
   "cloudStart.stage.setup": "Running your setup script",
-  "cloudStart.eta.underMinute": "usually under a minute",
-  "cloudStart.eta.seconds": "usually a few seconds",
-  "cloudStart.eta.setupFirst": "a few minutes the first time",
   "cloudStartup.leftOnMac": "{count} files stayed on this Mac",
   "cloudStartup.leftOnMac#one": "{count} file stayed on this Mac",
 };
@@ -261,17 +268,19 @@ export function startupChecklist(
   return [machine, clone, setup, harness];
 }
 
-/// The one line the quiet start view shows while a Cloud start is on its way: the stage it is on,
-/// why the chat waits (a reason) and how long that stage usually takes (an ETA), never a bare
-/// "Thinking" (Leo, 2026-11-09: "the ergonomic part is super big for us."). `step` and `steps` count
-/// the stages this start runs (a skipped clone or setup is not one), for a progress hint.
+/// The one line the quiet start view shows while a Cloud start is on its way: the stage it is on
+/// and a live clock of how long it has run, never a bare "Thinking" (Leo, 2026-11-09: "the
+/// ergonomic part is super big for us.") and never a guess at how long it usually takes (Austin,
+/// 2026-11-24: "show the seconds, dont need to show usually under a minute that stuff"). `step` and
+/// `steps` count the stages this start runs (a skipped clone or setup is not one), for a progress hint.
 export type QuietStage = {
   id: ChecklistStep["id"];
   /// What the start does now: "Starting your Cloud machine".
   label: string;
-  /// How long it usually takes, or the copy's own progress when the host reports it.
-  eta: string;
+  /// The copy's own progress ("1,200 of 3,000 files"), when the host reports it.
+  detail?: string;
   /// When this stage began (ms since epoch), when the host said: the line's clock counts from it.
+  /// Without it the view counts from when it first showed the stage (`useStageSince`).
   since?: number;
   step: number;
   steps: number;
@@ -297,23 +306,16 @@ export function quietStage(
     counted.find((row) => row.status === "running") ??
     counted.find((row, index) => index > lastDone && row.status === "pending");
   if (!current) return undefined;
-  const eta =
-    current.id === "machine"
-      ? t("cloudStart.eta.underMinute")
-      : current.id === "clone"
-        ? current.status === "running" && current.detail && !start.clone?.error
-          ? current.detail
-          : t("cloudStart.eta.underMinute")
-        : current.id === "setup"
-          ? start.setup?.status === "ready"
-            ? t("cloudStart.eta.seconds")
-            : t("cloudStart.eta.setupFirst")
-          : t("cloudStart.eta.seconds");
+  const detail =
+    current.id === "clone" && current.status === "running" && current.detail && !start.clone?.error
+      ? current.detail
+      : undefined;
   const since =
     current.id === "machine"
       ? start.machineStartedAt
       : current.id === "clone"
-        ? start.clone?.startedAt
+        ? // A copy whose lines carry no start time began when the machine was done.
+          (start.clone?.startedAt ?? start.machineFinishedAt)
         : current.id === "setup"
           ? start.setup?.startedAt
           : start.harnessStartedAt;
@@ -328,7 +330,7 @@ export function quietStage(
   return {
     id: current.id,
     label,
-    eta,
+    ...(detail ? { detail } : {}),
     ...(since !== undefined ? { since } : {}),
     step: counted.indexOf(current) + 1,
     steps: counted.length,

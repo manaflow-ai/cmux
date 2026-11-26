@@ -170,6 +170,10 @@ final class FFIMacLink: TimedMacLink, @unchecked Sendable {
         handle.setForegroundProbe(on: on)
     }
 
+    func prewake() {
+        _ = handle.prewake()
+    }
+
     func close() async {
         handle.close()
     }

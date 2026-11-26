@@ -378,6 +378,9 @@ class GeneratedClientMixin:
     def float_pane(self, pane: Id, *, h: Union[float, None, MissingType] = MISSING, mode: Union[str, None, MissingType] = MISSING, transaction: Union[int, None, MissingType] = MISSING, w: Union[float, None, MissingType] = MISSING, x: Union[float, None, MissingType] = MISSING, y: Union[float, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('float-pane', FloatPaneRequest(pane=pane, h=h, mode=mode, transaction=transaction, w=w, x=x, y=y))
 
+    def flush_launch_snapshot(self) -> FlushLaunchSnapshotResult:
+        return self._invoke_command('flush-launch-snapshot', FlushLaunchSnapshotRequest())
+
     def focus_direction(self, dir: PaneDirection, *, pane: Union[Id, None, MissingType] = MISSING) -> FocusDirectionResult:
         return self._invoke_command('focus-direction', FocusDirectionRequest(dir=dir, pane=pane))
 
@@ -1074,6 +1077,7 @@ GeneratedClientMixin.feed_local_handoff_done.__cmux_command__ = COMMANDS['feed-l
 GeneratedClientMixin.feed_local_list.__cmux_command__ = COMMANDS['feed-local-list']
 GeneratedClientMixin.feed_local_read.__cmux_command__ = COMMANDS['feed-local-read']
 GeneratedClientMixin.float_pane.__cmux_command__ = COMMANDS['float-pane']
+GeneratedClientMixin.flush_launch_snapshot.__cmux_command__ = COMMANDS['flush-launch-snapshot']
 GeneratedClientMixin.focus_direction.__cmux_command__ = COMMANDS['focus-direction']
 GeneratedClientMixin.focus_pane.__cmux_command__ = COMMANDS['focus-pane']
 GeneratedClientMixin.forget_session.__cmux_command__ = COMMANDS['forget-session']

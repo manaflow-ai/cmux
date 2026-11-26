@@ -168,10 +168,10 @@ fn install_panic_log() {
 
 /// Debug builds only: the one panic the test triggers raise (below, and the agent host's
 /// translator seam, `agent_host/host.rs` `test_translator_panic`).
-#[cfg(debug_assertions)]
+#[cfg(any(test, debug_assertions))]
 #[allow(
     clippy::panic,
-    reason = "debug-build test trigger for the acpmux panic log; release builds have no seam"
+    reason = "debug-build and test-build trigger for the acpmux panic log; release builds have no seam"
 )]
 pub(crate) fn test_panic(message: &str) -> ! {
     // crash-allow: debug-only test trigger for the acpmux panic log
@@ -556,6 +556,8 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
 
     let store = crate::store::open(&config.store, &home())?;
     crate::mcp_gateway::start(&home()).await; // before any session starts
+    #[cfg(unix)]
+    crate::mcp_pool::start(&home()).await;
     let mut moved_listener = false;
     // The handed web listener, when it is bound where this start would bind (and the address
     // still passes the listener rule above); otherwise closed before the bind below.

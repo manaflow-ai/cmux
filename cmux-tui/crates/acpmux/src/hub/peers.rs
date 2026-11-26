@@ -771,6 +771,10 @@ impl Hub {
         if summary.get("indicator").is_none() || summary.get("lane").is_none() || old_lane {
             super::views::decide(&mut summary);
         }
+        // Decided again here, with `peer` (its machine fact), and for a peer from before it.
+        // Kept whole: the cache serves an attached chat's read with tools, and a census row
+        // cuts it as it goes out (`without_summary_tools`, `PeerRow::listed`).
+        super::views::set_composer_status(&mut summary, true);
         summary
     }
 

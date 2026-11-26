@@ -243,9 +243,11 @@ async fn a_batch_with_one_bad_recipient_keeps_its_rows() {
     let bad = bad.unwrap();
     assert_eq!(bad["status"], "queued", "{bad}");
     let good = settled(&hub, good["deliveryId"].as_str().unwrap(), Duration::from_secs(600)).await;
-    let bad = settled(&hub, bad["deliveryId"].as_str().unwrap(), Duration::from_secs(600)).await;
+    let bad = settled(&hub, bad["deliveryId"].as_str().unwrap(), Duration::from_secs(1200)).await;
     assert_eq!(good.state, State::Delivered, "{good:?}");
     assert_eq!(bad.state, State::Failed, "{bad:?}");
+    // A name the hub never lists fails after its bounded attempts, not on the first 404.
+    assert_eq!(bad.attempts, super::UNKNOWN_RECIPIENT_ATTEMPTS, "{bad:?}");
     let error = bad.error.unwrap_or_default();
     assert!(
         error.contains("mesh hub refused it") && error.contains("unknown_recipient"),
@@ -425,4 +427,39 @@ async fn duress_a_30s_hub_503_loses_none_of_100_sends_and_drains_on_recovery() {
     );
     assert_eq!(lost, 0, "every send delivered");
     assert_eq!(held, SENDS as usize, "the hub holds each send once");
+}
+
+/// RFD 0180 (EAGAIN, not ENOENT): a kept delivery whose target the hub does not list yet (its
+/// machine paused, restarting or between heartbeats) waits on the outbox's back-off and is
+/// delivered once the hub lists it, under its one key. Before: failed on the first 404 ("the
+/// mesh hub refused it: the hub answered 404 mesh.unknown_recipient"), 3 of 69 deliveries on
+/// one lane VM, 2026-11-23 to 11-25.
+#[tokio::test(start_paused = true)]
+async fn a_name_the_hub_lists_late_is_delivered_not_failed() {
+    let script = [
+        Answer::Fail(503, "mesh.unavailable"),
+        Answer::Fail(404, "mesh.unknown_recipient"),
+        Answer::Fail(404, "mesh.unknown_recipient"),
+        Answer::Fail(404, "mesh.unknown_recipient"),
+    ];
+    let (hub, stub) = setup(StubHub { script: Mutex::new(script.into()), ..StubHub::default() });
+    let (answer, _, _) = timed_send(&hub, request("far-host/waking", "prompt-unlisted")).await;
+    let queued = answer.expect("a 503 queues it");
+    assert_eq!(queued["status"], "queued", "{queued}");
+    let id = queued["deliveryId"].as_str().unwrap().to_owned();
+    let d = settled(&hub, &id, Duration::from_secs(1200)).await;
+    assert_eq!(d.state, State::Delivered, "{d:?}");
+    assert_eq!(stub.held.lock().unwrap().len(), 1, "the hub holds it once");
+    let posts = stub.posts.lock().unwrap();
+    assert!(posts.iter().all(|m| m.idempotency_key == "prompt-unlisted"), "{posts:?}");
+    assert_eq!(posts.len(), 5, "the 503, three 404s and the post it took: {posts:?}");
+}
+
+#[test]
+fn only_an_unlisted_name_with_attempts_left_waits() {
+    let unknown = hub_status(404, "mesh.unknown_recipient");
+    assert!(super::unknown_recipient_waits(&unknown, 1));
+    assert!(super::unknown_recipient_waits(&unknown, super::UNKNOWN_RECIPIENT_ATTEMPTS - 1));
+    assert!(!super::unknown_recipient_waits(&unknown, super::UNKNOWN_RECIPIENT_ATTEMPTS));
+    assert!(!super::unknown_recipient_waits(&hub_status(403, "mesh.forbidden"), 1));
 }

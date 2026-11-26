@@ -237,6 +237,10 @@ struct CloudMove {
         let remote = try await sync(folder, to: machineSocket, machine: name, cli: cli, retry: again, progress: progress)
         try place.advance(session, "freeze") // the CLI's answer names no phases: freeze before the move, commit after it
         let owner = await Self.ownerAnswer(machine)
+        // The owner's agent login goes with the move, as a plain Cloud start's (a moved chat answered "Claude is not signed in here").
+        let credential: CloudAgentCredential?
+        do { credential = try await services.agentTabs.cloudCredentials?.moveCredential(vmKind: owner.vmKind, chat: session, machine: machine.machineID, harness: record.harness) }
+        catch { throw Failure(message: CloudMoveStrings.loginFailed(name, CloudStrings.errorText(error)), retry: again) }
         progress.enter(.agent, name: name)
         // The one agent move call freezes the chat, carries it with its frozen sync, then commits; it streams no phases, so
         // `carry` is the call and `commit` its answer: every one of the reducer's steps is reported, in order.
@@ -246,7 +250,7 @@ struct CloudMove {
             // A running turn goes on on the machine, with what it wrote since the sync above.
             let sync = CloudMoveCLI.FrozenSync(pull: false, socket: machineSocket, local: folder.root, remote: remote.folder)
             moved = try await cli.agentMove(from: localSocket, surface: tab.surface.rawValue, to: machineSocket, cwd: remote.chat, sync: sync,
-                                            vmKind: owner.vmKind, toPID: owner.toPID)
+                                            vmKind: owner.vmKind, toPID: owner.toPID, login: credential?.env)
         } catch {
             // Timed out or didn't run to its answer: the move may have committed, and a rerun resolves it.
             services.cloud.logger.error("cloud move: link agent move: \(String(describing: error), privacy: .public)")
@@ -268,7 +272,7 @@ struct CloudMove {
                                            name: Self.movedName(workspace, folder: chat), key: moved.transferID ?? movedSession)
         // A quit or a crash before the tab opens leaves the relaunched app only opening it.
         services.cloud.moveRetries[tab.id] = .show(shown)
-        try await finish(shown, on: machine, tab: tab, progress: progress)
+        try await finish(shown, on: machine, tab: tab, progress: progress, credential: credential)
         return name
     }
 
@@ -293,12 +297,14 @@ struct CloudMove {
     }
 
     /// Opens the moved chat's tab on `machine`, then closes this Mac's tab, whose chat closed with the move.
-    private func finish(_ shown: CloudMoveRetries.Shown, on machine: CloudMachineSession, tab: TabModel, progress: CloudMoveProgress) async throws {
+    private func finish(_ shown: CloudMoveRetries.Shown, on machine: CloudMachineSession, tab: TabModel, progress: CloudMoveProgress, credential: CloudAgentCredential? = nil) async throws {
         services.cloud.place.step(shown.session, "attach")
         progress.enter(.tab, name: machine.machine.title)
         do {
-            try await Self.open(shown, host: AgentTabStore.registryHost(of: machine.daemon), hostName: machine.machine.title, on: machine.daemon,
+            let surface = try await Self.open(shown, host: AgentTabStore.registryHost(of: machine.daemon), hostName: machine.machine.title, on: machine.daemon,
                                 repair: machine.emptyWorkspaces, mutation: "cloud-move-", leaving: tab, services: services)
+            services.agentTabs.cloudCredentials?.moved(chat: shown.session, machine: machine.machineID, on: credential, surface: surface,
+                                                       ownerLink: CloudMachineLinks(appLink: machine.appLink).ownerLink, endpoint: AgentTabRemoteHost.endpoint(on: machine.daemon))
         } catch {
             throw Failure(message: CloudMoveStrings.tabFailed(machine.machine.title, CloudStrings.errorText(error)), retry: .show(shown))
         }
@@ -316,22 +322,14 @@ struct CloudMove {
     /// machines' copies at one path would overwrite each other's). `progress` hears the copy's progress lines.
     func sync(_ folder: CloudMoveFolder, to socket: String, machine: String, cli: CloudMoveCLI, retry: CloudMoveRetries.Retry,
               suffix: String = "", progress: CloudMoveProgress? = nil) async throws -> (folder: String, chat: String) {
-        var last = CloudMoveCLI.Answer(ok: false)
-        for root in services.cloud.move.workRoots {
-            let remote = folder.remote(under: root, suffix: suffix)
-            do {
-                last = try await SeedProgress.feed({ [root = folder.root, to = remote.folder] in
-                    try await cli.seedPush(socket: socket, local: root, remote: to, stderrLine: $0)
-                }, each: { progress?.copied($0) })
-            } catch {
-                // Timed out or didn't launch: nothing moved yet, so Retry runs the move again on this machine.
-                throw Failure(message: CloudMoveStrings.syncFailed(machine, CloudStrings.errorText(error)), retry: retry)
-            }
-            if last.ok { return remote }
-            // Not this machine's home (an image without the work user): the next root.
-            guard last.errorCode == "fs.permission_denied" else { break }
+        let pushed: (remote: (folder: String, chat: String)?, last: CloudMoveCLI.Answer)
+        do {
+            pushed = try await folder.push(with: cli, roots: services.cloud.move.workRoots, socket: socket, suffix: suffix) { progress?.copied($0) }
+        } catch { // Nothing moved yet, so Retry runs the move again on this machine.
+            throw Failure(message: CloudMoveStrings.syncFailed(machine, CloudStrings.errorText(error)), retry: retry)
         }
-        throw CloudMoveFailure.syncing(last, machine: machine, retry: retry)
+        if let remote = pushed.remote { return remote }
+        throw CloudMoveFailure.syncing(pushed.last, machine: machine, retry: retry)
     }
 
     /// The chat's folder on this Mac: the `path` argument (the CLI makes a
@@ -393,14 +391,14 @@ struct CloudMove {
     }
 
     static func connected(_ session: CloudMachineSession, _ invocation: ActionInvocation) async throws -> CloudMachineSession {
-        // A paused machine (idle auto-pause) resumes on this attach; a live one connects. A
-        // record that may be stale (paused behind the app) is read again first.
-        try CloudHandlers.requireAttachableState(session)
+        // A paused machine (idle auto-pause) resumes on this attach; a live one connects; a pause or resume in flight is
+        // waited out (Rust's settle, ask-259986a6c4). A record that may be stale (paused behind the app) is read again first.
+        try await CloudHandlers.requireAttachableState(session, waitingOutResume: CloudStartSession.connectWait)
         // A new machine that still binds: the app link's connect waits in the Cloud app server until it runs
         // (cloud.machine.upsert or its own read of that machine), never a list read from here.
         if session.daemon.connection == nil {
             await session.refreshIfMaybePaused()
-            try CloudHandlers.requireAttachableState(session)
+            try await CloudHandlers.requireAttachableState(session, waitingOutResume: CloudStartSession.connectWait)
             if session.machine.status == .paused { session.attach(origin: CloudHandlers.connectOrigin(for: invocation)) } else { session.connect(origin: CloudHandlers.connectOrigin(for: invocation)) }
         }
         let up = await session.linkUp(within: CloudStartSession.connectWait)
@@ -413,8 +411,9 @@ struct CloudMove {
 
     /// Opens a moved chat (Move to Cloud's, Bring Back Local's) on `daemon`, bound to `shown.session` through `host`: a workspace placed like Cmd-N whose only tab is the chat's (made once: `mutation` + `shown.key`), selected.
     /// No terminal first: as the first tab it took the window and `--focus` (capture baf4f76ab502); a new terminal beside the chat starts in its folder. Each window that showed `tab`, the tab the chat leaves, shows it there even for a run with no `--focus`, as focus follows a moved tab.
-    static func open(_ shown: CloudMoveRetries.Shown, host: String?, hostName: String?, on daemon: DaemonService, repair: EmptyWorkspaceRepair,
-                     mutation: String, leaving tab: TabModel, services: AppServices) async throws {
+    /// Returns the new tab's surface on `daemon`.
+    @discardableResult static func open(_ shown: CloudMoveRetries.Shown, host: String?, hostName: String?, on daemon: DaemonService, repair: EmptyWorkspaceRepair,
+                     mutation: String, leaving tab: TabModel, services: AppServices) async throws -> UInt64 {
         guard let connection = daemon.connection, let host else { throw DaemonError.notConnected }
         let record = AgentSessionRef(host: host, hostName: hostName, session: shown.session, harness: shown.harness)
         let workspace = NewWorkspacePlacements.placedKey(in: services.windows)
@@ -428,6 +427,7 @@ struct CloudMove {
         ActionRunScope.carrying(ActionRunScope(origin: ActionRunScope.current?.origin ?? .user, allowsViewChange: true)) { keeping.forEach { services.windows.show(workspaceID: workspace.rawValue, inWindow: $0) } }
         let opened = created.tabResourceID?.rawValue ?? "surface:\(created.surface.rawValue)", first = await daemon.store.firstPane(mirroring: workspace)
         for window in services.windows.controllers { if let first { window.state.selection.select(opened, in: first.id) } }
+        return created.surface.rawValue
     }
 
     /// A moved chat's workspace name: its workspace's here, but never Home's (a machine's "Home" hid the chat): its folder's.

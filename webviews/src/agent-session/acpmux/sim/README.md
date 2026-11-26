@@ -271,7 +271,7 @@ the escape hatch for any record acpmux writes.
   it, or the block gap (24) when it is another agent's line (a notice or message; transcriptSpacing.ts
   `footer-to-received`, by design). `a-head-gap`: the turn's head (its "Working for" / "Worked for" line, or
   the first row under its opening row) stands at least the block gap (24) under the opening row.
-- **(b) folds**: no row folds (leaves the drawn rows, or its fold closes) before its turn's `turn_result`.
+- **(b) folds**: no row folds (leaves the drawn rows, or its fold closes) before its turn's first end record (`turn_end`, or `turn_result` when no end was recorded).
   Allowed, and counted in the summary as "mid-turn sibling folds": a finished run of calls (and a
   compaction line inside it) closed with a reply of the same running turn under it: the `runs` arm of
   live-turn-work, where a run stays open until the agent's next paragraph (#48597). A run closed by the
@@ -282,7 +282,7 @@ the escape hatch for any record acpmux writes.
   `d-started-pill`: a "started working" line names at most `STARTED_LINE_NAMES` (3) subagents, each by name,
   and none whose start the pane never read (one first met through progress, its spawn before the page);
   `d-started-lines`: one start line a turn (later starts join it); `d-blank`: once rows are drawn, the chat
-  never draws none; `d-shift`: a settled row (two or more turns back, not live) keeps its top;
+  never draws none; `d-shift`: a settled row (two or more turns back, not live) keeps its viewport position after the transcript anchors a prepend;
   `d-action-only`: a turn that ended draws more than its prompt and its action row; `d-steer-order`: no
   row of a steer's turn that came after the steer is drawn above it.
 - **(i) bubble integrity** (integrity.ts), on each turn's rows at its `turn_result` and at the run's last step

@@ -354,9 +354,14 @@ fn phone_rb(body: serde_json::Value) -> Bytes {
 }
 
 async fn drain(channel: &mut Channel) -> (Vec<u8>, String) {
+    drain_within(channel, Duration::from_secs(10)).await
+}
+
+/// `drain`, with a longer wait per message for replies that follow heavy disk work.
+async fn drain_within(channel: &mut Channel, wait: Duration) -> (Vec<u8>, String) {
     let mut bytes = Vec::new();
     loop {
-        match tokio::time::timeout(Duration::from_secs(10), channel.recv()).await.expect("in time") {
+        match tokio::time::timeout(wait, channel.recv()).await.expect("in time") {
             Some(ChannelEvent::Data(data)) => bytes.extend_from_slice(&data),
             Some(ChannelEvent::Closed(info)) => return (bytes, info.code),
             None => return (bytes, "none".into()),
@@ -1039,7 +1044,8 @@ async fn an_upload_past_the_old_100_mib_cap_is_saved_whole() {
         }
         sent += take as u64;
     }
-    let (reply, code) = drain(&mut upload).await;
+    // The host writes and syncs 100 MiB before it answers; a loaded CI runner can take well over 10 s.
+    let (reply, code) = drain_within(&mut upload, Duration::from_secs(90)).await;
     assert_eq!(code, "eof", "{}", String::from_utf8_lossy(&reply));
     assert_eq!(sent, size);
     let reply: serde_json::Value = serde_json::from_slice(&reply).unwrap();

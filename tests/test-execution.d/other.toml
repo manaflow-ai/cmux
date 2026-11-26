@@ -907,6 +907,11 @@ path = "tests/test_tailnet_go.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_tailnet_stable_node.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_tailnet_stable_node.py"
+
+[[test]]
 path = "tests/test_tap_test_health.py"
 lane = "linux-guard"
 

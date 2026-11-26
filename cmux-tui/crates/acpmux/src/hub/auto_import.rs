@@ -41,7 +41,7 @@ impl Hub {
         // before left behind. Published frozen and kept so (`hold`): it is only prepared until
         // the holder loop accepts it (`auto_activate`), so a copy that lost the chat meanwhile
         // runs nothing.
-        let plain = (false, None, true, false, None);
+        let plain = (super::transfer::Live::No, None, true, false, None);
         let session = self.import_placing(bundle, None, plain, true, true).await?;
         if arrival.settle {
             self.settle_takeover(&session, arrival.in_flight.as_ref());

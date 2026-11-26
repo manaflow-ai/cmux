@@ -176,7 +176,7 @@ for mode in ${MODES:-clone carry}; do
     for j in $(seq 1 "$DURESS"); do
       ( set +e; CARRY_BYTES=0; "run_$mode" "$WORK/duress-$mode-$j" >/dev/null 2>&1; echo $? > "$WORK/duress-$mode-$j.rc" ) & pids+=($!)
     done
-    wait "${pids[@]}"; t1=$(now)
+    wait ${pids[@]+"${pids[@]}"}; t1=$(now)
     bad=0; for j in $(seq 1 "$DURESS"); do
       { [ "$(cat "$WORK/duress-$mode-$j.rc")" = 0 ] && check "$WORK/duress-$mode-$j"; } || bad=$((bad + 1))
       rm -rf "$WORK/duress-$mode-$j" "$WORK/duress-$mode-$j.rc"

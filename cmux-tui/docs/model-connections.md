@@ -196,7 +196,8 @@ Connections (all held on the Mac: acpmux routes + Keychain references):
 - **Claude**: `claude-token`, the long-lived token from Claude Code's own `claude setup-token`
   (the person runs it; cmux never implements Claude's OAuth). Settings > Models > Claude Code opens
   a cmux terminal tab running `claude setup-token` and a paste field; the pasted value is checked
-  (`sk-ant-oat` prefix, no whitespace), stored in the Keychain, and only `keychain:ITEM` reaches
+  (`sk-ant-oat` prefix, every whitespace character taken out first, inner ones too: a
+  terminal wraps and pads the printed line), stored in the Keychain, and only `keychain:ITEM` reaches
   acpmux (`_acpmux/connections/claude_token.add {secret, label?}` -> state; kind `claude-token`,
   provider anthropic, family claude). An Anthropic API key (`api-key`, anthropic) also serves Claude.
 - **Codex**: `chatgpt-plan` (Sign in with ChatGPT, lane A as built) or an OpenAI API key.

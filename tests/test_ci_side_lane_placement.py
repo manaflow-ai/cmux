@@ -1973,6 +1973,8 @@ class CmuxNextWiring(unittest.TestCase):
                             "release-compile-fast": {"result": "skipped", "outputs": {"verdict": ""}},
                             # The GUI jobs wait for the shared web bundles (#21189).
                             "web-bundles": {"result": "success"},
+                            # PR Mac jobs wait for the Linux cargo fast tier to be not red.
+                            "fast-tier-cargo": {"result": "success"},
                             self.PLACEMENT: {"outputs": outputs}}
         return context
 

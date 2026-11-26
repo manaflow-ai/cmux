@@ -10,6 +10,7 @@
 // No DOM is needed: this runs under plain `bun` and scales to 10k+ rows (a long run's trace holds
 // the probes, not every row, past `rowsInTraceUpTo`).
 import { AcpmuxDirectClient, type EventRecord } from "../direct";
+import { preserveScrollAnchorTop } from "../conversation/scrollAnchor";
 import { turnViewFrom, type TurnView } from "../conversation/turns";
 import { layoutConversation, type AcpmuxRow, type AcpmuxSnapshot, type ConversationLayout } from "../model";
 import { acpmuxSendCall } from "../conversation/acpmuxSends";
@@ -66,7 +67,7 @@ export type FoldEvent = {
   turn: number;
   /** `hidden`: the row left the drawn rows (folded under a line); `closed`: its fold went from open to closed. */
   how: "hidden" | "closed";
-  /** ms of virtual time from the fold to its turn's end event (`turn_result`): > 0 means mid-turn. */
+  /** ms of virtual time from the fold to its turn's first end record: > 0 means mid-turn. */
   beforeTurnEndMs?: number;
   /** `turn-end`: at or after its turn's end; `sibling`: a later row of the same running turn closed a finished run
    *  (the `runs` arm of live-turn-work, by design); `final-answer`: the turn's final answer (Codex's
@@ -215,8 +216,9 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
   let snapshot: AcpmuxSnapshot | undefined;
   const client = AcpmuxDirectClient.replay(scenario.sessionId, [...scenario.events], (next) => (snapshot = next));
   const bySeq = new Map<number, EventRecord>(scenario.events.map((event) => [event.seq, event]));
-  // Each turn's end (`turn_result`) time, known ahead from the script, so a fold can say how long before it it came.
-  const turnEnds = new Map<number, number>();
+  // The reducer settles a turn at turn_end; turn_result replaces that summary, or settles it when
+  // the end was absent. Sequence determines order even when adjacent records share a timestamp.
+  const turnEnds = new Map<number, EventRecord>();
   {
     let turn = 0;
     let ended = true;
@@ -225,15 +227,16 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
         turn += 1;
         ended = false;
       }
-      if (event.kind === "turn_result") {
-        if (!turnEnds.has(turn)) turnEnds.set(turn, event.at);
-        ended = true;
-      }
+      if ((event.kind === "turn_end" || event.kind === "turn_result") && !turnEnds.has(turn)) turnEnds.set(turn, event);
+      if (event.kind === "turn_result") ended = true;
     }
   }
   const first = scenario.steps[0]?.at ?? 0;
   let turn = 0;
   let turnEnded = true;
+  let throughSeq = -Infinity;
+  const settledForFolding = (own: number) =>
+    own < turn || turnEnded || throughSeq >= (turnEnds.get(own)?.seq ?? Infinity);
   // Session replay never reports working (workingNow() is false while replayThrough is set), so the
   // runner tracks it from the records as the live pane would see it: running from `status running` or
   // `turn_started` to `status ready` or `turn_result`.
@@ -275,6 +278,7 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
   const advance = (index: number): readonly AcpmuxRow[] | undefined => {
     const step = scenario.steps[index]!;
     if (step.type === "event") {
+      throughSeq = step.seq;
       const event = bySeq.get(step.seq);
       // A message that comes in while the turn runs steers it (turns.ts draws it inside that turn's
       // work); only one after the turn ended opens a turn.
@@ -454,7 +458,7 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
       if (hidden && (isLive(was.row) || LIVE_KINDS.has(was.row.kind))) continue;
       const own = rowTurn.get(id) ?? 0;
       const end = turnEnds.get(own);
-      const ended = own < turn || turnEnded;
+      const ended = settledForFolding(own);
       let verdict: FoldEvent["verdict"] = "turn-end";
       if (!ended) {
         // A finished run that the agent's next paragraph closed (live-turn-work's `runs` arm, by design; #48597:
@@ -486,7 +490,7 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
         kind: was.row.kind,
         turn: own,
         how: hidden ? "hidden" : "closed",
-        ...(end !== undefined ? { beforeTurnEndMs: end - step.at } : {}),
+        ...(end !== undefined ? { beforeTurnEndMs: end.at - step.at } : {}),
         verdict,
       };
       folds.push(event);
@@ -494,7 +498,7 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
         flag(
           "b-mid-turn-fold",
           id,
-          `${was.row.kind} of turn ${own} ${event.how} ${end !== undefined ? `${end - step.at} ms before its turn_result` : "in a turn that never ends"}${was.row.text ? `: "${was.row.text.slice(0, 50)}"` : ""}`,
+          `${was.row.kind} of turn ${own} ${event.how} ${end !== undefined ? `${end.at - step.at} ms before its ${end.kind}` : "in a turn that never ends"}${was.row.text ? `: "${was.row.text.slice(0, 50)}"` : ""}`,
         );
     }
 
@@ -510,13 +514,13 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
         drawnHeights.set(row.id, height);
         const own = rowTurn.get(row.id) ?? 0;
         if (was === undefined || was - height < 12 || isLive(row) || LIVE_KINDS.has(row.kind)) continue;
-        if (own < turn || turnEnded) continue;
+        if (settledForFolding(own)) continue;
         const before = prevRows.find((old) => old.id === row.id);
         if (before && foldOf(before) !== foldOf(row)) continue;
         flag(
           "b-mid-turn-shrink",
           row.id,
-          `${row.kind} of turn ${own} drawn ${Math.round(was)}px -> ${Math.round(height)}px before its turn_result`,
+          `${row.kind} of turn ${own} drawn ${Math.round(was)}px -> ${Math.round(height)}px before its turn ended`,
         );
       }
     }
@@ -527,13 +531,27 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
     // MY STEER WENT UNDER IT".
     if (rows.length > 0) drewRows = true;
     else if (drewRows) flag("d-blank", "", "the chat drew no row after it drew some");
+    // A prepend (including the first turn's date line appearing after an hour) moves document
+    // coordinates. VirtualTranscript holds the first visible row at its old viewport position.
+    // Probe from the top so a change below that row still registers as movement.
+    const scrollCorrection =
+      prevLayout && rows[0]?.id !== prevRows[0]?.id
+        ? (preserveScrollAnchorTop({
+            oldLayout: prevLayout,
+            newLayout: layout,
+            oldRows: prevRows,
+            newRows: rows,
+            liveTop: 0,
+            anchorTop: 0,
+          }) ?? 0)
+        : 0;
     const ownTurn = (row: AcpmuxRow) => rowTurn.get(row.id) ?? 0;
     const lines = new Map<string, string>();
     for (let at = 0; at < rows.length; at += 1) {
       const row = rows[at]!;
       const live = isLive(row) || LIVE_KINDS.has(row.kind);
       // A settled row (two or more turns back, not live) stands where it stood: nothing above it moved.
-      const top = layout.tops[at]!;
+      const top = layout.tops[at]! - scrollCorrection;
       const was = tops.get(row.id);
       if (!live && was !== undefined && Math.abs(was - top) > 0.5 && ownTurn(row) < turn - 1)
         flag("d-shift", row.id, `${row.kind} of turn ${ownTurn(row)} moved ${Math.round(top - was)}px`);

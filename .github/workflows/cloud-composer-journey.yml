@@ -56,7 +56,7 @@ on:
         required: false
         default: ""
         type: string
-  # No pull_request trigger: the run tests a published nightly, not the PR's code, and stays red until the
+  # No pull-request trigger: the run tests a published nightly, not the PR's code, and stays red until the
   # product reds its cells record are fixed, so it would only gate a harness PR on them. The harness's own
   # logic is covered by tests/test_cloud_composer_journey.py in tooling-tests.
 
@@ -203,6 +203,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: Install build prerequisites
         run: |

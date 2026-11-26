@@ -4966,6 +4966,8 @@ jobs:
       name: artifacts
       deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
     name: mark the published tree as daemon-tested
+    outputs:
+      pointed: ${{ steps.point.outputs.pointed }}
     needs: [tree-preflight, tree-owner-wait, publish-tree, cmux-next-daemon-tests]
     # Any OS: the Linux gate's pass marks the tree (Leo, 2026-10-26), and the
     # marker names the OS it ran on.
@@ -4998,6 +5000,26 @@ jobs:
           KEY_V2: ${{ needs.tree-preflight.outputs.key }}
           LEGACY_KEY: ${{ needs.tree-preflight.outputs.legacy_key }}
         run: scripts/ci/cmux-tui-mark-daemon-tested.sh "$KEY_V2" "$LEGACY_KEY"
+
+      # The feat-cmux-next channel moves here, right after the marker, not in point-feat-channel's own job: that
+      # job's runner setup and checkout took about 2.5 of its 3 minutes on the path from a merge to every Linux
+      # host (run 45557717558: marker 06:37:09Z, channel written 06:40:37Z; goal fleet-core-skew, RFD 0178:
+      # "fixes hot-swap to every session on merge"). The same script, so the same daemon-tested check, forward-only
+      # compare-and-swap and git fallback. A failed point here leaves `pointed` unset and point-feat-channel tries.
+      - name: Point the feat-cmux-next channel at this tree
+        id: point
+        if: ${{ github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' }}
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          GH_TOKEN: ${{ github.token }}
+          KEY: ${{ needs.tree-preflight.outputs.key }}
+        run: |
+          scripts/ci/cmux-tui-point-channel.sh feat-cmux-next "$KEY"
+          echo "pointed=true" >> "$GITHUB_OUTPUT"
 
   # A Team-signed copy of this push's darwin tree build, for hot-apply into a Team-signed app (a
   # NIGHTLY, cmuxterm-hq#11364): cmux-tui-team-signed.yml signs it with the NEXT nightly's identity,
@@ -5103,7 +5125,9 @@ jobs:
     # merged acpmux fix waited up to an hour (or a failed hour, two) before Linux hosts could install it. The script
     # records GITHUB_SHA, the commit this run checked out, and moves only forward past the channel's commit, only
     # to a daemon-tested tree, so a dispatch of an older or untested commit leaves the channel as it is.
-    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.result == 'success' && needs.publish-tree-tested.result != 'failure' }}
+    # A run that wrote the marker already pointed in publish-tree-tested (outputs.pointed): this job runs for a
+    # tree another run tested (publish-tree-tested skipped) or when that point step failed.
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.result == 'success' && needs.publish-tree-tested.result != 'failure' && needs.publish-tree-tested.outputs.pointed != 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:

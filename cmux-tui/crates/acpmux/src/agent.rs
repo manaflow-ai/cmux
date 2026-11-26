@@ -2247,16 +2247,30 @@ impl ChildAgent {
 
     /// Its session's start is over: its harness goes to its run class, once (`cpu_class.rs`).
     /// True when this call lowered it. A harness with no class set (another daemon started it)
-    /// takes the agent tier; one that ended is left alone.
+    /// takes [`crate::cpu_class::CpuClass::Normal`]; one that ended is left alone.
     pub async fn enter_run_class(&self) -> bool {
         // A harness adopted from another daemon has no class here: one whose start that daemon
         // did not see end (a restart mid-start) would keep the start's priority for good, so it
-        // takes the agent tier ([`CpuClass::Normal`]), which only lowers.
+        // takes [`CpuClass::Normal`]: a terminal shell's priority on macOS, the agent tier on
+        // Linux, and it only lowers.
         let class = self.run_class.get().copied().unwrap_or(crate::cpu_class::CpuClass::Normal);
         if self.run_class_entered.swap(true, Ordering::SeqCst) {
             return false;
         }
         self.with_live_harness(|pid| class.enter(pid)).await.unwrap_or(false)
+    }
+
+    /// A person's own turn runs (`on`) or ended: a `background` harness leaves background class
+    /// for the turn and goes back after it (`cpu_class.rs`, item 6), so the tools it starts while
+    /// a person waits run at the agent tier, still below the app, not at background class. Only a
+    /// harness this daemon put in background class moves. True when its class changed.
+    pub async fn person_turn(&self, on: bool) -> bool {
+        let background =
+            self.run_class.get().copied() == Some(crate::cpu_class::CpuClass::Background);
+        if !background || !self.run_class_entered.load(Ordering::SeqCst) {
+            return false;
+        }
+        self.with_live_harness(|pid| crate::cpu_class::person_turn(pid, on)).await.unwrap_or(false)
     }
 
     /// What its harness is doing now (`cpu_class::HarnessSeen`): ended, unread or its state.

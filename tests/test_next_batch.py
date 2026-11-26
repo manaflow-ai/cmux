@@ -186,7 +186,9 @@ class OpenPrsQuery(unittest.TestCase):
                 cursors = [None] + [page["repository"]["pullRequests"]["pageInfo"]["endCursor"] for page in pages]
                 return pages[cursors.index(after)]
             reply = {}
-            for alias, node_id, rest in re.findall(r'^(p\d+): node\(id: "([^"]+)"\)(.*?)(?=^p\d+: |\Z)', query, re.S | re.M):
+            self.assertEqual((variables.get("owner"), variables.get("name")), ("o", "r"))
+            for alias, number, rest in re.findall(r'^(p\d+): pullRequest\(number: (\d+)\)(.*?)(?=^p\d+: |\Z)', query, re.S | re.M):
+                node_id = f"PR_{number}"
                 cursor = None
                 if "contexts(" in rest:
                     found = re.search(r'after: "([^"]+)"', rest)
@@ -200,7 +202,7 @@ class OpenPrsQuery(unittest.TestCase):
                     node["commits"] = {"nodes": [{"commit": {"statusCheckRollup": {"contexts": {
                         "nodes": contexts, "pageInfo": {"hasNextPage": bool(following), "endCursor": following}}}}}]}
                 reply[alias] = node
-            return reply
+            return {"repository": reply}
 
         gh.graphql = graphql
         return gh, seen
@@ -296,7 +298,10 @@ class OpenPrsQuery(unittest.TestCase):
 
     def test_the_detail_query_refuses_an_unexpected_id(self):
         with self.assertRaises(ValueError):
-            nb.detail_query([('x") { a } b: node(id: "y', True, None)])
+            nb.detail_query([(1, True, 'x") { a } b: node(id: "y')])
+        with self.assertRaises(ValueError):
+            nb.detail_query([("1) { a } b: node(id: 2", True, None)])
+        self.assertNotIn("node(", nb.detail_query([(7, True, "")]))
 
     def test_a_gateway_timeout_is_retried_once(self):
         gh = nb.GitHub("o/r")

@@ -2579,6 +2579,40 @@ button.file-header-open:focus-visible {
   flex: 1 1 auto;
   min-width: 4px;
 }
+/* The bar's buttons (stage, revert, "...", the eye) show only on hover, so they take no width of
+   their own: they lie over the end of the path, in a zero-width slot after the spacer (Leo,
+   2026-11-24: "if the buttons show on hover, then we should show the whole line before ellipsis-ing.
+   and when the area is hovered over, there's that whatever some amount of good fading that makes it
+   all feel like one motion"; "you're early ellipsis-ing because of a button that doesnt even always
+   show"). The path (.ui-reveal-text, ui/motion/motion.css) fades its end under them while they show
+   (ui/revealCover.ts, data-reveal-overlap: a short path never reaches them). A viewed file's eye
+   stays shown, so only then has the slot its width. */
+.file-header-actions-anchor {
+  position: relative;
+  flex: 0 0 0;
+  align-self: stretch;
+  min-width: 0;
+  /* The flex gap this slot would otherwise add. */
+  margin-inline-start: -6px;
+}
+.file-header[data-viewed-state="viewed"] .file-header-actions-anchor {
+  flex-basis: 22px;
+  margin-inline-start: 0;
+}
+.file-header-actions {
+  position: absolute;
+  inset-inline-end: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+/* A bar with no badge or "Load diff" has no controls span to hold a gap for. */
+.file-header .file-review-controls:empty {
+  display: none;
+}
 .file-header [data-cmux-diff-metadata] {
   flex: 0 1 auto;
   min-width: 0;
@@ -2625,7 +2659,6 @@ button.file-header-open:focus-visible {
   justify-content: center;
   width: 22px;
   height: 22px;
-  margin-left: 6px;
   padding: 0;
   border: 0;
   border-radius: var(--ds-radius-control);

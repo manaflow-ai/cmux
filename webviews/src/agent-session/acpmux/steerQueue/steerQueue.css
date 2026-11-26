@@ -166,17 +166,20 @@
   display: none;
 }
 
+/* The row's digit shows on the selected row only, so it is laid out there only: a hidden digit
+   kept in every row's flow would cut every row's name and line short of the row's end (Leo,
+   2026-11-24: "you're early ellipsis-ing because of a button that doesnt even always show"). */
 .acpmux-steer-key {
+  display: none;
   flex: none;
   align-self: center;
   color: var(--agent-muted);
   font: inherit;
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
-  opacity: 0;
 }
 .acpmux-steer-row[aria-selected="true"] .acpmux-steer-key {
-  opacity: 1;
+  display: block;
 }
 
 .acpmux-steer-empty {

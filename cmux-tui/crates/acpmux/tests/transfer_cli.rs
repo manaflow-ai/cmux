@@ -159,7 +159,15 @@ impl Daemon {
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(&home).expect("home");
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-        let mut config = json!({"harnesses": {harness: {"argv": ["python3", fake], "env": agent_env}}, "defaultHarness": harness, "permissionPolicy": policy});
+        // `FAMILY` in `agent_env` is not the agent's environment: it is the profile's `family`
+        // (`claude`, `codex`), which names the native store the chat's files travel from.
+        let mut agent_env = agent_env;
+        let family = agent_env.as_object_mut().and_then(|env| env.remove("FAMILY"));
+        let mut profile = json!({"argv": ["python3", fake], "env": agent_env});
+        if let Some(family) = family {
+            profile["family"] = family;
+        }
+        let mut config = json!({"harnesses": {harness: profile}, "defaultHarness": harness, "permissionPolicy": policy});
         if linked {
             let free = std::net::TcpListener::bind("127.0.0.1:0").expect("a free port");
             let listen = free.local_addr().expect("its address").to_string();

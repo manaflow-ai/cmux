@@ -28,6 +28,23 @@ extension AppServices {
         ssh.start()
         serverReach.start()
         updater.start()
+        let memoryReporter = MemoryPressureReporter(reporter: crashReporting.reporter)
+        memoryPressureReporter = memoryReporter
+        memoryPressureReportingObservation = memoryPressure.observe { [weak self] level in
+            guard let reporter = self?.memoryPressureReporter else { return }
+            Task.detached(priority: .utility) {
+                reporter.note(level: level, snapshot: MemoryPressureSnapshot.current())
+            }
+        }
+        memoryPressure.refresh()
+        if let previous = crashRecovery.recovery.previous, previous.wasLikelyOOM {
+            Task.detached(priority: .utility) {
+                let current = MemoryPressureSnapshot.current()
+                let priorFootprint = previous.context?.footprintMegabytes ?? current.footprintMegabytes
+                memoryReporter.notePreviousOOM(MemoryPressureSnapshot(
+                    footprintMegabytes: priorFootprint, topOwners: current.topOwners, uptimeNanos: current.uptimeNanos))
+            }
+        }
         // The run's crash breadcrumbs: counts and kinds only, never a title, URL, path or terminal text. The
         // run marker reads the footprint when it writes them (AppRunMarker.encoding).
         crashRecovery.recordContext(on: actionBudget.samples(everyRun: true)) { [weak self] in

@@ -17,9 +17,37 @@ use serde::{Deserialize, Serialize};
 const GIB: u64 = 1024 * 1024 * 1024;
 const MIB: u64 = 1024 * 1024;
 
-/// Under this much free the disk is almost full: the auto-grow threshold
-/// (RFD 0068 "What to build next" 2, grow by 4 GiB under 2 GiB free).
-pub const ALMOST_FULL_FREE_BYTES: u64 = 2 * GIB;
+/// Under this much free, or under [`ALMOST_FULL_FREE_SHARE`] of the disk free when that is more,
+/// the disk is almost full: the budget cmux Cloud grows the disk at (cmux-platform `DISK_GROW`,
+/// RFD 0068 "What to build next" 2) and the guest evicts caches at (acpmux `disk_evict.rs`).
+pub const ALMOST_FULL_FREE_BYTES: u64 = 4 * GIB;
+
+/// The share of the disk under which free space is almost full, on a disk where it is more than
+/// [`ALMOST_FULL_FREE_BYTES`] (a disk over 26.7 GiB).
+pub const ALMOST_FULL_FREE_SHARE: f64 = 0.15;
+
+/// The free bytes under which a disk of `total` bytes is almost full.
+pub fn almost_full_under(total: u64) -> u64 {
+    ALMOST_FULL_FREE_BYTES.max((total as f64 * ALMOST_FULL_FREE_SHARE) as u64)
+}
+
+/// One chat's share of the disk: `~/chats/<id>` and the worktrees inside it (acpmux's disk walk).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChatDisk {
+    pub id: String,
+    pub bytes: u64,
+}
+
+/// What the guest cleared the last time its disk ran low: re-creatable caches and idle build
+/// output, never a user's files. The event a machine card can show.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiskEviction {
+    /// When, milliseconds since the epoch.
+    pub at: u64,
+    #[serde(alias = "freedBytes")]
+    pub freed_bytes: u64,
+    pub paths: Vec<String>,
+}
 
 /// The bar's width in parts; the segments' `width` sum to it.
 pub const BAR_PARTS: u32 = 1000;
@@ -113,6 +141,32 @@ impl DiskReport {
     }
 }
 
+/// The chats in a `disk_health` (the guest's `diskSplit.chats`), largest first; empty when the
+/// guest does not report them.
+pub fn chats_from_health(value: &serde_json::Value) -> Vec<ChatDisk> {
+    let split = value.get("diskSplit").or_else(|| value.get("disk_split"));
+    let mut chats: Vec<ChatDisk> = split
+        .and_then(|s| s.get("chats"))
+        .and_then(|c| serde_json::from_value(c.clone()).ok())
+        .unwrap_or_default();
+    chats.sort_by(|a, b| b.bytes.cmp(&a.bytes).then_with(|| a.id.cmp(&b.id)));
+    chats
+}
+
+/// The guest's last eviction in a `disk_health` (`diskSplit.evicted`), if it reports one.
+pub fn eviction_from_health(value: &serde_json::Value) -> Option<DiskEviction> {
+    let split = value.get("diskSplit").or_else(|| value.get("disk_split"))?;
+    let e = split.get("evicted")?;
+    Some(DiskEviction {
+        at: e.get("at")?.as_u64()?,
+        freed_bytes: e.get("freedBytes").or_else(|| e.get("freed_bytes"))?.as_u64()?,
+        paths: e
+            .get("paths")
+            .and_then(|p| serde_json::from_value(p.clone()).ok())
+            .unwrap_or_default(),
+    })
+}
+
 /// MiB as bytes; none for a value that is not a finite, non-negative number.
 pub fn mib(value: Option<f64>) -> Option<u64> {
     value.filter(|v| v.is_finite() && *v >= 0.0).map(|v| (v * MIB as f64).round() as u64)
@@ -123,9 +177,9 @@ pub fn mib(value: Option<f64>) -> Option<u64> {
 pub enum DiskState {
     /// No use reported: the allocation alone.
     Allocated,
-    /// Use reported, at least [`ALMOST_FULL_FREE_BYTES`] free.
+    /// Use reported, at least [`almost_full_under`] free.
     Ok,
-    /// Under [`ALMOST_FULL_FREE_BYTES`] free.
+    /// Under [`almost_full_under`] free: cmux Cloud is growing the disk.
     AlmostFull,
 }
 
@@ -185,7 +239,7 @@ pub fn view(allocated_bytes: Option<u64>, report: &DiskReport) -> Option<DiskVie
     // The guest's free is what a write can use (it leaves out the reserved
     // blocks); without it, the rest of the disk.
     let free = report.free_bytes.map_or(total - used, |free| free.min(total - used));
-    let state = if free < ALMOST_FULL_FREE_BYTES { DiskState::AlmostFull } else { DiskState::Ok };
+    let state = if free < almost_full_under(total) { DiskState::AlmostFull } else { DiskState::Ok };
     let segments = segments(total, used, report);
     let (used_gb, free_gb) = (gb(used), gb(free));
     Some(DiskView {

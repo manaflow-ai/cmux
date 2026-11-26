@@ -426,6 +426,7 @@ home.server
 imessage.automationSkipped
 imessage.enabled
 labs.agentCustomization
+labs.appStore
 labs.classicHome
 labs.commentThreads
 labs.liveCode
@@ -433,6 +434,7 @@ labs.liveTree
 labs.machineJoin
 labs.pauseAgentMachines
 labs.previewFeatures
+labs.previousBuild
 labs.voiceRoom
 labs.voiceRoomURL
 layout.centerFocusedColumn

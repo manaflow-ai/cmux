@@ -229,6 +229,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `launch_snapshot_path` in `identify`: the daemon's last settled tree
     /// and window records, read before connecting (`LaunchSnapshot`).
     case launchSnapshot = "launch-snapshot-v1"
+    /// `flush-launch-snapshot`: the daemon writes the launch snapshot at once (the quit asks after its
+    /// last window record save, ``FlushLaunchSnapshotRequest``), so a relaunch draws that save.
+    case launchSnapshotFlush = "launch-snapshot-flush-v1"
     /// Profiles (plans/cmux-next/data-model.md): the `*-profile` commands,
     /// `move-workspace-to-profile`, `profiles` in `list-workspaces`, and a
     /// `profile` field on workspaces, groups and saved tab groups.
@@ -662,7 +665,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .endTerminalsKeepLayout, .batchClose, .sendExpectForeground, .closeReason, .closeWorkspaceIfEmpty,
              .browserHostProvider, .remoteHost, .computerUse, .frontendBrowserActivate, .frontendBrowserInsertAfter, .loopbackForward,
              .browserRuntime, .notificationSource, .terminalShellArgs, .terminalFrontendShellIntegration,
-             .launchSnapshot, .profiles, .personalRemoteLocalhost, .sessionIdentity, .remoteTerminalTabs,
+             .launchSnapshot, .launchSnapshotFlush, .profiles, .personalRemoteLocalhost, .sessionIdentity, .remoteTerminalTabs,
              .dockColumns, .edgeDocks, .dockColumnRole, .dockColumnSplitDown, .pinnedDock, .pinnedDockAlone, .rows, .columnMove, .columnLeft, .floatingPanes,
              .tabColumnRespawn, .tabColumnClientPane, .tabRestart, .tabRestartKeptLayout, .tabPark, .detachedTerminals, .createTerminalWorkspace, .personalTerminals,
              .browserProfiles, .bookmarks, .bookmarkIcon, .history, .historyClearUntil, .localConversations, .conversationDraftEvents, .attachVisibility, .subscribeScrollOnAttach, .screenDeviceIdentity, .treeSelectionDeltas,

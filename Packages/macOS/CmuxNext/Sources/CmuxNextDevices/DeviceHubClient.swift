@@ -36,6 +36,8 @@ public struct DeviceHubAccountSession: Sendable, Equatable {
 /// when the server refuses it.
 public actor DeviceHubClient {
     public nonisolated let baseURL: URL
+    /// The build space every request and socket upgrade carries (``DeviceHubBuildSpace``).
+    public nonisolated let buildSpace: DeviceHubBuildSpace
     private nonisolated let signerBox: Mutex<DeviceRequestSigner>
     let tokens: any DeviceHubAccountTokenProvider
     let session: URLSession
@@ -54,8 +56,10 @@ public actor DeviceHubClient {
     }
 
     public init(baseURL: URL, identity: DeviceIdentity, tokens: any DeviceHubAccountTokenProvider,
+                buildSpace: DeviceHubBuildSpace = .nightly,
                 session: URLSession = DeviceHubClient.transport, now: @escaping @Sendable () -> Date = { Date() }) {
         self.baseURL = baseURL
+        self.buildSpace = buildSpace
         signerBox = Mutex(DeviceRequestSigner(identity: identity, now: now))
         self.tokens = tokens
         self.session = session
@@ -105,6 +109,8 @@ public actor DeviceHubClient {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(["token": stack])
+        // The session is the space's: the hub binds it to this header and refuses it in any other space.
+        try buildSpace.apply(to: &request)
         let data = try await perform(request)
         struct Answer: Decodable {
             var session: String
@@ -147,7 +153,7 @@ public actor DeviceHubClient {
         struct Body: Encodable { var id, name: String; var platform: DevicePlatform; var signingKey, agreementKey: String; var machine: String? }
         let identity = signer.identity
         let body = Body(id: identity.id, name: name, platform: platform, signingKey: identity.signingKey,
-                        agreementKey: identity.agreementKey, machine: DeviceMachine.current.id)
+                        agreementKey: identity.agreementKey, machine: DeviceMachine.current(in: buildSpace).id)
         return try await call("POST", "/v1/devices", body: body, as: DeviceAnswer.self).device
     }
 
@@ -276,6 +282,7 @@ public actor DeviceHubClient {
             throw DeviceHubError.identity("\(error)")
         }
         headers["Authorization"] = "Bearer \(account.token)"
+        try buildSpace.apply(to: &headers)
         return DeviceHubHandshake(url: url, headers: headers)
     }
 
@@ -289,6 +296,7 @@ public actor DeviceHubClient {
             request.httpBody = body
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
+        try buildSpace.apply(to: &request)
         let account = try await accountSession()
         request.setValue("Bearer \(account.token)", forHTTPHeaderField: "Authorization")
         do { try signer.sign(&request) } catch { throw DeviceHubError.identity("\(error)") }
