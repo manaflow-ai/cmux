@@ -4,7 +4,7 @@ import CoreGraphics
 import CmuxNextDaemon
 import Dispatch
 import CmuxNextCompat
-import Foundation
+public import Foundation
 import IOKit.ps
 
 /// What this computer says about itself that the daemon's host budget verdict does not, for Auto: a sleep the app is

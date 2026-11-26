@@ -4,7 +4,8 @@ public import Foundation
 /// `auto-shadow.jsonl` in this build's acpmux home (RFD 0072 stage 1): one line per Auto pass where the host budget's
 /// verdict alone would move a chat (Rust's `verdict::shadow_line`). It starts over past ``cap`` so a long over-budget
 /// spell cannot grow it without bound. Call it off the main thread.
-public enum CloudPlaceShadowLog {
+public struct CloudPlaceShadowLog {
+    public init() {}
     public static let cap = 4 << 20
 
     public nonisolated static func append(_ line: String, to file: URL) {
