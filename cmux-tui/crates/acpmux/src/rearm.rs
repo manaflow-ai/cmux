@@ -136,7 +136,9 @@ fn secs_of(s: &str) -> Option<u64> {
 
 /// The wait `command` is, started at `started_at_ms`; `None` when it is anything else.
 pub fn parse(command: &str, started_at_ms: u64) -> Option<Wait> {
-    let allowed = |c: char| c.is_ascii_alphanumeric() || matches!(c, ' ' | '.' | '_' | '/' | '#' | ':' | '=' | '-');
+    let allowed = |c: char| {
+        c.is_ascii_alphanumeric() || matches!(c, ' ' | '.' | '_' | '/' | '#' | ':' | '=' | '-')
+    };
     if command.is_empty() || command.len() > 400 || !command.chars().all(allowed) {
         return None;
     }
@@ -184,7 +186,9 @@ pub fn parse(command: &str, started_at_ms: u64) -> Option<Wait> {
         }
     }
     let repo = repo.filter(|r| repo_ok(r))?;
-    if sha.as_deref().is_some_and(|s| !sha_ok(s)) || until.as_deref().is_some_and(|u| !until_ok(form, u)) {
+    if sha.as_deref().is_some_and(|s| !sha_ok(s))
+        || until.as_deref().is_some_and(|u| !until_ok(form, u))
+    {
         return None;
     }
     let secs = secs_of(timeout.as_deref()?)?;
@@ -220,8 +224,16 @@ impl Wait {
             .and_then(Value::as_str)
             .and_then(Form::of)
             .ok_or("form is not a re-armable wait")?;
-        let repo = v.get("repo").and_then(Value::as_str).filter(|r| repo_ok(r)).ok_or("repo must be OWNER/REPO")?;
-        let number = v.get("number").and_then(Value::as_u64).filter(|n| *n > 0).ok_or("number must be a positive integer")?;
+        let repo = v
+            .get("repo")
+            .and_then(Value::as_str)
+            .filter(|r| repo_ok(r))
+            .ok_or("repo must be OWNER/REPO")?;
+        let number = v
+            .get("number")
+            .and_then(Value::as_u64)
+            .filter(|n| *n > 0)
+            .ok_or("number must be a positive integer")?;
         let text = |k: &str| -> Result<Option<String>, String> {
             match v.get(k) {
                 None | Some(Value::Null) => Ok(None),
@@ -237,7 +249,8 @@ impl Wait {
         if until.as_deref().is_some_and(|u| !form.takes_until() || !until_ok(form, u)) {
             return Err("until is not one this wait takes".into());
         }
-        let deadline_ms = v.get("deadlineMs").and_then(Value::as_u64).ok_or("deadlineMs is required")?;
+        let deadline_ms =
+            v.get("deadlineMs").and_then(Value::as_u64).ok_or("deadlineMs is required")?;
         Ok(Self { form, repo: repo.to_owned(), number, sha, until, deadline_ms })
     }
 

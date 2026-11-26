@@ -8,7 +8,10 @@ fn rearm_parses_the_waits_and_writes_them_back_with_the_time_left() {
         .expect("a pr-wait");
     assert_eq!(w.form, Form::AcpmuxPrWait);
     assert_eq!(w.form.kind(), "pr_wait");
-    assert_eq!((w.repo.as_str(), w.number, w.sha.as_deref()), ("manaflow-ai/cmux", 58117, Some("e0ef135d")));
+    assert_eq!(
+        (w.repo.as_str(), w.number, w.sha.as_deref()),
+        ("manaflow-ai/cmux", 58117, Some("e0ef135d"))
+    );
     assert_eq!(w.deadline_ms, T0 + 3_600_000);
     // 10 minutes in, 50 minutes left.
     assert_eq!(
@@ -19,10 +22,16 @@ fn rearm_parses_the_waits_and_writes_them_back_with_the_time_left() {
 
     let ci = parse("acpmux ci wait run 123456789 --repo octo/app --timeout=1800", T0).unwrap();
     assert_eq!((ci.form.kind(), ci.number), ("ci_wait", 123456789));
-    assert_eq!(ci.command(T0 + 1).unwrap(), "acpmux ci wait run 123456789 --repo octo/app --timeout 1800");
+    assert_eq!(
+        ci.command(T0 + 1).unwrap(),
+        "acpmux ci wait run 123456789 --repo octo/app --timeout 1800"
+    );
 
-    let g = parse("glaeda-gh wait pr manaflow-ai/cmuxterm-hq#28390 --until done --sha abcdef1 --timeout 5400", T0)
-        .unwrap();
+    let g = parse(
+        "glaeda-gh wait pr manaflow-ai/cmuxterm-hq#28390 --until done --sha abcdef1 --timeout 5400",
+        T0,
+    )
+    .unwrap();
     assert_eq!((g.form, g.form.kind()), (Form::GlaedaPr, "pr_wait"));
     assert_eq!(
         g.command(T0).unwrap(),
@@ -69,7 +78,8 @@ fn rearm_refuses_what_is_not_a_wait_with_a_target_and_deadline() {
 
 #[test]
 fn rearm_wire_form_round_trips_and_is_checked_as_strictly() {
-    let w = parse("acpmux pr-wait 9 --repo o/r --until merged --sha ABCDEF0 --timeout 120", T0).unwrap();
+    let w = parse("acpmux pr-wait 9 --repo o/r --until merged --sha ABCDEF0 --timeout 120", T0)
+        .unwrap();
     assert_eq!(w.sha.as_deref(), Some("abcdef0"));
     let back = Wait::from_json(&w.to_json()).unwrap();
     assert_eq!(back, w);

@@ -13,7 +13,10 @@ fn bg_rearm_is_versioned_and_gated_by_its_peer_feature() {
     for v in [json!(null), json!(0), json!(VERSION + 1), json!("1")] {
         let e = speaks(&json!({"version": v, "sessionId": "s"})).unwrap_err();
         let data = e.data.clone().unwrap();
-        assert_eq!((data["reason"].clone(), data["version"].clone()), (json!("bgRearm.version"), json!(VERSION)));
+        assert_eq!(
+            (data["reason"].clone(), data["version"].clone()),
+            (json!("bgRearm.version"), json!(VERSION))
+        );
     }
     assert!(speaks(&json!({"sessionId": "s"})).is_err(), "an unversioned (pre-v1) message");
     // A new daemon serves and lists it; the session row carries the waits under its capability.

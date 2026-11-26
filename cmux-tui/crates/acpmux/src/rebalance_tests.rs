@@ -26,7 +26,10 @@ fn rearming(name: &str, room: f64) -> Target {
 /// A `bgWaits` entry (`rearm.rs`'s wire form) for task `id`, `left_min` minutes from its deadline
 /// (0: half a minute).
 fn wait(id: &str, left_min: u64) -> Value {
-    let line = format!("acpmux pr-wait 58117 --repo manaflow-ai/cmux --sha e0ef135d --timeout {}", (left_min * 60).max(30));
+    let line = format!(
+        "acpmux pr-wait 58117 --repo manaflow-ai/cmux --sha e0ef135d --timeout {}",
+        (left_min * 60).max(30)
+    );
     let mut w = crate::rearm::parse(&line, NOW).unwrap().to_json();
     w["id"] = json!(id);
     w
@@ -336,7 +339,10 @@ fn a_session_whose_every_task_is_a_wait_moves_and_any_other_task_holds_it() {
 
     let mut tampered = with_tasks("bad", vec![wait("bg-5", 50)], 0);
     tampered["bgWaits"][0]["form"] = json!("sleep");
-    assert_eq!(held(&tampered, true, NOW, 0), Some("a wait's target is not one this acpmux re-arms"));
+    assert_eq!(
+        held(&tampered, true, NOW, 0),
+        Some("a wait's target is not one this acpmux re-arms")
+    );
     let mut no_id = with_tasks("noid", vec![wait("bg-6", 50)], 0);
     no_id["bgWaits"][0].as_object_mut().unwrap().remove("id");
     assert!(held(&no_id, true, NOW, 0).is_some());

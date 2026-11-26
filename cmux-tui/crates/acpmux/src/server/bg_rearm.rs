@@ -55,7 +55,8 @@ pub(super) async fn handle(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Resul
     let session = hub.resolve(key)?;
     match (params.get("waits"), params.get("release")) {
         (Some(waits), None) => {
-            let waits = waits.as_array().ok_or_else(|| RpcError::invalid_params("waits must be a list"))?;
+            let waits =
+                waits.as_array().ok_or_else(|| RpcError::invalid_params("waits must be a list"))?;
             // Every wait is checked before any starts: a bad one arms none.
             let mut checked = Vec::new();
             for w in waits {
@@ -80,7 +81,8 @@ pub(super) async fn handle(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Resul
             Ok(json!({"version": VERSION, "rearmed": rearmed, "expired": expired}))
         }
         (None, Some(ids)) => {
-            let ids = ids.as_array().ok_or_else(|| RpcError::invalid_params("release must be a list"))?;
+            let ids =
+                ids.as_array().ok_or_else(|| RpcError::invalid_params("release must be a list"))?;
             let (mut released, mut refused) = (Vec::new(), Vec::new());
             for id in ids {
                 let Some(id) = id.as_str() else {
@@ -97,7 +99,9 @@ pub(super) async fn handle(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Resul
             }
             Ok(json!({"version": VERSION, "released": released, "refused": refused}))
         }
-        _ => Err(RpcError::invalid_params("give waits (to re-arm) or release (to stop), one of them")),
+        _ => Err(RpcError::invalid_params(
+            "give waits (to re-arm) or release (to stop), one of them",
+        )),
     }
 }
 

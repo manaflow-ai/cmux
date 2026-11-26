@@ -41,7 +41,7 @@ fn log_path() -> PathBuf {
 
 fn append(line: &Value) {
     let path = log_path();
-    let wrote = std::fs::OpenOptions::new()
+    let wrote = crate::home_fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(&path)
@@ -189,14 +189,18 @@ async fn hand_off(client: &Client, dest: &str, source: &str, waits: &[Value]) ->
     let armed = match armed {
         Ok(a) => a,
         Err(e) => {
-            let why = format!("moved; its waits were not re-armed at {dest} and still run here: {e:#}");
+            let why =
+                format!("moved; its waits were not re-armed at {dest} and still run here: {e:#}");
             return json!({"version": v, "error": why});
         }
     };
     let done = armed.get("rearmed").and_then(Value::as_array).map_or(0, Vec::len)
         + armed.get("expired").and_then(Value::as_array).map_or(0, Vec::len);
     if done != waits.len() {
-        let why = format!("moved; {dest} re-armed {done} of {} waits, so they still run here", waits.len());
+        let why = format!(
+            "moved; {dest} re-armed {done} of {} waits, so they still run here",
+            waits.len()
+        );
         return json!({"version": v, "armed": armed, "error": why});
     }
     let ids: Vec<&str> = waits.iter().filter_map(|w| w.get("id").and_then(Value::as_str)).collect();
@@ -206,11 +210,14 @@ async fn hand_off(client: &Client, dest: &str, source: &str, waits: &[Value]) ->
     match released {
         Ok(r) => {
             let refused = r.get("refused").and_then(Value::as_array).is_some_and(|a| !a.is_empty());
-            let error = refused.then(|| format!("moved and re-armed; {source} kept some: {}", r["refused"]));
+            let error = refused
+                .then(|| format!("moved and re-armed; {source} kept some: {}", r["refused"]));
             json!({"version": v, "armed": armed, "released": r, "error": error})
         }
         Err(e) => {
-            let why = format!("moved and re-armed at {dest}; the waits at {source} were not stopped: {e:#}");
+            let why = format!(
+                "moved and re-armed at {dest}; the waits at {source} were not stopped: {e:#}"
+            );
             json!({"version": v, "armed": armed, "error": why})
         }
     }
@@ -295,7 +302,9 @@ pub(crate) async fn run(args: Args, json_out: bool) -> Result<()> {
             };
             let still = row.and_then(|(r, facts)| match rb::stays(&r, facts, now_ms(), &conf) {
                 Some(why) => Err(format!("held since the plan: {why}")),
-                None => rb::waits(&r, now_ms()).map_err(|why| format!("held since the plan: {why}")),
+                None => {
+                    rb::waits(&r, now_ms()).map_err(|why| format!("held since the plan: {why}"))
+                }
             });
             let (still, waits) = match still {
                 Ok(w) => (Ok(()), w),
@@ -431,7 +440,8 @@ async fn undo(id: &str, timeout: u64, json_out: bool) -> Result<()> {
     };
     // Its waits come back with it: read there before the move, re-armed here after.
     let client = connect(true).await?;
-    let waits = match acpmux_json(&["--json", "session", "info", &key], Duration::from_secs(60)).await
+    let waits = match acpmux_json(&["--json", "session", "info", &key], Duration::from_secs(60))
+        .await
     {
         Ok(row) => rb::waits(&row, now_ms()).map_err(|why| anyhow!("{id}: held there: {why}"))?,
         Err(e) => return Err(anyhow!("{id}: could not read {key}: {e}")),
