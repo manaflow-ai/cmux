@@ -61,7 +61,7 @@ final class HoverCardPanel: NSPanel {
     static var cornerRadius: CGFloat { Metrics.panelCornerRadius }
     /// The window's clear band around the card: the shadow band plus the slide's room.
     static var windowMargin: CGFloat { PopupStyle.standard.shadowMargin + travel }
-    private(set) weak var body: NSView?
+    weak var body: NSView?
     /// Hears the pointer in the window's clear band (``HoverCardPanel/pointerMovedInBand()``).
     let bandTracker = HoverCardBandTracker()
     /// The body's edges pinned to the card (the card fits its body), and its fitted size, held
@@ -284,12 +284,12 @@ final class HoverCardPanel: NSPanel {
         }
     }
 
-    /// Puts `newBody` in the card, its edges pinned to the card's (no-op when it already is there).
     /// Puts `newBody` in the card in place of the last body: the last fades out at its own size while
-    /// `newBody` fades in when `fades`, else the swap is at once (a first show, ``warm(_:parent:)``).
+    /// `newBody` fades in when `fades`, else the swap is at once (``warm(_:parent:)``); its last window gives it up first.
     private func install(_ newBody: NSView, fades: Bool = false) {
         guard body !== newBody else { return }
         MotionTrace.measure("hoverCard.swap") {
+            if let holder = newBody.window as? HoverCardPanel, holder !== self { holder.giveUp(newBody) }
             if newBody === leavingBody { endLeaving() }
             if fades, let body { leave(body) } else { body?.removeFromSuperview() }
             let container = glass.contentView
