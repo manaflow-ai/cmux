@@ -24,6 +24,8 @@
 //!   is live (only the front one; the others follow, one per turn).
 //! - [`closed`]: the daemon's closed history (page rows, Cmd-Shift-T's
 //!   owner) and the undo toast's expected closes, a reducer.
+//! - [`auto_namer`]: workspace auto-naming's bookkeeping (one live rename
+//!   per workspace, attempt numbers, retry marks) and the sidebar's held names.
 //! - [`notifications`], [`history`], [`remote`], [`browser`], [`files`],
 //!   [`appearance`]: the smaller handlers' tables and refusals (which unread
 //!   tab a verb reads, the trail walks, the SSH machine an action names, a
@@ -38,6 +40,7 @@
 //!   now, or why it waits (input, a running turn, an unsent draft).
 
 pub mod appearance;
+pub mod auto_namer;
 pub mod browser;
 pub mod chat;
 pub mod close;
