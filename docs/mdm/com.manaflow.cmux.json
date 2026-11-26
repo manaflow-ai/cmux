@@ -382,6 +382,12 @@
       "title" : "Working Status Verbs",
       "type" : "string"
     },
+    "agentPane.display.subagentOf" : {
+      "default" : false,
+      "description" : "In a subagent's own pane, show which chat it belongs to beside its name in the header.",
+      "title" : "Subagent Of in Header",
+      "type" : "boolean"
+    },
     "agentPane.display.thinking.glyph" : {
       "description" : "Dots a look plays while the agent works, as a cmux.particles/1 document.",
       "title" : "Thinking Glyph",
@@ -680,7 +686,7 @@
       "type" : "number"
     },
     "agents.autoRetry.capacityFallbackAfter" : {
-      "default" : 1,
+      "default" : 0,
       "description" : "After this many consecutive capacity errors, Opus or Fable switches to Sonnet until a turn succeeds. Set to 0 to stay on the original model.",
       "maximum" : 12,
       "minimum" : 0,
@@ -716,7 +722,7 @@
       "type" : "number"
     },
     "agents.cacheCompact.minContextTokens" : {
-      "default" : 60000,
+      "default" : 20000,
       "description" : "Chats with at least this much context are compacted, whatever their window.",
       "maximum" : 500000,
       "minimum" : 10000,
@@ -2199,6 +2205,17 @@
       "title" : "Glass Transparency",
       "type" : "number"
     },
+    "appearance.gooeyTabs" : {
+      "default" : "off",
+      "description" : "Lets the selected tab flow into the content like a liquid, with springy motion when tabs are selected, opened, closed or dragged. Subtle keeps it gentle; Full stretches and wobbles more.",
+      "enum" : [
+        "off",
+        "subtle",
+        "full"
+      ],
+      "title" : "Gooey Tabs",
+      "type" : "string"
+    },
     "appearance.highlightColor" : {
       "description" : "The color of selected text everywhere. Unset uses the terminal theme's.",
       "title" : "Highlight Color",
@@ -2392,6 +2409,20 @@
       "title" : "Column Gap",
       "type" : "number"
     },
+    "appearance.metrics.composerMinHeight" : {
+      "description" : "The height of the chat's one-line prompt box; it still grows with a longer prompt. Unset is the density's.",
+      "maximum" : 160,
+      "minimum" : 32,
+      "title" : "Composer Height",
+      "type" : "number"
+    },
+    "appearance.metrics.composerPadding" : {
+      "description" : "The room from the chat prompt box's sides to its text and controls. Unset is the density's.",
+      "maximum" : 24,
+      "minimum" : 0,
+      "title" : "Composer Padding",
+      "type" : "number"
+    },
     "appearance.metrics.dividerHitWidth" : {
       "description" : "appearance.metrics.dividerHitWidth",
       "maximum" : 24,
@@ -2406,11 +2437,46 @@
       "title" : "Divider Thickness",
       "type" : "number"
     },
+    "appearance.metrics.headerDivider" : {
+      "description" : "How strong the hairline under the title bar and tab row draws: 0 is none, 1 a full separator. Unset is today's.",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Header Divider",
+      "type" : "number"
+    },
+    "appearance.metrics.sidebarRowGap" : {
+      "description" : "The gap between two sidebar rows. Unset is the density's.",
+      "maximum" : 12,
+      "minimum" : 0,
+      "title" : "Workspace Row Gap",
+      "type" : "number"
+    },
     "appearance.metrics.sidebarRowHeight" : {
       "description" : "appearance.metrics.sidebarRowHeight",
       "maximum" : 48,
       "minimum" : 20,
       "title" : "Workspace Row Height",
+      "type" : "number"
+    },
+    "appearance.metrics.sidebarRowHeightWithSubtitle" : {
+      "description" : "A sidebar row with a detail line under its title, such as a two-line card. Unset is the row height plus one line.",
+      "maximum" : 96,
+      "minimum" : 28,
+      "title" : "Two-Line Row Height",
+      "type" : "number"
+    },
+    "appearance.metrics.sidebarRowInset" : {
+      "description" : "The gap between a sidebar row's fill and the sidebar's left and right edges. Unset is the density's.",
+      "maximum" : 24,
+      "minimum" : 0,
+      "title" : "Workspace Row Inset",
+      "type" : "number"
+    },
+    "appearance.metrics.sidebarRowPadding" : {
+      "description" : "Where a sidebar row's first glyph or title starts inside its fill, and its last trailing mark ends. Unset is the density's.",
+      "maximum" : 24,
+      "minimum" : 0,
+      "title" : "Workspace Row Padding",
       "type" : "number"
     },
     "appearance.metrics.sidebarWidth" : {
@@ -2425,6 +2491,13 @@
       "maximum" : 48,
       "minimum" : 18,
       "title" : "Space Button Spacing",
+      "type" : "number"
+    },
+    "appearance.metrics.spacingScale" : {
+      "description" : "One multiplier for the chrome's padding and gaps (the spacing grid). Unset is the density's.",
+      "maximum" : 2,
+      "minimum" : 0.5,
+      "title" : "Spacing",
       "type" : "number"
     },
     "appearance.metrics.tabFontSize" : {
@@ -2474,6 +2547,34 @@
       "maximum" : 56,
       "minimum" : 24,
       "title" : "Titlebar Height",
+      "type" : "number"
+    },
+    "appearance.metrics.toolbarButtonActiveFill" : {
+      "description" : "How strong the fill under a toolbar button that is on draws, as a share of the text color. Unset is the hover fill.",
+      "maximum" : 0.4,
+      "minimum" : 0,
+      "title" : "Active Button Fill",
+      "type" : "number"
+    },
+    "appearance.metrics.toolbarButtonCornerRadius" : {
+      "description" : "The corner of an icon button's hover, pressed and active fill: 0 is square, half the button is round. Unset rounds as a tab does.",
+      "maximum" : 20,
+      "minimum" : 0,
+      "title" : "Toolbar Button Corner",
+      "type" : "number"
+    },
+    "appearance.metrics.toolbarButtonGap" : {
+      "description" : "The space between neighboring icon buttons in the title bar. Unset is three tenths of a button.",
+      "maximum" : 16,
+      "minimum" : 0,
+      "title" : "Toolbar Button Gap",
+      "type" : "number"
+    },
+    "appearance.metrics.toolbarButtonSize" : {
+      "description" : "The side of the chrome's icon buttons: the title bar's sidebar toggle, Back and Forward, the pane's tools and the sidebar's +. Unset is the density's.",
+      "maximum" : 40,
+      "minimum" : 16,
+      "title" : "Toolbar Button Size",
       "type" : "number"
     },
     "appearance.paneBackgrounds" : {
@@ -3212,6 +3313,12 @@
       "title" : "Suggestions Shown",
       "type" : "number"
     },
+    "browser.omnibar.quietIcons" : {
+      "default" : false,
+      "description" : "Fades the site info icon and the bookmark star until you point at or click into the address bar.",
+      "title" : "Quiet Address Bar Icons",
+      "type" : "boolean"
+    },
     "browser.omnibar.remoteSuggestions" : {
       "default" : true,
       "description" : "Sends what you type to the search engine. Never addresses, files or local hosts.",
@@ -3501,6 +3608,12 @@
       "title" : "Auto Places Chats in Cloud",
       "type" : "boolean"
     },
+    "cloud.defaultImage" : {
+      "default" : "auto",
+      "description" : "The Cloud environment new Cloud chats start from. Auto picks one from the chat's repository. Any other environment gives each new chat its own machine.",
+      "title" : "Default Image",
+      "type" : "string"
+    },
     "cloud.newWorkspaceFolder" : {
       "default" : "inherit",
       "description" : "Current Folder copies your git working copy to the new machine.",
@@ -3664,7 +3777,7 @@
       "type" : "boolean"
     },
     "customize.doctorNotice" : {
-      "default" : true,
+      "default" : false,
       "description" : "customize.doctorNotice",
       "title" : "Customization notices",
       "type" : "boolean"
@@ -4315,6 +4428,12 @@
       "title" : "Tooltip Refresh",
       "type" : "boolean"
     },
+    "experiments.introWalk" : {
+      "default" : false,
+      "description" : "Make cmux Yours becomes four short screens: a whole look, how you work, trust and notifications, then density and background.",
+      "title" : "Intro Walk",
+      "type" : "boolean"
+    },
     "experiments.menuRowStates" : {
       "default" : false,
       "description" : "Menu rows that are unavailable say why, and rows that start work show their progress.",
@@ -4370,7 +4489,7 @@
       "type" : "boolean"
     },
     "experiments.terminalHistoryFind" : {
-      "default" : false,
+      "default" : true,
       "description" : "Cmd-F in a terminal searches its whole history, with case, whole-word and regex options.",
       "title" : "Terminal History Find",
       "type" : "boolean"
@@ -6396,6 +6515,12 @@
       "title" : "Settle Finished Chats",
       "type" : "boolean"
     },
+    "sidebar.showAgentSessions" : {
+      "default" : false,
+      "description" : "Sessions an agent starts list under the session that started them. Off, they stay in the parent chat's list; one that needs you still shows.",
+      "title" : "Show Sessions Started by Agents",
+      "type" : "boolean"
+    },
     "sidebar.showAutomaticSessions" : {
       "default" : false,
       "description" : "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list.",
@@ -6415,7 +6540,7 @@
       "type" : "boolean"
     },
     "sidebar.showLiveToggle" : {
-      "default" : true,
+      "default" : false,
       "description" : "A Live button after the profile button turns presence on or off. Off: use the palette.",
       "title" : "Show Live Button",
       "type" : "boolean"
@@ -7588,6 +7713,18 @@
       "title" : "UpdateChannel",
       "type" : "string"
     },
+    "updates.automatic" : {
+      "default" : "download",
+      "description" : "Install When Idle restarts cmux once you have been away, never while an agent works or a message is unsent. Terminals and agents keep running.",
+      "enum" : [
+        "off",
+        "notify",
+        "download",
+        "idle"
+      ],
+      "title" : "Automatic Updates",
+      "type" : "string"
+    },
     "updates.channel" : {
       "default" : "nightly",
       "description" : "Stable gets builds that ran a week without problems; Canary and Dev get them first.",
@@ -7599,12 +7736,6 @@
       ],
       "title" : "Update Channel",
       "type" : "string"
-    },
-    "updates.checkAutomatically" : {
-      "default" : true,
-      "description" : "updates.checkAutomatically",
-      "title" : "Check for Updates Automatically",
-      "type" : "boolean"
     },
     "updates.checkIntervalSeconds" : {
       "default" : 3600,
@@ -7623,12 +7754,6 @@
       ],
       "title" : "Live Background Updates",
       "type" : "string"
-    },
-    "updates.downloadAutomatically" : {
-      "default" : true,
-      "description" : "Off: cmux asks before downloading. It always asks before restarting.",
-      "title" : "Download Updates Automatically",
-      "type" : "boolean"
     },
     "updates.idleInstallMaxWaitSeconds" : {
       "default" : 600,
@@ -7650,12 +7775,6 @@
       "default" : false,
       "description" : "A downloaded update installs as cmux quits. Terminals keep running.",
       "title" : "Install Updates When Quitting",
-      "type" : "boolean"
-    },
-    "updates.installWhenIdle" : {
-      "default" : false,
-      "description" : "Installs a downloaded update and restarts while you are away: no input for the time below, or the screen locked. Never over an unsent message. Agents and their turns keep running.",
-      "title" : "Update When Idle",
       "type" : "boolean"
     },
     "updates.installWhenIdleMinutes" : {

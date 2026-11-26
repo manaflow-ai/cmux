@@ -14,7 +14,7 @@
 // It stays inside the scrolling region the element is in (the transcript), and out of a band the host
 // draws over (`data-tooltip-covered`: the agent pane's tab row, under the native tabs), so a row
 // near the top flips below rather than clipping under the tabs; a popup's row may leave its popup,
-// which floats over the pane.
+// which floats over the pane, and so may a row of a `data-tooltip-escape` scroller (the asks stack).
 // A tooltip is one line, as the native one (Chief, 2026-11-21: "Make web tooltips one line, like
 // native"; TooltipContentView.swift): only the text's first line shows, a text wider than the widest
 // tooltip ends in an ellipsis, and the bubble is as narrow as its line (ui/tooltipFit.ts). What a
@@ -144,7 +144,9 @@ function boundsOf(element: Element, view: { width: number; height: number }): Bo
   if (!element.closest(".ui-popup"))
     for (let node = element.parentElement; node && node !== doc.body && node !== doc.documentElement;) {
       const overflow = win.getComputedStyle(node).overflowY;
-      if (overflow === "auto" || overflow === "scroll") {
+      // A `data-tooltip-escape` scroller does not hold its tooltips (the agent pane's asks stack, as
+      // tall as its card: a top tooltip there flipped below, over the question, #56534).
+      if ((overflow === "auto" || overflow === "scroll") && !node.hasAttribute("data-tooltip-escape")) {
         const box = node.getBoundingClientRect();
         area = {
           left: Math.max(0, box.left),

@@ -37,6 +37,15 @@ pub enum Kind {
     Link,
 }
 
+/// Whether names that differ only in case occupy one source filesystem name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Case {
+    /// Mac filesystems used for shared folders fold case.
+    Insensitive,
+    /// Git checkouts on Linux preserve case.
+    Sensitive,
+}
+
 /// One path of the folder.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entry {
@@ -88,6 +97,7 @@ struct Node {
     mtime_ns: i64,
     link: Option<String>,
     children: BTreeMap<String, Node>,
+    folded_names: BTreeMap<String, String>,
 }
 
 impl Manifest {
@@ -95,6 +105,11 @@ impl Manifest {
     /// 0755, the folder's own `root_mtime_ns`). Refuses a bad path, a path listed twice, and an
     /// item below a file or a link.
     pub fn build(root_mtime_ns: i64, items: Vec<Item>) -> anyhow::Result<Self> {
+        Self::build_with(root_mtime_ns, items, Case::Insensitive)
+    }
+
+    /// Builds a manifest with the source filesystem's case policy.
+    pub fn build_with(root_mtime_ns: i64, items: Vec<Item>, case: Case) -> anyhow::Result<Self> {
         let mut root =
             Node { kind: Some(Kind::Dir), mode: 0o755, mtime_ns: root_mtime_ns, ..Node::default() };
         for item in items {
@@ -102,6 +117,9 @@ impl Manifest {
             let (last, above) = names.split_last().ok_or_else(|| anyhow::anyhow!("empty path"))?;
             let mut at = &mut root;
             for name in above {
+                if case == Case::Insensitive {
+                    ensure_case_unique(&mut at.folded_names, name, &item.path)?;
+                }
                 anyhow::ensure!(
                     matches!(at.kind, None | Some(Kind::Dir)),
                     "{} is below a file",
@@ -118,6 +136,9 @@ impl Manifest {
                 "{} is below a file",
                 item.path
             );
+            if case == Case::Insensitive {
+                ensure_case_unique(&mut at.folded_names, last, &item.path)?;
+            }
             let node = at.children.entry((*last).to_owned()).or_default();
             anyhow::ensure!(
                 node.kind.is_none() || (node.kind == Some(Kind::Dir) && item.kind == Kind::Dir),
@@ -374,6 +395,20 @@ fn entry(name: String, parent: u32, node: Node) -> Entry {
         children: 0,
         link: node.link,
     }
+}
+
+fn ensure_case_unique(
+    used: &mut BTreeMap<String, String>,
+    name: &str,
+    path: &str,
+) -> anyhow::Result<()> {
+    let folded = name.to_lowercase();
+    if let Some(previous) = used.get(&folded) {
+        anyhow::ensure!(previous == name, "{path} collides by case with another path");
+    } else {
+        used.insert(folded, name.to_owned());
+    }
+    Ok(())
 }
 
 fn split(path: &str) -> anyhow::Result<Vec<&str>> {

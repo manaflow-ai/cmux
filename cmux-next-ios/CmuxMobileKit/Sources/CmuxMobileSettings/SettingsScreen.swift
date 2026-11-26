@@ -145,6 +145,10 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                     NavigationLink(value: SettingsRoute.terminal) {
                         SettingsLabel("Terminal", symbol: "apple.terminal", value: "\(settings.terminalFontSize) pt")
                     }
+                    NavigationLink(value: SettingsRoute.browser) {
+                        SettingsLabel("Browser", symbol: "globe", value: settings.browserOpenDefault.shortTitle)
+                    }
+                    .accessibilityIdentifier("settings.browser.row")
                     NavigationLink(value: SettingsRoute.composer) {
                         SettingsLabel("Composer", symbol: "keyboard", value: settings.followUp.title)
                     }
@@ -333,6 +337,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
         case .terminalSizing: TerminalSizingMacsPage(store: store, accountID: auth.user?.id, directory: directory, list: deviceList)
         case .terminalSizingMac(let macID): TerminalSizingMacPage(macID: macID, store: store, list: deviceList, peers: directory?.terminalSizingPeers, service: sizing)
         case .composer: ComposerPage(settings: settings, voice: callPreferences)
+        case .browser: BrowserSettingsPage(settings: settings)
         case .accentColor: AccentColorPage(accents: accentTheme)
         case .notifications: NotificationsPage(settings: settings, macs: store.notificationMacs,
                                                        permission: notificationPermission)
@@ -363,6 +368,8 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
 /// Pushed settings pages.
 public enum SettingsRoute: Hashable, Sendable {
     case account, team, transport, devices, terminal, composer, notifications, acknowledgements
+    /// Browser → Open New Pages: on this iPhone, streamed from the Mac, or Automatic.
+    case browser
     /// Chief Calls: the OpenAI API key, model and voice for live calls with Chief.
     case chiefCalls
     /// Terminal → Terminal Size When Shared, and one Mac's page under it.
@@ -386,7 +393,7 @@ public enum SettingsRoute: Hashable, Sendable {
             self = .devices
             return
         }
-        let all: [SettingsRoute] = [.account, .team, .transport, .devices, .terminal, .terminalSizing, .composer, .notifications,
+        let all: [SettingsRoute] = [.account, .team, .transport, .devices, .terminal, .terminalSizing, .composer, .browser, .notifications,
                                     .acknowledgements, .chiefCalls, .screenSharing, .accentColor, .cloudMachines, .automations,
                                     .longPressMenus]
         guard let route = all.first(where: { "\($0)" == name }) else { return nil }

@@ -491,6 +491,20 @@ pub struct Session {
     /// of the same prompt id is answered as a duplicate, and that answer names the same kept
     /// message, so every send of one prompt id hears the one acceptance (`turns.rs`).
     pub(super) kept_messages: StdMutex<std::collections::VecDeque<(String, String, String)>>,
+    /// The acceptance each recent client prompt id's first run gave (its queue place, its turn,
+    /// its inbox receipt), newest last, at most `turns::KEPT_ACCEPTS`: a resend of the id answers
+    /// with it (`turns.rs`). Before, a resend whose first run had no turn yet (an inbox message
+    /// has none) heard a turnless duplicate the outbox could not count as taken, and waited for
+    /// the first run's end: every redelivery of an inbox message timed out, forever (2026-11-25).
+    pub(super) accepted_prompts:
+        StdMutex<std::collections::VecDeque<(String, usize, serde_json::Value)>>,
+    /// Pending first-run acceptances that fell out of the bounded receipt ring. They live only
+    /// while the matching prompt outcome is pending, so a burst cannot evict a live inbox receipt
+    /// and cannot grow this map after the prompt settles (`turns.rs`).
+    pub(super) pending_acceptances:
+        StdMutex<std::collections::HashMap<String, (usize, serde_json::Value)>>,
+    /// Bumped as a first run is accepted, for a resend waiting on it.
+    pub(super) accepted_seq: tokio::sync::watch::Sender<u64>,
     /// Bumped when a record failed to reach the store; an agent host entry
     /// is acknowledged only when its record was stored.
     pub(super) append_errors: AtomicU64,
@@ -558,6 +572,9 @@ pub struct Session {
     /// The hub clock's time (`Hub::clock_now`) of the last record or
     /// attach change; the idle harness exit counts from it (`idle.rs`).
     pub(super) last_active: AtomicU64,
+    /// The hub clock's time at which the idle reaper last tried to evict it and it stayed
+    /// (`evict.rs`), or 0: it is tried again one idle period after that, not on every pass.
+    pub(super) evict_tried_at: AtomicU64,
     /// The hub clock's time (`Hub::clock_now`) at which the idle exit hibernated its harness
     /// (`idle.rs`), or 0: the next start of its agent is a wake, logged with its cause and how
     /// long it took.
@@ -595,6 +612,9 @@ pub struct Session {
     /// one it started itself for a task notification, which acpmux never prompted and
     /// `turn` does not show (`subagent_retry.rs` waits for its end).
     pub(super) harness_turn: AtomicBool,
+    /// The person's own turn has had no token and no tool result yet: while they wait on it in a
+    /// chat they attend, its harness never yields the CPU (`hub/cpu_pressure.rs`).
+    pub(super) awaiting_reply: AtomicBool,
     /// The sections of the last `system/init` its log kept whole (`logged_init.rs`).
     pub(super) logged_init: StdMutex<crate::claude_stdio::LoggedInit>,
     /// The state update sections its log last kept (`update_repeats.rs`).
@@ -752,6 +772,13 @@ impl Session {
 
     pub fn meta(&self) -> SessionMeta {
         self.meta.lock().unwrap().clone()
+    }
+    /// Leaves this chat marked as on its capacity fallback, as a past switch did
+    /// (`hub/auto_resume/capacity_failover.rs`). For tests outside the crate, which cannot
+    /// reach `meta`.
+    #[doc(hidden)]
+    pub fn leave_on_capacity_fallback_for_tests(&self, fallback: crate::store::CapacityFallback) {
+        self.meta.lock().unwrap_or_else(|e| e.into_inner()).capacity_fallback = Some(fallback);
     }
     /// Read only the needed fields without copying large metadata payloads. The
     /// callback must not acquire other session/hub locks or call back into this session.
