@@ -30,6 +30,31 @@ fn read(dir: &Path, file: &str) -> String {
     std::fs::read_to_string(dir.join(file)).unwrap_or_else(|e| panic!("{file}: {e}"))
 }
 
+/// direct.ts's own files: direct.ts, then each `direct/*.ts` (not tests), by
+/// name. cmux#50833 split helpers such as `isTrustRefusal` and
+/// `newSessionParams` out of direct.ts into `direct/`, which direct.ts
+/// re-exports; the page still sends what they build.
+fn direct_files(dir: &Path) -> Vec<String> {
+    let mut files: Vec<String> = std::fs::read_dir(dir.join("direct"))
+        .map(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .filter_map(|e| e.file_name().into_string().ok())
+                .filter(|n| n.ends_with(".ts") && !n.ends_with(".test.ts"))
+                .map(|n| format!("direct/{n}"))
+                .collect()
+        })
+        .unwrap_or_default();
+    files.sort();
+    files.insert(0, "direct.ts".to_owned());
+    files
+}
+
+/// direct.ts and its `direct/` files, one after another.
+fn read_direct(dir: &Path) -> String {
+    direct_files(dir).iter().map(|f| read(dir, f)).collect::<Vec<_>>().join("\n")
+}
+
 /// Every `"..."` string that follows `prefix` (whitespace allowed between).
 fn quoted_after(text: &str, prefix: &str) -> Vec<String> {
     let mut out = Vec::new();
@@ -80,7 +105,7 @@ fn constant(text: &str, name: &str) -> String {
 #[test]
 fn the_allowlist_is_what_the_page_sends() {
     let dir = pane();
-    let direct = read(&dir, "direct.ts");
+    let direct = read_direct(&dir);
     let mut sent: BTreeSet<String> = quoted_after(&direct, "this.request(").into_iter().collect();
     sent.extend(typed_request_methods(&direct));
     // The typed protocol client's method on the connection (`this.typed("...", params)`).
@@ -265,7 +290,7 @@ fn sent_acpmux_keys(dir: &Path, direct: &str, method: &str) -> BTreeSet<String> 
 #[test]
 fn the_page_sends_only_allowed_acpmux_meta() {
     let dir = pane();
-    let direct = read(&dir, "direct.ts");
+    let direct = read_direct(&dir);
     let prompt = sent_acpmux_keys(&dir, &direct, "session/prompt");
     assert!(prompt.contains("promptId"), "{prompt:?}");
     let allowed = &policy().known_params["session/prompt"].acpmux;
@@ -293,12 +318,12 @@ fn the_page_sends_only_allowed_acpmux_meta() {
 #[test]
 fn the_page_sends_only_known_params() {
     let dir = pane();
-    let direct = read(&dir, "direct.ts");
+    let direct = read_direct(&dir);
     let known = &policy().known_params;
     let mut refused = Vec::new();
     let mut checked = 0;
-    for file in ["direct.ts", "sessionPages.ts"] {
-        let text = read(&dir, file);
+    for file in direct_files(&dir).into_iter().chain(["sessionPages.ts".to_owned()]) {
+        let text = read(&dir, &file);
         for call in ["this.request(", "this.typed("] {
             for (at, _) in text.match_indices(call) {
                 // The formatter puts a long call's method on its own line.
@@ -369,7 +394,7 @@ fn trust_cases() -> serde_json::Value {
 #[test]
 fn trust_refusal_reasons_are_the_daemons() {
     let dir = pane();
-    let direct = read(&dir, "direct.ts");
+    let direct = read_direct(&dir);
     let start =
         direct.find("export function isTrustRefusal(").expect("isTrustRefusal in direct.ts");
     let body = &direct[start..];
@@ -400,7 +425,7 @@ fn trust_refusal_reasons_are_the_daemons() {
 #[test]
 fn trust_session_id_is_sent_and_scoped() {
     let dir = pane();
-    let direct = read(&dir, "direct.ts");
+    let direct = read_direct(&dir);
     let start = direct.find("private trustTarget()").expect("trustTarget in direct.ts");
     let target = &direct[start..];
     let target = &target[..target.find("\n  }").unwrap()];

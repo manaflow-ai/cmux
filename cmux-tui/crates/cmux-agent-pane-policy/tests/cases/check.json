@@ -215,7 +215,7 @@
   }
  },
  {
-  "name": "first initialize with a _meta key beside acpmux is still refused",
+  "name": "first initialize with a _meta key beside acpmux goes without it (P0 strip, cmux#49717)",
   "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":1,\"_meta\":{\"acpmux\":{\"peerRowBatches\":true},\"other\":true}}}",
   "state": {
    "first": true,
@@ -227,10 +227,39 @@
    "denies": []
   },
   "expect": {
-   "refuse": "transport.intent_invalid",
-   "method": "initialize",
-   "id": "1",
-   "spend": null
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+     "protocolVersion": 1,
+     "_meta": {
+      "acpmux": {
+       "peerRowBatches": true,
+       "localAppToken": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+     }
+    }
+   },
+   "facts": {
+    "is_first": true,
+    "method": "initialize",
+    "page_id": "1",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": false,
+    "needs_click": false,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "starts_local_session": false,
+    "free": true
+   }
   }
  },
  {
