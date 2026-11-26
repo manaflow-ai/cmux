@@ -528,18 +528,30 @@ public final class AgentChatStore {
         refreshDerived()
     }
 
+    /// The location of a steer this phone drew while its turn was running.
+    private func steerLocation(_ promptID: String) -> (turn: Int, item: Int)? {
+        for turn in turns.indices.reversed() {
+            if let item = turns[turn].items.lastIndex(where: {
+                if case .steer(let message) = $0 { return message.promptID == promptID }
+                return false
+            }) {
+                return (turn, item)
+            }
+        }
+        return nil
+    }
+
     /// Whether `promptID` is drawn as one of this phone's waiting messages (a bubble or a steer).
-    private func showsLocally(_ promptID: String) -> Bool {
+    func showsLocally(_ promptID: String) -> Bool {
         if turns.contains(where: { $0.id == Self.localTurnID(promptID) }) { return true }
-        guard let index = lastRecordedIndex else { return false }
-        return turns[index].items.contains { if case .steer(let m) = $0 { m.promptID == promptID } else { false } }
+        return steerLocation(promptID) != nil
     }
 
     /// Takes the waiting bubble (or steer) for `promptID` away (the Mac refused it, or queued it).
     private func dropLocal(_ promptID: String) {
         landed(promptID)
         turns.removeAll { $0.id == Self.localTurnID(promptID) }
-        if let index = lastRecordedIndex {
+        for index in turns.indices {
             turns[index].items.removeAll { if case .steer(let m) = $0 { m.promptID == promptID } else { false } }
         }
     }
@@ -556,33 +568,50 @@ public final class AgentChatStore {
 
     /// Messages drawn at once that the Mac has not recorded yet, oldest first: a store built in
     /// this one's place sends them (``AgentSessionDirectory``).
-    public var waitingMessages: [AgentTurn] {
-        var waiting: [AgentTurn] = []
-        for turn in turns.reversed() {
-            guard let local = turn.localSend else { break }
-            waiting.insert(turn, at: 0)
+    public var waitingMessages: [PendingAgentMessage] {
+        var waiting: [PendingAgentMessage] = []
+        var ids = Set<String>()
+        for turn in turns {
+            if let local = turn.localSend, let promptID = turn.promptID, ids.insert(promptID).inserted {
+                waiting.append(PendingAgentMessage(id: promptID, text: turn.prompt, attachments: turn.attachments,
+                                                   at: turn.promptAt, localSend: local, steer: false))
+            }
+            for item in turn.items {
+                guard case .steer(let message) = item, ids.insert(message.promptID).inserted else { continue }
+                waiting.append(PendingAgentMessage(id: message.promptID, text: message.text, attachments: message.attachments,
+                                                   at: message.at, localSend: .sending, steer: true))
+            }
+        }
+        for message in outgoing where ids.insert(message.id).inserted {
+            waiting.append(PendingAgentMessage(id: message.id, text: message.text, attachments: message.attachments,
+                                               at: Date(), localSend: .sending, steer: false))
         }
         return waiting
     }
 
     /// Draws and sends the messages a replaced store was still sending (``waitingMessages``), each
     /// under its own id as a resend, so the Mac runs one that did arrive only once.
-    public func adoptWaiting(_ waiting: [AgentTurn]) {
-        for turn in waiting {
-            guard let promptID = turn.promptID, !seenPromptIDs.contains(promptID) else { continue }
-            if turn.localSend == .notSent {
+    public func adoptWaiting(_ waiting: [PendingAgentMessage]) {
+        for pending in waiting {
+            let promptID = pending.id
+            guard !seenPromptIDs.contains(promptID), !deletedSends.contains(promptID) else { continue }
+            if pending.localSend == .notSent {
                 // A message that already failed keeps its bubble and its retry; nothing sends it
                 // until the person taps (a late echo from the Mac still replaces it).
-                var failed = AgentTurn(id: Self.localTurnID(promptID), prompt: turn.prompt, promptID: promptID,
-                                       attachments: turn.attachments, promptAt: turn.promptAt)
+                var failed = AgentTurn(id: Self.localTurnID(promptID), prompt: pending.text, promptID: promptID,
+                                       attachments: pending.attachments, promptAt: pending.at)
                 failed.localSend = .notSent
                 turns.append(failed)
                 revision &+= 1
                 refreshDerived()
                 continue
             }
-            source.send(.prompt(text: turn.prompt, attachments: turn.attachments, steer: false, promptID: promptID, resend: true))
-            showSent(turn.prompt, attachments: turn.attachments, promptID: promptID, steer: false)
+            if !outgoing.contains(where: { $0.id == promptID }) {
+                outgoing.append(OutgoingMessage(id: promptID, text: pending.text, attachments: pending.attachments))
+            }
+            source.send(.prompt(text: pending.text, attachments: pending.attachments, steer: pending.steer,
+                                promptID: promptID, resend: true))
+            showSent(pending.text, attachments: pending.attachments, promptID: promptID, steer: pending.steer)
         }
     }
 
