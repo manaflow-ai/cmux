@@ -22,8 +22,9 @@ port in Hello, so downstream media and upstream feedback both traverse shaping.
 these are path diagnostics, not a matched wire-bandwidth comparison with another target.
 
 `.github/workflows/screen-stream-eval.yml` runs it every day at the feat-cmux-next tip, started by
-main's `screen-stream-eval-dispatch.yml` (scheduled workflows run only from the default branch). It
-uploads `results.json`, `summary.md`, and `probe.json` (schema `cmux.screen-share-fast/1`) that the
+main's `screen-stream-eval-dispatch.yml` (scheduled workflows run only from the default branch), with
+the targets `rd,webrtc,iphone-sim` (`iphone-sim` last: it builds the app, and a target that fails or
+is cut short leaves the earlier ones' results in `results.json`). It uploads `results.json`, `summary.md`, and `probe.json` (schema `cmux.screen-share-fast/1`) that the
 screen-share-fast goal reads. The summary shows each number's change against the last daily
 run (the last successful one that dispatcher started).
 
@@ -174,7 +175,7 @@ Today's targets:
   connections ([Apple's macOS 26 guide](https://support.apple.com/en-us/guide/mac-help/mh14066/26/mac/26)).
   Select Standard during connection setup on the dedicated viewer. Apple
   targets require a second Mac and explicit `targets=`; the daily loopback
-  defaults remain `rd,webrtc`.
+  targets remain `rd,webrtc,iphone-sim`.
   Each view launches its own Screen Sharing.app instance (`open -g -n`, never
   activated), binds its pid and window, quits only that pid when the view ends
   (success, failure or signal), and a watchdog ends a view that hangs; a

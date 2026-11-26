@@ -1,5 +1,15 @@
 # Goals in cmux NEXT
 
+## Connection resilience
+
+The connection goal is measurable recovery under a bounded loss event. Run
+`services/conversation-sim/connection-bench.ts` with a fixed drop count and
+pressure knobs. The `cmux.connection-bench.v1` receipt must show every drop
+observed, reconnect p95 under 3 seconds, no lagged replay, a history read that
+recovers, and idempotent retry of one message. Keep the receipt with the network
+baseline and the findings note so a later adapter or iOS run can compare the
+same metrics.
+
 cmux NEXT shows a conversation's unresolved work as a compact strip above the
 Home/Chief timeline, so the user can see what the Chief is doing without
 reading run cards. This doc describes what shipped in #21254 and #21277 and

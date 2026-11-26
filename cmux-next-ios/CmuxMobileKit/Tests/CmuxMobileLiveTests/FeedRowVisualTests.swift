@@ -57,23 +57,23 @@ import UIKit
         return inkColumns(image, rows: band)
     }
 
-    @Test func yourCaptionEndsWhereYourMessageTextEnds() throws {
+    @Test func yourCaptionEndsWhereYourBubbleEnds() throws {
         let part = try #require(Self.layout(Self.quoted()).quote)
         #expect(part.outgoing)
         let ink = Self.captionInk(part)
         let last = try #require(ink.last, "the caption draws")
-        // In the quote view's coordinates: the bubble text's trailing edge (12 pt inside the bubble).
-        let textEdge = part.textFrame.maxX - part.frame.minX
-        #expect(abs(CGFloat(last + 1) - textEdge) <= 1.5,
-                "\"You\" ends at \(last + 1) pt; the message text ends at \(textEdge) pt")
+        // In the quote view's coordinates: the bubble's trailing edge.
+        let bubbleEdge = part.bubble.maxX - part.frame.minX
+        #expect(abs(CGFloat(last + 1) - bubbleEdge) <= 1.5,
+                "\"You\" ends at \(last + 1) pt; the bubble ends at \(bubbleEdge) pt")
     }
 
-    @Test func anAgentsCaptionStartsWhereItsMessageTextStarts() throws {
+    @Test func anAgentsCaptionStartsWhereItsBubbleStarts() throws {
         let part = try #require(Self.layout(Self.quoted(.agent)).quote)
         let ink = Self.captionInk(part)
         let first = try #require(ink.first, "the caption draws")
-        let textEdge = part.textFrame.minX - part.frame.minX
-        #expect(abs(CGFloat(first) - textEdge) <= 1.5, "\"Asked you\" starts at \(first) pt; the text starts at \(textEdge) pt")
+        let bubbleEdge = part.bubble.minX - part.frame.minX
+        #expect(abs(CGFloat(first) - bubbleEdge) <= 1.5, "\"Asked you\" starts at \(first) pt; the bubble starts at \(bubbleEdge) pt")
     }
 
     /// Whether two colors are the same sRGB color (a CGColor read back is not `==` its UIColor).
