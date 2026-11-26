@@ -208,6 +208,9 @@ public final class AgentChatStore {
     private var fullAccess = false
     public private(set) var currentModeID: String?
     public private(set) var usage: (used: Int, size: Int)?
+    /// The session's quiet metadata as acpmux decides it (`composerStatus.facts`, RFD 0130): the
+    /// composer's counters and Session card (``ComposerFooterFactsMode``).
+    public private(set) var footerFacts = AgentFooterFacts()
     /// The chat opened on its newest history only: older records stay on the Mac, so the
     /// first turn shown is not where the session started (``AgentSessionEvent/earlierHistory(_:)``).
     public private(set) var hasEarlierHistory = false
@@ -408,6 +411,10 @@ public final class AgentChatStore {
     /// The steer the latest `userMessage` put into a running turn: the one a `promptFrom` may mark.
     @ObservationIgnored private var steeredPrompt: (turnID: String, promptID: String)?
     private var task: Task<Void, Never>?
+    #if DEBUG
+    /// The offline duress player's records for this chat (`AgentChatDuress`; nil unless `CmuxMobileDuress` is set).
+    @ObservationIgnored private var duressPlayback: AnyObject?
+    #endif
     /// The chat's edit diffs, computed once each off the main thread (the transcript, its
     /// grid card and the subagent screens share them).
     @ObservationIgnored public let diffs = ChatDiffCache()
@@ -451,6 +458,9 @@ public final class AgentChatStore {
                 self.receive(event)
             }
         }
+        #if DEBUG
+        duressPlayback = AgentChatDuress.attach? { [weak self] event in self?.receive(event) }
+        #endif
     }
 
     isolated deinit {
@@ -1266,6 +1276,8 @@ public final class AgentChatStore {
             // The refusal said Full access was off; a connection that says it is on ends it.
             if on, clientError == Self.fullAccessOffNotice || clientError == Self.fullAccessOffPromptNotice { clientError = nil }
             assign(\.modes, ACPMode.phoneChoices(offeredModes, current: currentModeID, fullAccess: on))
+        case .footerFacts(let next):
+            assign(\.footerFacts, footerFacts.updated(with: next))
         case .status(let status):
             setStatus(status)
             if status != .disconnected, wantsBookmarks { loadBookmarks() }
