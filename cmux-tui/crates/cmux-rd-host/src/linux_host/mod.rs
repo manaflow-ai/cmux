@@ -1077,6 +1077,9 @@ fn run(args: &Args) -> Res<()> {
         stop_idle_display(display, current.clone());
     }
     let mut backoff = Duration::from_secs(1);
+    // What the daemon that set this host up reads to tell a host on the hub from one that only
+    // runs (cmux_hub_host::host_link).
+    let mut link = cmux_hub_host::host_link::Reporter::starting(&dir, now_ms());
     eprintln!(
         "linux-host: serving \"{}\" ({}){}",
         hub.device.name,
@@ -1086,8 +1089,24 @@ fn run(args: &Args) -> Res<()> {
     loop {
         let started = Instant::now();
         let (result, stopped) = hold_link(&current, || {
-            hold_socket(&hub, &dir, &runtime, &serve_args, &current, applies_input, &serving_as)
+            hold_socket(
+                &hub,
+                &dir,
+                &runtime,
+                &serve_args,
+                &current,
+                applies_input,
+                &serving_as,
+                &mut link,
+            )
         });
+        link.offline(
+            &match &result {
+                Ok(()) => "the hub link closed".to_owned(),
+                Err(e) => format!("hub link: {e}"),
+            },
+            now_ms(),
+        );
         // The host keeps the identity invariant itself (serving.rs): a sign-in that changed or
         // went away, or a join that was replaced or left, ends the link, the session (above)
         // and this process.
@@ -1173,6 +1192,7 @@ fn stop_idle_display(display: u32, current: Current) {
 }
 
 /// Holds one User DO socket until it closes; handles its pushes.
+#[allow(clippy::too_many_arguments)]
 fn hold_socket(
     hub: &Arc<Hub>,
     dir: &std::path::Path,
@@ -1181,8 +1201,10 @@ fn hold_socket(
     current: &Current,
     applies_input: bool,
     serving_as: &serving::Serving,
+    link: &mut cmux_hub_host::host_link::Reporter,
 ) -> Res<()> {
     let mut ws = hub.user_socket()?;
+    link.online(now_ms());
     let mut last_ping = Instant::now();
     let mut last_consent = Instant::now();
     let mut last_identity = Instant::now();

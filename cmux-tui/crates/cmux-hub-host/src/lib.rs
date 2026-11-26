@@ -8,6 +8,10 @@
 pub mod b64;
 // The device hub of a machine credential's deployment (deployment.rs).
 pub mod deployment;
+// Whether the running linux-host holds its hub link, for the daemon that supervises it
+// (host_link.rs).
+#[cfg(unix)]
+pub mod host_link;
 // The running linux-host process: holds its pid file locked, verified gone after a stop
 // (host_process.rs).
 #[cfg(unix)]
