@@ -473,6 +473,8 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         cold: None,
         auto_session: None,
         fork_of_subagent: None,
+        // A new chat starts on Auto; a pick is the chat's own and never a default.
+        place_mode: None,
     }
 }
 
