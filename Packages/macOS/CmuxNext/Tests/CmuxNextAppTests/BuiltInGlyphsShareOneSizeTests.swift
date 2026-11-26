@@ -26,7 +26,7 @@ import Testing
         metrics.trailingTrim = SidebarStyle.rowTrailingTrim
         list.blocks = SidebarListBlocks(sections: [top.id.rawValue: top], infos: infos, collapsed: [],
                                         look: .quiet, metrics: metrics, drawsLines: false, appHeights: [:])
-        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 260, height: 400), styleMask: [.borderless],
+        let window = TwoXWindow(contentRect: NSRect(x: 100, y: 100, width: 260, height: 400), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.close() }

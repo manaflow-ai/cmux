@@ -5,6 +5,12 @@ export type SceneNode = Readonly<{
   props: SceneProps;
   children: readonly string[];
 }>;
+/** A `transition` prop: a bare kind or `{kind, motion}` (cmux.motion/1). */
+function hasTransition(value: unknown): boolean {
+  if (typeof value === "string") return true;
+  return typeof value === "object" && value !== null && typeof (value as { kind?: unknown }).kind === "string";
+}
+
 export type SceneOp =
   | { op: "create"; id: string; type: string; props?: SceneProps | null }
   | { op: "update"; id: string; props?: SceneProps | null }
@@ -169,6 +175,19 @@ export class SceneStore {
     this.publishStatus(sceneStatusReducer(status, { type: "scene", hasRoot: this.root !== undefined }));
   }
 
+  /** The person typed in a TextField: the mirror's `text` is what the field shows, as the host's copy
+   * is (it takes the text each edit, submit and cancel reports). So the app's next value replaces the
+   * typed text whenever it differs from it, also when it equals the last value the host sent (an app
+   * that sets "" after a submit while its value was "" all along), and an update of another prop
+   * leaves the typed text alone. */
+  reflectText(id: string, text: string): void {
+    const node = this.nodes.get(id);
+    if (!node || node.props.text === text) return;
+    const changed = new Set<string>();
+    this.write({ ...node, props: { ...node.props, text } }, changed);
+    for (const listener of this.listeners.get(id) ?? []) listener();
+  }
+
   private write(node: SceneNode, changed: Set<string>): void {
     this.nodes.set(node.id, node);
     changed.add(node.id);
@@ -235,7 +254,7 @@ export class SceneStore {
       case "remove": {
         const previous = this.parents.get(op.id);
         if (previous) this.detach(op.id, previous, changed);
-        const leaves = typeof this.nodes.get(op.id)?.props.transition === "string";
+        const leaves = hasTransition(this.nodes.get(op.id)?.props.transition);
         const stack = [op.id];
         while (stack.length) {
           const id = stack.pop()!;

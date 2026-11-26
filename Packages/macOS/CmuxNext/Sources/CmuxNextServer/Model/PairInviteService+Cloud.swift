@@ -1,3 +1,5 @@
+import CmuxEgress
+public import CMUXAuthCore
 import CmuxNextCloud
 public import Foundation
 
@@ -28,10 +30,12 @@ extension PairInviteService {
     ///   - call: One POST to the API Worker as the signed-in user, returning the reply's `value`
     ///     (a Worker error reply throws ``FeedServiceError/owner(code:message:)``).
     ///   - apiBaseURL: The API Worker the socket opens on.
+    ///   - buildSpace: The build's cloud data space (`CloudConfiguration.buildSpace`), on the socket's upgrade as on
+    ///     every other Worker request; a misconfigured dev build opens no socket.
     @MainActor
     public static func cloud(team: @escaping @MainActor @Sendable () async throws -> String?,
                              call: @escaping @MainActor @Sendable (_ path: String, _ body: [String: Any]) async throws -> Any?,
-                             texts: CloudTexts, apiBaseURL: URL) -> PairInviteService {
+                             texts: CloudTexts, apiBaseURL: URL, buildSpace: CMUXBuildSpaceState) -> PairInviteService {
         PairInviteService(
             mint: { @MainActor in
                 do {
@@ -48,6 +52,8 @@ extension PairInviteService {
                     return .success(invite)
                 } catch FeedServiceError.signedOut {
                     return .failure(.signedOut)
+                } catch let refusal as CMUXBuildSpaceError {
+                    return .failure(.refused(refusal.localizedDescription))
                 } catch let FeedServiceError.owner(_, message) {
                     return .failure(.refused(texts.failed(message)))
                 } catch {
@@ -55,10 +61,16 @@ extension PairInviteService {
                 }
             },
             watch: { invite in
-                let url = Self.watchURL(apiBaseURL, invite: invite.code)
+                let request = try? Self.watchRequest(apiBaseURL, invite: invite, buildSpace: buildSpace)
                 return AsyncStream(bufferingPolicy: .bufferingNewest(16)) { continuation in
+                    // A misconfigured dev build's refusal: the watch reads as lost, never as nightly's socket.
+                    guard let request else {
+                        continuation.yield(.lost)
+                        continuation.finish()
+                        return
+                    }
                     // task-owner: the invite's watch socket; ends when the socket closes or the stream's consumer stops.
-                    let task = Task { await Self.watch(url, invite: invite, into: continuation) }
+                    let task = Task { await Self.watch(request, invite: invite, into: continuation) }
                     continuation.onTermination = { _ in task.cancel() }
                 }
             })
@@ -73,11 +85,21 @@ extension PairInviteService {
         return components.url ?? base
     }
 
+    /// The watch socket's upgrade: ``watchURL(_:invite:)``, the subprotocols (`cmux.pair-invite.v1, watch.<secret>`)
+    /// and the build space's header; throws ``CMUXBuildSpaceError`` for a misconfigured dev build.
+    nonisolated static func watchRequest(_ base: URL, invite: PairInvite, buildSpace: CMUXBuildSpaceState) throws -> URLRequest {
+        var request = URLRequest(url: watchURL(base, invite: invite.code))
+        request.setValue(PairInviteFrame.protocols(secret: invite.watchSecret).joined(separator: ", "),
+                         forHTTPHeaderField: "Sec-WebSocket-Protocol")
+        try buildSpace.apply(to: &request)
+        return request
+    }
+
     /// One socket for one invite: each text frame decoded and yielded, then one last frame saying why
     /// it closed (``PairInviteFrame/expired`` at the code's expiry, else ``PairInviteFrame/lost``).
     /// Event driven: each turn awaits the next frame; a closed socket throws and ends it.
-    nonisolated private static func watch(_ url: URL, invite: PairInvite, into continuation: AsyncStream<PairInviteFrame>.Continuation) async {
-        let task = URLSession.shared.webSocketTask(with: url, protocols: PairInviteFrame.protocols(secret: invite.watchSecret))
+    nonisolated private static func watch(_ request: URLRequest, invite: PairInvite, into continuation: AsyncStream<PairInviteFrame>.Continuation) async {
+        let task = CmuxEgress.websocket(CmuxEgress.shared(site: "CmuxNextServer.PairInviteService+Cloud"), with: request, site: "CmuxNextServer.PairInviteService+Cloud")
         task.maximumMessageSize = 64 << 10
         task.resume()
         defer {

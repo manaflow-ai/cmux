@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.machines.sshLinkHosts.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ssh:// links from other apps connect to these hosts without asking."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تتصل روابط ssh:// من التطبيقات الأخرى بهؤلاء المضيفين دون أن تسأل."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ssh:// linkovi iz drugih aplikacija povezuju se s ovim hostovima bez pitanja."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ssh://-links fra andre apps forbinder til disse værter uden at spørge."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ssh://-Links aus anderen Apps verbinden sich ohne Nachfrage mit diesen Hosts."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Los enlaces ssh:// de otras apps se conectan a estos hosts sin preguntar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les liens ssh:// d'autres apps se connectent à ces hôtes sans demander."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "I link ssh:// da altre app si connettono a questi host senza chiedere."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "他のアプリからの ssh:// リンクは、確認なしでこれらのホストに接続します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "តំណ ssh:// ពីកម្មវិធីផ្សេងភ្ជាប់ទៅម៉ាស៊ីនទាំងនេះដោយមិនសួរ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "다른 앱의 ssh:// 링크는 묻지 않고 이 호스트에 연결합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ssh://-lenker fra andre apper kobler til disse vertene uten å spørre."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Linki ssh:// z innych aplikacji łączą się z tymi hostami bez pytania."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Links ssh:// de outros apps se conectam a estes hosts sem perguntar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ссылки ssh:// из других приложений подключаются к этим хостам без вопроса."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ลิงก์ ssh:// จากแอปอื่นจะเชื่อมต่อกับโฮสต์เหล่านี้โดยไม่ถาม"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Diğer uygulamalardan gelen ssh:// bağlantıları bu ana bilgisayarlara sormadan bağlanır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Посилання ssh:// з інших програм підключаються до цих хостів без запиту."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Liên kết ssh:// từ ứng dụng khác sẽ kết nối với các máy chủ này mà không hỏi."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "来自其他应用的 ssh:// 链接会不经询问直接连接这些主机。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "來自其他 App 的 ssh:// 連結會不經詢問直接連線至這些主機。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

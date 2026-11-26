@@ -27,8 +27,8 @@ import { gridLength } from "../src/agent-session/acpmux/transcriptGrid";
 await requireBrowserLane("composer-alignment-centers.test.ts", async () => {
   /** Half a pixel: the subpixel rounding a centered 28 px control and its 16 px glyph can show. */
   const TOLERANCE = 0.5;
-  /** The placeholder starts one lead gap (--acpmux-composer-lead-gap, 8 px) after the + button's box. */
-  const TEXT_GAP = 8;
+  /** The placeholder starts one lead gap (--acpmux-composer-lead-gap, 4 px since Leo 2026-11-22: "SHRINK THE INSIDE BIT") after the + button's box. */
+  const TEXT_GAP = 4;
   /** The one-line box's height, read from the grid's token (schemas/layout-grid/layout-grid.json,
    *  `composer-box` = 2 x `composer-block-inset` + `composer-control`): 10 + 28 + 10 = 48 since #29887
    *  (Leo 2026-11-01: "there's not enough of a space at the bottom"); it was 8 + 28 + 8 = 44.

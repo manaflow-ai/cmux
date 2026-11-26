@@ -1775,7 +1775,8 @@ export function manifestEntryEpoch(entry: Pick<DevboxManifestEntry, "epoch" | "n
  * merge under a lock) and b5f75830c15f (agent-config.sh bounds that lock's
  * wait), again with the cmux-machine-health install (the bake steps and
  * the boot script's HOUSEKEEPING_TIMERS), and again with cmux-vm-kind-sync's
- * write-only-a-fetched-kind lock and the boot's clone-reset fallback, so
+ * write-only-a-fetched-kind lock and the boot's clone-reset fallback, and
+ * again with the bake's cmux-tui taken from its signed release file, so
  * `current` is their digest. The entries live in
  * services/vms/images/awaiting-rebake.json.
  */
@@ -1891,6 +1892,28 @@ export function devboxSettleBeforeSnapshotCommand(): string {
  */
 export function devboxClaudeTeamOnboardingCheckCommand(homes: readonly string[] = ["/root", DEVBOX_WORK_HOME]): string {
   return `python3 -c 'import json, pathlib; homes = ${JSON.stringify(homes)}; configs = [pathlib.Path(h) / ".config/cmux/claude-team/.claude.json" for h in homes]; rows = [json.loads(p.read_text()) for p in configs]; assert all(j.get("hasCompletedOnboarding") is True and j.get("theme") == "dark" and j.get("projects", {}).get("/", {}).get("hasTrustDialogAccepted") is True and "-vm-edge-placeholder" in j.get("customApiKeyResponses", {}).get("approved", []) and "firstStartTime" not in j for j in rows), rows; assert all(p.stat().st_mode & 0o777 == 0o600 for p in configs)' && echo claude-team-onboarding-ok`;
+}
+
+/**
+ * cmux's Claude Code defaults (claude-onboarding.py `SETTINGS_DEFAULTS`: `crossSessionInbound: "accept"`, so
+ * messages from the person's other sessions are delivered, not held) in the user settings of root and the work
+ * user. A key a file already sets keeps its value. They are user settings, not managed ones: managed settings
+ * rank above the person's own, and a person's `"refuse"` must win. Leo, 2026-11-18, on a Claude Code holding
+ * another session's message: "can you make this accept", "they shouldnt hold em".
+ */
+export function devboxClaudeSettingsDefaultsCommand(): string {
+  const seed = "python3 -I /etc/cmux/claude-onboarding.py --settings-default";
+  return `${seed} /root/.claude/settings.json && sudo -n -u ${DEVBOX_WORK_USER} ${seed} ${DEVBOX_WORK_HOME}/.claude/settings.json && ${devboxClaudeSettingsDefaultsCheckCommand()}`;
+}
+
+/** Fails unless both homes' Claude user settings carry a valid default or explicit choice. */
+export function devboxClaudeSettingsDefaultsCheckCommand(
+  files: readonly string[] = ["/root/.claude/settings.json", `${DEVBOX_WORK_HOME}/.claude/settings.json`],
+  expectedWorkUser: string | null = DEVBOX_WORK_USER,
+): string {
+  const encodedFiles = JSON.stringify(files);
+  const ownership = expectedWorkUser === null ? "" : ` && [ "$(stat -c %U ${files[1] ?? files[0]})" = ${expectedWorkUser} ]`;
+  return `python3 -c 'import glob, json, os; rows = [json.load(open(p)) for p in ${encodedFiles}]; assert all("crossSessionInbound" in r and r["crossSessionInbound"] in ("accept", "hold", "refuse") for r in rows), rows; managed = ["/etc/claude-code/managed-settings.json"] if os.path.exists("/etc/claude-code/managed-settings.json") else []; managed += glob.glob("/etc/claude-code/managed-settings.d/*.json"); assert all("crossSessionInbound" not in json.load(open(p)) for p in managed), managed'${ownership} && echo claude-settings-defaults-ok`;
 }
 
 /**

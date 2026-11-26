@@ -230,3 +230,38 @@ test("the slice holds across a new block; Show More and the fold still work unde
   expect(page.rows().length).toBe(0);
   expect(page.host.querySelector(".sc-spacer")).toBeNull();
 });
+
+test("a slice that arrives before the first block and names another revision does not window it", async () => {
+  const page = await mount();
+  // Measured on no block the page has drawn (the host's revision 0): a stale viewport for block 1.
+  await page.slice({ revision: 0, top: 9_000, height: 300 });
+  await page.block(fixtureBlock({ revision: 1, rows: fixtureRows(1_000) }));
+  expect(page.rows().length).toBe(1_000);
+  expect(page.host.querySelector(".sc-spacer")).toBeNull();
+  // Block 1's own slice then windows it.
+  await page.slice({ revision: 1, top: 3_000, height: 300 });
+  expect(page.ids()).toEqual(expected(1_000, 3_000, 300));
+});
+
+test("a slice that names block 1's revision, sent before block 1, windows it once it is drawn", async () => {
+  const page = await mount();
+  await page.slice({ revision: 1, top: 3_000, height: 300 });
+  expect(page.rows()).toEqual([]);
+  await page.block(fixtureBlock({ revision: 1, rows: fixtureRows(1_000) }));
+  expect(page.ids()).toEqual(expected(1_000, 3_000, 300));
+});
+
+test("a slice that names a newer block does not window the drawn one; it waits for exactly that block", async () => {
+  const page = await mount();
+  await page.block(fixtureBlock({ revision: 1, rows: fixtureRows(1_000) }));
+  await page.slice({ revision: 2, top: 3_000, height: 300 });
+  expect(page.rows().length).toBe(1_000);
+  await page.block(fixtureBlock({ revision: 2, rows: fixtureRows(1_000) }));
+  expect(page.ids()).toEqual(expected(1_000, 3_000, 300));
+  // One held for revision 4 is dropped when revision 3 comes next instead; 3 keeps 2's drawn slice.
+  await page.slice({ revision: 4, top: 9_000, height: 300 });
+  await page.block(fixtureBlock({ revision: 3, rows: fixtureRows(1_000) }));
+  expect(page.ids()).toEqual(expected(1_000, 3_000, 300));
+  await page.block(fixtureBlock({ revision: 4, rows: fixtureRows(1_000) }));
+  expect(page.ids()).toEqual(expected(1_000, 3_000, 300));
+});

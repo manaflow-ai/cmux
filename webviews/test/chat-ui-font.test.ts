@@ -5,7 +5,12 @@
 // macos default, not inter") and the page sets nothing: desktop.css's `--font-ui` is already the system stack.
 import { expect, test } from "bun:test";
 import { chatDisplayVariables, chatMetrics, resolveChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
-import { CHAT_UI_FONT_KEY, CHAT_UI_FONTS, chatUiFontVariables } from "../src/agent-session/acpmux/chatUiFont";
+import {
+  CHAT_UI_FONT_KEY,
+  CHAT_UI_FONTS,
+  chatUiFontVariables,
+  chatUiTracking,
+} from "../src/agent-session/acpmux/chatUiFont";
 
 test("unset or unknown, the interface font is the system font and the page sets no variable", () => {
   for (const raw of [{}, { [CHAT_UI_FONT_KEY]: "comic" }, { [CHAT_UI_FONT_KEY]: true }]) {
@@ -28,11 +33,29 @@ test("each other choice sets the face and its own tracking on the type scale", (
   expect(chatUiFontVariables("verdana")["--font-ui"]).toStartWith("Verdana");
   expect(chatUiFontVariables("roboto")["--font-ui"]).toStartWith('"cmux Roboto"');
   // The font study's picks (webviews/src/gallery/fontStudy): our own cmux Sans, Hanken Grotesk and
-  // Atkinson Hyperlegible Next, each a bundled face at its designed spacing.
+  // Atkinson Hyperlegible Next, each a bundled face.
   expect(chatUiFontVariables("cmux-sans")["--font-ui"]).toStartWith('"cmux Sans"');
   expect(chatUiFontVariables("hanken")["--font-ui"]).toStartWith('"cmux Hanken Grotesk"');
   expect(chatUiFontVariables("atkinson")["--font-ui"]).toStartWith('"cmux Atkinson Hyperlegible Next"');
-  expect(chatUiFontVariables("cmux-sans")["--text-body--letter-spacing"]).toBe("0em");
+  // cmux Sans draws a step looser than its designed spacing, reply text included (ask-2594f3b6db),
+  // and the row estimator measures the same spacing.
+  const sans = chatUiFontVariables("cmux-sans");
+  expect(sans["--text-body--letter-spacing"]).toBe("0.015em");
+  expect(sans["--text-caption--letter-spacing"]).toBe("0.02em");
+  expect(sans["--text-heading--letter-spacing"]).toBe("0.004em");
+  expect(sans["--cv-tracking"]).toBe("0.015em");
+  expect(chatUiTracking("cmux-sans", "body")).toBeCloseTo(0.015);
+  expect(chatUiFontVariables("hanken")["--text-body--letter-spacing"]).toBe("0em");
+  // cmux Sans's personality cuts (Leo, 2026-11-19: "It just doesn't have that like pizzazz"): opt-in, each
+  // its own bundled family at its own width's spacing, the reply text following the body step.
+  const squat = chatUiFontVariables("cmux-sans-squat");
+  expect(squat["--font-ui"]).toStartWith('"cmux Sans Squat"');
+  expect(squat["--text-heading--letter-spacing"]).toBe("-0.024em");
+  expect(squat["--cv-tracking"]).toBe("-0.01em");
+  expect(chatUiFontVariables("cmux-sans-candy")["--font-ui"]).toStartWith('"cmux Sans Candy"');
+  // cmux Sans Open (Leo: "too packed together and narrow"): the spacing is in the font, so body adds none.
+  expect(chatUiFontVariables("cmux-sans-open")["--font-ui"]).toStartWith('"cmux Sans Open"');
+  expect(chatUiFontVariables("cmux-sans-open")["--text-body--letter-spacing"]).toBe("0em");
   // Inter's own curve is for tuned Inter: stock Inter draws at its designed spacing.
   expect(chatUiFontVariables("inter")["--text-heading--letter-spacing"]).toBe("0em");
   // Inter is opt-in now: its bundled face, with the curve the app used to apply to it.

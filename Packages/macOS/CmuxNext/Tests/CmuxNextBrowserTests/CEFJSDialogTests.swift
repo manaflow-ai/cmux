@@ -4,10 +4,10 @@ import Testing
 /// alert, confirm and prompt of an in-tree Chromium page go to cmux's own dialog. The fork cancels a JavaScript
 /// dialog of an in-tree page that no CEF handler takes (fork API 36): live step ff9c0eb4 on cmux19, in tree,
 /// `alert()` showed nothing while with in-tree pages off Chromium's "… says" window showed. The shim now sends them
-/// to the host as JS_DIALOG (52) and JS_DIALOG_DISMISSED (53); the tab asks with the same prompt as a WebKit tab.
+/// to the host as JS_DIALOG (53) and JS_DIALOG_DISMISSED (54); the tab asks with the same prompt as a WebKit tab.
 @MainActor struct CEFJSDialogTests {
     @Test func theShimsDialogEventsDecode() {
-        let asked = CEFShimEvent(kind: 52, browser: 7, request: 31, a: 2, b: 0,
+        let asked = CEFShimEvent(kind: 53, browser: 7, request: 31, a: 2, b: 0,
                                  s1: "http://127.0.0.1:50631/page.html", s2: #"{"message":"Name?","default":"x"}"#)
         guard case .jsDialog(let browser, let token, let type, let origin, let text) = asked else {
             Issue.record("JS_DIALOG decoded as \(asked)")
@@ -17,7 +17,7 @@ import Testing
         #expect(origin == "http://127.0.0.1:50631/page.html")
         #expect(text.contains("Name?"))
         #expect(asked.browserID == 7, "the event names its browser, so it reaches its tab")
-        let dismissed = CEFShimEvent(kind: 53, browser: 7, request: 0, a: 0, b: 0, s1: "", s2: "")
+        let dismissed = CEFShimEvent(kind: 54, browser: 7, request: 0, a: 0, b: 0, s1: "", s2: "")
         guard case .jsDialogDismissed(7) = dismissed else {
             Issue.record("JS_DIALOG_DISMISSED decoded as \(dismissed)")
             return

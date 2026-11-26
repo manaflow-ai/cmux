@@ -267,6 +267,48 @@ impl Fold {
     }
 }
 
+/// Tokens weighted by their usual price ratio (input 1, output 5, cache
+/// read 0.1, cache write 1.25): a turn's size in input-token units.
+pub fn weighted_tokens(u: &chief_turn::Usage) -> f64 {
+    u.input as f64 + 5.0 * u.output as f64 + 0.1 * u.cache_read as f64 + 1.25 * u.cache_write as f64
+}
+
+/// This Chief's measured dollars per weighted token, by model: its own
+/// turns of the last `days` days that the harness priced. Absolute prices
+/// come from what the harness charged, never from a table here.
+pub fn rates(root: &Path, days: u64) -> BTreeMap<String, f64> {
+    let now = chrono::Utc::now().timestamp_millis().max(0) as u64;
+    let since = now.saturating_sub(days * 86_400_000);
+    let Ok(lines) = read(&dir(root), since, now) else {
+        return BTreeMap::new();
+    };
+    let mut sums: BTreeMap<String, (f64, f64)> = BTreeMap::new();
+    // Claude turns only: a codex turn's tokens are its last request's, so
+    // its dollars over them would overstate the rate. The model is the
+    // turn's API model id (its last request's), as a running turn names it.
+    let codex = |l: &Line| l.harness.as_deref().is_some_and(|h| h.contains("codex"));
+    for l in lines.iter().filter(|l| l.kind == "turn" && !codex(l)) {
+        let (Some(model), Some(usd)) = (l.model.as_ref(), l.usd) else {
+            continue;
+        };
+        let w = weighted_tokens(&chief_turn::Usage {
+            input: l.input,
+            cache_read: l.cache_read,
+            cache_write: l.cache_write,
+            output: l.output,
+        });
+        if w > 0.0 && usd > 0.0 {
+            let e = sums.entry(model.clone()).or_default();
+            e.0 += usd;
+            e.1 += w;
+        }
+    }
+    sums.into_iter()
+        .filter(|(_, (_, w))| *w > 0.0)
+        .map(|(m, (usd, w))| (m, usd / w))
+        .collect()
+}
+
 /// `<optchat root>/usage`.
 pub fn dir(root: &Path) -> PathBuf {
     root.join("usage")

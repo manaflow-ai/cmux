@@ -3,6 +3,7 @@
 // range); the page groups and presents them. Behavior matches the Swift page it replaces
 // (CmuxNextHistory/HistoryPageModel.swift, HistoryQuery.swift HistoryGrouping, HistoryPageRow.swift).
 import type { HistoryEntry, HistoryKind, HistoryRange } from "./types";
+import { intl } from "../../ui/intl";
 
 export type HistoryFilter = "all" | "pages" | "locations" | "commands" | "agents" | "closed";
 
@@ -85,8 +86,62 @@ export function groupEntries(entries: readonly HistoryEntry[], grouping: History
   return [...groups.values()];
 }
 
-export function flatten(groups: readonly HistoryGroup[]): HistoryEntry[] {
-  return groups.flatMap((group) => group.entries);
+/**
+ * The reply's entries, each one that did not change kept as the object the page already holds: a
+ * reply re-sends the whole list, and a memoized row draws again only for the entry that changed.
+ */
+export function keepUnchanged(previous: readonly HistoryEntry[], next: readonly HistoryEntry[]): HistoryEntry[] {
+  const held = new Map(previous.map((entry) => [entry.id, entry]));
+  return next.map((entry) => {
+    const old = held.get(entry.id);
+    return old && sameEntry(old, entry) ? old : entry;
+  });
+}
+
+function sameEntry(a: HistoryEntry, b: HistoryEntry): boolean {
+  const keys = Object.keys(a) as (keyof HistoryEntry)[];
+  return keys.length === Object.keys(b).length && keys.every((key) => a[key] === b[key]);
+}
+
+/** One windowed item: a group's header, or an entry's row (`row` is its place among all entries). */
+export type ListItem = { kind: "group"; group: HistoryGroup } | { kind: "row"; entry: HistoryEntry; row: number };
+
+export interface ListModel {
+  items: ListItem[];
+  entries: HistoryEntry[];
+  /** Entry id to its item and row index: a selection or a key press finds its row without a scan. */
+  place: Map<string, { item: number; row: number }>;
+}
+
+/** Built once per reply or grouping, not per render, selection or key press. */
+export function listModel(groups: readonly HistoryGroup[]): ListModel {
+  const items: ListItem[] = [];
+  const entries: HistoryEntry[] = [];
+  const place = new Map<string, { item: number; row: number }>();
+  for (const group of groups) {
+    items.push({ kind: "group", group });
+    for (const entry of group.entries) {
+      place.set(entry.id, { item: items.length, row: entries.length });
+      items.push({ kind: "row", entry, row: entries.length });
+      entries.push(entry);
+    }
+  }
+  return { items, entries, place };
+}
+
+/** The entry `offset` rows from the selection (Swift `moveSelection`), by the index map. */
+export function moved(list: ListModel, selection: string | undefined, offset: number): string | undefined {
+  const { entries } = list;
+  if (!entries.length) return selection;
+  const row = selection === undefined ? undefined : list.place.get(selection)?.row;
+  const index = row ?? (offset > 0 ? -1 : entries.length);
+  return entries[Math.max(0, Math.min(entries.length - 1, index + offset))]!.id;
+}
+
+/** The entry Return opens: the selection, else the first row. */
+export function target(list: ListModel, selection: string | undefined): HistoryEntry | undefined {
+  const row = selection === undefined ? undefined : list.place.get(selection)?.row;
+  return list.entries[row ?? 0];
 }
 
 /** "detail · machine", or undefined when the entry has neither. */
@@ -175,18 +230,6 @@ export function siteHost(entry: HistoryEntry): string | undefined {
   }
 }
 
-/** Moves the selection by `offset` rows (Swift `moveSelection`). */
-export function moveSelection(
-  flat: readonly HistoryEntry[],
-  selection: string | undefined,
-  offset: number,
-): string | undefined {
-  if (!flat.length) return selection;
-  let index = flat.findIndex((entry) => entry.id === selection);
-  if (index < 0) index = offset > 0 ? -1 : flat.length;
-  return flat[Math.max(0, Math.min(flat.length - 1, index + offset))].id;
-}
-
 /** After a reload: a selection whose entry is gone moves to the first entry. */
 export function reconcileSelection(
   entries: readonly HistoryEntry[],
@@ -194,11 +237,6 @@ export function reconcileSelection(
 ): string | undefined {
   if (selection === undefined) return undefined;
   return entries.some((entry) => entry.id === selection) ? selection : entries[0]?.id;
-}
-
-/** The entry Return opens: the selection, else the first row. */
-export function returnTarget(flat: readonly HistoryEntry[], selection: string | undefined): HistoryEntry | undefined {
-  return flat.find((entry) => entry.id === selection) ?? flat[0];
 }
 
 /** Whether the row's primary action can run (Swift: restore refused while the machine is offline). */
@@ -250,12 +288,12 @@ export function groupTitle(
   if (grouping === "machine") return group.name ?? t("group.thisMac");
   const days = Math.round((localDayStart(nowMs) - group.at_ms) / 86_400_000);
   if (days === 0 || days === 1) {
-    const text = new Intl.RelativeTimeFormat(language, { numeric: "auto" }).format(-days, "day");
+    const text = intl.RelativeTimeFormat(language, { numeric: "auto" }).format(-days, "day");
     return text.charAt(0).toLocaleUpperCase(language) + text.slice(1);
   }
-  return new Intl.DateTimeFormat(language, { dateStyle: "full" }).format(group.at_ms);
+  return intl.DateTimeFormat(language, { dateStyle: "full" }).format(group.at_ms);
 }
 
 export function rowTime(entry: HistoryEntry, language: string): string {
-  return new Intl.DateTimeFormat(language, { timeStyle: "short" }).format(entry.at_ms);
+  return intl.DateTimeFormat(language, { timeStyle: "short" }).format(entry.at_ms);
 }

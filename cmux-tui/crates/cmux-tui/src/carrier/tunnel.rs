@@ -619,7 +619,12 @@ impl Supervisor {
 
     /// Keeps a hub up on `tunnel` until stop, a re-attach or a final status.
     async fn serve(&mut self, identity: TunnelIdentity, mut tunnel: DeviceTunnel) -> HubEnd {
-        let client = match reqwest::Client::builder()
+        let space = match cmux_build_space::headers() {
+            Ok(space) => space,
+            Err(error) => return HubEnd::Final(TunnelStatus::Failed(error.to_string())),
+        };
+        let client = match cmux_egress::client_builder("cmux_tui::carrier::tunnel")
+            .default_headers(space)
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(30))
             .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
