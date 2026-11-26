@@ -21,6 +21,8 @@ final class MacScreenCardView: MacScreenThemedView {
         var look = MacScreenViewerLook.current
         /// The session's link is up (read only by a full-pane look, whose connect steps name it).
         var linkConnected = false
+        /// The pane retries the card's failure on its own, so it offers no Try Again (``MacScreenPaneModel/retriesOnItsOwn(_:)``).
+        var retriesOnItsOwn = false
         /// The offline card's Start cmux on NAME and its run (``MacScreenDeviceSetupRow/none`` on every other card).
         var setup = MacScreenDeviceSetupRow.none
     }
@@ -115,6 +117,7 @@ final class MacScreenCardView: MacScreenThemedView {
     private func render() {
         let next = withObservationTracking { () -> Shown in
             var next = Shown(card: model.card, name: model.name, failedDetail: Self.failedDetail(model.card, model), look: model.viewerLook, setup: Self.setup(model))
+            next.retriesOnItsOwn = model.retriesOnItsOwn(next.card)
             if next.look.style.cardLayout == .fullPane { next.linkConnected = model.session?.linkConnected ?? false }
             return next
         } onChange: { [weak self] in
@@ -167,9 +170,16 @@ final class MacScreenCardView: MacScreenThemedView {
         }
     }
 
-    /// The failure's detail for `card`: the failed card's (``MacScreenPaneModel/failedDetail``), or
-    /// for a hub end that says the stream failed, the host's reason when it gave one; else empty.
+    /// The failure's detail for `card`: a retry's cover says the failure's as it was when it failed
+    /// (``MacScreenRetryCover``), else the state's (``stateFailedDetail(_:_:)``).
     static func failedDetail(_ card: MacScreenCard?, _ model: MacScreenPaneModel) -> String {
+        if let cover = model.retryCover, cover.card == card { return cover.detail }
+        return stateFailedDetail(card, model)
+    }
+
+    /// The failure's detail for `card` now: the failed card's (``MacScreenPaneModel/failedDetail``), or
+    /// for a hub end that says the stream failed, the host's reason when it gave one; else empty.
+    static func stateFailedDetail(_ card: MacScreenCard?, _ model: MacScreenPaneModel) -> String {
         switch RdUI.call("card.failedDetailSource", ["card": card?.rd ?? NSNull()]) as? String {
         case "failed": model.failedDetail
         case "hub": model.hubFailureDetail ?? ""
@@ -228,6 +238,8 @@ final class MacScreenCardView: MacScreenThemedView {
         let answer = RdUI.call("card.content", [
             "card": card.rd, "quiet": quiet, "hasFailedDetail": !failedDetail.isEmpty, "showsStart": setup.showsStart,
             "platform": model.platform?.rawValue ?? NSNull(),
+            // No Try Again or Reconnect while the pane retries the failure on its own (#50358).
+            "retriesOnItsOwn": shown?.retriesOnItsOwn ?? model.retriesOnItsOwn(card),
         ]) as? [String: Any] ?? [:]
         let text = { (value: Any?) in Self.text(value, card: card, name: self.name, failedDetail: failedDetail) }
         if answer["spinner"] as? Bool == true { spinner() }
@@ -377,7 +389,7 @@ final class MacScreenCardView: MacScreenThemedView {
         case "macScreen.hub.notFoundBody": L.t("macScreen.hub.notFoundBody", "This device was removed from your devices.")
         case "macScreen.hub.signedOutBody": L.t("macScreen.hub.signedOutBody", "Sign in to cmux to see your devices.")
         case "macScreen.hub.otherBodyReason": L.t("macScreen.hub.otherBodyReason", "The device hub could not start the session: %@")
-        case "macScreen.hub.otherBody": L.t("macScreen.hub.otherBody", "The device hub could not start the session. Try again.")
+        case "macScreen.hub.otherBody": L.t("macScreen.hub.otherBody", "The device hub could not start the session.")
         default: L.t("macScreen.card.failedTitle", "Couldn’t connect")
         }
     }
