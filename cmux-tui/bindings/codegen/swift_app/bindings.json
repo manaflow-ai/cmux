@@ -1,7 +1,871 @@
 {
   "$comment": "What the SDK schema cannot say about the Swift side of each generated CmuxNextDaemon request type (swift_app/emit.py explains the rules). A family is one Requests/<Family> folder; it moves here from hand-written Swift in one change.",
-  "output_root": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests",
   "ids": {},
   "types": {},
-  "families": {}
+  "families": {
+    "Agents": {
+      "requests": {
+        "list-agents": {
+          "name": "ListAgentsRequest",
+          "response": "generate",
+          "response_fields": {
+            "agents": {
+              "type": "[AgentStatus]"
+            }
+          },
+          "response_order": [
+            "agents"
+          ],
+          "order": [
+            "surface",
+            "state"
+          ],
+          "fields": {
+            "surface": {
+              "type": "SurfaceID"
+            },
+            "state": {
+              "type": "AgentState"
+            }
+          }
+        },
+        "feed-local-handoff-abort": {
+          "name": "FeedLocalHandoffAbortRequest",
+          "doc": [
+            "`feed-local-handoff-abort {item}` (the verified app connection only): the",
+            "cloud owner answered `feed.adopt.cancel` with `cancelled: true`, so the",
+            "item is open here again. Never on a timeout or a lost reply."
+          ],
+          "order": [
+            "item"
+          ],
+          "response": "FeedLocalHandoffBeginRequest.Response"
+        },
+        "feed-local-handoff-done": {
+          "name": "FeedLocalHandoffDoneRequest",
+          "doc": [
+            "`feed-local-handoff-done {item, home}` (the verified app connection only):",
+            "the new owner committed the item; it becomes `moved`."
+          ],
+          "order": [
+            "item",
+            "home"
+          ],
+          "response": "FeedLocalHandoffBeginRequest.Response"
+        }
+      }
+    },
+    "Bookmarks": {
+      "requests": {
+        "list-bookmarks": {
+          "name": "ListBookmarksRequest",
+          "doc": [
+            "`list-bookmarks`: one profile's nodes, ordered by parent then index."
+          ],
+          "order": [
+            "browser_profile_id"
+          ],
+          "response": "BookmarkList"
+        }
+      }
+    },
+    "Layout": {
+      "requests": {
+        "set-split-ratio": {
+          "name": "SetSplitRatioRequest",
+          "doc": [
+            "Divider drag. Reuse one `transaction` per gesture so undo coalesces."
+          ],
+          "order": [
+            "split",
+            "ratio",
+            "transaction"
+          ],
+          "fields": {
+            "split": {
+              "type": "SplitID"
+            },
+            "ratio": {
+              "doc": [
+                "Clamped by the daemon to 0.05...0.95."
+              ]
+            }
+          }
+        },
+        "move-column": {
+          "name": "MoveColumnRequest",
+          "doc": [
+            "Moves the whole viewport column holding `pane` (every pane, split and",
+            "row in it) one place left or right (`column-move-v1`). The daemon refuses",
+            "a column at the strip's edge or next to a docked column",
+            "(`column-move-edge`) and a docked column (`column-move-docked`)."
+          ],
+          "order": [
+            "pane",
+            "direction"
+          ],
+          "fields": {
+            "pane": {
+              "type": "PaneID",
+              "doc": [
+                "Any pane of the column that moves."
+              ]
+            },
+            "direction": {
+              "type": "ColumnMoveDirection"
+            }
+          },
+          "response": "EmptyResponse"
+        }
+      }
+    },
+    "Profiles": {
+      "requests": {
+        "create-browser-profile": {
+          "name": "CreateBrowserProfileRequest",
+          "doc": [
+            "`create-browser-profile`: an existing id returns the stored record."
+          ],
+          "order": [
+            "browser_profile",
+            "name",
+            "color",
+            "icon",
+            "index",
+            "source"
+          ],
+          "fields": {
+            "browser_profile": {
+              "name": "id"
+            },
+            "index": {
+              "type": "Int"
+            },
+            "source": {
+              "type": "[String: String]"
+            }
+          },
+          "response": "BrowserProfileResult"
+        },
+        "move-browser-profile": {
+          "name": "MoveBrowserProfileRequest",
+          "order": [
+            "browser_profile",
+            "index"
+          ],
+          "fields": {
+            "browser_profile": {
+              "name": "id"
+            },
+            "index": {
+              "type": "Int"
+            }
+          },
+          "response": "BrowserProfileResult"
+        },
+        "list-personal": {
+          "name": "ListPersonalRequest",
+          "response": "PersonalState"
+        },
+        "set-profile-follows": {
+          "name": "SetProfileFollowsRequest",
+          "order": [
+            "profile",
+            "session_ids"
+          ],
+          "fields": {
+            "profile": {
+              "type": "ProfileID"
+            }
+          },
+          "response": "ProfileResult"
+        },
+        "delete-personal-group": {
+          "name": "DeletePersonalGroupRequest",
+          "order": [
+            "group"
+          ],
+          "fields": {
+            "group": {
+              "type": "WorkspaceGroupID"
+            }
+          },
+          "response": "EmptyResponse"
+        },
+        "move-personal-group": {
+          "name": "MovePersonalGroupRequest",
+          "order": [
+            "group",
+            "index"
+          ],
+          "fields": {
+            "group": {
+              "type": "WorkspaceGroupID"
+            },
+            "index": {
+              "type": "Int"
+            }
+          },
+          "response": "PersonalGroupResult"
+        },
+        "create-personal-group": {
+          "name": "CreatePersonalGroupRequest",
+          "order": [
+            "name",
+            "group",
+            "profile",
+            "color",
+            "collapsed",
+            "index"
+          ],
+          "fields": {
+            "group": {
+              "type": "WorkspaceGroupID"
+            },
+            "profile": {
+              "type": "ProfileID"
+            },
+            "index": {
+              "type": "Int"
+            }
+          },
+          "response": "PersonalGroupResult"
+        },
+        "pin-workspace": {
+          "name": "PinWorkspaceRequest",
+          "doc": [
+            "Pins a workspace to one room (Move Workspace to Room), replacing any pin."
+          ],
+          "order": [
+            "session_id",
+            "workspace_key",
+            "profile"
+          ],
+          "fields": {
+            "workspace_key": {
+              "type": "WorkspaceKey"
+            },
+            "profile": {
+              "type": "ProfileID"
+            }
+          },
+          "response": "ChangedResponse"
+        },
+        "unpin-workspace": {
+          "name": "UnpinWorkspaceRequest",
+          "order": [
+            "session_id",
+            "workspace_key"
+          ],
+          "fields": {
+            "workspace_key": {
+              "type": "WorkspaceKey"
+            }
+          },
+          "response": "ChangedResponse"
+        },
+        "create-profile": {
+          "name": "CreateProfileRequest",
+          "order": [
+            "name",
+            "profile",
+            "color",
+            "icon",
+            "theme",
+            "index",
+            "browser_profile_id",
+            "defaults"
+          ],
+          "fields": {
+            "profile": {
+              "type": "ProfileID",
+              "doc": [
+                "Caller-chosen id makes a retry idempotent; nil lets the daemon mint one."
+              ]
+            },
+            "index": {
+              "type": "Int"
+            },
+            "browser_profile_id": {
+              "type": "BrowserProfileKey"
+            },
+            "defaults": {
+              "type": "ProfileDefaults"
+            }
+          },
+          "response": "ProfileResult"
+        },
+        "move-profile": {
+          "name": "MoveProfileRequest",
+          "doc": [
+            "Moves a profile to an insertion index (the `move-workspace` rule)."
+          ],
+          "order": [
+            "profile",
+            "index"
+          ],
+          "fields": {
+            "profile": {
+              "type": "ProfileID"
+            },
+            "index": {
+              "type": "Int"
+            }
+          },
+          "response": "ProfileResult"
+        }
+      }
+    },
+    "Projection": {
+      "requests": {
+        "get-frontend-projection": {
+          "name": "GetFrontendProjectionRequest",
+          "order": [
+            "frontend",
+            "scope",
+            "subject_key"
+          ],
+          "fields": {
+            "scope": {
+              "type": "ProjectionScope"
+            }
+          },
+          "response": "FrontendProjection"
+        }
+      }
+    },
+    "Screens": {
+      "requests": {
+        "delete-saved-screen-group": {
+          "name": "DeleteSavedScreenGroupRequest",
+          "order": [
+            "saved"
+          ],
+          "fields": {
+            "saved": {
+              "type": "SavedScreenGroupID"
+            }
+          },
+          "response": "EmptyResponse"
+        },
+        "save-screen-group": {
+          "name": "SaveScreenGroupRequest",
+          "order": [
+            "group"
+          ],
+          "fields": {
+            "group": {
+              "type": "ScreenGroupID"
+            }
+          },
+          "response": "ScreenGroupResult"
+        },
+        "unsave-screen-group": {
+          "name": "UnsaveScreenGroupRequest",
+          "order": [
+            "group"
+          ],
+          "fields": {
+            "group": {
+              "type": "ScreenGroupID"
+            }
+          },
+          "response": "ScreenGroupResult"
+        },
+        "ungroup-screen-group": {
+          "name": "UngroupScreenGroupRequest",
+          "order": [
+            "group"
+          ],
+          "fields": {
+            "group": {
+              "type": "ScreenGroupID"
+            }
+          },
+          "response": "ScreenGroupResult"
+        },
+        "close-screen-group": {
+          "name": "CloseScreenGroupRequest",
+          "doc": [
+            "Closes every member screen. A saved group keeps its saved record."
+          ],
+          "order": [
+            "group",
+            "end_terminals"
+          ],
+          "fields": {
+            "group": {
+              "type": "ScreenGroupID"
+            }
+          },
+          "response": "ScreenGroupResult"
+        },
+        "add-screens-to-screen-group": {
+          "name": "AddScreensToScreenGroupRequest",
+          "doc": [
+            "Adds screens to a group. `index` is the position inside the group (default: the end)."
+          ],
+          "order": [
+            "group",
+            "screens",
+            "index"
+          ],
+          "fields": {
+            "group": {
+              "type": "ScreenGroupID"
+            },
+            "screens": {
+              "type": "[ScreenID]"
+            },
+            "index": {
+              "type": "Int"
+            }
+          },
+          "response": "ScreenGroupResult"
+        },
+        "remove-screens-from-screen-group": {
+          "name": "RemoveScreensFromScreenGroupRequest",
+          "doc": [
+            "Removes screens from their groups; each lands right after its former group."
+          ],
+          "order": [
+            "screens"
+          ],
+          "fields": {
+            "screens": {
+              "type": "[ScreenID]"
+            }
+          },
+          "response": "ScreenGroupResult"
+        },
+        "move-screen-group": {
+          "name": "MoveScreenGroupRequest",
+          "doc": [
+            "Moves a whole group to `index` (the final index of its first screen), or",
+            "into `workspace`."
+          ],
+          "order": [
+            "group",
+            "index",
+            "workspace",
+            "new_workspace"
+          ],
+          "fields": {
+            "group": {
+              "type": "ScreenGroupID"
+            },
+            "index": {
+              "type": "Int"
+            },
+            "workspace": {
+              "type": "WorkspaceHandle"
+            },
+            "new_workspace": {
+              "doc": [
+                "Moves the group into a new workspace created in the same commit."
+              ]
+            }
+          },
+          "response": "ScreenGroupResult"
+        },
+        "create-screen-group": {
+          "name": "CreateScreenGroupRequest",
+          "order": [
+            "screens",
+            "name",
+            "color"
+          ],
+          "fields": {
+            "screens": {
+              "type": "[ScreenID]"
+            }
+          },
+          "response": "ScreenGroupResult"
+        }
+      }
+    },
+    "TabGroups": {
+      "requests": {
+        "unsave-tab-group": {
+          "name": "UnsaveTabGroupRequest",
+          "response": "generate",
+          "response_fields": {
+            "group": {
+              "type": "TabGroupID"
+            }
+          },
+          "response_order": [
+            "group",
+            "unsaved"
+          ],
+          "doc": [
+            "Deletes the saved record linked to a live group; the group stays."
+          ],
+          "order": [
+            "group"
+          ],
+          "fields": {
+            "group": {
+              "type": "TabGroupID",
+              "doc": [
+                "The live group (not the saved record id)."
+              ]
+            }
+          }
+        },
+        "delete-saved-tab-group": {
+          "name": "DeleteSavedTabGroupRequest",
+          "response": "generate",
+          "response_fields": {
+            "saved": {
+              "type": "SavedTabGroupID"
+            }
+          },
+          "response_order": [
+            "saved",
+            "deleted"
+          ],
+          "doc": [
+            "Deletes a saved record by id; a linked live group stays, unlinked."
+          ],
+          "order": [
+            "saved"
+          ],
+          "fields": {
+            "saved": {
+              "type": "SavedTabGroupID"
+            }
+          }
+        },
+        "reopen-saved-tab-group": {
+          "name": "ReopenSavedTabGroupRequest",
+          "doc": [
+            "Reopens a saved group into `pane`. A still-linked live group is returned",
+            "unchanged; otherwise running terminals reattach, others start in their",
+            "saved directory, and browsers reopen at their saved URL."
+          ],
+          "order": [
+            "saved",
+            "pane",
+            "transaction"
+          ],
+          "fields": {
+            "saved": {
+              "type": "SavedTabGroupID"
+            },
+            "pane": {
+              "type": "PaneID"
+            },
+            "transaction": {
+              "type": "ClientTransactionID"
+            }
+          },
+          "response": "TabGroupResult"
+        },
+        "list-saved-tab-groups": {
+          "name": "ListSavedTabGroupsRequest",
+          "response": "generate",
+          "response_fields": {
+            "saved_groups": {
+              "type": "[SavedTabGroupSnapshot]"
+            }
+          },
+          "response_order": [
+            "saved_groups"
+          ],
+          "doc": [
+            "Every saved record."
+          ]
+        },
+        "save-tab-group": {
+          "name": "SaveTabGroupRequest",
+          "response": "generate",
+          "response_fields": {
+            "group": {
+              "type": "TabGroupID"
+            },
+            "saved": {
+              "type": "SavedTabGroupID"
+            }
+          },
+          "response_order": [
+            "group",
+            "saved"
+          ],
+          "doc": [
+            "Saves a live group. Result: `{group, saved}` (the record id)."
+          ],
+          "order": [
+            "group"
+          ],
+          "fields": {
+            "group": {
+              "type": "TabGroupID"
+            }
+          }
+        },
+        "list-tab-groups": {
+          "name": "ListTabGroupsRequest",
+          "response": "generate",
+          "response_fields": {
+            "groups": {
+              "type": "[TabGroupSnapshot]"
+            }
+          },
+          "response_order": [
+            "groups"
+          ],
+          "doc": [
+            "Every live group with its pane, in the `Pane.tab_groups` shape."
+          ]
+        },
+        "move-tab-group-to-split": {
+          "name": "MoveTabGroupToSplitRequest",
+          "doc": [
+            "Drops a whole group on a pane edge."
+          ],
+          "order": [
+            "group",
+            "pane",
+            "edge",
+            "ratio",
+            "transaction"
+          ],
+          "fields": {
+            "group": {
+              "type": "TabGroupID"
+            },
+            "pane": {
+              "type": "PaneID"
+            },
+            "edge": {
+              "type": "PaneEdge"
+            },
+            "transaction": {
+              "type": "ClientTransactionID"
+            }
+          },
+          "response": "TabGroupResult"
+        },
+        "move-tab-group-to-new-workspace": {
+          "name": "MoveTabGroupToNewWorkspaceRequest",
+          "doc": [
+            "Drops a whole group on the sidebar: a new workspace holding the group,",
+            "optionally in a sidebar group at a section index. Tear-off = this + open",
+            "the returned workspace in a new window."
+          ],
+          "order": [
+            "group",
+            "workspace_group",
+            "index",
+            "transaction"
+          ],
+          "fields": {
+            "group": {
+              "type": "TabGroupID"
+            },
+            "workspace_group": {
+              "type": "WorkspaceGroupID",
+              "doc": [
+                "Sidebar (workspace) group for the new workspace."
+              ]
+            },
+            "index": {
+              "type": "Int"
+            },
+            "transaction": {
+              "type": "ClientTransactionID"
+            }
+          },
+          "response": "TabGroupResult"
+        }
+      }
+    },
+    "TabMove": {
+      "requests": {
+        "move-tab": {
+          "name": "MoveTabRequest",
+          "doc": [
+            "Reorder within a strip or move into any pane (across screens and",
+            "workspaces). Pinned tabs stay first (`tab-metadata-v1`)."
+          ],
+          "order": [
+            "surface",
+            "pane",
+            "index",
+            "transaction"
+          ],
+          "fields": {
+            "surface": {
+              "type": "SurfaceID"
+            },
+            "pane": {
+              "type": "PaneID"
+            },
+            "index": {
+              "type": "Int"
+            },
+            "transaction": {
+              "type": "ClientTransactionID",
+              "doc": [
+                "Echoed in `tab-changed` (`tab-drag-v1`); 1-128 printable ASCII."
+              ]
+            }
+          },
+          "response": "TabMoveResult"
+        },
+        "move-tab-to-new-workspace": {
+          "name": "MoveTabToNewWorkspaceRequest",
+          "doc": [
+            "Drop on the sidebar: new workspace holding the tab, optionally in a group",
+            "at a final section index. Tear-off = this + open the workspace in a new window."
+          ],
+          "order": [
+            "surface",
+            "group",
+            "index",
+            "name",
+            "transaction"
+          ],
+          "fields": {
+            "surface": {
+              "type": "SurfaceID"
+            },
+            "group": {
+              "type": "WorkspaceGroupID"
+            },
+            "index": {
+              "type": "Int"
+            },
+            "name": {
+              "doc": [
+                "The new workspace's name (`tab-workspace-name-v1`); nil keeps the",
+                "daemon's default. Sent only to a daemon that advertises it."
+              ]
+            },
+            "transaction": {
+              "type": "ClientTransactionID"
+            }
+          },
+          "response": "TabMoveResult"
+        }
+      }
+    },
+    "Tabs": {
+      "requests": {
+        "close-surface": {
+          "name": "CloseTabRequest",
+          "order": [
+            "surface"
+          ],
+          "fields": {
+            "surface": {
+              "type": "SurfaceID"
+            }
+          }
+        },
+        "rename-surface": {
+          "name": "RenameTabRequest",
+          "doc": [
+            "Renames a tab. Empty name clears it."
+          ],
+          "order": [
+            "surface",
+            "name"
+          ],
+          "fields": {
+            "surface": {
+              "type": "SurfaceID"
+            }
+          }
+        },
+        "rename-pane": {
+          "name": "RenamePaneRequest",
+          "order": [
+            "pane",
+            "name"
+          ],
+          "fields": {
+            "pane": {
+              "type": "PaneID"
+            }
+          }
+        },
+        "rename-screen": {
+          "name": "RenameScreenRequest",
+          "order": [
+            "screen",
+            "name"
+          ],
+          "fields": {
+            "screen": {
+              "type": "ScreenID"
+            }
+          }
+        }
+      }
+    },
+    "TerminalIO": {
+      "requests": {
+        "send-key": {
+          "name": "SendKeyRequest",
+          "order": [
+            "surface",
+            "keys"
+          ],
+          "fields": {
+            "surface": {
+              "type": "SurfaceID"
+            }
+          }
+        },
+        "set-client-sizing": {
+          "name": "SetClientSizingRequest",
+          "doc": [
+            "Claims (`enabled && exclusive`) or releases canonical geometry."
+          ],
+          "order": [
+            "surface",
+            "enabled",
+            "exclusive",
+            "client"
+          ],
+          "fields": {
+            "surface": {
+              "type": "SurfaceID"
+            },
+            "client": {
+              "type": "ClientID"
+            }
+          }
+        }
+      }
+    },
+    "Terminals": {
+      "requests": {
+        "list-terminals": {
+          "name": "ListTerminalsRequest",
+          "doc": [
+            "`list-terminals`: every terminal in the daemon's registry with its",
+            "workspace and, once ended, its exit record (cmux-tui terminal-host.md)."
+          ],
+          "response": "TerminalRegistryList"
+        }
+      }
+    },
+    "Workspace": {
+      "requests": {
+        "get-blob": {
+          "name": "GetBlobRequest",
+          "doc": [
+            "`get-blob`: `blob` is `blob:sha256-<hex>` or an asset icon value."
+          ],
+          "order": [
+            "blob"
+          ],
+          "response": "IconAssetBlob"
+        }
+      }
+    }
+  }
 }

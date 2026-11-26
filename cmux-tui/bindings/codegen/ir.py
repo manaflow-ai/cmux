@@ -8,15 +8,15 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import Any, Tuple, Union
 
 try:
     from .validate import ValidationError, ValidationIssue, validate_document
 except ImportError:  # Direct execution from this directory.
     from validate import ValidationError, ValidationIssue, validate_document
 
-JsonScalar = None | bool | int | float | str
-JsonValue = JsonScalar | tuple["JsonValue", ...] | Mapping[str, "JsonValue"]
+JsonScalar = Union[None, bool, int, float, str]
+JsonValue = Union[JsonScalar, Tuple["JsonValue", ...], Mapping[str, "JsonValue"]]
 JsonObject = Mapping[str, JsonValue]
 
 
@@ -90,7 +90,7 @@ def _canonical_json_bytes(document: Mapping[str, Any]) -> bytes:
     )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class SdkIR:
     """Validated, deeply immutable input consumed by language emitters."""
 

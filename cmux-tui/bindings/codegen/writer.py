@@ -42,7 +42,7 @@ class GeneratedOutputDrift(GenerationError):
         )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class Emitter:
     """Registration exported by each ``emit_<language>.py`` module."""
 
@@ -62,7 +62,7 @@ class Emitter:
             raise TypeError("emitter render must be callable")
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class GeneratedTree:
     emitter: Emitter
     files: Mapping[PurePosixPath, bytes]

@@ -16,7 +16,6 @@ from codegen.swift_app.emit import HEADER_MARK, BindingError, render
 from support import schema_document
 
 CODEGEN = Path(__file__).resolve().parents[1]
-REPO = CODEGEN.parents[2]
 
 
 def _field(type_: dict[str, Any], *, required: bool = True, nullable: bool = False, **extra: Any) -> dict[str, Any]:
@@ -99,7 +98,6 @@ def layout_document() -> dict[str, Any]:
 
 def layout_bindings() -> dict[str, Any]:
     return {
-        "output_root": "Sources/Requests",
         "ids": {"pane": "PaneID", "split": "SplitID", "column": "ColumnID", "zoomed_pane": "PaneID"},
         "types": {"RowHeight": "RowHeightValue"},
         "families": {
@@ -345,76 +343,79 @@ class BindingErrorTests(unittest.TestCase):
         self.assert_refused("swap-pane", bindings=bindings)
 
 
-class CheckAndWriteTests(unittest.TestCase):
+class OutTests(unittest.TestCase):
+    """--out: what the build's DaemonRequestsPlugin runs into its work directory."""
+
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
-        # The repository sits one level down, so a path that escapes it stays inside this temp folder
-        # (`../Requests` is temp/Requests, never a shared folder) and tearDown removes it.
-        self.root = Path(self.temp.name) / "repo"
-        self.root.mkdir()
+        self.root = Path(self.temp.name)
         import json
 
         (self.root / "schema.json").write_text(json.dumps(layout_document()), encoding="utf-8")
         (self.root / "bindings.json").write_text(json.dumps(layout_bindings()), encoding="utf-8")
-        self.out = self.root / "Sources" / "Requests"
+        self.out = self.root / "work" / "Requests"
 
     def tearDown(self) -> None:
         self.temp.cleanup()
 
-    def run_mode(self, mode: str) -> list[str]:
-        return generate.run(
-            mode=mode, schema=self.root / "schema.json", bindings=self.root / "bindings.json", repo_root=self.root
-        )
+    def run_out(self, out: Path | None = None) -> None:
+        generate.run(schema=self.root / "schema.json", bindings=self.root / "bindings.json", out=out)
 
-    def test_check_fails_until_written_then_passes(self) -> None:
-        self.assertTrue(any("missing" in problem for problem in self.run_mode("check")))
-        self.assertEqual(self.run_mode("write"), [])
-        self.assertEqual(self.run_mode("check"), [])
+    def test_out_writes_one_flat_file_per_type(self) -> None:
+        self.run_out(self.out)
+        names = sorted(path.name for path in self.out.iterdir())
+        self.assertEqual(names, sorted(Path(relative).name for relative in rendered()))
+        self.assertIn("SwapPaneRequest.generated.swift", names)
 
-    def test_a_hand_edit_of_a_generated_file_fails_the_check(self) -> None:
-        self.run_mode("write")
-        path = self.out / "Layout" / "SwapPaneRequest.generated.swift"
-        path.write_text(path.read_text(encoding="utf-8") + "// edit\n", encoding="utf-8")
-        self.assertEqual(self.run_mode("check"), ["changed Layout/SwapPaneRequest.generated.swift"])
+    def test_check_writes_nothing(self) -> None:
+        self.run_out(None)
+        self.assertFalse(self.out.exists())
+        self.assertEqual(generate.main(["--check", "--schema", str(self.root / "schema.json"),
+                                        "--bindings", str(self.root / "bindings.json")]), 0)
 
-    def test_a_stale_owned_file_fails_the_check_and_write_removes_it(self) -> None:
-        self.run_mode("write")
-        stale = self.out / "Old" / "OldRequest.generated.swift"
-        stale.parent.mkdir(parents=True)
+    def test_an_unchanged_file_is_not_rewritten(self) -> None:
+        import os
+
+        self.run_out(self.out)
+        path = self.out / "SwapPaneRequest.generated.swift"
+        os.utime(path, (1, 1))
+        self.run_out(self.out)
+        self.assertEqual(path.stat().st_mtime, 1)
+
+    def test_a_changed_file_is_rewritten(self) -> None:
+        self.run_out(self.out)
+        path = self.out / "SwapPaneRequest.generated.swift"
+        original = path.read_text(encoding="utf-8")
+        path.write_text(original + "// edit\n", encoding="utf-8")
+        self.run_out(self.out)
+        self.assertEqual(path.read_text(encoding="utf-8"), original)
+
+    def test_a_stale_owned_file_is_removed(self) -> None:
+        self.run_out(self.out)
+        stale = self.out / "OldRequest.generated.swift"
         stale.write_text(HEADER_MARK + "\n", encoding="utf-8")
-        self.assertEqual(self.run_mode("check"), ["stale Old/OldRequest.generated.swift"])
-        self.assertEqual(self.run_mode("write"), [])
+        self.run_out(self.out)
         self.assertFalse(stale.exists())
 
-    def test_an_output_root_outside_the_repository_is_refused(self) -> None:
-        import json
-
-        for root in ("/abs/Requests", "../Requests", "Sources/../../Requests", ""):
-            with self.subTest(root=root):
-                bindings = layout_bindings()
-                bindings["output_root"] = root
-                (self.root / "bindings.json").write_text(json.dumps(bindings), encoding="utf-8")
-                with self.assertRaises(BindingError):
-                    self.run_mode("write")
-                self.assertFalse((self.root.parent / "Requests").exists())
-
-    def test_a_hand_written_file_at_a_generated_path_is_never_replaced(self) -> None:
-        path = self.out / "Layout" / "SwapPaneRequest.generated.swift"
+    def test_a_file_the_emitter_does_not_own_is_never_replaced(self) -> None:
+        path = self.out / "SwapPaneRequest.generated.swift"
         path.parent.mkdir(parents=True)
         path.write_text("// hand-written\n", encoding="utf-8")
-        for mode in ("check", "write"):
-            with self.subTest(mode=mode):
-                with self.assertRaises(BindingError):
-                    self.run_mode(mode)
-                self.assertEqual(path.read_text(encoding="utf-8"), "// hand-written\n")
+        with self.assertRaises(BindingError):
+            self.run_out(self.out)
+        self.assertEqual(path.read_text(encoding="utf-8"), "// hand-written\n")
 
-    def test_a_generated_file_of_another_generator_is_not_owned(self) -> None:
-        self.run_mode("write")
-        other = self.out / "Layout" / "Other.generated.swift"
+    def test_a_file_of_another_generator_is_left_alone(self) -> None:
+        self.run_out(self.out)
+        other = self.out / "Other.generated.swift"
         other.write_text("// GENERATED by another tool\n", encoding="utf-8")
-        self.assertEqual(self.run_mode("check"), [])
-        self.run_mode("write")
+        self.run_out(self.out)
         self.assertTrue(other.exists())
+
+    def test_two_families_generating_one_file_name_are_refused(self) -> None:
+        files = {"A/SwapPaneRequest.generated.swift": "a", "B/SwapPaneRequest.generated.swift": "b"}
+        with self.assertRaises(BindingError):
+            generate.flat(files)
 
 
 class SdkGeneratorHookTests(unittest.TestCase):
@@ -428,6 +429,17 @@ class SdkGeneratorHookTests(unittest.TestCase):
                 mock.patch("codegen.swift_app.generate.main", return_value=0) as swift_main:
             self.assertEqual(sdk_generate.main(["--check", "--schema", "/some/schema.json"]), 0)
         swift_main.assert_called_once_with(["--check", "--schema", "/some/schema.json"])
+
+    def test_write_only_checks_the_swift_bindings(self) -> None:
+        from unittest import mock
+
+        from codegen import generate as sdk_generate
+
+        with mock.patch.object(sdk_generate, "run_generation", return_value=()), \
+                mock.patch("codegen.page_router.main", return_value=0), \
+                mock.patch("codegen.swift_app.generate.main", return_value=0) as swift_main:
+            self.assertEqual(sdk_generate.main(["--write"]), 0)
+        swift_main.assert_called_once_with(["--check"])
 
     def test_a_failing_swift_step_fails_the_sdk_generator(self) -> None:
         from unittest import mock
@@ -443,7 +455,6 @@ class SdkGeneratorHookTests(unittest.TestCase):
 class RepositoryBindingsTests(unittest.TestCase):
     def test_the_repository_bindings_render_against_the_repository_schema(self) -> None:
         bindings = generate.load_bindings(generate.DEFAULT_BINDINGS)
-        self.assertTrue(generate.output_root(REPO, bindings).is_dir())
         files = render(load_ir(generate.DEFAULT_SCHEMA), bindings)
         self.assertEqual(len(files), sum(
             len(family.get("enums", {})) + len(family.get("requests", {}))

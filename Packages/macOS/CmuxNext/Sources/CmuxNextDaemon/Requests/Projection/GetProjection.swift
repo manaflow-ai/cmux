@@ -32,16 +32,3 @@ public struct FrontendProjection: Decodable, Sendable, Equatable {
         replayed = try c.decodeIfPresent(Bool.self, forKey: .replayed)
     }
 }
-
-public struct GetFrontendProjectionRequest: DaemonRequest {
-    public typealias Response = FrontendProjection
-    public static let command = "get-frontend-projection"
-    public var frontend: String
-    public var scope: ProjectionScope
-    public var subjectKey: String
-    public init(frontend: String, scope: ProjectionScope, subjectKey: String) {
-        self.frontend = frontend
-        self.scope = scope
-        self.subjectKey = subjectKey
-    }
-}

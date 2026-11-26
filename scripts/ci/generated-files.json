@@ -78,6 +78,14 @@
       "status": "build"
     },
     {
+      "id": "daemon-requests",
+      "generator": "cmux-tui/bindings/codegen/swift_app/generate.py",
+      "outputs": [
+        "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/**/*.generated.swift"
+      ],
+      "status": "build"
+    },
+    {
       "id": "motion-scale",
       "generator": "scripts/cmux-next/gen-motion-scale.py",
       "outputs": [
