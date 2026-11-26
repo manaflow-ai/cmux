@@ -375,8 +375,8 @@ pub fn docks(columns: &[Column]) -> Parts {
         }
     }
     if parts.scrolling.is_empty() {
-        if columns.len() == 1 {
-            let mut lone = columns[0].clone();
+        if let [only] = columns {
+            let mut lone = only.clone();
             lone.width = 1.0;
             return Parts { scrolling: vec![lone], ..Parts::default() };
         }

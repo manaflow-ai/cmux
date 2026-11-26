@@ -81,25 +81,26 @@ pub fn removing_split_pane(pane: &str, layout: &Layout) -> Option<Layout> {
         Layout::Columns(columns) => {
             let mut columns = columns.clone();
             let index = columns.iter().position(|column| column.root.contains(pane))?;
-            if columns[index].has_rows() {
-                columns[index].row_index(pane)?;
-                releasing_chat_role(&mut columns[index], pane);
-                columns[index] = removing_row_pane(pane, &columns[index]);
+            let count = columns.len();
+            let column = columns.get_mut(index)?;
+            if column.has_rows() {
+                column.row_index(pane)?;
+                releasing_chat_role(column, pane);
+                *column = removing_row_pane(pane, column);
                 // A lone column left with one row is the screen's split tree again, unless it is a pinned dock.
-                if columns.len() == 1 && !columns[0].has_rows() && !columns[0].pinned_dock() {
-                    return Some(Layout::Splits(columns[0].root.clone()));
+                if let [only] = columns.as_slice()
+                    && !only.has_rows()
+                    && !only.pinned_dock()
+                {
+                    return Some(Layout::Splits(only.root.clone()));
                 }
                 return Some(Layout::Columns(columns));
             }
-            let Some(root) = columns[index].root.removing(pane) else {
-                return if columns.len() > 1 {
-                    Some(removing_column(index, &columns))
-                } else {
-                    None
-                };
+            let Some(root) = column.root.removing(pane) else {
+                return if count > 1 { Some(removing_column(index, &columns)) } else { None };
             };
-            releasing_chat_role(&mut columns[index], pane);
-            columns[index].root = root;
+            releasing_chat_role(column, pane);
+            column.root = root;
             Some(Layout::Columns(columns))
         }
     }
@@ -123,33 +124,30 @@ pub fn removing_row_pane(pane: &str, column: &Column) -> Column {
     if chain.len() != column.rows.len() - 1 {
         // Not the chain the daemon builds: the compat tree just loses the pane.
         column.root = column.root.removing(pane).unwrap_or_else(|| column.root.clone());
-        match column.rows[index].root.removing(pane) {
-            Some(root) => column.rows[index].root = root,
-            None => {
-                column.rows.remove(index);
-            }
+        if removing_from_row(&mut column, index, pane) {
+            column.rows.remove(index);
         }
         if column.rows.len() < 2 {
             column.rows.clear();
         }
         return column;
     }
-    match column.rows[index].root.removing(pane) {
-        Some(root) => column.rows[index].root = root,
-        None => {
-            // The emptied row's split goes; for the top row, the split under it.
-            column.rows.remove(index);
-            chain.remove(index.saturating_sub(1));
-        }
+    if removing_from_row(&mut column, index, pane) {
+        // The emptied row's split goes; for the top row, the split under it.
+        column.rows.remove(index);
+        chain.remove(index.saturating_sub(1));
     }
     if column.rows.len() < 2 {
-        column.root = column.rows[0].root.clone();
+        if let Some(first) = column.rows.first() {
+            column.root = first.root.clone();
+        }
         column.rows.clear();
         return column;
     }
-    let mut root = column.rows[0].root.clone();
-    let mut before = column.rows[0].height as f32;
-    for (row, split) in column.rows.iter().skip(1).zip(&chain) {
+    let Some((first, rest)) = column.rows.split_first() else { return column };
+    let mut root = first.root.clone();
+    let mut before = first.height as f32;
+    for (row, split) in rest.iter().zip(&chain) {
         let height = row.height as f32;
         let ratio = clamped_ratio(f64::from(before / (before + height)));
         root = Node::split(split, Axis::Vertical, ratio, root, row.root.clone());
@@ -157,6 +155,19 @@ pub fn removing_row_pane(pane: &str, column: &Column) -> Column {
     }
     column.root = root;
     column
+}
+
+/// Row `index` of `column` without `pane`; true when `pane` was its only pane (the row empties and
+/// the caller removes it), or when there is no row `index`.
+fn removing_from_row(column: &mut Column, index: usize, pane: &str) -> bool {
+    let Some(row) = column.rows.get_mut(index) else { return true };
+    match row.root.removing(pane) {
+        Some(root) => {
+            row.root = root;
+            false
+        }
+        None => true,
+    }
 }
 
 /// `releasingChatRole`: the agent chat's own pane (its dock's top pane) leaving: the dock stays on
@@ -177,14 +188,16 @@ pub fn releasing_chat_role(column: &mut Column, pane: &str) {
 pub fn removing_column(index: usize, columns: &[Column]) -> Layout {
     let mut columns = columns.to_vec();
     columns.remove(index);
-    if columns.len() == 1 && columns[0].pinned_dock() {
-        return Layout::Columns(columns);
+    if let [only] = columns.as_slice() {
+        if only.pinned_dock() {
+            return Layout::Columns(columns);
+        }
+        if !only.has_rows() {
+            return Layout::Splits(only.root.clone());
+        }
     }
-    if columns.len() == 1 && !columns[0].has_rows() {
-        return Layout::Splits(columns[0].root.clone());
-    }
-    if columns.len() == 1 {
-        columns[0].width = 1.0;
+    if let [only] = columns.as_mut_slice() {
+        only.width = 1.0;
     }
     if columns.len() >= 2 && columns.iter().all(|column| column.dock.is_some()) {
         for column in &mut columns {
@@ -220,14 +233,19 @@ pub fn successor(pane: &str, layout: &Layout) -> Option<String> {
                 if column.has_rows()
                     && let Some(index) = column.row_index(pane)
                 {
-                    let row =
-                        if index > 0 { &column.rows[index - 1] } else { &column.rows[index + 1] };
-                    return Some(row.root.first_pane().to_owned());
+                    let row = match index.checked_sub(1) {
+                        Some(above) => column.rows.get(above),
+                        None => column.rows.get(index.saturating_add(1)),
+                    };
+                    return row.map(|row| row.root.first_pane().to_owned());
                 }
             }
             let visual = layout.visual_columns();
             let index = visual.iter().position(|column| column.root.contains(pane))?;
-            let neighbor = visual[..index].last().or_else(|| visual.get(index + 1));
+            let neighbor = index
+                .checked_sub(1)
+                .and_then(|left| visual.get(left))
+                .or_else(|| visual.get(index.saturating_add(1)));
             neighbor.map(|column| column.root.first_pane().to_owned())
         }
     }
