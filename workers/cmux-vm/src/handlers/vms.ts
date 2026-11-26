@@ -13,6 +13,7 @@
  */
 import { HttpApiBuilder } from "@effect/platform";
 import { creationResult, issueCreation } from "./generated-creation.ts";
+import { cancelCreationAs, continueCancellation } from "./creation-cancellation.ts";
 import { scopedCreationKey, scopedForkSnapshotKey } from "../auth/idempotency-key.ts";
 import { acquireForkSnapshot } from "./fork-capture.ts";
 import { cleanupForkSnapshot } from "./fork-snapshot-cleanup.ts";
@@ -448,7 +449,31 @@ const reclaimGoneCiVms = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, 
     for (const gone of page.results) {
       if (Option.isSome(gone)) yield* deleteVmById(gone.value);
     }
+    yield* reclaimStaleCiCreations(caller, scope, caller.value.maxRunSeconds);
   });
+
+/**
+ * A CI create whose request died after its send began (the job timed out or was cancelled mid-create) keeps its
+ * retained quota slot: no row lists it, the job never retries its key, and a retained slot never lapses. Every later
+ * create of the team was refused 429 while listing no VM (cmux-vm.yml smoke-production from 2026-11-23 12:27Z).
+ * Once such a create is older than the principal's run cap plus the send grace, the job that made it is over, so
+ * the principal's own next create cancels it through the ordinary verified cancellation (exact-slug lookup, delete,
+ * tombstone, settle). Best effort: what cannot be settled now is left for the next create.
+ */
+const reclaimStaleCiCreations = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, maxRunSeconds: number) =>
+  Effect.gen(function* () {
+    const limits = yield* TenantLimits;
+    const now = yield* Clock.currentTimeMillis;
+    const stale = (yield* limits.retainedCreations(caller.value.tenantId, actorRef(caller.value.actor), 8))
+      .filter((slot) => now - slot.startedMs >= maxRunSeconds * 1000 + CREATE_SEND_GRACE_MS);
+    for (const slot of stale) {
+      const key = { scoped: slot.key };
+      yield* (slot.cancelRequested ? continueCancellation(caller, scope, key) : cancelCreationAs(caller, scope, key)).pipe(
+        Effect.tap((status) => Effect.logInfo("reclaimed a stale CI creation").pipe(Effect.annotateLogs({ vmId: slot.vmId, state: status.state }))),
+        Effect.catchAll((error) => Effect.logWarning("stale CI creation not reclaimed yet").pipe(Effect.annotateLogs({ vmId: slot.vmId, error: String(error) }))),
+      );
+    }
+  }).pipe(Effect.catchAll((error) => Effect.logWarning("stale CI creations not listed").pipe(Effect.annotateLogs({ error: String(error) }))));
 
 /**
  * The mesh a create asked to join (`meshId`), proven as attachMeshVm proves it: the mesh experiment is on for the
