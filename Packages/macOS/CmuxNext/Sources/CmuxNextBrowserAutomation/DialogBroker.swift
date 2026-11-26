@@ -74,7 +74,7 @@ final class DialogBroker {
         // Nor is another app opened for an agent, nor a password saved, nor
         // an email's verification code read or filled, nor a page's
         // "Leave site?" answered (unsaved work is the person's).
-        case .permission, .credentials, .openExternalApp, .savePassword, .verificationOffer, .beforeUnload: nil
+        case .permission, .credentials, .openExternalApp, .noAppForScheme, .savePassword, .verificationOffer, .beforeUnload: nil
         }
     }
 }
