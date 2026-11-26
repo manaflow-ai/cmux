@@ -357,8 +357,10 @@ def check_verdicts():
             # Pull request heads are read over git too (refs/pull/N/head), never commits/{sha}/pulls.
             git_cases = [
                 ("a moved lane/ branch is superseded with no API call", "refs/heads/lane/moved", {}, "true", [], None),
-                ("a current lane/ head with a pull request runs with no API call",
-                 "refs/heads/lane/current", {}, "false", [], head),
+                # Build on request (#53129): a pull request's head alone builds nothing; a dispatch asked for it runs.
+                ("a current lane/ head with a pull request a dispatch asked for runs",
+                 "refs/heads/lane/current", {dispatch_path: (200, {"total_count": 1, "workflow_runs": [{"id": 1}]})},
+                 "false", [dispatch_path], head),
                 ("a current lane/ head no pull request has is still superseded", "refs/heads/lane/current",
                  {dispatch_path: no_dispatch}, "true", [dispatch_path], None),
                 ("a current lane/ head another pull request's head does not match is superseded",
@@ -484,12 +486,10 @@ def check_wiring():
            "owner hand-off recheck stays off the shared workflow-token budget")
     _check((owner_wait.get("environment") or {}).get("name") == "ci-routing-agent",
            "owner-wait's protected routing token stays in its environment")
-    _check("environment" not in all_jobs["darwin-fallback-plan"], "darwin-fallback-plan has no unused routing environment")
-    # #55067: a feat-cmux-next push saves the daemon tests' cargo build with next-cache-writer's keys; that
-    # environment is the cache writer's, never the routing App's.
-    _check(all_jobs["cmux-next-daemon-tests"].get("environment", "") in
-           ("", "${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}"),
-           "cmux-next-daemon-tests has no unused routing environment")
+    # #55067 gave the daemon tests next-cache-writer (feat-cmux-next's cache write credentials): no routing token.
+    for name in ("darwin-fallback-plan", "cmux-next-daemon-tests"):
+        _check("ci-routing-agent" not in str(all_jobs[name].get("environment", "")),
+               f"{name} has no unused routing environment")
 
     daemon = all_jobs["cmux-next-daemon-tests"]
     steps = daemon["steps"]
