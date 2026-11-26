@@ -351,14 +351,28 @@ def run_build(root, argv, cwd, what, log_lock):
     if argv[0] == "cargo" and FIXIT_COMPILE.is_file():
         argv = [sys.executable, "-I", str(FIXIT_COMPILE), "run", "--kind", "cargo", "--root", str(root), "--", *argv]
     proc = subprocess.Popen(argv, cwd=root / cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True, errors="replace")
+                            text=True, errors="replace", start_new_session=True)
     # cargo's stale-lock refusal, kept for cargo-locks.py explain: the only lines a failed build's cause needs.
     refusals = []
+    stop_after_error = argv[0] == "swift" and len(argv) > 1 and argv[1] == "build"
+    compiler_error = False
     for output_line in proc.stdout:
         with log_lock:
             print(f"[{what}] {output_line.rstrip()}", flush=True)
         if STALE_LOCK_HINT in output_line:
             refusals.append(output_line)
+        if stop_after_error and SWIFT_COMPILER_ERROR.search(output_line):
+            compiler_error = True
+            stop_tree(proc.pid)
+            break
+    if compiler_error:
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            stop_tree(proc.pid)
+            proc.kill()
+            proc.wait()
+        return proc.returncode or 1, time.monotonic() - started, refusals
     return proc.wait(), time.monotonic() - started, refusals
 
 
@@ -366,6 +380,11 @@ FIXIT_COMPILE = Path(__file__).resolve().parent.parent / "ci" / "oops" / "fixit_
 
 # The words every spelling of cargo's stale-lock refusal ends with (scripts/cmux-next/cargo-locks.py knows them all).
 STALE_LOCK_HINT = "--locked was passed"
+
+# Swift emits the first actionable compiler diagnostic before it finishes the
+# remaining files. The build has no useful work after that diagnostic and can
+# otherwise keep a Mac runner busy for tens of minutes.
+SWIFT_COMPILER_ERROR = re.compile(r"\b(?:fatal\s+)?error:", re.IGNORECASE)
 
 
 def stale_lock_explained(root, refusals):
