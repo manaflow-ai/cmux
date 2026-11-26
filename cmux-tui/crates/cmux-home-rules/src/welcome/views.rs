@@ -67,10 +67,10 @@ pub fn parse_url(text: &str) -> Option<Url<'_>> {
         &inner[..close]
     } else {
         let host = hostport.split(':').next().unwrap_or("");
-        if let Some((_, port)) = hostport.split_once(':') {
-            if !port.chars().all(|c| c.is_ascii_digit()) {
-                return None;
-            }
+        if let Some((_, port)) = hostport.split_once(':')
+            && !port.chars().all(|c| c.is_ascii_digit())
+        {
+            return None;
         }
         host
     };
