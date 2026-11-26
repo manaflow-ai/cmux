@@ -2,7 +2,7 @@
 import { defineProof, type Named, type Proof } from "@gdp-ts/core";
 import { Effect, Option } from "effect";
 import type { VmCreationState } from "../api/creations.ts";
-import { scopedCreationKey } from "../auth/idempotency-key.ts";
+import { scopedCreationKey, type CreationKey } from "../auth/idempotency-key.ts";
 import { OwnershipStore } from "../db/stores.ts";
 import { actorRef, carriesRequiredLabels, type Principal } from "../domain/principal.ts";
 import type { RetainedVmCreation } from "../domain/vm-creation.ts";
@@ -29,7 +29,7 @@ const allowed = (principal: Principal, id: string, labels: Readonly<Record<strin
   (principal.resourceAllowlist === null || principal.resourceAllowlist.has(id)) && carriesRequiredLabels(principal, labels)
   && (principal.actor.kind !== "service" || actorRef(principal.actor) === createdBy);
 
-const lookup = <C>(caller: Named<C, Principal>, rawKey: string) => Effect.gen(function* () {
+const lookup = <C>(caller: Named<C, Principal>, rawKey: CreationKey) => Effect.gen(function* () {
   const key = yield* scopedCreationKey(caller.value, rawKey);
   const record = yield* (yield* TenantLimits).inspect(caller.value.tenantId, key).pipe(Effect.mapError(unavailable));
   const progress = record?.progress;
@@ -78,10 +78,10 @@ const lookup = <C>(caller: Named<C, Principal>, rawKey: string) => Effect.gen(fu
   return { status: stateOf({ state: "unresolved", id: null }), pending: null };
 });
 
-export const readVmCreation = <C>(caller: Named<C, Principal>, rawKey: string) => lookup(caller, rawKey).pipe(Effect.map((result) => result.status));
+export const readVmCreation = <C>(caller: Named<C, Principal>, rawKey: CreationKey) => lookup(caller, rawKey).pipe(Effect.map((result) => result.status));
 
 /** Re-read the intent before minting authority bound to this exact caller and public VM. */
-export const pendingVmCreation = <C, V>(caller: Named<C, Principal>, vm: Named<V, VmId>, rawKey: string) => Effect.gen(function* () {
+export const pendingVmCreation = <C, V>(caller: Named<C, Principal>, vm: Named<V, VmId>, rawKey: CreationKey) => Effect.gen(function* () {
   const result = yield* lookup(caller, rawKey);
   if (result.status.state !== "pending" || result.pending === null || result.status.id !== vm.value) return null;
   const proof: PendingVmCreation<C, V> = Object.freeze({ ...Pending.prove(caller, vm) });
@@ -95,7 +95,7 @@ export const cancellingVmCreationEvidenceOf = <C, V>(proof: CancellingVmCreation
   if (value === undefined) throw new Error("CancellingVmCreation proof was not minted by src/proofs");
   return value;
 };
-export const cancellingVmCreation = <C, V>(caller: Named<C, Principal>, vm: Named<V, VmId>, rawKey: string) => Effect.gen(function* () {
+export const cancellingVmCreation = <C, V>(caller: Named<C, Principal>, vm: Named<V, VmId>, rawKey: CreationKey) => Effect.gen(function* () {
   const result = yield* lookup(caller, rawKey);
   if (result.status.state !== "cancelling" || result.pending === null || result.status.id !== vm.value) return null;
   const proof: CancellingVmCreation<C, V> = Object.freeze({ ...Cancelling.prove(caller, vm) });
