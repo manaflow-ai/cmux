@@ -256,7 +256,7 @@ Five everyday commands, three groups for the rest:
 
 | Command | What it does |
 | --- | --- |
-| `acpmux` | Open the TUI. Starts the daemon if needed. A headless acpmux (the default build; the TUI is feature `tui`, which the `cmux` binary carries) hands it to a `cmux` (`ACPMUX_TUI`, beside it, else on PATH); with none, `attach` streams as `--plain`. |
+| `acpmux` | Open the TUI. Starts the daemon if needed. A headless acpmux (acpmux itself; the TUI is the acpmux-tui crate, which the `cmux` binary links) hands it to a `cmux` (`ACPMUX_TUI`, beside it, else on PATH); with none, `attach` streams as `--plain`. |
 | `new [-m harness[/model]] [-n name] [--cwd dir] [--policy p] [prompt]` | Create a session. Opens the TUI unless `-d`. |
 | `send NAME "text" [--steer\|--no-steer] [--no-wait\|--wait] [-q]` | Prompt and stream the reply. An agent's send (`--from`, the session it runs in, a Claude Code or Codex shell) and one with `--class` are queued as with `--no-wait` unless given `--wait` (or `-q`, `--timeout`). With `--no-wait` it hands the message to this daemon and returns at once with a delivery id, for a session here or on a peer ([the outbox](#messages-to-other-sessions-the-outbox)); it steers into a running turn by default (read at the agent's next tool boundary, never stopping it) and queues when the agent does not steer. An agent's send steers by default even when it waits for the reply (`--wait`), and then prints the reply of the turn it went into; the person's waiting send queues unless given `--steer`, and `--no-steer` queues any send. `--supersede KEY` replaces the sender's own prompt still queued under KEY (never one whose turn started); with `--no-wait` it prints `replaced N queued` once delivered (`?` from a daemon that predates it) and `--json` adds `replaced` and `replacedPromptIds`. `--class block\|question\|result\|fyi` says what an agent's message asks of the receiver (a block: you cannot go on until it acts; a question: you wait for its answer; a result: work you finished, the default; an FYI): it is kept on the queued message and shown in its queue row as `class`. The sender is the agent (`--from`, or the session `send` runs in) or, for anything else, the person. `--attach FILE` (repeatable) sends files with it, to a peer's session too: an image (its type read from its bytes) reaches the agent and the transcript as an image, any other file as a link to its copy, saved owner-only under the session's `uploads` on the host that runs it. Any size and number: small files ride in the message, and the rest are uploaded to the session first, in chunks, and named by reference (an image too large to show inline reaches the agent by its path). `--notice --severity info\|warn\|fire --title T [--sender X] [--host H] [--link URL[=LABEL]]...` sends a tool's or reconciler's notice (`_meta.acpmux.notice`, `prompt_provenance.rs`): the text is its body, and the prompt is the rendered `[notice from SENDER on HOST · FIRE] TITLE`, the body, then `Links: URL (LABEL), …` (no tag for info), so an old daemon or page still reads it. The daemon records it with provenance `{kind: "notice", from: "fromAgent", fromName, to, notice: {sender, host?, severity, title, links?}}` and delivers it as a named sender's message (its inbox and digests keep the notice). `--sender` defaults to `--from`, `ACPMUX_FROM`, else the calling session's name, `--host` to this machine; links are https only, at most 16. Accepted over the unix socket and from a peer daemon; a Web client's is refused (`notice.origin_refused`), and a bad field refuses the prompt (`notice.value_refused`, `field` naming it). |
 | `send --status [ID]` | With no ID, every message this daemon still delivers or delivered in the last day, newest first. A queued delivery's state: `queued`, `delivering` (attempt n), `delivered` (the target's turn, steered or queued), `held` (a paused agent pair holds it until the person resumes the pair) or `failed` (the last error). |
@@ -402,6 +402,7 @@ cmux agent session info NAME --fields sessionId                   # one field pr
 cmux agent send --tag area=acpmux [--dry-run] "base is green"     # one --no-wait message to every non-closed session with the tag, on every host; skips your own
 cmux agent ls --since 24h --limit 100 --json                     # sessions changed in the last day
 cmux agent ls --json --live --fields name,status,peer             # what an agent should read: `ls --json` alone is every record
+cmux agent session tail NAME --since seen       # recap the records since the reader’s cutover, as JSON lines
 cmux agent session tail NAME --since <sessionId>:<seq> --follow   # raw events as JSON lines; a cursor past the log is exit 2
 acpmux compare -m claude -m codex/gpt-5.5 "prompt"                    # one temporary session per harness, run one after another
 # Race CLI commands run inside an authenticated acpmux agent session:
@@ -454,8 +455,10 @@ off) the chat gets one prompt telling the agent to check what finished and conti
 id `<promptId>~resume-<n>` and `_meta.provenance.kind` `auto_resume`. Stop, closing the chat, or
 anything else run in it meanwhile cancels it, and a continuation that completes resumes the
 prompts the cut turn held (`hub/auto_resume.rs`). While it waits the session row's `retry` is
-`{attempt, of, reason, nextAt, promptId, turnId}` (`reason` `capacity`, `rate_limit`, `transport` or
-`agent_exited`), null otherwise. Sign-in failures never retry this way. An account's usage or
+`{attempt, of, reason, nextAt, promptId, turnId}` (`reason` `capacity`, `rate_limit`, `transport`,
+`agent_exited` or `disk`), null otherwise. A turn a full disk cut ("No space left on device")
+waits past its delay until the chat's folder has `autoResumeDiskFreeBytes` free (default 16 MiB,
+re-checked every 15 s), then goes on the same way. Sign-in failures never retry this way. An account's usage or
 rate limit (HTTP 429, `rate_limit`) holds the whole chat until its reset (`hub/rate_hold.rs`): no
 turn starts, what comes in queues and goes in as one turn at the reset with the continuation's
 words (a context past 200K tokens compacts first), the row's `rateLimitedUntil` says until when,
@@ -1337,7 +1340,7 @@ own environment lacks. Every child: PATH (login PATH first), MISE_*, ASDF_*, NVM
 BUN_INSTALL, HTTPS_PROXY, HTTP_PROXY, ALL_PROXY, NO_PROXY (both cases),
 NODE_EXTRA_CA_CERTS, SSL_CERT_FILE, SSL_CERT_DIR. Claude harnesses also: ANTHROPIC_*, CLAUDE_*,
 DISABLE_*, *_TELEMETRY; AWS_* only with the person's own CLAUDE_CODE_USE_BEDROCK (a profile's switch unlocks only AWS_PROFILE, AWS_REGION, AWS_DEFAULT_REGION, AWS_CONFIG_FILE, AWS_SHARED_CREDENTIALS_FILE); GOOGLE_*, CLOUDSDK_*, GCLOUD_*, CLOUD_ML_REGION, VERTEX_REGION_* (non-secret ones only from a profile's switch) only
-with CLAUDE_CODE_USE_VERTEX. Codex harnesses also: OPENAI_*, CODEX_*, AZURE_OPENAI_API_KEY. Gemini: GEMINI_*, GOOGLE_*.
+with CLAUDE_CODE_USE_VERTEX; AZURE_* but AZURE_OPENAI_API_KEY (Foundry's Entra ID sign-in) only with the person's own CLAUDE_CODE_USE_FOUNDRY (a profile's switch unlocks only AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_AUTHORITY_HOST, AZURE_CONFIG_DIR). Codex harnesses also: OPENAI_*, CODEX_*, AZURE_OPENAI_API_KEY. Gemini: GEMINI_*, GOOGLE_*.
 Grok: XAI_API_KEY. DeepSeek Harness: DEEPSEEK_API_KEY.
 Muse: MUSE_*, META_*. OpenCode, OpenCode v2, pi, omp, Prime, cmux Harness and Hermes also: a fixed
 list of provider keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, GROQ_API_KEY,
@@ -1699,7 +1702,7 @@ Extensions:
 | `_acpmux/detach`, `_acpmux/watch {enabled}` | Unsubscribe; or receive `_acpmux/session_changed` for every session. |
 | `_acpmux/typing {sessionId, on}` | A person in an attached chat starts or stops typing ([presence](#chat-presence)). At most 2 calls a second per connection (`typing.rate_limited`); an `on` lapses after 8 s. |
 | `_acpmux/harness/inventory/watch {enabled}` | Local socket only: [sanitized cached inventory snapshots](docs/inventory-watch.md), with monotonic per-run revisions and no health checks or CLI execution. Requires `harnessInventoryWatch`. |
-| `_acpmux/events {sessionId, afterSeq?, beforeSeq?, limit?, maxBytes?, kinds?}` | Page through the log, forwards or backwards, with `hasMore`. A page ends at `maxBytes` of JSON (default 1 MiB, at most 4 MiB). |
+| `_acpmux/events {sessionId, sinceSeen?, afterSeq?, beforeSeq?, limit?, maxBytes?, kinds?}` | Page through the log, forwards or backwards, with `hasMore`. Pass `sinceSeen: true` for the first recap page, then `afterSeq: pageThrough` for subsequent pages. The first reply returns `seenSeq: null` and an empty page for a reader without a cursor. A page ends at `maxBytes` of JSON (default 1 MiB, at most 4 MiB). |
 | `_acpmux/attachment {sessionId, id}` | An image a prompt of the session sent, as `{mimeType, data}` (base64). `user_message` names a prompt's images as `images: [{id, mimeType, name?}]`; the bytes are kept once by SHA-256 under `<ACPMUX_HOME>/attachments`. Only an id the session's own log names is read. |
 | `_acpmux/info`, `_acpmux/rename`, `_acpmux/kill {purge}`, `_acpmux/set_policy` | Session control. |
 | `_acpmux/queue_remove {promptId}` | Withdraw a queued prompt before its turn starts: `removed` is false once it started. Its `session/prompt` answers `cancelled` with `_meta.acpmux.withdrawn`, and the log records `queue_removed`. |

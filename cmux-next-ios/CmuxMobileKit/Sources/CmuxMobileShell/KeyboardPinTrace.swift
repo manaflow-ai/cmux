@@ -21,7 +21,8 @@ import UIKit.UIGestureRecognizerSubclass
 /// (`epoch=`, CACurrentMediaTime at t=0, which a UI test on the same simulator
 /// host reads on the same clock), `ev=touchBegan` for every touch the app takes,
 /// `ev=keyAccepted` for every edit a text field or the terminal takes, and the
-/// terminal's grid resizes so far (`rz=` per frame).
+/// terminal's grid resizes so far (`rz=` per frame), and `ev=deviceOrientation`
+/// for every turn of the phone the app is told of (the rotation bench).
 @MainActor
 public final class KeyboardPinTrace: NSObject {
     static let flag = "-cmux-mobile-kbd-pin-trace"
@@ -128,6 +129,17 @@ public final class KeyboardPinTrace: NSObject {
                     self.write(String(format: "t=%.4f ev=keyAccepted", CACurrentMediaTime() - self.start))
                     self.injector?.keyAccepted()
                 }
+            }
+        }
+        // The rotation bench (RotateBenchUITests, scripts/measure/ios_rotate.py): when the app
+        // learns the phone turned, `ev=deviceOrientation o=N` (UIDeviceOrientation), on the
+        // trace's clock; the frames' `orient=` says when the scene's geometry followed.
+        UIDevice.current.beginGeneratingDeviceOrientationNotifications()
+        center.addObserver(forName: UIDevice.orientationDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.write(String(format: "t=%.4f ev=deviceOrientation o=%d", CACurrentMediaTime() - self.start,
+                                  UIDevice.current.orientation.rawValue))
             }
         }
         let link = CADisplayLink(target: self, selector: #selector(tick(_:)))

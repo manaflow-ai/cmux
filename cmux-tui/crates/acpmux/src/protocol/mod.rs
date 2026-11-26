@@ -182,6 +182,8 @@ pub fn registry() -> Vec<MethodDecl> {
         acp(method::SESSION_UPDATE, Notification),
         acp(method::SESSION_REQUEST_PERMISSION, ServerRequest),
         acp(method::CANCEL_REQUEST, ClientNotification),
+        // Which of the connection's requests still run (server/in_flight.rs `states`).
+        untyped(method::MUX_REQUEST_STATE, Request),
         // ACP extensions acpmux names in the acp.* space.
         request::<ForkParams, Value>(method::ACP_SESSION_FORK),
         keyed::<params::TrustGetParams>(method::ACP_TRUST_GET, Request),
@@ -194,6 +196,7 @@ pub fn registry() -> Vec<MethodDecl> {
         // First-request pipe to another machine's cmux-tui remote daemon (cmux_tui_service.rs).
         untyped(method::MUX_REMOTE_PIPE, Request),
         // Embedded tailnet controls (also report not_built in unsupported builds).
+        untyped(method::MUX_TAILNET_JOIN, Request),
         untyped(method::MUX_TAILNET_LOGIN, Request),
         untyped(method::MUX_TAILNET_LOGOUT, Request),
         untyped(method::MUX_TAILNET_START, Request),
@@ -316,6 +319,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_GOAL_SET, Request),
         untyped(method::MUX_GOAL_UPDATE, Request),
         untyped(method::MUX_GOAL_GET, Request),
+        untyped(method::MUX_SURGERY, Request),
         untyped(method::MUX_TASK_LIST_SET, Request),
         untyped(method::MUX_TASK_LIST_GET, Request),
         untyped(method::MUX_PLAN_BUILD, Request),
@@ -345,6 +349,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_DETACH_PARENT, Request),
         untyped(method::MUX_CONTROLS, Request),
         untyped(method::MUX_INFO, Request),
+        untyped(method::MUX_SESSION_RESYNC, Request),
         untyped(method::MUX_MACHINE_INFO, Request),
         untyped(method::MUX_SCORECARD, Request),
         untyped(method::MUX_SESSION_FILES, Request),
@@ -458,6 +463,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/chat_settings", Request),
         untyped("_acpmux/chat_settled", Request),
         untyped("_acpmux/chat_transcript", Request),
+        untyped(method::MUX_CHAT_TRANSCRIPT_PAGE, Request),
+        untyped(method::MUX_CHAT_TRANSCRIPT_FIND, Request),
         untyped("_acpmux/chats_search", Request),
         untyped("_acpmux/chats_warm", Request),
         untyped("_acpmux/chat_fork", Request),
@@ -602,6 +609,16 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_MACHINE_TUNNEL_ATTACH, Request),
         untyped(method::MUX_MACHINE_TUNNEL_DETACH, Request),
         untyped(method::MUX_MACHINE_TUNNEL_REKEY, Request),
+        // Agent byte channels (`server/channels.rs`).
+        untyped(method::MUX_CHANNEL_LISTEN, Request),
+        untyped(method::MUX_CHANNEL_UNLISTEN, Request),
+        untyped(method::MUX_CHANNEL_OPEN, Request),
+        untyped(method::MUX_CHANNEL_SEND, ClientNotification),
+        untyped(method::MUX_CHANNEL_CLOSE, ClientNotification),
+        untyped(method::MUX_CHANNEL_CONNECT, ClientNotification),
+        untyped(method::MUX_CHANNEL_OPENED, Notification),
+        untyped(method::MUX_CHANNEL_DATA, Notification),
+        untyped(method::MUX_CHANNEL_CLOSED, Notification),
         untyped(method::MUX_PAIR_REDEEM, Request),
         untyped(method::MUX_VAULT_PULL, Request),
         untyped(method::MUX_VAULT_FORGET, Request),

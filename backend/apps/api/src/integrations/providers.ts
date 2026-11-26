@@ -11,6 +11,7 @@ import type { Env } from "../env.ts"
 
 import { effectCall, failed, form, json, MAX_LINKED_REPOS, ProviderError, rateLimitMessage, rateLimitWait, type Credential, type Http, type ProviderImpl } from "./provider-core.ts"
 import { grantOf } from "./github-user-tokens.ts"
+import { verifyActionsOidc } from "./github-actions-connect.ts"
 
 import { gmail } from "./gmail.ts"
 import { googleCalendar } from "./google-calendar.ts"
@@ -168,6 +169,7 @@ export const github: ProviderImpl = {
   // App permissions are set on the App, not per request; the install page carries our state back.
   authorizeUrl: (env, state) => `https://github.com/apps/${env.GITHUB_APP_SLUG}/installations/new?state=${encodeURIComponent(state)}`,
   complete: async (env, http, p) => {
+    if (p.actions_oidc !== undefined) return completeFromActions(env, http, p)
     const installation = Number(p.installation_id)
     // An organization member's install is a request until an owner approves it: GitHub comes back with
     // `setup_action=request` and no installation yet. Nothing to link; say what happens next.
@@ -284,6 +286,31 @@ export const github: ProviderImpl = {
       throw error
     }
     return commentReceipt(params, await json(res))
+  }
+}
+
+/**
+ * A GitHub completion signed by an allowed GitHub Actions run instead of a person's OAuth code (staging and
+ * development only, github-actions-connect.ts). The App's own key reads the installation: it must be on the run's
+ * repository owner, and the connection covers that one repository. No person's token: effects post as the App.
+ */
+const completeFromActions: ProviderImpl["complete"] = async (env, http, p) => {
+  const run = await verifyActionsOidc(env, http, p.actions_oidc!)
+  const installation = Number(p.installation_id)
+  if (!Number.isSafeInteger(installation)) throw new ProviderError("integration.state_invalid", "the connection attempt names no GitHub installation")
+  // The installation scope would give every repository of the account: this completion grants only the run's own.
+  if (p.policy.githubScope !== "linking_user_repos" || p.policy.requireOrgAdmin) throw new ProviderError("integration.state_invalid", "the team policy needs a person to link GitHub")
+  const res = await http(new Request(`${GH_API}/app/installations/${installation}`, { headers: ghHeaders(await appJwt(env)) }))
+  if (!res.ok) throw failed("github", res, "installation check")
+  const inst = (await json(res)) as { id?: number; account?: { login?: string; html_url?: string }; permissions?: Record<string, string> }
+  const login = inst.account?.login ?? ""
+  if (inst.id !== installation || login.toLowerCase() !== run.owner.toLowerCase()) throw new ProviderError("integration.state_invalid", "the installation is not on the run's repository owner")
+  console.log(JSON.stringify({ msg: "github.connect.actions", installation, repository: run.repository, workflow: run.workflow, run: run.run }))
+  return {
+    account: { key: `github:installation:${installation}`, name: login, ...(inst.account?.html_url ? { url: inst.account.html_url } : {}) },
+    scopes_granted: githubScopesOf(inst.permissions ?? {}),
+    credential: { kind: "github_installation", installation_id: installation },
+    resources: { repos: [run.repository] }
   }
 }
 

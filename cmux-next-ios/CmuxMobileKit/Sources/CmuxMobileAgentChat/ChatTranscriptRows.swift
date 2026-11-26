@@ -258,10 +258,19 @@ final class ChatTranscriptBuilder {
                 prompt = envelope.task
                 gap = 6
             }
-            rows.append(ChatRow(id: "u-\(turnID)", turnID: turnID,
-                                kind: turn.incoming.map { .incoming(Self.toned($0, context.senderTones), attachments: turn.attachments, at: turn.promptAt) }
-                                    ?? .prompt(text: prompt, attachments: turn.attachments, at: turn.promptAt, isLast: context.isLast),
-                                gap: gap))
+            // A prompt with nothing to show (a turn started by a notice or another agent with no
+            // text, an image-only prompt whose images were left out) draws no bubble: an empty grey
+            // bubble is a placeholder (Leo, 2026-11-24: "chase all these placeholders down and
+            // prevent them"). Its turn's rows keep the gap the bubble would have taken.
+            if turn.incoming == nil, turn.attachments.isEmpty,
+               prompt.allSatisfy({ $0.isWhitespace || $0.isNewline }) {
+                nextGap = gap
+            } else {
+                rows.append(ChatRow(id: "u-\(turnID)", turnID: turnID,
+                                    kind: turn.incoming.map { .incoming(Self.toned($0, context.senderTones), attachments: turn.attachments, at: turn.promptAt) }
+                                        ?? .prompt(text: prompt, attachments: turn.attachments, at: turn.promptAt, isLast: context.isLast),
+                                    gap: gap))
+            }
         }
         let turnRows = turn.rows
         let running = turn.status == .running
@@ -420,7 +429,8 @@ enum ChatNativeEligibility {
         // The native snippet draws its lines unwrapped; with "Wrap code and diff lines" on, the
         // SwiftUI snippet wraps them.
         case .edit: return !wrapCode
-        case .tool(let call): return isOpen("tool-\(call.id)") != true
+        // A call holding pictures draws them in SwiftUI under its line (`ToolOutputImages`).
+        case .tool(let call): return !call.hasImages && isOpen("tool-\(call.id)") != true
         case .toolGroup(let calls, _): return isOpen("group-\(calls.first?.id ?? "")") != true
         case .thought: return isOpen("thought-\(row.id)") == nil
         // Open, it draws its rows in SwiftUI under the line (`WorkedForRow`).

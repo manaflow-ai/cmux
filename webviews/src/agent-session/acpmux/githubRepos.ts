@@ -12,9 +12,8 @@
 // `cloud.startChat {cwd}`; the machine clones it.
 //
 // One small store per page (useSyncExternalStore, as cloudMachines.ts), driven by the menu's own
-// events: the folder chip showing reads the status once, and the repositories with it once it is
-// ready (`prefetch`, cmux#53226), so they are listed when the menu opens rather than arriving under
-// it; opening the menu reads the status again (the repositories stay as read), Connect to GitHub opens
+// events: Add project opening reads the status, and the repositories once it is ready (nothing is read
+// before the person asks for them, cmux#53226; the repositories stay as read), Connect to GitHub opens
 // GitHub and then reads the status again each time the page becomes the key one (pageKey.ts), until
 // it says ready. No timers, no polls.
 import { useSyncExternalStore } from "react";
@@ -68,9 +67,6 @@ export type GitHubPicker = {
   state: GitHubPickerState;
   /// The menu opened: read the status (and the repositories, once it is ready).
   onOpen(): void;
-  /// The folder chip that opens the menu is shown: read the status and the repositories once, ahead
-  /// of the open, unless they were read already (none for a gallery's fixed state).
-  onPrefetch?(): void;
   /// Connect to GitHub, or Choose more repositories…: the host opens GitHub.
   onConnect(): void;
   /// Read the repositories again for `query` (Enter on a search the loaded page has no match for).
@@ -164,6 +160,24 @@ const INITIAL: GitHubPickerState = { query: null, truncated: false, loading: fal
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 
+/// How a Cloud start card's Connect GitHub ended (``createGitHubPicker`` `connectRepo`).
+export type ConnectOutcome = "opened" | "connected" | "failed" | "busy";
+
+/// `owner/name` from a Cloud start's repository (`owner/name`, `github:owner/name` or a github.com URL); undefined for
+/// anything else, so only a repository name reaches the host's `github.connect`.
+export function githubFullName(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const text = value
+    .trim()
+    .replace(/^github:/i, "")
+    .replace(/^(?:https?:\/\/|git@)github\.com[/:]/i, "")
+    .replace(/\.git$/i, "")
+    .replace(/\/+$/, "");
+  return /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/.test(text) && !/\/\.{1,2}$/.test(text)
+    ? text
+    : undefined;
+}
+
 /// The host's word that GitHub changed under this page (the app finished an install GitHub handed back to it, #46018):
 /// `cmux-github-changed` on the window. Returns the unwatch. With no window (a store a module builds when it loads, read
 /// by bun with no DOM: the gallery's manifest and a server render) there is no host to hear, and nothing to watch.
@@ -189,9 +203,7 @@ export function createGitHubPicker(
   let statusTurn = 0;
   let reposTurn = 0;
   let unwatch: (() => void) | undefined;
-  // A status read was asked for (`prefetch` asks once, not each time a chip shows), and one is out:
-  // an open while the chip's read is out waits for that answer rather than asking twice.
-  let statusAsked = false;
+  // A status read is out: an open while it is waits for that answer rather than asking twice.
   let statusOut = false;
   // The status the latest Connect was clicked in: the wait ends when the status moves off it.
   let waitingFrom: string | undefined;
@@ -234,7 +246,6 @@ export function createGitHubPicker(
   };
   // `relist`: list the repositories again even when some are shown (the installation's repositories changed).
   const readStatus = (relist = false) => {
-    statusAsked = true;
     statusOut = true;
     const turn = ++statusTurn;
     call("github.status", {}).then(
@@ -252,7 +263,7 @@ export function createGitHubPicker(
           (status.state === "not_connected" || status.reason === "signed_out");
         if (!stays) stopWaiting();
         set({ status, ...(stays ? {} : { waiting: false }) });
-        // A list still out for the same words (the chip's prefetch, the menu opened under it) answers this
+        // A list still out for the same words (an earlier open's, Add project opened again under it) answers this
         // read too: a second would drop the first and keep the Loading row up longer (cmux#53226).
         const listing = state.loading && !relist;
         if (ready && !listing && (relist || state.repos === undefined || state.error !== undefined))
@@ -267,19 +278,21 @@ export function createGitHubPicker(
       },
     );
   };
+  // One-shot listeners for the next change (`afterChange`): a Cloud start card's Retry once its Connect finished.
+  const afterChanges = new Set<() => void>();
   // The app finished a connection (or a Reconfigure changed it): a menu that read the status reads it again, and its
   // repositories with it, with no restart and no click.
   watchChanged(() => {
     if (state.status !== undefined) readStatus(true);
+    const runs = [...afterChanges];
+    afterChanges.clear();
+    for (const run of runs) run();
   });
   const picker = {
     snapshot: () => state,
     subscribe(listener: () => void): () => void {
       listeners.add(listener);
       return () => void listeners.delete(listener);
-    },
-    prefetch() {
-      if (!statusAsked) readStatus();
     },
     open() {
       // A fresh open says nothing of an earlier refusal.
@@ -316,6 +329,35 @@ export function createGitHubPicker(
         },
       );
     },
+    /// A Cloud start card's Connect GitHub for `repo` (`owner/name`, #55104): the host asks the API for that
+    /// repository, which reuses a connection that covers it (`connected`) or opens GitHub's page (`opened`), whose
+    /// return the app finishes. Resolves how it ended; a refusal is shown as `connectError`, as `connect`'s.
+    connectRepo(repo: string | undefined): Promise<ConnectOutcome> {
+      if (state.connecting) return Promise.resolve("busy");
+      set({ connectError: undefined, connecting: true });
+      return call("github.connect", repo ? { repo } : {}).then(
+        (reply) => {
+          set({ connecting: false });
+          if ((reply as { opened?: unknown } | null)?.opened === false) {
+            readStatus(true);
+            return "connected";
+          }
+          return "opened";
+        },
+        (error: unknown) => {
+          set({
+            connecting: false,
+            connectError: errorMessage(error).trim() || translate("composer.githubConnectFailed"),
+          });
+          return "failed";
+        },
+      );
+    },
+    /// Runs `run` once, the next time the app says GitHub changed (a connect it finished); returns the cancel.
+    afterChange(run: () => void): () => void {
+      afterChanges.add(run);
+      return () => void afterChanges.delete(run);
+    },
     search: listRepos,
     retry: () => listRepos(state.query),
   };
@@ -325,6 +367,11 @@ export function createGitHubPicker(
 export type GitHubPickerStore = ReturnType<typeof createGitHubPicker>;
 
 let pageStore: GitHubPickerStore | undefined;
+
+/// The page's one store (the folder menu's and every Cloud start card's).
+export function gitHubPickerStore(): GitHubPickerStore {
+  return pagePicker();
+}
 
 function pagePicker(): GitHubPickerStore {
   if (!pageStore) pageStore = createGitHubPicker();
@@ -338,7 +385,6 @@ export function useGitHubPicker(store?: GitHubPickerStore): GitHubPicker {
   return {
     state,
     onOpen: picker.open,
-    onPrefetch: picker.prefetch,
     onConnect: picker.connect,
     onSearch: picker.search,
     onRetry: picker.retry,

@@ -292,6 +292,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let isNewTabPage = titles.isNewTabPage(tab)
         var item = TabItemMapping.shared.item(tab, fallbackTitle: titles.untitled(tab, fallback: fallback), isNewTabPage: isNewTabPage, restarting: daemon.restartsKeptTab(tab),
                                               harnessIcons: daemon.isLocal ? services.harnessIconLookup : .none)
+        if daemon.isLocal, tab.kind == .pty, tab.remote == nil {
+            item.terminalHistoryKey = TerminalHistorySource.chatKey(tab.agent)
+        }
         // Reading the app's provider here (the apps mirror) re-runs the snapshot, and so the
         // content, when the app becomes available after the tree arrived.
         // An app or page tab names and badges itself like the page it shows.
@@ -309,7 +312,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             (item.machineBadge, item.machineName) = services.remoteTerminals.badge(for: tab)
             item.icon = .terminal
         } else if tab.kind != .browser {
-            item.setMachineBadge(machine, name: machine.flatMap { _ in services.machines.machineName(daemon.machineID) }, cloudChat: tab.agentSession != nil && services.machines.session(daemon.machineID) != nil)
+            item.setMachineBadge(machine, name: machine.flatMap { _ in services.machines.machineName(daemon.machineID) }, cloudChat: tab.agentSession != nil && services.machines.session(daemon.machineID) != nil); if daemon.isLocal, let cloud = CloudChatTabMark.mark(agent: tab.agentSession != nil, frontedMachine: services.agentTabs.frontedChats.front(of: AgentTabKey(machine: daemon.machineID, key: tab.id))?.machine, sentToCloud: services.cloudStartTitles.marksCloud(tab, workspace: ownWorkspace?.id), localSession: tab.agentSession?.session != nil) { item.setCloudChatBadge(name: cloud.machine.flatMap { services.machines.machineName($0) }) } // a Cloud chat this Mac's tab sends, starts or shows in place: the cloud from the Send (cmux#51000)
             item.themeBadge = services.themes.badge(forTerminal: TerminalThemeKey(machine: daemon.machineID, tab: tab))
         } else {
             // A browser tab names the machine whose localhost it sees.
@@ -486,6 +489,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if view.stripView.window != nil { BenchSpans.measure("switch.strip") { view.stripView.syncFromModel() } } // strip + content: one transaction (L4)
         DebugTabSwitch.mark(self, "stripSync")
         BenchSpans.measure("switch.view") { _ = view.show(content?.view) }
+        showTerminalHistoryLink(in: content)
         dropGuestTerminal(keeping: key) // after its view left the pane
         syncGuestTerminal()
         if shownBefore != key { stoppedDrawing(shownBefore) }

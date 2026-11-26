@@ -19,6 +19,7 @@ import type { IdleProbeOptions } from "./idleProbe";
 import { queuedRowsState } from "./queuedRowsState";
 import { composerAttachmentsState } from "./composerAttachmentsState";
 import { cloudSignedInForDebug } from "./cloudMachines";
+import { chipProbe } from "./chipProbe";
 import type { SeedSnapshotFields } from "./waitingSteersFixture";
 import type { PasteProbeOptions } from "./pasteProbe";
 import type { TypingLoadOptions } from "./typingLoadDebug";
@@ -187,6 +188,7 @@ export function createAcpmuxDebug(
     async seedRows(count = 5000, fixture, agents) {
       const {
         syntheticRows,
+        workedResizeRows,
         workedTurnRows,
         workedTurnPageRows,
         incomingRows,
@@ -217,32 +219,34 @@ export function createAcpmuxDebug(
       const rows =
         fixture === "subagents"
           ? subagentTrayRows(trayStep(count), trayOrigin(count), agents ?? 2)
-          : fixture === "worked-turn" || fixture === "goal"
-            ? workedTurnRows(Date.now() - 60_000)
-            : fixture === "worked-turn-page"
-              ? workedTurnPageRows(Date.now() - 60_000)
-              : fixture === "incoming"
-                ? incomingRows(Date.now() - 120_000)
-                : fixture === "link" || fixture === "github-link"
-                  ? linkRows(Date.now() - 30_000, fixture === "link" ? undefined : LINKED_GITHUB_PULL_REQUEST)
-                  : fixture === "selection"
-                    ? selectionRows(Date.now() - 60_000)
-                    : fixture === "mermaid"
-                      ? mermaidRows(Date.now() - 60_000)
-                      : fixture === "organization"
-                        ? organizationRows(Date.now() - 120_000)
-                        : fixture === "tool-summary"
-                          ? toolSummaryRows(Date.now() - 60_000)
-                          : fixture === "shared"
-                            ? sharedRows(Date.now() - 1_020_000)
-                            : fixture === "waiting-steers"
-                              ? waitingSteersRows(Date.now() - 90_000)
-                              : fixture === "subagent-report"
-                                ? subagentReportRows(Date.now() - 5_000_000)
-                                : syntheticRows(
-                                    Math.max(3, Math.floor(count)),
-                                    fixture === "short" ? "short" : "mixed",
-                                  );
+          : fixture === "worked-resize"
+            ? workedResizeRows(Math.max(3, Math.floor(count)))
+            : fixture === "worked-turn" || fixture === "goal"
+              ? workedTurnRows(Date.now() - 60_000)
+              : fixture === "worked-turn-page"
+                ? workedTurnPageRows(Date.now() - 60_000)
+                : fixture === "incoming"
+                  ? incomingRows(Date.now() - 120_000)
+                  : fixture === "link" || fixture === "github-link"
+                    ? linkRows(Date.now() - 30_000, fixture === "link" ? undefined : LINKED_GITHUB_PULL_REQUEST)
+                    : fixture === "selection"
+                      ? selectionRows(Date.now() - 60_000)
+                      : fixture === "mermaid"
+                        ? mermaidRows(Date.now() - 60_000)
+                        : fixture === "organization"
+                          ? organizationRows(Date.now() - 120_000)
+                          : fixture === "tool-summary"
+                            ? toolSummaryRows(Date.now() - 60_000)
+                            : fixture === "shared"
+                              ? sharedRows(Date.now() - 1_020_000)
+                              : fixture === "waiting-steers"
+                                ? waitingSteersRows(Date.now() - 90_000)
+                                : fixture === "subagent-report"
+                                  ? subagentReportRows(Date.now() - 5_000_000)
+                                  : syntheticRows(
+                                      Math.max(3, Math.floor(count)),
+                                      fixture === "short" ? "short" : "mixed",
+                                    );
       const start = performance.now();
       const committed = acpmuxPerf.nextCommit();
       host.replaceRows(
@@ -479,6 +483,10 @@ export function createAcpmuxDebug(
             subagentOf: document.querySelector(".cv-subagent-of__parent")?.textContent ?? null,
             // The composer's chips as drawn (model, effort, access), keyed by their menu label.
             composer: composerChips(),
+            // What the access chip decided its face from on its last render (chipProbe.ts).
+            composerInputs: chipProbe.last,
+            // What decides whether the run row is offered now.
+            runPlace: host.automation.compose?.runPlace?.() ?? null,
             // The composer's attachment tiles as drawn: loading (with its upload's percent), failed (why) or staged.
             attachments: composerAttachmentsState(),
             // The Cloud auth state consumed by EnvironmentPicker; undefined is the fresh-home

@@ -34,6 +34,9 @@ pub(super) struct OpenWork {
     /// for an older record.
     turn_line: Option<String>,
     turn_trigger: bool,
+    /// That turn went through the trust gate (`turn_started` `trustGate`; an older record's is
+    /// gated, the stricter): a continuation of it goes through it too (`auto_resume.rs`).
+    turn_trust_gate: bool,
     /// That turn was carried on from the turn before (`turn_started` `carried`,
     /// `carried_turn.rs`): its prompt is the hub's own, and a steer is never it.
     turn_carried: bool,
@@ -755,7 +758,7 @@ impl Hub {
             record,
             resume_after,
             Vec::new(),
-            session.inbound_tx.clone(),
+            session.inbound_tx().clone(),
             tap,
         )
         .await?;
@@ -787,7 +790,11 @@ impl Hub {
         // back from the agent's own env, so its next start runs on it again (`agent_credentials.rs`).
         // Not from an agent that already exited: its host was reaped, so its pid may now be
         // another agent's (another session's credential on this one).
-        if adopted.exited.is_none() {
+        // The host's own word comes first: it launched the agent, so it says the credential even
+        // when the agent's env no longer shows it (cmux#52399).
+        if !self.hold_launch_credential(session, &adopted.launch_credential.0)
+            && adopted.exited.is_none()
+        {
             self.recover_credential(session, adopted.harness_pid);
         }
         let proven = self.adopt_caller_token(&session.id, caller_token, &incarnation);
@@ -974,6 +981,13 @@ impl Hub {
                 }
                 (Some(request_id), answer) => {
                     let outcome = super::prompt_ledger::recover(session, &prompt_id);
+                    // A cut `/compact` is resent as itself (`auto_resume::resent_command`).
+                    let slash = super::auto_resume::resent_command(&prompt).map(str::to_owned);
+                    // The hub's own compactions are not continued, as a live turn's are not.
+                    let own_compaction = prompt_id.starts_with("cache-compact-")
+                        || prompt_id.starts_with(super::cold_wake::COMPACT_ID_PREFIX);
+                    let goes_on = !work.turn_trigger && !own_compaction;
+                    let trust_gate = work.turn_trust_gate;
                     // Before anything can force its end (`turn_answer`).
                     let ended = session.steer_end.subscribe();
                     // Its start as logged: a restart does not make it new.
@@ -1073,6 +1087,23 @@ impl Hub {
                             c.next.control = Control::Web;
                         }
                         let next = carried.as_deref();
+                        // A cut turn goes on by itself as a live one does (`auto_resume.rs`):
+                        // census 2026-11-24, 22 chats a 503/529/502 cut while their daemon
+                        // restarted sat idle 12 to 366 min because this end continued nothing.
+                        let cut_by = match &result {
+                            Err(e) if carried.is_none() && goes_on => Some((
+                                super::turn_errors::continuation_error(
+                                    Some(e.message.as_str()),
+                                    &e.message,
+                                )
+                                .to_owned(),
+                                super::auto_resume::reset_hint::error_reset_at(
+                                    e.data.as_ref(),
+                                    now_ms(),
+                                ),
+                            )),
+                            _ => None,
+                        };
                         let mut result = hub
                             .finish_turn(
                                 &s,
@@ -1099,8 +1130,20 @@ impl Hub {
                         super::prompt_ledger::prune(
                             &mut s.prompts.lock().unwrap_or_else(|e| e.into_inner()),
                         );
-                        // A recovered turn is not continued (`auto_resume.rs`); settle its mark.
-                        hub.schedule_auto_resume(&s, &turn_id, None);
+                        let cut = cut_by.as_ref().map(|(error, not_before)| {
+                            super::auto_resume::CutTurn {
+                                // Its family sender is not logged: it speaks as acpmux.
+                                from: None,
+                                prompt_id: &prompt_id,
+                                turn_id: &turn_id,
+                                control,
+                                trust_gate,
+                                error,
+                                not_before: *not_before,
+                                slash: slash.as_deref(),
+                            }
+                        });
+                        hub.schedule_auto_resume(&s, &turn_id, cut);
                         if let Some(carried) = &carried {
                             // Its task takes the turn lock once this one lets it go.
                             hub.start_carried(&s, &c, &turn_id, carried, None);
@@ -1723,7 +1766,7 @@ impl Hub {
             record.clone(),
             0,
             Vec::new(),
-            session.inbound_tx.clone(),
+            session.inbound_tx().clone(),
             tap,
         )
         .await;

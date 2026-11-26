@@ -82,6 +82,10 @@ FAKE_FORK_SILENT=1: the agent never answers session/fork, and goes on answering 
 FAKE_FORK_DELAY_MS=<ms>: the agent answers session/fork that long after it read it, and goes on
 answering everything else meanwhile.
 
+FAKE_FORK_REPLAY=1: before it answers session/fork, the agent replays the forked conversation as
+session/updates under the NEW session's id (a prompt, a thought, a tool call, a reply, its
+commands), as OpenCode 1.19's forkSession does (its replayMessages).
+
 FAKE_NO_FORK=1: the agent does not advertise sessionCapabilities.fork and answers
 session/fork with a bare "Internal error", as Kimi does.
 
@@ -115,6 +119,8 @@ agent reads (a response has "method": null), so a test counts what reached the a
 A rate-limit storm (tests/hub_integration/auto_resume_429_storm.rs):
 FAKE_RATE_LIMIT_FILE=<path>: while <path> exists, every prompt fails with the account's 429, naming
 no reset, as a model endpoint that refuses every request on a spent account limit.
+FAKE_UPSTREAM_URL=<url>: every prompt is a model call to a fake Anthropic upstream at <url> (the
+529-storm chaos test's, tests/hub_integration/auto_resume_529_chaos.rs); see `upstream_turn`.
 FAKE_CAPACITY_FILE=<path>: while <path> exists, every prompt, `/compact` too, fails with a capacity
 error, in turn the provider's 529 overloaded, the SR2 gateway's 503 "no non-exhausted accounts"
 and the worker gateway's 502 "at its call limit": an overload storm. Each prompt's text is appended
@@ -122,6 +128,11 @@ to <path>.seen, one JSON string per line, so a test sees what reached the model.
 FAKE_QUIT_429_FILE=<path>: while <path> exists, an agent started on a chat's conversation
 (session/load) answers the load, then, idle, prints <path>'s line on stderr and exits 0 on its own,
 as a CLI does that quits on its account's 429 between turns (`quit-after:` once, this at every start).
+
+An agent that starts itself again (tests/durable_agents/credential_restart.rs):
+FAKE_REEXEC_WITHOUT=<A,B>: before it reads a line, the process execs itself again without the
+variables A and B, so /proc/PID/environ, which shows the env of its last exec, has neither. It
+works the same afterward, as a harness launched through a wrapper that cleans its env does.
 """
 import base64
 import hashlib
@@ -130,6 +141,11 @@ import sys
 import os
 import threading
 import time
+
+if os.environ.get("FAKE_REEXEC_WITHOUT"):
+    _drop = set(os.environ["FAKE_REEXEC_WITHOUT"].split(",")) | {"FAKE_REEXEC_WITHOUT"}
+    os.execve(sys.executable, [sys.executable] + sys.argv,
+              {k: v for k, v in os.environ.items() if k not in _drop})
 
 lock = threading.Lock()
 # FAKE_CAPACITY_FILE: how many prompts the storm refused, to rotate its errors.
@@ -303,6 +319,10 @@ def is_cmux_guidance(block):
     """Identify cmux's hidden first-turn guidance after an adapter drops metadata."""
     if not isinstance(block, dict):
         return False
+    # The files acpmux prefetched into the prompt (`hub/prefetch.rs`): left out of fixture
+    # commands and echoes unless FAKE_ECHO_PREFETCH=1.
+    if os.environ.get("FAKE_ECHO_PREFETCH") != "1" and str(block.get("text", "")).lstrip().startswith("<cmux-prefetch-context>"):
+        return True
     source = (block.get("_meta") or {}).get("acpmux", {}).get("contextSource")
     if source in {"cmux-default", "cmux-user", "cmux-project", "cmux-guidance"}:
         return True
@@ -591,6 +611,64 @@ def answer_review_threads(text):
         )
 
 
+def upstream_priority():
+    """The X-Subrouter-Priority this process's requests carry, as Claude Code sends it: the line
+    in ANTHROPIC_CUSTOM_HEADERS, else the SUBROUTER_PRIORITY acpmux put in its env."""
+    for line in os.environ.get("ANTHROPIC_CUSTOM_HEADERS", "").splitlines():
+        name, _, value = line.partition(":")
+        if name.strip().lower() == "x-subrouter-priority":
+            return value.strip()
+    return os.environ.get("SUBROUTER_PRIORITY", "")
+
+
+def upstream_turn(rid, sid, text):
+    """FAKE_UPSTREAM_URL=<url>: every prompt is one Anthropic-shaped model call (POST
+    <url>/v1/messages), as Claude Code makes one: the session's model (FAKE_PICKER's), its
+    X-Subrouter-Priority, and X-Fake-Session=<ACPMUX_SESSION_ID or pid>. A 200 completes the turn;
+    a 529 (or any error) is retried FAKE_UPSTREAM_RETRIES times inside the turn, as Claude Code
+    retries an overload itself, waiting the answer's Retry-After (seconds, fractions allowed) or
+    FAKE_UPSTREAM_BACKOFF_MS doubling; then the turn fails as Claude Code's does, "API Error: 529
+    <body>"."""
+    import urllib.request, urllib.error
+    url = os.environ["FAKE_UPSTREAM_URL"].rstrip("/") + "/v1/messages"
+    model = PICKER_MODELS.get(sid, "default")
+    who = os.environ.get("ACPMUX_SESSION_ID") or str(os.getpid())
+    body = json.dumps({"model": model, "max_tokens": 16,
+                       "messages": [{"role": "user", "content": text[:200]}]}).encode()
+    headers = {"content-type": "application/json", "anthropic-version": "2023-06-01",
+               "x-subrouter-priority": upstream_priority(), "x-fake-session": who}
+    retries = int(os.environ.get("FAKE_UPSTREAM_RETRIES", "0") or 0)
+    backoff = int(os.environ.get("FAKE_UPSTREAM_BACKOFF_MS", "50") or 50) / 1000
+    status, reply = 0, ""
+    for attempt in range(retries + 1):
+        if sid in cancelled:
+            cancelled.discard(sid)
+            send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+            return
+        req = urllib.request.Request(url, data=body, method="POST", headers=headers)
+        wait = backoff * (2 ** attempt)
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                status, reply = resp.status, resp.read().decode()
+        except urllib.error.HTTPError as e:
+            status, reply = e.code, e.read().decode()
+            after = e.headers.get("retry-after")
+            try:
+                wait = max(wait, float(after)) if after else wait
+            except ValueError:
+                pass
+        except Exception as e:  # the upstream gone: a transport error, as Claude Code says one
+            status, reply = 0, f"Connection error. {e}"
+        if status == 200:
+            update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "echo: " + text}})
+            send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+            return
+        if attempt < retries:
+            time.sleep(wait)
+    message = f"API Error: {status} {reply}" if status else f"API Error: {reply}"
+    send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": message}})
+
+
 def handle_prompt(rid, params):
     sid = params["sessionId"]
     # Model a harness that scopes an interrupt to the prompt it is processing.
@@ -639,6 +717,8 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    if os.environ.get("FAKE_UPSTREAM_URL"):
+        return upstream_turn(rid, sid, text)
     cap_file = os.environ.get("FAKE_CAPACITY_FILE")
     if cap_file:
         with open(cap_file + ".seen", "a") as seen:
@@ -992,6 +1072,15 @@ def handle_prompt(rid, params):
             gate.read()
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "after-gate"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "overload-gate: PATH" streams "before-gate", blocks on the FIFO at PATH (as "gate:"), then
+    # fails with Claude Code's overload error: a 529 that lands after a daemon restart adopted
+    # the turn.
+    if text.startswith("overload-gate:"):
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "before-gate"}})
+        with open(text[len("overload-gate:"):].split("<", 1)[0].strip()) as gate:
+            gate.read()
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "API Error: Repeated 529 Overloaded errors"}})
         return
     # "gate: PATH" streams "before-gate", blocks until the test writes to
     # the FIFO at PATH (no timers), then streams "after-gate" and ends.
@@ -2475,6 +2564,17 @@ def main():
                 continue
             sessions += 1
             result = {"sessionId": f"{SESSION_PREFIX}{sessions}"}
+            if os.environ.get("FAKE_FORK_REPLAY") == "1":
+                new_sid = result["sessionId"]
+                update(new_sid, {"sessionUpdate": "available_commands_update", "availableCommands": []})
+                update(new_sid, {"sessionUpdate": "user_message_chunk", "messageId": "fork-u1",
+                                 "content": {"type": "text", "text": "FORK-REPLAY prompt"}})
+                update(new_sid, {"sessionUpdate": "agent_thought_chunk", "messageId": "fork-a1",
+                                 "content": {"type": "text", "text": "FORK-REPLAY thought"}})
+                update(new_sid, {"sessionUpdate": "tool_call", "toolCallId": "fork-t1", "title": "FORK-REPLAY tool",
+                                 "kind": "read", "status": "completed"})
+                update(new_sid, {"sessionUpdate": "agent_message_chunk", "messageId": "fork-a1",
+                                 "content": {"type": "text", "text": "FORK-REPLAY reply"}})
             # FAKE_FORK_DEFAULTS=1 (with FAKE_PICKER_MODES=claude): the fork's reply reports the
             # harness's defaults, not the forked session's model and effort, as Codex does.
             if os.environ.get("FAKE_FORK_DEFAULTS") == "1":

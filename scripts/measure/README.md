@@ -46,7 +46,9 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | dev-loop | `dev-loop-ceiling.sh` (`dev-loop/<loop>.sh`, `dev-loop/bound.py`) on a fleet Mac | Edit to running for web swap, daemon restart, Swift inject and the startup loop, each over its simulated stage-floor bound; worst ratio (goal dev-loop-ceiling). |
 | coord-sim | `coord-sim-linux.sh` (crate `cmux-tui/crates/coord-sim`) on Linux CI; also the perf cron's coord-sim part | Several synthetic coordinator chats at once into a release acpmux: event delivery p50/p95/p99, lost and duplicated events, attach and first paint under load, history paging, prompt ack and echo, daemon RSS and its slope, memory and CPU per chat. |
 | projection-way-back | `a_bench_of_bring_back` (`cmux-tui/crates/cmux-tui/tests/link_project_back.rs`) on Linux CI | Bring Back of a projected folder against today's pull (`seed pull --or-copy`) at N files and 50 edits, over a 50 ms RTT link; the plan step and the pure plan's cost. |
+| projection-scale | `projection-scale/measure.py` (Linux, any host; `--import rows.jsonl`) | RFD 0065's matrix on one harness: a projection's serve, link and mount, then cold and warm `find`, `rg` and `git status` (seconds, bytes down, asks), and git clone options against a local `git daemon` (depth 1, blob:none, sparse, `.git`-only zstd archive, overlay), with projected seconds per RFD 0067 link profile. |
 | chief-latency | `chief-latency.sh` (`Native/OptChat/optchat-chief/measure/chief_driver.py --scenario latency`, `chief_latency.py`) on a fleet Mac, real model through SR2 | A scratch Chief built at two refs, alternating rounds of 15 typical asks (trivial, memory, tool, long reply, one and two subagents, a view rebuild): input tokens of each turn's first request and of every request, first token (warm, cold), turn p50/p90, cold share, refused sends, and a before/after markdown table for a PR body. |
+| local-chat | `local-chat-first-reply.sh` (`local_chat_first_reply.py`) on a fleet Mac, a bench build at this checkout or `build=SHA`, real model through SR2 | Local chat select to first reply the way a person starts one (New chat, the composer's Send, a ready spare after a daemon restart), the hq `local-chat` probe's timed chat on a commit instead of the NIGHTLY: p50 of select_to_first_text_ms, its stages (before turn, turn, after turn) and turn marks (agent ready, to agent, first model). |
 
 
 ## Dev loop
@@ -172,6 +174,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `tab-hibernation.sh` | Tab hibernation keep rule on 48 Chromium tabs. | msg 9103 | 2026-11-03 | active |
 | `infinite-tabs.sh` | The app with 500 browser tabs, 200 workspaces and 100 agent chats hibernated, over the empty app: RSS, CPU, wakeups, switch times. | cmuxterm-hq goals/infinite-tabs-flat.md | 2026-11-22 | active |
 | `renderer-sharing.sh` | Chromium renderer sharing across 100 same-site tabs. | - | 2026-10-27 | active |
+| `tab-spinner-cost.sh` | The tab-strip spinner's cost while a load never ends: app, GPU and WindowServer CPU and wakeups, spinner on vs. `showPageLoading` off. | hq#13463 | 2026-11-24 | active |
 | `cef-pump-wakes.sh` | Main-thread wakes from the Chromium message pump with busy hidden terminals. | STATUS 9946 | 2026-11-04 | active |
 | `holder-dogfood.sh` | Terminal holder vs hosts: process and memory A/B. | perf lead | 2026-10-27 | active |
 | `unshown-ptys.sh` | PTYs held by workspaces nobody has shown. | a913 | 2026-11-07 | active |
@@ -186,6 +189,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `tui-idle-ram.py` | One idle headless daemon: smaps, threads, mappings, children. | CMUX-571 | 2026-11-16 | active |
 | `chat-disk-growth.py` | One live chat's history bytes per simulated hour. | - | 2026-11-15 | active |
 | `chat-disk-growth-linux.sh` | Linux entry for chat-disk-growth.py at 100,000 rows. | - | 2026-11-15 | active |
+| `published-benches-linux.sh` | The published benchmarks (RFD 0167 row 18): resume, fork, move and build times and the long session under load (`soak_secs=28800` is the 8 h run; p95 input latency, RSS); acpmux tests/published_bench.rs. hq docs/benchmarks/README.md publishes them. | benches-fresh | 2026-11-24 | active |
 | `daemon-restart-linux.sh` | Daemon restart to a non-empty chat attach (god_daemon.rs small and god homes), median of up to 3 runs; the perf cron's daemon-restart part. | - | 2026-11-18 | active |
 | `coord-sim-linux.sh` | Several synthetic coordinator chats at once against a release acpmux on Linux (bench coord-sim). | coord-sim | 2026-11-19 | active |
 | `journal-writes.py` | Bytes the acpmux journal writes per hour and write amplification. | hq#11322 | 2026-11-15 | active |
@@ -217,6 +221,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `agent-loop.py` | Python driver for agent-loop.sh. | hq#7149 L8 | 2026-11-05 | active |
 | `chief-build-cache.sh` | Chief build cache timing before and after. | #28481 | 2026-10-30 | active |
 | `chief-latency.sh` | Chief latency before/after: a scratch Chief at two refs on one Mac, the 15-ask `latency` scenario with a real model (chief-latency bench; how to run: `Native/OptChat/optchat-chief/measure/README-latency.md`). | Chief latency lane | 2026-11-23 | active |
+| `local-chat-first-reply.sh` | Local chat select to first reply on a build of a commit (local-chat bench; driver `local_chat_first_reply.py`). | local-instant-start | 2026-11-25 | active |
 | `chief-import.sh` | One Chief import of a 2,020-message corpus on a quiet Mac. | - | 2026-10-10 | stale |
 | `chief-prompt-bubble.sh` | Proof that a 140 KB Chief subagent prompt draws as the first bubble. | u4256 | 2026-10-27 | active |
 | `team-eval.sh` | One run of the coordinator-mode eval: one task, one arm. | - | 2026-11-07 | active |
@@ -249,6 +254,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | name | what it measures | ticket / owner | last touched | status |
 |---|---|---|---|---|
 | `projection-macos.sh` | One agent checkout's FSEvents (events, unique paths), seconds, first `git status`, disk: git worktree, APFS clone (wt today), recycled checkout, projected (cmux-projection over NFSv3 from localhost); JOBS at once; fseventsd RSS (`projection-macos/fsevents-count.swift`). | projectionfs harder (2026-11-23) | 2026-11-23 | active |
+| `projection-scale/measure.py` | RFD 0065 piece 14: projection serve/link/mount and git clone matrix; seconds, bytes, asks; TSV or Markdown with RFD 0067 link profiles ([README](projection-scale/README.md)). | RFD 0065 | 2026-11-24 | active |
 | `rust-dev-loop.sh` | Edit to runnable time of the Rust dev build, per build variant. | #42280 | 2026-11-12 | active |
 | `rust-dev-loop.py` | Python driver for rust-dev-loop.sh. | #42280 | 2026-11-12 | active |
 | `blaze-home.sh` | Sourced helper: short link for the blaze home so its socket path fits. | - | 2026-11-06 | active |
@@ -265,7 +271,8 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `live-code-cost.py` | Report half of live-code-cost.sh. | - | 2026-11-05 | active |
 | `live-code-shell.sh` | Live code in the view shell, judged by rendered width. | - | 2026-11-04 | active |
 | `live-mode-swift.sh` | Swift live mode end to end on a tagged build. | - | 2026-11-10 | active |
-| `live-mode-swift.py` | Python driver for live-mode-swift.sh. | - | 2026-11-12 | active |
+| `live-mode-swift.py` | Python driver for live-mode-swift.sh. | - | 2026-11-24 | active |
+| `live-code-save-overhead.py` | Python share of a Swift live mode save (watcher scan, patch.py lookup) with a fake toolchain, any host. | - | 2026-11-24 | active |
 | `hot-apply-nightly.sh` | hot-apply.py proven on a published nightly (apply then roll back). | - | 2026-11-14 | active |
 | `hot-apply-nightly.py` | App half of hot-apply-nightly.sh. | - | 2026-11-14 | active |
 | `hot-apply-dry-run.sh` | hot-apply fetch side timed cold and warm, any host. | - | 2026-11-14 | active |

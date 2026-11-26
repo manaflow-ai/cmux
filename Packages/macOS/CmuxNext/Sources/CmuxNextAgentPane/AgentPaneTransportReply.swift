@@ -41,6 +41,7 @@ enum AgentPaneTransportReply {
                 return AgentPaneModel.transportFailure(.intentInvalid)
             }
             guard let ticket = model.transport.reserveGesture(intent) else { return AgentPaneModel.transportFailure(.gestureRequired) }
+            if intent.method == "cloud.startChat" { model.onCloudSendGesture?() } // the Send itself, before the lease wait (cmux#51000)
             return AgentPaneReply.success(["ticket": ticket])
         case .transportGestureRelease: return model.endTransport(closing: nil)
         case .transportClose(let connection): return model.endTransport(closing: connection)

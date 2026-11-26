@@ -19,7 +19,9 @@ private let log = Logger(subsystem: "dev.cmux.mobile", category: "acpmux")
 public final class AcpmuxHub {
     /// Every chat the watch reported, newest page first (`AcpmuxHub+SessionPages.swift`): ready
     /// with the first page, the rest read after it.
-    public internal(set) var sessions: [String: AcpmuxSession] = [:]
+    public internal(set) var sessions: [String: AcpmuxSession] = [:] { didSet { listRevision &+= 1 } }
+    /// Moves on every change of `sessions`: a list acpmux orders (`CloudChatList`) reads its page again.
+    public private(set) var listRevision = 0
     public private(set) var isReady = false
     /// A failure binding the channel (shown in diagnostics).
     public private(set) var lastError: String?
@@ -41,6 +43,8 @@ public final class AcpmuxHub {
     /// How long a read may go unanswered before the channel counts as stalled and is replaced.
     @ObservationIgnored var stallAfter: Duration = AcpmuxHub.defaultStallAfter
     @ObservationIgnored var steadyClock: any Clock<Duration> = ContinuousClock()
+    /// The fixed part of a prompt write's bound (``AcpmuxConnection/writeBound(bytes:base:)``; tests shorten it).
+    @ObservationIgnored var writeBase: Duration = AcpmuxConnection.writeBase
     /// Callers of `waitUntilReady` (a Feed answer whose Mac's link is opening).
     @ObservationIgnored private var readyWaiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
     @ObservationIgnored private var pumpTask: Task<Void, Never>?
@@ -204,6 +208,10 @@ public final class AcpmuxHub {
                 "protocolVersion": .number(1),
                 "clientInfo": .object(["name": .string("cmux-ios"), "version": .string("1")]),
                 "clientCapabilities": .object([:]),
+                // The phone draws no time breakdown: none in any attach or chat row on this
+                // connection (acpmux `server/requests/time_breakdown_gate.rs`); an older Mac
+                // ignores the key.
+                "_meta": .object(["acpmux": .object(["omitTimeBreakdown": .bool(true)])]),
             ]), timeout: requestTimeout)
             let pageID = try await connection.submit("_acpmux/watch", Self.firstPageParams, timeout: requestTimeout)
             if let gate, !(await gate()) {
@@ -352,7 +360,7 @@ public final class AcpmuxHub {
     /// never retried (a submit is a send).
     public func submit(_ method: String, _ params: JSONValue) async throws -> (AcpmuxConnection, Int) {
         let connection = try await readyConnection()
-        return (connection, try await connection.submit(method, params))
+        return (connection, try await connection.submit(method, params, base: writeBase))
     }
 
     public func notify(_ method: String, _ params: JSONValue) async throws {
@@ -837,6 +845,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             // it to be written (or held) before its own goes (an upload can take a while).
             let sentAt = now()
             let previous = promptChain
+            // The files already uploading since their pick go with this prompt; emptying the
+            // composer after Send does not cancel them.
+            let prestaged = prestager.claim(attachments)
             let task = Task { [weak self] in
                 await previous?.value
                 guard let self else { return }
@@ -844,9 +855,12 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 let blocks: [JSONValue]
                 do {
                     try Task.checkCancellation()
-                    blocks = try await self.promptBlocks(text: text, attachments: attachments, promptID: promptID, hub: hub)
+                    blocks = try await self.promptBlocks(text: text, attachments: attachments, promptID: promptID, hub: hub,
+                                                         prestaged: prestaged)
                     try Task.checkCancellation()
                 } catch {
+                    // Stopped or failed before every early upload was linked: none of them is wanted now.
+                    for entry in prestaged.values { entry.task.cancel() }
                     let reason = error is CancellationError ? "Not sent: you stopped it." : AcpmuxSessionSource.message(error)
                     self.emit(.promptNotSent(text: text, attachments: attachments, promptID: promptID, reason: reason))
                     return
@@ -933,7 +947,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         var blocks: [JSONValue]
         /// When it was sent: its place among the held prompts.
         var at: ContinuousClock.Instant
-        /// When it began to wait for the link (its send, or the drop that lost it): its age.
+        /// When it began to wait for the link (its send, or the failure that lost it): its age.
         var waitingSince: ContinuousClock.Instant? = nil
         var waitStart: ContinuousClock.Instant { waitingSince ?? at }
     }
@@ -956,6 +970,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     private var promptChain: Task<Void, Never>?
     /// Each message's send until it is written or held, by prompt id: Stop cancels its upload.
     private var sendTasks: [String: Task<Void, Never>] = [:]
+    /// The composer's files, uploading to the Mac since they were picked (``prestageAttachments(_:)``).
+    private let prestager = AttachmentPrestager()
 
     /// Sends a prompt now, or after the ones held before it (the Mac gets them in order).
     /// Returns once it is written or held; its answer is awaited apart.
@@ -969,11 +985,12 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             return
         }
         let params = Self.promptParams(prompt, session: sessionID)
+        let attempted = now()
         do {
             let (connection, id) = try await hub.submit("session/prompt", params)
             Task { [weak self] in await self?.awaitPromptReply(prompt, connection: connection, id: id) }
         } catch {
-            promptFailed(prompt, error, written: false)
+            promptFailed(prompt, error, written: false, attempted: attempted)
         }
     }
 
@@ -997,13 +1014,21 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     /// The link lost the prompt (it may have reached the Mac: it goes again as a resend, which
     /// acpmux runs at most once), or the Mac refused it (the draft comes back with the reason).
-    private func promptFailed(_ prompt: HeldPrompt, _ error: any Error, written: Bool) {
+    private func promptFailed(_ prompt: HeldPrompt, _ error: any Error, written: Bool,
+                              attempted: ContinuousClock.Instant? = nil) {
         if !(error is AcpmuxConnection.RPCError) {
             var again = prompt
-            if written {
-                // It may have run: sent again it is a resend (acpmux checks its log), aged
-                // from the drop, not from a send a long turn ago.
-                again.resend = true
+            // It may have run: sent again it is a resend (acpmux checks its log).
+            if written { again.resend = true }
+            // The window counts only time without a usable link, never the tap, an upload or a
+            // slow write (a write on a ready link can take longer than the window, and bounced
+            // at once as "unreachable" though the Mac was there). So its wait is moved on by
+            // what the failed write took, not restarted: a write that fails at once on a
+            // channel that still says ready ages as before and comes back after the window,
+            // instead of being held for good.
+            if let attempted, !written {
+                again.waitingSince = (prompt.waitingSince ?? attempted) + (now() - attempted)
+            } else {
                 again.waitingSince = now()
             }
             hold(again)
@@ -1016,7 +1041,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     }
 
     /// Keeps a prompt for the next link, in the order it was sent; it comes back to the
-    /// composer if the link is not back within ``heldPromptWindow`` of its send.
+    /// composer if the link is not back within ``heldPromptWindow`` of its wait's start.
     private func hold(_ prompt: HeldPrompt) {
         let index = heldPrompts.firstIndex { $0.at > prompt.at } ?? heldPrompts.endIndex
         heldPrompts.insert(prompt, at: index)
@@ -1044,8 +1069,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         guard heldPrompts.contains(where: { instant - $0.waitStart >= window }) else { return false }
         let dropped = heldPrompts
         heldPrompts = []
-        let seconds = max(1, Int(window.components.seconds))
-        let reason = "Not sent: \(summary.macName) was unreachable for more than \(seconds) seconds. Send again when it's back."
+        // Short, with nothing to decode: the draft is back in the composer and Send is the action
+        // (Leo 2026-11-23: the old copy was "way too long and unactionable").
+        let reason = "Not sent: \(summary.macName) is offline."
         log.notice("\(dropped.count, privacy: .public) held prompt(s) of \(self.sessionID, privacy: .public) not sent: the link was down past the window")
         for prompt in dropped {
             emit(.promptNotSent(text: prompt.text, attachments: prompt.attachments, promptID: prompt.promptID, reason: reason))
@@ -1066,13 +1092,14 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             while true {
                 guard let self, !self.heldPrompts.isEmpty else { break }
                 let prompt = self.heldPrompts.removeFirst()
+                let attempted = self.now()
                 do {
                     let (connection, id) = try await hub.submit("session/prompt", Self.promptParams(prompt, session: self.sessionID))
                     Task { [weak self] in await self?.awaitPromptReply(prompt, connection: connection, id: id) }
                 } catch {
                     self.flushingHeld = false
                     // Not written: held again (first, its order kept), for the next link.
-                    self.promptFailed(prompt, error, written: false)
+                    self.promptFailed(prompt, error, written: false, attempted: attempted)
                     return
                 }
             }
@@ -1091,6 +1118,20 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// This phone's Full-access setting, for the chat's mode menus.
     func fullAccessChanged(_ on: Bool) { emit(.fullAccess(on)) }
 
+    /// The composer's attachments changed: files a prompt would upload start uploading now, into the
+    /// same folder Send uploads to; files taken off stop (``AttachmentPrestager``).
+    public func prestageAttachments(_ attachments: [AgentAttachment]) {
+        let cwd = baseDirectory
+        let macName = summary.macName
+        var upload: AttachmentPrestager.Upload?
+        if let link: any MacLink = hub?.macLink {
+            upload = { @Sendable (payload: LinkUpload.Payload, name: String) async throws -> String in
+                try await AcpmuxSessionSource.upload(payload, name: name, cwd: cwd, link: link, macName: macName)
+            }
+        }
+        prestager.sync(attachments, upload: upload)
+    }
+
     /// ACP prompt content: the text, then per attachment
     /// - an image: an `image` block (base64 data and its MIME type);
     /// - a file: uploaded to the Mac over the link's `upload` service into the
@@ -1101,18 +1142,20 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// Each upload shows on the message as it starts (``AgentSessionEvent/promptUploading(promptID:_:)``).
     /// Its bounds, resume and byte progress are the upload engine's (`AttachmentUploadClient`,
     /// lane/ios-attachment-send).
-    func promptBlocks(text: String, attachments: [AgentAttachment], promptID: String, hub: AcpmuxHub) async throws -> [JSONValue] {
+    func promptBlocks(text: String, attachments: [AgentAttachment], promptID: String, hub: AcpmuxHub,
+                      prestaged: [String: AttachmentPrestager.Entry] = [:]) async throws -> [JSONValue] {
         let progress: @Sendable (AgentUploadProgress) -> Void = { [weak self] step in
             Task { @MainActor in self?.emit(.promptUploading(promptID: promptID, step)) }
         }
         return try await Self.promptBlocks(text: text, attachments: attachments, link: hub.macLink, cwd: baseDirectory,
-                                           macName: summary.macName, progress: progress)
+                                           macName: summary.macName, progress: progress, prestaged: prestaged)
     }
 
     /// A prompt's content for any session in `cwd`, without a chat source: PDFs inline when
     /// they fit, other files uploaded to `cwd` (or the Mac's uploads folder) and linked.
     static func promptBlocks(text: String, attachments: [AgentAttachment], link: (any MacLink)?, cwd: String?,
-                             macName: String, progress: (@Sendable (AgentUploadProgress) -> Void)? = nil) async throws -> [JSONValue] {
+                             macName: String, progress: (@Sendable (AgentUploadProgress) -> Void)? = nil,
+                             prestaged: [String: AttachmentPrestager.Entry] = [:]) async throws -> [JSONValue] {
         var uploaded: [String: String] = [:]
         // A PDF small enough goes whole as a `document` block (the Mac's), read here, not uploaded;
         // past the prompt's inline budget the rest go as links to their uploaded copies.
@@ -1132,6 +1175,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             } else {
                 throw AgentFeatureUnavailable("\(attachment.name) has no contents to send. Attach it again.")
             }
+            if let early = prestaged[attachment.id], let path = await Self.prestagedPath(early, attachment: attachment, progress: progress) {
+                uploaded[attachment.id] = path
+                continue
+            }
+            try Task.checkCancellation()
             guard let link else { throw LinkError(code: "offline", message: "Connect to \(macName) to send \(attachment.name).") }
             progress?(AgentUploadProgress(name: attachment.name, sent: 0, total: attachment.byteCount ?? attachment.data?.count ?? 0,
                                           phase: .opening, attempt: 1))
@@ -1141,6 +1189,25 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         return await Task.detached(priority: .userInitiated) {
             Self.promptBlocks(text: text, attachments: attachments, uploaded: uploaded, inlineDocuments: inline)
         }.value
+    }
+
+    /// The Mac path of a file that began uploading when it was picked, once that upload ends; nil
+    /// when it failed (Send uploads the file afresh). Stopping the send stops the upload. Logs how
+    /// long Send waited and the file's pick-to-available time (`upload` category).
+    static func prestagedPath(_ early: AttachmentPrestager.Entry, attachment: AgentAttachment,
+                              progress: (@Sendable (AgentUploadProgress) -> Void)?) async -> String? {
+        let waitStart = ContinuousClock.now
+        progress?(AgentUploadProgress(name: attachment.name, sent: 0, total: attachment.byteCount ?? attachment.data?.count ?? 0,
+                                      phase: .opening, attempt: 1))
+        let task = early.task
+        let path = await withTaskCancellationHandler {
+            try? await task.value
+        } onCancel: {
+            task.cancel()
+        }
+        let end = ContinuousClock.now
+        AttachmentPrestager.log.info("prestage send waited_ms=\(AttachmentPrestager.ms(end - waitStart)) pick_to_available_ms=\(AttachmentPrestager.ms(end - early.started)) ok=\(path != nil)")
+        return path
     }
 
     /// The most PDF bytes one prompt carries inline: their base64 stays well under acpmux's

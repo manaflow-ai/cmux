@@ -165,6 +165,13 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             Skip("starts the embedded tailnet node (network, a real account)"),
         ),
         (
+            method::MUX_TAILNET_JOIN,
+            Any(
+                json!({"key": "tskey-auth-x"}),
+                "the person check refuses this connection before any tailnet work",
+            ),
+        ),
+        (
             method::MUX_TAILNET_LOGIN,
             Skip("signs the embedded tailnet in (network, a real account)"),
         ),

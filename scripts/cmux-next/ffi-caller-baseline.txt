@@ -2,6 +2,22 @@
 # cmux-tui/crates/*/include/*.h with no caller in Packages/**/*.swift (test targets excluded).
 # header<TAB>function. This list only shrinks: `--update` removes entries that gained a caller.
 # Never add a line: a new export ships with its Swift caller.
+cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_close
+cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_connected
+cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_disconnected
+cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_error_code
+cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_free
+cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_new
+cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_next
+cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_next_event
+cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_open
+cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_page
+cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_received
+cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_take_send
+cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_taken
+cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_unwant
+cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_visible
+cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_want
 cmux-tui/crates/cmux-action-catalog/include/cmux_action_catalog.h	cmux_action_catalog_abi_version
 cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_agent_pane_policy_abi_version
 cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_agent_pane_policy_bytes_free
@@ -12,13 +28,8 @@ cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_age
 cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_agent_pane_policy_free
 cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_agent_pane_policy_new
 cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_agent_pane_policy_observe
-# Held until step B (hq#12220): cmux_launch_record_front_window gets its Swift caller with the stage-0 launch
-# window (the reader PR after cmux#44495). `--update` drops the line once its caller lands.
 cmux-tui/crates/cmux-app-ffi/include/cmux_launch_record.h	cmux_launch_record_front_window
-# Held until the stage-0 launch window (launch-stage0-window lane) calls it: launch record v2 adds the
-# window list read ahead of that Swift caller.
 cmux-tui/crates/cmux-app-ffi/include/cmux_launch_record.h	cmux_launch_record_windows
-# Held until the stage-0 launch window (cmux#45389) gets its Swift caller; that re-pin is what made this one count.
 cmux-tui/crates/cmux-app-ffi/include/cmux_launch_record.h	cmux_launch_record_write_registry
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_hover_card_machine_init
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_hover_card_reduce
@@ -35,14 +46,12 @@ cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_hover_timing
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_motion_animates
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_motion_fade_seconds
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_motion_ffi_abi_version
-# Held until wallpaper lighting step 2 calls the light field from Swift (cmux#45022 shipped step 1: Rust, C ABI, CSS).
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_motion_light_field
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_motion_light_point
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_motion_light_rim
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_motion_light_style
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_motion_resolve
 cmux-tui/crates/cmux-app-ffi/include/cmux_motion_ffi.h	cmux_motion_spring_base
-# Held until the macOS app hosts Computer Use through its FFI (cmux#37003 shipped the engine, hosted in cmux Remote).
 cmux-tui/crates/cmux-computer-use-ffi/include/cmux_computer_use.h	cmux_cu_engine_call
 cmux-tui/crates/cmux-computer-use-ffi/include/cmux_computer_use.h	cmux_cu_engine_end_session
 cmux-tui/crates/cmux-computer-use-ffi/include/cmux_computer_use.h	cmux_cu_tools_list
@@ -132,16 +141,7 @@ cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_s
 cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_tab_drop_edge_pane_edge
 cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_window_close_selection_kept
 cmux-tui/crates/cmux-palette-ranker/include/cmux_palette_ranker.h	cmux_palette_ranker_abi_version
-# Held until the screen-share viewer wires clipboard text sync (cmux#47329 shipped the cap, the macOS host and these calls).
-cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_clipboard_dropped
-cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_clipboard_free
-cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_clipboard_new
-cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_clipboard_next_deadline_us
-cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_clipboard_offer
-cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_clipboard_on_control
-cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_clipboard_pop_frame
 cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_session_clock
-cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_session_enable_clock
 cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_upstream_target_bps
 cmux-tui/crates/cmux-sdk-ffi/include/cmux_sdk_ffi.h	cmux_sdk_bytes_free
 cmux-tui/crates/cmux-sdk-ffi/include/cmux_sdk_ffi.h	cmux_sdk_call
@@ -200,22 +200,3 @@ cmux-tui/crates/cmux-wg-tun/include/cmux_wg_tun.h	cmux_wg_tun_network_changed
 cmux-tui/crates/cmux-wg-tun/include/cmux_wg_tun.h	cmux_wg_tun_start
 cmux-tui/crates/cmux-wg-tun/include/cmux_wg_tun.h	cmux_wg_tun_stats
 cmux-tui/crates/cmux-wg-tun/include/cmux_wg_tun.h	cmux_wg_tun_stop
-# Held until cut D (cmux#44215): cmux#44563 added these page-driver exports and cmux#44865 re-pinned the app FFI
-# before their Swift callers landed. Cut D calls all 16 from the macOS host. `--update` drops each line when those
-# callers land.
-cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_new
-cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_free
-cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_connected
-cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_disconnected
-cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_visible
-cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_received
-cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_take_send
-cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_next_event
-cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_taken
-cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_open
-cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_close
-cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_want
-cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_unwant
-cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_page
-cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_next
-cmux-tui/crates/acpmux-client/include/acpmux_client.h	acpmux_page_driver_error_code
