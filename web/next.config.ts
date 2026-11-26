@@ -60,6 +60,16 @@ const nextDocsNightlyMoves = [
   { source: "/en/docs/next/:slug", destination: "/docs/nightly/next/:slug", permanent: false },
 ];
 const tuiInstallerHeaderRules = [
+  // Immutable copies named by their sha256 (cmux-tui/scripts/install-static-pin.py): the commands cmux
+  // shows check the file against that name before they run it, so it never changes.
+  {
+    source: "/tui/install-static/:file",
+    headers: [
+      { key: "Content-Type", value: "text/plain; charset=utf-8" },
+      { key: "Content-Disposition", value: "inline" },
+      { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
+    ],
+  },
   {
     source: "/tui/install.sh",
     headers: [
