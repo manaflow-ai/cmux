@@ -73,3 +73,93 @@ fn an_ended_sync_frees_its_locks_while_a_forked_child_still_has_its_descriptors(
     assert!(ready, "an ended sync read as running while a forked child kept its descriptors");
     again.expect("an ended sync's locks are free while a forked child keeps its descriptors");
 }
+
+/// What a ledger line holds: `**` everything, `a/**` a folder whole, `a/` (and `/` for the
+/// root) a folder's own files only, and a plain line that one file.
+#[test]
+fn a_ledger_line_holds_its_file_its_folders_own_files_or_its_folder_whole() {
+    let ledger = "/\na/\nb/**\nc/d.rs\n";
+    for (path, is_dir, held) in [
+        ("README.md", false, true),
+        ("a/x.rs", false, true),
+        ("a/sub/x.rs", false, false),
+        ("a/sub", true, false),
+        ("a", true, false),
+        ("b", true, true),
+        ("b/deep/x.rs", false, true),
+        ("bb/x.rs", false, false),
+        ("c/d.rs", false, true),
+        ("c/e.rs", false, false),
+        ("c/d.rs", true, false),
+        ("", true, false),
+    ] {
+        assert_eq!(ledger_holds(ledger, path, is_dir), held, "{path} dir={is_dir}");
+    }
+    assert!(ledger_holds("**\n", "anything/at/all", true));
+    assert!(!ledger_holds("", "a.rs", false));
+}
+
+/// A read-only tool runs on a filling checkout once the ledger holds its path, asks the
+/// producer for one it does not hold, and a path not there yet (a folder still to come)
+/// waits for a whole folder's line, not its parent's own files.
+#[test]
+fn a_reader_runs_on_what_the_ledger_holds_and_asks_for_the_rest() {
+    let dir = std::env::temp_dir().join(format!("cmux-sync-ledger-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let repo = dir.canonicalize().unwrap().join("repo");
+    let mut sync = Sync::begin(&repo).unwrap();
+    std::fs::create_dir_all(repo.join("a")).unwrap();
+    std::fs::write(repo.join("a/x.rs"), "x").unwrap();
+    sync.head_ready();
+    sync.filled(&["a/"]).unwrap();
+    let short = Duration::from_millis(50);
+    wait_filled(&repo.join("a/x.rs"), short).expect("a filled file reads at once");
+    let waited = wait_filled(&repo.join("a/sub"), short).unwrap_err();
+    assert_eq!(waited.kind(), io::ErrorKind::TimedOut, "a folder still to come waits");
+    assert_eq!(sync.wants(), vec![String::from("a/sub")], "the reader asked for it");
+    assert!(sync.wants().is_empty(), "wants are emptied once read");
+    sync.filled(&["a/sub/**"]).unwrap();
+    wait_filled(&repo.join("a/sub"), short).expect("a whole folder's line holds it");
+    let waited = wait_ready(&repo, short).unwrap_err();
+    assert_eq!(waited.kind(), io::ErrorKind::TimedOut, "every other tool still waits");
+    sync.complete().unwrap();
+    wait_filled(&repo.join("elsewhere"), short).expect("a whole checkout holds everything");
+    let mut again = Sync::begin(&repo).unwrap();
+    again.head_ready();
+    let waited = wait_filled(&repo.join("a/x.rs"), short).unwrap_err();
+    assert_eq!(waited.kind(), io::ErrorKind::TimedOut, "a new sync starts an empty ledger");
+    drop(again);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Leo, 2026-11-25 (#17): "what if the user deletes the folders that were on their source of
+/// truth machines? ... say genshin. it can go partial and resume whenever." A copy whose source
+/// went away past its head ends ready with a note of why, so tools run on what landed; one
+/// short of its head may not; the sync that completes it later takes the note away.
+#[test]
+fn a_partial_sync_reads_ready_with_its_note_until_a_whole_sync_completes_it() {
+    let dir = std::env::temp_dir().join(format!("cmux-sync-partial-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let repo = dir.canonicalize().unwrap().join("repo");
+    // Short of its head: refused, and dropping it leaves the folder failed as before.
+    let early = Sync::begin(&repo).unwrap();
+    assert!(early.complete_partial("source_missing").is_err());
+    assert!(matches!(probe(&repo).unwrap(), Probe::Incomplete));
+    assert_eq!(partial(&repo), None);
+
+    let mut sync = Sync::begin(&repo).unwrap();
+    sync.head_ready();
+    sync.complete_partial("source_missing").unwrap();
+    assert!(matches!(probe(&repo).unwrap(), Probe::Ready(_)));
+    wait_ready(&repo, Duration::from_secs(1)).unwrap();
+    assert_eq!(partial(&repo).as_deref(), Some("source_missing"));
+
+    // The resume: a whole sync of the same folder.
+    let mut again = Sync::begin(&repo).unwrap();
+    again.head_ready();
+    again.complete().unwrap();
+    assert!(matches!(probe(&repo).unwrap(), Probe::Ready(_)));
+    assert_eq!(partial(&repo), None);
+    let _ = std::fs::remove_dir_all(&dir);
+}

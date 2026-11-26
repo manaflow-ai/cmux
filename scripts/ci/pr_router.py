@@ -26,7 +26,8 @@ pr_router.json lists each routed workflow ("callee") with what used to start it:
              change must also touch one of them;
   table_jobs for the step table's workflow (pr-pipeline.yml): the jobs of ci/steps.toml it runs. It starts
              when the change routes a step of one of them (scripts/ci/ci_steps.py, each step's `inputs`);
-             a table that cannot be read starts it;
+             a table that cannot be read starts it. A job of FULL_TIER_JOBS (the `mac` job) is routed only
+             on a full-tier head: a draft or idle head runs no Mac, as cmux-next.yml's path_route held;
   labels     labels whose `labeled` event starts it whatever the paths (full-ci always does);
   draft      true for a workflow that also runs on a draft head (scripts/ci/head_tier.py's cheap tier);
              any other callee starts on a draft only with full-ci, and runs when the PR is marked ready
@@ -54,10 +55,16 @@ try:  # a head whose step-table runner does not import still routes: its pipelin
 except Exception:  # noqa: BLE001
     ci_steps = None
 import docs_only_paths  # noqa: E402
+import fast_track  # noqa: E402
 import head_tier  # noqa: E402
 import workflow_paths_cover_inputs as filters  # noqa: E402
 
 ROOT = HERE.parents[1]
+# The step table's jobs that run only on a full-tier head (head_tier.py): a cheap head (a draft, a ready head before
+# `ready-to-land` or `full-ci`, a base merge into an idle pull request) routes them nowhere, so pr-pipeline.yml does not
+# start on it at all. mac alone was here until 11-25, so linux, web-browser and ios ran on every cheap push: about 50k
+# runner-minutes a day (Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period.").
+FULL_TIER_JOBS = ("linux", "web-browser", "mac", "ios")
 MANIFEST = HERE / "pr_router.json"
 ENTRY = ROOT / ".github" / "workflows" / "pr-router.yml"
 FULL_CI = "full-ci"
@@ -99,15 +106,38 @@ def affects(config: dict, files: list[str]) -> bool:
     return any(filters.admits("paths", globs, f) for f in files)
 
 
-def table_steps(config: dict, files: list[str], table: Path | None = None) -> list[str] | None:
-    """The steps of the callee's `table_jobs` this change routes; None when the table cannot be read."""
+def table_steps(config: dict, files: list[str], table: Path | None = None, full: bool = True) -> list[str] | None:
+    """The steps of the callee's `table_jobs` this change routes; None when the table cannot be read. FULL: the head
+    is in the full tier (else FULL_TIER_JOBS route nothing)."""
     # Any failure to read the table (a missing file, bad TOML, a wrong shape, a runner that does not import)
     # starts the pipeline, whose own run reports it: the router routes more, never less, and never fails on it.
     try:
         routed = ci_steps.route(ci_steps.load(table or ci_steps.TABLE), files)
     except Exception:  # noqa: BLE001
         return None
-    return [step for job in config["table_jobs"] for step in routed.get(job, [])]
+    steps = [step for job in config["table_jobs"] if full or job not in FULL_TIER_JOBS for step in routed.get(job, [])]
+    # A step whose inputs are `["**"]` replaced a job that ran on every change its workflow's shared docs-only
+    # filter let through (scripts/ci/docs_only_paths.py): a docs-only change alone does not start the pipeline for it.
+    if files and docs_only_paths.docs_only(files):
+        table = ci_steps.load(table or ci_steps.TABLE).steps
+        steps = [step for step in steps if table[step].inputs != ("**",)]
+    return steps
+
+
+def table_jobs_routed(callees: dict, files: list[str] | None, table: Path | None = None,
+                      full: bool = True) -> list[str]:
+    """Which of the step table's jobs the change routes, for pr-pipeline.yml's job `if:`s: every `table_jobs` job
+    when the change or the table is unknown (the router routes more, never less). FULL: the head is in the full
+    tier; else no job of FULL_TIER_JOBS."""
+    jobs = [job for config in callees.values() for job in config.get("table_jobs", [])
+            if full or job not in FULL_TIER_JOBS]
+    if files is None:
+        return jobs
+    try:
+        routed = ci_steps.route(ci_steps.load(table or ci_steps.TABLE), files)
+    except Exception:  # noqa: BLE001
+        return jobs
+    return [job for job in jobs if routed.get(job)]
 
 
 def route(event: dict, callees: dict, files: list[str] | None,
@@ -116,10 +146,20 @@ def route(event: dict, callees: dict, files: list[str] | None,
     (tier, reason) when the caller read the head's facts (route mode); else the draft rule alone."""
     tier, tier_reason = decided or head_tier.tier("pull_request", event, draft_switch)
     cheap = tier == "cheap"
+    # Fast-track (scripts/ci/fast_track.py): a docs, plans, skills, copy or tests-only change gets the cheap tier.
+    fast = False
+    if not cheap and tier != "none" and files is not None and fast_track.enabled():
+        fast, fast_reason = fast_track.classify(files)
+        cheap = fast
     action = str(event.get("action") or "")
     pr = event.get("pull_request") or {}
     labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
     added = str((event.get("label") or {}).get("name") or "") if action == "labeled" else ""
+    if added in (head_tier.LAND_LABEL, FULL_CI):
+        # The land handoff (head_tier's land rule): the same head now runs the full tier, as when a draft is marked
+        # ready, so every callee that skips a cheap head starts on it (each listens to ready_for_review). full-ci is
+        # the same handoff from a lane VM, whose broker never sets ready-to-land (land-judge's land_tier asks it).
+        action, added = "ready_for_review", ""
     start, why = [], {}
     for name, config in sorted(callees.items()):
         if action not in config["types"]:
@@ -136,8 +176,16 @@ def route(event: dict, callees: dict, files: list[str] | None,
         if tier == "none":
             why[name] = tier_reason
             continue
+        if cheap and fast and not config.get("draft"):
+            why[name] = "fast-track: runs after the merge (post-merge batch and push runs)"
+            continue
         if cheap and not config.get("draft"):
-            why[name] = "draft: starts when marked ready for review (or with full-ci)"
+            why[name] = ("draft: starts when marked ready for review (or with full-ci)" if pr.get("draft") is not False
+                         else tier_reason)
+            continue
+        # A callee whose every table job is full-tier-only starts on no cheap head (a fast-track head is full tier).
+        if tier != "full" and config.get("table_jobs") and set(config["table_jobs"]) <= set(FULL_TIER_JOBS):
+            why[name] = "cheap tier: starts when ready-to-land or full-ci is added (or the draft is marked ready)"
             continue
         if files is None:
             start.append(name)
@@ -150,7 +198,7 @@ def route(event: dict, callees: dict, files: list[str] | None,
             why[name] = "no changed file is one of its inputs"
             continue
         if "table_jobs" in config:
-            steps = table_steps(config, files)
+            steps = table_steps(config, files, full=tier == "full" or FULL_CI in labels)
             if steps == []:
                 why[name] = "the change routes no step of " + ", ".join(config["table_jobs"])
                 continue
@@ -215,9 +263,20 @@ def check(callees: dict, entry_text: str, workflows: Path) -> list[str]:
     return problems
 
 
-def write_outputs(start: list[str], why: dict[str, str], files: list[str] | None) -> None:
+def land_status(event: dict, decided: tuple[str, str]) -> str:
+    """The `cmux/land-tier` commit status for EVENT's head (pr-router.yml posts it): `pending` while the land rule holds
+    it on the cheap tier (or idle), `success` once it runs the full tier, empty where the land rule does not apply."""
+    if (os.environ.get("CI_LAND_TIER", "1").strip() in ("0", "")) or not head_tier.land_rule_applies(event):
+        return ""
+    return "success" if decided[0] == "full" else "pending"
+
+
+def write_outputs(start: list[str], why: dict[str, str], files: list[str] | None,
+                  table: list[str] | None = None, status: str = "") -> None:
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
         out.write(f"start={json.dumps(start, separators=(',', ':'))}\n")
+        out.write(f"table={json.dumps(table or [], separators=(',', ':'))}\n")
+        out.write(f"land_status={status}\n")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     lines = ["### pr router", "",
              f"changed files: {len(files) if files is not None else 'unknown'}", "",
@@ -236,8 +295,12 @@ def main(argv: list[str]) -> int:
     if mode == "route":
         event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
         files = changed_files()
-        start, why = route(event, callees, files, decided=head_tier.decide("pull_request", event))
-        write_outputs(start, why, files)
+        decided = head_tier.decide("pull_request", event)
+        start, why = route(event, callees, files, decided=decided)
+        labels = {str(label.get("name") or "") for label in (event.get("pull_request") or {}).get("labels") or []}
+        full = decided[0] == "full" or FULL_CI in labels
+        write_outputs(start, why, files, table_jobs_routed(callees, files, full=full),
+                      land_status(event, decided))
         return 0
     if mode == "check":
         problems = check(callees, ENTRY.read_text(), ENTRY.parent)

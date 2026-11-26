@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.computerUse.deniedApps.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apps no agent may use, in any mode: an app ID, an ID prefix ending in *, or name: and the app's name."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تطبيقات لا يمكن لأي وكيل استخدامها في أي وضع: معرّف تطبيق، أو بادئة معرّف تنتهي بـ *، أو name: متبوعًا باسم التطبيق."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aplikacije koje nijedan agent ne smije koristiti, ni u jednom načinu: ID aplikacije, prefiks ID-a koji završava sa *, ili name: i naziv aplikacije."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apps, som ingen agent må bruge, uanset tilstand: et app-id, et id-præfiks, der slutter med *, eller name: og appens navn."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apps, die kein Agent in irgendeinem Modus verwenden darf: eine App-ID, ein ID-Präfix mit * am Ende oder name: und der App-Name."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apps que ningún agente puede usar, en ningún modo: un ID de app, un prefijo de ID que termina en * o name: y el nombre de la app."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apps qu’aucun agent ne peut utiliser, quel que soit le mode : un identifiant d’app, un préfixe d’identifiant terminé par *, ou name: suivi du nom de l’app."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "App che nessun agente può usare, in nessuna modalità: un ID app, un prefisso di ID che termina con * oppure name: e il nome dell’app."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "どのモードでもエージェントが使えないアプリ：アプリID、* で終わるIDの接頭辞、または name: とアプリ名。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "កម្មវិធីដែលគ្មានភ្នាក់ងារណាអាចប្រើបាន ក្នុងរបៀបណាក៏ដោយ៖ ID កម្មវិធី បុព្វបទ ID ដែលបញ្ចប់ដោយ * ឬ name: និងឈ្មោះកម្មវិធី។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "어떤 모드에서도 에이전트가 사용할 수 없는 앱: 앱 ID, *로 끝나는 ID 접두사, 또는 name: 뒤에 앱 이름."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apper ingen agent kan bruke, uansett modus: en app-ID, et ID-prefiks som slutter med *, eller name: og appens navn."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aplikacje, których żaden agent nie może używać w żadnym trybie: identyfikator aplikacji, prefiks identyfikatora zakończony *, albo name: i nazwa aplikacji."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apps que nenhum agente pode usar, em nenhum modo: um ID de app, um prefixo de ID terminado em * ou name: e o nome do app."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Приложения, которые агенты не могут использовать ни в одном режиме: ID приложения, префикс ID с * на конце или name: и название приложения."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แอปที่เอเจนต์ใดก็ใช้ไม่ได้ไม่ว่าในโหมดใด: ID แอป, คำนำหน้า ID ที่ลงท้ายด้วย * หรือ name: ตามด้วยชื่อแอป"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hiçbir ajanın hiçbir modda kullanamayacağı uygulamalar: bir uygulama kimliği, * ile biten bir kimlik öneki veya name: ve uygulamanın adı."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Програми, якими жоден агент не може користуватися в жодному режимі: ID програми, префікс ID із * в кінці або name: і назва програми."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ứng dụng mà không tác nhân nào được dùng, ở bất kỳ chế độ nào: ID ứng dụng, tiền tố ID kết thúc bằng *, hoặc name: và tên ứng dụng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "任何模式下都不允许智能体使用的应用：应用 ID、以 * 结尾的 ID 前缀，或 name: 加应用名称。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "任何模式下都不允許代理程式使用的 App：App ID、以 * 結尾的 ID 前綴，或 name: 加上 App 名稱。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
