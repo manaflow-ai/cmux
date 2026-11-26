@@ -1416,7 +1416,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 - "$GITHUB_REPOSITORY" "$RELEASE_TAG" "$SOURCE_HEAD_SHA" "$NIGHTLY_BUILD" <<'PY' > "$RUNNER_TEMP/publication-guard"
-          import json
+          import json  # bounded release metadata read
           import os
           import re
           import sys
