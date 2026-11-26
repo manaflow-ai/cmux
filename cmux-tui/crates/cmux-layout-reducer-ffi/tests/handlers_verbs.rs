@@ -208,3 +208,26 @@ fn an_unknown_verbs_op_or_a_bad_request_is_refused() {
     assert_eq!(call("handlers_verbs_nope", json!({})).0, ERR_INVALID);
     assert_eq!(call("handlers_verbs_move_split", json!({"action": 1})).0, ERR_INVALID);
 }
+
+#[test]
+fn space_moves_insert_past_the_target_and_refuse_at_the_edge() {
+    let index = |verb: &str, from: usize, position: Value| {
+        answer(
+            "handlers_verbs_room_move",
+            json!({"verb": verb, "from": from, "count": 4, "position": position}),
+        )["index"]
+            .clone()
+    };
+    assert_eq!(index("space.moveLeft", 2, Value::Null), json!(1));
+    assert_eq!(index("space.moveLeft", 0, Value::Null), Value::Null);
+    assert_eq!(index("space.moveRight", 1, Value::Null), json!(3));
+    assert_eq!(index("space.moveRight", 3, Value::Null), Value::Null);
+    assert_eq!(index("space.moveToStart", 2, Value::Null), json!(0));
+    assert_eq!(index("space.moveToStart", 0, Value::Null), Value::Null);
+    assert_eq!(index("space.moveToEnd", 1, Value::Null), json!(4));
+    assert_eq!(index("space.move", 1, json!(2)), json!(1));
+    assert_eq!(index("space.move", 0, json!(9)), json!(4));
+    assert_eq!(index("space.move", 2, json!(-3)), json!(0));
+    assert_eq!(index("space.move", 0, Value::Null), Value::Null);
+    assert_eq!(index("space.other", 0, Value::Null), Value::Null);
+}

@@ -298,3 +298,24 @@ pub fn ungroup_index(
         group_node.saturating_add(1)
     }
 }
+
+/// Where Move Space Left/Right, to Start/End and to Position (`space.move`,
+/// 1-based `position`, clamped) insert the space at `from` of `count`: the
+/// daemon's `move-profile` index (past the target when it moves right).
+/// None: the space is at that edge (or `space.move` names no position).
+pub fn room_move(verb: &str, from: usize, count: usize, position: Option<i64>) -> Option<usize> {
+    let (from_i, last) = (i64::try_from(from).ok()?, i64::try_from(count).ok()?.checked_sub(1)?);
+    let (to, allows_stay) = match verb {
+        "space.moveLeft" => (from_i - 1, false),
+        "space.moveRight" => (from_i + 1, false),
+        "space.moveToStart" => (0, false),
+        "space.moveToEnd" => (last, false),
+        "space.move" => (position?.saturating_sub(1).clamp(0, last), true),
+        _ => return None,
+    };
+    if !(0..=last).contains(&from_i) || !(0..=last).contains(&to) || (!allows_stay && to == from_i)
+    {
+        return None;
+    }
+    usize::try_from(if to > from_i { to + 1 } else { to }).ok()
+}

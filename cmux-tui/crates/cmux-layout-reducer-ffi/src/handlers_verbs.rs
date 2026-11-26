@@ -2,7 +2,7 @@
 //! `cmux_window_rules::handlers_verbs`): Forward Port's `--port`, List Forwarded
 //! Ports' text, Switch Host's pick, Open as Pane's folder, a workspace's PR links,
 //! Duplicate Tab's plan, a tab move that becomes a split, a group walk and edge, and
-//! where Remove from Group puts a workspace.
+//! where Remove from Group puts a workspace, and a Space move's index.
 
 use cmux_window_rules::handlers_verbs as verbs;
 use serde::Deserialize;
@@ -80,6 +80,16 @@ struct Ungroup {
     group_node: usize,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RoomMove {
+    verb: String,
+    from: usize,
+    count: usize,
+    #[serde(default)]
+    position: Option<i64>,
+}
+
 pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> {
     let answer = match operation {
         b"handlers_verbs_port_argument" => {
@@ -114,6 +124,10 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
         b"handlers_verbs_ungroup_index" => {
             let r: Ungroup = read(request)?;
             json!({"index": verbs::ungroup_index(r.ungrouped_first, r.first_unpinned_group, r.node_count, r.group_node)})
+        }
+        b"handlers_verbs_room_move" => {
+            let r: RoomMove = read(request)?;
+            json!({"index": verbs::room_move(&r.verb, r.from, r.count, r.position)})
         }
         _ => return Err(ERR_INVALID),
     };
