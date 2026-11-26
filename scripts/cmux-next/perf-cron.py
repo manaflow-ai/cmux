@@ -374,8 +374,15 @@ PARTS = [
     # The sim's stress ladder (webviews/bench/sim-ladder.bench.ts, goal sim-fidelity-flat-ladder in cmuxterm-hq's NOW):
     # chats and browser tabs at 1, 10 and 100, the cost per added item at 100 over at 10 on renderer CPU, script ms/s,
     # PSS and the focused chat's frame p95 (sim_ladder.ratio_max). Its own part, under the 30-minute run cap.
-    {"name": "web-ui-ladder", "where": "linux", "kind": "webui", "needs": "web-ui-ladder"},
-    {"name": "web-ui-fidelity", "where": "linux", "kind": "webui", "needs": "web-ui-ladder"},
+    # goal: both parts feed NOW's sim_ladder_marginal_ratio_max and sim_fidelity_divergence_max, so once due they go
+    # right after the build (part_order). Without it a part that failed in the newest tip went behind every stale
+    # part: both failed at b4a3f5019f7f (2026-11-25, "reads visible ..., not hidden", before cmux#57063), stored no
+    # row, and at tip c2b1760e0a63 sat 4th and 5th of 23 Linux parts behind one controller request a tick, so the
+    # two rows read the same values from 2026-11-25 02:20Z on.
+    {"name": "web-ui-ladder", "where": "linux", "kind": "webui", "needs": "web-ui-ladder",
+     "goal": "sim-fidelity-flat-ladder"},
+    {"name": "web-ui-fidelity", "where": "linux", "kind": "webui", "needs": "web-ui-ladder",
+     "goal": "sim-fidelity-flat-ladder"},
     # Composer typing under load (webviews/bench/composer-typing.bench.ts, CMUX-571): 500 keys in Chromium and WebKit
     # under idle, a focused stream, ten streaming documents and a focused 100k-row stream; keydown to paint p95/p99
     # (webui.composer_typing.*) against report-only 16/33 ms targets. Its own part, under the 30-minute run cap.
@@ -1482,6 +1489,19 @@ def unread_parts(state):
     return [p["name"] for p in PARTS if p["name"] != "build" and p["name"] not in read]
 
 
+def build_failed_tip(cur):
+    """The tip measurement in flight ended its Mac parts because its app build failed (record_part) (pure)."""
+    return (isinstance(cur, dict) and cur.get("kind") == "tip" and not cur.get("superseded")
+            and any(isinstance(p, dict) and p.get("state") == "build_failed" for p in (cur.get("parts") or {}).values()))
+
+
+def last_tip_build_failed(state):
+    """The newest finished tip measurement in the history failed to build its app (finish_measurement) (pure)."""
+    entry = next((e for e in reversed(state.get("history") or []) if isinstance(e, dict) and e.get("kind") == "tip"), None)
+    return bool(entry) and (bool(entry.get("build_failed"))
+                            or "build_failed" in (entry.get("failed_why") or {}).values())
+
+
 def unread_missing(state, cur):
     """The unread parts (unread_parts) the tip measurement in flight cannot run: its commit predates them (pure).
     Empty unless it still has a Mac part to do."""
@@ -1518,6 +1538,26 @@ def supersede_for_unread(state, t, newest, supported_parts):
             cur["parts"][name] = {"state": "superseded", "reason": gave.get("why") or "superseded"}
         cur["parts_todo"] = []
         return gave.get("why") or "superseded"
+    if build_failed_tip(cur) and newest and newest != cur["sha"]:
+        # Its app did not build, so no Mac part of it can run: without this its Linux parts ran on for up to
+        # ABANDON_HOURS before a newer tip could build the app (tip 6c8931ce22be, 2026-11-25: the build failed at
+        # 10:32Z with 24 Linux parts to do, and tabs, which NOW's tabs-keep-speed reads, had no row for 8 days).
+        why = f"its app build failed; {newest[:12]} is newer"
+        cur["superseded"] = {"by": newest, "why": why, "at": iso(t)}
+        if not last_tip_build_failed(state):
+            # The Mac waits on no Linux part: the tip ends now and the newer tip claims the Mac at this tick, its own
+            # Linux parts running at once with it (decide). The Linux parts that ran with the build already reported
+            # in that tick; the rest end 'superseded', and the build's failure stays on record (finish_measurement).
+            # SUPERSEDED_LINUX_HOURS held the Mac 2 h for nothing (tip 6c8931ce22be, 2026-11-25: its next tip
+            # b4a3f501 waited 9.3 h for the Mac, and terminal_throughput_vs_ghostty_ratio went stale). When the tip
+            # before it failed to build too, the base is likely broken, so the next tip would fail the same way:
+            # its Linux parts keep their bound, or no Linux part would finish while every tip failed to build.
+            for name in list(cur["parts_todo"]):
+                cur["parts"][name] = {"state": "superseded", "reason": why}
+            cur["parts_todo"] = []
+            cur.pop("host_asked_since", None)
+            end_yield(cur, t)
+        return why
     missing = unread_missing(state, cur)
     if not missing or not newest:
         return None
@@ -3536,6 +3576,8 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
         entry["failed_why"] = failed_why
     # The parts that ran and failed (not those never run): part_order puts them after the stale parts next time.
     entry["ran_failed"] = [n for n in failed if cur["parts"][n].get("state") == "failed"]
+    if any(cur["parts"][n].get("state") == "build_failed" for n in failed):
+        entry["build_failed"] = True  # its app did not build (last_tip_build_failed)
     state.setdefault("history", []).append(entry)
     state["history"] = state["history"][-60:]
     base_rows = judging_rows(state, t)
@@ -3951,9 +3993,9 @@ def plan(o):
                 break
     newest = None
     gone_by = state.get("current") or {}
-    if not no_mac and unread_missing(state, gone_by):
-        # A part that never produced a reading (unread_parts) and that the tip in flight predates: the newest commit
-        # that can run it on the fleet (supersede_for_unread). Once per part: every later tip has it.
+    if not no_mac and (unread_missing(state, gone_by) or build_failed_tip(gone_by)):
+        # A part that never produced a reading (unread_parts) and that the tip in flight predates, or a tip whose app
+        # build failed (build_failed_tip): the newest commit that can run it on the fleet (supersede_for_unread).
         for sha in git("rev-list", "--first-parent", f"-n{CANDIDATE_DEPTH}", tip).split():
             if sha == gone_by["sha"] or is_ancestor(sha, gone_by["sha"]) or not fleet_runs(sha, tip_version):
                 break
