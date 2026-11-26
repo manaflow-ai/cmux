@@ -188,6 +188,25 @@ class FmtChangedTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.checked(), [])
 
+    def test_a_crate_with_one_it_test_binary_names_its_test_files_to_rustfmt(self) -> None:
+        # tests/*.rs of a crate built as one `it` binary (#56677) are reached through a generated list
+        # cargo fmt cannot follow, so the check names them; another crate's run is unchanged.
+        self.write("cmux-tui/crates/a/tests/it/main.rs", "test_modules::modules!();\n")
+        self.write("cmux-tui/crates/a/tests/one.rs", "#[test]\nfn one() {}\n")
+        self.change("cmux-tui/crates/a/tests/two.rs", "#[test]\nfn two() {}\n")
+        result = self.run_check("--base", self.base)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.checked(), ["cmux-tui/crates/a/Cargo.toml"])
+        words = self.log.read_text().split()
+        named = [str(Path(w).relative_to(self.repo)) for w in words[words.index("--") + 1:]]
+        self.assertEqual(named, ["cmux-tui/crates/a/tests/one.rs", "cmux-tui/crates/a/tests/two.rs"])
+        head = self.git("rev-parse", "HEAD").strip()
+        self.change("cmux-tui/crates/b/src/lib.rs")
+        self.log.unlink()
+        self.run_check("--base", head)
+        self.assertEqual(self.checked(), ["cmux-tui/crates/b/Cargo.toml"])
+        self.assertNotIn("--", self.log.read_text().split())
+
 
 if __name__ == "__main__":
     unittest.main()

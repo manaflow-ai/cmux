@@ -238,6 +238,8 @@ RUN_ENDED = re.compile(r"^[✔✘━] Test run with \d+ tests?")
 RUN_COUNT = re.compile(r"^[✔✘━] Test run with (\d{1,9}) tests?")
 # A unittest run (verbose `name (module.Class...) ... ok` lines, or a FAIL/ERROR block) ends with `Ran N tests`.
 UNITTEST_LINE = re.compile(r"^(?:FAIL|ERROR): \w+ \([\w.]+\)|^\w+ \([\w.]+\)(?: \.\.\.|$)")
+UNITTEST_PENDING = re.compile(r"^\w+ \([\w.]+\) \.\.\. (?!\s*(?:ok|FAIL|ERROR|skipped\b.*|expected failure|unexpected success)\s*$)")
+UNITTEST_VERDICT = re.compile(r"(?: \.\.\. |^\s+)?(?:ok|FAIL|ERROR|skipped\b.*|expected failure|unexpected success)\s*$")
 XC_SUITE_STARTED = re.compile(r"^\s*Test Suite '.+' started at ")
 XC_SUITE_ENDED = re.compile(r"^\s*Test Suite '.+' (?:passed|failed) at ")
 SUITE_STARTED = re.compile(r"^◇ Suite (.+?) started\.")
@@ -1184,6 +1186,7 @@ def parse_log(log: str | None, bun: bool = True) -> Result:
     named: list[str] = []
     crashed = False
     console = False  # inside a vitest console block (VITEST_CONSOLE)
+    unit_output = False  # inside a unittest -v test's own output (its `name (mod.Cls.name) ... ` line has no verdict yet)
     for passing, text in shown:
         if SWIFT_TEST_SUMMARY_FIXTURE.search(text):
             continue
@@ -1192,6 +1195,18 @@ def parse_log(log: str | None, bun: bool = True) -> Result:
             continue
         if console and not text.strip():
             console = False
+        # unittest -v prints `test_x (m.C.test_x) ... ` and the verdict (`ok`, FAIL, ERROR, skipped) after whatever the
+        # test printed, so its indented lines are that test's output: a probe quoting `crash report x.ips: EXC_BAD_ACCESS`
+        # is not the process dying (hq#26226, run 45717138906 job 139565977393: four named module failures read as a
+        # crash). Only the quoted-diagnostic patterns are muted; `Fatal Python error`, a signal exit and a shell kill
+        # still count.
+        if UNITTEST_PENDING.match(text):
+            unit_output = True
+        elif unit_output and not text[:1].isspace():
+            unit_output = False
+        elif unit_output and UNITTEST_VERDICT.search(text):
+            unit_output = False
+        quoted = unit_output and (text[:1].isspace() or bool(UNITTEST_PENDING.match(text)))
         if BUN_PANIC.match(text):
             crashed = True
         if match := XCTEST_RESTART.search(text):
@@ -1205,7 +1220,8 @@ def parse_log(log: str | None, bun: bool = True) -> Result:
             signals.append(str(signal_exit))
         killed = SHELL_SIGNAL.search(text) and not passing
         runtime = HELPER_KILLED.search(text) or killed or (
-            (CRASH.search(text) or CRASH_AT_START.search(text) or SIGNALED.search(text)) and not TEST_LINE.search(text) and not HEADING.match(text)
+            (CRASH.search(text) or (not quoted and (CRASH_AT_START.search(text) or SIGNALED.search(text))))
+            and not TEST_LINE.search(text) and not HEADING.match(text)
             and not console and not WORKERD_UNCAUGHT.match(text))
         if runtime:
             crashed = True
