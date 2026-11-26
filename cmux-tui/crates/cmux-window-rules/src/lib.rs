@@ -8,9 +8,15 @@
 //!
 //! - [`close`]: what closing tabs asks first (a working agent, a foreground
 //!   program) and whether the close earns an undo toast.
+//! - [`desktop_center`], [`desktop_attention`], [`desktop_bursts`],
+//!   [`desktop_announce`]: the desktop notification rules (whether a launch
+//!   uses Notification Center, a banner's category and what its actions do,
+//!   the Needs you banners a mark change posts or withdraws, agent-finished
+//!   bursts and VoiceOver's status line).
 //! - [`tabs`]: what a new tab or pane opens and where (its kind, the browser
 //!   open plan, a split's plan), tab moves, numbers, duplicates, restarts and
-//!   icons; [`tabs::panes`] the pane and terminal tables.
+//!   icons; [`tabs::panes`] the pane and terminal tables; [`tabs::strip`]
+//!   the strip's close, move and next-tab commands.
 //! - [`chat`]: where an agent chat, a tool opened from it and a column action
 //!   go (the chat dock, the strip, the column target), and the agent chat
 //!   handlers' rules ([`chat::agent`]).
@@ -22,6 +28,9 @@
 //!   asks, space defaults, description and status, screen moves).
 //! - [`restore`]: which saved windows a launch makes before its front window
 //!   is live (only the front one; the others follow, one per turn).
+//! - [`right_column`]: what opens on the right of a pane (a split right, a
+//!   split below the one pane there, or a tab), and [`subagent_panes`]: a
+//!   chat's subagent panes, opened one at a time, and the focus a click owes.
 //! - [`closed`]: the daemon's closed history (page rows, Cmd-Shift-T's
 //!   owner) and the undo toast's expected closes, a reducer.
 //! - [`notifications`], [`history`], [`remote`], [`browser`], [`files`],
@@ -42,6 +51,10 @@ pub mod browser;
 pub mod chat;
 pub mod close;
 pub mod closed;
+pub mod desktop_announce;
+pub mod desktop_attention;
+pub mod desktop_bursts;
+pub mod desktop_center;
 pub mod editors;
 pub mod files;
 pub mod history;
@@ -49,7 +62,9 @@ pub mod launch;
 pub mod notifications;
 pub mod remote;
 pub mod restore;
+pub mod right_column;
 pub mod screen_share;
+pub mod subagent_panes;
 pub mod tabs;
 pub mod targets;
 pub mod update_idle;
