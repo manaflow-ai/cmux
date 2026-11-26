@@ -54,7 +54,8 @@ final class ScreenContentView: NSView {
     /// spring starts from it (`SplitMotion.seed`).
     var releasedDivider: (kind: DividerHandleView.Kind, velocity: CGFloat, time: CFTimeInterval, sharedEdges: Bool)?
     /// The frames are landing a divider's release (set with its `SplitMotion.seed`): they move on
-    /// ``releaseSpring`` until they land, a key resize press or a new drag moves them again.
+    /// ``releaseSpring`` until they land or a key resize press moves them again. A drag caught mid-landing keeps it: its
+    /// catch reads the same spring (`currentFrameSpring`).
     var releaseLanding = false
     /// Column scroll rules and state (`ColumnScrollState.reduce`).
     var scrollState = ColumnScrollState()
