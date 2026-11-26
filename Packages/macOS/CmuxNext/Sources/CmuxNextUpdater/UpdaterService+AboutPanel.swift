@@ -5,7 +5,8 @@ import AppKit
 extension UpdaterService {
     /// Opens About cmux at once. This build's PRs join its credits when read (cache-first, once per
     /// launch): a panel still on screen is shown again with them, a later open has them.
-    public func showAboutPanel(bundle: Bundle = .main) {
+    public func showAboutPanel() {
+        let bundle = Bundle.main
         presentAboutPanel(bundle: bundle)
         guard aboutPullRequests == nil, aboutPullRequestsTask == nil else { return }
         aboutPullRequestsTask = Task { [weak self] in

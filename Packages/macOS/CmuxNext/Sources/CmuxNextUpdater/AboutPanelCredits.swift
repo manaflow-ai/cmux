@@ -10,21 +10,16 @@ import AppKit
 ///
 /// It also lists what is in this build (Leo 2026-11-26: "hm do we display which prs go into which
 /// nightly maybe that'd be useful per thing?"): the PRs its signed notes name, by area, each linked.
-public struct AboutPanelCredits {
-    public let bundle: Bundle
+struct AboutPanelCredits {
+    let bundle: Bundle
     /// This build's PRs (``UpdaterService/currentBuildPullRequests()``); nil or empty lists none.
-    public var pullRequests: BuildPullRequests?
+    var pullRequests: BuildPullRequests?
 
-    public init(bundle: Bundle, pullRequests: BuildPullRequests? = nil) {
-        self.bundle = bundle
-        self.pullRequests = pullRequests
-    }
-
-    public static var pullRequestsTitle: String {
+    static var pullRequestsTitle: String {
         String(localized: "about.credits.prs.title", defaultValue: "What's in this build", bundle: .localizedModule)
     }
 
-    public static var pullRequestsOther: String {
+    static var pullRequestsOther: String {
         String(localized: "about.credits.prs.other", defaultValue: "Other", bundle: .localizedModule)
     }
 
@@ -59,7 +54,7 @@ public struct AboutPanelCredits {
 
     /// Credits text: a link to the notices file and the opt-out line, each
     /// when present; nil when neither is.
-    public var credits: NSAttributedString? {
+    var credits: NSAttributedString? {
         let centered = NSMutableParagraphStyle()
         centered.alignment = .center
         let font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
