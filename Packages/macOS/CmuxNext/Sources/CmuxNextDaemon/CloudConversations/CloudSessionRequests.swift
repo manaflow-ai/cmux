@@ -47,27 +47,3 @@ public struct CloudSessionSetRequest: DaemonRequest, CustomStringConvertible {
         return "cloud-session-set(\(apiBaseURL), expires_at: \(expiresAt ?? 0))"
     }
 }
-
-/// `cloud-session-clear`: ends the lease (sign-out, account switch).
-public struct CloudSessionClearRequest: DaemonRequest {
-    public typealias Response = CloudSessionState
-    public static let command = "cloud-session-clear"
-    public init() {}
-}
-
-/// `cloud-session-status`.
-public struct CloudSessionStatusRequest: DaemonRequest {
-    public typealias Response = CloudSessionState
-    public static let command = "cloud-session-status"
-    public init() {}
-}
-
-/// `cloud-selfhost-info` (`cloud-selfhost-v1`): who the self-hosted server
-/// the lease names says the person is (`GET /v1/selfhost/info`, asked by the
-/// daemon without a token). Refused (`not_selfhost`) under a bearer lease.
-public struct CloudSelfHostInfoRequest: DaemonRequest {
-    public typealias Response = CloudSelfHostInfo
-    public static let command = "cloud-selfhost-info"
-    public static let requiredCapability: String? = DaemonCapability.cloudSelfHost.rawValue
-    public init() {}
-}

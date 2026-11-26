@@ -24,35 +24,6 @@ public struct ConversationImportedMessage: Encodable, Sendable, Hashable {
     }
 }
 
-/// `conversation-import` (cmux-tui conversation_import.rs): appends history
-/// from another store once, keeping authors and times; the owner assigns
-/// seqs and skips what it already holds. Local user connections only.
-public struct ConversationImportRequest: DaemonRequest {
-    public typealias Response = ConversationImportResult
-    public static let command = "conversation-import"
-    public var conversation: String
-    public var messages: [ConversationImportedMessage]
-
-    public init(conversation: String, messages: [ConversationImportedMessage]) {
-        self.conversation = conversation
-        self.messages = messages
-    }
-}
-
-public struct ConversationImportResult: Decodable, Sendable, Equatable {
-    public var conversation: ConversationSummary
-    /// The seqs the imported messages got.
-    public var imported: [UInt64]
-    /// Messages the conversation already held.
-    public var skipped: Int
-
-    public init(conversation: ConversationSummary, imported: [UInt64], skipped: Int) {
-        self.conversation = conversation
-        self.imported = imported
-        self.skipped = skipped
-    }
-}
-
 extension ConversationClient {
     public func importHistory(_ request: ConversationImportRequest) async throws -> ConversationImportResult {
         guard await Self.supported(by: connection) else {

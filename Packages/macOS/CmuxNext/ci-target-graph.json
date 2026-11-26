@@ -2654,6 +2654,12 @@
       "packages": [],
       "reads": []
     },
+    "ConversationWireTypesPlugin": {
+      "kind": "plugin",
+      "path": "Packages/macOS/CmuxNext/Sources/ConversationWireTypesPlugin",
+      "targets": [],
+      "packages": []
+    },
     "SettingsSchemaPlugin": {
       "kind": "plugin",
       "path": "Packages/macOS/CmuxNext/Sources/SettingsSchemaPlugin",

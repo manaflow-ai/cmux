@@ -1,0 +1,493 @@
+{
+  "$comment": [
+    "The Swift wire types of the daemon's conversation commands that scripts/cmux-next/gen-conversation-wire.py",
+    "writes at build time (ConversationWireTypesPlugin) from cmux-tui/spec/sdk-schema.json. One entry per Swift type:",
+    "name (Parent.Child: nested, written in an extension of Parent), doc, request (the command; the request shape",
+    "validates the fields), response, capability (a DaemonCapability case; \"=text\" a literal; absent: none),",
+    "schema (a data type's shape: request:CMD, result:CMD, type:NAME, event:NAME; absent: the schema has none,",
+    "as for Cloud results it types JsonValue), partial (a data type may skip the shape's required keys), conforms,",
+    "statics, init (public, internal or false; requests default to public), fields (wire key to: type, name, doc,",
+    "default (the init parameter's), fallback (decoded when absent), value (a stored initial value, not an init",
+    "parameter), set (the init's expression), let, extra (not in the schema shape)).",
+    "Field order is the init's parameter order. Hand-written helpers live in extensions beside the old files."
+  ],
+  "files": {
+    "LocalRequests": [
+      {
+        "name": "ListConversationsRequest",
+        "doc": "`conversation-list`: every conversation, newest `updated_at` first.",
+        "request": "conversation-list", "response": "ConversationList", "capability": "localConversations"
+      },
+      {
+        "name": "ConversationSnapshotRequest",
+        "doc": "`conversation-snapshot`: the head and the newest `tail` messages (1...500).",
+        "request": "conversation-snapshot", "response": "ConversationSnapshot", "capability": "localConversations",
+        "fields": {
+          "conversation": {},
+          "tail": {"type": "Int", "set": "min(max(tail, 1), 500)"}
+        }
+      },
+      {
+        "name": "ConversationHistoryRequest",
+        "doc": "`conversation-history`: up to `limit` (1...500) messages before `beforeSeq`, ascending.",
+        "request": "conversation-history", "response": "ConversationHistory", "capability": "localConversations",
+        "fields": {
+          "conversation": {},
+          "before_seq": {},
+          "limit": {"type": "Int", "set": "min(max(limit, 1), 500)"}
+        }
+      },
+      {
+        "name": "CreateConversationRequest",
+        "doc": "`conversation-create`: idempotent by `idempotencyKey`.",
+        "request": "conversation-create", "response": "ConversationCreated", "capability": "localConversations",
+        "fields": {
+          "idempotency_key": {},
+          "actor": {"doc": "Omitted: the owner stamps the connection's principal.", "default": "nil"},
+          "title": {},
+          "participants": {"type": "[ConversationParticipant]"}
+        }
+      },
+      {
+        "name": "ConversationOpRequest",
+        "doc": "`conversation-op`: one typed op; the reply and the event carry `transaction`.",
+        "request": "conversation-op", "response": "ConversationOpResult", "capability": "localConversations",
+        "fields": {
+          "conversation": {},
+          "idempotency_key": {},
+          "actor": {"doc": "Omitted: the owner stamps the connection's principal.", "default": "nil"},
+          "transaction": {"type": "ClientTransactionID?"},
+          "op": {"type": "ConversationOp"}
+        }
+      },
+      {
+        "name": "ConversationTypingRequest",
+        "doc": "`conversation-typing`: ephemeral, never stored.",
+        "request": "conversation-typing", "response": "EmptyResponse", "capability": "localConversations",
+        "fields": {
+          "conversation": {},
+          "actor": {"default": "nil"},
+          "on": {}
+        }
+      },
+      {
+        "name": "ConversationAgentTokenRequest",
+        "doc": "`conversation-agent-token`: mints the credential of agent `participant`.",
+        "request": "conversation-agent-token", "response": "ConversationAgentToken", "capability": "localConversations",
+        "fields": {"participant": {}}
+      },
+      {
+        "name": "ConversationBindRequest",
+        "doc": "`conversation-bind`: binds the connection to agent `participant`.",
+        "request": "conversation-bind", "response": "ConversationAgentToken", "capability": "localConversations",
+        "fields": {"participant": {}, "token": {}}
+      },
+      {
+        "name": "ConversationLinkResolveRequest",
+        "doc": [
+          "`conversation-link-resolve` (conversation-tree-v1): a permalink's conversation, message, the",
+          "message's top thread root and the path from that root down to it."
+        ],
+        "request": "conversation-link-resolve", "response": "ConversationLinkTarget", "capability": "=conversation-tree-v1",
+        "fields": {"url": {}}
+      },
+      {
+        "name": "ConversationThreadRequest",
+        "doc": "`conversation-thread`: the root and up to `limit` (1...500) replies after `afterSeq`.",
+        "request": "conversation-thread", "response": "ConversationThread", "capability": "conversationThread",
+        "statics": {"maxLimit": "500"},
+        "fields": {
+          "conversation": {},
+          "root": {},
+          "after_seq": {"type": "UInt64"},
+          "limit": {"type": "Int", "set": "min(max(limit, 1), Self.maxLimit)"}
+        }
+      },
+      {
+        "name": "ConversationImportRequest",
+        "doc": [
+          "`conversation-import` (cmux-tui conversation_import.rs): appends history",
+          "from another store once, keeping authors and times; the owner assigns",
+          "seqs and skips what it already holds. Local user connections only."
+        ],
+        "request": "conversation-import", "response": "ConversationImportResult",
+        "fields": {
+          "conversation": {},
+          "messages": {"type": "[ConversationImportedMessage]"}
+        }
+      },
+      {
+        "name": "ConversationLiveRequest",
+        "doc": [
+          "`conversation-live {conversation}` (`chief-live-v1`): the local owner's",
+          "`run.live` snapshot of a conversation, the text so far and the activity of",
+          "every running run. Home asks when it opens a conversation and after a gap."
+        ],
+        "request": "conversation-live", "response": "ChiefLiveFrame", "capability": "chiefLive",
+        "fields": {"conversation": {}}
+      },
+      {
+        "name": "ConversationRunRequest",
+        "doc": "`conversation-run {conversation, run}` (`conversation-runs-v1`): every step of a local run.",
+        "request": "conversation-run", "response": "ConversationRunRows", "capability": "conversationRuns",
+        "fields": {
+          "conversation": {},
+          "run": {},
+          "after_rev": {"default": "nil"}
+        }
+      }
+    ],
+    "LocalResults": [
+      {
+        "name": "ConversationList",
+        "doc": "`conversation-list` data.",
+        "schema": "result:conversation-list", "conforms": ["Decodable", "Sendable", "Equatable"], "init": "public",
+        "fields": {"conversations": {}}
+      },
+      {
+        "name": "ConversationSnapshot",
+        "doc": "`conversation-snapshot` data: the head and the newest messages, ascending.",
+        "schema": "result:conversation-snapshot", "conforms": ["Decodable", "Sendable", "Equatable"], "init": "public",
+        "fields": {
+          "conversation": {},
+          "messages": {},
+          "threads": {
+            "type": "[ConversationThreadSummary]", "default": "[]", "fallback": "[]",
+            "doc": "The owner's stats of the thread roots in `messages` (`conversation-thread-v1`)."
+          }
+        }
+      },
+      {
+        "name": "ConversationHistory",
+        "doc": "`conversation-history` data: one older page, ascending.",
+        "schema": "result:conversation-history", "conforms": ["Decodable", "Sendable", "Equatable"], "init": "public",
+        "fields": {
+          "messages": {},
+          "threads": {
+            "type": "[ConversationThreadSummary]", "default": "[]", "fallback": "[]",
+            "doc": "The owner's stats of the thread roots in `messages` (`conversation-thread-v1`)."
+          }
+        }
+      },
+      {
+        "name": "ConversationCreated",
+        "doc": "`conversation-create` data.",
+        "schema": "result:conversation-create", "conforms": ["Decodable", "Sendable", "Equatable"],
+        "fields": {
+          "conversation": {},
+          "replayed": {"fallback": "false", "doc": "True when the key was seen before and nothing changed."}
+        }
+      },
+      {
+        "name": "ConversationOpResult",
+        "doc": "`conversation-op` data: the committed revision and the change it made.",
+        "schema": "result:conversation-op", "conforms": ["Decodable", "Sendable", "Equatable"], "init": "public",
+        "fields": {
+          "transaction": {"type": "ClientTransactionID?"},
+          "rev": {},
+          "seq": {},
+          "replayed": {"fallback": "false"},
+          "change": {}
+        }
+      },
+      {
+        "name": "ConversationAgentToken",
+        "doc": "The result of both commands (`token` only from `conversation-agent-token`).",
+        "schema": "result:conversation-agent-token", "conforms": ["Decodable", "Sendable", "Equatable"],
+        "fields": {"participant": {}, "token": {"type": "String?"}}
+      },
+      {
+        "name": "ConversationLinkTarget",
+        "schema": "result:conversation-link-resolve", "partial": true,
+        "conforms": ["Decodable", "Sendable", "Hashable"],
+        "fields": {
+          "url": {},
+          "message": {},
+          "thread_root": {},
+          "path": {"fallback": "[]"}
+        }
+      },
+      {
+        "name": "ConversationImportResult",
+        "schema": "result:conversation-import", "conforms": ["Decodable", "Sendable", "Equatable"], "init": "public",
+        "fields": {
+          "conversation": {},
+          "imported": {"doc": "The seqs the imported messages got."},
+          "skipped": {"type": "Int", "doc": "Messages the conversation already held."}
+        }
+      },
+      {
+        "name": "ConversationRunRows",
+        "doc": [
+          "The steps of one run (`conversation-run`, `cloud-conversation-run`): Home reads the",
+          "talk steps' text to show reply segments a live buffer already freed (a mid-run join)."
+        ],
+        "schema": "result:conversation-run", "partial": true, "conforms": ["Decodable", "Sendable", "Hashable"],
+        "fields": {
+          "steps": {"type": "[Step]"},
+          "has_more": {"type": "Bool?"}
+        }
+      },
+      {
+        "name": "ConversationRunRows.Step",
+        "conforms": ["Decodable", "Sendable", "Hashable"],
+        "fields": {
+          "id": {"type": "String", "extra": true},
+          "kind": {"type": "String", "extra": true},
+          "text": {"type": "String?", "extra": true},
+          "tool": {"type": "ConversationRunTool?", "extra": true},
+          "status": {"type": "String?", "extra": true},
+          "at": {"type": "Double?", "extra": true, "doc": "The step's actual first-write timestamp, in milliseconds since the epoch."},
+          "truncated": {"type": "Bool?", "extra": true, "doc": "The row's text was cut (32 KiB): not the step's whole text."},
+          "rev": {"type": "UInt64?", "extra": true, "doc": "Local: the step's write revision; Cloud: its place."},
+          "seq": {"type": "UInt64?", "extra": true}
+        }
+      }
+    ],
+    "CloudRequests": [
+      {
+        "name": "CloudConversationThreadRequest",
+        "doc": [
+          "`cloud-conversation-thread`: ConversationDO's `conversation.thread` read",
+          "through the proxy (cx-59n8.6), up to `limit` (1...200) replies after `afterSeq`."
+        ],
+        "request": "cloud-conversation-thread", "response": "ConversationThread", "capability": "conversationThread",
+        "statics": {"maxLimit": "200"},
+        "fields": {
+          "conversation": {},
+          "root": {},
+          "after_seq": {"type": "UInt64"},
+          "limit": {"type": "Int", "set": "min(max(limit, 1), Self.maxLimit)"}
+        }
+      },
+      {
+        "name": "CloudSessionClearRequest",
+        "doc": "`cloud-session-clear`: ends the lease (sign-out, account switch).",
+        "request": "cloud-session-clear", "response": "CloudSessionState"
+      },
+      {
+        "name": "CloudSessionStatusRequest",
+        "doc": "`cloud-session-status`.",
+        "request": "cloud-session-status", "response": "CloudSessionState"
+      },
+      {
+        "name": "CloudSelfHostInfoRequest",
+        "doc": [
+          "`cloud-selfhost-info` (`cloud-selfhost-v1`): who the self-hosted server",
+          "the lease names says the person is (`GET /v1/selfhost/info`, asked by the",
+          "daemon without a token). Refused (`not_selfhost`) under a bearer lease."
+        ],
+        "request": "cloud-selfhost-info", "response": "CloudSelfHostInfo", "capability": "cloudSelfHost"
+      },
+      {
+        "name": "CloudInboxSubscribeRequest",
+        "doc": "`cloud-inbox-subscribe`: the daemon's shared inbox socket for this connection.",
+        "request": "cloud-inbox-subscribe", "response": "CloudSubscription"
+      },
+      {
+        "name": "CloudInboxUnsubscribeRequest",
+        "doc": "`cloud-inbox-unsubscribe`.",
+        "request": "cloud-inbox-unsubscribe", "response": "EmptyResponse"
+      },
+      {
+        "name": "CloudMessageRequestsRequest",
+        "doc": [
+          "`cloud-requests-list`: the account's open message requests (the Worker's `home.requests.list`,",
+          "plans/cmux-next/home-messaging-invites/DESIGN.md 2.3): invites from people the user is not",
+          "connected to, for the verified email the app's lease is for. Answered with",
+          "`CloudConversationOp.acceptRequest` or `.dismissRequest(block:)`."
+        ],
+        "request": "cloud-requests-list", "response": "CloudMessageRequests"
+      },
+      {
+        "name": "CloudConversationOpRequest",
+        "doc": [
+          "`cloud-conversation-op`: one typed op, forwarded with the client's key",
+          "and origin. A retry with the same key answers `replayed: true`."
+        ],
+        "request": "cloud-conversation-op", "response": "CloudConversationOpResult",
+        "fields": {
+          "conversation": {"doc": "Required, except for `dm.open` and `conversation.create`, which must not carry it."},
+          "idempotency_key": {"doc": "1...256 characters, sent unchanged."},
+          "origin": {"doc": "`user|cli|mcp|script|remote`; absent is `cli`.", "default": "\"user\""},
+          "op": {"type": "CloudConversationOp"}
+        }
+      },
+      {
+        "name": "CloudConversationSubscribeRequest",
+        "doc": "`cloud-conversation-subscribe`: at most 64 per daemon (`too_many_subscriptions`).",
+        "request": "cloud-conversation-subscribe", "response": "CloudSubscription",
+        "statics": {"maxSubscriptions": "64"},
+        "fields": {"conversation": {}}
+      },
+      {
+        "name": "CloudConversationUnsubscribeRequest",
+        "doc": "`cloud-conversation-unsubscribe`.",
+        "request": "cloud-conversation-unsubscribe", "response": "EmptyResponse",
+        "fields": {"conversation": {}}
+      },
+      {
+        "name": "CloudInboxListRequest",
+        "doc": [
+          "`cloud-inbox-list`: one page of the account inbox (UserDO `inbox.list`), `limit` entries from",
+          "`cursor` (the `nextCursor` of the page before; nil: the first page)."
+        ],
+        "request": "cloud-inbox-list", "response": "CloudInboxList",
+        "statics": {"maxLimit": "200"},
+        "fields": {
+          "limit": {"type": "Int?", "default": "nil", "set": "limit.map { min(max($0, 1), Self.maxLimit) }"},
+          "include_archived": {"default": "nil"},
+          "cursor": {"default": "nil"}
+        }
+      },
+      {
+        "name": "CloudConversationSnapshotRequest",
+        "doc": "`cloud-conversation-snapshot`: the head and the newest `tail` (1...50) messages.",
+        "request": "cloud-conversation-snapshot", "response": "CloudConversationSnapshot",
+        "statics": {"maxTail": {"value": "50", "doc": "The owner returns at most this many messages."}},
+        "fields": {
+          "conversation": {},
+          "tail": {"type": "Int", "set": "min(max(tail, 1), Self.maxTail)"}
+        }
+      },
+      {
+        "name": "CloudConversationHistoryRequest",
+        "doc": "`cloud-conversation-history`: up to `limit` (1...200) messages before `beforeSeq`, ascending.",
+        "request": "cloud-conversation-history", "response": "CloudConversationHistory",
+        "statics": {"maxLimit": "200"},
+        "fields": {
+          "conversation": {},
+          "before_seq": {},
+          "limit": {"type": "Int", "set": "min(max(limit, 1), Self.maxLimit)"}
+        }
+      },
+      {
+        "name": "CloudConversationTypingRequest",
+        "doc": [
+          "`cloud-conversation-typing {conversation, on}` (`cloud-conversation-typing-v1`): the person is",
+          "typing (`on`) or stopped in a subscribed Cloud conversation. The daemon sends the owner's",
+          "ephemeral typing frame on the conversation's shared socket; nothing is stored. A conversation",
+          "no client subscribes is refused `not_subscribed`."
+        ],
+        "request": "cloud-conversation-typing", "response": "EmptyResponse", "capability": "cloudConversationTyping",
+        "fields": {"conversation": {}, "on": {}}
+      },
+      {
+        "name": "CloudHostReplicaSetRequest",
+        "doc": [
+          "`cloud-host-replica-set`: leases the install token to the publisher. The",
+          "daemon keeps it in memory only and never returns it. A lease for the same",
+          "user, install and origin is a renewal that keeps the open socket."
+        ],
+        "request": "cloud-host-replica-set", "response": "CloudHostReplicaState",
+        "fields": {
+          "api_base_url": {"doc": "An https origin, or http with a loopback host; no path."},
+          "install_token": {},
+          "expires_at": {"doc": "Unix milliseconds."},
+          "client_version": {"default": "nil"},
+          "host_name": {"doc": "The name phones show for this Mac."}
+        }
+      },
+      {
+        "name": "CloudHostReplicaClearRequest",
+        "doc": [
+          "`cloud-host-replica-clear`: drops the lease. `purge` deletes the cloud",
+          "copy first; the lease goes when the cloud confirms."
+        ],
+        "request": "cloud-host-replica-clear", "response": "CloudHostReplicaState",
+        "fields": {"purge": {"type": "Bool"}}
+      },
+      {
+        "name": "CloudHostReplicaStatusRequest",
+        "doc": "`cloud-host-replica-status`.",
+        "request": "cloud-host-replica-status", "response": "CloudHostReplicaState"
+      },
+      {
+        "name": "CloudConversationLiveRequest",
+        "doc": [
+          "`cloud-conversation-live {conversation}` (`cloud-chief-live-v1`): asks a",
+          "subscribed Cloud conversation's owner for its `run.live` snapshot; the",
+          "answer comes later as a `cloud-conversation-live` event."
+        ],
+        "request": "cloud-conversation-live", "response": "EmptyResponse", "capability": "cloudChiefLive",
+        "fields": {"conversation": {}}
+      },
+      {
+        "name": "CloudConversationRunRequest",
+        "doc": "`cloud-conversation-run {conversation, agent, run}` (`cloud-conversation-runs-v1`): a Cloud Chief's run.",
+        "request": "cloud-conversation-run", "response": "ConversationRunRows", "capability": "cloudConversationRuns",
+        "fields": {
+          "conversation": {},
+          "agent": {},
+          "run": {},
+          "after_seq": {"default": "nil"}
+        }
+      },
+      {
+        "name": "CloudConversationRunsRequest",
+        "doc": "Persisted runs of one hosted Chief; the brain lists newest first.",
+        "request": "cloud-conversation-runs", "response": "ConversationRunsRequest.Response",
+        "capability": "cloudConversationRuns",
+        "fields": {
+          "conversation": {},
+          "agent": {},
+          "before_started_at": {"default": "nil"},
+          "limit": {"type": "Int", "value": "100"}
+        }
+      }
+    ],
+    "CloudResults": [
+      {
+        "name": "CloudConversationSnapshot",
+        "doc": [
+          "`cloud-conversation-snapshot` data: the head (`rev`) and the newest",
+          "messages, ascending; `seq` is the owner stream's sequence."
+        ],
+        "conforms": ["Decodable", "Sendable", "Equatable"], "init": "public",
+        "fields": {
+          "conversation": {"type": "ConversationSummary", "extra": true},
+          "messages": {"type": "[ConversationMessage]", "extra": true},
+          "rev": {"type": "UInt64", "extra": true},
+          "seq": {"type": "UInt64", "extra": true},
+          "threads": {
+            "type": "[ConversationThreadSummary]", "extra": true, "default": "[]", "fallback": "[]",
+            "doc": "The owner's stats of the thread roots in `messages` (`conversation-thread-v1`)."
+          }
+        }
+      },
+      {
+        "name": "CloudConversationHistory",
+        "doc": "`cloud-conversation-history` data: one older page, ascending.",
+        "conforms": ["Decodable", "Sendable", "Equatable"], "init": "public",
+        "fields": {
+          "messages": {"type": "[ConversationMessage]", "extra": true},
+          "has_more": {"type": "Bool", "extra": true, "fallback": "false"},
+          "threads": {
+            "type": "[ConversationThreadSummary]", "extra": true, "default": "[]", "fallback": "[]",
+            "doc": "The owner's stats of the thread roots in `messages` (`conversation-thread-v1`)."
+          }
+        }
+      },
+      {
+        "name": "CloudConversationTyping",
+        "doc": [
+          "`cloud-conversation-typing`: someone in a subscribed Cloud conversation started or stopped",
+          "typing (the owner's `conversation-typing` broadcast). Ephemeral: never stored or replayed."
+        ],
+        "schema": "event:cloud-conversation-typing", "conforms": ["Decodable", "Sendable", "Hashable"], "init": "public",
+        "fields": {
+          "conversation": {},
+          "participant": {},
+          "on": {},
+          "account": {"default": "nil", "doc": "The cloud account (the lease's `sub`) this event came through."}
+        }
+      },
+      {
+        "name": "CloudMessageRequests",
+        "doc": "`cloud-requests-list` data, newest first.",
+        "conforms": ["Decodable", "Sendable", "Equatable"], "init": "public",
+        "fields": {"requests": {"type": "[CloudMessageRequest]", "extra": true}}
+      }
+    ]
+  }
+}

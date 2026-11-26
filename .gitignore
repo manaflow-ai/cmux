@@ -103,6 +103,9 @@ tmux-*.log
 # The settings Swift: the SettingsSchemaPlugin build-tool plugin writes it into its work directory from
 # schemas/settings (gen-settings-sources.py --swift-out, RFD 0048); a copy here would compile twice.
 /Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/*.generated.swift
+# The daemon's conversation wire Swift: the ConversationWireTypesPlugin build-tool plugin writes it into its
+# work directory from cmux-tui/spec/sdk-schema.json (gen-conversation-wire.py --swift-out); never in git.
+/Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/**/ConversationWire+*.generated.swift
 # The React pages' strings tables: build output of webviews/scripts/pages/gen-strings.mjs, written
 # by bun install, the webviews test preload and every bundle build from the xcstrings catalogs
 # (#21946). Committed copies collided in every pull request that touched a catalog.

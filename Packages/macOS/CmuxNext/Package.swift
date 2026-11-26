@@ -2462,7 +2462,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCompat",
                 "CmuxNextWakeups",
             ],
-            swiftSettings: daemonSwiftSettings
+            swiftSettings: daemonSwiftSettings,
+            // The conversation wire types (ConversationWire+<group>.generated.swift), from cmux-tui/spec/sdk-schema.json.
+            plugins: [.plugin(name: "ConversationWireTypesPlugin")]
         ),
         .testTarget(
             name: "CmuxNextDaemonTests",
@@ -2785,6 +2787,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         // Runs scripts/cmux-next/gen-settings-sources.py --swift-out into its work directory.
         .plugin(name: "SettingsSchemaPlugin", capability: .buildTool()),
+        // Runs scripts/cmux-next/gen-conversation-wire.py --swift-out into its work directory.
+        .plugin(name: "ConversationWireTypesPlugin", capability: .buildTool()),
         // Runs scripts/cmux-next/string_catalogs.py build-target: a target's <Table>.xcstrings.d directories (one file
         // per key, so two PRs adding strings never conflict) into <Table>.xcstrings in its work directory.
         .plugin(name: "StringCatalogsPlugin", capability: .buildTool()),
