@@ -118,6 +118,13 @@ pub(super) fn dispatch(
     let deadline = deadline();
     let target = Target::resolve(mux, request, OPERATION)?;
     let arguments = parse(&request.fields, &target.repository.root)?;
+    // The home folder's repository: its untracked files are every file the person has, and no
+    // read of it lists them (`cmux_git::home`), so `add -A` would commit files nobody was shown.
+    if arguments.include_untracked && !target.repository.lists_untracked() {
+        let message = "the home folder's repository commits its tracked changes only; name a new \
+                       file in paths to add it";
+        return Err(refused(OPERATION, "home_repository", message, Value::Null));
+    }
     let fingerprint = target.fingerprint(request);
     target.exclusive(OPERATION, || {
         if let Some(replayed) = ledger::prior(mux, &key, OPERATION, &fingerprint)? {
