@@ -64,6 +64,8 @@ ED25519_SPKI_PREFIX = bytes.fromhex("302a300506032b6570032100")
 SKIP = 3
 # The Linux release files (scripts/ci/cmux-machine-channel.py payload --purpose linux-release).
 LINUX_RELEASE = "cmux-linux-release"
+# The Cloud machine channel's files (scripts/ci/cmux-machine-channel.py PURPOSE).
+MACHINE_UPDATE = "cmux-cloud-machine-update"
 FILES = "https://files.cmux.com/cmux-tui/"
 # The fields a re-sign of one build changes; same-build ignores them.
 SIGNING_TIME_FIELDS = ("published_at", "expires_at")
@@ -248,6 +250,28 @@ LINUX_RELEASE_NAMES = ("cmux-tui", "cmux-tui-hook", "cmux-tui-acpmux", "cmux-tui
                        "cmux-tui-agent-screen-detection")
 
 
+def completes(new, current):
+    """True when NEW is CURRENT's commit with more targets and the same bytes (sha256) for every
+    binary of every target CURRENT names: a Cloud machine file that adds the aarch64 build to the
+    x86_64-only one of the same commit. Only the bytes count, never the URL: an x86_64 machine on the
+    published file finds nothing new to download."""
+    if new.get("purpose") != MACHINE_UPDATE or current.get("purpose") != MACHINE_UPDATE:
+        return False
+    if new.get("commit") != current.get("commit"):
+        return False
+    new_targets, current_targets = new.get("targets"), current.get("targets")
+    if not isinstance(new_targets, dict) or not isinstance(current_targets, dict):
+        return False
+    if not set(current_targets) < set(new_targets):
+        return False
+    def shas(entry):
+        if not isinstance(entry, dict):
+            return None
+        return {name: binary.get("sha256") if isinstance(binary, dict) else None for name, binary in entry.items()}
+    return all(shas(current_targets[target]) is not None and shas(new_targets[target]) == shas(current_targets[target])
+               for target in current_targets)
+
+
 def release_sequence(value):
     """A verified Linux release payload's publish order: its `sequence`, or for a phase-1 file the stamp
     in its version (check_linux_release holds the two to that form)."""
@@ -340,6 +364,9 @@ def main(argv):
     n.add_argument("--current")
     n.add_argument("--tree-key", help="the source tree key of NEW's commit (cmux_tui_tree_key.py)")
     n.add_argument("--current-tree-key", help="the source tree key of CURRENT's commit; equal to --tree-key: keep")
+    n.add_argument("--follow", action="store_true",
+                   help="move to any other commit (an older one too); keep the same commit while it has "
+                        "TREE_KEEP_MIN_SECONDS to live. The sequence still only rises")
     q = sub.add_parser("sequence", help="print the sequence of the Linux release file at --pointer, 0 when none "
                                         "verifies (missing, unsigned, another purpose): the next signer's floor - 1")
     q.add_argument("--pointer", required=True)
@@ -383,11 +410,30 @@ def run(args):
             # A pointer no trusted key covers (a rotated key, a broken upload) is replaced.
             print(f"replacing the published pointer: {error}", file=sys.stderr)
             return 0
+        # The same commit's file with more targets completes the published one: the Cloud machine channel
+        # is pointed first from the x86_64 leg alone (point-machine-channel-early), then from both Linux
+        # legs (point-machine-channel-early-linux). It moves only when every target the published file
+        # names keeps its bytes, so an aarch64 machine gets its build and no x86_64 machine updates twice.
+        if completes(new, current):
+            print(f"the published pointer ({current['commit'][:12]}) names {sorted(current['targets'])}; "
+                  f"this file adds {sorted(set(new['targets']) - set(current['targets']))}", file=sys.stderr)
+            return 0
         # Same key: nothing to move. An older commit never replaces a newer one (two runs that
         # finish out of order).
         # A Linux release payload has no key: its commit time alone orders it.
         same_key = "key" in new and new["key"] == current.get("key")
-        if same_key or new["committed_at"] <= current["committed_at"]:
+        if args.follow:
+            # A channel that follows another one's build (linux-nightly follows the NEXT NIGHTLY's commit):
+            # it moves to whatever commit that one names, an older one too (a NIGHTLY rollback), and keeps
+            # the same commit until the published file nears expiry. The sequence still only rises.
+            if new["commit"] == current["commit"]:
+                left = current.get("expires_at", float("inf")) - time.time()
+                if left > TREE_KEEP_MIN_SECONDS:
+                    print(f"the published pointer names {current['commit'][:12]} already; keeping it", file=sys.stderr)
+                    return SKIP
+                print(f"the published pointer names this commit but expires in {int(left)} s; re-signing it",
+                      file=sys.stderr)
+        elif same_key or new["committed_at"] <= current["committed_at"]:
             print(f"the published pointer ({current['commit'][:12]}) is current; keeping it", file=sys.stderr)
             return SKIP
         # A Linux release pointer never moves to a lower or equal sequence: an installer refuses a lower one

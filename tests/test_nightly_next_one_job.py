@@ -182,6 +182,19 @@ class NightlyNextOneJobTests(unittest.TestCase):
         # A slow notarization fails the job (the loop retries it) instead of handing an artifact to a later run.
         self.assertEqual(notarize["env"]["CMUX_NOTARY_PENDING_ON_TIMEOUT"], "false")
 
+    def test_it_joins_the_acpmux_build_before_release(self) -> None:
+        steps = self.job.get("steps") or []
+        names = [str(step.get("name") or "") for step in steps]
+        join = names.index("Finish building in-tree acpmux for the compilation cache")
+        release = names.index("Build nightly app (Release)")
+        self.assertLess(join, release, "nightly-next-one must join acpmux before the Release build")
+        self.assertEqual(steps[join].get("run"), "bash scripts/ci/nightly-steps/app-build-in-tree-acpmux.sh join")
+        self.assertIn("steps.nightly-product.outputs.hit != 'true'", one_line(steps[join].get("if")))
+        split_steps = self.jobs["build-nightly-app"].get("steps") or []
+        split_join = next(step for step in split_steps
+                          if step.get("name") == "Finish building in-tree acpmux for the compilation cache")
+        self.assertEqual(split_join.get("run"), steps[join].get("run"))
+
     def test_the_split_pipeline_skips_in_one_job_mode(self) -> None:
         for name in PIPELINE_ROOTS:
             condition = one_line(self.jobs[name].get("if"))
@@ -296,6 +309,41 @@ class NightlyNextOneJobTests(unittest.TestCase):
             self.assertLess(index, sparkle, names[index])
             self.assertLess(index, second, names[index])
 
+    def test_a_newer_push_takes_the_mac_after_the_feed(self) -> None:
+        # Leo, 2026-11-25: "Just keep the train going like 24/7, constantly." Once the feed is written and
+        # nightly-next moved on, the size report and the deltas (6-7 min of the signing Mac) skip.
+        steps = self.job["steps"]
+        names = [s.get("name") for s in steps]
+        hand = names.index("Hand the Mac to a newer nightly-next push after the feed")
+        self.assertIs(steps[hand].get("continue-on-error"), True)
+        self.assertIn("feed_written == 'true'", one_line(steps[hand].get("if")))
+        self.assertIn("newer-push-waiting.sh", steps[hand]["run"])
+        for name in ("Bundle size budget", "Refuse stray processes before secrets (deltas)"):
+            self.assertGreater(names.index(name), hand, name)
+            self.assertIn("!env.NEWER_PUSH_WAITING", one_line(steps[names.index(name)].get("if")), name)
+        # What later jobs and Sentry need still runs.
+        for name in ("Upload nightly variant artifacts", "Upload tested DMG digests"):
+            self.assertNotIn("NEWER_PUSH_WAITING", one_line(steps[names.index(name)].get("if")), name)
+
+    def test_newer_push_waiting_reads_the_moved_ref(self) -> None:
+        script = ROOT / "scripts/ci/nightly-steps/newer-push-waiting.sh"
+        with tempfile.TemporaryDirectory() as tmp:
+            remote = Path(tmp) / "remote.git"
+            subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+            work = Path(tmp) / "work"
+            subprocess.run(["git", "init", "-q", str(work)], check=True)
+            git = ["git", "-C", str(work), "-c", "user.name=t", "-c", "user.email=t@t"]
+            subprocess.run(git + ["commit", "-q", "--allow-empty", "-m", "a"], check=True)
+            subprocess.run(git + ["push", "-q", str(remote), "HEAD:refs/heads/nightly-next"], check=True)
+            sha = subprocess.run(git + ["rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+            for tip, want in ((sha, ""), ("0" * 40, "NEWER_PUSH_WAITING=1\n")):
+                env_file = Path(tmp) / "env"
+                env_file.write_text("")
+                env = dict(os.environ, TIP_SHA=tip, REPOSITORY="x/y", NIGHTLY_NEXT_REMOTE=str(remote),
+                           GITHUB_ENV=str(env_file))
+                subprocess.run(["bash", str(script)], check=True, env=env, capture_output=True)
+                self.assertEqual(env_file.read_text(), want, tip)
+
     def test_the_feed_waits_on_no_delta_when_the_deltas_follow_it(self) -> None:
         # The item is written full-only then, so the wait before the Sparkle key stops an unfinished prebuild
         # instead of waiting for it (one-job.sh deltas-join), with the same switch. Why: note-31
@@ -329,6 +377,11 @@ class NightlyNextOneJobTests(unittest.TestCase):
         self.assertEqual(steps[probe]["env"]["KEY"], key)
         self.assertEqual(steps[mark]["env"]["KEY"], key)
         split = workflow()["jobs"]["build-nightly-ghostty-cli-helper"]["steps"]
+        for install_steps in (steps, split):
+            install = next(s for s in install_steps if s.get("name") == "Install Zig")["run"]
+            cache = 'export ZIG_TARBALL_CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/cmux/zig-tarballs"'
+            self.assertLess(install.index(cache), install.index("./scripts/install-zig-ci.sh"))
+        self.assertGreater(int(self.job["env"]["ZIG_DOWNLOAD_BUDGET_SECONDS"]), 480)
         split_restore = next(s for s in split if s.get("name") == "Cache Zig packages")
         self.assertEqual(split_restore["with"], steps[restore]["with"])
         self.assertEqual(one_line(split_restore["if"]), "inputs.nightly_next_unsigned_run == ''")

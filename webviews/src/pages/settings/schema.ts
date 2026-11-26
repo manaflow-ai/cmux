@@ -134,6 +134,10 @@ export const sections: SchemaSection[] = schema.sections;
 
 export const rowsByKey: ReadonlyMap<string, SchemaRow> = new Map(schema.rows.map((row) => [row.key, row]));
 
+/** Every row the host accepts a write for, page-hidden ones too (a card writes those itself, as the
+ * customize checklist writes `customize.checklist.done`); the mock host validates against it. */
+export const hostRowsByKey: ReadonlyMap<string, SchemaRow> = new Map(document.rows.map((row) => [row.key, row]));
+
 export function rowsInSection(section: string): SchemaRow[] {
   return schema.rows.filter((row) => row.section === section);
 }

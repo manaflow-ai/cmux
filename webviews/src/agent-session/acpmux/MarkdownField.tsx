@@ -27,7 +27,8 @@ import {
   withTextMarksEscaped,
 } from "./composer/inlineNode";
 import { inlineCaretPlugin } from "./composer/inlineCaret";
-import { followActionsWidth } from "./composerScrollLane";
+import { flashThumbOnLength, followActionsWidth } from "./composerScrollLane";
+import { followTextCenter } from "./composerTextCenter";
 import { caretInView } from "./composer/caretInView";
 import { fieldGrowth } from "./composer/fieldGrowth";
 import { commandEdit, setSlashNames, slashTokensPlugin, slashTriggerAt } from "./composer/slashTokens";
@@ -74,6 +75,7 @@ import type { EditorView } from "@milkdown/kit/prose/view";
 import type { RemarkParser } from "@milkdown/kit/transformer";
 import { $prose, replaceAll } from "@milkdown/kit/utils";
 import { FADE_BAND_PX } from "./markdownFieldModel";
+import { draftFoot } from "./draftFoot.experiment";
 import { focusRoute } from "../../ui/focusRoute";
 
 /// How the draft names its known cmux links (composer/deeplinkTitles.ts), in the sent message's
@@ -244,7 +246,13 @@ export type MarkdownFieldProps = {
   /// A copy or cut of the selection (Cmd-C, Cmd-X, the menu's): its runs of text and its placed
   /// attachments in order, its text as the field copies it, and whether it holds the whole draft.
   /// True when the surface wrote the pasteboard itself; the field then takes a cut's selection out.
-  onCopy?(copy: { parts: SelectionPart[]; text: string; whole: boolean }, cut: boolean): boolean;
+  /// `commitCut` deletes the captured selection after an asynchronous copy commits.
+  /// Returning `"pending"` leaves the draft untouched until that callback succeeds.
+  onCopy?(
+    copy: { parts: SelectionPart[]; text: string; whole: boolean },
+    cut: boolean,
+    commitCut: () => boolean,
+  ): boolean | "pending";
   /// Whether the selection holds the whole draft (Select All), as it changes: the surface marks what
   /// it shows besides the text (the strip's attachments) as selected too.
   onWholeSelection?(whole: boolean): void;
@@ -547,6 +555,8 @@ export function blockwiseMarkdown(doc: ProseNode, serialize: (doc: ProseNode) =>
   });
   if (!blockwise) return write(doc);
   if (doc.childCount === 1) {
+    const plain = plainLine(doc.child(0));
+    if (plain !== undefined) return `${plain}\n`;
     const lines = linewiseMarkdown(doc, doc.child(0), write, inline);
     return lines === undefined ? write(doc) : `${lines}\n`;
   }
@@ -559,12 +569,35 @@ export function blockwiseMarkdown(doc: ProseNode, serialize: (doc: ProseNode) =>
       markdown =
         !block.content.size && block.type.name === "paragraph"
           ? EMPTY_PARAGRAPH
-          : (linewiseMarkdown(doc, block, write, inline) ?? write(doc.copy(Fragment.from(block))).replace(/\n+$/, ""));
+          : (plainLine(block) ??
+            linewiseMarkdown(doc, block, write, inline) ??
+            write(doc.copy(Fragment.from(block))).replace(/\n+$/, ""));
       kept.set(block, markdown);
     }
     parts.push(markdown);
   });
   return `${parts.join("\n\n")}\n`;
+}
+
+/// Text the serializer writes unchanged: letters, digits and the punctuation it never escapes
+/// mid-line, starting and ending with a letter, digit or that punctuation, never a space.
+const PLAIN_LINE = /^[A-Za-z0-9,'?!](?:[A-Za-z0-9 ,'?!.]*[A-Za-z0-9,'?!.])?$/;
+/// What would make the serializer escape a `.` in such text: a list number at the start (`1.`),
+/// or an autolink literal's `www.` (GFM escapes the dot after a `w` that a word character follows).
+const ESCAPED_DOT = /^\d+\.|[Ww]\.[\w.-]/;
+
+/** One paragraph of plain prose, unmarked, as its text: what the serializer writes for it, without
+ * running the serializer, which every key into such a prompt ran (Milkdown's whole remark pipeline
+ * for one line; composer-typing bench --profile). Undefined for anything else. */
+function plainLine(paragraph: ProseNode): string | undefined {
+  if (paragraph.type.name !== "paragraph" || !paragraph.childCount) return undefined;
+  let text = "";
+  for (let at = 0; at < paragraph.childCount; at += 1) {
+    const child = paragraph.child(at);
+    if (!child.isText || child.marks.length) return undefined;
+    text += child.text!;
+  }
+  return PLAIN_LINE.test(text) && !ESCAPED_DOT.test(text) ? text : undefined;
 }
 
 /** A paragraph with hard breaks, written line by line from each line's kept markdown, or undefined
@@ -854,6 +887,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   },
   ref,
 ) {
+  // Read once per field: an arm changes with a reload (the gallery's arm, the debug key).
+  const [footArm] = React.useState(() => experimentArm(draftFoot));
   const pendingQuotes = useRef<string[]>([]);
   const editor = useRef<Editor | undefined>(undefined);
   const view = useRef<EditorView | undefined>(undefined);
@@ -965,7 +1000,13 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     if (!tell || composing.current) return;
     const next = slashTriggerAt(state);
     const told = slashTold.current;
-    if (next?.query === told?.query && next?.length === told?.length && next?.leading === told?.leading) return;
+    if (
+      next?.query === told?.query &&
+      next?.length === told?.length &&
+      next?.leading === told?.leading &&
+      next?.mark === told?.mark
+    )
+      return;
     slashTold.current = next;
     tell(next);
   };
@@ -1055,11 +1096,38 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       whole: wholeSelected(state),
     };
     if (!copy.parts.length && copy.text) copy.parts.push({ text: copy.text });
-    if (!surface(copy, cut)) return false;
+    let committed = false;
+    const originalDoc = state.doc;
+    const originalSelection = state.selection;
+    const originalOwner = owner.current;
+    const commitCut = () => {
+      if (committed) return false;
+      committed = true;
+      // Selection-only moves keep this immutable document. Any edit or chat switch preserves the
+      // newer draft instead of applying an old Cut to it after the clipboard finishes staging.
+      if (
+        !cut ||
+        view.current !== editorView ||
+        editorView.isDestroyed ||
+        owner.current !== originalOwner ||
+        editorView.state.doc !== originalDoc
+      )
+        return false;
+      editorView.dispatch(
+        editorView.state.tr
+          .setSelection(originalSelection)
+          .deleteSelection()
+          .scrollIntoView()
+          .setMeta("uiEvent", "cut"),
+      );
+      return true;
+    };
+    const result = surface(copy, cut, commitCut);
+    if (result === false) return false;
     event.preventDefault();
     // The text at once; the surface's own write (the host's, a moment later) replaces it whole.
     event.clipboardData?.setData("text/plain", copy.text);
-    if (cut) editorView.dispatch(editorView.state.tr.deleteSelection().scrollIntoView().setMeta("uiEvent", "cut"));
+    if (cut && result !== "pending") commitCut();
     return true;
   };
 
@@ -1091,6 +1159,9 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       // Set from a passed-on Return the field took until its key comes up: the paragraph an input
       // method may still insert for that key is the same Return, not a second one.
       let returnTaken = false;
+      // Whether a Return key is down: a paragraph input with no key behind it (Dictation's "new
+      // paragraph", a voice tool typing a message) is a line in the draft, never a send that splits it.
+      let returnKeyDown = false;
       // Whether the selection held the whole draft at the last update (`onWholeSelection`).
       let wholeNow = false;
       // A paste that ends the draft shows the field's whole end, its bottom inset too: the caret
@@ -1136,6 +1207,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   endPasteStep(_view, pasteStep.current);
                   joinsStep.current = false;
                   returnTaken = false;
+                  returnKeyDown = isReturnKey(event);
                   // A caret the browser moved on its own (an arrow key ProseMirror leaves to it) reaches
                   // the editor's state only at the next selectionchange, a task later. A key that
                   // comes first saw the old selection: after ArrowRight collapsed a selected New Tab
@@ -1213,11 +1285,24 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   }
                   event.preventDefault();
                   if (returnTaken) returnTaken = false;
-                  else returnInput();
+                  else if (returnKeyDown || !lines.current) returnInput();
+                  else {
+                    // No Return key behind it: the input adds the line Shift-Return would, so a
+                    // dictated message with paragraphs stays one draft (Leo: "wait that message got
+                    // split up and queued").
+                    const item = _view.state.schema.nodes.list_item;
+                    const enter = baseKeymap.Enter!;
+                    chainCommands(...(item ? [splitListItem(item), enter] : [enter]))(
+                      _view.state,
+                      _view.dispatch,
+                      _view,
+                    );
+                  }
                   return true;
                 },
                 keyup: () => {
                   returnTaken = false;
+                  returnKeyDown = false;
                   return false;
                 },
                 compositionstart: () => {
@@ -1709,12 +1794,20 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   // Its thumb fades in while the draft scrolls and out at rest, as the transcript's does (scrollers.ts
   // SHOWN_SCROLLER_ATTRIBUTE; Leo 2026-11-22: "the thumb only appears when it's relevant").
   useEffect(() => (wrapper.current ? followShownScrollerFade(wrapper.current) : undefined), []);
+  // The thumb also shows for a moment when the draft's length changes while it overflows (Leo
+  // 2026-11-23: "it should only appear briefly when the length changes, or when you scroll").
+  useEffect(
+    () => (wrapper.current && typeof ResizeObserver === "function" ? flashThumbOnLength(wrapper.current) : undefined),
+    [],
+  );
   // In the composer's box, its scrollbar runs down the box's right edge, clear of the actions
   // (composerScrollLane.ts).
   useEffect(
     () => (wrapper.current && typeof ResizeObserver === "function" ? followActionsWidth(wrapper.current) : undefined),
     [],
   );
+  // In the composer's box, its words' ink stands on the controls' centre line (composerTextCenter.ts).
+  useEffect(() => (wrapper.current ? followTextCenter(wrapper.current) : undefined), []);
   const handle = useRef<MarkdownFieldHandle>(undefined);
   useImperativeHandle(
     ref,
@@ -1955,6 +2048,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       // reserved and its thumb shown only while the draft scrolls or the pointer is near its lane; the
       // minimal scroller's inset track and no thumb while the field settles.
       {...{ [SHOWN_SCROLLER_ATTRIBUTE]: "", [MINIMAL_SCROLLER_ATTRIBUTE]: "" }}
+      // How a scrolled-up draft's foot fades (draftFoot.experiment.ts, markdownField.css).
+      data-draft-foot={footArm}
       style={{ "--acpmux-md-fade-band": `${FADE_BAND_PX}px` } as React.CSSProperties}
       ref={(element: MarkdownFieldElement | null) => {
         wrapper.current = element;

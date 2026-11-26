@@ -74,15 +74,6 @@ export function chatOnThisMac(
   return chatMachine(summary, undefined, peerKinds, place).kind === "local";
 }
 
-/// Whether the composer asks the host where the files of the person's drop, paste or pick are
-/// (`chat.attach.dropped`), so each goes as a link to its path rather than a copy: a chat with no
-/// peer and no host other than this Mac's. A chat whose summary has not loaded yet asks too: the
-/// host answers only for a chat it runs on this Mac and refuses any other, so a drop made the moment
-/// a local chat opens links at once instead of uploading every byte (Leo, 2026-11-17).
-export function asksDroppedPaths(summary: Pick<Summary, "peer" | "host" | "hostKind"> | undefined): boolean {
-  return !summary || (!summary.peer && !(summary.host && summary.hostKind !== "local"));
-}
-
 /// The composer's computer id for the chat (ComposerContext): its peer, its Cloud host, else `local`,
 /// the page's own acpmux, which is this Mac or, over a remote route, the machine that route reaches.
 export function chatComputerId(summary: Pick<Summary, "peer" | "host" | "hostKind"> | undefined): string {

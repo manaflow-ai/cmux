@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextDesign
 import CmuxNextSettings
 
 /// The browser toolbar's trailing buttons (`BrowserToolbarButtonsView`).
@@ -14,26 +15,13 @@ import CmuxNextSettings
 /// | Favorites | `bookmark.manager` |
 /// | Downloads | `browser.downloads.show`, the downloads popup (`BrowserDownloadsPopup`) |
 /// | design mode | `toggleBrowserDesignMode` |
-/// | profile | `browser.profile.choose`, a menu of `browserProfile.moveTab` per profile |
+/// | profile | `browser.profile.choose`, the profile menu (`ActionRegistry.makeBrowserProfileMenu`) |
 /// | theme | a menu of `browserTheme` system, light, dark |
 /// | DevTools | `toggleBrowserDeveloperTools` |
 /// | More | `browser.overflow.menu` |
 enum BrowserToolbarHandlers {
-    /// The action a press runs. The theme button runs `browserTheme` from
-    /// its menu, one item per scheme.
-    static func actionID(for button: BrowserToolbarButton) -> ActionID {
-        switch button {
-        case .media: "browser.media.show"
-        case .zoom: "browserZoomReset"
-        case .favorites: "bookmark.manager"
-        case .downloads: "browser.downloads.show"
-        case .designMode: "toggleBrowserDesignMode"
-        case .profile: "browser.profile.choose"
-        case .theme: "browserTheme"
-        case .devTools: "toggleBrowserDeveloperTools"
-        case .overflow: "browser.overflow.menu"
-        }
-    }
+    /// The action a press runs (`BrowserToolbarButton.actionName`).
+    static func actionID(for button: BrowserToolbarButton) -> ActionID { ActionID(rawValue: button.actionName) }
 
     /// The `theme` argument of `browserTheme`; a missing or unknown
     /// value follows the app.
@@ -44,7 +32,7 @@ enum BrowserToolbarHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("browser.profile.choose", run: { invocation in
             let (entry, chrome) = try context.shownPage(invocation)
-            chrome.toolbarButtons.present(profileMenu(for: entry, services: context.services), from: .profile)
+            chrome.toolbarButtons.present(profileMenu(forTab: entry.key, services: context.services), from: .profile)
         })
         registry.bind("browser.media.show", run: { invocation in
             let (_, chrome) = try context.shownPage(invocation)
@@ -132,15 +120,24 @@ enum BrowserToolbarHandlers {
         return submenu
     }
 
-    /// The profile button's menu (`ActionRegistry.makeBrowserProfileMenu`), for the tab by the key the App keeps it
-    /// under: an adopted page's own id finds no tab, and Clear Browsing Data or Delete would act on Default.
-    static func profileMenu(for entry: BrowserEntry, services: AppServices) -> NSMenu {
+    /// The profile button's menu (`ActionRegistry.makeBrowserProfileMenu`), for the tab by the key the App keeps it under: an
+    /// adopted page's own id finds no tab, and Clear Browsing Data or Delete would act on Default. The look `style` (the debug
+    /// object menu's), else `card` while Settings > Experiments > Browser Profile Card is on; off (the default), cmux#51248's.
+    static func profileMenu(forTab key: String, services: AppServices, style: BrowserProfileMenuStyle? = nil) -> NSMenu {
+        let style = style ?? (DesignSettings.shared.experiment("browserProfileCard") ? .card : nil)
         let profiles = services.browserProfiles
-        let key = entry.key
+        let current = services.cache.tabModel(key).map(profiles.profileID(ofTab:)) ?? BrowserProfileRecord.defaultID
+        let incognito = services.cache.browserTabs.isIncognitoTab(key)
+        let workspace = services.workspaceID(ofTab: key)
+        // The header: the tab's profile as the button draws it, and why the tab has it. An incognito tab has none.
+        let header = incognito ? nil : profiles.toolbarBadge(forTab: key)?.menuHeader(BrowserProfileCascade.source(
+            tabProfile: current, workspace: profiles.workspaceDefault(workspace), room: profiles.roomDefault(workspace), known: profiles.isKnown))
         return services.registry.makeBrowserProfileMenu(
-            tabKey: key, current: services.cache.tabModel(key).map(profiles.profileID(ofTab:)) ?? BrowserProfileRecord.defaultID,
-            profiles: profiles.ordered.map { record in (record.id, record.icon.map { "\($0)  \(record.name)" } ?? record.name) },
-            profileActions: !services.cache.browserTabs.isIncognitoTab(key))
+            tabKey: key, current: current,
+            profiles: profiles.ordered.map { record in (record.id, style != nil ? record.name : record.icon.map { "\($0)  \(record.name)" } ?? record.name) },
+            profileActions: !incognito, header: header, workspace: incognito ? nil : workspace, style: style ?? .list,
+            account: style == nil ? nil : services.menuBarAccount.map { ($0.lines.last ?? "", services.menuBarAvatar) },
+            images: style == nil ? [:] : BrowserProfileBadge.menuImages(profiles.ordered))
     }
 
     /// The More menu (cx-6qwm, `ActionRegistry.makeBrowserMoreMenu`) on glass, as ChatGPT Atlas's: the hidden toolbar
@@ -169,7 +166,7 @@ enum BrowserToolbarHandlers {
 }
 
 /// Palette rows of hand-built browser and tab bar menus (also `browser.toolbar.togglePin`, the More menu's Show in
-/// Toolbar rows, and `tabs.toolbar.togglePin`, the tab bar "…" menu's Show in Tab Bar rows), which run these actions
+/// Toolbar rows, and `tabs.toolbar.togglePin`, the palette's Pin or Unpin Tab Bar Button…), which run these actions
 /// themselves so the menu and
 /// the palette run one handler:
 /// - `browser.goToHistoryEntry` (`entry`: the offset from the current page): a row of the Back and

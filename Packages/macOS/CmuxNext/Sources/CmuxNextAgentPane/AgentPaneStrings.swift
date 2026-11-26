@@ -26,6 +26,14 @@ extension AgentPaneModel {
         String(localized: "agentPane.error.capture", defaultValue: "The screen capture failed.", bundle: .localizedModule)
     }
 
+    /// A folder the person picked for a chat that no longer exists (a reboot wiped a temporary
+    /// folder, a worktree was removed): which one, and the way out.
+    static func folderMissingMessage(_ path: String) -> String {
+        String(format: String(localized: "agentPane.error.folderMissing",
+                              defaultValue: "The folder %@ no longer exists. Pick another folder.", bundle: .localizedModule),
+               path)
+    }
+
     /// The host's acpmux socket refused a page frame or could not connect (AgentPaneTransport).
     static var transportFailedMessage: String {
         String(localized: "agentPane.error.transport", defaultValue: "The app refused the agent connection.", bundle: .localizedModule)
@@ -258,14 +266,6 @@ extension AgentPaneView {
     static var otherInstallMessage: String {
         String(localized: "agentPane.otherInstall.message",
                defaultValue: "This chat runs on another cmux install's agent service. Approve its requests in that app.",
-               bundle: .localizedModule)
-    }
-
-    /// Shown while the pane's connection did not prove the person to its acpmux: what the person
-    /// types would reach the agent as an unverified sender's until the identity reconnects.
-    static var personUnprovenMessage: String {
-        String(localized: "agentPane.personUnproven.message",
-               defaultValue: "Not verified as you. Reconnecting your identity to the agent service…",
                bundle: .localizedModule)
     }
 

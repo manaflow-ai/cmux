@@ -14,6 +14,16 @@ extension AgentPaneModel {
         return roots
     }
 
+    /// The folders the host handed the page as a new chat's folder, never picked by the person
+    /// (``AgentPaneTransport/inheritedFolders``): the handshake's cwd, a restored tab's known cwd,
+    /// the new tab page's cwd, the workspace's folders and the store's start folder. After a
+    /// reboot any of them can be gone (a wiped temporary folder, a removed worktree).
+    func inheritedFolders() -> [String] {
+        var folders = [handshakeCwd, seed?.knownCwd, tabsNewTabFolder].compactMap { $0 } + (workspaceRoots?() ?? [])
+        if let folder = startFolders.current(of: self) { folders.append(folder) }
+        return folders
+    }
+
     /// The new tab page's project scan and open folders: roots only when the user picks one.
     func gestureRoots() -> [String] {
         guard let newTab else { return [] }

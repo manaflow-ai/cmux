@@ -182,6 +182,9 @@ pub(crate) fn builtin_login(family: &str) -> Option<&'static str> {
         // cards and `cmux harness login muse`.
         "muse" => "muse login",
         "opencode" => "opencode auth login",
+        // Cursor's CLI prints one cursor.com sign-in link (`agent_login`'s Cursor).
+        "cursor" => "cursor-agent login",
+        "antigravity" => "agy acp --login",
         // The bundled CLI's own sign-in: a clean Mac has no `unii` (first-run finding 2).
         "unii" => crate::uniichat_endpoint::LOGIN,
         "hermes" => "hermes model",
@@ -695,9 +698,9 @@ fn rebind_cached_logins(rows: &mut [HarnessHealth], subjects: &[Subject]) {
 fn save(path: &Path, rows: &[HarnessHealth]) {
     let Ok(body) = serde_json::to_vec_pretty(rows) else { return };
     // Owner-only whatever the umask, through a new temporary file each time.
-    if let Err(e) = crate::config::write_atomic(path, &body) {
-        tracing::info!(error = %e, "harness health not saved");
-    }
+    // The disk writer (`disk_writer.rs`) writes it and logs a failure; the next check saves
+    // again.
+    crate::config::write_atomic_later(path, body);
 }
 
 /// The part of a check that runs here: where the program is, how it was
@@ -811,6 +814,12 @@ mod tests {
     #[test]
     fn muse_signs_in_with_the_official_cli() {
         assert_eq!(super::builtin_login("muse"), Some("muse login"));
+    }
+
+    /// Cursor found on PATH (no profile) still shows a Sign In: its CLI's own login.
+    #[test]
+    fn cursor_signs_in_with_its_cli() {
+        assert_eq!(super::builtin_login("cursor"), Some("cursor-agent login"));
     }
 
     /// UniiChat signs in through the CLI cmux bundles (first-run finding 2): a clean Mac has

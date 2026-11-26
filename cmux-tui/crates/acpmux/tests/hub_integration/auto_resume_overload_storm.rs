@@ -83,6 +83,15 @@ async fn an_overload_storm_kills_no_session_refuses_no_message_and_drops_no_comp
     let row = hub.session_summary(&hub.resolve(&chat).unwrap());
     assert_eq!(row["retry"]["reason"], "capacity", "{row}");
     assert!(row["retry"]["nextAt"].as_u64().is_some(), "{row}");
+    // One calm wait for every client (RFD model-overload-smoothing §3.8): the countdown's
+    // resume time, the raw error kept for Details only, and the list's line says paused.
+    let wait = &row["capacityWait"];
+    assert_eq!(wait["reason"], "capacity", "{row}");
+    assert_eq!(wait["resumesAt"], row["retry"]["nextAt"], "{row}");
+    assert!(wait["error"].as_str().is_some_and(is_capacity), "{row}");
+    let step = row["lane"]["step"].as_str().unwrap_or_default();
+    assert!(step.starts_with("paused for capacity, resumes ~"), "{row}");
+    assert_ne!(row["lane"]["state"], "failed", "{row}");
 
     // The lane's continuation runs into the storm; then its /compact does too.
     let start = tokio::time::Instant::now();
@@ -158,6 +167,7 @@ async fn an_overload_storm_kills_no_session_refuses_no_message_and_drops_no_comp
     assert!(seen.contains("please also fix the sidebar"), "{seen}");
     let row = hub.session_summary(&hub.resolve(&chat).unwrap());
     assert!(row["retry"].is_null(), "{row}");
+    assert!(row["capacityWait"].is_null(), "the wait outlived the storm: {row}");
 
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);

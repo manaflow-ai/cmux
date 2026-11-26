@@ -1,10 +1,8 @@
 // Leo, 2026-11-17: pasting a copied file was instant, dragging the same file from a Finder folder
 // was slow. A drop on a chat on this Mac takes the paste's route: the host says where the files
 // are (`chat.attach.dropped`) and each goes as a link to its path, with no bytes read, encoded,
-// hashed or uploaded, whatever its size. A chat whose summary has not loaded yet asks too (the
-// host refuses a chat not on this Mac).
+// hashed or uploaded, whatever its size. The host refuses a chat not on this Mac.
 import { expect, test } from "bun:test";
-import { asksDroppedPaths } from "../src/agent-session/acpmux/chatMachine";
 import { droppedPaths, intakeFiles } from "../src/agent-session/acpmux/composer/intakeFiles";
 
 const MB = 1024 * 1024;
@@ -58,15 +56,4 @@ test("a drop on a local chat links a 500 MB file by its path at once, with no up
   expect(uploads).toEqual([]);
   expect(reads).toEqual([]);
   expect(elapsed).toBeLessThan(50);
-});
-
-test("a chat whose summary has not loaded yet asks the host where a drop's files are", () => {
-  // Not loaded yet: the host decides (it refuses a chat not on this Mac).
-  expect(asksDroppedPaths(undefined)).toBe(true);
-  // On this Mac.
-  expect(asksDroppedPaths({})).toBe(true);
-  expect(asksDroppedPaths({ host: "this-mac", hostKind: "local" })).toBe(true);
-  // Another machine's: never asked.
-  expect(asksDroppedPaths({ peer: "build-box" })).toBe(false);
-  expect(asksDroppedPaths({ host: "cloud-1", hostKind: "cloud" })).toBe(false);
 });
