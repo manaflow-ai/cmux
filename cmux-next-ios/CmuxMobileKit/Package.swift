@@ -76,7 +76,8 @@ let package = Package(
         // extensions link it without the app's modules (verify/rich-push.md).
         .target(name: "CmuxMobileNotifications"),
         // CMUXAuthCore: CMUXBuildSpace, the dev build's X-Cmux-Build-Space header.
-        // CmuxMobileLinkFFI: the Rust rules (New Workspace's workspace_creation), linked on iOS only.
+        // CmuxMobileLinkFFI: the Rust rules, linked on iOS only: New Workspace's workspace_creation, and the
+        // workspace group rules (applyGroups, PendingGroupEdits) in workspace_groups.
         .target(name: "CmuxMobileModel", dependencies: ["CmuxMobileDesignCore", .product(name: "CmuxEgress", package: "CmuxEgress"), .product(name: "CMUXAuthCore", package: "CMUXAuthCore"), .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS]))], resources: [.process("Resources")]),
         .binaryTarget(name: "CmuxMobileLinkFFIFFI", path: "Frameworks/CmuxMobileLinkFFI.xcframework"),
         .target(

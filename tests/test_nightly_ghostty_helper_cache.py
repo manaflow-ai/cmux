@@ -16,9 +16,13 @@ restored and then rebuilt into the same key.
 from __future__ import annotations
 
 import importlib.util
+import io
+import os
 import re
 import struct
+import subprocess
 import tempfile
+import urllib.error
 import unittest
 from pathlib import Path
 import sys
@@ -241,10 +245,34 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("needs.resolve-nightly-ghostty-cli-helper.result == 'success'", helper["if"])
         # Every step that can fail is a miss, and a hit needs this run's own artifact.
         for step in lookup["steps"]:
+            # The token step runs only on a Mac (runner.os == 'macOS'); this job runs on Linux, so it never runs here.
+            if step.get("if") == "runner.os == 'macOS'" and step["name"].startswith("Give git this job's token"):
+                continue
             if "Record" not in step["name"]:
                 self.assertTrue(step.get("continue-on-error"), step["name"])
                 self.assertIn("timeout-minutes", step, step["name"])
         self.assertEqual(lookup["outputs"]["hit"], "${{ steps.upload.outcome == 'success' && 'true' || 'false' }}")
+
+class MainTests(unittest.TestCase):
+    """Any failure to ask GitHub is a miss: hit=false in GITHUB_OUTPUT and exit 0, so the helper is built."""
+
+    def run_main(self, error):
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / "out"
+            argv = ["reuse", "--build-sha", B, "--archs", "arm64", "--out", str(Path(temp) / "helper")]
+            env = {"GITHUB_REPOSITORY": REPO, "GH_TOKEN": "token", "GITHUB_OUTPUT": str(output)}
+            with mock.patch.object(sys, "argv", argv), mock.patch.dict(os.environ, env), \
+                    mock.patch.object(reuse, "find", side_effect=error), \
+                    mock.patch("sys.stdout", new_callable=io.StringIO):
+                self.assertIn(reuse.main(), (None, 0))
+            return output.read_text()
+
+    def test_an_api_failure_is_a_clean_miss(self):
+        for error in (urllib.error.HTTPError("https://api.github.com/x", 403, "rate limited", {}, None),
+                      urllib.error.URLError("timed out"), TimeoutError("read timed out"),
+                      SystemExit("ghostty is not a submodule at " + B), ValueError("bad json")):
+            with self.subTest(error=repr(error)):
+                self.assertIn("hit=false\n", self.run_main(error))
 
 
 if __name__ == "__main__":
