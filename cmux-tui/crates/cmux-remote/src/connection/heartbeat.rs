@@ -2,11 +2,7 @@
 
 use super::*;
 
-pub(super) async fn run_heartbeat(
-    weak: Weak<ClientConnection>,
-    interval: Duration,
-    timeout: Duration,
-) {
+pub(super) async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout: Duration) {
     let Some(initial) = weak.upgrade() else { return };
     let mut close_state = initial.close_state.subscribe();
     // A new watch receiver considers the current value seen. The atomic flag
@@ -17,24 +13,37 @@ pub(super) async fn run_heartbeat(
     // A network change probes at once instead of at the next interval.
     let mut network = initial.network.subscribe();
     network.borrow_and_update();
+    // An action ends a quiet hold: the next probe waits one interval from it.
+    let mut quiet = initial.quiet.subscribe();
     drop(initial);
     let mut route = RouteSource::default();
     let fast_fallback = fast_fallback_enabled();
     loop {
         // Where the link's route leaves from, read before the wait: a change that kills the
-        // address is compared with the address as it was.
+        // address is compared with the address as it was. An idle link with a sleep gate
+        // probes once per look, each after a read of the gate.
+        let mut wait = interval;
         if let Some(connection) = weak.upgrade() {
             route.refresh(&connection).await;
+            if let Some(look) = connection.idle_look() {
+                wait = wait.max(look);
+            }
         }
         let network_moved = tokio::select! {
             biased;
             _ = close_state.changed() => return,
             _ = network.changed() => true,
-            _ = tokio::time::sleep(interval) => false,
+            Ok(()) = quiet.changed() => continue,
+            _ = tokio::time::sleep(wait) => false,
         };
         let Some(connection) = weak.upgrade() else { return };
         if connection.closed.load(Ordering::Acquire) || connection.session_unavailable() {
             return;
+        }
+        // The machine is asleep and nothing acted: a probe is the byte that would wake it.
+        if connection.hold_quiet().await {
+            quiet.borrow_and_update();
+            continue;
         }
         if connection
             .deferred_receive

@@ -266,6 +266,21 @@ pub struct StandbyGroup {
     pub race_after: Option<Duration>,
 }
 
+/// Whether the machine behind a link is asleep (a person paused it), read
+/// without waking it. A paused Cloud VM is woken by any byte that reaches it,
+/// so a link with a gate sends nothing while the gate says asleep and no
+/// caller acts: no heartbeat and no redial. The first application send is an
+/// action: it goes out as it would, and that byte is the wake.
+#[async_trait]
+pub trait SleepGate: Send + Sync {
+    /// How long the link goes with no application send before it reads the
+    /// gate, and how often an idle link reads it (and probes, when awake).
+    fn look(&self) -> Duration;
+    /// Whether the machine is asleep now. A read that fails answers false:
+    /// the link probes as it would without a gate.
+    async fn asleep(&self) -> bool;
+}
+
 /// Told how each attempt to reattach an established session's carrier (a
 /// resume) ended, for a caller that logs every connect.
 pub trait ResumeHooks: Send + Sync {
@@ -321,6 +336,13 @@ pub struct ClientConnection {
     /// Why the last redial failed, until one succeeds: the reason a waiter
     /// that runs out of time is given.
     last_failure: StdMutex<Option<String>>,
+    /// Read before an idle link sends a heartbeat or redials ([`SleepGate`]).
+    sleep_gate: StdMutex<Option<Arc<dyn SleepGate>>>,
+    /// When the application last sent a frame (heartbeats are not sends).
+    last_action: StdMutex<Instant>,
+    /// True while the gate said asleep and nothing acted since: the link
+    /// sends nothing. An application send clears it.
+    quiet: watch::Sender<bool>,
 }
 
 #[derive(Clone, Debug)]
@@ -464,6 +486,9 @@ impl ClientConnection {
             actions: watch::channel(0).0,
             network: watch::channel(0).0,
             last_failure: StdMutex::new(None),
+            sleep_gate: StdMutex::new(None),
+            last_action: StdMutex::new(Instant::now()),
+            quiet: watch::channel(false).0,
         });
         Self::spawn_heartbeat(&connection);
         Ok(connection)
@@ -476,6 +501,71 @@ impl ClientConnection {
     /// Install hooks that every later resume attempt calls.
     pub fn set_resume_hooks(&self, hooks: Arc<dyn ResumeHooks>) {
         *self.resume_hooks.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(hooks);
+    }
+
+    /// Install the gate an idle link reads before it sends a heartbeat or
+    /// redials ([`SleepGate`]).
+    pub fn set_sleep_gate(&self, gate: Arc<dyn SleepGate>) {
+        *self.sleep_gate.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(gate);
+    }
+
+    fn sleep_gate(&self) -> Option<Arc<dyn SleepGate>> {
+        self.sleep_gate.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    }
+
+    /// Whether the link holds quiet: its gate said asleep and nothing acted since.
+    pub fn is_quiet(&self) -> bool {
+        *self.quiet.borrow()
+    }
+
+    /// An application send: the link is in use, and a quiet hold ends.
+    fn note_action(&self) {
+        *self.last_action.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Instant::now();
+        self.quiet.send_if_modified(|quiet| std::mem::replace(quiet, false));
+    }
+
+    /// The gate's look time while the link has had no application send for
+    /// that long; `None` without a gate or while the link is in use.
+    fn idle_look(&self) -> Option<Duration> {
+        let look = self.sleep_gate()?.look();
+        let since = self.last_action.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        (since.elapsed() >= look).then_some(look)
+    }
+
+    /// Whether the link must send nothing now: it is idle and its gate says
+    /// the machine is asleep. Reads the gate (only when idle) and records the
+    /// answer as the quiet hold.
+    async fn hold_quiet(&self) -> bool {
+        let Some(gate) = self.sleep_gate() else { return false };
+        if self.idle_look().is_none() {
+            self.quiet.send_if_modified(|quiet| std::mem::replace(quiet, false));
+            return false;
+        }
+        let asleep = gate.asleep().await;
+        // An action while the read ran wins: its byte is the wake.
+        let asleep = asleep && self.idle_look().is_some();
+        self.quiet.send_if_modified(|quiet| std::mem::replace(quiet, asleep) != asleep);
+        asleep
+    }
+
+    /// Returns once the link may send: at once unless it holds quiet, else
+    /// at an action or a read that says the machine woke.
+    async fn wait_while_asleep(
+        &self,
+        close_state: &mut watch::Receiver<CloseState>,
+    ) -> Result<(), ConnectionError> {
+        while self.hold_quiet().await {
+            let look = self.sleep_gate().map_or(Duration::from_secs(1), |gate| gate.look());
+            let mut quiet = self.quiet.subscribe();
+            tokio::select! {
+                biased;
+                _ = close_state.changed() => return Err(ConnectionError::Closed),
+                _ = quiet.wait_for(|quiet| !*quiet) => return Ok(()),
+                () = tokio::time::sleep(look) => {}
+            }
+        }
+        Ok(())
     }
 
     fn resume_hooks(&self) -> Option<Arc<dyn ResumeHooks>> {
@@ -654,6 +744,11 @@ impl ClientConnection {
         payload: Bytes,
         flags: FrameFlags,
     ) -> Result<u64, ConnectionError> {
+        if !flags.contains(FrameFlags::HEARTBEAT_REQUEST)
+            && !flags.contains(FrameFlags::HEARTBEAT_RESPONSE)
+        {
+            self.note_action();
+        }
         // Another send may hold this lane through an unbounded recovery, and
         // replay holds the session lock; a send with a deadline waits for
         // neither past it.
@@ -1134,6 +1229,12 @@ impl ClientConnection {
         // stays gone, and nothing redials it.
         if self.session_unavailable() {
             return Err(ConnectionError::SessionUnavailable);
+        }
+        // A redial reaches the machine: a background recovery of an idle link
+        // whose machine is asleep waits for an action (an application send)
+        // or a read that says it woke, before its deadline starts.
+        if deadline.is_none() {
+            self.wait_while_asleep(&mut close_state).await?;
         }
         self.set_diagnostics_state(ConnectionState::Reconnecting);
         let result = self.recover_locked(&mut close_state, deadline).await;
