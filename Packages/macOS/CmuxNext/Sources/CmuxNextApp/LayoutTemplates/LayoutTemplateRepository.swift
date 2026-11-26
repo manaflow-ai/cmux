@@ -1,3 +1,4 @@
+import CmuxNextDevices
 import Foundation
 
 /// The layout templates of this Mac, in one JSON file of this build's support folder
@@ -31,39 +32,47 @@ actor LayoutTemplateRepository {
 
     /// Saves `blueprint` as template `name` (replacing a template of that name); returns every template.
     func put(name: String, blueprint: WorkspaceBlueprint, now: Date = Date()) throws -> [LayoutTemplate] {
-        var list = loaded()
-        if let index = list.firstIndex(where: { Self.same($0.name, name) }) {
-            list[index].name = name
-            list[index].blueprint = blueprint
-            list[index].savedAt = now
-        } else {
-            list.append(LayoutTemplate(id: UUID().uuidString.lowercased(), name: name, blueprint: blueprint, savedAt: now))
-        }
+        struct Request: Encodable { var templates: [LayoutTemplate]; var name: String; var blueprint: WorkspaceBlueprint
+                                    var savedAt: Date; var newId: String }
+        let list = try Self.ask("app_themes_templates_put", Request(templates: loaded(), name: name, blueprint: blueprint,
+                                                                   savedAt: now, newId: UUID().uuidString.lowercased()))
         try write(list)
         return list
     }
 
     /// Renames template `id` to `name`; returns every template.
     func rename(id: String, to name: String) throws -> [LayoutTemplate] {
-        var list = loaded()
-        guard let index = list.firstIndex(where: { $0.id == id }) else { throw Failure.notFound }
-        if list.contains(where: { $0.id != id && Self.same($0.name, name) }) { throw Failure.nameTaken }
-        list[index].name = name
+        struct Request: Encodable { var templates: [LayoutTemplate]; var id: String; var name: String }
+        let list = try Self.ask("app_themes_templates_rename", Request(templates: loaded(), id: id, name: name))
         try write(list)
         return list
     }
 
     /// Deletes template `id`; returns every template left.
     func delete(id: String) throws -> [LayoutTemplate] {
-        var list = loaded()
-        guard list.contains(where: { $0.id == id }) else { throw Failure.notFound }
-        list.removeAll { $0.id == id }
+        struct Request: Encodable { var templates: [LayoutTemplate]; var id: String }
+        let list = try Self.ask("app_themes_templates_delete", Request(templates: loaded(), id: id))
         try write(list)
         return list
     }
 
-    nonisolated static func same(_ a: String, _ b: String) -> Bool {
-        a.caseInsensitiveCompare(b) == .orderedSame
+    /// The index of the template named `name` in `names`, ignoring case and surrounding whitespace.
+    nonisolated static func index(named name: String, in names: [String]) -> Int? {
+        struct Request: Encodable { var templates: [[String: String]]; var name: String }
+        struct Answer: Decodable { var index: Int? }
+        return AppRules.ask("app_themes_templates_find", Request(templates: names.map { ["name": $0] }, name: name),
+                                 as: Answer.self)?.index
+    }
+
+    /// Rust's list after a change (dates as reference-date seconds, so none is rounded), or its refusal.
+    private static func ask(_ operation: String, _ request: some Encodable) throws -> [LayoutTemplate] {
+        struct Answer: Decodable { var templates: [LayoutTemplate]?; var failure: String? }
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .deferredToDate
+        guard let body = try? encoder.encode(request), let data = AppRules.call(operation, body),
+              let answer = try? JSONDecoder().decode(Answer.self, from: data) else { throw Failure.notFound }
+        if let templates = answer.templates { return templates }
+        throw answer.failure == "nameTaken" ? Failure.nameTaken : Failure.notFound
     }
 
     /// The file's templates, read once; an unreadable or missing file reads as none.
