@@ -85,10 +85,11 @@ fn start_keeper(home: &Path, held: &[(&'static [u8; 4], OwnedFd)]) -> io::Result
     for (kind, fd) in held {
         args.push(format!("{}={}", kind_name(kind), fd.as_raw_fd()).into());
     }
-    let mut cmd = match scope_prefix() {
-        Some(prefix) => {
-            let mut cmd = std::process::Command::new(&prefix[0]);
-            cmd.args(&prefix[1..]).arg(&exe);
+    let prefix = scope_prefix();
+    let mut cmd = match prefix.as_deref().and_then(<[_]>::split_first) {
+        Some((program, rest)) => {
+            let mut cmd = std::process::Command::new(program);
+            cmd.args(rest).arg(&exe);
             cmd
         }
         None => std::process::Command::new(&exe),
