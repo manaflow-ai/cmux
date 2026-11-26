@@ -90,10 +90,12 @@ pub fn content(facts: &Facts) -> Content {
     if let Some(tab) = tab {
         let tab: Vec<&str> = tab.graphemes(true).collect();
         let said: Vec<&str> = headline.graphemes(true).collect();
-        if said.len() > tab.len() + 1 && said.starts_with(&tab) && at(&said, tab.len(), " ") {
-            if let Some((head, more)) = tail(&said, tab.len() + 1).split_first() {
-                state = head.to_uppercase() + &more.concat();
-            }
+        if said.len() > tab.len() + 1
+            && said.starts_with(&tab)
+            && at(&said, tab.len(), " ")
+            && let Some((head, more)) = tail(&said, tab.len() + 1).split_first()
+        {
+            state = head.to_uppercase() + &more.concat();
         }
     }
     let subtitle: Vec<&str> = [non_empty(&state), poster].into_iter().flatten().collect();

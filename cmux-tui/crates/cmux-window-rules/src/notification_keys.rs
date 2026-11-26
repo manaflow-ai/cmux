@@ -15,11 +15,14 @@ const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwx
 pub fn base64_encode(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
-        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
-        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+        let byte = |i: usize| u32::from(chunk.get(i).copied().unwrap_or(0));
+        let n = (byte(0) << 16) | (byte(1) << 8) | byte(2);
         for i in 0..4 {
             if i <= chunk.len() {
-                out.push(ALPHABET[((n >> (18 - 6 * i)) & 0x3F) as usize] as char);
+                // The index is masked to 6 bits, so it is always in the 64-letter alphabet.
+                let letter =
+                    ALPHABET.get(((n >> (18 - 6 * i)) & 0x3F) as usize).copied().unwrap_or(b'=');
+                out.push(char::from(letter));
             } else {
                 out.push('=');
             }
@@ -32,7 +35,7 @@ pub fn base64_encode(bytes: &[u8]) -> String {
 /// multiple of 4, `=` only at the end); nil for anything else.
 pub fn base64_decode(text: &str) -> Option<Vec<u8>> {
     let bytes = text.as_bytes();
-    if bytes.len() % 4 != 0 {
+    if !bytes.len().is_multiple_of(4) {
         return None;
     }
     let mut out = Vec::with_capacity(bytes.len() / 4 * 3);
@@ -43,13 +46,13 @@ pub fn base64_decode(text: &str) -> Option<Vec<u8>> {
             return None;
         }
         let mut n = 0u32;
-        for &b in &quad[..4 - pad] {
+        for &b in quad.iter().take(4 - pad) {
             let digit = ALPHABET.iter().position(|&a| a == b)? as u32;
             n = (n << 6) | digit;
         }
         n <<= 6 * pad as u32;
         let decoded = [(n >> 16) as u8, (n >> 8) as u8, n as u8];
-        out.extend_from_slice(&decoded[..3 - pad]);
+        out.extend(decoded.iter().take(3 - pad));
     }
     Some(out)
 }
