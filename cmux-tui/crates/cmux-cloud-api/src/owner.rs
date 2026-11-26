@@ -1,7 +1,8 @@
 //! The cmux API Worker's routes a person's own session calls outside the op path
 //! (`ownerAPIBaseURL`; cx-kvmz): the keyed acpmux start and its person_holds check on a Cloud
 //! machine, a fork run (`fork_runs.rs`), the person's hand-offs and their turns, the harness login copy switch
-//! and the GitHub App status, repository list and Connect GitHub. The person key goes only in a request body; nothing is retried.
+//! the GitHub App status, repository list and Connect GitHub, and the feed's own ops and reads
+//! (`owner.op`). The person key goes only in a request body; nothing is retried.
 
 use std::time::Duration;
 
@@ -122,6 +123,7 @@ pub(crate) async fn run(
         "owner.github_app" => github_app(http, args).await,
         "owner.github_repos" => github_repos(http, args).await,
         "owner.github_connect" => github_connect(http, args).await,
+        "owner.op" => op(http, args).await,
         "owner.github_complete" => github_complete(http, args).await,
         "owner.github_list" => github_list(http).await,
         "owner.github_clone_token" => github_clone_token(http, args).await,
@@ -491,6 +493,60 @@ async fn github_connect(http: &Http, args: &Map<String, Value>) -> Result<Value,
         }
         _ => Err(Failure::Decoding(format!("{}: no install page", path_text(&segments)))),
     }
+}
+
+/// The longest an op's name is (`run.rerunFailed`, `user.presence_key.list`).
+const OP_NAME_LIMIT: usize = 128;
+/// The longest a client version is (`InstallAuthClient.clientVersionHeader`).
+const CLIENT_VERSION_LIMIT: usize = 64;
+
+/// `POST /v1/ops` (`route: "ops"`) or `POST /v1/read` (`route: "read"`) with `body`
+/// (`{op, params, ...}`, sent as given; or `body_json`, the same as JSON text) as the session's principal: the person's Stack session or
+/// this Mac's install token, in the team the team header names. `client_version` goes as
+/// `x-cmux-client-version` (the app's version, so the Worker can refuse a too-old app; no secret).
+/// Answers `{status, reply}` for every HTTP status, `reply` being the body when it is a JSON
+/// object (`{ok, value}`, `{value}` or `{error: {code, message}}`) and null otherwise: the
+/// feed reads its own refusals, and a 401 tells it the install token is spent.
+async fn op(http: &Http, args: &Map<String, Value>) -> Result<Value, Failure> {
+    let route = match text(args, "route")? {
+        "ops" => "ops",
+        "read" => "read",
+        _ => return Err(Failure::Transport("not an op route".into())),
+    };
+    // `body_json` is the same object as JSON text: the app's own, exactly as it serialized it.
+    let body = match (args.get("body"), optional_text(args, "body_json")) {
+        (Some(body), None) => Some(body.clone()),
+        (None, Some(text)) => serde_json::from_str::<Value>(text).ok(),
+        _ => None,
+    };
+    let Some(body) = body.filter(Value::is_object) else {
+        return Err(Failure::Transport("no op body".into()));
+    };
+    let name = body.get("op").and_then(Value::as_str).unwrap_or("");
+    if !all(name, OP_NAME_LIMIT, |b| id_byte(b) || b == b'.') {
+        return Err(Failure::Transport("not an op name".into()));
+    }
+    let mut headers = Vec::new();
+    if let Some(version) = optional_text(args, "client_version") {
+        if !all(version, CLIENT_VERSION_LIMIT, |b| b.is_ascii_graphic() || b == b' ') {
+            return Err(Failure::Transport("not a client version".into()));
+        }
+        headers.push(("x-cmux-client-version", version.to_owned()));
+    }
+    let segments = ["v1", route];
+    let path = path_text(&segments);
+    let reply = http
+        .send_named(
+            Method::POST,
+            http.url(&segments, &[]),
+            Some(Body::Json(body)),
+            (None, &headers),
+            Duration::from_secs(15),
+            &path,
+        )
+        .await?;
+    let object = reply.json().filter(Value::is_object).unwrap_or(Value::Null);
+    Ok(json!({ "status": reply.status, "reply": object }))
 }
 
 /// `POST /v1/ops` `integration.complete` in the team the team header names, under the key

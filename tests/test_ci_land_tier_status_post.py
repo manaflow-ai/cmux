@@ -64,7 +64,7 @@ def step(job: str, name: str) -> dict:
 
 
 class LandTierStatusPost(unittest.TestCase):
-    def run_post(self, app_token: str, fail: str, state: str = "success", wait_s: int = 0,
+    def run_post(self, app_token: str, fail: str, state: str = "success", wait_s: int = 0, pools: str = "",
                  **extra: str) -> tuple[int, list[str], str, float]:
         script = step("route", "Post the land tier status")["run"]
         with tempfile.TemporaryDirectory() as tmp:
@@ -76,7 +76,7 @@ class LandTierStatusPost(unittest.TestCase):
             env = {"PATH": f"{tmp}:{os.environ['PATH']}", "CALLS": str(calls), "FAIL_TOKENS": fail,
                    "APP_TOKEN": app_token, "JOB_TOKEN": "job", "REPO": "manaflow-ai/cmux", "SHA": "a" * 40,
                    "STATE": state, "RUN_URL": "https://example.invalid/run", "LAND_STATUS_WAIT_S": str(wait_s),
-                   **extra}
+                   "POOL_TOKENS": pools, **extra}
             began = time.monotonic()
             done = subprocess.run(["bash", "-e", "-c", script], env=env, cwd=ROOT, capture_output=True, text=True,
                                   timeout=30)
@@ -160,6 +160,19 @@ class LandTierStatusPost(unittest.TestCase):
         self.assertEqual(code, 1, said)
         self.assertEqual(len(calls), 2)
         self.assertLess(took, 5)
+
+    def test_a_spent_app_and_job_token_post_on_a_pool(self) -> None:
+        # the regression: 2026-11-26 job 140020669492 slept 61 s through three rounds with cmux-bot and the job
+        # token both refused for their spent hour, then left the status unposted
+        code, calls, _, _ = self.run_post("app", fail="app job pool1", pools="pool1 pool2")
+        self.assertEqual(code, 0)
+        self.assertEqual([c.split()[0] for c in calls], ["app", "pool1", "pool2"])
+
+    def test_the_post_reads_the_pool_tokens(self) -> None:
+        for job in ("route", "land-tier-status"):
+            env = step(job, "Post the land tier status")["env"]
+            self.assertIn("secrets.CI_POOL_TOKEN_1", env["POOL_TOKENS"])
+            self.assertIn("secrets.CI_POOL_TOKEN_2", env["POOL_TOKENS"])
 
     def test_the_token_is_minted_with_statuses_write_for_same_repo_heads_only(self) -> None:
         mint = step("route", "Mint the land tier status token")
