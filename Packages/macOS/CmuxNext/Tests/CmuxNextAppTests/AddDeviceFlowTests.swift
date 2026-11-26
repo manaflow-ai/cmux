@@ -232,6 +232,24 @@ import Testing
         #expect(listing.invites.map(\.id) == ["tk_1"])
     }
 
+    /// The CLI's newer fields (`pools`, a parked peer's `parked`) are not read here, and a listing
+    /// that carries them still parses.
+    @Test func aListingWithPoolsAndAParkedPeerParses() throws {
+        let json = """
+        {"network":{"kind":"tailscale","up":true},
+         "devices":[{"id":"peer:old-box","name":"old-box","kind":"computer","roles":["runs-agents"],"state":"offline",
+                     "via":[{"store":"peer","name":"old-box"}],"parked":true,
+                     "detail":"Not reachable for over a day; tried again hourly."}],
+         "available":[{"name":"studio","address":"studio.ts.net","os":"macOS","mine":true}],
+         "pools":[{"stem":"ci-linux-pool","count":3}],
+         "invites":[]}
+        """
+        let listing = try DeviceListing.parse(Data(json.utf8))
+        #expect(listing.devices.map(\.state) == ["offline"])
+        #expect(listing.devices.first?.detail == "Not reachable for over a day; tried again hourly.")
+        #expect(listing.available.map(\.name) == ["studio"])
+    }
+
     // MARK: - Settings > Devices
 
     final class FakeCLI {
