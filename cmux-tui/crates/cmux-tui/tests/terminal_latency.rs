@@ -338,13 +338,7 @@ fn open_pty(cols: u16, rows: u16) -> (fs::File, std::os::fd::OwnedFd) {
     // SAFETY: `openpty` writes two descriptors into the out params on success. macOS's libc takes `termp` and
     // `winp` as `*mut` (Linux's as `*const`, which a `*mut` coerces to), so both are passed mutable.
     let opened = unsafe {
-        libc::openpty(
-            &mut master,
-            &mut slave,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            &mut size,
-        )
+        libc::openpty(&mut master, &mut slave, std::ptr::null_mut(), std::ptr::null_mut(), &size)
     };
     assert_eq!(opened, 0, "openpty: {}", std::io::Error::last_os_error());
     for descriptor in [master, slave] {
