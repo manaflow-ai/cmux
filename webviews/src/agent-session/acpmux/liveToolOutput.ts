@@ -13,7 +13,7 @@
 // the pane as before (`redraw`), and once that commits the entries made before it go (`settle`):
 // its rows are the truth again. The store holds one entry per call updated since the pane drew.
 import { useMemo, useSyncExternalStore } from "react";
-import type { AcpmuxActivity, AcpmuxRow, AcpmuxSnapshot } from "./model";
+import { sameConnection, type AcpmuxActivity, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
 import { outputShapesRows } from "./conversation/toolGroups";
 import { stripAnsi } from "./conversation/toolOutputModel";
 import { oneRowChangeFrom } from "./rowChanges";
@@ -358,6 +358,8 @@ export function sameButRows(drawn: AcpmuxSnapshot, next: AcpmuxSnapshot): boolea
     // object is new each time, while `lastSeq` and `forkSeqs` remain the same. Treat that
     // value-equivalent projection as unchanged so row-local streams stay on their fast path.
     if (key === "settled" && sameSettled(before[key], after[key])) continue;
+    // Each event names itself in `connection`; one name draws as another (model.ts `sameConnection`).
+    if (key === "connection" && sameConnection(before[key], after[key])) continue;
     return false;
   }
   return true;

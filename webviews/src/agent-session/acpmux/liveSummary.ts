@@ -10,7 +10,7 @@
 // through the pane, whose summary is then the truth again (an entry names the summary it moved on
 // from, so a newer drawn summary simply no longer matches it).
 import { useSyncExternalStore } from "react";
-import type { AcpmuxSnapshot } from "./model";
+import { sameConnection, type AcpmuxSnapshot } from "./model";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 
@@ -52,7 +52,13 @@ export function usageOnly(drawn: AcpmuxSnapshot, next: AcpmuxSnapshot): boolean 
   const after = next as unknown as Record<string, unknown>;
   const keys = Object.keys(after);
   if (keys.length !== Object.keys(before).length) return false;
-  for (const key of keys) if (key !== "summary" && !Object.is(before[key], after[key])) return false;
+  for (const key of keys)
+    if (
+      key !== "summary" &&
+      !Object.is(before[key], after[key]) &&
+      !(key === "connection" && sameConnection(before[key], after[key]))
+    )
+      return false;
   return sameButUsage(drawn.summary, next.summary);
 }
 

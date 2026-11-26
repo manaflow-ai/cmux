@@ -39,6 +39,7 @@ import {
   type AcpmuxRow,
   type AcpmuxSnapshot,
   linkUp,
+  sameConnection,
   SINCE_DIVIDER,
 } from "./model";
 import {
@@ -836,7 +837,13 @@ export function streamedOnly(drawn: AcpmuxSnapshot, next: AcpmuxSnapshot): numbe
   const after = next as unknown as Record<string, unknown>;
   const keys = Object.keys(after);
   if (keys.length !== Object.keys(before).length) return -1;
-  for (const key of keys) if (key !== "rows" && !Object.is(before[key], after[key])) return -1;
+  for (const key of keys)
+    if (
+      key !== "rows" &&
+      !Object.is(before[key], after[key]) &&
+      !(key === "connection" && sameConnection(before[key], after[key]))
+    )
+      return -1;
   if (streamingRowBlocked()) return -1;
   const at = textOnlyRow(drawn.rows, next.rows);
   return at >= 0 && drawsAsIs(drawn.rows[at]!) ? at : -1;
