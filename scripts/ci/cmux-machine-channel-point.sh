@@ -18,7 +18,12 @@
 # cmux-linux-release-aliases.sh) mark-tree-commits in
 # .github/workflows/cmux-tui-artifacts.yml.
 #
-# usage: scripts/ci/cmux-machine-channel-point.sh PAYLOAD DIR [--same-tree | --commit-only]
+# usage: scripts/ci/cmux-machine-channel-point.sh PAYLOAD DIR [--same-tree | --commit-only | --channel-only]
+#
+# --channel-only (a Linux release payload of `cmux-machine-channel.py repoint`): move the channel alone,
+# with `newer --follow`. The commit's release.json (and its tree's) were written by the build that
+# published it, for its own channel; this channel (linux-nightly) follows that build, so the per-commit
+# files are never rewritten and the channel may go back to an older commit (a NIGHTLY rollback).
 #
 # --commit-only (a payload with a per-commit file): write that file and leave the channel alone. A PR
 # head's Mac live update file (`cmux app try PR`) is published this way; only feat-cmux-next moves
@@ -39,11 +44,12 @@
 # web update key's signature alone and a warning says so. A compare-and-swap on the bytes compared (as
 # cmux-tui-point-channel.sh): a run that finds the channel moved under it reads and compares again.
 set -euo pipefail
-payload=$1 dir=$2 same_tree="" commit_only=""
+payload=$1 dir=$2 same_tree="" commit_only="" channel_only=""
 case "${3:-}" in
   "") ;;
   --same-tree) same_tree=--same-tree ;;
   --commit-only) commit_only=1 ;;
+  --channel-only) channel_only=1 ;;
   *) echo "::error::unknown option $3"; exit 1 ;;
 esac
 ptr=scripts/cmux-next/web-ota-pointer.py
@@ -74,6 +80,10 @@ case "$purpose" in
 esac
 if [[ -n "$same_tree" && "$purpose" != cmux-cloud-machine-update ]]; then
   echo "::error::--same-tree is for the Cloud machine channel, not $purpose"
+  exit 1
+fi
+if [[ -n "$channel_only" && "$purpose" != cmux-linux-release ]]; then
+  echo "::error::--channel-only is for a Linux release channel, not $purpose"
   exit 1
 fi
 if [[ -n "$commit_only" && -z "${once:-}" ]]; then
@@ -164,6 +174,15 @@ write_once() { # OBJECT LABEL [SAME-BUILD-ARGS...]
   echo "$label -> $release" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
 }
 
+if [[ -n "$channel_only" ]]; then
+  # The channel names a build already published: its commit's file must be there and verify.
+  curl -fsS --retry 3 --max-time 60 -o "$dir/release-check.json" "https://files.cmux.com/$once?check=$GITHUB_RUN_ID" || {
+    echo "::error::$once is not published; --channel-only points only at a published build"
+    exit 1
+  }
+  python3 "$ptr" verify --pointer "$dir/release-check.json" --keys "$keys" --purpose "$purpose" --allow-expired >/dev/null
+  release_tree="" once=""
+fi
 if [[ -n "$release_tree" ]]; then
   # Before the commit's file and the channel, so neither names a tree without its signed release file.
   write_once "cmux-tui/tree/$release_tree/release.json" "Linux release file of tree ${release_tree:0:12}" --same-tree
@@ -198,7 +217,8 @@ for attempt in 1 2 3 4 5; do
     fi
   fi
   rc=0
-  python3 "$ptr" newer --pointer "$signed" --keys "$keys" --current "$dir/current.json" "${tree_args[@]}" || rc=$?
+  python3 "$ptr" newer --pointer "$signed" --keys "$keys" --current "$dir/current.json" ${tree_args[@]+"${tree_args[@]}"} \
+    ${channel_only:+--follow} || rc=$?
   [[ $rc == 3 ]] && exit 0
   [[ $rc == 0 ]] || exit "$rc"
   rc=0
