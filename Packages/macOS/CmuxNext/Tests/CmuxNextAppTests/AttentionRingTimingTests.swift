@@ -135,6 +135,8 @@ struct AttentionRingTimingTests {
     /// once the switch's frame lets the ring draw. Holding the rings must keep the overlay's mark, or the blink
     /// (which needs the ring it blinks out) never starts.
     @Test func switchingToAWorkspaceStillBlinksItsReadRingOnTheOverlay() async throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
         let fixture = try await Self.open(active: false)
         defer { fixture.close() }
         let pane = LayoutPaneID(fixture.ringing.id)
@@ -161,6 +163,9 @@ struct AttentionRingTimingTests {
         try await PinnedPageTests.until({ !model.holdsAttentionUntilShown }, report: { "the hold never ended" })
         try await PinnedPageTests.until({ host.chromeInputs?.attention == nil }, report: { "the release never took b's read ring off the overlay" })
         #expect(host.chromeInputs?.readByEntry == true, "the switch took b's ring without the dismiss blink")
+        try await PinnedPageTests.until({ overlay.attentionAnimationKeys.contains("attention-dismiss") }, report: {
+            "no dismiss blink on the overlay: its last removal \(String(describing: overlay.lastAttentionRemoval)), live \(layoutView.isLive), animates \(layoutView.canAnimate)"
+        })
         #expect(layoutView.canAnimate, "the shown layout cannot animate the blink (live \(layoutView.isLive))")
         #expect(!overlay.attentionLayer.isHidden, "the blink plays hidden")
     }

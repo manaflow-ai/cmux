@@ -133,6 +133,8 @@ final class PaneOverlayView: NSView {
 
     /// The attention ring's running animations and model opacity (for tests and `debug.layers`).
     var attentionAnimationKeys: [String] { attention.animationKeys() ?? [] }
+    /// How the last ring went (tests): whether it had a mark to blink out, was read by entry, and could animate.
+    private(set) var lastAttentionRemoval: (hadMark: Bool, readByEntry: Bool, animated: Bool, flash: Bool)?
     /// The attention ring (and its glow) draws nothing while held; its mark, pulse and dismiss blink go on underneath (cmux#46908).
     var holdsAttention = false {
         didSet {
@@ -436,8 +438,9 @@ final class PaneOverlayView: NSView {
                 attention.removeAnimation(forKey: "attention-dismiss")
                 attention.removeAnimation(forKey: "attention-dismiss-glow")
             }
-            if previous != nil, readByEntry, animated,
-               let flash = Motion.indicators.attentionDismissAnimation(attentionSettings, look: attentionLook) {
+            let flash = Motion.indicators.attentionDismissAnimation(attentionSettings, look: attentionLook)
+            if previous != nil || readByEntry { lastAttentionRemoval = (previous != nil, readByEntry, animated, flash != nil) }
+            if previous != nil, readByEntry, animated, let flash {
                 dismissingColor = previous?.color
                 CATransaction.begin()
                 CATransaction.setDisableActions(true)
