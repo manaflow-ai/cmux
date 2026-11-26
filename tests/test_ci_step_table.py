@@ -54,7 +54,7 @@ def table(steps: str, jobs: str = 'linux = "l"\nadvisory = "a"') -> ci_steps.Tab
 # tests/test_ci_label_events_skip_full_ci.py, exactly as #54886 put them on every gated workflow. The router (a
 # workflow_call caller) passes its pull_request event through, so the same expression reads the same head.
 PIPELINE_LAND_TIER_JOBS = ("linux", "web-browser")
-PIPELINE_LAND_TIER = "(github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0')))"
+PIPELINE_LAND_TIER = "(github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && (github.event.action != 'synchronize' || (vars.CI_LAND_PUSH_CHEAP || '1') == '0')) || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0')))"
 PIPELINE_LABEL_GUARD = '!(github.event_name == \'pull_request\' && github.event.pull_request.base.ref == \'feat-cmux-next\' && (github.event.action == \'labeled\' || github.event.action == \'unlabeled\') && !contains(fromJSON(\'["full-ci","ready-to-land"]\'), github.event.label.name))'
 
 class TableRulesTest(unittest.TestCase):
@@ -897,7 +897,8 @@ class PipelineTest(unittest.TestCase):
         for label in ("ready-to-land", "full-ci"):
             with self.subTest(label=label):
                 self.assertEqual(ready("labeled", [label], label)[0], ["pr-pipeline.yml"])
-                self.assertEqual(ready("synchronize", [label])[0], ["pr-pipeline.yml"])
+                # A push onto a ready-to-land head waits for land's `labeled` event (head_tier's land push rule).
+                self.assertEqual(ready("synchronize", [label])[0], [] if label == "ready-to-land" else ["pr-pipeline.yml"])
         draft_full_ci = {"action": "labeled", "label": {"name": "full-ci"},
                          "pull_request": {"draft": True, "labels": [{"name": "full-ci"}]}}
         self.assertEqual(pr_router.route(draft_full_ci, callees, web)[0], ["pr-pipeline.yml"])
@@ -941,6 +942,38 @@ class PipelineTest(unittest.TestCase):
         router = yaml.safe_load((ROOT / ".github/workflows/pr-router.yml").read_text())
         self.assertEqual(router["jobs"]["route"]["outputs"]["table"], "${{ steps.route.outputs.table }}")
         self.assertEqual(router["jobs"]["pipeline"]["with"], {"jobs": "${{ needs.route.outputs.table || '' }}"})
+
+    def test_browser_suites_run_on_a_pr_only_with_full_ci(self) -> None:
+        """NOW's pr_verdict, 2026-11-26 08:57Z: `pr router / pr pipeline / web-browser` ended 3 of the newest 20 PR
+        verdicts. A PR routes the web-browser job only with `full-ci`; base pushes run its suites (ci-web.yml)."""
+        import pr_router
+
+        callees = {"pr-pipeline.yml": pr_router.load_manifest()["pr-pipeline.yml"]}
+        config = callees["pr-pipeline.yml"]
+        web = ["webviews/src/app.tsx"]
+        self.assertEqual(pr_router.FULL_CI_ONLY_JOBS, ("web-browser",))
+        with mock.patch.dict(os.environ, {"CI_PR_BROWSER_FULL_CI_ONLY": "1"}):
+            self.assertEqual(pr_router.table_jobs_routed(callees, web, full_ci=False), ["linux"])
+            self.assertEqual(pr_router.table_jobs_routed(callees, None, full_ci=False), ["linux"])
+            self.assertEqual(pr_router.table_jobs_routed(callees, web, full_ci=True), ["linux", "web-browser"])
+            browser = {s.name for s in ci_steps.load().steps.values() if s.job == "web-browser"}
+            self.assertFalse(browser & set(pr_router.table_steps(config, web, full_ci=False) or []))
+            self.assertTrue(browser & set(pr_router.table_steps(config, web, full_ci=True) or []))
+            # The ready-to-land head (full tier) without full-ci routes no browser step either.
+            event = {"action": "labeled", "label": {"name": "ready-to-land"},
+                     "pull_request": {"draft": False, "labels": [{"name": "ready-to-land"}]}}
+            start, why = pr_router.route(event, callees, web, decided=("full", "ready-to-land"))
+            self.assertNotIn("web-browser", why.get("pr-pipeline.yml", ""))
+            event = {"action": "labeled", "label": {"name": "full-ci"},
+                     "pull_request": {"draft": False, "labels": [{"name": "full-ci"}]}}
+            start, why = pr_router.route(event, callees, web, decided=("full", "full-ci"))
+            self.assertIn("pr-pipeline.yml", start)
+        # The repository variable turns it off.
+        with mock.patch.dict(os.environ, {"CI_PR_BROWSER_FULL_CI_ONLY": "0"}):
+            self.assertEqual(pr_router.table_jobs_routed(callees, web, full_ci=False), ["linux", "web-browser"])
+        router = yaml.safe_load((ROOT / ".github/workflows/pr-router.yml").read_text())
+        env = next(s for s in router["jobs"]["route"]["steps"] if s.get("id") == "route")["env"]
+        self.assertEqual(env["CI_PR_BROWSER_FULL_CI_ONLY"], "${{ vars.CI_PR_BROWSER_FULL_CI_ONLY || '1' }}")
 
     def test_each_pipeline_job_runs_only_when_routed(self) -> None:
         wf = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())

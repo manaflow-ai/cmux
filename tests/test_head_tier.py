@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import itertools
+import functools
 import os
+import pathlib
 import re
 import subprocess
 import sys
@@ -135,7 +138,11 @@ class LandTierTests(unittest.TestCase):
         self.assertIn("ready-to-land", head_tier.tier("pull_request", land_event(), land_switch="1")[1])
 
     def test_the_land_label_and_full_ci_make_it_full(self) -> None:
-        self.assertEqual(self.tier(land_event(labels=("ready-to-land",))), "full")
+        # A push onto a labelled head is the land push rule's (LandPushTests); every other event of it is full.
+        for action in ("labeled", "opened", "reopened", "ready_for_review"):
+            self.assertEqual(self.tier(land_event(labels=("ready-to-land",), action=action)), "full", action)
+        self.assertEqual(head_tier.tier("pull_request", land_event(labels=("ready-to-land",)), land_switch="1",
+                                        push_switch="0")[0], "full")
         self.assertEqual(self.tier(land_event(labels=("full-ci",))), "full")
 
     def test_a_draft_stays_cheap_even_with_the_land_label(self) -> None:
@@ -242,7 +249,9 @@ class LandTierTests(unittest.TestCase):
         self.assertEqual(head_tier.tier("pull_request", land_event(), facts=facts, now=10 * 86400,
                                         land_switch="1")[0], "none")
         self.assertEqual(head_tier.tier("pull_request", land_event(labels=("ready-to-land",)), facts=facts,
-                                        now=10 * 86400, land_switch="1")[0], "full")
+                                        now=10 * 86400, land_switch="1", push_switch="0")[0], "full")
+        self.assertEqual(head_tier.tier("pull_request", land_event(labels=("ready-to-land",)), facts=facts,
+                                        now=10 * 86400, land_switch="1")[0], "cheap")
 
 
 DAY = 24 * 3600
@@ -403,7 +412,7 @@ class GreenBaseMergeTests(BranchRepo):
         facts = self.facts(True)
         for label in ("full-ci", "ready-to-land"):
             self.assertEqual(tier("pull_request", self.event(self.head, labels=(label,)), facts=facts,
-                                  now=recent)[0], "full", label)
+                                  now=recent, push_switch="0")[0], "full", label)
         self.assertEqual(tier("pull_request", self.event(self.head), facts=facts, now=recent, green_switch="0")[0],
                          "cheap")
         # Where the green-head rule does not apply, the sync rule's cheap tier (or, with it off, the full tier) stays.
@@ -474,12 +483,16 @@ class LandCarryTests(BranchRepo):
     def test_an_unproved_previous_head_an_own_commit_full_ci_or_the_switch_keep_the_full_tier(self) -> None:
         for landed in (False, None):
             self.assertEqual(self.tier("pull_request", self.landing(), facts=self.landed(landed),
-                                       now=self.now)[0], "full", landed)
+                                       now=self.now, push_switch="0")[0], "full", landed)
+            # With the land push rule on, it waits for land's `labeled` event instead (LandPushTests).
+            decided = self.tier("pull_request", self.landing(), facts=self.landed(landed), now=self.now)
+            self.assertEqual(decided[0], "cheap", landed)
+            self.assertFalse(head_tier.carried(decided))
         self.assertEqual(self.tier("pull_request", self.landing(self.own), facts=self.landed(True, own=True),
-                                   now=self.now)[0], "full")
+                                   now=self.now, push_switch="0")[0], "full")
         self.assertEqual(self.tier("pull_request", self.landing(labels=("ready-to-land", "full-ci")),
                                    facts=self.landed(True), now=self.now)[0], "full")
-        for switches in ({"carry_switch": "0"}, {"land_switch": "0"}):
+        for switches in ({"carry_switch": "0", "push_switch": "0"}, {"land_switch": "0"}):
             self.assertEqual(self.tier("pull_request", self.landing(), facts=self.landed(True), now=self.now,
                                        **switches)[0], "full", switches)
         decided = self.tier("pull_request", self.landing(), facts=self.landed(False), now=self.now)
@@ -504,7 +517,8 @@ class LandCarryTests(BranchRepo):
             head_tier.runs_at = lambda *a: calls.append(("runs", a[1])) or [
                 {"id": 1, "path": "ci.yml", "status": "completed", "conclusion": "success"}]
             head_tier.head_facts = lambda e: {"base_merge_only": False, "own_last": None}
-            self.assertEqual(head_tier.decide("pull_request", ev)[0], "full")
+            with unittest.mock.patch.dict(os.environ, {"CI_LAND_PUSH_CHEAP": "0"}):
+                self.assertEqual(head_tier.decide("pull_request", ev)[0], "full")
             self.assertEqual(calls, [])
             head_tier.head_facts = lambda e: {"base_merge_only": True, "own_last": time.time(), "previous": "b" * 40}
             decided = head_tier.decide("pull_request", ev)
@@ -512,10 +526,96 @@ class LandCarryTests(BranchRepo):
             self.assertEqual(calls, [("status", "b" * 40), ("runs", "b" * 40)])
             calls.clear()
             state["value"] = "pending"  # the previous head ran the cheap tier: nothing to carry, runs not read
-            self.assertEqual(head_tier.decide("pull_request", ev)[0], "full")
+            with unittest.mock.patch.dict(os.environ, {"CI_LAND_PUSH_CHEAP": "0"}):
+                self.assertEqual(head_tier.decide("pull_request", ev)[0], "full")
             self.assertEqual(calls, [("status", "b" * 40)])
         finally:
             head_tier.head_facts, head_tier.runs_at, head_tier.land_status_at = real
+
+
+class LandPushTests(BranchRepo):
+    """A push onto a `ready-to-land` head: the land push rule (cheap, `cmux/land-tier` pending; land's re-label
+    runs the full tier at the head it lands), but a base merge the land carry rule carries."""
+
+    event = staticmethod(GreenBaseMergeTests.event)
+    tier = staticmethod(GreenBaseMergeTests.tier)
+
+    def own_facts(self) -> dict:
+        facts = head_tier.head_facts(self.event(self.own))
+        self.assertEqual(facts["base_merge_only"], False)
+        return facts
+
+    def test_an_own_commit_after_the_handoff_runs_cheap_and_keeps_the_land_status_pending(self) -> None:
+        ev = self.event(self.own, labels=("ready-to-land",))
+        decided = self.tier("pull_request", ev, facts=self.own_facts(), now=self.now)
+        self.assertEqual(decided[0], "cheap", decided)
+        self.assertTrue(decided[1].startswith(head_tier.PUSH_REASON))
+        self.assertFalse(head_tier.carried(decided))
+        with unittest.mock.patch.dict(os.environ, {"CI_LAND_TIER": "1"}):
+            self.assertEqual(pr_router.land_status(ev, decided), "pending")
+
+    def test_the_labeled_event_full_ci_and_the_switches_keep_the_full_tier(self) -> None:
+        facts = self.own_facts()
+        labeled = self.event(self.own, action="labeled", labels=("ready-to-land",))
+        self.assertEqual(self.tier("pull_request", labeled, facts=None, now=self.now)[0], "full")
+        ev = self.event(self.own, labels=("ready-to-land",))
+        self.assertEqual(self.tier("pull_request", self.event(self.own, labels=("ready-to-land", "full-ci")),
+                                   facts=facts, now=self.now)[0], "full")
+        for switches in ({"push_switch": "0"}, {"land_switch": "0"}):
+            self.assertEqual(self.tier("pull_request", ev, facts=facts, now=self.now, **switches)[0], "full",
+                             switches)
+        fork = BranchRepo.event(self.own, labels=("ready-to-land",))
+        self.assertEqual(self.tier("pull_request", fork, facts=facts, now=self.now)[0], "full")
+
+    def test_unread_facts_wait_for_the_labeled_event_too(self) -> None:
+        ev = self.event(self.own, labels=("ready-to-land",))
+        decided = self.tier("pull_request", ev, facts=None, now=self.now)
+        self.assertEqual(decided[0], "cheap", decided)
+        self.assertTrue(decided[1].startswith(head_tier.PUSH_REASON))
+        self.assertEqual(self.tier("pull_request", ev, facts=None, now=self.now, push_switch="0")[0], "full")
+
+    def test_a_landing_base_merge_carries_or_waits_for_the_labeled_event(self) -> None:
+        ev = self.event(self.head, labels=("ready-to-land",))
+        facts = {**head_tier.head_facts(self.event(self.head)), "previous_landed": False}
+        decided = self.tier("pull_request", ev, facts=facts, now=self.now)
+        self.assertEqual(decided[0], "cheap", decided)
+        self.assertTrue(decided[1].startswith(head_tier.PUSH_REASON))
+        self.assertFalse(head_tier.carried(decided))
+        self.assertEqual(self.tier("pull_request", ev, facts=facts, now=self.now, push_switch="0")[0], "full")
+        carried = self.tier("pull_request", ev, facts={**facts, "previous_landed": True}, now=self.now)
+        self.assertTrue(head_tier.carried(carried), carried)
+
+    def test_decide_reads_the_facts_for_a_landing_head_and_the_switch(self) -> None:
+        repo = {"full_name": "manaflow-ai/cmux"}
+        ev = {"action": "synchronize", "pull_request": {
+            "draft": False, "base": {"ref": "feat-cmux-next", "repo": repo},
+            "head": {"sha": "a" * 40, "repo": repo}, "labels": [{"name": "ready-to-land"}]}}
+        real = head_tier.head_facts
+        try:
+            head_tier.head_facts = lambda e: {"base_merge_only": False, "own_last": None}
+            env = {"CI_IDLE_BASE_MERGE_SKIP": "0", "CI_SYNC_MERGE_CHEAP": "0", "CI_LAND_CARRY": "0"}
+            with unittest.mock.patch.dict(os.environ, env):
+                self.assertEqual(head_tier.decide("pull_request", ev)[0], "cheap")
+            with unittest.mock.patch.dict(os.environ, {**env, "CI_LAND_PUSH_CHEAP": "0"}):
+                self.assertEqual(head_tier.decide("pull_request", ev)[0], "full")
+            head_tier.head_facts = lambda e: self.fail("no rule that reads facts is on")
+            with unittest.mock.patch.dict(os.environ, {**env, "CI_GREEN_BASE_MERGE_SKIP": "0"}):
+                self.assertEqual(head_tier.decide("pull_request", ev)[0], "cheap")
+        finally:
+            head_tier.head_facts = real
+
+    def test_every_workflow_that_reads_the_label_skips_a_landing_push_under_the_same_switch(self) -> None:
+        """A workflow job gated on `ready-to-land` in its own `if:` runs on a landing push only when
+        CI_LAND_PUSH_CHEAP=0, as head_tier does: else the full tier would run there before land's `labeled` event."""
+        label = "contains(github.event.pull_request.labels.*.name, 'ready-to-land')"
+        gated = (f"({label} && (github.event.action != 'synchronize' || (vars.CI_LAND_PUSH_CHEAP || '1') == '0'))")
+        workflows = pathlib.Path(__file__).resolve().parents[1] / ".github" / "workflows"
+        seen = 0
+        for path in sorted(workflows.glob("*.yml")):
+            text = path.read_text()
+            seen += text.count(label)
+            self.assertEqual(text.count(label), text.count(gated), path.name)
+        self.assertGreater(seen, 100)
 
 
 class GreenPreviousTests(unittest.TestCase):
@@ -644,7 +744,8 @@ def land_tier_condition(event_name: str, keep_labeled: bool = False) -> str:
         f"github.event_name != '{event_name}'",
         "contains(github.event.pull_request.labels.*.name, 'full-ci')",
         "(github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0')",
-        "(github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land')"
+        "(github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land')"
+        " && (github.event.action != 'synchronize' || (vars.CI_LAND_PUSH_CHEAP || '1') == '0'))"
         " || github.event.pull_request.base.ref != 'feat-cmux-next'"
         " || github.event.pull_request.head.repo.full_name != github.repository"
         " || (vars.CI_LAND_TIER || '1') == '0'))",
@@ -745,19 +846,20 @@ class GatedWorkflowTests(unittest.TestCase):
                 for labels in ((), ("full-ci",), ("ready-to-land",), ("other",)):
                     for base in ("feat-cmux-next", "main"):
                         for head_repo in ("manaflow-ai/cmux", "someone/cmux"):
-                            for switch in ("1", "0"):
-                                for land in ("1", "0"):
-                                    ev = land_event(draft, labels, base=base, head_repo=head_repo)
-                                    full = head_tier.tier(event_name, ev, switch, idle_switch="0",
-                                                          land_switch=land)[0] == "full"
-                                    runs = (
-                                        "full-ci" in labels
-                                        or (draft and switch == "0")
-                                        or (not draft and ("ready-to-land" in labels or base != "feat-cmux-next"
-                                                           or head_repo != "manaflow-ai/cmux" or land == "0"))
-                                    )
-                                    self.assertEqual(full, runs, (event_name, draft, labels, base, head_repo,
-                                                                  switch, land))
+                            for switch, land, push, action in itertools.product(
+                                    ("1", "0"), ("1", "0"), ("1", "0"), ("synchronize", "labeled", "opened")):
+                                ev = land_event(draft, labels, action=action, base=base, head_repo=head_repo)
+                                full = head_tier.tier(event_name, ev, switch, idle_switch="0", land_switch=land,
+                                                      push_switch=push)[0] == "full"
+                                landing = "ready-to-land" in labels and (action != "synchronize" or push == "0")
+                                runs = (
+                                    "full-ci" in labels
+                                    or (draft and switch == "0")
+                                    or (not draft and (landing or base != "feat-cmux-next"
+                                                       or head_repo != "manaflow-ai/cmux" or land == "0"))
+                                )
+                                self.assertEqual(full, runs, (event_name, draft, labels, base, head_repo,
+                                                              switch, land, push, action))
 
 
 # ci-web.yml is a workflow_call callee of ci.yml (job `web`), so it sees the caller's pull request event. Its heavy
@@ -828,7 +930,11 @@ class LandHandoffOnlyTests(unittest.TestCase):
                                                added="risk:low")), [])
 
     def test_lands_update_branch_head_starts_it(self) -> None:
-        self.assertEqual(self.route(land_event(labels=("ready-to-land",)), land_update=True), ["mc.yml"])
+        # Unless it carries, a land update head waits for land's `labeled` event (the land push rule), which
+        # starts it (test_the_land_handoff_starts_it); with CI_LAND_PUSH_CHEAP=0 the update head starts it.
+        ev = land_event(labels=("ready-to-land",))
+        with unittest.mock.patch.object(head_tier, "tier", functools.partial(head_tier.tier, push_switch="0")):
+            self.assertEqual(self.route(ev, land_update=True), ["mc.yml"])
 
     def test_land_update_head_needs_the_label_a_synchronize_and_githubs_merge(self) -> None:
         old = head_tier.head_facts

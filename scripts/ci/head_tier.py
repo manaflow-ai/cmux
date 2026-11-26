@@ -59,20 +59,24 @@ head's update-branch re-ran the whole full tier only to re-prove the change its 
 status or runs answer, a run still going, a red one, a commit of its own or `full-ci` keeps the full tier. Leo:
 "de facto, im asking for 99% fewer minutes of ci time, period."
 
-Land push rule (goal ci-runner-min-per-day-100k): a commit of its own pushed onto a `ready-to-land` head into
+Land push rule (goal ci-runner-min-per-day-100k): a push onto a `ready-to-land` head into
 feat-cmux-next runs the cheap tier, and `cmux/land-tier` stays pending. On 11-25..26, 64% of the heads pushed after
 the label ran the full tier, most of them replaced by the next push before land took them (about 440k
 runner-min/day of full heads that never landed). land-judge, finding `cmux/land-tier` pending on a labelled head,
 takes `ready-to-land` off and adds it back: that one `labeled` event runs the full tier at the head it lands.
-Unreadable facts, a base merge, a draft or `full-ci` keep the earlier rules.
+Every push onto a labelled head goes so but a base merge the land carry rule carries: a base merge onto a head that
+did not pass, or a head whose facts are unreadable, waits for the same `labeled` event. The workflows that read the
+label in their own `if:` (cmux-tui-spec.yml, cmux-next-guards.yml, rust-workspaces.yml and 32 more) skip such a push
+under the same switch, so the full tier runs once, at the head land takes. A draft or `full-ci` keep the earlier
+rules.
 
 Switches: the repository variable CI_LAND_TIER=0 turns the land rule off (every ready head is full again); the
 repository variable CI_DRAFT_CHEAP_TIER=0 (passed in as $CI_DRAFT_CHEAP_TIER) gives every draft head
 the full tier again; CI_IDLE_BASE_MERGE_SKIP=0 turns the idle rule off; CI_SYNC_MERGE_CHEAP=0 turns the sync rule
 off; CI_GREEN_BASE_MERGE_SKIP=0 turns the green-head base merge rule off; CI_LAND_CARRY=0 turns the land carry rule
-off (a landing base merge runs the full tier again); CI_LAND_PUSH_CHEAP=0 turns the land push rule off (a landing
-head with a commit of its own runs the full tier at once). Stdlib only; anything unreadable gives
-`full`.
+off (a landing base merge runs the full tier again); CI_LAND_PUSH_CHEAP=0 turns the land push rule off (a push onto a
+landing head runs the full tier at once, in every workflow). Stdlib only; anything unreadable gives
+`full`, but on a push onto a landing head (cheap, and land's `labeled` event runs the full tier).
 """
 
 from __future__ import annotations
@@ -92,6 +96,7 @@ LAND_BASE = "feat-cmux-next"
 LAND_STATUS = "cmux/land-tier"  # the commit status the land rule's heads carry (pr-router.yml posts it)
 # The start of the land carry rule's reason: pr_router.land_status posts success for a head whose reason starts so.
 CARRY_REASON = "land tier carried"
+PUSH_REASON = "a push after the land handoff"
 IDLE_HOURS = 24
 # Conclusions of a previous head's runs that count as green for the green-head base merge rule.
 GREEN = frozenset({"success", "skipped", "neutral"})
@@ -260,8 +265,7 @@ def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = N
     if land_on and not landing:
         return "cheap", (f"not handed off to land yet: the full tier runs when `{LAND_LABEL}` is added (land-judge "
                          f"adds it when asked to land) or with full-ci; {LAND_STATUS} stays pending until then")
-    if (landing and land_on and (push_switch or "1").strip() != "0" and event.get("action") == "synchronize"
-            and facts and facts.get("base_merge_only") is False):
+    if landing and land_on and (push_switch or "1").strip() != "0" and event.get("action") == "synchronize":
         return "cheap", (f"{PUSH_REASON}: the cheap tier runs and {LAND_STATUS} stays pending; land takes "
                          f"`{LAND_LABEL}` off and adds it back at the head it lands, which runs the full tier "
                          f"(or {FULL_CI})")
@@ -339,9 +343,7 @@ def decide(event_name: str, event: dict) -> tuple[str, str]:
     pull = event_name in ("pull_request", "pull_request_target")
     green_wanted = pull and green_rule_applies(event, green_switch, land_switch)
     carry_wanted = pull and carry_rule_applies(event, carry_switch, land_switch)
-    push_wanted = pull and push_switch.strip() != "0" and LAND_LABEL in labels and land_rule_applies(event)
-    wanted = (pull and (idle_switch.strip() != "0" or sync_switch.strip() != "0" or green_wanted or carry_wanted
-                        or push_wanted)
+    wanted = (pull and (idle_switch.strip() != "0" or sync_switch.strip() != "0" or green_wanted or carry_wanted)
               and FULL_CI not in labels)
     facts = head_facts(event) if wanted else None
     if facts and facts.get("base_merge_only") and green_wanted:
