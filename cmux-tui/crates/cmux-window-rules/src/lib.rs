@@ -29,6 +29,10 @@
 //!   tab a verb reads, the trail walks, the SSH machine an action names, a
 //!   page fit, Picture in Picture's page, where a file or diff opens, the
 //!   appearance verbs).
+//! - [`notification_rings`]: the notification service's attention rings and
+//!   reads (which panes ring, what a look or Dismiss Highlight reads, the
+//!   turn-end burst, where an arriving notification goes, a banner reply's
+//!   guard, a workspace mark's resend).
 //! - [`launch`]: whether the launch snapshot drawn before the daemon answered
 //!   is that daemon's, or stale (the launch then goes on as a bare one), and
 //!   where the launch lands: the last workspace and tab, or Home.
@@ -46,6 +50,7 @@ pub mod editors;
 pub mod files;
 pub mod history;
 pub mod launch;
+pub mod notification_rings;
 pub mod notifications;
 pub mod remote;
 pub mod restore;
