@@ -191,8 +191,13 @@ public final class AcpmuxHub {
     private struct WeakSource { weak var source: AcpmuxSessionSource? }
     /// A chat with an expired replay cache may still have an open reader. Keep routing
     /// to it while a new reader loads its own complete snapshot from the Mac.
-    private var liveSources: [AcpmuxSessionSource] {
+    var liveSources: [AcpmuxSessionSource] {
         sources.values.flatMap { $0.compactMap(\.source) }
+    }
+
+    /// The open sources of one chat (`AcpmuxHub+CatchUp.swift`).
+    func liveSources(of sessionID: String) -> [AcpmuxSessionSource] {
+        (sources[sessionID] ?? []).compactMap(\.source)
     }
 
     public init() {}
@@ -682,6 +687,9 @@ public final class AcpmuxHub {
         let seq = Int(params["seq"]?.numberValue ?? 0)
         if changed {
             onWatchEvent?(.sessionChanged(session, recordKind: kind, seq: seq))
+            // The open chat's footer facts (RFD 0130), from the row acpmux decided them on.
+            let facts = AgentFooterFacts(composerStatus: value["composerStatus"])
+            for entry in sources[session.id] ?? [] { entry.source?.footerFactsChanged(facts) }
         }
         if params["kind"]?.stringValue == "permission_resolved" { onWatchEvent?(.permissionResolved(sessionID: session.id)) }
         if params["kind"]?.stringValue == "purged" {
@@ -931,7 +939,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         flushOpenChunk()
         if replay.requiresResync {
             guard let hub else {
-                continuation.yield(.clientError("Reconnect to load this chat."))
+                // The Mac session this chat came from has ended; the chat opened again comes from the
+                // new one. Nothing here for the person to do over.
+                continuation.yield(.clientError("This chat's connection to the Mac closed."))
                 continuation.finish()
                 return (head, stream)
             }
@@ -1748,9 +1758,16 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     public func revokeChatPermission() async throws {
         let reply = try await call("_acpmux/permission_chat_revoke", ["sessionId": .string(sessionID)])
         // acpmux answers `{active: false}` and nothing else (the Mac's client checks the same).
-        guard reply["active"] == .bool(false) else {
-            throw AgentFeatureUnavailable(String(localized: "\(summary.macName) didn't confirm the revoke. Refresh and try again."))
+        guard reply["active"] != .bool(false) else { return }
+        // No confirmation in the reply: read the chat's allowance again (the Refresh the copy used
+        // to ask the person for) and count the revoke done when the Mac no longer allows the chat.
+        guard let now = try? await chatPermissions() else {
+            throw AgentFeatureUnavailable(String(localized: "\(summary.macName) didn't confirm the revoke."))
         }
+        if !now.allowedForChat { return }
+        // retry-prompt-ok: revoking is the person's own change, and the Mac still allows the chat
+        // after it; whether to revoke again is theirs to decide.
+        throw AgentFeatureUnavailable(String(localized: "\(summary.macName) still allows this chat. Try again."))
     }
 
     /// Reads the open asks again: a reattach from the last record applied, whose reply lists
@@ -1799,7 +1816,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         let ready: Bool
         if let hub { ready = hub.isReady ? true : await hub.waitUntilReady(timeout: hub.readyGrace, clock: ContinuousClock()) } else { ready = false }
         guard let hub, ready else {
-            throw AgentFeatureUnavailable(String(localized: "Agents on \(summary.macName) aren't connected. Try again in a moment."))
+            // Already waited for, up to the hub's ready grace: nothing to wait for here.
+            throw AgentFeatureUnavailable(String(localized: "Agents on \(summary.macName) aren't connected."))
         }
         do {
             return try await hub.request(method, .object(params))
@@ -2472,6 +2490,67 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         return false
     }
 
+    // MARK: One-request catch-up page (`catch-up` link service)
+
+    /// The last record applied, for a `catch-up` request (``AcpmuxHub/catchUpChats()``).
+    var heldSeq: Int { lastSeq }
+
+    /// Applies a page the `catch-up` link service read for this chat (its `_acpmux/attach`
+    /// result, newest screenful first) as an attach applies its reply, through `readRest` and
+    /// `caughtUp`: a page that starts past the records held opens the gap that fills behind it
+    /// (`tailStart`), or, wider than ``bridgeMaxSeqs``, opens the chat on the page with older
+    /// records read on scroll (`holeTooWide`); with nothing held the page opens the chat as a
+    /// first attach does, older records from ``loadEarlierHistory()``. Only a chat neither
+    /// attached nor attaching takes it: an attached chat's stream is newer than the page, and
+    /// an attach in flight reads the same records. After it the chat is still not attached, so
+    /// the hub's next `linkUp` attaches from the page's last record and the connection's event
+    /// stream reaches it. A page that needed a read the hub could not make applies nothing: the
+    /// next attach reads it. True when the page was applied.
+    func applyCatchUpPage(_ result: JSONValue) async -> Bool {
+        guard !attached, !attaching, !restoring, pipelined == nil, let hub,
+              result["events"]?.arrayValue != nil else { return false }
+        retryTask?.cancel()
+        retryTask = nil
+        attaching = true
+        refillPending = false
+        generation += 1
+        let generation = generation
+        var read = CatchUpRead(sessionID: sessionID, after: lastSeq, allowGap: gapFill == nil,
+                               fromKept: keptRestored, timeBreakdownVersion: timeBreakdownVersion)
+        // Twice at most: a kept copy found too old (`keptTooOld`) is dropped, and the same page
+        // then opens the chat as a first attach's would.
+        for _ in 0..<2 {
+            var pages = CatchUpPages()
+            pages.result = result
+            do {
+                try await Self.readRest(hub, read, &pages) { [weak self] method, params in
+                    guard self?.generation == generation, !Task.isCancelled else { throw CancellationError() }
+                    return try await hub.request(method, .object(params), timeout: Self.pageTimeout)
+                }
+            } catch {
+                pages.failure = error
+            }
+            // The link dropped or an attach started meanwhile: that one owns the chat now.
+            guard generation == self.generation else { return false }
+            guard pages.failure == nil else { break }
+            let again = caughtUp(pages, read, generation)
+            if !again, attached {
+                // Shown, but this connection's event stream does not reach the chat yet.
+                attached = false
+                linkUp()
+                return true
+            }
+            guard again, !refillPending, lastSeq == 0 else { break }
+            read = CatchUpRead(sessionID: sessionID, after: 0, timeBreakdownVersion: timeBreakdownVersion)
+        }
+        guard generation == self.generation else { return false }
+        attaching = false
+        attachTask = nil
+        held = []
+        linkUp()
+        return false
+    }
+
     // MARK: Reconnect gap (tail-first)
 
     /// What of a tail-first reattach's gap is still on the Mac: the records after `cursor`
@@ -2689,7 +2768,25 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             if let id = entry["permissionId"]?.stringValue, !laterAsks.contains(id), let request = entry["request"],
                let event = records.permission(id, request: request) { emitPermission(event, listedOnly: true) }
         }
+        // Always, unlike a row's: the attach's catch-up is what a new reader starts from.
+        if let detail = result["session"] {
+            let facts = AgentFooterFacts(composerStatus: detail["composerStatus"])
+            lastFooterFacts = facts
+            emit(.footerFacts(facts))
+        }
         emit(.status(summary.status))
+    }
+
+    /// The footer facts last sent to the chat: a row that repeats them (each turn event's
+    /// `session_changed`) adds nothing to the replay.
+    private var lastFooterFacts: AgentFooterFacts?
+
+    /// The session's footer facts from its row (`composerStatus.facts`, RFD 0130), sent to the chat
+    /// when they changed.
+    func footerFactsChanged(_ facts: AgentFooterFacts) {
+        guard facts != lastFooterFacts else { return }
+        lastFooterFacts = facts
+        emit(.footerFacts(facts))
     }
 
     /// The session's models (from attach), for the menu after a pick.
@@ -3124,21 +3221,4 @@ struct AcpmuxEarlierPage: Sendable {
     var records = 0
     /// A read failed: nothing shows, and the next ask reads the same page again.
     var failed = false
-}
-
-// MARK: - One-request catch-up (`catch-up` link service)
-
-extension AcpmuxHub {
-    /// The open chats and the last event each holds, for a `catch-up` request (each once).
-    func catchUpChats() -> [(sessionID: String, lastSeq: Int)] {
-        var seen = Set<String>()
-        return liveSources.compactMap { source in
-            seen.insert(source.sessionID).inserted ? (source.sessionID, source.heldSeq) : nil
-        }
-    }
-}
-
-extension AcpmuxSessionSource {
-    /// The last record applied (`lastSeq`).
-    var heldSeq: Int { lastSeq }
 }
