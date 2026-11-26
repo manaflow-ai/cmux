@@ -86,17 +86,27 @@ extension VerticalTabListView: MotionAnimating {
     public func motionStep(_ dt: Double) -> Bool {
         let spring = Motion.tabs.spring(.move)
         var moving = false
-        for key in Array(motion.rows.keys) { moving = motion.rows[key]!.advance(dt, parameters: spring) || moving }
-        for key in Array(motion.lines.keys) { moving = motion.lines[key]!.advance(dt, parameters: spring) || moving }
-        for key in Array(motion.panes.keys) { moving = motion.panes[key]!.advance(dt, parameters: spring) || moving }
+        moving = Self.step(&motion.rows, dt, spring) || moving
+        moving = Self.step(&motion.lines, dt, spring) || moving
+        moving = Self.step(&motion.panes, dt, spring) || moving
         needsDisplay = true
         return moving
     }
 
+    private static func step<Key: Hashable>(_ springs: inout [Key: AnimatedFrame], _ dt: Double, _ spring: SpringParameters) -> Bool {
+        var moving = false
+        for key in Array(springs.keys) {
+            guard var frame = springs[key] else { continue }
+            moving = frame.advance(dt, parameters: spring) || moving
+            springs[key] = frame
+        }
+        return moving
+    }
+
     public func motionSettle() {
-        for key in Array(motion.rows.keys) { motion.rows[key]!.snap() }
-        for key in Array(motion.lines.keys) { motion.lines[key]!.snap() }
-        for key in Array(motion.panes.keys) { motion.panes[key]!.snap() }
+        for key in Array(motion.rows.keys) { motion.rows[key]?.snap() }
+        for key in Array(motion.lines.keys) { motion.lines[key]?.snap() }
+        for key in Array(motion.panes.keys) { motion.panes[key]?.snap() }
         needsDisplay = true
     }
 }
