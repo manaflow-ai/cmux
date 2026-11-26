@@ -593,14 +593,32 @@ pub fn write_fixture(dir: &Path) -> anyhow::Result<()> {
         let path = dir.join(rel);
         if let Some(parent) = path.parent() {
             crate::home_fs::create_dirs(parent)?;
+            checkout_mode(parent, 0o755)?;
         }
         crate::home_fs::write(&path, text)?;
+        checkout_mode(&path, 0o644)?;
     }
     git(dir, &["init", "-q"])?;
     git(dir, &["add", "-A"])?;
     git(dir, &["commit", "-q", "-m", "conformance fixture"])?;
-    crate::home_fs::write(dir.join("edited.txt"), "committed line\nan uncommitted edit\n")?;
-    crate::home_fs::write(dir.join("draft.txt"), "an untracked file\n")?;
+    for (rel, text) in [
+        ("edited.txt", "committed line\nan uncommitted edit\n"),
+        ("draft.txt", "an untracked file\n"),
+    ] {
+        crate::home_fs::write(dir.join(rel), text)?;
+        checkout_mode(&dir.join(rel), 0o644)?;
+    }
+    Ok(())
+}
+
+/// Give a fixture path the mode a cloned checkout has (644 files, 755 folders): `home_fs` writes
+/// 600 and 700, and a 600 file that a case copies, appends to or renames keeps 600 here while
+/// the routed side's patch brings it back 644, a difference no real checkout has.
+fn checkout_mode(path: &Path, mode: u32) -> anyhow::Result<()> {
+    #[cfg(unix)]
+    crate::home_fs::set_mode(path, mode)?;
+    #[cfg(not(unix))]
+    let _ = (path, mode);
     Ok(())
 }
 
