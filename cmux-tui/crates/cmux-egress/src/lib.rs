@@ -543,7 +543,10 @@ pub mod ws {
     /// What a connect returns, as tokio-tungstenite's do.
     pub type Connected = Result<(WebSocketStream<MaybeTlsStream<TcpStream>>, Response), WsError>;
 
-    /// Turns `request` into a handshake request and checks its host.
+    /// Turns `request` into a handshake request and checks its host. A caller
+    /// that then dials the checked request itself (its own proxy hops or TLS
+    /// trust) asks [`capture_route`] first, so the seeded-secret capture sees
+    /// its upgrade as it sees this module's connects.
     pub fn checked<R: IntoClientRequest>(
         request: R,
         site: &'static str,
@@ -585,6 +588,21 @@ pub mod ws {
         connect(checked(request, site)?, config, disable_nagle, connector).await
     }
 
+    /// Where a `wss://` upgrade of `request` goes instead, and the TLS config
+    /// that trusts the capture CA: `Some` only with capture on (feature
+    /// `capture`, tests) and the host one it takes (listed or person-named).
+    /// Always `None` in a build without the feature.
+    pub fn capture_route(
+        request: &Request,
+    ) -> Option<(std::net::SocketAddr, std::sync::Arc<rustls::ClientConfig>)> {
+        #[cfg(feature = "capture")]
+        if request.uri().scheme_str() == Some("wss") {
+            return request.uri().host().and_then(crate::capture::ws_redirect);
+        }
+        let _ = request;
+        None
+    }
+
     /// The connect of a checked request. With capture on (feature `capture`), a
     /// `wss://` upgrade to a listed or person-named host goes to the capture
     /// server, which keeps the upgrade request (its target and headers) and
@@ -595,10 +613,7 @@ pub mod ws {
         disable_nagle: bool,
         connector: Option<Connector>,
     ) -> Connected {
-        #[cfg(feature = "capture")]
-        if request.uri().scheme_str() == Some("wss")
-            && let Some((addr, tls)) = request.uri().host().and_then(crate::capture::ws_redirect)
-        {
+        if let Some((addr, tls)) = capture_route(&request) {
             let stream = TcpStream::connect(addr).await.map_err(WsError::Io)?;
             return tokio_tungstenite::client_async_tls_with_config(
                 request,
