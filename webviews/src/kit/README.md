@@ -24,7 +24,7 @@ Import from `kit/index.ts` only; the files behind it may move.
 | Motion                           | `motion(step)`, `MOTION` and `EASE_STANDARD` for CSS; `motionToken`, `warmMotionTokens` to read a resolved token; `motionMode`, `springEasing` for how much may move now.                     |
 | `PopoverButton`, `Popover`       | A button that opens a popover under it; `ui/Popover` for any other anchor.                                                                                                                    |
 | `Field`, `Input`                 | A labelled field with a hint or an error; `ui/Input` alone.                                                                                                                                   |
-| `Pill`                           | A capsule: `neutral`, `accent`, `success`, `attention`, `danger`; `sm` 20, `md` 24.                                                                                                           |
+| `Pill`                           | A capsule: `neutral`, `accent`, `success`, `attention`, `danger`; `xs` 16, `sm` 20, `md` 24.                                                                                                           |
 | `Avatar`                         | A picture or initials on a neutral tile; people round, agents square.                                                                                                                         |
 | `Icon`, `StatusGlyph`, `Spinner` | cmux's icon pack, the static status marks, the working spinner.                                                                                                                               |
 | Tokens                           | `color("muted")`, `space("2")`, `control("row")`, `icon("16")`, `radius("md")`, `text("caption")`, `motion("quick")`: `var()`s of the one generated token list.                               |
@@ -32,9 +32,8 @@ Import from `kit/index.ts` only; the files behind it may move.
 
 ## Props
 
-The names below are the code's (`Row.tsx`, `List.tsx`, `ui/Tooltip.tsx`, `ui/Menu.tsx`,
-`ui/surface/Surface.tsx`, `ui/Button.tsx`, `agent-session/acpmux/icons/Icon.tsx`); a prop not listed
-here is not there.
+These tables cover common props from the component definitions (`Row.tsx`, `List.tsx`, `ui/Tooltip.tsx`, `ui/Menu.tsx`,
+`ui/surface/Surface.tsx`, `ui/Button.tsx`, `agent-session/acpmux/icons/Icon.tsx`). For host-specific options see [Variants for scene parity](#variants-for-scene-parity).
 
 `Row`
 
@@ -176,6 +175,24 @@ Rules for pages built on the kit:
 - Raw values (a pixel size, a hex colour, a duration) still compile outside the closed directories, but
   they are discouraged: use a token, and if no token fits, ask for one here.
 
+## Variants for scene parity
+
+Each is off unless asked for; without it a piece renders the markup it always did (`variants.test.tsx`).
+They let a host that keeps its own sheet (the customize scene renderer) draw with the kit at its
+current values. Gallery: `kit.primitives` `scene-parity`.
+
+| Piece    | Prop or name                         | What it does                                                                                                                                                                      |
+| -------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Button` | `bare`                               | Only the caller's `className`: no `ui-button ui-btn`, no `data-variant`/`data-size`. Base UI's behavior stays.                                                                    |
+| `Row`    | `ref`                                | The row element: the `button` with `onSelect`, else the static `div`.                                                                                                             |
+| `Row`    | any other attribute or handler       | Goes onto the row element (`draggable`, `onDragStart`, `data-*`). `onSelect` stays the click; `label` wins `aria-label`.                                                          |
+| `Row`    | `subtitleSize`                       | `caption` (default) or `detail` (`--text-detail`), the scene's second line.                                                                                                       |
+| `Row`    | `--kit-row-selected-fill`            | Set on the row (its own class) to give the selection the host's fill; unset, `--ds-color-selection`.                                                                              |
+| `Pill`   | `size="xs"`                          | The scene badge: min-height `--grid-icon-box` (16), padding `--grid-base`, `--text-detail`, neutral fill `currentColor` 14%.                                                      |
+| `Pill`   | `--kit-pill-radius`                  | xs only: the corner; default `--ds-radius-full`, and any class of the host's sets it.                                                                                             |
+| Tokens   | `grid(name)`, `GRID`                 | The layout grid's `--grid-*` (base, half-step, gap, glyph, icon-box, pill, pill-inset, row, and comfortables), which follow `--cmux-interface-scale` where `space()` is fixed px. |
+| Tokens   | `--ds-radius-full`, `radius("full")` | 999px: a capsule at any height. Tailwind's own `rounded-full` is left as it is.                                                                                                   |
+
 ## Gallery
 
 `kit.primitives` (`kit.gallery.tsx`, "Kit: UI base for customizations" under UI primitives) shows every
@@ -194,7 +211,7 @@ it (a static build, the live tailnet gallery) are in
 
 ### Which kit do I use
 
-cmux has three sets of components today, and they are not one package yet:
+Choose the API for the host that will render the view:
 
 - Instrument (this): React, for web code inside this repo's `webviews/` (pages, panes, the gallery).
   It is imported by relative path (`../kit`); it is not published as a package.
@@ -204,5 +221,9 @@ cmux has three sets of components today, and they are not one package yet:
 - `cmux-extension-sdk`, for extensions (`cmux ext new`): its scene DSL and widget helpers,
   [`cmux-tui/crates/cmux-extension-sdk/README.md`](../../../cmux-tui/crates/cmux-extension-sdk/README.md).
 
-A user's customization view today is built from the scene globals, not from this package, even where
-the names match (`Row`, `Panel`, `Button`). Unifying the three is open work.
+For a local view, start with the [focus timer example](../../../skills/cmux-customization/references/local-app-views.md#template-a-focus-timer).
+Use the gallery above as a visual reference. A prompt for an agent:
+
+> Build a focus timer for my sidebar using the scene globals in the focus timer example.
+> Use the existing Panel, Row and Button styles and theme tones. Match the light and dark gallery examples,
+> then show the running and paused states in my customization.
