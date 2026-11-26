@@ -518,6 +518,9 @@ export type ComponentVariant<P> = VariantBase & {
   props: P;
   /** Gallery-only answers for the component's reply chip/preview host calls. */
   chipHost?: ChipHostFixture;
+  /** Experiment arms the variant pins, by experiment id (experiments/experiment.ts), set before the
+   *  component loads. */
+  experiments?: Record<string, string>;
 };
 
 /**

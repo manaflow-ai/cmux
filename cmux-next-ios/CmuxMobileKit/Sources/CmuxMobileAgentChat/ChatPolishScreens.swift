@@ -381,6 +381,7 @@ struct ReplayConversationScreen: View {
                     }
                 } else {
                     CmuxSpinner(label: Text("Loading this chat's history…")).frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .placeholderBound("chat.history.loading", .milliseconds(2000))
                 }
             case .empty:
                 ContentUnavailableView("Nothing to replay yet.", systemImage: "arrow.counterclockwise")
