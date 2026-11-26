@@ -13,7 +13,9 @@ pub fn bind_failure_message(address: SocketAddr, error: &io::Error) -> String {
     let port = address.port();
     let host = match address {
         SocketAddr::V4(addr) => addr.ip().to_string(),
-        SocketAddr::V6(addr) if addr.scope_id() != 0 => format!("[{}%{}]", addr.ip(), addr.scope_id()),
+        SocketAddr::V6(addr) if addr.scope_id() != 0 => {
+            format!("[{}%{}]", addr.ip(), addr.scope_id())
+        }
         SocketAddr::V6(addr) => format!("[{}]", addr.ip()),
     };
     format!(
@@ -28,7 +30,9 @@ fn holder_command(port: u16) -> String {
     if cfg!(any(target_os = "linux", target_os = "android")) {
         format!("ss -ltnp 'sport = :{port}'")
     } else if cfg!(windows) {
-        format!("Get-NetTCPConnection -State Listen -LocalPort {port} | Select-Object OwningProcess")
+        format!(
+            "Get-NetTCPConnection -State Listen -LocalPort {port} | Select-Object OwningProcess"
+        )
     } else {
         format!("netstat -anv -p tcp | grep LISTEN | grep '[.]{port} '")
     }
