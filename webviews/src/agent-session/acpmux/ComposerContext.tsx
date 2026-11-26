@@ -486,7 +486,7 @@ export function ComposerContext({
   const pickKey = `${summary?.sessionId ?? ""}\u0000${initialComputer}`;
   const [picked, setPicked] = useState<{ key: string; computer?: string }>({ key: pickKey });
   const [browseError, setBrowseError] = useState<string>();
-  // The browse that failed, so Retry runs the same one.
+  // The browse that failed, so Retry runs the same one. retry-prompt-ok: it opens the folder chooser again.
   const browseRetry = useRef<() => void>(undefined);
   // Counts folder picks: a folder panel's late answer (or failure) after one is dropped.
   const folderPicks = useRef(0);
@@ -733,7 +733,8 @@ export function ComposerContext({
       : undefined;
   // A new chat's Add folder…: the host's folder panel, then the chat's folder. As Add project's dialog
   // did, the panel only answers (deferPick) and the pick commits here, so a folder picked while the
-  // panel was open wins over its late answer; a refused or failed panel says why beside a Retry.
+  // panel was open wins over its late answer; a refused or failed panel says why beside a Retry
+  // (retry-prompt-ok: it raises the folder chooser again, which only the person's click may).
   const browseProject = onBrowseProject
     ? (): Promise<BrowseResult> => {
         const picks = folderPicks.current;
@@ -1374,6 +1375,7 @@ export function ComposerContext({
           )}
           {started && placeControl}
         </div>
+        {/* retry-prompt-ok: BrowseFailure's Retry opens the folder chooser again (BrowseFailure.tsx). */}
         {browseError && browseRetry.current && (
           <BrowseFailure
             error={browseError}

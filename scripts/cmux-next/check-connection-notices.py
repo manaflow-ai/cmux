@@ -111,7 +111,7 @@ TIME_GATES = re.compile(
     r"\b("
     r"CONNECTION_QUIET_MS|useConnectionQuiet|connectionQuiet|NoticeTiming|QuietStatusGate"  # the shared bound
     r"|useLasting|useLastingKeys|useConnectionQuietKeys|LASTING_MS|useAfterDelay|RESUME_NOTE_DELAY_MS"  # web holds
-    r"|HOST_ERROR_DEADLINE_MS|hostErrorShows|hostRecoveryLine"
+    r"|HOST_ERROR_DEADLINE_MS|hostErrorShows|hostRecoveryLine|useAutoRetry|stillTrying|useLinkDownSaid|LINK_DOWN_SAID_MS"
     r"|revealDelay|NoticePolicy|noticePolicy|RemoteLatencyHold|QuietHold|connectionChip|connectionLasting"  # native holds
     r")\b"
 )
