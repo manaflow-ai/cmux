@@ -302,6 +302,69 @@ pub(super) fn trust_peer<'a>(m: &str, params: &'a Value) -> Result<Option<&'a st
     Ok(Some(peer))
 }
 
+/// How long a forwarded read waits with less than `PEER_READ_STEP` arriving on its link before it
+/// fails: a stuck handler on a link carrying only pings and pongs ends here.
+pub(super) const PEER_READ_IDLE: std::time::Duration = std::time::Duration::from_secs(30);
+/// The link bytes that count as the reply coming in: well above a ping, a pong and the odd
+/// notice, well below one reply page (`rpc::REPLY_PAGE_BYTES`, mesh pages of 4 KiB or more).
+pub(super) const PEER_READ_STEP: u64 = 16 * 1024;
+/// The most a read may take however busy its link stays: other chats' traffic can move the link
+/// while this read's handler never answers.
+pub(super) const PEER_READ_CAP: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+
+/// Why a forwarded read ended without its answer.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum ReadStalled {
+    /// Less than `PEER_READ_STEP` arrived in this long.
+    Idle(std::time::Duration),
+    /// The link kept moving but no answer came in this long.
+    Cap(std::time::Duration),
+}
+
+impl std::fmt::Display for ReadStalled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Idle(d) => write!(f, "the link brought no reply for {} seconds", d.as_secs()),
+            Self::Cap(d) => write!(f, "no answer after {} seconds", d.as_secs()),
+        }
+    }
+}
+
+/// `fut`, ended when `read` (the link's transport bytes) moves less than `PEER_READ_STEP` in
+/// `idle`, or at `cap`. A slow link bringing a large page keeps the read alive; a silent one ends
+/// at `idle` as before.
+pub(super) async fn peer_read<F: std::future::Future>(
+    read: &cmux_deadline::Progress,
+    idle: std::time::Duration,
+    cap: std::time::Duration,
+    fut: F,
+) -> Result<F::Output, ReadStalled> {
+    let started = tokio::time::Instant::now();
+    let mut since = started;
+    let mut mark = read.count();
+    let tick = (idle / 8).max(std::time::Duration::from_millis(50));
+    tokio::pin!(fut);
+    loop {
+        let now = tokio::time::Instant::now();
+        let count = read.count();
+        if count.saturating_sub(mark) >= PEER_READ_STEP {
+            mark = count;
+            since = now;
+        }
+        if now.saturating_duration_since(started) >= cap {
+            return Err(ReadStalled::Cap(cap));
+        }
+        if now.saturating_duration_since(since) >= idle {
+            return Err(ReadStalled::Idle(idle));
+        }
+        let wake = (since + idle).min(started + cap).min(now + tick);
+        tokio::select! {
+            out = &mut fut => return Ok(out),
+            () = tokio::time::sleep_until(wake) => {}
+        }
+    }
+}
+
 /// How long a prompt for a peer's chat waits for that peer's link before it is refused as
 /// unreachable, for a sender that keeps such a message itself: a peer daemon's forward (its own
 /// outbox tries it again) and the acpmux CLI, which queues a refused send in this daemon's outbox
@@ -1258,12 +1321,14 @@ async fn forward_inner(
         ) {
             // History reads answer from the current snapshot, even during a running turn.
             // A connected link can still have a stuck handler; do not inherit its ten-minute
-            // generic deadline. Dropping this future releases its pending reply entry. Attach
-            // keeps its existing lifecycle: it installs a live subscription before replying.
-            tokio::time::timeout(std::time::Duration::from_secs(30), peer.request_on(m, p, on))
+            // generic deadline. The read waits while the link brings its reply in, not a
+            // fixed time (`peer_read`). Dropping this future releases its pending reply entry.
+            // Attach keeps its existing lifecycle: it installs a live subscription before
+            // replying.
+            peer_read(&peer.link_read(), PEER_READ_IDLE, PEER_READ_CAP, peer.request_on(m, p, on))
                 .await
-                .unwrap_or_else(|_| Err(RpcError::internal(format!(
-                    "reading {m} from peer {} did not finish within 30 seconds; check the peer connection and retry this read",
+                .unwrap_or_else(|stalled| Err(RpcError::internal(format!(
+                    "reading {m} from peer {} stopped: {stalled}; check the peer connection and retry this read",
                     peer.name
                 )).with_data(json!({"reason": "peer_read_timeout", "peer": peer.name, "method": m}))))
         } else if crate::peer::waits_on_turn(m) {
@@ -1870,6 +1935,9 @@ fn peer_feature_unsupported(peer: &crate::peer::Peer, m: &str, features: &[&str]
     .with_data(json!({"reason": "peerFeature.unsupported", "peer": peer.name, "features": features}))
 }
 
+#[cfg(test)]
+#[path = "peer_read_tests.rs"]
+mod peer_read_tests;
 #[cfg(test)]
 #[path = "prompt_link_wait_tests.rs"]
 mod prompt_link_wait_tests;

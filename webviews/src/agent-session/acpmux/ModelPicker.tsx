@@ -678,7 +678,7 @@ export function ModelPicker(props: ModelPickerProps) {
   const harnessText = t("picker.harness");
   const noMatchesText = t("picker.noMatches");
   const starredText = t("picker.starred");
-  const addHarnessText = t("modelPicker.addHarness");
+  const addHarnessText = props.addAgentLabel ?? t("modelPicker.addHarness");
   const fastText = t("picker.fastOn");
   const unavailableText = t("picker.unavailable");
   const notInstalledText = t("harnesses.notInstalled");

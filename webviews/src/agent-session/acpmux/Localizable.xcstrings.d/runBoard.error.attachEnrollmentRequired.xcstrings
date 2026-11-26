@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "runBoard.error.attachEnrollmentRequired" : {
+      "comment" : "Agent pane run board: error shown when attaching to a worker's terminal needs this device enrolled first",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يتطلب هذا العامل تسجيل الجهاز قبل إرفاق الطرفية."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ovaj radnik zahtijeva registraciju uređaja prije povezivanja terminala."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denne arbejder kræver, at enheden tilmeldes, før terminalen kan tilknyttes."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dieser Worker erfordert eine Geräteregistrierung, bevor das Terminal verbunden werden kann."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This worker requires device enrollment before terminal attach."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Este worker requiere registrar el dispositivo antes de conectar el terminal."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ce worker exige l'enregistrement de l'appareil avant de connecter le terminal."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Questo worker richiede la registrazione del dispositivo prima di collegare il terminale."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "このワーカーでは、ターミナルに接続する前にデバイスの登録が必要です。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "worker នេះតម្រូវឱ្យចុះឈ្មោះឧបករណ៍ មុនពេលភ្ជាប់ទែមីណាល់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 워커는 터미널에 연결하기 전에 기기 등록이 필요합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denne arbeideren krever at enheten registreres før terminalen kan kobles til."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ten worker wymaga rejestracji urządzenia przed podłączeniem terminala."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Este worker exige o registro do dispositivo antes de conectar o terminal."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Этот воркер требует регистрации устройства перед подключением к терминалу."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "worker นี้ต้องลงทะเบียนอุปกรณ์ก่อนเชื่อมต่อเทอร์มินัล"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu çalışan, terminale bağlanmadan önce cihaz kaydı gerektiriyor."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Цей воркер потребує реєстрації пристрою перед підключенням до термінала."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Worker này yêu cầu đăng ký thiết bị trước khi kết nối terminal."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此工作器要求先注册设备才能连接终端。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此工作器要求先註冊裝置才能連線終端機。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

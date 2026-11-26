@@ -73,6 +73,8 @@ import Testing
         #expect(node(["loop": ["effect": "spin"]]).loop?.period == 2)
         #expect(node(["loop": ["effect": "pulse", "period": 0.1]]).loop?.period == MotionLoop.shortestFlashCycle, "nothing flashes past 2 Hz")
         #expect(node(["loop": ["effect": "wiggle", "amount": 50]]).loop?.amount == 10)
+        #expect(node(["loop": ["effect": "spin", "amount": -1]]).loop?.amount == -1, "a negative spin turns counterclockwise")
+        #expect(node(["loop": ["effect": "spin", "amount": -50]]).loop?.amount == -10, "clamped to cmux.motion/1's [-10, 10]")
         #expect(node(["loop": ["effect": "warp"]]).loop == nil)
 
         #expect(node(["transition": "pop"]).transition == .pop)
