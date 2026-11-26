@@ -21,6 +21,7 @@ import { useTranscriptReadOnly } from "../conversation/readOnly";
 import { openSessionAttributes } from "../conversation/menuParts";
 import { AgentTag } from "../conversation/AgentTag";
 import { OfferOptions } from "./OfferOptions";
+import { useExperimentSwitch } from "../../../experiments/switches";
 import {
   initialChoice,
   pickIntent,
@@ -334,7 +335,34 @@ function StartedTask({
   onOpen(childSessionId: string): void;
 }) {
   const t = useT();
+  // Settings > Advanced > Experiments > Started Tasks: Title Opens Chat (off by default): only the
+  // title, drawn as the result line's chip, opens the chat and lights; the row lights nothing (Leo,
+  // 2026-11-05: "subagents need to have their clickable bit be highlighted instead of the whole line
+  // click sending me to the subagent righ split"). Off keeps today's whole-row button.
+  const titleChip = useExperimentSwitch("startedTaskTitleChip");
   const items = [{ id: "open", label: t("subagents.open", { name: offer.title }), onSelect: () => onOpen(child) }];
+  if (titleChip)
+    return (
+      <ContextMenu items={items} targets="own">
+        <div className="acpmux-task-started" data-state={childState(offer)} data-title-chip="">
+          <div className="acpmux-task-row">
+            <span className="acpmux-task-elbow" aria-hidden="true">
+              ⎿
+            </span>
+            <AgentTag
+              name={offer.title}
+              className="acpmux-task-row-title"
+              ariaLabel={t("subagents.open", { name: offer.title })}
+              attributes={openSessionAttributes(child)}
+              onClick={() => onOpen(child)}
+            />
+            <span className="acpmux-task-row-sub">{subtitle(t, offer)}</span>
+            <span className="acpmux-task-dot" aria-hidden="true" />
+            <Icon name="disclosure.collapsed" size={12} />
+          </div>
+        </div>
+      </ContextMenu>
+    );
   return (
     <ContextMenu items={items} targets="own">
       <div className="acpmux-task-started" data-state={childState(offer)}>
