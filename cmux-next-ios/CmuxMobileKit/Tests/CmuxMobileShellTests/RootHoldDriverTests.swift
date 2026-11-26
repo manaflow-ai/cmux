@@ -21,7 +21,7 @@ struct RootHoldDriverTests {
         stack.turn()
         // Before the release runs, a page is pushed (a link, a notification tap).
         let push = Token()
-        stack.reading = RootHoldReading(transition: ObjectIdentifier(push), rootRequested: false, depth: 1)
+        stack.reading = RootHoldReading(transition: push, rootRequested: false, depth: 1)
         stack.run(for: 0)
         #expect(!stack.reports.contains(false), "no release against the stack it was decided on")
         #expect(driver.following)
@@ -70,13 +70,46 @@ struct RootHoldDriverTests {
         driver.follow()
         stack.run(for: 0.1)
         let pop = Token()
-        stack.reading.transition = ObjectIdentifier(pop)
+        stack.reading.transition = pop
         stack.accepts = true
         stack.run(for: 0.1)
         #expect(stack.registrations == 2)
         #expect(driver.following)
         stack.run(for: 5)
         #expect(!stack.reports.contains(false), "a transition that reports its end is never released at the bound")
+    }
+
+    /// Review on d8ec9a9: a decline remembered by `ObjectIdentifier` alone could classify a later
+    /// coordinator allocated at the dead one's address as the declined one (never followed, and
+    /// released on the old decline's clock). Deterministic without address reuse: the decline
+    /// is held weakly, so it is gone the moment its coordinator is, before any reading.
+    @Test func aDeclinedCoordinatorThatDiesIsForgottenAndTheNextIsFollowed() {
+        var old: Token? = Token()
+        weak var gone = old
+        let stack = FakeStack(transition: old, rootRequested: true, depth: 2, accepts: false)
+        old = nil
+        let driver = stack.driver()
+        driver.follow()
+        #expect(stack.registrations == 1)
+        #expect(driver.holdsDeclinedTransition)
+        stack.run(for: RootHold.bound / 2)
+        // The declined coordinator ends and is freed; the next reading is a new transition,
+        // with no reading of "no transition" in between.
+        let next = Token()
+        stack.reading.transition = next
+        #expect(gone == nil, "the stack held the last reference")
+        #expect(!driver.holdsDeclinedTransition, "the decline died with its coordinator")
+        stack.accepts = true
+        stack.run(for: RootHold.recheck)
+        #expect(stack.registrations == 2, "the new coordinator is asked to report its end")
+        #expect(driver.following)
+        stack.run(for: RootHold.bound * 5)
+        #expect(!stack.reports.contains(false), "not released on the old decline's clock")
+        #expect(stack.bounds == 0)
+        stack.reading = RootHoldReading(transition: nil, rootRequested: true, depth: 1)
+        stack.finish()
+        stack.run(for: 0)
+        #expect(stack.reports.last == false)
     }
 
     @Test func aSlowOrInteractiveTransitionHoldsUntilItEnds() {
@@ -142,11 +175,11 @@ private final class FakeStack {
     var registrations = 0
     var bounds = 0
     private var completion: (@MainActor () -> Void)?
-    private var tokens: [Token] = []
 
+    /// The reading holds the transition's coordinator (a `Token`), as UIKit's stack does: setting
+    /// `reading.transition` to another drops the last strong reference to the old one.
     init(transition: Token?, rootRequested: Bool, depth: Int?, accepts: Bool = true) {
-        tokens = transition.map { [$0] } ?? []
-        reading = RootHoldReading(transition: transition.map { ObjectIdentifier($0) }, rootRequested: rootRequested, depth: depth)
+        reading = RootHoldReading(transition: transition, rootRequested: rootRequested, depth: depth)
         self.accepts = accepts
     }
 

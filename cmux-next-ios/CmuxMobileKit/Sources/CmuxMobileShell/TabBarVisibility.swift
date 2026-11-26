@@ -116,7 +116,7 @@ private struct TabBarVisibilityEnforcer: UIViewControllerRepresentable {
                 read: { [weak self] in
                     guard let self else { return RootHoldReading(transition: nil, rootRequested: true, depth: nil) }
                     let navigation = self.stack
-                    return RootHoldReading(transition: navigation?.transitionCoordinator.map { ObjectIdentifier($0) },
+                    return RootHoldReading(transition: navigation?.transitionCoordinator.map { $0 as AnyObject },
                                            rootRequested: self.rootRequested, depth: navigation?.viewControllers.count)
                 },
                 register: { [weak self] done in
@@ -243,12 +243,38 @@ enum RootHold {
 
 /// The tab's stack as the hold reads it.
 struct RootHoldReading: Equatable {
-    /// The running transition's coordinator (nil: none).
-    var transition: ObjectIdentifier?
+    /// The running transition's coordinator (nil: none), compared by identity. The object
+    /// itself, not its `ObjectIdentifier`: a dead coordinator's address can be reused by the next
+    /// one, and an identifier alone would read that new transition as the old.
+    var transition: AnyObject?
     /// The tab's path is empty.
     var rootRequested: Bool
     /// The stack's view controllers (nil: no stack found).
     var depth: Int?
+
+    static func == (lhs: RootHoldReading, rhs: RootHoldReading) -> Bool {
+        lhs.transition === rhs.transition && lhs.rootRequested == rhs.rootRequested && lhs.depth == rhs.depth
+    }
+}
+
+/// A transition UIKit declined to report the end of. Weak: once that coordinator is gone, the
+/// decline (and its clock) means nothing, and nothing can mistake a later coordinator for it.
+@MainActor
+private final class DeclinedTransition {
+    weak var transition: AnyObject?
+    let since: Date
+    var logged = false
+
+    init(_ transition: AnyObject, since: Date) {
+        self.transition = transition
+        self.since = since
+    }
+
+    /// Still the same live coordinator as `other`.
+    func matches(_ other: AnyObject?) -> Bool {
+        guard let transition, let other else { return false }
+        return transition === other
+    }
 }
 
 /// Runs `RootHold.step` against the stack over time: when it reads, follows, rechecks and
@@ -272,8 +298,10 @@ final class RootHoldDriver {
     private(set) var following = false
     /// When the hold first waited on a pop UIKit had not started (nil: not waiting).
     private var waitingSince: Date?
-    /// The transition UIKit declined to report the end of, and since when.
-    private var declined: (transition: ObjectIdentifier, since: Date, logged: Bool)?
+    /// The transition UIKit declined to report the end of, and since when (weakly held).
+    private var declined: DeclinedTransition?
+    /// A declined transition is remembered and still alive (tests).
+    var holdsDeclinedTransition: Bool { declined?.transition != nil }
     private var recheckScheduled = false
     private var releaseScheduled = false
 
@@ -294,12 +322,14 @@ final class RootHoldDriver {
     func follow(deferReport: Bool = false) {
         guard enabled(), !following, let transition = read().transition else { return }
         // UIKit already declined this transition: wait on it (bounded), do not ask again.
-        if declined?.transition == transition { scheduleRecheck(); return }
+        if declined?.matches(transition) == true { scheduleRecheck(); return }
+        // A remembered decline whose coordinator is gone, or another one: forget it.
+        declined = nil
         following = true
         if deferReport {
             after(0) { [weak self] in
                 // Still holding: following, or waiting on a transition UIKit declined to report.
-                guard let self, self.following || self.declined?.transition == transition else { return }
+                guard let self, self.following || self.declined?.matches(transition) == true else { return }
                 self.moving?(true)
             }
         } else {
@@ -318,7 +348,7 @@ final class RootHoldDriver {
             // again on the recheck timer (not at once: that would ask again every turn), bounded
             // from the first decline by `RootHold.bound`.
             following = false
-            declined = (transition, now(), false)
+            declined = DeclinedTransition(transition, since: now())
             scheduleRecheck()
         }
     }
@@ -327,7 +357,8 @@ final class RootHoldDriver {
     func settle() {
         guard enabled(), !following else { return }
         let reading = read()
-        if declined.map({ $0.transition != reading.transition }) ?? false { declined = nil }
+        // Keep the decline's clock only while the same coordinator is alive and still running.
+        if let declined, !declined.matches(reading.transition) { self.declined = nil }
         let at = now()
         let waited = waitingSince.map { at.timeIntervalSince($0) } ?? 0
         switch RootHold.step(reading, waited: waited, declined: declined.map { at.timeIntervalSince($0.since) }) {
