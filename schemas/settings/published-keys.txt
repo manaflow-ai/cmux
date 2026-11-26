@@ -35,6 +35,7 @@ agentPane.display.layout.messages
 agentPane.display.minimap
 agentPane.display.modelChipIcon
 agentPane.display.modelPickerOrder
+agentPane.display.modelPickerStyle
 agentPane.display.pinnedPlan
 agentPane.display.presentation
 agentPane.display.promptCoach
@@ -148,6 +149,10 @@ app.warnBeforeClosingAgentSession
 app.warnBeforeClosingTab
 app.warnBeforeQuitShortcut
 appearance.accent
+appearance.accentGlow.dark
+appearance.accentGlow.light
+appearance.accentGlow.opacity
+appearance.accentGlow.radius
 appearance.agentGlow
 appearance.agentSignature
 appearance.appFont
@@ -238,6 +243,8 @@ appearance.metrics.toolbarButtonActiveFill
 appearance.metrics.toolbarButtonCornerRadius
 appearance.metrics.toolbarButtonGap
 appearance.metrics.toolbarButtonSize
+appearance.paneArt.dark
+appearance.paneArt.light
 appearance.paneBackgrounds
 appearance.popover.header
 appearance.popover.padding
@@ -248,6 +255,8 @@ appearance.rotateFavoriteThemes
 appearance.saturation
 appearance.selection
 appearance.settingsBetaChips
+appearance.sidebarHeader.dark
+appearance.sidebarHeader.light
 appearance.sidebarSurface
 appearance.statusIndicator.animation
 appearance.statusIndicator.color
@@ -287,6 +296,10 @@ appearance.surfaces.tabBar.opacity
 appearance.surfaces.terminal.color
 appearance.surfaces.terminal.opacity
 appearance.tabBarBackground
+appearance.tabClose.from
+appearance.tabClose.interpolation
+appearance.tabClose.toDark
+appearance.tabClose.toLight
 appearance.tabShape
 appearance.terminalCellBackgrounds
 appearance.theme
@@ -392,6 +405,7 @@ computerUse.cursorTag
 computerUse.deniedApps
 computerUse.driver
 computerUse.enabled
+computerUse.floatingPreview
 computerUse.livePreview
 computerUse.menus
 computerUse.mode
@@ -682,6 +696,7 @@ remote.ultraMode
 remoteDesktop.maxBitrateMbps
 remoteDesktop.maxFps
 remoteDesktop.quality
+remoteDesktop.sharpLinuxText
 screenshots.findTools
 screenshots.folders
 sessions.allowFullAccess
@@ -702,6 +717,7 @@ sidebar.density
 sidebar.detailedStatusIcons
 sidebar.drawnMenus
 sidebar.floatOnHover
+sidebar.folderlessUngrouped
 sidebar.groupBy
 sidebar.groupByComputer
 sidebar.groupGradient
@@ -901,6 +917,8 @@ tailnet.join.servePorts
 tailnet.join.ssh
 tailnet.join.tags
 tasks.layout
+terminal.cursorBlink
+terminal.cursorStyle
 terminal.fontFamily
 terminal.fontSize
 terminal.linkOpener.default
