@@ -9,7 +9,11 @@ import Dispatch
 /// or started and cancelled (libdispatch traps when an inactive source is released).
 public final class KernelMemoryPressureSource: MemoryPressureSource {
     private struct State {
+        #if canImport(Darwin)
         var source: (any DispatchSourceMemoryPressure)?
+        #else
+        var source: (any DispatchSourceProtocol)? // Linux: no memory pressure source, never set
+        #endif
         var isCancelled = false
     }
 
@@ -37,6 +41,7 @@ public final class KernelMemoryPressureSource: MemoryPressureSource {
     public func start(delivering deliver: @escaping @MainActor @Sendable (MemoryPressureLevel) -> Void) {
         state.withLock { state in
             guard !state.isCancelled, state.source == nil else { return }
+            #if canImport(Darwin)
             let source = DispatchSource.makeMemoryPressureSource(eventMask: [.normal, .warning, .critical], queue: .main)
             source.setEventHandler { [weak source] in
                 guard let event = source?.data else { return }
@@ -46,6 +51,7 @@ public final class KernelMemoryPressureSource: MemoryPressureSource {
             }
             source.activate()
             state.source = source
+            #endif
         }
     }
 

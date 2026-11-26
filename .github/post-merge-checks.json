@@ -78,9 +78,17 @@
       "kind": "publish",
       "why": "rebakes the Cloud devbox image after its inputs land"
     },
+    "cloud-harness-matrix.yml": {
+      "kind": "publish",
+      "why": "a start matrix on live staging machines, run by its request file, not of the change"
+    },
     "cloud-machine-count-probe.yml": {
       "kind": "publish",
       "why": "a probe of live staging machines, not of the change"
+    },
+    "cloud-staging-test-sweep.yml": {
+      "kind": "publish",
+      "why": "deletes the staging test account's leftover machines, not a check of the change"
     },
     "cloud-surge-proof.yml": {
       "kind": "publish",
