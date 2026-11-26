@@ -15,8 +15,8 @@ import { terminalSignIn, useSettingsSignIn } from "./useSettingsSignIn";
 
 export function AccountSignInSection() {
   const store = useStore();
-  const accounts = useSettingsState().accounts;
-  const listed = accounts?.signInAccounts;
+  const settingsAccounts = useSettingsState().accounts;
+  const listed = settingsAccounts?.signInAccounts;
   const signIn = useSettingsSignIn();
   const start = (family: AccountFamily, account: string | null) =>
     signIn.begin(family, account, () => void store.runHarnesses(terminalSignIn(family, account)));
@@ -30,7 +30,7 @@ export function AccountSignInSection() {
         signIn={signIn.running}
         busy={signIn.busy}
         look="inline"
-        hideAddFamilies={accounts?.github ? ["github"] : undefined}
+        hideAddFamilies={settingsAccounts?.github ? ["github"] : undefined}
         onAdd={(family) => start(family, null)}
         onSignIn={(account) => start(account.family, account.id)}
         onUse={(account) => signIn.gesture(ACCOUNT_ACTIONS.switch, account)}
