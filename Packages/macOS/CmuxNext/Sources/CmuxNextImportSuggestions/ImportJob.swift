@@ -77,69 +77,90 @@ public nonisolated struct ImportJob: Codable, Sendable, Equatable, Identifiable 
     }
 
     /// The whole job's progress, 0...1.
-    public var fraction: Double {
-        guard phase != .done else { return 1 }
-        let done = Double(steps.filter(\.done).count)
-        return min(1, (done + min(max(stepFraction, 0), 1)) / Double(max(steps.count, 1)))
-    }
+    public var fraction: Double { facts?.fraction ?? 0 }
 
     /// The first step not done.
-    public var nextStep: Int? { steps.firstIndex { !$0.done } }
+    public var nextStep: Int? { facts?.nextStep }
 
-    public var isActive: Bool { phase == .running }
+    public var isActive: Bool { facts?.isActive ?? false }
 
     /// Whether the steps left can run with no prompt, so a relaunch may resume
     /// them on its own: a Chromium browser's cookies need a Keychain prompt.
-    public var resumesQuietly: Bool {
-        guard kind == .browser, let browser else { return false }
-        let left = steps.filter { !$0.done }.flatMap(\.kinds)
-        return !left.contains(.passwords) && !(browser.family == .chromium && left.contains(.cookies))
+    public var resumesQuietly: Bool { facts?.resumesQuietly ?? false }
+
+    private struct Facts: Decodable {
+        var fraction: Double
+        var nextStep: Int?
+        var isActive: Bool
+        var resumesQuietly: Bool
     }
 
-    // MARK: Transitions (pure; the runner saves after each)
-
-    public mutating func progressed(_ fraction: Double, now: Date) {
-        stepFraction = fraction
-        updatedAt = now
+    private var facts: Facts? {
+        ImportSuggestRules.call("job_facts", ["job": self, "family": browser?.family.rawValue], as: Facts.self)
     }
+
+    // MARK: Transitions (Rust's `Job`; the runner saves after each)
+
+    public mutating func progressed(_ fraction: Double, now: Date) { apply(.progressed(fraction), now: now) }
 
     public mutating func finishedStep(_ index: Int, counts added: ImportCounts, now: Date) {
-        guard steps.indices.contains(index) else { return }
-        steps[index].done = true
-        counts = counts + added
-        stepFraction = 0
-        updatedAt = now
-        if nextStep == nil { phase = .done; pause = nil }
+        apply(.finishedStep(index, added), now: now)
     }
 
     /// A cmux Classic or Conductor import ended, having opened `workspaces` (0 when everything was here already).
-    public mutating func importedClassic(_ workspaces: Int, now: Date) {
-        opened = workspaces
-        finishedStep(0, counts: ImportCounts(), now: now)
+    public mutating func importedClassic(_ workspaces: Int, now: Date) { apply(.importedClassic(workspaces), now: now) }
+
+    public mutating func paused(_ reason: Pause, now: Date) { apply(.paused(reason), now: now) }
+
+    public mutating func resumed(now: Date) { apply(.resumed, now: now) }
+
+    public mutating func failed(_ reason: Failure, now: Date) { apply(.failed(reason), now: now) }
+
+    private enum Event: Encodable {
+        case progressed(Double), finishedStep(Int, ImportCounts), importedClassic(Int), paused(Pause), resumed, failed(Failure)
+
+        private enum Keys: String, CodingKey { case event, fraction, index, added, workspaces, reason }
+
+        func encode(to encoder: any Encoder) throws {
+            var container = encoder.container(keyedBy: Keys.self)
+            switch self {
+            case let .progressed(fraction):
+                try container.encode("progressed", forKey: .event)
+                try container.encode(fraction, forKey: .fraction)
+            case let .finishedStep(index, added):
+                try container.encode("finishedStep", forKey: .event)
+                try container.encode(index, forKey: .index)
+                try container.encode(added, forKey: .added)
+            case let .importedClassic(workspaces):
+                try container.encode("importedClassic", forKey: .event)
+                try container.encode(workspaces, forKey: .workspaces)
+            case let .paused(reason):
+                try container.encode("paused", forKey: .event)
+                try container.encode(reason, forKey: .reason)
+            case .resumed:
+                try container.encode("resumed", forKey: .event)
+            case let .failed(reason):
+                try container.encode("failed", forKey: .event)
+                try container.encode(reason, forKey: .reason)
+            }
+        }
     }
 
-    public mutating func paused(_ reason: Pause, now: Date) {
-        guard phase == .running else { return }
-        phase = .paused
-        pause = reason
-        updatedAt = now
+    private struct Moved: Decodable { var job: ImportJob }
+
+    private mutating func apply(_ event: Event, now: Date) {
+        guard let moved = ImportSuggestRules.call("job_event", ["job": self, "event": event, "now": now], as: Moved.self) else { return }
+        self = moved.job.keeping(self, now: now)
     }
 
-    public mutating func resumed(now: Date) {
-        guard phase == .paused || phase == .failed else { return }
-        phase = .running
-        pause = nil
-        failure = nil
-        // The step starts over, so its progress does too (not the cut-off run's fraction).
-        stepFraction = 0
-        updatedAt = now
-    }
-
-    public mutating func failed(_ reason: Failure, now: Date) {
-        phase = .failed
-        failure = reason
-        pause = nil
-        updatedAt = now
+    /// `self` as Rust sent it back, with what JSON does not carry exactly put back from `old`: the
+    /// browser's registry row and the dates (Rust keeps them or sets `updatedAt` to `now`).
+    func keeping(_ old: ImportJob, now: Date) -> ImportJob {
+        var job = self
+        job.browser = old.browser
+        job.startedAt = old.startedAt
+        job.updatedAt = ImportSuggestRules.pinned(updatedAt, to: old.updatedAt, now)
+        return job
     }
 }
 
@@ -160,7 +181,7 @@ public nonisolated struct ImportJobLedger: Codable, Sendable, Equatable {
 
     /// Adds `job`, replacing an earlier job of the same card.
     public mutating func put(_ job: ImportJob) {
-        if let index = jobs.firstIndex(where: { $0.id == job.id }) { jobs[index] = job } else { jobs.append(job) }
+        adopt(ImportSuggestRules.call("ledger_put", ["ledger": self, "job": job], as: Self.self), known: jobs + [job])
     }
 
     public mutating func update(_ id: String, _ change: (inout ImportJob) -> Void) {
@@ -168,23 +189,30 @@ public nonisolated struct ImportJobLedger: Codable, Sendable, Equatable {
         change(&jobs[index])
     }
 
-    public mutating func remove(_ id: String) { jobs.removeAll { $0.id == id } }
+    public mutating func remove(_ id: String) {
+        adopt(ImportSuggestRules.call("ledger_remove", ["ledger": self, "id": id], as: Self.self), known: jobs)
+    }
 
     /// A relaunch's view of the file: a job that was running was cut off, and
     /// old finished jobs go.
     public mutating func relaunched(now: Date) {
-        jobs.removeAll { $0.phase == .done && now.timeIntervalSince($0.updatedAt) > Self.keepFinished }
-        for index in jobs.indices where jobs[index].phase == .running {
-            jobs[index].paused(.interrupted, now: now)
+        adopt(ImportSuggestRules.call("ledger_relaunched", ["ledger": self, "now": now], as: Self.self), known: jobs, now: now)
+    }
+
+    /// Takes Rust's ledger, each job keeping its browser row and dates from the one it was.
+    private mutating func adopt(_ ledger: ImportJobLedger?, known: [ImportJob], now: Date? = nil) {
+        guard var ledger else { return }
+        for index in ledger.jobs.indices {
+            guard let old = known.last(where: { $0.id == ledger.jobs[index].id }) else { continue }
+            ledger.jobs[index] = ledger.jobs[index].keeping(old, now: now ?? old.updatedAt)
         }
+        self = ledger
     }
 
     /// The file's ledger; an empty one when it is missing, from a newer schema or unreadable.
     public static func load(from url: URL) -> ImportJobLedger {
-        guard let data = try? Data(contentsOf: url),
-              let ledger = try? JSONDecoder.importJobs.decode(ImportJobLedger.self, from: data),
-              ledger.schema == currentSchema else { return ImportJobLedger() }
-        return ledger
+        guard let data = try? Data(contentsOf: url) else { return ImportJobLedger() }
+        return ImportSuggestRules.call("ledger_read", ["data": data.base64EncodedString()], as: Self.self) ?? ImportJobLedger()
     }
 
     /// Writes the ledger atomically, readable only by this user.
@@ -221,18 +249,23 @@ extension ImportJob {
     /// A finding's job: one step per profile, the first into the person's
     /// default cmux profile and each other one into a profile of its own.
     public init(finding: ImportFinding, now: Date) {
-        let steps = finding.profiles.enumerated().compactMap { index, profile -> Step? in
-            let kinds = Self.oneClickKinds.filter(profile.kinds.contains)
-            return finding.kind == .browser && kinds.isEmpty ? nil
-                : Step(profile: finding.kind == .browser ? profile.directoryName : "", kinds: kinds, intoDefault: index == 0)
-        }
-        self.init(id: finding.id, kind: finding.kind, browser: finding.browser,
-                  steps: finding.kind == .browser ? steps : [], now: now)
+        let made = ImportSuggestRules.call("job_from_finding", ["finding": finding, "now": now], as: ImportJob.self)
+            ?? ImportJob(id: finding.id, kind: finding.kind, steps: [], now: now)
+        self = made.made(browser: finding.browser, now: now)
     }
 
     /// A Chief request's job: that site's cookies from the browser's first profile, into the default profile.
     public init(request: ImportRequest, profile: String, now: Date) {
-        self.init(id: request.id, kind: .browser, browser: request.browser, site: request.site,
-                  steps: [Step(profile: profile, kinds: [.cookies], intoDefault: true)], now: now)
+        let made = ImportSuggestRules.call("job_from_request", ["request": request, "profile": profile, "now": now], as: ImportJob.self)
+            ?? ImportJob(id: request.id, kind: .browser, site: request.site, steps: [], now: now)
+        self = made.made(browser: request.browser, now: now)
+    }
+
+    private func made(browser: ImportBrowser?, now: Date) -> ImportJob {
+        var job = self
+        job.browser = browser
+        job.startedAt = now
+        job.updatedAt = now
+        return job
     }
 }

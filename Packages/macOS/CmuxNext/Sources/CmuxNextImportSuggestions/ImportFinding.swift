@@ -71,29 +71,21 @@ public nonisolated struct ImportFinding: Codable, Sendable, Hashable, Identifiab
 
     /// Nothing new to bring now (cmux Classic's saved session is all here already): only
     /// Settings › Import lists it, to run the import again.
-    public var offersNothingNew: Bool { kind == .cmuxClassic && count == 0 }
+    public var offersNothingNew: Bool { facts?.offersNothingNew ?? false }
 
-    /// Every kind any profile holds, in `ImportDataKind` order.
-    public var kinds: [ImportDataKind] {
-        // History first, as the cards name them ("history, bookmarks and cookies"), then the rest.
-        let held = Set(profiles.flatMap(\.kinds))
-        let order: [ImportDataKind] = [.history, .bookmarks] + ImportDataKind.allCases.filter { $0 != .history && $0 != .bookmarks }
-        return order.filter(held.contains)
+    /// Every kind any profile holds: history first, as the cards name them, then `ImportDataKind` order.
+    public var kinds: [ImportDataKind] { facts?.kinds ?? [] }
+
+    /// What has to change for a dismissed card to come back: a new profile or a new kind of data,
+    /// or the source appearing again; counts that grow every day are left out, so a dismiss is not
+    /// undone by ordinary use (Rust's `Finding::fingerprint`).
+    public var fingerprint: String { facts?.fingerprint ?? "\(id)|\(access.rawValue)" }
+
+    private struct Facts: Decodable {
+        var kinds: [ImportDataKind]
+        var offersNothingNew: Bool
+        var fingerprint: String
     }
 
-    /// What has to change for a dismissed card to come back: a new profile
-    /// or a new kind of data, or the source appearing again. Counts that
-    /// grow every day (sessions, history) are left out on purpose, so a
-    /// dismiss is not undone by ordinary use.
-    public var fingerprint: String {
-        switch kind {
-        case .browser, .iterm2:
-            // One entry per profile and kind, so a profile imported elsewhere (fewer entries)
-            // keeps the card dismissed and only a new one brings it back (ImportSuggestionState.hides).
-            let held = profiles.flatMap { profile in profile.kinds.map { "\(profile.directoryName)=\($0.rawValue)" } }.sorted()
-            return ([id, access.rawValue] + held).joined(separator: "|")
-        case .claudeCode, .codex, .ghostty, .cmuxClassic, .conductor:
-            return [id, access.rawValue].joined(separator: "|")
-        }
-    }
+    private var facts: Facts? { ImportSuggestRules.call("finding_facts", ["finding": self], as: Facts.self) }
 }

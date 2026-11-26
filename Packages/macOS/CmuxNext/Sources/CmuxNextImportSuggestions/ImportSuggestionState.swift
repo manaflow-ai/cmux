@@ -27,7 +27,10 @@ public nonisolated struct ImportRequest: Codable, Sendable, Hashable, Identifiab
                 agentSession: String? = nil, terminal: String? = nil) {
         self.browser = browser
         self.site = site
-        self.reason = String(reason.trimmingCharacters(in: .whitespacesAndNewlines).prefix(Self.maximumReasonLength))
+        // Trimmed and cut to `maximumReasonLength` characters (Rust's `Request::new`).
+        let clipped = ImportSuggestRules.call("request", ["browser": browser.rawValue, "site": site, "reason": reason, "requestedAt": requestedAt],
+                                              as: Clipped.self)
+        self.reason = clipped?.request.reason ?? reason
         self.requestedAt = requestedAt
         self.raisedBy = raisedBy
         self.agentSession = agentSession
@@ -36,45 +39,19 @@ public nonisolated struct ImportRequest: Codable, Sendable, Hashable, Identifiab
 
     public static let maximumReasonLength = 280
 
+    private struct Clipped: Decodable {
+        struct Request: Decodable { var reason: String }
+        var request: Request
+    }
+
     /// A site an agent may name: a host of letters, digits, dots and dashes
     /// with at least one dot (a URL's host is taken from it), lowercased; nil otherwise.
     /// A public suffix (`co.uk`, `github.io`) or an IP address is refused: the import keeps every
-    /// cookie of the site and its subdomains, so `co.uk` would bring every UK site's sign-ins.
+    /// cookie of the site and its subdomains, so `co.uk` would bring every UK site's sign-ins
+    /// (Rust's `request::site`).
     public static func site(_ text: String) -> String? {
-        var host = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if host.contains("://"), let parsed = URL(string: host)?.host { host = parsed }
-        if host.hasPrefix(".") { host.removeFirst() }
-        let allowed = Set("abcdefghijklmnopqrstuvwxyz0123456789.-")
-        guard host.count <= 253, host.contains("."), !host.hasPrefix("-"), !host.hasSuffix("."),
-              !host.contains(".."), host.allSatisfy(allowed.contains), !isPublicSuffix(host) else { return nil }
-        return host
+        ImportSuggestRules.call("site", ["text": text], as: String?.self) ?? nil
     }
-
-    /// Whether `host` (lowercased, at least two labels) is a suffix many owners register under
-    /// rather than one site: an IP address, a country's second level (`co.uk`, `com.au`, `ne.jp`),
-    /// or a shared hosting domain (`github.io`). A short built-in list, not the whole Public Suffix
-    /// List; the consent panel still shows the person the site before anything is read.
-    static func isPublicSuffix(_ host: String) -> Bool {
-        let labels = host.split(separator: ".", omittingEmptySubsequences: false)
-        guard let last = labels.last else { return true }
-        // An all-digit last label is an IPv4 address, never a site.
-        if last.allSatisfy(\.isNumber) { return true }
-        if labels.count == 2, last.count == 2, countrySecondLevels.contains(String(labels[0])) { return true }
-        return sharedHostingSuffixes.contains(host)
-    }
-
-    /// Second-level labels countries register sites under (`co.uk`, `com.au`, `ac.jp`, `gov.br`).
-    static let countrySecondLevels: Set<String> = [
-        "ac", "co", "com", "edu", "go", "gob", "gov", "gv", "ltd", "me", "mil", "ne", "net", "nhs", "nic", "nom", "or", "org", "plc",
-        "sch", "info", "biz",
-    ]
-
-    /// Domains whose every subdomain belongs to a different owner (the Public Suffix List's private section).
-    static let sharedHostingSuffixes: Set<String> = [
-        "amazonaws.com", "appspot.com", "azurewebsites.net", "blogspot.com", "cloudfront.net", "firebaseapp.com", "fly.dev",
-        "github.io", "gitlab.io", "glitch.me", "herokuapp.com", "myshopify.com", "netlify.app", "ngrok-free.app", "ngrok.io",
-        "onrender.com", "pages.dev", "repl.co", "vercel.app", "web.app", "workers.dev",
-    ]
 }
 
 /// What the person told the cards, kept per Mac: dismissed cards (with the
@@ -95,30 +72,29 @@ public nonisolated struct ImportSuggestionState: Codable, Sendable, Equatable {
     /// Dismissed while nothing new appeared: the same source and access, and every profile and
     /// kind it holds now was there when the person dismissed it (fewer is still dismissed).
     public func hides(_ finding: ImportFinding) -> Bool {
-        guard let stored = dismissed[finding.id] else { return false }
-        let then = stored.split(separator: "|", omittingEmptySubsequences: false)
-        let now = finding.fingerprint.split(separator: "|", omittingEmptySubsequences: false)
-        guard then.count >= 2, now.count >= 2, then.prefix(2) == now.prefix(2) else { return false }
-        return Set(now.dropFirst(2)).isSubset(of: Set(then.dropFirst(2)))
+        ImportSuggestRules.call("state_hides", ["state": self, "finding": finding], as: Bool.self) ?? false
     }
 
-    public mutating func dismiss(_ finding: ImportFinding) { dismissed[finding.id] = finding.fingerprint }
+    public mutating func dismiss(_ finding: ImportFinding) { change("dismiss", ["finding": finding]) }
 
     /// Shows a dismissed card again (Settings › Import's Show Again).
-    public mutating func restore(_ id: String) { dismissed[id] = nil }
+    public mutating func restore(_ id: String) { change("restore", ["id": id]) }
 
-    /// Adds or refreshes a request (the same browser and site once).
-    public mutating func raise(_ request: ImportRequest) {
-        requests.removeAll { $0.id == request.id }
-        requests.insert(request, at: 0)
-        if requests.count > Self.maximumRequests { requests.removeLast(requests.count - Self.maximumRequests) }
-    }
+    /// Adds or refreshes a request (the same browser and site once, at most `maximumRequests`).
+    public mutating func raise(_ request: ImportRequest) { change("raise", ["request": request], adding: [request]) }
 
-    public mutating func drop(request id: String) { requests.removeAll { $0.id == id } }
+    public mutating func drop(request id: String) { change("drop", ["id": id]) }
 
-    /// Drops requests past their lifetime.
-    public mutating func expire(now: Date) {
-        requests.removeAll { now.timeIntervalSince($0.requestedAt) > Self.requestLifetime }
+    /// Drops requests past their `requestLifetime`.
+    public mutating func expire(now: Date) { change("expire", ["now": now]) }
+
+    /// Takes Rust's state; each request keeps the one it was (its browser's registry row and exact date).
+    private mutating func change(_ operation: String, _ fields: [String: any Encodable], adding: [ImportRequest] = []) {
+        guard let next = ImportSuggestRules.call("state_" + operation, fields.merging(["state": self]) { kept, _ in kept }, as: Self.self) else { return }
+        let known = requests + adding
+        var state = next
+        state.requests = next.requests.map { request in known.last { $0.id == request.id } ?? request }
+        self = state
     }
 
     public static let defaultsKey = "importSuggestions.state"
