@@ -36,6 +36,16 @@ impl VirtualDevice {
         self.tx.pop_front()
     }
 
+    /// Trace only.
+    pub(crate) fn rx_len(&self) -> usize {
+        self.rx.len()
+    }
+
+    /// Trace only.
+    pub(crate) fn tx_len(&self) -> usize {
+        self.tx.len()
+    }
+
     pub(crate) fn has_rx(&self) -> bool {
         !self.rx.is_empty()
     }

@@ -79,6 +79,10 @@ pub(crate) fn websocket_is_open(ready_state: u16) -> bool {
 pub(crate) struct PendingRoute {
     pub lane: LaneToken,
     pub generation: u64,
+    /// The viewer's location hint the circuit was minted with, so a re-sent daemon `Incoming` names the same
+    /// region. Absent in a ledger written before it existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region: Option<String>,
 }
 
 /// A pending circuit a newly registered daemon is sent `Incoming` for.
@@ -384,7 +388,7 @@ mod tests {
     }
 
     fn route(lane: &str) -> Option<PendingRoute> {
-        Some(PendingRoute { lane: LaneToken(lane.into()), generation: 7 })
+        Some(PendingRoute { lane: LaneToken(lane.into()), generation: 7, region: None })
     }
 
     #[test]

@@ -33,6 +33,7 @@ export const WALK_PATHS = {
   archive: "agents.chats.archiveInactive",
   autoArchive: "workspaces.autoArchive.style",
   settle: "sidebar.settleFinished",
+  sendPop: "agentPane.display.sendPop",
 } as const;
 const P = WALK_PATHS;
 
@@ -52,6 +53,7 @@ const SHIPPED: WalkValues = {
   [P.archive]: "never",
   [P.autoArchive]: "manual",
   [P.settle]: false,
+  [P.sendPop]: false,
 };
 
 /** The step's settings now, by dotted path: its own choices and the host's `walk` values. */
@@ -215,6 +217,19 @@ export function noiseWrites(value: WalkNoise, opened: WalkValues, current: WalkV
         ? { [P.desktop]: desktop, [P.sound]: "none" }
         : { [P.desktop]: desktop, [P.sound]: sound };
   return diff(targets, current);
+}
+
+// MARK: Chat feel: how a sent prompt arrives (design: "Send pop (chat feel)")
+
+export type WalkChatFeel = "instant" | "pop";
+export const CHAT_FEELS: readonly WalkChatFeel[] = ["instant", "pop"];
+
+export function chatFeel(current: WalkValues): WalkChatFeel {
+  return effective(current, P.sendPop) === true ? "pop" : "instant";
+}
+
+export function chatFeelWrites(value: WalkChatFeel, opened: WalkValues, current: WalkValues): WalkWrite[] {
+  return diff({ [P.sendPop]: resolve(opened, P.sendPop, value === "pop") }, current);
 }
 
 // MARK: The screens
