@@ -616,6 +616,13 @@ impl Translator {
                     {
                         self.dedupe_hook(&rid, req).await;
                     }
+                    // Harness magic: a repo's rule for a path the call touched (path_rules.rs).
+                    Some("hook_callback")
+                        if req.get("callback_id").and_then(Value::as_str)
+                            == Some(path_rules::PATH_RULES_CALLBACK) =>
+                    {
+                        self.path_rules_hook(&rid, req).await;
+                    }
                     // A registered hook fired: answered with no decision (hook_callback.rs).
                     Some("hook_callback") => self.answer_hook_callback(&rid, req).await,
                     // Anything else (mcp_message) is declined with an error
@@ -950,6 +957,9 @@ impl Translator {
                 }
                 // The turn's dedupe counts, on its result while the feature is on.
                 let dedupe_counts = Some(self.dedupe.turn_ended()).filter(|_| dedupe::enabled());
+                // And its path rules' counts, while that feature is on (path_rules.rs).
+                let path_rule_counts =
+                    Some(self.path_rules.turn_ended()).filter(|_| path_rules::enabled());
                 // Hitting the turn limit is a normal stop, not a failure.
                 let answer = if (sub.starts_with("error") || is_error)
                     && !cancelled
@@ -979,8 +989,15 @@ impl Translator {
                         claude.set("carried", next.clone());
                     }
                     let mut meta = json!({"claude": claude});
+                    let mut hm = serde_json::Map::new();
                     if let Some(dedupe) = dedupe_counts {
-                        meta.set("harnessMagic", json!({"dedupe": dedupe.to_json()}));
+                        hm.insert("dedupe".into(), dedupe.to_json());
+                    }
+                    if let Some(counts) = path_rule_counts {
+                        hm.insert(path_rules::FEATURE.into(), counts.to_json());
+                    }
+                    if !hm.is_empty() {
+                        meta.set("harnessMagic", Value::Object(hm));
                     }
                     Ok(json!({"stopReason": stop, "_meta": meta}))
                 };
@@ -1017,6 +1034,8 @@ impl Translator {
                 self.awaiting_summary.store(true, Ordering::SeqCst);
                 // What was read before is in the summary at most (dedupe.rs).
                 self.dedupe.reset();
+                // The rules said before it are gone from the context: due again (path_rules.rs).
+                self.path_rules.reset();
                 // Keep the cancelled boundary marker until its result; consuming it
                 // here would let that zero-turn result answer the next echoed prompt.
                 if !self.cancelled_compaction_boundary.load(Ordering::SeqCst) {
