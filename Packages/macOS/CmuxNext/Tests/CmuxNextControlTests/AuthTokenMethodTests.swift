@@ -72,6 +72,21 @@ import Testing
         #expect(!refused.message.contains("(auth.forbidden)"))
     }
 
+    /// Production probes, 2026-11-24: the owner refused every mint with `owner.state_full` (the account's state was
+    /// full), and the text said "Check that your account belongs to it" for 7 h. Only a membership refusal says that;
+    /// any other owner code is named in the text.
+    @Test func aRefusalThatIsNotMembershipNamesTheOwnersCode() {
+        let full = ControlMethod.authTokenError(AuthTokenRefusal(code: "forbidden", detail: "owner.state_full"), team: team)
+        #expect(full.code == "forbidden")
+        #expect(full.message.contains(team))
+        #expect(full.message.contains("(owner.state_full)"))
+        #expect(!full.message.contains("belongs to it"))
+        #expect(full.data?["detail"]?.stringValue == "owner.state_full")
+        let member = ControlMethod.authTokenError(AuthTokenRefusal(code: "forbidden", detail: "auth.forbidden"), team: team)
+        #expect(member.message.contains("belongs to it"))
+        #expect(ControlMethod.authTokenError(AuthTokenRefusal(code: "forbidden"), team: team).message.contains("belongs to it"))
+    }
+
     /// Leo's NIGHTLY, 2026-11-11: `cmux whoami` (no `--team`) said "refused a token for team -". The refusal
     /// names the team the mint was for, the app's own team too.
     @Test func aRefusalForTheAppsOwnTeamNamesThatTeam() {

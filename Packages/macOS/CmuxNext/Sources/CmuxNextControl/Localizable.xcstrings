@@ -15085,6 +15085,138 @@
         }
       }
     },
+    "control.authToken.refusedWhy": {
+      "comment": "auth.token refusal for a reason other than membership (the owner's code follows in parentheses, for example owner.state_full). %@ is the team id.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud refused a token for team %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud hat ein Token für das Team %@ abgelehnt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud a refusé un jeton pour l’équipe %@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "رفضت cmux Cloud إصدار رمز للفريق %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud rechazó un token para el equipo %@."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud 拒絕為團隊 %@ 簽發權杖。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud 拒绝为团队 %@ 签发令牌。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud가 팀 %@의 토큰을 거부했습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud がチーム %@ のトークンを拒否しました。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud je odbio token za tim %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud afviste et token til teamet %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud ha rifiutato un token per il team %@."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud បានបដិសេធថូខឹនសម្រាប់ក្រុម %@។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud avviste et token for teamet %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud odmówił tokenu dla zespołu %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux Cloud recusou um token para a equipe %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud отказал в токене для команды %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud ปฏิเสธโทเค็นสำหรับทีม %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud, %@ ekibi için bir belirteci reddetti."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud відмовив у токені для команди %@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud đã từ chối token cho nhóm %@."
+          }
+        }
+      }
+    },
     "control.authToken.unreachable": {
       "comment": "auth.token refusal: cmux Cloud did not answer.",
       "extractionState": "manual",

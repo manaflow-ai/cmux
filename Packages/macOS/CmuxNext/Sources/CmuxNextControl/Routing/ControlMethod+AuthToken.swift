@@ -102,8 +102,10 @@ extension ControlMethod {
             ControlStrings.text("control.authToken.noTeam", "Choose a cmux team in the cmux app first, or pass --team.")
         case "invalid_params":
             ControlStrings.text("control.authToken.invalidTeam", "--team takes a cmux team id: team_ and 20 hex digits.")
-        case "forbidden":
+        case "forbidden" where isMembershipRefusal(refusal):
             ControlStrings.format("control.authToken.refused", "cmux Cloud refused a token for team %@. Check that your account belongs to it.", refusal.team ?? team ?? "-")
+        case "forbidden":
+            ControlStrings.format("control.authToken.refusedWhy", "cmux Cloud refused a token for team %@.", refusal.team ?? team ?? "-")
         case "client_too_old":
             ControlStrings.text("control.authToken.clientTooOld", "This team needs a newer cmux. Install the newest cmux, then run cmux auth token again.")
         case "managed":
@@ -118,8 +120,16 @@ extension ControlMethod {
         }
         // What went wrong rides in the text too, as the system said it (a terminal prints only the message): the
         // probe's "answer cmux can't use" was a Keychain refusal no one could see (2026-11-15).
-        let cause = refusal.code == "forbidden" || refusal.code == "client_too_old" ? nil : refusal.detail
+        let cause = isMembershipRefusal(refusal) || refusal.code == "client_too_old" ? nil : refusal.detail
         return ControlError(code: refusal.code == "bad_reply" ? "unavailable" : refusal.code,
                             message: cause.map { "\(message) (\($0))" } ?? message, data: detail)
+    }
+
+    /// A refusal that means the account is not in the team (`auth.forbidden`, or no code), the one the
+    /// "check that your account belongs to it" text is true of. Any other owner code (`owner.state_full`: the
+    /// account's state is full) is named as it is: every production probe read "belongs to it" for 7 h while the
+    /// owner said state_full (2026-11-24).
+    static func isMembershipRefusal(_ refusal: AuthTokenRefusal) -> Bool {
+        refusal.code == "forbidden" && (refusal.detail == nil || refusal.detail == "auth.forbidden")
     }
 }
