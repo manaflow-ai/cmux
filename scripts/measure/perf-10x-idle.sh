@@ -231,6 +231,7 @@ if [[ -n "$agents" ]]; then
     --settle 20 --measure "$measure" --top 8 --gpu ${purge[@]+"${purge[@]}"} ${release[@]+"${release[@]}"} \
     ${attribute[@]+"${attribute[@]}"} ${settings[@]+"${settings[@]}"} --out "$work/agents.json" || { status=$?; tail -n 60 "$work/agents.log"; }
   grep '^PERF-ATTR ' "$work/agents.log" | sed 's/^PERF-ATTR /PERF-ATTR app-agents /' || true
+  grep '^PERF-IDLE-WAKES ' "$work/agents.log" | sed 's/^PERF-IDLE-WAKES /PERF-IDLE-WAKES app-agents /' || true
   python3 - "$work/agents.json" <<'PY' || status=$?
 import json, sys
 data = json.load(open(sys.argv[1]))
@@ -241,6 +242,8 @@ for s in data.get("samples", []):
               f"disk_write_mb_per_h={e.get('disk_write_mb_per_h')} logical_write_mb_per_h={e.get('logical_write_mb_per_h')}")
     if s.get("gpu"):
         print(f"PERF-IDLE-GPU app-agents {s['label']} {json.dumps(s['gpu'])}")
+    if s.get("files_written"):
+        print(f"PERF-IDLE-FILES app-agents {s['label']} {json.dumps(s['files_written'])}")
     if "chat_renderers" in s:
         print(f"CHAT-RENDERERS {s['label']} agents={s['workspaces']} {json.dumps(s['chat_renderers'])}")
     if "cef_pages" in s:

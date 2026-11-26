@@ -1,0 +1,27 @@
+// The Claude Code app's keys: claude-code/whole's, plus every claude-code feature look's.
+// Command-N was New Workspace and Shift-Command-M Copy Mode; both stay in the Command Palette.
+// `cmux customize discard` puts your own keys back.
+[
+  // whole
+  { "key": "cmd+n", "command": "palette.newAgentChat", "args": { "harness": "claude" } },
+  // whole's agentPane.setMode wins over claude-code/modes' composer.switchMode on the same key.
+  { "key": "cmd+shift+m", "command": "agentPane.setMode" },
+  { "key": "cmd+shift+i", "command": "agentPane.switchModel" },
+  { "key": "cmd+shift+e", "command": "agentPane.setEffort" },
+  { "key": "cmd+shift+leftbracket", "command": "prevSidebarTab" },
+  { "key": "cmd+shift+rightbracket", "command": "nextSidebarTab" },
+  { "key": "cmd+slash", "command": "keybindings.open" },
+  // whole, claude-code/project-picker
+  { "key": "cmd+alt+o", "command": "agentPane.composer.chooseFolder" },
+  // claude-code/modes
+  { "key": "cmd+j p", "command": "agentPane.composer.togglePlan", "when": "agentPaneFocused" },
+  // claude-code/composer-controls
+  { "key": "opt+p", "command": "agentPane.switchModel", "when": "agentPaneFocused" },
+  { "key": "cmd+j a", "command": "agentPane.composer.addMenu", "when": "agentPaneFocused" },
+  // claude-code/cloud
+  { "key": "cmd+j c", "command": "agentPane.composer.chooseComputer", "when": "agentPaneFocused" },
+  // claude-code/export
+  { "key": "cmd+j x", "command": "agentChat.copyConversation", "when": "agentPaneFocused" },
+  // claude-code/side-question
+  { "key": "cmd+semicolon", "command": "agentPane.sideQuestion", "when": "agentPaneFocused" }
+]
