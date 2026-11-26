@@ -69,7 +69,7 @@ jobs:
   pick-archive-runner:
     name: Pick the archive runner
     if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/rc/cnx-ios-builder'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     # The routing App key, as every other runner picker reads it.
     environment:
@@ -145,16 +145,42 @@ jobs:
       # Bounded: a fetch that hangs on the mini (run 45608822951, 2026-11-25:
       # 90 min in this step, then the job timeout cancelled the run) fails
       # here in minutes, and the trigger's backoff retries it.
+      # A plain git fetch, not actions/checkout: GitHub stalls the pack body to
+      # fleet Macs (runs 45773843030 on one Mac, 45808800614 on another: one
+      # depth-1 fetch sat silent for the whole 20 min). http.lowSpeed* drops a
+      # fetch that moves under 1 KB/s for 45 s, and the loop asks again on a
+      # new connection.
+      # testflight-build.sh reads only this commit (`git archive`, `git show`,
+      # `git log -1`), so one commit is enough. Full history took 63 min on
+      # cmux10s (run 45642754959).
       - name: Checkout the commit
         timeout-minutes: 20
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          ref: ${{ inputs.sha }}
-          # testflight-build.sh reads only this commit (`git archive`, `git show`,
-          # `git log -1`), so one commit is enough. Full history took 63 min on
-          # cmux10s (run 45642754959).
-          fetch-depth: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          [ -d .git ] || git init -q .
+          git remote remove origin 2>/dev/null || true
+          git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+          fetched=""
+          for wait in 0 10 30 60 120; do
+            if [ "$wait" != 0 ]; then
+              echo "::warning::fetch of $SHA stalled or failed; asking again in $wait s"
+              sleep "$wait"
+            fi
+            if git -c protocol.version=2 -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=45 \
+                 -c "http.https://github.com/.extraheader=$auth" \
+                 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "$SHA"; then
+              fetched=1
+              break
+            fi
+          done
+          [ -n "$fetched" ] || { echo "::error::could not fetch $SHA after 5 tries"; exit 1; }
+          git checkout -q --force --detach "$SHA"
+          git clean -ffdxq
+          git log -1 --format='checked out %H'
 
       # App Store Connect warns (ITMS-90725, one email per upload) on any build
       # made with an SDK older than iOS 27, and will refuse it. The archive Mac
@@ -308,7 +334,7 @@ jobs:
     name: What to Test (no secrets)
     needs: previous-build
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/rc/cnx-ios-builder' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # Every step below has its own bound, together under this one. A job
     # timeout reads as `cancelled`, which continue-on-error does not cover: it
     # turned runs whose upload succeeded into cancelled runs (45580371273 and
@@ -647,7 +673,7 @@ jobs:
     name: Submission receipt (gate said YES)
     needs: [upload, review-gate]
     if: ${{ !cancelled() && needs.review-gate.result == 'success' && needs.review-gate.outputs.blocking == '0' && needs.review-gate.outputs.sha == inputs.sha }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
