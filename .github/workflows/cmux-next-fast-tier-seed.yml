@@ -129,6 +129,9 @@ jobs:
             scripts/ci/lan_cache_fetch.py
             scripts/ci/zig-tarball-r2.sh
             scripts/ci/zig-tarballs.sha256
+            scripts/ci/zig-packages-r2.sh
+            scripts/ci/zig-packages.lock
+            scripts/ci/seed-zig-package-archives.sh
             scripts/install-zig-ci.sh
             scripts/ghostty-zig-version.sh
             cmux-tui/build-support/notices/toolchains/toolchains.json
@@ -161,6 +164,20 @@ jobs:
           set -euo pipefail
           bash scripts/ci/init-submodule.sh ghostty-next
           bash scripts/ci/zig-tarball-r2.sh seed "$RUNNER_TEMP/cmux-zig-tarballs"
+
+      # The Zig package archives scripts/ci/zig-packages.lock pins, which seed-zig-package-archives.sh
+      # restores when GitHub refuses its release downloads (nightly run 45776501690, job 139764481921:
+      # all 40 refused, so mirror-only Zig failed the source archive). A lock the bucket holds exits after
+      # one HEAD request; a failed seed is only a miss for the readers.
+      - name: Save the Zig package archives
+        continue-on-error: true
+        timeout-minutes: 12
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+          ZIG_PACKAGES_R2_URL: ${{ env.CI_CACHE_R2_PUBLIC_URL }}
+        run: bash scripts/ci/zig-packages-r2.sh seed "$RUNNER_TEMP/zig-packages"
 
   # The pinned Node, Bun and Rust, for Freestyle runners: their setup-node, setup-bun and rustup installs
   # read nodejs.org, github.com and static.rust-lang.org at 0.3-1 MB/s and took 190 s / 96 s / 522 s at p50
