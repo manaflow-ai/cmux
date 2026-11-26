@@ -47,7 +47,17 @@ FAILURE_ONLY = {
         "a revert needs a compile that judged the merge; a stopped compile judged nothing",
     ("cmux-next.yml", "release-compile-revert", "release-compile-fast-admission"):
         "a revert needs a compile that judged the merge; a stopped admission judged nothing",
+    ("cmux-next-ios-kit.yml", "base-red-notice", "kit-tests"):
+        "the notice reports a base red the kit tests judged; a stopped run judged nothing and its rerun reports",
 }
+
+
+def head_fail_fast(workflow: str, job: str, needed: str) -> bool:
+    """A head fail-fast job (#54837, docs/ci/cmux-next-workflow-notes.md#note-head-fail-fast) cancels a PR head's
+    other heavy runs only once a required job is red on its own: a cancelled job (a timeout, a superseded head or
+    another fail-fast's cancel) is no verdict, and reading it would cascade cancels."""
+    return job == f"{needed}-fail-fast"
+
 
 # (workflow, job, needed job): the issue that tracks a condition that misses a timeout.
 OPEN = {
@@ -73,7 +83,8 @@ def failure_only_sites(workflows: Path) -> list[tuple[str, str, str]]:
 
 class RecoveryRunsAfterATimeout(unittest.TestCase):
     def test_every_failure_only_condition_is_listed_with_its_reason(self) -> None:
-        unlisted = [site for site in failure_only_sites(WORKFLOWS) if site not in FAILURE_ONLY and site not in OPEN]
+        unlisted = [site for site in failure_only_sites(WORKFLOWS)
+                    if site not in FAILURE_ONLY and site not in OPEN and not head_fail_fast(*site)]
         self.assertEqual(unlisted, [], "\n".join(
             f"{workflow} job {job}: its `if:` reads needs.{needed}.result == 'failure' and not 'cancelled', so a "
             f"{needed} that its timeout cancels skips {job}. Add `|| needs.{needed}.result == 'cancelled'` (and "
