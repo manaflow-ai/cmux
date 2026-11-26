@@ -218,11 +218,18 @@ def summarize(prs: list[dict], repo: str, base: str | None, head: str, limit: in
     return "\n".join(lines), plain
 
 
-def update_appcasts(directory: Path, build: str, summary: str) -> None:
-    expected = {"appcast-arm64.xml", "appcast-x86_64.xml", "appcast-universal.xml", "appcast.xml"}
+ALL_FEEDS = ("appcast-arm64.xml", "appcast-x86_64.xml", "appcast-universal.xml", "appcast.xml")
+
+
+def update_appcasts(directory: Path, build: str, summary: str, feeds_expected: tuple[str, ...] = ALL_FEEDS) -> None:
+    """Writes the build's item's <description> in exactly the feeds this track publishes (`feeds_expected`).
+
+    The nightly publishes appcast-arm64.xml alone since #57110 (Intel and universal ship from the stable release), so
+    its callers pass --feeds appcast-arm64.xml; a feed missing or extra still fails before any is written."""
+    expected = set(feeds_expected)
     feeds = sorted(directory.glob("appcast*.xml"))
     if {feed.name for feed in feeds} != expected:
-        raise RuntimeError("Expected all four nightly appcasts before generating notes; download the complete signed variant artifacts")
+        raise RuntimeError(f"Expected exactly the published appcasts ({', '.join(sorted(expected))}) before generating notes; download the complete signed variant artifacts")
     # Build all replacements before writing, so a missing current item fails cleanly.
     replacements = []
     for feed in feeds:
@@ -257,6 +264,7 @@ def main() -> int:
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--appcasts", type=Path, required=True)
     parser.add_argument("--build", required=True)
+    parser.add_argument("--feeds", nargs="+", default=list(ALL_FEEDS), help="the appcasts this track publishes")
     args = parser.parse_args()
     if not re.fullmatch(r"[\w.-]+/[\w.-]+", args.repo) or not re.fullmatch(r"[0-9a-f]{40}", args.head):
         raise ValueError("Expected owner/repo and a full built SHA")
@@ -270,7 +278,7 @@ def main() -> int:
     body = markdown + "\n## Downloads\n\n" + args.details.read_text()
     args.out.write_text(body)
     args.out.with_suffix(".published.md").write_text(f"<!-- cmux-published-sha: {args.head} -->\n" + body)
-    update_appcasts(args.appcasts, args.build, plain)
+    update_appcasts(args.appcasts, args.build, plain, tuple(args.feeds))
     print(f"Prepared nightly notes for {len(prs)} merged PRs; baseline {base or 'unavailable'}")
     return 0
 
