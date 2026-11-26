@@ -30,6 +30,10 @@ if [[ "${GITHUB_REPOSITORY:-}" == manaflow-ai/cmux && "${HEAD_REPO:-}" == "${GIT
   tk="$here/cmux_tui_tree_key.py"
   mine="$("$here/timeout.sh" 60 python3 "$tk" --version v2 HEAD 2>/dev/null)" || mine=""
   base="$("$here/timeout.sh" 60 python3 "$tk" --version v2 HEAD^1 2>/dev/null)" || base=""
+  # An unread key builds (fail open) but says so: a CLI misuse read as "keys differ" built every head for a day.
+  if [[ -z "$mine" || -z "$base" ]]; then
+    echo "::warning title=machine channel PR head build::no v2 tree key (merge ${mine:-none}, base ${base:-none}): building"
+  fi
   if [[ -z "$mine" || -z "$base" || "$mine" != "$base" ]]; then build=true; fi
 fi
 echo "::notice title=machine channel PR head build::build=$build (merge key ${mine:-none}, base key ${base:-none})"
