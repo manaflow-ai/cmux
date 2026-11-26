@@ -30,8 +30,9 @@ await requireBrowserLane("kit-panel-contrast-browser.test.ts", async () => {
     test(`both Panel titles are readable on a ${colorScheme} gallery page`, async () => {
       const page = await browser.newPage({ colorScheme });
       try {
-        const frame = galleryFrame(entry, { variant, colorScheme }).replace("/gallery/frame.html", server.framePath);
-        await page.goto(server.origin + frame);
+        const frame = new URL(galleryFrame(entry, { variant, colorScheme }), server.origin);
+        frame.pathname = server.framePath;
+        await page.goto(frame.href);
         await page.locator('[data-gallery-ready="1"]').waitFor({ state: "attached" });
         for (const scheme of ["light", "dark"]) {
           const within = `[data-scheme="${scheme}"] .ui-surface-title`;

@@ -2802,22 +2802,22 @@
               "note": "Match case keeps its selected hue while held."
             },
             {
-              "name": "terminalIdle",
+              "name": "terminal-idle",
               "props": "{ terminal: \"idle\" }",
               "note": "Terminal find before a query: toggles shown, no count."
             },
             {
-              "name": "terminalInvalidPattern",
+              "name": "terminal-invalid-pattern",
               "props": "{ terminal: \"invalid\" }",
               "note": "A bad regex shows Invalid pattern in the danger ink instead of a count."
             },
             {
-              "name": "terminalStreaming",
+              "name": "terminal-streaming",
               "props": "{ terminal: \"streaming\" }",
               "note": "Pages stream in from the daemon: the count grows and keeps a + until the search completes."
             },
             {
-              "name": "terminalToggles",
+              "name": "terminal-toggles",
               "props": "{ terminal: \"toggles\", selected: true }",
               "note": "Case, whole word and regex all on."
             }
@@ -2989,7 +2989,7 @@
       "file": "ui/glass/Glass.tsx",
       "tier": "ui",
       "kitExport": false,
-      "status": "ready",
+      "status": "deprecated",
       "summary": "A liquid glass surface (glass.css, lens.ts): a `<div>` with `.ui-glass`.",
       "extends": [
         "AriaAttributes",
@@ -7967,6 +7967,28 @@
       "doc": "docs/Sign.md"
     },
     {
+      "name": "SignInBackend",
+      "file": "ui/SignInButton.tsx",
+      "tier": "ui",
+      "kitExport": false,
+      "status": "ready",
+      "summary": "The small secondary line under a Sign In (a page whose Sign In is not this button shows it too).",
+      "extends": [],
+      "props": [
+        {
+          "name": "line",
+          "type": "string",
+          "optional": false,
+          "doc": ""
+        }
+      ],
+      "dataAttributes": [
+        "data-sign-in-backend"
+      ],
+      "galleryEntries": [],
+      "doc": "docs/SignInBackend.md"
+    },
+    {
       "name": "SignInButton",
       "file": "ui/SignInButton.tsx",
       "tier": "ui",
@@ -7975,6 +7997,12 @@
       "summary": "The one Sign In button of first-party pages (Lawrence, msg 3790: \"everywhere we say sign in, we need to have a button for signing in\"), the web twin of the app's SignInButton: the surface's solid primary button on the...",
       "extends": [],
       "props": [
+        {
+          "name": "backend",
+          "type": "string | null",
+          "optional": true,
+          "doc": "The app's line naming what it signs in to; none: no line."
+        },
         {
           "name": "className",
           "type": "string",
