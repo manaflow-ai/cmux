@@ -840,7 +840,7 @@ struct DemoDriver {
     /// Live end to end (real Mac), the pair-e2e rig's attachment leg: a big video picked into the
     /// first terminal's composer (`-CmuxMobileAttachE2EFile PATH`) uploads to the Mac with progress on
     /// its tile; the rig screenshots at each `demo step: live-attach ...` line. Then the tile is removed
-    /// mid-send (what its X does) and, with no pause, text is typed and sent: the composer must be free.
+    /// after Stop preserves the draft. The driver sends fresh text and reads its output from the terminal.
     private func liveAttach() async {
         step("live-attach start")
         guard let path = UserDefaults.standard.string(forKey: "CmuxMobileAttachE2EFile") else { return step("live-attach no file") }
@@ -867,13 +867,29 @@ struct DemoDriver {
         await pause(4)
         step("live-attach progress-later \(model.demoUploadState())")
         await pause(2)
+        guard model.demoUploadAcked else { return step("live-attach no in-flight upload to stop") }
         let t0 = ContinuousClock.now
+        let draft = "Pending attachment"
+        model.composerText = draft
+        model.send()
+        guard model.isUploading else { return step("live-attach no pending send") }
+        model.cancelSend()
+        guard !model.isUploading, model.composerText == draft, model.attachments.count == 1,
+              model.demoUploadState() == "none" else { return step("live-attach no cancelled draft") }
         model.demoRemoveFirstAttachment()
-        model.composerText = "echo attach-e2e-after-cancel"
+        let nonce = String(UUID().uuidString.prefix(8))
+        let marker = "attach-\(nonce)"
+        // The echoed command line never contains the output marker, even when it wraps.
+        model.composerText = "echo attach-'\(nonce)'"
         let free = model.attachments.isEmpty && !model.isUploading
         model.send()
         let ms = (ContinuousClock.now - t0).components.attoseconds / 1_000_000_000_000_000
-        step("live-attach cancelled-and-sent attachments=\(model.attachments.count) uploading=\(model.isUploading) composerFree=\(free) text=\(model.composerText.isEmpty ? "sent" : "NOT sent") in \(ms) ms")
+        guard await until(15, {
+            model.rowsForSaving()?.split(separator: "\n").contains {
+                $0.trimmingCharacters(in: .whitespaces) == marker
+            } == true
+        }) else { return step("live-attach no terminal-readback") }
+        step("live-attach cancelled-and-sent readback=\(marker) attachments=\(model.attachments.count) uploading=\(model.isUploading) composerFree=\(free) text=\(model.composerText.isEmpty ? "sent" : "NOT sent") in \(ms) ms")
         await pause(3)
         step("live-attach after-cancel \(model.demoUploadState())")
         await pause(3)
