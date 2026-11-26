@@ -64,7 +64,7 @@ def test_a_second_run_changes_nothing_and_the_cache_is_reused(d: Path) -> None:
     # Xcode copies the folder again on an incremental build: the raw files come back beside the .xz.
     for name in NAMES:
         shutil.copy(LIBRARIES / name, folder / name)
-    # A cached copy answers: mark one and see it come back instead of a fresh compression.
+    # A cache entry is never trusted: one that does not unpack to its source is rebuilt.
     kept = sorted(cache.iterdir())
     assert len(kept) == len(NAMES), kept
     marker = lzma.compress(b"cached")
@@ -73,7 +73,8 @@ def test_a_second_run_changes_nothing_and_the_cache_is_reused(d: Path) -> None:
     assert run(str(folder), "--cache", str(cache)).returncode == 0
     for name in NAMES:
         assert not (folder / name).exists()
-        assert (folder / (name + ".xz")).read_bytes() == marker, name
+        assert lzma.decompress((folder / (name + ".xz")).read_bytes()) == (LIBRARIES / name).read_bytes(), name
+        assert (folder / (name + ".xz.sha256")).is_file(), name
 
 
 def test_a_missing_folder_is_not_an_error(d: Path) -> None:

@@ -1,5 +1,6 @@
 public import Foundation
 import CmuxNextCompat
+import CryptoKit
 
 /// A bundled file the app build may store packed (CMUX-570, app size): the markdown viewer's diagram
 /// libraries (Mermaid, Ondine, Vega) run only when a page draws a diagram or a chart, so the
@@ -33,6 +34,14 @@ public nonisolated struct PackedResource: Sendable {
         url.deletingLastPathComponent().appending(path: url.lastPathComponent + "." + suffix)
     }
 
+    private static func digestFile(_ packed: URL) -> URL {
+        packed.deletingLastPathComponent().appending(path: packed.lastPathComponent + ".sha256")
+    }
+
+    private static func sha256(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
     /// Whether `url` or its packed copy exists.
     public func exists(_ url: URL) -> Bool {
         let files = FileManager.checked
@@ -50,9 +59,17 @@ public nonisolated struct PackedResource: Sendable {
         // and two app copies on one Mac never read each other's.
         let stamp = (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
         let kept = cache?.appending(path: "\(url.lastPathComponent)-\(size.int64Value)-\(Int64(stamp * 1000))")
-        if let kept, let data = try? Data(blockingContentsOf: kept) { return data }
+        // The cache is a folder other processes can write, so a kept file is served only when it
+        // matches the digest the build stored beside the packed copy (inside the signed app), the
+        // same rule PagePackedFile keeps for first-party page code.
+        let digest = (try? String(contentsOf: Self.digestFile(packed), encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let kept, let digest, let data = try? Data(blockingContentsOf: kept), Self.sha256(data) == digest {
+            return data
+        }
         guard let bytes = try? Data(blockingContentsOf: packed),
               let data = try? (bytes as NSData).decompressed(using: .lzma) as Data else { return nil }
+        if let digest, Self.sha256(data) != digest { return nil }
         if let cache, let kept {
             // Atomic: a read never sees half a file; a failed write only means unpacking again next time.
             try? FileManager.checked.createDirectory(at: cache, withIntermediateDirectories: true)

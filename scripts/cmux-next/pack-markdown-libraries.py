@@ -71,12 +71,22 @@ def pack_folder(folder: Path, cache: Path | None = None) -> list[tuple[str, int,
         cached = cache / f"{hashlib.sha256(raw).hexdigest()}{SUFFIX}" if cache else None
         if cached and cached.is_file():
             packed = cached.read_bytes()
+            try:  # a cache entry is never trusted: it must unpack to this very source
+                import lzma
+
+                if lzma.decompress(packed) != raw:
+                    packed = None
+            except Exception:
+                packed = None
         if packed is None:
             packed = pack_bytes(raw)
             if cached:
                 cache.mkdir(parents=True, exist_ok=True)
                 write_atomic(cached, packed)
         write_atomic(packed_path, packed)
+        # The unpacked bytes' SHA-256, inside the signed app: the app's own cache of the unpacked
+        # file is served only when it matches (PackedResource.swift).
+        write_atomic(folder / (name + SUFFIX + ".sha256"), hashlib.sha256(raw).hexdigest().encode())
         raw_path.unlink()
         done.append((name, len(raw), len(packed)))
     return done
