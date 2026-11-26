@@ -249,6 +249,7 @@ async fn a_peer_lease_never_takes_a_saved_peers_name() {
             peer_token: None,
             vm_boundary: false,
             github_broker: false,
+            group: None,
         },
     );
     let a = hub(cfg);
@@ -338,6 +339,7 @@ async fn a_reload_takes_a_saved_peers_vm_boundary_back() {
                 peer_token: None,
                 vm_boundary: on,
                 github_broker: false,
+                group: None,
             },
         );
         cfg.save().unwrap();
