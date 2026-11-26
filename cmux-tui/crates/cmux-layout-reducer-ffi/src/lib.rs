@@ -34,6 +34,10 @@
 //! `cloud_auth_*`: the auth rules around the app's Keychain I/O;
 //! `cloud_identity_*`: the install identity's rules;
 //! `cloud_vm_agent_key_*`: the VM agent-key mint's request and answer;
+//! `screen_*`: the WebRTC screen stream's rules (`cmux-rd-screen`: the hub
+//! ticket, signaling frames, follow mode's focus producer, viewer demand, the
+//! cursor shape delivery);
+//! `cloud_handoff_*`: the consent session handoff from cmux NIGHTLY;
 //! `cmux_keychain_bounded`, [`keychain`]: the app's calls into its own
 //! Keychain items, each on a thread of Rust's within its deadline),
 //! `cmux-cloud-handlers`' Cloud action rules (`cloud_handler_*`: argument
@@ -80,6 +84,7 @@ pub mod closing_panes;
 mod cloud_bootstrap;
 mod cloud_config;
 mod cloud_handler;
+mod cloud_handoff;
 mod cloud_hybrid;
 mod cloud_machine;
 mod cloud_move;
@@ -91,6 +96,7 @@ mod imessage;
 pub mod input;
 pub mod keychain;
 pub mod pane_drop_zones;
+mod screen;
 pub mod scroll;
 pub mod shown_resize;
 pub mod sidebar_caps;
@@ -595,6 +601,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if cloud_handler::handles(operation) => {
                 cloud_handler::respond(operation, request)?
             }
+            operation if cloud_handoff::handles(operation) => {
+                cloud_handoff::respond(operation, request)?
+            }
             operation if cloud_hybrid::handles(operation) => {
                 cloud_hybrid::respond(operation, request)?
             }
@@ -610,6 +619,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if cloud_machine::handles(operation) => {
                 cloud_machine::respond(operation, request)?
             }
+            operation if screen::handles(operation) => screen::respond(operation, request)?,
             operation if tab_discard::handles(operation) => {
                 tab_discard::respond(operation, request)?
             }
