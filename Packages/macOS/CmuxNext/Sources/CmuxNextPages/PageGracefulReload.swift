@@ -129,7 +129,7 @@ final class PageGracefulReload {
             // The picture keeps the page's clear areas clear (``PageWebView/clearAreaSnapshot()``). ``PageWebView/snapshot()``
             // is a JPEG in Chromium: over a see-through window its clear areas came out black, and the new document draws
             // clear over the cover, so Cmd-R in an agent chat showed the pane solid black for about 0.5 s
-            // (NIGHTLY 0a6830e on cmux16, 2026-11-26).
+            // (NIGHTLY 0a6830e, 2026-11-26).
             guard let picture = await page.clearAreaSnapshot(), let self,
                   page.superview === host, page.frame == frame, !page.isClosed else {
                 page.reload()
