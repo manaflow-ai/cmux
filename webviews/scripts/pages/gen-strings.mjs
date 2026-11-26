@@ -416,11 +416,6 @@ export const PAGES = {
     out: "webviews/src/pages/chief-views/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/chief-views/Localizable.xcstrings" }],
   },
-  // The CodeRouter page (cmux-page://cmux.coderouter/) has no Swift page; its table lives next to it.
-  coderouter: {
-    out: "webviews/src/pages/coderouter/generated/strings.json",
-    catalogs: [{ file: "webviews/src/pages/coderouter/Localizable.xcstrings" }],
-  },
   // The channels Home (cmux-page://cmux.home-channels/) has no Swift page; its table lives next to it.
   "home-channels": {
     out: "webviews/src/pages/home-channels/generated/strings.json",
