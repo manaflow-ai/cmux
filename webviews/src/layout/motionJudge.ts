@@ -24,6 +24,8 @@ export type JudgeDeclaration = {
   event: MotionEvent;
   scope: "all" | "targets";
   once?: boolean;
+  /** Only the targets and what they hold move; a box pushed or pulled by one is a shift. */
+  strict?: boolean;
   by?: string;
 };
 
@@ -58,6 +60,7 @@ function covers(declaration: JudgeDeclaration, sample: JudgeSample, dx: number, 
   if (!surface?.moves.includes(declaration.event)) return false;
   if (declaration.scope === "all") return true;
   if (sample.targeted) return true;
+  if (declaration.strict) return false; // nothing else moves because of it
   const straight = Math.abs(dx) <= SLACK_PX;
   if (sample.after && dy > 0 && straight) return true; // pushed down by what opened above it
   return !!sample.before && dy < 0 && straight; // the text above a fold at the very bottom rises with it
