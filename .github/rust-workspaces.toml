@@ -34,10 +34,6 @@ root = "Native/DiffSidecar"
 covered_by = ".github/workflows/ci-web.yml"
 
 [[workspace]]
-root = "coderouter"
-covered_by = ".github/workflows/coderouter-ci.yml"
-
-[[workspace]]
 root = "workers/cmux-vm/cli"
 covered_by = ".github/workflows/cmux-vm-clients.yml"
 
