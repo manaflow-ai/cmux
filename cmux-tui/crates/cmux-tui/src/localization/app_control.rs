@@ -83,8 +83,36 @@ pub(crate) struct AppControlMessages {
     pub chat_perf: ChatPerfMessages,
     /// `cmux app launch-times` (cli/app/launch_times.rs).
     pub launch_times: LaunchTimesMessages,
+    /// `cmux window record` and `cmux pane record` (cli/app/record.rs).
+    pub record: RecordMessages,
     /// `cmux app health` (cli/app/health.rs).
     pub health: HealthMessages,
+}
+
+/// `cmux window record` / `cmux pane record`: a clip of the app's own window or pane, from its own
+/// screenshots. The JSON keys stay English; `{name}` placeholders are filled by cli/app/record.rs.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct RecordMessages {
+    /// `{noun}`: window or pane.
+    pub usage: &'static str,
+    pub seconds: &'static str,
+    pub fps: &'static str,
+    /// `{max}`: the most frames one recording takes.
+    pub too_many_frames: &'static str,
+    /// `{path}`, `{error}`.
+    pub cannot_write: &'static str,
+    /// Every frame failed; `{error}` is the app's first refusal.
+    pub no_frames: &'static str,
+    /// `{frames}`, `{fps}`, `{asked}`, `{seconds}`, `{path}`.
+    pub recorded: &'static str,
+    /// `{areas}`: what the grey areas are.
+    pub masked: &'static str,
+    /// `{dropped}`: ticks skipped because every capture was still running; `{failed}`: captures the app refused.
+    pub skipped: &'static str,
+    /// `{dir}`: no ffmpeg, so the frames and their times are the result.
+    pub no_ffmpeg: &'static str,
+    /// `{error}`, `{dir}`: ffmpeg ran and failed; the frames are kept.
+    pub encode_failed: &'static str,
 }
 
 /// `cmux app health`: the post-update checks. The JSON keys, check names and reason codes stay
@@ -231,6 +259,10 @@ pub(crate) struct TryMessages {
     pub copy_push_uncommitted: &'static str,
     pub copy_push_no_upstream: &'static str,
     pub copy_push_ahead: &'static str,
+    // `cmux app try N` for a PR with no build: the PR's head in a clone of the NIGHTLY.
+    pub pull_copy: &'static str,
+    pub copy_pull_no_checkout: &'static str,
+    pub copy_elsewhere_pull: &'static str,
     pub copy_golden: &'static str,
     pub copy_golden_none: &'static str,
 }
@@ -357,6 +389,19 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
     cloud_machines_malformed: "the cmux app's cloud.machines reply has no machines list",
     cloud_secret_help: "Store secrets in this Mac's Keychain. set reads a value from a hidden prompt\nor stdin, never a command argument. ls lists names and scopes, never values.\nUse --repo OWNER/NAME with set or rm for a repository-scoped secret.",
     cloud_team_keys_help: "A team's shared key for an agent (claude or codex). Owners and admins set,\nreplace or remove it; it overrides each member's own key on the team's Cloud\nmachines. set reads the key from a hidden prompt, stdin or --secret-file, never a\ncommand argument. status shows whether a key is set, never the key.",
+    record: RecordMessages {
+        usage: "usage: cmux {noun} record [--target <id>] [--seconds <1-60>] [--fps <1-60>] [--out <file.mp4|folder>]\n  Records the app's own {noun} as it shows, with no Screen Recording permission: the frames are the\n  app's own `cmux {noun} screenshot` (browser pages, chats and Home masked in grey, as for every\n  script). Default 5 seconds at 30 fps, at most 1800 frames. --out FILE.mp4 (or .mov, .m4v) encodes\n  with ffmpeg when it is installed; a folder, or no ffmpeg, keeps the PNG frames and frames.json\n  (each frame's time in ms). With no --out it writes to the temporary folder. --json prints the report.",
+        seconds: "--seconds must be a whole number from 1 to 60",
+        fps: "--fps must be a whole number from 1 to 60",
+        too_many_frames: "--seconds times --fps must be at most {max} frames",
+        cannot_write: "cannot write {path}: {error}",
+        no_frames: "recorded no frame: {error}",
+        recorded: "Recorded {frames} frames in {seconds} s ({fps} fps of {asked} asked): {path}",
+        masked: "Masked in grey (pixels scripts never get): {areas}",
+        skipped: "{dropped} frames skipped while captures were still running, {failed} refused by the app",
+        no_ffmpeg: "ffmpeg is not installed, so no movie: the PNG frames, frames.json (their times) and frames.ffconcat are in {dir}. On a Mac with ffmpeg, this makes the movie:",
+        encode_failed: "ffmpeg failed ({error}); the PNG frames and frames.json are kept in {dir}",
+    },
     health: HealthMessages {
         usage: "usage: cmux app health [--since-ms <unix ms>] [--open-chat] [--json]\nChecks the app at the socket the way a person would notice it broken: the app answers, the model picker\nlists models, a chat can start (the default harness runs its session handshake, no model call), the app\nrelay refused no chat page frame since --since-ms (default: 10 minutes ago; --open-chat first opens a new\nchat, without changing focus, so its page handshakes through the relay, then closes it), and a\nthrowaway terminal echoes a nonce (then closes). Each check has a deadline and a reason code. Exit 0 when\nall pass, 1 when one fails, 3 when no app answers. Changes no saved state.",
         app: "App",
@@ -399,7 +444,7 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
     },
     app_try: TryMessages {
         usage: "usage: cmux app try . [--from APP] [--dry-run]    your working tree in a copy of your NIGHTLY (no dev build)\n       cmux app try . --extract                   keep the code that went in (a branch and a patch)\n       cmux app try . --stop                      quit the copy and delete it\n       cmux app try <PR|branch|sha> [--dry-run] [--app PATH] | channel [--dry-run] | undo [--dry-run] | status\n       cmux app try <share link> [--dry-run]       a build someone shared with `cmux app share`, beside your cmux\n  .       copy your nightly and swap your code in: a fresh clone of APP (default /Applications/cmux NIGHTLY.app)\n          runs beside your cmux, which is not touched, with this checkout's web UI (a dev server: saves show\n          live) and daemon Rust put in. `.` is the checkout around this folder; dir:PATH, ./PATH or /PATH name\n          another. It prints the copy's socket (`cmux --app-socket SOCKET ...` drives it). Swift needs a build,\n          and it says which; dev builds stay available. --dry-run prints the plan only\n  try     runs that commit's cmux in this app the cheapest way there is: live when CI published a live\n          build this app can take (bin/cmux and its companions swapped in, the daemon handed over in\n          seconds, every terminal kept), else the commit's nightly build (or the nearest one that contains\n          it) the way `cmux nightly install` installs it, else the Release app CI published for it (in place of
-          this app with its identity: every session, setting and update stays; undo puts this app back). It never builds here. A PR or branch resolves to its head through GitHub's public API.\n  channel follows the signed nightly-live pointer once; it is opt-in and advances only to a newer publication\n  undo    puts back what the last try replaced\n  status  the last try's receipt: what it did, by which path, and how long each phase took\n  --dry-run  prints the plan and changes nothing",
+          this app with its identity: every session, setting and update stays; undo puts this app back). It never builds here. A PR or branch resolves to its head through GitHub's public API.\n          A PR with none of these (an open PR) goes into a copy of your NIGHTLY instead, as `.` does: the side\n          instance pr-N, its head fetched with git, run from the cmux checkout around this folder (or\n          $CMUX_APP_TRY_REPO). `N --from APP` goes straight to the copy; `N --extract` and `N --stop` as for `.`\n  channel follows the signed nightly-live pointer once; it is opt-in and advances only to a newer publication\n  undo    puts back what the last try replaced\n  status  the last try's receipt: what it did, by which path, and how long each phase took\n  --dry-run  prints the plan and changes nothing",
         no_state: "no home folder to keep the try's files in (HOME is not set)",
         no_app: "no cmux app found: run this with the cmux bundled in the app, or pass --app PATH",
         not_found: "{target} is not a PR, branch or commit of manaflow-ai/cmux",
@@ -422,7 +467,7 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         undo_app: "Undo: cmux quits with every session and the app kept at {original} goes back in place of {app}.",
         undo_app_updated: "{app} no longer runs the try of {commit}: an update replaced it, so nothing goes back (the kept original is deleted).",
         dry_run: "(dry run: nothing changed)",
-        why_no_live: "{commit} has no live build (cmux-tui/<sha>/mac-live.json)",
+        why_no_live: "{commit} has no live build (cmux-tui/<sha>/mac-live.json; a PR head gets one from gh workflow run cmux-tui-tree-request.yml -R manaflow-ai/cmux --ref feat-cmux-next -f pr=NUMBER)",
         why_live_refused: "its live build was refused: {error}",
         why_no_app_commit: "this app has no CMUXCommit (a DEV build), so no live build is known to fit it",
         why_not_live_from: "this app's commit {app_commit} cannot take it live (it is not in the build's daemon_from)",
@@ -467,6 +512,9 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         copy_push_uncommitted: "Your tree has uncommitted changes: commit and push them first, the fleet sees only pushed commits.",
         copy_push_no_upstream: "Your branch has no upstream: push it first, the fleet sees only pushed commits.",
         copy_push_ahead: "Your branch has commits that are not pushed: push them first, the fleet sees only pushed commits.",
+        pull_copy: "No build of #{pr} ({commit}) yet, so it goes into a copy of your NIGHTLY instead (your cmux is not touched):",
+        copy_pull_no_checkout: "#{pr} has no build yet, and a copy of your NIGHTLY with it needs a cmux checkout: run `cmux app try {pr}` inside a clone of manaflow-ai/cmux, or set CMUX_APP_TRY_REPO to one (it needs scripts/cmux-next/hot-verify.py)",
+        copy_elsewhere_pull: "No cmux app to copy on this host: `cmux app try {pr}` copies the NIGHTLY on a Mac. From here, `cmux-ci hot-verify {pr} --look` puts #{pr} into a copy of the NIGHTLY on a fleet Mac.",
         copy_golden: "Golden copy: {why}.",
         copy_golden_none: "No newer published build takes it either ({count} tried).",
     },
@@ -597,6 +645,19 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
     cloud_machines_malformed: "cmux アプリの cloud.machines の応答にマシンの一覧がありません",
     cloud_secret_help: "シークレットをこの Mac のキーチェーンに保存します。set は非表示の入力プロンプト\nまたは標準入力から値を読み取ります。値をコマンドの引数には指定しません。\nls は名前とスコープを一覧表示し、値は表示しません。\nリポジトリ専用のシークレットには set または rm に --repo OWNER/NAME を指定します。",
     cloud_team_keys_help: "エージェント（claude または codex）用のチーム共有キーです。オーナーと管理者が\n設定、置き換え、削除できます。チームの Cloud マシンでは各メンバー自身のキーより優先されます。\nset はキーを非表示の入力プロンプト、標準入力または --secret-file から読み取ります。コマンドの引数には指定しません。\nstatus はキーが設定されているかどうかを表示し、キーそのものは表示しません。",
+    record: RecordMessages {
+        usage: "使い方: cmux {noun} record [--target <ID>] [--seconds <1-60>] [--fps <1-60>] [--out <ファイル.mp4|フォルダ>]\n  アプリ自身の {noun} を表示どおりに録画します。画面収録の許可は不要です: 各フレームはアプリ自身の\n  `cmux {noun} screenshot` です (スクリプトでは常に、ブラウザのページ、チャット、Home は灰色で隠されます)。\n  既定は 5 秒、30 fps、最大 1800 フレーム。--out ファイル.mp4 (.mov、.m4v も可) は ffmpeg があれば\n  動画にします。フォルダを指定した場合や ffmpeg がない場合は、PNG フレームと frames.json (各フレームの ms)\n  を残します。--out がなければ一時フォルダに書き込みます。--json でレポートを表示します。",
+        seconds: "--seconds は 1 から 60 までの整数にしてください",
+        fps: "--fps は 1 から 60 までの整数にしてください",
+        too_many_frames: "--seconds と --fps の積は {max} フレーム以下にしてください",
+        cannot_write: "{path} に書き込めません: {error}",
+        no_frames: "フレームを 1 枚も録画できませんでした: {error}",
+        recorded: "{seconds} 秒で {frames} フレームを録画しました ({asked} fps 指定のうち {fps} fps): {path}",
+        masked: "灰色で隠した領域 (スクリプトには渡さないピクセル): {areas}",
+        skipped: "キャプチャの実行中に {dropped} フレームを飛ばし、{failed} フレームはアプリが拒否しました",
+        no_ffmpeg: "ffmpeg がインストールされていないため動画は作りません: PNG フレーム、frames.json (各フレームの時刻)、frames.ffconcat は {dir} にあります。ffmpeg のある Mac では、次のコマンドで動画になります:",
+        encode_failed: "ffmpeg が失敗しました ({error})。PNG フレームと frames.json は {dir} に残しています",
+    },
     health: HealthMessages {
         usage: "使い方: cmux app health [--since-ms <unix ms>] [--open-chat] [--json]\nソケットの先のアプリを、利用者が不具合に気づく観点で確認します: アプリが応答するか、モデルピッカーにモデルがあるか、\nチャットを開始できるか (既定のハーネスがセッションのハンドシェイクを行います。モデルは呼び出しません)、\n--since-ms 以降 (既定: 10 分前) にアプリのリレーがチャットページのフレームを拒否していないか\n(--open-chat は先にフォーカスを変えずに新しいチャットを開き、そのページにリレー経由のハンドシェイクをさせてから閉じます)、\n使い捨てのターミナルがノンスをエコーするか (その後閉じます)。各確認には期限と理由コードがあります。\nすべて成功で終了コード 0、失敗があれば 1、応答するアプリがなければ 3。保存された状態は変更しません。",
         app: "アプリ",
@@ -638,7 +699,7 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         pulled_tag: "取り下げ",
     },
     app_try: TryMessages {
-        usage: "使い方: cmux app try . [--from APP] [--dry-run]    作業ツリーをナイトリーのコピーで動かします (DEV ビルド不要)\n       cmux app try . --extract                   入れたコードを残します (ブランチとパッチ)\n       cmux app try . --stop                      コピーを終了して削除します\n       cmux app try <PR|ブランチ|sha> [--dry-run] [--app パス] | undo [--dry-run] | status\n       cmux app try <共有リンク> [--dry-run]       `cmux app share` で共有されたビルドを cmux の横で開きます\n  .       ナイトリーをコピーしてコードを入れます: APP (既定 /Applications/cmux NIGHTLY.app) の新しいクローンを、\n          今の cmux には触れずに横で起動し、このチェックアウトの Web UI (開発サーバー: 保存するとすぐ反映) と\n          デーモンの Rust を入れます。`.` はこのフォルダを含むチェックアウトです。dir:パス、./パス、/パス で別のものを\n          指定できます。コピーのソケットを表示します (`cmux --app-socket ソケット ...` で操作)。Swift はビルドが必要で、\n          その理由を表示します。DEV ビルドは引き続き使えます。--dry-run は計画だけを表示します\n  try     そのコミットの cmux を、このアプリで最も手軽な方法で動かします。このアプリが受け取れるライブビルドを CI が\n          公開していればライブで (bin/cmux とその付属ファイルを入れ替え、数秒でデーモンを引き継ぎ、ターミナルはすべて残ります)、\n          なければそのコミットのナイトリービルド (なければそれを含む最も近いもの) を `cmux nightly install` と同じ方法でインストールし、\n          それもなければ CI が公開した Release アプリをこのアプリの ID のまま置き換えます (セッション・設定・アップデートは残り、undo で元に戻ります)。ここではビルドしません。\n          PR やブランチは GitHub の公開 API でその先頭のコミットに解決します。\n  undo    直前の try で置き換えたものを元に戻します\n  status  直前の try の記録: 何を、どの方法で行い、各段階に何秒かかったか\n  --dry-run  計画を表示するだけで、何も変更しません",
+        usage: "使い方: cmux app try . [--from APP] [--dry-run]    作業ツリーをナイトリーのコピーで動かします (DEV ビルド不要)\n       cmux app try . --extract                   入れたコードを残します (ブランチとパッチ)\n       cmux app try . --stop                      コピーを終了して削除します\n       cmux app try <PR|ブランチ|sha> [--dry-run] [--app パス] | undo [--dry-run] | status\n       cmux app try <共有リンク> [--dry-run]       `cmux app share` で共有されたビルドを cmux の横で開きます\n  .       ナイトリーをコピーしてコードを入れます: APP (既定 /Applications/cmux NIGHTLY.app) の新しいクローンを、\n          今の cmux には触れずに横で起動し、このチェックアウトの Web UI (開発サーバー: 保存するとすぐ反映) と\n          デーモンの Rust を入れます。`.` はこのフォルダを含むチェックアウトです。dir:パス、./パス、/パス で別のものを\n          指定できます。コピーのソケットを表示します (`cmux --app-socket ソケット ...` で操作)。Swift はビルドが必要で、\n          その理由を表示します。DEV ビルドは引き続き使えます。--dry-run は計画だけを表示します\n  try     そのコミットの cmux を、このアプリで最も手軽な方法で動かします。このアプリが受け取れるライブビルドを CI が\n          公開していればライブで (bin/cmux とその付属ファイルを入れ替え、数秒でデーモンを引き継ぎ、ターミナルはすべて残ります)、\n          なければそのコミットのナイトリービルド (なければそれを含む最も近いもの) を `cmux nightly install` と同じ方法でインストールし、\n          それもなければ CI が公開した Release アプリをこのアプリの ID のまま置き換えます (セッション・設定・アップデートは残り、undo で元に戻ります)。ここではビルドしません。\n          PR やブランチは GitHub の公開 API でその先頭のコミットに解決します。\n          どちらもない PR (オープン中の PR) は、`.` と同じくナイトリーのコピーに入れます: サイドインスタンス pr-N で、\n          先頭は git で取得し、このフォルダを含む cmux のチェックアウト (または $CMUX_APP_TRY_REPO) から動かします。\n          `N --from APP` は直接コピーへ、`N --extract` と `N --stop` は `.` と同じです\n  undo    直前の try で置き換えたものを元に戻します\n  status  直前の try の記録: 何を、どの方法で行い、各段階に何秒かかったか\n  --dry-run  計画を表示するだけで、何も変更しません",
         no_state: "try のファイルを保存するホームフォルダがありません (HOME が未設定です)",
         no_app: "cmux アプリが見つかりません。アプリ同梱の cmux で実行するか、--app パス を指定してください",
         not_found: "{target} は manaflow-ai/cmux の PR、ブランチ、コミットではありません",
@@ -661,7 +722,7 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         undo_app: "元に戻す: cmux はすべてのセッションを保って終了し、{original} に保管したアプリが {app} の場所に戻ります。",
         undo_app_updated: "{app} はもう {commit} の try ではありません。アップデートで置き換わったので、戻すものはありません (保管していた元のアプリは削除します)。",
         dry_run: "(ドライラン: 何も変更していません)",
-        why_no_live: "{commit} にはライブビルドがありません (cmux-tui/<sha>/mac-live.json)",
+        why_no_live: "{commit} にはライブビルドがありません (cmux-tui/<sha>/mac-live.json。PR の先頭は gh workflow run cmux-tui-tree-request.yml -R manaflow-ai/cmux --ref feat-cmux-next -f pr=NUMBER で作成されます)",
         why_live_refused: "ライブビルドを拒否しました: {error}",
         why_no_app_commit: "このアプリには CMUXCommit がありません (DEV ビルド)。合うライブビルドがわかりません",
         why_not_live_from: "このアプリのコミット {app_commit} はライブで受け取れません (ビルドの daemon_from にありません)",
@@ -706,6 +767,9 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         copy_push_uncommitted: "作業ツリーにコミットしていない変更があります。先にコミットしてプッシュしてください。フリートはプッシュ済みのコミットしか見えません。",
         copy_push_no_upstream: "ブランチに上流がありません。先にプッシュしてください。フリートはプッシュ済みのコミットしか見えません。",
         copy_push_ahead: "ブランチにプッシュしていないコミットがあります。先にプッシュしてください。フリートはプッシュ済みのコミットしか見えません。",
+        pull_copy: "#{pr} ({commit}) のビルドはまだないため、代わりにナイトリーのコピーに入れます (今の cmux には触れません):",
+        copy_pull_no_checkout: "#{pr} のビルドはまだありません。それを入れたナイトリーのコピーには cmux のチェックアウトが必要です: manaflow-ai/cmux のクローン内で `cmux app try {pr}` を実行するか、CMUX_APP_TRY_REPO にその場所を設定してください (scripts/cmux-next/hot-verify.py が必要です)",
+        copy_elsewhere_pull: "このホストにはコピーする cmux アプリがありません。`cmux app try {pr}` は Mac でナイトリーをコピーします。ここからは、`cmux-ci hot-verify {pr} --look` でフリートの Mac 上のナイトリーのコピーに #{pr} を入れます。",
         copy_golden: "ゴールデンコピー: {why}。",
         copy_golden_none: "公開済みの新しいビルドも受け取れません ({count} 個を試しました)。",
     },
