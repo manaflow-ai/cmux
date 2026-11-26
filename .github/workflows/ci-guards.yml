@@ -578,6 +578,15 @@ jobs:
             echo "No base revision for this event; placeholder check skipped."
           fi
 
+      # Aziz, 2026-11-25: "it says mac is asleep incorrect" (cmux#57792). The service only
+      # knows no Mac has cmux connected, so iPhone copy must not say a Mac is asleep.
+      - name: Validate iOS copy never claims a Mac is asleep
+        if: ${{ !cancelled() && matrix.group == 'preflight' }}
+        run: |
+          set -euo pipefail
+          python3 tests/test_ci_ios_presence_claims.py
+          python3 scripts/ci/check-ios-presence-claims.py
+
       - name: Validate reload shared DerivedData default
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: ./tests/test_reload_shared_derived_data.sh
