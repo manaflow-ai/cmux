@@ -173,6 +173,18 @@ import Testing
         #expect(completed == ["agent_pane.transport_open"])
     }
 
+    @Test func aChatAlreadyLiveAtTheFirstFrameIsRecorded() async throws {
+        let file = Self.temporaryFile()
+        defer { try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent()) }
+        let marks = Self.merged(Self.chatMarks)
+        _ = LaunchTimesRecorder(file: file, work: BackgroundWork(label: "test.already-live"), info: [:],
+                                marks: { marks }, prewarmed: { _ in false })
+        _ = try await Self.lines(file, until: { !$0.isEmpty })
+        let rows = file.records()
+        #expect(rows.count == 1)
+        #expect(rows.first?.priorChatPaintedMs == 1234.5 && rows.first?.priorChatLiveMs == 1490.2)
+    }
+
     /// The launch's row is written at the first frame, then rewritten exactly once with the prior chat's columns
     /// when its marks arrive: still one line, pre-warmed as first read (its marker is consumed on reading).
     @Test func theRowIsRewrittenOnceWhenThePriorChatsMarksArrive() async throws {

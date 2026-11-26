@@ -140,6 +140,8 @@ final class AppControl {
             }.withDeadline(.fixed(.seconds(45))),
             // Installed Chrome extensions, shortcuts and toolbar badges.
             .mainActor("browser.extensions") { [weak services] _ in .value(services.map { ExtensionControl.report($0) } ?? .null) },
+            // `browser.import_offer`: where the Chrome import card stands, read-only (a NIGHTLY read-back; BrowserImportOfferReadout).
+            .mainActor("browser.import_offer") { [weak services] _ in .value(services?.onboarding.browserImportOffer.readout() ?? .null) },
             // `apps.views`: each open extension view and the words it shows now (read-only).
             .mainActor("apps.views") { [weak services] call in .value(services?.apps.client.viewsReport(app: call.params["app"]?.stringValue) ?? .null) },
             // Ghostty config keys and keybind actions cmux does not apply (R92).

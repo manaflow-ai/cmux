@@ -43,6 +43,9 @@ public nonisolated struct LaunchTimesRecorder: Sendable {
         self.prewarmed = prewarmed
         let recorder = self
         listen { recorder.heard($0, marks: marks) }
+        // The frame may have committed after the front chat painted and connected.
+        // Subscribe first so a mark arriving during this check is covered too.
+        recorder.heard(LaunchPriorChat.frontMark, marks: marks)
     }
 
     /// Writes the record of this launch with `marks` (milliseconds since ``processStart``) on a files lane: appends
