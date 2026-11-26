@@ -140,6 +140,20 @@ def idle(facts: dict | None, now: float, hours: float = IDLE_HOURS) -> bool:
     return isinstance(own_last, (int, float)) and now - own_last > hours * 3600
 
 
+def labels_of(event: dict) -> set[str]:
+    """The pull request's labels for EVENT: its payload's, plus the label a `labeled` event adds. The payload is built
+    when GitHub delivers the event, so a label taken off right after it was added is already gone from it:
+    land-judge's full-ci pulse on a lane VM (add full-ci, then remove it a second later; cmux#52441, router run
+    45831524947) reached the router with no full-ci in its labels, ran the affected tier and skipped pr-pipeline.yml."""
+    pr = event.get("pull_request") or {}
+    labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
+    if event.get("action") == "labeled":
+        added = str((event.get("label") or {}).get("name") or "")
+        if added:
+            labels.add(added)
+    return labels
+
+
 def full_ci_applies(event: dict, one_shot: str | None = None) -> bool:
     """Whether EVENT's head gets the full tier from the `full-ci` label: the label is on the pull request and either
     this is its own `labeled` event, the base is not feat-cmux-next, or ONE_SHOT (default $CI_FULL_CI_ONE_SHOT, on)
@@ -286,8 +300,7 @@ def carry_rule_applies(event: dict, carry_switch: str = "1", land_switch: str = 
                        one_shot: str | None = None) -> bool:
     """Whether the land carry rule can apply to EVENT (before reading any fact): a synchronize of a `ready-to-land`
     head into feat-cmux-next (land_rule_applies), without a `full-ci` that applies (full_ci_applies), with both switches on."""
-    pr = event.get("pull_request") or {}
-    labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
+    labels = labels_of(event)
     return ((carry_switch or "1").strip() != "0" and (land_switch or "0").strip() not in ("0", "")
             and event.get("action") == "synchronize" and land_rule_applies(event)
             and LAND_LABEL in labels and not full_ci_applies(event, one_shot))
@@ -304,7 +317,7 @@ def green_rule_applies(event: dict, green_switch: str = "1", land_switch: str = 
     feat-cmux-next (land_rule_applies) with both switches on, no ready-to-land, and no full-ci that applies
     (full_ci_applies)."""
     pr = event.get("pull_request") or {}
-    labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
+    labels = labels_of(event)
     base = str((pr.get("base") or {}).get("ref") or "")
     return ((green_switch or "1").strip() != "0" and (land_switch or "0").strip() not in ("0", "")
             and event.get("action") == "synchronize" and land_rule_applies(event)
