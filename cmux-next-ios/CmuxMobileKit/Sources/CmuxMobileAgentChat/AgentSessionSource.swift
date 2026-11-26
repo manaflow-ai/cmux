@@ -152,6 +152,17 @@ public enum AgentSessionEvent: Hashable, Sendable {
     case batch([AgentSessionEvent])
 }
 
+extension AgentSessionEvent {
+    /// The source's or link's state (still reading history, connected, what models and modes
+    /// the Mac offers), not a change to the chat's turns, ask or queue.
+    var isLinkState: Bool {
+        switch self {
+        case .historyLoading, .status, .fullAccess, .modelsAvailable, .modesAvailable, .earlierHistory: true
+        default: false
+        }
+    }
+}
+
 /// A person's action in the chat, encoded by the source into acpmux calls:
 /// `session/prompt`, `session/cancel`, `_acpmux/permission_respond`, `session/set_model` (and Retry with another model),
 /// `session/set_mode`, `session/set_config_option`, `_acpmux/queue_remove`, `_acpmux/queue_edit`.
