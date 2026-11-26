@@ -196,6 +196,7 @@ jobs:
             scripts/ci/deadline_http.py
             scripts/ci/simple_pool_picker.py
             scripts/ci/warm_distance.py
+            .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -396,6 +397,7 @@ jobs:
             ios/CmuxiOS/Package.swift
             Packages/*/*/Package.swift
             vendor/stack-auth-swift-sdk-prerelease/Package.swift
+            .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
           submodules: false
