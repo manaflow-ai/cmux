@@ -134,10 +134,20 @@ async fn a_chat_already_on_sonnet_stays_on_it() {
 /// model before its next capacity attempt.
 #[tokio::test]
 async fn a_chat_left_on_its_fallback_goes_back_when_switching_is_off() {
-    let (hub, mut c, id) = chat_on(SONNET, 0).await;
-    let session = hub.resolve(&id).unwrap();
-    session.meta.lock().unwrap().capacity_fallback =
+    let (hub, c, id) = chat_on(SONNET, 0).await;
+    let mut meta = hub.resolve(&id).unwrap().meta();
+    meta.capacity_fallback =
         Some(acpmux::store::CapacityFallback { from: OPUS.to_owned(), to: SONNET.to_owned() });
+    let cfg = hub.config.read().await.clone();
+    hub.seal();
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+    // Restore the metadata a past switch kept through the public store boundary.
+    let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    store.save(&meta).unwrap();
+    let hub = Hub::new(cfg, store);
+    let mut c = connect(&hub).await;
     overload(&hub, &mut c, &id).await;
 
     assert!(records(&hub, &id, "capacity_failover").is_empty());
