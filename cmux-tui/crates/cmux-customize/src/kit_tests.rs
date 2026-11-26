@@ -92,6 +92,53 @@ fn no_checkout_manifest_uses_the_shipped_registry() {
 }
 
 #[test]
+fn kit_aliases_keep_their_source_props_and_gallery_entries() {
+    let show = |name: &str| {
+        components(&Request::Show(name.into()), None).unwrap().json["component"].clone()
+    };
+    let anchored_card = show("AnchoredCard");
+    let card = show("Card");
+    assert_eq!(card["props"], anchored_card["props"]);
+    assert_eq!(card["galleryEntries"], anchored_card["galleryEntries"]);
+    assert_eq!(card["extends"], anchored_card["extends"]);
+
+    let surface = show("Surface");
+    let panel = show("Panel");
+    assert_eq!(panel["props"], surface["props"]);
+    assert_eq!(panel["galleryEntries"], surface["galleryEntries"]);
+    assert_eq!(panel["extends"], surface["extends"]);
+
+    let valid_card = components(
+        &Request::Test {
+            subject: "Card".into(),
+            with: Some(r#"{"anchor":null,"children":"preview"}"#.into()),
+        },
+        None,
+    )
+    .unwrap();
+    assert_eq!(valid_card.json["ok"], true);
+    let missing_card_anchor = components(
+        &Request::Test { subject: "Card".into(), with: Some(r#"{"children":"preview"}"#.into()) },
+        None,
+    )
+    .unwrap();
+    assert_eq!(missing_card_anchor.json["ok"], false);
+    assert_eq!(missing_card_anchor.json["problems"][0]["prop"], "anchor");
+
+    let valid_panel = components(
+        &Request::Test { subject: "Panel".into(), with: Some(r#"{"role":"card"}"#.into()) },
+        None,
+    )
+    .unwrap();
+    assert_eq!(valid_panel.json["ok"], true);
+    let missing_panel_role =
+        components(&Request::Test { subject: "Panel".into(), with: Some(r#"{}"#.into()) }, None)
+            .unwrap();
+    assert_eq!(missing_panel_role.json["ok"], false);
+    assert_eq!(missing_panel_role.json["problems"][0]["prop"], "role");
+}
+
+#[test]
 fn checkout_manifest_overrides_the_shipped_registry() {
     let path = Path::new("components.generated.json");
     let answer = components_in(&Request::List(None), &manifest(), path).unwrap();
