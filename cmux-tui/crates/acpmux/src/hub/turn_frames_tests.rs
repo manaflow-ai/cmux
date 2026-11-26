@@ -99,6 +99,7 @@ fn a_frame_index_round_trips() {
         moved: 0.5,
         hash: u64::MAX,
         url: None,
+        tree: Some(TreeChange { added: 1, removed: 0, lines: vec!["+ button \"Save\"".into()] }),
     };
     let bytes = serde_json::to_vec(&vec![frame.clone()]).unwrap();
     let back: Vec<Frame> = serde_json::from_slice(&bytes).unwrap();
