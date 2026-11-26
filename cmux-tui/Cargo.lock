@@ -1331,6 +1331,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c9ea0ac24bc397ab3c98583a3c9ba74fa56b09a4449bbe172b9b1ddb016027a"
 
 [[package]]
+name = "cmux-acpmux-remote-wire"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-action-catalog"
 version = "0.1.0"
 dependencies = [
@@ -1631,6 +1639,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "blake3",
+ "cmux-process",
  "cmux-signed-envelope",
  "flate2",
  "ring",
@@ -1650,6 +1659,16 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+]
+
+[[package]]
+name = "cmux-chat-markdown"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "unicode-general-category",
+ "unicode-normalization",
+ "unicode-segmentation",
 ]
 
 [[package]]
