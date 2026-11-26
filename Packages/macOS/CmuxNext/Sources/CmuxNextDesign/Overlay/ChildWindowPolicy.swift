@@ -8,7 +8,7 @@ import os
 ///
 /// Presenters that still add a panel of their own are listed in
 /// `legacyPanels` until they move onto the host; each move removes its entry.
-/// The main window's `addChildWindow` override calls `check(_:parent:)`.
+/// The main window's `addChildWindow` override calls `admit(_:parent:)`.
 /// DEBUG and test builds record every violation (`violations`) and, when
 /// `isStrict` (tests, `CMUX_NEXT_STRICT_CHILD_WINDOWS=1`), stop at it.
 @MainActor
@@ -36,6 +36,16 @@ public struct ChildWindowPolicy {
         // The shared native popups (omnibar and toolbar) are child panels above the page by design.
         if child is NativePopupPanel { return true }
         return legacyPanels.contains(String(describing: type(of: child)))
+    }
+
+    /// `child` is about to become a child window of the main window `parent` (its `addChildWindow` override, before
+    /// AppKit attaches it): records a child the policy does not allow (`check(_:parent:)`), and a child panel that
+    /// declares `.fullScreenAuxiliary` carries it only while `parent` is in full screen (``ChildWindowSpaces``), so it
+    /// cannot take a windowed `parent` into another app's full screen Space. Returns whether it is allowed.
+    @discardableResult
+    public static func admit(_ child: NSWindow, parent: NSWindow) -> Bool {
+        LiveResizeWindows.shared.adopt(child, parent: parent)
+        return check(child, parent: parent)
     }
 
     /// Records (and in strict mode stops at) a child that is neither the host
