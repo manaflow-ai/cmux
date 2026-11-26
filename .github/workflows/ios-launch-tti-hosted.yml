@@ -3,8 +3,9 @@
 # harness goals/ios-release-bar-readback.json's first_connect names (cmuxterm-hq). Fleet simulator
 # steps are off for this work, so this is the route that needs no owned Mac.
 #
-# Each leg checks out its ref and runs that ref's own script, so a leg measures its tree exactly as a
-# fleet step would. The warm suite runs each of its two flows (chat, terminal) 10 times: 20 samples of
+# Each leg checks out its ref, then both run one harness script: cmux-next-ios-sim.sh from HARNESS_REF
+# (cmux#58989's fix for the cold-cache SwiftPM race that left a leg with no test run), so only the app
+# under test differs between the legs. The warm suite runs each of its two flows (chat, terminal) 10 times: 20 samples of
 # list_ms (process start to the workspaces list usable) per leg, the probe's first_connect samples.
 name: iOS launch TTI (hosted)
 
@@ -48,6 +49,21 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ matrix.ref }}
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: 3281c18ad94f0e8ba5d8ddffeaa7ab5227c8015c
+          path: .harness
+          sparse-checkout: scripts/ci/cmux-next-ios-sim.sh
+          sparse-checkout-cone-mode: false
+
+      - name: One harness for both legs
+        run: |
+          set -euo pipefail
+          cp .harness/scripts/ci/cmux-next-ios-sim.sh scripts/ci/cmux-next-ios-sim.sh
+          rm -rf .harness
+          echo "harness: scripts/ci/cmux-next-ios-sim.sh at 3281c18a (cmux#58989)"
 
       - name: Select Xcode
         run: |
