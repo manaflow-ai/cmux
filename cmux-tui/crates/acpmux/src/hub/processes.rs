@@ -917,7 +917,6 @@ impl Hub {
     /// Reads the session's processes from its log again: a daemon that
     /// adopted a running host lists them again (`hosts.rs`).
     pub(super) fn rebuild_processes(&self, session: &Session) {
-        if std::path::Path::new("/tmp/sweep-trace/skip").exists() { return; }
         let mut table = self.read_processes(session);
         let mut slot = session.processes.lock().unwrap_or_else(|e| e.into_inner());
         // The preview watches still run: they stay the only ones.
