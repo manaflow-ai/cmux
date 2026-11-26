@@ -183,7 +183,9 @@ impl ProcessTable {
         let mut table = ProcessTable { loaded: true, through: saved.through, ..Self::default() };
         for (process, logged) in saved.rows {
             let at = table.insert(process);
-            table.processes[at].logged = logged;
+            if let Some(row) = table.processes.get_mut(at) {
+                row.logged = logged;
+            }
         }
         table
     }
@@ -1019,7 +1021,7 @@ impl Hub {
                     p.output_file = Some(file.to_owned());
                     p.logged = false;
                 }
-                i.filter(|&i| !table.processes[i].logged)
+                i.filter(|&i| table.processes.get(i).is_some_and(|p| !p.logged))
             };
             i.map(|i| table.log(i))
         };
