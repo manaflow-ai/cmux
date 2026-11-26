@@ -47,6 +47,7 @@ extension CEFRuntime {
         if mode == .save { fileDialogTrace.last = "save_panel"; return askWhereToSave(dialogID, defaultPath: defaultPath, window: window) }
         guard let fileInput else { fileDialogTrace.last = "no_file_input"; return answerFileDialog(dialogID, multiple: false, []) }
         fileDialogTrace.last = window == nil ? "open_panel_no_window" : "open_panel_sheet"
+        fileDialogTrace.sheetBegins(on: window, paneWindow: tab?.host.hostView.window)
         fileInput.answerFileInput(allowsMultipleSelection: mode == .openMultiple, allowsDirectories: mode == .folder,
                                   window: window) { [weak self, weak tab] urls in
             // The person's pick, before the page gets it (a page that records it, `pageFilesChosen`).
@@ -81,15 +82,52 @@ extension CEFRuntime {
 }
 
 /// Page file choosers that reached the app (`debug.cef` `file_dialogs`): whether choosers are routed to the app, how
-/// many arrived, the path the last took and how it was answered. Diagnostics only.
+/// many arrived, the path the last took and how it was answered, and the window the last one's sheet began on then and
+/// now. Diagnostics only.
 struct CEFFileDialogTrace {
     var routedToApp = false
     var received = 0
     var last: String?
     var answered: String?
+    /// The window the last chooser's sheet began on, held weakly so a read reports it as it is now.
+    private weak var sheetWindow: NSWindow?
+    /// That window, the pane's own window and the app's key and main windows as they were when the sheet began.
+    private var atBegin: [String: String] = [:]
+
+    /// The last chooser's sheet begins on `window`; `paneWindow` is the window its tab's pane is in.
+    mutating func sheetBegins(on window: NSWindow?, paneWindow: NSWindow?) {
+        sheetWindow = window
+        atBegin = ["sheet_window": Self.describe(window), "pane_window": Self.describe(paneWindow),
+                   "sheet_window_is_pane_window": window != nil && window === paneWindow ? "yes" : "no",
+                   "key_window_at_begin": Self.describe(NSApp.keyWindow),
+                   "main_window_at_begin": Self.describe(NSApp.mainWindow),
+                   "app_active_at_begin": NSApp.isActive ? "yes" : "no"]
+    }
 
     var reportFields: [String: String] {
-        ["routed_to_app": routedToApp ? "yes" : "no", "received": String(received), "last": last ?? "none",
-         "answered": answered ?? "none"]
+        var fields = ["routed_to_app": routedToApp ? "yes" : "no", "received": String(received), "last": last ?? "none",
+                      "answered": answered ?? "none"]
+        guard !atBegin.isEmpty else { return fields }
+        fields.merge(atBegin) { $1 }
+        // Now: whether the sheet attached to its window, and every panel of the app (an open panel is drawn by
+        // AppKit's panel service; this is the app's own window for it).
+        fields["sheet_window_now"] = Self.describe(sheetWindow)
+        fields["attached_sheet_now"] = Self.describe(sheetWindow?.attachedSheet)
+        fields["panels_now"] = NSApp.windows.compactMap { $0 as? NSSavePanel }.map(Self.describe).joined(separator: "; ")
+        fields["visible_windows_now"] = NSApp.windows.filter(\.isVisible).map(Self.describe).joined(separator: "; ")
+        return fields
+    }
+
+    /// One window for the trace: number, class, visibility, key and main, frame, sheet parent.
+    private static func describe(_ window: NSWindow?) -> String {
+        guard let window else { return "nil" }
+        let frame = window.frame
+        let parent = window.sheetParent.map { String($0.windowNumber) } ?? "none"
+        let parts: [String] = [
+            "#\(window.windowNumber)", String(describing: type(of: window)), "visible=\(window.isVisible)",
+            "onscreen=\(window.occlusionState.contains(.visible))", "key=\(window.isKeyWindow)", "main=\(window.isMainWindow)",
+            "frame=\(Int(frame.minX)),\(Int(frame.minY)),\(Int(frame.width))x\(Int(frame.height))", "sheet_parent=\(parent)",
+        ]
+        return parts.joined(separator: " ")
     }
 }
